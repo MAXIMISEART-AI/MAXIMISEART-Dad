@@ -1,0 +1,16 @@
+{
+  "id": "18f2a3b4c5d6e7f8",
+  "from": "jan.kowalski@example.com",
+  "to": "tata@example.com",
+  "subject": "Raport dzienny 2026-04-24",
+  "body_text": "Cześć, dziś zrobiłem:\n- 3x instalacja FTTH na ulicy Krańcowej 12 (mieszkania 4, 7, 15)\n- 2x spaw w mufie przy Garbary 45\n\nPozdrawiam,\nJan",
+  "received_at_iso": "2026-04-24T17:32:15+02:00",
+  "attachments_count": 0,
+  "labels": ["INBOX"],
+  "_fixture_expected": {
+    "employee_slug": "przyklad-jan-kowalski",
+    "rows_expected": 2,
+    "codes_expected": [1, 2],
+    "red_team_status": "ANSWER"
+  }
+}

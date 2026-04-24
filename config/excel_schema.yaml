@@ -1,0 +1,93 @@
+# Excel schema taty — opisuje strukturę pliku .xlsx
+# openpyxl używa tego do wiedzy: które arkusze, które kolumny, gdzie append.
+#
+# STRUKTURA DECISION — do ustalenia z tatą w Phase 2:
+#   (A) Jeden arkusz z kolumną "imię_pracownika" + wszystkie kody jako kolumny
+#   (B) Osobny arkusz per pracownik (tab = imię)
+#   (C) Osobny arkusz per miesiąc z pracownikami jako wierszami
+#
+# PLACEHOLDER — Phase 2 requires tata's confirmation
+
+schema_version: 1
+updated: 2026-04-24
+
+# === Ogólne ===
+excel_structure_type: placeholder   # A | B | C (patrz wyżej)
+primary_sheet_name: "Raporty"        # Nazwa głównego arkusza
+append_mode: bottom                  # bottom (new row at end) | find_date_row
+
+# === Kolumny głównego arkusza (przykład typu A) ===
+columns:
+  - index: 1
+    letter: A
+    header: Data
+    type: date
+    format: "YYYY-MM-DD"
+    required: true
+
+  - index: 2
+    letter: B
+    header: Pracownik
+    type: string
+    required: true
+    source: email.from   # skąd ekstrahować
+
+  - index: 3
+    letter: C
+    header: Kod
+    type: integer
+    required: true
+    source: email.body_classified
+    validator: code_mapping.yaml
+
+  - index: 4
+    letter: D
+    header: Ilość
+    type: number
+    required: true
+    source: email.body_extracted_quantity
+
+  - index: 5
+    letter: E
+    header: Lokacja
+    type: string
+    required: false
+    source: email.body_extracted_location
+
+  - index: 6
+    letter: F
+    header: Uwagi
+    type: string
+    required: false
+    source: email.body_remainder
+
+  - index: 7
+    letter: G
+    header: Status
+    type: string
+    enum: [ANSWER, ASK, ABSTAIN, BLOCKED]
+    default: ANSWER
+    notes: "Red Team Step 4 flag — tata widzi w Excelu że wiersz niepewny"
+
+  - index: 8
+    letter: H
+    header: Źródło-email-id
+    type: string
+    notes: "Gmail message-id dla audytu"
+
+  - index: 9
+    letter: I
+    header: Timestamp-dopisania
+    type: datetime
+    format: "YYYY-MM-DD HH:MM:SS"
+
+# === Safety ===
+snapshot_before_write: true           # auto-backup do state/excel-snapshots/
+max_rows_per_run: 200                 # bezpiecznik przeciw infinite loop
+onedrive_lock_patterns:               # pliki blokujące zapis
+  - "~$*.xlsx"
+  - ".~lock.*.xlsx#"
+retry_on_lock:
+  - 120   # 2 min
+  - 300   # 5 min
+  - 600   # 10 min

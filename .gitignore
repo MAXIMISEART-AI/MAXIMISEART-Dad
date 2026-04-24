@@ -1,0 +1,71 @@
+# Secrets & credentials
+.env
+.env.local
+.env.*.local
+oauth-token.json
+*credentials*.json
+*service-account*.json
+
+# Runtime data (tworzone u taty)
+runtime/
+vault/
+reports/
+state/
+learning/
+logs/
+
+# Excel + lock files
+*.xlsx
+*.xlsm
+*.xlsb
+*.xls
+~$*.xlsx
+.~lock.*
+~$*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Test output
+tests/output/
+tests/.coverage
+htmlcov/
+.coverage
+.coverage.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# OS
+desktop.ini
+
+# Logs
+*.log
+cron-*.log
+
+# Obsidian
+.obsidian/workspace*
+.obsidian/cache
+.obsidian/plugins/*/data.json
+
+# Claude Code local settings (user-specific)
+.claude/settings.local.json

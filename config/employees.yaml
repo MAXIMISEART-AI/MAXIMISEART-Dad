@@ -1,0 +1,29 @@
+# Roster pracowników taty
+# Każdy pracownik musi mieć wpis żeby Mutation #44 Persona Hyperstition
+# nie zablokowała jego maili jako BLOCKED.
+#
+# Dodawanie nowego pracownika:
+# 1. Dodaj wpis poniżej z unique `slug` (kebab-case imię-nazwisko)
+# 2. `email` musi matchować From: w mailach Gmail
+# 3. `aliases` — inne warianty imienia (np. "Janek", "J.K.") pomagają w pattern matching
+# 4. `kody_prac_typowe` — jeśli znane, pomaga Red Team zasugerować kod
+# 5. `styl_pisania` — tagi (short/long/skrot-heavy/punctuation-none/fotos) dla lepszego parsingu
+#
+# Source of truth: tata decyduje roster. Agent nie wymyśla pracowników.
+#
+# PLACEHOLDER — Phase 2 requires real roster od taty
+
+schema_version: 1
+updated: 2026-04-24
+
+employees:
+  - slug: przyklad-jan-kowalski
+    name: Jan Kowalski
+    email: jan.kowalski@example.com
+    aliases:
+      - Janek
+      - JK
+    kody_prac_typowe: []     # np. [1, 2, 5] — uzupełni tata
+    styl_pisania: []          # np. [short, skrot-heavy, no-punctuation]
+    active: false             # placeholder — set true gdy tata potwierdzi
+    notes: "Placeholder. Phase 2: tata dostarcza full roster."

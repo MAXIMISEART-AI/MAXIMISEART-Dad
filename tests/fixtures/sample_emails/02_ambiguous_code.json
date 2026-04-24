@@ -1,0 +1,17 @@
+{
+  "id": "18f2a3b4c5d6e7f9",
+  "from": "jan.kowalski@example.com",
+  "to": "tata@example.com",
+  "subject": "Re: robota",
+  "body_text": "zrob 4 pod bl 12 krancowa",
+  "received_at_iso": "2026-04-24T17:45:02+02:00",
+  "attachments_count": 0,
+  "labels": ["INBOX"],
+  "_fixture_expected": {
+    "employee_slug": "przyklad-jan-kowalski",
+    "rows_expected": 1,
+    "codes_expected": null,
+    "red_team_status": "ASK",
+    "note": "Ambiguous — 'zrob 4 pod bl 12' może być kod 1 lub 5 w zależności od kontekstu. System powinien ASK nie ANSWER."
+  }
+}
