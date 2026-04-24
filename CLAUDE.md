@@ -4,6 +4,8 @@
 **Owner:** Maks (dev) → deployment u taty (Windows, Task Scheduler)
 **Scope:** Daily email → Obsidian → Excel workflow dla taty (subwykonawca Fiber FTTH)
 
+**Codex bridge:** Codex is an approved backup agent for this project. It must read `C:\Users\Arek\.codex\AGENTS.md` and `.codex\skills\maximiseart-bridge\SKILL.md`, then follow this `CLAUDE.md`. Structural changes made by Codex must use the same ZASADA #7 dual-agent propagation into MAXIMISEART-Brain, global/project rules, memory, and Codex bootstrap when relevant.
+
 ---
 
 ## Identity
