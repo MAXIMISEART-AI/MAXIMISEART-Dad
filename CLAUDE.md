@@ -69,7 +69,7 @@ D1-D15 poniżej są **immutable** bez explicit Maks override + nowego commit.
 | D# | Decyzja | Lock date |
 |----|---------|-----------|
 | D1 | Scope = Fiber FTTH daily raportowanie pracowników (NIE full ERP, NIE kadry-płace, NIE faktury VAT) | 2026-04-24 |
-| D2 | Gmail MCP z OAuth taty (NIE IMAP scraping, NIE app passwords) | 2026-04-24 |
+| D2 (REVISED 2026-04-24 Phase 1) | Gmail **native** `google-api-python-client` + `google-auth-oauthlib` InstalledAppFlow (NIE MCP, NIE IMAP, NIE app passwords). MCP wymaga active Claude Code session = blocker dla Task Scheduler standalone. Token cached w `state/oauth-token.json`. Wzór: `MAXIMISEART-SEO/seo_client_data_sync/oauth_flow.py`. | 2026-04-24 |
 | D3 | Excel plik lokalny `.xlsx` na kompie taty + OneDrive/M365 sync (openpyxl edytuje local, OneDrive propaguje do przeglądarki) | 2026-04-24 |
 | D4 | Obsidian vault lokalny u taty (NIE Obsidian Sync cloud — zero subscription) | 2026-04-24 |
 | D5 | Windows Task Scheduler (NIE cron/systemd, NIE remote Claude /schedule — local scripts wymagane per ZASADA #8 global CLAUDE.md) | 2026-04-24 |

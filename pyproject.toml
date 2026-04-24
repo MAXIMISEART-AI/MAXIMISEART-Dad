@@ -36,7 +36,12 @@ build-backend = "setuptools.build_meta"
 line-length = 120
 target-version = "py311"
 
+[tool.pyright]
+extraPaths = ["scripts"]
+pythonVersion = "3.11"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+pythonpath = ["scripts"]
