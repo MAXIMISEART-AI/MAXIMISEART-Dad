@@ -1,5 +1,5 @@
 # MAXIMISEART-Dad — Register Windows Task Scheduler task
-# Phase 0 stub. Phase 5 full integration (tested na czystej Windows VM).
+# Phase 5 gated deployment helper. Registers Task Scheduler with explicit runtime path.
 #
 # Usage:
 #   .\setup-windows-task.ps1                          # default 06:30
@@ -39,6 +39,7 @@ if (-not (Test-Path $RuntimePath)) {
 # Build task
 $action = New-ScheduledTaskAction `
     -Execute $batFile `
+    -Argument "`"$RuntimePath`"" `
     -WorkingDirectory $ProjectPath
 
 $trigger = New-ScheduledTaskTrigger `
@@ -58,11 +59,6 @@ $principal = New-ScheduledTaskPrincipal `
     -UserId "$env:USERDOMAIN\$env:USERNAME" `
     -LogonType Interactive `
     -RunLevel Limited
-
-# Set env vars for task (pass DAD_RUNTIME_PATH)
-$envVars = @{
-    "DAD_RUNTIME_PATH" = $RuntimePath
-}
 
 # Register
 Register-ScheduledTask `

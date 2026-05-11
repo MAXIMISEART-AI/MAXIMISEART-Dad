@@ -5,7 +5,7 @@ description: Classify maile per pracownik + Mutation #44 Persona Hyperstition ro
 
 # dad-per-employee-route
 
-**Status:** Phase 0 stub. Phase 1 target: 3h effort.
+**Status:** Phase 1 shipped. Implementation lives in `scripts/step2_per_employee_route.py`; Obsidian daily writes are performed by `scripts/lib/obsidian_writer.py` from the orchestrator.
 
 ## Purpose
 

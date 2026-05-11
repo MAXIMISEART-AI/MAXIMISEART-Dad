@@ -5,11 +5,11 @@ description: Step 4 Red Team self-verify łączący Mutation #29 Tiny-Critic + #
 
 # dad-self-verify
 
-**Status:** Phase 0 stub. Phase 3 target: 5h effort.
+**Status:** Phase 3 shipped as deterministic STUB. Implementation lives in `scripts/step4_self_verify.py`; `--use-real-api` intentionally raises until real API mode is approved.
 
 ## Purpose
 
-Step 4 — bramka między Excel-write (Step 3) i report-send (Step 6). Dla każdego appended row waliduje przeciw source emailowi + feedback history. Decyzje: ANSWER / ASK / ABSTAIN / BLOCKED.
+Step 4 — bramka przed raportem (Step 6). Przed Phase 2 Excel waliduje routed emails + unknown senders; po Phase 2 przejdzie na appended rows. Decyzje: ANSWER / ASK / ABSTAIN / BLOCKED.
 
 ## Inputs
 

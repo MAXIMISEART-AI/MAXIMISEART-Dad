@@ -20,12 +20,13 @@ Ty otwierasz Obsidian rano, czytasz raport, klikasz OK lub piszesz co poprawić.
 
 ---
 
-## Instalacja (u taty — one-time)
+## Instalacja
+
+**Status:** deployment u taty jest jeszcze Phase 5 gated. Aktualny kod ma gotowy local smoke/MVP: Gmail → Obsidian, deterministic verify, feedback loop i raport. Excel + Task Scheduler wymagają realnego rosteru, mapy kodów, schematu Excela i konfiguracji u taty.
 
 **Wymagania:**
 - Windows 10/11
 - Python 3.11+
-- Konto Anthropic (Pro lub Max) + Claude Code zainstalowany
 - Obsidian zainstalowany
 - Excel + OneDrive/Microsoft 365
 
@@ -44,18 +45,16 @@ Ty otwierasz Obsidian rano, czytasz raport, klikasz OK lub piszesz co poprawić.
    .venv\Scripts\activate
    pip install -r requirements.txt
    ```
-5. Uruchom wizard instalacyjny:
+5. Uruchom aktualny wizard Gmail OAuth:
    ```powershell
-   python scripts\init_wizard.py
+   python scripts\init_wizard.py --phase-1-setup
    ```
-   Wizard poprowadzi przez:
-   - Wskazanie pliku Excel
-   - Ustawienie godziny daily run
-   - Autoryzację Gmail (otworzy przeglądarkę)
-   - Smoke test
-   - Instalację Task Scheduler
+   Aktualny wizard obsługuje Gmail OAuth. Pełny wizard z Excel path + Task Scheduler zostaje gated do Phase 5.
 
-Po wizard: następnego dnia o 06:30 pierwszy raport pojawi się w Obsidian (folder `reports/`).
+Smoke test lokalny:
+```powershell
+python scripts\daily_workflow.py --test-mode --date 2026-04-24 --skip-feedback
+```
 
 ---
 

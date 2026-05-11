@@ -1,7 +1,7 @@
 # Instrukcja — jak używać systemu
 
 **Dla:** Tata (Arkadiusz)
-**Status:** Phase 0 draft. Finalna wersja PL w Phase 5 wraz z init wizardem.
+**Status:** Draft dla deploymentu u taty. Aktualny kod ma Phase 1 + 3/4/6 shipped; finalna instrukcja instalacji zostaje gated do Phase 5.
 
 ---
 

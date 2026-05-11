@@ -5,7 +5,7 @@ description: Generuje 1-stronicowy markdown raport PL dla taty w Obsidian. Polsk
 
 # dad-report-generate
 
-**Status:** Phase 0 stub. Phase 3 target: 2h effort.
+**Status:** Phase 6 shipped. Implementation lives in `scripts/step6_report_generate.py`.
 
 ## Purpose
 

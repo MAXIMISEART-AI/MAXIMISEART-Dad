@@ -1,6 +1,6 @@
 """Step 1 — Gmail harvest via native google-api-python-client.
 
-Phase 1 Override D2 (Gmail MCP → native Python) per plan file
+Phase 1 D2: native Python Gmail API implementation
 C:\\Users\\Arek\\.claude\\plans\\phase-1-mvp-gmail-obsidian.md.
 
 Fallback modes:

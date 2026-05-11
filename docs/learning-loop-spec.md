@@ -1,6 +1,6 @@
 # Learning Loop Spec — Step 7 feedback propagation
 
-**Status:** Phase 0 SPEC. Phase 4 implementation.
+**Status:** Phase 4 shipped as deterministic parser + learning loop foundation in `scripts/step7_feedback_ingest.py`. Real API parsing remains gated.
 
 ## Problem
 

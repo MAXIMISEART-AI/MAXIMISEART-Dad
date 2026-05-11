@@ -1,6 +1,6 @@
 # MAXIMISEART-Dad — Project CLAUDE.md
 
-**Status:** Phase 0 bootstrap (2026-04-24)
+**Status:** Phase 1 + Phase 3/4/6 shipped; Phase 2 Excel + Phase 5 deployment gated (2026-04-24)
 **Owner:** Maks (dev) → deployment u taty (Windows, Task Scheduler)
 **Scope:** Daily email → Obsidian → Excel workflow dla taty (subwykonawca Fiber FTTH)
 
@@ -33,7 +33,7 @@ Jesteś orchestratorem workflowu MAXIMISEART-Dad. Tata (Arkadiusz, end-user) jes
 - Każdy Step jest **ADDITIVE** (nigdy nie nadpisuje wcześniejszej obrony)
 
 ### Rule #2 — MIR + Red Team Gate
-- Step 4 (self-verify) MUSI pass przed Step 5 (Obsidian update)
+- Step 4 (self-verify) MUSI pass przed Step 6 report. Obsidian daily writes happen in Step 2 via pure Python writer; legacy Step 5 module remains a Phase 5+ extension placeholder.
 - Aggregate gate: `(ANSWER_count / total_rows) ≥ 0.66` → proceed
 - Inaczej raport mode = `REVIEW_REQUIRED` z top-5 uncertain wierszami
 
@@ -111,7 +111,7 @@ Daily run 06:30 (Task Scheduler)
     ↓
 Step 0: feedback_ingest (learn from yesterday)
     ↓
-Step 1: email_harvest (Gmail MCP → JSONL)
+Step 1: email_harvest (native Gmail API SDK → JSONL)
     ↓
 Step 2: per_employee_route (roster check + folder append)
     ↓
@@ -119,7 +119,7 @@ Step 3: excel_extract_update (openpyxl, lock-aware, snapshot-before)
     ↓
 Step 4: self_verify (Red Team vote — Mut #29/#30/#39/#44)
     ↓
-Step 5: obsidian_update (daily log, _profil.md updates)
+Step 5: obsidian_update (Phase 5+ extension placeholder; Phase 1 daily log writes already happen in Step 2)
     ↓
 Step 6: report_generate (1-pager markdown PL)
     ↓
@@ -153,17 +153,17 @@ Future sessions proposing:
 - "adapt red-team-claim-verification dla Excel rows"
 - "windows task scheduler for daily Python"
 
-→ **STOP, scaffold DONE Phase 0 2026-04-24.** Reference: `C:\Users\Arek\.claude\plans\chce-zrobic-system-workflow-fluttering-lemur.md` (approved plan).
+→ **STOP, Phase 1 + Phase 3/4/6 DONE 2026-04-24.** References: `C:\Users\Arek\.claude\plans\phase-1-mvp-gmail-obsidian.md`, commits `a717f22` + `6db0e4f`, Brain queries `2026-04-24-maximiseart-dad-phase-1-mvp-shipped.md` + `2026-04-24-maximiseart-dad-phase-3-4-6-shipped.md`.
 
 Phase progression:
-- Phase 0 (2026-04-24): repo bootstrap ← **DONE jeśli ten plik istnieje**
-- Phase 1 MVP: Gmail → Obsidian (no Excel, no Red Team)
-- Phase 2: + Excel openpyxl
-- Phase 3: + Red Team self-verify
-- Phase 4: + Learning loop + fatigue monitor
-- Phase 5: + Task Scheduler + GitHub push + init wizard
-- Phase 6: deploy u taty + 2-week babysit
-- Phase 7: graduation weekly → monthly
+- Phase 0 (2026-04-24): repo bootstrap ← **DONE**
+- Phase 1 MVP: Gmail native SDK → Obsidian ← **DONE**
+- Phase 2: + Excel openpyxl ← **GATED** na `code_mapping.yaml`, real `employees.yaml`, `excel_schema.yaml`, 10-20 anonimizowanych maili
+- Phase 3: + Red Team self-verify STUB ← **DONE** (`--use-real-api` gated)
+- Phase 4: + Learning loop + fatigue monitor ← **DONE** (regex/STUB parser)
+- Phase 5: + Task Scheduler + GitHub push + full init wizard ← **GATED** deployment u taty
+- Phase 6: Report generator ← **DONE**; deploy u taty + 2-week babysit still gated
+- Phase 7: graduation weekly → monthly ← future
 
 ---
 

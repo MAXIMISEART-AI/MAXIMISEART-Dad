@@ -21,7 +21,7 @@
                               ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Step 1 — step1_email_harvest.py                                       │
-│   Gmail MCP (OAuth token cached z init_wizard)                        │
+│   Native Gmail API SDK (OAuth token cached z init_wizard)             │
 │   → runtime/state/raw/emails-YYYY-MM-DD.jsonl                         │
 │   Fallback: empty → Rule #7 graceful skip + minimal raport            │
 └──────────────────────────────────────────────────────────────────────┘
@@ -54,8 +54,8 @@
                               ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Step 5 — step5_obsidian_update.py                                     │
-│   Append vault/learning/log.md (chronological)                        │
-│   Update _profil.md "Content ingestion log" per pracownik             │
+│   Phase 5+ extension placeholder                                      │
+│   Phase 1 daily writes already happen in Step 2 via pure Python       │
 └──────────────────────────────────────────────────────────────────────┘
                               │
                               ▼

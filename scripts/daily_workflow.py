@@ -63,6 +63,19 @@ def main() -> int:
     logger.info("DAILY_RUN_START | date=%s dry_run=%s test_mode=%s force=%s",
                 args.date, args.dry_run, args.test_mode, args.force)
 
+    if cfg.use_real_api:
+        alert_path = cfg.state_dir / "ALERT-real-verification-mode.md"
+        alert_text = (
+            "# Tryb realnej weryfikacji jest jeszcze zablokowany\n\n"
+            "Ustaw `DAD_USE_REAL_API=false` i uruchom workflow ponownie. "
+            "Aktualnie produkcyjny tryb weryfikacji działa deterministycznie; "
+            "realna weryfikacja zostanie włączona dopiero po osobnej akceptacji.\n"
+        )
+        if not args.dry_run:
+            alert_path.write_text(alert_text, encoding="utf-8")
+        logger.error("REAL_API_MODE_GATED | alert=%s", alert_path)
+        return 4
+
     # Step 0: Feedback ingest (learning loop — READ wczoraj PRZED pracą)
     feedback_state = _run_step0_feedback(cfg, args, logger)
 

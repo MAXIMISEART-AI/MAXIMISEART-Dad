@@ -5,7 +5,7 @@ description: Step 7 learning loop — czyta wczorajszy feedback taty z raportu, 
 
 # dad-feedback-ingest
 
-**Status:** Phase 0 stub. Phase 4 target: 3h effort.
+**Status:** Phase 4 shipped as deterministic parser + learning loop foundation. Implementation lives in `scripts/step7_feedback_ingest.py`; real API parsing remains gated.
 
 ## Purpose
 

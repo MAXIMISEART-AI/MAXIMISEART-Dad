@@ -5,11 +5,11 @@ description: Harvest pracownicy Gmail emaili za dzień + normalizacja polskich z
 
 # dad-email-harvest
 
-**Status:** Phase 0 stub. Phase 1 target: 2h effort.
+**Status:** Phase 1 shipped. Native Gmail API implementation lives in `scripts/step1_email_harvest.py` + `scripts/lib/gmail_client.py`.
 
 ## Purpose
 
-Step 1 workflowu MAXIMISEART-Dad — czyta Gmail taty przez MCP, normalizuje polskie znaki, zapisuje do JSONL dla downstream steps.
+Step 1 workflowu MAXIMISEART-Dad — czyta Gmail taty przez native `google-api-python-client`, normalizuje polskie znaki, zapisuje do JSONL dla downstream steps.
 
 ## Inputs
 
@@ -46,5 +46,5 @@ Step 1 workflowu MAXIMISEART-Dad — czyta Gmail taty przez MCP, normalizuje pol
 
 ## Reuse
 
-- `mcp__claude_ai_Gmail__authenticate` + `mcp__claude_ai_Gmail__complete_authentication` MCP tools
-- `google-api-python-client` jeśli MCP insufficient (bypass path)
+- `google-api-python-client` + `google-auth-oauthlib` InstalledAppFlow
+- `scripts/lib/gmail_client.py` for OAuth, message listing, MIME body extraction, UTF-8/NFC normalization, and retry handling

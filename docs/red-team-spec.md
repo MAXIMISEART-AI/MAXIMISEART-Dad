@@ -1,6 +1,6 @@
 # Red Team Spec — Step 4 self-verify
 
-**Status:** Phase 0 SPEC. Phase 3 implementation.
+**Status:** Phase 3 shipped as deterministic STUB in `scripts/step4_self_verify.py`. Real API mode remains gated.
 
 ## Cel
 
