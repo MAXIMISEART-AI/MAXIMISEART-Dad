@@ -1,107 +1,58 @@
-# Instrukcja — jak używać systemu
+# Instrukcja codzienna
 
-**Dla:** Tata (Arkadiusz)
-**Status:** Draft dla deploymentu u taty. Aktualny kod ma Phase 1 + 3/4/6 shipped; finalna instrukcja instalacji zostaje gated do Phase 5.
+**Dla:** Tata
 
----
+## Codziennie rano
 
-## Codziennie rano (3 minuty przy kawie)
+1. Otwórz Obsidian.
+2. Wejdź w folder `reports`.
+3. Otwórz dzisiejszy plik `YYYY-MM-DD.md`.
+4. Przeczytaj podsumowanie.
+5. Na dole znajdź sekcję:
 
-1. Włącz komputer (jeśli nie był włączony — system działa sam w tle kiedy komp śpi)
-2. Otwórz **Obsidian** (ikona fioletowa na pulpicie)
-3. W lewym panelu kliknij folder `reports/`
-4. Otwórz dzisiejszy plik: `YYYY-MM-DD.md` (dzisiejsza data)
-5. Przeczytaj raport — 1 strona:
-   - Podsumowanie: ile emaili, ile wierszy w Excelu
-   - Per pracownik: kto co zrobił
-   - **Wymagają uwagi**: system oznaczył wiersze niepewne — review te
-6. Na dole strony jest pole:
-   ```
+   ```text
    ## Feedback taty
-   <wpisz tu>
    ```
-7. **Jeśli wszystko OK** — wpisz `OK` i zapisz (Ctrl+S)
-8. **Jeśli coś źle** — napisz krótko co poprawić, np:
-   - "Jan miał kod 2 nie 1"
-   - "Anna pracowała na Krańcowej 12, nie 22"
-   - "Kowalski nie był dzisiaj w pracy, nie wiem skąd ten email"
-9. Zapisz (Ctrl+S) — gotowe
 
-Następnego dnia system:
-- Przeczyta Twój feedback
-- Zaktualizuje Excel jeśli trzeba
-- Nauczy się nie powtarzać tego błędu
+6. Jeśli wszystko się zgadza, wpisz `OK`.
+7. Jeśli coś trzeba poprawić, napisz krótko co jest źle, np.:
+   - `Jan miał kod 2, nie 1`
+   - `Krańcowa 12, nie Krańcowa 22`
+   - `Tego pracownika nie ma na liście`
+8. Zapisz plik.
 
----
+## Excel
 
-## Otwieranie Excela
+Excel działa normalnie. System dopisuje nowe dane tylko do arkusza:
 
-Excel działa tak jak zawsze:
-- **Lokalnie** — ikona na pulpicie lub w OneDrive/Fiber/
-- **W przeglądarce** — na telefonie/innym kompie przez excel.office.com
+`MAXIMISEART_DAILY_APPEND`
 
-System aktualizuje lokalny plik, OneDrive synchronizuje do przeglądarki automatycznie (zwykle w ciągu 30 sekund).
+Dotychczasowe arkusze i formuły zostają bez zmian.
 
-**⚠️ WAŻNE:** Gdy Excel jest otwarty w desktop Excel (niebieska ikona) — system wykryje i poczeka z zapisem. Jeśli zobaczysz raport "Tato zamknij Excel" — to znaczy trzeba zamknąć Excel i za 5 min system spróbuje jeszcze raz.
+Jeśli Excel jest otwarty na komputerze, system może wstrzymać zapis. Wtedy zamknij plik Excela i uruchom workflow ponownie albo poczekaj na kolejne uruchomienie.
 
----
+## Gdy rano nie ma raportu
 
-## Co jeśli coś się popsuło?
+1. Sprawdź, czy komputer był włączony o zaplanowanej godzinie.
+2. Otwórz Obsidian i sprawdź folder `reports`.
+3. Jeśli raportu nadal nie ma, daj znać Maksowi.
 
-### Raport się nie pojawił rano
-1. Sprawdź czy komputer był włączony o 06:30
-2. Otwórz Obsidian → folder `reports/`
-3. Jeśli nadal nic — zadzwoń do Maksa
+## Gdy Gmail prosi o ponowny dostęp
 
-### Wiadomość "System nie mógł połączyć z Gmail"
-- Token Gmail wygasł (zdarza się raz na kilka tygodni)
-- Otwórz PowerShell (Win+R → `powershell` → Enter)
-- Wklej i Enter:
-  ```
-  cd C:\MAXIMISEART-Dad
-  python scripts\init_wizard.py --reauth
-  ```
-- Kliknij w przeglądarce link i daj dostęp ponownie
+Powiedz Maksowi. Trzeba uruchomić:
 
-### System wypełnił Excel błędnie
-1. Znajdź wiersz w Excelu (kolumna G pokazuje status)
-2. Popraw ręcznie komórkę
-3. W dzisiejszym raporcie Obsidian wpisz co było źle:
-   ```
-   ## Feedback taty
-   Wiersz 42 — Jan miał kod 2 nie 1, poprawiłem ręcznie
-   ```
-4. System się nauczy na następny raz
+```powershell
+python scripts\init_wizard.py --reauth
+```
 
-### "PILNE: 3 dni bez zatwierdzenia"
-- System wykrył że nie czytałeś raportów 3 dni
-- Przejrzyj ostatnie 3 raporty w `reports/`
-- System wstrzymał uczenie się do czasu Twojego feedbacku — to bezpieczeństwo
+## Gdy dzień jest pusty
 
----
+Raport `0 emaili` oznacza, że skrzynka była pusta. To nie jest awaria.
 
-## Co system zapisuje
+## Gdy pojawi się nieznany pracownik
 
-| Folder | Co tam jest |
-|--------|-------------|
-| `reports/` | Dzienne raporty markdown (ty czytasz rano) |
-| `pracownicy/` | Folder per każdy pracownik — maile z każdego dnia |
-| `learning/` | Pamięć systemu — co się nauczył z Twojego feedbacku |
-| (Excel) | W OneDrive jak zawsze |
+Raport pokaże nadawcę w sekcji wymagającej uwagi. Maks dopisze pracownika do listy i uruchomi system ponownie.
 
----
+## Gdy pojawi się nieznany kod pracy
 
-## Gdzie system NIE może działać
-
-- Nie wysyła maili pracownikom
-- Nie tworzy nowych wierszy Excela bez emaila od pracownika
-- Nie zatwierdza sam za Ciebie
-- Nie odpowiada pracownikom (tylko czyta)
-
-Wszystkie ważne decyzje zatwierdzasz Ty — system tylko pomaga Ci oszczędzić czas na sortowaniu maili i wpisywaniu do Excela.
-
----
-
-## Kontakt
-
-Maks — na WhatsAppie.
+Raport oznaczy wpis statusem `ASK`. W feedbacku napisz, jaki kod powinien być użyty.

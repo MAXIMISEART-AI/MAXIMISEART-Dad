@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 class DadConfig:
     runtime_path: Path
     vault_path: Path
-    excel_path: Path
+    excel_path: Path | None
     reports_dir: Path
     logs_dir: Path
     state_dir: Path
@@ -55,7 +55,8 @@ class DadConfig:
         )))
 
         vault = Path(os.path.expandvars(os.environ.get("DAD_VAULT_PATH", str(runtime / "vault"))))
-        excel = Path(os.path.expandvars(os.environ.get("DAD_EXCEL_PATH", "")))
+        excel_raw = os.environ.get("DAD_EXCEL_PATH", "").strip()
+        excel = Path(os.path.expandvars(excel_raw)) if excel_raw else None
         reports = Path(os.path.expandvars(os.environ.get("DAD_REPORTS_DIR", str(vault / "reports"))))
         logs = Path(os.path.expandvars(os.environ.get("DAD_LOGS_DIR", str(runtime / "logs"))))
         state = runtime / "state"

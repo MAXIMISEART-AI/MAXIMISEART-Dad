@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import step1_email_harvest  # noqa: E402
 import step2_per_employee_route  # noqa: E402
+import step3_excel_extract_update  # noqa: E402
 import step4_self_verify  # noqa: E402
 import step6_report_generate  # noqa: E402
 import step7_feedback_ingest  # noqa: E402
@@ -122,12 +123,32 @@ def main() -> int:
                 else:
                     total_deduped += 1
 
-    # Step 3: Excel extract+update — gated
+    # Step 3: Excel extract+update - safe buffer sheet only
+    rows_added = []
     if cfg.excel_path and str(cfg.excel_path).strip() and cfg.excel_path.exists():
-        logger.info("STEP_3_EXCEL | gated na tata config — skip dopóki excel_schema.yaml niekompletny")
-        # Phase 2 impl: step3_excel_extract_update.append_rows(...)
+        if args.dry_run:
+            logger.info("STEP_3_DRY_RUN | excel_path=%s - no write", cfg.excel_path)
+        else:
+            try:
+                rows_added = step3_excel_extract_update.append_rows(
+                    cfg.excel_path,
+                    routed,
+                    cfg.code_mapping,
+                    cfg.excel_schema,
+                    snapshots_dir=cfg.state_dir / "excel-snapshots",
+                    employees_config=cfg.employees,
+                    date=args.date,
+                )
+                logger.info(
+                    "STEP_3_EXCEL | buffer_sheet=%s rows_added=%d",
+                    step3_excel_extract_update.BUFFER_SHEET_NAME,
+                    len(rows_added),
+                )
+            except step3_excel_extract_update.ExcelLockedError as e:
+                logger.error("STEP_3_EXCEL_LOCKED | %s", e)
+                return 5
     else:
-        logger.info("STEP_3_SKIPPED | cfg.excel_path pusty/niedostępny (Phase 2 gated)")
+        logger.info("STEP_3_SKIPPED | cfg.excel_path pusty/niedostepny")
 
     # Step 4: Red Team self-verify (Phase 3 STUB mode)
     verdict = step4_self_verify.verify(

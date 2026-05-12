@@ -93,10 +93,10 @@
 
 ## Key integration points
 
-### Claude API models
-- **Haiku 4.5** (`claude-haiku-4-5-20251001`): Step 3 code classification + Step 4 Mut #29 tiny-critic + Step 7 feedback parsing
-- **Sonnet 4.6** (`claude-sonnet-4-6`): Step 4 Mut #30 epistemic gate escalation + Step 4 Mut #39 triple-vote
-- **Opus 4.7** (`claude-opus-4-7`): optional high-stakes escalation (if #43 L2 cross-lineage enabled)
+### Real verification modes
+- **Light verifier:** Step 3 code classification + Step 4 Mut #29 tiny-critic + Step 7 feedback parsing
+- **Standard verifier:** Step 4 Mut #30 epistemic gate escalation + Step 4 Mut #39 triple-vote
+- **High-stakes verifier:** optional escalation if #43 L2 cross-lineage is enabled
 
 ### Cost budget
 - Typical daily run (50 emaili): ~$0.10-0.30

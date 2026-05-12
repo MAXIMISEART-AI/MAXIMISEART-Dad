@@ -10,8 +10,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from openpyxl import Workbook, load_workbook
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BUFFER_SHEET = "MAXIMISEART_DAILY_APPEND"
 
 
 @pytest.fixture
@@ -29,11 +31,13 @@ def isolated_runtime(tmp_path: Path, monkeypatch) -> Path:
 
 def test_test_mode_populates_vault_from_fixtures(isolated_runtime: Path) -> None:
     """Run `daily_workflow.py --test-mode` w subprocess z isolated DAD_RUNTIME_PATH."""
+    excel_path = _create_test_workbook(isolated_runtime / "test.xlsx")
     env = os.environ.copy()
     env["DAD_RUNTIME_PATH"] = str(isolated_runtime)
     env["DAD_VAULT_PATH"] = str(isolated_runtime / "vault")
     env["DAD_REPORTS_DIR"] = str(isolated_runtime / "vault" / "reports")
     env["DAD_LOGS_DIR"] = str(isolated_runtime / "logs")
+    env["DAD_EXCEL_PATH"] = str(excel_path)
     env["DAD_USE_REAL_API"] = "false"
     env["PYTHONIOENCODING"] = "utf-8"
 
@@ -72,13 +76,27 @@ def test_test_mode_populates_vault_from_fixtures(isolated_runtime: Path) -> None
     unknown_folder_candidates = [p.name for p in pracownicy.iterdir()]
     assert "nieznany-sender" not in unknown_folder_candidates
 
+    wb = load_workbook(excel_path, data_only=False)
+    assert BUFFER_SHEET in wb.sheetnames
+    ws = wb[BUFFER_SHEET]
+    assert ws.max_row == 4
+    assert [ws.cell(row=row, column=8).value for row in range(2, 5)] == [
+        "18f2a3b4c5d6e7f8",
+        "18f2a3b4c5d6e7f8",
+        "18f2a3b4c5d6e7f9",
+    ]
+    assert wb["Istniejacy"]["A1"].value == "Nie dotykac"
+    assert list((isolated_runtime / "state" / "excel-snapshots").glob("test-*.xlsx"))
+
 
 def test_dry_run_does_not_write_vault(isolated_runtime: Path) -> None:
+    excel_path = _create_test_workbook(isolated_runtime / "test.xlsx")
     env = os.environ.copy()
     env["DAD_RUNTIME_PATH"] = str(isolated_runtime)
     env["DAD_VAULT_PATH"] = str(isolated_runtime / "vault")
     env["DAD_REPORTS_DIR"] = str(isolated_runtime / "vault" / "reports")
     env["DAD_LOGS_DIR"] = str(isolated_runtime / "logs")
+    env["DAD_EXCEL_PATH"] = str(excel_path)
     env["PYTHONIOENCODING"] = "utf-8"
 
     result = subprocess.run(
@@ -99,6 +117,9 @@ def test_dry_run_does_not_write_vault(isolated_runtime: Path) -> None:
         # Folder może istnieć (ensure_runtime_dirs), ale żadne pliki pracowników
         employee_folders = [p for p in pracownicy.iterdir() if p.is_dir()]
         assert employee_folders == [], f"Dry-run created folders: {employee_folders}"
+
+    wb = load_workbook(excel_path, data_only=False)
+    assert BUFFER_SHEET not in wb.sheetnames
 
 
 def test_idempotent_double_run(isolated_runtime: Path) -> None:
@@ -129,3 +150,12 @@ def test_idempotent_double_run(isolated_runtime: Path) -> None:
     assert content.count("<!-- email-id: 18f2a3b4c5d6e7f8 -->") == 1
     assert content.count("<!-- email-id: 18f2a3b4c5d6e7f9 -->") == 1
     assert "emails_count: 2" in content
+
+
+def _create_test_workbook(path: Path) -> Path:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Istniejacy"
+    ws["A1"] = "Nie dotykac"
+    wb.save(path)
+    return path

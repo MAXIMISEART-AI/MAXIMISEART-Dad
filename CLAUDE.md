@@ -1,10 +1,10 @@
 # MAXIMISEART-Dad — Project CLAUDE.md
 
-**Status:** Phase 1 + Phase 3/4/6 shipped; Phase 2 Excel + Phase 5 deployment gated (2026-04-24)
+**Status:** Deployment-ready for first dad install; Phase 1 + 2 + 3/4/5/6 shipped locally (2026-05-12). Real Gmail/Excel still connected only during Maks + tata deploy.
 **Owner:** Maks (dev) → deployment u taty (Windows, Task Scheduler)
 **Scope:** Daily email → Obsidian → Excel workflow dla taty (subwykonawca Fiber FTTH)
 
-**Codex bridge:** Codex is an approved backup agent for this project. It must read `C:\Users\Arek\.codex\AGENTS.md` and `.codex\skills\maximiseart-bridge\SKILL.md`, then follow this `CLAUDE.md`. Structural changes made by Codex must use the same ZASADA #7 dual-agent propagation into MAXIMISEART-Brain, global/project rules, memory, and Codex bootstrap when relevant.
+**Codex bridge:** Codex is a co-primary structural agent for this project, not a backup. It must read `C:\Users\Arek\.codex\AGENTS.md` and `.codex\skills\maximiseart-bridge\SKILL.md`, then follow this `CLAUDE.md`. Structural changes made by Codex must use the same ZASADA #7 dual-agent propagation into MAXIMISEART-Brain, global/project rules, memory, and Codex bootstrap when relevant.
 
 ---
 
@@ -28,6 +28,7 @@ Jesteś orchestratorem workflowu MAXIMISEART-Dad. Tata (Arkadiusz, end-user) jes
 
 ### Rule #1 — Floor Never Drops
 - Excel **nigdy** nie traci wierszy
+- System **nigdy** nie modyfikuje istniejących arkuszy/formuł taty; Step 3 dopisuje tylko do arkusza buforowego `MAXIMISEART_DAILY_APPEND`
 - Obsidian **nigdy** nie traci entries
 - Step 4 Red Team **nie usuwa** wierszy Step 3 — tylko flaguje `ABSTAIN/ASK/BLOCKED`
 - Każdy Step jest **ADDITIVE** (nigdy nie nadpisuje wcześniejszej obrony)
@@ -72,7 +73,7 @@ D1-D15 poniżej są **immutable** bez explicit Maks override + nowego commit.
 |----|---------|-----------|
 | D1 | Scope = Fiber FTTH daily raportowanie pracowników (NIE full ERP, NIE kadry-płace, NIE faktury VAT) | 2026-04-24 |
 | D2 (REVISED 2026-04-24 Phase 1) | Gmail **native** `google-api-python-client` + `google-auth-oauthlib` InstalledAppFlow (NIE MCP, NIE IMAP, NIE app passwords). MCP wymaga active Claude Code session = blocker dla Task Scheduler standalone. Token cached w `state/oauth-token.json`. Wzór: `MAXIMISEART-SEO/seo_client_data_sync/oauth_flow.py`. | 2026-04-24 |
-| D3 | Excel plik lokalny `.xlsx` na kompie taty + OneDrive/M365 sync (openpyxl edytuje local, OneDrive propaguje do przeglądarki) | 2026-04-24 |
+| D3 | Excel plik lokalny `.xlsx` na kompie taty + OneDrive/M365 sync; openpyxl dopisuje wyłącznie do arkusza buforowego `MAXIMISEART_DAILY_APPEND` | 2026-04-24 / revised 2026-05-12 |
 | D4 | Obsidian vault lokalny u taty (NIE Obsidian Sync cloud — zero subscription) | 2026-04-24 |
 | D5 | Windows Task Scheduler (NIE cron/systemd, NIE remote Claude /schedule — local scripts wymagane per ZASADA #8 global CLAUDE.md) | 2026-04-24 |
 | D6 | Per-employee folder struktura: `vault/pracownicy/{slug}/_profil.md + YYYY-MM-DD.md + style-pisania.md` | 2026-04-24 |
@@ -91,6 +92,7 @@ D1-D15 poniżej są **immutable** bez explicit Maks override + nowego commit.
 ## Anti-patterns (czego NIE robić)
 
 - ❌ **NIE** edytuj Excela jeśli wykryte pliki lockowe (`.~lock.*xlsx#`, `~$*.xlsx`) — to OneDrive lub Excel desktop otwarty przez tatę. Retry 3× (2/5/10 min) → abort + raport "Tato, zamknij Excel i uruchom ponownie"
+- ❌ **NIE** zapisuj do istniejących arkuszy taty — tylko `MAXIMISEART_DAILY_APPEND`, snapshot-before-write, append-only
 - ❌ **NIE** halucynuj pracownika którego nie ma w `config/employees.yaml` — Mutation #44 Persona Hyperstition → status `BLOCKED` → surfacuj w raporcie
 - ❌ **NIE** wysyłaj raportu jeśli Red Team vote < 0.66 — raport mode `REVIEW_REQUIRED`
 - ❌ **NIE** usuwaj wierszy Excela — tylko append + flag `ABSTAIN/ASK/BLOCKED` w kolumnie `status`
@@ -158,10 +160,10 @@ Future sessions proposing:
 Phase progression:
 - Phase 0 (2026-04-24): repo bootstrap ← **DONE**
 - Phase 1 MVP: Gmail native SDK → Obsidian ← **DONE**
-- Phase 2: + Excel openpyxl ← **GATED** na `code_mapping.yaml`, real `employees.yaml`, `excel_schema.yaml`, 10-20 anonimizowanych maili
+- Phase 2: + Excel openpyxl safe buffer append ← **DEPLOYMENT-READY** (`MAXIMISEART_DAILY_APPEND`, lock detection, snapshot-before-write)
 - Phase 3: + Red Team self-verify STUB ← **DONE** (`--use-real-api` gated)
 - Phase 4: + Learning loop + fatigue monitor ← **DONE** (regex/STUB parser)
-- Phase 5: + Task Scheduler + GitHub push + full init wizard ← **GATED** deployment u taty
+- Phase 5: + Task Scheduler + GitHub push + full init wizard ← **DEPLOYMENT-READY LOCAL**; private GitHub push depends on auth/remote access
 - Phase 6: Report generator ← **DONE**; deploy u taty + 2-week babysit still gated
 - Phase 7: graduation weekly → monthly ← future
 

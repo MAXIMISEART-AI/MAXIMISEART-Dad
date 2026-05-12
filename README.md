@@ -1,89 +1,120 @@
 # MAXIMISEART-Dad
 
-Automatyzacja codziennych raportów z maili pracowników do Excela — dla wykonawców FTTH.
+Deployment-ready workflow dla pierwszego wdrożenia u taty: Gmail -> Obsidian -> bezpieczny arkusz buforowy Excela -> raport dzienny -> feedback.
 
----
+System nie modyfikuje istniejących arkuszy Excela taty. Dopisuje dane tylko do osobnego arkusza:
 
-## Co to robi
+`MAXIMISEART_DAILY_APPEND`
 
-Codziennie rano o 06:30:
+Realny Gmail i realny Excel podpinacie dopiero razem przy pierwszym wdrożeniu.
 
-1. Czyta maile z Gmaila (raporty dzienne pracowników)
-2. Sortuje per pracownik do lokalnego Obsidian vault
-3. Ekstraktuje dane (ilość pracy, kody, lokacje) do Excela
-4. Sprawdza własną pracę (Red Team self-verify)
-5. Aktualizuje Obsidian z podsumowaniem
-6. Generuje 1-stronicowy raport w Obsidian
-7. Czeka na Twoje zatwierdzenie lub feedback
+## Dla Maksa: pierwszy deploy z tatą
 
-Ty otwierasz Obsidian rano, czytasz raport, klikasz OK lub piszesz co poprawić. Następnego dnia system się uczy i nie powtarza błędu.
+Wymagania na komputerze taty:
 
----
-
-## Instalacja
-
-**Status:** deployment u taty jest jeszcze Phase 5 gated. Aktualny kod ma gotowy local smoke/MVP: Gmail → Obsidian, deterministic verify, feedback loop i raport. Excel + Task Scheduler wymagają realnego rosteru, mapy kodów, schematu Excela i konfiguracji u taty.
-
-**Wymagania:**
 - Windows 10/11
 - Python 3.11+
-- Obsidian zainstalowany
-- Excel + OneDrive/Microsoft 365
+- Git
+- Obsidian
+- Excel z lokalnym plikiem `.xlsx`
 
-**Kroki:**
+Kroki:
 
-1. Zainstaluj Python 3.11+ z [python.org](https://python.org)
-2. Otwórz PowerShell w katalogu gdzie chcesz trzymać system (np. `C:\MAXIMISEART-Dad\`)
-3. Sklonuj repo:
-   ```powershell
-   git clone https://github.com/<USER>/MAXIMISEART-Dad.git
-   cd MAXIMISEART-Dad
-   ```
-4. Utwórz środowisko Python:
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-5. Uruchom aktualny wizard Gmail OAuth:
-   ```powershell
-   python scripts\init_wizard.py --phase-1-setup
-   ```
-   Aktualny wizard obsługuje Gmail OAuth. Pełny wizard z Excel path + Task Scheduler zostaje gated do Phase 5.
+```powershell
+git clone https://github.com/<konto>/MAXIMISEART-DAD.git
+cd MAXIMISEART-DAD
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-Smoke test lokalny:
+Uruchom wizard:
+
+```powershell
+python scripts\init_wizard.py --configure --excel-path "C:\ścieżka\do\pliku.xlsx" --test-run
+```
+
+Jeśli chcesz od razu zarejestrować codzienne uruchamianie:
+
+```powershell
+python scripts\init_wizard.py --configure --excel-path "C:\ścieżka\do\pliku.xlsx" --test-run --install-task
+```
+
+Gmail:
+
+```powershell
+python scripts\init_wizard.py --phase-1-setup
+```
+
+Test ręczny po konfiguracji:
+
 ```powershell
 python scripts\daily_workflow.py --test-mode --date 2026-04-24 --skip-feedback
 ```
 
----
+Pre-push verifier dla repo:
 
-## Codzienne użycie (tata)
+```powershell
+python scripts\verify_pre_push.py
+```
 
-**Rano przy kawie:**
-1. Otwórz Obsidian
-2. Folder `reports/` → otwórz dzisiejszy plik `YYYY-MM-DD.md`
-3. Przeczytaj 1 stronę
-4. Na dole jest pole `## Feedback taty`:
-   - Jeśli wszystko OK → wpisz `OK` i zapisz
-   - Jeśli coś źle → opisz (np. "Jan miał kod 2 nie 1")
+## Co ma działać po wdrożeniu
 
-System następnego dnia przeczyta Twój feedback i nie powtórzy tego błędu.
+1. Rano Task Scheduler uruchamia `deploy\run-daily.bat`.
+2. System czyta maile z Gmaila albo fixture w trybie testowym.
+3. Znani pracownicy trafiają do Obsidian vault.
+4. Dane robocze trafiają do arkusza `MAXIMISEART_DAILY_APPEND`.
+5. Raport dzienny pojawia się w `vault\reports\YYYY-MM-DD.md`.
+6. Tata czyta raport i wpisuje `OK` albo poprawkę w sekcji `## Feedback taty`.
 
----
+## Dla taty: codzienne użycie
 
-## Struktura projektu
+1. Otwórz Obsidian.
+2. Wejdź w folder `reports`.
+3. Otwórz dzisiejszy raport.
+4. Przeczytaj podsumowanie.
+5. Na dole wpisz `OK` albo krótką poprawkę.
+6. Zapisz plik.
 
-Szczegóły w `docs/architecture.md`.
+Excel działa jak wcześniej. Nowe wpisy systemu są w arkuszu `MAXIMISEART_DAILY_APPEND`; dotychczasowe arkusze zostają bez zmian.
 
-## Dla programisty (Maks)
+## Troubleshooting
 
-Szczegóły w `CLAUDE.md` (rules + D-decisions) i `docs/`:
-- `architecture.md` — high-level flow
-- `red-team-spec.md` — self-verify Step 4
-- `learning-loop-spec.md` — feedback → pattern propagation
-- `tata-instrukcja.md` — manual PL dla end-user
+**Gmail prosi o ponowny dostęp**
 
-## Licencja
+Uruchom:
 
-Private — zero dystrybucji bez zgody. Wszystkie dane pracowników = RODO.
+```powershell
+python scripts\init_wizard.py --reauth
+```
+
+**Excel jest otwarty albo zablokowany**
+
+Zamknij plik Excela na komputerze i poczekaj chwilę na OneDrive. System nie zapisze niczego, jeśli wykryje lock.
+
+**Pusty dzień**
+
+Jeśli nie przyszły maile, raport pokaże `0 emaili`. To nie jest awaria.
+
+**Nieznany pracownik**
+
+Dodaj pracownika do `config\employees.yaml`, potem uruchom workflow ponownie.
+
+**Nieznany kod pracy**
+
+Uzupełnij `config\code_mapping.yaml`. Niepewne wpisy dostaną status `ASK`, zamiast udawać pewność.
+
+## Bezpieczeństwo danych
+
+Nie commituj:
+
+- `.env`
+- tokenów Gmail
+- `client_secret.json`
+- plików Excela
+- vaulta Obsidian
+- raportów runtime
+- logów
+- danych pracowników poza kontrolowanym configiem
+
+Repo na GitHubie musi być prywatne.
