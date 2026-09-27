@@ -1,0 +1,24 @@
+schema_version: 1
+
+# Identyfikator z kolumny H -> dokładna nazwa używana w pliku szablonu.
+# Nie zastępować tego zgadywaniem po podobieństwie tekstu.
+workers:
+  adrian.maciejewski: Adrian Maciejewski
+  adrian.wawrzyniak: Adrian Wawrzyniak
+  dariusz.nowak2: Darek Nowak
+  dawid.kopczynski: Dawid Kopczyński
+  grzegorz.mikolajczak: Grzegorz Mikołajczak
+  jan.furca: Jan Furca
+  jaroslaw.kobuszynski: Jarek Kobuszyński
+  jedrzej.paul: Jędrzej Paul
+  kamil.frontczak: Kamil Frontczak
+  krzysztof.furca: Krzysztof Furca
+  krzysztof.kerger2: Krzysztof Kerger
+  lukasz.zegalski2: Łukasz Żegalski
+  marcin.chyzy: Marcin Chyży
+  marek.durczak: Marek Durczak
+  mikolaj.nowak2: Mikołaj Nowak
+  pawel.bagrowski: Paweł Bagrowski
+  szymon.masternak2: Szymon Masternak
+  tomasz.bernadowski2: Tomek Bernadowski
+  tomasz.strek: Tomek Stręk

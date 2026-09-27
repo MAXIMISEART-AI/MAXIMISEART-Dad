@@ -1,120 +1,81 @@
-# MAXIMISEART-Dad
+# MAXIMISEART-Dad: rozliczenia pracowników
 
-Deployment-ready workflow dla pierwszego wdrożenia u taty: Gmail -> Obsidian -> bezpieczny arkusz buforowy Excela -> raport dzienny -> feedback.
+Lokalne narzędzie rozdzielające dane z pliku zbiorczego na osobne szablony
+pracowników. Narzędzie nie używa AI ani zewnętrznych API.
 
-System nie modyfikuje istniejących arkuszy Excela taty. Dopisuje dane tylko do osobnego arkusza:
+## Reguły procesu
 
-`MAXIMISEART_DAILY_APPEND`
+- Wejście: `Rozliczenie {okres} - zbiorcze.xlsx`.
+- Folder wejścia ma nazwę identyczną jak `{okres}`.
+- Wyjście: `Rozliczenie pracowników {okres}`.
+- Placeholder `Rozliczenie {okres} -.xlsx` jest pomijany.
+- Wykonawca jest odczytywany z kolumny `H=WYKONAWCA`.
+- Identyfikatory wykonawców są mapowane jawnie w `config/worker_mapping.yaml`.
+- Kopiowane są wartości `A:AT` od wiersza 18, zwarte od wiersza 18.
+- Formuły `AU:AY` i formatowanie pozostają w szablonie pracownika.
+- Pusty szablon pozostaje pusty.
+- Szablon z istniejącymi danymi nie jest nadpisywany.
+- Nieznany wykonawca jest pomijany i zgłaszany.
 
-Realny Gmail i realny Excel podpinacie dopiero razem przy pierwszym wdrożeniu.
+## Instalacja lokalna
 
-## Dla Maksa: pierwszy deploy z tatą
-
-Wymagania na komputerze taty:
-
-- Windows 10/11
-- Python 3.11+
-- Git
-- Obsidian
-- Excel z lokalnym plikiem `.xlsx`
-
-Kroki:
-
-```powershell
-git clone https://github.com/<konto>/MAXIMISEART-DAD.git
-cd MAXIMISEART-DAD
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-Uruchom wizard:
+Wymagany jest Python 3.11 lub nowszy na komputerze taty.
 
 ```powershell
-python scripts\init_wizard.py --configure --excel-path "C:\ścieżka\do\pliku.xlsx" --test-run
+py -3 -m pip install -r requirements.txt
 ```
 
-Jeśli chcesz od razu zarejestrować codzienne uruchamianie:
+Przed pierwszym prawdziwym uruchomieniem użyj kontroli bez zapisu:
 
 ```powershell
-python scripts\init_wizard.py --configure --excel-path "C:\ścieżka\do\pliku.xlsx" --test-run --install-task
+py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
 ```
 
-Gmail:
+## Uruchomienie przez CMD
+
+Dwuklik `Utwórz rozliczenia.cmd` otwiera wybór pliku zbiorczego. Podanie ścieżki
+jest alternatywą dla skryptu VBA:
 
 ```powershell
-python scripts\init_wizard.py --phase-1-setup
+Utwórz rozliczenia.cmd "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
 ```
 
-Test ręczny po konfiguracji:
+## Uruchomienie z Excela
+
+`deploy/AutomatyzacjaRozliczen.bas` jest adapterem VBA do osobnego pliku
+`AutomatyzacjaRozliczen.xlsm`.
+
+1. Utwórz pusty plik Excela i zapisz go jako `.xlsm` obok `Utwórz rozliczenia.cmd`.
+2. Otwórz `Alt+F11`, wybierz `File > Import File` i wskaż plik `.bas`.
+3. Dodaj przycisk formularza na arkuszu i przypisz mu `UruchomRozliczenia`.
+4. Zapisz plik w zaufanej lokalizacji lub uruchom zawartość po świadomym zatwierdzeniu.
+
+Ścieżka VBA nie zawiera osobnej logiki kopiowania. Wywołuje ten sam `run.py`,
+więc obie metody mają te same zabezpieczenia.
+
+## Testy
+
+Testy tworzą syntetyczne pliki `.xlsx` w katalogu tymczasowym. Nie używają
+plików z `praca-tata` i nie zawierają prawdziwych danych klientów.
 
 ```powershell
-python scripts\daily_workflow.py --test-mode --date 2026-04-24 --skip-feedback
+py -3 -m pytest
 ```
 
-Pre-push verifier dla repo:
+## Naprawa plików zapisanych starą wersją
+
+Jeśli wcześniejsze uruchomienie pokazało w Excelu komunikat o naprawie
+odwołania zewnętrznego, zamknij Excel i uruchom jednorazowo tryb kontrolny:
 
 ```powershell
-python scripts\verify_pre_push.py
+py -3 tools\repair_external_links.py --directory "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026" --reference "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026\Rozliczenie 08_14_09_2026 - Kamil Frontczak.xlsx"
 ```
 
-## Co ma działać po wdrożeniu
+Jeśli lista plików jest poprawna, dodaj `--apply`. Narzędzie zapisze kopie w
+`_backup_przed_naprawa_linkow` i zmieni wyłącznie części ZIP odpowiedzialne za
+odwołania zewnętrzne, nie komórki ani formuły.
 
-1. Rano Task Scheduler uruchamia `deploy\run-daily.bat`.
-2. System czyta maile z Gmaila albo fixture w trybie testowym.
-3. Znani pracownicy trafiają do Obsidian vault.
-4. Dane robocze trafiają do arkusza `MAXIMISEART_DAILY_APPEND`.
-5. Raport dzienny pojawia się w `vault\reports\YYYY-MM-DD.md`.
-6. Tata czyta raport i wpisuje `OK` albo poprawkę w sekcji `## Feedback taty`.
+## Zakres poza pierwszą wersją
 
-## Dla taty: codzienne użycie
-
-1. Otwórz Obsidian.
-2. Wejdź w folder `reports`.
-3. Otwórz dzisiejszy raport.
-4. Przeczytaj podsumowanie.
-5. Na dole wpisz `OK` albo krótką poprawkę.
-6. Zapisz plik.
-
-Excel działa jak wcześniej. Nowe wpisy systemu są w arkuszu `MAXIMISEART_DAILY_APPEND`; dotychczasowe arkusze zostają bez zmian.
-
-## Troubleshooting
-
-**Gmail prosi o ponowny dostęp**
-
-Uruchom:
-
-```powershell
-python scripts\init_wizard.py --reauth
-```
-
-**Excel jest otwarty albo zablokowany**
-
-Zamknij plik Excela na komputerze i poczekaj chwilę na OneDrive. System nie zapisze niczego, jeśli wykryje lock.
-
-**Pusty dzień**
-
-Jeśli nie przyszły maile, raport pokaże `0 emaili`. To nie jest awaria.
-
-**Nieznany pracownik**
-
-Dodaj pracownika do `config\employees.yaml`, potem uruchom workflow ponownie.
-
-**Nieznany kod pracy**
-
-Uzupełnij `config\code_mapping.yaml`. Niepewne wpisy dostaną status `ASK`, zamiast udawać pewność.
-
-## Bezpieczeństwo danych
-
-Nie commituj:
-
-- `.env`
-- tokenów Gmail
-- `client_secret.json`
-- plików Excela
-- vaulta Obsidian
-- raportów runtime
-- logów
-- danych pracowników poza kontrolowanym configiem
-
-Repo na GitHubie musi być prywatne.
+Synchronizacja OneDrive, współbieżna edycja przez innych użytkowników oraz
+automatyczne wykrywanie gotowości po samym zapisie pliku są poza zakresem.

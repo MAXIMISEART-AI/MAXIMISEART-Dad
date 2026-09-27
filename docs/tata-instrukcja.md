@@ -1,58 +1,28 @@
-# Instrukcja codzienna
+# Instrukcja dla taty
 
-**Dla:** Tata
+## Przed uruchomieniem
 
-## Codziennie rano
+1. Zakończ pracę w pliku `Rozliczenie {okres} - zbiorcze.xlsx`.
+2. Zamknij ten plik w Excelu.
+3. Upewnij się, że folder `Rozliczenie pracowników {okres}` jest dostępny.
 
-1. Otwórz Obsidian.
-2. Wejdź w folder `reports`.
-3. Otwórz dzisiejszy plik `YYYY-MM-DD.md`.
-4. Przeczytaj podsumowanie.
-5. Na dole znajdź sekcję:
+## Sposób 1: plik CMD
 
-   ```text
-   ## Feedback taty
-   ```
+1. Dwukrotnie kliknij `Utwórz rozliczenia.cmd`.
+2. Wybierz plik zakończony słowami `- zbiorcze.xlsx`.
+3. Poczekaj na komunikat końcowy.
+4. Otwórz pliki pracowników i sprawdź ich zawartość.
 
-6. Jeśli wszystko się zgadza, wpisz `OK`.
-7. Jeśli coś trzeba poprawić, napisz krótko co jest źle, np.:
-   - `Jan miał kod 2, nie 1`
-   - `Krańcowa 12, nie Krańcowa 22`
-   - `Tego pracownika nie ma na liście`
-8. Zapisz plik.
+## Sposób 2: przycisk w Excelu
 
-## Excel
+1. Otwórz `AutomatyzacjaRozliczen.xlsm`.
+2. Kliknij przycisk `UruchomRozliczenia`.
+3. Wybierz plik zakończony słowami `- zbiorcze.xlsx`.
+4. Poczekaj na zakończenie procesu.
+5. Otwórz pliki pracowników i sprawdź ich zawartość.
 
-Excel działa normalnie. System dopisuje nowe dane tylko do arkusza:
+## Gdy pojawi się problem
 
-`MAXIMISEART_DAILY_APPEND`
-
-Dotychczasowe arkusze i formuły zostają bez zmian.
-
-Jeśli Excel jest otwarty na komputerze, system może wstrzymać zapis. Wtedy zamknij plik Excela i uruchom workflow ponownie albo poczekaj na kolejne uruchomienie.
-
-## Gdy rano nie ma raportu
-
-1. Sprawdź, czy komputer był włączony o zaplanowanej godzinie.
-2. Otwórz Obsidian i sprawdź folder `reports`.
-3. Jeśli raportu nadal nie ma, daj znać Maksowi.
-
-## Gdy Gmail prosi o ponowny dostęp
-
-Powiedz Maksowi. Trzeba uruchomić:
-
-```powershell
-python scripts\init_wizard.py --reauth
-```
-
-## Gdy dzień jest pusty
-
-Raport `0 emaili` oznacza, że skrzynka była pusta. To nie jest awaria.
-
-## Gdy pojawi się nieznany pracownik
-
-Raport pokaże nadawcę w sekcji wymagającej uwagi. Maks dopisze pracownika do listy i uruchomi system ponownie.
-
-## Gdy pojawi się nieznany kod pracy
-
-Raport oznaczy wpis statusem `ASK`. W feedbacku napisz, jaki kod powinien być użyty.
+- Jeśli plik jest otwarty, zamknij go i uruchom proces ponownie.
+- Jeśli pojawi się informacja o braku szablonu, nie twórz pliku ręcznie z innego pracownika. Przekaż tę informację osobie utrzymującej narzędzie.
+- Jeśli plik pracownika ma już dane, narzędzie go nie nadpisze.

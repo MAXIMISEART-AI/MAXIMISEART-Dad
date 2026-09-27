@@ -1,47 +1,24 @@
-[project]
-name = "maximiseart-dad"
-version = "0.1.0"
-description = "Daily email → Excel workflow dla taty (Fiber FTTH subwykonawca)"
-requires-python = ">=3.11"
-readme = "README.md"
-license = { text = "Proprietary" }
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
+[project]
+name = "maximiseart-dad-settlements"
+version = "0.1.0"
+description = "Lokalne, deterministyczne rozdzielanie rozliczenia zbiorczego na pliki pracowników."
+requires-python = ">=3.11"
 dependencies = [
     "openpyxl>=3.1.5",
-    "anthropic>=0.86.0",
-    "pydantic>=2.9.0",
-    "python-dotenv>=1.0.1",
-    "pyyaml>=6.0.2",
-    "google-api-python-client>=2.140.0",
-    "google-auth-httplib2>=0.2.0",
-    "google-auth-oauthlib>=1.2.1",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8.3.0",
-    "pytest-cov>=5.0.0",
-    "ruff>=0.6.0",
-]
-
-[project.scripts]
-dad-daily = "scripts.daily_workflow:main"
-dad-init = "scripts.init_wizard:main"
-
-[build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[tool.ruff]
-line-length = 120
-target-version = "py311"
-
-[tool.pyright]
-extraPaths = ["scripts"]
-pythonVersion = "3.11"
+test = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-v --tb=short"
-pythonpath = ["scripts"]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.setuptools.packages.find]
+where = ["src"]
