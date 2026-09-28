@@ -7,9 +7,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from openpyxl import Workbook, load_workbook
+import pytest
 import yaml
 
+from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState
 from rozliczenia.engine import SettlementError, run_settlements
+import rozliczenia.template_settlement as template_settlement
 
 
 PERIOD = "08_14_09_2026"
@@ -247,3 +250,69 @@ def test_internal_settlement_file_is_rejected(tmp_path: Path) -> None:
         assert "wew." in str(exc)
     else:
         raise AssertionError("Plik Rozliczenie wew. powinien zostać odrzucony")
+
+
+def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disabled(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    recorded = []
+    calls = 0
+
+    def recording_observer(event) -> None:
+        nonlocal calls
+        calls += 1
+        recorded.append(event)
+        raise RuntimeError("observer output failed")
+
+    summary = run_settlements(source_path, config_path, observer=recording_observer)
+
+    assert summary.written_count == 2
+    assert calls == 1
+    assert len(recorded) == 1
+    assert isinstance(recorded[0], ProgressEvent)
+    assert recorded[0].state is ProgressState.START
+    assert "syntetyczny" not in repr(recorded[0])
+
+
+def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    original_process_template = template_settlement.process_template
+    calls = 0
+    recorded = []
+
+    def fail_on_second_save(worker_name: str, path: Path, rows, *, dry_run: bool = False):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise template_settlement.TemplateWriteError("synthetic failure")
+        return original_process_template(worker_name, path, rows, dry_run=dry_run)
+
+    monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
+
+    with pytest.raises(template_settlement.TemplateWriteError):
+        run_settlements(source_path, config_path, observer=recorded.append)
+
+    failed = [event for event in recorded if event.state is ProgressState.FAILED]
+    assert len(failed) == 1
+    assert failed[0].phase is ProgressPhase.SAVING
+    assert failed[0].worker_name == "Darek Nowak"
+    assert failed[0].template_index == 2
+    assert failed[0].worker_elapsed_ms is not None
+    assert all("syntetyczny" not in repr(event) and "#1" not in repr(event) for event in failed)
+    assert not any(
+        event.state is ProgressState.WORKER_END and event.worker_name == "Darek Nowak" for event in recorded
+    )
+    assert not any(event.state is ProgressState.END and event.phase is ProgressPhase.SAVING for event in recorded)
+
+
+def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(tmp_path: Path) -> None:
+    source_path = tmp_path / "08_14_09_2026" / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+    recorded = []
+
+    with pytest.raises(SettlementError, match="Nie znaleziono pliku"):
+        run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)
+
+    assert [event.state for event in recorded] == [ProgressState.START, ProgressState.FAILED]
+    assert recorded[-1].phase is ProgressPhase.CHECKING
+    assert "Nie znaleziono pliku" not in repr(recorded[-1])

@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sys
 import time
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
 try:
     from rich.console import Console as RichConsole, Group as RichGroup
@@ -27,8 +26,15 @@ try:
 except ImportError:
     Console = Group = Live = Panel = Table = Text = None
 
-from .domain import PHASES, SKIPPED_STATUSES, ProgressEvent, SettlementSummary
+from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import SettlementError, period_from_source, run_settlements
+from .progress import (
+    PhaseState,
+    ProgressNotice,
+    ProgressNoticeKind,
+    ProgressProjection,
+    ProgressSnapshot,
+)
 from .telemetry import (
     METRICS_SCHEMA_VERSION,
     MetricsStore,
@@ -96,59 +102,118 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-class DashboardState:
-    def __init__(self, mode: str, period: str):
-        self.mode = mode
-        self.period = period
-        self.phase_states = {phase: "oczekuje" for phase in PHASES}
-        self.phase_durations_ms = {phase: 0 for phase in PHASES}
-        self.template_total = 0
-        self.templates_completed = 0
-        self.rows = 0
-        self.operation_counts: dict[str, int] = {}
-        self.current_worker: str | None = None
-        self.current_phase: str | None = None
-        self.recent_operations: deque[ProgressEvent] = deque(maxlen=5)
-        self.total_elapsed_ms = 0
-        self.issue_count = 0
+class PlainProgressAdapter:
+    """Line-oriented presentation of a reduced progress snapshot."""
 
-    def update(self, event: ProgressEvent) -> None:
-        self.total_elapsed_ms = event.elapsed_ms or self.total_elapsed_ms
-        if event.state == "START":
-            self.phase_states[event.phase] = "aktywny"
-        elif event.state == "END":
-            self.phase_states[event.phase] = "gotowe"
-            if event.phase_elapsed_ms is not None:
-                self.phase_durations_ms[event.phase] = event.phase_elapsed_ms
-        elif event.state == "PLAN_READY":
-            self.template_total = event.template_total
-            self.issue_count = event.issue_count
-        elif event.state == "ISSUE_COUNT":
-            self.issue_count = event.issue_count
-        elif event.state == "WORKER_START":
-            self.current_worker = event.worker_name
-            self.current_phase = event.phase
-        elif event.state == "WORKER_END":
-            self.templates_completed = event.template_index
-            self.rows += event.rows
-            self.issue_count = event.issue_count
-            status = event.status or "NIEZNANY"
-            self.operation_counts[status] = self.operation_counts.get(status, 0) + 1
-            self.recent_operations.append(event)
-            self.current_worker = None
-            self.current_phase = None
+    def __init__(self, line: Callable[[str], None]):
+        self._line = line
 
-    def metric_counters(self) -> dict[str, int]:
-        counts = self.operation_counts
-        return {
-            "templates_total": self.template_total,
-            "templates_completed": self.templates_completed,
-            "rows": self.rows,
-            "written": counts.get("ZAPISANO", 0),
-            "empty": counts.get("PUSTY_SZABLON", 0),
-            "planned": counts.get("PLAN", 0),
-            "skipped": sum(counts.get(status, 0) for status in SKIPPED_STATUSES),
+    def start(self, snapshot: ProgressSnapshot) -> None:
+        self._line(f"Rozliczenia | okres: {snapshot.period} | tryb: {snapshot.mode}")
+        self._line("Status: uruchomiono")
+        self._line("Ostatnie operacje:")
+
+    def update(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+        if notice.kind is ProgressNoticeKind.PHASE_STARTED:
+            self._line(f"Etap: {notice.phase}")
+        elif notice.kind is ProgressNoticeKind.PLAN_READY:
+            self._line(f"Szablony pracownika: 0/{snapshot.template_total}")
+        elif notice.kind is ProgressNoticeKind.WORKER_STARTED:
+            self._line(f"WYKONAWCA: {notice.worker_name} | etap: {notice.phase}")
+        elif notice.kind is ProgressNoticeKind.WORKER_ENDED:
+            self._line(f"Postęp szablonów: {self.progress_line(snapshot)}")
+            self._line(f"Liczniki: {self.counter_line(snapshot)}")
+            status_label, _ = operation_status_presentation(notice.status)
+            self._line(
+                f"Ostatnia operacja: {notice.worker_name} | {notice.status} | "
+                f"status: {status_label} | "
+                f"wiersze: {notice.rows} | czas: {notice.worker_elapsed_ms or 0} ms"
+            )
+        elif notice.kind is ProgressNoticeKind.FAILED:
+            if notice.worker_name:
+                self._line(f"Etap przerwany: {notice.phase} | WYKONAWCA: {notice.worker_name}")
+            else:
+                self._line(f"Etap przerwany: {notice.phase}")
+
+    @staticmethod
+    def progress_line(snapshot: ProgressSnapshot) -> str:
+        if not snapshot.template_total:
+            return "oczekuje na liczbę szablonów"
+        percentage = round(snapshot.templates_completed / snapshot.template_total * 100)
+        return f"{snapshot.templates_completed}/{snapshot.template_total} ({percentage}%)"
+
+    @staticmethod
+    def counter_line(snapshot: ProgressSnapshot) -> str:
+        counters = snapshot.metric_counters()
+        return (
+            f"zapisano: {counters['written']} | "
+            f"puste: {counters['empty']} | "
+            f"planowane: {counters['planned']} | "
+            f"pominięte: {counters['skipped']}"
+        )
+
+
+class RichProgressAdapter:
+    """Rich presentation of the same immutable progress snapshot."""
+
+    def render(self, snapshot: ProgressSnapshot, _notice: ProgressNotice | None = None):
+        assert Console is not None
+        assert Group is not None
+        assert Panel is not None
+        assert Table is not None
+        assert Text is not None
+        phases = Table.grid(padding=(0, 1))
+        phases.add_column()
+        phases.add_column()
+        phase_labels = {
+            PhaseState.PENDING: "oczekuje",
+            PhaseState.RUNNING: "aktywny",
+            PhaseState.COMPLETED: "gotowe",
+            PhaseState.FAILED: "przerwany",
         }
+        for phase in PHASES:
+            progress_phase = ProgressPhase(phase)
+            phase_state = snapshot.phase_states[progress_phase]
+            state_label = phase_labels[phase_state]
+            state_style = {"aktywny": "bold yellow", "gotowe": "bold green", "przerwany": "bold red"}.get(
+                state_label, "dim"
+            )
+            phases.add_row(Text(f"[{state_label}]", style=state_style), phase)
+
+        operations = Table.grid(padding=(0, 1))
+        operations.add_column()
+        operations.add_column()
+        for event in snapshot.recent_operations:
+            status_label, status_style = operation_status_presentation(event.status)
+            operations.add_row(
+                event.worker_name or "-",
+                Text(
+                    f"{status_label}: {event.status} ({event.rows} wierszy, "
+                    f"czas: {event.worker_elapsed_ms or 0} ms)",
+                    style=status_style,
+                ),
+            )
+        if not snapshot.recent_operations:
+            operations.add_row("-", "brak")
+
+        body = Group(
+            phases,
+            f"Postęp szablonów: {self.progress_line(snapshot)}",
+            f"Liczniki: {self.counter_line(snapshot)}",
+            f"Bieżący WYKONAWCA: {snapshot.current_worker or 'brak'} | "
+            f"etap: {snapshot.current_phase or 'oczekuje'}",
+            Panel(operations, title="Ostatnie operacje"),
+            f"Wiersze danych: {snapshot.rows} | Czas: {snapshot.total_elapsed_ms} ms",
+        )
+        return Panel(body, title=f"Rozliczenia | {snapshot.period} | {snapshot.mode}")
+
+    @staticmethod
+    def progress_line(snapshot: ProgressSnapshot) -> str:
+        return PlainProgressAdapter.progress_line(snapshot)
+
+    @staticmethod
+    def counter_line(snapshot: ProgressSnapshot) -> str:
+        return PlainProgressAdapter.counter_line(snapshot)
 
 
 class Dashboard:
@@ -156,7 +221,9 @@ class Dashboard:
 
     def __init__(self, output: TextIO, mode: str, period: str):
         self.output = output
-        self.state = DashboardState(mode, period)
+        self.state = ProgressProjection(mode, period)
+        self.plain_adapter = PlainProgressAdapter(self._line)
+        self.rich_adapter = RichProgressAdapter()
         self.console: Any | None = Console(file=output) if Console is not None else None
         self.interactive = (
             self._supports_live_output(output)
@@ -179,31 +246,15 @@ class Dashboard:
             self.live = Live(self.render(), console=self.console, auto_refresh=False)
             self.live.start(refresh=True)
             return
-        self._line(f"Rozliczenia | okres: {self.state.period} | tryb: {self.state.mode}")
-        self._line("Status: uruchomiono")
-        self._line("Ostatnie operacje:")
+        self.plain_adapter.start(self.state.snapshot)
 
     def __call__(self, event: ProgressEvent) -> None:
-        self.state.update(event)
+        update = self.state.update(event)
         if self.interactive:
             if self.live is not None:
-                self.live.update(self.render(), refresh=True)
+                self.live.update(self.render(update.notice), refresh=True)
             return
-        if event.state == "START":
-            self._line(f"Etap: {event.phase}")
-        elif event.state == "PLAN_READY":
-            self._line(f"Szablony pracownika: 0/{event.template_total}")
-        elif event.state == "WORKER_START":
-            self._line(f"WYKONAWCA: {event.worker_name} | etap: {event.phase}")
-        elif event.state == "WORKER_END":
-            self._line(f"Postęp szablonów: {self._progress_line()}")
-            self._line(f"Liczniki: {self._counter_line()}")
-            status_label, _ = operation_status_presentation(event.status)
-            self._line(
-                f"Ostatnia operacja: {event.worker_name} | {event.status} | "
-                f"status: {status_label} | "
-                f"wiersze: {event.rows} | czas: {event.worker_elapsed_ms or 0} ms"
-            )
+        self.plain_adapter.update(update.snapshot, update.notice)
 
     def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
         if self.live is not None:
@@ -218,7 +269,7 @@ class Dashboard:
         self._line(f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}")
         self._line(f"Status końcowy: {status}")
         self._line(f"Czas uruchomienia: {total_elapsed_ms} ms")
-        self._line(f"Liczniki: {self._counter_line()}")
+        self._line(f"Liczniki: {self.plain_adapter.counter_line(self.state.snapshot)}")
         self._line(f"Wiersze danych: {summary.total_rows}")
         self._line(f"Zapisane szablony: {summary.written_count}")
         self._line(f"Puste szablony: {summary.empty_count}")
@@ -244,62 +295,8 @@ class Dashboard:
             for name, (p50, p95) in stats.items():
                 self._line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
 
-    def render(self):
-        assert Console is not None
-        assert Group is not None
-        assert Panel is not None
-        assert Table is not None
-        assert Text is not None
-        phases = Table.grid(padding=(0, 1))
-        phases.add_column()
-        phases.add_column()
-        for phase in PHASES:
-            phase_state = self.state.phase_states[phase]
-            state_style = {"aktywny": "bold yellow", "gotowe": "bold green"}.get(phase_state, "dim")
-            phases.add_row(Text(f"[{phase_state}]", style=state_style), phase)
-
-        progress = self._progress_line()
-        current = self.state.current_worker or "brak"
-        current_phase = self.state.current_phase or "oczekuje"
-        operations = Table.grid(padding=(0, 1))
-        operations.add_column()
-        operations.add_column()
-        for event in self.state.recent_operations:
-            status_label, status_style = operation_status_presentation(event.status)
-            operations.add_row(
-                event.worker_name or "-",
-                Text(
-                    f"{status_label}: {event.status} ({event.rows} wierszy)",
-                    style=status_style,
-                ),
-            )
-        if not self.state.recent_operations:
-            operations.add_row("-", "brak")
-
-        body = Group(
-            phases,
-            f"Postęp szablonów: {progress}",
-            f"Liczniki: {self._counter_line()}",
-            f"Bieżący WYKONAWCA: {current} | etap: {current_phase}",
-            Panel(operations, title="Ostatnie operacje"),
-            f"Wiersze danych: {self.state.rows} | Czas: {self.state.total_elapsed_ms} ms",
-        )
-        return Panel(body, title=f"Rozliczenia | {self.state.period} | {self.state.mode}")
-
-    def _progress_line(self) -> str:
-        if not self.state.template_total:
-            return "oczekuje na liczbę szablonów"
-        percentage = round(self.state.templates_completed / self.state.template_total * 100)
-        return f"{self.state.templates_completed}/{self.state.template_total} ({percentage}%)"
-
-    def _counter_line(self) -> str:
-        counters = self.state.metric_counters()
-        return (
-            f"zapisano: {counters['written']} | "
-            f"puste: {counters['empty']} | "
-            f"planowane: {counters['planned']} | "
-            f"pominięte: {counters['skipped']}"
-        )
+    def render(self, notice: ProgressNotice | None = None):
+        return self.rich_adapter.render(self.state.snapshot, notice)
 
     def _line(self, message: str) -> None:
         if self.interactive and self.console is not None:
@@ -325,7 +322,8 @@ def _metric_record(
     total_elapsed_ms: int,
     started_at: str,
 ) -> dict[str, Any]:
-    counters = dashboard.state.metric_counters() if dashboard else {
+    snapshot = dashboard.state.snapshot if dashboard else None
+    counters = snapshot.metric_counters() if snapshot else {
         "templates_total": 0,
         "templates_completed": 0,
         "rows": 0,
@@ -335,7 +333,7 @@ def _metric_record(
         "skipped": 0,
     }
     if summary is None:
-        counters["issues"] = (dashboard.state.issue_count if dashboard else 0) + 1
+        counters["issues"] = (snapshot.issue_count if snapshot else 0) + 1
         result = "BLAD_KRYTYCZNY"
     else:
         counters.update(
@@ -350,7 +348,7 @@ def _metric_record(
             }
         )
         result = "OK" if summary.ok else "WYMAGA_SPRAWDZENIA"
-    phase_durations = dashboard.state.phase_durations_ms if dashboard else {phase: 0 for phase in PHASES}
+    phase_durations = snapshot.phase_durations_ms if snapshot else {ProgressPhase(phase): 0 for phase in PHASES}
     return {
         "schema_version": METRICS_SCHEMA_VERSION,
         "started_at": started_at,
@@ -359,7 +357,7 @@ def _metric_record(
         "completed": completed,
         "result": result,
         "total_duration_ms": total_elapsed_ms,
-        "phase_durations_ms": dict(phase_durations),
+        "phase_durations_ms": {str(phase): duration for phase, duration in phase_durations.items()},
         "counters": counters,
     }
 

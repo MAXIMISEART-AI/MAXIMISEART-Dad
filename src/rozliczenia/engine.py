@@ -13,7 +13,12 @@ import yaml
 from openpyxl import load_workbook
 
 from . import template_settlement
-from .domain import Issue, ProgressEvent, ProgressObserver, SettlementSummary
+from .domain import (
+    Issue,
+    ProgressEventFactory,
+    ProgressObserver,
+    SettlementSummary,
+)
 
 
 ResultT = TypeVar("ResultT")
@@ -158,31 +163,48 @@ def _elapsed_ms(started: float) -> int:
     return max(0, round((time.perf_counter() - started) * 1000))
 
 
-def _notify(observer: ProgressObserver | None, event: ProgressEvent) -> None:
-    if observer is not None:
-        observer(event)
+class _ObserverDispatcher:
+    """Detaches a broken observer without affecting the settlement engine."""
+
+    def __init__(self, observer: ProgressObserver | None):
+        self._observer = observer
+
+    def notify(self, event) -> None:
+        if self._observer is None:
+            return
+        try:
+            self._observer(event)
+        except Exception:
+            self._observer = None
 
 
 def _run_phase(
     phase: str,
-    observer: ProgressObserver | None,
+    notify: Callable,
     run_started: float,
     operation: Callable[[], ResultT],
 ) -> ResultT:
     phase_started = time.perf_counter()
-    _notify(observer, ProgressEvent(phase, "START", elapsed_ms=_elapsed_ms(run_started)))
+    notify(ProgressEventFactory.phase_started(phase, elapsed_ms=_elapsed_ms(run_started)))
     try:
-        return operation()
-    finally:
-        _notify(
-            observer,
-            ProgressEvent(
+        result = operation()
+    except Exception:
+        notify(
+            ProgressEventFactory.phase_failed(
                 phase,
-                "END",
                 elapsed_ms=_elapsed_ms(run_started),
                 phase_elapsed_ms=_elapsed_ms(phase_started),
-            ),
+            )
         )
+        raise
+    notify(
+        ProgressEventFactory.phase_ended(
+            phase,
+            elapsed_ms=_elapsed_ms(run_started),
+            phase_elapsed_ms=_elapsed_ms(phase_started),
+        )
+    )
+    return result
 
 
 def run_settlements(
@@ -197,6 +219,8 @@ def run_settlements(
     run_started = time.perf_counter()
     source_path = source_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
+    dispatcher = _ObserverDispatcher(observer)
+    notify = dispatcher.notify
 
     def check_inputs() -> tuple[str, Path, dict[str, str]]:
         if not source_path.is_file():
@@ -208,18 +232,15 @@ def run_settlements(
             raise SettlementError(f"Nie znaleziono folderu szablonów: {target_directory.name}")
         return period, target_directory, load_worker_mapping(config_path)
 
-    period, target_directory, mapping = _run_phase("Sprawdzanie", observer, run_started, check_inputs)
+    period, target_directory, mapping = _run_phase("Sprawdzanie", notify, run_started, check_inputs)
     rows_by_worker, source_issues = _run_phase(
-        "Odczyt danych", observer, run_started, lambda: _read_source_rows(source_path)
+        "Odczyt danych", notify, run_started, lambda: _read_source_rows(source_path)
     )
-    _notify(
-        observer,
-        ProgressEvent(
-            "Odczyt danych",
-            "ISSUE_COUNT",
+    notify(
+        ProgressEventFactory.issue_count(
             elapsed_ms=_elapsed_ms(run_started),
             issue_count=len(source_issues),
-        ),
+        )
     )
     summary = SettlementSummary(period, source_path, target_directory, issues=source_issues)
 
@@ -244,73 +265,88 @@ def run_settlements(
             rows_by_target[target_key].extend(rows)
         return template_files, rows_by_target, issues
 
-    template_files, rows_by_target, plan_issues = _run_phase("Planowanie", observer, run_started, plan_rows)
+    template_files, rows_by_target, plan_issues = _run_phase("Planowanie", notify, run_started, plan_rows)
     summary.issues.extend(plan_issues)
-    _notify(
-        observer,
-        ProgressEvent(
-            "Planowanie",
-            "PLAN_READY",
+    notify(
+        ProgressEventFactory.plan_ready(
             template_total=len(template_files),
             elapsed_ms=_elapsed_ms(run_started),
             issue_count=len(summary.issues),
-        ),
+        )
     )
 
+    worker_failure_notified = False
+
     def save_targets() -> None:
+        nonlocal worker_failure_notified
         for template_index, (worker_name, target_path) in enumerate(template_files, start=1):
             target_key = normalize_text(worker_name)
             worker_started = time.perf_counter()
-            _notify(
-                observer,
-                ProgressEvent(
-                    "Zapisywanie",
-                    "WORKER_START",
+            notify(
+                ProgressEventFactory.worker_started(
+                    worker_name,
                     template_index=template_index,
                     template_total=len(template_files),
-                    worker_name=worker_name,
                     elapsed_ms=_elapsed_ms(run_started),
-                ),
+                )
             )
             rows = rows_by_target.get(target_key, [])
-            result = template_settlement.process_template(
-                worker_name,
-                target_path,
-                rows,
-                dry_run=dry_run,
-            )
+            try:
+                result = template_settlement.process_template(
+                    worker_name,
+                    target_path,
+                    rows,
+                    dry_run=dry_run,
+                )
+            except Exception:
+                worker_failure_notified = True
+                notify(
+                    ProgressEventFactory.worker_failed(
+                        worker_name,
+                        template_index=template_index,
+                        template_total=len(template_files),
+                        elapsed_ms=_elapsed_ms(run_started),
+                        worker_elapsed_ms=_elapsed_ms(worker_started),
+                    )
+                )
+                raise
             summary.issues.extend(result.issues)
             summary.results.append(result)
-            _notify(
-                observer,
-                ProgressEvent(
-                    "Zapisywanie",
-                    "WORKER_END",
+            notify(
+                ProgressEventFactory.worker_ended(
+                    worker_name,
                     template_index=template_index,
                     template_total=len(template_files),
-                    worker_name=worker_name,
                     status=result.status,
                     rows=result.rows,
                     elapsed_ms=_elapsed_ms(run_started),
                     worker_elapsed_ms=_elapsed_ms(worker_started),
                     issue_count=len(summary.issues),
-                ),
+                )
             )
     save_started = time.perf_counter()
-    _notify(observer, ProgressEvent("Zapisywanie", "START", elapsed_ms=_elapsed_ms(run_started)))
+    notify(ProgressEventFactory.phase_started("Zapisywanie", elapsed_ms=_elapsed_ms(run_started)))
     try:
         save_targets()
-    finally:
-        _notify(
-            observer,
-            ProgressEvent(
+    except Exception:
+        if not worker_failure_notified:
+            notify(
+                ProgressEventFactory.phase_failed(
+                    "Zapisywanie",
+                    elapsed_ms=_elapsed_ms(run_started),
+                    phase_elapsed_ms=_elapsed_ms(save_started),
+                )
+            )
+        raise
+    else:
+        notify(
+            ProgressEventFactory.phase_ended(
                 "Zapisywanie",
-                "END",
                 template_index=len(template_files),
                 template_total=len(template_files),
                 elapsed_ms=_elapsed_ms(run_started),
                 phase_elapsed_ms=_elapsed_ms(save_started),
-            ),
+            )
         )
 
     return summary
