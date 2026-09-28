@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, TypeVar
 
 from .domain import (
     PHASES,
@@ -47,6 +47,8 @@ class ProgressNotice:
     status: str | None = None
     rows: int = 0
     worker_elapsed_ms: int | None = None
+    template_index: int = 0
+    template_total: int = 0
 
 
 @dataclass(frozen=True)
@@ -100,7 +102,11 @@ class ProgressUpdate:
     notice: ProgressNotice
 
 
-def _immutable_mapping(values: Mapping) -> Mapping:
+KeyT = TypeVar("KeyT")
+ValueT = TypeVar("ValueT")
+
+
+def _immutable_mapping(values: Mapping[KeyT, ValueT]) -> Mapping[KeyT, ValueT]:
     return MappingProxyType(dict(values))
 
 
@@ -340,4 +346,6 @@ class ProgressProjection:
             status=event.status,
             rows=event.rows,
             worker_elapsed_ms=event.worker_elapsed_ms,
+            template_index=event.template_index,
+            template_total=event.template_total,
         )
