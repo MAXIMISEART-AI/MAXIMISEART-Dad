@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
+
+
+PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
+ProgressObserver = Callable[["ProgressEvent"], None]
 
 
 @dataclass(frozen=True)
@@ -22,6 +27,22 @@ class WorkerResult:
     output_file: Path
     rows: int
     status: str
+
+
+@dataclass(frozen=True)
+class ProgressEvent:
+    """Bezpieczne zdarzenie postępu dla terminala lub innego adaptera."""
+
+    phase: str
+    state: str
+    template_index: int = 0
+    template_total: int = 0
+    worker_name: str | None = None
+    status: str | None = None
+    rows: int = 0
+    elapsed_ms: int | None = None
+    phase_elapsed_ms: int | None = None
+    worker_elapsed_ms: int | None = None
 
 
 @dataclass
@@ -49,6 +70,14 @@ class SettlementSummary:
     @property
     def total_rows(self) -> int:
         return sum(result.rows for result in self.results)
+
+    @property
+    def skipped_count(self) -> int:
+        return sum(result.status in {"ZABLOKOWANY", "ZLY_SZABLON", "POMINIĘTO"} for result in self.results)
+
+    @property
+    def template_count(self) -> int:
+        return len(self.results)
 
     @property
     def ok(self) -> bool:

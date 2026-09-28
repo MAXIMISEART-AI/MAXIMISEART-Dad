@@ -31,6 +31,12 @@ Przed pierwszym prawdziwym uruchomieniem użyj kontroli bez zapisu:
 py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
 ```
 
+Uruchomienie pokazuje etapy, postęp szablonów pracownika i końcowe liczniki.
+W przekierowanym wyjściu lub terminalu bez kolorów używany jest zwykły tekst.
+Historia czasów jest dopisywana lokalnie do `.rozliczenia-metrics.jsonl`; można
+wskazać inne miejsce parametrem `--metrics`. P50 i P95 pojawiają się po pięciu
+ukończonych obserwacjach tego samego trybu (`RUN` albo `DRY-RUN`).
+
 ## Uruchomienie przez CMD
 
 Dwuklik `Utwórz rozliczenia.cmd` otwiera wybór pliku zbiorczego. Podanie ścieżki

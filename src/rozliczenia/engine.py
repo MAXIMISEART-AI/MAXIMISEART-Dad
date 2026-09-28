@@ -5,16 +5,21 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import time
 import unicodedata
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable, TypeVar
 
 import yaml
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
-from .domain import Issue, SettlementSummary, WorkerResult
+from .domain import Issue, ProgressEvent, ProgressObserver, SettlementSummary, WorkerResult
+
+
+ResultT = TypeVar("ResultT")
 
 PERIOD_PATTERN = r"\d{2}_\d{2}_\d{2}_\d{4}"
 SOURCE_PATTERN = re.compile(
@@ -204,6 +209,37 @@ def _restore_external_link_parts(
         temporary_path.unlink(missing_ok=True)
 
 
+def _elapsed_ms(started: float) -> int:
+    return max(0, round((time.perf_counter() - started) * 1000))
+
+
+def _notify(observer: ProgressObserver | None, event: ProgressEvent) -> None:
+    if observer is not None:
+        observer(event)
+
+
+def _run_phase(
+    phase: str,
+    observer: ProgressObserver | None,
+    run_started: float,
+    operation: Callable[[], ResultT],
+) -> ResultT:
+    phase_started = time.perf_counter()
+    _notify(observer, ProgressEvent(phase, "START", elapsed_ms=_elapsed_ms(run_started)))
+    try:
+        return operation()
+    finally:
+        _notify(
+            observer,
+            ProgressEvent(
+                phase,
+                "END",
+                elapsed_ms=_elapsed_ms(run_started),
+                phase_elapsed_ms=_elapsed_ms(phase_started),
+            ),
+        )
+
+
 def _save_target(path: Path, rows: Iterable[tuple]) -> None:
     """Wpisuje wartości do pustego szablonu i zapisuje atomowo."""
 
@@ -241,77 +277,160 @@ def run_settlements(
     config_path: Path,
     *,
     dry_run: bool = False,
+    observer: ProgressObserver | None = None,
 ) -> SettlementSummary:
     """Uruchamia pełny proces z ochroną przed błędną lokalizacją i duplikacją."""
 
+    run_started = time.perf_counter()
     source_path = source_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
-    if not source_path.is_file():
-        raise SettlementError(f"Nie znaleziono pliku źródłowego: {source_path}")
-    ensure_unlocked(source_path)
-    period = period_from_source(source_path)
-    target_directory = source_path.parent / f"Rozliczenie pracowników {period}"
-    if not target_directory.is_dir():
-        raise SettlementError(f"Nie znaleziono folderu szablonów: {target_directory.name}")
 
-    mapping = load_worker_mapping(config_path)
-    rows_by_worker, source_issues = _read_source_rows(source_path)
+    def check_inputs() -> tuple[str, Path, dict[str, str]]:
+        if not source_path.is_file():
+            raise SettlementError(f"Nie znaleziono pliku źródłowego: {source_path}")
+        ensure_unlocked(source_path)
+        period = period_from_source(source_path)
+        target_directory = source_path.parent / f"Rozliczenie pracowników {period}"
+        if not target_directory.is_dir():
+            raise SettlementError(f"Nie znaleziono folderu szablonów: {target_directory.name}")
+        return period, target_directory, load_worker_mapping(config_path)
+
+    period, target_directory, mapping = _run_phase("Sprawdzanie", observer, run_started, check_inputs)
+    rows_by_worker, source_issues = _run_phase(
+        "Odczyt danych", observer, run_started, lambda: _read_source_rows(source_path)
+    )
     summary = SettlementSummary(period, source_path, target_directory, issues=source_issues)
 
-    template_files = target_files(target_directory, period)
-    target_by_name = {normalize_text(name): path for name, path in template_files}
-    rows_by_target: dict[str, list[tuple]] = defaultdict(list)
-
-    for source_worker, rows in rows_by_worker.items():
-        target_name = mapping.get(source_worker)
-        if target_name is None:
-            summary.issues.append(
-                Issue("BRAK_MAPOWANIA", f"Pominięto wykonawcę bez mapowania: {source_worker}.")
-            )
-            continue
-        target_key = normalize_text(target_name)
-        if target_key not in target_by_name:
-            summary.issues.append(
-                Issue("BRAK_SZABLONU", f"Pominięto wykonawcę bez szablonu: {target_name}.")
-            )
-            continue
-        rows_by_target[target_key].extend(rows)
-
-    for worker_name, target_path in template_files:
-        target_key = normalize_text(worker_name)
-        try:
-            ensure_unlocked(target_path)
-        except SettlementError as exc:
-            summary.issues.append(Issue("PLIK_ZABLOKOWANY", str(exc)))
-            summary.results.append(WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY"))
-            continue
-        target_workbook = load_workbook(target_path, read_only=False, data_only=False, keep_links=True)
-        try:
-            target_sheet = target_workbook.active
-            header = target_sheet.cell(row=HEADER_ROW, column=WORKER_COLUMN).value
-            if normalize_text(header) != "wykonawca":
-                summary.issues.append(
-                    Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w H:17: {target_path.name}.")
+    def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[tuple]], list[Issue]]:
+        template_files = target_files(target_directory, period)
+        target_by_name = {normalize_text(name): path for name, path in template_files}
+        rows_by_target: dict[str, list[tuple]] = defaultdict(list)
+        issues: list[Issue] = []
+        for source_worker, rows in rows_by_worker.items():
+            target_name = mapping.get(source_worker)
+            if target_name is None:
+                issues.append(
+                    Issue("BRAK_MAPOWANIA", f"Pominięto wykonawcę bez mapowania: {source_worker}.")
                 )
                 continue
-            occupied = target_has_input_data(target_sheet)
-        finally:
-            target_workbook.close()
+            target_key = normalize_text(target_name)
+            if target_key not in target_by_name:
+                issues.append(
+                    Issue("BRAK_SZABLONU", f"Pominięto wykonawcę bez szablonu: {target_name}.")
+                )
+                continue
+            rows_by_target[target_key].extend(rows)
+        return template_files, rows_by_target, issues
 
-        rows = rows_by_target.get(target_key, [])
-        if occupied:
-            summary.issues.append(
-                Issue("NADPISANIE_ZABLOKOWANE", f"Szablon zawiera już dane: {target_path.name}.")
+    template_files, rows_by_target, plan_issues = _run_phase("Planowanie", observer, run_started, plan_rows)
+    summary.issues.extend(plan_issues)
+    _notify(
+        observer,
+        ProgressEvent(
+            "Planowanie",
+            "PLAN_READY",
+            template_total=len(template_files),
+            elapsed_ms=_elapsed_ms(run_started),
+        ),
+    )
+
+    def save_targets() -> None:
+        save_started = time.perf_counter()
+        for template_index, (worker_name, target_path) in enumerate(template_files, start=1):
+            target_key = normalize_text(worker_name)
+            worker_started = time.perf_counter()
+            _notify(
+                observer,
+                ProgressEvent(
+                    "Zapisywanie",
+                    "WORKER_START",
+                    template_index=template_index,
+                    template_total=len(template_files),
+                    worker_name=worker_name,
+                    elapsed_ms=_elapsed_ms(run_started),
+                ),
             )
-            summary.results.append(WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY"))
-            continue
-        if not rows:
-            summary.results.append(WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON"))
-            continue
-        if dry_run:
-            summary.results.append(WorkerResult(worker_name, target_path, len(rows), "PLAN"))
-            continue
-        _save_target(target_path, rows)
-        summary.results.append(WorkerResult(worker_name, target_path, len(rows), "ZAPISANO"))
+            result: WorkerResult | None = None
+            occupied = False
+            writing_target = False
+            try:
+                ensure_unlocked(target_path)
+                target_workbook = load_workbook(
+                    target_path, read_only=False, data_only=False, keep_links=True
+                )
+                try:
+                    target_sheet = target_workbook.active
+                    header = target_sheet.cell(row=HEADER_ROW, column=WORKER_COLUMN).value
+                    if normalize_text(header) != "wykonawca":
+                        summary.issues.append(
+                            Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w H:17: {target_path.name}.")
+                        )
+                        result = WorkerResult(worker_name, target_path, 0, "ZLY_SZABLON")
+                    else:
+                        occupied = target_has_input_data(target_sheet)
+                finally:
+                    target_workbook.close()
+
+                if result is None:
+                    rows = rows_by_target.get(target_key, [])
+                    if occupied:
+                        summary.issues.append(
+                            Issue(
+                                "NADPISANIE_ZABLOKOWANE",
+                                f"Szablon zawiera już dane: {target_path.name}.",
+                            )
+                        )
+                        result = WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY")
+                    elif not rows:
+                        result = WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
+                    elif dry_run:
+                        result = WorkerResult(worker_name, target_path, len(rows), "PLAN")
+                    else:
+                        writing_target = True
+                        _save_target(target_path, rows)
+                        result = WorkerResult(worker_name, target_path, len(rows), "ZAPISANO")
+            except SettlementError as exc:
+                if writing_target:
+                    raise
+                summary.issues.append(Issue("PLIK_ZABLOKOWANY", str(exc)))
+                result = WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY")
+            except (OSError, InvalidFileException, ValueError, zipfile.BadZipFile):
+                if writing_target:
+                    raise
+                summary.issues.append(
+                    Issue("BLAD_SZABLONU", f"Nie można obsłużyć szablonu: {target_path.name}.")
+                )
+                result = WorkerResult(worker_name, target_path, 0, "POMINIĘTO")
+
+            assert result is not None
+            summary.results.append(result)
+            _notify(
+                observer,
+                ProgressEvent(
+                    "Zapisywanie",
+                    "WORKER_END",
+                    template_index=template_index,
+                    template_total=len(template_files),
+                    worker_name=worker_name,
+                    status=result.status,
+                    rows=result.rows,
+                    elapsed_ms=_elapsed_ms(run_started),
+                    worker_elapsed_ms=_elapsed_ms(worker_started),
+                ),
+            )
+        _notify(
+            observer,
+            ProgressEvent(
+                "Zapisywanie",
+                "END",
+                template_index=len(template_files),
+                template_total=len(template_files),
+                elapsed_ms=_elapsed_ms(run_started),
+                phase_elapsed_ms=_elapsed_ms(save_started),
+            ),
+        )
+
+    _notify(observer, ProgressEvent("Zapisywanie", "START", elapsed_ms=_elapsed_ms(run_started)))
+    save_targets()
 
     return summary

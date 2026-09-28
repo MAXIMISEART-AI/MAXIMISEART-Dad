@@ -10,3 +10,4 @@ __pycache__/
 ._*
 reports/
 logs/
+.rozliczenia-metrics.jsonl
