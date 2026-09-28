@@ -11,6 +11,7 @@ from openpyxl import load_workbook
 import pytest
 
 from rozliczenia.cli import main
+import rozliczenia.engine as settlement_engine
 from rozliczenia.telemetry import MetricsStore
 
 from tests.test_settlement_engine import PERIOD, make_fixture
@@ -97,6 +98,20 @@ def test_metrics_store_rejects_record_with_full_path(tmp_path: Path) -> None:
     assert metrics_path.read_text(encoding="utf-8").count("\n") == 1
 
 
+def test_metrics_store_repairs_torn_final_line(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    run_cli(source_path, config_path, metrics_path)
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+
+    with metrics_path.open("ab") as stream:
+        stream.write(b'{"schema_version":1')
+    MetricsStore(metrics_path).append(record)
+
+    assert len(MetricsStore(metrics_path).read()) == 2
+    assert metrics_path.read_bytes().endswith(b"\n")
+
+
 def test_cli_runs_without_rich(tmp_path: Path) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
@@ -127,7 +142,7 @@ def test_cli_runs_without_rich(tmp_path: Path) -> None:
     assert "Status końcowy: Wymaga sprawdzenia" in result.stdout
 
 
-def test_plain_cli_completes_progress_for_locked_and_skipped_templates(tmp_path: Path) -> None:
+def test_plain_cli_completes_progress_for_locked_and_skipped_szablon_pracownika(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     locked_path = target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx"
     (target_directory / f"~${locked_path.name}").touch()
@@ -151,7 +166,7 @@ def test_plain_cli_completes_progress_for_locked_and_skipped_templates(tmp_path:
     assert "Pominięte szablony: 2" in output
 
 
-def test_plain_cli_shows_dry_run_and_does_not_write_worker_templates(tmp_path: Path) -> None:
+def test_plain_cli_shows_dry_run_and_does_not_write_szablon_pracownika(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
 
@@ -237,3 +252,35 @@ def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is False
     assert record["result"] == "BLAD_KRYTYCZNY"
+
+
+def test_critical_write_failure_preserves_partial_counters(tmp_path: Path, monkeypatch) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    original_save_target = settlement_engine._save_target
+    save_calls = 0
+
+    def fail_on_second_save(path: Path, rows) -> None:
+        nonlocal save_calls
+        save_calls += 1
+        if save_calls == 2:
+            raise OSError("synthetic write failure")
+        original_save_target(path, rows)
+
+    monkeypatch.setattr(settlement_engine, "_save_target", fail_on_second_save)
+
+    exit_code, _ = run_cli(source_path, config_path, metrics_path)
+
+    assert exit_code == 1
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert record["completed"] is False
+    assert record["counters"] == {
+        "templates_total": 3,
+        "templates_completed": 1,
+        "rows": 2,
+        "written": 1,
+        "empty": 0,
+        "planned": 0,
+        "skipped": 0,
+        "issues": 1,
+    }

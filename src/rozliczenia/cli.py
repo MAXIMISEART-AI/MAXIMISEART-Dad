@@ -27,7 +27,7 @@ try:
 except ImportError:
     Console = Group = Live = Panel = Table = Text = None
 
-from .domain import PHASES, ProgressEvent, SettlementSummary
+from .domain import PHASES, SKIPPED_STATUSES, ProgressEvent, SettlementSummary
 from .engine import SettlementError, period_from_source, run_settlements
 from .telemetry import (
     METRICS_SCHEMA_VERSION,
@@ -132,6 +132,18 @@ class DashboardState:
             self.recent_operations.append(event)
             self.current_worker = None
             self.current_phase = None
+
+    def metric_counters(self) -> dict[str, int]:
+        counts = self.operation_counts
+        return {
+            "templates_total": self.template_total,
+            "templates_completed": self.templates_completed,
+            "rows": self.rows,
+            "written": counts.get("ZAPISANO", 0),
+            "empty": counts.get("PUSTY_SZABLON", 0),
+            "planned": counts.get("PLAN", 0),
+            "skipped": sum(counts.get(status, 0) for status in SKIPPED_STATUSES),
+        }
 
 
 class Dashboard:
@@ -275,13 +287,12 @@ class Dashboard:
         return f"{self.state.templates_completed}/{self.state.template_total} ({percentage}%)"
 
     def _counter_line(self) -> str:
-        counts = self.state.operation_counts
-        skipped = sum(counts.get(status, 0) for status in ("ZABLOKOWANY", "ZLY_SZABLON", "POMINIĘTO"))
+        counters = self.state.metric_counters()
         return (
-            f"zapisano: {counts.get('ZAPISANO', 0)} | "
-            f"puste: {counts.get('PUSTY_SZABLON', 0)} | "
-            f"planowane: {counts.get('PLAN', 0)} | "
-            f"pominięte: {skipped}"
+            f"zapisano: {counters['written']} | "
+            f"puste: {counters['empty']} | "
+            f"planowane: {counters['planned']} | "
+            f"pominięte: {counters['skipped']}"
         )
 
     def _line(self, message: str) -> None:
@@ -309,16 +320,16 @@ def _metric_record(
     started_at: str,
 ) -> dict[str, Any]:
     if summary is None:
-        counters = {
-            "templates_total": dashboard.state.template_total if dashboard else 0,
-            "templates_completed": dashboard.state.templates_completed if dashboard else 0,
+        counters = dashboard.state.metric_counters() if dashboard else {
+            "templates_total": 0,
+            "templates_completed": 0,
             "rows": 0,
             "written": 0,
             "empty": 0,
             "planned": 0,
             "skipped": 0,
-            "issues": 1,
         }
+        counters["issues"] = 1
         result = "BLAD_KRYTYCZNY"
     else:
         counters = {

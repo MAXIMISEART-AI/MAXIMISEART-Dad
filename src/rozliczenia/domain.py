@@ -8,6 +8,7 @@ from typing import Callable
 
 
 PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
+SKIPPED_STATUSES = frozenset({"ZABLOKOWANY", "ZLY_SZABLON", "POMINIĘTO"})
 ProgressObserver = Callable[["ProgressEvent"], None]
 
 
@@ -73,7 +74,7 @@ class SettlementSummary:
 
     @property
     def skipped_count(self) -> int:
-        return sum(result.status in {"ZABLOKOWANY", "ZLY_SZABLON", "POMINIĘTO"} for result in self.results)
+        return sum(result.status in SKIPPED_STATUSES for result in self.results)
 
     @property
     def template_count(self) -> int:
