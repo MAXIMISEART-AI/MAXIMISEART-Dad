@@ -1,0 +1,48 @@
+name: Pytest
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+    env:
+      EXPECTED_PYTHON_VERSION: ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Route py -3 to the selected Python
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\.github\scripts" -Encoding utf8
+
+      - name: Verify py -3 interpreter
+        run: |
+          $actualVersion = py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+          if ($actualVersion -ne $env:EXPECTED_PYTHON_VERSION) {
+            throw "py -3 resolved to Python $actualVersion; expected $env:EXPECTED_PYTHON_VERSION."
+          }
+
+      - name: Install test dependencies
+        run: py -3 -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Run tests
+        run: py -3 -m pytest
