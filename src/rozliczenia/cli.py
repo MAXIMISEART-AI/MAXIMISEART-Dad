@@ -122,7 +122,11 @@ class Dashboard:
         self.output = output
         self.state = DashboardState(mode, period)
         self.console: Any | None = Console(file=output) if Console is not None else None
-        self.interactive = self._supports_live_output(output) and self.console is not None
+        self.interactive = (
+            self._supports_live_output(output)
+            and self.console is not None
+            and self.console.color_system is not None
+        )
         self.live: Any | None = None
 
     @staticmethod

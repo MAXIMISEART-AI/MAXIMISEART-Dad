@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from openpyxl import load_workbook
+
 from rozliczenia.cli import main
 
 from tests.test_settlement_engine import PERIOD, make_fixture
@@ -102,6 +104,28 @@ def test_cli_runs_without_rich(tmp_path: Path) -> None:
     assert "Postęp szablonów: 3/3 (100%)" in result.stdout
     assert "WYKONAWCA: Adrian Maciejewski" in result.stdout
     assert "Status końcowy: Wymaga sprawdzenia" in result.stdout
+
+
+def test_plain_cli_completes_progress_for_locked_and_skipped_templates(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    locked_path = target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx"
+    (target_directory / f"~${locked_path.name}").touch()
+
+    invalid_path = target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx"
+    workbook = load_workbook(invalid_path)
+    try:
+        workbook.active["H17"] = "NIE WYKONAWCA"
+        workbook.save(invalid_path)
+    finally:
+        workbook.close()
+
+    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
+
+    assert exit_code == 2
+    assert "Postęp szablonów: 3/3 (100%)" in output
+    assert "Ostatnia operacja: Darek Nowak | ZABLOKOWANY" in output
+    assert "Ostatnia operacja: Kamil Frontczak | ZLY_SZABLON" in output
+    assert "Pominięte szablony: 2" in output
 
 
 def test_plain_cli_shows_dry_run_and_does_not_write_worker_templates(tmp_path: Path) -> None:
