@@ -59,6 +59,15 @@ def operation_status_presentation(status: str | None) -> tuple[str, str]:
     return OPERATION_STATUS_PRESENTATION.get(status or "", ("OSTRZEŻENIE", "yellow"))
 
 
+def _summary_counter_line(summary: SettlementSummary) -> str:
+    return (
+        f"zapisano: {summary.written_count} | "
+        f"puste: {summary.empty_count} | "
+        f"planowane: {summary.planned_count} | "
+        f"pominięte: {summary.skipped_count}"
+    )
+
+
 def default_config_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "worker_mapping.yaml"
 
@@ -269,7 +278,7 @@ class Dashboard:
         self._line(f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}")
         self._line(f"Status końcowy: {status}")
         self._line(f"Czas uruchomienia: {total_elapsed_ms} ms")
-        self._line(f"Liczniki: {self.plain_adapter.counter_line(self.state.snapshot)}")
+        self._line(f"Liczniki: {_summary_counter_line(summary)}")
         self._line(f"Wiersze danych: {summary.total_rows}")
         self._line(f"Zapisane szablony: {summary.written_count}")
         self._line(f"Puste szablony: {summary.empty_count}")
@@ -339,6 +348,7 @@ def _metric_record(
         counters.update(
             {
                 "templates_total": summary.template_count,
+                "templates_completed": summary.template_count,
                 "rows": summary.total_rows,
                 "written": summary.written_count,
                 "empty": summary.empty_count,

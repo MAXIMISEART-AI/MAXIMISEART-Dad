@@ -115,6 +115,24 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert str(source_path) not in metrics_text
 
 
+def test_completed_metrics_use_summary_after_observer_detaches(tmp_path: Path, monkeypatch) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+
+    def fail_output(_dashboard, _event) -> None:
+        raise OSError("synthetic output failure")
+
+    monkeypatch.setattr(cli.Dashboard, "__call__", fail_output)
+
+    exit_code, output = run_cli(source_path, config_path, metrics_path)
+
+    assert exit_code == 2
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert record["completed"] is True
+    assert record["counters"]["templates_completed"] == 3
+    assert "Liczniki: zapisano: 2 | puste: 1 | planowane: 0 | pominięte: 0" in output
+
+
 def test_metrics_store_rejects_record_with_full_path(tmp_path: Path) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"

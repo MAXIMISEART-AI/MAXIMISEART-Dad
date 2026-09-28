@@ -84,7 +84,7 @@ class ProgressEvent:
         phase = _coerce_phase(self.phase)
         try:
             state = ProgressState(self.state)
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise ProgressProtocolError(f"Nieznany stan zdarzenia: {self.state!r}.") from exc
         object.__setattr__(self, "phase", phase)
         object.__setattr__(self, "state", state)
@@ -97,6 +97,18 @@ class ProgressEvent:
             value = getattr(self, name)
             if value is not None and (type(value) is not int or value < 0):
                 raise ProgressProtocolError(f"Pole {name} musi być nieujemnym czasem albo None.")
+        if (
+            self.elapsed_ms is not None
+            and self.phase_elapsed_ms is not None
+            and self.phase_elapsed_ms > self.elapsed_ms
+        ):
+            raise ProgressProtocolError("Czas fazy nie może przekraczać czasu uruchomienia.")
+        if (
+            self.elapsed_ms is not None
+            and self.worker_elapsed_ms is not None
+            and self.worker_elapsed_ms > self.elapsed_ms
+        ):
+            raise ProgressProtocolError("Czas wykonawcy nie może przekraczać czasu uruchomienia.")
         if self.template_index > self.template_total:
             raise ProgressProtocolError("template_index nie może przekraczać template_total.")
         if self.worker_name is not None:
