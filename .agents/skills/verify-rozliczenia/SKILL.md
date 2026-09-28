@@ -62,9 +62,10 @@ metrics. Never drive a fixture that this run did not create.
 
 ## Drive
 
-Use `run_verification.py` as the harness entry point. It invokes the real
-`py -3 run.py` command, not imports into `rozliczenia`, test-only helpers, or
-direct calls to the settlement engine. Its ordered stages are:
+Use `run_verification.py` as the harness entry point. It launches the real
+`run.py` CLI with the same selected Python interpreter as the harness, not
+imports into `rozliczenia`, test-only helpers, or direct calls to the settlement
+engine. Its ordered stages are:
 
 1. Create a disposable source workbook, three worker templates, a placeholder,
    and a local three-entry mapping.

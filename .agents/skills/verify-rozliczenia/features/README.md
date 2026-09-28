@@ -15,7 +15,7 @@ launchers for the same Python engine.
 
 ## Driving conventions
 
-- Drive the user path through the one-command orchestrator; it invokes `py -3 run.py` with synthetic `--source`, `--config`, and `--metrics` paths.
+- Drive the user path through the one-command orchestrator; it invokes `run.py` with the same selected Python interpreter and synthetic `--source`, `--config`, and `--metrics` paths.
 - Read stdout, stderr, and native exit codes from the UTF-8 evidence files it creates.
 - Use workbook reads only for post-action assertions; do not call internal engine functions as proof.
 - The orchestrator runs `--dry-run` before a real run and verifies that it writes metrics but not workbook input cells.
