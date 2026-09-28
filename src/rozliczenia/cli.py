@@ -233,15 +233,16 @@ class Dashboard:
     def print_warning(self, message: str) -> None:
         self._line(f"Ostrzeżenie: {message}")
 
-    def print_statistics(self, mode: str, records: list[dict[str, Any]]) -> None:
-        comparable = comparable_records(records, mode)
-        stats = statistics_for(records, mode)
-        if stats is None:
-            return
-        self._line(f"Statystyki {mode} | próbek: {len(comparable)}")
+    def print_statistics(self, records: list[dict[str, Any]]) -> None:
         labels = {"total": "całe uruchomienie"}
-        for name, (p50, p95) in stats.items():
-            self._line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
+        for mode in ("RUN", "DRY-RUN"):
+            comparable = comparable_records(records, mode)
+            stats = statistics_for(records, mode)
+            if stats is None:
+                continue
+            self._line(f"Statystyki {mode} | próbek: {len(comparable)}")
+            for name, (p50, p95) in stats.items():
+                self._line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
 
     def render(self):
         assert Console is not None
@@ -424,7 +425,7 @@ def main(
     try:
         metrics_store.append(record)
         records = metrics_store.read()
-        dashboard.print_statistics(mode, records)
+        dashboard.print_statistics(records)
     except (OSError, UnicodeError, ValueError):
         dashboard.print_warning("Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.")
 

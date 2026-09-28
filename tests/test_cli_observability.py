@@ -209,6 +209,53 @@ def test_statistics_are_available_after_five_comparable_runs(tmp_path: Path) -> 
     assert "Statystyki RUN" not in run_output
 
 
+def test_statistics_panel_reports_values_for_both_modes_and_all_phases(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    phase_durations = {
+        "Sprawdzanie": 1000,
+        "Odczyt danych": 2000,
+        "Planowanie": 3000,
+        "Zapisywanie": 4000,
+    }
+
+    for mode, total_duration_ms in (("RUN", 100_000), ("DRY-RUN", 200_000)):
+        for sample in range(5):
+            MetricsStore(metrics_path).append(
+                {
+                    "schema_version": 1,
+                    "started_at": f"2026-09-28T00:00:0{sample}+00:00",
+                    "mode": mode,
+                    "period": "08_14_09_2026",
+                    "completed": True,
+                    "result": "OK",
+                    "total_duration_ms": total_duration_ms,
+                    "phase_durations_ms": phase_durations,
+                    "counters": {
+                        "templates_total": 1,
+                        "templates_completed": 1,
+                        "rows": 1,
+                        "written": 1,
+                        "empty": 0,
+                        "planned": 0,
+                        "skipped": 0,
+                        "issues": 0,
+                    },
+                }
+            )
+
+    _, output = run_cli(source_path, config_path, metrics_path, "--dry-run")
+
+    assert "Statystyki RUN | próbek: 5" in output
+    assert "Statystyki DRY-RUN | próbek: 6" in output
+    assert "całe uruchomienie | P50: 100000 ms | P95: 100000 ms" in output
+    assert "całe uruchomienie | P50: 200000 ms | P95: 200000 ms" in output
+    assert "Sprawdzanie | P50: 1000 ms | P95: 1000 ms" in output
+    assert "Odczyt danych | P50: 2000 ms | P95: 2000 ms" in output
+    assert "Planowanie | P50: 3000 ms | P95: 3000 ms" in output
+    assert "Zapisywanie | P50: 4000 ms | P95: 4000 ms" in output
+
+
 def test_malformed_history_does_not_change_process_result(tmp_path: Path) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
