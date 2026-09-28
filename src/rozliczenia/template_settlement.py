@@ -5,12 +5,16 @@ from __future__ import annotations
 import os
 import tempfile
 import zipfile
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterable, cast
+from typing import Iterable
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell, MergedCell
+from openpyxl.cell.rich_text import CellRichText
 from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -22,7 +26,23 @@ _DATA_START_ROW = 18
 _WORKER_COLUMN = 8  # H
 _COPY_COLUMNS = range(1, 47)  # A:AT
 _INPUT_CHECK_COLUMNS = range(1, 12)  # A:K
-Row = tuple[object, ...]
+ExcelCellValue = (
+    bool
+    | int
+    | float
+    | Decimal
+    | str
+    | CellRichText
+    | date
+    | datetime
+    | time
+    | timedelta
+    | DataTableFormula
+    | ArrayFormula
+    | bytes
+    | None
+)
+ExcelRow = tuple[ExcelCellValue, ...]
 ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 
 
@@ -104,7 +124,7 @@ def _restore_external_link_parts(
 def _write_workbook(
     path: Path,
     workbook: Workbook,
-    rows: list[Row],
+    rows: list[ExcelRow],
     external_link_parts: ExternalLinkParts,
 ) -> None:
     sheet = workbook.active
@@ -112,7 +132,7 @@ def _write_workbook(
         raise ValueError("Szablon nie zawiera arkusza roboczego.")
     for destination_row, values in enumerate(rows, start=_DATA_START_ROW):
         for column, value in zip(_COPY_COLUMNS, values):
-            sheet.cell(row=destination_row, column=column).value = cast(Any, value)
+            sheet.cell(row=destination_row, column=column).value = value
 
     calculation = getattr(workbook, "calculation", None)
     if calculation is not None:
@@ -136,7 +156,7 @@ def _write_workbook(
 def process_template(
     worker_name: str,
     target_path: Path,
-    rows: Iterable[Row],
+    rows: Iterable[ExcelRow],
     *,
     dry_run: bool = False,
 ) -> WorkerResult:

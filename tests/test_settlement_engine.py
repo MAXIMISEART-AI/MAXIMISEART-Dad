@@ -14,6 +14,7 @@ import yaml
 
 from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState, WorkerResult
 from rozliczenia.engine import SettlementError, run_settlements
+from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 
 
@@ -308,7 +309,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     def fail_on_second_save(
         worker_name: str,
         path: Path,
-        rows: Iterable[tuple[object, ...]],
+        rows: Iterable[ExcelRow],
         *,
         dry_run: bool = False,
     ) -> WorkerResult:

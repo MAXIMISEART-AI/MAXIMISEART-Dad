@@ -7,12 +7,12 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.template_settlement import TemplateWriteError, process_template
+from rozliczenia.template_settlement import ExcelRow, TemplateWriteError, process_template
 
 from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture
 
 
-def synthetic_rows() -> list[tuple[object, ...]]:
+def synthetic_rows() -> list[ExcelRow]:
     return [("syntetyczne miasto",) + (None,) * 45]
 
 
@@ -42,7 +42,7 @@ def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_zapisu(
     def fail_write(
         path: Path,
         workbook: Workbook,
-        rows: list[tuple[object, ...]],
+        rows: list[ExcelRow],
         external_link_parts: dict[str, tuple[zipfile.ZipInfo, bytes]],
     ) -> None:
         raise OSError("synthetic write failure")

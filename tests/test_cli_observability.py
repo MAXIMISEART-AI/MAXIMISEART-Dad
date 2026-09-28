@@ -18,6 +18,7 @@ from rozliczenia.domain import ProgressEventFactory, ProgressPhase, WorkerResult
 import rozliczenia.engine as settlement_engine
 from rozliczenia.progress import ProgressNotice, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
+from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.progress import PhaseState, ProgressNoticeKind
 from rozliczenia.telemetry import MetricsStore
@@ -542,7 +543,7 @@ def test_critical_write_failure_preserves_partial_counters(
     def fail_on_second_save(
         worker_name: str,
         path: Path,
-        rows: Iterable[tuple[object, ...]],
+        rows: Iterable[ExcelRow],
         *,
         dry_run: bool = False,
     ) -> WorkerResult:
