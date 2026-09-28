@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from io import StringIO
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from rozliczenia.cli import main
 
@@ -69,6 +72,23 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert record["counters"]["templates_total"] == 3
     assert record["counters"]["templates_completed"] == 3
     assert "syntetyczny adres" not in metrics_path.read_text(encoding="utf-8")
+
+
+def test_cli_import_does_not_require_rich() -> None:
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.modules['rich'] = None; import rozliczenia.cli",
+        ],
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_plain_cli_shows_dry_run_and_does_not_write_worker_templates(tmp_path: Path) -> None:

@@ -11,11 +11,21 @@ import sys
 import time
 from typing import Any, TextIO
 
-from rich.console import Console, Group
-from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+try:
+    from rich.console import Console as RichConsole, Group as RichGroup
+    from rich.live import Live as RichLive
+    from rich.panel import Panel as RichPanel
+    from rich.table import Table as RichTable
+    from rich.text import Text as RichText
+
+    Console: Any = RichConsole
+    Group: Any = RichGroup
+    Live: Any = RichLive
+    Panel: Any = RichPanel
+    Table: Any = RichTable
+    Text: Any = RichText
+except ImportError:
+    Console = Group = Live = Panel = Table = Text = None
 
 from .domain import PHASES, ProgressEvent, SettlementSummary
 from .engine import SettlementError, period_from_source, run_settlements
@@ -111,9 +121,9 @@ class Dashboard:
     def __init__(self, output: TextIO, mode: str, period: str):
         self.output = output
         self.state = DashboardState(mode, period)
-        self.console = Console(file=output)
-        self.interactive = self._supports_live_output(output) and self.console.color_system is not None
-        self.live: Live | None = None
+        self.console: Any | None = Console(file=output) if Console is not None else None
+        self.interactive = self._supports_live_output(output) and self.console is not None
+        self.live: Any | None = None
 
     @staticmethod
     def _supports_live_output(output: TextIO) -> bool:
@@ -125,7 +135,7 @@ class Dashboard:
             return False
 
     def start(self) -> None:
-        if self.interactive:
+        if self.interactive and Live is not None:
             self.live = Live(self.render(), console=self.console, refresh_per_second=8)
             self.live.start(refresh=True)
             return
@@ -188,6 +198,11 @@ class Dashboard:
             self._line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
 
     def render(self):
+        assert Console is not None
+        assert Group is not None
+        assert Panel is not None
+        assert Table is not None
+        assert Text is not None
         phases = Table.grid(padding=(0, 1))
         phases.add_column()
         phases.add_column()
@@ -226,7 +241,7 @@ class Dashboard:
         return f"{self.state.templates_completed}/{self.state.template_total} ({percentage}%)"
 
     def _line(self, message: str) -> None:
-        if self.interactive:
+        if self.interactive and self.console is not None:
             self.console.print(message)
         else:
             self.output.write(f"{message}\n")
