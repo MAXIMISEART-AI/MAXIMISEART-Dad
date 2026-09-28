@@ -20,14 +20,13 @@ class PlainProgressAdapter:
         self._line("Ostatnie operacje:")
 
     def update(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+        phase = snapshot.current_phase or "oczekuje"
         if notice.kind is ProgressNoticeKind.PHASE_STARTED:
-            phase = snapshot.current_phase or "oczekuje"
             self._line(f"Etap: {phase}")
         elif notice.kind is ProgressNoticeKind.PLAN_READY:
             self._line(f"Szablony pracownika: 0/{snapshot.template_total}")
         elif notice.kind is ProgressNoticeKind.WORKER_STARTED:
             worker_name = snapshot.current_worker or "brak"
-            phase = snapshot.current_phase or "oczekuje"
             self._line(f"WYKONAWCA: {worker_name} | etap: {phase}")
         elif notice.kind is ProgressNoticeKind.WORKER_ENDED:
             operation = snapshot.recent_operations[-1]
@@ -40,7 +39,6 @@ class PlainProgressAdapter:
                 f"wiersze: {operation.rows} | czas: {operation.worker_elapsed_ms or 0} ms"
             )
         elif notice.kind is ProgressNoticeKind.FAILED:
-            phase = snapshot.current_phase or "oczekuje"
             if snapshot.current_worker:
                 self._line(f"Etap przerwany: {phase} | WYKONAWCA: {snapshot.current_worker}")
             else:

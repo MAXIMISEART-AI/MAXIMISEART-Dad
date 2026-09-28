@@ -234,7 +234,7 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("fail_at_write", [1, 4])
-def test_plain_output_failure_detaches_observer_without_interrupting_settlements(
+def test_plain_output_failure_detaches_observer_and_completes_przebieg_rozliczen(
     tmp_path: Path, fail_at_write: int
 ) -> None:
     class FailingOutput(StringIO):
