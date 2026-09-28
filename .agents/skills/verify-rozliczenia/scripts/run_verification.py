@@ -17,7 +17,7 @@ SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 PERIOD = "08_14_09_2026"
 TIMEOUT_SECONDS = 120
-PYTHON_COMMAND = ("py", "-3")
+PYTHON_COMMAND = (sys.executable,)
 
 
 class VerificationFailure(RuntimeError):
