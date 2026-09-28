@@ -84,6 +84,11 @@ def _target_has_input_data(sheet: Worksheet) -> bool:
     return False
 
 
+def _active_worksheet(workbook: Workbook) -> Worksheet | None:
+    sheet = workbook.active
+    return sheet if isinstance(sheet, Worksheet) else None
+
+
 def _external_link_parts(path: Path) -> ExternalLinkParts:
     """Pobiera oryginalne relacje zewnętrzne, których openpyxl nie zapisuje 1:1."""
 
@@ -127,8 +132,8 @@ def _write_workbook(
     rows: list[ExcelRow],
     external_link_parts: ExternalLinkParts,
 ) -> None:
-    sheet = workbook.active
-    if not isinstance(sheet, Worksheet):
+    sheet = _active_worksheet(workbook)
+    if sheet is None:
         raise ValueError("Szablon nie zawiera arkusza roboczego.")
     for destination_row, values in enumerate(rows, start=_DATA_START_ROW):
         for column, value in zip(_COPY_COLUMNS, values):
@@ -167,8 +172,8 @@ def process_template(
         _ensure_unlocked(target_path)
         workbook = load_workbook(target_path, read_only=False, data_only=False, keep_links=True)
         try:
-            sheet = workbook.active
-            if not isinstance(sheet, Worksheet):
+            sheet = _active_worksheet(workbook)
+            if sheet is None:
                 raise ValueError("Szablon nie zawiera arkusza.")
             header = sheet.cell(row=_HEADER_ROW, column=_WORKER_COLUMN).value
             if not _is_worker_header(header):
