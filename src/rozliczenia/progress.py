@@ -15,6 +15,9 @@ from .domain import (
     ProgressState,
 )
 
+KeyT = TypeVar("KeyT")
+ValueT = TypeVar("ValueT")
+
 
 class PhaseState(StrEnum):
     """Presentation-neutral state of a settlement phase."""
@@ -100,10 +103,6 @@ class ProgressUpdate:
 
     snapshot: ProgressSnapshot
     notice: ProgressNotice
-
-
-KeyT = TypeVar("KeyT")
-ValueT = TypeVar("ValueT")
 
 
 def _immutable_mapping(values: Mapping[KeyT, ValueT]) -> Mapping[KeyT, ValueT]:

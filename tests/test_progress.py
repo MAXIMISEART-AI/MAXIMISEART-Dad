@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from io import StringIO
 from types import MappingProxyType
+from collections.abc import Callable
+from typing import cast
 
 import pytest
 from rich.console import Console
 
-from rozliczenia.cli import PlainProgressAdapter
 from rozliczenia.domain import (
     ProgressEvent,
     ProgressEventFactory,
@@ -14,6 +15,7 @@ from rozliczenia.domain import (
     ProgressProtocolError,
     ProgressState,
 )
+from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.progress import (
     OperationSnapshot,
     PhaseState,
@@ -26,30 +28,41 @@ from rozliczenia.rich_progress import RichProgressAdapter
 
 
 def test_progress_event_keeps_string_compatible_typed_values() -> None:
-    event = ProgressEvent("Sprawdzanie", "START", elapsed_ms=4)
+    event = ProgressEvent(
+        cast(ProgressPhase, "Sprawdzanie"),
+        cast(ProgressState, "START"),
+        elapsed_ms=4,
+    )
 
     assert event.phase is ProgressPhase.CHECKING
-    assert event.phase == "Sprawdzanie"
+    assert event.phase.value == "Sprawdzanie"
     assert event.state is ProgressState.START
-    assert event.state == "START"
-    assert ProgressEventFactory.phase_started("Sprawdzanie") == ProgressEvent("Sprawdzanie", "START")
+    assert event.state.value == "START"
+    assert ProgressEventFactory.phase_started("Sprawdzanie") == ProgressEvent(
+        ProgressPhase.CHECKING,
+        ProgressState.START,
+    )
 
 
 def test_invalid_progress_event_combination_is_rejected_at_construction() -> None:
-    invalid_events = (
-        lambda: ProgressEvent("Sprawdzanie", "START", elapsed_ms=-1),
-        lambda: ProgressEvent("Sprawdzanie", "START", worker_name="Adrian"),
-        lambda: ProgressEvent("Odczyt danych", "ISSUE_COUNT", worker_name="Adrian", issue_count=1),
-        lambda: ProgressEvent("Odczyt danych", "ISSUE_COUNT", phase_elapsed_ms=1),
-        lambda: ProgressEvent("Planowanie", "PLAN_READY", status="ZAPISANO", template_total=1),
+    invalid_events: tuple[Callable[[], ProgressEvent], ...] = (
+        lambda: ProgressEvent(ProgressPhase.CHECKING, ProgressState.START, elapsed_ms=-1),
+        lambda: ProgressEvent(ProgressPhase.CHECKING, ProgressState.START, worker_name="Adrian"),
+        lambda: ProgressEvent(ProgressPhase.READING, ProgressState.ISSUE_COUNT, worker_name="Adrian", issue_count=1),
+        lambda: ProgressEvent(ProgressPhase.READING, ProgressState.ISSUE_COUNT, phase_elapsed_ms=1),
+        lambda: ProgressEvent(ProgressPhase.PLANNING, ProgressState.PLAN_READY, status="ZAPISANO", template_total=1),
         lambda: ProgressEvent(
-            "Planowanie", "WORKER_START", worker_name="Adrian", template_index=1, template_total=1
+            ProgressPhase.PLANNING,
+            ProgressState.WORKER_START,
+            worker_name="Adrian",
+            template_index=1,
+            template_total=1,
         ),
-        lambda: ProgressEvent("Sprawdzanie", "FAILED", worker_elapsed_ms=1),
-        lambda: ProgressEvent("Sprawdzanie", "END", elapsed_ms=1, phase_elapsed_ms=2),
+        lambda: ProgressEvent(ProgressPhase.CHECKING, ProgressState.FAILED, worker_elapsed_ms=1),
+        lambda: ProgressEvent(ProgressPhase.CHECKING, ProgressState.END, elapsed_ms=1, phase_elapsed_ms=2),
         lambda: ProgressEvent(
-            "Zapisywanie",
-            "WORKER_END",
+            ProgressPhase.SAVING,
+            ProgressState.WORKER_END,
             worker_name="Adrian",
             template_index=1,
             template_total=1,
@@ -211,6 +224,19 @@ def test_projection_marks_failed_faza_przebiegu_without_accepting_later_events()
     assert update.notice.kind is ProgressNoticeKind.FAILED
     assert update.snapshot.phase_states[ProgressPhase.CHECKING] is PhaseState.FAILED
     assert update.snapshot.current_phase is ProgressPhase.CHECKING
+    assert update.snapshot.phase_durations_ms[ProgressPhase.CHECKING] == 2
+
+    plain_lines: list[str] = []
+    PlainProgressAdapter(plain_lines.append).update(update.snapshot, update.notice)
+    rich_output = StringIO()
+    Console(file=rich_output, color_system=None).print(
+        RichProgressAdapter().render(update.snapshot, update.notice)
+    )
+
+    assert "Etap przerwany: Sprawdzanie" in plain_lines
+    assert "[przerwany]" in rich_output.getvalue()
+    assert "Sprawdzanie" in rich_output.getvalue()
+    assert "2 ms" in rich_output.getvalue()
     with pytest.raises(ProgressProtocolError):
         projection.update(ProgressEventFactory.phase_ended("Sprawdzanie"))
 

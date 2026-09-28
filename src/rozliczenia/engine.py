@@ -15,10 +15,12 @@ from openpyxl import load_workbook
 from . import template_settlement
 from .domain import (
     Issue,
+    ProgressEvent,
     ProgressEventFactory,
     ProgressObserver,
     SettlementSummary,
 )
+from .template_settlement import ExcelRow
 
 
 ResultT = TypeVar("ResultT")
@@ -122,7 +124,7 @@ def target_files(target_directory: Path, period: str) -> list[tuple[str, Path]]:
     return files
 
 
-def _read_source_rows(source_path: Path) -> tuple[dict[str, list[tuple]], list[Issue]]:
+def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], list[Issue]]:
     """Czyta wyłącznie dane wejściowe i grupuje je po kolumnie H."""
 
     workbook = load_workbook(source_path, read_only=True, data_only=False)
@@ -137,7 +139,7 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[tuple]], list[I
         if len(header) < WORKER_COLUMN or normalize_text(header[WORKER_COLUMN - 1]) != "wykonawca":
             raise SettlementError("W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H.")
 
-        rows_by_worker: dict[str, list[tuple]] = defaultdict(list)
+        rows_by_worker: defaultdict[str, list[ExcelRow]] = defaultdict(list)
         issues: list[Issue] = []
         for row_number, values in enumerate(
             sheet.iter_rows(min_row=DATA_START_ROW, max_col=max(46, sheet.max_column), values_only=True),
@@ -169,7 +171,7 @@ class _ObserverDispatcher:
     def __init__(self, observer: ProgressObserver | None):
         self._observer = observer
 
-    def notify(self, event) -> None:
+    def notify(self, event: ProgressEvent) -> None:
         if self._observer is None:
             return
         try:
@@ -180,7 +182,7 @@ class _ObserverDispatcher:
 
 def _run_phase(
     phase: str,
-    notify: Callable,
+    notify: Callable[[ProgressEvent], None],
     run_started: float,
     operation: Callable[[], ResultT],
 ) -> ResultT:
@@ -244,10 +246,10 @@ def run_settlements(
     )
     summary = SettlementSummary(period, source_path, target_directory, issues=source_issues)
 
-    def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[tuple]], list[Issue]]:
+    def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
         template_files = target_files(target_directory, period)
         target_by_name = {normalize_text(name): path for name, path in template_files}
-        rows_by_target: dict[str, list[tuple]] = defaultdict(list)
+        rows_by_target: defaultdict[str, list[ExcelRow]] = defaultdict(list)
         issues: list[Issue] = []
         for source_worker, rows in rows_by_worker.items():
             target_name = mapping.get(source_worker)

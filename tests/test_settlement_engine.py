@@ -5,18 +5,27 @@ import os
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Iterable
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 import yaml
 
-from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState
+from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState, WorkerResult
 from rozliczenia.engine import SettlementError, run_settlements
+from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 
 
 PERIOD = "08_14_09_2026"
 SOURCE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
+
+
+def active_worksheet(workbook: Workbook) -> Worksheet:
+    sheet = workbook.active
+    assert isinstance(sheet, Worksheet)
+    return sheet
 
 
 def write_mapping(path: Path) -> Path:
@@ -40,7 +49,7 @@ def write_mapping(path: Path) -> Path:
 
 def write_template(path: Path) -> None:
     workbook = Workbook()
-    sheet = workbook.active
+    sheet = active_worksheet(workbook)
     sheet.title = "Sheet1"
     sheet.cell(17, 8).value = "WYKONAWCA"
     sheet.cell(18, 47).value = "=N18"
@@ -133,7 +142,7 @@ def external_link_parts(path: Path) -> dict[str, bytes]:
 
 def write_source(path: Path) -> None:
     workbook = Workbook()
-    sheet = workbook.active
+    sheet = active_worksheet(workbook)
     sheet.title = "Sheet1"
     sheet.cell(17, 8).value = "WYKONAWCA"
     rows = [
@@ -174,23 +183,31 @@ def test_groups_rows_by_worker_and_preserves_template_formulas(tmp_path: Path) -
     assert summary.total_rows == 3
     assert any(issue.code == "BRAK_MAPOWANIA" for issue in summary.issues)
 
-    adrian = load_workbook(
+    adrian_workbook = load_workbook(
         target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx",
         data_only=False,
-    ).active
-    assert adrian["A18"].value == "POZNAŃ"
-    assert adrian["F18"].value == "#1"
-    assert adrian["A19"].value == "POZNAŃ"
-    assert adrian["F19"].value == "#3"
-    assert adrian["AU18"].value == "=N18"
-    assert adrian["AU19"].value == "=N19"
+    )
+    try:
+        adrian = active_worksheet(adrian_workbook)
+        assert adrian["A18"].value == "POZNAŃ"
+        assert adrian["F18"].value == "#1"
+        assert adrian["A19"].value == "POZNAŃ"
+        assert adrian["F19"].value == "#3"
+        assert adrian["AU18"].value == "=N18"
+        assert adrian["AU19"].value == "=N19"
+    finally:
+        adrian_workbook.close()
 
-    empty_template = load_workbook(
+    empty_workbook = load_workbook(
         target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx",
         data_only=False,
-    ).active
-    assert empty_template["A18"].value is None
-    assert empty_template["AU18"].value == "=N18"
+    )
+    try:
+        empty_template = active_worksheet(empty_workbook)
+        assert empty_template["A18"].value is None
+        assert empty_template["AU18"].value == "=N18"
+    finally:
+        empty_workbook.close()
 
 
 def test_dry_run_does_not_write(tmp_path: Path) -> None:
@@ -200,20 +217,28 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
     summary = run_settlements(source_path, config_path, dry_run=True)
 
     assert summary.planned_count == 2
-    assert load_workbook(target_path, data_only=False).active["A18"].value is None
+    workbook = load_workbook(target_path, data_only=False)
+    try:
+        assert active_worksheet(workbook)["A18"].value is None
+    finally:
+        workbook.close()
 
 
 def test_existing_input_data_is_never_overwritten(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     workbook = load_workbook(target_path)
-    workbook.active["A18"] = "wcześniejsza ręczna wartość"
+    active_worksheet(workbook)["A18"] = "wcześniejsza ręczna wartość"
     workbook.save(target_path)
 
     summary = run_settlements(source_path, config_path)
 
     assert any(issue.code == "NADPISANIE_ZABLOKOWANE" for issue in summary.issues)
-    assert load_workbook(target_path, data_only=False).active["A18"].value == "wcześniejsza ręczna wartość"
+    workbook = load_workbook(target_path, data_only=False)
+    try:
+        assert active_worksheet(workbook)["A18"].value == "wcześniejsza ręczna wartość"
+    finally:
+        workbook.close()
 
 
 def test_external_link_relationships_survive_target_write(tmp_path: Path) -> None:
@@ -254,10 +279,10 @@ def test_internal_settlement_file_is_rejected(tmp_path: Path) -> None:
 
 def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disabled(tmp_path: Path) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
-    recorded = []
+    recorded: list[ProgressEvent] = []
     calls = 0
 
-    def recording_observer(event) -> None:
+    def recording_observer(event: ProgressEvent) -> None:
         nonlocal calls
         calls += 1
         recorded.append(event)
@@ -274,14 +299,20 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
 
 
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     original_process_template = template_settlement.process_template
     calls = 0
-    recorded = []
+    recorded: list[ProgressEvent] = []
 
-    def fail_on_second_save(worker_name: str, path: Path, rows, *, dry_run: bool = False):
+    def fail_on_second_save(
+        worker_name: str,
+        path: Path,
+        rows: Iterable[ExcelRow],
+        *,
+        dry_run: bool = False,
+    ) -> WorkerResult:
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -308,7 +339,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
 def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(tmp_path: Path) -> None:
     source_path = tmp_path / "08_14_09_2026" / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
-    recorded = []
+    recorded: list[ProgressEvent] = []
 
     with pytest.raises(SettlementError, match="Nie znaleziono pliku"):
         run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)

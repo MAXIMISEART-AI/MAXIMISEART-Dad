@@ -72,6 +72,20 @@ plików z `praca-tata` i nie zawierają prawdziwych danych klientów.
 py -3 -m pytest
 ```
 
+### Lokalne lintowanie i sprawdzanie typów
+
+Kontrybutorzy mogą zainstalować zestaw developerski, a następnie uruchamiać
+lintowanie i ścisły typecheck całego utrzymywanego kodu Pythona:
+
+```powershell
+py -3 -m pip install -e ".[dev]"
+py -3 -m ruff check run.py src tests tools .agents/skills/verify-rozliczenia/scripts
+py -3 -m mypy
+```
+
+Ruff i mypy obejmują aplikację, testy, narzędzia oraz skrypty weryfikacyjne.
+Check formatowania nie jest wymagany.
+
 Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd` przez `cmd.exe`.
 Ręczna brama dla adaptera VBA jest opisana w
 [`docs/adapter-validation.md`](docs/adapter-validation.md). Jeśli desktopowy

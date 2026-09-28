@@ -6,19 +6,24 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from collections.abc import Iterable
+from typing import Any, TextIO
 
 from openpyxl import load_workbook
 import pytest
 
 import rozliczenia.cli as cli
 from rozliczenia.cli import main
-from rozliczenia.domain import ProgressEventFactory, ProgressPhase
+from rozliczenia.domain import ProgressEventFactory, ProgressPhase, WorkerResult
 import rozliczenia.engine as settlement_engine
+from rozliczenia.progress import ProgressNotice, ProgressSnapshot
+from rozliczenia.rich_progress import RichProgressAdapter
+from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.progress import PhaseState, ProgressNoticeKind
 from rozliczenia.telemetry import MetricsStore
 
-from tests.test_settlement_engine import PERIOD, make_fixture
+from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture
 
 
 def run_cli(
@@ -43,7 +48,7 @@ def run_cli(
     return exit_code, output.getvalue()
 
 
-def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch) -> None:
+def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch: pytest.MonkeyPatch) -> None:
     class TtyOutput(StringIO):
         def isatty(self) -> bool:
             return True
@@ -51,13 +56,13 @@ def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch) ->
     class FakeConsole:
         color_system = "standard"
 
-        def __init__(self, *, file) -> None:
+        def __init__(self, *, file: TextIO) -> None:
             self.file = file
 
     live_instances = []
 
     class FakeLive:
-        def __init__(self, renderable, **kwargs) -> None:
+        def __init__(self, renderable: Any, **kwargs: Any) -> None:
             live_instances.append(kwargs)
 
         def start(self, *, refresh: bool) -> None:
@@ -72,7 +77,9 @@ def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch) ->
     assert live_instances[0].get("auto_refresh", True) is False
 
 
-def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(monkeypatch) -> None:
+def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class TtyOutput(StringIO):
         def isatty(self) -> bool:
             return True
@@ -80,34 +87,38 @@ def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(monkeypa
     class FakeConsole:
         color_system = "standard"
 
-        def __init__(self, *, file) -> None:
+        def __init__(self, *, file: TextIO) -> None:
             self.file = file
 
     class FakeLive:
-        def __init__(self, renderable, **_kwargs) -> None:
+        def __init__(self, renderable: Any, **_kwargs: Any) -> None:
             self.initial_renderable = renderable
-            self.updates = []
+            self.updates: list[tuple[Any, bool]] = []
 
         def start(self, *, refresh: bool) -> None:
             pass
 
-        def update(self, renderable, *, refresh: bool) -> None:
+        def update(self, renderable: Any, *, refresh: bool) -> None:
             self.updates.append((renderable, refresh))
 
         def stop(self) -> None:
             pass
 
-    renders = []
-    original_render = cli.RichProgressAdapter.render
+    renders: list[tuple[ProgressSnapshot, ProgressNotice | None, Any]] = []
+    original_render = RichProgressAdapter.render
 
-    def record_render(adapter, snapshot, notice=None):
+    def record_render(
+        adapter: RichProgressAdapter,
+        snapshot: ProgressSnapshot,
+        notice: ProgressNotice | None = None,
+    ) -> Any:
         renderable = original_render(adapter, snapshot, notice)
         renders.append((snapshot, notice, renderable))
         return renderable
 
     monkeypatch.setattr(cli, "Console", FakeConsole)
     monkeypatch.setattr(cli, "Live", FakeLive)
-    monkeypatch.setattr(cli.RichProgressAdapter, "render", record_render)
+    monkeypatch.setattr(RichProgressAdapter, "render", record_render)
 
     dashboard = cli.Dashboard(TtyOutput(), "RUN", PERIOD)
     dashboard.start()
@@ -117,12 +128,14 @@ def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(monkeypa
     assert renders[0][0].phase_states[ProgressPhase.CHECKING] is PhaseState.PENDING
     snapshot, notice, renderable = renders[1]
     assert snapshot.phase_states[ProgressPhase.CHECKING] is PhaseState.RUNNING
+    assert notice is not None
     assert notice.kind is ProgressNoticeKind.PHASE_STARTED
+    assert dashboard.live is not None
     assert dashboard.live.updates == [(renderable, True)]
 
 
 def test_interactive_rich_render_failure_falls_back_without_interrupting_settlements(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class TtyOutput(StringIO):
         def isatty(self) -> bool:
@@ -131,20 +144,20 @@ def test_interactive_rich_render_failure_falls_back_without_interrupting_settlem
     class FakeConsole:
         color_system = "standard"
 
-        def __init__(self, *, file) -> None:
+        def __init__(self, *, file: TextIO) -> None:
             self.file = file
 
         def print(self, value: str) -> None:
             self.file.write(f"{value}\n")
 
     class FakeLive:
-        def __init__(self, _renderable, **_kwargs) -> None:
+        def __init__(self, _renderable: Any, **_kwargs: Any) -> None:
             pass
 
         def start(self, *, refresh: bool) -> None:
             pass
 
-        def update(self, _renderable, *, refresh: bool) -> None:
+        def update(self, _renderable: Any, *, refresh: bool) -> None:
             pass
 
         def stop(self) -> None:
@@ -154,9 +167,13 @@ def test_interactive_rich_render_failure_falls_back_without_interrupting_settlem
     metrics_path = tmp_path / "metrics.jsonl"
     output = TtyOutput()
     render_calls = 0
-    original_render = cli.RichProgressAdapter.render
+    original_render = RichProgressAdapter.render
 
-    def fail_on_first_refresh(adapter, snapshot, notice=None):
+    def fail_on_first_refresh(
+        adapter: RichProgressAdapter,
+        snapshot: ProgressSnapshot,
+        notice: ProgressNotice | None = None,
+    ) -> Any:
         nonlocal render_calls
         render_calls += 1
         if render_calls == 2:
@@ -165,7 +182,7 @@ def test_interactive_rich_render_failure_falls_back_without_interrupting_settlem
 
     monkeypatch.setattr(cli, "Console", FakeConsole)
     monkeypatch.setattr(cli, "Live", FakeLive)
-    monkeypatch.setattr(cli.RichProgressAdapter, "render", fail_on_first_refresh)
+    monkeypatch.setattr(RichProgressAdapter, "render", fail_on_first_refresh)
 
     exit_code = main(
         [
@@ -343,7 +360,7 @@ def test_plain_cli_completes_progress_for_locked_and_skipped_szablon_pracownika(
     invalid_path = target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx"
     workbook = load_workbook(invalid_path)
     try:
-        workbook.active["H17"] = "NIE WYKONAWCA"
+        active_worksheet(workbook)["H17"] = "NIE WYKONAWCA"
         workbook.save(invalid_path)
     finally:
         workbook.close()
@@ -495,7 +512,7 @@ def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
 
 
 def test_cancelled_source_selection_shows_critical_dashboard_status(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
 
@@ -516,13 +533,22 @@ def test_cancelled_source_selection_shows_critical_dashboard_status(
     assert record["result"] == "BLAD_KRYTYCZNY"
 
 
-def test_critical_write_failure_preserves_partial_counters(tmp_path: Path, monkeypatch) -> None:
+def test_critical_write_failure_preserves_partial_counters(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
     original_process_template = template_settlement.process_template
     save_calls = 0
 
-    def fail_on_second_save(worker_name: str, path: Path, rows, *, dry_run: bool = False):
+    def fail_on_second_save(
+        worker_name: str,
+        path: Path,
+        rows: Iterable[ExcelRow],
+        *,
+        dry_run: bool = False,
+    ) -> WorkerResult:
         nonlocal save_calls
         save_calls += 1
         if save_calls == 2:

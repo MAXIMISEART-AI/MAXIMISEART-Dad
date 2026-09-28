@@ -5,11 +5,18 @@ from __future__ import annotations
 import os
 import tempfile
 import zipfile
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell, MergedCell
+from openpyxl.cell.rich_text import CellRichText
 from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
+from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 from .domain import Issue, WorkerResult
 
@@ -19,6 +26,24 @@ _DATA_START_ROW = 18
 _WORKER_COLUMN = 8  # H
 _COPY_COLUMNS = range(1, 47)  # A:AT
 _INPUT_CHECK_COLUMNS = range(1, 12)  # A:K
+ExcelCellValue = (
+    bool
+    | int
+    | float
+    | Decimal
+    | str
+    | CellRichText
+    | date
+    | datetime
+    | time
+    | timedelta
+    | DataTableFormula
+    | ArrayFormula
+    | bytes
+    | None
+)
+ExcelRow = tuple[ExcelCellValue, ...]
+ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 
 
 class _TemplateLockedError(Exception):
@@ -44,13 +69,13 @@ def _is_worker_header(value: object) -> bool:
     return str(value or "").replace("\u00a0", " ").casefold().split() == ["wykonawca"]
 
 
-def _is_real_value(cell) -> bool:
+def _is_real_value(cell: Cell | MergedCell) -> bool:
     """Pomija formuły szablonu przy wykrywaniu istniejących danych."""
 
     return cell.value is not None and cell.data_type != "f"
 
 
-def _target_has_input_data(sheet) -> bool:
+def _target_has_input_data(sheet: Worksheet) -> bool:
     """Sprawdza dane wejściowe A:K, ignorując formuły w szablonie."""
 
     for row in range(_DATA_START_ROW, sheet.max_row + 1):
@@ -59,7 +84,12 @@ def _target_has_input_data(sheet) -> bool:
     return False
 
 
-def _external_link_parts(path: Path) -> dict[str, tuple[zipfile.ZipInfo, bytes]]:
+def _active_worksheet(workbook: Workbook) -> Worksheet | None:
+    sheet = workbook.active
+    return sheet if isinstance(sheet, Worksheet) else None
+
+
+def _external_link_parts(path: Path) -> ExternalLinkParts:
     """Pobiera oryginalne relacje zewnętrzne, których openpyxl nie zapisuje 1:1."""
 
     with zipfile.ZipFile(path, "r") as archive:
@@ -72,7 +102,7 @@ def _external_link_parts(path: Path) -> dict[str, tuple[zipfile.ZipInfo, bytes]]
 
 def _restore_external_link_parts(
     path: Path,
-    parts: dict[str, tuple[zipfile.ZipInfo, bytes]],
+    parts: ExternalLinkParts,
 ) -> None:
     """Przywraca cały fragment externalLinks bez zmiany arkuszy i danych."""
 
@@ -96,10 +126,18 @@ def _restore_external_link_parts(
         temporary_path.unlink(missing_ok=True)
 
 
-def _write_workbook(path: Path, workbook, rows: list[tuple], external_link_parts) -> None:
+def _write_workbook(
+    path: Path,
+    workbook: Workbook,
+    rows: list[ExcelRow],
+    external_link_parts: ExternalLinkParts,
+) -> None:
+    sheet = _active_worksheet(workbook)
+    if sheet is None:
+        raise ValueError("Szablon nie zawiera arkusza roboczego.")
     for destination_row, values in enumerate(rows, start=_DATA_START_ROW):
         for column, value in zip(_COPY_COLUMNS, values):
-            workbook.active.cell(row=destination_row, column=column).value = value
+            sheet.cell(row=destination_row, column=column).value = value
 
     calculation = getattr(workbook, "calculation", None)
     if calculation is not None:
@@ -123,7 +161,7 @@ def _write_workbook(path: Path, workbook, rows: list[tuple], external_link_parts
 def process_template(
     worker_name: str,
     target_path: Path,
-    rows: Iterable[tuple],
+    rows: Iterable[ExcelRow],
     *,
     dry_run: bool = False,
 ) -> WorkerResult:
@@ -134,7 +172,7 @@ def process_template(
         _ensure_unlocked(target_path)
         workbook = load_workbook(target_path, read_only=False, data_only=False, keep_links=True)
         try:
-            sheet = workbook.active
+            sheet = _active_worksheet(workbook)
             if sheet is None:
                 raise ValueError("Szablon nie zawiera arkusza.")
             header = sheet.cell(row=_HEADER_ROW, column=_WORKER_COLUMN).value

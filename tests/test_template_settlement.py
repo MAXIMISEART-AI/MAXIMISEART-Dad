@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+import zipfile
 
 import pytest
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.template_settlement import TemplateWriteError, process_template
+from rozliczenia.template_settlement import ExcelRow, TemplateWriteError, process_template
 
-from tests.test_settlement_engine import PERIOD, make_fixture
+from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture
 
 
-def synthetic_rows() -> list[tuple]:
+def synthetic_rows() -> list[ExcelRow]:
     return [("syntetyczne miasto",) + (None,) * 45]
 
 
@@ -20,7 +21,7 @@ def test_przetworzenie_szablonu_pracownika_zglasza_bledny_naglowek(tmp_path: Pat
     target_path = target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx"
     workbook = load_workbook(target_path)
     try:
-        workbook.active["H17"] = "NIE WYKONAWCA"
+        active_worksheet(workbook)["H17"] = "NIE WYKONAWCA"
         workbook.save(target_path)
     finally:
         workbook.close()
@@ -32,13 +33,18 @@ def test_przetworzenie_szablonu_pracownika_zglasza_bledny_naglowek(tmp_path: Pat
 
 
 def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_zapisu(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, target_directory, _ = make_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     before = target_path.read_bytes()
 
-    def fail_write(path: Path, workbook, rows, external_link_parts) -> None:
+    def fail_write(
+        path: Path,
+        workbook: Workbook,
+        rows: list[ExcelRow],
+        external_link_parts: dict[str, tuple[zipfile.ZipInfo, bytes]],
+    ) -> None:
         raise OSError("synthetic write failure")
 
     monkeypatch.setattr(template_settlement, "_write_workbook", fail_write)
@@ -50,13 +56,13 @@ def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_zapisu(
 
 
 def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_snapshotu_linkow(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, target_directory, _ = make_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     before = target_path.read_bytes()
 
-    def fail_snapshot(path: Path):
+    def fail_snapshot(path: Path) -> dict[str, tuple[zipfile.ZipInfo, bytes]]:
         raise OSError("synthetic external link snapshot failure")
 
     monkeypatch.setattr(template_settlement, "_external_link_parts", fail_snapshot)
@@ -83,7 +89,7 @@ def test_przetworzenie_szablonu_pracownika_nie_nadpisuje_danych(tmp_path: Path) 
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     workbook = load_workbook(target_path)
     try:
-        workbook.active["A18"] = "wczesniejsza wartosc"
+        active_worksheet(workbook)["A18"] = "wczesniejsza wartosc"
         workbook.save(target_path)
     finally:
         workbook.close()
@@ -116,7 +122,7 @@ def test_przetworzenie_szablonu_pracownika_w_trybie_dry_run_nie_zapisuje(
     assert result.rows == 1
     workbook = load_workbook(target_path, data_only=False)
     try:
-        assert workbook.active["A18"].value is None
+        assert active_worksheet(workbook)["A18"].value is None
     finally:
         workbook.close()
 
@@ -131,7 +137,7 @@ def test_przetworzenie_szablonu_pracownika_zapisuje_wiersze_i_zachowuje_formule(
 
     workbook = load_workbook(target_path, data_only=False)
     try:
-        sheet = workbook.active
+        sheet = active_worksheet(workbook)
         assert sheet["A18"].value == "syntetyczne miasto"
         assert sheet["AU18"].value == "=N18"
     finally:

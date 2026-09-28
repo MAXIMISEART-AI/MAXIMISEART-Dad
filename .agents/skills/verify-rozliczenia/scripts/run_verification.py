@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from typing import TextIO
 import uuid
 
 
@@ -32,7 +33,7 @@ def _decode(data: bytes | None) -> str:
     return (data or b"").decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _echo(text: str, stream) -> None:
+def _echo(text: str, stream: TextIO) -> None:
     if not text:
         return
     try:
