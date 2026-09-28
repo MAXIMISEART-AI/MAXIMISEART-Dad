@@ -18,6 +18,7 @@ from .domain import (
     ProgressEvent,
     ProgressEventFactory,
     ProgressObserver,
+    ProgressPhase,
     SettlementSummary,
 )
 from .template_settlement import ExcelRow
@@ -181,9 +182,10 @@ class _ObserverDispatcher:
 
 
 def _run_phase(
-    phase: str,
+    phase: ProgressPhase,
     notify: Callable[[ProgressEvent], None],
     run_started: float,
+    phase_durations_ms: dict[ProgressPhase, int],
     operation: Callable[[], ResultT],
 ) -> ResultT:
     phase_started = time.perf_counter()
@@ -191,19 +193,23 @@ def _run_phase(
     try:
         result = operation()
     except Exception:
+        phase_elapsed_ms = _elapsed_ms(phase_started)
+        phase_durations_ms[phase] = phase_elapsed_ms
         notify(
             ProgressEventFactory.phase_failed(
                 phase,
                 elapsed_ms=_elapsed_ms(run_started),
-                phase_elapsed_ms=_elapsed_ms(phase_started),
+                phase_elapsed_ms=phase_elapsed_ms,
             )
         )
         raise
+    phase_elapsed_ms = _elapsed_ms(phase_started)
+    phase_durations_ms[phase] = phase_elapsed_ms
     notify(
         ProgressEventFactory.phase_ended(
             phase,
             elapsed_ms=_elapsed_ms(run_started),
-            phase_elapsed_ms=_elapsed_ms(phase_started),
+            phase_elapsed_ms=phase_elapsed_ms,
         )
     )
     return result
@@ -223,6 +229,7 @@ def run_settlements(
     config_path = config_path.expanduser().resolve()
     dispatcher = _ObserverDispatcher(observer)
     notify = dispatcher.notify
+    phase_durations_ms: dict[ProgressPhase, int] = {}
 
     def check_inputs() -> tuple[str, Path, dict[str, str]]:
         if not source_path.is_file():
@@ -234,9 +241,19 @@ def run_settlements(
             raise SettlementError(f"Nie znaleziono folderu szablonów: {target_directory.name}")
         return period, target_directory, load_worker_mapping(config_path)
 
-    period, target_directory, mapping = _run_phase("Sprawdzanie", notify, run_started, check_inputs)
+    period, target_directory, mapping = _run_phase(
+        ProgressPhase.CHECKING,
+        notify,
+        run_started,
+        phase_durations_ms,
+        check_inputs,
+    )
     rows_by_worker, source_issues = _run_phase(
-        "Odczyt danych", notify, run_started, lambda: _read_source_rows(source_path)
+        ProgressPhase.READING,
+        notify,
+        run_started,
+        phase_durations_ms,
+        lambda: _read_source_rows(source_path),
     )
     notify(
         ProgressEventFactory.issue_count(
@@ -244,7 +261,13 @@ def run_settlements(
             issue_count=len(source_issues),
         )
     )
-    summary = SettlementSummary(period, source_path, target_directory, issues=source_issues)
+    summary = SettlementSummary(
+        period,
+        source_path,
+        target_directory,
+        issues=source_issues,
+        phase_durations_ms=phase_durations_ms,
+    )
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
         template_files = target_files(target_directory, period)
@@ -267,7 +290,13 @@ def run_settlements(
             rows_by_target[target_key].extend(rows)
         return template_files, rows_by_target, issues
 
-    template_files, rows_by_target, plan_issues = _run_phase("Planowanie", notify, run_started, plan_rows)
+    template_files, rows_by_target, plan_issues = _run_phase(
+        ProgressPhase.PLANNING,
+        notify,
+        run_started,
+        phase_durations_ms,
+        plan_rows,
+    )
     summary.issues.extend(plan_issues)
     notify(
         ProgressEventFactory.plan_ready(
@@ -332,23 +361,27 @@ def run_settlements(
     try:
         save_targets()
     except Exception:
+        phase_elapsed_ms = _elapsed_ms(save_started)
+        phase_durations_ms[ProgressPhase.SAVING] = phase_elapsed_ms
         if not worker_failure_notified:
             notify(
                 ProgressEventFactory.phase_failed(
                     "Zapisywanie",
                     elapsed_ms=_elapsed_ms(run_started),
-                    phase_elapsed_ms=_elapsed_ms(save_started),
+                    phase_elapsed_ms=phase_elapsed_ms,
                 )
             )
         raise
     else:
+        phase_elapsed_ms = _elapsed_ms(save_started)
+        phase_durations_ms[ProgressPhase.SAVING] = phase_elapsed_ms
         notify(
             ProgressEventFactory.phase_ended(
                 "Zapisywanie",
                 template_index=len(template_files),
                 template_total=len(template_files),
                 elapsed_ms=_elapsed_ms(run_started),
-                phase_elapsed_ms=_elapsed_ms(save_started),
+                phase_elapsed_ms=phase_elapsed_ms,
             )
         )
 

@@ -7,14 +7,14 @@ from pathlib import Path
 import subprocess
 import sys
 from collections.abc import Iterable
-from typing import Any, TextIO
+from typing import Any, TextIO, cast
 
 from openpyxl import load_workbook
 import pytest
 
 import rozliczenia.cli as cli
 from rozliczenia.cli import main
-from rozliczenia.domain import ProgressEventFactory, ProgressPhase, WorkerResult
+from rozliczenia.domain import ProgressEventFactory, ProgressObserver, ProgressPhase, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
 from rozliczenia.progress import ProgressNotice, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
@@ -48,7 +48,51 @@ def run_cli(
     return exit_code, output.getvalue()
 
 
+def assert_fixture_workbooks(target_directory: Path, *, dry_run: bool) -> None:
+    expected_input = None if dry_run else "POZNAŃ"
+    for worker_name in ("Adrian Maciejewski", "Darek Nowak"):
+        workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - {worker_name}.xlsx")
+        try:
+            sheet = active_worksheet(workbook)
+            assert sheet["A18"].value == expected_input
+            assert sheet["AU18"].value == "=N18"
+        finally:
+            workbook.close()
+
+    for filename in (
+        f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx",
+        f"Rozliczenie {PERIOD} -.xlsx",
+    ):
+        workbook = load_workbook(target_directory / filename)
+        try:
+            sheet = active_worksheet(workbook)
+            assert sheet["A18"].value is None
+            assert sheet["AU18"].value == "=N18"
+        finally:
+            workbook.close()
+
+
+def assert_completed_metrics(metrics_path: Path, *, dry_run: bool) -> dict[str, Any]:
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert record["schema_version"] == 1
+    assert record["mode"] == ("DRY-RUN" if dry_run else "RUN")
+    assert record["completed"] is True
+    assert record["counters"] == {
+        "templates_total": 3,
+        "templates_completed": 3,
+        "rows": 3,
+        "written": 0 if dry_run else 2,
+        "empty": 1,
+        "planned": 2 if dry_run else 0,
+        "skipped": 0,
+        "issues": 1,
+    }
+    return cast(dict[str, Any], record)
+
+
 def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("rich")
+
     class TtyOutput(StringIO):
         def isatty(self) -> bool:
             return True
@@ -80,6 +124,8 @@ def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch: py
 def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pytest.importorskip("rich")
+
     class TtyOutput(StringIO):
         def isatty(self) -> bool:
             return True
@@ -137,6 +183,8 @@ def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(
 def test_interactive_rich_render_failure_falls_back_without_interrupting_settlements(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip("rich")
+
     class TtyOutput(StringIO):
         def isatty(self) -> bool:
             return True
@@ -322,23 +370,31 @@ def test_metrics_store_repairs_torn_final_line(tmp_path: Path) -> None:
     assert len(MetricsStore(metrics_path).read()) == 3
 
 
-def test_cli_runs_without_rich(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
+@pytest.mark.parametrize(
+    ("dry_run", "mode"),
+    [(False, "RUN"), (True, "DRY-RUN")],
+)
+def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
+    arguments = [
+        "--source",
+        str(source_path),
+        "--config",
+        str(config_path),
+        "--metrics",
+        str(metrics_path),
+    ]
+    if dry_run:
+        arguments.append("--dry-run")
     result = subprocess.run(
         [
             sys.executable,
             "-c",
             "import sys; sys.modules['rich'] = None; from rozliczenia.cli import main; raise SystemExit(main())",
-            "--source",
-            str(source_path),
-            "--config",
-            str(config_path),
-            "--metrics",
-            str(metrics_path),
-            "--dry-run",
+            *arguments,
         ],
         capture_output=True,
         text=True,
@@ -350,6 +406,135 @@ def test_cli_runs_without_rich(tmp_path: Path) -> None:
     assert "Postęp szablonów: 3/3 (100%)" in result.stdout
     assert "WYKONAWCA: Adrian Maciejewski" in result.stdout
     assert "Status końcowy: Wymaga sprawdzenia" in result.stdout
+
+    assert_fixture_workbooks(target_directory, dry_run=dry_run)
+    assert_completed_metrics(metrics_path, dry_run=dry_run)
+    metrics_text = metrics_path.read_text(encoding="utf-8")
+    assert "syntetyczny adres" not in metrics_text
+    assert "#1" not in metrics_text
+    assert str(source_path) not in metrics_text
+
+
+@pytest.mark.parametrize(
+    ("dry_run", "mode"),
+    [(False, "RUN"), (True, "DRY-RUN")],
+)
+def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dry_run: bool,
+    mode: str,
+) -> None:
+    pytest.importorskip("rich")
+    from rich.console import Console as RichConsole
+
+    class TtyOutput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    class FakeConsole:
+        color_system = "standard"
+
+        def __init__(self, *, file: TextIO) -> None:
+            self.renderer = RichConsole(file=file, color_system=None)
+
+        def print(self, renderable: Any) -> None:
+            self.renderer.print(renderable)
+
+    class FakeLive:
+        def __init__(self, renderable: Any, *, console: FakeConsole, **_kwargs: Any) -> None:
+            self.console = console
+            self.renderable = renderable
+            self.refreshes = 0
+
+        def start(self, *, refresh: bool) -> None:
+            pass
+
+        def update(self, renderable: Any, *, refresh: bool) -> None:
+            self.refreshes += 1
+            self.console.print(renderable)
+
+        def stop(self) -> None:
+            pass
+
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    output = TtyOutput()
+    live_instances: list[FakeLive] = []
+
+    def make_live(renderable: Any, *, console: FakeConsole, **kwargs: Any) -> FakeLive:
+        live = FakeLive(renderable, console=console, **kwargs)
+        live_instances.append(live)
+        return live
+
+    monkeypatch.setattr(cli, "Console", FakeConsole)
+    monkeypatch.setattr(cli, "Live", make_live)
+    arguments = [
+        "--source",
+        str(source_path),
+        "--config",
+        str(config_path),
+        "--metrics",
+        str(metrics_path),
+    ]
+    if dry_run:
+        arguments.append("--dry-run")
+
+    exit_code = main(arguments, output=output)
+
+    assert exit_code == 2
+    assert live_instances and live_instances[0].refreshes > 0
+    rendered = output.getvalue()
+    assert mode in rendered
+    assert "Postęp szablonów: 3/3 (100%)" in rendered
+    assert "Bieżący WYKONAWCA: Adrian Maciejewski" in rendered
+    if dry_run:
+        assert "PLAN" in rendered
+    else:
+        assert "ZAPISANO" in rendered
+    assert "syntetyczny adres" not in rendered
+    assert "#1" not in rendered
+
+    assert_fixture_workbooks(target_directory, dry_run=dry_run)
+    assert_completed_metrics(metrics_path, dry_run=dry_run)
+
+
+def test_cli_can_run_the_settlement_engine_without_an_observer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    observers: list[ProgressObserver | None] = []
+    original_run_settlements = settlement_engine.run_settlements
+
+    def record_observer(
+        source: Path,
+        config: Path,
+        *,
+        dry_run: bool = False,
+        observer: ProgressObserver | None = None,
+    ) -> SettlementSummary:
+        observers.append(observer)
+        return original_run_settlements(source, config, dry_run=dry_run, observer=observer)
+
+    monkeypatch.setattr(cli, "run_settlements", record_observer)
+
+    exit_code, output = run_cli(source_path, config_path, metrics_path, "--no-observer")
+
+    assert exit_code == 2
+    assert observers == [None]
+    assert "Status końcowy: Wymaga sprawdzenia" in output
+    assert "Postęp szablonów:" not in output
+    assert_fixture_workbooks(target_directory, dry_run=False)
+    record = assert_completed_metrics(metrics_path, dry_run=False)
+    assert set(record["phase_durations_ms"]) == {
+        "Sprawdzanie",
+        "Odczyt danych",
+        "Planowanie",
+        "Zapisywanie",
+    }
+    assert record["phase_durations_ms"]["Zapisywanie"] > 0
 
 
 def test_plain_cli_completes_progress_for_locked_and_skipped_szablon_pracownika(tmp_path: Path) -> None:

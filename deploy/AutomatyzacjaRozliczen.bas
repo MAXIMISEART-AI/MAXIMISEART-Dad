@@ -37,7 +37,7 @@ Public Sub UruchomRozliczenia()
         Exit Sub
     End If
 
-    command = "cmd.exe /c " & Chr(34) & QuoteArg(launcherPath) & " " & QuoteArg(sourcePath) & Chr(34)
+    command = "cmd.exe /c " & Chr(34) & QuoteArg(launcherPath) & " " & QuoteArg(sourcePath) & " --no-observer" & Chr(34)
     Set shell = CreateObject("WScript.Shell")
     exitCode = shell.Run(command, 0, True)
 

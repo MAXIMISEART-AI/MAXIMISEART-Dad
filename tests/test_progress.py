@@ -6,7 +6,6 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
-from rich.console import Console
 
 from rozliczenia.domain import (
     ProgressEvent,
@@ -25,6 +24,13 @@ from rozliczenia.progress import (
     ProgressSnapshot,
 )
 from rozliczenia.rich_progress import RichProgressAdapter
+
+
+def render_with_rich(snapshot: ProgressSnapshot, notice: ProgressNotice | None = None) -> str:
+    rich_console = pytest.importorskip("rich.console")
+    output = StringIO()
+    rich_console.Console(file=output, color_system=None).print(RichProgressAdapter().render(snapshot, notice))
+    return output.getvalue()
 
 
 def test_progress_event_keeps_string_compatible_typed_values() -> None:
@@ -228,15 +234,12 @@ def test_projection_marks_failed_faza_przebiegu_without_accepting_later_events()
 
     plain_lines: list[str] = []
     PlainProgressAdapter(plain_lines.append).update(update.snapshot, update.notice)
-    rich_output = StringIO()
-    Console(file=rich_output, color_system=None).print(
-        RichProgressAdapter().render(update.snapshot, update.notice)
-    )
+    rich_output = render_with_rich(update.snapshot, update.notice)
 
     assert "Etap przerwany: Sprawdzanie" in plain_lines
-    assert "[przerwany]" in rich_output.getvalue()
-    assert "Sprawdzanie" in rich_output.getvalue()
-    assert "2 ms" in rich_output.getvalue()
+    assert "[przerwany]" in rich_output
+    assert "Sprawdzanie" in rich_output
+    assert "2 ms" in rich_output
     with pytest.raises(ProgressProtocolError):
         projection.update(ProgressEventFactory.phase_ended("Sprawdzanie"))
 
@@ -321,13 +324,12 @@ def test_plain_and_rich_adapters_render_the_same_immutable_snapshot() -> None:
 
     plain_lines: list[str] = []
     PlainProgressAdapter(plain_lines.append).update(update.snapshot, update.notice)
-    rich_output = StringIO()
-    Console(file=rich_output, color_system=None).print(RichProgressAdapter().render(update.snapshot, update.notice))
+    rich_output = render_with_rich(update.snapshot, update.notice)
 
     assert "Postęp szablonów: 1/1 (100%)" in plain_lines
     assert any("Darek Nowak | ZAPISANO" in line for line in plain_lines)
-    assert "Darek Nowak" in rich_output.getvalue()
-    assert "OK: ZAPISANO" in rich_output.getvalue()
+    assert "Darek Nowak" in rich_output
+    assert "OK: ZAPISANO" in rich_output
 
     failure_projection = ProgressProjection("RUN", "08_14_09_2026")
     for event in (
@@ -348,18 +350,15 @@ def test_plain_and_rich_adapters_render_the_same_immutable_snapshot() -> None:
     )
     failure_lines: list[str] = []
     PlainProgressAdapter(failure_lines.append).update(failure_update.snapshot, failure_update.notice)
-    failure_output = StringIO()
-    Console(file=failure_output, color_system=None).print(
-        RichProgressAdapter().render(failure_update.snapshot, failure_update.notice)
-    )
+    failure_output = render_with_rich(failure_update.snapshot, failure_update.notice)
 
     assert (
         "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak | Szablon pracownika: 1/1"
         in failure_lines
     )
-    assert "przerwany" in failure_output.getvalue()
-    assert "Darek Nowak" in failure_output.getvalue()
-    assert "Przerwano przy szablonie pracownika: 1/1" in failure_output.getvalue()
+    assert "przerwany" in failure_output
+    assert "Darek Nowak" in failure_output
+    assert "Przerwano przy szablonie pracownika: 1/1" in failure_output
 
 
 def test_rich_adapter_renders_a_progress_snapshot_without_projection_state() -> None:
@@ -400,11 +399,7 @@ def test_rich_adapter_renders_a_progress_snapshot_without_projection_state() -> 
         rows=3,
         worker_elapsed_ms=4,
     )
-    output = StringIO()
-
-    Console(file=output, color_system=None).print(RichProgressAdapter().render(snapshot, notice))
-
-    rendered = output.getvalue()
+    rendered = render_with_rich(snapshot, notice)
     assert "Sprawdzanie" in rendered
     assert "[gotowe]" in rendered
     assert "1 ms" in rendered
