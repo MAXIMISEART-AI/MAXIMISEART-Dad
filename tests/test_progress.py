@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from io import StringIO
+from types import MappingProxyType
 
 import pytest
 from rich.console import Console
 
-from rozliczenia.cli import PlainProgressAdapter, RichProgressAdapter
+from rozliczenia.cli import PlainProgressAdapter
 from rozliczenia.domain import (
     ProgressEvent,
     ProgressEventFactory,
@@ -13,7 +14,15 @@ from rozliczenia.domain import (
     ProgressProtocolError,
     ProgressState,
 )
-from rozliczenia.progress import PhaseState, ProgressNoticeKind, ProgressProjection
+from rozliczenia.progress import (
+    OperationSnapshot,
+    PhaseState,
+    ProgressNotice,
+    ProgressNoticeKind,
+    ProgressProjection,
+    ProgressSnapshot,
+)
+from rozliczenia.rich_progress import RichProgressAdapter
 
 
 def test_progress_event_keeps_string_compatible_typed_values() -> None:
@@ -317,3 +326,59 @@ def test_plain_and_rich_adapters_render_the_same_immutable_snapshot() -> None:
     assert "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak" in failure_lines
     assert "przerwany" in failure_output.getvalue()
     assert "Darek Nowak" in failure_output.getvalue()
+
+
+def test_rich_adapter_renders_a_progress_snapshot_without_projection_state() -> None:
+    snapshot = ProgressSnapshot(
+        mode="RUN",
+        period="08_14_09_2026",
+        phase_states=MappingProxyType(
+            {
+                ProgressPhase.CHECKING: PhaseState.COMPLETED,
+                ProgressPhase.READING: PhaseState.COMPLETED,
+                ProgressPhase.PLANNING: PhaseState.COMPLETED,
+                ProgressPhase.SAVING: PhaseState.RUNNING,
+            }
+        ),
+        phase_durations_ms=MappingProxyType(
+            {
+                ProgressPhase.CHECKING: 1,
+                ProgressPhase.READING: 2,
+                ProgressPhase.PLANNING: 3,
+                ProgressPhase.SAVING: 0,
+            }
+        ),
+        template_total=2,
+        templates_completed=1,
+        rows=3,
+        operation_counts=MappingProxyType({"ZAPISANO": 1}),
+        current_worker="Darek Nowak",
+        current_phase=ProgressPhase.SAVING,
+        recent_operations=(OperationSnapshot("Adrian Maciejewski", "ZAPISANO", 3, 4),),
+        total_elapsed_ms=12,
+        issue_count=1,
+    )
+    notice = ProgressNotice(
+        kind=ProgressNoticeKind.WORKER_ENDED,
+        phase=ProgressPhase.SAVING,
+        worker_name="Adrian Maciejewski",
+        status="ZAPISANO",
+        rows=3,
+        worker_elapsed_ms=4,
+    )
+    output = StringIO()
+
+    Console(file=output, color_system=None).print(RichProgressAdapter().render(snapshot, notice))
+
+    rendered = output.getvalue()
+    assert "Sprawdzanie" in rendered
+    assert "[gotowe]" in rendered
+    assert "1 ms" in rendered
+    assert "2 ms" in rendered
+    assert "3 ms" in rendered
+    assert "Postęp szablonów: 1/2 (50%)" in rendered
+    assert "Liczniki: zapisano: 1 | puste: 0 | planowane: 0 | pominięte: 0" in rendered
+    assert "Bieżący WYKONAWCA: Darek Nowak" in rendered
+    assert "Adrian Maciejewski" in rendered
+    assert "3 wierszy, czas: 4 ms" in rendered
+    assert "Wiersze danych: 3 | Czas: 12 ms" in rendered
