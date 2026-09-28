@@ -44,7 +44,7 @@ class ProgressEvent:
     elapsed_ms: int | None = None
     phase_elapsed_ms: int | None = None
     worker_elapsed_ms: int | None = None
-    issues: int = 0
+    issue_count: int = 0
 
 
 @dataclass

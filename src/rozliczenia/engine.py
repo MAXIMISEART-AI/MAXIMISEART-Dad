@@ -303,6 +303,15 @@ def run_settlements(
     rows_by_worker, source_issues = _run_phase(
         "Odczyt danych", observer, run_started, lambda: _read_source_rows(source_path)
     )
+    _notify(
+        observer,
+        ProgressEvent(
+            "Odczyt danych",
+            "ISSUE_COUNT",
+            elapsed_ms=_elapsed_ms(run_started),
+            issue_count=len(source_issues),
+        ),
+    )
     summary = SettlementSummary(period, source_path, target_directory, issues=source_issues)
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[tuple]], list[Issue]]:
@@ -335,7 +344,7 @@ def run_settlements(
             "PLAN_READY",
             template_total=len(template_files),
             elapsed_ms=_elapsed_ms(run_started),
-            issues=len(summary.issues),
+            issue_count=len(summary.issues),
         ),
     )
 
@@ -422,7 +431,7 @@ def run_settlements(
                     rows=result.rows,
                     elapsed_ms=_elapsed_ms(run_started),
                     worker_elapsed_ms=_elapsed_ms(worker_started),
-                    issues=len(summary.issues),
+                    issue_count=len(summary.issues),
                 ),
             )
     save_started = time.perf_counter()

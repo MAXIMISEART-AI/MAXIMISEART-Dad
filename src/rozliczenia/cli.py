@@ -122,14 +122,16 @@ class DashboardState:
                 self.phase_durations_ms[event.phase] = event.phase_elapsed_ms
         elif event.state == "PLAN_READY":
             self.template_total = event.template_total
-            self.issue_count = event.issues
+            self.issue_count = event.issue_count
+        elif event.state == "ISSUE_COUNT":
+            self.issue_count = event.issue_count
         elif event.state == "WORKER_START":
             self.current_worker = event.worker_name
             self.current_phase = event.phase
         elif event.state == "WORKER_END":
             self.templates_completed = event.template_index
             self.rows += event.rows
-            self.issue_count = event.issues
+            self.issue_count = event.issue_count
             status = event.status or "NIEZNANY"
             self.operation_counts[status] = self.operation_counts.get(status, 0) + 1
             self.recent_operations.append(event)
