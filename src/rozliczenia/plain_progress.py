@@ -31,8 +31,8 @@ class PlainProgressAdapter:
             self._line(f"WYKONAWCA: {worker_name} | etap: {phase}")
         elif notice.kind is ProgressNoticeKind.WORKER_ENDED:
             operation = snapshot.recent_operations[-1]
-            self._line(f"Postęp szablonów: {self.progress_line(snapshot)}")
-            self._line(f"Liczniki: {self.counter_line(snapshot)}")
+            self._line(f"Postęp szablonów: {progress_line(snapshot)}")
+            self._line(f"Liczniki: {counter_line(snapshot)}")
             status_label, _ = operation_status_presentation(operation.status)
             self._line(
                 f"Ostatnia operacja: {operation.worker_name} | {operation.status} | "
@@ -45,11 +45,3 @@ class PlainProgressAdapter:
                 self._line(f"Etap przerwany: {phase} | WYKONAWCA: {snapshot.current_worker}")
             else:
                 self._line(f"Etap przerwany: {phase}")
-
-    @staticmethod
-    def progress_line(snapshot: ProgressSnapshot) -> str:
-        return progress_line(snapshot)
-
-    @staticmethod
-    def counter_line(snapshot: ProgressSnapshot) -> str:
-        return counter_line(snapshot)
