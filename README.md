@@ -32,10 +32,15 @@ tekstowego fallbacku z tymi samymi informacjami operacyjnymi.
 Przed pierwszym prawdziwym uruchomieniem użyj kontroli bez zapisu:
 
 ```powershell
-py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx" --placeholder "C:\Dane\Placeholder.xlsx"
 ```
 
-Uruchomienie pokazuje etapy, postęp szablonów pracownika i końcowe liczniki.
+`--placeholder` wskazuje wspólny skoroszyt bazowy. Domyślna ścieżka to
+`config\placeholder.xlsx`; parametr pozwala wskazać Placeholder poza repozytorium.
+Podgląd sprawdza, czy folder wynikowy jest wolny, i pokazuje okres, folder,
+nazwy wszystkich planowanych plików oraz liczbę wierszy dla każdego wykonawcy.
+Nie tworzy folderu ani skoroszytów. Uruchomienie pokazuje też etapy, postęp
+szablonów pracownika i końcowe liczniki.
 W przekierowanym wyjściu lub terminalu bez kolorów używany jest zwykły tekst.
 Historia czasów jest dopisywana lokalnie do `.rozliczenia-metrics.jsonl`; można
 wskazać inne miejsce parametrem `--metrics`. P50 i P95 pojawiają się po pięciu

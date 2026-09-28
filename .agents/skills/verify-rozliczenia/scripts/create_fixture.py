@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 import sys
 
@@ -91,14 +93,15 @@ def _write_mapping(path: Path) -> None:
     )
 
 
-def create_fixture(root: Path, *, seed_existing: bool, lock_worker: str | None) -> None:
+def _prepare_existing_target_workbooks(
+    root: Path,
+    *,
+    seed_existing: bool,
+    lock_worker: str | None,
+) -> None:
     period_directory = root / PERIOD
     target_directory = period_directory / f"Rozliczenie pracowników {PERIOD}"
-    if root.exists() and any(root.iterdir()):
-        raise ValueError(f"Fixture root is not empty: {root}")
     target_directory.mkdir(parents=True, exist_ok=False)
-    _write_source(period_directory / SOURCE_NAME)
-    _write_mapping(root / "worker_mapping.yaml")
     for worker_name in WORKERS.values():
         _write_template(target_directory / f"Rozliczenie {PERIOD} - {worker_name}.xlsx")
     _write_template(target_directory / f"Rozliczenie {PERIOD} -.xlsx")
@@ -115,20 +118,51 @@ def create_fixture(root: Path, *, seed_existing: bool, lock_worker: str | None) 
         target.with_name(f"~${target.name}").touch()
 
 
+def _write_fixture(root: Path) -> None:
+    period_directory = root / PERIOD
+    period_directory.mkdir(parents=True, exist_ok=False)
+    source = period_directory / SOURCE_NAME
+    placeholder = root / "placeholder.xlsx"
+    _write_source(source)
+    _write_mapping(root / "worker_mapping.yaml")
+    _write_template(placeholder)
+    manifest = {
+        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "placeholder_sha256": hashlib.sha256(placeholder.read_bytes()).hexdigest(),
+    }
+    (root / "fixture_manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=str, required=True)
     parser.add_argument("--seed-existing", action="store_true")
     parser.add_argument("--lock-worker", choices=sorted(WORKERS.values()))
+    parser.add_argument("--prepare-existing-target-workbooks", action="store_true")
     args = parser.parse_args(argv)
     try:
         root = _safe_run_root(args.root)
-        root.mkdir(parents=True, exist_ok=False)
-        create_fixture(root, seed_existing=args.seed_existing, lock_worker=args.lock_worker)
+        if args.prepare_existing_target_workbooks:
+            if not root.is_dir():
+                raise ValueError("Fixture root must exist before preparing target workbooks")
+            _prepare_existing_target_workbooks(
+                root,
+                seed_existing=args.seed_existing,
+                lock_worker=args.lock_worker,
+            )
+        else:
+            if root.exists() and any(root.iterdir()):
+                raise ValueError(f"Fixture root is not empty: {root}")
+            root.mkdir(parents=True, exist_ok=False)
+            _write_fixture(root)
     except (OSError, ValueError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
-    print(f"FIXTURE_READY root={root} period={PERIOD} templates=4")
+    action = "TARGETS_READY" if args.prepare_existing_target_workbooks else "FIXTURE_READY"
+    print(f"{action} root={root} period={PERIOD} workers={len(WORKERS)}")
     return 0
 
 

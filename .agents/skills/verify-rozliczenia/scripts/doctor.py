@@ -17,6 +17,10 @@ REPO_ROOT = SCRIPT.parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.engine import load_worker_mapping, period_from_source  # noqa: E402
+from rozliczenia.template_settlement import (  # noqa: E402
+    PlaceholderValidationError,
+    validate_placeholder,
+)
 
 
 def _check(root: Path, expected_version: str) -> tuple[str, int]:
@@ -36,6 +40,9 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
     mapping = load_worker_mapping(root / "worker_mapping.yaml")
     if len(mapping) != 3:
         raise ValueError("synthetic mapping must contain three workers")
+    if target_directory.exists():
+        raise ValueError("target directory must not exist before dry-run")
+    validate_placeholder(root / "placeholder.xlsx")
 
     workbook = load_workbook(source, read_only=True, data_only=False)
     try:
@@ -47,22 +54,7 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
     finally:
         workbook.close()
 
-    templates = sorted(target_directory.glob("*.xlsx"))
-    if len(templates) != 4:
-        raise ValueError(f"expected four synthetic workbooks, found {len(templates)}")
-    if list(target_directory.glob("~$*.xlsx")):
-        raise ValueError("an Excel lock file is present")
-    for target in templates:
-        workbook = load_workbook(target, read_only=True, data_only=False)
-        try:
-            sheet = workbook.active
-            if not isinstance(sheet, (Worksheet, ReadOnlyWorksheet)):
-                raise ValueError(f"invalid worksheet in {target.name}")
-            if sheet["H17"].value != "WYKONAWCA":
-                raise ValueError(f"invalid worker header in {target.name}")
-        finally:
-            workbook.close()
-    return period, len(templates)
+    return period, len(mapping)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,13 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         period, template_count = _check(args.root, args.expected_version)
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, PlaceholderValidationError) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
         return 1
     print(
         f"DOCTOR OK | app=MAXIMISEART-Dad | version={args.expected_version} | "
         f"python={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} | "
-        f"period={period} | templates={template_count}"
+        f"period={period} | workers={template_count} | placeholder=valid | target_absent=true"
     )
     return 0
 

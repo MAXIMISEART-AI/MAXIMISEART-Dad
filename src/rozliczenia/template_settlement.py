@@ -54,6 +54,10 @@ class TemplateWriteError(Exception):
     """Błąd właściwego zapisu Szablonu pracownika."""
 
 
+class PlaceholderValidationError(Exception):
+    """Placeholder nie może bezpiecznie posłużyć jako wzór nowych skoroszytów."""
+
+
 def _excel_lock_path(path: Path) -> Path:
     """Zwraca standardowy plik blokady tworzony przez desktopowy Excel."""
 
@@ -82,6 +86,32 @@ def _target_has_input_data(sheet: Worksheet) -> bool:
         if any(_is_real_value(sheet.cell(row=row, column=column)) for column in _INPUT_CHECK_COLUMNS):
             return True
     return False
+
+
+def validate_placeholder(path: Path) -> None:
+    """Sprawdza Placeholder bez modyfikowania jego zawartości."""
+
+    if not path.is_file():
+        raise PlaceholderValidationError("Nie znaleziono Placeholdera.")
+    try:
+        _ensure_unlocked(path)
+        workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
+    except _TemplateLockedError as exc:
+        raise PlaceholderValidationError("Placeholder jest otwarty lub zablokowany.") from exc
+    except (OSError, InvalidFileException, zipfile.BadZipFile) as exc:
+        raise PlaceholderValidationError("Nie można odczytać Placeholdera.") from exc
+
+    try:
+        sheet = _active_worksheet(workbook)
+        if sheet is None:
+            raise PlaceholderValidationError("Placeholder nie zawiera arkusza roboczego.")
+        header = sheet.cell(row=_HEADER_ROW, column=_WORKER_COLUMN).value
+        if not _is_worker_header(header):
+            raise PlaceholderValidationError("Placeholder nie ma nagłówka WYKONAWCA w H:17.")
+        if _target_has_input_data(sheet):
+            raise PlaceholderValidationError("Placeholder zawiera dane i nie może być użyty jako wzór.")
+    finally:
+        workbook.close()
 
 
 def _active_worksheet(workbook: Workbook) -> Worksheet | None:

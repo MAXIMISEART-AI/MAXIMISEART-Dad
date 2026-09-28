@@ -47,8 +47,8 @@ The runner always executes the read-only doctor before driving the application.
 The result is retained in `doctor.txt` under the printed evidence directory.
 `DOCTOR OK` means Python is at least 3.11, the checked-out build reports the
 version in `pyproject.toml`, the source name and period folder agree, the source
-has `WYKONAWCA` in `H17`, the local mapping is readable, every target workbook
-has the expected header, and no Excel lock file is present at that point.
+has `WYKONAWCA` in `H17`, the local mapping and shared Placeholder are readable,
+and the target folder does not yet exist.
 
 For targeted debugging of a fixture that already exists, invoke the primitive
 directly:
@@ -67,14 +67,15 @@ Use `run_verification.py` as the harness entry point. It launches the real
 imports into `rozliczenia`, test-only helpers, or direct calls to the settlement
 engine. Its ordered stages are:
 
-1. Create a disposable source workbook, three worker templates, a placeholder,
-   and a local three-entry mapping.
+1. Create a disposable source workbook, a shared Placeholder, and a local
+   three-entry mapping. The target folder is absent.
 2. Run the read-only doctor.
-3. Run `run.py --dry-run`, require exit code `2`, and assert no workbook input
-   cells changed.
-4. Run `run.py` without `--dry-run`, require exit code `2`, and assert mapped
-   values, preserved `AU` formulas, an empty mapped template, and an untouched
-   placeholder.
+3. Run `run.py --dry-run` with the synthetic Placeholder, require exit code `2`,
+   and assert the complete plan, no target folder, unchanged source/Placeholder,
+   and no row content in the transcript.
+4. Prepare legacy target workbooks, then run `run.py` without `--dry-run`, require
+   exit code `2`, and assert mapped values, preserved `AU` formulas, an empty
+   mapped template, and an untouched placeholder.
 5. Copy metrics to evidence and invoke the safe cleanup helper in `finally`.
 6. Run the mechanical self-test against the retained evidence.
 
@@ -102,6 +103,7 @@ successful default run contains:
 - `doctor.txt` with the read-only preflight result.
 - `dry-run.txt` with the dry-run command, stdout, stderr, and exit code `2`.
 - `assert-dry-run.txt` with the no-write workbook assertion and exit code `0`.
+- `prepare-targets.txt` with the post-preview legacy fixture setup.
 - `run.txt` with the real command, stdout, stderr, and exit code `2`.
 - `assert-run.txt` with workbook side-effect assertions and exit code `0`.
 - `metrics.jsonl` with safe local telemetry and no source path or row content.
@@ -155,7 +157,7 @@ already performs both checks and prints `scratch_removed=true`.
 - `scripts/doctor.py` performs the read-only fixture and build check.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\doctor.py --root "$runRoot" --expected-version "0.1.0"`.
 - `scripts/assert_results.py` checks workbook state after either mode.
-  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_results.py --root "$runRoot" --expect run`.
+  Dry-run additionally requires `--transcript`; write mode checks workbook state.
 - `scripts/cleanup.py` removes only a run root below `.verification\runs\`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.
 - `scripts/self_test.py` checks the skill package and evidence hygiene.
