@@ -33,3 +33,6 @@ starszą wersją silnika. Przed naprawą tworzy kopie zapasowe.
 
 Zmiany muszą być sprawdzone testami na syntetycznych arkuszach. Przed użyciem
 na prawdziwych plikach trzeba wykonać `--dry-run`.
+## Coding standards
+
+During code review, read `CODING_STANDARDS.md` for project-specific judgement calls about domain vocabulary, module depth, error ownership, and test surfaces.

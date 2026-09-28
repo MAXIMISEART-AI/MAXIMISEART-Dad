@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import os
 import re
-import tempfile
 import time
 import unicodedata
-import zipfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable, Iterable, TypeVar
+from typing import Callable, TypeVar
 
 import yaml
 from openpyxl import load_workbook
-from openpyxl.utils.exceptions import InvalidFileException
 
-from .domain import Issue, ProgressEvent, ProgressObserver, SettlementSummary, WorkerResult
+from . import template_settlement
+from .domain import Issue, ProgressEvent, ProgressObserver, SettlementSummary
 
 
 ResultT = TypeVar("ResultT")
@@ -28,8 +25,6 @@ SOURCE_PATTERN = re.compile(
 HEADER_ROW = 17
 DATA_START_ROW = 18
 WORKER_COLUMN = 8  # H
-INPUT_CHECK_COLUMNS = range(1, 12)  # A:K
-COPY_COLUMNS = range(1, 47)  # A:AT
 
 
 class SettlementError(Exception):
@@ -105,21 +100,6 @@ def ensure_unlocked(path: Path) -> None:
         raise SettlementError(f"Plik jest otwarty lub zablokowany: {path.name}")
 
 
-def _is_real_value(cell) -> bool:
-    """Pomija formuły szablonu przy wykrywaniu istniejących danych."""
-
-    return cell.value is not None and cell.data_type != "f"
-
-
-def target_has_input_data(sheet) -> bool:
-    """Sprawdza dane wejściowe A:K, ignorując formuły w szablonie."""
-
-    for row in range(DATA_START_ROW, sheet.max_row + 1):
-        if any(_is_real_value(sheet.cell(row=row, column=column)) for column in INPUT_CHECK_COLUMNS):
-            return True
-    return False
-
-
 def target_files(target_directory: Path, period: str) -> list[tuple[str, Path]]:
     """Zwraca nazwane szablony, pomijając placeholdery i pliki blokad."""
 
@@ -174,43 +154,6 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[tuple]], list[I
         workbook.close()
 
 
-def _external_link_parts(path: Path) -> dict[str, tuple[zipfile.ZipInfo, bytes]]:
-    """Pobiera oryginalne relacje zewnętrzne, których openpyxl nie zapisuje 1:1."""
-
-    with zipfile.ZipFile(path, "r") as archive:
-        return {
-            info.filename: (info, archive.read(info.filename))
-            for info in archive.infolist()
-            if info.filename.startswith("xl/externalLinks/")
-        }
-
-
-def _restore_external_link_parts(
-    path: Path,
-    parts: dict[str, tuple[zipfile.ZipInfo, bytes]],
-) -> None:
-    """Przywraca cały fragment externalLinks bez zmiany arkuszy i danych."""
-
-    if not parts:
-        return
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.stem}.links.", suffix=".xlsx", dir=path.parent
-    )
-    os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        with zipfile.ZipFile(path, "r") as source, zipfile.ZipFile(temporary_path, "w") as target:
-            for info in source.infolist():
-                if info.filename.startswith("xl/externalLinks/"):
-                    continue
-                target.writestr(info, source.read(info.filename))
-            for info, data in parts.values():
-                target.writestr(info, data)
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
 def _elapsed_ms(started: float) -> int:
     return max(0, round((time.perf_counter() - started) * 1000))
 
@@ -240,40 +183,6 @@ def _run_phase(
                 phase_elapsed_ms=_elapsed_ms(phase_started),
             ),
         )
-
-
-def _save_target(path: Path, rows: Iterable[tuple]) -> None:
-    """Wpisuje wartości do pustego szablonu i zapisuje atomowo."""
-
-    external_link_parts = _external_link_parts(path)
-    workbook = load_workbook(path, data_only=False, keep_links=True)
-    try:
-        sheet = workbook.active
-        if sheet is None:
-            raise SettlementError("Szablon nie zawiera arkusza.")
-        for destination_row, values in enumerate(rows, start=DATA_START_ROW):
-            for column, value in zip(COPY_COLUMNS, values):
-                sheet.cell(row=destination_row, column=column).value = value
-
-        calculation = getattr(workbook, "calculation", None)
-        if calculation is not None:
-            calculation.calcMode = "auto"
-            calculation.fullCalcOnLoad = True
-            calculation.forceFullCalc = True
-
-        file_descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.stem}.", suffix=".xlsx", dir=path.parent
-        )
-        os.close(file_descriptor)
-        temporary_path = Path(temporary_name)
-        try:
-            workbook.save(temporary_path)
-            _restore_external_link_parts(temporary_path, external_link_parts)
-            os.replace(temporary_path, path)
-        finally:
-            temporary_path.unlink(missing_ok=True)
-    finally:
-        workbook.close()
 
 
 def run_settlements(
@@ -363,61 +272,14 @@ def run_settlements(
                     elapsed_ms=_elapsed_ms(run_started),
                 ),
             )
-            result: WorkerResult | None = None
-            occupied = False
-            writing_target = False
-            try:
-                ensure_unlocked(target_path)
-                target_workbook = load_workbook(
-                    target_path, read_only=False, data_only=False, keep_links=True
-                )
-                try:
-                    target_sheet = target_workbook.active
-                    if target_sheet is None:
-                        raise ValueError("Szablon nie zawiera arkusza.")
-                    header = target_sheet.cell(row=HEADER_ROW, column=WORKER_COLUMN).value
-                    if normalize_text(header) != "wykonawca":
-                        summary.issues.append(
-                            Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w H:17: {target_path.name}.")
-                        )
-                        result = WorkerResult(worker_name, target_path, 0, "ZLY_SZABLON")
-                    else:
-                        occupied = target_has_input_data(target_sheet)
-                finally:
-                    target_workbook.close()
-
-                if result is None:
-                    rows = rows_by_target.get(target_key, [])
-                    if occupied:
-                        summary.issues.append(
-                            Issue(
-                                "NADPISANIE_ZABLOKOWANE",
-                                f"Szablon zawiera już dane: {target_path.name}.",
-                            )
-                        )
-                        result = WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY")
-                    elif not rows:
-                        result = WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
-                    elif dry_run:
-                        result = WorkerResult(worker_name, target_path, len(rows), "PLAN")
-                    else:
-                        writing_target = True
-                        _save_target(target_path, rows)
-                        result = WorkerResult(worker_name, target_path, len(rows), "ZAPISANO")
-            except SettlementError as exc:
-                if writing_target:
-                    raise
-                summary.issues.append(Issue("PLIK_ZABLOKOWANY", str(exc)))
-                result = WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY")
-            except (OSError, InvalidFileException, ValueError, zipfile.BadZipFile):
-                if writing_target:
-                    raise
-                summary.issues.append(
-                    Issue("BLAD_SZABLONU", f"Nie można obsłużyć szablonu: {target_path.name}.")
-                )
-                result = WorkerResult(worker_name, target_path, 0, "POMINIĘTO")
-
-            assert result is not None
+            rows = rows_by_target.get(target_key, [])
+            result = template_settlement.process_template(
+                worker_name,
+                target_path,
+                rows,
+                dry_run=dry_run,
+            )
+            summary.issues.extend(result.issues)
             summary.results.append(result)
             _notify(
                 observer,

@@ -119,14 +119,13 @@ def add_external_link_fixture(path: Path) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
-def external_link_targets(path: Path) -> list[tuple[str, str, str | None]]:
+def external_link_parts(path: Path) -> dict[str, bytes]:
     with zipfile.ZipFile(path) as archive:
-        rels = archive.read("xl/externalLinks/_rels/externalLink1.xml.rels")
-    root = ET.fromstring(rels)
-    return sorted(
-        (item.attrib["Type"], item.attrib["Target"], item.attrib.get("TargetMode"))
-        for item in root
-    )
+        return {
+            info.filename: archive.read(info.filename)
+            for info in archive.infolist()
+            if info.filename.startswith("xl/externalLinks/")
+        }
 
 
 def write_source(path: Path) -> None:
@@ -218,11 +217,11 @@ def test_external_link_relationships_survive_target_write(tmp_path: Path) -> Non
     source_path, target_directory, config_path = make_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     add_external_link_fixture(target_path)
-    before = external_link_targets(target_path)
+    before = external_link_parts(target_path)
 
     run_settlements(source_path, config_path)
 
-    assert external_link_targets(target_path) == before
+    assert external_link_parts(target_path) == before
 
 
 def test_locked_target_is_reported_without_stopping_other_files(tmp_path: Path) -> None:

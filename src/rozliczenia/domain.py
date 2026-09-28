@@ -28,6 +28,7 @@ class WorkerResult:
     output_file: Path
     rows: int
     status: str
+    issues: tuple[Issue, ...] = ()
 
 
 @dataclass(frozen=True)
