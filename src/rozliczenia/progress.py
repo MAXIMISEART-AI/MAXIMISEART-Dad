@@ -121,6 +121,12 @@ class ProgressProjection:
         self._recent_operations: list[OperationSnapshot] = []
         self._total_elapsed_ms = 0
         self._issue_count = 0
+        self._issue_count_seen = False
+        self._plan_ready = False
+        self._active_worker: tuple[str, int, int] | None = None
+        self._last_elapsed_ms: int | None = None
+        self._failed = False
+        self._finished = False
         self._snapshot = self._make_snapshot()
 
     @property
@@ -132,51 +138,143 @@ class ProgressProjection:
 
         if not isinstance(event, ProgressEvent):
             raise ProgressProtocolError("Obserwator otrzymał obiekt inny niż ProgressEvent.")
+        self._validate_event(event)
         self._reduce(event)
         self._snapshot = self._make_snapshot()
         return ProgressUpdate(self._snapshot, self._notice(event))
+
+    def _validate_event(self, event: ProgressEvent) -> None:
+        phase = ProgressPhase(event.phase)
+        state = ProgressState(event.state)
+        if self._failed or self._finished:
+            raise ProgressProtocolError("Przebieg rozliczeń nie przyjmuje już kolejnych zdarzeń.")
+        if event.elapsed_ms is not None and (
+            self._last_elapsed_ms is not None and event.elapsed_ms < self._last_elapsed_ms
+        ):
+            raise ProgressProtocolError("Czas uruchomienia zdarzenia nie może się cofać.")
+
+        if state is ProgressState.START:
+            self._validate_phase_start(phase)
+        elif state is ProgressState.END:
+            self._expect_phase(phase, PhaseState.RUNNING)
+            if phase is ProgressPhase.SAVING:
+                if self._active_worker is not None:
+                    raise ProgressProtocolError("Zapisywanie nie może się zakończyć z aktywnym wykonawcą.")
+                if event.template_total != self._template_total:
+                    raise ProgressProtocolError("END dla Zapisywanie ma inną liczbę szablonów niż plan.")
+                if event.template_index != self._templates_completed:
+                    raise ProgressProtocolError("END dla Zapisywanie ma niezgodną pozycję szablonu.")
+        elif state is ProgressState.ISSUE_COUNT:
+            self._expect_phase(phase, (PhaseState.RUNNING, PhaseState.COMPLETED))
+            if phase is not ProgressPhase.READING:
+                raise ProgressProtocolError("ISSUE_COUNT jest dozwolone tylko dla Odczyt danych.")
+            if self._issue_count_seen:
+                raise ProgressProtocolError("ISSUE_COUNT zostało już przyjęte.")
+            if self._current_phase is not None:
+                raise ProgressProtocolError("ISSUE_COUNT nie może przerwać aktywnej fazy.")
+            self._validate_issue_count(event.issue_count)
+        elif state is ProgressState.PLAN_READY:
+            self._expect_phase(phase, (PhaseState.RUNNING, PhaseState.COMPLETED))
+            if phase is not ProgressPhase.PLANNING:
+                raise ProgressProtocolError("PLAN_READY jest dozwolone tylko dla Planowanie.")
+            if self._plan_ready:
+                raise ProgressProtocolError("PLAN_READY zostało już przyjęte.")
+            if self._current_phase is not None:
+                raise ProgressProtocolError("PLAN_READY nie może przerwać aktywnej fazy.")
+            self._validate_issue_count(event.issue_count)
+        elif state is ProgressState.WORKER_START:
+            self._expect_phase(phase, PhaseState.RUNNING)
+            if not self._plan_ready:
+                raise ProgressProtocolError("WORKER_START wymaga gotowego planu.")
+            if self._active_worker is not None:
+                raise ProgressProtocolError("Nie można rozpocząć drugiego wykonawcy przed zakończeniem pierwszego.")
+            if event.template_total != self._template_total:
+                raise ProgressProtocolError("WORKER_START ma inną liczbę szablonów niż plan.")
+            if event.template_index != self._templates_completed + 1:
+                raise ProgressProtocolError("WORKER_START musi wskazywać następny szablon.")
+        elif state is ProgressState.WORKER_END:
+            self._expect_phase(phase, PhaseState.RUNNING)
+            if self._active_worker is None:
+                raise ProgressProtocolError("WORKER_END nie ma aktywnego wykonawcy.")
+            active_name, active_index, active_total = self._active_worker
+            if (active_name, active_index, active_total) != (
+                event.worker_name,
+                event.template_index,
+                event.template_total,
+            ):
+                raise ProgressProtocolError("WORKER_END nie pasuje do bieżącego wykonawcy.")
+            self._validate_issue_count(event.issue_count)
+        elif state is ProgressState.FAILED:
+            self._expect_phase(phase, PhaseState.RUNNING)
+            if event.worker_name is not None:
+                if phase is not ProgressPhase.SAVING or self._active_worker is None:
+                    raise ProgressProtocolError("FAILED z wykonawcą wymaga aktywnego zapisu.")
+                active_name, active_index, active_total = self._active_worker
+                if (active_name, active_index, active_total) != (
+                    event.worker_name,
+                    event.template_index,
+                    event.template_total,
+                ):
+                    raise ProgressProtocolError("FAILED nie pasuje do bieżącego wykonawcy.")
+            elif self._active_worker is not None:
+                raise ProgressProtocolError("FAILED bez wykonawcy nie może przerwać aktywnego zapisu.")
+
+    def _validate_phase_start(self, phase: ProgressPhase) -> None:
+        if self._current_phase is not None:
+            raise ProgressProtocolError("Nie można rozpocząć fazy przed zakończeniem bieżącej fazy.")
+        expected_phase = next(
+            (candidate for candidate in ProgressPhase if self._phase_states[candidate] is PhaseState.PENDING),
+            None,
+        )
+        if expected_phase is not phase:
+            expected_label = expected_phase.value if expected_phase is not None else "brak"
+            raise ProgressProtocolError(
+                f"Nie można rozpocząć fazy {phase.value}; oczekiwano {expected_label}."
+            )
+        if phase is ProgressPhase.PLANNING and not self._issue_count_seen:
+            raise ProgressProtocolError("Planowanie wymaga wcześniejszego ISSUE_COUNT.")
+        if phase is ProgressPhase.SAVING and not self._plan_ready:
+            raise ProgressProtocolError("Zapisywanie wymaga wcześniejszego PLAN_READY.")
+
+    def _validate_issue_count(self, issue_count: int) -> None:
+        if issue_count < self._issue_count:
+            raise ProgressProtocolError("Liczba problemów nie może się zmniejszyć.")
 
     def _reduce(self, event: ProgressEvent) -> None:
         phase = ProgressPhase(event.phase)
         state = ProgressState(event.state)
         if event.elapsed_ms is not None:
-            self._total_elapsed_ms = max(self._total_elapsed_ms, event.elapsed_ms)
+            self._last_elapsed_ms = event.elapsed_ms
+            self._total_elapsed_ms = event.elapsed_ms
 
         if state is ProgressState.START:
-            self._expect_phase(phase, PhaseState.PENDING)
             self._phase_states[phase] = PhaseState.RUNNING
             self._current_phase = phase
         elif state is ProgressState.END:
-            self._expect_phase(phase, PhaseState.RUNNING)
             self._phase_states[phase] = PhaseState.COMPLETED
             if event.phase_elapsed_ms is not None:
                 self._phase_durations_ms[phase] = event.phase_elapsed_ms
+            self._current_phase = None
             if phase is ProgressPhase.SAVING:
-                self._current_worker = None
-                self._current_phase = None
+                self._finished = True
         elif state is ProgressState.ISSUE_COUNT:
-            self._expect_phase(phase, (PhaseState.RUNNING, PhaseState.COMPLETED))
             self._issue_count = event.issue_count
+            self._issue_count_seen = True
         elif state is ProgressState.PLAN_READY:
-            self._expect_phase(phase, (PhaseState.RUNNING, PhaseState.COMPLETED))
             self._template_total = event.template_total
             self._issue_count = event.issue_count
+            self._plan_ready = True
         elif state is ProgressState.WORKER_START:
-            self._expect_phase(phase, PhaseState.RUNNING)
-            if self._current_worker is not None:
-                raise ProgressProtocolError("Nie można rozpocząć drugiego wykonawcy przed zakończeniem pierwszego.")
-            self._template_total = event.template_total
+            assert event.worker_name is not None
+            self._active_worker = (event.worker_name, event.template_index, event.template_total)
             self._current_worker = event.worker_name
             self._current_phase = phase
         elif state is ProgressState.WORKER_END:
-            self._expect_phase(phase, PhaseState.RUNNING)
-            if self._current_worker != event.worker_name:
-                raise ProgressProtocolError("WORKER_END nie pasuje do bieżącego wykonawcy.")
+            assert event.worker_name is not None
+            assert event.status is not None
             self._templates_completed = event.template_index
             self._rows += event.rows
             self._issue_count = event.issue_count
-            assert event.worker_name is not None
-            assert event.status is not None
             self._operation_counts[event.status] = self._operation_counts.get(event.status, 0) + 1
             self._recent_operations.append(
                 OperationSnapshot(
@@ -187,18 +285,17 @@ class ProgressProjection:
                 )
             )
             del self._recent_operations[:-5]
+            self._active_worker = None
             self._current_worker = None
-            self._current_phase = None
+            self._current_phase = phase
         elif state is ProgressState.FAILED:
-            self._expect_phase(phase, PhaseState.RUNNING)
             self._phase_states[phase] = PhaseState.FAILED
             if event.phase_elapsed_ms is not None:
                 self._phase_durations_ms[phase] = event.phase_elapsed_ms
             if event.worker_name is not None:
                 self._current_worker = event.worker_name
                 self._current_phase = phase
-            elif self._current_phase is None:
-                self._current_phase = phase
+            self._failed = True
 
     def _expect_phase(self, phase: ProgressPhase, expected: PhaseState | tuple[PhaseState, ...]) -> None:
         expected_states = (expected,) if isinstance(expected, PhaseState) else expected

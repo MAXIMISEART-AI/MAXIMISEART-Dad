@@ -37,6 +37,18 @@ def test_invalid_progress_event_combination_is_rejected_at_construction() -> Non
             "Planowanie", "WORKER_START", worker_name="Adrian", template_index=1, template_total=1
         ),
         lambda: ProgressEvent("Sprawdzanie", "FAILED", worker_elapsed_ms=1),
+        lambda: ProgressEvent("Sprawdzanie", "END", elapsed_ms=1, phase_elapsed_ms=2),
+        lambda: ProgressEvent(
+            "Zapisywanie",
+            "WORKER_END",
+            worker_name="Adrian",
+            template_index=1,
+            template_total=1,
+            status="ZAPISANO",
+            rows=1,
+            elapsed_ms=1,
+            worker_elapsed_ms=2,
+        ),
     )
 
     for create_event in invalid_events:
@@ -47,6 +59,11 @@ def test_invalid_progress_event_combination_is_rejected_at_construction() -> Non
 def test_projection_reduces_failed_przetworzenie_szablonu_pracownika_without_counting_it_as_completed() -> None:
     projection = ProgressProjection("RUN", "08_14_09_2026")
     events = (
+        ProgressEventFactory.phase_started("Sprawdzanie"),
+        ProgressEventFactory.phase_ended("Sprawdzanie"),
+        ProgressEventFactory.phase_started("Odczyt danych"),
+        ProgressEventFactory.phase_ended("Odczyt danych"),
+        ProgressEventFactory.issue_count(),
         ProgressEventFactory.phase_started("Planowanie"),
         ProgressEventFactory.phase_ended("Planowanie", phase_elapsed_ms=2),
         ProgressEventFactory.plan_ready(template_total=2, issue_count=0),
@@ -85,9 +102,166 @@ def test_projection_reduces_failed_przetworzenie_szablonu_pracownika_without_cou
         snapshot.phase_states[ProgressPhase.SAVING] = PhaseState.COMPLETED  # type: ignore[index]
 
 
+def test_projection_reduces_complete_przebieg_rozliczen_to_one_snapshot() -> None:
+    projection = ProgressProjection("RUN", "08_14_09_2026")
+    events = (
+        ProgressEventFactory.phase_started(ProgressPhase.CHECKING, elapsed_ms=1),
+        ProgressEventFactory.phase_ended(
+            ProgressPhase.CHECKING,
+            elapsed_ms=2,
+            phase_elapsed_ms=1,
+        ),
+        ProgressEventFactory.phase_started(ProgressPhase.READING, elapsed_ms=3),
+        ProgressEventFactory.phase_ended(
+            ProgressPhase.READING,
+            elapsed_ms=5,
+            phase_elapsed_ms=2,
+        ),
+        ProgressEventFactory.issue_count(elapsed_ms=5, issue_count=1),
+        ProgressEventFactory.phase_started(ProgressPhase.PLANNING, elapsed_ms=6),
+        ProgressEventFactory.phase_ended(
+            ProgressPhase.PLANNING,
+            elapsed_ms=8,
+            phase_elapsed_ms=2,
+        ),
+        ProgressEventFactory.plan_ready(elapsed_ms=8, template_total=2, issue_count=1),
+        ProgressEventFactory.phase_started(ProgressPhase.SAVING, elapsed_ms=9),
+        ProgressEventFactory.worker_started(
+            "Adrian Maciejewski",
+            template_index=1,
+            template_total=2,
+            elapsed_ms=9,
+        ),
+        ProgressEventFactory.worker_ended(
+            "Adrian Maciejewski",
+            template_index=1,
+            template_total=2,
+            status="ZAPISANO",
+            rows=2,
+            elapsed_ms=12,
+            worker_elapsed_ms=3,
+            issue_count=1,
+        ),
+        ProgressEventFactory.worker_started(
+            "Darek Nowak",
+            template_index=2,
+            template_total=2,
+            elapsed_ms=13,
+        ),
+        ProgressEventFactory.worker_ended(
+            "Darek Nowak",
+            template_index=2,
+            template_total=2,
+            status="PUSTY_SZABLON",
+            rows=0,
+            elapsed_ms=14,
+            worker_elapsed_ms=1,
+            issue_count=1,
+        ),
+    )
+
+    for event in events:
+        projection.update(event)
+    update = projection.update(
+        ProgressEventFactory.phase_ended(
+            ProgressPhase.SAVING,
+            elapsed_ms=16,
+            phase_elapsed_ms=7,
+            template_index=2,
+            template_total=2,
+        )
+    )
+
+    snapshot = update.snapshot
+    assert update.notice.kind is ProgressNoticeKind.PHASE_ENDED
+    assert all(state is PhaseState.COMPLETED for state in snapshot.phase_states.values())
+    assert snapshot.template_total == 2
+    assert snapshot.templates_completed == 2
+    assert snapshot.rows == 2
+    assert snapshot.operation_counts == {"ZAPISANO": 1, "PUSTY_SZABLON": 1}
+    assert snapshot.current_worker is None
+    assert snapshot.current_phase is None
+    assert snapshot.recent_operations[-1].worker_name == "Darek Nowak"
+    assert snapshot.phase_durations_ms[ProgressPhase.SAVING] == 7
+    assert snapshot.total_elapsed_ms == 16
+    assert snapshot.issue_count == 1
+
+
+def test_projection_marks_failed_faza_przebiegu_without_accepting_later_events() -> None:
+    projection = ProgressProjection("RUN", "08_14_09_2026")
+    projection.update(ProgressEventFactory.phase_started("Sprawdzanie"))
+
+    update = projection.update(
+        ProgressEventFactory.phase_failed("Sprawdzanie", elapsed_ms=3, phase_elapsed_ms=2)
+    )
+
+    assert update.notice.kind is ProgressNoticeKind.FAILED
+    assert update.snapshot.phase_states[ProgressPhase.CHECKING] is PhaseState.FAILED
+    assert update.snapshot.current_phase is ProgressPhase.CHECKING
+    with pytest.raises(ProgressProtocolError):
+        projection.update(ProgressEventFactory.phase_ended("Sprawdzanie"))
+
+
+def test_projection_rejects_out_of_order_event_without_changing_snapshot() -> None:
+    projection = ProgressProjection("RUN", "08_14_09_2026")
+    initial = projection.snapshot
+
+    with pytest.raises(ProgressProtocolError):
+        projection.update(ProgressEventFactory.phase_started(ProgressPhase.PLANNING))
+
+    assert projection.snapshot == initial
+
+
+def test_projection_rejects_mismatched_worker_event_without_changing_snapshot() -> None:
+    projection = ProgressProjection("RUN", "08_14_09_2026")
+    for event in (
+        ProgressEventFactory.phase_started("Sprawdzanie"),
+        ProgressEventFactory.phase_ended("Sprawdzanie"),
+        ProgressEventFactory.phase_started("Odczyt danych"),
+        ProgressEventFactory.phase_ended("Odczyt danych"),
+        ProgressEventFactory.issue_count(),
+        ProgressEventFactory.phase_started("Planowanie"),
+        ProgressEventFactory.phase_ended("Planowanie"),
+        ProgressEventFactory.plan_ready(template_total=2),
+        ProgressEventFactory.phase_started("Zapisywanie"),
+        ProgressEventFactory.worker_started("Adrian Maciejewski", template_index=1, template_total=2),
+    ):
+        projection.update(event)
+    before = projection.snapshot
+
+    with pytest.raises(ProgressProtocolError):
+        projection.update(
+            ProgressEventFactory.worker_ended(
+                "Adrian Maciejewski",
+                template_index=2,
+                template_total=2,
+                status="ZAPISANO",
+                rows=1,
+            )
+        )
+
+    assert projection.snapshot == before
+
+
+def test_projection_rejects_elapsed_time_regression_without_changing_snapshot() -> None:
+    projection = ProgressProjection("RUN", "08_14_09_2026")
+    projection.update(ProgressEventFactory.phase_started("Sprawdzanie", elapsed_ms=5))
+    before = projection.snapshot
+
+    with pytest.raises(ProgressProtocolError):
+        projection.update(ProgressEventFactory.phase_ended("Sprawdzanie", elapsed_ms=4))
+
+    assert projection.snapshot == before
+
+
 def test_plain_and_rich_adapters_render_the_same_immutable_snapshot() -> None:
     projection = ProgressProjection("RUN", "08_14_09_2026")
     for event in (
+        ProgressEventFactory.phase_started("Sprawdzanie"),
+        ProgressEventFactory.phase_ended("Sprawdzanie"),
+        ProgressEventFactory.phase_started("Odczyt danych"),
+        ProgressEventFactory.phase_ended("Odczyt danych"),
+        ProgressEventFactory.issue_count(),
         ProgressEventFactory.phase_started("Planowanie"),
         ProgressEventFactory.phase_ended("Planowanie"),
         ProgressEventFactory.plan_ready(template_total=1),
@@ -118,6 +292,14 @@ def test_plain_and_rich_adapters_render_the_same_immutable_snapshot() -> None:
 
     failure_projection = ProgressProjection("RUN", "08_14_09_2026")
     for event in (
+        ProgressEventFactory.phase_started("Sprawdzanie"),
+        ProgressEventFactory.phase_ended("Sprawdzanie"),
+        ProgressEventFactory.phase_started("Odczyt danych"),
+        ProgressEventFactory.phase_ended("Odczyt danych"),
+        ProgressEventFactory.issue_count(),
+        ProgressEventFactory.phase_started("Planowanie"),
+        ProgressEventFactory.phase_ended("Planowanie"),
+        ProgressEventFactory.plan_ready(template_total=1),
         ProgressEventFactory.phase_started("Zapisywanie"),
         ProgressEventFactory.worker_started("Darek Nowak", template_index=1, template_total=1),
     ):
