@@ -233,22 +233,40 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert str(source_path) not in metrics_text
 
 
-def test_completed_metrics_use_summary_after_observer_detaches(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("fail_at_write", [1, 4])
+def test_plain_output_failure_detaches_observer_without_interrupting_settlements(
+    tmp_path: Path, fail_at_write: int
+) -> None:
+    class FailingOutput(StringIO):
+        writes = 0
+
+        def write(self, value: str) -> int:
+            self.writes += 1
+            if self.writes >= fail_at_write:
+                raise OSError("synthetic output failure")
+            return super().write(value)
+
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
+    output = FailingOutput()
 
-    def fail_output(_dashboard, _event) -> None:
-        raise OSError("synthetic output failure")
-
-    monkeypatch.setattr(cli.Dashboard, "__call__", fail_output)
-
-    exit_code, output = run_cli(source_path, config_path, metrics_path)
+    exit_code = main(
+        [
+            "--source",
+            str(source_path),
+            "--config",
+            str(config_path),
+            "--metrics",
+            str(metrics_path),
+        ],
+        output=output,
+    )
 
     assert exit_code == 2
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is True
     assert record["counters"]["templates_completed"] == 3
-    assert "Liczniki: zapisano: 2 | puste: 1 | planowane: 0 | pominięte: 0" in output
+    assert output.writes == fail_at_write
 
 
 def test_metrics_store_rejects_record_with_full_path(tmp_path: Path) -> None:
