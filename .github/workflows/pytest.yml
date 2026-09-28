@@ -23,6 +23,7 @@ jobs:
         python-version: ['3.11', '3.14']
     env:
       EXPECTED_PYTHON_VERSION: ${{ matrix.python-version }}
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v7
 
