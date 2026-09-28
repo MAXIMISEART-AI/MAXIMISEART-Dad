@@ -74,21 +74,34 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert "syntetyczny adres" not in metrics_path.read_text(encoding="utf-8")
 
 
-def test_cli_import_does_not_require_rich() -> None:
+def test_cli_runs_without_rich(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import sys; sys.modules['rich'] = None; import rozliczenia.cli",
+            "import sys; sys.modules['rich'] = None; from rozliczenia.cli import main; raise SystemExit(main())",
+            "--source",
+            str(source_path),
+            "--config",
+            str(config_path),
+            "--metrics",
+            str(metrics_path),
+            "--dry-run",
         ],
         capture_output=True,
         text=True,
         env=environment,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 2, result.stderr
+    assert "Etap: Sprawdzanie" in result.stdout
+    assert "Postęp szablonów: 3/3 (100%)" in result.stdout
+    assert "WYKONAWCA: Adrian Maciejewski" in result.stdout
+    assert "Status końcowy: Wymaga sprawdzenia" in result.stdout
 
 
 def test_plain_cli_shows_dry_run_and_does_not_write_worker_templates(tmp_path: Path) -> None:
