@@ -8,23 +8,16 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any, Callable, TextIO
+from typing import Any, TextIO
 
 from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import SettlementError, period_from_source, run_settlements
 from .progress import (
     ProgressNotice,
-    ProgressNoticeKind,
     ProgressProjection,
-    ProgressSnapshot,
 )
-from .progress_presentation import (
-    OPERATION_STATUS_PRESENTATION,
-    counter_line,
-    format_counter_line,
-    operation_status_presentation,
-    progress_line,
-)
+from .plain_progress import PlainProgressAdapter
+from .progress_presentation import format_counter_line
 from .rich_progress import Console, Live, RichProgressAdapter
 from .telemetry import (
     METRICS_SCHEMA_VERSION,
@@ -88,39 +81,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-class PlainProgressAdapter:
-    """Line-oriented presentation of a reduced progress snapshot."""
-
-    def __init__(self, line: Callable[[str], None]):
-        self._line = line
-
-    def start(self, snapshot: ProgressSnapshot) -> None:
-        self._line(f"Rozliczenia | okres: {snapshot.period} | tryb: {snapshot.mode}")
-        self._line("Status: uruchomiono")
-        self._line("Ostatnie operacje:")
-
-    def update(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
-        if notice.kind is ProgressNoticeKind.PHASE_STARTED:
-            self._line(f"Etap: {notice.phase}")
-        elif notice.kind is ProgressNoticeKind.PLAN_READY:
-            self._line(f"Szablony pracownika: 0/{snapshot.template_total}")
-        elif notice.kind is ProgressNoticeKind.WORKER_STARTED:
-            self._line(f"WYKONAWCA: {notice.worker_name} | etap: {notice.phase}")
-        elif notice.kind is ProgressNoticeKind.WORKER_ENDED:
-            self._line(f"Postęp szablonów: {progress_line(snapshot)}")
-            self._line(f"Liczniki: {counter_line(snapshot)}")
-            status_label, _ = operation_status_presentation(notice.status)
-            self._line(
-                f"Ostatnia operacja: {notice.worker_name} | {notice.status} | "
-                f"status: {status_label} | "
-                f"wiersze: {notice.rows} | czas: {notice.worker_elapsed_ms or 0} ms"
-            )
-        elif notice.kind is ProgressNoticeKind.FAILED:
-            if notice.worker_name:
-                self._line(f"Etap przerwany: {notice.phase} | WYKONAWCA: {notice.worker_name}")
-            else:
-                self._line(f"Etap przerwany: {notice.phase}")
-
 class Dashboard:
     """Rich dashboard with a line-oriented fallback for non-interactive output."""
 
@@ -129,6 +89,7 @@ class Dashboard:
         self.state = ProgressProjection(mode, period)
         self.plain_adapter = PlainProgressAdapter(self._line)
         self.rich_adapter = RichProgressAdapter()
+        self._output_failed = False
         try:
             self.console: Any | None = Console(file=output) if Console is not None else None
         except Exception:
@@ -163,6 +124,8 @@ class Dashboard:
 
     def __call__(self, event: ProgressEvent) -> None:
         update = self.state.update(event)
+        if self._output_failed:
+            raise OSError("Terminal output is unavailable.")
         if self.interactive:
             try:
                 if self.live is None:
@@ -173,6 +136,8 @@ class Dashboard:
                 self._disable_rich()
                 self.plain_adapter.start(update.snapshot)
         self.plain_adapter.update(update.snapshot, update.notice)
+        if self._output_failed:
+            raise OSError("Terminal output is unavailable.")
 
     def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
         if self.live is not None:
@@ -232,10 +197,15 @@ class Dashboard:
         self.console = None
 
     def _line(self, message: str) -> None:
-        if self.interactive and self.console is not None:
-            self.console.print(message)
-        else:
-            self.output.write(f"{message}\n")
+        if self._output_failed:
+            return
+        try:
+            if self.interactive and self.console is not None:
+                self.console.print(message)
+            else:
+                self.output.write(f"{message}\n")
+        except (OSError, UnicodeError, ValueError):
+            self._output_failed = True
 
 
 def _period_label(source: Path) -> str:
