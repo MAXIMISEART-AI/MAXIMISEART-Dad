@@ -72,6 +72,12 @@ plików z `praca-tata` i nie zawierają prawdziwych danych klientów.
 py -3 -m pytest
 ```
 
+Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd` przez `cmd.exe`.
+Ręczna brama dla adaptera VBA jest opisana w
+[`docs/adapter-validation.md`](docs/adapter-validation.md). Jeśli desktopowy
+Excel nie jest dostępny, bramę VBA oznacz jako nieuruchomioną, a nie jako
+zaliczoną na podstawie testów Pythona.
+
 ## Naprawa plików zapisanych starą wersją
 
 Jeśli wcześniejsze uruchomienie pokazało w Excelu komunikat o naprawie
