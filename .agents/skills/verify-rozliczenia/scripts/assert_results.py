@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from openpyxl import load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 PERIOD = "08_14_09_2026"
@@ -20,6 +21,8 @@ def _read_cells(path: Path) -> tuple[object, object, object]:
     workbook = load_workbook(path, data_only=False)
     try:
         sheet = workbook.active
+        if not isinstance(sheet, Worksheet):
+            raise ValueError("Workbook does not contain an active worksheet")
         return sheet["A18"].value, sheet["AU18"].value, sheet["AU19"].value
     finally:
         workbook.close()

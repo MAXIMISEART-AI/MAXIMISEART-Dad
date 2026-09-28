@@ -13,16 +13,20 @@ from rozliczenia.progress import (
 from rozliczenia.plain_progress import PlainProgressAdapter
 
 
-def progress_snapshot(**overrides) -> ProgressSnapshot:
-    values = {
-        "mode": "RUN",
-        "period": "08_14_09_2026",
-        "phase_states": MappingProxyType({phase: PhaseState.PENDING for phase in ProgressPhase}),
-        "phase_durations_ms": MappingProxyType({phase: 0 for phase in ProgressPhase}),
-        "template_total": 3,
-        "templates_completed": 2,
-        "rows": 5,
-        "operation_counts": MappingProxyType(
+def progress_snapshot(
+    *,
+    current_worker: str | None = None,
+    current_phase: ProgressPhase | None = None,
+) -> ProgressSnapshot:
+    return ProgressSnapshot(
+        mode="RUN",
+        period="08_14_09_2026",
+        phase_states=MappingProxyType({phase: PhaseState.PENDING for phase in ProgressPhase}),
+        phase_durations_ms=MappingProxyType({phase: 0 for phase in ProgressPhase}),
+        template_total=3,
+        templates_completed=2,
+        rows=5,
+        operation_counts=MappingProxyType(
             {
                 "ZAPISANO": 1,
                 "PUSTY_SZABLON": 1,
@@ -31,16 +35,14 @@ def progress_snapshot(**overrides) -> ProgressSnapshot:
                 "POMINIĘTO": 1,
             }
         ),
-        "current_worker": None,
-        "current_phase": None,
-        "recent_operations": (
+        current_worker=current_worker,
+        current_phase=current_phase,
+        recent_operations=(
             OperationSnapshot("Snapshot worker", "PUSTY_SZABLON", 5, 42),
         ),
-        "total_elapsed_ms": 123,
-        "issue_count": 0,
-    }
-    values.update(overrides)
-    return ProgressSnapshot(**values)
+        total_elapsed_ms=123,
+        issue_count=0,
+    )
 
 
 def test_plain_adapter_start_renders_mode_and_period_from_snapshot() -> None:

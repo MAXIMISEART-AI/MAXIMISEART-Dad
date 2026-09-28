@@ -8,6 +8,8 @@ import sys
 import tomllib
 
 from openpyxl import load_workbook
+from openpyxl.worksheet._read_only import ReadOnlyWorksheet
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 SCRIPT = Path(__file__).resolve()
@@ -37,7 +39,10 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
 
     workbook = load_workbook(source, read_only=True, data_only=False)
     try:
-        if workbook.active["H17"].value != "WYKONAWCA":
+        sheet = workbook.active
+        if not isinstance(sheet, (Worksheet, ReadOnlyWorksheet)):
+            raise ValueError("source workbook has no active worksheet")
+        if sheet["H17"].value != "WYKONAWCA":
             raise ValueError("source H17 is not WYKONAWCA")
     finally:
         workbook.close()
@@ -50,7 +55,10 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
     for target in templates:
         workbook = load_workbook(target, read_only=True, data_only=False)
         try:
-            if workbook.active["H17"].value != "WYKONAWCA":
+            sheet = workbook.active
+            if not isinstance(sheet, (Worksheet, ReadOnlyWorksheet)):
+                raise ValueError(f"invalid worksheet in {target.name}")
+            if sheet["H17"].value != "WYKONAWCA":
                 raise ValueError(f"invalid worker header in {target.name}")
         finally:
             workbook.close()

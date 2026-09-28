@@ -8,7 +8,7 @@ import subprocess
 from openpyxl import load_workbook
 import pytest
 
-from tests.test_settlement_engine import PERIOD, make_fixture
+from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +30,7 @@ def _copy_launcher_runtime(destination: Path) -> Path:
 def _input_value(path: Path) -> object:
     workbook = load_workbook(path, data_only=False)
     try:
-        return workbook.active["A18"].value
+        return active_worksheet(workbook)["A18"].value
     finally:
         workbook.close()
 

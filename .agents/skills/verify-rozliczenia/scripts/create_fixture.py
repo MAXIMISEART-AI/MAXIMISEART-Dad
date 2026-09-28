@@ -8,6 +8,7 @@ import sys
 
 import yaml
 from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 PERIOD = "08_14_09_2026"
@@ -42,6 +43,8 @@ def _safe_run_root(value: str) -> Path:
 def _write_template(path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
+    if not isinstance(sheet, Worksheet):
+        raise ValueError("New workbook does not contain an active worksheet")
     sheet.title = "Sheet1"
     sheet.cell(17, 8).value = "WYKONAWCA"
     sheet.cell(18, 47).value = "=N18"
@@ -55,6 +58,8 @@ def _write_template(path: Path) -> None:
 def _write_source(path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
+    if not isinstance(sheet, Worksheet):
+        raise ValueError("New workbook does not contain an active worksheet")
     sheet.title = "Sheet1"
     sheet.cell(17, 8).value = "WYKONAWCA"
     rows = [
@@ -98,7 +103,10 @@ def create_fixture(root: Path, *, seed_existing: bool, lock_worker: str | None) 
     if seed_existing:
         target = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
         workbook = load_workbook(target)
-        workbook.active["A18"] = "PREEXISTING-SYNTHETIC-VALUE"
+        sheet = workbook.active
+        if not isinstance(sheet, Worksheet):
+            raise ValueError("Template does not contain an active worksheet")
+        sheet["A18"] = "PREEXISTING-SYNTHETIC-VALUE"
         workbook.save(target)
         workbook.close()
 

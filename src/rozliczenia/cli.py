@@ -183,7 +183,7 @@ class Dashboard:
             for name, (p50, p95) in stats.items():
                 self._line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
 
-    def render(self, notice: ProgressNotice | None = None):
+    def render(self, notice: ProgressNotice | None = None) -> Any:
         return self.rich_adapter.render(self.state.snapshot, notice)
 
     def _disable_rich(self) -> None:
