@@ -381,20 +381,23 @@ def main(
         source = args.source or choose_source_file()
         period = _period_label(source)
     except SettlementError as exc:
-        output.write(f"Nie wykonano: {exc}\n")
+        dashboard = Dashboard(output, mode, "nieznany")
+        dashboard.start()
+        total_elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
+        dashboard.finish(None, exc, total_elapsed_ms)
         record = _metric_record(
             mode=mode,
             period="nieznany",
             summary=None,
-            dashboard=None,
+            dashboard=dashboard,
             completed=False,
-            total_elapsed_ms=max(0, round((time.perf_counter() - started) * 1000)),
+            total_elapsed_ms=total_elapsed_ms,
             started_at=started_at,
         )
         try:
             metrics_store.append(record)
         except (OSError, UnicodeError, ValueError):
-            output.write("Ostrzeżenie: Nie zapisano metryk.\n")
+            dashboard.print_warning("Nie zapisano metryk.")
         return 1
 
     dashboard = Dashboard(output, mode, period)

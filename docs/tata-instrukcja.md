@@ -1,5 +1,17 @@
 # Instrukcja dla taty
 
+## Pierwsza instalacja
+
+1. Zainstaluj Python 3.11 lub nowszy.
+2. W folderze narzędzia uruchom:
+
+   ```powershell
+   py -3 -m pip install -r requirements.txt
+   ```
+
+Lista zależności zawiera `rich`, potrzebny do kolorowego dashboardu. Bez
+kolorów lub bez interaktywnego terminala narzędzie przełącza się na zwykły tekst.
+
 ## Przed uruchomieniem
 
 1. Zakończ pracę w pliku `Rozliczenie {okres} - zbiorcze.xlsx`.

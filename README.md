@@ -25,6 +25,10 @@ Wymagany jest Python 3.11 lub nowszy na komputerze taty.
 py -3 -m pip install -r requirements.txt
 ```
 
+Instalacja obejmuje `rich`, używany przez kolorowy dashboard CLI. Jeśli terminal
+nie obsługuje kolorów albo pakiet jest chwilowo niedostępny, narzędzie używa
+tekstowego fallbacku z tymi samymi informacjami operacyjnymi.
+
 Przed pierwszym prawdziwym uruchomieniem użyj kontroli bez zapisu:
 
 ```powershell

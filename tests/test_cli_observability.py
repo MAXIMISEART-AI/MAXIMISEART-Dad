@@ -307,6 +307,28 @@ def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
     assert record["result"] == "BLAD_KRYTYCZNY"
 
 
+def test_cancelled_source_selection_shows_critical_dashboard_status(
+    tmp_path: Path, monkeypatch
+) -> None:
+    metrics_path = tmp_path / "metrics.jsonl"
+
+    def cancel_selection() -> Path:
+        raise settlement_engine.SettlementError("Nie wybrano pliku zbiorczego.")
+
+    monkeypatch.setattr("rozliczenia.cli.choose_source_file", cancel_selection)
+
+    output = StringIO()
+    exit_code = main(["--metrics", str(metrics_path)], output=output)
+
+    assert exit_code == 1
+    assert "Rozliczenia | okres: nieznany | tryb: RUN" in output.getvalue()
+    assert "Status semantyczny: BŁĄD" in output.getvalue()
+    assert "Czas uruchomienia:" in output.getvalue()
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert record["completed"] is False
+    assert record["result"] == "BLAD_KRYTYCZNY"
+
+
 def test_critical_write_failure_preserves_partial_counters(tmp_path: Path, monkeypatch) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
