@@ -10,31 +10,22 @@ import sys
 import time
 from typing import Any, Callable, TextIO
 
-try:
-    from rich.console import Console as RichConsole, Group as RichGroup
-    from rich.live import Live as RichLive
-    from rich.panel import Panel as RichPanel
-    from rich.table import Table as RichTable
-    from rich.text import Text as RichText
-
-    Console: Any = RichConsole
-    Group: Any = RichGroup
-    Live: Any = RichLive
-    Panel: Any = RichPanel
-    Table: Any = RichTable
-    Text: Any = RichText
-except ImportError:
-    Console = Group = Live = Panel = Table = Text = None
-
 from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import SettlementError, period_from_source, run_settlements
 from .progress import (
-    PhaseState,
     ProgressNotice,
     ProgressNoticeKind,
     ProgressProjection,
     ProgressSnapshot,
 )
+from .progress_presentation import (
+    OPERATION_STATUS_PRESENTATION,
+    counter_line,
+    format_counter_line,
+    operation_status_presentation,
+    progress_line,
+)
+from .rich_progress import Console, Live, RichProgressAdapter
 from .telemetry import (
     METRICS_SCHEMA_VERSION,
     MetricsStore,
@@ -43,28 +34,14 @@ from .telemetry import (
 )
 
 
-OPERATION_STATUS_PRESENTATION: dict[str, tuple[str, str]] = {
-    "ZAPISANO": ("OK", "green"),
-    "PUSTY_SZABLON": ("OK", "green"),
-    "PLAN": ("OK", "green"),
-    "ZABLOKOWANY": ("OSTRZEŻENIE", "yellow"),
-    "ZLY_SZABLON": ("BŁĄD", "red"),
-    "POMINIĘTO": ("BŁĄD", "red"),
-}
-
-
-def operation_status_presentation(status: str | None) -> tuple[str, str]:
-    """Zwraca semantyczny status i opcjonalny styl dla pojedynczej operacji."""
-
-    return OPERATION_STATUS_PRESENTATION.get(status or "", ("OSTRZEŻENIE", "yellow"))
-
-
 def _summary_counter_line(summary: SettlementSummary) -> str:
-    return (
-        f"zapisano: {summary.written_count} | "
-        f"puste: {summary.empty_count} | "
-        f"planowane: {summary.planned_count} | "
-        f"pominięte: {summary.skipped_count}"
+    return format_counter_line(
+        {
+            "written": summary.written_count,
+            "empty": summary.empty_count,
+            "planned": summary.planned_count,
+            "skipped": summary.skipped_count,
+        }
     )
 
 
@@ -130,8 +107,8 @@ class PlainProgressAdapter:
         elif notice.kind is ProgressNoticeKind.WORKER_STARTED:
             self._line(f"WYKONAWCA: {notice.worker_name} | etap: {notice.phase}")
         elif notice.kind is ProgressNoticeKind.WORKER_ENDED:
-            self._line(f"Postęp szablonów: {self.progress_line(snapshot)}")
-            self._line(f"Liczniki: {self.counter_line(snapshot)}")
+            self._line(f"Postęp szablonów: {progress_line(snapshot)}")
+            self._line(f"Liczniki: {counter_line(snapshot)}")
             status_label, _ = operation_status_presentation(notice.status)
             self._line(
                 f"Ostatnia operacja: {notice.worker_name} | {notice.status} | "
@@ -144,87 +121,6 @@ class PlainProgressAdapter:
             else:
                 self._line(f"Etap przerwany: {notice.phase}")
 
-    @staticmethod
-    def progress_line(snapshot: ProgressSnapshot) -> str:
-        if not snapshot.template_total:
-            return "oczekuje na liczbę szablonów"
-        percentage = round(snapshot.templates_completed / snapshot.template_total * 100)
-        return f"{snapshot.templates_completed}/{snapshot.template_total} ({percentage}%)"
-
-    @staticmethod
-    def counter_line(snapshot: ProgressSnapshot) -> str:
-        counters = snapshot.metric_counters()
-        return (
-            f"zapisano: {counters['written']} | "
-            f"puste: {counters['empty']} | "
-            f"planowane: {counters['planned']} | "
-            f"pominięte: {counters['skipped']}"
-        )
-
-
-class RichProgressAdapter:
-    """Rich presentation of the same immutable progress snapshot."""
-
-    def render(self, snapshot: ProgressSnapshot, _notice: ProgressNotice | None = None):
-        assert Console is not None
-        assert Group is not None
-        assert Panel is not None
-        assert Table is not None
-        assert Text is not None
-        phases = Table.grid(padding=(0, 1))
-        phases.add_column()
-        phases.add_column()
-        phase_labels = {
-            PhaseState.PENDING: "oczekuje",
-            PhaseState.RUNNING: "aktywny",
-            PhaseState.COMPLETED: "gotowe",
-            PhaseState.FAILED: "przerwany",
-        }
-        for phase in PHASES:
-            progress_phase = ProgressPhase(phase)
-            phase_state = snapshot.phase_states[progress_phase]
-            state_label = phase_labels[phase_state]
-            state_style = {"aktywny": "bold yellow", "gotowe": "bold green", "przerwany": "bold red"}.get(
-                state_label, "dim"
-            )
-            phases.add_row(Text(f"[{state_label}]", style=state_style), phase)
-
-        operations = Table.grid(padding=(0, 1))
-        operations.add_column()
-        operations.add_column()
-        for event in snapshot.recent_operations:
-            status_label, status_style = operation_status_presentation(event.status)
-            operations.add_row(
-                event.worker_name or "-",
-                Text(
-                    f"{status_label}: {event.status} ({event.rows} wierszy, "
-                    f"czas: {event.worker_elapsed_ms or 0} ms)",
-                    style=status_style,
-                ),
-            )
-        if not snapshot.recent_operations:
-            operations.add_row("-", "brak")
-
-        body = Group(
-            phases,
-            f"Postęp szablonów: {self.progress_line(snapshot)}",
-            f"Liczniki: {self.counter_line(snapshot)}",
-            f"Bieżący WYKONAWCA: {snapshot.current_worker or 'brak'} | "
-            f"etap: {snapshot.current_phase or 'oczekuje'}",
-            Panel(operations, title="Ostatnie operacje"),
-            f"Wiersze danych: {snapshot.rows} | Czas: {snapshot.total_elapsed_ms} ms",
-        )
-        return Panel(body, title=f"Rozliczenia | {snapshot.period} | {snapshot.mode}")
-
-    @staticmethod
-    def progress_line(snapshot: ProgressSnapshot) -> str:
-        return PlainProgressAdapter.progress_line(snapshot)
-
-    @staticmethod
-    def counter_line(snapshot: ProgressSnapshot) -> str:
-        return PlainProgressAdapter.counter_line(snapshot)
-
-
 class Dashboard:
     """Rich dashboard with a line-oriented fallback for non-interactive output."""
 
@@ -233,7 +129,10 @@ class Dashboard:
         self.state = ProgressProjection(mode, period)
         self.plain_adapter = PlainProgressAdapter(self._line)
         self.rich_adapter = RichProgressAdapter()
-        self.console: Any | None = Console(file=output) if Console is not None else None
+        try:
+            self.console: Any | None = Console(file=output) if Console is not None else None
+        except Exception:
+            self.console = None
         self.interactive = (
             self._supports_live_output(output)
             and self.console is not None
@@ -252,22 +151,37 @@ class Dashboard:
 
     def start(self) -> None:
         if self.interactive and Live is not None:
-            self.live = Live(self.render(), console=self.console, auto_refresh=False)
-            self.live.start(refresh=True)
-            return
+            try:
+                self.live = Live(self.render(), console=self.console, auto_refresh=False)
+                self.live.start(refresh=True)
+                return
+            except Exception:
+                self._disable_rich()
+        elif self.interactive:
+            self._disable_rich()
         self.plain_adapter.start(self.state.snapshot)
 
     def __call__(self, event: ProgressEvent) -> None:
         update = self.state.update(event)
         if self.interactive:
-            if self.live is not None:
-                self.live.update(self.render(update.notice), refresh=True)
-            return
+            try:
+                if self.live is None:
+                    raise RuntimeError("Rich dashboard did not start.")
+                self.live.update(self.rich_adapter.render(update.snapshot, update.notice), refresh=True)
+                return
+            except Exception:
+                self._disable_rich()
+                self.plain_adapter.start(update.snapshot)
         self.plain_adapter.update(update.snapshot, update.notice)
 
     def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
         if self.live is not None:
-            self.live.stop()
+            try:
+                self.live.stop()
+            except Exception:
+                self._disable_rich()
+            else:
+                self.live = None
         if error is not None:
             self._line("Status semantyczny: BŁĄD")
             self._line(f"Nie wykonano: {error}")
@@ -306,6 +220,16 @@ class Dashboard:
 
     def render(self, notice: ProgressNotice | None = None):
         return self.rich_adapter.render(self.state.snapshot, notice)
+
+    def _disable_rich(self) -> None:
+        live, self.live = self.live, None
+        if live is not None:
+            try:
+                live.stop()
+            except Exception:
+                pass
+        self.interactive = False
+        self.console = None
 
     def _line(self, message: str) -> None:
         if self.interactive and self.console is not None:

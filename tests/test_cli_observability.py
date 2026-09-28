@@ -12,8 +12,10 @@ import pytest
 
 import rozliczenia.cli as cli
 from rozliczenia.cli import main
+from rozliczenia.domain import ProgressEventFactory, ProgressPhase
 import rozliczenia.engine as settlement_engine
 import rozliczenia.template_settlement as template_settlement
+from rozliczenia.progress import PhaseState, ProgressNoticeKind
 from rozliczenia.telemetry import MetricsStore
 
 from tests.test_settlement_engine import PERIOD, make_fixture
@@ -68,6 +70,122 @@ def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch) ->
     dashboard.start()
 
     assert live_instances[0].get("auto_refresh", True) is False
+
+
+def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(monkeypatch) -> None:
+    class TtyOutput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    class FakeConsole:
+        color_system = "standard"
+
+        def __init__(self, *, file) -> None:
+            self.file = file
+
+    class FakeLive:
+        def __init__(self, renderable, **_kwargs) -> None:
+            self.initial_renderable = renderable
+            self.updates = []
+
+        def start(self, *, refresh: bool) -> None:
+            pass
+
+        def update(self, renderable, *, refresh: bool) -> None:
+            self.updates.append((renderable, refresh))
+
+        def stop(self) -> None:
+            pass
+
+    renders = []
+    original_render = cli.RichProgressAdapter.render
+
+    def record_render(adapter, snapshot, notice=None):
+        renderable = original_render(adapter, snapshot, notice)
+        renders.append((snapshot, notice, renderable))
+        return renderable
+
+    monkeypatch.setattr(cli, "Console", FakeConsole)
+    monkeypatch.setattr(cli, "Live", FakeLive)
+    monkeypatch.setattr(cli.RichProgressAdapter, "render", record_render)
+
+    dashboard = cli.Dashboard(TtyOutput(), "RUN", PERIOD)
+    dashboard.start()
+    dashboard(ProgressEventFactory.phase_started(ProgressPhase.CHECKING))
+
+    assert renders[0][1] is None
+    assert renders[0][0].phase_states[ProgressPhase.CHECKING] is PhaseState.PENDING
+    snapshot, notice, renderable = renders[1]
+    assert snapshot.phase_states[ProgressPhase.CHECKING] is PhaseState.RUNNING
+    assert notice.kind is ProgressNoticeKind.PHASE_STARTED
+    assert dashboard.live.updates == [(renderable, True)]
+
+
+def test_interactive_rich_render_failure_falls_back_without_interrupting_settlements(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class TtyOutput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    class FakeConsole:
+        color_system = "standard"
+
+        def __init__(self, *, file) -> None:
+            self.file = file
+
+        def print(self, value: str) -> None:
+            self.file.write(f"{value}\n")
+
+    class FakeLive:
+        def __init__(self, _renderable, **_kwargs) -> None:
+            pass
+
+        def start(self, *, refresh: bool) -> None:
+            pass
+
+        def update(self, _renderable, *, refresh: bool) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    output = TtyOutput()
+    render_calls = 0
+    original_render = cli.RichProgressAdapter.render
+
+    def fail_on_first_refresh(adapter, snapshot, notice=None):
+        nonlocal render_calls
+        render_calls += 1
+        if render_calls == 2:
+            raise RuntimeError("synthetic Rich rendering failure")
+        return original_render(adapter, snapshot, notice)
+
+    monkeypatch.setattr(cli, "Console", FakeConsole)
+    monkeypatch.setattr(cli, "Live", FakeLive)
+    monkeypatch.setattr(cli.RichProgressAdapter, "render", fail_on_first_refresh)
+
+    exit_code = main(
+        [
+            "--source",
+            str(source_path),
+            "--config",
+            str(config_path),
+            "--metrics",
+            str(metrics_path),
+        ],
+        output=output,
+    )
+
+    assert exit_code == 2
+    assert render_calls >= 2
+    assert "Etap: Sprawdzanie" in output.getvalue()
+    assert "Postęp szablonów: 3/3 (100%)" in output.getvalue()
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert record["completed"] is True
+    assert record["counters"]["templates_completed"] == 3
 
 
 def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> None:
