@@ -37,6 +37,22 @@ from .telemetry import (
 )
 
 
+OPERATION_STATUS_PRESENTATION: dict[str, tuple[str, str]] = {
+    "ZAPISANO": ("OK", "green"),
+    "PUSTY_SZABLON": ("OK", "green"),
+    "PLAN": ("OK", "green"),
+    "ZABLOKOWANY": ("OSTRZEŻENIE", "yellow"),
+    "ZLY_SZABLON": ("BŁĄD", "red"),
+    "POMINIĘTO": ("BŁĄD", "red"),
+}
+
+
+def operation_status_presentation(status: str | None) -> tuple[str, str]:
+    """Zwraca semantyczny status i opcjonalny styl dla pojedynczej operacji."""
+
+    return OPERATION_STATUS_PRESENTATION.get(status or "", ("OSTRZEŻENIE", "yellow"))
+
+
 def default_config_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "worker_mapping.yaml"
 
@@ -89,6 +105,7 @@ class DashboardState:
         self.template_total = 0
         self.templates_completed = 0
         self.rows = 0
+        self.operation_counts: dict[str, int] = {}
         self.current_worker: str | None = None
         self.current_phase: str | None = None
         self.recent_operations: deque[ProgressEvent] = deque(maxlen=5)
@@ -110,6 +127,8 @@ class DashboardState:
         elif event.state == "WORKER_END":
             self.templates_completed = event.template_index
             self.rows += event.rows
+            status = event.status or "NIEZNANY"
+            self.operation_counts[status] = self.operation_counts.get(status, 0) + 1
             self.recent_operations.append(event)
             self.current_worker = None
             self.current_phase = None
@@ -161,8 +180,11 @@ class Dashboard:
             self._line(f"WYKONAWCA: {event.worker_name} | etap: {event.phase}")
         elif event.state == "WORKER_END":
             self._line(f"Postęp szablonów: {self._progress_line()}")
+            self._line(f"Liczniki: {self._counter_line()}")
+            status_label, _ = operation_status_presentation(event.status)
             self._line(
                 f"Ostatnia operacja: {event.worker_name} | {event.status} | "
+                f"status: {status_label} | "
                 f"wiersze: {event.rows} | czas: {event.worker_elapsed_ms or 0} ms"
             )
 
@@ -170,13 +192,16 @@ class Dashboard:
         if self.live is not None:
             self.live.stop()
         if error is not None:
+            self._line("Status semantyczny: BŁĄD")
             self._line(f"Nie wykonano: {error}")
             self._line(f"Czas uruchomienia: {total_elapsed_ms} ms")
             return
         assert summary is not None
         status = "OK" if summary.ok else "Wymaga sprawdzenia"
+        self._line(f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}")
         self._line(f"Status końcowy: {status}")
         self._line(f"Czas uruchomienia: {total_elapsed_ms} ms")
+        self._line(f"Liczniki: {self._counter_line()}")
         self._line(f"Wiersze danych: {summary.total_rows}")
         self._line(f"Zapisane szablony: {summary.written_count}")
         self._line(f"Puste szablony: {summary.empty_count}")
@@ -222,9 +247,13 @@ class Dashboard:
         operations.add_column()
         operations.add_column()
         for event in self.state.recent_operations:
+            status_label, status_style = operation_status_presentation(event.status)
             operations.add_row(
                 event.worker_name or "-",
-                Text(f"{event.status} ({event.rows} wierszy)", style="green"),
+                Text(
+                    f"{status_label}: {event.status} ({event.rows} wierszy)",
+                    style=status_style,
+                ),
             )
         if not self.state.recent_operations:
             operations.add_row("-", "brak")
@@ -232,6 +261,7 @@ class Dashboard:
         body = Group(
             phases,
             f"Postęp szablonów: {progress}",
+            f"Liczniki: {self._counter_line()}",
             f"Bieżący WYKONAWCA: {current} | etap: {current_phase}",
             Panel(operations, title="Ostatnie operacje"),
             f"Wiersze danych: {self.state.rows} | Czas: {self.state.total_elapsed_ms} ms",
@@ -243,6 +273,16 @@ class Dashboard:
             return "oczekuje na liczbę szablonów"
         percentage = round(self.state.templates_completed / self.state.template_total * 100)
         return f"{self.state.templates_completed}/{self.state.template_total} ({percentage}%)"
+
+    def _counter_line(self) -> str:
+        counts = self.state.operation_counts
+        skipped = sum(counts.get(status, 0) for status in ("ZABLOKOWANY", "ZLY_SZABLON", "POMINIĘTO"))
+        return (
+            f"zapisano: {counts.get('ZAPISANO', 0)} | "
+            f"puste: {counts.get('PUSTY_SZABLON', 0)} | "
+            f"planowane: {counts.get('PLAN', 0)} | "
+            f"pominięte: {skipped}"
+        )
 
     def _line(self, message: str) -> None:
         if self.interactive and self.console is not None:
@@ -335,7 +375,7 @@ def main(
         )
         try:
             metrics_store.append(record)
-        except (OSError, UnicodeError):
+        except (OSError, UnicodeError, ValueError):
             output.write("Ostrzeżenie: Nie zapisano metryk.\n")
         return 1
 
@@ -368,7 +408,7 @@ def main(
         metrics_store.append(record)
         records = metrics_store.read()
         dashboard.print_statistics(mode, records)
-    except (OSError, UnicodeError):
+    except (OSError, UnicodeError, ValueError):
         dashboard.print_warning("Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.")
 
     if error is not None:

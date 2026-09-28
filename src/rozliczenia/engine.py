@@ -143,6 +143,8 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[tuple]], list[I
     workbook = load_workbook(source_path, read_only=True, data_only=False)
     try:
         sheet = workbook.active
+        if sheet is None:
+            raise SettlementError("Skoroszyt źródłowy nie zawiera arkusza.")
         header = next(
             sheet.iter_rows(min_row=HEADER_ROW, max_row=HEADER_ROW, max_col=WORKER_COLUMN, values_only=True),
             (),
@@ -247,6 +249,8 @@ def _save_target(path: Path, rows: Iterable[tuple]) -> None:
     workbook = load_workbook(path, data_only=False, keep_links=True)
     try:
         sheet = workbook.active
+        if sheet is None:
+            raise SettlementError("Szablon nie zawiera arkusza.")
         for destination_row, values in enumerate(rows, start=DATA_START_ROW):
             for column, value in zip(COPY_COLUMNS, values):
                 sheet.cell(row=destination_row, column=column).value = value
@@ -335,7 +339,6 @@ def run_settlements(
     )
 
     def save_targets() -> None:
-        save_started = time.perf_counter()
         for template_index, (worker_name, target_path) in enumerate(template_files, start=1):
             target_key = normalize_text(worker_name)
             worker_started = time.perf_counter()
@@ -360,6 +363,8 @@ def run_settlements(
                 )
                 try:
                     target_sheet = target_workbook.active
+                    if target_sheet is None:
+                        raise ValueError("Szablon nie zawiera arkusza.")
                     header = target_sheet.cell(row=HEADER_ROW, column=WORKER_COLUMN).value
                     if normalize_text(header) != "wykonawca":
                         summary.issues.append(
@@ -418,6 +423,11 @@ def run_settlements(
                     worker_elapsed_ms=_elapsed_ms(worker_started),
                 ),
             )
+    save_started = time.perf_counter()
+    _notify(observer, ProgressEvent("Zapisywanie", "START", elapsed_ms=_elapsed_ms(run_started)))
+    try:
+        save_targets()
+    finally:
         _notify(
             observer,
             ProgressEvent(
@@ -429,8 +439,5 @@ def run_settlements(
                 phase_elapsed_ms=_elapsed_ms(save_started),
             ),
         )
-
-    _notify(observer, ProgressEvent("Zapisywanie", "START", elapsed_ms=_elapsed_ms(run_started)))
-    save_targets()
 
     return summary

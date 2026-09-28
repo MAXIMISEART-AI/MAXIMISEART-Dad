@@ -8,8 +8,10 @@ import subprocess
 import sys
 
 from openpyxl import load_workbook
+import pytest
 
 from rozliczenia.cli import main
+from rozliczenia.telemetry import MetricsStore
 
 from tests.test_settlement_engine import PERIOD, make_fixture
 
@@ -53,6 +55,7 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert "WYKONAWCA: Adrian Maciejewski" in output
     assert "Ostatnie operacje" in output
     assert "Wiersze danych: 3" in output
+    assert "Liczniki:" in output
     assert "Zapisane szablony: 2" in output
     assert "Puste szablony: 1" in output
     assert "Pominięte szablony: 0" in output
@@ -73,7 +76,25 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     }
     assert record["counters"]["templates_total"] == 3
     assert record["counters"]["templates_completed"] == 3
-    assert "syntetyczny adres" not in metrics_path.read_text(encoding="utf-8")
+    metrics_text = metrics_path.read_text(encoding="utf-8")
+    assert metrics_text.count("\n") == 1
+    assert "syntetyczny adres" not in metrics_text
+    assert "#1" not in metrics_text
+    assert str(source_path) not in metrics_text
+
+
+def test_metrics_store_rejects_record_with_full_path(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    run_cli(source_path, config_path, metrics_path)
+
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    record["source_path"] = str(source_path)
+
+    with pytest.raises(ValueError):
+        MetricsStore(metrics_path).append(record)
+
+    assert metrics_path.read_text(encoding="utf-8").count("\n") == 1
 
 
 def test_cli_runs_without_rich(tmp_path: Path) -> None:
@@ -125,6 +146,8 @@ def test_plain_cli_completes_progress_for_locked_and_skipped_templates(tmp_path:
     assert "Postęp szablonów: 3/3 (100%)" in output
     assert "Ostatnia operacja: Darek Nowak | ZABLOKOWANY" in output
     assert "Ostatnia operacja: Kamil Frontczak | ZLY_SZABLON" in output
+    assert "status: OSTRZEŻENIE" in output
+    assert "status: BŁĄD" in output
     assert "Pominięte szablony: 2" in output
 
 
@@ -165,6 +188,29 @@ def test_statistics_are_available_after_five_comparable_runs(tmp_path: Path) -> 
     assert "Statystyki RUN" not in run_output
 
 
+def test_malformed_history_does_not_change_process_result(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+
+    for _ in range(5):
+        run_cli(source_path, config_path, metrics_path, "--dry-run")
+    with metrics_path.open("a", encoding="utf-8") as stream:
+        stream.write(
+            '{"schema_version":1,"mode":"DRY-RUN","completed":true,'
+            '"total_duration_ms":"not-a-duration"}\n'
+        )
+        stream.write(
+            '{"schema_version":1,"mode":[],"completed":true,'
+            '"total_duration_ms":1}\n'
+        )
+
+    exit_code, output = run_cli(source_path, config_path, metrics_path, "--dry-run")
+
+    assert exit_code == 2
+    assert "Wymaga sprawdzenia" in output
+    assert "Statystyki DRY-RUN" in output
+
+
 def test_metrics_failure_is_only_an_observability_warning(tmp_path: Path) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_parent = tmp_path / "not-a-directory"
@@ -187,6 +233,7 @@ def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
 
     assert exit_code == 1
     assert "Nie wykonano" in output
+    assert "Status semantyczny: BŁĄD" in output
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is False
     assert record["result"] == "BLAD_KRYTYCZNY"
