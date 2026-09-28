@@ -10,6 +10,7 @@ import sys
 from openpyxl import load_workbook
 import pytest
 
+import rozliczenia.cli as cli
 from rozliczenia.cli import main
 import rozliczenia.engine as settlement_engine
 from rozliczenia.telemetry import MetricsStore
@@ -37,6 +38,35 @@ def run_cli(
         output=output,
     )
     return exit_code, output.getvalue()
+
+
+def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch) -> None:
+    class TtyOutput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    class FakeConsole:
+        color_system = "standard"
+
+        def __init__(self, *, file) -> None:
+            self.file = file
+
+    live_instances = []
+
+    class FakeLive:
+        def __init__(self, renderable, **kwargs) -> None:
+            live_instances.append(kwargs)
+
+        def start(self, *, refresh: bool) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "Console", FakeConsole)
+    monkeypatch.setattr(cli, "Live", FakeLive)
+
+    dashboard = cli.Dashboard(TtyOutput(), "RUN", PERIOD)
+    dashboard.start()
+
+    assert live_instances[0].get("auto_refresh", True) is False
 
 
 def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> None:
