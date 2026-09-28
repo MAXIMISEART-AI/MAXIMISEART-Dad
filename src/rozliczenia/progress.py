@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, TypeVar
 
 from .domain import (
     PHASES,
@@ -14,6 +14,9 @@ from .domain import (
     ProgressProtocolError,
     ProgressState,
 )
+
+KeyT = TypeVar("KeyT")
+ValueT = TypeVar("ValueT")
 
 
 class PhaseState(StrEnum):
@@ -100,7 +103,7 @@ class ProgressUpdate:
     notice: ProgressNotice
 
 
-def _immutable_mapping(values: Mapping) -> Mapping:
+def _immutable_mapping(values: Mapping[KeyT, ValueT]) -> Mapping[KeyT, ValueT]:
     return MappingProxyType(dict(values))
 
 
