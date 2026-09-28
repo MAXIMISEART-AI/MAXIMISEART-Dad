@@ -51,6 +51,18 @@ rozliczeniem konkretnej osoby i pozostaje nietknięty.
 rozliczenia pracowników. W pierwszej wersji gotowość jest potwierdzana przez
 uruchomienie procesu, a nie zgadywana na podstawie samego zapisu pliku.
 
+## Przebieg rozliczeń
+
+Jedno uruchomienie przygotowania rozliczeń pracowników od sprawdzenia pliku
+zbiorczego do wyniku końcowego albo bezpiecznego przerwania.
+
+## Zdarzenie przebiegu
+
+Bezpieczny fakt opisujący zmianę lub wynik Przebiegu rozliczeń, na przykład
+rozpoczęcie etapu, zakończenie etapu, rozpoczęcie przetwarzania Szablonu
+pracownika albo zakończenie tego przetwarzania. Nie zawiera adresów klientów,
+numerów zleceń ani treści wierszy.
+
 ## Nienadpisywanie
 
 Plik pracownika zawierający już dane wejściowe nie jest automatycznie czyszczony

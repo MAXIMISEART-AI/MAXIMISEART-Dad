@@ -33,6 +33,21 @@ starszą wersją silnika. Przed naprawą tworzy kopie zapasowe.
 
 Zmiany muszą być sprawdzone testami na syntetycznych arkuszach. Przed użyciem
 na prawdziwych plikach trzeba wykonać `--dry-run`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues for MAXIMISEART-AI/MAXIMISEART-Dad. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+This repo uses the default five triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo with `CONTEXT.md` at the root and ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+
 ## Coding standards
 
 During code review, read `CODING_STANDARDS.md` for project-specific judgement calls about domain vocabulary, module depth, error ownership, and test surfaces.
