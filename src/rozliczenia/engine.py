@@ -39,10 +39,20 @@ HEADER_ROW = 17
 DATA_START_ROW = 18
 WORKER_COLUMN = 8  # H
 _INVALID_FILENAME_CHARACTERS = frozenset('<>:"/\\|?*')
+_MAX_WINDOWS_FILENAME_CODE_UNITS = 255
 
 
 class SettlementError(Exception):
     """Błąd uniemożliwiający bezpieczne rozpoczęcie procesu."""
+
+
+def _worker_filename_fits_windows(name: str) -> bool:
+    filename = f"Rozliczenie 00_00_00_0000 - {name}.xlsx"
+    try:
+        filename_length = len(filename.encode("utf-16-le")) // 2
+    except UnicodeEncodeError:
+        return False
+    return filename_length <= _MAX_WINDOWS_FILENAME_CODE_UNITS
 
 
 def normalize_text(value: object) -> str:
@@ -90,6 +100,8 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
             or display_name.endswith((".", " "))
         ):
             raise SettlementError("Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.")
+        if not _worker_filename_fits_windows(display_name):
+            raise SettlementError("Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.")
         if normalized_name in seen_names:
             raise SettlementError(
                 "Dwóch identyfikatorów wskazuje ten sam plik pracownika: "

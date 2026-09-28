@@ -642,9 +642,11 @@ def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path)
         ("corrupt-placeholder", "Nie można odczytać Placeholdera"),
         ("locked-placeholder", "Placeholder jest otwarty lub zablokowany"),
         ("wrong-placeholder-header", "Placeholder nie ma nagłówka WYKONAWCA"),
+        ("placeholder-has-data", "Placeholder zawiera dane"),
         ("invalid-config", "Niepoprawny YAML konfiguracji"),
         ("unsupported-config-version", "Nieobsługiwana wersja konfiguracji"),
         ("unsafe-worker-name", "nieprawidłową dla nazwy pliku"),
+        ("long-worker-name", "zbyt długą dla nazwy pliku"),
     ],
 )
 def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
@@ -665,6 +667,11 @@ def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
         active_worksheet(workbook)["H17"] = "NIE WYKONAWCA"
         workbook.save(placeholder_path)
         workbook.close()
+    elif problem == "placeholder-has-data":
+        workbook = load_workbook(placeholder_path)
+        active_worksheet(workbook)["A18"] = "SENSITIVE-SYNTHETIC"
+        workbook.save(placeholder_path)
+        workbook.close()
     elif problem == "invalid-config":
         config_path.write_text("workers: [", encoding="utf-8")
     elif problem == "unsupported-config-version":
@@ -677,6 +684,11 @@ def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
             "schema_version: 1\nworkers:\n  synthetic.worker: ../outside\n",
             encoding="utf-8",
         )
+    elif problem == "long-worker-name":
+        config_path.write_text(
+            f"schema_version: 1\nworkers:\n  synthetic.worker: {'X' * 223}\n",
+            encoding="utf-8",
+        )
 
     exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
 
@@ -684,6 +696,7 @@ def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
     assert expected_message in output
     assert "synthetic.worker" not in output
     assert "synthetic address" not in output
+    assert "SENSITIVE-SYNTHETIC" not in output
     assert not target_directory.exists()
 
 
