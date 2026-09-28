@@ -93,22 +93,26 @@ class MetricsStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a+b") as stream:
             separator = b""
-            stream.seek(0, os.SEEK_END)
-            if stream.tell() > 0:
-                stream.seek(-1, os.SEEK_END)
-                if stream.read(1) != b"\n":
-                    stream.seek(0)
-                    content = stream.read()
-                    final_line = content[content.rfind(b"\n") + 1 :]
-                    try:
-                        final_record = json.loads(final_line.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        final_record = None
-                    if not _is_valid_record(final_record):
-                        stream.truncate(content.rfind(b"\n") + 1)
-                    else:
-                        separator = b"\n"
-                    stream.seek(0, os.SEEK_END)
+            stream.seek(0)
+            content = stream.read()
+            if content:
+                last_newline = content.rfind(b"\n")
+                final_line_start = last_newline + 1
+                final_line = content[final_line_start:]
+                has_newline = False
+                if last_newline == len(content) - 1:
+                    final_line_start = content.rfind(b"\n", 0, last_newline) + 1
+                    final_line = content[final_line_start:last_newline].rstrip(b"\r")
+                    has_newline = True
+                try:
+                    final_record = json.loads(final_line.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    final_record = None
+                if not _is_valid_record(final_record):
+                    stream.truncate(final_line_start)
+                elif not has_newline:
+                    separator = b"\n"
+                stream.seek(0, os.SEEK_END)
             stream.write(separator + serialized)
             stream.flush()
             os.fsync(stream.fileno())
@@ -117,7 +121,7 @@ class MetricsStore:
         if not self.path.exists():
             return []
         records: list[dict[str, Any]] = []
-        with self.path.open("r", encoding="utf-8") as stream:
+        with self.path.open("r", encoding="utf-8", errors="replace") as stream:
             for line in stream:
                 try:
                     record = json.loads(line)

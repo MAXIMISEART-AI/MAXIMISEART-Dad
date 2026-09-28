@@ -105,11 +105,17 @@ def test_metrics_store_repairs_torn_final_line(tmp_path: Path) -> None:
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
 
     with metrics_path.open("ab") as stream:
-        stream.write(b'{"schema_version":1')
+        stream.write(b'{"schema_version":1\n')
     MetricsStore(metrics_path).append(record)
 
     assert len(MetricsStore(metrics_path).read()) == 2
     assert metrics_path.read_bytes().endswith(b"\n")
+
+    with metrics_path.open("ab") as stream:
+        stream.write(b"\xff\n")
+    MetricsStore(metrics_path).append(record)
+
+    assert len(MetricsStore(metrics_path).read()) == 3
 
 
 def test_cli_runs_without_rich(tmp_path: Path) -> None:
@@ -282,5 +288,5 @@ def test_critical_write_failure_preserves_partial_counters(tmp_path: Path, monke
         "empty": 0,
         "planned": 0,
         "skipped": 0,
-        "issues": 1,
+        "issues": 2,
     }

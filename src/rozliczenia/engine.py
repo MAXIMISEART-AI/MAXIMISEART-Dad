@@ -335,6 +335,7 @@ def run_settlements(
             "PLAN_READY",
             template_total=len(template_files),
             elapsed_ms=_elapsed_ms(run_started),
+            issues=len(summary.issues),
         ),
     )
 
@@ -421,6 +422,7 @@ def run_settlements(
                     rows=result.rows,
                     elapsed_ms=_elapsed_ms(run_started),
                     worker_elapsed_ms=_elapsed_ms(worker_started),
+                    issues=len(summary.issues),
                 ),
             )
     save_started = time.perf_counter()

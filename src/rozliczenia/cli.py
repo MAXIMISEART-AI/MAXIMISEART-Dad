@@ -110,6 +110,7 @@ class DashboardState:
         self.current_phase: str | None = None
         self.recent_operations: deque[ProgressEvent] = deque(maxlen=5)
         self.total_elapsed_ms = 0
+        self.issue_count = 0
 
     def update(self, event: ProgressEvent) -> None:
         self.total_elapsed_ms = event.elapsed_ms or self.total_elapsed_ms
@@ -121,12 +122,14 @@ class DashboardState:
                 self.phase_durations_ms[event.phase] = event.phase_elapsed_ms
         elif event.state == "PLAN_READY":
             self.template_total = event.template_total
+            self.issue_count = event.issues
         elif event.state == "WORKER_START":
             self.current_worker = event.worker_name
             self.current_phase = event.phase
         elif event.state == "WORKER_END":
             self.templates_completed = event.template_index
             self.rows += event.rows
+            self.issue_count = event.issues
             status = event.status or "NIEZNANY"
             self.operation_counts[status] = self.operation_counts.get(status, 0) + 1
             self.recent_operations.append(event)
@@ -319,29 +322,30 @@ def _metric_record(
     total_elapsed_ms: int,
     started_at: str,
 ) -> dict[str, Any]:
+    counters = dashboard.state.metric_counters() if dashboard else {
+        "templates_total": 0,
+        "templates_completed": 0,
+        "rows": 0,
+        "written": 0,
+        "empty": 0,
+        "planned": 0,
+        "skipped": 0,
+    }
     if summary is None:
-        counters = dashboard.state.metric_counters() if dashboard else {
-            "templates_total": 0,
-            "templates_completed": 0,
-            "rows": 0,
-            "written": 0,
-            "empty": 0,
-            "planned": 0,
-            "skipped": 0,
-        }
-        counters["issues"] = 1
+        counters["issues"] = (dashboard.state.issue_count if dashboard else 0) + 1
         result = "BLAD_KRYTYCZNY"
     else:
-        counters = {
-            "templates_total": summary.template_count,
-            "templates_completed": dashboard.state.templates_completed if dashboard else 0,
-            "rows": summary.total_rows,
-            "written": summary.written_count,
-            "empty": summary.empty_count,
-            "planned": summary.planned_count,
-            "skipped": summary.skipped_count,
-            "issues": len(summary.issues),
-        }
+        counters.update(
+            {
+                "templates_total": summary.template_count,
+                "rows": summary.total_rows,
+                "written": summary.written_count,
+                "empty": summary.empty_count,
+                "planned": summary.planned_count,
+                "skipped": summary.skipped_count,
+                "issues": len(summary.issues),
+            }
+        )
         result = "OK" if summary.ok else "WYMAGA_SPRAWDZENIA"
     phase_durations = dashboard.state.phase_durations_ms if dashboard else {phase: 0 for phase in PHASES}
     return {
