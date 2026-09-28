@@ -6,10 +6,9 @@ their contents.
 
 ## Domain Language
 
-- Use the exact terms from `CONTEXT.md` in issue titles, specifications,
-  hypotheses, and test names: `Plik zbiorczy`, `Wykonawca`, `Szablon
-  pracownika`, `Przetworzenie Szablonu pracownika`, `Rozliczenie pracownika`,
-  `Wiersz danych`, `Placeholder`, `Gotowość`, and `Nienadpisywanie`.
+- Use the exact terms defined in `CONTEXT.md` in issue titles, specifications,
+  hypotheses, and test names. Treat `CONTEXT.md` as the single source of truth
+  for domain vocabulary instead of copying its term list here.
 - Name tests after the domain behaviour they protect. Use an implementation
   name only when the test intentionally protects that module's interface.
 - When implementation reveals a missing domain term, sharpen `CONTEXT.md`
