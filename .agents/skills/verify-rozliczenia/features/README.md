@@ -18,7 +18,9 @@ launchers for the same Python engine.
 - Drive the user path through the one-command orchestrator; it invokes `run.py` with the same selected Python interpreter and synthetic `--source`, `--config`, and `--metrics` paths.
 - Read stdout, stderr, and native exit codes from the UTF-8 evidence files it creates.
 - Use workbook reads only for post-action assertions; do not call internal engine functions as proof.
-- The orchestrator runs `--dry-run` before a real run and verifies that it writes metrics but not workbook input cells.
+- The orchestrator runs `--dry-run` before a real run, checks the complete plan,
+  and verifies that it writes metrics but creates no destination folder or
+  output workbook. It prepares legacy worker templates only after this check.
 - Keep evidence in `.verification\evidence\`; cleanup may remove only `.verification\runs\`.
 
 ## Proof and skip reporting

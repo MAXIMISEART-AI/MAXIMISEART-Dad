@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -170,7 +171,9 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     write_template(target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx")
     write_template(target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx")
     write_template(target_directory / f"Rozliczenie {PERIOD} -.xlsx")
-    return source_path, target_directory, write_mapping(tmp_path / "worker_mapping.yaml")
+    config_path = write_mapping(tmp_path / "worker_mapping.yaml")
+    write_template(tmp_path / "placeholder.xlsx")
+    return source_path, target_directory, config_path
 
 
 def test_groups_rows_by_worker_and_preserves_template_formulas(tmp_path: Path) -> None:
@@ -212,16 +215,18 @@ def test_groups_rows_by_worker_and_preserves_template_formulas(tmp_path: Path) -
 
 def test_dry_run_does_not_write(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
+    shutil.rmtree(target_directory)
 
-    summary = run_settlements(source_path, config_path, dry_run=True)
+    summary = run_settlements(
+        source_path,
+        config_path,
+        dry_run=True,
+        placeholder_path=tmp_path / "placeholder.xlsx",
+    )
 
     assert summary.planned_count == 2
-    workbook = load_workbook(target_path, data_only=False)
-    try:
-        assert active_worksheet(workbook)["A18"].value is None
-    finally:
-        workbook.close()
+    assert summary.empty_count == 1
+    assert not target_directory.exists()
 
 
 def test_existing_input_data_is_never_overwritten(tmp_path: Path) -> None:

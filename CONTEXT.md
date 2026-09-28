@@ -21,9 +21,21 @@ w nazwie pliku docelowego.
 
 ## Szablon pracownika
 
-Plik przygotowany dla konkretnego wykonawcy. Ma stałą strukturę, formuły,
-stawki i formatowanie. Może pozostać pusty, jeśli wykonawca nie ma wierszy w
-pliku zbiorczym.
+Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Placeholdera.
+Zachowuje jego strukturę, formuły, stawki i formatowanie; zawiera dane tylko z
+własnego okresu i może pozostać pusty, jeśli wykonawca nie ma wierszy w Pliku
+zbiorczym.
+
+## Folder rozliczeń pracowników
+
+Folder danego okresu zawierający osobny skoroszyt dla każdego wykonawcy.
+
+## Przygotowanie skoroszytów pracowników
+
+Etap tworzenia plików nowego okresu przez skopiowanie Placeholdera dla każdego
+wykonawcy. Token okresu i nazwa wykonawcy trafiają do nazw folderu i plików;
+struktura, formuły, stawki i formatowanie Placeholdera pozostają zachowane, a
+sam Placeholder pozostaje niezmieniony.
 
 ## Przetworzenie Szablonu pracownika
 
@@ -34,6 +46,8 @@ szablonu albo pominięciem, gdy dalsze działanie nie jest bezpieczne.
 ## Rozliczenie pracownika
 
 Szablon pracownika uzupełniony wierszami tego wykonawcy z danego okresu.
+Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
+`{okres}` to token okresu rozliczeniowego.
 
 ## Wiersz danych
 
@@ -42,8 +56,8 @@ wartości szablonu nie są same w sobie wierszami danych.
 
 ## Placeholder
 
-Plik bez nazwy wykonawcy, na przykład `Rozliczenie {okres} -.xlsx`. Nie jest
-rozliczeniem konkretnej osoby i pozostaje nietknięty.
+Wspólny skoroszyt bazowy bez nazwy wykonawcy, z którego powstają Szablony
+pracowników. Nie jest rozliczeniem konkretnej osoby i pozostaje niezmieniony.
 
 ## Gotowość
 
@@ -53,8 +67,9 @@ uruchomienie procesu, a nie zgadywana na podstawie samego zapisu pliku.
 
 ## Przebieg rozliczeń
 
-Jedno uruchomienie przygotowania rozliczeń pracowników od sprawdzenia pliku
-zbiorczego do wyniku końcowego albo bezpiecznego przerwania.
+Jedno uruchomienie procesu od wskazania Pliku zbiorczego do wyniku końcowego
+albo bezpiecznego przerwania. Obejmuje Przygotowanie skoroszytów pracowników,
+a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 
 ## Zdarzenie przebiegu
 
@@ -65,5 +80,5 @@ numerów zleceń ani treści wierszy.
 
 ## Nienadpisywanie
 
-Plik pracownika zawierający już dane wejściowe nie jest automatycznie czyszczony
-ani zastępowany. Proces pomija go i zgłasza problem.
+Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje
+się bez ich nadpisywania. Placeholder również pozostaje niezmieniony.

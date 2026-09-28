@@ -20,8 +20,13 @@ from .domain import (
     ProgressObserver,
     ProgressPhase,
     SettlementSummary,
+    WorkerResult,
 )
-from .template_settlement import ExcelRow
+from .template_settlement import (
+    ExcelRow,
+    PlaceholderValidationError,
+    validate_placeholder,
+)
 
 
 ResultT = TypeVar("ResultT")
@@ -33,10 +38,21 @@ SOURCE_PATTERN = re.compile(
 HEADER_ROW = 17
 DATA_START_ROW = 18
 WORKER_COLUMN = 8  # H
+_INVALID_FILENAME_CHARACTERS = frozenset('<>:"/\\|?*')
+_MAX_WINDOWS_FILENAME_CODE_UNITS = 255
 
 
 class SettlementError(Exception):
     """Błąd uniemożliwiający bezpieczne rozpoczęcie procesu."""
+
+
+def _worker_filename_fits_windows(name: str) -> bool:
+    filename = f"Rozliczenie 00_00_00_0000 - {name}.xlsx"
+    try:
+        filename_length = len(filename.encode("utf-16-le")) // 2
+    except UnicodeEncodeError:
+        return False
+    return filename_length <= _MAX_WINDOWS_FILENAME_CODE_UNITS
 
 
 def normalize_text(value: object) -> str:
@@ -56,24 +72,43 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
     except yaml.YAMLError as exc:
         raise SettlementError(f"Niepoprawny YAML konfiguracji: {config_path}") from exc
 
+    if not isinstance(config, dict):
+        raise SettlementError("Konfiguracja musi być mapą z sekcją workers.")
+    if type(config.get("schema_version")) is not int or config["schema_version"] != 1:
+        raise SettlementError("Nieobsługiwana wersja konfiguracji.")
+
     workers = config.get("workers")
     if not isinstance(workers, dict) or not workers:
         raise SettlementError("Konfiguracja workers musi zawierać co najmniej jeden wpis.")
 
     mapping: dict[str, str] = {}
+    seen_identifiers: set[str] = set()
     seen_names: dict[str, str] = {}
     for source_id, target_name in workers.items():
+        if not isinstance(source_id, str) or not isinstance(target_name, str):
+            raise SettlementError("Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika.")
         normalized_id = normalize_text(source_id)
-        display_name = str(target_name or "").strip()
+        display_name = target_name.strip()
         normalized_name = normalize_text(display_name)
         if not normalized_id or not normalized_name:
             raise SettlementError("Konfiguracja zawiera pusty identyfikator lub nazwę pracownika.")
+        if normalized_id in seen_identifiers:
+            raise SettlementError("Konfiguracja zawiera powtórzony identyfikator pracownika.")
+        if (
+            any(character in _INVALID_FILENAME_CHARACTERS for character in display_name)
+            or any(ord(character) < 32 for character in display_name)
+            or display_name.endswith((".", " "))
+        ):
+            raise SettlementError("Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.")
+        if not _worker_filename_fits_windows(display_name):
+            raise SettlementError("Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.")
         if normalized_name in seen_names:
             raise SettlementError(
                 "Dwóch identyfikatorów wskazuje ten sam plik pracownika: "
                 f"{seen_names[normalized_name]} / {display_name}"
             )
         mapping[normalized_id] = display_name
+        seen_identifiers.add(normalized_id)
         seen_names[normalized_name] = display_name
     return mapping
 
@@ -95,6 +130,12 @@ def period_from_source(source_path: Path) -> str:
             f"Folder pliku musi nazywać się tak samo jak okres: {period}."
         )
     return period
+
+
+def default_placeholder_path() -> Path:
+    """Wskazuje wspólny Placeholder wersjonowany w katalogu konfiguracji."""
+
+    return Path(__file__).resolve().parents[2] / "config" / "placeholder.xlsx"
 
 
 def excel_lock_path(path: Path) -> Path:
@@ -220,6 +261,7 @@ def run_settlements(
     config_path: Path,
     *,
     dry_run: bool = False,
+    placeholder_path: Path | None = None,
     observer: ProgressObserver | None = None,
 ) -> SettlementSummary:
     """Uruchamia pełny proces z ochroną przed błędną lokalizacją i duplikacją."""
@@ -227,6 +269,8 @@ def run_settlements(
     run_started = time.perf_counter()
     source_path = source_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
+    if placeholder_path is not None:
+        placeholder_path = placeholder_path.expanduser().resolve()
     dispatcher = _ObserverDispatcher(observer)
     notify = dispatcher.notify
     phase_durations_ms: dict[ProgressPhase, int] = {}
@@ -237,9 +281,17 @@ def run_settlements(
         ensure_unlocked(source_path)
         period = period_from_source(source_path)
         target_directory = source_path.parent / f"Rozliczenie pracowników {period}"
-        if not target_directory.is_dir():
+        if dry_run and target_directory.exists():
+            raise SettlementError(f"Folder docelowy już istnieje: {target_directory.name}.")
+        if not dry_run and not target_directory.is_dir():
             raise SettlementError(f"Nie znaleziono folderu szablonów: {target_directory.name}")
-        return period, target_directory, load_worker_mapping(config_path)
+        mapping = load_worker_mapping(config_path)
+        if dry_run:
+            try:
+                validate_placeholder(placeholder_path or default_placeholder_path())
+            except PlaceholderValidationError as exc:
+                raise SettlementError(str(exc)) from exc
+        return period, target_directory, mapping
 
     period, target_directory, mapping = _run_phase(
         ProgressPhase.CHECKING,
@@ -270,10 +322,29 @@ def run_settlements(
     )
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
-        template_files = target_files(target_directory, period)
-        target_by_name = {normalize_text(name): path for name, path in template_files}
         rows_by_target: defaultdict[str, list[ExcelRow]] = defaultdict(list)
         issues: list[Issue] = []
+
+        if dry_run:
+            template_files = [
+                (name, target_directory / f"Rozliczenie {period} - {name}.xlsx")
+                for name in mapping.values()
+            ]
+            for source_worker, rows in rows_by_worker.items():
+                target_name = mapping.get(source_worker)
+                if target_name is None:
+                    issues.append(
+                        Issue(
+                            "BRAK_MAPOWANIA",
+                            "Nieznany identyfikator WYKONAWCA pominięty w planie; sprawdź konfigurację pracowników.",
+                        )
+                    )
+                    continue
+                rows_by_target[normalize_text(target_name)].extend(rows)
+            return template_files, rows_by_target, issues
+
+        template_files = target_files(target_directory, period)
+        target_by_name = {normalize_text(name): path for name, path in template_files}
         for source_worker, rows in rows_by_worker.items():
             target_name = mapping.get(source_worker)
             if target_name is None:
@@ -323,12 +394,20 @@ def run_settlements(
             )
             rows = rows_by_target.get(target_key, [])
             try:
-                result = template_settlement.process_template(
-                    worker_name,
-                    target_path,
-                    rows,
-                    dry_run=dry_run,
-                )
+                if dry_run:
+                    result = WorkerResult(
+                        worker_name,
+                        target_path,
+                        len(rows),
+                        "PLAN" if rows else "PUSTY_SZABLON",
+                    )
+                else:
+                    result = template_settlement.process_template(
+                        worker_name,
+                        target_path,
+                        rows,
+                        dry_run=False,
+                    )
             except Exception:
                 worker_failure_notified = True
                 notify(

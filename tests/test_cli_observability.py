@@ -4,6 +4,7 @@ from io import StringIO
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from collections.abc import Iterable
@@ -39,6 +40,8 @@ def run_cli(
             str(source_path),
             "--config",
             str(config_path),
+            "--placeholder",
+            str(config_path.parent / "placeholder.xlsx"),
             "--metrics",
             str(metrics_path),
             *extra_args,
@@ -48,7 +51,17 @@ def run_cli(
     return exit_code, output.getvalue()
 
 
+def make_preview_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    shutil.rmtree(target_directory)
+    return source_path, target_directory, config_path
+
+
 def assert_fixture_workbooks(target_directory: Path, *, dry_run: bool) -> None:
+    if dry_run:
+        assert not target_directory.exists()
+        return
+
     expected_input = None if dry_run else "POZNAŃ"
     for worker_name in ("Adrian Maciejewski", "Darek Nowak"):
         workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - {worker_name}.xlsx")
@@ -375,7 +388,8 @@ def test_metrics_store_repairs_torn_final_line(tmp_path: Path) -> None:
     [(False, "RUN"), (True, "DRY-RUN")],
 )
 def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
+    fixture = make_preview_fixture(tmp_path) if dry_run else make_fixture(tmp_path)
+    source_path, target_directory, config_path = fixture
     metrics_path = tmp_path / "metrics.jsonl"
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
@@ -384,6 +398,8 @@ def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None
         str(source_path),
         "--config",
         str(config_path),
+        "--placeholder",
+        str(config_path.parent / "placeholder.xlsx"),
         "--metrics",
         str(metrics_path),
     ]
@@ -457,7 +473,8 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
         def stop(self) -> None:
             pass
 
-    source_path, target_directory, config_path = make_fixture(tmp_path)
+    fixture = make_preview_fixture(tmp_path) if dry_run else make_fixture(tmp_path)
+    source_path, target_directory, config_path = fixture
     metrics_path = tmp_path / "metrics.jsonl"
     output = TtyOutput()
     live_instances: list[FakeLive] = []
@@ -474,6 +491,8 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
         str(source_path),
         "--config",
         str(config_path),
+        "--placeholder",
+        str(config_path.parent / "placeholder.xlsx"),
         "--metrics",
         str(metrics_path),
     ]
@@ -513,10 +532,17 @@ def test_cli_can_run_the_settlement_engine_without_an_observer(
         config: Path,
         *,
         dry_run: bool = False,
+        placeholder_path: Path | None = None,
         observer: ProgressObserver | None = None,
     ) -> SettlementSummary:
         observers.append(observer)
-        return original_run_settlements(source, config, dry_run=dry_run, observer=observer)
+        return original_run_settlements(
+            source,
+            config,
+            dry_run=dry_run,
+            placeholder_path=placeholder_path,
+            observer=observer,
+        )
 
     monkeypatch.setattr(cli, "run_settlements", record_observer)
 
@@ -562,7 +588,7 @@ def test_plain_cli_completes_progress_for_locked_and_skipped_szablon_pracownika(
 
 
 def test_plain_cli_shows_dry_run_and_does_not_write_szablon_pracownika(tmp_path: Path) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
+    source_path, target_directory, config_path = make_preview_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
 
     exit_code, output = run_cli(source_path, config_path, metrics_path, "--dry-run")
@@ -571,7 +597,7 @@ def test_plain_cli_shows_dry_run_and_does_not_write_szablon_pracownika(tmp_path:
     assert "DRY-RUN" in output
     assert "Nic nie zapisano" in output
     assert "Planowane szablony: 2" in output
-    assert (target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx").exists()
+    assert not target_directory.exists()
     assert "A18" not in output
 
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -580,8 +606,115 @@ def test_plain_cli_shows_dry_run_and_does_not_write_szablon_pracownika(tmp_path:
     assert record["counters"]["planned"] == 2
 
 
+def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_preview_fixture(tmp_path)
+    placeholder_path = tmp_path / "placeholder.xlsx"
+    source_before = source_path.read_bytes()
+    placeholder_before = placeholder_path.read_bytes()
+
+    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
+
+    assert exit_code == 2
+    assert f"Okres rozliczeniowy: {PERIOD}" in output
+    assert f"Folder rozliczeń pracowników: {target_directory}" in output
+    assert "Plan plików:" in output
+    assert f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx | Wiersze do uzupełnienia: 2" in output
+    assert f"Rozliczenie {PERIOD} - Darek Nowak.xlsx | Wiersze do uzupełnienia: 1" in output
+    assert (
+        f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx | "
+        "Wiersze do uzupełnienia: 0 | Pusty skoroszyt"
+    ) in output
+    assert "Nieznany identyfikator WYKONAWCA" in output
+    assert "andrzej.kulawski2" not in output
+    assert "syntetyczny adres" not in output
+    assert "#1" not in output
+    assert "Nic nie zapisano" in output
+    assert not target_directory.exists()
+    assert source_path.read_bytes() == source_before
+    assert placeholder_path.read_bytes() == placeholder_before
+    assert_completed_metrics(tmp_path / "metrics.jsonl", dry_run=True)
+
+
+@pytest.mark.parametrize(
+    ("problem", "expected_message"),
+    [
+        ("missing-placeholder", "Nie znaleziono Placeholdera"),
+        ("corrupt-placeholder", "Nie można odczytać Placeholdera"),
+        ("locked-placeholder", "Placeholder jest otwarty lub zablokowany"),
+        ("wrong-placeholder-header", "Placeholder nie ma nagłówka WYKONAWCA"),
+        ("placeholder-has-data", "Placeholder zawiera dane"),
+        ("invalid-config", "Niepoprawny YAML konfiguracji"),
+        ("unsupported-config-version", "Nieobsługiwana wersja konfiguracji"),
+        ("unsafe-worker-name", "nieprawidłową dla nazwy pliku"),
+        ("long-worker-name", "zbyt długą dla nazwy pliku"),
+    ],
+)
+def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
+    tmp_path: Path,
+    problem: str,
+    expected_message: str,
+) -> None:
+    source_path, target_directory, config_path = make_preview_fixture(tmp_path)
+    placeholder_path = tmp_path / "placeholder.xlsx"
+    if problem == "missing-placeholder":
+        placeholder_path.unlink()
+    elif problem == "corrupt-placeholder":
+        placeholder_path.write_bytes(b"not an Excel workbook")
+    elif problem == "locked-placeholder":
+        placeholder_path.with_name(f"~${placeholder_path.name}").touch()
+    elif problem == "wrong-placeholder-header":
+        workbook = load_workbook(placeholder_path)
+        active_worksheet(workbook)["H17"] = "NIE WYKONAWCA"
+        workbook.save(placeholder_path)
+        workbook.close()
+    elif problem == "placeholder-has-data":
+        workbook = load_workbook(placeholder_path)
+        active_worksheet(workbook)["A18"] = "SENSITIVE-SYNTHETIC"
+        workbook.save(placeholder_path)
+        workbook.close()
+    elif problem == "invalid-config":
+        config_path.write_text("workers: [", encoding="utf-8")
+    elif problem == "unsupported-config-version":
+        config_path.write_text(
+            "schema_version: 2\nworkers:\n  synthetic.worker: Worker\n",
+            encoding="utf-8",
+        )
+    elif problem == "unsafe-worker-name":
+        config_path.write_text(
+            "schema_version: 1\nworkers:\n  synthetic.worker: ../outside\n",
+            encoding="utf-8",
+        )
+    elif problem == "long-worker-name":
+        config_path.write_text(
+            f"schema_version: 1\nworkers:\n  synthetic.worker: {'X' * 223}\n",
+            encoding="utf-8",
+        )
+
+    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
+
+    assert exit_code == 1
+    assert expected_message in output
+    assert "synthetic.worker" not in output
+    assert "synthetic address" not in output
+    assert "SENSITIVE-SYNTHETIC" not in output
+    assert not target_directory.exists()
+
+
+def test_cli_dry_run_rejects_existing_output_folder_without_changing_it(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_preview_fixture(tmp_path)
+    target_directory.mkdir(parents=True)
+    sentinel = target_directory / "existing.txt"
+    sentinel.write_text("zachowaj", encoding="utf-8")
+
+    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
+
+    assert exit_code == 1
+    assert "Folder docelowy już istnieje" in output
+    assert sentinel.read_text(encoding="utf-8") == "zachowaj"
+
+
 def test_statistics_are_available_after_five_comparable_runs(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
+    source_path, _, config_path = make_preview_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
 
     for _ in range(5):
@@ -594,12 +727,13 @@ def test_statistics_are_available_after_five_comparable_runs(tmp_path: Path) -> 
     assert "P95" in output
     assert "próbek: 6" in output
 
-    _, run_output = run_cli(source_path, config_path, metrics_path)
+    run_source, _, run_config = make_fixture(tmp_path / "run")
+    _, run_output = run_cli(run_source, run_config, metrics_path)
     assert "Statystyki RUN" not in run_output
 
 
 def test_statistics_panel_reports_values_for_both_modes_and_all_phases(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
+    source_path, _, config_path = make_preview_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
     phase_durations = {
         "Sprawdzanie": 1000,
@@ -646,7 +780,7 @@ def test_statistics_panel_reports_values_for_both_modes_and_all_phases(tmp_path:
 
 
 def test_malformed_history_does_not_change_process_result(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
+    source_path, _, config_path = make_preview_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
 
     for _ in range(5):

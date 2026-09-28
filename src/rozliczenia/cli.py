@@ -11,7 +11,12 @@ import time
 from typing import Any, Mapping, TextIO
 
 from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
-from .engine import SettlementError, period_from_source, run_settlements
+from .engine import (
+    SettlementError,
+    default_placeholder_path,
+    period_from_source,
+    run_settlements,
+)
 from .progress import (
     ProgressNotice,
     ProgressProjection,
@@ -71,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Rozdziela plik zbiorczy na szablony pracowników.")
     parser.add_argument("--source", type=Path, help="Ścieżka do pliku ... - zbiorcze.xlsx")
     parser.add_argument("--config", type=Path, default=default_config_path())
+    parser.add_argument(
+        "--placeholder",
+        type=Path,
+        default=default_placeholder_path(),
+        help="Ścieżka do wspólnego Placeholdera używanego przez --dry-run.",
+    )
     parser.add_argument(
         "--metrics",
         type=Path,
@@ -165,6 +176,15 @@ class Dashboard:
         self._line(f"Pominięte szablony: {summary.skipped_count}")
         if summary.planned_count:
             self._line(f"Planowane szablony: {summary.planned_count}")
+        if self.state.snapshot.mode == "DRY-RUN":
+            self._line(f"Okres rozliczeniowy: {summary.period}")
+            self._line(f"Folder rozliczeń pracowników: {summary.target_directory}")
+            self._line("Plan plików:")
+            for result in summary.results:
+                detail = f"Wiersze do uzupełnienia: {result.rows}"
+                if not result.rows:
+                    detail += " | Pusty skoroszyt"
+                self._line(f"- {result.output_file.name} | {detail}")
             self._line("DRY-RUN: Nic nie zapisano")
         self._line(f"Problemy: {len(summary.issues)}")
         for issue in summary.issues:
@@ -316,6 +336,7 @@ def main(
             source,
             args.config,
             dry_run=args.dry_run,
+            placeholder_path=args.placeholder,
             observer=None if args.no_observer else dashboard,
         )
     except Exception as exc:

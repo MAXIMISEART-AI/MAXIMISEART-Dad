@@ -165,9 +165,9 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
         str(run_root),
         "--expect",
         "dry-run",
+        "--transcript",
+        str(evidence_root / "dry-run.txt"),
     ]
-    if variant == "existing":
-        dry_assert_arguments.append("--seed-existing")
 
     _run_step(
         "dry-run",
@@ -177,6 +177,8 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
             str(source),
             "--config",
             str(config),
+            "--placeholder",
+            str(run_root / "placeholder.xlsx"),
             "--metrics",
             str(metrics),
             "--dry-run",
@@ -186,6 +188,16 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
         expected_exit=2,
     )
     _run_step("assert-dry-run", dry_assert_arguments, evidence_root, environment, expected_exit=0)
+
+    prepare_arguments = [
+        str(helper_directory / "create_fixture.py"),
+        "--root",
+        str(run_root),
+        "--prepare-existing-target-workbooks",
+    ]
+    if variant == "existing":
+        prepare_arguments.append("--seed-existing")
+    _run_step("prepare-targets", prepare_arguments, evidence_root, environment, expected_exit=0)
 
     if variant == "locked":
         _create_lock(run_root)
@@ -264,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         "doctor.txt",
         "dry-run.txt",
         "assert-dry-run.txt",
+        "prepare-targets.txt",
         "run.txt",
         "assert-run.txt",
         "cleanup.txt",

@@ -33,6 +33,9 @@ Preconditions:
 ## Gotchas
 
 - The source file must be named `Rozliczenie 08_14_09_2026 - zbiorcze.xlsx` and live under a folder named `08_14_09_2026`.
-- The placeholder `Rozliczenie 08_14_09_2026 -.xlsx` is intentionally ignored.
+- The legacy write-path fixture's placeholder `Rozliczenie 08_14_09_2026 -.xlsx`
+  is intentionally ignored. `--dry-run` validates the separate shared
+  Placeholder passed with `--placeholder` and previews output names without
+  opening existing worker templates.
 - The proof must inspect formulas with `data_only=False`; cached formula results are not the template-preservation proof.
 - The command may return `2` even when mapped workbooks were safely written; read the semantic summary and workbook state.
