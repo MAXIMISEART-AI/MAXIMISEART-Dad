@@ -25,6 +25,12 @@ Plik przygotowany dla konkretnego wykonawcy. Ma stałą strukturę, formuły,
 stawki i formatowanie. Może pozostać pusty, jeśli wykonawca nie ma wierszy w
 pliku zbiorczym.
 
+## Przetworzenie Szablonu pracownika
+
+Obsłużenie jednego Szablonu pracownika w ramach przygotowania Rozliczeń
+pracowników. Może zakończyć się uzupełnieniem danych, pozostawieniem pustego
+szablonu albo pominięciem, gdy dalsze działanie nie jest bezpieczne.
+
 ## Rozliczenie pracownika
 
 Szablon pracownika uzupełniony wierszami tego wykonawcy z danego okresu.

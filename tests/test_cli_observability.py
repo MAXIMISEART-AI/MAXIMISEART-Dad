@@ -13,6 +13,7 @@ import pytest
 import rozliczenia.cli as cli
 from rozliczenia.cli import main
 import rozliczenia.engine as settlement_engine
+import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
 
 from tests.test_settlement_engine import PERIOD, make_fixture
@@ -362,17 +363,17 @@ def test_cancelled_source_selection_shows_critical_dashboard_status(
 def test_critical_write_failure_preserves_partial_counters(tmp_path: Path, monkeypatch) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
-    original_save_target = settlement_engine._save_target
+    original_process_template = template_settlement.process_template
     save_calls = 0
 
-    def fail_on_second_save(path: Path, rows) -> None:
+    def fail_on_second_save(worker_name: str, path: Path, rows, *, dry_run: bool = False):
         nonlocal save_calls
         save_calls += 1
         if save_calls == 2:
-            raise OSError("synthetic write failure")
-        original_save_target(path, rows)
+            raise template_settlement.TemplateWriteError("synthetic write failure")
+        return original_process_template(worker_name, path, rows, dry_run=dry_run)
 
-    monkeypatch.setattr(settlement_engine, "_save_target", fail_on_second_save)
+    monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
     exit_code, _ = run_cli(source_path, config_path, metrics_path)
 
