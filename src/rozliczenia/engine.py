@@ -308,6 +308,7 @@ def run_settlements(
                         template_index=template_index,
                         template_total=len(template_files),
                         elapsed_ms=_elapsed_ms(run_started),
+                        phase_elapsed_ms=_elapsed_ms(save_started),
                         worker_elapsed_ms=_elapsed_ms(worker_started),
                     )
                 )

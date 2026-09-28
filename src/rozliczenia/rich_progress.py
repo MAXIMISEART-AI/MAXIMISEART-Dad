@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .domain import PHASES, ProgressPhase
-from .progress import PhaseState, ProgressNotice, ProgressSnapshot
+from .progress import PhaseState, ProgressNotice, ProgressNoticeKind, ProgressSnapshot
 from .progress_presentation import (
     counter_line,
     operation_status_presentation,
@@ -41,7 +41,7 @@ except ImportError:
 class RichProgressAdapter:
     """Render a complete Rich view from an immutable snapshot and safe notice."""
 
-    def render(self, snapshot: ProgressSnapshot, _notice: ProgressNotice | None = None) -> Any:
+    def render(self, snapshot: ProgressSnapshot, notice: ProgressNotice | None = None) -> Any:
         if any(component is None for component in (Console, Group, Panel, Table, Text)):
             raise RuntimeError("Rich is not available.")
 
@@ -85,12 +85,21 @@ class RichProgressAdapter:
         if not snapshot.recent_operations:
             operations.add_row("-", "brak")
 
+        failure_detail = None
+        if notice is not None and notice.kind is ProgressNoticeKind.FAILED:
+            if snapshot.current_worker and notice.template_index and notice.template_total:
+                failure_detail = (
+                    f"Przerwano przy szablonie pracownika: "
+                    f"{notice.template_index}/{notice.template_total}"
+                )
+
         body = Group(
             phases,
             f"Postęp szablonów: {progress_line(snapshot)}",
             f"Liczniki: {counter_line(snapshot)}",
             f"Bieżący WYKONAWCA: {snapshot.current_worker or 'brak'} | "
             f"etap: {snapshot.current_phase or 'oczekuje'}",
+            *([failure_detail] if failure_detail is not None else []),
             Panel(operations, title="Ostatnie operacje"),
             f"Wiersze danych: {snapshot.rows} | Czas: {snapshot.total_elapsed_ms} ms",
         )

@@ -50,6 +50,8 @@ class ProgressNotice:
     status: str | None = None
     rows: int = 0
     worker_elapsed_ms: int | None = None
+    template_index: int = 0
+    template_total: int = 0
 
 
 @dataclass(frozen=True)
@@ -343,4 +345,6 @@ class ProgressProjection:
             status=event.status,
             rows=event.rows,
             worker_elapsed_ms=event.worker_elapsed_ms,
+            template_index=event.template_index,
+            template_total=event.template_total,
         )

@@ -283,6 +283,8 @@ def test_plain_output_failure_detaches_observer_and_completes_przebieg_rozliczen
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is True
     assert record["counters"]["templates_completed"] == 3
+    assert record["counters"]["written"] == 2
+    assert record["result"] == "WYMAGA_SPRAWDZENIA"
     assert output.writes == fail_at_write
 
 
@@ -555,11 +557,17 @@ def test_critical_write_failure_preserves_partial_counters(
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
-    exit_code, _ = run_cli(source_path, config_path, metrics_path)
+    exit_code, output = run_cli(source_path, config_path, metrics_path)
 
     assert exit_code == 1
+    assert "Postęp szablonów: 1/3 (33%)" in output
+    assert (
+        "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak | "
+        "Szablon pracownika: 2/3"
+    ) in output
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is False
+    assert record["result"] == "BLAD_KRYTYCZNY"
     assert record["counters"] == {
         "templates_total": 3,
         "templates_completed": 1,
