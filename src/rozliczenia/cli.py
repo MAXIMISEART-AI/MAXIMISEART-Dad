@@ -176,7 +176,7 @@ class Dashboard:
 
     def start(self) -> None:
         if self.interactive and Live is not None:
-            self.live = Live(self.render(), console=self.console, refresh_per_second=8)
+            self.live = Live(self.render(), console=self.console, auto_refresh=False)
             self.live.start(refresh=True)
             return
         self._line(f"Rozliczenia | okres: {self.state.period} | tryb: {self.state.mode}")
