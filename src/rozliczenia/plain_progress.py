@@ -40,6 +40,13 @@ class PlainProgressAdapter:
             )
         elif notice.kind is ProgressNoticeKind.FAILED:
             if snapshot.current_worker:
-                self._line(f"Etap przerwany: {phase} | WYKONAWCA: {snapshot.current_worker}")
+                template_position = (
+                    f" | Szablon pracownika: {notice.template_index}/{notice.template_total}"
+                    if notice.template_index and notice.template_total
+                    else ""
+                )
+                self._line(
+                    f"Etap przerwany: {phase} | WYKONAWCA: {snapshot.current_worker}{template_position}"
+                )
             else:
                 self._line(f"Etap przerwany: {phase}")

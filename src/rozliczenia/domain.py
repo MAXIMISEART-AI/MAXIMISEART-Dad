@@ -149,16 +149,31 @@ class ProgressEvent:
             if self.template_index:
                 raise ProgressProtocolError("PLAN_READY nie może zawierać bieżącej pozycji szablonu.")
         elif state is ProgressState.WORKER_START:
-            self._require_worker_context(require_status=False, require_rows=False, allow_worker_elapsed=False)
+            self._require_worker_context(
+                require_status=False,
+                require_rows=False,
+                allow_worker_elapsed=False,
+                allow_phase_elapsed=False,
+            )
         elif state is ProgressState.WORKER_END:
-            self._require_worker_context(require_status=True, require_rows=True, allow_worker_elapsed=True)
+            self._require_worker_context(
+                require_status=True,
+                require_rows=True,
+                allow_worker_elapsed=True,
+                allow_phase_elapsed=False,
+            )
         elif state is ProgressState.FAILED:
             if self.status is not None or self.rows or self.issue_count:
                 raise ProgressProtocolError("FAILED nie może zawierać statusu, wierszy ani liczby problemów.")
             if self.worker_name is not None:
                 if phase is not ProgressPhase.SAVING:
                     raise ProgressProtocolError("FAILED z wykonawcą jest dozwolone tylko dla Zapisywanie.")
-                self._require_worker_context(require_status=False, require_rows=False, allow_worker_elapsed=True)
+                self._require_worker_context(
+                    require_status=False,
+                    require_rows=False,
+                    allow_worker_elapsed=True,
+                    allow_phase_elapsed=True,
+                )
             else:
                 if self.worker_elapsed_ms is not None:
                     raise ProgressProtocolError("FAILED bez wykonawcy nie może zawierać czasu wykonawcy.")
@@ -184,7 +199,12 @@ class ProgressEvent:
             raise ProgressProtocolError("To zdarzenie nie może zawierać liczby problemów.")
 
     def _require_worker_context(
-        self, *, require_status: bool, require_rows: bool, allow_worker_elapsed: bool
+        self,
+        *,
+        require_status: bool,
+        require_rows: bool,
+        allow_worker_elapsed: bool,
+        allow_phase_elapsed: bool,
     ) -> None:
         if self.phase is not ProgressPhase.SAVING:
             raise ProgressProtocolError("Zdarzenie wykonawcy jest dozwolone tylko dla Zapisywanie.")
@@ -192,7 +212,7 @@ class ProgressEvent:
             raise ProgressProtocolError("Zdarzenie wykonawcy wymaga worker_name.")
         if not self.template_total or not self.template_index:
             raise ProgressProtocolError("Zdarzenie wykonawcy wymaga pozycji wśród szablonów.")
-        if self.phase_elapsed_ms is not None:
+        if not allow_phase_elapsed and self.phase_elapsed_ms is not None:
             raise ProgressProtocolError("Zdarzenie wykonawcy nie może zawierać czasu fazy.")
         if require_status and self.status is None:
             raise ProgressProtocolError("WORKER_END wymaga statusu.")
@@ -316,6 +336,7 @@ class ProgressEventFactory:
         worker_name: str,
         *,
         elapsed_ms: int | None = None,
+        phase_elapsed_ms: int | None = None,
         worker_elapsed_ms: int | None = None,
         template_index: int,
         template_total: int,
@@ -327,6 +348,7 @@ class ProgressEventFactory:
             template_total=template_total,
             worker_name=worker_name,
             elapsed_ms=elapsed_ms,
+            phase_elapsed_ms=phase_elapsed_ms,
             worker_elapsed_ms=worker_elapsed_ms,
         )
 

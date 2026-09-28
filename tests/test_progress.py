@@ -96,13 +96,17 @@ def test_projection_reduces_failed_przetworzenie_szablonu_pracownika_without_cou
             template_index=2,
             template_total=2,
             elapsed_ms=15,
+            phase_elapsed_ms=5,
             worker_elapsed_ms=3,
         )
     )
 
     snapshot = update.snapshot
     assert update.notice.kind is ProgressNoticeKind.FAILED
+    assert update.notice.template_index == 2
+    assert update.notice.template_total == 2
     assert snapshot.phase_states[ProgressPhase.SAVING] is PhaseState.FAILED
+    assert snapshot.phase_durations_ms[ProgressPhase.SAVING] == 5
     assert snapshot.current_worker == "Darek Nowak"
     assert snapshot.templates_completed == 1
     assert snapshot.rows == 2
@@ -323,9 +327,13 @@ def test_plain_and_rich_adapters_render_the_same_immutable_snapshot() -> None:
         RichProgressAdapter().render(failure_update.snapshot, failure_update.notice)
     )
 
-    assert "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak" in failure_lines
+    assert (
+        "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak | Szablon pracownika: 1/1"
+        in failure_lines
+    )
     assert "przerwany" in failure_output.getvalue()
     assert "Darek Nowak" in failure_output.getvalue()
+    assert "Przerwano przy szablonie pracownika: 1/1" in failure_output.getvalue()
 
 
 def test_rich_adapter_renders_a_progress_snapshot_without_projection_state() -> None:
