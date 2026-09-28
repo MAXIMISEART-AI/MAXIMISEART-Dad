@@ -16,8 +16,12 @@ two mapped synthetic templates. The test is skipped on non-Windows systems.
 Run this gate manually before releasing changes to
 `deploy/AutomatyzacjaRozliczen.bas` or `AutomatyzacjaRozliczen.xlsm`:
 
-1. Create a fresh synthetic fixture as described in
-   `.agents/skills/verify-rozliczenia/SKILL.md`; run the doctor first.
+1. Create a fresh synthetic fixture with the source workbook named
+   `Rozliczenie 08_14_09_2026 - zbiorcze.xlsx`, its period folder named
+   `08_14_09_2026`, and worker templates for Adrian Maciejewski, Darek Nowak,
+   Kamil Frontczak, plus the empty placeholder. Include an intentional
+   unmapped synthetic worker and run the repository's read-only fixture check
+   before driving Excel.
 2. Keep `AutomatyzacjaRozliczen.xlsm` and `Utwórz rozliczenia.cmd` in the same
    directory. Import the current `deploy/AutomatyzacjaRozliczen.bas` into the
    workbook if the module is not already current.
@@ -26,11 +30,12 @@ Run this gate manually before releasing changes to
 4. Confirm that Excel waits for the process and displays the warning result for
    the fixture's intentional unmapped synthetic worker. A critical-error
    message or a missing launcher message fails the gate.
-5. Run `assert_results.py --root <fixture-root> --expect run` and require
-   `ASSERT OK`. This confirms that the VBA route reached the same workbook
-   side effects as the Python and CMD routes.
-6. Remove the disposable fixture with the verification cleanup helper. Do not
-   use a real customer workbook for this gate.
+5. Confirm that Adrian and Darek contain the synthetic input, Kamil and the
+   placeholder remain empty, and the `AU` formulas are unchanged. The result
+   must match the normal completed run with an intentional warning, not a
+   critical error.
+6. Remove the disposable fixture with the repository's verification cleanup
+   helper. Do not use a real customer workbook for this gate.
 
 Record the VBA gate as **not driven** when desktop Excel is unavailable; a
 passing Python suite or CMD smoke test does not replace this manual check.
