@@ -9,12 +9,13 @@ semantic status, exit code, and safe local timing history for a settlement run.
 - `progress-templates` reaches `3/3 (100%)` and reports per-template statuses.
 - `progress-status` distinguishes an operational warning exit (`2`) from a critical failure exit (`1`).
 - `metrics-safe` appends local JSONL telemetry without customer row contents or source paths.
+- `vba-no-observer` runs the same engine without a CLI progress observer; completed phase timings come from `SettlementSummary`.
 
 ## How to get to it (user POV)
 
 - Run `py -3 run.py` from a terminal with a source path and metrics path.
 - Run `Utwórz rozliczenia.cmd` from a terminal or by choosing a source in its file dialog.
-- Run the Excel button `UruchomRozliczenia`; the same engine output is reflected in the launched process.
+- Run the Excel button `UruchomRozliczenia`; it waits for the same engine and reports its exit result without attaching a progress observer.
 
 ## Driving it with PowerShell and run.py
 
@@ -27,6 +28,7 @@ Preconditions:
 - **Check template progress.** Assert `Postęp szablonów: 3/3 (100%)`, `Liczniki:`, and the per-template status lines in `run.txt`.
 - **Check semantic exit.** The default fixture's `run.txt` records application exit `2` and `Status semantyczny: OSTRZEŻENIE`; the orchestrator returns `0` because that result is expected.
 - **Check metrics.** Read the copied evidence file `metrics.jsonl` as JSONL. It contains `mode`, `period`, `completed`, `result`, phase durations, and counters; it must not contain a full source path, address, order number, or row text.
+- **Check observer-free launcher.** Run `py -3 -m pytest tests/test_cmd_launcher.py -k without_a_progress_observer` on Windows. This drives CMD with the VBA flag and checks workbook writes; it does not drive desktop Excel.
 - **Check repeated-run statistics.** After five comparable dry-runs, a sixth dry-run prints `Statystyki DRY-RUN`, `P50`, and `P95`. Use a fresh metrics file for this test and retain the output as evidence.
 
 ## Gotchas

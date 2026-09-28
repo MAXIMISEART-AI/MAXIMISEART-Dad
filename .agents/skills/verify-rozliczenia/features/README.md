@@ -35,3 +35,4 @@ launchers for the same Python engine.
 - [Worker settlement](./settle-workbooks.md) covers fan-out into mapped templates and preserved formulas.
 - [Safety gates](./safety-gates.md) covers unknown workers, placeholders, existing data, and Excel locks.
 - [Progress and telemetry](./progress-and-metrics.md) covers observable phases, counters, exit semantics, and safe metrics.
+- The VBA launch route uses the same engine with progress observation disabled.

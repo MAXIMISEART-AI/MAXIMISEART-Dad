@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any, TextIO
+from typing import Any, Mapping, TextIO
 
 from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import SettlementError, period_from_source, run_settlements
@@ -78,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Lokalny plik historii metryk JSONL.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Sprawdź plan bez zapisywania plików.")
+    parser.add_argument("--no-observer", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -252,7 +253,11 @@ def _metric_record(
             }
         )
         result = "OK" if summary.ok else "WYMAGA_SPRAWDZENIA"
-    phase_durations = snapshot.phase_durations_ms if snapshot else {ProgressPhase(phase): 0 for phase in PHASES}
+    phase_durations: Mapping[ProgressPhase, int]
+    if summary is not None:
+        phase_durations = summary.phase_durations_ms
+    else:
+        phase_durations = snapshot.phase_durations_ms if snapshot else {ProgressPhase(phase): 0 for phase in PHASES}
     return {
         "schema_version": METRICS_SCHEMA_VERSION,
         "started_at": started_at,
@@ -311,7 +316,7 @@ def main(
             source,
             args.config,
             dry_run=args.dry_run,
-            observer=dashboard,
+            observer=None if args.no_observer else dashboard,
         )
     except Exception as exc:
         error = exc

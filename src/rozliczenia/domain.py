@@ -362,6 +362,7 @@ class SettlementSummary:
     target_directory: Path
     results: list[WorkerResult] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
+    phase_durations_ms: dict[ProgressPhase, int] = field(default_factory=dict)
 
     @property
     def written_count(self) -> int:
