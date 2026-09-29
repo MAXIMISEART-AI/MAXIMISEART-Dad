@@ -182,7 +182,32 @@ def make_complete_run_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     return source_path, target_directory, config_path, tmp_path / "placeholder.xlsx"
 
 
-def test_run_settlements_publishes_complete_workbooks_copied_from_placeholder(tmp_path: Path) -> None:
+def expected_source_row(address: str, order_number: str, worker_id: str, quantity: int) -> tuple[object, ...]:
+    return (
+        "POZNAŃ",
+        address,
+        None,
+        None,
+        None,
+        order_number,
+        None,
+        worker_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        quantity,
+    ) + (None,) * 32
+
+
+def worksheet_input_row(sheet: Worksheet, row_number: int) -> tuple[object, ...]:
+    return next(sheet.iter_rows(min_row=row_number, max_row=row_number, max_col=46, values_only=True))
+
+
+def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracownikow(
+    tmp_path: Path,
+) -> None:
     source_path, target_directory, config_path, placeholder_path = make_complete_run_fixture(tmp_path)
     placeholder_before = placeholder_path.read_bytes()
 
@@ -206,15 +231,32 @@ def test_run_settlements_publishes_complete_workbooks_copied_from_placeholder(tm
     try:
         adrian = active_worksheet(adrian_workbook)
         assert adrian_workbook.sheetnames == ["Sheet1", "Rates"]
-        assert adrian["A18"].value == "POZNAŃ"
-        assert adrian["F18"].value == "#1"
-        assert adrian["F19"].value == "#3"
+        assert worksheet_input_row(adrian, 18) == expected_source_row(
+            "syntetyczny adres 1", "#1", "adrian.maciejewski", 1
+        )
+        assert worksheet_input_row(adrian, 19) == expected_source_row(
+            "syntetyczny adres 3", "#3", "adrian.maciejewski", 3
+        )
         assert adrian["AU18"].value == "=N18"
+        assert adrian["AU19"].value == "=N19"
         assert adrian["A17"].fill.fill_type == "solid"
         assert adrian["A17"].fill.fgColor.rgb == "0000AA55"
         assert adrian_workbook["Rates"]["B1"].value == 17.5
     finally:
         adrian_workbook.close()
+
+    darek_workbook = load_workbook(
+        target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx",
+        data_only=False,
+    )
+    try:
+        darek = active_worksheet(darek_workbook)
+        assert worksheet_input_row(darek, 18) == expected_source_row(
+            "syntetyczny adres 2", "#2", "dariusz.nowak2", 2
+        )
+        assert darek["AU18"].value == "=N18"
+    finally:
+        darek_workbook.close()
 
     empty_workbook = load_workbook(
         target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx",
@@ -222,14 +264,16 @@ def test_run_settlements_publishes_complete_workbooks_copied_from_placeholder(tm
     )
     try:
         empty = active_worksheet(empty_workbook)
-        assert empty["A18"].value is None
+        assert worksheet_input_row(empty, 18) == (None,) * 13 + (0,) + (None,) * 32
         assert empty["AU18"].value == "=N18"
         assert empty["A17"].fill.fgColor.rgb == "0000AA55"
     finally:
         empty_workbook.close()
 
 
-def test_unmapped_worker_prevents_publishing_any_workbooks(tmp_path: Path) -> None:
+def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
+    tmp_path: Path,
+) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=True)
 
@@ -255,7 +299,7 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
     assert not target_directory.exists()
 
 
-def test_existing_output_folder_is_never_overwritten(tmp_path: Path) -> None:
+def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     target_directory.mkdir()
     sentinel = target_directory / "existing.txt"
@@ -280,7 +324,9 @@ def test_external_link_relationships_survive_target_write(tmp_path: Path) -> Non
     assert external_link_parts(placeholder_path) == before
 
 
-def test_locked_placeholder_prevents_publishing_any_workbooks(tmp_path: Path) -> None:
+def test_blokada_placeholdera_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
+    tmp_path: Path,
+) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     placeholder_path = tmp_path / "placeholder.xlsx"
     placeholder_path.with_name(f"~${placeholder_path.name}").touch()

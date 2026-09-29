@@ -571,7 +571,7 @@ def test_cli_can_run_the_settlement_engine_without_an_observer(
     assert record["phase_durations_ms"]["Zapisywanie"] > 0
 
 
-def test_plain_cli_rejects_existing_output_folder_without_modifying_it(tmp_path: Path) -> None:
+def test_cli_existing_folder_rozliczen_pracownikow_is_preserved(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     target_directory.mkdir(parents=True)
     sentinel = target_directory / "existing.txt"
@@ -585,7 +585,7 @@ def test_plain_cli_rejects_existing_output_folder_without_modifying_it(tmp_path:
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
 
 
-def test_cli_unknown_worker_does_not_publish_partial_results(tmp_path: Path) -> None:
+def test_cli_wykonawca_bez_mapowania_nie_publikuje_folderu(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_preview_fixture(tmp_path)
 
     exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
@@ -714,7 +714,7 @@ def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
     assert not target_directory.exists()
 
 
-def test_cli_dry_run_rejects_existing_output_folder_without_changing_it(tmp_path: Path) -> None:
+def test_cli_dry_run_rejects_existing_folder_rozliczen_pracownikow(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_preview_fixture(tmp_path)
     target_directory.mkdir(parents=True)
     sentinel = target_directory / "existing.txt"

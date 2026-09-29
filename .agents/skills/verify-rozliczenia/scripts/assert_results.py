@@ -38,6 +38,36 @@ def _read_cells(path: Path) -> tuple[object, object, object, tuple[str, ...], ob
         workbook.close()
 
 
+def _read_input_row(path: Path, row_number: int) -> tuple[object, ...]:
+    workbook = load_workbook(path, data_only=False)
+    try:
+        sheet = workbook.active
+        if not isinstance(sheet, Worksheet):
+            raise ValueError("Workbook does not contain an active worksheet")
+        return next(sheet.iter_rows(min_row=row_number, max_row=row_number, max_col=46, values_only=True))
+    finally:
+        workbook.close()
+
+
+def _expected_source_row(worker_id: str, marker: str, quantity: int) -> tuple[object, ...]:
+    return (
+        "TEST-CITY",
+        None,
+        None,
+        None,
+        None,
+        marker,
+        None,
+        worker_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        quantity,
+    ) + (None,) * 32
+
+
 def _unchanged_inputs(root: Path, manifest: dict[str, object]) -> list[str]:
     period_directory = root / PERIOD
     errors: list[str] = []
@@ -114,12 +144,20 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
         adrian = _read_cells(_path(root, WORKERS[0]))
         darek = _read_cells(_path(root, WORKERS[1]))
         kamil = _read_cells(_path(root, WORKERS[2]))
+        adrian_file = _path(root, WORKERS[0])
+        darek_file = _path(root, WORKERS[1])
+        kamil_file = _path(root, WORKERS[2])
         for name, cells in zip(WORKERS, (adrian, darek, kamil)):
             if cells[1:3] != ("=N18", "=N19"):
                 errors.append(f"formula changed for {name}")
             if cells[3] != ("Sheet1", "Rates") or cells[4] != "0000AA55" or cells[5] != 17.5:
                 errors.append(f"placeholder structure or formatting changed for {name}")
-        if adrian[0] != "TEST-CITY" or darek[0] != "TEST-CITY" or kamil[0] is not None:
+        if (
+            _read_input_row(adrian_file, 18) != _expected_source_row("adrian.maciejewski", "SYNTHETIC-1", 1)
+            or _read_input_row(adrian_file, 19) != _expected_source_row("adrian.maciejewski", "SYNTHETIC-3", 3)
+            or _read_input_row(darek_file, 18) != _expected_source_row("dariusz.nowak2", "SYNTHETIC-2", 2)
+            or _read_input_row(kamil_file, 18) != (None,) * 13 + (0,) + (None,) * 32
+        ):
             errors.append("worker rows were not routed or the empty workbook was changed")
     except (OSError, ValueError, KeyError):
         errors.append("one or more published workbooks cannot be read")

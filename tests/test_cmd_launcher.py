@@ -42,7 +42,7 @@ def _input_value(path: Path) -> object:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="The CMD launcher is Windows-only.")
-def test_cmd_launcher_runs_the_settlement_path(tmp_path: Path) -> None:
+def test_cmd_launcher_runs_przebieg_rozliczen(tmp_path: Path) -> None:
     source_path, target_directory, _ = make_fixture(tmp_path / "fixture")
     launcher_path = _copy_launcher_runtime(tmp_path / "launcher")
     _configure_launcher(launcher_path, tmp_path / "fixture" / "worker_mapping.yaml")
@@ -73,7 +73,7 @@ def test_cmd_launcher_runs_the_settlement_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="The CMD launcher is Windows-only.")
-def test_vba_launcher_path_uses_the_same_engine_without_a_progress_observer(tmp_path: Path) -> None:
+def test_vba_launcher_runs_same_przebieg_without_observer(tmp_path: Path) -> None:
     source_path, target_directory, _ = make_fixture(tmp_path / "fixture")
     launcher_path = _copy_launcher_runtime(tmp_path / "launcher")
     _configure_launcher(launcher_path, tmp_path / "fixture" / "worker_mapping.yaml")
