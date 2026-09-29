@@ -20,7 +20,7 @@ and shared Placeholder; it only appends the existing local metrics record.
 - Run `py -3 run.py --source <source> --config <mapping> --placeholder <placeholder> --metrics <metrics> --dry-run`.
 - `--placeholder` defaults to `config/placeholder.xlsx`; supply the path to the
   shared Placeholder when it is stored elsewhere.
-- The CMD and VBA launchers do not expose a dry-run flag; use the direct CLI.
+- The CMD launcher does not expose a dry-run flag; use the direct CLI.
 
 ## Driving it with PowerShell and run.py
 
@@ -30,7 +30,7 @@ Preconditions:
   exist before dry-run.
 - The orchestrator creates unique fixture, evidence, and cleanup paths.
 
-- **Run the user command.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The default orchestrator records exit `0`; `--variant unmapped` records exit `2` and checks the sanitized mapping warning.
+- **Run the CLI proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The orchestrator returns `0` after a successful proof; `--variant unmapped` records application exit `2` in `dry-run.txt` and checks the sanitized mapping warning.
 - **Check the plan and communication.** The assertion checks the period, target
   folder, each output filename, row counts, the empty worker, and a generic
   unknown-worker warning without echoing its identifier or row values.

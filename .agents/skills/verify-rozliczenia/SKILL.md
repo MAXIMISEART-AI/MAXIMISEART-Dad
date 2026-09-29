@@ -1,18 +1,19 @@
 ---
 name: verify-rozliczenia
-description: Verify MAXIMISEART-Dad's terminal settlement CLI by running synthetic Excel settlements, checking workbook side effects, and preserving evidence; use after CLI, workbook, or safety-rule changes.
+description: Verify MAXIMISEART-Dad's CMD-launched settlement workflow with synthetic Excel files, workbook side-effect checks, and retained evidence; use after CLI, workbook, or safety-rule changes.
 ---
 
 # Verify rozliczenia
 
-This is a short-lived Windows CLI, not a server. The primary user surface is
-`run.py`; `Utwórz rozliczenia.cmd` and `deploy/AutomatyzacjaRozliczen.bas` are
-alternate launchers for the same Python engine. The verification harness uses
-synthetic `.xlsx` files only and never uses a real customer workbook.
+This is a short-lived Windows CLI, not a server. The only Dad-facing launcher is
+`Utwórz rozliczenia.cmd`, which starts `run.py`. The verification harness also
+drives the CLI directly for detailed assertions. The VBA adapter is legacy and
+outside the supported user workflow. Verification uses synthetic `.xlsx` files
+only and never uses a real customer workbook.
 
 ## Launch
 
-Run this one command from the repository root in PowerShell:
+Run the direct CLI proof from the repository root in PowerShell:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py
@@ -24,6 +25,15 @@ the real CLI through dry-run and write modes, checks workbook side effects, and
 cleans the scratch directory in `finally`. A successful run prints
 `VERIFY OK`, an evidence path, and `scratch_removed=true`. The default fixture
 contains only mapped synthetic workers, so dry-run and write both return `0`.
+
+Drive the supported CMD launcher separately with its isolated synthetic runtime:
+
+```powershell
+py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q
+```
+
+The test copies the launcher and engine into a disposable runtime with a
+synthetic mapping and Placeholder, then checks the command result and workbooks.
 
 Use these variants for publication and safety-gate features:
 
@@ -86,16 +96,9 @@ UTF-8 evidence files. The default fixture reports two mapped writes, one
 `PUSTY_SZABLON`, no issues, and progress `3/3 (100%)`. The `unmapped` variant
 proves that the dry-run warns and the real run publishes nothing.
 
-The CMD launcher can be smoke-tested separately with a fresh fixture:
-
-```powershell
-cmd /c "Utwórz rozliczenia.cmd" "$source"
-```
-
-It has no `--config` or `--metrics` flags. The VBA route is the
-`UruchomRozliczenia` macro in `deploy/AutomatyzacjaRozliczen.bas`; it requires
-desktop Excel and is not a headless harness surface. Both adapters delegate to
-the same Python engine.
+The CMD launcher has no `--config` or `--metrics` flags. The VBA module remains
+in the repository as a legacy adapter; it is not part of the Dad-facing route
+or required verification coverage unless the user reactivates it.
 
 ## Evidence
 
@@ -112,10 +115,11 @@ successful default run contains:
 - `cleanup.txt` with cleanup output and exit code `0`.
 - `self-test.txt` with the skill and evidence invariant check.
 
-The proof exercises the real user path, captures the action and resulting state,
-and verifies filesystem side effects alongside terminal output. The dry-run
-still reads workbooks and writes local metrics, so those effects are asserted
-instead of inferred from the mode name. Mocks are not used.
+The CLI proof captures the action and resulting state and verifies filesystem
+side effects alongside terminal output. The CMD smoke test separately drives
+the supported launcher in an isolated runtime. The dry-run still reads
+workbooks and writes local metrics, so those effects are asserted instead of
+inferred from the mode name. Mocks are not used.
 
 ## Self-test
 
