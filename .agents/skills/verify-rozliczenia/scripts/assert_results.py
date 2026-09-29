@@ -89,6 +89,15 @@ def _unchanged_inputs(root: Path, manifest: dict[str, object]) -> list[str]:
     return errors
 
 
+def _finish_assertion(errors: list[str], success_message: str) -> int:
+    if errors:
+        for error in errors:
+            print(f"ASSERT FAIL: {error}", file=sys.stderr)
+        return 1
+    print(success_message)
+    return 0
+
+
 def _assert_dry_run(root: Path, transcript: Path | None) -> int:
     period_directory = root / PERIOD
     target_directory = period_directory / f"Rozliczenie pracowników {PERIOD}"
@@ -127,15 +136,11 @@ def _assert_dry_run(root: Path, transcript: Path | None) -> int:
             if forbidden in output:
                 errors.append("dry-run output contains source row content")
 
-    if errors:
-        for error in errors:
-            print(f"ASSERT FAIL: {error}", file=sys.stderr)
-        return 1
-    print(
+    return _finish_assertion(
+        errors,
         "ASSERT OK | mode=dry-run | output_folder_absent=true | "
-        "inputs_unchanged=true | rows_hidden=true"
+        "inputs_unchanged=true | rows_hidden=true",
     )
-    return 0
 
 
 def _assert_run(root: Path, transcript: Path | None) -> int:
@@ -155,13 +160,13 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
         adrian_file = _path(root, WORKERS[0])
         darek_file = _path(root, WORKERS[1])
         kamil_file = _path(root, WORKERS[2])
-        for name, cells in zip(WORKERS, (adrian, darek, kamil)):
-            if (cells.formula_au18, cells.formula_au19) != ("=N18", "=N19"):
+        for name, snapshot in zip(WORKERS, (adrian, darek, kamil)):
+            if (snapshot.formula_au18, snapshot.formula_au19) != ("=N18", "=N19"):
                 errors.append(f"formula changed for {name}")
             if (
-                cells.sheet_names != ("Sheet1", "Rates")
-                or cells.header_fill_rgb != "0000AA55"
-                or cells.rate_value != 17.5
+                snapshot.sheet_names != ("Sheet1", "Rates")
+                or snapshot.header_fill_rgb != "0000AA55"
+                or snapshot.rate_value != 17.5
             ):
                 errors.append(f"placeholder structure or formatting changed for {name}")
         if (
@@ -183,12 +188,11 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
         if any(value in output for value in ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3")):
             errors.append("run transcript contains source row content")
 
-    if errors:
-        for error in errors:
-            print(f"ASSERT FAIL: {error}", file=sys.stderr)
-        return 1
-    print("ASSERT OK | mode=run | workbooks_checked=3 | formulas_preserved=true | placeholder_unchanged=true")
-    return 0
+    return _finish_assertion(
+        errors,
+        "ASSERT OK | mode=run | workbooks_checked=3 | "
+        "formulas_preserved=true | placeholder_unchanged=true",
+    )
 
 
 def _assert_no_publish(root: Path, transcript: Path | None, expected_message: str) -> int:
@@ -208,12 +212,10 @@ def _assert_no_publish(root: Path, transcript: Path | None, expected_message: st
             errors.append("failed run transcript is missing its safe failure message")
         if any(value in output for value in ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3", "unknown.synthetic")):
             errors.append("failed run transcript contains source row content")
-    if errors:
-        for error in errors:
-            print(f"ASSERT FAIL: {error}", file=sys.stderr)
-        return 1
-    print("ASSERT OK | mode=no-publish | output_folder_absent=true | inputs_unchanged=true")
-    return 0
+    return _finish_assertion(
+        errors,
+        "ASSERT OK | mode=no-publish | output_folder_absent=true | inputs_unchanged=true",
+    )
 
 
 def _assert_existing_output(root: Path, transcript: Path | None) -> int:
@@ -229,12 +231,10 @@ def _assert_existing_output(root: Path, transcript: Path | None) -> int:
         errors.append("existing-output transcript is missing")
     elif "Folder docelowy już istnieje" not in transcript.read_text(encoding="utf-8"):
         errors.append("existing-output failure was not reported")
-    if errors:
-        for error in errors:
-            print(f"ASSERT FAIL: {error}", file=sys.stderr)
-        return 1
-    print("ASSERT OK | mode=existing-output | existing_folder_unchanged=true")
-    return 0
+    return _finish_assertion(
+        errors,
+        "ASSERT OK | mode=existing-output | existing_folder_unchanged=true",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
