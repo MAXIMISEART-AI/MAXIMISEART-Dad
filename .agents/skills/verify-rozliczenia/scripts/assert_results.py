@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+from typing import NamedTuple
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -16,18 +17,25 @@ PERIOD = "08_14_09_2026"
 WORKERS = ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
 
 
+class WorkbookSnapshot(NamedTuple):
+    formula_au18: object
+    formula_au19: object
+    sheet_names: tuple[str, ...]
+    header_fill_rgb: object
+    rate_value: object
+
+
 def _path(root: Path, worker: str) -> Path:
     return root / PERIOD / f"Rozliczenie pracowników {PERIOD}" / f"Rozliczenie {PERIOD} - {worker}.xlsx"
 
 
-def _read_cells(path: Path) -> tuple[object, object, object, tuple[str, ...], object, object]:
+def _read_workbook_snapshot(path: Path) -> WorkbookSnapshot:
     workbook = load_workbook(path, data_only=False)
     try:
         sheet = workbook.active
         if not isinstance(sheet, Worksheet):
             raise ValueError("Workbook does not contain an active worksheet")
-        return (
-            sheet["A18"].value,
+        return WorkbookSnapshot(
             sheet["AU18"].value,
             sheet["AU19"].value,
             tuple(workbook.sheetnames),
@@ -141,16 +149,20 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
         errors.append("published folder does not contain exactly the configured workbooks")
 
     try:
-        adrian = _read_cells(_path(root, WORKERS[0]))
-        darek = _read_cells(_path(root, WORKERS[1]))
-        kamil = _read_cells(_path(root, WORKERS[2]))
+        adrian = _read_workbook_snapshot(_path(root, WORKERS[0]))
+        darek = _read_workbook_snapshot(_path(root, WORKERS[1]))
+        kamil = _read_workbook_snapshot(_path(root, WORKERS[2]))
         adrian_file = _path(root, WORKERS[0])
         darek_file = _path(root, WORKERS[1])
         kamil_file = _path(root, WORKERS[2])
         for name, cells in zip(WORKERS, (adrian, darek, kamil)):
-            if cells[1:3] != ("=N18", "=N19"):
+            if (cells.formula_au18, cells.formula_au19) != ("=N18", "=N19"):
                 errors.append(f"formula changed for {name}")
-            if cells[3] != ("Sheet1", "Rates") or cells[4] != "0000AA55" or cells[5] != 17.5:
+            if (
+                cells.sheet_names != ("Sheet1", "Rates")
+                or cells.header_fill_rgb != "0000AA55"
+                or cells.rate_value != 17.5
+            ):
                 errors.append(f"placeholder structure or formatting changed for {name}")
         if (
             _read_input_row(adrian_file, 18) != _expected_source_row("adrian.maciejewski", "SYNTHETIC-1", 1)
