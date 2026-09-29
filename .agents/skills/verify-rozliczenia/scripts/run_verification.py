@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import shlex
@@ -10,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from typing import TextIO
+from typing import Literal, TextIO
 import uuid
 
 
@@ -19,6 +20,39 @@ REPO_ROOT = SCRIPT.parents[4]
 PERIOD = "08_14_09_2026"
 TIMEOUT_SECONDS = 120
 PYTHON_COMMAND = (sys.executable,)
+
+
+@dataclass(frozen=True)
+class WorkflowVariant:
+    include_unmapped: bool = False
+    pre_run_setup: Literal["existing", "locked"] | None = None
+    dry_run_exit: int = 0
+    run_exit: int = 0
+    assertion: Literal["run", "existing-output", "no-publish"] = "run"
+    expected_message: str | None = None
+
+
+WORKFLOW_VARIANTS = {
+    "default": WorkflowVariant(),
+    "existing": WorkflowVariant(
+        pre_run_setup="existing",
+        run_exit=1,
+        assertion="existing-output",
+    ),
+    "locked": WorkflowVariant(
+        pre_run_setup="locked",
+        run_exit=1,
+        assertion="no-publish",
+        expected_message="Placeholder jest otwarty lub zablokowany",
+    ),
+    "unmapped": WorkflowVariant(
+        include_unmapped=True,
+        dry_run_exit=2,
+        run_exit=1,
+        assertion="no-publish",
+        expected_message="WYKONAWCA bez mapowania",
+    ),
+}
 
 
 class VerificationFailure(RuntimeError):
@@ -131,12 +165,18 @@ def _new_paths() -> tuple[Path, Path]:
 
 
 def _create_lock(run_root: Path) -> None:
+    placeholder = run_root / "placeholder.xlsx"
+    placeholder.with_name(f"~${placeholder.name}").touch()
+
+
+def _create_existing_output(run_root: Path) -> None:
     target_directory = run_root / PERIOD / f"Rozliczenie pracowników {PERIOD}"
-    target = target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx"
-    target.with_name(f"~${target.name}").touch()
+    target_directory.mkdir()
+    (target_directory / "existing-synthetic.txt").write_text("preserve", encoding="utf-8")
 
 
 def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
+    variant_config = WORKFLOW_VARIANTS[variant]
     environment = os.environ.copy()
     environment["PYTHONUTF8"] = "1"
     environment["PYTHONIOENCODING"] = "utf-8"
@@ -147,8 +187,8 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
     helper_directory = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
 
     fixture_arguments = [str(helper_directory / "create_fixture.py"), "--root", str(run_root)]
-    if variant == "existing":
-        fixture_arguments.append("--seed-existing")
+    if variant_config.include_unmapped:
+        fixture_arguments.append("--include-unmapped")
     _run_step("fixture", fixture_arguments, evidence_root, environment, expected_exit=0)
 
     _run_step(
@@ -185,21 +225,13 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
         ],
         evidence_root,
         environment,
-        expected_exit=2,
+        expected_exit=variant_config.dry_run_exit,
     )
     _run_step("assert-dry-run", dry_assert_arguments, evidence_root, environment, expected_exit=0)
 
-    prepare_arguments = [
-        str(helper_directory / "create_fixture.py"),
-        "--root",
-        str(run_root),
-        "--prepare-existing-target-workbooks",
-    ]
-    if variant == "existing":
-        prepare_arguments.append("--seed-existing")
-    _run_step("prepare-targets", prepare_arguments, evidence_root, environment, expected_exit=0)
-
-    if variant == "locked":
+    if variant_config.pre_run_setup == "existing":
+        _create_existing_output(run_root)
+    elif variant_config.pre_run_setup == "locked":
         _create_lock(run_root)
 
     _run_step(
@@ -210,12 +242,14 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
             str(source),
             "--config",
             str(config),
+            "--placeholder",
+            str(run_root / "placeholder.xlsx"),
             "--metrics",
             str(metrics),
         ],
         evidence_root,
         environment,
-        expected_exit=2,
+        expected_exit=variant_config.run_exit,
     )
     shutil.copy2(metrics, evidence_root / "metrics.jsonl")
 
@@ -224,17 +258,17 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
         "--root",
         str(run_root),
         "--expect",
-        "run",
+        variant_config.assertion,
+        "--transcript",
+        str(evidence_root / "run.txt"),
     ]
-    if variant == "existing":
-        run_assert_arguments.append("--seed-existing")
-    elif variant == "locked":
-        run_assert_arguments.extend(["--locked-worker", "Darek Nowak"])
+    if variant_config.expected_message is not None:
+        run_assert_arguments.extend(["--expected-message", variant_config.expected_message])
     _run_step("assert-run", run_assert_arguments, evidence_root, environment, expected_exit=0)
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", choices=("default", "existing", "locked"), default="default")
+    parser.add_argument("--variant", choices=tuple(WORKFLOW_VARIANTS), default="default")
     args = parser.parse_args(argv)
 
     run_root, evidence_root = _new_paths()
@@ -276,7 +310,6 @@ def main(argv: list[str] | None = None) -> int:
         "doctor.txt",
         "dry-run.txt",
         "assert-dry-run.txt",
-        "prepare-targets.txt",
         "run.txt",
         "assert-run.txt",
         "cleanup.txt",

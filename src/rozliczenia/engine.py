@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import tempfile
 import time
 import unicodedata
 from collections import defaultdict
@@ -149,23 +151,6 @@ def ensure_unlocked(path: Path) -> None:
         raise SettlementError(f"Plik jest otwarty lub zablokowany: {path.name}")
 
 
-def target_files(target_directory: Path, period: str) -> list[tuple[str, Path]]:
-    """Zwraca nazwane szablony, pomijając placeholdery i pliki blokad."""
-
-    prefix = f"Rozliczenie {period} - "
-    files: list[tuple[str, Path]] = []
-    for path in sorted(target_directory.glob("*.xlsx"), key=lambda item: item.name.casefold()):
-        if path.name.startswith(("~$", "._")):
-            continue
-        if not path.name.startswith(prefix) or not path.name.endswith(".xlsx"):
-            continue
-        worker_name = path.stem[len(prefix) :].strip()
-        if not worker_name:
-            continue
-        files.append((worker_name, path))
-    return files
-
-
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], list[Issue]]:
     """Czyta wyłącznie dane wejściowe i grupuje je po kolumnie H."""
 
@@ -269,8 +254,7 @@ def run_settlements(
     run_started = time.perf_counter()
     source_path = source_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
-    if placeholder_path is not None:
-        placeholder_path = placeholder_path.expanduser().resolve()
+    placeholder_path = (placeholder_path or default_placeholder_path()).expanduser().resolve()
     dispatcher = _ObserverDispatcher(observer)
     notify = dispatcher.notify
     phase_durations_ms: dict[ProgressPhase, int] = {}
@@ -281,16 +265,13 @@ def run_settlements(
         ensure_unlocked(source_path)
         period = period_from_source(source_path)
         target_directory = source_path.parent / f"Rozliczenie pracowników {period}"
-        if dry_run and target_directory.exists():
+        if target_directory.exists() or target_directory.is_symlink():
             raise SettlementError(f"Folder docelowy już istnieje: {target_directory.name}.")
-        if not dry_run and not target_directory.is_dir():
-            raise SettlementError(f"Nie znaleziono folderu szablonów: {target_directory.name}")
         mapping = load_worker_mapping(config_path)
-        if dry_run:
-            try:
-                validate_placeholder(placeholder_path or default_placeholder_path())
-            except PlaceholderValidationError as exc:
-                raise SettlementError(str(exc)) from exc
+        try:
+            validate_placeholder(placeholder_path)
+        except PlaceholderValidationError as exc:
+            raise SettlementError(str(exc)) from exc
         return period, target_directory, mapping
 
     period, target_directory, mapping = _run_phase(
@@ -322,43 +303,33 @@ def run_settlements(
     )
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
+        template_files = [
+            (name, target_directory / f"Rozliczenie {period} - {name}.xlsx")
+            for name in mapping.values()
+        ]
         rows_by_target: defaultdict[str, list[ExcelRow]] = defaultdict(list)
         issues: list[Issue] = []
 
-        if dry_run:
-            template_files = [
-                (name, target_directory / f"Rozliczenie {period} - {name}.xlsx")
-                for name in mapping.values()
-            ]
-            for source_worker, rows in rows_by_worker.items():
-                target_name = mapping.get(source_worker)
-                if target_name is None:
-                    issues.append(
-                        Issue(
-                            "BRAK_MAPOWANIA",
-                            "Nieznany identyfikator WYKONAWCA pominięty w planie; sprawdź konfigurację pracowników.",
-                        )
-                    )
-                    continue
-                rows_by_target[normalize_text(target_name)].extend(rows)
-            return template_files, rows_by_target, issues
-
-        template_files = target_files(target_directory, period)
-        target_by_name = {normalize_text(name): path for name, path in template_files}
         for source_worker, rows in rows_by_worker.items():
             target_name = mapping.get(source_worker)
             if target_name is None:
                 issues.append(
-                    Issue("BRAK_MAPOWANIA", f"Pominięto wykonawcę bez mapowania: {source_worker}.")
+                    Issue(
+                        "BRAK_MAPOWANIA",
+                        "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
+                    )
                 )
                 continue
-            target_key = normalize_text(target_name)
-            if target_key not in target_by_name:
-                issues.append(
-                    Issue("BRAK_SZABLONU", f"Pominięto wykonawcę bez szablonu: {target_name}.")
+            rows_by_target[normalize_text(target_name)].extend(rows)
+        if not dry_run and (source_issues or issues):
+            if any(issue.code == "BRAK_MAPOWANIA" for issue in issues):
+                raise SettlementError(
+                    "WYKONAWCA bez mapowania; folder wynikowy nie został opublikowany."
                 )
-                continue
-            rows_by_target[target_key].extend(rows)
+            raise SettlementError(
+                "Nie wszystkie wiersze danych mają przypisanego WYKONAWCĘ; "
+                "folder wynikowy nie został opublikowany."
+            )
         return template_files, rows_by_target, issues
 
     template_files, rows_by_target, plan_issues = _run_phase(
@@ -379,10 +350,14 @@ def run_settlements(
 
     worker_failure_notified = False
 
-    def save_targets() -> None:
+    def save_targets(files: list[tuple[str, Path]]) -> None:
         nonlocal worker_failure_notified
-        for template_index, (worker_name, target_path) in enumerate(template_files, start=1):
+        for template_index, (worker_name, target_path) in enumerate(files, start=1):
             target_key = normalize_text(worker_name)
+            worker_failure_message = (
+                f"Nie udało się przygotować skoroszytu pracownika {worker_name}; "
+                "folder wynikowy nie został opublikowany."
+            )
             worker_started = time.perf_counter()
             notify(
                 ProgressEventFactory.worker_started(
@@ -408,7 +383,10 @@ def run_settlements(
                         rows,
                         dry_run=False,
                     )
-            except Exception:
+                    if result.status not in {"ZAPISANO", "PUSTY_SZABLON"}:
+                        summary.issues.extend(result.issues)
+                        raise SettlementError(worker_failure_message)
+            except Exception as exc:
                 worker_failure_notified = True
                 notify(
                     ProgressEventFactory.worker_failed(
@@ -420,7 +398,9 @@ def run_settlements(
                         worker_elapsed_ms=_elapsed_ms(worker_started),
                     )
                 )
-                raise
+                if isinstance(exc, SettlementError):
+                    raise
+                raise SettlementError(worker_failure_message) from exc
             summary.issues.extend(result.issues)
             summary.results.append(result)
             notify(
@@ -438,7 +418,52 @@ def run_settlements(
     save_started = time.perf_counter()
     notify(ProgressEventFactory.phase_started("Zapisywanie", elapsed_ms=_elapsed_ms(run_started)))
     try:
-        save_targets()
+        if dry_run:
+            save_targets(template_files)
+        else:
+            try:
+                with tempfile.TemporaryDirectory(
+                    prefix=f".{target_directory.name}.staging-",
+                    dir=source_path.parent,
+                ) as staging_name:
+                    staging_directory = Path(staging_name)
+                    staged_files = [
+                        (worker_name, staging_directory / target_path.name)
+                        for worker_name, target_path in template_files
+                    ]
+                    try:
+                        for _, staged_path in staged_files:
+                            shutil.copy2(placeholder_path, staged_path)
+                    except OSError as exc:
+                        raise SettlementError(
+                            "Nie można utworzyć skoroszytów z Placeholdera; "
+                            "folder wynikowy nie został opublikowany."
+                        ) from exc
+
+                    save_targets(staged_files)
+                    if target_directory.exists() or target_directory.is_symlink():
+                        raise SettlementError(f"Folder docelowy już istnieje: {target_directory.name}.")
+                    try:
+                        staging_directory.rename(target_directory)
+                    except OSError as exc:
+                        raise SettlementError(
+                            "Nie można opublikować gotowego folderu rozliczeń pracowników."
+                        ) from exc
+                    summary.results = [
+                        WorkerResult(
+                            result.worker_name,
+                            target_directory / result.output_file.name,
+                            result.rows,
+                            result.status,
+                            result.issues,
+                        )
+                        for result in summary.results
+                    ]
+            except OSError as exc:
+                raise SettlementError(
+                    "Nie można przygotować folderu rozliczeń pracowników; "
+                    "folder wynikowy nie został opublikowany."
+                ) from exc
     except Exception:
         phase_elapsed_ms = _elapsed_ms(save_started)
         phase_durations_ms[ProgressPhase.SAVING] = phase_elapsed_ms

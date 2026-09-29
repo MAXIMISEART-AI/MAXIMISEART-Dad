@@ -9,7 +9,15 @@ from openpyxl import Workbook, load_workbook
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.template_settlement import ExcelRow, TemplateWriteError, process_template
 
-from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture
+from tests.test_settlement_engine import PERIOD, active_worksheet, write_template
+
+
+def make_template_fixture(tmp_path: Path) -> Path:
+    target_directory = tmp_path / PERIOD / f"Rozliczenie pracowników {PERIOD}"
+    target_directory.mkdir(parents=True)
+    for worker_name in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak"):
+        write_template(target_directory / f"Rozliczenie {PERIOD} - {worker_name}.xlsx")
+    return target_directory
 
 
 def synthetic_rows() -> list[ExcelRow]:
@@ -17,7 +25,7 @@ def synthetic_rows() -> list[ExcelRow]:
 
 
 def test_przetworzenie_szablonu_pracownika_zglasza_bledny_naglowek(tmp_path: Path) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx"
     workbook = load_workbook(target_path)
     try:
@@ -35,7 +43,7 @@ def test_przetworzenie_szablonu_pracownika_zglasza_bledny_naglowek(tmp_path: Pat
 def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_zapisu(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     before = target_path.read_bytes()
 
@@ -58,7 +66,7 @@ def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_zapisu(
 def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_snapshotu_linkow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     before = target_path.read_bytes()
 
@@ -74,7 +82,7 @@ def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_snapshotu_linkow(
 
 
 def test_przetworzenie_szablonu_pracownika_zglasza_blokade_pliku(tmp_path: Path) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     (target_directory / f"~${target_path.name}").touch()
 
@@ -85,7 +93,7 @@ def test_przetworzenie_szablonu_pracownika_zglasza_blokade_pliku(tmp_path: Path)
 
 
 def test_przetworzenie_szablonu_pracownika_nie_nadpisuje_danych(tmp_path: Path) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     workbook = load_workbook(target_path)
     try:
@@ -101,7 +109,7 @@ def test_przetworzenie_szablonu_pracownika_nie_nadpisuje_danych(tmp_path: Path) 
 
 
 def test_przetworzenie_pustego_szablonu_pracownika_nic_nie_zapisuje(tmp_path: Path) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
 
     result = process_template("Adrian Maciejewski", target_path, [])
@@ -113,7 +121,7 @@ def test_przetworzenie_pustego_szablonu_pracownika_nic_nie_zapisuje(tmp_path: Pa
 def test_przetworzenie_szablonu_pracownika_w_trybie_dry_run_nie_zapisuje(
     tmp_path: Path,
 ) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
 
     result = process_template("Adrian Maciejewski", target_path, synthetic_rows(), dry_run=True)
@@ -130,7 +138,7 @@ def test_przetworzenie_szablonu_pracownika_w_trybie_dry_run_nie_zapisuje(
 def test_przetworzenie_szablonu_pracownika_zapisuje_wiersze_i_zachowuje_formule(
     tmp_path: Path,
 ) -> None:
-    _, target_directory, _ = make_fixture(tmp_path)
+    target_directory = make_template_fixture(tmp_path)
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
 
     result = process_template("Adrian Maciejewski", target_path, synthetic_rows())

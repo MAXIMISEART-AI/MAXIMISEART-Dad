@@ -11,3 +11,4 @@ __pycache__/
 reports/
 logs/
 .rozliczenia-metrics.jsonl
+.verification/

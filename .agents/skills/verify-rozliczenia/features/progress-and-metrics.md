@@ -26,7 +26,7 @@ Preconditions:
 
 - **Check ordered phases.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` and assert the first occurrences in `run.txt` are `Sprawdzanie`, `Odczyt danych`, `Planowanie`, then `Zapisywanie`.
 - **Check template progress.** Assert `Postęp szablonów: 3/3 (100%)`, `Liczniki:`, and the per-template status lines in `run.txt`.
-- **Check semantic exit.** The default fixture's `run.txt` records application exit `2` and `Status semantyczny: OSTRZEŻENIE`; the orchestrator returns `0` because that result is expected.
+- **Check semantic exit.** The default fixture records application exit `0` and `Status semantyczny: OK`. The `unmapped` variant returns `2` for dry-run and `1` for the real run, which stops before publication.
 - **Check metrics.** Read the copied evidence file `metrics.jsonl` as JSONL. It contains `mode`, `period`, `completed`, `result`, phase durations, and counters; it must not contain a full source path, address, order number, or row text.
 - **Check observer-free launcher.** Run `py -3 -m pytest tests/test_cmd_launcher.py -k without_a_progress_observer` on Windows. This drives CMD with the VBA flag and checks workbook writes; it does not drive desktop Excel.
 - **Check repeated-run statistics.** After five comparable dry-runs, a sixth dry-run prints `Statystyki DRY-RUN`, `P50`, and `P95`. Use a fresh metrics file for this test and retain the output as evidence.
@@ -34,6 +34,6 @@ Preconditions:
 ## Gotchas
 
 - Redirected output uses the plain adapter; the Rich dashboard is not stable evidence by itself.
-- An unmapped worker makes the completed run semantically incomplete even if other templates were written.
+- An unmapped worker is a dry-run warning and a critical real-run failure; other workbooks are never published without a complete mapping.
 - Metrics are observability only; failure to append them must not be mistaken for a settlement failure.
 - Never capture workbook row contents or customer-identifying paths in a transcript.

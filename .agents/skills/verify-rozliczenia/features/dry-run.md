@@ -30,7 +30,7 @@ Preconditions:
   exist before dry-run.
 - The orchestrator creates unique fixture, evidence, and cleanup paths.
 
-- **Run the user command.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The orchestrator records the real CLI transcript in `dry-run.txt`.
+- **Run the user command.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The default orchestrator records exit `0`; `--variant unmapped` records exit `2` and checks the sanitized mapping warning.
 - **Check the plan and communication.** The assertion checks the period, target
   folder, each output filename, row counts, the empty worker, and a generic
   unknown-worker warning without echoing its identifier or row values.
@@ -46,9 +46,8 @@ Preconditions:
 - An existing destination folder, invalid mapping, or missing/invalid
   Placeholder stops the CLI before any output workbook is created.
 - An unmapped source identifier is reported without printing the identifier or
-  row contents; the CLI returns a warning status after showing configured
-  workers' plans.
-- The default verification fixture intentionally contains an unmapped worker,
-  so the dry-run and subsequent legacy write return semantic exit code `2`.
-- A dry-run proves the preview path, not the later write path; the verifier
-  creates legacy target templates only after asserting the dry-run result.
+  row contents; dry-run returns warning code `2` while showing the full plan.
+- The default fixture has mapped workers only and returns `0`; use
+  `--variant unmapped` to verify the warning path.
+- A dry-run proves the preview path, not the later write path; the default
+  verifier follows it with a real run through the same CLI.
