@@ -354,6 +354,10 @@ def run_settlements(
         nonlocal worker_failure_notified
         for template_index, (worker_name, target_path) in enumerate(files, start=1):
             target_key = normalize_text(worker_name)
+            worker_failure_message = (
+                f"Nie udało się przygotować skoroszytu pracownika {worker_name}; "
+                "folder wynikowy nie został opublikowany."
+            )
             worker_started = time.perf_counter()
             notify(
                 ProgressEventFactory.worker_started(
@@ -381,10 +385,7 @@ def run_settlements(
                     )
                     if result.status not in {"ZAPISANO", "PUSTY_SZABLON"}:
                         summary.issues.extend(result.issues)
-                        raise SettlementError(
-                            f"Nie udało się przygotować skoroszytu pracownika {worker_name}; "
-                            "folder wynikowy nie został opublikowany."
-                        )
+                        raise SettlementError(worker_failure_message)
             except Exception as exc:
                 worker_failure_notified = True
                 notify(
@@ -399,10 +400,7 @@ def run_settlements(
                 )
                 if isinstance(exc, SettlementError):
                     raise
-                raise SettlementError(
-                    f"Nie udało się przygotować skoroszytu pracownika {worker_name}; "
-                    "folder wynikowy nie został opublikowany."
-                ) from exc
+                raise SettlementError(worker_failure_message) from exc
             summary.issues.extend(result.issues)
             summary.results.append(result)
             notify(
