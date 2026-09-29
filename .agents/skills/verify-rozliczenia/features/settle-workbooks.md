@@ -14,9 +14,8 @@ workbook, and leaves a worker with no rows empty.
 
 ## How to get to it (user POV)
 
-- Run the direct CLI command `py -3 run.py --source <source> --config <mapping> --placeholder <placeholder> --metrics <metrics>`.
-- Pass the source path to `Utwórz rozliczenia.cmd`.
-- In desktop Excel, click the button assigned to `UruchomRozliczenia` in `AutomatyzacjaRozliczen.xlsm`.
+- Dad passes the source path to `Utwórz rozliczenia.cmd`; this is the supported user-facing launcher.
+- For direct verification, run `py -3 run.py --source <source> --config <mapping> --placeholder <placeholder> --metrics <metrics>` with a synthetic fixture.
 
 ## Driving it with PowerShell and run.py
 
@@ -25,11 +24,10 @@ Preconditions:
 - Run the one-command orchestrator from the repository root.
 - Its default fixture contains mapped rows for Adrian Maciejewski and Darek Nowak and no rows for Kamil Frontczak. The output folder is absent before the run.
 
-- **Run the real user path.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The application dry-run and write both return `0` for the default fixture.
+- **Run the direct CLI proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The application dry-run and write both return `0` for the default fixture.
 - **Observe progress.** Read `run.txt`; it reaches `Postęp szablonów: 3/3 (100%)`, reports two `ZAPISANO` results and one `PUSTY_SZABLON`, and ends with `Zapisane szablony: 2`.
 - **Verify workbook state.** Read `assert-run.txt`; it returns `ASSERT OK` with exit code `0` after checking exactly three files, routed values, preserved formulas/sheets/formatting, an empty Kamil workbook, and an untouched Placeholder.
-- **Drive the CMD adapter when needed.** Use a new fixture and run `cmd /c "Utwórz rozliczenia.cmd" "$source"`; use repository mapping names and expect the same engine semantics. Do not use a populated fixture for this second drive.
-- **Drive the VBA adapter when needed.** Open `AutomatyzacjaRozliczen.xlsm`, invoke `UruchomRozliczenia`, choose the synthetic source, and inspect the same output files. This is an Excel-only manual path, not a headless assertion.
+- **Drive the CMD launcher.** Run `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q`; it uses a copied runtime with a synthetic mapping and Placeholder and checks the generated workbooks.
 
 ## Gotchas
 

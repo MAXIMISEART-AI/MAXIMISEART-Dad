@@ -10,18 +10,19 @@ only after every workbook is ready.
 - `prepare-copy` preserves Placeholder sheets, formulas, rates, formatting, and external links.
 - `prepare-empty` creates an empty workbook for a configured worker without source rows.
 - `prepare-atomic` stages the folder and publishes it only after all workbooks succeed.
-- `prepare-rollback` removes staging files after an unknown worker or workbook failure.
+- `prepare-rollback` removes staging files after a workbook failure; an unknown worker is rejected before staging starts.
 
 ## How to get to it (user POV)
 
-- Run `py -3 run.py --source <source> --config <mapping> --placeholder <placeholder> --metrics <metrics>`.
-- Pass the source file to `Utwórz rozliczenia.cmd` or use the VBA button; both call the same engine.
+- Dad passes the source file to `Utwórz rozliczenia.cmd`; this is the supported user-facing launcher.
+- For direct verification, run `py -3 run.py --source <source> --config <mapping> --placeholder <placeholder> --metrics <metrics>` with a synthetic fixture.
 
 ## Driving it with PowerShell and run.py
 
-- Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` for a successful synthetic end-to-end run.
-- Run the same command with `--variant unmapped` to prove an unknown WYKONAWCA prevents publication.
-- Run it with `--variant existing` to prove an existing output folder is preserved.
+- Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` for the direct CLI proof.
+- Run `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q` to drive the supported CMD launcher in a copied synthetic runtime.
+- Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped` to prove an unknown WYKONAWCA prevents publication.
+- Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing` to prove an existing output folder is preserved.
 - Run the write-failure test listed in `safety-gates.md` to prove staging cleanup and retry.
 
 ## Gotchas
