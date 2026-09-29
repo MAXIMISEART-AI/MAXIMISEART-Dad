@@ -116,7 +116,7 @@ jobs:
         run: |
           $verificationScript = ".agents/skills/verify-rozliczenia/scripts/run_verification.py"
           $failedVariants = @()
-          foreach ($variant in @("default", "existing", "locked")) {
+          foreach ($variant in @("default", "existing", "locked", "unmapped")) {
             Write-Host "Running E2E verification variant: $variant"
             py -3 $verificationScript --variant $variant
             if ($LASTEXITCODE -ne 0) {
