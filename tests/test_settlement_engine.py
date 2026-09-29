@@ -389,14 +389,12 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         worker_name: str,
         path: Path,
         rows: Iterable[ExcelRow],
-        *,
-        dry_run: bool = False,
     ) -> WorkerResult:
         nonlocal calls
         calls += 1
         if calls == 2:
             raise template_settlement.TemplateWriteError("synthetic failure")
-        return original_process_template(worker_name, path, rows, dry_run=dry_run)
+        return original_process_template(worker_name, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 

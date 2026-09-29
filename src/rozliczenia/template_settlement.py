@@ -192,8 +192,6 @@ def process_template(
     worker_name: str,
     target_path: Path,
     rows: Iterable[ExcelRow],
-    *,
-    dry_run: bool = False,
 ) -> WorkerResult:
     """Przetwarza jeden Szablon pracownika i zwraca jego bezpieczny wynik."""
 
@@ -214,8 +212,6 @@ def process_template(
                 return WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,))
             if not rows:
                 return WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
-            if dry_run:
-                return WorkerResult(worker_name, target_path, len(rows), "PLAN")
 
             try:
                 external_link_parts = _external_link_parts(target_path)

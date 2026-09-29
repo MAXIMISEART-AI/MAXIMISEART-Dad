@@ -1,54 +1,31 @@
 from __future__ import annotations
 
-from types import MappingProxyType
-
-from rozliczenia.domain import ProgressPhase
-from rozliczenia.progress import (
-    OperationSnapshot,
-    PhaseState,
-    ProgressNotice,
-    ProgressNoticeKind,
-    ProgressSnapshot,
-)
+from rozliczenia.domain import ProgressEventFactory, ProgressPhase
+from rozliczenia.progress import ProgressProjection
 from rozliczenia.plain_progress import PlainProgressAdapter
 
 
-def progress_snapshot(
-    *,
-    current_worker: str | None = None,
-    current_phase: ProgressPhase | None = None,
-) -> ProgressSnapshot:
-    return ProgressSnapshot(
-        mode="RUN",
-        period="08_14_09_2026",
-        phase_states=MappingProxyType({phase: PhaseState.PENDING for phase in ProgressPhase}),
-        phase_durations_ms=MappingProxyType({phase: 0 for phase in ProgressPhase}),
-        template_total=3,
-        templates_completed=2,
-        rows=5,
-        operation_counts=MappingProxyType(
-            {
-                "ZAPISANO": 1,
-                "PUSTY_SZABLON": 1,
-                "PLAN": 1,
-                "ZABLOKOWANY": 1,
-                "POMINIĘTO": 1,
-            }
-        ),
-        current_worker=current_worker,
-        current_phase=current_phase,
-        recent_operations=(
-            OperationSnapshot("Snapshot worker", "PUSTY_SZABLON", 5, 42),
-        ),
-        total_elapsed_ms=123,
-        issue_count=0,
-    )
+def projection_ready_for_workers(*, template_total: int) -> ProgressProjection:
+    projection = ProgressProjection("RUN", "08_14_09_2026")
+    for event in (
+        ProgressEventFactory.phase_started(ProgressPhase.CHECKING),
+        ProgressEventFactory.phase_ended(ProgressPhase.CHECKING),
+        ProgressEventFactory.phase_started(ProgressPhase.READING),
+        ProgressEventFactory.phase_ended(ProgressPhase.READING),
+        ProgressEventFactory.issue_count(),
+        ProgressEventFactory.phase_started(ProgressPhase.PLANNING),
+        ProgressEventFactory.phase_ended(ProgressPhase.PLANNING),
+        ProgressEventFactory.plan_ready(template_total=template_total),
+        ProgressEventFactory.phase_started(ProgressPhase.SAVING),
+    ):
+        projection.update(event)
+    return projection
 
 
 def test_plain_adapter_start_renders_mode_and_period_from_snapshot() -> None:
     lines: list[str] = []
 
-    PlainProgressAdapter(lines.append).start(progress_snapshot())
+    PlainProgressAdapter(lines.append).start(ProgressProjection("RUN", "08_14_09_2026").snapshot)
 
     assert lines == [
         "Rozliczenia | okres: 08_14_09_2026 | tryb: RUN",
@@ -59,50 +36,55 @@ def test_plain_adapter_start_renders_mode_and_period_from_snapshot() -> None:
 
 def test_plain_adapter_renders_worker_end_details_from_projected_snapshot() -> None:
     lines: list[str] = []
-    notice = ProgressNotice(
-        kind=ProgressNoticeKind.WORKER_ENDED,
-        phase=ProgressPhase.SAVING,
-        worker_name="Notice worker",
-        status="POMINIĘTO",
-        rows=999,
-        worker_elapsed_ms=999,
+    projection = projection_ready_for_workers(template_total=3)
+    for event in (
+        ProgressEventFactory.worker_started("Saved worker", template_index=1, template_total=3),
+        ProgressEventFactory.worker_ended(
+            "Saved worker",
+            template_index=1,
+            template_total=3,
+            status="ZAPISANO",
+            rows=5,
+            worker_elapsed_ms=16,
+        ),
+        ProgressEventFactory.worker_started("Snapshot worker", template_index=2, template_total=3),
+    ):
+        projection.update(event)
+    update = projection.update(
+        ProgressEventFactory.worker_ended(
+            "Snapshot worker",
+            template_index=2,
+            template_total=3,
+            status="PUSTY_SZABLON",
+            rows=0,
+            worker_elapsed_ms=42,
+        )
     )
 
-    PlainProgressAdapter(lines.append).update(progress_snapshot(), notice)
+    PlainProgressAdapter(lines.append).update(update.snapshot, update.notice)
 
     assert lines == [
         "Postęp szablonów: 2/3 (67%)",
-        "Liczniki: zapisano: 1 | puste: 1 | planowane: 1 | pominięte: 2",
-        "Ostatnia operacja: Snapshot worker | PUSTY_SZABLON | status: OK | wiersze: 5 | czas: 42 ms",
+        "Liczniki: zapisano: 1 | puste: 1 | planowane: 0 | pominięte: 0",
+        "Ostatnia operacja: Snapshot worker | PUSTY_SZABLON | status: OK | wiersze: 0 | czas: 42 ms",
     ]
 
 
 def test_plain_adapter_renders_current_worker_and_phase_from_snapshot() -> None:
     lines: list[str] = []
-    snapshot = progress_snapshot(
-        current_worker="Snapshot worker",
-        current_phase=ProgressPhase.SAVING,
+    projection = projection_ready_for_workers(template_total=1)
+    started = projection.update(
+        ProgressEventFactory.worker_started("Snapshot worker", template_index=1, template_total=1)
+    )
+    failed = projection.update(
+        ProgressEventFactory.worker_failed("Snapshot worker", template_index=1, template_total=1)
     )
     adapter = PlainProgressAdapter(lines.append)
 
-    adapter.update(
-        snapshot,
-        ProgressNotice(
-            kind=ProgressNoticeKind.WORKER_STARTED,
-            phase=ProgressPhase.CHECKING,
-            worker_name="Notice worker",
-        ),
-    )
-    adapter.update(
-        snapshot,
-        ProgressNotice(
-            kind=ProgressNoticeKind.FAILED,
-            phase=ProgressPhase.CHECKING,
-            worker_name="Notice worker",
-        ),
-    )
+    adapter.update(started.snapshot, started.notice)
+    adapter.update(failed.snapshot, failed.notice)
 
     assert lines == [
         "WYKONAWCA: Snapshot worker | etap: Zapisywanie",
-        "Etap przerwany: Zapisywanie | WYKONAWCA: Snapshot worker",
+        "Etap przerwany: Zapisywanie | WYKONAWCA: Snapshot worker | Szablon pracownika: 1/1",
     ]

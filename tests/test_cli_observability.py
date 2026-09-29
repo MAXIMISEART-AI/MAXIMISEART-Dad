@@ -601,25 +601,6 @@ def test_cli_wykonawca_bez_mapowania_nie_publikuje_folderu(tmp_path: Path) -> No
     assert record["result"] == "BLAD_KRYTYCZNY"
 
 
-def test_plain_cli_shows_dry_run_and_does_not_write_szablon_pracownika(tmp_path: Path) -> None:
-    source_path, target_directory, config_path = make_preview_fixture(tmp_path)
-    metrics_path = tmp_path / "metrics.jsonl"
-
-    exit_code, output = run_cli(source_path, config_path, metrics_path, "--dry-run")
-
-    assert exit_code == 2
-    assert "DRY-RUN" in output
-    assert "Nic nie zapisano" in output
-    assert "Planowane szablony: 2" in output
-    assert not target_directory.exists()
-    assert "A18" not in output
-
-    record = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert record["mode"] == "DRY-RUN"
-    assert record["counters"]["written"] == 0
-    assert record["counters"]["planned"] == 2
-
-
 def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_preview_fixture(tmp_path)
     placeholder_path = tmp_path / "placeholder.xlsx"
@@ -629,6 +610,7 @@ def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path)
     exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
 
     assert exit_code == 2
+    assert "DRY-RUN" in output
     assert f"Okres rozliczeniowy: {PERIOD}" in output
     assert f"Folder rozliczeń pracowników: {target_directory}" in output
     assert "Plan plików:" in output
@@ -642,6 +624,7 @@ def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path)
     assert "andrzej.kulawski2" not in output
     assert "syntetyczny adres" not in output
     assert "#1" not in output
+    assert "Planowane szablony: 2" in output
     assert "Nic nie zapisano" in output
     assert not target_directory.exists()
     assert source_path.read_bytes() == source_before
@@ -879,14 +862,12 @@ def test_critical_write_failure_preserves_partial_counters(
         worker_name: str,
         path: Path,
         rows: Iterable[ExcelRow],
-        *,
-        dry_run: bool = False,
     ) -> WorkerResult:
         nonlocal save_calls
         save_calls += 1
         if save_calls == 2:
             raise template_settlement.TemplateWriteError("synthetic write failure")
-        return original_process_template(worker_name, path, rows, dry_run=dry_run)
+        return original_process_template(worker_name, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
