@@ -27,6 +27,12 @@ def _copy_launcher_runtime(destination: Path) -> Path:
     return destination / "Utwórz rozliczenia.cmd"
 
 
+def _configure_launcher(launcher_path: Path, config_path: Path) -> None:
+    config_directory = launcher_path.parent / "config"
+    shutil.copy2(config_path, config_directory / "worker_mapping.yaml")
+    shutil.copy2(config_path.parent / "placeholder.xlsx", config_directory / "placeholder.xlsx")
+
+
 def _input_value(path: Path) -> object:
     workbook = load_workbook(path, data_only=False)
     try:
@@ -39,6 +45,7 @@ def _input_value(path: Path) -> object:
 def test_cmd_launcher_runs_the_settlement_path(tmp_path: Path) -> None:
     source_path, target_directory, _ = make_fixture(tmp_path / "fixture")
     launcher_path = _copy_launcher_runtime(tmp_path / "launcher")
+    _configure_launcher(launcher_path, tmp_path / "fixture" / "worker_mapping.yaml")
     environment = os.environ.copy()
     environment["PYTHONUTF8"] = "1"
     command_line = f'cmd.exe /d /c ""{launcher_path}" "{source_path}""'
@@ -54,18 +61,22 @@ def test_cmd_launcher_runs_the_settlement_path(tmp_path: Path) -> None:
         timeout=120,
     )
 
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert "Status końcowy: Wymaga sprawdzenia" in result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Status końcowy: OK" in result.stdout
+    assert {path.name for path in target_directory.glob("*.xlsx")} == {
+        f"Rozliczenie {PERIOD} - {worker}.xlsx"
+        for worker in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+    }
     assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx") == "POZNAŃ"
     assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx") == "POZNAŃ"
     assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx") is None
-    assert _input_value(target_directory / f"Rozliczenie {PERIOD} -.xlsx") is None
 
 
 @pytest.mark.skipif(os.name != "nt", reason="The CMD launcher is Windows-only.")
 def test_vba_launcher_path_uses_the_same_engine_without_a_progress_observer(tmp_path: Path) -> None:
     source_path, target_directory, _ = make_fixture(tmp_path / "fixture")
     launcher_path = _copy_launcher_runtime(tmp_path / "launcher")
+    _configure_launcher(launcher_path, tmp_path / "fixture" / "worker_mapping.yaml")
     environment = os.environ.copy()
     environment["PYTHONUTF8"] = "1"
     command_line = f'cmd.exe /d /c ""{launcher_path}" "{source_path}" --no-observer"'
@@ -81,10 +92,13 @@ def test_vba_launcher_path_uses_the_same_engine_without_a_progress_observer(tmp_
         timeout=120,
     )
 
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert "Status końcowy: Wymaga sprawdzenia" in result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Status końcowy: OK" in result.stdout
     assert "Postęp szablonów:" not in result.stdout
+    assert {path.name for path in target_directory.glob("*.xlsx")} == {
+        f"Rozliczenie {PERIOD} - {worker}.xlsx"
+        for worker in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+    }
     assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx") == "POZNAŃ"
     assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx") == "POZNAŃ"
     assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx") is None
-    assert _input_value(target_directory / f"Rozliczenie {PERIOD} -.xlsx") is None

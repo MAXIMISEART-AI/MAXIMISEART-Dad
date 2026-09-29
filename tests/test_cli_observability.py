@@ -4,7 +4,6 @@ from io import StringIO
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 from collections.abc import Iterable
@@ -24,7 +23,7 @@ import rozliczenia.template_settlement as template_settlement
 from rozliczenia.progress import PhaseState, ProgressNoticeKind
 from rozliczenia.telemetry import MetricsStore
 
-from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture
+from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture, write_source
 
 
 def run_cli(
@@ -53,7 +52,7 @@ def run_cli(
 
 def make_preview_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    shutil.rmtree(target_directory)
+    write_source(source_path, include_unmapped=True)
     return source_path, target_directory, config_path
 
 
@@ -62,30 +61,35 @@ def assert_fixture_workbooks(target_directory: Path, *, dry_run: bool) -> None:
         assert not target_directory.exists()
         return
 
-    expected_input = None if dry_run else "POZNAŃ"
+    expected_filenames = {
+        f"Rozliczenie {PERIOD} - {worker_name}.xlsx"
+        for worker_name in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+    }
+    assert {path.name for path in target_directory.glob("*.xlsx")} == expected_filenames
     for worker_name in ("Adrian Maciejewski", "Darek Nowak"):
         workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - {worker_name}.xlsx")
         try:
             sheet = active_worksheet(workbook)
-            assert sheet["A18"].value == expected_input
+            assert sheet["A18"].value == "POZNAŃ"
             assert sheet["AU18"].value == "=N18"
         finally:
             workbook.close()
 
-    for filename in (
-        f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx",
-        f"Rozliczenie {PERIOD} -.xlsx",
-    ):
-        workbook = load_workbook(target_directory / filename)
-        try:
-            sheet = active_worksheet(workbook)
-            assert sheet["A18"].value is None
-            assert sheet["AU18"].value == "=N18"
-        finally:
-            workbook.close()
+    workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx")
+    try:
+        sheet = active_worksheet(workbook)
+        assert sheet["A18"].value is None
+        assert sheet["AU18"].value == "=N18"
+    finally:
+        workbook.close()
 
 
-def assert_completed_metrics(metrics_path: Path, *, dry_run: bool) -> dict[str, Any]:
+def assert_completed_metrics(
+    metrics_path: Path,
+    *,
+    dry_run: bool,
+    issues: int = 0,
+) -> dict[str, Any]:
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["schema_version"] == 1
     assert record["mode"] == ("DRY-RUN" if dry_run else "RUN")
@@ -98,7 +102,7 @@ def assert_completed_metrics(metrics_path: Path, *, dry_run: bool) -> dict[str, 
         "empty": 1,
         "planned": 2 if dry_run else 0,
         "skipped": 0,
-        "issues": 1,
+        "issues": issues,
     }
     return cast(dict[str, Any], record)
 
@@ -251,13 +255,15 @@ def test_interactive_rich_render_failure_falls_back_without_interrupting_settlem
             str(source_path),
             "--config",
             str(config_path),
+            "--placeholder",
+            str(config_path.parent / "placeholder.xlsx"),
             "--metrics",
             str(metrics_path),
         ],
         output=output,
     )
 
-    assert exit_code == 2
+    assert exit_code == 0
     assert render_calls >= 2
     assert "Etap: Sprawdzanie" in output.getvalue()
     assert "Postęp szablonów: 3/3 (100%)" in output.getvalue()
@@ -272,7 +278,7 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
 
     exit_code, output = run_cli(source_path, config_path, metrics_path)
 
-    assert exit_code == 2
+    assert exit_code == 0
     assert "RUN" in output
     assert output.index("Sprawdzanie") < output.index("Odczyt danych")
     assert output.index("Odczyt danych") < output.index("Planowanie")
@@ -287,14 +293,14 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert "Zapisane szablony: 2" in output
     assert "Puste szablony: 1" in output
     assert "Pominięte szablony: 0" in output
-    assert "Wymaga sprawdzenia" in output
+    assert "Status końcowy: OK" in output
     assert "\x1b" not in output
 
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["schema_version"] == 1
     assert record["mode"] == "RUN"
     assert record["completed"] is True
-    assert record["result"] == "WYMAGA_SPRAWDZENIA"
+    assert record["result"] == "OK"
     assert record["total_duration_ms"] >= 0
     assert set(record["phase_durations_ms"]) == {
         "Sprawdzanie",
@@ -334,18 +340,20 @@ def test_plain_output_failure_detaches_observer_and_completes_przebieg_rozliczen
             str(source_path),
             "--config",
             str(config_path),
+            "--placeholder",
+            str(config_path.parent / "placeholder.xlsx"),
             "--metrics",
             str(metrics_path),
         ],
         output=output,
     )
 
-    assert exit_code == 2
+    assert exit_code == 0
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is True
     assert record["counters"]["templates_completed"] == 3
     assert record["counters"]["written"] == 2
-    assert record["result"] == "WYMAGA_SPRAWDZENIA"
+    assert record["result"] == "OK"
     assert output.writes == fail_at_write
 
 
@@ -417,14 +425,14 @@ def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None
         env=environment,
     )
 
-    assert result.returncode == 2, result.stderr
+    assert result.returncode == (2 if dry_run else 0), result.stderr
     assert "Etap: Sprawdzanie" in result.stdout
     assert "Postęp szablonów: 3/3 (100%)" in result.stdout
     assert "WYKONAWCA: Adrian Maciejewski" in result.stdout
-    assert "Status końcowy: Wymaga sprawdzenia" in result.stdout
+    assert f"Status końcowy: {'Wymaga sprawdzenia' if dry_run else 'OK'}" in result.stdout
 
     assert_fixture_workbooks(target_directory, dry_run=dry_run)
-    assert_completed_metrics(metrics_path, dry_run=dry_run)
+    assert_completed_metrics(metrics_path, dry_run=dry_run, issues=1 if dry_run else 0)
     metrics_text = metrics_path.read_text(encoding="utf-8")
     assert "syntetyczny adres" not in metrics_text
     assert "#1" not in metrics_text
@@ -501,7 +509,7 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
 
     exit_code = main(arguments, output=output)
 
-    assert exit_code == 2
+    assert exit_code == (2 if dry_run else 0)
     assert live_instances and live_instances[0].refreshes > 0
     rendered = output.getvalue()
     assert mode in rendered
@@ -515,7 +523,7 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
     assert "#1" not in rendered
 
     assert_fixture_workbooks(target_directory, dry_run=dry_run)
-    assert_completed_metrics(metrics_path, dry_run=dry_run)
+    assert_completed_metrics(metrics_path, dry_run=dry_run, issues=1 if dry_run else 0)
 
 
 def test_cli_can_run_the_settlement_engine_without_an_observer(
@@ -548,9 +556,9 @@ def test_cli_can_run_the_settlement_engine_without_an_observer(
 
     exit_code, output = run_cli(source_path, config_path, metrics_path, "--no-observer")
 
-    assert exit_code == 2
+    assert exit_code == 0
     assert observers == [None]
-    assert "Status końcowy: Wymaga sprawdzenia" in output
+    assert "Status końcowy: OK" in output
     assert "Postęp szablonów:" not in output
     assert_fixture_workbooks(target_directory, dry_run=False)
     record = assert_completed_metrics(metrics_path, dry_run=False)
@@ -563,28 +571,34 @@ def test_cli_can_run_the_settlement_engine_without_an_observer(
     assert record["phase_durations_ms"]["Zapisywanie"] > 0
 
 
-def test_plain_cli_completes_progress_for_locked_and_skipped_szablon_pracownika(tmp_path: Path) -> None:
+def test_plain_cli_rejects_existing_output_folder_without_modifying_it(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    locked_path = target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx"
-    (target_directory / f"~${locked_path.name}").touch()
-
-    invalid_path = target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx"
-    workbook = load_workbook(invalid_path)
-    try:
-        active_worksheet(workbook)["H17"] = "NIE WYKONAWCA"
-        workbook.save(invalid_path)
-    finally:
-        workbook.close()
+    target_directory.mkdir(parents=True)
+    sentinel = target_directory / "existing.txt"
+    sentinel.write_text("zachowaj", encoding="utf-8")
 
     exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
 
-    assert exit_code == 2
-    assert "Postęp szablonów: 3/3 (100%)" in output
-    assert "Ostatnia operacja: Darek Nowak | ZABLOKOWANY" in output
-    assert "Ostatnia operacja: Kamil Frontczak | ZLY_SZABLON" in output
-    assert "status: OSTRZEŻENIE" in output
-    assert "status: BŁĄD" in output
-    assert "Pominięte szablony: 2" in output
+    assert exit_code == 1
+    assert "Folder docelowy już istnieje" in output
+    assert "Status semantyczny: BŁĄD" in output
+    assert sentinel.read_text(encoding="utf-8") == "zachowaj"
+
+
+def test_cli_unknown_worker_does_not_publish_partial_results(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_preview_fixture(tmp_path)
+
+    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
+
+    assert exit_code == 1
+    assert "WYKONAWCA bez mapowania" in output
+    assert "andrzej.kulawski2" not in output
+    assert "syntetyczny adres" not in output
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+    record = json.loads((tmp_path / "metrics.jsonl").read_text(encoding="utf-8"))
+    assert record["completed"] is False
+    assert record["result"] == "BLAD_KRYTYCZNY"
 
 
 def test_plain_cli_shows_dry_run_and_does_not_write_szablon_pracownika(tmp_path: Path) -> None:
@@ -632,7 +646,7 @@ def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path)
     assert not target_directory.exists()
     assert source_path.read_bytes() == source_before
     assert placeholder_path.read_bytes() == placeholder_before
-    assert_completed_metrics(tmp_path / "metrics.jsonl", dry_run=True)
+    assert_completed_metrics(tmp_path / "metrics.jsonl", dry_run=True, issues=1)
 
 
 @pytest.mark.parametrize(
@@ -809,9 +823,9 @@ def test_metrics_failure_is_only_an_observability_warning(tmp_path: Path) -> Non
 
     exit_code, output = run_cli(source_path, config_path, metrics_parent / "metrics.jsonl")
 
-    assert exit_code == 2
+    assert exit_code == 0
     assert "Nie zapisano metryk" in output
-    assert "Wymaga sprawdzenia" in output
+    assert "Status końcowy: OK" in output
 
 
 def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
@@ -856,7 +870,7 @@ def test_critical_write_failure_preserves_partial_counters(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
+    source_path, target_directory, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
     original_process_template = template_settlement.process_template
     save_calls = 0
@@ -879,6 +893,9 @@ def test_critical_write_failure_preserves_partial_counters(
     exit_code, output = run_cli(source_path, config_path, metrics_path)
 
     assert exit_code == 1
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+    assert "folder wynikowy nie został opublikowany" in output
     assert "Postęp szablonów: 1/3 (33%)" in output
     assert (
         "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak | "
@@ -895,5 +912,5 @@ def test_critical_write_failure_preserves_partial_counters(
         "empty": 0,
         "planned": 0,
         "skipped": 0,
-        "issues": 2,
+        "issues": 1,
     }

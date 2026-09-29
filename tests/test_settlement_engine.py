@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
-import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Iterable
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 import yaml
@@ -53,10 +53,14 @@ def write_template(path: Path) -> None:
     sheet = active_worksheet(workbook)
     sheet.title = "Sheet1"
     sheet.cell(17, 8).value = "WYKONAWCA"
+    sheet["A17"].fill = PatternFill(fill_type="solid", fgColor="00AA55")
     sheet.cell(18, 47).value = "=N18"
     sheet.cell(19, 47).value = "=N19"
     sheet.cell(18, 14).value = 0
     sheet.cell(19, 14).value = 0
+    rates = workbook.create_sheet("Rates")
+    rates["A1"] = "synthetic rate"
+    rates["B1"] = 17.5
     workbook.save(path)
 
 
@@ -141,7 +145,7 @@ def external_link_parts(path: Path) -> dict[str, bytes]:
         }
 
 
-def write_source(path: Path) -> None:
+def write_source(path: Path, *, include_unmapped: bool = True) -> None:
     workbook = Workbook()
     sheet = active_worksheet(workbook)
     sheet.title = "Sheet1"
@@ -150,8 +154,9 @@ def write_source(path: Path) -> None:
         ("POZNAŃ", "syntetyczny adres 1", "adrian.maciejewski", "#1"),
         ("POZNAŃ", "syntetyczny adres 2", "dariusz.nowak2", "#2"),
         ("POZNAŃ", "syntetyczny adres 3", "adrian.maciejewski", "#3"),
-        ("POZNAŃ", "syntetyczny adres 4", "andrzej.kulawski2", "#4"),
     ]
+    if include_unmapped:
+        rows.append(("POZNAŃ", "syntetyczny adres 4", "andrzej.kulawski2", "#4"))
     for row_number, (city, address, worker, order_number) in enumerate(rows, start=18):
         sheet.cell(row_number, 1).value = city
         sheet.cell(row_number, 2).value = address
@@ -163,28 +168,36 @@ def write_source(path: Path) -> None:
 
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     period_directory = tmp_path / PERIOD
+    period_directory.mkdir(parents=True)
     target_directory = period_directory / f"Rozliczenie pracowników {PERIOD}"
-    target_directory.mkdir(parents=True)
     source_path = period_directory / SOURCE_NAME
-    write_source(source_path)
-    write_template(target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx")
-    write_template(target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx")
-    write_template(target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx")
-    write_template(target_directory / f"Rozliczenie {PERIOD} -.xlsx")
+    write_source(source_path, include_unmapped=False)
     config_path = write_mapping(tmp_path / "worker_mapping.yaml")
     write_template(tmp_path / "placeholder.xlsx")
     return source_path, target_directory, config_path
 
 
-def test_groups_rows_by_worker_and_preserves_template_formulas(tmp_path: Path) -> None:
+def make_complete_run_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     source_path, target_directory, config_path = make_fixture(tmp_path)
+    return source_path, target_directory, config_path, tmp_path / "placeholder.xlsx"
 
-    summary = run_settlements(source_path, config_path)
 
+def test_run_settlements_publishes_complete_workbooks_copied_from_placeholder(tmp_path: Path) -> None:
+    source_path, target_directory, config_path, placeholder_path = make_complete_run_fixture(tmp_path)
+    placeholder_before = placeholder_path.read_bytes()
+
+    summary = run_settlements(source_path, config_path, placeholder_path=placeholder_path)
+
+    expected_files = {
+        f"Rozliczenie {PERIOD} - {name}.xlsx"
+        for name in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+    }
+    assert {path.name for path in target_directory.glob("*.xlsx")} == expected_files
     assert summary.written_count == 2
     assert summary.empty_count == 1
-    assert summary.total_rows == 3
-    assert any(issue.code == "BRAK_MAPOWANIA" for issue in summary.issues)
+    assert summary.issues == []
+    assert all(result.output_file.parent == target_directory for result in summary.results)
+    assert placeholder_path.read_bytes() == placeholder_before
 
     adrian_workbook = load_workbook(
         target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx",
@@ -192,12 +205,14 @@ def test_groups_rows_by_worker_and_preserves_template_formulas(tmp_path: Path) -
     )
     try:
         adrian = active_worksheet(adrian_workbook)
+        assert adrian_workbook.sheetnames == ["Sheet1", "Rates"]
         assert adrian["A18"].value == "POZNAŃ"
         assert adrian["F18"].value == "#1"
-        assert adrian["A19"].value == "POZNAŃ"
         assert adrian["F19"].value == "#3"
         assert adrian["AU18"].value == "=N18"
-        assert adrian["AU19"].value == "=N19"
+        assert adrian["A17"].fill.fill_type == "solid"
+        assert adrian["A17"].fill.fgColor.rgb == "0000AA55"
+        assert adrian_workbook["Rates"]["B1"].value == 17.5
     finally:
         adrian_workbook.close()
 
@@ -206,16 +221,27 @@ def test_groups_rows_by_worker_and_preserves_template_formulas(tmp_path: Path) -
         data_only=False,
     )
     try:
-        empty_template = active_worksheet(empty_workbook)
-        assert empty_template["A18"].value is None
-        assert empty_template["AU18"].value == "=N18"
+        empty = active_worksheet(empty_workbook)
+        assert empty["A18"].value is None
+        assert empty["AU18"].value == "=N18"
+        assert empty["A17"].fill.fgColor.rgb == "0000AA55"
     finally:
         empty_workbook.close()
 
 
+def test_unmapped_worker_prevents_publishing_any_workbooks(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    write_source(source_path, include_unmapped=True)
+
+    with pytest.raises(SettlementError, match="WYKONAWCA bez mapowania"):
+        run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
+
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
 def test_dry_run_does_not_write(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    shutil.rmtree(target_directory)
 
     summary = run_settlements(
         source_path,
@@ -229,44 +255,40 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
     assert not target_directory.exists()
 
 
-def test_existing_input_data_is_never_overwritten(tmp_path: Path) -> None:
+def test_existing_output_folder_is_never_overwritten(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
-    workbook = load_workbook(target_path)
-    active_worksheet(workbook)["A18"] = "wcześniejsza ręczna wartość"
-    workbook.save(target_path)
+    target_directory.mkdir()
+    sentinel = target_directory / "existing.txt"
+    sentinel.write_text("zachowaj", encoding="utf-8")
 
-    summary = run_settlements(source_path, config_path)
+    with pytest.raises(SettlementError, match="Folder docelowy już istnieje"):
+        run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
 
-    assert any(issue.code == "NADPISANIE_ZABLOKOWANE" for issue in summary.issues)
-    workbook = load_workbook(target_path, data_only=False)
-    try:
-        assert active_worksheet(workbook)["A18"].value == "wcześniejsza ręczna wartość"
-    finally:
-        workbook.close()
+    assert sentinel.read_text(encoding="utf-8") == "zachowaj"
 
 
 def test_external_link_relationships_survive_target_write(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
+    placeholder_path = tmp_path / "placeholder.xlsx"
+    add_external_link_fixture(placeholder_path)
+    before = external_link_parts(placeholder_path)
+
+    run_settlements(source_path, config_path, placeholder_path=placeholder_path)
+
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
-    add_external_link_fixture(target_path)
-    before = external_link_parts(target_path)
-
-    run_settlements(source_path, config_path)
-
     assert external_link_parts(target_path) == before
+    assert external_link_parts(placeholder_path) == before
 
 
-def test_locked_target_is_reported_without_stopping_other_files(tmp_path: Path) -> None:
+def test_locked_placeholder_prevents_publishing_any_workbooks(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    locked_target = target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx"
-    lock_file = target_directory / f"~${locked_target.name}"
-    lock_file.touch()
+    placeholder_path = tmp_path / "placeholder.xlsx"
+    placeholder_path.with_name(f"~${placeholder_path.name}").touch()
 
-    summary = run_settlements(source_path, config_path)
+    with pytest.raises(SettlementError, match="Placeholder jest otwarty lub zablokowany"):
+        run_settlements(source_path, config_path, placeholder_path=placeholder_path)
 
-    assert any(issue.code == "PLIK_ZABLOKOWANY" for issue in summary.issues)
-    assert any(result.status == "ZAPISANO" for result in summary.results)
+    assert not target_directory.exists()
 
 
 def test_internal_settlement_file_is_rejected(tmp_path: Path) -> None:
@@ -293,9 +315,15 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
         recorded.append(event)
         raise RuntimeError("observer output failed")
 
-    summary = run_settlements(source_path, config_path, observer=recording_observer)
+    summary = run_settlements(
+        source_path,
+        config_path,
+        placeholder_path=tmp_path / "placeholder.xlsx",
+        observer=recording_observer,
+    )
 
     assert summary.written_count == 2
+    assert summary.issues == []
     assert calls == 1
     assert len(recorded) == 1
     assert isinstance(recorded[0], ProgressEvent)
@@ -306,7 +334,7 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
+    source_path, target_directory, config_path = make_fixture(tmp_path)
     original_process_template = template_settlement.process_template
     calls = 0
     recorded: list[ProgressEvent] = []
@@ -326,8 +354,16 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
-    with pytest.raises(template_settlement.TemplateWriteError):
-        run_settlements(source_path, config_path, observer=recorded.append)
+    with pytest.raises(SettlementError, match="folder wynikowy nie został opublikowany"):
+        run_settlements(
+            source_path,
+            config_path,
+            placeholder_path=tmp_path / "placeholder.xlsx",
+            observer=recorded.append,
+        )
+
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
     failed = [event for event in recorded if event.state is ProgressState.FAILED]
     assert len(failed) == 1
@@ -340,6 +376,11 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         event.state is ProgressState.WORKER_END and event.worker_name == "Darek Nowak" for event in recorded
     )
     assert not any(event.state is ProgressState.END and event.phase is ProgressPhase.SAVING for event in recorded)
+
+    monkeypatch.setattr(template_settlement, "process_template", original_process_template)
+    summary = run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
+    assert summary.written_count == 2
+    assert target_directory.is_dir()
 
 
 def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(tmp_path: Path) -> None:

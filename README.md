@@ -8,14 +8,15 @@ pracowników. Narzędzie nie używa AI ani zewnętrznych API.
 - Wejście: `Rozliczenie {okres} - zbiorcze.xlsx`.
 - Folder wejścia ma nazwę identyczną jak `{okres}`.
 - Wyjście: `Rozliczenie pracowników {okres}`.
-- Placeholder `Rozliczenie {okres} -.xlsx` jest pomijany.
+- Każdy skoroszyt pracownika powstaje z kopii wspólnego Placeholdera.
+- Powstaje dokładnie jeden skoroszyt dla każdego pracownika z konfiguracji.
 - Wykonawca jest odczytywany z kolumny `H=WYKONAWCA`.
 - Identyfikatory wykonawców są mapowane jawnie w `config/worker_mapping.yaml`.
 - Kopiowane są wartości `A:AT` od wiersza 18, zwarte od wiersza 18.
-- Formuły `AU:AY` i formatowanie pozostają w szablonie pracownika.
+- Arkusze, formuły, stawki i formatowanie Placeholdera pozostają zachowane.
 - Pusty szablon pozostaje pusty.
-- Szablon z istniejącymi danymi nie jest nadpisywany.
-- Nieznany wykonawca jest pomijany i zgłaszany.
+- Istniejący Folder rozliczeń pracowników nie jest nadpisywany ani scalany.
+- Nieznany wykonawca lub błąd tworzenia skoroszytu wstrzymuje publikację całego folderu.
 
 ## Instalacja lokalna
 
@@ -39,8 +40,10 @@ py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026
 `config\placeholder.xlsx`; parametr pozwala wskazać Placeholder poza repozytorium.
 Podgląd sprawdza, czy folder wynikowy jest wolny, i pokazuje okres, folder,
 nazwy wszystkich planowanych plików oraz liczbę wierszy dla każdego wykonawcy.
-Nie tworzy folderu ani skoroszytów. Uruchomienie pokazuje też etapy, postęp
-szablonów pracownika i końcowe liczniki.
+Nie tworzy folderu ani skoroszytów. Zwykły przebieg przygotowuje wszystkie kopie
+i uzupełnia je w katalogu tymczasowym, a Folder rozliczeń pracowników publikuje
+dopiero po powodzeniu całej partii. Błąd nie zostawia częściowego folderu.
+Uruchomienie pokazuje też etapy, postęp skoroszytów pracownika i końcowe liczniki.
 W przekierowanym wyjściu lub terminalu bez kolorów używany jest zwykły tekst.
 Historia czasów jest dopisywana lokalnie do `.rozliczenia-metrics.jsonl`; można
 wskazać inne miejsce parametrem `--metrics`. P50 i P95 pojawiają się po pięciu

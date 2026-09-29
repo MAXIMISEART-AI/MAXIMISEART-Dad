@@ -23,19 +23,20 @@ environment variables, creates the synthetic fixture, runs the doctor, drives
 the real CLI through dry-run and write modes, checks workbook side effects, and
 cleans the scratch directory in `finally`. A successful run prints
 `VERIFY OK`, an evidence path, and `scratch_removed=true`. The default fixture
-intentionally contains one unmapped synthetic worker, so both CLI invocations
-return semantic exit code `2`; this is expected and is asserted.
+contains only mapped synthetic workers, so dry-run and write both return `0`.
 
-Use these variants for the safety-gate features:
+Use these variants for publication and safety-gate features:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant locked
+py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped
 ```
 
-`existing` seeds input in Adrian's template and verifies it is not overwritten.
-`locked` runs the doctor before creating Darek's Excel lock file, then verifies
-the lock is reported while other templates continue.
+`existing` creates a conflicting output folder after the doctor and dry-run, then
+verifies it is unchanged. `locked` locks the Placeholder before the real run.
+`unmapped` adds an unknown synthetic WYKONAWCA and verifies that no output is
+published.
 
 There is no server, port, login, seed database, or persistent instance. The
 runner's subprocess timeout is 120 seconds; a timed-out child is terminated by
@@ -70,18 +71,20 @@ engine. Its ordered stages are:
 1. Create a disposable source workbook, a shared Placeholder, and a local
    three-entry mapping. The target folder is absent.
 2. Run the read-only doctor.
-3. Run `run.py --dry-run` with the synthetic Placeholder, require exit code `2`,
-   and assert the complete plan, no target folder, unchanged source/Placeholder,
-   and no row content in the transcript.
-4. Prepare legacy target workbooks, then run `run.py` without `--dry-run`, require
-   exit code `2`, and assert mapped values, preserved `AU` formulas, an empty
-   mapped template, and an untouched placeholder.
-5. Copy metrics to evidence and invoke the safe cleanup helper in `finally`.
-6. Run the mechanical self-test against the retained evidence.
+3. Run `run.py --dry-run` with the synthetic Placeholder and assert the complete
+   plan, no target folder, unchanged source/Placeholder, and no row content.
+4. Run `run.py` normally; the default fixture requires exit code `0` and asserts
+   exactly three workbooks, routed values, preserved formulas/formatting, an
+   empty worker workbook, and an unchanged Placeholder.
+5. For `existing`, `locked`, or `unmapped`, require exit code `1` and assert no
+   partial output is published (or an existing folder is left unchanged).
+6. Copy metrics to evidence and invoke cleanup in `finally`, then run the
+   mechanical self-test against the retained evidence.
 
 Each subprocess is recorded with its command, stdout, stderr, and exit code in
-UTF-8 evidence files. The default fixture must report two mapped writes, one
-`PUSTY_SZABLON`, one unmapped-worker issue, and progress `3/3 (100%)`.
+UTF-8 evidence files. The default fixture reports two mapped writes, one
+`PUSTY_SZABLON`, no issues, and progress `3/3 (100%)`. The `unmapped` variant
+proves that the dry-run warns and the real run publishes nothing.
 
 The CMD launcher can be smoke-tested separately with a fresh fixture:
 
@@ -101,10 +104,9 @@ successful default run contains:
 
 - `fixture.txt` with fixture creation output.
 - `doctor.txt` with the read-only preflight result.
-- `dry-run.txt` with the dry-run command, stdout, stderr, and exit code `2`.
+- `dry-run.txt` with the dry-run command, stdout, stderr, and expected exit code.
 - `assert-dry-run.txt` with the no-write workbook assertion and exit code `0`.
-- `prepare-targets.txt` with the post-preview legacy fixture setup.
-- `run.txt` with the real command, stdout, stderr, and exit code `2`.
+- `run.txt` with the real command, stdout, stderr, and expected exit code.
 - `assert-run.txt` with workbook side-effect assertions and exit code `0`.
 - `metrics.jsonl` with safe local telemetry and no source path or row content.
 - `cleanup.txt` with cleanup output and exit code `0`.

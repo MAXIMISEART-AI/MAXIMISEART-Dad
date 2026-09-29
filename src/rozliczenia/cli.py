@@ -80,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--placeholder",
         type=Path,
         default=default_placeholder_path(),
-        help="Ścieżka do wspólnego Placeholdera używanego przez --dry-run.",
+        help="Ścieżka do wspólnego Placeholdera używanego do tworzenia skoroszytów pracowników.",
     )
     parser.add_argument(
         "--metrics",
