@@ -381,7 +381,6 @@ def run_settlements(
                         worker_name,
                         target_path,
                         rows,
-                        dry_run=False,
                     )
                     if result.status not in {"ZAPISANO", "PUSTY_SZABLON"}:
                         summary.issues.extend(result.issues)

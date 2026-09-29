@@ -28,7 +28,7 @@ Preconditions:
 - **Check template progress.** Assert `Postęp szablonów: 3/3 (100%)`, `Liczniki:`, and the per-template status lines in `run.txt`.
 - **Check semantic exit.** The default fixture records application exit `0` and `Status semantyczny: OK`. The `unmapped` variant returns `2` for dry-run and `1` for the real run, which stops before publication.
 - **Check metrics.** Read the copied evidence file `metrics.jsonl` as JSONL. It contains `mode`, `period`, `completed`, `result`, phase durations, and counters; it must not contain a full source path, address, order number, or row text.
-- **Check observer-free launcher.** Run `py -3 -m pytest tests/test_cmd_launcher.py -k without_a_progress_observer` on Windows. This drives CMD with the VBA flag and checks workbook writes; it does not drive desktop Excel.
+- **Check observer-free launcher.** Run `py -3 -m pytest tests/test_cmd_launcher.py -k without_observer` on Windows. This drives CMD with the VBA flag and checks workbook writes; it does not drive desktop Excel.
 - **Check repeated-run statistics.** After five comparable dry-runs, a sixth dry-run prints `Statystyki DRY-RUN`, `P50`, and `P95`. Use a fresh metrics file for this test and retain the output as evidence.
 
 ## Gotchas

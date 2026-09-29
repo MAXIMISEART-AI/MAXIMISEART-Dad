@@ -118,23 +118,6 @@ def test_przetworzenie_pustego_szablonu_pracownika_nic_nie_zapisuje(tmp_path: Pa
     assert result.issues == ()
 
 
-def test_przetworzenie_szablonu_pracownika_w_trybie_dry_run_nie_zapisuje(
-    tmp_path: Path,
-) -> None:
-    target_directory = make_template_fixture(tmp_path)
-    target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
-
-    result = process_template("Adrian Maciejewski", target_path, synthetic_rows(), dry_run=True)
-
-    assert result.status == "PLAN"
-    assert result.rows == 1
-    workbook = load_workbook(target_path, data_only=False)
-    try:
-        assert active_worksheet(workbook)["A18"].value is None
-    finally:
-        workbook.close()
-
-
 def test_przetworzenie_szablonu_pracownika_zapisuje_wiersze_i_zachowuje_formule(
     tmp_path: Path,
 ) -> None:
