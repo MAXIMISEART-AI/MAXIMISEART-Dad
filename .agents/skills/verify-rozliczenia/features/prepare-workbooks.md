@@ -10,7 +10,7 @@ only after every workbook is ready.
 - `prepare-copy` preserves Placeholder sheets, formulas, rates, formatting, and external links.
 - `prepare-empty` creates an empty workbook for a configured worker without source rows.
 - `prepare-atomic` stages the folder and publishes it only after all workbooks succeed.
-- `prepare-rollback` removes staging files after a workbook failure; an unknown worker is rejected before staging starts.
+- `prepare-rollback` removes staging files after a workbook failure; an unknown worker blocks a real run during planning, before staging starts.
 
 ## How to get to it (user POV)
 

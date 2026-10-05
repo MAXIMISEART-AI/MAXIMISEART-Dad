@@ -2,7 +2,8 @@
 
 Dry-run validates and previews the full set of worker workbooks without creating
 the target folder or any output workbook. It reads the source, worker mapping,
-and shared Placeholder; it only appends the existing local metrics record.
+and shared Placeholder, then appends a new local metrics record, creating the
+metrics file and parent directory if needed.
 
 ## Sub-features
 
