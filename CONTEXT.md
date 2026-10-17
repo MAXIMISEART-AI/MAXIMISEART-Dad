@@ -8,10 +8,48 @@ Tygodniowy przedział pracy od wtorku do poniedziałku. Jest identyfikowany prze
 token zawierający dzień wtorku, dzień poniedziałku, miesiąc i rok, na przykład
 `08_14_09_2026`.
 
+## Rejestr zleceń
+
+Skoroszyt `ZLECENIA INTERMAX OD 08_11_2021.xlsx`, do którego tata eksportuje
+zlecenia z aplikacji firmowej. Jest jedynym źródłem prawdy o zleceniach
+wszystkich okresów. Po eksporcie zawiera między zleceniami całkowicie puste
+wiersze. Procesy go czytają, ale nigdy nie zmieniają.
+
+## Zlecenie skuteczne
+
+Zlecenie, którego wartość `SKUTECZNE` to `tak`, bez względu na wielkość liter i
+otaczające spacje. Każde zlecenie skuteczne z Rozliczenia wewnętrznego trafia
+do Pliku zbiorczego.
+
+## Rozliczenie wewnętrzne
+
+Skoroszyt `Rozliczenie wew. {okres}.xlsx` zawierający wszystkie zlecenia
+jednego okresu rozliczeniowego z Rejestru zleceń, skuteczne i nieskuteczne, w
+kolejności z Rejestru, bez pustych wierszy. Zachowuje formatowanie, do którego
+tata jest przyzwyczajony.
+
+## Wzorzec rozliczenia wewnętrznego
+
+Wspólny skoroszyt bazowy, z którego powstaje Rozliczenie wewnętrzne nowego
+okresu. Nie zawiera zleceń i pozostaje niezmieniony.
+
+## Wzorzec pliku zbiorczego
+
+Wspólny skoroszyt bazowy, z którego powstaje Plik zbiorczy nowego okresu.
+Zachowuje stawki, sumy, formuły i formatowanie; nie zawiera zleceń i pozostaje
+niezmieniony.
+
+## Przygotowanie pliku zbiorczego
+
+Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
+wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy. Oba pliki
+powstają razem albo żaden. Uruchamiany osobno od Przebiegu rozliczeń.
+
 ## Plik zbiorczy
 
-Jedyny plik wejściowy tego procesu. Zawiera dane wszystkich wykonawców dla
-jednego okresu rozliczeniowego.
+Skoroszyt `Rozliczenie {okres} - zbiorcze.xlsx`: zlecenia skuteczne wszystkich
+wykonawców dla jednego okresu rozliczeniowego. Jest wynikiem Przygotowania
+pliku zbiorczego i jedynym wejściem Przebiegu rozliczeń.
 
 ## Wykonawca
 
@@ -25,6 +63,12 @@ Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Placeholdera.
 Zachowuje jego strukturę, formuły, stawki i formatowanie; zawiera dane tylko z
 własnego okresu i może pozostać pusty, jeśli wykonawca nie ma wierszy w Pliku
 zbiorczym.
+
+## Folder okresu
+
+Folder o nazwie równej tokenowi okresu, wspólny dla wszystkich plików jednego
+okresu rozliczeniowego: Rozliczenia wewnętrznego, Pliku zbiorczego i Folderu
+rozliczeń pracowników. Może istnieć wcześniej, zanim powstaną te pliki.
 
 ## Folder rozliczeń pracowników
 
@@ -81,4 +125,5 @@ numerów zleceń ani treści wierszy.
 ## Nienadpisywanie
 
 Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje
-się bez ich nadpisywania. Placeholder również pozostaje niezmieniony.
+się bez ich nadpisywania. Placeholder, wzorce i Rejestr zleceń również
+pozostają niezmienione.
