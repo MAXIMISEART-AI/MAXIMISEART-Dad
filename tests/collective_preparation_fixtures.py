@@ -6,12 +6,15 @@ budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 
 from tests.test_settlement_engine import active_worksheet, add_external_link_fixture, write_mapping
 
@@ -66,9 +69,38 @@ COLLECTIVE_TEMPLATE_HEADERS: tuple[str, ...] = (
 )
 # Wiersze Wzorca pliku zbiorczego przygotowane zerami w N:AP.
 COLLECTIVE_TEMPLATE_ZERO_ROWS = 6
+# Formatowanie przygotowanych wierszy Wzorca pliku zbiorczego: A:K i kolumny ilości.
+COLLECTIVE_TEMPLATE_DATA_FILL = PatternFill(fill_type="solid", fgColor="FFDDDDDD")
+COLLECTIVE_TEMPLATE_QUANTITY_FILL = PatternFill(fill_type="solid", fgColor="FFCCE5FF")
 
 RegisterRow = dict[str, object] | None
 """Wiersz Rejestru: wartości po nagłówkach Rejestru albo ``None`` dla całkowicie pustego wiersza."""
+
+# Wygląd Rejestru: mniejsza czcionka niż we wzorcach i własny format daty.
+REGISTER_FONT_NAME = "Arial"
+REGISTER_FONT_SIZE = 8
+REGISTER_DATE_FORMAT = "dd.mm.yyyy hh:mm"
+# Wygląd wierszy danych z wzorców.
+TEMPLATE_FONT_NAME = "Calibri"
+TEMPLATE_FONT_SIZE = 10
+
+
+@dataclass(frozen=True)
+class Highlight:
+    """Wyróżnienie komórki Rejestru, które ma przejść do obu plików okresu."""
+
+    fill: str | None = None
+    color: str | None = None
+    bold: bool = False
+    italic: bool = False
+
+
+# Wyróżnienia domyślnego Rejestru po (wiersz Excela, nagłówek Rejestru).
+# Wiersz 4: zlecenie 2, wiersz 9: zlecenie 4 (oba skuteczne).
+DEFAULT_REGISTER_HIGHLIGHTS: dict[tuple[int, str], Highlight] = {
+    (4, "adres"): Highlight(fill="FFFFFF00", color="FFC00000", bold=True),
+    (9, "WYKONAWCA"): Highlight(italic=True),
+}
 
 
 def register_order(
@@ -120,8 +152,16 @@ def write_register(
     rows: list[RegisterRow] | None = None,
     *,
     headers: tuple[str, ...] = REGISTER_HEADERS,
+    highlights: Mapping[tuple[int, str], Highlight] | None = None,
 ) -> Path:
-    """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych z nagłówkami w wierszu 1."""
+    """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych z nagłówkami w wierszu 1.
+
+    Komórki danych mają czcionkę Rejestru, a ``DATA GODZ. POCZ.`` jego format daty.
+    Bez jawnych ``rows`` stosowane są ``DEFAULT_REGISTER_HIGHLIGHTS``.
+    """
+
+    if highlights is None:
+        highlights = DEFAULT_REGISTER_HIGHLIGHTS if rows is None else {}
 
     workbook = Workbook()
     decoy = active_worksheet(workbook)
@@ -136,9 +176,39 @@ def write_register(
             continue
         for column, header in enumerate(headers, start=1):
             if header in row:
-                sheet.cell(row_number, column).value = row[header]
+                cell = sheet.cell(row_number, column)
+                cell.value = row[header]
+                highlight = highlights.get((row_number, header), Highlight())
+                cell.font = Font(
+                    name=REGISTER_FONT_NAME,
+                    size=REGISTER_FONT_SIZE,
+                    color=highlight.color,
+                    bold=highlight.bold,
+                    italic=highlight.italic,
+                )
+                if highlight.fill is not None:
+                    cell.fill = PatternFill(fill_type="solid", fgColor=highlight.fill)
+                if header == "DATA GODZ. POCZ.":
+                    cell.number_format = REGISTER_DATE_FORMAT
     workbook.save(path)
     return path
+
+
+def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int) -> None:
+    """Szerokości kolumn, czcionka kolumn, wysokości wierszy, pogrubiony nagłówek i blokada nagłówka.
+
+    Autofiltr wzorca celowo obejmuje zły zakres, który Przygotowanie ma zignorować.
+    """
+
+    for column in range(1, columns + 1):
+        dimension = sheet.column_dimensions[get_column_letter(column)]
+        dimension.width = 9 + column
+        dimension.font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE)
+        sheet.cell(header_row, column).font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE, bold=True)
+    sheet.row_dimensions[header_row].height = 30
+    sheet.row_dimensions[header_row + 1].height = 14
+    sheet.freeze_panes = f"A{header_row + 1}"
+    sheet.auto_filter.ref = f"B{header_row}:C{header_row + 40}"
 
 
 def write_internal_template(path: Path) -> Path:
@@ -149,6 +219,7 @@ def write_internal_template(path: Path) -> Path:
     sheet.title = "Arkusz1"
     for column, header in enumerate(INTERNAL_TEMPLATE_HEADERS, start=1):
         sheet.cell(1, column).value = header
+    _apply_template_layout(sheet, 1, len(INTERNAL_TEMPLATE_HEADERS))
     workbook.save(path)
     return path
 
@@ -168,9 +239,17 @@ def write_collective_template(path: Path) -> Path:
         sheet.cell(17, column).value = header
     sheet["N17"] = "instalacja"
     sheet["AP17"] = "demontaż"
+    _apply_template_layout(sheet, 17, len(COLLECTIVE_TEMPLATE_HEADERS))
     for row in range(18, 18 + COLLECTIVE_TEMPLATE_ZERO_ROWS):
+        for column in range(1, len(COLLECTIVE_TEMPLATE_HEADERS) + 1):  # A:K, przygotowane we wzorcu
+            cell = sheet.cell(row, column)
+            cell.font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE)
+            cell.fill = COLLECTIVE_TEMPLATE_DATA_FILL
         for column in range(14, 43):  # N:AP
-            sheet.cell(row, column).value = 0
+            cell = sheet.cell(row, column)
+            cell.value = 0
+            cell.fill = COLLECTIVE_TEMPLATE_QUANTITY_FILL
+            cell.number_format = "0"
         sheet.cell(row, 47).value = f"=N{row}*$N$1"  # AU
     rates = workbook.create_sheet("Rates")
     rates["A1"] = "synthetic rate"

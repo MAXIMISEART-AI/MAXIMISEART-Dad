@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 import pytest
 
+from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState
+from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.collective_preparation import PreparationError, PreparationSummary, prepare_collective_file
 from rozliczenia.workbook_files import ExternalLinksError
 import rozliczenia.workbook_files as workbook_files
@@ -24,7 +27,13 @@ from tests.collective_preparation_fixtures import (
 from tests.test_settlement_engine import active_worksheet, external_link_parts
 
 
-def run_preparation(fixture: PreparationFixture, period: str = PERIOD) -> PreparationSummary:
+def run_preparation(
+    fixture: PreparationFixture,
+    period: str = PERIOD,
+    *,
+    dry_run: bool = False,
+    observer: ProgressObserver | None = None,
+) -> PreparationSummary:
     return prepare_collective_file(
         fixture.register_path,
         fixture.periods_directory,
@@ -32,6 +41,8 @@ def run_preparation(fixture: PreparationFixture, period: str = PERIOD) -> Prepar
         fixture.config_path,
         internal_template_path=fixture.internal_template_path,
         collective_template_path=fixture.collective_template_path,
+        dry_run=dry_run,
+        observer=observer,
     )
 
 
@@ -260,6 +271,282 @@ def test_period_crossing_months_accepts_month_of_tuesday_or_monday(tmp_path: Pat
     assert (fixture.periods_directory / token / f"Rozliczenie wew. {token}.xlsx").is_file()
 
 
+EXPECTED_ORDERS_PER_DAY = {
+    date(2026, 9, 8): 1,
+    date(2026, 9, 9): 1,
+    date(2026, 9, 10): 0,
+    date(2026, 9, 11): 0,
+    date(2026, 9, 12): 1,
+    date(2026, 9, 13): 0,
+    date(2026, 9, 14): 1,
+}
+
+
+def test_summary_reports_orders_per_day_for_every_day_of_the_period(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    summary = run_preparation(fixture)
+
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
+    assert list(summary.orders_per_day) == sorted(EXPECTED_ORDERS_PER_DAY)
+
+
+def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    inputs = (fixture.register_path, fixture.internal_template_path, fixture.collective_template_path)
+    before = [path.read_bytes() for path in inputs]
+
+    summary = run_preparation(fixture, dry_run=True)
+
+    assert summary.period == PERIOD
+    assert summary.period_order_count == 4
+    assert summary.successful_order_count == 3
+    assert summary.skipped_empty_rows == 3
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
+    assert summary.internal_settlement_file == fixture.internal_settlement_path
+    assert summary.collective_file == fixture.collective_file_path
+    assert list(fixture.periods_directory.iterdir()) == []
+    assert [path.read_bytes() for path in inputs] == before
+
+
+STAGES_IN_ORDER = [
+    (ProgressPhase.CHECKING, ProgressState.START),
+    (ProgressPhase.CHECKING, ProgressState.END),
+    (ProgressPhase.READING, ProgressState.START),
+    (ProgressPhase.READING, ProgressState.END),
+    (ProgressPhase.READING, ProgressState.ISSUE_COUNT),
+    (ProgressPhase.PLANNING, ProgressState.START),
+    (ProgressPhase.PLANNING, ProgressState.END),
+    (ProgressPhase.PLANNING, ProgressState.PLAN_READY),
+    (ProgressPhase.SAVING, ProgressState.START),
+    (ProgressPhase.SAVING, ProgressState.END),
+]
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
+    tmp_path: Path, dry_run: bool
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    recorded: list[ProgressEvent] = []
+    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+
+    def recording_observer(event: ProgressEvent) -> None:
+        recorded.append(event)
+        projection.update(event)
+
+    run_preparation(fixture, dry_run=dry_run, observer=recording_observer)
+
+    assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
+    assert all(event.worker_name is None for event in recorded)
+    assert set(projection.snapshot.phase_states.values()) == {PhaseState.COMPLETED}
+    assert "SYN-" not in repr(recorded)
+
+
+def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    fixture.period_directory.mkdir()
+    fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
+    recorded: list[ProgressEvent] = []
+
+    with pytest.raises(PreparationError):
+        run_preparation(fixture, observer=recorded.append)
+
+    assert [(event.phase, event.state) for event in recorded] == [
+        (ProgressPhase.CHECKING, ProgressState.START),
+        (ProgressPhase.CHECKING, ProgressState.FAILED),
+    ]
+    assert "istnieje" not in repr(recorded)
+    assert COLLECTIVE_FILE_NAME not in repr(recorded)
+
+
+def test_failing_observer_is_detached_and_does_not_change_result_or_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    calls = 0
+
+    def failing_observer(event: ProgressEvent) -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("awaria terminala")
+
+    summary = run_preparation(fixture, observer=failing_observer)
+
+    assert calls == 1
+    assert summary.period_order_count == 4
+    assert summary.successful_order_count == 3
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+
+
+def cell_formats(path: Path, coordinates: list[str]) -> dict[str, tuple[object, ...]]:
+    """Wypełnienie, kolor czcionki, pogrubienie i kursywa wskazanych komórek."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        formats: dict[str, tuple[object, ...]] = {}
+        for coordinate in coordinates:
+            cell = sheet[coordinate]
+            fill = cell.fill.fgColor.rgb if cell.fill.fill_type == "solid" else None
+            # Kolor motywu (domyślny tekst) nie jest wyróżnieniem.
+            color = cell.font.color.rgb if cell.font.color is not None and cell.font.color.type == "rgb" else None
+            formats[coordinate] = (fill, color, bool(cell.font.b), bool(cell.font.i))
+        return formats
+    finally:
+        workbook.close()
+
+
+def test_highlights_from_rejestr_reach_both_files_and_plain_cells_get_none(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    # Zlecenie 2: ADRES wyróżniony; zlecenie 4: WYKONAWCA kursywą; reszta bez wyróżnień.
+    assert cell_formats(fixture.internal_settlement_path, ["C2", "H4", "B2", "C3", "H2"]) == {
+        "C2": ("FFFFFF00", "FFC00000", True, False),
+        "H4": (None, None, False, True),
+        "B2": (None, None, False, False),
+        "C3": (None, None, False, False),
+        "H2": (None, None, False, False),
+    }
+    assert cell_formats(fixture.collective_file_path, ["B18", "H19", "A18", "B19", "H18"]) == {
+        "B18": ("FFFFFF00", "FFC00000", True, False),
+        "H19": (None, None, False, True),
+        "A18": (None, None, False, False),
+        "B19": (None, None, False, False),
+        "H18": (None, None, False, False),
+    }
+
+
+def data_fonts(path: Path, *, min_row: int, max_row: int, max_col: int) -> set[tuple[object, object]]:
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        return {
+            (cell.font.name, cell.font.sz)
+            for row in sheet.iter_rows(min_row=min_row, max_row=max_row, max_col=max_col)
+            for cell in row
+        }
+    finally:
+        workbook.close()
+
+
+def test_data_rows_take_font_face_and_size_from_wzorzec_not_rejestr(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    # Rejestr: Arial 8; wzorce: Calibri 10.
+    assert data_fonts(fixture.internal_settlement_path, min_row=2, max_row=5, max_col=11) == {("Calibri", 10)}
+    assert data_fonts(fixture.collective_file_path, min_row=18, max_row=20, max_col=11) == {("Calibri", 10)}
+
+
+def test_data_column_keeps_date_format_from_rejestr(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    internal = load_workbook(fixture.internal_settlement_path)
+    collective = load_workbook(fixture.collective_file_path)
+    try:
+        internal_dates = [active_worksheet(internal).cell(row, 1) for row in range(2, 6)]
+        collective_dates = [active_worksheet(collective).cell(row, 7) for row in range(18, 21)]
+        assert {
+            (type(cell.value), cell.number_format) for cell in internal_dates + collective_dates
+        } == {(datetime, "dd.mm.yyyy hh:mm")}
+    finally:
+        internal.close()
+        collective.close()
+
+
+def sheet_layout(path: Path, *, header_row: int, max_col: int) -> dict[str, object]:
+    """Szerokości kolumn, wysokości wierszy, nagłówek z formatowaniem i blokada wierszy."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        return {
+            "widths": [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, max_col + 1)],
+            "heights": [sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
+            "header": [
+                (cell.value, cell.font.name, cell.font.sz, cell.font.b, cell.fill.fgColor.rgb)
+                for cell in sheet[header_row][:max_col]
+            ],
+            "freeze_panes": sheet.freeze_panes,
+        }
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize("kind", ["internal", "collective"])
+def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind: str) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    if kind == "internal":
+        template, created, header_row = fixture.internal_template_path, fixture.internal_settlement_path, 1
+    else:
+        template, created, header_row = fixture.collective_template_path, fixture.collective_file_path, 17
+    expected = sheet_layout(template, header_row=header_row, max_col=47)
+    assert expected["freeze_panes"] == f"A{header_row + 1}"
+    assert sheet_layout(created, header_row=header_row, max_col=47) == expected
+
+
+def test_plik_zbiorczy_columns_outside_a_to_k_keep_wzorzec_formatting(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    def formats(path: Path) -> list[tuple[object, ...]]:
+        workbook = load_workbook(path)
+        try:
+            sheet = active_worksheet(workbook)
+            return [
+                (cell.coordinate, cell.fill.fill_type, cell.fill.fgColor.rgb, cell.number_format, cell.font.name)
+                for row in sheet.iter_rows(min_row=18, max_row=24, min_col=12, max_col=47)
+                for cell in row
+            ]
+        finally:
+            workbook.close()
+
+    expected = formats(fixture.collective_template_path)
+    assert ("N18", "solid", "FFCCE5FF", "0", "Calibri") in expected
+    assert formats(fixture.collective_file_path) == expected
+
+
+def autofilter_range(path: Path) -> str | None:
+    workbook = load_workbook(path)
+    try:
+        ref: str | None = active_worksheet(workbook).auto_filter.ref
+        return ref
+    finally:
+        workbook.close()
+
+
+def test_autofilter_covers_header_and_last_order_row_in_both_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    # Wzorce mają zakres B:C do wiersza +40, który ma zostać zignorowany.
+    # Rozliczenie wewnętrzne: nagłówki A:M i 4 zlecenia okresu.
+    assert autofilter_range(fixture.internal_settlement_path) == "A1:M5"
+    # Plik zbiorczy: nagłówki wiersza 17 od A do AP i 3 Zlecenia skuteczne.
+    assert autofilter_range(fixture.collective_file_path) == "A17:AP20"
+
+
+def test_autofilter_covers_only_header_when_period_has_no_zlecenia_skuteczne(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [register_order(1, datetime(2026, 9, 9, 10, 0), successful="nie")]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    run_preparation(fixture)
+
+    assert autofilter_range(fixture.internal_settlement_path) == "A1:M2"
+    assert autofilter_range(fixture.collective_file_path) == "A17:AP17"
+
+
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
 
 
@@ -435,3 +722,17 @@ def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_pa
     summary = run_preparation(fixture)
 
     assert summary.warnings == []
+
+
+def test_dry_run_plan_contains_the_same_warnings_and_writes_nothing(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 8, 8, number))
+        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    plan = run_preparation(fixture, dry_run=True)
+
+    assert [warning.code for warning in plan.warnings] == ["MALO_WIERSZY_Z_ZERAMI"]
+    assert plan.orders_per_day[date(2026, 9, 8)] == COLLECTIVE_TEMPLATE_ZERO_ROWS + 1
+    assert list(fixture.periods_directory.iterdir()) == []

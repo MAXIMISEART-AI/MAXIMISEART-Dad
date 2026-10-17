@@ -26,7 +26,7 @@ from tests.collective_preparation_fixtures import (
 )
 
 
-def run_preparation(fixture: PreparationFixture) -> PreparationSummary:
+def run_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationSummary:
     return prepare_collective_file(
         fixture.register_path,
         fixture.periods_directory,
@@ -34,6 +34,7 @@ def run_preparation(fixture: PreparationFixture) -> PreparationSummary:
         fixture.config_path,
         internal_template_path=fixture.internal_template_path,
         collective_template_path=fixture.collective_template_path,
+        dry_run=dry_run,
     )
 
 
@@ -42,14 +43,14 @@ def input_snapshot(fixture: PreparationFixture) -> dict[Path, bytes]:
     return {path: path.read_bytes() for path in paths if path.exists()}
 
 
-def stop_preparation(fixture: PreparationFixture) -> PreparationError:
+def stop_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationError:
     """Uruchamia proces, oczekuje zatrzymania i sprawdza, że nic nie powstało ani nie zmieniło się."""
 
     inputs_before = input_snapshot(fixture)
     periods_before = sorted(path.name for path in fixture.periods_directory.iterdir())
 
     with pytest.raises(PreparationError) as raised:
-        run_preparation(fixture)
+        run_preparation(fixture, dry_run=dry_run)
 
     assert sorted(path.name for path in fixture.periods_directory.iterdir()) == periods_before
     assert input_snapshot(fixture) == inputs_before
@@ -308,8 +309,9 @@ def test_damaged_wzorzec_stops_before_reading_rejestr(tmp_path: Path, template_n
         ("Wzorzec pliku zbiorczego.xlsx", "H17", "WYKONAWCA", "Sheet1", 17),
     ],
 )
+@pytest.mark.parametrize("dry_run", [False, True])
 def test_wzorzec_without_expected_header_stops_before_reading_rejestr(
-    tmp_path: Path, template_name: str, header_cell: str, header: str, sheet: str, row: int
+    tmp_path: Path, template_name: str, header_cell: str, header: str, sheet: str, row: int, dry_run: bool
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     path = template_path(fixture, template_name)
@@ -319,7 +321,7 @@ def test_wzorzec_without_expected_header_stops_before_reading_rejestr(
     workbook.close()
     fixture.register_path.write_bytes(b"uszkodzony Rejestr")
 
-    error = stop_preparation(fixture)
+    error = stop_preparation(fixture, dry_run=dry_run)
 
     assert error.message.code == "ZLY_WZORZEC"
     assert str(error) == (
