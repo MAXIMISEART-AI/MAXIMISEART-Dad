@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from io import StringIO
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import types
 from typing import Any, NoReturn, TextIO
 
 import pytest
@@ -376,3 +377,276 @@ def test_cli_shows_zero_rows_warning_in_summary_and_exits_0(tmp_path: Path) -> N
     assert record["result"] == "OK"
     assert record["counters"]["warnings"] == 1
     assert "SYN-" not in output
+
+
+def without_option(arguments: list[str], option: str) -> list[str]:
+    index = arguments.index(option)
+    return arguments[:index] + arguments[index + 2 :]
+
+
+def run_cli_asking_for_period(
+    fixture: PreparationFixture, answers: str, *extra_args: str, today: date = date(2026, 9, 16)
+) -> tuple[int, str]:
+    output = StringIO()
+    arguments = without_option(preparation_arguments(fixture, *extra_args), "--period")
+    exit_code = main(arguments, output=output, input_stream=StringIO(answers), today=today)
+    return exit_code, output.getvalue()
+
+
+@pytest.mark.parametrize("today", [date(2026, 9, 15) + timedelta(days=offset) for offset in range(7)])
+def test_enter_confirms_proposed_last_full_period_on_every_weekday(tmp_path: Path, today: date) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    exit_code, output = run_cli_asking_for_period(fixture, "\n", today=today)
+
+    assert exit_code == 0
+    assert "Proponowany okres: 08_14_09_2026 (wtorek 08.09.2026 – poniedziałek 14.09.2026)" in output
+    assert f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: RUN" in output
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+
+
+@pytest.mark.parametrize(
+    ("today", "proposed", "monday"),
+    [
+        (date(2026, 9, 14), "01_07_09_2026", datetime(2026, 9, 7, 12, 0)),  # poniedziałek: okres trwa
+        (date(2026, 10, 5), "22_28_09_2026", datetime(2026, 9, 28, 12, 0)),
+        (date(2026, 10, 6), "29_05_10_2026", datetime(2026, 10, 5, 12, 0)),
+        (date(2027, 1, 4), "22_28_12_2026", datetime(2026, 12, 28, 12, 0)),
+        (date(2027, 1, 5), "29_04_01_2027", datetime(2027, 1, 4, 12, 0)),
+        (date(2027, 1, 10), "29_04_01_2027", datetime(2027, 1, 4, 12, 0)),
+    ],
+)
+def test_proposed_period_at_month_and_year_boundary_names_folder_okresu(
+    tmp_path: Path, today: date, proposed: str, monday: datetime
+) -> None:
+    fixture = make_preparation_fixture(tmp_path, [register_order(1, monday)])
+
+    exit_code, output = run_cli_asking_for_period(fixture, "\n", today=today)
+
+    assert exit_code == 0, output
+    assert f"Proponowany okres: {proposed} " in output
+    assert (fixture.periods_directory / proposed / f"Rozliczenie {proposed} - zbiorcze.xlsx").is_file()
+
+
+def test_typed_period_replaces_proposed_one(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    exit_code, output = run_cli_asking_for_period(fixture, " 01_07_09_2026 \n")
+
+    assert exit_code == 0
+    assert "Przygotowanie pliku zbiorczego | okres: 01_07_09_2026 | tryb: RUN" in output
+    assert (fixture.periods_directory / "01_07_09_2026" / "Rozliczenie 01_07_09_2026 - zbiorcze.xlsx").is_file()
+    assert not fixture.period_directory.exists()
+
+
+def test_invalid_typed_period_is_rejected_with_message_and_asked_again(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    exit_code, output = run_cli_asking_for_period(fixture, "15_21_09_2025\n29_05_09_2026\n\n")
+
+    assert exit_code == 0
+    assert output.count("Co się stało: Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.") == 2
+    assert "Gdzie: okres '15_21_09_2025'" in output
+    assert "Gdzie: okres '29_05_09_2026'" in output
+    assert "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 29_05_10_2026." in output
+    assert sorted(path.name for path in fixture.periods_directory.iterdir()) == [PERIOD]
+    assert fixture.collective_file_path.is_file()
+
+
+def test_rejected_period_without_another_answer_stops_without_writing(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    exit_code, output = run_cli_asking_for_period(fixture, "okres\n")
+
+    assert exit_code == 1
+    lines = output.splitlines()
+    stop = lines.index("Status końcowy: ZATRZYMANO")
+    assert lines[stop + 1] == "Co się stało: Nie potwierdzono okresu ani nie wpisano innego. Nie utworzono żadnego pliku."
+    assert "Przygotowanie pliku zbiorczego | okres: nieznany | tryb: RUN" in output
+    assert list(fixture.periods_directory.iterdir()) == []
+    [record] = metric_records(fixture)
+    assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
+
+
+def install_dialogs(monkeypatch: pytest.MonkeyPatch, *, file: str, directory: str) -> list[str]:
+    """Zastępuje okna wyboru tkinter; zwraca tytuły pokazanych okien."""
+
+    shown: list[str] = []
+
+    class FakeRoot:
+        def withdraw(self) -> None:
+            pass
+
+        def destroy(self) -> None:
+            pass
+
+    def askopenfilename(*, title: str, **_kwargs: object) -> str:
+        shown.append(title)
+        return file
+
+    def askdirectory(*, title: str, **_kwargs: object) -> str:
+        shown.append(title)
+        return directory
+
+    filedialog = types.ModuleType("tkinter.filedialog")
+    setattr(filedialog, "askopenfilename", askopenfilename)
+    setattr(filedialog, "askdirectory", askdirectory)
+    tk_module = types.ModuleType("tkinter")
+    setattr(tk_module, "Tk", FakeRoot)
+    setattr(tk_module, "filedialog", filedialog)
+    monkeypatch.setitem(sys.modules, "tkinter", tk_module)
+    monkeypatch.setitem(sys.modules, "tkinter.filedialog", filedialog)
+    return shown
+
+
+def arguments_without_paths(fixture: PreparationFixture) -> list[str]:
+    return without_option(without_option(preparation_arguments(fixture), "--register"), "--periods-directory")
+
+
+def test_rejestr_and_folder_okresow_are_chosen_in_dialogs_one_after_another(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    shown = install_dialogs(monkeypatch, file=str(fixture.register_path), directory=str(fixture.periods_directory))
+
+    exit_code = main(arguments_without_paths(fixture), output=StringIO())
+
+    assert exit_code == 0
+    assert shown == ["Wybierz plik Rejestru zleceń", "Wybierz folder okresów (np. INEA)"]
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+
+
+@pytest.mark.parametrize(
+    ("cancelled", "expected_what"),
+    [
+        ("file", "Nie wybrano pliku Rejestru zleceń. Nie utworzono żadnego pliku."),
+        ("directory", "Nie wybrano folderu okresów. Nie utworzono żadnego pliku."),
+    ],
+)
+def test_cancelled_dialog_stops_with_message_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancelled: str, expected_what: str
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    install_dialogs(
+        monkeypatch,
+        file="" if cancelled == "file" else str(fixture.register_path),
+        directory="" if cancelled == "directory" else str(fixture.periods_directory),
+    )
+    output = StringIO()
+
+    exit_code = main(arguments_without_paths(fixture), output=output)
+
+    assert exit_code == 1
+    lines = output.getvalue().splitlines()
+    stop = lines.index("Status końcowy: ZATRZYMANO")
+    assert lines[stop + 1] == f"Co się stało: {expected_what}"
+    assert lines[stop + 3].startswith("Co zrobić: Uruchom ponownie")
+    assert list(fixture.periods_directory.iterdir()) == []
+    [record] = metric_records(fixture)
+    assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
+
+
+def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
+
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 8, 8, 0)),
+        None,
+        register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
+        register_order(3, datetime(2026, 9, 12, 12, 0)),
+    ]
+    return make_preparation_fixture(tmp_path, rows)
+
+
+INCOMPLETE_ORDERS_PER_DAY_LINES = [
+    "Zlecenia na dzień:",
+    "- wt 08.09.2026: 1",
+    "- śr 09.09.2026: 1",
+    "- czw 10.09.2026: 0",
+    "- pt 11.09.2026: 0",
+    "- sob 12.09.2026: 1",
+    "- niedz 13.09.2026: 0",
+    "- pon 14.09.2026: 0",
+]
+
+
+def run_cli_answering(fixture: PreparationFixture, answers: str, *extra_args: str) -> tuple[int, str]:
+    output = StringIO()
+    exit_code = main(preparation_arguments(fixture, *extra_args), output=output, input_stream=StringIO(answers))
+    return exit_code, output.getvalue()
+
+
+def test_incomplete_period_shows_orders_per_day_and_refusal_writes_nothing(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+
+    exit_code, output = run_cli_answering(fixture, "n\n")
+
+    assert exit_code == 1
+    lines = output.splitlines()
+    warning = lines.index("Ostrzeżenie: niepełny okres")
+    assert lines[warning + 1].startswith("Co się stało: Ostatnie zlecenie okresu jest z soboty 12.09.2026")
+    assert lines[warning + 4 : warning + 12] == INCOMPLETE_ORDERS_PER_DAY_LINES
+    assert lines[warning + 12].startswith("Kontynuować mimo niepełnego okresu?")
+    stop = lines.index("Status końcowy: ZATRZYMANO")
+    assert lines[stop + 1] == (
+        "Co się stało: Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku."
+    )
+    assert lines[stop + 2] == f"Gdzie: okres {PERIOD}"
+    assert list(fixture.periods_directory.iterdir()) == []
+    assert "SYN-" not in output
+    [record] = metric_records(fixture)
+    assert (record["period"], record["completed"], record["result"]) == (PERIOD, False, "BLAD_KRYTYCZNY")
+
+
+@pytest.mark.parametrize("answers", ["\n", "", "nie\n", "x\n"])
+def test_anything_but_yes_to_incomplete_period_is_refusal(tmp_path: Path, answers: str) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+
+    exit_code, _ = run_cli_answering(fixture, answers)
+
+    assert exit_code == 1
+    assert list(fixture.periods_directory.iterdir()) == []
+
+
+@pytest.mark.parametrize("answer", ["t", " TAK "])
+def test_yes_to_incomplete_period_creates_both_files_and_exits_0(tmp_path: Path, answer: str) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+
+    exit_code, output = run_cli_answering(fixture, f"{answer}\n")
+
+    assert exit_code == 0
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+    lines = summary_lines(output)
+    assert "Ostrzeżenia: 1" in lines
+    assert lines[lines.index("Ostrzeżenia: 1") + 1].startswith("- Co się stało: Ostatnie zlecenie okresu")
+    [record] = metric_records(fixture)
+    assert (record["result"], record["counters"]["warnings"]) == ("OK", 1)
+
+
+def test_dry_run_of_incomplete_period_does_not_ask_and_shows_warning_in_plan(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+
+    exit_code, output = run_cli_answering(fixture, "", "--dry-run")
+
+    assert exit_code == 0
+    assert "Kontynuować" not in output
+    lines = summary_lines(output)
+    assert lines[lines.index("Ostrzeżenia: 1") + 1].startswith("- Co się stało: Ostatnie zlecenie okresu")
+    assert "DRY-RUN: Nic nie zapisano" in lines
+    assert list(fixture.periods_directory.iterdir()) == []
+
+
+def test_stop_found_before_question_is_shown_once_on_dashboard(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+    fixture.period_directory.mkdir()
+    fixture.internal_settlement_path.write_bytes(b"reczne poprawki taty")
+
+    exit_code, output = run_cli_answering(fixture, "")
+
+    assert exit_code == 1
+    assert "Kontynuować" not in output
+    assert output.count("Co się stało: Plik tego okresu już istnieje") == 1
+    assert "Etap przerwany: Sprawdzanie" in output

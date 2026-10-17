@@ -75,6 +75,45 @@ def invalid_period_token(token: str) -> PreparationError:
     )
 
 
+def register_not_selected() -> PreparationError:
+    """Okno wyboru pliku Rejestru zleceń zostało zamknięte bez wyboru."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="NIE_WYBRANO_REJESTRU",
+            what="Nie wybrano pliku Rejestru zleceń. Nie utworzono żadnego pliku.",
+            where="okno wyboru pliku Rejestru zleceń",
+            action="Uruchom ponownie i wybierz plik ZLECENIA INTERMAX OD 08_11_2021.xlsx.",
+        )
+    )
+
+
+def periods_directory_not_selected() -> PreparationError:
+    """Okno wyboru folderu okresów zostało zamknięte bez wyboru."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="NIE_WYBRANO_FOLDERU_OKRESOW",
+            what="Nie wybrano folderu okresów. Nie utworzono żadnego pliku.",
+            where="okno wyboru folderu okresów",
+            action="Uruchom ponownie i wybierz folder z poprzednimi tygodniami, np. INEA.",
+        )
+    )
+
+
+def period_not_entered() -> PreparationError:
+    """Tata nie potwierdził proponowanego okresu ani nie wpisał innego."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="NIE_PODANO_OKRESU",
+            what="Nie potwierdzono okresu ani nie wpisano innego. Nie utworzono żadnego pliku.",
+            where="pytanie o okres",
+            action="Uruchom ponownie i naciśnij Enter, aby potwierdzić proponowany okres, albo wpisz inny.",
+        )
+    )
+
+
 def unreadable_worker_config(config_path: Path) -> PreparationError:
     """Konfiguracja wykonawców nie daje się odczytać."""
 
@@ -455,6 +494,22 @@ def incomplete_period(
             "Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport w Rejestrze "
             "zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj."
         ),
+    )
+
+
+def incomplete_period_refused(period: str) -> PreparationError:
+    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="PRZERWANO_NIEPELNY_OKRES",
+            what="Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
+            where=f"okres {period}",
+            action=(
+                "Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. "
+                "Jeśli okres jest pełny, przy pytaniu wpisz t."
+            ),
+        )
     )
 
 
