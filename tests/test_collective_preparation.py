@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 import pytest
 
+from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState
+from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.collective_preparation import PreparationError, PreparationSummary, prepare_collective_file
 from rozliczenia.workbook_files import ExternalLinksError
 import rozliczenia.workbook_files as workbook_files
@@ -23,7 +25,13 @@ from tests.collective_preparation_fixtures import (
 from tests.test_settlement_engine import active_worksheet, external_link_parts
 
 
-def run_preparation(fixture: PreparationFixture, period: str = PERIOD) -> PreparationSummary:
+def run_preparation(
+    fixture: PreparationFixture,
+    period: str = PERIOD,
+    *,
+    dry_run: bool = False,
+    observer: ProgressObserver | None = None,
+) -> PreparationSummary:
     return prepare_collective_file(
         fixture.register_path,
         fixture.periods_directory,
@@ -31,6 +39,8 @@ def run_preparation(fixture: PreparationFixture, period: str = PERIOD) -> Prepar
         fixture.config_path,
         internal_template_path=fixture.internal_template_path,
         collective_template_path=fixture.collective_template_path,
+        dry_run=dry_run,
+        observer=observer,
     )
 
 
@@ -257,3 +267,111 @@ def test_period_crossing_months_accepts_month_of_tuesday_or_monday(tmp_path: Pat
 
     assert summary.period_order_count == 2
     assert (fixture.periods_directory / token / f"Rozliczenie wew. {token}.xlsx").is_file()
+
+
+EXPECTED_ORDERS_PER_DAY = {
+    date(2026, 9, 8): 1,
+    date(2026, 9, 9): 1,
+    date(2026, 9, 10): 0,
+    date(2026, 9, 11): 0,
+    date(2026, 9, 12): 1,
+    date(2026, 9, 13): 0,
+    date(2026, 9, 14): 1,
+}
+
+
+def test_summary_reports_orders_per_day_for_every_day_of_the_period(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    summary = run_preparation(fixture)
+
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
+    assert list(summary.orders_per_day) == sorted(EXPECTED_ORDERS_PER_DAY)
+
+
+def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    inputs = (fixture.register_path, fixture.internal_template_path, fixture.collective_template_path)
+    before = [path.read_bytes() for path in inputs]
+
+    summary = run_preparation(fixture, dry_run=True)
+
+    assert summary.period == PERIOD
+    assert summary.period_order_count == 4
+    assert summary.successful_order_count == 3
+    assert summary.skipped_empty_rows == 3
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
+    assert summary.internal_settlement_file == fixture.internal_settlement_path
+    assert summary.collective_file == fixture.collective_file_path
+    assert list(fixture.periods_directory.iterdir()) == []
+    assert [path.read_bytes() for path in inputs] == before
+
+
+STAGES_IN_ORDER = [
+    (ProgressPhase.CHECKING, ProgressState.START),
+    (ProgressPhase.CHECKING, ProgressState.END),
+    (ProgressPhase.READING, ProgressState.START),
+    (ProgressPhase.READING, ProgressState.END),
+    (ProgressPhase.READING, ProgressState.ISSUE_COUNT),
+    (ProgressPhase.PLANNING, ProgressState.START),
+    (ProgressPhase.PLANNING, ProgressState.END),
+    (ProgressPhase.PLANNING, ProgressState.PLAN_READY),
+    (ProgressPhase.SAVING, ProgressState.START),
+    (ProgressPhase.SAVING, ProgressState.END),
+]
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
+    tmp_path: Path, dry_run: bool
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    recorded: list[ProgressEvent] = []
+    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+
+    def recording_observer(event: ProgressEvent) -> None:
+        recorded.append(event)
+        projection.update(event)
+
+    run_preparation(fixture, dry_run=dry_run, observer=recording_observer)
+
+    assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
+    assert all(event.worker_name is None for event in recorded)
+    assert set(projection.snapshot.phase_states.values()) == {PhaseState.COMPLETED}
+    assert "SYN-" not in repr(recorded)
+
+
+def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    fixture.period_directory.mkdir()
+    fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
+    recorded: list[ProgressEvent] = []
+
+    with pytest.raises(PreparationError):
+        run_preparation(fixture, observer=recorded.append)
+
+    assert [(event.phase, event.state) for event in recorded] == [
+        (ProgressPhase.CHECKING, ProgressState.START),
+        (ProgressPhase.CHECKING, ProgressState.FAILED),
+    ]
+    assert "istnieje" not in repr(recorded)
+    assert COLLECTIVE_FILE_NAME not in repr(recorded)
+
+
+def test_failing_observer_is_detached_and_does_not_change_result_or_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    calls = 0
+
+    def failing_observer(event: ProgressEvent) -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("awaria terminala")
+
+    summary = run_preparation(fixture, observer=failing_observer)
+
+    assert calls == 1
+    assert summary.period_order_count == 4
+    assert summary.successful_order_count == 3
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()

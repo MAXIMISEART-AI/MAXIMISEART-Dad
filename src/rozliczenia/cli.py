@@ -25,6 +25,7 @@ from .plain_progress import PlainProgressAdapter
 from .progress_presentation import format_counter_line
 from .rich_progress import Console, Live, RichProgressAdapter
 from .telemetry import (
+    COUNTER_NAMES,
     METRICS_SCHEMA_VERSION,
     MetricsStore,
     comparable_records,
@@ -94,13 +95,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 class Dashboard:
-    """Rich dashboard with a line-oriented fallback for non-interactive output."""
+    """Rich dashboard with a line-oriented fallback for non-interactive output.
 
-    def __init__(self, output: TextIO, mode: str, period: str):
+    ``title`` and ``shows_templates`` let another process (Przygotowanie pliku
+    zbiorczego) reuse the same projection and adapters without Szablony pracownika.
+    """
+
+    def __init__(
+        self,
+        output: TextIO,
+        mode: str,
+        period: str,
+        *,
+        title: str = "Rozliczenia",
+        shows_templates: bool = True,
+    ):
         self.output = output
         self.state = ProgressProjection(mode, period)
-        self.plain_adapter = PlainProgressAdapter(self._line)
-        self.rich_adapter = RichProgressAdapter()
+        self.plain_adapter = PlainProgressAdapter(self._line, title=title, shows_templates=shows_templates)
+        self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
         self._output_failed = False
         try:
             self.console: Any | None = Console(file=output) if Console is not None else None
@@ -151,7 +164,9 @@ class Dashboard:
         if self._output_failed:
             raise OSError("Terminal output is unavailable.")
 
-    def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
+    def stop(self) -> None:
+        """Stop the live view so that final summary lines follow it."""
+
         if self.live is not None:
             try:
                 self.live.stop()
@@ -159,6 +174,9 @@ class Dashboard:
                 self._disable_rich()
             else:
                 self.live = None
+
+    def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
+        self.stop()
         if error is not None:
             self._line("Status semantyczny: BŁĄD")
             self._line(f"Nie wykonano: {error}")
@@ -190,14 +208,22 @@ class Dashboard:
         for issue in summary.issues:
             self._line(f"- {issue.message}")
 
+    def print_line(self, message: str) -> None:
+        self._line(message)
+
     def print_warning(self, message: str) -> None:
         self._line(f"Ostrzeżenie: {message}")
 
-    def print_statistics(self, records: list[dict[str, Any]]) -> None:
+    def print_statistics(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        counter_names: frozenset[str] = COUNTER_NAMES,
+    ) -> None:
         labels = {"total": "całe uruchomienie"}
         for mode in ("RUN", "DRY-RUN"):
-            comparable = comparable_records(records, mode)
-            stats = statistics_for(records, mode)
+            comparable = comparable_records(records, mode, counter_names)
+            stats = statistics_for(records, mode, counter_names)
             if stats is None:
                 continue
             self._line(f"Statystyki {mode} | próbek: {len(comparable)}")

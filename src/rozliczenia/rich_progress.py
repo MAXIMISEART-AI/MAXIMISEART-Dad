@@ -39,7 +39,15 @@ except ImportError:
 
 
 class RichProgressAdapter:
-    """Render a complete Rich view from an immutable snapshot and safe notice."""
+    """Render a complete Rich view from an immutable snapshot and safe notice.
+
+    ``shows_templates=False`` renders only stages and time, for processes
+    without Szablony pracownika (Przygotowanie pliku zbiorczego).
+    """
+
+    def __init__(self, *, title: str = "Rozliczenia", shows_templates: bool = True):
+        self._title = title
+        self._shows_templates = shows_templates
 
     def render(self, snapshot: ProgressSnapshot, notice: ProgressNotice | None = None) -> Any:
         if any(component is None for component in (Console, Group, Panel, Table, Text)):
@@ -68,6 +76,14 @@ class RichProgressAdapter:
                 else "—"
             )
             phases.add_row(Text(f"[{state_label}]", style=state_style), phase, phase_duration)
+
+        title = f"{self._title} | {snapshot.period} | {snapshot.mode}"
+        if not self._shows_templates:
+            body = Group(
+                phases,
+                f"Etap: {snapshot.current_phase or 'oczekuje'} | Czas: {snapshot.total_elapsed_ms} ms",
+            )
+            return Panel(body, title=title)
 
         operations = Table.grid(padding=(0, 1))
         operations.add_column()
@@ -103,4 +119,4 @@ class RichProgressAdapter:
             Panel(operations, title="Ostatnie operacje"),
             f"Wiersze danych: {snapshot.rows} | Czas: {snapshot.total_elapsed_ms} ms",
         )
-        return Panel(body, title=f"Rozliczenia | {snapshot.period} | {snapshot.mode}")
+        return Panel(body, title=title)

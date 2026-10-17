@@ -71,7 +71,12 @@ _COLLECTIVE_COLUMNS = 11  # A:K
 
 @dataclass
 class PreparationSummary:
-    """Podsumowanie Przygotowania pliku zbiorczego bez danych klientów."""
+    """Podsumowanie Przygotowania pliku zbiorczego bez danych klientów.
+
+    Przy ``dry_run`` to plan: ścieżki plików są docelowe, ale nic nie istnieje.
+    ``orders_per_day`` ma dokładnie siedem kluczy, każdy dzień okresu od wtorku
+    do poniedziałku w kolejności dat, także dni bez zleceń (wartość ``0``).
+    """
 
     period: str
     period_directory: Path
@@ -80,6 +85,7 @@ class PreparationSummary:
     period_order_count: int
     successful_order_count: int
     skipped_empty_rows: int
+    orders_per_day: dict[date, int] = field(default_factory=dict)
     warnings: list[PreparationMessage] = field(default_factory=list)
     phase_durations_ms: dict[ProgressPhase, int] = field(default_factory=dict)
 
@@ -95,6 +101,7 @@ class _Period:
 class _RegisterOrder:
     row_number: int
     values: tuple[object, ...]  # w kolejności ``_COLUMNS``
+    started: datetime
 
     @property
     def is_successful(self) -> bool:
@@ -109,8 +116,17 @@ class _RegisterSheet:
 
 @dataclass(frozen=True)
 class _Plan:
+    period: _Period
     orders: list[_RegisterOrder]
     skipped_empty_rows: int
+
+    @property
+    def orders_per_day(self) -> dict[date, int]:
+        first_day = self.period.start.date()
+        counts = {first_day + timedelta(days=offset): 0 for offset in range(7)}
+        for order in self.orders:
+            counts[order.started.date()] += 1
+        return counts
 
     @property
     def successful_orders(self) -> list[_RegisterOrder]:
@@ -231,13 +247,13 @@ def _plan(register: _RegisterSheet, period: _Period) -> _Plan:
             continue
         started = _order_date(values[_DATE_INDEX])
         in_period = started is not None and period.start <= started < period.end
-        if in_period:
+        if started is not None and in_period:
             if previous_in_period:
                 skipped_empty_rows += pending_empty_rows
-            orders.append(_RegisterOrder(row_number, values))
+            orders.append(_RegisterOrder(row_number, values, started))
         previous_in_period = in_period
         pending_empty_rows = 0
-    return _Plan(orders, skipped_empty_rows)
+    return _Plan(period, orders, skipped_empty_rows)
 
 
 def _worksheet(workbook: Workbook) -> Worksheet:
@@ -338,6 +354,7 @@ def prepare_collective_file(
     *,
     internal_template_path: Path | None = None,
     collective_template_path: Path | None = None,
+    dry_run: bool = False,
     observer: ProgressObserver | None = None,
 ) -> PreparationSummary:
     """Tworzy w Folderze okresu razem Rozliczenie wewnętrzne i Plik zbiorczy.
@@ -345,6 +362,10 @@ def prepare_collective_file(
     Zgłasza ``PreparationError``, gdy nie można działać bezpiecznie; wtedy nie
     powstaje żaden plik ani nowy Folder okresu. Rejestr zleceń i wzorce są
     tylko czytane.
+
+    ``dry_run=True`` wykonuje te same sprawdzenia, odczyt i planowanie, a etap
+    Zapisywanie kończy bez tworzenia czegokolwiek (także Folderu okresu). Wynik
+    jest wtedy planem z tymi samymi liczbami, ostrzeżeniami i nazwami plików.
     """
 
     phases = PhaseRunner(observer)
@@ -379,6 +400,7 @@ def prepare_collective_file(
         period_order_count=len(plan.orders),
         successful_order_count=len(plan.successful_orders),
         skipped_empty_rows=plan.skipped_empty_rows,
+        orders_per_day=plan.orders_per_day,
         phase_durations_ms=phases.phase_durations_ms,
     )
     phases.notify(
@@ -390,6 +412,8 @@ def prepare_collective_file(
     )
 
     def save_both() -> None:
+        if dry_run:
+            return
         try:
             with tempfile.TemporaryDirectory(prefix=f".{period}.staging-", dir=periods_directory) as staging:
                 staged_directory = Path(staging) / period
