@@ -8,7 +8,6 @@ bezpiecznym komunikatem dla taty, a wynik nie zawiera danych klientów.
 from __future__ import annotations
 
 import os
-import re
 import tempfile
 import zipfile
 from collections.abc import Mapping, Sequence
@@ -36,6 +35,7 @@ from .domain import ProgressEventFactory, ProgressObserver, ProgressPhase
 from .engine import SettlementError, load_worker_mapping, normalize_text
 from .phase_runner import PhaseRunner
 from .preparation_messages import PreparationError, PreparationMessage
+from .settlement_period import SettlementPeriod, parse_period_token
 
 __all__ = [
     "PreparationError",
@@ -76,7 +76,6 @@ _SUCCESSFUL_VALUE = "tak"
 _UNSUCCESSFUL_VALUE = "nie"
 _BLANK_WORKER_LABEL = "(pusty)"
 
-_PERIOD_TOKEN = re.compile(r"^(\d{2})_(\d{2})_(\d{2})_(\d{4})$")
 _INTERNAL_HEADER_ROW = 1
 _COLLECTIVE_HEADER_ROW = 17
 _COLLECTIVE_DATA_START_ROW = 18
@@ -105,13 +104,6 @@ class PreparationSummary:
     orders_per_day: dict[date, int] = field(default_factory=dict)
     warnings: list[PreparationMessage] = field(default_factory=list)
     phase_durations_ms: dict[ProgressPhase, int] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class _Period:
-    token: str
-    start: datetime  # wtorek 00:00
-    end: datetime  # następny wtorek 00:00, wyłącznie
 
 
 @dataclass(frozen=True)
@@ -152,7 +144,7 @@ class _RegisterSheet:
 
 @dataclass(frozen=True)
 class _Plan:
-    period: _Period
+    period: SettlementPeriod
     orders: list[_RegisterOrder]
     skipped_empty_rows: int
 
@@ -189,28 +181,11 @@ def _collective_filename(period: str) -> str:
     return f"Rozliczenie {period} - zbiorcze.xlsx"
 
 
-def _parse_period(token: str) -> _Period:
-    """Token ``dd_dd_mm_rrrr``: wtorek, poniedziałek, miesiąc i rok jednego z tych dni."""
-
-    match = _PERIOD_TOKEN.fullmatch(token)
-    if match is None:
-        raise messages.invalid_period_token(token)
-    tuesday_day, monday_day, month, year = (int(part) for part in match.groups())
-    candidates: list[date] = []
+def _parse_period(token: str) -> SettlementPeriod:
     try:
-        candidates.append(date(year, month, tuesday_day))
-    except ValueError:
-        pass
-    try:
-        candidates.append(date(year, month, monday_day) - timedelta(days=6))
-    except ValueError:
-        pass
-    for tuesday in candidates:
-        monday = tuesday + timedelta(days=6)
-        if tuesday.weekday() == 1 and tuesday.day == tuesday_day and monday.day == monday_day:
-            start = datetime(tuesday.year, tuesday.month, tuesday.day)
-            return _Period(token, start, start + timedelta(days=7))
-    raise messages.invalid_period_token(token)
+        return parse_period_token(token)
+    except ValueError as exc:
+        raise messages.invalid_period_token(token) from exc
 
 
 def _is_blank(value: object) -> bool:
@@ -337,7 +312,7 @@ def _unknown_workers(
     return list(unknown.values())
 
 
-def _period_sheet(register_path: Path, sheets: Sequence[_RegisterSheet], period: _Period) -> _RegisterSheet:
+def _period_sheet(register_path: Path, sheets: Sequence[_RegisterSheet], period: SettlementPeriod) -> _RegisterSheet:
     """Jedyny arkusz Rejestru ze zleceniami okresu; bez takiego arkusza pierwszy arkusz ze zleceniami."""
 
     def has_period_orders(sheet: _RegisterSheet) -> bool:
@@ -356,7 +331,7 @@ def _period_sheet(register_path: Path, sheets: Sequence[_RegisterSheet], period:
 def _plan(
     register_path: Path,
     register: _RegisterSheet,
-    period: _Period,
+    period: SettlementPeriod,
     config_path: Path,
     worker_mapping: Mapping[str, str],
 ) -> _Plan:
@@ -444,6 +419,16 @@ def _collective_warnings(
             _COLLECTIVE_DATA_START_ROW + zero_row_count,
         )
     ]
+
+
+def _period_warnings(register_path: Path, sheet: str, plan: _Plan) -> list[PreparationMessage]:
+    """Ostrzeżenie o niepełnym okresie, gdy żadne zlecenie okresu nie jest z poniedziałku."""
+
+    monday = plan.period.monday
+    last_order_day = max(order.started.date() for order in plan.orders)
+    if last_order_day >= monday:
+        return []
+    return [messages.incomplete_period(register_path, sheet, plan.period.token, last_order_day, monday)]
 
 
 def _worksheet(workbook: Workbook) -> Worksheet:
@@ -653,7 +638,7 @@ def prepare_collective_file(
     period_directory = periods_directory / period
     filenames = (_internal_settlement_filename(period), _collective_filename(period))
 
-    def check_inputs() -> tuple[_Period, dict[str, str]]:
+    def check_inputs() -> tuple[SettlementPeriod, dict[str, str]]:
         parsed_period = _parse_period(period)
         _ensure_register_available(register_path)
         _check_template(internal_template_path, _INTERNAL_HEADER_ROW, None)
@@ -675,6 +660,7 @@ def prepare_collective_file(
         sheet = _period_sheet(register_path, register, parsed_period)
         plan = _plan(register_path, sheet, parsed_period, config_path, worker_mapping)
         warnings = _collective_warnings(collective_template_path, filenames[1], len(plan.successful_orders))
+        warnings.extend(_period_warnings(register_path, sheet.name, plan))
         return plan, warnings
 
     plan, warnings = phases.run(ProgressPhase.PLANNING, plan_orders)

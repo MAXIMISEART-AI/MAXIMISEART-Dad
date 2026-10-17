@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -244,7 +244,19 @@ def test_failed_save_of_second_file_publishes_neither_file_nor_folder_okresu(
     assert list(fixture.periods_directory.iterdir()) == []
 
 
-@pytest.mark.parametrize("token", ["8_14_09_2026", "09_15_09_2026", "08_15_09_2026", "okres"])
+@pytest.mark.parametrize(
+    "token",
+    [
+        "8_14_09_2026",
+        "09_15_09_2026",
+        "08_15_09_2026",
+        "okres",
+        "../14_09_2026",
+        # Na przełomie miesięcy i lat miesiąc i rok tokenu są z poniedziałku, nie z wtorku.
+        "29_05_09_2026",
+        "29_04_12_2026",
+    ],
+)
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
@@ -255,19 +267,25 @@ def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token
     assert list(fixture.periods_directory.iterdir()) == []
 
 
-@pytest.mark.parametrize("token", ["29_05_09_2026", "29_05_10_2026"])
-def test_period_crossing_months_accepts_month_of_tuesday_or_monday(tmp_path: Path, token: str) -> None:
+@pytest.mark.parametrize(
+    ("token", "tuesday"),
+    [("29_05_10_2026", datetime(2026, 9, 29)), ("29_04_01_2027", datetime(2026, 12, 29))],
+)
+def test_period_crossing_month_or_year_takes_month_and_year_of_monday(
+    tmp_path: Path, token: str, tuesday: datetime
+) -> None:
     rows: list[RegisterRow] = [
-        register_order(1, datetime(2026, 9, 28, 23, 59)),
-        register_order(2, datetime(2026, 9, 29, 8, 0)),
-        register_order(3, datetime(2026, 10, 5, 23, 59)),
-        register_order(4, datetime(2026, 10, 6, 0, 0)),
+        register_order(1, tuesday - timedelta(minutes=1)),
+        register_order(2, tuesday + timedelta(hours=8)),
+        register_order(3, tuesday + timedelta(days=7, minutes=-1)),
+        register_order(4, tuesday + timedelta(days=7)),
     ]
     fixture = make_preparation_fixture(tmp_path, rows)
 
     summary = run_preparation(fixture, token)
 
     assert summary.period_order_count == 2
+    assert list(summary.orders_per_day)[0] == tuesday.date()
     assert (fixture.periods_directory / token / f"Rozliczenie wew. {token}.xlsx").is_file()
 
 
@@ -690,9 +708,9 @@ def test_worker_outside_worker_config_in_unsuccessful_order_does_not_stop(tmp_pa
 def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_files(tmp_path: Path) -> None:
     successful_count = COLLECTIVE_TEMPLATE_ZERO_ROWS + 2
     rows: list[RegisterRow] = [
-        register_order(number, datetime(2026, 9, 8, 8, number)) for number in range(1, successful_count + 1)
+        register_order(number, datetime(2026, 9, 14, 8, number)) for number in range(1, successful_count + 1)
     ]
-    rows.insert(3, register_order(99, datetime(2026, 9, 8, 9, 0), successful="nie"))
+    rows.insert(3, register_order(99, datetime(2026, 9, 14, 9, 0), successful="nie"))
     fixture = make_preparation_fixture(tmp_path, rows)
 
     summary = run_preparation(fixture)
@@ -714,7 +732,7 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
 
 def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_path: Path) -> None:
     rows: list[RegisterRow] = [
-        register_order(number, datetime(2026, 9, 8, 8, number))
+        register_order(number, datetime(2026, 9, 14, 8, number))
         for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 1)
     ]
     fixture = make_preparation_fixture(tmp_path, rows)
@@ -726,7 +744,7 @@ def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_pa
 
 def test_dry_run_plan_contains_the_same_warnings_and_writes_nothing(tmp_path: Path) -> None:
     rows: list[RegisterRow] = [
-        register_order(number, datetime(2026, 9, 8, 8, number))
+        register_order(number, datetime(2026, 9, 14, 8, number))
         for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
     ]
     fixture = make_preparation_fixture(tmp_path, rows)
@@ -734,5 +752,58 @@ def test_dry_run_plan_contains_the_same_warnings_and_writes_nothing(tmp_path: Pa
     plan = run_preparation(fixture, dry_run=True)
 
     assert [warning.code for warning in plan.warnings] == ["MALO_WIERSZY_Z_ZERAMI"]
-    assert plan.orders_per_day[date(2026, 9, 8)] == COLLECTIVE_TEMPLATE_ZERO_ROWS + 1
+    assert plan.orders_per_day[date(2026, 9, 14)] == COLLECTIVE_TEMPLATE_ZERO_ROWS + 1
     assert list(fixture.periods_directory.iterdir()) == []
+
+
+def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_day(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 8, 8, 0)),
+        None,
+        register_order(2, datetime(2026, 9, 12, 23, 59), successful="nie"),
+        register_order(3, datetime(2026, 9, 10, 9, 0)),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    plan = run_preparation(fixture, dry_run=True)
+
+    assert [warning.text for warning in plan.warnings] == [
+        "Co się stało: Ostatnie zlecenie okresu jest z soboty 12.09.2026, a okres kończy się w poniedziałek "
+        "14.09.2026. Rejestr zleceń może nie mieć jeszcze wszystkich zleceń tego okresu.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, okres {PERIOD}\n"
+        "Co zrobić: Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport "
+        "w Rejestrze zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj."
+    ]
+    assert plan.warnings[0].code == "NIEPELNY_OKRES"
+    assert plan.orders_per_day == {
+        date(2026, 9, 8): 1,
+        date(2026, 9, 9): 0,
+        date(2026, 9, 10): 1,
+        date(2026, 9, 11): 0,
+        date(2026, 9, 12): 1,
+        date(2026, 9, 13): 0,
+        date(2026, 9, 14): 0,
+    }
+    assert list(fixture.periods_directory.iterdir()) == []
+
+
+def test_incomplete_period_warning_does_not_block_creating_both_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path, [register_order(1, datetime(2026, 9, 13, 23, 59))])
+
+    summary = run_preparation(fixture)
+
+    assert [warning.code for warning in summary.warnings] == ["NIEPELNY_OKRES"]
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+
+
+def test_order_on_monday_anywhere_in_rejestr_means_full_period(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 14, 0, 0)),
+        register_order(2, datetime(2026, 9, 9, 8, 0)),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    plan = run_preparation(fixture, dry_run=True)
+
+    assert plan.warnings == []

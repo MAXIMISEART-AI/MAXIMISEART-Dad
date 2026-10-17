@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 
@@ -66,7 +67,10 @@ def invalid_period_token(token: str) -> PreparationError:
             code="ZLY_TOKEN_OKRESU",
             what="Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.",
             where=f"okres {token!r}",
-            action="Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026).",
+            action=(
+                "Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). "
+                "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 29_05_10_2026."
+            ),
         )
     )
 
@@ -425,6 +429,31 @@ def too_few_zero_rows(
         action=(
             "Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
             "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
+        ),
+    )
+
+
+INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
+# Dzień tygodnia w dopełniaczu, z przyimkiem (``date.weekday()``: 0 = poniedziałek).
+_FROM_WEEKDAY = ("z poniedziałku", "z wtorku", "ze środy", "z czwartku", "z piątku", "z soboty", "z niedzieli")
+
+
+def incomplete_period(
+    register_path: Path, sheet: str, period: str, last_order_day: date, monday: date
+) -> PreparationMessage:
+    """Ostrzeżenie: ostatnie zlecenie okresu jest sprzed poniedziałku okresu."""
+
+    return PreparationMessage(
+        code=INCOMPLETE_PERIOD,
+        what=(
+            f"Ostatnie zlecenie okresu jest {_FROM_WEEKDAY[last_order_day.weekday()]} {last_order_day:%d.%m.%Y}, "
+            f"a okres kończy się w poniedziałek {monday:%d.%m.%Y}. Rejestr zleceń może nie mieć jeszcze "
+            "wszystkich zleceń tego okresu."
+        ),
+        where=f"{_register_location(register_path, sheet)}, okres {period}",
+        action=(
+            "Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport w Rejestrze "
+            "zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj."
         ),
     )
 

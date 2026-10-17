@@ -353,7 +353,7 @@ def test_interactive_rich_dashboard_uses_shared_projection_without_szablony_prac
 
 def test_cli_shows_zero_rows_warning_in_summary_and_exits_0(tmp_path: Path) -> None:
     rows: list[RegisterRow] = [
-        register_order(number, datetime(2026, 9, 8, 8, number))
+        register_order(number, datetime(2026, 9, 14, 8, number))
         for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
     ]
     fixture = make_preparation_fixture(tmp_path, rows)
