@@ -11,12 +11,20 @@ import os
 import re
 import tempfile
 from collections.abc import Mapping, Sequence
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection
+from openpyxl.styles.colors import Color
+from openpyxl.styles.fills import Fill
+from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from . import preparation_messages as messages
@@ -102,10 +110,28 @@ class _Period:
 
 
 @dataclass(frozen=True)
+class _CellFormat:
+    """Wyróżnienia komórki Rejestru przenoszone do plików okresu.
+
+    Krój i rozmiar czcionki celowo nie są tu przechowywane: pochodzą z wzorca.
+    """
+
+    fill: Fill | None
+    color: Color | None
+    bold: bool
+    italic: bool
+    number_format: str
+
+
+_PLAIN_CELL = _CellFormat(fill=None, color=None, bold=False, italic=False, number_format="General")
+
+
+@dataclass(frozen=True)
 class _RegisterOrder:
     row_number: int
     values: tuple[object, ...]  # w kolejności ``_COLUMNS``
     started: datetime
+    formats: tuple[_CellFormat, ...] = ()  # w kolejności ``_COLUMNS``; puste: bez wyróżnień
 
     @property
     def is_successful(self) -> bool:
@@ -116,6 +142,7 @@ class _RegisterOrder:
 class _RegisterSheet:
     name: str
     rows: list[tuple[int, tuple[object, ...] | None]]  # ``None``: całkowicie pusty wiersz
+    formats: dict[int, tuple[_CellFormat, ...]] = field(default_factory=dict)  # po numerze wiersza
 
 
 @dataclass(frozen=True)
@@ -195,6 +222,21 @@ def _header_columns(values: Sequence[object]) -> dict[str, int]:
     }
 
 
+def _cell_format(cell: object) -> _CellFormat:
+    """Wyróżnienia komórki Rejestru; brakująca komórka nie ma żadnych."""
+
+    font = getattr(cell, "font", None)
+    fill = getattr(cell, "fill", None)
+    number_format = getattr(cell, "number_format", None)
+    return _CellFormat(
+        fill=fill,
+        color=font.color if font is not None else None,
+        bold=bool(font.b) if font is not None else False,
+        italic=bool(font.i) if font is not None else False,
+        number_format=number_format or _PLAIN_CELL.number_format,
+    )
+
+
 def _read_register(register_path: Path) -> _RegisterSheet:
     """Czyta arkusz Rejestru rozpoznany po komplecie wymaganych nagłówków w pierwszym wierszu."""
 
@@ -207,11 +249,18 @@ def _read_register(register_path: Path) -> _RegisterSheet:
             if any(position is None for position in positions):
                 continue
             rows: list[tuple[int, tuple[object, ...] | None]] = []
+            formats: dict[int, tuple[_CellFormat, ...]] = {}
             for row_number, cells in enumerate(sheet.iter_rows(min_row=2), start=2):
                 values = [getattr(cell, "value", None) for cell in cells]
                 if all(_is_blank(value) for value in values):
                     rows.append((row_number, None))
                     continue
+                formats[row_number] = tuple(
+                    _cell_format(cells[position - 1])
+                    if position is not None and position <= len(cells)
+                    else _PLAIN_CELL
+                    for position in positions
+                )
                 rows.append(
                     (
                         row_number,
@@ -221,7 +270,7 @@ def _read_register(register_path: Path) -> _RegisterSheet:
                         ),
                     )
                 )
-            return _RegisterSheet(sheet.title, rows)
+            return _RegisterSheet(sheet.title, rows, formats)
     finally:
         workbook.close()
     raise messages.register_without_data_sheet(register_path)
@@ -279,7 +328,7 @@ def _plan(
         if started is not None and in_period:
             if previous_in_period:
                 skipped_empty_rows += pending_empty_rows
-            orders.append(_RegisterOrder(row_number, values, started))
+            orders.append(_RegisterOrder(row_number, values, started, register.formats.get(row_number, ())))
         previous_in_period = in_period
         pending_empty_rows = 0
     if not orders:
@@ -370,10 +419,54 @@ def _target_columns(
     return positions
 
 
+def _apply_template_style(sheet: Worksheet, cell: Cell) -> None:
+    """Komórka bez własnego stylu we wzorcu dostaje styl swojej kolumny, tak jak przy wpisaniu w Excelu."""
+
+    if cell.has_style:
+        return
+    for dimension in sheet.column_dimensions.values():
+        if dimension.min is not None and dimension.max is not None and dimension.min <= cell.column <= dimension.max:
+            if dimension.has_style:
+                cell.font = cast(Font, copy(dimension.font))
+                cell.border = cast(Border, copy(dimension.border))
+                cell.alignment = cast(Alignment, copy(dimension.alignment))
+                cell.protection = cast(Protection, copy(dimension.protection))
+            return
+
+
+def _apply_register_format(cell: Cell, cell_format: _CellFormat) -> None:
+    """Wyróżnienia i format liczby z Rejestru; krój i rozmiar czcionki zostają z wzorca."""
+
+    font = cast(Font, copy(cell.font))
+    font.color = copy(cell_format.color)
+    font.b = cell_format.bold
+    font.i = cell_format.italic
+    cell.font = font
+    cell.fill = copy(cell_format.fill) if cell_format.fill is not None else PatternFill()
+    cell.number_format = cell_format.number_format
+
+
 def _write_orders(sheet: Worksheet, positions: list[int], orders: list[_RegisterOrder], first_row: int) -> None:
     for row, order in enumerate(orders, start=first_row):
-        for position, value in zip(positions, order.values):
-            sheet.cell(row, position).value = value  # type: ignore[assignment]
+        formats = order.formats or (_PLAIN_CELL,) * len(positions)
+        for position, value, cell_format in zip(positions, order.values, formats):
+            cell = sheet.cell(row, position)
+            if not isinstance(cell, Cell):
+                raise ValueError("Komórka danych wzorca jest scalona.")
+            _apply_template_style(sheet, cell)
+            cell.value = value  # type: ignore[assignment]
+            _apply_register_format(cell, cell_format)
+
+
+def _set_autofilter(sheet: Worksheet, header_row: int, order_count: int) -> None:
+    """Autofiltr na nagłówek i faktyczne wiersze danych; zakres zapisany we wzorcu jest ignorowany."""
+
+    header_columns = [
+        column for column, cell in enumerate(sheet[header_row], start=1) if not _is_blank(cell.value)
+    ]
+    first_column = get_column_letter(min(header_columns))
+    last_column = get_column_letter(max(header_columns))
+    sheet.auto_filter = AutoFilter(ref=f"{first_column}{header_row}:{last_column}{header_row + order_count}")
 
 
 def _write_internal_settlement(template_path: Path, target: Path, orders: list[_RegisterOrder]) -> None:
@@ -383,6 +476,7 @@ def _write_internal_settlement(template_path: Path, target: Path, orders: list[_
         header = [cell.value for cell in sheet[_INTERNAL_HEADER_ROW]]
         positions = _target_columns(template_path, sheet, header)
         _write_orders(sheet, positions, orders, _INTERNAL_HEADER_ROW + 1)
+        _set_autofilter(sheet, _INTERNAL_HEADER_ROW, len(orders))
         workbook_files.save_workbook(workbook, target, external_links_from=template_path)
     finally:
         workbook.close()
@@ -398,6 +492,7 @@ def _write_collective_file(template_path: Path, target: Path, orders: list[_Regi
         ]
         positions = _target_columns(template_path, sheet, header)
         _write_orders(sheet, positions, orders, _COLLECTIVE_DATA_START_ROW)
+        _set_autofilter(sheet, _COLLECTIVE_HEADER_ROW, len(orders))
         calculation = getattr(workbook, "calculation", None)
         if calculation is not None:
             calculation.calcMode = "auto"

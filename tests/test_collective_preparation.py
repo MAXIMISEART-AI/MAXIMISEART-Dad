@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 import pytest
 
 from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState
@@ -376,6 +377,174 @@ def test_failing_observer_is_detached_and_does_not_change_result_or_files(tmp_pa
     assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
     assert fixture.internal_settlement_path.is_file()
     assert fixture.collective_file_path.is_file()
+
+
+def cell_formats(path: Path, coordinates: list[str]) -> dict[str, tuple[object, ...]]:
+    """Wypełnienie, kolor czcionki, pogrubienie i kursywa wskazanych komórek."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        formats: dict[str, tuple[object, ...]] = {}
+        for coordinate in coordinates:
+            cell = sheet[coordinate]
+            fill = cell.fill.fgColor.rgb if cell.fill.fill_type == "solid" else None
+            # Kolor motywu (domyślny tekst) nie jest wyróżnieniem.
+            color = cell.font.color.rgb if cell.font.color is not None and cell.font.color.type == "rgb" else None
+            formats[coordinate] = (fill, color, bool(cell.font.b), bool(cell.font.i))
+        return formats
+    finally:
+        workbook.close()
+
+
+def test_highlights_from_rejestr_reach_both_files_and_plain_cells_get_none(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    # Zlecenie 2: ADRES wyróżniony; zlecenie 4: WYKONAWCA kursywą; reszta bez wyróżnień.
+    assert cell_formats(fixture.internal_settlement_path, ["C2", "H4", "B2", "C3", "H2"]) == {
+        "C2": ("FFFFFF00", "FFC00000", True, False),
+        "H4": (None, None, False, True),
+        "B2": (None, None, False, False),
+        "C3": (None, None, False, False),
+        "H2": (None, None, False, False),
+    }
+    assert cell_formats(fixture.collective_file_path, ["B18", "H19", "A18", "B19", "H18"]) == {
+        "B18": ("FFFFFF00", "FFC00000", True, False),
+        "H19": (None, None, False, True),
+        "A18": (None, None, False, False),
+        "B19": (None, None, False, False),
+        "H18": (None, None, False, False),
+    }
+
+
+def data_fonts(path: Path, *, min_row: int, max_row: int, max_col: int) -> set[tuple[object, object]]:
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        return {
+            (cell.font.name, cell.font.sz)
+            for row in sheet.iter_rows(min_row=min_row, max_row=max_row, max_col=max_col)
+            for cell in row
+        }
+    finally:
+        workbook.close()
+
+
+def test_data_rows_take_font_face_and_size_from_wzorzec_not_rejestr(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    # Rejestr: Arial 8; wzorce: Calibri 10.
+    assert data_fonts(fixture.internal_settlement_path, min_row=2, max_row=5, max_col=11) == {("Calibri", 10)}
+    assert data_fonts(fixture.collective_file_path, min_row=18, max_row=20, max_col=11) == {("Calibri", 10)}
+
+
+def test_data_column_keeps_date_format_from_rejestr(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    internal = load_workbook(fixture.internal_settlement_path)
+    collective = load_workbook(fixture.collective_file_path)
+    try:
+        internal_dates = [active_worksheet(internal).cell(row, 1) for row in range(2, 6)]
+        collective_dates = [active_worksheet(collective).cell(row, 7) for row in range(18, 21)]
+        assert {
+            (type(cell.value), cell.number_format) for cell in internal_dates + collective_dates
+        } == {(datetime, "dd.mm.yyyy hh:mm")}
+    finally:
+        internal.close()
+        collective.close()
+
+
+def sheet_layout(path: Path, *, header_row: int, max_col: int) -> dict[str, object]:
+    """Szerokości kolumn, wysokości wierszy, nagłówek z formatowaniem i blokada wierszy."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        return {
+            "widths": [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, max_col + 1)],
+            "heights": [sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
+            "header": [
+                (cell.value, cell.font.name, cell.font.sz, cell.font.b, cell.fill.fgColor.rgb)
+                for cell in sheet[header_row][:max_col]
+            ],
+            "freeze_panes": sheet.freeze_panes,
+        }
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize("kind", ["internal", "collective"])
+def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind: str) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    if kind == "internal":
+        template, created, header_row = fixture.internal_template_path, fixture.internal_settlement_path, 1
+    else:
+        template, created, header_row = fixture.collective_template_path, fixture.collective_file_path, 17
+    expected = sheet_layout(template, header_row=header_row, max_col=47)
+    assert expected["freeze_panes"] == f"A{header_row + 1}"
+    assert sheet_layout(created, header_row=header_row, max_col=47) == expected
+
+
+def test_plik_zbiorczy_columns_outside_a_to_k_keep_wzorzec_formatting(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    def formats(path: Path) -> list[tuple[object, ...]]:
+        workbook = load_workbook(path)
+        try:
+            sheet = active_worksheet(workbook)
+            return [
+                (cell.coordinate, cell.fill.fill_type, cell.fill.fgColor.rgb, cell.number_format, cell.font.name)
+                for row in sheet.iter_rows(min_row=18, max_row=24, min_col=12, max_col=47)
+                for cell in row
+            ]
+        finally:
+            workbook.close()
+
+    expected = formats(fixture.collective_template_path)
+    assert ("N18", "solid", "FFCCE5FF", "0", "Calibri") in expected
+    assert formats(fixture.collective_file_path) == expected
+
+
+def autofilter_range(path: Path) -> str | None:
+    workbook = load_workbook(path)
+    try:
+        ref: str | None = active_worksheet(workbook).auto_filter.ref
+        return ref
+    finally:
+        workbook.close()
+
+
+def test_autofilter_covers_header_and_last_order_row_in_both_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+
+    run_preparation(fixture)
+
+    # Wzorce mają zakres B:C do wiersza +40, który ma zostać zignorowany.
+    # Rozliczenie wewnętrzne: nagłówki A:M i 4 zlecenia okresu.
+    assert autofilter_range(fixture.internal_settlement_path) == "A1:M5"
+    # Plik zbiorczy: nagłówki wiersza 17 od A do AP i 3 Zlecenia skuteczne.
+    assert autofilter_range(fixture.collective_file_path) == "A17:AP20"
+
+
+def test_autofilter_covers_only_header_when_period_has_no_zlecenia_skuteczne(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [register_order(1, datetime(2026, 9, 9, 10, 0), successful="nie")]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    run_preparation(fixture)
+
+    assert autofilter_range(fixture.internal_settlement_path) == "A1:M2"
+    assert autofilter_range(fixture.collective_file_path) == "A17:AP17"
 
 
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
