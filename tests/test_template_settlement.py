@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-import zipfile
 
 import pytest
 from openpyxl import Workbook, load_workbook
 
-import rozliczenia.template_settlement as template_settlement
+import rozliczenia.workbook_files as workbook_files
 from rozliczenia.template_settlement import ExcelRow, TemplateWriteError, process_template
 
 from tests.test_settlement_engine import PERIOD, active_worksheet, write_template
@@ -47,15 +46,10 @@ def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_zapisu(
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     before = target_path.read_bytes()
 
-    def fail_write(
-        path: Path,
-        workbook: Workbook,
-        rows: list[ExcelRow],
-        external_link_parts: dict[str, tuple[zipfile.ZipInfo, bytes]],
-    ) -> None:
-        raise OSError("synthetic write failure")
+    def fail_write(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+        raise workbook_files.WorkbookSaveError("synthetic write failure")
 
-    monkeypatch.setattr(template_settlement, "_write_workbook", fail_write)
+    monkeypatch.setattr(workbook_files, "save_workbook", fail_write)
 
     with pytest.raises(TemplateWriteError):
         process_template("Adrian Maciejewski", target_path, [("row",)])
@@ -70,10 +64,10 @@ def test_przetworzenie_szablonu_pracownika_przerywa_po_bledzie_snapshotu_linkow(
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     before = target_path.read_bytes()
 
-    def fail_snapshot(path: Path) -> dict[str, tuple[zipfile.ZipInfo, bytes]]:
-        raise OSError("synthetic external link snapshot failure")
+    def fail_snapshot(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+        raise workbook_files.ExternalLinksError("synthetic external link snapshot failure")
 
-    monkeypatch.setattr(template_settlement, "_external_link_parts", fail_snapshot)
+    monkeypatch.setattr(workbook_files, "save_workbook", fail_snapshot)
 
     with pytest.raises(TemplateWriteError):
         process_template("Adrian Maciejewski", target_path, synthetic_rows())

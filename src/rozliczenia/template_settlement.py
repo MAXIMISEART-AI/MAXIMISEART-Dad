@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 import zipfile
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -18,8 +16,8 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from . import workbook_files
 from .domain import Issue, WorkerResult
-from .workbook_files import is_open_in_excel
 
 
 _HEADER_ROW = 17
@@ -44,7 +42,6 @@ ExcelCellValue = (
     | None
 )
 ExcelRow = tuple[ExcelCellValue, ...]
-ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 
 
 class TemplateWriteError(Exception):
@@ -79,7 +76,7 @@ def validate_placeholder(path: Path) -> None:
 
     if not path.is_file():
         raise PlaceholderValidationError("Nie znaleziono Placeholdera.")
-    if is_open_in_excel(path):
+    if workbook_files.is_open_in_excel(path):
         raise PlaceholderValidationError("Placeholder jest otwarty lub zablokowany.")
     try:
         workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
@@ -104,49 +101,7 @@ def _active_worksheet(workbook: Workbook) -> Worksheet | None:
     return sheet if isinstance(sheet, Worksheet) else None
 
 
-def _external_link_parts(path: Path) -> ExternalLinkParts:
-    """Pobiera oryginalne relacje zewnętrzne, których openpyxl nie zapisuje 1:1."""
-
-    with zipfile.ZipFile(path, "r") as archive:
-        return {
-            info.filename: (info, archive.read(info.filename))
-            for info in archive.infolist()
-            if info.filename.startswith("xl/externalLinks/")
-        }
-
-
-def _restore_external_link_parts(
-    path: Path,
-    parts: ExternalLinkParts,
-) -> None:
-    """Przywraca cały fragment externalLinks bez zmiany arkuszy i danych."""
-
-    if not parts:
-        return
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.stem}.links.", suffix=".xlsx", dir=path.parent
-    )
-    os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        with zipfile.ZipFile(path, "r") as source, zipfile.ZipFile(temporary_path, "w") as target:
-            for info in source.infolist():
-                if info.filename.startswith("xl/externalLinks/"):
-                    continue
-                target.writestr(info, source.read(info.filename))
-            for info, data in parts.values():
-                target.writestr(info, data)
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
-def _write_workbook(
-    path: Path,
-    workbook: Workbook,
-    rows: list[ExcelRow],
-    external_link_parts: ExternalLinkParts,
-) -> None:
+def _write_workbook(path: Path, workbook: Workbook, rows: list[ExcelRow]) -> None:
     sheet = _active_worksheet(workbook)
     if sheet is None:
         raise ValueError("Szablon nie zawiera arkusza roboczego.")
@@ -160,17 +115,7 @@ def _write_workbook(
         calculation.fullCalcOnLoad = True
         calculation.forceFullCalc = True
 
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.stem}.", suffix=".xlsx", dir=path.parent
-    )
-    os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        workbook.save(temporary_path)
-        _restore_external_link_parts(temporary_path, external_link_parts)
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+    workbook_files.save_workbook(workbook, path)
 
 
 def process_template(
@@ -181,7 +126,7 @@ def process_template(
     """Przetwarza jeden Szablon pracownika i zwraca jego bezpieczny wynik."""
 
     rows = list(rows)
-    if is_open_in_excel(target_path):
+    if workbook_files.is_open_in_excel(target_path):
         issue = Issue("PLIK_ZABLOKOWANY", f"Plik jest otwarty lub zablokowany: {target_path.name}")
         return WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,))
     try:
@@ -201,9 +146,14 @@ def process_template(
                 return WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
 
             try:
-                external_link_parts = _external_link_parts(target_path)
-                _write_workbook(target_path, workbook, rows, external_link_parts)
-            except (OSError, InvalidFileException, ValueError, zipfile.BadZipFile) as exc:
+                _write_workbook(target_path, workbook, rows)
+            except (
+                workbook_files.WorkbookSaveError,
+                OSError,
+                InvalidFileException,
+                ValueError,
+                zipfile.BadZipFile,
+            ) as exc:
                 raise TemplateWriteError(f"Nie można zapisać szablonu: {target_path.name}") from exc
             return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO")
         finally:
