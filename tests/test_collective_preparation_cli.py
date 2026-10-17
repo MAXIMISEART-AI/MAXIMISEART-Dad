@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import NoReturn
@@ -11,10 +12,13 @@ from rozliczenia.preparation_cli import main
 
 from tests.collective_preparation_fixtures import (
     COLLECTIVE_FILE_NAME,
+    COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
     PreparationFixture,
+    RegisterRow,
     make_preparation_fixture,
+    register_order,
 )
 
 
@@ -98,3 +102,26 @@ def test_cli_unexpected_error_hides_exception_text_and_exits_1(
     assert "SYN-" not in output
     assert "Traceback" not in output
     assert list(fixture.periods_directory.iterdir()) == []
+
+
+def test_cli_shows_zero_rows_warning_after_summary_and_exits_0(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 8, 8, number))
+        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    exit_code, output = run_preparation_cli(fixture)
+
+    assert exit_code == 0
+    lines = output.splitlines()
+    assert lines[1] == "Status końcowy: OK"
+    assert lines[7:] == [
+        "Ostrzeżenie:",
+        "Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
+        "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.",
+        f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersz 24",
+        "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
+        "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.",
+    ]
+    assert "SYN-" not in output

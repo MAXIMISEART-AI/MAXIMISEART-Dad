@@ -296,6 +296,139 @@ def periods_directory_missing(periods_directory: Path) -> PreparationError:
     )
 
 
+_LISTED_ROWS = 10
+
+
+def _rows_label(row_numbers: Sequence[int]) -> str:
+    """Numery wierszy Rejestru; przy długiej liście tylko pierwsze i liczba pozostałych."""
+
+    if len(row_numbers) == 1:
+        return f"wiersz {row_numbers[0]}"
+    listed = ", ".join(str(row) for row in row_numbers[:_LISTED_ROWS])
+    rest = len(row_numbers) - _LISTED_ROWS
+    return f"wiersze {listed}" + (f" i {rest} kolejnych" if rest > 0 else "")
+
+
+def _register_location(register_path: Path, sheet: str) -> str:
+    return f"plik {register_path.name}, arkusz {sheet}"
+
+
+def rows_without_date(register_path: Path, sheet: str, row_numbers: Sequence[int]) -> PreparationError:
+    """Wiersz z danymi bez poprawnej daty leży między pierwszym a ostatnim zleceniem okresu."""
+
+    subject = "jest wiersz z danymi" if len(row_numbers) == 1 else "są wiersze z danymi"
+    return PreparationError(
+        PreparationMessage(
+            code="WIERSZ_BEZ_DATY",
+            what=(
+                f"Między zleceniami okresu {subject} bez poprawnej daty w kolumnie DATA GODZ. POCZ. "
+                "Nie utworzono żadnego pliku."
+            ),
+            where=f"{_register_location(register_path, sheet)}, {_rows_label(row_numbers)}",
+            action=(
+                "Wpisz poprawną datę w kolumnie DATA GODZ. POCZ. we wskazanych wierszach Rejestru zleceń "
+                "albo wyczyść wiersz, jeśli jest zbędny. Zapisz i zamknij Rejestr, i uruchom ponownie."
+            ),
+        )
+    )
+
+
+def invalid_successful_values(register_path: Path, sheet: str, row_numbers: Sequence[int]) -> PreparationError:
+    """Zlecenie okresu ma puste ``SKUTECZNE`` albo wartość inną niż ``tak``/``nie``."""
+
+    subject = "Zlecenie okresu ma" if len(row_numbers) == 1 else "Zlecenia okresu mają"
+    return PreparationError(
+        PreparationMessage(
+            code="ZLE_SKUTECZNE",
+            what=(
+                f"{subject} puste albo nieznane SKUTECZNE (dozwolone: tak, nie). "
+                "Nie utworzono żadnego pliku."
+            ),
+            where=f"{_register_location(register_path, sheet)}, {_rows_label(row_numbers)}",
+            action=(
+                "Wpisz tak albo nie w kolumnie SKUTECZNE we wskazanych wierszach Rejestru zleceń. "
+                "Zapisz i zamknij Rejestr, i uruchom ponownie."
+            ),
+        )
+    )
+
+
+def unknown_workers(
+    register_path: Path,
+    sheet: str,
+    config_path: Path,
+    workers: Sequence[tuple[str, Sequence[int]]],
+) -> PreparationError:
+    """Zlecenie skuteczne ma wykonawcę spoza konfiguracji wykonawców Przebiegu rozliczeń.
+
+    ``workers`` to pary: identyfikator wykonawcy i numery wierszy Rejestru z tym wykonawcą.
+    """
+
+    identifiers = ", ".join(identifier for identifier, _ in workers)
+    subject = (
+        "Zlecenie skuteczne ma wykonawcę"
+        if len(workers) == 1 and len(workers[0][1]) == 1
+        else "Zlecenia skuteczne mają wykonawców"
+    )
+    rows = "; ".join(f"{identifier}: {_rows_label(row_numbers)}" for identifier, row_numbers in workers)
+    return PreparationError(
+        PreparationMessage(
+            code="NIEZNANY_WYKONAWCA",
+            what=f"{subject} spoza konfiguracji wykonawców: {identifiers}. Nie utworzono żadnego pliku.",
+            where=f"{_register_location(register_path, sheet)}, {rows}",
+            action=(
+                f"Dopisz identyfikator wykonawcy do konfiguracji wykonawców ({config_path.name}), "
+                "tej samej co w Przebiegu rozliczeń, albo popraw WYKONAWCA we wskazanych wierszach "
+                "Rejestru zleceń. Zapisz i zamknij Rejestr, i uruchom ponownie."
+            ),
+        )
+    )
+
+
+def no_period_orders(register_path: Path, sheet: str, period: str) -> PreparationError:
+    """W Rejestrze nie ma żadnego zlecenia z wybranego okresu."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="BRAK_ZLECEN_OKRESU",
+            what="W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu. Nie utworzono żadnego pliku.",
+            where=f"{_register_location(register_path, sheet)}, okres {period}",
+            action=(
+                "Sprawdź, czy wybrano właściwy okres i czy eksport zleceń do Rejestru został "
+                "zrobiony i zapisany, i uruchom ponownie."
+            ),
+        )
+    )
+
+
+def too_few_zero_rows(
+    collective_filename: str,
+    successful_count: int,
+    zero_row_count: int,
+    first_row_without_zeros: int,
+) -> PreparationMessage:
+    """Ostrzeżenie: Zleceń skutecznych jest więcej niż wierszy Wzorca pliku zbiorczego z zerami."""
+
+    last_row = first_row_without_zeros + successful_count - zero_row_count - 1
+    rows = (
+        f"wiersz {last_row}"
+        if last_row == first_row_without_zeros
+        else f"wiersze {first_row_without_zeros}–{last_row}"
+    )
+    return PreparationMessage(
+        code="MALO_WIERSZY_Z_ZERAMI",
+        what=(
+            f"Zleceń skutecznych: {successful_count}, wierszy przygotowanych zerami we Wzorcu pliku "
+            f"zbiorczego: {zero_row_count}. Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości."
+        ),
+        where=f"plik {collective_filename}, {rows}",
+        action=(
+            "Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
+            "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
+        ),
+    )
+
+
 def write_failed(period_directory: Path) -> PreparationError:
     """Zapis lub publikacja plików okresu nie powiodły się."""
 

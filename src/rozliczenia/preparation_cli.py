@@ -53,6 +53,9 @@ def _print_summary(output: TextIO, summary: PreparationSummary) -> None:
     print(f"Pominięte puste wiersze: {summary.skipped_empty_rows}", file=output)
     print(f"Rozliczenie wewnętrzne: {summary.internal_settlement_file.name}", file=output)
     print(f"Plik zbiorczy: {summary.collective_file.name}", file=output)
+    for warning in summary.warnings:
+        print("Ostrzeżenie:", file=output)
+        print(warning.text, file=output)
 
 
 def _print_stop(output: TextIO, status: str, message: PreparationMessage) -> None:
