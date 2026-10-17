@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from io import StringIO
 import json
 import os
@@ -16,10 +17,13 @@ from rozliczenia.telemetry import MetricsStore
 
 from tests.collective_preparation_fixtures import (
     COLLECTIVE_FILE_NAME,
+    COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
     PreparationFixture,
+    RegisterRow,
     make_preparation_fixture,
+    register_order,
 )
 
 PREPARATION_COUNTERS = {"period_orders", "successful_orders", "skipped_empty_rows", "warnings"}
@@ -337,3 +341,30 @@ def test_interactive_rich_dashboard_uses_shared_projection_without_szablony_prac
     assert "WYKONAWCA" not in rendered
     assert "\n".join(ORDERS_PER_DAY_LINES) in rendered
     assert "SYN-" not in rendered
+
+
+def test_cli_shows_zero_rows_warning_in_summary_and_exits_0(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 8, 8, number))
+        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    exit_code, output = run_preparation_cli(fixture)
+
+    assert exit_code == 0
+    lines = summary_lines(output)
+    warnings = lines.index("Ostrzeżenia: 1")
+    assert lines[warnings + 1 : warnings + 4] == [
+        "- Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
+        "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.",
+        f"  Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersz 24",
+        "  Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
+        "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.",
+    ]
+    assert lines[warnings + 4] == f"Rozliczenie wewnętrzne: {INTERNAL_SETTLEMENT_NAME}"
+    assert fixture.collective_file_path.is_file()
+    [record] = metric_records(fixture)
+    assert record["result"] == "OK"
+    assert record["counters"]["warnings"] == 1
+    assert "SYN-" not in output

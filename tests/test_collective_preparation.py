@@ -14,6 +14,7 @@ import rozliczenia.workbook_files as workbook_files
 
 from tests.collective_preparation_fixtures import (
     COLLECTIVE_FILE_NAME,
+    COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
     INTERNAL_TEMPLATE_HEADERS,
     PERIOD,
@@ -375,3 +376,194 @@ def test_failing_observer_is_detached_and_does_not_change_result_or_files(tmp_pa
     assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
     assert fixture.internal_settlement_path.is_file()
     assert fixture.collective_file_path.is_file()
+
+
+REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+
+
+def stop_message(fixture: PreparationFixture) -> PreparationError:
+    """Uruchamia Przygotowanie, oczekuje zatrzymania i sprawdza, że nic nie powstało."""
+
+    with pytest.raises(PreparationError) as raised:
+        run_preparation(fixture)
+    assert list(fixture.periods_directory.iterdir()) == []
+    assert "SYN-" not in str(raised.value)
+    return raised.value
+
+
+def test_row_without_date_between_period_orders_stops_with_register_row_numbers(tmp_path: Path) -> None:
+    undated = register_order(90, datetime(2026, 9, 9, 8, 0))
+    undated["DATA GODZ. POCZ."] = "środa rano"
+    blank_date = register_order(91, datetime(2026, 9, 9, 9, 0))
+    blank_date["DATA GODZ. POCZ."] = None
+    rows: list[RegisterRow] = [
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        undated,
+        None,
+        blank_date,
+        register_order(3, datetime(2026, 9, 10, 8, 0)),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    error = stop_message(fixture)
+
+    assert error.message.code == "WIERSZ_BEZ_DATY"
+    assert str(error) == (
+        "Co się stało: Między zleceniami okresu są wiersze z danymi bez poprawnej daty "
+        "w kolumnie DATA GODZ. POCZ. Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, wiersze 3, 5\n"
+        "Co zrobić: Wpisz poprawną datę w kolumnie DATA GODZ. POCZ. we wskazanych wierszach Rejestru "
+        "zleceń albo wyczyść wiersz, jeśli jest zbędny. Zapisz i zamknij Rejestr, i uruchom ponownie."
+    )
+
+
+def test_rows_without_date_outside_period_orders_do_not_stop(tmp_path: Path) -> None:
+    note_before = register_order(90, datetime(2026, 9, 1))
+    note_before["DATA GODZ. POCZ."] = "uwaga"
+    note_after = register_order(91, datetime(2026, 9, 1))
+    note_after["DATA GODZ. POCZ."] = "uwaga"
+    rows: list[RegisterRow] = [
+        note_before,
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        None,
+        register_order(3, datetime(2026, 9, 10, 8, 0)),
+        note_after,
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_order_count == 2
+    assert summary.skipped_empty_rows == 1
+
+
+def test_period_without_orders_stops(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 7, 15, 0)),
+        None,
+        register_order(5, datetime(2026, 9, 15, 0, 0)),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    error = stop_message(fixture)
+
+    assert error.message.code == "BRAK_ZLECEN_OKRESU"
+    assert str(error) == (
+        "Co się stało: W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu. Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, okres {PERIOD}\n"
+        "Co zrobić: Sprawdź, czy wybrano właściwy okres i czy eksport zleceń do Rejestru został "
+        "zrobiony i zapisany, i uruchom ponownie."
+    )
+
+
+def test_period_order_with_empty_or_unknown_skuteczne_stops_with_register_row_numbers(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 7, 15, 0), successful="???"),  # poprzedni okres
+        register_order(2, datetime(2026, 9, 8, 8, 0), successful=" Nie "),
+        register_order(3, datetime(2026, 9, 9, 8, 0), successful=""),
+        register_order(4, datetime(2026, 9, 10, 8, 0), successful="tak"),
+        register_order(5, datetime(2026, 9, 11, 8, 0), successful="częściowo"),
+        register_order(6, datetime(2026, 9, 12, 8, 0), successful="   "),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    error = stop_message(fixture)
+
+    assert error.message.code == "ZLE_SKUTECZNE"
+    assert str(error) == (
+        "Co się stało: Zlecenia okresu mają puste albo nieznane SKUTECZNE (dozwolone: tak, nie). "
+        "Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, wiersze 4, 6, 7\n"
+        "Co zrobić: Wpisz tak albo nie w kolumnie SKUTECZNE we wskazanych wierszach Rejestru zleceń. "
+        "Zapisz i zamknij Rejestr, i uruchom ponownie."
+    )
+    assert "częściowo" not in str(error)
+
+
+def test_zlecenie_skuteczne_with_worker_outside_worker_config_stops_with_identifier(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(2, datetime(2026, 9, 8, 8, 0), worker="nowy.wykonawca"),
+        register_order(3, datetime(2026, 9, 9, 8, 0), worker=" Kamil.Frontczak "),
+        register_order(4, datetime(2026, 9, 10, 8, 0), successful="TAK", worker="NOWY.wykonawca"),
+        register_order(5, datetime(2026, 9, 11, 8, 0), successful="nie", worker="ktos.nieskuteczny"),
+        register_order(6, datetime(2026, 9, 12, 8, 0), worker=""),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    error = stop_message(fixture)
+
+    assert error.message.code == "NIEZNANY_WYKONAWCA"
+    assert str(error) == (
+        "Co się stało: Zlecenia skuteczne mają wykonawców spoza konfiguracji wykonawców: "
+        "nowy.wykonawca, (pusty). Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, nowy.wykonawca: wiersze 2, 4; (pusty): wiersz 6\n"
+        "Co zrobić: Dopisz identyfikator wykonawcy do konfiguracji wykonawców (worker_mapping.yaml), "
+        "tej samej co w Przebiegu rozliczeń, albo popraw WYKONAWCA we wskazanych wierszach Rejestru zleceń. "
+        "Zapisz i zamknij Rejestr, i uruchom ponownie."
+    )
+    assert "ktos.nieskuteczny" not in str(error)
+
+
+def test_worker_outside_worker_config_in_unsuccessful_order_does_not_stop(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        register_order(3, datetime(2026, 9, 9, 8, 0), successful="nie", worker="ktos.nieskuteczny"),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture)
+
+    assert (summary.period_order_count, summary.successful_order_count) == (2, 1)
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+
+
+def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_files(tmp_path: Path) -> None:
+    successful_count = COLLECTIVE_TEMPLATE_ZERO_ROWS + 2
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 8, 8, number)) for number in range(1, successful_count + 1)
+    ]
+    rows.insert(3, register_order(99, datetime(2026, 9, 8, 9, 0), successful="nie"))
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture)
+
+    assert [warning.text for warning in summary.warnings] == [
+        "Co się stało: Zleceń skutecznych: 8, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
+        "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
+        f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersze 24–25\n"
+        "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
+        "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
+    ]
+    assert summary.warnings[0].code == "MALO_WIERSZY_Z_ZERAMI"
+    assert summary.successful_order_count == successful_count
+    assert len(sheet_rows(fixture.internal_settlement_path, min_row=2, max_col=1)) == successful_count + 1
+    created = cell_values(fixture.collective_file_path, min_row=18, max_row=26, min_col=1, max_col=14)
+    assert [row[5] for row in created] == [f"ZL-SYN-{number:03d}" for number in range(1, 9)] + [None]
+    assert [row[13] for row in created] == [0] * COLLECTIVE_TEMPLATE_ZERO_ROWS + [None] * 3
+
+
+def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 8, 8, number))
+        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 1)
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture)
+
+    assert summary.warnings == []
+
+
+def test_dry_run_plan_contains_the_same_warnings_and_writes_nothing(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 8, 8, number))
+        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    plan = run_preparation(fixture, dry_run=True)
+
+    assert [warning.code for warning in plan.warnings] == ["MALO_WIERSZY_Z_ZERAMI"]
+    assert plan.orders_per_day[date(2026, 9, 8)] == COLLECTIVE_TEMPLATE_ZERO_ROWS + 1
+    assert list(fixture.periods_directory.iterdir()) == []
