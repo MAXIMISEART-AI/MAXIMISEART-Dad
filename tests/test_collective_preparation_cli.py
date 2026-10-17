@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from io import StringIO
 from pathlib import Path
+from typing import NoReturn
 
+import pytest
+
+from rozliczenia import preparation_cli
 from rozliczenia.preparation_cli import main
 
 from tests.collective_preparation_fixtures import (
@@ -76,9 +80,15 @@ def test_cli_stop_shows_co_gdzie_co_zrobic_and_exits_1(tmp_path: Path) -> None:
     assert "SYN-" not in output
 
 
-def test_cli_unexpected_error_hides_exception_text_and_exits_1(tmp_path: Path) -> None:
+def test_cli_unexpected_error_hides_exception_text_and_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    fixture.register_path.write_bytes(b"to nie jest skoroszyt SYN-001")
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_cli, "prepare_collective_file", fail_unexpectedly)
 
     exit_code, output = run_preparation_cli(fixture)
 
