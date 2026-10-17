@@ -7,10 +7,11 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any, TextIO
+from typing import Any, NoReturn, TextIO
 
 import pytest
 
+from rozliczenia import collective_preparation
 import rozliczenia.cli as cli
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
@@ -169,9 +170,16 @@ def test_cli_stop_shows_co_gdzie_co_zrobic_and_exits_1(tmp_path: Path) -> None:
     assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
 
 
-def test_cli_unexpected_error_hides_exception_text_and_exits_1(tmp_path: Path) -> None:
+def test_cli_unexpected_error_hides_exception_text_and_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    fixture.register_path.write_bytes(b"to nie jest skoroszyt SYN-001")
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    # Uszkodzony Rejestr jest już typowanym zatrzymaniem, więc błąd nieprzewidziany jest wstrzyknięty w Odczyt danych.
+    monkeypatch.setattr(collective_preparation, "_read_register", fail_unexpectedly)
 
     exit_code, output = run_preparation_cli(fixture)
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import zipfile
 from collections.abc import Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
@@ -23,7 +24,9 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection
 from openpyxl.styles.colors import Color
 from openpyxl.styles.fills import Fill
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -79,6 +82,8 @@ _COLLECTIVE_HEADER_ROW = 17
 _COLLECTIVE_DATA_START_ROW = 18
 _COLLECTIVE_COLUMNS = 11  # A:K
 _COLLECTIVE_QUANTITY_COLUMNS = (14, 42)  # N:AP
+# Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx.
+_UNREADABLE_WORKBOOK_ERRORS = (OSError, InvalidFileException, zipfile.BadZipFile, KeyError, ValueError)
 
 
 @dataclass
@@ -237,17 +242,50 @@ def _cell_format(cell: object) -> _CellFormat:
     )
 
 
-def _read_register(register_path: Path) -> _RegisterSheet:
-    """Czyta arkusz Rejestru rozpoznany po komplecie wymaganych nagłówków w pierwszym wierszu."""
+def _missing_register_headers(header: Sequence[object]) -> list[str]:
+    present = set(_header_columns(header))
+    return [column.register_header for column in _COLUMNS if normalize_text(column.register_header) not in present]
+
+
+def _duplicated_register_headers(header: Sequence[object]) -> list[str]:
+    normalized = [normalize_text(value) for value in header if not _is_blank(value)]
+    return [
+        column.register_header
+        for column in _COLUMNS
+        if normalized.count(normalize_text(column.register_header)) > 1
+    ]
+
+
+def _read_register(register_path: Path) -> list[_RegisterSheet]:
+    try:
+        return _read_register_sheets(register_path)
+    except _UNREADABLE_WORKBOOK_ERRORS as exc:
+        raise messages.register_unreadable(register_path) from exc
+
+
+def _read_register_sheets(register_path: Path) -> list[_RegisterSheet]:
+    """Czyta arkusze Rejestru rozpoznane po komplecie wymaganych nagłówków w pierwszym wierszu.
+
+    Arkusze bez większości wymaganych nagłówków (listy, komentarze, ukryte) są pomijane.
+    Arkusz z większością, ale nie kompletem nagłówków, wskazuje brakujący nagłówek.
+    """
 
     workbook = load_workbook(register_path, read_only=True, data_only=False)
+    sheets: list[_RegisterSheet] = []
+    closest: tuple[str, list[str]] | None = None  # arkusz z najmniejszą liczbą braków
     try:
         for sheet in workbook.worksheets:
             header = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), ())
-            columns = _header_columns(header)
-            positions = [columns.get(normalize_text(column.register_header)) for column in _COLUMNS]
-            if any(position is None for position in positions):
+            missing = _missing_register_headers(header)
+            if missing:
+                if len(missing) < len(_COLUMNS) / 2 and (closest is None or len(missing) < len(closest[1])):
+                    closest = (sheet.title, missing)
                 continue
+            duplicated = _duplicated_register_headers(header)
+            if duplicated:
+                raise messages.register_with_duplicated_headers(register_path, sheet.title, duplicated)
+            columns = _header_columns(header)
+            positions = [columns[normalize_text(column.register_header)] for column in _COLUMNS]
             rows: list[tuple[int, tuple[object, ...] | None]] = []
             formats: dict[int, tuple[_CellFormat, ...]] = {}
             for row_number, cells in enumerate(sheet.iter_rows(min_row=2), start=2):
@@ -256,24 +294,23 @@ def _read_register(register_path: Path) -> _RegisterSheet:
                     rows.append((row_number, None))
                     continue
                 formats[row_number] = tuple(
-                    _cell_format(cells[position - 1])
-                    if position is not None and position <= len(cells)
-                    else _PLAIN_CELL
+                    _cell_format(cells[position - 1]) if position <= len(cells) else _PLAIN_CELL
                     for position in positions
                 )
                 rows.append(
                     (
                         row_number,
-                        tuple(
-                            values[position - 1] if position is not None and position <= len(values) else None
-                            for position in positions
-                        ),
+                        tuple(values[position - 1] if position <= len(values) else None for position in positions),
                     )
                 )
-            return _RegisterSheet(sheet.title, rows, formats)
+            sheets.append(_RegisterSheet(sheet.title, rows, formats))
     finally:
         workbook.close()
-    raise messages.register_without_data_sheet(register_path)
+    if sheets:
+        return sheets
+    if closest is not None:
+        raise messages.register_without_headers(register_path, *closest)
+    raise messages.register_without_data_sheet(register_path, [column.register_header for column in _COLUMNS])
 
 
 def _order_date(value: object) -> datetime | None:
@@ -298,6 +335,22 @@ def _unknown_workers(
         label = str(worker).strip() if key else _BLANK_WORKER_LABEL
         unknown.setdefault(key, (label, []))[1].append(order.row_number)
     return list(unknown.values())
+
+
+def _period_sheet(register_path: Path, sheets: Sequence[_RegisterSheet], period: _Period) -> _RegisterSheet:
+    """Jedyny arkusz Rejestru ze zleceniami okresu; bez takiego arkusza pierwszy arkusz ze zleceniami."""
+
+    def has_period_orders(sheet: _RegisterSheet) -> bool:
+        for _, values in sheet.rows:
+            started = None if values is None else _order_date(values[_DATE_INDEX])
+            if started is not None and period.start <= started < period.end:
+                return True
+        return False
+
+    with_orders = [sheet for sheet in sheets if has_period_orders(sheet)]
+    if len(with_orders) > 1:
+        raise messages.period_orders_in_many_sheets(register_path, [sheet.name for sheet in with_orders], period.token)
+    return (with_orders or list(sheets))[0]
 
 
 def _plan(
@@ -402,7 +455,8 @@ def _worksheet(workbook: Workbook) -> Worksheet:
 
 def _target_columns(
     template_path: Path,
-    sheet: Worksheet,
+    sheet_title: str,
+    header_row: int,
     header_values: Sequence[object],
 ) -> list[int]:
     """Kolumny wzorca dla ``_COLUMNS``, rozpoznane po nagłówku docelowym albo nagłówku Rejestru."""
@@ -414,7 +468,7 @@ def _target_columns(
             normalize_text(column.register_header)
         )
         if position is None:
-            raise messages.template_without_header(template_path, sheet.title, column.target_header)
+            raise messages.template_without_header(template_path, sheet_title, header_row, column.target_header)
         positions.append(position)
     return positions
 
@@ -474,7 +528,7 @@ def _write_internal_settlement(template_path: Path, target: Path, orders: list[_
     try:
         sheet = _worksheet(workbook)
         header = [cell.value for cell in sheet[_INTERNAL_HEADER_ROW]]
-        positions = _target_columns(template_path, sheet, header)
+        positions = _target_columns(template_path, sheet.title, _INTERNAL_HEADER_ROW, header)
         _write_orders(sheet, positions, orders, _INTERNAL_HEADER_ROW + 1)
         _set_autofilter(sheet, _INTERNAL_HEADER_ROW, len(orders))
         workbook_files.save_workbook(workbook, target, external_links_from=template_path)
@@ -490,7 +544,7 @@ def _write_collective_file(template_path: Path, target: Path, orders: list[_Regi
             sheet.cell(_COLLECTIVE_HEADER_ROW, column).value
             for column in range(1, _COLLECTIVE_COLUMNS + 1)
         ]
-        positions = _target_columns(template_path, sheet, header)
+        positions = _target_columns(template_path, sheet.title, _COLLECTIVE_HEADER_ROW, header)
         _write_orders(sheet, positions, orders, _COLLECTIVE_DATA_START_ROW)
         _set_autofilter(sheet, _COLLECTIVE_HEADER_ROW, len(orders))
         calculation = getattr(workbook, "calculation", None)
@@ -501,6 +555,43 @@ def _write_collective_file(template_path: Path, target: Path, orders: list[_Regi
         workbook_files.save_workbook(workbook, target, external_links_from=template_path)
     finally:
         workbook.close()
+
+
+def _ensure_register_available(register_path: Path) -> None:
+    if not register_path.is_file():
+        raise messages.register_missing(register_path)
+    if workbook_files.is_open_in_excel(register_path):
+        raise messages.register_open_in_excel(register_path)
+
+
+def _ensure_template_available(template_path: Path) -> None:
+    if not template_path.is_file():
+        raise messages.template_missing(template_path)
+    if workbook_files.is_open_in_excel(template_path):
+        raise messages.template_open_in_excel(template_path)
+
+
+def _check_template(template_path: Path, header_row: int, last_column: int | None) -> None:
+    """Wzorzec istnieje, nie jest otwarty, daje się odczytać i ma oczekiwane nagłówki."""
+
+    _ensure_template_available(template_path)
+    try:
+        workbook = load_workbook(template_path, read_only=True, data_only=False)
+    except _UNREADABLE_WORKBOOK_ERRORS as exc:
+        raise messages.template_unreadable(template_path) from exc
+    try:
+        sheet = workbook.active
+        if not isinstance(sheet, ReadOnlyWorksheet):
+            raise messages.template_unreadable(template_path)
+        header = next(
+            sheet.iter_rows(min_row=header_row, max_row=header_row, max_col=last_column, values_only=True),
+            (),
+        )
+    except _UNREADABLE_WORKBOOK_ERRORS as exc:
+        raise messages.template_unreadable(template_path) from exc
+    finally:
+        workbook.close()
+    _target_columns(template_path, sheet.title, header_row, header)
 
 
 def _ensure_period_files_absent(period_directory: Path, filenames: Sequence[str]) -> None:
@@ -564,6 +655,11 @@ def prepare_collective_file(
 
     def check_inputs() -> tuple[_Period, dict[str, str]]:
         parsed_period = _parse_period(period)
+        _ensure_register_available(register_path)
+        _check_template(internal_template_path, _INTERNAL_HEADER_ROW, None)
+        _check_template(collective_template_path, _COLLECTIVE_HEADER_ROW, _COLLECTIVE_COLUMNS)
+        if not periods_directory.is_dir():
+            raise messages.periods_directory_missing(periods_directory)
         _ensure_period_files_absent(period_directory, filenames)
         try:
             worker_mapping = load_worker_mapping(config_path)
@@ -576,7 +672,8 @@ def prepare_collective_file(
     phases.notify(ProgressEventFactory.issue_count(elapsed_ms=phases.elapsed_ms(), issue_count=0))
 
     def plan_orders() -> tuple[_Plan, list[PreparationMessage]]:
-        plan = _plan(register_path, register, parsed_period, config_path, worker_mapping)
+        sheet = _period_sheet(register_path, register, parsed_period)
+        plan = _plan(register_path, sheet, parsed_period, config_path, worker_mapping)
         warnings = _collective_warnings(collective_template_path, filenames[1], len(plan.successful_orders))
         return plan, warnings
 
