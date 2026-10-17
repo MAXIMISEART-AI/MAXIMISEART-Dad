@@ -29,6 +29,7 @@ from .template_settlement import (
     PlaceholderValidationError,
     validate_placeholder,
 )
+from .workbook_files import is_open_in_excel
 
 
 ResultT = TypeVar("ResultT")
@@ -140,14 +141,8 @@ def default_placeholder_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "placeholder.xlsx"
 
 
-def excel_lock_path(path: Path) -> Path:
-    """Zwraca standardowy plik blokady tworzony przez desktopowy Excel."""
-
-    return path.with_name(f"~${path.name}")
-
-
-def ensure_unlocked(path: Path) -> None:
-    if excel_lock_path(path).exists():
+def _ensure_unlocked(path: Path) -> None:
+    if is_open_in_excel(path):
         raise SettlementError(f"Plik jest otwarty lub zablokowany: {path.name}")
 
 
@@ -262,7 +257,7 @@ def run_settlements(
     def check_inputs() -> tuple[str, Path, dict[str, str]]:
         if not source_path.is_file():
             raise SettlementError(f"Nie znaleziono pliku źródłowego: {source_path}")
-        ensure_unlocked(source_path)
+        _ensure_unlocked(source_path)
         period = period_from_source(source_path)
         target_directory = source_path.parent / f"Rozliczenie pracowników {period}"
         if target_directory.exists() or target_directory.is_symlink():

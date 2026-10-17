@@ -19,6 +19,7 @@ from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .domain import Issue, WorkerResult
+from .workbook_files import is_open_in_excel
 
 
 _HEADER_ROW = 17
@@ -46,27 +47,12 @@ ExcelRow = tuple[ExcelCellValue, ...]
 ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 
 
-class _TemplateLockedError(Exception):
-    """Szablon pracownika jest otwarty lub zablokowany."""
-
-
 class TemplateWriteError(Exception):
     """Błąd właściwego zapisu Szablonu pracownika."""
 
 
 class PlaceholderValidationError(Exception):
     """Placeholder nie może bezpiecznie posłużyć jako wzór nowych skoroszytów."""
-
-
-def _excel_lock_path(path: Path) -> Path:
-    """Zwraca standardowy plik blokady tworzony przez desktopowy Excel."""
-
-    return path.with_name(f"~${path.name}")
-
-
-def _ensure_unlocked(path: Path) -> None:
-    if _excel_lock_path(path).exists():
-        raise _TemplateLockedError(f"Plik jest otwarty lub zablokowany: {path.name}")
 
 
 def _is_worker_header(value: object) -> bool:
@@ -93,11 +79,10 @@ def validate_placeholder(path: Path) -> None:
 
     if not path.is_file():
         raise PlaceholderValidationError("Nie znaleziono Placeholdera.")
+    if is_open_in_excel(path):
+        raise PlaceholderValidationError("Placeholder jest otwarty lub zablokowany.")
     try:
-        _ensure_unlocked(path)
         workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
-    except _TemplateLockedError as exc:
-        raise PlaceholderValidationError("Placeholder jest otwarty lub zablokowany.") from exc
     except (OSError, InvalidFileException, zipfile.BadZipFile) as exc:
         raise PlaceholderValidationError("Nie można odczytać Placeholdera.") from exc
 
@@ -196,8 +181,10 @@ def process_template(
     """Przetwarza jeden Szablon pracownika i zwraca jego bezpieczny wynik."""
 
     rows = list(rows)
+    if is_open_in_excel(target_path):
+        issue = Issue("PLIK_ZABLOKOWANY", f"Plik jest otwarty lub zablokowany: {target_path.name}")
+        return WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,))
     try:
-        _ensure_unlocked(target_path)
         workbook = load_workbook(target_path, read_only=False, data_only=False, keep_links=True)
         try:
             sheet = _active_worksheet(workbook)
@@ -221,9 +208,6 @@ def process_template(
             return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO")
         finally:
             workbook.close()
-    except _TemplateLockedError as exc:
-        issue = Issue("PLIK_ZABLOKOWANY", str(exc))
-        return WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,))
     except (OSError, InvalidFileException, ValueError, zipfile.BadZipFile):
         issue = Issue("BLAD_SZABLONU", f"Nie można obsłużyć szablonu: {target_path.name}.")
         return WorkerResult(worker_name, target_path, 0, "POMINIĘTO", (issue,))
