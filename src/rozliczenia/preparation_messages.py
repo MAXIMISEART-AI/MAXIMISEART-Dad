@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 
@@ -66,7 +67,49 @@ def invalid_period_token(token: str) -> PreparationError:
             code="ZLY_TOKEN_OKRESU",
             what="Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.",
             where=f"okres {token!r}",
-            action="Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026).",
+            action=(
+                "Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). "
+                "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 29_05_10_2026."
+            ),
+        )
+    )
+
+
+def register_not_selected() -> PreparationError:
+    """Okno wyboru pliku Rejestru zleceń zostało zamknięte bez wyboru."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="NIE_WYBRANO_REJESTRU",
+            what="Nie wybrano pliku Rejestru zleceń. Nie utworzono żadnego pliku.",
+            where="okno wyboru pliku Rejestru zleceń",
+            action="Uruchom ponownie i wybierz plik ZLECENIA INTERMAX OD 08_11_2021.xlsx.",
+        )
+    )
+
+
+def periods_directory_not_selected() -> PreparationError:
+    """Okno wyboru folderu okresów zostało zamknięte bez wyboru."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="NIE_WYBRANO_FOLDERU_OKRESOW",
+            what="Nie wybrano folderu okresów. Nie utworzono żadnego pliku.",
+            where="okno wyboru folderu okresów",
+            action="Uruchom ponownie i wybierz folder z poprzednimi tygodniami, np. INEA.",
+        )
+    )
+
+
+def period_not_entered() -> PreparationError:
+    """Tata nie potwierdził proponowanego okresu ani nie wpisał innego."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="NIE_PODANO_OKRESU",
+            what="Nie potwierdzono okresu ani nie wpisano innego. Nie utworzono żadnego pliku.",
+            where="pytanie o okres",
+            action="Uruchom ponownie i naciśnij Enter, aby potwierdzić proponowany okres, albo wpisz inny.",
         )
     )
 
@@ -426,6 +469,47 @@ def too_few_zero_rows(
             "Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
             "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
         ),
+    )
+
+
+INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
+# Dzień tygodnia w dopełniaczu, z przyimkiem (``date.weekday()``: 0 = poniedziałek).
+_FROM_WEEKDAY = ("z poniedziałku", "z wtorku", "ze środy", "z czwartku", "z piątku", "z soboty", "z niedzieli")
+
+
+def incomplete_period(
+    register_path: Path, sheet: str, period: str, last_order_day: date, monday: date
+) -> PreparationMessage:
+    """Ostrzeżenie: ostatnie zlecenie okresu jest sprzed poniedziałku okresu."""
+
+    return PreparationMessage(
+        code=INCOMPLETE_PERIOD,
+        what=(
+            f"Ostatnie zlecenie okresu jest {_FROM_WEEKDAY[last_order_day.weekday()]} {last_order_day:%d.%m.%Y}, "
+            f"a okres kończy się w poniedziałek {monday:%d.%m.%Y}. Rejestr zleceń może nie mieć jeszcze "
+            "wszystkich zleceń tego okresu."
+        ),
+        where=f"{_register_location(register_path, sheet)}, okres {period}",
+        action=(
+            "Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport w Rejestrze "
+            "zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj."
+        ),
+    )
+
+
+def incomplete_period_refused(period: str) -> PreparationError:
+    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="PRZERWANO_NIEPELNY_OKRES",
+            what="Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
+            where=f"okres {period}",
+            action=(
+                "Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. "
+                "Jeśli okres jest pełny, przy pytaniu wpisz t."
+            ),
+        )
     )
 
 
