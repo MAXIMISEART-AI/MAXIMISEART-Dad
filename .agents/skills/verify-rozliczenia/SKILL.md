@@ -1,13 +1,15 @@
 ---
 name: verify-rozliczenia
-description: Verify MAXIMISEART-Dad's CMD-launched settlement workflow with synthetic Excel files, workbook side-effect checks, and retained evidence; use after CLI, workbook, or safety-rule changes.
+description: Verify MAXIMISEART-Dad's CMD-launched processes (Przebieg rozliczeń, Przygotowanie pliku zbiorczego) with synthetic Excel files, workbook side-effect checks, and retained evidence; use after CLI, workbook, or safety-rule changes.
 ---
 
 # Verify rozliczenia
 
-This is a short-lived Windows CLI, not a server. The only Dad-facing launcher is
-`Utwórz rozliczenia.cmd`, which starts `run.py`. The verification harness also
-drives the CLI directly for detailed assertions. The VBA adapter is legacy and
+This is a short-lived Windows CLI, not a server. Dad has two launchers:
+`Utwórz rozliczenia.cmd` starts `run.py` (Przebieg rozliczeń), and
+`Przygotuj plik zbiorczy.cmd` starts `run_preparation.py` (Przygotowanie pliku
+zbiorczego). The verification harness also drives each CLI directly for
+detailed assertions. The VBA adapter is legacy and
 outside the supported user workflow. Verification uses synthetic `.xlsx` files
 only and never uses a real customer workbook.
 
@@ -48,6 +50,16 @@ verifies it is unchanged. `locked` locks the Placeholder before the real run.
 `unmapped` adds an unknown synthetic WYKONAWCA and verifies that no output is
 published.
 
+Use this variant after changes to Przygotowanie pliku zbiorczego:
+
+```powershell
+py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant preparation
+```
+
+`preparation` builds a synthetic Rejestr zleceń and both Wzorce, drives
+`run_preparation.py` through dry-run and write, and checks both period files.
+Its route, counts, and launcher test are in `features/prepare-collective-file.md`.
+
 There is no server, port, login, seed database, or persistent instance. The
 runner's subprocess timeout is 120 seconds; a timed-out child is terminated by
 the process handle and the scratch cleanup still runs.
@@ -60,6 +72,12 @@ The result is retained in `doctor.txt` under the printed evidence directory.
 version in `pyproject.toml`, the source name and period folder agree, the source
 has `WYKONAWCA` in `H17`, the local mapping and shared Placeholder are readable,
 and the target folder does not yet exist.
+
+The `preparation` variant runs `preparation_doctor.py` instead. `DOCTOR OK`
+there means the Rejestr has a sheet with all required headers, both Wzorce are
+unlocked with their expected headers, the Wzorzec pliku zbiorczego has
+`xl/externalLinks/*` parts, the mapping is readable, and the Folder okresu does
+not yet exist.
 
 For targeted debugging of a fixture that already exists, invoke the primitive
 directly:
@@ -91,12 +109,19 @@ engine. Its ordered stages are:
 6. Copy metrics to evidence and invoke cleanup in `finally`, then run the
    mechanical self-test against the retained evidence.
 
+The `preparation` variant follows the same stages with its own primitives:
+`create_preparation_fixture.py`, `preparation_doctor.py`,
+`run_preparation.py --dry-run`, `assert_preparation.py --expect dry-run`,
+`run_preparation.py`, then `assert_preparation.py --expect run`. Both runs
+require exit code `0`.
+
 Each subprocess is recorded with its command, stdout, stderr, and exit code in
 UTF-8 evidence files. The default fixture reports two mapped writes, one
 `PUSTY_SZABLON`, no issues, and progress `3/3 (100%)`. The `unmapped` variant
 proves that the dry-run warns and the real run publishes nothing.
 
-The CMD launcher has no `--config` or `--metrics` flags. The VBA module remains
+`Utwórz rozliczenia.cmd` has no `--config` or `--metrics` flags;
+`Przygotuj plik zbiorczy.cmd` passes all its arguments to `run_preparation.py`. The VBA module remains
 in the repository as a legacy adapter; it is not part of the Dad-facing route
 or required verification coverage unless the user reactivates it.
 
@@ -164,6 +189,14 @@ already performs both checks and prints `scratch_removed=true`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\doctor.py --root "$runRoot" --expected-version "0.1.0"`.
 - `scripts/assert_results.py` checks workbook state after either mode.
   Dry-run additionally requires `--transcript`; write mode checks workbook state.
+- `scripts/create_preparation_fixture.py` creates the synthetic Rejestr zleceń,
+  both Wzorce, and the mapping for the `preparation` variant.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\create_preparation_fixture.py --root "$runRoot"`.
+- `scripts/preparation_doctor.py` performs the read-only preflight for that fixture.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\preparation_doctor.py --root "$runRoot" --expected-version "0.1.0"`.
+- `scripts/assert_preparation.py` checks the Folder okresu, both period files,
+  external links, inputs, transcript, and metrics.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_preparation.py --root "$runRoot" --expect run --transcript "$evidenceRoot\run.txt"`.
 - `scripts/cleanup.py` removes only a run root below `.verification\runs\`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.
 - `scripts/self_test.py` checks the skill package and evidence hygiene.

@@ -33,8 +33,9 @@ REQUIRED_FEATURE_HEADINGS = (
     "## Gotchas",
 )
 
-# These values are deliberately unique to create_fixture.py. Their presence in
-# evidence means a source row escaped into a transcript or metrics file.
+# These values are deliberately unique to create_fixture.py and
+# create_preparation_fixture.py. Their presence in evidence means a source row
+# escaped into a transcript or metrics file.
 ROW_CONTENT_MARKERS = (
     "TEST-CITY",
     "SYNTHETIC-1",
@@ -42,6 +43,7 @@ ROW_CONTENT_MARKERS = (
     "SYNTHETIC-3",
     "SYNTHETIC-4",
     "PREEXISTING-SYNTHETIC-VALUE",
+    "PREP-SYN-",
 )
 
 

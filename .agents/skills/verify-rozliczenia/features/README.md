@@ -1,8 +1,9 @@
 # Rozliczenia verification map
 
 This is the maintained source for verifying the user-facing MAXIMISEART-Dad
-settlement process. The Dad-facing launcher is `Utwórz rozliczenia.cmd`; direct
-CLI runs provide detailed verification evidence. The VBA adapter is legacy and
+processes. The Dad-facing launchers are `Utwórz rozliczenia.cmd` (Przebieg
+rozliczeń) and `Przygotuj plik zbiorczy.cmd` (Przygotowanie pliku zbiorczego);
+direct CLI runs provide detailed verification evidence. The VBA adapter is legacy and
 outside the supported user workflow.
 
 ## Baseline preconditions
@@ -12,11 +13,12 @@ outside the supported user workflow.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`; it creates fresh roots and runs the doctor before driving.
 - Drive the supported CMD route with `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q`; the test uses a copied runtime and synthetic workbooks.
 - Use `--variant existing`, `--variant locked`, or `--variant unmapped` for the corresponding publication and safety-gate proof.
+- Use `--variant preparation` for Przygotowanie pliku zbiorczego.
 - Never use real customer workbooks or a fixture owned by another verification run.
 
 ## Driving conventions
 
-- The one-command orchestrator verifies the engine through `run.py`; the CMD smoke test separately drives Dad's supported launcher in an isolated synthetic runtime.
+- The one-command orchestrator verifies each engine through its CLI (`run.py`, or `run_preparation.py` for `--variant preparation`); the CMD smoke tests separately drive Dad's launchers in an isolated synthetic runtime.
 - Read stdout, stderr, and native exit codes from the UTF-8 evidence files it creates.
 - Use workbook reads only for post-action assertions; do not call internal engine functions as proof.
 - The orchestrator runs `--dry-run` before a real run, checks the complete plan,
@@ -41,3 +43,4 @@ outside the supported user workflow.
 - [Worker settlement](./settle-workbooks.md) covers fan-out into mapped templates and preserved formulas.
 - [Safety gates](./safety-gates.md) covers unknown workers, placeholders, existing data, and Excel locks.
 - [Progress and telemetry](./progress-and-metrics.md) covers observable phases, counters, exit semantics, and safe metrics.
+- [Przygotowanie pliku zbiorczego](./prepare-collective-file.md) covers the Rejestr zleceń to Rozliczenie wewnętrzne and Plik zbiorczy process, its dry-run, and its launcher.
