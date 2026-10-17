@@ -12,3 +12,4 @@ reports/
 logs/
 .rozliczenia-metrics.jsonl
 .verification/
+.przygotowanie-pliku-zbiorczego-metrics.jsonl
