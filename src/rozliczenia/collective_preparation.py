@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -67,14 +67,18 @@ _COLUMNS: tuple[_Column, ...] = (
     _Column("CZYNNOŚCI ZREALIZOWANE", "CZYNNOŚCI ZREALIZOWANE"),
 )
 _DATE_INDEX = 0
+_WORKER_INDEX = 7
 _SUCCESSFUL_INDEX = 9
 _SUCCESSFUL_VALUE = "tak"
+_UNSUCCESSFUL_VALUE = "nie"
+_BLANK_WORKER_LABEL = "(pusty)"
 
 _PERIOD_TOKEN = re.compile(r"^(\d{2})_(\d{2})_(\d{2})_(\d{4})$")
 _INTERNAL_HEADER_ROW = 1
 _COLLECTIVE_HEADER_ROW = 17
 _COLLECTIVE_DATA_START_ROW = 18
 _COLLECTIVE_COLUMNS = 11  # A:K
+_COLLECTIVE_QUANTITY_COLUMNS = (14, 42)  # N:AP
 
 
 @dataclass
@@ -264,13 +268,36 @@ def _order_date(value: object) -> datetime | None:
     return None
 
 
-def _plan(register: _RegisterSheet, period: _Period) -> _Plan:
-    """Wybiera zlecenia okresu po dacie, w kolejności Rejestru.
+def _unknown_workers(
+    orders: Sequence[_RegisterOrder], worker_mapping: Mapping[str, str]
+) -> list[tuple[str, list[int]]]:
+    """Wykonawcy Zleceń skutecznych spoza konfiguracji wykonawców, z numerami wierszy Rejestru."""
+
+    unknown: dict[str, tuple[str, list[int]]] = {}
+    for order in orders:
+        worker = order.values[_WORKER_INDEX]
+        key = normalize_text(worker)
+        if not order.is_successful or key in worker_mapping:
+            continue
+        label = str(worker).strip() if key else _BLANK_WORKER_LABEL
+        unknown.setdefault(key, (label, []))[1].append(order.row_number)
+    return list(unknown.values())
+
+
+def _plan(
+    register_path: Path,
+    register: _RegisterSheet,
+    period: _Period,
+    config_path: Path,
+    worker_mapping: Mapping[str, str],
+) -> _Plan:
+    """Wybiera zlecenia okresu po dacie, w kolejności Rejestru, i sprawdza reguły zleceń.
 
     Pominięte puste wiersze to te, które leżą między dwoma kolejnymi zleceniami okresu.
     """
 
     orders: list[_RegisterOrder] = []
+    undated_rows: list[int] = []
     skipped_empty_rows = 0
     pending_empty_rows = 0
     previous_in_period = False
@@ -279,6 +306,8 @@ def _plan(register: _RegisterSheet, period: _Period) -> _Plan:
             pending_empty_rows += 1
             continue
         started = _order_date(values[_DATE_INDEX])
+        if started is None:
+            undated_rows.append(row_number)
         in_period = started is not None and period.start <= started < period.end
         if in_period:
             if previous_in_period:
@@ -286,7 +315,66 @@ def _plan(register: _RegisterSheet, period: _Period) -> _Plan:
             orders.append(_RegisterOrder(row_number, values, register.formats.get(row_number, ())))
         previous_in_period = in_period
         pending_empty_rows = 0
+    if not orders:
+        raise messages.no_period_orders(register_path, register.name, period.token)
+    first_row, last_row = orders[0].row_number, orders[-1].row_number
+    undated_between = [row for row in undated_rows if first_row < row < last_row]
+    if undated_between:
+        raise messages.rows_without_date(register_path, register.name, undated_between)
+    invalid_successful = [
+        order.row_number
+        for order in orders
+        if normalize_text(order.values[_SUCCESSFUL_INDEX]) not in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE)
+    ]
+    if invalid_successful:
+        raise messages.invalid_successful_values(register_path, register.name, invalid_successful)
+    unknown_workers = _unknown_workers(orders, worker_mapping)
+    if unknown_workers:
+        raise messages.unknown_workers(register_path, register.name, config_path, unknown_workers)
     return _Plan(orders, skipped_empty_rows)
+
+
+def _is_zero(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0
+
+
+def _zero_row_count(template_path: Path) -> int:
+    """Liczba kolejnych wierszy danych Wzorca pliku zbiorczego z zerami w kolumnach ilości."""
+
+    first_column, last_column = _COLLECTIVE_QUANTITY_COLUMNS
+    workbook = load_workbook(template_path, read_only=True, data_only=False)
+    try:
+        sheet = workbook.active
+        if sheet is None:
+            return 0
+        count = 0
+        for values in sheet.iter_rows(
+            min_row=_COLLECTIVE_DATA_START_ROW, min_col=first_column, max_col=last_column, values_only=True
+        ):
+            if not any(_is_zero(value) for value in values):
+                break
+            count += 1
+        return count
+    finally:
+        workbook.close()
+
+
+def _collective_warnings(
+    template_path: Path, collective_filename: str, successful_count: int
+) -> list[PreparationMessage]:
+    """Ostrzeżenia Pliku zbiorczego; Wzorca nie wydłużamy."""
+
+    zero_row_count = _zero_row_count(template_path)
+    if successful_count <= zero_row_count:
+        return []
+    return [
+        messages.too_few_zero_rows(
+            collective_filename,
+            successful_count,
+            zero_row_count,
+            _COLLECTIVE_DATA_START_ROW + zero_row_count,
+        )
+    ]
 
 
 def _worksheet(workbook: Workbook) -> Worksheet:
@@ -462,10 +550,16 @@ def prepare_collective_file(
             raise messages.unreadable_worker_config(config_path) from exc
         return parsed_period, worker_mapping
 
-    parsed_period, _worker_mapping = phases.run(ProgressPhase.CHECKING, check_inputs)
+    parsed_period, worker_mapping = phases.run(ProgressPhase.CHECKING, check_inputs)
     register = phases.run(ProgressPhase.READING, lambda: _read_register(register_path))
     phases.notify(ProgressEventFactory.issue_count(elapsed_ms=phases.elapsed_ms(), issue_count=0))
-    plan = phases.run(ProgressPhase.PLANNING, lambda: _plan(register, parsed_period))
+
+    def plan_orders() -> tuple[_Plan, list[PreparationMessage]]:
+        plan = _plan(register_path, register, parsed_period, config_path, worker_mapping)
+        warnings = _collective_warnings(collective_template_path, filenames[1], len(plan.successful_orders))
+        return plan, warnings
+
+    plan, warnings = phases.run(ProgressPhase.PLANNING, plan_orders)
     summary = PreparationSummary(
         period=period,
         period_directory=period_directory,
@@ -474,6 +568,7 @@ def prepare_collective_file(
         period_order_count=len(plan.orders),
         successful_order_count=len(plan.successful_orders),
         skipped_empty_rows=plan.skipped_empty_rows,
+        warnings=warnings,
         phase_durations_ms=phases.phase_durations_ms,
     )
     phases.notify(
