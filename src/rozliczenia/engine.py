@@ -9,7 +9,6 @@ import time
 import unicodedata
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable, TypeVar
 
 import yaml
 from openpyxl import load_workbook
@@ -17,13 +16,13 @@ from openpyxl import load_workbook
 from . import template_settlement
 from .domain import (
     Issue,
-    ProgressEvent,
     ProgressEventFactory,
     ProgressObserver,
     ProgressPhase,
     SettlementSummary,
     WorkerResult,
 )
+from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import (
     ExcelRow,
     PlaceholderValidationError,
@@ -31,8 +30,6 @@ from .template_settlement import (
 )
 from .workbook_files import is_open_in_excel
 
-
-ResultT = TypeVar("ResultT")
 
 PERIOD_PATTERN = r"\d{2}_\d{2}_\d{2}_\d{4}"
 SOURCE_PATTERN = re.compile(
@@ -183,59 +180,6 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], lis
         workbook.close()
 
 
-def _elapsed_ms(started: float) -> int:
-    return max(0, round((time.perf_counter() - started) * 1000))
-
-
-class _ObserverDispatcher:
-    """Detaches a broken observer without affecting the settlement engine."""
-
-    def __init__(self, observer: ProgressObserver | None):
-        self._observer = observer
-
-    def notify(self, event: ProgressEvent) -> None:
-        if self._observer is None:
-            return
-        try:
-            self._observer(event)
-        except Exception:
-            self._observer = None
-
-
-def _run_phase(
-    phase: ProgressPhase,
-    notify: Callable[[ProgressEvent], None],
-    run_started: float,
-    phase_durations_ms: dict[ProgressPhase, int],
-    operation: Callable[[], ResultT],
-) -> ResultT:
-    phase_started = time.perf_counter()
-    notify(ProgressEventFactory.phase_started(phase, elapsed_ms=_elapsed_ms(run_started)))
-    try:
-        result = operation()
-    except Exception:
-        phase_elapsed_ms = _elapsed_ms(phase_started)
-        phase_durations_ms[phase] = phase_elapsed_ms
-        notify(
-            ProgressEventFactory.phase_failed(
-                phase,
-                elapsed_ms=_elapsed_ms(run_started),
-                phase_elapsed_ms=phase_elapsed_ms,
-            )
-        )
-        raise
-    phase_elapsed_ms = _elapsed_ms(phase_started)
-    phase_durations_ms[phase] = phase_elapsed_ms
-    notify(
-        ProgressEventFactory.phase_ended(
-            phase,
-            elapsed_ms=_elapsed_ms(run_started),
-            phase_elapsed_ms=phase_elapsed_ms,
-        )
-    )
-    return result
-
-
 def run_settlements(
     source_path: Path,
     config_path: Path,
@@ -246,13 +190,11 @@ def run_settlements(
 ) -> SettlementSummary:
     """Uruchamia pełny proces z ochroną przed błędną lokalizacją i duplikacją."""
 
-    run_started = time.perf_counter()
+    phases = PhaseRunner(observer)
     source_path = source_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
     placeholder_path = (placeholder_path or default_placeholder_path()).expanduser().resolve()
-    dispatcher = _ObserverDispatcher(observer)
-    notify = dispatcher.notify
-    phase_durations_ms: dict[ProgressPhase, int] = {}
+    notify = phases.notify
 
     def check_inputs() -> tuple[str, Path, dict[str, str]]:
         if not source_path.is_file():
@@ -269,23 +211,14 @@ def run_settlements(
             raise SettlementError(str(exc)) from exc
         return period, target_directory, mapping
 
-    period, target_directory, mapping = _run_phase(
-        ProgressPhase.CHECKING,
-        notify,
-        run_started,
-        phase_durations_ms,
-        check_inputs,
-    )
-    rows_by_worker, source_issues = _run_phase(
+    period, target_directory, mapping = phases.run(ProgressPhase.CHECKING, check_inputs)
+    rows_by_worker, source_issues = phases.run(
         ProgressPhase.READING,
-        notify,
-        run_started,
-        phase_durations_ms,
         lambda: _read_source_rows(source_path),
     )
     notify(
         ProgressEventFactory.issue_count(
-            elapsed_ms=_elapsed_ms(run_started),
+            elapsed_ms=phases.elapsed_ms(),
             issue_count=len(source_issues),
         )
     )
@@ -294,7 +227,7 @@ def run_settlements(
         source_path,
         target_directory,
         issues=source_issues,
-        phase_durations_ms=phase_durations_ms,
+        phase_durations_ms=phases.phase_durations_ms,
     )
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
@@ -327,26 +260,17 @@ def run_settlements(
             )
         return template_files, rows_by_target, issues
 
-    template_files, rows_by_target, plan_issues = _run_phase(
-        ProgressPhase.PLANNING,
-        notify,
-        run_started,
-        phase_durations_ms,
-        plan_rows,
-    )
+    template_files, rows_by_target, plan_issues = phases.run(ProgressPhase.PLANNING, plan_rows)
     summary.issues.extend(plan_issues)
     notify(
         ProgressEventFactory.plan_ready(
             template_total=len(template_files),
-            elapsed_ms=_elapsed_ms(run_started),
+            elapsed_ms=phases.elapsed_ms(),
             issue_count=len(summary.issues),
         )
     )
 
-    worker_failure_notified = False
-
     def save_targets(files: list[tuple[str, Path]]) -> None:
-        nonlocal worker_failure_notified
         for template_index, (worker_name, target_path) in enumerate(files, start=1):
             target_key = normalize_text(worker_name)
             worker_failure_message = (
@@ -359,7 +283,7 @@ def run_settlements(
                     worker_name,
                     template_index=template_index,
                     template_total=len(template_files),
-                    elapsed_ms=_elapsed_ms(run_started),
+                    elapsed_ms=phases.elapsed_ms(),
                 )
             )
             rows = rows_by_target.get(target_key, [])
@@ -381,15 +305,14 @@ def run_settlements(
                         summary.issues.extend(result.issues)
                         raise SettlementError(worker_failure_message)
             except Exception as exc:
-                worker_failure_notified = True
                 notify(
                     ProgressEventFactory.worker_failed(
                         worker_name,
                         template_index=template_index,
                         template_total=len(template_files),
-                        elapsed_ms=_elapsed_ms(run_started),
-                        phase_elapsed_ms=_elapsed_ms(save_started),
-                        worker_elapsed_ms=_elapsed_ms(worker_started),
+                        elapsed_ms=phases.elapsed_ms(),
+                        phase_elapsed_ms=phases.phase_elapsed_ms(),
+                        worker_elapsed_ms=elapsed_ms_since(worker_started),
                     )
                 )
                 if isinstance(exc, SettlementError):
@@ -404,14 +327,13 @@ def run_settlements(
                     template_total=len(template_files),
                     status=result.status,
                     rows=result.rows,
-                    elapsed_ms=_elapsed_ms(run_started),
-                    worker_elapsed_ms=_elapsed_ms(worker_started),
+                    elapsed_ms=phases.elapsed_ms(),
+                    worker_elapsed_ms=elapsed_ms_since(worker_started),
                     issue_count=len(summary.issues),
                 )
             )
-    save_started = time.perf_counter()
-    notify(ProgressEventFactory.phase_started("Zapisywanie", elapsed_ms=_elapsed_ms(run_started)))
-    try:
+
+    def save_all() -> None:
         if dry_run:
             save_targets(template_files)
         else:
@@ -458,29 +380,7 @@ def run_settlements(
                     "Nie można przygotować folderu rozliczeń pracowników; "
                     "folder wynikowy nie został opublikowany."
                 ) from exc
-    except Exception:
-        phase_elapsed_ms = _elapsed_ms(save_started)
-        phase_durations_ms[ProgressPhase.SAVING] = phase_elapsed_ms
-        if not worker_failure_notified:
-            notify(
-                ProgressEventFactory.phase_failed(
-                    "Zapisywanie",
-                    elapsed_ms=_elapsed_ms(run_started),
-                    phase_elapsed_ms=phase_elapsed_ms,
-                )
-            )
-        raise
-    else:
-        phase_elapsed_ms = _elapsed_ms(save_started)
-        phase_durations_ms[ProgressPhase.SAVING] = phase_elapsed_ms
-        notify(
-            ProgressEventFactory.phase_ended(
-                "Zapisywanie",
-                template_index=len(template_files),
-                template_total=len(template_files),
-                elapsed_ms=_elapsed_ms(run_started),
-                phase_elapsed_ms=phase_elapsed_ms,
-            )
-        )
+
+    phases.run(ProgressPhase.SAVING, save_all, template_total=len(template_files))
 
     return summary
