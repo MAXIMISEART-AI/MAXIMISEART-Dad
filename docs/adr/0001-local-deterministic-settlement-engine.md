@@ -2,7 +2,8 @@
 
 ## Status
 
-Zaakceptowana
+Zaakceptowana. Ścieżka VBA zastąpiona przez
+[ADR 0003](0003-cli-only-launcher.md).
 
 ## Decyzja
 
