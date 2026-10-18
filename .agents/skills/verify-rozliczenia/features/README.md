@@ -30,7 +30,7 @@ outside the supported user workflow.
 ## Proof and skip reporting
 
 - A terminal transcript alone is insufficient: pair it with workbook state and metrics.
-- Do not put row values, customer addresses, order numbers, or source paths into evidence transcripts.
+- Keep row values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths on each transcript's `command:` line; metrics carry no path at all.
 - The default fixture returns `0`; `--variant unmapped` separately verifies a
   dry-run warning and a failed real run with no published folder.
 - The legacy VBA adapter is not a supported user route and is excluded from live coverage unless reactivated.
