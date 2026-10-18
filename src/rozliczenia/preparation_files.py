@@ -28,14 +28,12 @@ from openpyxl.worksheet.dimensions import Dimension
 from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from . import collective_file, workbook_files
 from . import preparation_messages as messages
-from . import workbook_files
 from .engine import normalize_text
 from .preparation_messages import PreparationMessage
 from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS, UNREADABLE_WORKBOOK_ERRORS, CellFormat, header_columns, is_blank
-
-_COLLECTIVE_QUANTITY_COLUMNS = (14, 42)  # N:AP
 
 
 @dataclass(frozen=True)
@@ -48,7 +46,11 @@ class _TemplateLayout:
 
 
 _INTERNAL = _TemplateLayout(header_row=1, first_data_row=2, last_header_column=None)
-_COLLECTIVE = _TemplateLayout(header_row=17, first_data_row=18, last_header_column=11)  # A:K
+_COLLECTIVE = _TemplateLayout(
+    header_row=collective_file.HEADER_ROW,
+    first_data_row=collective_file.FIRST_DATA_ROW,
+    last_header_column=collective_file.INPUT_COLUMNS[-1],
+)
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ class PeriodFiles:
 
     @property
     def collective_file(self) -> Path:
-        return self.period_directory / f"Rozliczenie {self.period} - zbiorcze.xlsx"
+        return collective_file.path_for_period(self.period_directory, self.period)
 
     @property
     def filenames(self) -> tuple[str, str]:
@@ -204,10 +206,13 @@ def _is_zero(value: object) -> bool:
 def _zero_row_count(sheet: Worksheet) -> int:
     """Liczba kolejnych wierszy danych Wzorca pliku zbiorczego z zerami w kolumnach ilości."""
 
-    first_column, last_column = _COLLECTIVE_QUANTITY_COLUMNS
+    quantity_columns = collective_file.QUANTITY_COLUMNS
     count = 0
     for values in sheet.iter_rows(
-        min_row=_COLLECTIVE.first_data_row, min_col=first_column, max_col=last_column, values_only=True
+        min_row=_COLLECTIVE.first_data_row,
+        min_col=quantity_columns[0],
+        max_col=quantity_columns[-1],
+        values_only=True,
     ):
         if not any(_is_zero(value) for value in values):
             break
