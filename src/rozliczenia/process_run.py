@@ -203,7 +203,7 @@ class _Dashboard:
     def __init__(self, output: TextIO, mode: str, period: str, *, title: str, shows_templates: bool):
         self.output = output
         self.state = ProgressProjection(mode, period)
-        self.plain_adapter = PlainProgressAdapter(self._line, title=title, shows_templates=shows_templates)
+        self.plain_adapter = PlainProgressAdapter(self.print_line, title=title, shows_templates=shows_templates)
         self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
         self._output_failed = False
         self.observer_failed = False
@@ -293,9 +293,6 @@ class _Dashboard:
 
         return self.state.snapshot.phase_durations_ms
 
-    def print_line(self, message: str) -> None:
-        self._line(message)
-
     def print_statistics(self, records: list[dict[str, Any]], counter_names: frozenset[str]) -> None:
         labels = {"total": "całe uruchomienie"}
         for mode in ("RUN", "DRY-RUN"):
@@ -303,9 +300,9 @@ class _Dashboard:
             stats = statistics_for(records, mode, counter_names)
             if stats is None:
                 continue
-            self._line(f"Statystyki {mode} | próbek: {len(comparable)}")
+            self.print_line(f"Statystyki {mode} | próbek: {len(comparable)}")
             for name, (p50, p95) in stats.items():
-                self._line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
+                self.print_line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
 
     def render(self, notice: ProgressNotice | None = None) -> Any:
         return self.rich_adapter.render(self.state.snapshot, notice)
@@ -320,7 +317,7 @@ class _Dashboard:
         self.interactive = False
         self.console = None
 
-    def _line(self, message: str) -> None:
+    def print_line(self, message: str) -> None:
         if self._output_failed:
             return
         try:
@@ -350,15 +347,20 @@ def _gather(
         return _stop_from(process, error, dry_run=args.dry_run)
 
 
-def _execute(
+# Budowa podsumowania odroczona do chwili po pomiarze Czasu uruchomienia i
+# zatrzymaniu podglądu, żeby jej czas się nie liczył, a linie szły pod podglądem.
+_DeferredSummary = Callable[[], Finished]
+
+
+def _run_engine(
     process: Process[InputsT, SummaryT],
     inputs: InputsT,
     dashboard: _Dashboard,
     conversation: Conversation,
     *,
     dry_run: bool,
-) -> Callable[[], Finished] | Stop:
-    """Silnik z podglądem jako obserwatorem; wynik to budowa podsumowania albo zatrzymanie."""
+) -> _DeferredSummary | Stop:
+    """Silnik z podglądem jako obserwatorem; po sukcesie zwraca odroczoną budowę podsumowania."""
 
     try:
         summary = process.execute(inputs, dashboard, conversation)
@@ -370,11 +372,13 @@ def _execute(
     return lambda: process.finished(inputs, summary)
 
 
-def _finish(outcome: Callable[[], Finished] | Stop, *, dry_run: bool) -> Finished | Stop:
-    if isinstance(outcome, Stop):
-        return outcome
+def _build_summary(engine_outcome: _DeferredSummary | Stop, *, dry_run: bool) -> Finished | Stop:
+    """Buduje odroczone podsumowanie; jego błąd to zatrzymanie ``after_engine``."""
+
+    if isinstance(engine_outcome, Stop):
+        return engine_outcome
     try:
-        return outcome()
+        return engine_outcome()
     except Exception:
         return Stop("after_engine", dry_run)
 
@@ -403,14 +407,14 @@ def run(
     dashboard = _Dashboard(output, mode, period, title=process.title, shows_templates=process.shows_templates)
     dashboard.start()
     conversation._attach(dashboard, clock)
-    outcome = (
+    engine_outcome = (
         gathered
         if isinstance(gathered, Stop)
-        else _execute(process, gathered, dashboard, conversation, dry_run=args.dry_run)
+        else _run_engine(process, gathered, dashboard, conversation, dry_run=args.dry_run)
     )
     total_duration_ms = clock.elapsed_ms()
     dashboard.stop()
-    ending = _finish(outcome, dry_run=args.dry_run)
+    ending = _build_summary(engine_outcome, dry_run=args.dry_run)
 
     if isinstance(ending, Finished):
         status_lines, summary_lines = ending.status_lines, ending.summary_lines
