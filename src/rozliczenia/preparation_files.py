@@ -76,16 +76,34 @@ class PeriodFiles:
 
 
 def check_templates(files: PeriodFiles) -> None:
-    """Sprawdzanie: oba wzorce istnieją, nie są otwarte, dają się odczytać i mają oczekiwane nagłówki."""
+    """Sprawdzanie: oba wzorce istnieją, nie są otwarte, dają się odczytać i mają oczekiwane nagłówki.
 
-    for template_path, layout in ((files.internal_template, _INTERNAL), (files.collective_template, _COLLECTIVE)):
-        workbook_files.ensure_available(
-            template_path,
-            missing=messages.template_missing,
-            open_in_excel=messages.template_open_in_excel,
-        )
-        with _open_template(template_path, layout):
-            pass
+    Wzorzec pliku zbiorczego ma ponadto WYKONAWCA w H17, bo stamtąd czyta go Przebieg rozliczeń.
+    """
+
+    _ensure_template_available(files.internal_template)
+    with _open_template(files.internal_template, _INTERNAL):
+        pass
+    _ensure_template_available(files.collective_template)
+    with _open_template(files.collective_template, _COLLECTIVE) as (_, sheet, _):
+        try:
+            collective_file.check_layout(sheet)
+        except collective_file.LayoutError as exc:
+            if exc.worker_column is None:
+                raise messages.template_without_header(
+                    files.collective_template, sheet.title, collective_file.HEADER_ROW, "WYKONAWCA"
+                ) from exc
+            raise messages.template_with_worker_outside_h(
+                files.collective_template, sheet.title, exc.worker_column
+            ) from exc
+
+
+def _ensure_template_available(template_path: Path) -> None:
+    workbook_files.ensure_available(
+        template_path,
+        missing=messages.template_missing,
+        open_in_excel=messages.template_open_in_excel,
+    )
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:

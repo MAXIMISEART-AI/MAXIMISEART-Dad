@@ -33,7 +33,7 @@ Preconditions:
 - **Check the real Wzorce.** When `config/` holds both Wzorce, run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant preparation-real-templates` (in a worktree add `--templates-dir <main checkout>\config`). Counts and summary match `preparation`; `assert-run.txt` ends with `templates=config`. A failure names the column and both fonts, never a cell value.
 - **Drive the launcher.** On Windows run `py -3 -m pytest tests/test_cmd_launcher.py -k "przygotowanie or incomplete_period" -q`; it copies `Przygotuj plik zbiorczy.cmd` into a synthetic runtime, checks a successful run, and checks that refusing an incomplete period exits `1` with nothing written.
 - **Drive stops, warnings, and the row-style font.** The variant fixture reaches none of these; prove them with `py -3 -m pytest tests/test_collective_preparation.py tests/test_collective_preparation_stops.py tests/test_collective_preparation_cli.py -q`. They cover every stop and warning, including:
-  - Wzorzec checks (missing, open in Excel, damaged, wrong header) in Sprawdzanie, before the Rejestr is read, also in `--dry-run`;
+  - Wzorzec checks (missing, open in Excel, damaged, wrong header, WYKONAWCA outside H17 in the Wzorzec pliku zbiorczego) in Sprawdzanie, before the Rejestr is read, also in `--dry-run`;
   - merged Wzorzec cells in the rows orders will fill, which stop the run in Planowanie;
   - the "too few zero rows" warning, which still exits `0` and writes both files;
   - the row-style font fallback (`test_cells_without_own_style_take_wzorzec_row_font_before_column_font`).

@@ -193,6 +193,22 @@ def template_without_header(template_path: Path, sheet: str, row: int, header: s
     )
 
 
+def template_with_worker_outside_h(template_path: Path, sheet: str, column: str) -> PreparationError:
+    """Wzorzec pliku zbiorczego ma WYKONAWCA poza H17, a Przebieg rozliczeń czyta Wykonawcę z H17."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="WYKONAWCA_POZA_H",
+            what=(
+                f"Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie {column} zamiast w H (wiersz 17). "
+                "Nie utworzono żadnego pliku."
+            ),
+            where=f"plik {template_path.name}, arkusz {sheet}, wiersz 17",
+            action="Przenieś WYKONAWCA do kolumny H we wzorcu i uruchom ponownie.",
+        )
+    )
+
+
 def template_with_merged_cells(template_path: Path, sheet: str, cell_range: str) -> PreparationError:
     """Komórki wzorca, do których trafiają zlecenia, są scalone."""
 
