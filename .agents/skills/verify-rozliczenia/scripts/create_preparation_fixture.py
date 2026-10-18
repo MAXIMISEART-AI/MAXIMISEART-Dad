@@ -1,6 +1,8 @@
 """Create a disposable synthetic Rejestr zleceń and both Wzorce for Przygotowanie pliku zbiorczego.
 
-With ``--templates-from`` both Wzorce are byte copies of the real ones instead of synthetic workbooks.
+``--with-worker-template`` also creates the Wzorzec rozliczenia pracownika for the Przebieg rozliczeń
+that follows. With ``--templates-from`` every Wzorce is a byte copy of the real one instead of a
+synthetic workbook.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
 PERIODS_DIRECTORY = "INEA"
 INTERNAL_TEMPLATE_NAME = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE_NAME = "Wzorzec pliku zbiorczego.xlsx"
+WORKER_TEMPLATE_NAME = "Wzorzec rozliczenia pracownika.xlsx"
 WORKERS = {
     "adrian.maciejewski": "Adrian Maciejewski",
     "dariusz.nowak2": "Darek Nowak",
@@ -136,6 +139,7 @@ REGISTER_ROWS: dict[int, dict[str, object]] = {
     6: _order(3, datetime(2026, 9, 9, 10, 30), "dariusz.nowak2", "NIE"),
     9: _order(4, datetime(2026, 9, 12, 12, 0), "kamil.frontczak", " Tak "),
     11: _order(5, datetime(2026, 9, 15, 0, 0), "adrian.maciejewski", "tak"),  # next period
+    12: _order(7, datetime(2026, 9, 13, 9, 0), "adrian.maciejewski", "tak"),  # Adrian again, after Kamil
     13: _order(6, datetime(2026, 9, 14, 18, 30), "dariusz.nowak2", "TAK"),  # late order of the period
 }
 
@@ -193,11 +197,21 @@ def _write_internal_template(path: Path) -> None:
 
 
 def _write_collective_template(path: Path) -> None:
+    _write_collective_layout(path, rate=17.5)
+
+
+def _write_worker_template(path: Path) -> None:
+    """Same layout as the Wzorzec pliku zbiorczego, with the worker's own rate and no WYKONAWCA name."""
+
+    _write_collective_layout(path, rate=12.0)
+
+
+def _write_collective_layout(path: Path, *, rate: float) -> None:
     workbook = Workbook()
     sheet = _active_worksheet(workbook)
     sheet.title = "Sheet1"
     sheet["A1"] = "STAWKI"
-    sheet["N1"] = 17.5
+    sheet["N1"] = rate
     sheet["N16"] = "=SUM(N18:N40)"
     sheet["A17"].fill = PatternFill(fill_type="solid", fgColor="00AA55")
     for column, header in enumerate(COLLECTIVE_TEMPLATE_HEADERS, start=1):
@@ -211,7 +225,7 @@ def _write_collective_template(path: Path) -> None:
         sheet.cell(row, 47).value = f"=N{row}*$N$1"  # AU
     rates = workbook.create_sheet("Rates")
     rates["A1"] = "synthetic rate"
-    rates["B1"] = 17.5
+    rates["B1"] = rate
     workbook.save(path)
     workbook.close()
     _add_external_link(path)
@@ -292,7 +306,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _write_fixture(root: Path, templates_from: Path | None) -> None:
+def _write_fixture(root: Path, templates_from: Path | None, *, with_worker_template: bool) -> None:
     config_directory = root / "config"
     config_directory.mkdir(parents=True)
     (root / PERIODS_DIRECTORY).mkdir()
@@ -306,6 +320,12 @@ def _write_fixture(root: Path, templates_from: Path | None) -> None:
     else:
         shutil.copyfile(templates_from / INTERNAL_TEMPLATE_NAME, internal_template)
         shutil.copyfile(templates_from / COLLECTIVE_TEMPLATE_NAME, collective_template)
+    worker_template = config_directory / WORKER_TEMPLATE_NAME
+    if with_worker_template:
+        if templates_from is None:
+            _write_worker_template(worker_template)
+        else:
+            shutil.copyfile(templates_from / WORKER_TEMPLATE_NAME, worker_template)
     (config_directory / "worker_mapping.yaml").write_text(
         yaml.safe_dump({"schema_version": 1, "workers": WORKERS}, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
@@ -315,13 +335,20 @@ def _write_fixture(root: Path, templates_from: Path | None) -> None:
         "internal_template_sha256": _sha256(internal_template),
         "collective_template_sha256": _sha256(collective_template),
     }
+    if with_worker_template:
+        manifest["worker_template_sha256"] = _sha256(worker_template)
     (root / "fixture_manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=str, required=True)
-    parser.add_argument("--templates-from", type=Path, help="copy both real Wzorce from this directory")
+    parser.add_argument("--templates-from", type=Path, help="copy the real Wzorce from this directory")
+    parser.add_argument(
+        "--with-worker-template",
+        action="store_true",
+        help="also create the Wzorzec rozliczenia pracownika for the Przebieg rozliczeń",
+    )
     args = parser.parse_args(argv)
     templates_from = args.templates_from.expanduser().resolve() if args.templates_from else None
     try:
@@ -329,13 +356,14 @@ def main(argv: list[str] | None = None) -> int:
         if root.exists() and any(root.iterdir()):
             raise ValueError(f"Fixture root is not empty: {root}")
         root.mkdir(parents=True, exist_ok=True)
-        _write_fixture(root, templates_from)
+        _write_fixture(root, templates_from, with_worker_template=args.with_worker_template)
     except (OSError, ValueError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
     print(
         f"FIXTURE_READY process=przygotowanie root={root} period={PERIOD} "
         f"register_rows={len(REGISTER_ROWS)} workers={len(WORKERS)} "
+        f"worker_template={str(args.with_worker_template).lower()} "
         f"templates={'synthetic' if templates_from is None else 'copied'}"
     )
     return 0

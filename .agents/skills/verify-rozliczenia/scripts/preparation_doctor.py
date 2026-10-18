@@ -1,4 +1,7 @@
-"""Read-only build and fixture check before driving Przygotowanie pliku zbiorczego."""
+"""Read-only build and fixture check before driving Przygotowanie pliku zbiorczego.
+
+``--with-worker-template`` also checks the Wzorzec rozliczenia pracownika of the Przebieg rozliczeń that follows.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +20,10 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.engine import SettlementError, load_worker_mapping  # noqa: E402
 from rozliczenia.settlement_period import parse_period_token  # noqa: E402
+from rozliczenia.template_settlement import (  # noqa: E402
+    WorkerTemplateValidationError,
+    validate_worker_template,
+)
 from rozliczenia.workbook_files import is_open_in_excel  # noqa: E402
 
 
@@ -84,7 +91,7 @@ def _register_sheets(path: Path) -> int:
         workbook.close()
 
 
-def _check(root: Path, expected_version: str) -> tuple[str, int, int]:
+def _check(root: Path, expected_version: str, *, worker_template: bool) -> tuple[str, int, int]:
     root = root.expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f"missing fixture root: {root}")
@@ -114,6 +121,9 @@ def _check(root: Path, expected_version: str) -> tuple[str, int, int]:
     if not external_parts:
         raise ValueError("Wzorzec pliku zbiorczego has no xl/externalLinks parts")
 
+    if worker_template:
+        validate_worker_template(root / "config" / "Wzorzec rozliczenia pracownika.xlsx")
+
     mapping = load_worker_mapping(root / "config" / "worker_mapping.yaml")
     periods_directory = root / "INEA"
     if not periods_directory.is_dir():
@@ -127,17 +137,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--expected-version", default="0.1.0")
+    parser.add_argument("--with-worker-template", action="store_true", help="also check the Wzorzec rozliczenia pracownika")
     args = parser.parse_args(argv)
     try:
-        period, workers, order_sheets = _check(args.root, args.expected_version)
-    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, SettlementError) as exc:
+        period, workers, order_sheets = _check(args.root, args.expected_version, worker_template=args.with_worker_template)
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        zipfile.BadZipFile,
+        SettlementError,
+        WorkerTemplateValidationError,
+    ) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
         return 1
     print(
         f"DOCTOR OK | app=MAXIMISEART-Dad | process=przygotowanie | version={args.expected_version} | "
         f"python={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} | "
         f"period={period} | workers={workers} | order_sheets={order_sheets} | "
-        "templates=valid | external_links=present | period_folder_absent=true"
+        f"templates=valid | worker_template={'valid' if args.with_worker_template else 'unchecked'} | "
+        "external_links=present | period_folder_absent=true"
     )
     return 0
 

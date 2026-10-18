@@ -20,12 +20,14 @@ REPO_ROOT = SCRIPT.parents[4]
 PERIOD = "08_14_09_2026"
 TIMEOUT_SECONDS = 120
 PYTHON_COMMAND = (sys.executable,)
-TEMPLATE_NAMES = ("Wzorzec rozliczenia wewnętrznego.xlsx", "Wzorzec pliku zbiorczego.xlsx")
+PREPARATION_TEMPLATE_NAMES = ("Wzorzec rozliczenia wewnętrznego.xlsx", "Wzorzec pliku zbiorczego.xlsx")
+WORKER_TEMPLATE_NAME = "Wzorzec rozliczenia pracownika.xlsx"
+HELPER_DIRECTORY = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
 
 
 @dataclass(frozen=True)
 class WorkflowVariant:
-    process: Literal["settlement", "preparation"] = "settlement"
+    process: Literal["settlement", "preparation", "chain"] = "settlement"
     include_unmapped: bool = False
     pre_run_setup: Literal["existing", "locked"] | None = None
     dry_run_exit: int = 0
@@ -39,6 +41,38 @@ class WorkflowVariant:
         """The real Wzorce in ``config/`` are git-ignored, so CI has none to verify against."""
 
         return self.templates == "config"
+
+    @property
+    def template_names(self) -> tuple[str, ...]:
+        """Real Wzorce the local-only variant copies from the templates directory."""
+
+        if self.process == "chain":
+            return (*PREPARATION_TEMPLATE_NAMES, WORKER_TEMPLATE_NAME)
+        return PREPARATION_TEMPLATE_NAMES
+
+    @property
+    def evidence_names(self) -> frozenset[str]:
+        """Evidence files a successful run of this variant leaves behind, before the self-test."""
+
+        steps: tuple[str, ...]
+        if self.process == "chain":
+            steps = (
+                "fixture",
+                "doctor",
+                "preparation-dry-run",
+                "assert-preparation-dry-run",
+                "preparation-run",
+                "assert-preparation-run",
+                "readiness",
+                "settlement-dry-run",
+                "assert-settlement-dry-run",
+                "settlement-run",
+                "assert-settlement-run",
+                "cleanup",
+            )
+            return frozenset({*(f"{step}.txt" for step in steps), "preparation-metrics.jsonl", "settlement-metrics.jsonl"})
+        steps = ("fixture", "doctor", "dry-run", "assert-dry-run", "run", "assert-run", "cleanup")
+        return frozenset({*(f"{step}.txt" for step in steps), "metrics.jsonl"})
 
 
 WORKFLOW_VARIANTS = {
@@ -63,6 +97,8 @@ WORKFLOW_VARIANTS = {
     ),
     "preparation": WorkflowVariant(process="preparation"),
     "preparation-real-templates": WorkflowVariant(process="preparation", templates="config"),
+    "chain": WorkflowVariant(process="chain"),
+    "chain-real-templates": WorkflowVariant(process="chain", templates="config"),
 }
 CI_VARIANTS = tuple(name for name, variant in WORKFLOW_VARIANTS.items() if not variant.local_only)
 
@@ -198,35 +234,34 @@ def _utf8_environment() -> dict[str, str]:
 
 def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_directory: Path) -> None:
     variant_config = WORKFLOW_VARIANTS[variant]
+    real_templates = templates_directory if variant_config.templates == "config" else None
     if variant_config.process == "preparation":
-        _run_preparation_workflow(
-            run_root,
-            evidence_root,
-            templates_directory if variant_config.templates == "config" else None,
-        )
+        _run_preparation_workflow(run_root, evidence_root, real_templates)
+        return
+    if variant_config.process == "chain":
+        _run_chain_workflow(run_root, evidence_root, real_templates)
         return
     environment = _utf8_environment()
     version = _version()
     source = run_root / PERIOD / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
     config = run_root / "worker_mapping.yaml"
     metrics = run_root / "metrics.jsonl"
-    helper_directory = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
 
-    fixture_arguments = [str(helper_directory / "create_fixture.py"), "--root", str(run_root)]
+    fixture_arguments = [str(HELPER_DIRECTORY / "create_fixture.py"), "--root", str(run_root)]
     if variant_config.include_unmapped:
         fixture_arguments.append("--include-unmapped")
     _run_step("fixture", fixture_arguments, evidence_root, environment, expected_exit=0)
 
     _run_step(
         "doctor",
-        [str(helper_directory / "doctor.py"), "--root", str(run_root), "--expected-version", version],
+        [str(HELPER_DIRECTORY / "doctor.py"), "--root", str(run_root), "--expected-version", version],
         evidence_root,
         environment,
         expected_exit=0,
     )
 
     dry_assert_arguments = [
-        str(helper_directory / "assert_results.py"),
+        str(HELPER_DIRECTORY / "assert_results.py"),
         "--root",
         str(run_root),
         "--expect",
@@ -280,7 +315,7 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_d
     shutil.copy2(metrics, evidence_root / "metrics.jsonl")
 
     run_assert_arguments = [
-        str(helper_directory / "assert_results.py"),
+        str(HELPER_DIRECTORY / "assert_results.py"),
         "--root",
         str(run_root),
         "--expect",
@@ -293,16 +328,25 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_d
     _run_step("assert-run", run_assert_arguments, evidence_root, environment, expected_exit=0)
 
 
-def _run_preparation_workflow(run_root: Path, evidence_root: Path, templates_directory: Path | None) -> None:
-    """Przygotowanie pliku zbiorczego: synthetic Rejestr, dry-run, then the real write.
+def _fixture_arguments(run_root: Path, templates_directory: Path | None, *extra: str) -> list[str]:
+    arguments = [str(HELPER_DIRECTORY / "create_preparation_fixture.py"), "--root", str(run_root), *extra]
+    if templates_directory is not None:
+        arguments.extend(["--templates-from", str(templates_directory)])
+    return arguments
 
-    With ``templates_directory`` the fixture copies the real Wzorce instead of building synthetic ones.
-    """
 
-    environment = _utf8_environment()
-    helper_directory = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
+def _run_preparation_stage(
+    run_root: Path,
+    evidence_root: Path,
+    environment: dict[str, str],
+    *,
+    templates: Literal["synthetic", "config"],
+    metrics: Path,
+    step_prefix: str = "",
+) -> None:
+    """Przygotowanie pliku zbiorczego through its CLI: dry-run, its assertion, the real write, its assertion."""
+
     config_directory = run_root / "config"
-    metrics = run_root / "metrics.jsonl"
     cli_arguments = [
         "run_preparation.py",
         "--register",
@@ -321,37 +365,155 @@ def _run_preparation_workflow(run_root: Path, evidence_root: Path, templates_dir
         str(metrics),
     ]
 
-    templates = "synthetic" if templates_directory is None else "config"
-
     def assert_arguments(mode: str) -> list[str]:
         return [
-            str(helper_directory / "assert_preparation.py"),
+            str(HELPER_DIRECTORY / "assert_preparation.py"),
             "--root",
             str(run_root),
             "--expect",
             mode,
             "--templates",
             templates,
+            "--metrics",
+            str(metrics),
             "--transcript",
-            str(evidence_root / f"{mode}.txt"),
+            str(evidence_root / f"{step_prefix}{mode}.txt"),
         ]
 
-    fixture_arguments = [str(helper_directory / "create_preparation_fixture.py"), "--root", str(run_root)]
-    if templates_directory is not None:
-        fixture_arguments.extend(["--templates-from", str(templates_directory)])
-    _run_step("fixture", fixture_arguments, evidence_root, environment, expected_exit=0)
+    _run_step(f"{step_prefix}dry-run", [*cli_arguments, "--dry-run"], evidence_root, environment, expected_exit=0)
+    _run_step(f"assert-{step_prefix}dry-run", assert_arguments("dry-run"), evidence_root, environment, expected_exit=0)
+    _run_step(f"{step_prefix}run", cli_arguments, evidence_root, environment, expected_exit=0)
+    _run_step(f"assert-{step_prefix}run", assert_arguments("run"), evidence_root, environment, expected_exit=0)
+
+
+def _run_preparation_workflow(run_root: Path, evidence_root: Path, templates_directory: Path | None) -> None:
+    """Przygotowanie pliku zbiorczego: synthetic Rejestr, dry-run, then the real write.
+
+    With ``templates_directory`` the fixture copies the real Wzorce instead of building synthetic ones.
+    """
+
+    environment = _utf8_environment()
+    metrics = run_root / "metrics.jsonl"
+    _run_step("fixture", _fixture_arguments(run_root, templates_directory), evidence_root, environment, expected_exit=0)
     _run_step(
         "doctor",
-        [str(helper_directory / "preparation_doctor.py"), "--root", str(run_root), "--expected-version", _version()],
+        [str(HELPER_DIRECTORY / "preparation_doctor.py"), "--root", str(run_root), "--expected-version", _version()],
         evidence_root,
         environment,
         expected_exit=0,
     )
-    _run_step("dry-run", [*cli_arguments, "--dry-run"], evidence_root, environment, expected_exit=0)
-    _run_step("assert-dry-run", assert_arguments("dry-run"), evidence_root, environment, expected_exit=0)
-    _run_step("run", cli_arguments, evidence_root, environment, expected_exit=0)
-    shutil.copy2(metrics, evidence_root / "metrics.jsonl")
-    _run_step("assert-run", assert_arguments("run"), evidence_root, environment, expected_exit=0)
+    try:
+        _run_preparation_stage(
+            run_root,
+            evidence_root,
+            environment,
+            templates="synthetic" if templates_directory is None else "config",
+            metrics=metrics,
+        )
+    finally:
+        if metrics.is_file():
+            shutil.copy2(metrics, evidence_root / "metrics.jsonl")
+
+
+def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory: Path | None) -> None:
+    """Dad's whole path: Rejestr zleceń, Przygotowanie pliku zbiorczego, Gotowość, then Przebieg rozliczeń.
+
+    The Przebieg rozliczeń reads the Plik zbiorczy that the Przygotowanie wrote, after
+    the Gotowość step filled N:AT in some of its Wiersze danych like Dad does by hand.
+    With ``templates_directory`` all three Wzorce are byte copies of the real ones.
+    """
+
+    environment = _utf8_environment()
+    config_directory = run_root / "config"
+    preparation_metrics = run_root / "preparation-metrics.jsonl"
+    settlement_metrics = run_root / "settlement-metrics.jsonl"
+    templates: Literal["synthetic", "config"] = "synthetic" if templates_directory is None else "config"
+    settlement_arguments = [
+        "run.py",
+        "--source",
+        str(run_root / "INEA" / PERIOD / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"),
+        "--config",
+        str(config_directory / "worker_mapping.yaml"),
+        "--worker-template",
+        str(config_directory / WORKER_TEMPLATE_NAME),
+        "--metrics",
+        str(settlement_metrics),
+    ]
+
+    def assert_settlement_arguments(mode: str) -> list[str]:
+        return [
+            str(HELPER_DIRECTORY / "assert_chain.py"),
+            "--root",
+            str(run_root),
+            "--expect",
+            mode,
+            "--transcript",
+            str(evidence_root / f"settlement-{mode}.txt"),
+        ]
+
+    _run_step(
+        "fixture",
+        _fixture_arguments(run_root, templates_directory, "--with-worker-template"),
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
+    _run_step(
+        "doctor",
+        [
+            str(HELPER_DIRECTORY / "preparation_doctor.py"),
+            "--root",
+            str(run_root),
+            "--expected-version",
+            _version(),
+            "--with-worker-template",
+        ],
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
+    try:
+        _run_preparation_stage(
+            run_root,
+            evidence_root,
+            environment,
+            templates=templates,
+            metrics=preparation_metrics,
+            step_prefix="preparation-",
+        )
+        _run_step(
+            "readiness",
+            [str(HELPER_DIRECTORY / "fill_readiness.py"), "--root", str(run_root)],
+            evidence_root,
+            environment,
+            expected_exit=0,
+        )
+        _run_step(
+            "settlement-dry-run",
+            [*settlement_arguments, "--dry-run"],
+            evidence_root,
+            environment,
+            expected_exit=0,
+        )
+        _run_step(
+            "assert-settlement-dry-run",
+            assert_settlement_arguments("dry-run"),
+            evidence_root,
+            environment,
+            expected_exit=0,
+        )
+        _run_step("settlement-run", settlement_arguments, evidence_root, environment, expected_exit=0)
+        _run_step(
+            "assert-settlement-run",
+            assert_settlement_arguments("run"),
+            evidence_root,
+            environment,
+            expected_exit=0,
+        )
+    finally:
+        for metrics in (preparation_metrics, settlement_metrics):
+            if metrics.is_file():
+                shutil.copy2(metrics, evidence_root / metrics.name)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -360,13 +522,13 @@ def main(argv: list[str] | None = None) -> int:
         "--variant",
         choices=(*WORKFLOW_VARIANTS, "all"),
         default="default",
-        help="'all' runs every variant except the local-only preparation-real-templates",
+        help="'all' runs every variant except the local-only *-real-templates variants",
     )
     parser.add_argument(
         "--templates-dir",
         type=Path,
         default=REPO_ROOT / "config",
-        help="directory with the real Wzorce for preparation-real-templates (default: config/ of this checkout)",
+        help="directory with the real Wzorce for the *-real-templates variants (default: config/ of this checkout)",
     )
     args = parser.parse_args(argv)
 
@@ -382,8 +544,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _verify(variant: str, templates_directory: Path) -> int:
-    if WORKFLOW_VARIANTS[variant].local_only:
-        missing_templates = [name for name in TEMPLATE_NAMES if not (templates_directory / name).is_file()]
+    variant_config = WORKFLOW_VARIANTS[variant]
+    if variant_config.local_only:
+        missing_templates = [name for name in variant_config.template_names if not (templates_directory / name).is_file()]
         if missing_templates:
             print(
                 f"VERIFY SKIP | variant={variant} | templates_dir={templates_directory} | "
@@ -405,7 +568,7 @@ def _verify(variant: str, templates_directory: Path) -> int:
             _run_step(
                 "cleanup",
                 [
-                    str(Path(".agents") / "skills" / "verify-rozliczenia" / "scripts" / "cleanup.py"),
+                    str(HELPER_DIRECTORY / "cleanup.py"),
                     "--root",
                     str(run_root),
                 ],
@@ -424,16 +587,7 @@ def _verify(variant: str, templates_directory: Path) -> int:
     if run_root.exists():
         print(f"VERIFY FAIL | scratch root remains: {run_root}", file=sys.stderr)
         return 1
-    required = {
-        "fixture.txt",
-        "doctor.txt",
-        "dry-run.txt",
-        "assert-dry-run.txt",
-        "run.txt",
-        "assert-run.txt",
-        "cleanup.txt",
-        "metrics.jsonl",
-    }
+    required = set(variant_config.evidence_names)
     missing = sorted(name for name in required if not (evidence_root / name).is_file())
     if missing:
         print(f"VERIFY FAIL | missing evidence: {', '.join(missing)}", file=sys.stderr)
@@ -446,7 +600,7 @@ def _verify(variant: str, templates_directory: Path) -> int:
         _run_step(
             "self-test",
             [
-                str(Path(".agents") / "skills" / "verify-rozliczenia" / "scripts" / "self_test.py"),
+                str(HELPER_DIRECTORY / "self_test.py"),
                 "--evidence-root",
                 str(evidence_root),
             ],
