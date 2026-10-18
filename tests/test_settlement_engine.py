@@ -14,8 +14,9 @@ import pytest
 import yaml
 
 from rozliczenia.collective_file import ExcelRow
-from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState, WorkerResult
+from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState, WorkerResult
 from rozliczenia.engine import SettlementError, run_settlements
+from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 
 
@@ -497,3 +498,70 @@ def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(t
     assert [event.state for event in recorded] == [ProgressState.START, ProgressState.FAILED]
     assert recorded[-1].phase is ProgressPhase.CHECKING
     assert "Nie znaleziono pliku" not in repr(recorded[-1])
+
+
+def projected(projection: ProgressProjection) -> ProgressObserver:
+    def observer(event: ProgressEvent) -> None:
+        projection.update(event)
+
+    return observer
+
+
+@pytest.mark.parametrize(
+    ("dry_run", "include_unmapped", "issue_count"),
+    [(False, False, 0), (True, True, 1)],
+    ids=["zapis", "dry-run-z-problemem"],
+)
+def test_projekcja_postepu_przyjmuje_caly_przebieg_rozliczen(
+    tmp_path: Path, dry_run: bool, include_unmapped: bool, issue_count: int
+) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    write_source(source_path, include_unmapped=include_unmapped)
+    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+
+    summary = run_settlements(
+        source_path,
+        config_path,
+        dry_run=dry_run,
+        worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
+        observer=projected(projection),
+    )
+
+    snapshot = projection.snapshot
+    assert set(snapshot.phase_states.values()) == {PhaseState.COMPLETED}
+    assert snapshot.template_total == 3
+    assert snapshot.templates_completed == 3
+    assert snapshot.issue_count == issue_count
+    assert set(summary.phase_durations_ms) == set(ProgressPhase)
+    with pytest.raises(TypeError):
+        summary.phase_durations_ms[ProgressPhase.SAVING] = 0  # type: ignore[index]
+
+
+def test_projekcja_postepu_przyjmuje_przerwany_przebieg_rozliczen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    projection = ProgressProjection("RUN", PERIOD)
+
+    def fail_save(worker_name: str, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+        raise template_settlement.TemplateWriteError("synthetic failure")
+
+    monkeypatch.setattr(template_settlement, "process_template", fail_save)
+
+    with pytest.raises(SettlementError):
+        run_settlements(
+            source_path,
+            config_path,
+            worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
+            observer=projected(projection),
+        )
+
+    snapshot = projection.snapshot
+    assert snapshot.phase_states == {
+        ProgressPhase.CHECKING: PhaseState.COMPLETED,
+        ProgressPhase.READING: PhaseState.COMPLETED,
+        ProgressPhase.PLANNING: PhaseState.COMPLETED,
+        ProgressPhase.SAVING: PhaseState.FAILED,
+    }
+    assert snapshot.template_total == 3
+    assert snapshot.current_worker == "Adrian Maciejewski"

@@ -11,14 +11,15 @@ Ten moduł tylko sekwencjonuje cztery etapy. Odczyt Rejestru zleceń jest w
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
+from types import MappingProxyType
 
 from . import preparation_files, preparation_plan, preparation_register
 from . import preparation_messages as messages
-from .domain import ProgressEventFactory, ProgressObserver, ProgressPhase
+from .domain import ProgressObserver, ProgressPhase
 from .engine import SettlementError, load_worker_mapping
 from .phase_runner import PhaseRunner
 from .preparation_messages import PreparationError, PreparationMessage
@@ -54,7 +55,7 @@ class PreparationSummary:
     skipped_empty_rows: int
     orders_per_day: dict[date, int] = field(default_factory=dict)
     warnings: list[PreparationMessage] = field(default_factory=list)
-    phase_durations_ms: dict[ProgressPhase, int] = field(default_factory=dict)
+    phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
 
 def default_internal_template_path() -> Path:
@@ -128,9 +129,8 @@ def prepare_collective_file(
             raise messages.unreadable_worker_config(config_path) from exc
         return parsed_period, worker_mapping
 
-    parsed_period, worker_mapping = phases.run(ProgressPhase.CHECKING, check_inputs)
-    register = phases.run(ProgressPhase.READING, lambda: preparation_register.read_register(register_path))
-    phases.notify(ProgressEventFactory.issue_count(elapsed_ms=phases.elapsed_ms(), issue_count=0))
+    parsed_period, worker_mapping = phases.check(check_inputs)
+    register = phases.read(lambda: preparation_register.read_register(register_path))
 
     def plan_orders() -> tuple[preparation_plan.Plan, list[PreparationMessage]]:
         plan = preparation_plan.plan_period_orders(register_path, register, parsed_period, config_path, worker_mapping)
@@ -138,7 +138,7 @@ def prepare_collective_file(
         warnings.extend(preparation_plan.period_warnings(register_path, plan))
         return plan, warnings
 
-    plan, warnings = phases.run(ProgressPhase.PLANNING, plan_orders)
+    plan, warnings = phases.plan(plan_orders, issue_count=lambda planned: len(planned[1]))
     summary = PreparationSummary(
         period=period,
         period_directory=files.period_directory,
@@ -149,14 +149,7 @@ def prepare_collective_file(
         skipped_empty_rows=plan.skipped_empty_rows,
         orders_per_day=plan.orders_per_day,
         warnings=warnings,
-        phase_durations_ms=phases.phase_durations_ms,
-    )
-    phases.notify(
-        ProgressEventFactory.plan_ready(
-            template_total=0,
-            elapsed_ms=phases.elapsed_ms(),
-            issue_count=len(summary.warnings),
-        )
+        phase_durations_ms=phases.durations_ms(),
     )
     if confirm_plan is not None and not dry_run:
         with phases.paused():
@@ -166,5 +159,5 @@ def prepare_collective_file(
         if not dry_run:
             preparation_files.write_period_files(files, periods_directory, plan.orders, plan.successful_orders)
 
-    phases.run(ProgressPhase.SAVING, save_both)
-    return summary
+    phases.save(save_both)
+    return replace(summary, phase_durations_ms=phases.durations_ms())

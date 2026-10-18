@@ -33,7 +33,7 @@ from tests.collective_preparation_fixtures import (
     write_collective_template,
     write_internal_template,
 )
-from tests.test_settlement_engine import active_worksheet, external_link_parts
+from tests.test_settlement_engine import active_worksheet, external_link_parts, projected
 
 
 def run_preparation(
@@ -356,7 +356,7 @@ STAGES_IN_ORDER = [
 def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
     tmp_path: Path, dry_run: bool
 ) -> None:
-    fixture = make_preparation_fixture(tmp_path)
+    fixture = make_preparation_fixture(tmp_path, [register_order(1, datetime(2026, 9, 13, 23, 59))])
     recorded: list[ProgressEvent] = []
     projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
 
@@ -364,12 +364,37 @@ def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
         recorded.append(event)
         projection.update(event)
 
-    run_preparation(fixture, dry_run=dry_run, observer=recording_observer)
+    summary = run_preparation(fixture, dry_run=dry_run, observer=recording_observer)
 
     assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
     assert all(event.worker_name is None for event in recorded)
     assert set(projection.snapshot.phase_states.values()) == {PhaseState.COMPLETED}
+    assert [warning.code for warning in summary.warnings] == ["NIEPELNY_OKRES"]
+    assert projection.snapshot.issue_count == 1
+    assert projection.snapshot.template_total == 0
     assert "SYN-" not in repr(recorded)
+
+
+def test_projekcja_postepu_przyjmuje_przygotowanie_przerwane_w_zapisywaniu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    projection = ProgressProjection("RUN", PERIOD)
+
+    def fail_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+        raise ExternalLinksError("wymuszony błąd")
+
+    monkeypatch.setattr(workbook_files, "save_workbook", fail_save)
+
+    with pytest.raises(PreparationError):
+        run_preparation(fixture, observer=projected(projection))
+
+    assert projection.snapshot.phase_states == {
+        ProgressPhase.CHECKING: PhaseState.COMPLETED,
+        ProgressPhase.READING: PhaseState.COMPLETED,
+        ProgressPhase.PLANNING: PhaseState.COMPLETED,
+        ProgressPhase.SAVING: PhaseState.FAILED,
+    }
 
 
 def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path: Path) -> None:
@@ -857,10 +882,12 @@ def test_confirm_plan_gets_plan_after_planowanie_and_before_zapisywanie(tmp_path
     fixture = make_preparation_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
     seen: list[tuple[int, int, list[tuple[ProgressPhase, ProgressState]], bool]] = []
+    plans: list[PreparationSummary] = []
 
     def confirm_plan(plan: PreparationSummary) -> None:
         stages = [(event.phase, event.state) for event in recorded]
         seen.append((plan.period_order_count, plan.successful_order_count, stages, fixture.period_directory.exists()))
+        plans.append(plan)
 
     summary = run_preparation(fixture, observer=recorded.append, confirm_plan=confirm_plan)
 
@@ -868,6 +895,10 @@ def test_confirm_plan_gets_plan_after_planowanie_and_before_zapisywanie(tmp_path
     assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
     assert summary.period_order_count == 4
     assert fixture.collective_file_path.is_file()
+    assert set(plans[0].phase_durations_ms) == {ProgressPhase.CHECKING, ProgressPhase.READING, ProgressPhase.PLANNING}
+    assert set(summary.phase_durations_ms) == set(ProgressPhase)
+    with pytest.raises(TypeError):
+        summary.phase_durations_ms[ProgressPhase.SAVING] = 0  # type: ignore[index]
 
 
 def test_stop_from_confirm_plan_creates_no_file_and_no_folder_okresu(tmp_path: Path) -> None:
