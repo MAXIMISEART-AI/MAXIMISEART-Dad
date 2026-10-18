@@ -21,11 +21,12 @@ import pytest
 from rozliczenia.domain import ProgressObserver, ProgressPhase
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.plain_progress import PlainProgressAdapter
-import rozliczenia.process_run as process_run
 from rozliczenia.process_run import Conversation, Finished, Process, Stop, run
 from rozliczenia.progress import PhaseState, ProgressNotice, ProgressNoticeKind, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
 from rozliczenia.telemetry import MetricsStore
+
+from tests.rich_fakes import TtyOutput, install_fake_rich, live_starts_and_stops
 
 PERIOD = "08_14_09_2026"
 COUNTERS = frozenset({"items"})
@@ -141,48 +142,6 @@ def append_completed_records(metrics_path: Path, mode: str, total_duration_ms: i
 
 def fail(*_args: object) -> NoReturn:
     raise RuntimeError(SECRET)
-
-
-class TtyOutput(StringIO):
-    def isatty(self) -> bool:
-        return True
-
-
-def install_fake_rich(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Rich renderuje do zwykłego tekstu; zwraca dziennik startów i zatrzymań widoku na żywo."""
-
-    pytest.importorskip("rich")
-    from rich.console import Console as RichConsole
-
-    live_log: list[str] = []
-
-    class FakeConsole:
-        color_system = "standard"
-
-        def __init__(self, *, file: TextIO) -> None:
-            self.renderer = RichConsole(file=file, color_system=None, width=120)
-
-        def print(self, renderable: Any) -> None:
-            self.renderer.print(renderable)
-
-    class FakeLive:
-        def __init__(self, _renderable: Any, *, console: FakeConsole, **kwargs: Any) -> None:
-            self.console = console
-            live_log.append(f"auto_refresh={kwargs.get('auto_refresh', True)}")
-
-        def start(self, *, refresh: bool) -> None:
-            live_log.append("start")
-
-        def update(self, renderable: Any, *, refresh: bool) -> None:
-            live_log.append(f"update refresh={refresh}")
-            self.console.print(renderable)
-
-        def stop(self) -> None:
-            live_log.append("stop")
-
-    monkeypatch.setattr(process_run, "Console", FakeConsole)
-    monkeypatch.setattr(process_run, "Live", FakeLive)
-    return live_log
 
 
 @pytest.mark.parametrize(
@@ -380,7 +339,7 @@ def test_paused_conversation_resumes_live_view_only_after_consent(
     )
 
     assert exit_code == (0 if answer == "t\n" else 1)
-    assert [entry for entry in live_log if entry in ("start", "stop")] == expected_live_log
+    assert live_starts_and_stops(live_log) == expected_live_log
 
 
 def test_interrupt_by_tata_stops_live_view_and_passes_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

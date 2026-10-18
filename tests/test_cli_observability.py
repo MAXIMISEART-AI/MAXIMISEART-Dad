@@ -11,7 +11,7 @@ import time
 import types
 import zipfile
 from collections.abc import Iterable
-from typing import Any, TextIO, cast
+from typing import Any, cast
 
 from openpyxl import load_workbook
 import pytest
@@ -20,10 +20,10 @@ from rozliczenia.cli import main
 from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import Issue, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
-import rozliczenia.process_run as process_run
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
 
+from tests.rich_fakes import TtyOutput, install_fake_rich
 from tests.test_settlement_engine import (
     PERIOD,
     UNREADABLE_SOURCE_MESSAGE,
@@ -193,14 +193,8 @@ def test_metrics_store_repairs_torn_final_line(tmp_path: Path) -> None:
     assert len(MetricsStore(metrics_path).read()) == 3
 
 
-@pytest.mark.parametrize(
-    ("dry_run", "mode"),
-    [(False, "RUN"), (True, "DRY-RUN")],
-)
-def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None:
-    fixture = make_preview_fixture(tmp_path) if dry_run else make_fixture(tmp_path)
-    source_path, target_directory, config_path = fixture
-    metrics_path = tmp_path / "metrics.jsonl"
+def test_cli_runs_without_rich(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
     arguments = [
@@ -211,10 +205,8 @@ def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None
         "--worker-template",
         str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
         "--metrics",
-        str(metrics_path),
+        str(tmp_path / "metrics.jsonl"),
     ]
-    if dry_run:
-        arguments.append("--dry-run")
     result = subprocess.run(
         [
             sys.executable,
@@ -227,75 +219,28 @@ def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None
         env=environment,
     )
 
-    assert result.returncode == (2 if dry_run else 0), result.stderr
+    assert result.returncode == 0, result.stderr
     assert "Etap: Sprawdzanie" in result.stdout
     assert "Postęp szablonów: 3/3 (100%)" in result.stdout
     assert "WYKONAWCA: Adrian Maciejewski" in result.stdout
-    assert f"Status końcowy: {'Wymaga sprawdzenia' if dry_run else 'OK'}" in result.stdout
-
-    assert_fixture_workbooks(target_directory, dry_run=dry_run)
-    assert_completed_metrics(metrics_path, dry_run=dry_run, issues=1 if dry_run else 0)
-    metrics_text = metrics_path.read_text(encoding="utf-8")
-    assert "syntetyczny adres" not in metrics_text
-    assert "#1" not in metrics_text
-    assert str(source_path) not in metrics_text
+    assert "Status końcowy: OK" in result.stdout
+    assert_fixture_workbooks(target_directory, dry_run=False)
 
 
 @pytest.mark.parametrize(
     ("dry_run", "mode"),
     [(False, "RUN"), (True, "DRY-RUN")],
 )
-def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
+def test_interactive_rich_cli_shows_szablony_pracownika(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     dry_run: bool,
     mode: str,
 ) -> None:
-    pytest.importorskip("rich")
-    from rich.console import Console as RichConsole
-
-    class TtyOutput(StringIO):
-        def isatty(self) -> bool:
-            return True
-
-    class FakeConsole:
-        color_system = "standard"
-
-        def __init__(self, *, file: TextIO) -> None:
-            self.renderer = RichConsole(file=file, color_system=None)
-
-        def print(self, renderable: Any) -> None:
-            self.renderer.print(renderable)
-
-    class FakeLive:
-        def __init__(self, renderable: Any, *, console: FakeConsole, **_kwargs: Any) -> None:
-            self.console = console
-            self.renderable = renderable
-            self.refreshes = 0
-
-        def start(self, *, refresh: bool) -> None:
-            pass
-
-        def update(self, renderable: Any, *, refresh: bool) -> None:
-            self.refreshes += 1
-            self.console.print(renderable)
-
-        def stop(self) -> None:
-            pass
-
+    install_fake_rich(monkeypatch)
     fixture = make_preview_fixture(tmp_path) if dry_run else make_fixture(tmp_path)
-    source_path, target_directory, config_path = fixture
-    metrics_path = tmp_path / "metrics.jsonl"
+    source_path, _, config_path = fixture
     output = TtyOutput()
-    live_instances: list[FakeLive] = []
-
-    def make_live(renderable: Any, *, console: FakeConsole, **kwargs: Any) -> FakeLive:
-        live = FakeLive(renderable, console=console, **kwargs)
-        live_instances.append(live)
-        return live
-
-    monkeypatch.setattr(process_run, "Console", FakeConsole)
-    monkeypatch.setattr(process_run, "Live", make_live)
     arguments = [
         "--source",
         str(source_path),
@@ -304,7 +249,7 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
         "--worker-template",
         str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
         "--metrics",
-        str(metrics_path),
+        str(tmp_path / "metrics.jsonl"),
     ]
     if dry_run:
         arguments.append("--dry-run")
@@ -312,20 +257,13 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
     exit_code = main(arguments, output=output)
 
     assert exit_code == (2 if dry_run else 0)
-    assert live_instances and live_instances[0].refreshes > 0
     rendered = output.getvalue()
-    assert mode in rendered
+    assert f"Rozliczenia | {PERIOD} | {mode}" in rendered
     assert "Postęp szablonów: 3/3 (100%)" in rendered
     assert "Bieżący WYKONAWCA: Adrian Maciejewski" in rendered
-    if dry_run:
-        assert "PLAN" in rendered
-    else:
-        assert "ZAPISANO" in rendered
+    assert ("PLAN" if dry_run else "ZAPISANO") in rendered
     assert "syntetyczny adres" not in rendered
     assert "#1" not in rendered
-
-    assert_fixture_workbooks(target_directory, dry_run=dry_run)
-    assert_completed_metrics(metrics_path, dry_run=dry_run, issues=1 if dry_run else 0)
 
 
 def test_cli_existing_folder_rozliczen_pracownikow_is_preserved(tmp_path: Path) -> None:

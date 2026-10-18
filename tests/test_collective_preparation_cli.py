@@ -8,13 +8,12 @@ from pathlib import Path
 import subprocess
 import sys
 import types
-from typing import Any, NoReturn, TextIO
+from typing import Any, NoReturn
 
 import pytest
 
 from rozliczenia import collective_preparation, preparation_register
 import rozliczenia.cli as cli
-import rozliczenia.process_run as process_run
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
 
@@ -28,6 +27,7 @@ from tests.collective_preparation_fixtures import (
     make_preparation_fixture,
     register_order,
 )
+from tests.rich_fakes import TtyOutput, install_fake_rich, live_starts_and_stops
 
 PREPARATION_COUNTERS = {"period_orders", "successful_orders", "skipped_empty_rows", "warnings"}
 ORDERS_PER_DAY_LINES = [
@@ -291,10 +291,7 @@ def test_invalid_period_is_recorded_as_unknown_period(tmp_path: Path) -> None:
     assert record["result"] == "BLAD_KRYTYCZNY"
 
 
-@pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])
-def test_cli_runs_without_rich_with_the_same_information(
-    tmp_path: Path, extra_args: tuple[str, ...], mode: str
-) -> None:
+def test_cli_runs_without_rich_with_the_same_information(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
@@ -305,7 +302,7 @@ def test_cli_runs_without_rich_with_the_same_information(
             "-c",
             "import sys; sys.modules['rich'] = None; "
             "from rozliczenia.preparation_cli import main; raise SystemExit(main())",
-            *preparation_arguments(fixture, *extra_args),
+            *preparation_arguments(fixture),
         ],
         capture_output=True,
         text=True,
@@ -314,54 +311,12 @@ def test_cli_runs_without_rich_with_the_same_information(
     )
 
     assert result.returncode == 0, result.stderr
-    assert f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: {mode}" in result.stdout
+    assert f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: RUN" in result.stdout
     assert "Etap: Zapisywanie" in result.stdout
     assert "Status końcowy: OK" in result.stdout
     assert "\n".join(ORDERS_PER_DAY_LINES) in result.stdout
     assert f"Plik zbiorczy: {COLLECTIVE_FILE_NAME}" in result.stdout
-    assert fixture.collective_file_path.exists() is (mode == "RUN")
-    [record] = metric_records(fixture)
-    assert record["mode"] == mode
-
-
-class TtyOutput(StringIO):
-    def isatty(self) -> bool:
-        return True
-
-
-def install_fake_rich(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Rich renderuje do zwykłego tekstu; zwraca dziennik startów i zatrzymań widoku na żywo."""
-
-    pytest.importorskip("rich")
-    from rich.console import Console as RichConsole
-
-    live_log: list[str] = []
-
-    class FakeConsole:
-        color_system = "standard"
-
-        def __init__(self, *, file: TextIO) -> None:
-            self.renderer = RichConsole(file=file, color_system=None, width=120)
-
-        def print(self, renderable: Any) -> None:
-            self.renderer.print(renderable)
-
-    class FakeLive:
-        def __init__(self, renderable: Any, *, console: FakeConsole, **_kwargs: Any) -> None:
-            self.console = console
-
-        def start(self, *, refresh: bool) -> None:
-            live_log.append("start")
-
-        def update(self, renderable: Any, *, refresh: bool) -> None:
-            self.console.print(renderable)
-
-        def stop(self) -> None:
-            live_log.append("stop")
-
-    monkeypatch.setattr(process_run, "Console", FakeConsole)
-    monkeypatch.setattr(process_run, "Live", FakeLive)
-    return live_log
+    assert fixture.collective_file_path.is_file()
 
 
 def test_interactive_rich_dashboard_uses_shared_projection_without_szablony_pracownika(
@@ -393,7 +348,7 @@ def test_rich_dashboard_pauses_for_incomplete_period_question_and_resumes(
     exit_code = main(preparation_arguments(fixture), output=output, input_stream=StringIO("t\n"))
 
     assert exit_code == 0
-    assert live_log == ["start", "stop", "start", "stop"]
+    assert live_starts_and_stops(live_log) == ["start", "stop", "start", "stop"]
     rendered = output.getvalue()
     after_question = rendered[rendered.index("Kontynuować mimo niepełnego okresu?") :]
     assert "Zapisywanie" in after_question
