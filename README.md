@@ -113,7 +113,10 @@ powstają razem albo żaden.
   jeśli istnieje w nim którykolwiek z dwóch plików okresu, proces się
   zatrzymuje.
 - Oba pliki są przygotowywane w katalogu tymczasowym i publikowane razem. Błąd
-  nie zostawia żadnego z nich ani nowo założonego Folderu okresu.
+  nie zostawia żadnego z nich ani nowo założonego Folderu okresu. Wyjątek
+  zaakceptowany w [ADR 0004](docs/adr/0004-przerwana-publikacja-plikow-okresu.md):
+  do istniejącego Folderu okresu pliki trafiają dwoma przeniesieniami, więc
+  proces zamknięty między nimi zostawia samo Rozliczenie wewnętrzne.
 - Rejestr zleceń i wzorce są tylko czytane.
 - Zatrzymania i ostrzeżenia mają trzy części: co się stało, gdzie, co zrobić.
   Pełna lista z instrukcją postępowania jest w tabeli „komunikat → co zrobić”
