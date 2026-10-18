@@ -9,7 +9,6 @@ zbiorczego; operacją publiczną pozostaje
 
 from __future__ import annotations
 
-import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +16,6 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.styles.colors import Color
 from openpyxl.styles.fills import Fill
-from openpyxl.utils.exceptions import InvalidFileException
 
 from . import preparation_messages as messages
 from . import workbook_files
@@ -52,9 +50,6 @@ COLUMNS: tuple[Column, ...] = (
     SUCCESSFUL,
     Column("CZYNNOŚCI ZREALIZOWANE", "CZYNNOŚCI ZREALIZOWANE"),
 )
-
-# Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx.
-UNREADABLE_WORKBOOK_ERRORS = (OSError, InvalidFileException, zipfile.BadZipFile, KeyError, ValueError)
 
 
 @dataclass(frozen=True)
@@ -129,7 +124,7 @@ def read_register(register_path: Path) -> list[RegisterSheet]:
 
     try:
         return _read_register_sheets(register_path)
-    except UNREADABLE_WORKBOOK_ERRORS as exc:
+    except workbook_files.UNREADABLE_WORKBOOK_ERRORS as exc:
         raise messages.register_unreadable(register_path) from exc
 
 
