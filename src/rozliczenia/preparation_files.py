@@ -146,7 +146,8 @@ def write_period_files(
 ) -> None:
     """Zapisywanie: przygotowuje oba pliki w katalogu tymczasowym i publikuje je razem.
 
-    Błąd nie zostawia żadnego z plików ani nowo założonego Folderu okresu.
+    Błąd nie zostawia żadnego z plików ani nowo założonego Folderu okresu, chyba że
+    zatrzymanie wskazuje plik, którego nie udało się usunąć.
     """
 
     try:
@@ -311,7 +312,10 @@ def _write_period_file(
 
 
 def _publish(staged_directory: Path, files: PeriodFiles) -> None:
-    """Przenosi oba pliki do Folderu okresu razem; przy błędzie nie zostawia żadnego."""
+    """Przenosi oba pliki do Folderu okresu razem; przy błędzie nie zostawia żadnego.
+
+    Jeśli już przeniesionego pliku nie da się usunąć, zatrzymanie wskazuje ten plik.
+    """
 
     ensure_period_files_absent(files)
     period_directory = files.period_directory
@@ -326,5 +330,8 @@ def _publish(staged_directory: Path, files: PeriodFiles) -> None:
             published.append(target)
     except OSError:
         for target in published:
-            target.unlink(missing_ok=True)
+            try:
+                target.unlink(missing_ok=True)
+            except OSError as exc:
+                raise messages.write_failed_with_file_left(period_directory, target.name) from exc
         raise
