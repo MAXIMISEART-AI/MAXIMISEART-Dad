@@ -97,8 +97,9 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
 Każdy komunikat ma trzy linie: `Co się stało`, `Gdzie` i `Co zrobić`. Znajdź w
 tabeli wiersz z fragmentem pierwszej linii. `Gdzie` wskazuje plik, arkusz albo
 numery wierszy Rejestru zleceń. Po każdym zatrzymaniu nie powstał żaden plik,
-więc po poprawce wystarczy uruchomić proces ponownie. Wyjątkiem jest komunikat
-o niepokazanym podsumowaniu: wtedy pliki okresu już są.
+więc po poprawce wystarczy uruchomić proces ponownie. Wyjątki: po komunikacie
+o niepokazanym podsumowaniu pliki okresu już są, a po komunikacie o pliku,
+którego nie udało się usunąć, w Folderze okresu został wskazany plik.
 
 #### Zatrzymania
 
@@ -129,6 +130,7 @@ o niepokazanym podsumowaniu: wtedy pliki okresu już są.
 | „Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie” | Przebieg rozliczeń czyta wykonawcę tylko z kolumny H. Otwórz `config\Wzorzec pliku zbiorczego.xlsx` i w wierszu 17 przenieś WYKONAWCA do kolumny H, a nagłówek z kolumny H do kolumny wskazanej w komunikacie. Zapisz i zamknij wzorzec, uruchom ponownie. Jeśli nie wiesz, jak to zrobić, przekaż komunikat osobie utrzymującej narzędzie. |
 | „We wzorcu są scalone komórki” | Przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można odczytać konfiguracji wykonawców” | Przekaż komunikat osobie utrzymującej narzędzie. Ta sama konfiguracja jest potrzebna w Przebiegu rozliczeń. |
+| „Zapisano tylko jeden z dwóch plików okresu” | Usuń z Folderu okresu plik wskazany w `Gdzie` i uruchom ponownie. Jeśli Windows nie pozwala go usunąć, odczekaj chwilę, bo plik może sprawdzać antywirus albo OneDrive. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie udało się zapisać plików okresu” | Sprawdź, czy folder okresów jest dostępny i czy pliki okresu nie są otwarte w Excelu, potem uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Wystąpił nieoczekiwany błąd” | Pojawia się ze `Status końcowy: BŁĄD`. Uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Pliki okresu powstały, ale nie udało się pokazać podsumowania” | Pojawia się ze `Status końcowy: BŁĄD` po zapisie plików (tryb `RUN`). Oba pliki są już w Folderze okresu, więc nie uruchamiaj procesu ponownie. Sprawdź Folder okresu i przekaż komunikat osobie utrzymującej narzędzie. |

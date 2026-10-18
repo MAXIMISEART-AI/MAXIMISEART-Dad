@@ -55,7 +55,9 @@ _Avoid_: Placeholder
 
 Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
 wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy. Oba pliki
-powstają razem albo żaden. Uruchamiany osobno od Przebiegu rozliczeń.
+powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym zapisie nie da
+się usunąć pliku, który już trafił do Folderu okresu, zatrzymanie wskazuje ten
+plik. Uruchamiany osobno od Przebiegu rozliczeń.
 
 ## Plik zbiorczy
 

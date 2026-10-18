@@ -510,3 +510,36 @@ def test_failed_publication_of_plik_zbiorczy_removes_published_rozliczenie_wewne
 
     assert error.message.code == "BLAD_ZAPISU"
     assert list(fixture.period_directory.iterdir()) == []
+
+
+def test_failed_removal_of_published_rozliczenie_wewnetrzne_names_the_file_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    fixture.period_directory.mkdir()
+    real_rename, real_unlink = os.rename, os.unlink
+
+    def rename_fails_for_plik_zbiorczy(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target) == fixture.collective_file_path:
+            raise OSError("wymuszony błąd publikacji")
+        real_rename(source, target)
+
+    def unlink_fails_for_rozliczenie_wewnetrzne(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if Path(path) == fixture.internal_settlement_path:
+            raise PermissionError("wymuszony: plik używany przez inny proces")
+        real_unlink(path, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "rename", rename_fails_for_plik_zbiorczy)
+    monkeypatch.setattr(os, "unlink", unlink_fails_for_rozliczenie_wewnetrzne)
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "BLAD_ZAPISU_POZOSTAL_PLIK"
+    assert str(error) == (
+        "Co się stało: Zapisano tylko jeden z dwóch plików okresu i nie udało się go usunąć.\n"
+        f"Gdzie: folder INEA\\{PERIOD}, plik {INTERNAL_SETTLEMENT_NAME}\n"
+        "Co zrobić: Usuń wskazany plik, bo bez drugiego pliku okresu jest niepełny, i uruchom ponownie. "
+        "Jeśli nie daje się go usunąć, odczekaj chwilę. Jeśli błąd wraca, przekaż komunikat osobie "
+        "utrzymującej narzędzie."
+    )
+    assert [path.name for path in fixture.period_directory.iterdir()] == [INTERNAL_SETTLEMENT_NAME]

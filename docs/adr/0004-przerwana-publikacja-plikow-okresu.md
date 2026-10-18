@@ -40,6 +40,7 @@ Odrzucone kierunki:
   (`ACCEPTED_RISKS`), a nie jako znane ustalenie. Inny ślad naruszenia
   RAZEM_ALBO_ZADEN nadal jest błędem sprawdzenia.
 - Decyzja nie obejmuje nieudanego wycofania po błędzie zapisu (issue #92). Tam
-  proces działa dalej i może powiedzieć tacie prawdę.
-- Decyzję trzeba wrócić, jeśli publikacja zacznie trwać dłużej, na przykład
+  proces działa dalej, więc mówi tacie prawdę komunikatem
+  `BLAD_ZAPISU_POZOSTAL_PLIK`.
+- Do decyzji trzeba wrócić, jeśli publikacja zacznie trwać dłużej, na przykład
   przez kopiowanie zamiast przenoszenia albo przez folder sieciowy.

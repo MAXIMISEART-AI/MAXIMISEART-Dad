@@ -12,9 +12,13 @@ description: Exhaustively check that Przygotowanie pliku zbiorczego publishes Ro
   zbiorczy he already filled in for Gotowość.
 - **RAZEM_ALBO_ZADEN**: after an Uruchomienie procesu ends, its Folder okresu
   holds both period files or neither. A success leaves both. A stop leaves
-  neither, because its message says „Nie utworzono żadnego pliku”. Harm: with only
-  one file in place, the next run stops on `PLIK_OKRESU_ISTNIEJE` and Dad has to
-  delete a file by hand. One break is an accepted risk, listed below.
+  neither, because its message says „Nie utworzono żadnego pliku”. The one
+  exception, as in `GLOSSARY.md`: a stop may leave a file when its message names
+  every file left and does not say that no file was created
+  (`BLAD_ZAPISU_POZOSTAL_PLIK` after a failed rollback). Harm: with only one file
+  in place and no word about it, the next run stops on `PLIK_OKRESU_ISTNIEJE` and
+  Dad has to find and delete a file by hand. One break is an accepted risk, listed
+  below.
 
 ## Does the change touch it?
 
@@ -87,16 +91,11 @@ above, and Przebieg rozliczeń's own folder publication in `engine.py`.
 
 ## Known findings
 
-A real defect in the current code. It is reported on every run until the code
-is fixed:
+None at present: `KNOWN_FINDINGS` in `explore_publication.py` is empty.
 
-1. **Nieudane wycofanie.** If moving the Plik zbiorczy fails and the rollback's
-   `target.unlink()` fails as well (the file is held by antivirus or OneDrive),
-   Rozliczenie wewnętrzne is left. Dad still sees `BLAD_ZAPISU` „Nie utworzono
-   żadnego pliku”.
-
-When a code change fixes it, the checker stops printing it. Delete its entry
-from `KNOWN_FINDINGS` in `explore_publication.py` and from this list.
+A known finding is a real defect in the current code. It is reported on every
+run until the code is fixed. When a code change fixes it, the checker stops
+printing it. Delete its entry from `KNOWN_FINDINGS` and from this list.
 
 ## Accepted risks
 
@@ -145,8 +144,8 @@ py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\check_mutations.py
 ```
 
 It must end with `MUTACJE OK`: `os.replace` instead of `os.rename`, a removed
-rollback, and recording a file for rollback before it is moved all give `NOWE
-NARUSZENIE`. `shutil.move` gives `LUKA MODELU`. A mutation reported as
+rollback, a failed rollback reported as plain `BLAD_ZAPISU`, and recording a file
+for rollback before it is moved all give `NOWE NARUSZENIE`. `shutil.move` gives `LUKA MODELU`. A mutation reported as
 `NIEAKTUALNA` no longer matches `preparation_files.py`. Rewrite its `anchor` and
 `replacement` in `check_mutations.py` against the new code so it breaks the same
 rule again. If the publication code moves to another file, update
