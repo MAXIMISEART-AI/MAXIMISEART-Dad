@@ -23,11 +23,10 @@ Preconditions:
 - Run the one-command orchestrator from the repository root.
 - Its UTF-8 evidence files retain plain CLI output; do not rely on a Rich live screen that disappears at process exit.
 
-- **Check ordered phases.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` and assert the first occurrences in `run.txt` are `Sprawdzanie`, `Odczyt danych`, `Planowanie`, then `Zapisywanie`.
-- **Check template progress.** Assert `Postęp szablonów: 3/3 (100%)`, `Liczniki:`, and the per-template status lines in `run.txt`.
+- **Check ordered phases and template progress.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. `assert-run.txt` reports `progress_reported=true`: `run.txt` shows `Etap: Sprawdzanie`, `Odczyt danych`, `Planowanie`, `Zapisywanie` in order, `Postęp szablonów: 3/3 (100%)`, two `ZAPISANO` and one `PUSTY_SZABLON` lines, and `Status semantyczny: OK`.
 - **Check semantic exit.** The default fixture records application exit `0` and `Status semantyczny: OK`. The `unmapped` variant returns `2` for dry-run and `1` for the real run, which stops before publication.
-- **Check metrics.** Read the copied evidence file `metrics.jsonl` as JSONL. It contains `mode`, `period`, `completed`, `result`, phase durations, and counters; it must not contain a full source path, address, order number, or row text.
-- **Check repeated-run statistics.** After five comparable dry-runs, a sixth dry-run prints `Statystyki DRY-RUN`, `P50`, and `P95`. Use a fresh metrics file for this test and retain the output as evidence.
+- **Check metrics.** `assert-run.txt` reports `metrics_safe=true`: the history holds a completed `DRY-RUN` then `RUN` record, both `OK`, with no row content or scratch path. Each record has `schema_version`, `started_at`, `mode`, `period`, `completed`, `result`, `phase_durations_ms`, `total_duration_ms`, and `counters`; the copy stays in the evidence as `metrics.jsonl`.
+- **Check repeated-run statistics.** The current run counts, so `Statystyki DRY-RUN`, `P50`, and `P95` appear once five comparable completed records exist. Prove it with `py -3 -m pytest tests/test_cli_observability.py::test_statistics_are_available_after_five_comparable_runs -q`.
 
 ## Gotchas
 

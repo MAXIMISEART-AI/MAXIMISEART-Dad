@@ -7,20 +7,20 @@ only after every workbook is ready.
 ## Sub-features
 
 - `prepare-roster` creates one named workbook for every configured worker.
-- `prepare-copy` preserves Placeholder sheets, formulas, rates, formatting, and external links.
+- `prepare-copy` preserves Placeholder sheets, formulas, rates, formatting, and external links (the live fixture has no external link; `tests/test_settlement_engine.py::test_external_link_relationships_survive_target_write` proves that part).
 - `prepare-empty` creates an empty workbook for a configured worker without source rows.
 - `prepare-atomic` stages the folder and publishes it only after all workbooks succeed.
 - `prepare-rollback` removes staging files after a workbook failure; an unknown worker blocks a real run during planning, before staging starts.
 
 ## How to get to it (user POV)
 
-- Dad passes the source file to `Utwórz rozliczenia.cmd`; this is the supported user-facing launcher.
+- Dad double-clicks `Utwórz rozliczenia.cmd` and picks the Plik zbiorczy in a file dialog, or passes its path as an argument; this is the supported user-facing launcher.
 - For direct verification, run `py -3 run.py --source <source> --config <mapping> --placeholder <placeholder> --metrics <metrics>` with a synthetic fixture.
 
 ## Driving it with PowerShell and run.py
 
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` for the direct CLI proof.
-- Run `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q` to drive the supported CMD launcher in a copied synthetic runtime.
+- On Windows run `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q` to drive the supported CMD launcher in a copied synthetic runtime (skipped elsewhere; CI runs it).
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped` to prove an unknown WYKONAWCA prevents publication.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing` to prove an existing output folder is preserved.
 - Run the write-failure test listed in `safety-gates.md` to prove staging cleanup and retry.

@@ -25,7 +25,8 @@ Preconditions:
 - Use the orchestrator's isolated variant for each filesystem safety proof.
 - The locked variant runs the doctor and dry-run before creating the Placeholder lock.
 
-- **Unknown worker.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped`. Dry-run warns; the real run returns `1` and publishes no folder.
+- **Unknown worker.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped`. Dry-run warns and returns `2`; the real run returns `1` and publishes no folder.
+- **Untouched Placeholder.** Every variant's assertion compares the Placeholder `sha256` with the fixture manifest (`placeholder_unchanged`/`inputs_unchanged`).
 - **Existing output folder.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing`; the sentinel remains the only file.
 - **Excel lock.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant locked`; the run returns `1` and creates no output.
 - **Write failure.** Run `py -3 -m pytest tests/test_settlement_engine.py::test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion -q`; it checks cleanup and successful retry.
@@ -33,7 +34,7 @@ Preconditions:
 
 ## Gotchas
 
-- A missing mapping is a dry-run warning, but the real run does not publish an incomplete roster.
+- A missing mapping is a dry-run warning, but the real run does not publish an incomplete roster. A data row with an empty `WYKONAWCA` blocks the real run the same way (`BRAK_WYKONAWCY`).
 - A lock is represented by the exact `~$` filename; do not kill Excel or delete a user-owned lock as cleanup.
 - Workbooks are always copied from the common Placeholder, not reused from a previous period.
 - Safety variants are independent fixtures; do not stack them unless the expected result is explicitly recalculated.

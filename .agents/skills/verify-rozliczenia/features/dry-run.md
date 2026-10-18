@@ -37,8 +37,9 @@ Preconditions:
   unknown-worker warning without echoing its identifier or row values.
 - **Check no workbook write.** `assert-dry-run.txt` confirms the target folder
   was not created and source/Placeholder hashes still match the fixture manifest.
-- **Check telemetry.** Read `metrics.jsonl`; the record keeps the existing
-  schema and contains mode `DRY-RUN`, counters, and no source path or row data.
+- **Check telemetry.** `assert-dry-run.txt` reports `metrics_safe=true`: exactly
+  one completed `DRY-RUN` record (result `OK`, or `WYMAGA_SPRAWDZENIA` for
+  `--variant unmapped`) with no row content or scratch path.
 
 ## Gotchas
 

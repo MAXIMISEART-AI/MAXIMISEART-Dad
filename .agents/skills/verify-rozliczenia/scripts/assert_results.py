@@ -89,6 +89,38 @@ def _unchanged_inputs(root: Path, manifest: dict[str, object]) -> list[str]:
     return errors
 
 
+_ROW_CONTENT = ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3", "SYNTHETIC-4", "unknown.synthetic")
+
+
+def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str]) -> None:
+    """Expect one completed record per (mode, result), with no row content or path."""
+
+    metrics = root / "metrics.jsonl"
+    content = metrics.read_text(encoding="utf-8") if metrics.is_file() else ""
+    records = [json.loads(line) for line in content.splitlines() if line.strip()]
+    if [(record.get("mode"), record.get("result")) for record in records] != expected:
+        errors.append(f"metrics history does not contain exactly {expected}")
+    for record in records:
+        if record.get("period") != PERIOD or record.get("completed") is not True:
+            errors.append("metrics record is not a completed run of the period")
+    root_spellings = (str(root), json.dumps(str(root))[1:-1])
+    if any(value in content for value in _ROW_CONTENT) or any(spelling in content for spelling in root_spellings):
+        errors.append("metrics contain row content or a filesystem path")
+
+
+def _check_progress(output: str, errors: list[str]) -> None:
+    phases = [output.find(f"Etap: {phase}") for phase in ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")]
+    if -1 in phases or phases != sorted(phases):
+        errors.append("run transcript does not report the four stages in order")
+    if (
+        "Postęp szablonów: 3/3 (100%)" not in output
+        or output.count("| ZAPISANO |") != 2
+        or output.count("| PUSTY_SZABLON |") != 1
+        or "Status semantyczny: OK" not in output
+    ):
+        errors.append("run transcript does not report template progress and semantic status")
+
+
 def _finish_assertion(errors: list[str], success_message: str) -> int:
     if errors:
         for error in errors:
@@ -125,21 +157,15 @@ def _assert_dry_run(root: Path, transcript: Path | None) -> int:
                 errors.append(f"dry-run output is missing {expected}")
         if manifest.get("include_unmapped") and "Nieznany identyfikator WYKONAWCA" not in output:
             errors.append("dry-run output is missing the unmapped-worker warning")
-        for forbidden in (
-            "TEST-CITY",
-            "SYNTHETIC-1",
-            "SYNTHETIC-2",
-            "SYNTHETIC-3",
-            "SYNTHETIC-4",
-            "unknown.synthetic",
-        ):
-            if forbidden in output:
-                errors.append("dry-run output contains source row content")
+        if any(forbidden in output for forbidden in _ROW_CONTENT):
+            errors.append("dry-run output contains source row content")
+    dry_run_result = "WYMAGA_SPRAWDZENIA" if manifest.get("include_unmapped") else "OK"
+    _check_metrics(root, [("DRY-RUN", dry_run_result)], errors)
 
     return _finish_assertion(
         errors,
         "ASSERT OK | mode=dry-run | output_folder_absent=true | "
-        "inputs_unchanged=true | rows_hidden=true",
+        "inputs_unchanged=true | rows_hidden=true | metrics_safe=true",
     )
 
 
@@ -185,13 +211,15 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
         output = transcript.read_text(encoding="utf-8")
         if "Status końcowy: OK" not in output or "Zapisane szablony: 2" not in output:
             errors.append("run transcript does not report a successful complete run")
-        if any(value in output for value in ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3")):
+        if any(value in output for value in _ROW_CONTENT):
             errors.append("run transcript contains source row content")
+        _check_progress(output, errors)
+    _check_metrics(root, [("DRY-RUN", "OK"), ("RUN", "OK")], errors)
 
     return _finish_assertion(
         errors,
         "ASSERT OK | mode=run | workbooks_checked=3 | "
-        "formulas_preserved=true | placeholder_unchanged=true",
+        "formulas_preserved=true | placeholder_unchanged=true | progress_reported=true | metrics_safe=true",
     )
 
 
