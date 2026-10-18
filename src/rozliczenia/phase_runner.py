@@ -20,6 +20,7 @@ from .domain import (
 
 ResultT = TypeVar("ResultT")
 _PHASE_ORDER = tuple(ProgressPhase)
+_WORKER_STATES = frozenset({ProgressState.WORKER_START, ProgressState.WORKER_END, ProgressState.FAILED})
 
 
 def elapsed_ms_since(started: float) -> int:
@@ -32,6 +33,12 @@ def zero(result: object) -> int:
     """Liczba domyślna, gdy etap nie podaje żadnej wartości."""
 
     return 0
+
+
+def _count(value: int, label: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ProgressProtocolError(f"{label} musi być nieujemną liczbą całkowitą.")
+    return value
 
 
 class PhaseRunner:
@@ -57,6 +64,8 @@ class PhaseRunner:
         self._run_started = time.perf_counter()
         self._phase_started = self._run_started
         self._next_phase = 0
+        self._active_phase: ProgressPhase | None = None
+        self._failed = False
         self._failure_reported = False
         self._issue_count = 0
         self._template_total = 0
@@ -76,7 +85,7 @@ class PhaseRunner:
         """Odczyt danych, a po nim ``ISSUE_COUNT``."""
 
         def settle(result: ResultT) -> None:
-            self._issue_count = issue_count(result)
+            self._settle_issue_count(issue_count(result))
 
         result = self._run_phase(ProgressPhase.READING, operation, settle)
         self._emit(ProgressEventFactory.issue_count(elapsed_ms=self.elapsed_ms(), issue_count=self._issue_count))
@@ -93,8 +102,8 @@ class PhaseRunner:
 
         def settle(result: ResultT) -> None:
             if issue_count is not None:
-                self._issue_count = issue_count(result)
-            self._template_total = template_total(result)
+                self._settle_issue_count(issue_count(result))
+            self._template_total = _count(template_total(result), "Liczba Szablonów pracownika")
 
         result = self._run_phase(ProgressPhase.PLANNING, operation, settle)
         self._emit(
@@ -114,6 +123,12 @@ class PhaseRunner:
     def notify(self, event: ProgressEvent) -> None:
         """Przekazuje obserwatorowi zdarzenie wykonawcy z trwającego Zapisywania."""
 
+        if event.worker_name is None or event.state not in _WORKER_STATES:
+            raise ProgressProtocolError(
+                f"Zdarzenie {event.state.value} etapu {event.phase.value} wysyła tylko sekwencer etapów."
+            )
+        if self._active_phase is not ProgressPhase.SAVING:
+            raise ProgressProtocolError("Zdarzenie wykonawcy jest dozwolone tylko w trakcie Zapisywania.")
         if event.state is ProgressState.FAILED:
             self._failure_reported = True
         self._emit(event)
@@ -122,6 +137,10 @@ class PhaseRunner:
     def paused(self) -> Iterator[None]:
         """Wstrzymuje zegar uruchomienia między etapami, np. na czas odpowiedzi taty."""
 
+        if self._active_phase is not None:
+            raise ProgressProtocolError(
+                f"Nie można wstrzymać zegara w trakcie etapu {self._active_phase.value}."
+            )
         paused_at = time.perf_counter()
         try:
             yield
@@ -149,10 +168,7 @@ class PhaseRunner:
         operation: Callable[[], ResultT],
         settle: Callable[[ResultT], None],
     ) -> ResultT:
-        expected = _PHASE_ORDER[self._next_phase] if self._next_phase < len(_PHASE_ORDER) else None
-        if phase is not expected:
-            raise ProgressProtocolError(f"Etap {phase.value} uruchomiony poza kolejnością.")
-        self._next_phase += 1
+        self._enter(phase)
         self._phase_started = time.perf_counter()
         self._failure_reported = False
         self._emit(ProgressEventFactory.phase_started(phase, elapsed_ms=self.elapsed_ms()))
@@ -162,6 +178,8 @@ class PhaseRunner:
         except Exception:
             phase_elapsed_ms = self.phase_elapsed_ms()
             self._durations_ms[phase] = phase_elapsed_ms
+            self._active_phase = None
+            self._failed = True
             if not self._failure_reported:
                 self._emit(
                     ProgressEventFactory.phase_failed(
@@ -173,6 +191,7 @@ class PhaseRunner:
             raise
         phase_elapsed_ms = self.phase_elapsed_ms()
         self._durations_ms[phase] = phase_elapsed_ms
+        self._active_phase = None
         final_template = self._template_total if phase is ProgressPhase.SAVING else 0
         self._emit(
             ProgressEventFactory.phase_ended(
@@ -184,6 +203,28 @@ class PhaseRunner:
             )
         )
         return result
+
+    def _settle_issue_count(self, issue_count: int) -> None:
+        issue_count = _count(issue_count, "Liczba problemów")
+        if issue_count < self._issue_count:
+            raise ProgressProtocolError("Liczba problemów uruchomienia nie może się zmniejszyć.")
+        self._issue_count = issue_count
+
+    def _enter(self, phase: ProgressPhase) -> None:
+        if self._active_phase is not None:
+            raise ProgressProtocolError(
+                f"Nie można rozpocząć etapu {phase.value} w trakcie etapu {self._active_phase.value}."
+            )
+        if self._failed:
+            raise ProgressProtocolError(f"Nie można rozpocząć etapu {phase.value} po przerwaniu uruchomienia.")
+        expected = _PHASE_ORDER[self._next_phase] if self._next_phase < len(_PHASE_ORDER) else None
+        if phase is not expected:
+            expected_label = expected.value if expected is not None else "brak, uruchomienie jest zakończone"
+            raise ProgressProtocolError(
+                f"Etap {phase.value} uruchomiony poza kolejnością; oczekiwano: {expected_label}."
+            )
+        self._next_phase += 1
+        self._active_phase = phase
 
     def _emit(self, event: ProgressEvent) -> None:
         if self._observer is None:
