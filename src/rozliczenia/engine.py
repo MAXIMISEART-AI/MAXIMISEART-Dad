@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 import tempfile
 import time
@@ -11,9 +10,9 @@ from collections import defaultdict
 from pathlib import Path
 
 import yaml
-from openpyxl import load_workbook
 
-from . import template_settlement
+from . import collective_file, template_settlement
+from .collective_file import CollectiveFileError, ExcelRow
 from .domain import (
     Issue,
     ProgressEventFactory,
@@ -23,22 +22,10 @@ from .domain import (
     WorkerResult,
 )
 from .phase_runner import PhaseRunner, elapsed_ms_since
-from .settlement_period import PERIOD_TOKEN_PATTERN
-from .template_settlement import (
-    ExcelRow,
-    PlaceholderValidationError,
-    validate_placeholder,
-)
+from .template_settlement import PlaceholderValidationError, validate_placeholder
 from .workbook_files import is_open_in_excel
 
 
-PERIOD_PATTERN = PERIOD_TOKEN_PATTERN
-SOURCE_PATTERN = re.compile(
-    rf"^Rozliczenie (?P<period>{PERIOD_PATTERN}) - zbiorcze\.xlsx$"
-)
-HEADER_ROW = 17
-DATA_START_ROW = 18
-WORKER_COLUMN = 8  # H
 _INVALID_FILENAME_CHARACTERS = frozenset('<>:"/\\|?*')
 _MAX_WINDOWS_FILENAME_CODE_UNITS = 255
 
@@ -117,20 +104,10 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
 def period_from_source(source_path: Path) -> str:
     """Waliduje nazwę i lokalizację pliku zbiorczego."""
 
-    if "Rozliczenie wew." in source_path.name:
-        raise SettlementError("Plik Rozliczenie wew. jest poza zakresem tego procesu.")
-    match = SOURCE_PATTERN.fullmatch(source_path.name)
-    if not match:
-        raise SettlementError(
-            "Wybierz plik nazwany dokładnie: "
-            "Rozliczenie {dd}_{dd}_{mm}_{rrrr} - zbiorcze.xlsx."
-        )
-    period = match.group("period")
-    if source_path.parent.name != period:
-        raise SettlementError(
-            f"Folder pliku musi nazywać się tak samo jak okres: {period}."
-        )
-    return period
+    try:
+        return collective_file.period_from_path(source_path)
+    except CollectiveFileError as exc:
+        raise SettlementError(str(exc)) from exc
 
 
 def default_placeholder_path() -> Path:
@@ -145,40 +122,16 @@ def _ensure_unlocked(path: Path) -> None:
 
 
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], list[Issue]]:
-    """Czyta wyłącznie dane wejściowe i grupuje je po kolumnie H."""
+    """Czyta Wiersze danych Pliku zbiorczego i grupuje je po identyfikatorze WYKONAWCA."""
 
-    workbook = load_workbook(source_path, read_only=True, data_only=False)
     try:
-        sheet = workbook.active
-        if sheet is None:
-            raise SettlementError("Skoroszyt źródłowy nie zawiera arkusza.")
-        header = next(
-            sheet.iter_rows(min_row=HEADER_ROW, max_row=HEADER_ROW, max_col=WORKER_COLUMN, values_only=True),
-            (),
-        )
-        if len(header) < WORKER_COLUMN or normalize_text(header[WORKER_COLUMN - 1]) != "wykonawca":
-            raise SettlementError("W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H.")
-
-        rows_by_worker: defaultdict[str, list[ExcelRow]] = defaultdict(list)
-        issues: list[Issue] = []
-        for row_number, values in enumerate(
-            sheet.iter_rows(min_row=DATA_START_ROW, max_col=max(46, sheet.max_column), values_only=True),
-            start=DATA_START_ROW,
-        ):
-            input_values = values[:11]
-            if not any(value is not None for value in input_values):
-                continue
-            worker_value = values[WORKER_COLUMN - 1] if len(values) >= WORKER_COLUMN else None
-            worker_id = normalize_text(worker_value)
-            if not worker_id:
-                issues.append(
-                    Issue("BRAK_WYKONAWCY", f"Wiersz {row_number} ma dane, ale nie ma wykonawcy w kolumnie H.")
-                )
-                continue
-            rows_by_worker[worker_id].append(tuple(values[:46]))
-        return dict(rows_by_worker), issues
-    finally:
-        workbook.close()
+        data_rows, issues = collective_file.read_data_rows(source_path)
+    except CollectiveFileError as exc:
+        raise SettlementError(str(exc)) from exc
+    rows_by_worker: defaultdict[str, list[ExcelRow]] = defaultdict(list)
+    for row in data_rows:
+        rows_by_worker[normalize_text(row.worker)].append(row.values)
+    return dict(rows_by_worker), issues
 
 
 def run_settlements(

@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import zipfile
-from datetime import date, datetime, time, timedelta
-from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell, MergedCell
-from openpyxl.cell.rich_text import CellRichText
 from openpyxl.utils.exceptions import InvalidFileException
-from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from . import workbook_files
+from .collective_file import ExcelRow as ExcelRow  # część sygnatury process_template()
 from .domain import Issue, WorkerResult
 
 
@@ -25,23 +22,6 @@ _DATA_START_ROW = 18
 _WORKER_COLUMN = 8  # H
 _COPY_COLUMNS = range(1, 47)  # A:AT
 _INPUT_CHECK_COLUMNS = range(1, 12)  # A:K
-ExcelCellValue = (
-    bool
-    | int
-    | float
-    | Decimal
-    | str
-    | CellRichText
-    | date
-    | datetime
-    | time
-    | timedelta
-    | DataTableFormula
-    | ArrayFormula
-    | bytes
-    | None
-)
-ExcelRow = tuple[ExcelCellValue, ...]
 
 
 class TemplateWriteError(Exception):
