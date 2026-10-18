@@ -35,7 +35,7 @@ INPUT_COLUMNS = range(1, 12)  # A:K: nagłówki w wierszu 17 i dane wejściowe W
 QUANTITY_COLUMNS = range(14, 43)  # N:AP
 COPIED_COLUMNS = range(1, 47)  # A:AT: kopiowane z Pliku zbiorczego do Szablonu pracownika
 
-ExcelCellValue = (
+_ExcelCellValue = (
     bool
     | int
     | float
@@ -51,7 +51,7 @@ ExcelCellValue = (
     | bytes
     | None
 )
-ExcelRow = tuple[ExcelCellValue, ...]
+ExcelRow = tuple[_ExcelCellValue, ...]
 
 # Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx: przy otwieraniu
 # i, w trybie tylko do odczytu, także przy czytaniu wierszy uszkodzonego arkusza.
@@ -92,8 +92,7 @@ class LayoutError(CollectiveFileError):
 class DataRow:
     """Wiersz danych Pliku zbiorczego z surową wartością WYKONAWCA i wartościami A:AT."""
 
-    number: int
-    worker: ExcelCellValue
+    worker: _ExcelCellValue
     values: ExcelRow
 
 
@@ -125,7 +124,7 @@ def _is_worker_header(value: object) -> bool:
     return str(value or "").casefold().split() == ["wykonawca"]
 
 
-def check_layout(sheet: Worksheet) -> None:
+def check_worker_header(sheet: Worksheet) -> None:
     """Arkusz ma nagłówek WYKONAWCA w H17, bez względu na wielkość liter i spacje.
 
     Inaczej ``LayoutError`` podaje kolumnę A:K z WYKONAWCA albo jej brak.
@@ -155,7 +154,7 @@ def read_data_rows(path: Path) -> tuple[list[DataRow], list[Issue]]:
         sheet = workbook.active
         if sheet is None:
             raise CollectiveFileError("Skoroszyt źródłowy nie zawiera arkusza.")
-        check_layout(sheet)
+        check_worker_header(sheet)
 
         rows: list[DataRow] = []
         issues: list[Issue] = []
@@ -172,7 +171,7 @@ def read_data_rows(path: Path) -> tuple[list[DataRow], list[Issue]]:
             if not str(worker or "").split():
                 issues.append(Issue("BRAK_WYKONAWCY", f"Wiersz {number} ma dane, ale nie ma wykonawcy w kolumnie H."))
                 continue
-            rows.append(DataRow(number, worker, tuple(values[:last_copied_column])))
+            rows.append(DataRow(worker, tuple(values[:last_copied_column])))
         return rows, issues
     except _UNREADABLE_WORKBOOK_ERRORS as exc:
         # Tylko do odczytu arkusz jest parsowany leniwie, więc uszkodzony XML wychodzi dopiero przy czytaniu.

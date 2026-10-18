@@ -13,9 +13,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 import yaml
 
+from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState, WorkerResult
 from rozliczenia.engine import SettlementError, run_settlements
-from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 
 

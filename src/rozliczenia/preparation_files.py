@@ -87,7 +87,7 @@ def check_templates(files: PeriodFiles) -> None:
     _ensure_template_available(files.collective_template)
     with _open_template(files.collective_template, _COLLECTIVE) as (_, sheet, _):
         try:
-            collective_file.check_layout(sheet)
+            collective_file.check_worker_header(sheet)
         except collective_file.LayoutError as exc:
             if exc.worker_column is None:
                 raise messages.template_without_header(

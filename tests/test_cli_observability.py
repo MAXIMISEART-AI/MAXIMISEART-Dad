@@ -14,11 +14,11 @@ import pytest
 
 import rozliczenia.cli as cli
 from rozliczenia.cli import main
+from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEventFactory, ProgressObserver, ProgressPhase, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
 from rozliczenia.progress import ProgressNotice, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
-from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.progress import PhaseState, ProgressNoticeKind
 from rozliczenia.telemetry import MetricsStore

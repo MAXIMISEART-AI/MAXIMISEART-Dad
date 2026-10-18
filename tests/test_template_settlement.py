@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook, load_workbook
 
+from rozliczenia.collective_file import ExcelRow
 import rozliczenia.workbook_files as workbook_files
-from rozliczenia.template_settlement import ExcelRow, TemplateWriteError, process_template
+from rozliczenia.template_settlement import TemplateWriteError, process_template
 
 from tests.test_settlement_engine import PERIOD, active_worksheet, write_template
 
