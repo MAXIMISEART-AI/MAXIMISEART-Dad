@@ -6,10 +6,10 @@ Ten plik opisuje język procesu. Nie opisuje implementacji.
 
 Tygodniowy przedział pracy od wtorku do poniedziałku. Jest identyfikowany przez
 token zawierający dzień wtorku, dzień poniedziałku, miesiąc i rok, na przykład
-`08_14_09_2026`. Miesiąc i rok są z poniedziałku, jak w zapisie `08–14.09.2026`,
-więc okres od 29 września do 5 października 2026 ma token `29_05_10_2026`, a od
-29 grudnia 2026 do 4 stycznia 2027 token `29_04_01_2027`. Każdy okres ma jeden
-token.
+`08_14_09_2026`. Miesiąc i rok są z wtorku: na przełomie miesięcy i lat liczy
+się starszy miesiąc, więc okres od 27 października do 2 listopada 2026 ma token
+`27_02_10_2026`, a od 29 grudnia 2026 do 4 stycznia 2027 token `29_04_12_2026`.
+Każdy okres ma jeden token.
 
 ## Rejestr zleceń
 
