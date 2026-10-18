@@ -149,11 +149,10 @@ def prepare_collective_file(
         skipped_empty_rows=plan.skipped_empty_rows,
         orders_per_day=plan.orders_per_day,
         warnings=warnings,
-        phase_durations_ms=phases.durations_ms(),
     )
     if confirm_plan is not None and not dry_run:
         with phases.paused():
-            confirm_plan(summary)
+            confirm_plan(replace(summary, phase_durations_ms=phases.durations_ms()))
 
     def save_both() -> None:
         if not dry_run:
