@@ -73,9 +73,9 @@ checks that the copies stay byte-identical, that every written data cell has
 its header's font face and size, that every Wzorzec cell outside the written
 rows is unchanged, and that `xl/externalLinks/*` stay byte-identical. The
 Wzorce are git-ignored, so CI and `--variant all` leave this variant out. In a
-worktree, pass `--templates-dir <main checkout>\config`. Without both Wzorce
-the runner prints `VERIFY SKIP` and exits `0`; report that as a skip, never as
-a proof.
+worktree the runner reads the main checkout's `config/` itself;
+`--templates-dir` overrides that. Without both Wzorce the runner prints
+`VERIFY SKIP` and exits `0`; report that as a skip, never as a proof.
 
 Use this variant after changes to either process, to the Plik zbiorczy layout,
 or to the hand-over between the processes:
@@ -104,6 +104,10 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant al
 
 On macOS or Linux, replace `py -3` with `.venv/bin/python`; README.md covers
 the `.venv` setup.
+
+In a worktree, use the main checkout's `.venv` and run ad-hoc `python -c` with
+`PYTHONPATH=src`: its editable install otherwise imports the main checkout's
+`src`. pytest and the runner already import the worktree's own `src`.
 
 There is no server, port, login, seed database, or persistent instance. The
 runner's subprocess timeout is 120 seconds; a timed-out child is terminated by
