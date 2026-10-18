@@ -72,7 +72,11 @@ Dad's actions are: create the Folder okresu, or save his own file under a
 period file's name. Failures are injected only into calls that change the
 disk. Before exploring, a probe confirms that `Path.exists`, `is_symlink`,
 `mkdir`, `rename`, `unlink` and `os.rename` reach the in-memory disk on the
-running Python. CI runs the probe on 3.11 and 3.14.
+running Python. CI runs the probe on 3.11 and 3.14. Native fast paths that skip
+the patched `os` functions, such as `_winapi.CopyFile2` inside `shutil.copyfile`
+on Windows with Python 3.14, still raise an audit event. A `sys.addaudithook`
+turns any real filesystem call on an in-memory path into LUKA MODELU.
+Otherwise it would fail on the missing real path as an ordinary `OSError`.
 
 Not covered: the steps before Zapisywanie (Sprawdzanie, Odczyt danych,
 Planowanie), workbook content, POSIX rename semantics (macOS and Linux replace

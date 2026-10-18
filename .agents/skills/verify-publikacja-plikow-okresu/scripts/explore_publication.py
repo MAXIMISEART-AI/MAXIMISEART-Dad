@@ -30,6 +30,7 @@ import builtins
 import errno
 import io
 import os
+import shutil
 import stat as stat_module
 import sys
 import tempfile
@@ -314,6 +315,27 @@ class Scheduler:
 
 # --- Interception of os.* for paths on the in-memory disk ------------------------------------------
 
+_GUARDED_DISK: VirtualDisk | None = None
+
+
+def _audit_real_filesystem(event: str, args: tuple[object, ...]) -> None:
+    """A real filesystem call on a path of the in-memory disk bypassed the interception: LUKA MODELU.
+
+    Native fast paths, such as ``_winapi.CopyFile2`` in ``shutil.copyfile`` on Windows,
+    never reach the patched ``os`` functions. Without this hook they would fail on the
+    missing real path with an ordinary ``OSError`` that the code treats as a write error.
+    """
+
+    disk = _GUARDED_DISK
+    if disk is None:
+        return
+    for arg in args:
+        if disk.covers(arg):
+            raise ModelGap(f"{event}({disk.label(arg)}) nie jest modelowane")
+
+
+sys.addaudithook(_audit_real_filesystem)
+
 
 @contextmanager
 def intercepted(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
@@ -384,9 +406,12 @@ def intercepted(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
             patch(os, name, unmodeled(f"os.{name}", getattr(os, name)))
     patch(builtins, "open", unmodeled("open", builtins.open))
     patch(io, "open", unmodeled("io.open", io.open))
+    global _GUARDED_DISK
+    _GUARDED_DISK = disk
     try:
         yield
     finally:
+        _GUARDED_DISK = None
         for owner, name, original in reversed(originals):
             setattr(owner, name, original)
 
@@ -484,7 +509,18 @@ def probe_interception() -> list[str]:
         (moved / "inny").unlink(missing_ok=True)
         return disk.entry(moved / "inny") is None
 
+    def native_copy_is_a_gap() -> None:
+        try:
+            shutil.copyfile(layout.disk_root / "a", layout.disk_root / "b")
+        except ModelGap:
+            return
+        except OSError as error:
+            problems.append(f"shutil.copyfile omija dysk w pamięci bez LUKI MODELU ({type(error).__name__})")
+            return
+        problems.append("shutil.copyfile na dysku w pamięci nie zgłasza LUKI MODELU")
+
     with intercepted(disk, scheduler):
+        native_copy_is_a_gap()
         expect("Path.exists dla brakującego folderu", lambda: not folder.exists())
         expect("Path.mkdir", make_folder)
         expect("Path.exists dla istniejącego folderu", folder.exists)
