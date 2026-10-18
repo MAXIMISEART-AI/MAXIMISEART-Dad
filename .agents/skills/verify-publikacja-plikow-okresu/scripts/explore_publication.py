@@ -10,8 +10,9 @@ re-running the code once per schedule, and checks two rules:
 - NIENADPISYWANIE: no file or folder that someone else made is removed, replaced,
   or moved away.
 - RAZEM_ALBO_ZADEN: when an Uruchomienie procesu has ended, the Folder okresu holds
-  both of its period files or neither; a success leaves both and a stop, whose
-  message says no file was created, leaves neither.
+  both of its period files or neither; a success leaves both and a stop leaves
+  neither. The one allowed exception is a stop whose message names every file
+  left and does not say that no file was created.
 
 Only two things are replaced: workbook writing (``_write_period_file``) by a step
 that creates the staged file, and ``tempfile.TemporaryDirectory`` by a directory
@@ -234,6 +235,7 @@ class Run:
     stopped_by: type[BaseException] | None = None
     result: RunResult | None = None
     error: str | None = None
+    stop_text: str = ""
     gap: str | None = None
     history: list[str] = field(default_factory=list)
 
@@ -572,10 +574,6 @@ KNOWN_FINDINGS: dict[tuple[object, ...], str] = {
         "proces zamknięty między dwoma os.rename w _publish zostawia w istniejącym Folderze okresu "
         "samo Rozliczenie wewnętrzne"
     ),
-    ("RAZEM_ALBO_ZADEN", "ZATRZYMANE", (INTERNAL,), True): (
-        "gdy publikacja Pliku zbiorczego i wycofanie Rozliczenia wewnętrznego (unlink) się nie udają, "
-        "Rozliczenie wewnętrzne zostaje, a komunikat BLAD_ZAPISU mówi, że nie utworzono żadnego pliku"
-    ),
 }
 
 
@@ -668,23 +666,44 @@ def _run_body(run: Run, layout: Layout) -> None:
         run.result = "PRZERWANE"
     except BaseException as error:  # noqa: BLE001 - every stop counts, whatever its type
         run.result = "ZATRZYMANE"
-        run.error = type(error).__name__
+        message = getattr(error, "message", None)
+        run.error = f"{type(error).__name__} {message.code}" if message is not None else type(error).__name__
+        run.stop_text = str(error)
     finally:
         _CURRENT.run = None
 
 
+NOTHING_CREATED = "Nie utworzono żadnego pliku"
+
+
+def _period_files(layout: Layout) -> dict[str, Path]:
+    return {INTERNAL: layout.files.internal_settlement_file, COLLECTIVE: layout.files.collective_file}
+
+
 def _owned_period_files(disk: VirtualDisk, layout: Layout, run: Run) -> tuple[str, ...]:
-    candidates = ((INTERNAL, layout.files.internal_settlement_file), (COLLECTIVE, layout.files.collective_file))
-    return tuple(name for name, path in candidates if (entry := disk.entry(path)) is not None and entry.owner == run.name)
+    return tuple(
+        name
+        for name, path in _period_files(layout).items()
+        if (entry := disk.entry(path)) is not None and entry.owner == run.name
+    )
 
 
-def _razem_albo_zaden(run: Run, owned: tuple[str, ...]) -> Violation | None:
+def _stop_names_files_left(run: Run, layout: Layout, owned: tuple[str, ...]) -> bool:
+    """The stop tells Dad the truth: it names every file left and does not claim that none was created."""
+
+    paths = _period_files(layout)
+    return NOTHING_CREATED not in run.stop_text and all(f"plik {paths[name].name}" in run.stop_text for name in owned)
+
+
+def _razem_albo_zaden(run: Run, layout: Layout, owned: tuple[str, ...]) -> Violation | None:
     allowed = {
         "SUKCES": ((INTERNAL, COLLECTIVE),),
         "ZATRZYMANE": ((),),
         "PRZERWANE": ((), (INTERNAL, COLLECTIVE)),
     }[run.result or "PRZERWANE"]
     if owned in allowed:
+        return None
+    if run.result == "ZATRZYMANE" and _stop_names_files_left(run, layout, owned):
         return None
     left = ", ".join(owned) if owned else "żadnego pliku"
     unlink_failed = any(entry.startswith("os.unlink!") for entry in run.history)
@@ -790,7 +809,7 @@ def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execut
             detail = f" ({run.error})" if run.error else ""
             trace.append(f"{run.name} kończy się: {run.result}{detail}")
             successes += run.result == "SUKCES"
-            violation = _razem_albo_zaden(run, _owned_period_files(disk, layout, run))
+            violation = _razem_albo_zaden(run, layout, _owned_period_files(disk, layout, run))
             if violation is not None:
                 violations.append(violation)
     undisturbed_success = not cut and not disturbances and runs[0].result == "SUKCES"

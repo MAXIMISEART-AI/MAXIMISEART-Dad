@@ -92,8 +92,9 @@ def prepare_collective_file(
     """Tworzy w Folderze okresu razem Rozliczenie wewnętrzne i Plik zbiorczy.
 
     Zgłasza ``PreparationError``, gdy nie można działać bezpiecznie; wtedy nie
-    powstaje żaden plik ani nowy Folder okresu. Rejestr zleceń i wzorce są
-    tylko czytane.
+    powstaje żaden plik ani nowy Folder okresu, chyba że komunikat wskazuje plik
+    okresu, którego po nieudanym zapisie nie udało się usunąć. Rejestr zleceń i
+    wzorce są tylko czytane.
 
     ``dry_run=True`` wykonuje te same sprawdzenia, odczyt i planowanie, a etap
     Zapisywanie kończy bez tworzenia czegokolwiek (także Folderu okresu). Wynik

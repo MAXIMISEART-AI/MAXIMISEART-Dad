@@ -42,8 +42,15 @@ MUTATIONS = (
     Mutation(
         "bez wycofania opublikowanego pliku",
         "po błędzie zostaje samo Rozliczenie wewnętrzne",
-        "        for target in published:\n            target.unlink(missing_ok=True)\n",
-        "        pass\n",
+        "                target.unlink(missing_ok=True)\n",
+        "                pass\n",
+        "PUBLIKACJA: NOWE NARUSZENIE",
+    ),
+    Mutation(
+        "nieudane wycofanie zgłaszane jak zwykły błąd zapisu",
+        "zostaje Rozliczenie wewnętrzne, a komunikat mówi, że nie utworzono żadnego pliku",
+        "                raise messages.write_failed_with_file_left(period_directory, target.name) from exc\n",
+        "                raise\n",
         "PUBLIKACJA: NOWE NARUSZENIE",
     ),
     Mutation(

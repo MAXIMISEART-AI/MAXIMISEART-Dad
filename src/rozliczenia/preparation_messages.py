@@ -32,7 +32,7 @@ class PreparationMessage:
 
 
 class PreparationError(Exception):
-    """Zatrzymanie Przygotowania pliku zbiorczego; żaden plik nie został utworzony."""
+    """Zatrzymanie Przygotowania pliku zbiorczego; żaden plik nie został utworzony, chyba że komunikat wskazuje pozostawiony plik."""
 
     def __init__(self, message: PreparationMessage) -> None:
         super().__init__(message.text)
@@ -563,6 +563,23 @@ def write_failed(period_directory: Path) -> PreparationError:
             action=(
                 "Sprawdź, czy folder jest dostępny i czy pliki okresu nie są otwarte, "
                 "i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
+            ),
+        )
+    )
+
+
+def write_failed_with_file_left(period_directory: Path, filename: str) -> PreparationError:
+    """Publikacja nie powiodła się, a już opublikowanego pliku okresu nie udało się usunąć."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="BLAD_ZAPISU_POZOSTAL_PLIK",
+            what="Zapisano tylko jeden z dwóch plików okresu i nie udało się go usunąć.",
+            where=f"folder {_folder_label(period_directory)}, plik {filename}",
+            action=(
+                "Usuń wskazany plik, bo bez drugiego pliku okresu jest niepełny, i uruchom ponownie. "
+                "Jeśli nie daje się go usunąć, odczekaj chwilę. Jeśli błąd wraca, przekaż komunikat "
+                "osobie utrzymującej narzędzie."
             ),
         )
     )
