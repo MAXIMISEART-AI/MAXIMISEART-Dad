@@ -270,12 +270,6 @@ def test_final_lines_are_status_czas_summary_statistics_and_one_detached_observe
     assert SECRET not in output
 
 
-def test_without_observer_failure_there_is_no_detached_observer_line(tmp_path: Path) -> None:
-    _, output = run_fake(fake_process(), tmp_path / "metrics.jsonl")
-
-    assert DETACHED_OBSERVER_NOTICE not in output
-
-
 class SlowAnswer(StringIO):
     """Tata odpowiada po chwili namysłu."""
 

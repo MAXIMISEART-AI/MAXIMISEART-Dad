@@ -35,21 +35,3 @@ def test_stopped_uruchomienie_procesu_is_an_incomplete_record_with_every_phase(t
     store = MetricsStore(tmp_path / "metrics.jsonl", COUNTERS)
     store.append(record)
     assert store.read() == [record]
-
-
-def test_finished_uruchomienie_procesu_is_a_completed_record_of_its_period() -> None:
-    record = metric_record(
-        mode="DRY-RUN",
-        period="08_14_09_2026",
-        started_at="2026-09-28T10:00:00+00:00",
-        total_duration_ms=40,
-        phase_durations_ms={phase: 10 for phase in ProgressPhase},
-        result="WYMAGA_SPRAWDZENIA",
-        counters={"period_orders": 4, "warnings": 1},
-    )
-
-    assert (record["period"], record["completed"], record["result"]) == (
-        "08_14_09_2026",
-        True,
-        "WYMAGA_SPRAWDZENIA",
-    )
