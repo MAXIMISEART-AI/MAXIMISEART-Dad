@@ -332,6 +332,81 @@ def test_wzorzec_without_expected_header_stops_before_reading_rejestr(
     )
 
 
+@pytest.mark.parametrize(
+    ("template_name", "header_cell", "register_header", "header", "sheet", "row"),
+    [
+        ("Wzorzec rozliczenia wewnętrznego.xlsx", "G1", "nr zlecenia", "NUMER ZL.", "Arkusz1", 1),
+        ("Wzorzec rozliczenia wewnętrznego.xlsx", "A1", "DATA GODZ. POCZ.", "DATA", "Arkusz1", 1),
+        ("Wzorzec pliku zbiorczego.xlsx", "F17", "nr zlecenia", "NUMER ZL.", "Sheet1", 17),
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_wzorzec_with_rejestr_header_instead_of_its_own_stops(
+    tmp_path: Path,
+    template_name: str,
+    header_cell: str,
+    register_header: str,
+    header: str,
+    sheet: str,
+    row: int,
+    dry_run: bool,
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    path = template_path(fixture, template_name)
+    workbook = load_workbook(path, keep_links=True)
+    workbook[sheet][header_cell].value = register_header
+    workbook.save(path)
+    workbook.close()
+
+    error = stop_preparation(fixture, dry_run=dry_run)
+
+    assert error.message.code == "ZLY_WZORZEC"
+    assert error.message.where == f"plik {template_name}, arkusz {sheet}, wiersz {row}"
+    assert f"brakuje nagłówka {header}," in error.message.what
+
+
+@pytest.mark.parametrize(
+    ("template_name", "merged_range", "sheet"),
+    [
+        ("Wzorzec rozliczenia wewnętrznego.xlsx", "C5:D5", "Arkusz1"),  # 4. zlecenie okresu
+        ("Wzorzec pliku zbiorczego.xlsx", "B19:C20", "Sheet1"),  # 2. i 3. Zlecenie skuteczne
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_wzorzec_with_merged_cells_where_orders_go_stops_without_files(
+    tmp_path: Path, template_name: str, merged_range: str, sheet: str, dry_run: bool
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    path = template_path(fixture, template_name)
+    workbook = load_workbook(path, keep_links=True)
+    workbook[sheet].merge_cells(merged_range)
+    workbook.save(path)
+    workbook.close()
+
+    error = stop_preparation(fixture, dry_run=dry_run)
+
+    assert error.message.code == "SCALONE_KOMORKI_WZORCA"
+    assert str(error) == (
+        "Co się stało: We wzorcu są scalone komórki tam, gdzie trafiają zlecenia, więc nie można ich wpisać. "
+        "Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {template_name}, arkusz {sheet}, komórki {merged_range}\n"
+        "Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie."
+    )
+
+
+def test_merged_cells_of_wzorzec_below_written_orders_do_not_stop(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    workbook = load_workbook(fixture.collective_template_path, keep_links=True)
+    workbook["Sheet1"].merge_cells("A21:K21")  # pod trzema Zleceniami skutecznymi z wiersza 18
+    workbook.save(fixture.collective_template_path)
+    workbook.close()
+
+    summary = run_preparation(fixture)
+
+    assert summary.successful_order_count == 3
+    assert fixture.collective_file_path.is_file()
+
+
 def test_missing_folder_okresow_stops_without_creating_it(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     fixture.periods_directory.rmdir()

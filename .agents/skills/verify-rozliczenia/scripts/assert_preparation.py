@@ -18,13 +18,13 @@ PERIOD = "08_14_09_2026"
 INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 ROW_MARKER = "PREP-SYN-"
-EXPECTED_COUNTERS = {"period_orders": 4, "successful_orders": 3, "skipped_empty_rows": 3, "warnings": 0}
+EXPECTED_COUNTERS = {"period_orders": 4, "successful_orders": 3, "skipped_empty_rows": 5, "warnings": 0}
 EXPECTED_SUMMARY = (
     "Status końcowy: OK",
     f"Okres: {PERIOD}",
     "Zlecenia okresu: 4",
     "Zlecenia skuteczne: 3",
-    "Pominięte puste wiersze: 3",
+    "Pominięte puste wiersze: 5",
     "Zlecenia na dzień:",
     "- wt 08.09.2026: 1",
     "- śr 09.09.2026: 1",

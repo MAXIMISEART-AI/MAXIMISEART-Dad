@@ -12,7 +12,8 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-_TOKEN = re.compile(r"^(\d{2})_(\d{2})_(\d{2})_(\d{4})$")
+# Zapis tokenu bez sprawdzania dni tygodnia; wspólny dla nazw plików i metryk.
+PERIOD_TOKEN_PATTERN = r"\d{2}_\d{2}_\d{2}_\d{4}"
 _TUESDAY = 1
 
 
@@ -51,10 +52,9 @@ class SettlementPeriod:
 def parse_period_token(token: str) -> SettlementPeriod:
     """Okres z tokenu; ``ValueError``, gdy token nie opisuje okresu od wtorku do poniedziałku."""
 
-    match = _TOKEN.fullmatch(token)
-    if match is None:
+    if re.fullmatch(PERIOD_TOKEN_PATTERN, token) is None:
         raise ValueError("Token okresu ma postać dd_dd_mm_rrrr.")
-    _, monday_day, month, year = (int(part) for part in match.groups())
+    _, monday_day, month, year = (int(part) for part in token.split("_"))
     period = SettlementPeriod(date(year, month, monday_day) - timedelta(days=6))
     if period.token != token:
         raise ValueError("Token okresu nie opisuje okresu od wtorku do poniedziałku.")

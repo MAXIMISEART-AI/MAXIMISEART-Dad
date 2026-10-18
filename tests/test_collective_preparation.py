@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
+import time
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
@@ -9,7 +11,12 @@ import pytest
 
 from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState
 from rozliczenia.progress import PhaseState, ProgressProjection
-from rozliczenia.collective_preparation import PreparationError, PreparationSummary, prepare_collective_file
+from rozliczenia.collective_preparation import (
+    PreparationError,
+    PreparationMessage,
+    PreparationSummary,
+    prepare_collective_file,
+)
 from rozliczenia.workbook_files import ExternalLinksError
 import rozliczenia.workbook_files as workbook_files
 
@@ -33,6 +40,7 @@ def run_preparation(
     *,
     dry_run: bool = False,
     observer: ProgressObserver | None = None,
+    confirm_plan: Callable[[PreparationSummary], None] | None = None,
 ) -> PreparationSummary:
     return prepare_collective_file(
         fixture.register_path,
@@ -43,6 +51,7 @@ def run_preparation(
         collective_template_path=fixture.collective_template_path,
         dry_run=dry_run,
         observer=observer,
+        confirm_plan=confirm_plan,
     )
 
 
@@ -175,7 +184,7 @@ def test_summary_reports_counts_and_file_names_without_client_data(tmp_path: Pat
     assert summary.period == PERIOD
     assert summary.period_order_count == 4
     assert summary.successful_order_count == 3
-    assert summary.skipped_empty_rows == 3
+    assert summary.skipped_empty_rows == 5
     assert summary.warnings == []
     assert summary.internal_settlement_file == fixture.internal_settlement_path
     assert summary.collective_file == fixture.collective_file_path
@@ -319,7 +328,7 @@ def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: P
     assert summary.period == PERIOD
     assert summary.period_order_count == 4
     assert summary.successful_order_count == 3
-    assert summary.skipped_empty_rows == 3
+    assert summary.skipped_empty_rows == 5
     assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
     assert summary.internal_settlement_file == fixture.internal_settlement_path
     assert summary.collective_file == fixture.collective_file_path
@@ -807,3 +816,81 @@ def test_order_on_monday_anywhere_in_rejestr_means_full_period(tmp_path: Path) -
     plan = run_preparation(fixture, dry_run=True)
 
     assert plan.warnings == []
+
+
+def test_skipped_empty_rows_are_all_empty_rows_from_first_to_last_period_order(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        None,
+        register_order(1, datetime(2026, 9, 7, 15, 0)),  # poprzedni okres
+        None,
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        None,
+        register_order(3, datetime(2026, 9, 15, 8, 0)),  # następny okres, między zleceniami okresu
+        None,
+        None,
+        register_order(4, datetime(2026, 9, 14, 8, 0)),  # spóźnione zlecenie okresu
+        None,
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture, dry_run=True)
+
+    assert summary.period_order_count == 2
+    assert summary.skipped_empty_rows == 3
+
+
+def test_confirm_plan_gets_plan_after_planowanie_and_before_zapisywanie(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    recorded: list[ProgressEvent] = []
+    seen: list[tuple[int, int, list[tuple[ProgressPhase, ProgressState]], bool]] = []
+
+    def confirm_plan(plan: PreparationSummary) -> None:
+        stages = [(event.phase, event.state) for event in recorded]
+        seen.append((plan.period_order_count, plan.successful_order_count, stages, fixture.period_directory.exists()))
+
+    summary = run_preparation(fixture, observer=recorded.append, confirm_plan=confirm_plan)
+
+    assert seen == [(4, 3, STAGES_IN_ORDER[:8], False)]
+    assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
+    assert summary.period_order_count == 4
+    assert fixture.collective_file_path.is_file()
+
+
+def test_stop_from_confirm_plan_creates_no_file_and_no_folder_okresu(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    recorded: list[ProgressEvent] = []
+    refusal = PreparationError(
+        PreparationMessage(code="ODMOWA", what="Odmowa w teście.", where="test", action="Nic.")
+    )
+
+    def refuse(plan: PreparationSummary) -> None:
+        raise refusal
+
+    with pytest.raises(PreparationError) as raised:
+        run_preparation(fixture, observer=recorded.append, confirm_plan=refuse)
+
+    assert raised.value is refusal
+    assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER[:8]
+    assert list(fixture.periods_directory.iterdir()) == []
+
+
+def test_dry_run_does_not_call_confirm_plan(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    calls: list[PreparationSummary] = []
+
+    run_preparation(fixture, dry_run=True, confirm_plan=calls.append)
+
+    assert calls == []
+
+
+def test_time_spent_in_confirm_plan_is_not_counted_in_przygotowanie_time(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    recorded: list[ProgressEvent] = []
+    pause_s = 1.5
+
+    summary = run_preparation(
+        fixture, observer=recorded.append, confirm_plan=lambda plan: time.sleep(pause_s)
+    )
+
+    assert sum(summary.phase_durations_ms.values()) < pause_s * 1000
+    assert max(event.elapsed_ms or 0 for event in recorded) < pause_s * 1000

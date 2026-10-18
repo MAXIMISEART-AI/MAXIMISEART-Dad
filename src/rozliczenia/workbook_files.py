@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from openpyxl.utils.exceptions import InvalidFileException
@@ -28,6 +29,30 @@ def is_open_in_excel(path: Path) -> bool:
     """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``."""
 
     return path.with_name(f"~${path.name}").exists()
+
+
+def ensure_available(
+    path: Path,
+    *,
+    missing: Callable[[Path], Exception],
+    open_in_excel: Callable[[Path], Exception],
+) -> None:
+    """Zgłasza ``missing(path)``, gdy skoroszytu nie ma, albo ``open_in_excel(path)``, gdy jest otwarty."""
+
+    if not path.is_file():
+        raise missing(path)
+    if is_open_in_excel(path):
+        raise open_in_excel(path)
+
+
+def request_full_recalculation(workbook: Workbook) -> None:
+    """Excel przeliczy formuły przy otwarciu; openpyxl nie zapisuje wyników formuł."""
+
+    calculation = getattr(workbook, "calculation", None)
+    if calculation is not None:
+        calculation.calcMode = "auto"
+        calculation.fullCalcOnLoad = True
+        calculation.forceFullCalc = True
 
 
 def save_workbook(

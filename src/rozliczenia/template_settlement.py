@@ -109,12 +109,7 @@ def _write_workbook(path: Path, workbook: Workbook, rows: list[ExcelRow]) -> Non
         for column, value in zip(_COPY_COLUMNS, values):
             sheet.cell(row=destination_row, column=column).value = value
 
-    calculation = getattr(workbook, "calculation", None)
-    if calculation is not None:
-        calculation.calcMode = "auto"
-        calculation.fullCalcOnLoad = True
-        calculation.forceFullCalc = True
-
+    workbook_files.request_full_recalculation(workbook)
     workbook_files.save_workbook(workbook, path)
 
 

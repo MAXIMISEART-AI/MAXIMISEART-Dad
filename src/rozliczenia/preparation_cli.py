@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
-from functools import partial
 import sys
 import time
 from pathlib import Path
 from typing import Any, TextIO
 
-from .cli import Dashboard, default_config_path
+from .cli import Dashboard, ask_in_dialog, default_config_path, record_metrics
 from .collective_preparation import (
     PreparationError,
     PreparationSummary,
@@ -24,14 +23,16 @@ from .phase_runner import elapsed_ms_since
 from . import preparation_messages as messages
 from .preparation_messages import PreparationMessage, unexpected_failure
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
-from .telemetry import METRICS_SCHEMA_VERSION, PERIOD_PATTERN, MetricsStore
+from .telemetry import METRICS_SCHEMA_VERSION, PERIOD_PATTERN, UNKNOWN_PERIOD, MetricsStore
 
 _TITLE = "Przygotowanie pliku zbiorczego"
 # Liczniki historii metryk Przygotowania pliku zbiorczego (inne niż Przebiegu rozliczeń).
 _COUNTERS = ("period_orders", "successful_orders", "skipped_empty_rows", "warnings")
-_COUNTER_NAMES = frozenset(_COUNTERS)
 _WEEKDAY_LABELS = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
 _YES_ANSWERS = ("t", "tak")
+# Status końcowy, gdy nie powstał żaden plik: zatrzymanie z komunikatem albo błąd nieprzewidziany.
+_STOPPED = "ZATRZYMANO"
+_FAILED = "BŁĄD"
 
 
 def default_metrics_path() -> Path:
@@ -40,27 +41,10 @@ def default_metrics_path() -> Path:
     return Path(__file__).resolve().parents[2] / ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
 
 
-def _ask_in_dialog(ask: Callable[[Any], str]) -> str:
-    """Pokazuje lokalne okno tkinter; pusty wynik, gdy anulowano albo okna nie da się pokazać."""
-
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            return ask(filedialog) or ""
-        finally:
-            root.destroy()
-    except Exception:
-        return ""
-
-
 def choose_register_file() -> Path:
     """Okno wyboru pliku Rejestru zleceń, gdy nie podano ``--register``."""
 
-    selected = _ask_in_dialog(
+    selected = ask_in_dialog(
         lambda dialog: dialog.askopenfilename(
             title="Wybierz plik Rejestru zleceń",
             filetypes=[("Rejestr zleceń Excel", "ZLECENIA*.xlsx"), ("Excel", "*.xlsx")],
@@ -74,7 +58,7 @@ def choose_register_file() -> Path:
 def choose_periods_directory() -> Path:
     """Okno wyboru folderu okresów, gdy nie podano ``--periods-directory``."""
 
-    selected = _ask_in_dialog(
+    selected = ask_in_dialog(
         lambda dialog: dialog.askdirectory(title="Wybierz folder okresów (np. INEA)", mustexist=True)
     )
     if not selected:
@@ -166,11 +150,29 @@ def _say(output: TextIO, text: str, *, end: str = "\n") -> None:
         pass
 
 
+def _say_message(output: TextIO, message: PreparationMessage) -> None:
+    for line in message.text.splitlines():
+        _say(output, line)
+
+
+def _is_interactive(stream: TextIO) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def _ask(output: TextIO, input_stream: TextIO, prompt: str) -> str | None:
-    """Odpowiedź bez otaczających spacji; ``None``, gdy wejście się skończyło."""
+    """Odpowiedź bez otaczających spacji; ``None``, gdy wejście się skończyło.
+
+    Gdy odpowiedź nie pochodzi z terminala (który sam wyświetla Enter), dopisuje
+    koniec linii, żeby kolejny komunikat nie trafił do linii pytania.
+    """
 
     _say(output, prompt, end="")
     answer = input_stream.readline()
+    if not _is_interactive(input_stream):
+        _say(output, "")
     return None if answer == "" else answer.strip()
 
 
@@ -194,36 +196,47 @@ def _ask_period(today: date, output: TextIO, input_stream: TextIO) -> str:
         try:
             return parse_period_token(answer).token
         except ValueError:
-            for line in messages.invalid_period_token(answer).message.text.splitlines():
-                _say(output, line)
+            _say_message(output, messages.invalid_period_token(answer).message)
 
 
-def _confirm_incomplete_period(
-    plan: Callable[[], PreparationSummary], period: str, output: TextIO, input_stream: TextIO
-) -> None:
-    """Przy niepełnym okresie pokazuje liczby na dzień i pyta; odmowa to ``PreparationError``.
+class _IncompletePeriodQuestion:
+    """Decyzja CLI po Planowaniu: przy niepełnym okresie pyta tatę o kontynuację.
 
-    Plan powstaje w trybie dry-run bez obserwatora, więc nic nie zapisuje.
+    Silnik wywołuje ją z planem między Planowaniem a Zapisywaniem. Dashboard jest
+    na czas pytania zatrzymany, a czas oczekiwania na odpowiedź jest odejmowany
+    od czasu uruchomienia. Odmowa to ``PreparationError``.
     """
 
-    try:
-        probe = plan()
-    except Exception:
-        # Zatrzymanie albo błąd pokaże właściwe uruchomienie, na dashboardzie i w metrykach.
-        return
-    warning = next((item for item in probe.warnings if item.code == messages.INCOMPLETE_PERIOD), None)
-    if warning is None:
-        return
-    _say(output, "Ostrzeżenie: niepełny okres")
-    for line in [*warning.text.splitlines(), "Zlecenia na dzień:", *_orders_per_day_lines(probe.orders_per_day)]:
-        _say(output, line)
-    answer = _ask(output, input_stream, "Kontynuować mimo niepełnego okresu? Wpisz t (tak) albo n (nie): ")
-    if answer is None or answer.casefold() not in _YES_ANSWERS:
-        raise messages.incomplete_period_refused(period)
+    def __init__(self, dashboard: Dashboard, output: TextIO, input_stream: TextIO) -> None:
+        self._dashboard = dashboard
+        self._output = output
+        self._input_stream = input_stream
+        self.waited_ms = 0
+
+    def __call__(self, plan: PreparationSummary) -> None:
+        warning = next((item for item in plan.warnings if item.code == messages.INCOMPLETE_PERIOD), None)
+        if warning is None:
+            return
+        asked = time.perf_counter()
+        self._dashboard.stop()
+        try:
+            _say(self._output, "Ostrzeżenie: niepełny okres")
+            for line in [*warning.text.splitlines(), "Zlecenia na dzień:", *_orders_per_day_lines(plan.orders_per_day)]:
+                _say(self._output, line)
+            answer = _ask(
+                self._output,
+                self._input_stream,
+                "Kontynuować mimo niepełnego okresu? Wpisz t (tak) albo n (nie): ",
+            )
+        finally:
+            self.waited_ms += elapsed_ms_since(asked)
+        if answer is None or answer.casefold() not in _YES_ANSWERS:
+            raise messages.incomplete_period_refused(plan.period)
+        self._dashboard.resume()
 
 
 def _metrics_period(period: str) -> str:
-    return period if PERIOD_PATTERN.fullmatch(period) else "nieznany"
+    return period if PERIOD_PATTERN.fullmatch(period) else UNKNOWN_PERIOD
 
 
 def _metric_record(
@@ -231,12 +244,12 @@ def _metric_record(
     mode: str,
     period: str,
     summary: PreparationSummary | None,
-    dashboard: Dashboard,
+    phase_durations_ms: Mapping[ProgressPhase, int],
     total_elapsed_ms: int,
     started_at: str,
 ) -> dict[str, Any]:
     counters = dict.fromkeys(_COUNTERS, 0)
-    phase_durations: dict[ProgressPhase, int] = dict(dashboard.state.snapshot.phase_durations_ms)
+    phase_durations = dict(phase_durations_ms)
     if summary is not None:
         counters.update(
             {
@@ -274,43 +287,43 @@ def main(
     input_stream = input_stream or sys.stdin
     args = build_parser().parse_args(argv)
     mode = "DRY-RUN" if args.dry_run else "RUN"
-    metrics_store = MetricsStore(metrics_path or args.metrics, _COUNTER_NAMES)
+    metrics_store = MetricsStore(metrics_path or args.metrics, frozenset(_COUNTERS))
 
     summary: PreparationSummary | None = None
     stop: tuple[str, PreparationMessage] | None = None
-    period: str = args.period or "nieznany"
+    period: str = args.period or UNKNOWN_PERIOD
     try:
         register_path: Path = args.register or choose_register_file()
         periods_directory: Path = args.periods_directory or choose_periods_directory()
         period = args.period or _ask_period(today or date.today(), output, input_stream)
-        prepare = partial(
-            prepare_collective_file,
-            register_path,
-            periods_directory,
-            period,
-            args.config,
-            internal_template_path=args.internal_template,
-            collective_template_path=args.collective_template,
-        )
-        if not args.dry_run:
-            _confirm_incomplete_period(partial(prepare, dry_run=True), period, output, input_stream)
     except PreparationError as error:
-        stop = ("ZATRZYMANO", error.message)
+        stop = (_STOPPED, error.message)
 
     # Czas liczony od uruchomienia silnika, bez czasu wyboru plików i odpowiedzi taty.
     started_at = datetime.now(timezone.utc).isoformat()
     started = time.perf_counter()
     dashboard = Dashboard(output, mode, period, title=_TITLE, shows_templates=False)
     dashboard.start()
+    question = _IncompletePeriodQuestion(dashboard, output, input_stream)
     if stop is None:
         try:
-            summary = prepare(dry_run=args.dry_run, observer=dashboard)
+            summary = prepare_collective_file(
+                register_path,
+                periods_directory,
+                period,
+                args.config,
+                internal_template_path=args.internal_template,
+                collective_template_path=args.collective_template,
+                dry_run=args.dry_run,
+                observer=dashboard,
+                confirm_plan=question,
+            )
         except PreparationError as error:
-            stop = ("ZATRZYMANO", error.message)
+            stop = (_STOPPED, error.message)
         except Exception:
-            stop = ("BŁĄD", unexpected_failure())
+            stop = (_FAILED, unexpected_failure())
 
-    total_elapsed_ms = elapsed_ms_since(started)
+    total_elapsed_ms = max(0, elapsed_ms_since(started) - question.waited_ms)
     dashboard.stop()
     if stop is not None:
         status, message = stop
@@ -329,15 +342,16 @@ def main(
         mode=mode,
         period=period,
         summary=summary,
-        dashboard=dashboard,
+        phase_durations_ms=dashboard.phase_durations_ms,
         total_elapsed_ms=total_elapsed_ms,
         started_at=started_at,
     )
-    try:
-        metrics_store.append(record)
-        dashboard.print_statistics(metrics_store.read(), counter_names=_COUNTER_NAMES)
-    except (OSError, UnicodeError, ValueError):
-        dashboard.print_warning("Nie zapisano metryk; Przygotowanie pliku zbiorczego zakończyło się niezależnie.")
+    record_metrics(
+        dashboard,
+        metrics_store,
+        record,
+        failure_warning="Nie zapisano metryk; Przygotowanie pliku zbiorczego zakończyło się niezależnie.",
+    )
     return 0 if summary is not None else 1
 
 
