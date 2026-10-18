@@ -11,6 +11,8 @@ import sys
 import zipfile
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 
@@ -38,6 +40,22 @@ EXPECTED_SUMMARY = (
     f"Plik zbiorczy: {COLLECTIVE_NAME}",
 )
 DRY_RUN_NOTICE = "DRY-RUN: Nic nie zapisano"
+INTERNAL_TEMPLATE = Path("config") / "Wzorzec rozliczenia wewnętrznego.xlsx"
+COLLECTIVE_TEMPLATE = Path("config") / "Wzorzec pliku zbiorczego.xlsx"
+# Target headers the process fills; a real Wzorzec may order them differently.
+TARGET_HEADERS = (
+    "DATA",
+    "MIASTO",
+    "ADRES",
+    "UMOWA",
+    "URZĄDZENIA",
+    "CZYNNOŚCI",
+    "NUMER ZL.",
+    "WYKONAWCA",
+    "NUMER UMOWY/ZLECENIA ORANGE",
+    "SKUTECZNE",
+    "CZYNNOŚCI ZREALIZOWANE",
+)
 
 
 def _internal_row(number: int, started: datetime, worker: str, successful: str) -> tuple[object, ...]:
@@ -90,6 +108,8 @@ EXPECTED_COLLECTIVE_ROWS = (
     _collective_row(4, datetime(2026, 9, 12, 12, 0), "kamil.frontczak", " Tak "),
     _collective_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.nowak2", "TAK"),
 )
+EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
+EXPECTED_COLLECTIVE_ORDER_NUMBERS = tuple(row[5] for row in EXPECTED_COLLECTIVE_ROWS)
 
 
 def _sheet(workbook_sheet: object) -> Worksheet:
@@ -107,8 +127,8 @@ def _unchanged_inputs(root: Path) -> list[str]:
     errors: list[str] = []
     for label, path, key in (
         ("Rejestr zleceń", root / "ZLECENIA INTERMAX OD 08_11_2021.xlsx", "register_sha256"),
-        ("Wzorzec rozliczenia wewnętrznego", root / "config" / "Wzorzec rozliczenia wewnętrznego.xlsx", "internal_template_sha256"),
-        ("Wzorzec pliku zbiorczego", root / "config" / "Wzorzec pliku zbiorczego.xlsx", "collective_template_sha256"),
+        ("Wzorzec rozliczenia wewnętrznego", root / INTERNAL_TEMPLATE, "internal_template_sha256"),
+        ("Wzorzec pliku zbiorczego", root / COLLECTIVE_TEMPLATE, "collective_template_sha256"),
     ):
         if hashlib.sha256(path.read_bytes()).hexdigest() != manifest.get(key):
             errors.append(f"run changed {label}")
@@ -223,7 +243,95 @@ def _external_link_parts(path: Path) -> dict[str, bytes]:
         return {name: archive.read(name) for name in archive.namelist() if name.startswith("xl/externalLinks/")}
 
 
-def _assert_run(root: Path, transcript: Path | None) -> int:
+def _target_positions(sheet: Worksheet, header_row: int, label: str, errors: list[str]) -> dict[str, int]:
+    """Columns of the target headers in a real Wzorzec, found by header text like the process does."""
+
+    by_text = {
+        str(cell.value).strip().casefold(): cell.column
+        for cell in sheet[header_row]
+        if isinstance(cell.value, str) and cell.value.strip()
+    }
+    positions = {header: by_text[header.casefold()] for header in TARGET_HEADERS if header.casefold() in by_text}
+    if len(positions) != len(TARGET_HEADERS):
+        errors.append(f"{label}: Wzorzec lacks {len(TARGET_HEADERS) - len(positions)} target headers in row {header_row}")
+    return positions
+
+
+def _font_label(sheet: Worksheet, row: int, column: int) -> str:
+    font = sheet.cell(row, column).font
+    return f"{font.name} {font.sz}"
+
+
+def _cell_values(workbook: Workbook, skipped: set[tuple[int, int]]) -> dict[tuple[str, int, int], object]:
+    """Every stored cell value except the ``skipped`` (row, column) cells of the active sheet."""
+
+    active = workbook.active
+    values: dict[tuple[str, int, int], object] = {}
+    for sheet in workbook.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value is None or (sheet is active and (cell.row, cell.column) in skipped):
+                    continue
+                values[(sheet.title, cell.row, cell.column)] = cell.value
+    return values
+
+
+def _check_real_template_file(
+    template: Path,
+    output: Path,
+    *,
+    label: str,
+    header_row: int,
+    order_numbers: tuple[object, ...],
+    errors: list[str],
+) -> None:
+    """Rows routed by header, data font equal to the header font, and the rest of the Wzorzec unchanged.
+
+    Messages name columns and fonts only, never a cell value of the Wzorzec or the Rejestr.
+    """
+
+    template_book = load_workbook(template, data_only=False, keep_links=True)
+    output_book = load_workbook(output, data_only=False, keep_links=True)
+    try:
+        template_sheet = _sheet(template_book.active)
+        sheet = _sheet(output_book.active)
+        positions = _target_positions(template_sheet, header_row, label, errors)
+        if not positions:
+            return
+        first_row = header_row + 1
+        written_rows = range(first_row, first_row + len(order_numbers))
+        written = {(row, column) for row in written_rows for column in positions.values()}
+
+        order_column = positions.get("NUMER ZL.")
+        if order_column is not None:
+            routed = tuple(sheet.cell(row, order_column).value for row in written_rows)
+            after = sheet.cell(first_row + len(order_numbers), order_column).value
+            if routed != order_numbers or after != template_sheet.cell(first_row + len(order_numbers), order_column).value:
+                errors.append(f"{label}: NUMER ZL. does not hold exactly the expected orders from row {first_row}")
+
+        font_mismatches = []
+        for column in positions.values():
+            expected = _font_label(sheet, header_row, column)
+            fonts = {_font_label(sheet, row, column) for row in written_rows}
+            if fonts != {expected}:
+                font_mismatches.append(f"{get_column_letter(column)} {', '.join(sorted(fonts))} vs header {expected}")
+        if font_mismatches:
+            errors.append(f"{label}: data font differs from the header font: {'; '.join(font_mismatches)}")
+
+        expected_values = _cell_values(template_book, written)
+        actual_values = _cell_values(output_book, written)
+        changed = sorted(
+            key for key in expected_values.keys() | actual_values.keys() if expected_values.get(key) != actual_values.get(key)
+        )
+        if output_book.sheetnames != template_book.sheetnames or changed:
+            where = ", ".join(f"{title}!{get_column_letter(column)}{row}" for title, row, column in changed[:5])
+            errors.append(f"{label}: {len(changed)} Wzorzec cells outside the written rows changed ({where})")
+    finally:
+        template_book.close()
+        output_book.close()
+
+
+def _assert_run(root: Path, transcript: Path | None, templates: str) -> int:
     errors = _unchanged_inputs(root)
     periods_directory = root / "INEA"
     period_directory = periods_directory / PERIOD
@@ -235,18 +343,42 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
         errors.append("Folder okresu does not contain exactly both period files")
     else:
         try:
-            _check_internal_settlement(period_directory / INTERNAL_NAME, errors)
-            _check_collective_file(period_directory / COLLECTIVE_NAME, errors)
-            template_links = _external_link_parts(root / "config" / "Wzorzec pliku zbiorczego.xlsx")
-            if not template_links or _external_link_parts(period_directory / COLLECTIVE_NAME) != template_links:
-                errors.append("Plik zbiorczy xl/externalLinks parts differ from the Wzorzec")
+            if templates == "synthetic":
+                _check_internal_settlement(period_directory / INTERNAL_NAME, errors)
+                _check_collective_file(period_directory / COLLECTIVE_NAME, errors)
+            else:
+                _check_real_template_file(
+                    root / INTERNAL_TEMPLATE,
+                    period_directory / INTERNAL_NAME,
+                    label="Rozliczenie wewnętrzne",
+                    header_row=1,
+                    order_numbers=EXPECTED_INTERNAL_ORDER_NUMBERS,
+                    errors=errors,
+                )
+                _check_real_template_file(
+                    root / COLLECTIVE_TEMPLATE,
+                    period_directory / COLLECTIVE_NAME,
+                    label="Plik zbiorczy",
+                    header_row=17,
+                    order_numbers=EXPECTED_COLLECTIVE_ORDER_NUMBERS,
+                    errors=errors,
+                )
+            for template, output in (
+                (INTERNAL_TEMPLATE, INTERNAL_NAME),
+                (COLLECTIVE_TEMPLATE, COLLECTIVE_NAME),
+            ):
+                template_links = _external_link_parts(root / template)
+                if _external_link_parts(period_directory / output) != template_links:
+                    errors.append(f"{output} xl/externalLinks parts differ from the Wzorzec")
+            if not _external_link_parts(root / COLLECTIVE_TEMPLATE):
+                errors.append("Wzorzec pliku zbiorczego has no xl/externalLinks parts to preserve")
         except (OSError, ValueError, KeyError, zipfile.BadZipFile):
             errors.append("one or both period files cannot be read")
     _check_transcript(transcript, "RUN", errors)
     _check_metrics(root, ["DRY-RUN", "RUN"], errors)
     return _finish(
         errors,
-        "ASSERT OK | process=przygotowanie | mode=run | workbooks_checked=2 | "
+        f"ASSERT OK | process=przygotowanie | mode=run | templates={templates} | workbooks_checked=2 | "
         "formatting_preserved=true | external_links_preserved=true | inputs_unchanged=true",
     )
 
@@ -255,6 +387,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--expect", choices=("dry-run", "run"), required=True)
+    parser.add_argument(
+        "--templates",
+        choices=("synthetic", "config"),
+        default="synthetic",
+        help="'config': the fixture copied the real Wzorce, so check them generically",
+    )
     parser.add_argument("--transcript", type=Path)
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
@@ -262,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.expect == "dry-run":
             return _assert_dry_run(root, transcript)
-        return _assert_run(root, transcript)
+        return _assert_run(root, transcript, args.templates)
     except (OSError, ValueError) as exc:
         print(f"ASSERT FAIL: {exc}", file=sys.stderr)
         return 1

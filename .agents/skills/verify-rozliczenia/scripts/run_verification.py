@@ -20,6 +20,7 @@ REPO_ROOT = SCRIPT.parents[4]
 PERIOD = "08_14_09_2026"
 TIMEOUT_SECONDS = 120
 PYTHON_COMMAND = (sys.executable,)
+TEMPLATE_NAMES = ("Wzorzec rozliczenia wewnętrznego.xlsx", "Wzorzec pliku zbiorczego.xlsx")
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,13 @@ class WorkflowVariant:
     run_exit: int = 0
     assertion: Literal["run", "existing-output", "no-publish"] = "run"
     expected_message: str | None = None
+    templates: Literal["synthetic", "config"] = "synthetic"
+
+    @property
+    def local_only(self) -> bool:
+        """The real Wzorce in ``config/`` are git-ignored, so CI has none to verify against."""
+
+        return self.templates == "config"
 
 
 WORKFLOW_VARIANTS = {
@@ -54,7 +62,9 @@ WORKFLOW_VARIANTS = {
         expected_message="WYKONAWCA bez mapowania",
     ),
     "preparation": WorkflowVariant(process="preparation"),
+    "preparation-real-templates": WorkflowVariant(process="preparation", templates="config"),
 }
+CI_VARIANTS = tuple(name for name, variant in WORKFLOW_VARIANTS.items() if not variant.local_only)
 
 
 class VerificationFailure(RuntimeError):
@@ -186,10 +196,14 @@ def _utf8_environment() -> dict[str, str]:
     return environment
 
 
-def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
+def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_directory: Path) -> None:
     variant_config = WORKFLOW_VARIANTS[variant]
     if variant_config.process == "preparation":
-        _run_preparation_workflow(run_root, evidence_root)
+        _run_preparation_workflow(
+            run_root,
+            evidence_root,
+            templates_directory if variant_config.templates == "config" else None,
+        )
         return
     environment = _utf8_environment()
     version = _version()
@@ -279,8 +293,11 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
     _run_step("assert-run", run_assert_arguments, evidence_root, environment, expected_exit=0)
 
 
-def _run_preparation_workflow(run_root: Path, evidence_root: Path) -> None:
-    """Przygotowanie pliku zbiorczego: synthetic Rejestr, dry-run, then the real write."""
+def _run_preparation_workflow(run_root: Path, evidence_root: Path, templates_directory: Path | None) -> None:
+    """Przygotowanie pliku zbiorczego: synthetic Rejestr, dry-run, then the real write.
+
+    With ``templates_directory`` the fixture copies the real Wzorce instead of building synthetic ones.
+    """
 
     environment = _utf8_environment()
     helper_directory = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
@@ -304,6 +321,8 @@ def _run_preparation_workflow(run_root: Path, evidence_root: Path) -> None:
         str(metrics),
     ]
 
+    templates = "synthetic" if templates_directory is None else "config"
+
     def assert_arguments(mode: str) -> list[str]:
         return [
             str(helper_directory / "assert_preparation.py"),
@@ -311,17 +330,16 @@ def _run_preparation_workflow(run_root: Path, evidence_root: Path) -> None:
             str(run_root),
             "--expect",
             mode,
+            "--templates",
+            templates,
             "--transcript",
             str(evidence_root / f"{mode}.txt"),
         ]
 
-    _run_step(
-        "fixture",
-        [str(helper_directory / "create_preparation_fixture.py"), "--root", str(run_root)],
-        evidence_root,
-        environment,
-        expected_exit=0,
-    )
+    fixture_arguments = [str(helper_directory / "create_preparation_fixture.py"), "--root", str(run_root)]
+    if templates_directory is not None:
+        fixture_arguments.extend(["--templates-from", str(templates_directory)])
+    _run_step("fixture", fixture_arguments, evidence_root, environment, expected_exit=0)
     _run_step(
         "doctor",
         [str(helper_directory / "preparation_doctor.py"), "--root", str(run_root), "--expected-version", _version()],
@@ -338,25 +356,45 @@ def _run_preparation_workflow(run_root: Path, evidence_root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", choices=(*WORKFLOW_VARIANTS, "all"), default="default")
+    parser.add_argument(
+        "--variant",
+        choices=(*WORKFLOW_VARIANTS, "all"),
+        default="default",
+        help="'all' runs every variant except the local-only preparation-real-templates",
+    )
+    parser.add_argument(
+        "--templates-dir",
+        type=Path,
+        default=REPO_ROOT / "config",
+        help="directory with the real Wzorce for preparation-real-templates (default: config/ of this checkout)",
+    )
     args = parser.parse_args(argv)
 
+    templates_directory = args.templates_dir.expanduser().resolve()
     if args.variant != "all":
-        return _verify(args.variant)
-    failed = [variant for variant in WORKFLOW_VARIANTS if _verify(variant) != 0]
+        return _verify(args.variant, templates_directory)
+    failed = [variant for variant in CI_VARIANTS if _verify(variant, templates_directory) != 0]
     if failed:
         print(f"VERIFY FAIL | variants={', '.join(failed)}", file=sys.stderr)
         return 1
-    print(f"VERIFY OK | variants={', '.join(WORKFLOW_VARIANTS)}")
+    print(f"VERIFY OK | variants={', '.join(CI_VARIANTS)}")
     return 0
 
 
-def _verify(variant: str) -> int:
+def _verify(variant: str, templates_directory: Path) -> int:
+    if WORKFLOW_VARIANTS[variant].local_only:
+        missing_templates = [name for name in TEMPLATE_NAMES if not (templates_directory / name).is_file()]
+        if missing_templates:
+            print(
+                f"VERIFY SKIP | variant={variant} | templates_dir={templates_directory} | "
+                f"missing={', '.join(missing_templates)}"
+            )
+            return 0
     run_root, evidence_root = _new_paths()
     failure: BaseException | None = None
     cleanup_failure: BaseException | None = None
     try:
-        _run_workflow(variant, run_root, evidence_root)
+        _run_workflow(variant, run_root, evidence_root, templates_directory)
     except Exception as exc:
         failure = exc
     finally:

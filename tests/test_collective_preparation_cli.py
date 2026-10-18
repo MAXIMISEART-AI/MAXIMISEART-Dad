@@ -739,6 +739,8 @@ def test_time_waiting_for_answer_is_not_counted_in_metrics(tmp_path: Path) -> No
     assert exit_code == 0
     [record] = metric_records(fixture)
     assert record["total_duration_ms"] < 1500
-    assert sum(record["phase_durations_ms"].values()) <= record["total_duration_ms"]
+    # Każdy etap i czas uruchomienia są zaokrąglane do ms osobno: margines 1 ms na etap.
+    phase_durations = record["phase_durations_ms"].values()
+    assert sum(phase_durations) <= record["total_duration_ms"] + len(phase_durations)
     reported = next(line for line in output.getvalue().splitlines() if line.startswith("Czas uruchomienia: "))
     assert int(reported.removeprefix("Czas uruchomienia: ").removesuffix(" ms")) < 1500
