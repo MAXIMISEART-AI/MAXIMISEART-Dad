@@ -7,9 +7,10 @@ import json
 import os
 from pathlib import Path
 import re
+from collections.abc import Mapping
 from typing import Any
 
-from .domain import PHASES
+from .domain import PHASES, ProgressPhase
 from .settlement_period import PERIOD_TOKEN_PATTERN
 
 
@@ -36,6 +37,35 @@ RECORD_FIELDS = frozenset(
         "counters",
     }
 )
+
+
+def metric_record(
+    *,
+    mode: str,
+    period: str,
+    started_at: str,
+    total_duration_ms: int,
+    phase_durations_ms: Mapping[ProgressPhase, int],
+    result: str,
+    counters: Mapping[str, int],
+) -> dict[str, Any]:
+    """Rekord jednego Uruchomienia procesu w schemacie sprawdzanym przez ``MetricsStore``.
+
+    Rekord z wynikiem ``BLAD_KRYTYCZNY`` jest niezakończony. Okres spoza wzorca
+    okresu trafia jako ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms.
+    """
+
+    return {
+        "schema_version": METRICS_SCHEMA_VERSION,
+        "started_at": started_at,
+        "mode": mode,
+        "period": period if PERIOD_PATTERN.fullmatch(period) else UNKNOWN_PERIOD,
+        "completed": result != "BLAD_KRYTYCZNY",
+        "result": result,
+        "total_duration_ms": total_duration_ms,
+        "phase_durations_ms": {phase: phase_durations_ms.get(ProgressPhase(phase), 0) for phase in PHASES},
+        "counters": dict(counters),
+    }
 
 
 def _is_nonnegative_int(value: object) -> bool:

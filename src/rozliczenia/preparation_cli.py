@@ -18,12 +18,12 @@ from .collective_preparation import (
     default_internal_template_path,
     prepare_collective_file,
 )
-from .domain import PHASES, ProgressPhase
+from .domain import ProgressPhase
 from .phase_runner import elapsed_ms_since
 from . import preparation_messages as messages
 from .preparation_messages import PreparationMessage, unexpected_failure
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
-from .telemetry import METRICS_SCHEMA_VERSION, PERIOD_PATTERN, UNKNOWN_PERIOD, MetricsStore
+from .telemetry import UNKNOWN_PERIOD, MetricsStore, metric_record
 
 _TITLE = "Przygotowanie pliku zbiorczego"
 # Liczniki historii metryk Przygotowania pliku zbiorczego (inne niż Przebiegu rozliczeń).
@@ -235,10 +235,6 @@ class _IncompletePeriodQuestion:
         self._dashboard.resume()
 
 
-def _metrics_period(period: str) -> str:
-    return period if PERIOD_PATTERN.fullmatch(period) else UNKNOWN_PERIOD
-
-
 def _metric_record(
     *,
     mode: str,
@@ -249,7 +245,6 @@ def _metric_record(
     started_at: str,
 ) -> dict[str, Any]:
     counters = dict.fromkeys(_COUNTERS, 0)
-    phase_durations = dict(phase_durations_ms)
     if summary is not None:
         counters.update(
             {
@@ -259,18 +254,15 @@ def _metric_record(
                 "warnings": len(summary.warnings),
             }
         )
-        phase_durations.update(summary.phase_durations_ms)
-    return {
-        "schema_version": METRICS_SCHEMA_VERSION,
-        "started_at": started_at,
-        "mode": mode,
-        "period": _metrics_period(period),
-        "completed": summary is not None,
-        "result": "OK" if summary is not None else "BLAD_KRYTYCZNY",
-        "total_duration_ms": total_elapsed_ms,
-        "phase_durations_ms": {phase: phase_durations.get(ProgressPhase(phase), 0) for phase in PHASES},
-        "counters": counters,
-    }
+    return metric_record(
+        mode=mode,
+        period=period,
+        started_at=started_at,
+        total_duration_ms=total_elapsed_ms,
+        phase_durations_ms={**phase_durations_ms, **(summary.phase_durations_ms if summary else {})},
+        result="OK" if summary is not None else "BLAD_KRYTYCZNY",
+        counters=counters,
+    )
 
 
 def main(

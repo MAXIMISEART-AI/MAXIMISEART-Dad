@@ -11,7 +11,7 @@ import time
 from typing import Any, Callable, Mapping, TextIO
 
 from . import collective_file
-from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
+from .domain import ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import (
     SettlementError,
     default_worker_template_path,
@@ -27,10 +27,10 @@ from .progress_presentation import format_counter_line
 from .rich_progress import Console, Live, RichProgressAdapter
 from .telemetry import (
     COUNTER_NAMES,
-    METRICS_SCHEMA_VERSION,
     UNKNOWN_PERIOD,
     MetricsStore,
     comparable_records,
+    metric_record,
     statistics_for,
 )
 
@@ -327,54 +327,39 @@ def _metric_record(
     mode: str,
     period: str,
     summary: SettlementSummary | None,
-    dashboard: Dashboard | None,
-    completed: bool,
+    dashboard: Dashboard,
     total_elapsed_ms: int,
     started_at: str,
 ) -> dict[str, Any]:
-    snapshot = dashboard.state.snapshot if dashboard else None
-    counters = snapshot.metric_counters() if snapshot else {
-        "templates_total": 0,
-        "templates_completed": 0,
-        "rows": 0,
-        "written": 0,
-        "empty": 0,
-        "planned": 0,
-        "skipped": 0,
-    }
+    snapshot = dashboard.state.snapshot
     if summary is None:
-        counters["issues"] = (snapshot.issue_count if snapshot else 0) + 1
-        result = "BLAD_KRYTYCZNY"
-    else:
-        counters.update(
-            {
-                "templates_total": summary.template_count,
-                "templates_completed": summary.template_count,
-                "rows": summary.total_rows,
-                "written": summary.written_count,
-                "empty": summary.empty_count,
-                "planned": summary.planned_count,
-                "skipped": summary.skipped_count,
-                "issues": len(summary.issues),
-            }
+        return metric_record(
+            mode=mode,
+            period=period,
+            started_at=started_at,
+            total_duration_ms=total_elapsed_ms,
+            phase_durations_ms=snapshot.phase_durations_ms,
+            result="BLAD_KRYTYCZNY",
+            counters={**snapshot.metric_counters(), "issues": snapshot.issue_count + 1},
         )
-        result = "OK" if summary.ok else "WYMAGA_SPRAWDZENIA"
-    phase_durations: Mapping[ProgressPhase, int]
-    if summary is not None:
-        phase_durations = summary.phase_durations_ms
-    else:
-        phase_durations = snapshot.phase_durations_ms if snapshot else {ProgressPhase(phase): 0 for phase in PHASES}
-    return {
-        "schema_version": METRICS_SCHEMA_VERSION,
-        "started_at": started_at,
-        "mode": mode,
-        "period": period,
-        "completed": completed,
-        "result": result,
-        "total_duration_ms": total_elapsed_ms,
-        "phase_durations_ms": {str(phase): duration for phase, duration in phase_durations.items()},
-        "counters": counters,
-    }
+    return metric_record(
+        mode=mode,
+        period=period,
+        started_at=started_at,
+        total_duration_ms=total_elapsed_ms,
+        phase_durations_ms=summary.phase_durations_ms,
+        result="OK" if summary.ok else "WYMAGA_SPRAWDZENIA",
+        counters={
+            "templates_total": summary.template_count,
+            "templates_completed": summary.template_count,
+            "rows": summary.total_rows,
+            "written": summary.written_count,
+            "empty": summary.empty_count,
+            "planned": summary.planned_count,
+            "skipped": summary.skipped_count,
+            "issues": len(summary.issues),
+        },
+    )
 
 
 def main(
@@ -403,7 +388,6 @@ def main(
             period=UNKNOWN_PERIOD,
             summary=None,
             dashboard=dashboard,
-            completed=False,
             total_elapsed_ms=total_elapsed_ms,
             started_at=started_at,
         )
@@ -435,7 +419,6 @@ def main(
         period=period,
         summary=summary,
         dashboard=dashboard,
-        completed=summary is not None,
         total_elapsed_ms=total_elapsed_ms,
         started_at=started_at,
     )
