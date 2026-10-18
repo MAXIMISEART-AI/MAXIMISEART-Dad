@@ -15,12 +15,12 @@ Narzędzie nie używa AI ani zewnętrznych API. Instrukcja dla taty jest w
 - Wejście: `Rozliczenie {okres} - zbiorcze.xlsx`.
 - Folder wejścia ma nazwę identyczną jak `{okres}`.
 - Wyjście: `Rozliczenie pracowników {okres}`.
-- Każdy skoroszyt pracownika powstaje z kopii wspólnego Placeholdera.
+- Każdy skoroszyt pracownika powstaje z kopii wspólnego Wzorca rozliczenia pracownika.
 - Powstaje dokładnie jeden skoroszyt dla każdego pracownika z konfiguracji.
 - Wykonawca jest odczytywany z kolumny `H=WYKONAWCA`.
 - Identyfikatory wykonawców są mapowane jawnie w `config/worker_mapping.yaml`.
 - Kopiowane są wartości `A:AT` od wiersza 18, zwarte od wiersza 18.
-- Arkusze, formuły, stawki i formatowanie Placeholdera pozostają zachowane.
+- Arkusze, formuły, stawki i formatowanie Wzorca rozliczenia pracownika pozostają zachowane.
 - Pusty szablon pozostaje pusty.
 - Istniejący Folder rozliczeń pracowników nie jest nadpisywany ani scalany.
 - Nieznany wykonawca lub błąd tworzenia skoroszytu wstrzymuje publikację całego folderu.
@@ -40,11 +40,15 @@ tekstowego fallbacku z tymi samymi informacjami operacyjnymi.
 Przed pierwszym prawdziwym Przebiegiem rozliczeń użyj kontroli bez zapisu:
 
 ```powershell
-py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx" --placeholder "C:\Dane\Placeholder.xlsx"
+py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx" --worker-template "C:\Dane\Wzorzec rozliczenia pracownika.xlsx"
 ```
 
-`--placeholder` wskazuje wspólny skoroszyt bazowy. Domyślna ścieżka to
-`config\placeholder.xlsx`; parametr pozwala wskazać Placeholder poza repozytorium.
+`--worker-template` wskazuje wspólny skoroszyt bazowy. Domyślna ścieżka to
+`config\Wzorzec rozliczenia pracownika.xlsx`; parametr pozwala wskazać Wzorzec
+rozliczenia pracownika poza repozytorium. Plik wcześniej nazywał się
+`config\placeholder.xlsx`, a opcja `--placeholder`; starej opcji już nie ma.
+Gdy brakuje Wzorca rozliczenia pracownika, a obok leży `placeholder.xlsx`,
+komunikat podpowiada zmianę nazwy pliku.
 Podgląd sprawdza, czy folder wynikowy jest wolny, i pokazuje okres, folder,
 nazwy wszystkich planowanych plików oraz liczbę wierszy dla każdego wykonawcy.
 Nie tworzy folderu ani skoroszytów. Zwykły przebieg przygotowuje wszystkie kopie
@@ -132,7 +136,8 @@ powstają razem albo żaden.
 
 ### Wzorce
 
-Oba wzorce leżą w katalogu konfiguracji obok Placeholdera:
+Oba wzorce leżą w katalogu konfiguracji obok Wzorca rozliczenia pracownika
+używanego przez Przebieg rozliczeń:
 
 - `config\Wzorzec rozliczenia wewnętrznego.xlsx`: nagłówki w wierszu 1
   aktywnego arkusza, bez zleceń;
@@ -144,7 +149,7 @@ Pliki `*.xlsx` nie trafiają do repozytorium. Wzorce przygotowuje człowiek z
 pustych plików taty; kod nie poprawia ich wyglądu. Komórki wzorca, do których
 trafiają zlecenia, nie mogą być scalone; sprawdza to już `--dry-run`. Ścieżki domyślne nadpisują
 parametry `--internal-template` i `--collective-template`, tak jak
-`--placeholder` w Przebiegu rozliczeń.
+`--worker-template` w Przebiegu rozliczeń.
 
 ### Uruchomienie
 

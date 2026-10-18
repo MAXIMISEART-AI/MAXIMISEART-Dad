@@ -42,6 +42,15 @@ Wspólny skoroszyt bazowy, z którego powstaje Plik zbiorczy nowego okresu.
 Zachowuje stawki, sumy, formuły i formatowanie; nie zawiera zleceń i pozostaje
 niezmieniony.
 
+## Wzorzec rozliczenia pracownika
+
+Wspólny skoroszyt bazowy bez nazwy wykonawcy, z którego powstają Szablony
+pracowników. Ma ten sam układ kolumn co Plik zbiorczy, ale własne stawki
+pracownika. U taty to pusty plik `Rozliczenie {okres} -.xlsx` w Folderze
+rozliczeń pracowników. Nie jest rozliczeniem konkretnej osoby i pozostaje
+niezmieniony.
+_Avoid_: Placeholder
+
 ## Przygotowanie pliku zbiorczego
 
 Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
@@ -62,10 +71,10 @@ w nazwie pliku docelowego.
 
 ## Szablon pracownika
 
-Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Placeholdera.
-Zachowuje jego strukturę, formuły, stawki i formatowanie; zawiera dane tylko z
-własnego okresu i może pozostać pusty, jeśli wykonawca nie ma wierszy w Pliku
-zbiorczym.
+Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca
+rozliczenia pracownika. Zachowuje jego strukturę, formuły, stawki i
+formatowanie; zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli
+wykonawca nie ma wierszy w Pliku zbiorczym.
 
 ## Folder okresu
 
@@ -79,10 +88,11 @@ Folder danego okresu zawierający osobny skoroszyt dla każdego wykonawcy.
 
 ## Przygotowanie skoroszytów pracowników
 
-Etap tworzenia plików nowego okresu przez skopiowanie Placeholdera dla każdego
-wykonawcy. Token okresu i nazwa wykonawcy trafiają do nazw folderu i plików;
-struktura, formuły, stawki i formatowanie Placeholdera pozostają zachowane, a
-sam Placeholder pozostaje niezmieniony.
+Etap tworzenia plików nowego okresu przez skopiowanie Wzorca rozliczenia
+pracownika dla każdego wykonawcy. Token okresu i nazwa wykonawcy trafiają do
+nazw folderu i plików; struktura, formuły, stawki i formatowanie Wzorca
+rozliczenia pracownika pozostają zachowane, a sam Wzorzec pozostaje
+niezmieniony.
 
 ## Przetworzenie Szablonu pracownika
 
@@ -100,13 +110,6 @@ Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
 
 Wiersz od 18. w dół zawierający dane wejściowe pracy. Formuły i techniczne
 wartości szablonu nie są same w sobie wierszami danych.
-
-## Placeholder
-
-Wspólny skoroszyt bazowy bez nazwy wykonawcy, z którego powstają Szablony
-pracowników. Ma ten sam układ kolumn co Plik zbiorczy, ale własne stawki
-pracownika. U taty to plik `Rozliczenie {okres} -.xlsx` w Folderze rozliczeń
-pracowników. Nie jest rozliczeniem konkretnej osoby i pozostaje niezmieniony.
 
 ## Gotowość
 
@@ -132,5 +135,5 @@ Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
 ## Nienadpisywanie
 
 Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje
-się bez ich nadpisywania. Placeholder, wzorce i Rejestr zleceń również
-pozostają niezmienione.
+się bez ich nadpisywania. Wzorce i Rejestr zleceń również pozostają
+niezmienione.

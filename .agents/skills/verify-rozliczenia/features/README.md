@@ -25,7 +25,7 @@ outside the supported user workflow.
 - The orchestrator runs `--dry-run` before a real run, checks the complete plan,
   and verifies that it writes metrics but creates no destination folder or
   output workbook. The real run creates and atomically publishes all worker
-  workbooks from the Placeholder.
+  workbooks from the Wzorzec rozliczenia pracownika.
 - Keep evidence in `.verification\evidence\`; cleanup may remove only `.verification\runs\`.
 
 ## Proof and skip reporting
@@ -40,9 +40,9 @@ outside the supported user workflow.
 
 ## Features
 
-- [Workbook preparation](./prepare-workbooks.md) covers Placeholder copies and all-or-nothing publication.
+- [Workbook preparation](./prepare-workbooks.md) covers Wzorzec rozliczenia pracownika copies and all-or-nothing publication.
 - [Dry-run planning](./dry-run.md) covers safe inspection before writing.
 - [Worker settlement](./settle-workbooks.md) covers fan-out into mapped templates and preserved formulas.
-- [Safety gates](./safety-gates.md) covers unknown workers, placeholders, existing data, Excel locks, and the stop on an unreadable Plik zbiorczy.
+- [Safety gates](./safety-gates.md) covers unknown workers, the Wzorzec rozliczenia pracownika, existing data, Excel locks, and the stop on an unreadable Plik zbiorczy.
 - [Progress and telemetry](./progress-and-metrics.md) covers observable phases, counters, exit semantics, and safe metrics.
 - [Przygotowanie pliku zbiorczego](./prepare-collective-file.md) covers the Rejestr zleceń to Rozliczenie wewnętrzne and Plik zbiorczy process, its dry-run, and its launcher.

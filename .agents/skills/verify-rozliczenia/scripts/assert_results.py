@@ -81,7 +81,7 @@ def _unchanged_inputs(root: Path, manifest: dict[str, object]) -> list[str]:
     errors: list[str] = []
     for label, path, key in (
         ("source", period_directory / f"Rozliczenie {PERIOD} - zbiorcze.xlsx", "source_sha256"),
-        ("placeholder", root / "placeholder.xlsx", "placeholder_sha256"),
+        ("worker template", root / "Wzorzec rozliczenia pracownika.xlsx", "worker_template_sha256"),
     ):
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual != manifest.get(key):
@@ -194,7 +194,7 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
                 or snapshot.header_fill_rgb != "0000AA55"
                 or snapshot.rate_value != 17.5
             ):
-                errors.append(f"placeholder structure or formatting changed for {name}")
+                errors.append(f"worker template structure or formatting changed for {name}")
         if (
             _read_input_row(adrian_file, 18) != _expected_source_row("adrian.maciejewski", "SYNTHETIC-1", 1)
             or _read_input_row(adrian_file, 19) != _expected_source_row("adrian.maciejewski", "SYNTHETIC-3", 3)
@@ -219,7 +219,7 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
     return _finish_assertion(
         errors,
         "ASSERT OK | mode=run | workbooks_checked=3 | "
-        "formulas_preserved=true | placeholder_unchanged=true | progress_reported=true | metrics_safe=true",
+        "formulas_preserved=true | worker_template_unchanged=true | progress_reported=true | metrics_safe=true",
     )
 
 

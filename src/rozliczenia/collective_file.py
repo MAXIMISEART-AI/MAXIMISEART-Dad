@@ -2,7 +2,7 @@
 
 Przygotowanie pliku zbiorczego zapisuje Plik zbiorczy w tym układzie, a Przebieg
 rozliczeń go czyta i kopiuje Wiersze danych po pozycji kolumn do Szablonów
-pracowników. Dlatego ten sam układ mają Wzorzec pliku zbiorczego, Placeholder i
+pracowników. Dlatego ten sam układ mają Wzorzec pliku zbiorczego, Wzorzec rozliczenia pracownika i
 Szablony pracowników. Moduł nie zna mapowania Wykonawców. ``CollectiveFileError``
 ma bezpieczny komunikat, a każdy proces tłumaczy go na swój błąd.
 """

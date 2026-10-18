@@ -18,8 +18,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.engine import load_worker_mapping, period_from_source  # noqa: E402
 from rozliczenia.template_settlement import (  # noqa: E402
-    PlaceholderValidationError,
-    validate_placeholder,
+    WorkerTemplateValidationError,
+    validate_worker_template,
 )
 
 
@@ -42,7 +42,7 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
         raise ValueError("synthetic mapping must contain three workers")
     if target_directory.exists():
         raise ValueError("target directory must not exist before dry-run")
-    validate_placeholder(root / "placeholder.xlsx")
+    validate_worker_template(root / "Wzorzec rozliczenia pracownika.xlsx")
 
     workbook = load_workbook(source, read_only=True, data_only=False)
     try:
@@ -64,13 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         period, template_count = _check(args.root, args.expected_version)
-    except (OSError, ValueError, KeyError, TypeError, PlaceholderValidationError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, WorkerTemplateValidationError) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
         return 1
     print(
         f"DOCTOR OK | app=MAXIMISEART-Dad | version={args.expected_version} | "
         f"python={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} | "
-        f"period={period} | workers={template_count} | placeholder=valid | target_absent=true"
+        f"period={period} | workers={template_count} | worker_template=valid | target_absent=true"
     )
     return 0
 

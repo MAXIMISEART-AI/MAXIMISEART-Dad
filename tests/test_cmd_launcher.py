@@ -34,7 +34,7 @@ def _copy_launcher_runtime(destination: Path, launcher_name: str = "Utwórz rozl
 def _configure_launcher(launcher_path: Path, config_path: Path) -> None:
     config_directory = launcher_path.parent / "config"
     shutil.copy2(config_path, config_directory / "worker_mapping.yaml")
-    shutil.copy2(config_path.parent / "placeholder.xlsx", config_directory / "placeholder.xlsx")
+    shutil.copy2(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx", config_directory / "Wzorzec rozliczenia pracownika.xlsx")
 
 
 def _input_value(path: Path) -> object:

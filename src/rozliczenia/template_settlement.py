@@ -21,8 +21,12 @@ class TemplateWriteError(Exception):
     """Błąd właściwego zapisu Szablonu pracownika."""
 
 
-class PlaceholderValidationError(Exception):
-    """Placeholder nie może bezpiecznie posłużyć jako wzór nowych skoroszytów."""
+# Nazwa pliku sprzed zmiany nazwy Placeholdera; służy tylko podpowiedzi w komunikacie.
+_LEGACY_WORKER_TEMPLATE_NAME = "placeholder.xlsx"
+
+
+class WorkerTemplateValidationError(Exception):
+    """Wzorzec rozliczenia pracownika nie może bezpiecznie posłużyć jako wzór nowych skoroszytów."""
 
 
 def _is_real_value(cell: Cell | MergedCell) -> bool:
@@ -40,28 +44,31 @@ def _target_has_input_data(sheet: Worksheet) -> bool:
     return False
 
 
-def validate_placeholder(path: Path) -> None:
-    """Sprawdza Placeholder bez modyfikowania jego zawartości."""
+def validate_worker_template(path: Path) -> None:
+    """Sprawdza Wzorzec rozliczenia pracownika bez modyfikowania jego zawartości."""
 
     if not path.is_file():
-        raise PlaceholderValidationError("Nie znaleziono Placeholdera.")
+        message = f"Nie znaleziono Wzorca rozliczenia pracownika: {path.name}."
+        if path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
+            message += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{path.name}”."
+        raise WorkerTemplateValidationError(message)
     if workbook_files.is_open_in_excel(path):
-        raise PlaceholderValidationError("Placeholder jest otwarty lub zablokowany.")
+        raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.")
     try:
         workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
     except (OSError, InvalidFileException, zipfile.BadZipFile) as exc:
-        raise PlaceholderValidationError("Nie można odczytać Placeholdera.") from exc
+        raise WorkerTemplateValidationError("Nie można odczytać Wzorca rozliczenia pracownika.") from exc
 
     try:
         sheet = _active_worksheet(workbook)
         if sheet is None:
-            raise PlaceholderValidationError("Placeholder nie zawiera arkusza roboczego.")
+            raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika nie zawiera arkusza roboczego.")
         try:
             collective_file.check_worker_header(sheet)
         except CollectiveFileError as exc:
-            raise PlaceholderValidationError("Placeholder nie ma nagłówka WYKONAWCA w H:17.") from exc
+            raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w H:17.") from exc
         if _target_has_input_data(sheet):
-            raise PlaceholderValidationError("Placeholder zawiera dane i nie może być użyty jako wzór.")
+            raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.")
     finally:
         workbook.close()
 

@@ -1,13 +1,13 @@
 # Workbook preparation
 
 One settlement run creates the complete configured worker roster from the
-shared Placeholder, fills current-period rows, and publishes the output folder
+shared Wzorzec rozliczenia pracownika, fills current-period rows, and publishes the output folder
 only after every workbook is ready.
 
 ## Sub-features
 
 - `prepare-roster` creates one named workbook for every configured worker.
-- `prepare-copy` preserves Placeholder sheets, formulas, rates, formatting, and external links (the live fixture has no external link; `tests/test_settlement_engine.py::test_external_link_relationships_survive_target_write` proves that part).
+- `prepare-copy` preserves Wzorzec rozliczenia pracownika sheets, formulas, rates, formatting, and external links (the live fixture has no external link; `tests/test_settlement_engine.py::test_external_link_relationships_survive_target_write` proves that part).
 - `prepare-empty` creates an empty workbook for a configured worker without source rows.
 - `prepare-atomic` stages the folder and publishes it only after all workbooks succeed.
 - `prepare-rollback` removes staging files after a workbook failure; an unknown worker blocks a real run during planning, before staging starts.
@@ -15,7 +15,7 @@ only after every workbook is ready.
 ## How to get to it (user POV)
 
 - Dad double-clicks `Utwórz rozliczenia.cmd` and picks the Plik zbiorczy in a file dialog, or passes its path as an argument; this is the supported user-facing launcher.
-- For direct verification, run `py -3 run.py --source <source> --config <mapping> --placeholder <placeholder> --metrics <metrics>` with a synthetic fixture.
+- For direct verification, run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
 
 ## Driving it with PowerShell and run.py
 
@@ -28,6 +28,6 @@ only after every workbook is ready.
 ## Gotchas
 
 - The output folder must be absent at start; existing content is never merged or replaced.
-- The shared Placeholder is read-only input and is validated before output is created.
+- The shared Wzorzec rozliczenia pracownika is read-only input and is validated before output is created.
 - Temporary workbooks are not published under the final folder name until every configured worker is prepared.
 - Dry-run plans the same roster but creates no output folder or workbook.

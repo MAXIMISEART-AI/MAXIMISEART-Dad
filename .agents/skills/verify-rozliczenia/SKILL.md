@@ -37,7 +37,7 @@ py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozl
 ```
 
 The test copies the launcher and engine into a disposable runtime with a
-synthetic mapping and Placeholder, then checks the command result and workbooks.
+synthetic mapping and Wzorzec rozliczenia pracownika, then checks the command result and workbooks.
 
 Use these variants for publication and safety-gate features:
 
@@ -48,7 +48,7 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant un
 ```
 
 `existing` creates a conflicting output folder after the doctor and dry-run, then
-verifies it is unchanged. `locked` locks the Placeholder before the real run.
+verifies it is unchanged. `locked` locks the Wzorzec rozliczenia pracownika before the real run.
 `unmapped` adds an unknown synthetic WYKONAWCA and verifies that no output is
 published.
 
@@ -97,7 +97,7 @@ The runner always executes the read-only doctor before driving the application.
 The result is retained in `doctor.txt` under the printed evidence directory.
 `DOCTOR OK` means Python is at least 3.11, the checked-out build reports the
 version in `pyproject.toml`, the source name and period folder agree, the source
-has `WYKONAWCA` in `H17`, the local mapping and shared Placeholder are readable,
+has `WYKONAWCA` in `H17`, the local mapping and shared Wzorzec rozliczenia pracownika are readable,
 and the target folder does not yet exist.
 
 The `preparation` variant runs `preparation_doctor.py` instead. `DOCTOR OK`
@@ -123,14 +123,14 @@ Use `run_verification.py` as the harness entry point. It launches the real
 imports into `rozliczenia`, test-only helpers, or direct calls to the settlement
 engine. Its ordered stages are:
 
-1. Create a disposable source workbook, a shared Placeholder, and a local
+1. Create a disposable source workbook, a shared Wzorzec rozliczenia pracownika, and a local
    three-entry mapping. The target folder is absent.
 2. Run the read-only doctor.
-3. Run `run.py --dry-run` with the synthetic Placeholder and assert the complete
-   plan, no target folder, unchanged source/Placeholder, and no row content.
+3. Run `run.py --dry-run` with the synthetic Wzorzec rozliczenia pracownika and assert the complete
+   plan, no target folder, unchanged source/Wzorzec rozliczenia pracownika, and no row content.
 4. Run `run.py` normally; the default fixture requires exit code `0` and asserts
    exactly three workbooks, routed values, preserved formulas/formatting, an
-   empty worker workbook, and an unchanged Placeholder.
+   empty worker workbook, and an unchanged Wzorzec rozliczenia pracownika.
 5. For `existing`, `locked`, or `unmapped`, require exit code `1` and assert no
    partial output is published (or an existing folder is left unchanged).
 6. Copy metrics to evidence and invoke cleanup in `finally`, then run the

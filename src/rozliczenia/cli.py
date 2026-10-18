@@ -14,7 +14,7 @@ from . import collective_file
 from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import (
     SettlementError,
-    default_placeholder_path,
+    default_worker_template_path,
     period_from_source,
     run_settlements,
 )
@@ -93,10 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", type=Path, help=f"Ścieżka do pliku {collective_file.NAME_GLOB}")
     parser.add_argument("--config", type=Path, default=default_config_path())
     parser.add_argument(
-        "--placeholder",
+        "--worker-template",
         type=Path,
-        default=default_placeholder_path(),
-        help="Ścieżka do wspólnego Placeholdera używanego do tworzenia skoroszytów pracowników.",
+        default=default_worker_template_path(),
+        help="Ścieżka do wspólnego Wzorca rozliczenia pracownika używanego do tworzenia skoroszytów pracowników.",
     )
     parser.add_argument(
         "--metrics",
@@ -404,7 +404,7 @@ def main(
             source,
             args.config,
             dry_run=args.dry_run,
-            placeholder_path=args.placeholder,
+            worker_template_path=args.worker_template,
             observer=None if args.no_observer else dashboard,
         )
     except Exception as exc:
