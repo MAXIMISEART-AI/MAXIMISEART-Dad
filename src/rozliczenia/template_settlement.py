@@ -12,16 +12,10 @@ from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from . import workbook_files
+from . import collective_file, workbook_files
+from .collective_file import CollectiveFileError
 from .collective_file import ExcelRow as ExcelRow  # część sygnatury process_template()
 from .domain import Issue, WorkerResult
-
-
-_HEADER_ROW = 17
-_DATA_START_ROW = 18
-_WORKER_COLUMN = 8  # H
-_COPY_COLUMNS = range(1, 47)  # A:AT
-_INPUT_CHECK_COLUMNS = range(1, 12)  # A:K
 
 
 class TemplateWriteError(Exception):
@@ -30,10 +24,6 @@ class TemplateWriteError(Exception):
 
 class PlaceholderValidationError(Exception):
     """Placeholder nie może bezpiecznie posłużyć jako wzór nowych skoroszytów."""
-
-
-def _is_worker_header(value: object) -> bool:
-    return str(value or "").replace("\u00a0", " ").casefold().split() == ["wykonawca"]
 
 
 def _is_real_value(cell: Cell | MergedCell) -> bool:
@@ -45,8 +35,8 @@ def _is_real_value(cell: Cell | MergedCell) -> bool:
 def _target_has_input_data(sheet: Worksheet) -> bool:
     """Sprawdza dane wejściowe A:K, ignorując formuły w szablonie."""
 
-    for row in range(_DATA_START_ROW, sheet.max_row + 1):
-        if any(_is_real_value(sheet.cell(row=row, column=column)) for column in _INPUT_CHECK_COLUMNS):
+    for row in range(collective_file.FIRST_DATA_ROW, sheet.max_row + 1):
+        if any(_is_real_value(sheet.cell(row=row, column=column)) for column in collective_file.INPUT_COLUMNS):
             return True
     return False
 
@@ -67,9 +57,10 @@ def validate_placeholder(path: Path) -> None:
         sheet = _active_worksheet(workbook)
         if sheet is None:
             raise PlaceholderValidationError("Placeholder nie zawiera arkusza roboczego.")
-        header = sheet.cell(row=_HEADER_ROW, column=_WORKER_COLUMN).value
-        if not _is_worker_header(header):
-            raise PlaceholderValidationError("Placeholder nie ma nagłówka WYKONAWCA w H:17.")
+        try:
+            collective_file.check_layout(sheet)
+        except CollectiveFileError as exc:
+            raise PlaceholderValidationError("Placeholder nie ma nagłówka WYKONAWCA w H:17.") from exc
         if _target_has_input_data(sheet):
             raise PlaceholderValidationError("Placeholder zawiera dane i nie może być użyty jako wzór.")
     finally:
@@ -85,8 +76,8 @@ def _write_workbook(path: Path, workbook: Workbook, rows: list[ExcelRow]) -> Non
     sheet = _active_worksheet(workbook)
     if sheet is None:
         raise ValueError("Szablon nie zawiera arkusza roboczego.")
-    for destination_row, values in enumerate(rows, start=_DATA_START_ROW):
-        for column, value in zip(_COPY_COLUMNS, values):
+    for destination_row, values in enumerate(rows, start=collective_file.FIRST_DATA_ROW):
+        for column, value in zip(collective_file.COPIED_COLUMNS, values):
             sheet.cell(row=destination_row, column=column).value = value
 
     workbook_files.request_full_recalculation(workbook)
@@ -110,8 +101,9 @@ def process_template(
             sheet = _active_worksheet(workbook)
             if sheet is None:
                 raise ValueError("Szablon nie zawiera arkusza.")
-            header = sheet.cell(row=_HEADER_ROW, column=_WORKER_COLUMN).value
-            if not _is_worker_header(header):
+            try:
+                collective_file.check_layout(sheet)
+            except CollectiveFileError:
                 issue = Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w H:17: {target_path.name}.")
                 return WorkerResult(worker_name, target_path, 0, "ZLY_SZABLON", (issue,))
             if _target_has_input_data(sheet):
