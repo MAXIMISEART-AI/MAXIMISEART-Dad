@@ -616,8 +616,24 @@ def test_broken_wzorzec_rozliczenia_pracownika_shows_safe_message_instead_of_par
     assert not target_directory.exists()
 
 
-def test_summary_failure_after_rozliczenia_pracownikow_were_written_says_they_exist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("extra_args", "expected_message"),
+    [
+        (
+            (),
+            "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
+            "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+        ),
+        (
+            ("--dry-run",),
+            "Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. "
+            "Przekaż ten komunikat osobie utrzymującej narzędzie.",
+        ),
+    ],
+    ids=["RUN", "DRY-RUN"],
+)
+def test_summary_failure_after_engine_says_whether_rozliczenia_pracownikow_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...], expected_message: str
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
@@ -629,19 +645,16 @@ def test_summary_failure_after_rozliczenia_pracownikow_were_written_says_they_ex
 
     monkeypatch.setattr(settlement_engine, "run_settlements", run_with_unprintable_summary)
 
-    exit_code, output = run_cli(source_path, config_path, metrics_path)
+    exit_code, output = run_cli(source_path, config_path, metrics_path, *extra_args)
 
     assert exit_code == 1
     lines = output.splitlines()
     status = lines.index("Status semantyczny: BŁĄD")
-    assert lines[status + 1] == (
-        "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
-        "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
-    )
+    assert lines[status + 1] == expected_message
     assert lines[status + 2].startswith("Czas uruchomienia: ")
     assert "SYN-" not in output
     assert "Traceback" not in output
-    assert target_directory.is_dir()
+    assert target_directory.is_dir() is (not extra_args)
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
 

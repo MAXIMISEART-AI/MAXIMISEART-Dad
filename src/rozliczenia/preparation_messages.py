@@ -588,3 +588,14 @@ def summary_not_shown() -> PreparationMessage:
         where="Przygotowanie pliku zbiorczego",
         action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
     )
+
+
+def plan_not_shown() -> PreparationMessage:
+    """DRY-RUN skończył się, ale planu nie dało się pokazać; nic nie zapisano."""
+
+    return PreparationMessage(
+        code="BLAD_PLANU",
+        what="Nie udało się pokazać planu. Nic nie zapisano.",
+        where="Przygotowanie pliku zbiorczego",
+        action="Przekaż ten komunikat osobie utrzymującej narzędzie.",
+    )

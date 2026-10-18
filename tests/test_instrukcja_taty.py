@@ -83,6 +83,7 @@ CATALOG_SAMPLES: dict[str, list[Callable[[], PreparationError | PreparationMessa
     "write_failed": [lambda: messages.write_failed(PERIOD_DIRECTORY)],
     "unexpected_failure": [messages.unexpected_failure],
     "summary_not_shown": [messages.summary_not_shown],
+    "plan_not_shown": [messages.plan_not_shown],
 }
 
 

@@ -24,7 +24,7 @@ from .collective_preparation import (
 )
 from .domain import ProgressObserver
 from .engine import default_config_path
-from .preparation_messages import PreparationMessage, summary_not_shown, unexpected_failure
+from .preparation_messages import PreparationMessage, plan_not_shown, summary_not_shown, unexpected_failure
 from .process_run import Conversation, Finished, Process, Stop, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 
@@ -228,7 +228,10 @@ def _stopped(stop: Stop) -> list[str]:
 
     if stop.kind == "stop":
         return ["Status końcowy: ZATRZYMANO", *stop.lines]
-    message = unexpected_failure() if stop.kind == "unexpected" else summary_not_shown()
+    if stop.kind == "unexpected":
+        message = unexpected_failure()
+    else:
+        message = plan_not_shown() if stop.dry_run else summary_not_shown()
     return ["Status końcowy: BŁĄD", *message.text.splitlines()]
 
 

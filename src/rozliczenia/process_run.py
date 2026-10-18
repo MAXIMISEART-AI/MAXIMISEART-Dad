@@ -48,9 +48,11 @@ class Stop:
     ``stop``: własne zatrzymanie procesu z bezpiecznymi liniami ``lines``.
     ``unexpected``: inny wyjątek przed końcem silnika. ``after_engine``: silnik
     skończył, ale nie dało się zbudować podsumowania. Tylko ``stop`` ma linie.
+    ``dry_run``: Uruchomienie z ``--dry-run``, w którym nic nie zapisano.
     """
 
     kind: Literal["stop", "unexpected", "after_engine"]
+    dry_run: bool
     lines: tuple[str, ...] = ()
 
 
@@ -330,13 +332,13 @@ class _Dashboard:
             self._output_failed = True
 
 
-def _stop_from(process: Process[Any, Any], error: Exception) -> Stop:
+def _stop_from(process: Process[Any, Any], error: Exception, *, dry_run: bool) -> Stop:
     if not isinstance(error, process.stop_type):
-        return Stop("unexpected")
+        return Stop("unexpected", dry_run)
     try:
-        return Stop("stop", tuple(process.stop_lines(error)))
+        return Stop("stop", dry_run, tuple(process.stop_lines(error)))
     except Exception:
-        return Stop("unexpected")
+        return Stop("unexpected", dry_run)
 
 
 def _gather(
@@ -345,7 +347,7 @@ def _gather(
     try:
         return process.gather(args, conversation)
     except Exception as error:
-        return _stop_from(process, error)
+        return _stop_from(process, error, dry_run=args.dry_run)
 
 
 def _execute(
@@ -353,26 +355,28 @@ def _execute(
     inputs: InputsT,
     dashboard: _Dashboard,
     conversation: Conversation,
+    *,
+    dry_run: bool,
 ) -> Callable[[], Finished] | Stop:
     """Silnik z podglądem jako obserwatorem; wynik to budowa podsumowania albo zatrzymanie."""
 
     try:
         summary = process.execute(inputs, dashboard, conversation)
     except Exception as error:
-        return _stop_from(process, error)
+        return _stop_from(process, error, dry_run=dry_run)
     except BaseException:
         dashboard.stop()
         raise
     return lambda: process.finished(inputs, summary)
 
 
-def _finish(outcome: Callable[[], Finished] | Stop) -> Finished | Stop:
+def _finish(outcome: Callable[[], Finished] | Stop, *, dry_run: bool) -> Finished | Stop:
     if isinstance(outcome, Stop):
         return outcome
     try:
         return outcome()
     except Exception:
-        return Stop("after_engine")
+        return Stop("after_engine", dry_run)
 
 
 def run(
@@ -399,10 +403,14 @@ def run(
     dashboard = _Dashboard(output, mode, period, title=process.title, shows_templates=process.shows_templates)
     dashboard.start()
     conversation._attach(dashboard, clock)
-    outcome = gathered if isinstance(gathered, Stop) else _execute(process, gathered, dashboard, conversation)
+    outcome = (
+        gathered
+        if isinstance(gathered, Stop)
+        else _execute(process, gathered, dashboard, conversation, dry_run=args.dry_run)
+    )
     total_duration_ms = clock.elapsed_ms()
     dashboard.stop()
-    ending = _finish(outcome)
+    ending = _finish(outcome, dry_run=args.dry_run)
 
     if isinstance(ending, Finished):
         status_lines, summary_lines = ending.status_lines, ending.summary_lines

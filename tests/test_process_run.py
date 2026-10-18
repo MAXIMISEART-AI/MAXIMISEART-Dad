@@ -204,6 +204,25 @@ def test_exception_text_never_reaches_tata(tmp_path: Path, failing: str, kind: s
     assert (record["completed"], record["result"], record["counters"]) == (False, "BLAD_KRYTYCZNY", {"items": 0})
 
 
+@pytest.mark.parametrize("failing", ["gather", "execute", "finished"])
+@pytest.mark.parametrize(("args", "dry_run"), [((), False), (("--dry-run",), True)], ids=["RUN", "DRY-RUN"])
+def test_stop_tells_the_process_whether_nothing_was_written_in_dry_run(
+    tmp_path: Path, failing: str, args: tuple[str, ...], dry_run: bool
+) -> None:
+    seen: list[bool] = []
+
+    def stopped_in_mode(stop: Stop) -> Sequence[str]:
+        seen.append(stop.dry_run)
+        return ["Zatrzymano"]
+
+    exit_code, _ = run_fake(
+        fake_process(**{failing: fail}, stopped=stopped_in_mode), tmp_path / "metrics.jsonl", *args
+    )
+
+    assert exit_code == 1
+    assert seen == [dry_run]
+
+
 def test_own_stop_of_the_process_shows_its_safe_lines(tmp_path: Path) -> None:
     def stop_in_engine(_inputs: Inputs, observer: ProgressObserver, _conversation: Conversation) -> Durations:
         phases = PhaseRunner(observer)

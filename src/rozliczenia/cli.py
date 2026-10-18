@@ -31,6 +31,10 @@ _SUMMARY_NOT_SHOWN = (
     "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
     "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
 )
+_PLAN_NOT_SHOWN = (
+    "Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. "
+    "Przekaż ten komunikat osobie utrzymującej narzędzie."
+)
 
 
 def default_metrics_path() -> Path:
@@ -157,7 +161,7 @@ def _stop_lines(error: Exception) -> list[str]:
 
 def _stopped(stop: Stop) -> list[str]:
     if stop.kind == "after_engine":
-        return ["Status semantyczny: BŁĄD", _SUMMARY_NOT_SHOWN]
+        return ["Status semantyczny: BŁĄD", _PLAN_NOT_SHOWN if stop.dry_run else _SUMMARY_NOT_SHOWN]
     lines = stop.lines if stop.kind == "stop" else (_UNEXPECTED_FAILURE,)
     return ["Status semantyczny: BŁĄD", *(f"Nie wykonano: {line}" for line in lines)]
 

@@ -172,8 +172,30 @@ def test_cli_stop_shows_co_gdzie_co_zrobic_and_exits_1(tmp_path: Path) -> None:
     assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
 
 
-def test_summary_failure_after_period_files_were_written_says_they_exist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("extra_args", "expected_message"),
+    [
+        (
+            (),
+            [
+                "Co się stało: Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
+                "Gdzie: Przygotowanie pliku zbiorczego",
+                "Co zrobić: Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+            ],
+        ),
+        (
+            ("--dry-run",),
+            [
+                "Co się stało: Nie udało się pokazać planu. Nic nie zapisano.",
+                "Gdzie: Przygotowanie pliku zbiorczego",
+                "Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.",
+            ],
+        ),
+    ],
+    ids=["RUN", "DRY-RUN"],
+)
+def test_summary_failure_after_engine_says_whether_period_files_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...], expected_message: list[str]
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     prepare = collective_preparation.prepare_collective_file
@@ -185,22 +207,18 @@ def test_summary_failure_after_period_files_were_written_says_they_exist(
 
     monkeypatch.setattr(collective_preparation, "prepare_collective_file", prepare_with_unprintable_summary)
 
-    exit_code, output = run_preparation_cli(fixture)
+    exit_code, output = run_preparation_cli(fixture, *extra_args)
 
     assert exit_code == 1
     lines = output.splitlines()
     status = lines.index("Status końcowy: BŁĄD")
-    assert lines[status + 1 : status + 4] == [
-        "Co się stało: Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
-        "Gdzie: Przygotowanie pliku zbiorczego",
-        "Co zrobić: Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
-    ]
+    assert lines[status + 1 : status + 4] == expected_message
     assert lines[status + 4].startswith("Czas uruchomienia: ")
     assert "Nie utworzono żadnego pliku" not in output
     assert "SYN-" not in output
     assert "Traceback" not in output
-    assert fixture.internal_settlement_path.is_file()
-    assert fixture.collective_file_path.is_file()
+    assert fixture.internal_settlement_path.is_file() is (not extra_args)
+    assert fixture.collective_file_path.is_file() is (not extra_args)
     [record] = metric_records(fixture)
     assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
     assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
