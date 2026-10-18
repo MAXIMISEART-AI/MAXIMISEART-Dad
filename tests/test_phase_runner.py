@@ -1,93 +1,49 @@
+"""Sekwencer etapów: tylko zachowanie, którego poprawne procesy nie mogą wywołać.
+
+Pełne przebiegi z prawdziwą projekcją postępu jako obserwatorem są w testach
+Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
+"""
+
 from __future__ import annotations
 
 import time
 
 import pytest
 
-from rozliczenia.domain import ProgressEvent, ProgressEventFactory, ProgressPhase, ProgressState
+from rozliczenia.domain import ProgressEvent, ProgressProtocolError, ProgressState
 from rozliczenia.phase_runner import PhaseRunner
 
 
-def test_etap_zglasza_start_i_koniec_oraz_mierzy_czas() -> None:
-    events: list[ProgressEvent] = []
-    runner = PhaseRunner(events.append)
-
-    result = runner.run(ProgressPhase.CHECKING, lambda: "sprawdzono")
-
-    assert result == "sprawdzono"
-    assert [(event.phase, event.state) for event in events] == [
-        (ProgressPhase.CHECKING, ProgressState.START),
-        (ProgressPhase.CHECKING, ProgressState.END),
-    ]
-    assert events[-1].phase_elapsed_ms == runner.phase_durations_ms[ProgressPhase.CHECKING]
-
-
-def test_przerwany_etap_zglasza_failed_raz_i_przekazuje_wyjatek() -> None:
-    events: list[ProgressEvent] = []
-    runner = PhaseRunner(events.append)
-
-    def fail() -> None:
-        raise RuntimeError("syntetyczny błąd")
-
-    with pytest.raises(RuntimeError):
-        runner.run(ProgressPhase.READING, fail)
-
-    def fail_after_reporting() -> None:
-        runner.notify(
-            ProgressEventFactory.worker_failed(
-                "Wykonawca",
-                template_index=1,
-                template_total=1,
-                elapsed_ms=runner.elapsed_ms(),
-                phase_elapsed_ms=0,
-            )
-        )
-        raise RuntimeError("syntetyczny błąd")
-
-    with pytest.raises(RuntimeError):
-        runner.run(ProgressPhase.SAVING, fail_after_reporting)
-
-    assert [(event.phase, event.state, event.worker_name) for event in events] == [
-        (ProgressPhase.READING, ProgressState.START, None),
-        (ProgressPhase.READING, ProgressState.FAILED, None),
-        (ProgressPhase.SAVING, ProgressState.START, None),
-        (ProgressPhase.SAVING, ProgressState.FAILED, "Wykonawca"),
-    ]
-    assert set(runner.phase_durations_ms) == {ProgressPhase.READING, ProgressPhase.SAVING}
-
-
-def test_uszkodzony_obserwator_jest_odlaczany_bez_wplywu_na_etap() -> None:
-    calls: list[ProgressEvent] = []
-
-    def broken_observer(event: ProgressEvent) -> None:
-        calls.append(event)
-        raise RuntimeError("syntetyczna awaria obserwatora")
-
-    runner = PhaseRunner(broken_observer)
-
-    assert runner.run(ProgressPhase.PLANNING, lambda: 3) == 3
-    assert runner.run(ProgressPhase.SAVING, lambda: 4, template_total=2) == 4
-    assert [(event.phase, event.state) for event in calls] == [
-        (ProgressPhase.PLANNING, ProgressState.START),
-    ]
-    assert set(runner.phase_durations_ms) == {ProgressPhase.PLANNING, ProgressPhase.SAVING}
-
-
-def test_etap_dziala_bez_obserwatora() -> None:
+def test_etap_poza_kolejnoscia_jest_bledem_kodu_przed_uruchomieniem_operacji() -> None:
     runner = PhaseRunner(None)
+    calls: list[str] = []
 
-    assert runner.run(ProgressPhase.CHECKING, lambda: "ok") == "ok"
-    assert ProgressPhase.CHECKING in runner.phase_durations_ms
+    with pytest.raises(ProgressProtocolError):
+        runner.read(lambda: calls.append("odczyt"))
+
+    assert calls == []
 
 
-def test_czas_wstrzymania_miedzy_etapami_nie_wlicza_sie_do_czasu_uruchomienia() -> None:
+def test_pominieta_liczba_problemow_w_planowaniu_przenosi_wartosc_z_odczytu_danych() -> None:
     events: list[ProgressEvent] = []
     runner = PhaseRunner(events.append)
-    runner.run(ProgressPhase.PLANNING, lambda: None)
+
+    runner.check(lambda: None)
+    runner.read(lambda: ["problem", "problem"], issue_count=len)
+    runner.plan(lambda: 3, template_total=lambda total: total)
+
+    plan_ready = [event for event in events if event.state is ProgressState.PLAN_READY]
+    assert [(event.issue_count, event.template_total) for event in plan_ready] == [(2, 3)]
+
+
+def test_czas_wstrzymania_miedzy_planowaniem_a_zapisywaniem_nie_wlicza_sie_do_czasu_uruchomienia() -> None:
+    runner = PhaseRunner(None)
+    runner.check(lambda: None)
+    runner.read(lambda: None)
+    runner.plan(lambda: None)
 
     with runner.paused():
         time.sleep(0.3)
-    runner.run(ProgressPhase.SAVING, lambda: None)
+    runner.save(lambda: None)
 
     assert runner.elapsed_ms() < 300
-    assert max(event.elapsed_ms or 0 for event in events) < 300
