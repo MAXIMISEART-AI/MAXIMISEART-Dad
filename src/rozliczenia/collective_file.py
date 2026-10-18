@@ -70,6 +70,7 @@ _NAME_SUFFIX = " - zbiorcze.xlsx"
 _NAME_PATTERN = re.compile(
     rf"{re.escape(_NAME_PREFIX)}(?P<period>{PERIOD_TOKEN_PATTERN}){re.escape(_NAME_SUFFIX)}"
 )
+NAME_GLOB = f"{_NAME_PREFIX}*{_NAME_SUFFIX}"  # Plik zbiorczy dowolnego okresu, np. w oknie wyboru pliku
 
 
 class CollectiveFileError(Exception):
@@ -84,7 +85,10 @@ class LayoutError(CollectiveFileError):
     """
 
     def __init__(self, worker_column: str | None) -> None:
-        super().__init__("W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H.")
+        super().__init__(
+            f"W wierszu {HEADER_ROW} nie znaleziono nagłówka WYKONAWCA "
+            f"w kolumnie {get_column_letter(WORKER_COLUMN)}."
+        )
         self.worker_column = worker_column
 
 
