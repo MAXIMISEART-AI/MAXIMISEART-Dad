@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import time
 import types
 from typing import Any, NoReturn, TextIO
 
@@ -16,7 +15,6 @@ import pytest
 from rozliczenia import collective_preparation, preparation_register
 import rozliczenia.cli as cli
 import rozliczenia.process_run as process_run
-from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
 
@@ -31,7 +29,6 @@ from tests.collective_preparation_fixtures import (
     register_order,
 )
 
-DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 PREPARATION_COUNTERS = {"period_orders", "successful_orders", "skipped_empty_rows", "warnings"}
 ORDERS_PER_DAY_LINES = [
     "Zlecenia na dzień:",
@@ -274,77 +271,6 @@ def test_invalid_period_is_recorded_as_unknown_period(tmp_path: Path) -> None:
     [record] = metric_records(fixture)
     assert record["period"] == "nieznany"
     assert record["result"] == "BLAD_KRYTYCZNY"
-
-
-def test_statistics_appear_after_five_comparable_przygotowania(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-
-    for _ in range(4):
-        _, output = run_preparation_cli(fixture, "--dry-run")
-    assert "Statystyki" not in output
-
-    _, output = run_preparation_cli(fixture, "--dry-run")
-
-    assert "Statystyki DRY-RUN | próbek: 5" in output
-    assert "całe uruchomienie | P50: " in output
-    assert "Zapisywanie | P50: " in output
-    assert "Statystyki RUN" not in output
-
-
-def test_terminal_output_failure_does_not_change_result_files_or_exit_code(tmp_path: Path) -> None:
-    class FailingOutput(StringIO):
-        def write(self, value: str) -> int:
-            raise OSError("synthetic output failure")
-
-    fixture = make_preparation_fixture(tmp_path)
-
-    exit_code = main(preparation_arguments(fixture), output=FailingOutput())
-
-    assert exit_code == 0
-    assert fixture.internal_settlement_path.is_file()
-    assert fixture.collective_file_path.is_file()
-    [record] = metric_records(fixture)
-    assert record["result"] == "OK"
-    assert record["counters"]["period_orders"] == 4
-
-
-@pytest.mark.parametrize("observer_fails", [False, True], ids=["bez-awarii", "awaria-obserwatora"])
-@pytest.mark.parametrize(
-    ("interrupted", "expected_exit_code", "expected_result"),
-    [(False, 0, "OK"), (True, 1, "BLAD_KRYTYCZNY")],
-    ids=["sukces", "przerwanie"],
-)
-def test_detached_observer_is_reported_by_one_line_at_the_end_of_przygotowanie_pliku_zbiorczego(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    observer_fails: bool,
-    interrupted: bool,
-    expected_exit_code: int,
-    expected_result: str,
-) -> None:
-    def fail_progress_update(*_args: object) -> NoReturn:
-        raise RuntimeError("synthetic adapter failure")
-
-    if observer_fails:
-        monkeypatch.setattr(PlainProgressAdapter, "update", fail_progress_update)
-    fixture = make_preparation_fixture(tmp_path)
-    if interrupted:
-        fixture.period_directory.mkdir()
-        fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
-
-    exit_code, output = run_preparation_cli(fixture)
-
-    assert exit_code == expected_exit_code
-    [record] = metric_records(fixture)
-    assert record["result"] == expected_result
-    assert fixture.internal_settlement_path.is_file() is not interrupted
-    if observer_fails:
-        assert output.splitlines()[-1] == DETACHED_OBSERVER_NOTICE
-        assert output.count(DETACHED_OBSERVER_NOTICE) == 1
-        assert "synthetic adapter failure" not in output
-        assert "SYN-" not in output
-    else:
-        assert DETACHED_OBSERVER_NOTICE not in output
 
 
 @pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])
@@ -798,25 +724,3 @@ def test_refused_incomplete_period_ends_after_planowanie_without_zapisywanie(tmp
     assert record["phase_durations_ms"]["Zapisywanie"] == 0
 
 
-class SlowAnswer(StringIO):
-    """Tata odpowiada po chwili namysłu."""
-
-    def readline(self, size: int | None = -1, /) -> str:  # type: ignore[override]  # typeshed: _IOBase -> bytes
-        time.sleep(1.5)
-        return super().readline()
-
-
-def test_time_waiting_for_answer_is_not_counted_in_metrics(tmp_path: Path) -> None:
-    fixture = incomplete_period_fixture(tmp_path)
-    output = StringIO()
-
-    exit_code = main(preparation_arguments(fixture), output=output, input_stream=SlowAnswer("t\n"))
-
-    assert exit_code == 0
-    [record] = metric_records(fixture)
-    assert record["total_duration_ms"] < 1500
-    # Każdy etap i czas uruchomienia są zaokrąglane do ms osobno: margines 1 ms na etap.
-    phase_durations = record["phase_durations_ms"].values()
-    assert sum(phase_durations) <= record["total_duration_ms"] + len(phase_durations)
-    reported = next(line for line in output.getvalue().splitlines() if line.startswith("Czas uruchomienia: "))
-    assert int(reported.removeprefix("Czas uruchomienia: ").removesuffix(" ms")) < 1500

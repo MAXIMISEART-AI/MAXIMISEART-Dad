@@ -26,7 +26,7 @@ Preconditions:
 - **Check ordered phases and template progress.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. `assert-run.txt` reports `progress_reported=true`: `run.txt` shows `Etap: Sprawdzanie`, `Odczyt danych`, `Planowanie`, `Zapisywanie` in order, `Postęp szablonów: 3/3 (100%)`, two `ZAPISANO` and one `PUSTY_SZABLON` lines, and `Status semantyczny: OK`.
 - **Check semantic exit.** The default fixture records application exit `0` and `Status semantyczny: OK`. The `unmapped` variant returns `2` for dry-run and `1` for the real run, which stops before publication.
 - **Check metrics.** `assert-run.txt` reports `metrics_safe=true`: the history holds a completed `DRY-RUN` then `RUN` record, both `OK`, with no row content or scratch path. Each record has `schema_version`, `started_at`, `mode`, `period`, `completed`, `result`, `phase_durations_ms`, `total_duration_ms`, and `counters`; the copy stays in the evidence as `metrics.jsonl`.
-- **Check repeated-run statistics.** The current run counts, so `Statystyki DRY-RUN`, `P50`, and `P95` appear once five comparable completed records exist. Prove it with `py -3 -m pytest tests/test_cli_observability.py::test_statistics_are_available_after_five_comparable_runs -q`.
+- **Check repeated-run statistics.** The current run counts, so `Statystyki DRY-RUN`, `P50`, and `P95` appear once five comparable completed records exist. Both processes share this through Uruchomienie procesu (`process_run`); prove it with `py -3 -m pytest tests/test_process_run.py::test_statistics_report_both_modes_and_every_phase -q`.
 
 ## Gotchas
 
