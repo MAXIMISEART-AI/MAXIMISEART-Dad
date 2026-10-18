@@ -20,20 +20,20 @@ PERIOD = "08_14_09_2026"
 INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 ROW_MARKER = "PREP-SYN-"
-EXPECTED_COUNTERS = {"period_orders": 4, "successful_orders": 3, "skipped_empty_rows": 5, "warnings": 0}
+EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_rows": 4, "warnings": 0}
 EXPECTED_SUMMARY = (
     "Status końcowy: OK",
     f"Okres: {PERIOD}",
-    "Zlecenia okresu: 4",
-    "Zlecenia skuteczne: 3",
-    "Pominięte puste wiersze: 5",
+    "Zlecenia okresu: 5",
+    "Zlecenia skuteczne: 4",
+    "Pominięte puste wiersze: 4",
     "Zlecenia na dzień:",
     "- wt 08.09.2026: 1",
     "- śr 09.09.2026: 1",
     "- czw 10.09.2026: 0",
     "- pt 11.09.2026: 0",
     "- sob 12.09.2026: 1",
-    "- niedz 13.09.2026: 0",
+    "- niedz 13.09.2026: 1",
     "- pon 14.09.2026: 1",
     "Ostrzeżenia: 0",
     f"Rozliczenie wewnętrzne: {INTERNAL_NAME}",
@@ -96,16 +96,18 @@ def _collective_row(number: int, started: datetime, worker: str, successful: str
     )
 
 
-# Period orders in Rejestr order: 2, 3 (NIE), 4, and the late order 6.
+# Period orders in Rejestr order: 2, 3 (NIE), 4, 7 (after the next-period order), and the late order 6.
 EXPECTED_INTERNAL_ROWS = (
     _internal_row(2, datetime(2026, 9, 8, 0, 0), "adrian.maciejewski", "tak"),
     _internal_row(3, datetime(2026, 9, 9, 10, 30), "dariusz.nowak2", "NIE"),
     _internal_row(4, datetime(2026, 9, 12, 12, 0), "kamil.frontczak", " Tak "),
+    _internal_row(7, datetime(2026, 9, 13, 9, 0), "adrian.maciejewski", "tak"),
     _internal_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.nowak2", "TAK"),
 )
 EXPECTED_COLLECTIVE_ROWS = (
     _collective_row(2, datetime(2026, 9, 8, 0, 0), "adrian.maciejewski", "tak"),
     _collective_row(4, datetime(2026, 9, 12, 12, 0), "kamil.frontczak", " Tak "),
+    _collective_row(7, datetime(2026, 9, 13, 9, 0), "adrian.maciejewski", "tak"),
     _collective_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.nowak2", "TAK"),
 )
 EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
@@ -152,8 +154,7 @@ def _check_transcript(transcript: Path | None, mode: str, errors: list[str]) -> 
         errors.append("transcript contains Rejestr row content")
 
 
-def _check_metrics(root: Path, modes: list[str], errors: list[str]) -> None:
-    metrics = root / "metrics.jsonl"
+def _check_metrics(root: Path, metrics: Path, modes: list[str], errors: list[str]) -> None:
     content = metrics.read_text(encoding="utf-8") if metrics.is_file() else ""
     records = [json.loads(line) for line in content.splitlines() if line.strip()]
     if [record.get("mode") for record in records] != modes:
@@ -177,13 +178,13 @@ def _finish(errors: list[str], success_message: str) -> int:
     return 0
 
 
-def _assert_dry_run(root: Path, transcript: Path | None) -> int:
+def _assert_dry_run(root: Path, metrics: Path, transcript: Path | None) -> int:
     errors = _unchanged_inputs(root)
     leftovers = sorted(path.name for path in (root / "INEA").iterdir())
     if leftovers:
         errors.append(f"dry-run created entries in the periods directory: {leftovers}")
     _check_transcript(transcript, "DRY-RUN", errors)
-    _check_metrics(root, ["DRY-RUN"], errors)
+    _check_metrics(root, metrics, ["DRY-RUN"], errors)
     return _finish(
         errors,
         "ASSERT OK | process=przygotowanie | mode=dry-run | period_folder_absent=true | "
@@ -195,7 +196,7 @@ def _check_internal_settlement(path: Path, errors: list[str]) -> None:
     workbook = load_workbook(path, data_only=False)
     try:
         sheet = _sheet(workbook.active)
-        if _rows(sheet, 2, 6, 13) != [*EXPECTED_INTERNAL_ROWS, (None,) * 13]:
+        if _rows(sheet, 2, 7, 13) != [*EXPECTED_INTERNAL_ROWS, (None,) * 13]:
             errors.append("Rozliczenie wewnętrzne does not hold exactly the period orders in Rejestr order")
         highlighted = sheet["C2"]
         if (
@@ -208,7 +209,7 @@ def _check_internal_settlement(path: Path, errors: list[str]) -> None:
             errors.append("Rozliczenie wewnętrzne lost a Rejestr highlight or the Wzorzec font")
         if not sheet["H4"].font.i or sheet["A2"].number_format != "dd.mm.yyyy hh:mm":
             errors.append("Rozliczenie wewnętrzne lost italic or the Rejestr date format")
-        if sheet.auto_filter.ref != "A1:M5" or sheet.freeze_panes != "A2" or sheet.column_dimensions["A"].width != 10:
+        if sheet.auto_filter.ref != "A1:M6" or sheet.freeze_panes != "A2" or sheet.column_dimensions["A"].width != 10:
             errors.append("Rozliczenie wewnętrzne autofilter or Wzorzec layout is wrong")
     finally:
         workbook.close()
@@ -218,7 +219,7 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
     workbook = load_workbook(path, data_only=False)
     try:
         sheet = _sheet(workbook.active)
-        if _rows(sheet, 18, 21, 11) != [*EXPECTED_COLLECTIVE_ROWS, (None,) * 11]:
+        if _rows(sheet, 18, 22, 11) != [*EXPECTED_COLLECTIVE_ROWS, (None,) * 11]:
             errors.append("Plik zbiorczy does not hold exactly the Zlecenia skuteczne from row 18")
         quantities = [value for row in sheet.iter_rows(min_row=18, max_row=23, min_col=14, max_col=42, values_only=True) for value in row]
         formulas = [sheet.cell(row, 47).value for row in range(18, 24)]
@@ -232,7 +233,7 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
             or workbook["Rates"]["B1"].value != 17.5
         ):
             errors.append("Plik zbiorczy lost Wzorzec rates, sums, sheets or header formatting")
-        if sheet["B18"].fill.fgColor.rgb != "FFFFFF00" or sheet.auto_filter.ref != "A17:AP20":
+        if sheet["B18"].fill.fgColor.rgb != "FFFFFF00" or sheet.auto_filter.ref != "A17:AP21":
             errors.append("Plik zbiorczy lost a Rejestr highlight or has a wrong autofilter")
     finally:
         workbook.close()
@@ -331,7 +332,7 @@ def _check_real_template_file(
         output_book.close()
 
 
-def _assert_run(root: Path, transcript: Path | None, templates: str) -> int:
+def _assert_run(root: Path, metrics: Path, transcript: Path | None, templates: str) -> int:
     errors = _unchanged_inputs(root)
     periods_directory = root / "INEA"
     period_directory = periods_directory / PERIOD
@@ -375,7 +376,7 @@ def _assert_run(root: Path, transcript: Path | None, templates: str) -> int:
         except (OSError, ValueError, KeyError, zipfile.BadZipFile):
             errors.append("one or both period files cannot be read")
     _check_transcript(transcript, "RUN", errors)
-    _check_metrics(root, ["DRY-RUN", "RUN"], errors)
+    _check_metrics(root, metrics, ["DRY-RUN", "RUN"], errors)
     return _finish(
         errors,
         f"ASSERT OK | process=przygotowanie | mode=run | templates={templates} | workbooks_checked=2 | "
@@ -393,14 +394,16 @@ def main(argv: list[str] | None = None) -> int:
         default="synthetic",
         help="'config': the fixture copied the real Wzorce, so check them generically",
     )
+    parser.add_argument("--metrics", type=Path, help="metrics history of the Przygotowanie (default: <root>/metrics.jsonl)")
     parser.add_argument("--transcript", type=Path)
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
+    metrics = args.metrics.expanduser().resolve() if args.metrics else root / "metrics.jsonl"
     transcript = args.transcript.expanduser().resolve() if args.transcript else None
     try:
         if args.expect == "dry-run":
-            return _assert_dry_run(root, transcript)
-        return _assert_run(root, transcript, args.templates)
+            return _assert_dry_run(root, metrics, transcript)
+        return _assert_run(root, metrics, transcript, args.templates)
     except (OSError, ValueError) as exc:
         print(f"ASSERT FAIL: {exc}", file=sys.stderr)
         return 1

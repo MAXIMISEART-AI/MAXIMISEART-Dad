@@ -15,11 +15,12 @@ outside the supported user workflow.
 - Use `--variant existing`, `--variant locked`, or `--variant unmapped` for the corresponding publication and safety-gate proof.
 - Use `--variant preparation` for Przygotowanie pliku zbiorczego.
 - Use `--variant preparation-real-templates` locally when `config/` holds the real Wzorce; it is outside CI and `--variant all`, and prints `VERIFY SKIP` without them.
+- Use `--variant chain` for the whole path from Rejestr zleceń through both processes to the Rozliczenia pracowników; `--variant chain-real-templates` is its local-only twin on the three real Wzorce, with the same skip rule.
 - Never use real customer workbooks or a fixture owned by another verification run. The real Wzorce enter only as byte copies inside the run root.
 
 ## Driving conventions
 
-- The one-command orchestrator verifies each engine through its CLI (`run.py`, or `run_preparation.py` for `--variant preparation`); the CMD smoke tests separately drive Dad's launchers in an isolated synthetic runtime.
+- The one-command orchestrator verifies each engine through its CLI (`run.py`, `run_preparation.py` for `--variant preparation`, or both in turn for `--variant chain`); the CMD smoke tests separately drive Dad's launchers in an isolated synthetic runtime.
 - Read stdout, stderr, and native exit codes from the UTF-8 evidence files it creates.
 - Use workbook reads only for post-action assertions; do not call internal engine functions as proof.
 - The orchestrator runs `--dry-run` before a real run, checks the complete plan,
@@ -31,11 +32,11 @@ outside the supported user workflow.
 ## Proof and skip reporting
 
 - A terminal transcript alone is insufficient: pair it with workbook state and metrics.
-- Keep row values, Wzorzec cell values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths and, for `preparation-real-templates`, the Wzorce directory on each transcript's `command:` line; metrics carry no path at all.
+- Keep row values, Wzorzec cell values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths and, for the `*-real-templates` variants, the Wzorce directory on each transcript's `command:` line; metrics carry no path at all.
 - The default fixture returns `0`; `--variant unmapped` separately verifies a
   dry-run warning and a failed real run with no published folder.
 - The legacy VBA adapter is not a supported user route and is excluded from live coverage unless reactivated.
-- `VERIFY SKIP` from `preparation-real-templates` is a skip: report it as one.
+- `VERIFY SKIP` from `preparation-real-templates` or `chain-real-templates` is a skip: report it as one.
 - Run cleanup after every failed iteration and confirm the evidence directory still exists.
 
 ## Features
@@ -46,3 +47,4 @@ outside the supported user workflow.
 - [Safety gates](./safety-gates.md) covers unknown workers, the Wzorzec rozliczenia pracownika, existing data, Excel locks, and the stop on an unreadable Plik zbiorczy.
 - [Progress and telemetry](./progress-and-metrics.md) covers observable phases, counters, exit semantics, and safe metrics.
 - [Przygotowanie pliku zbiorczego](./prepare-collective-file.md) covers the Rejestr zleceń to Rozliczenie wewnętrzne and Plik zbiorczy process, its dry-run, and its launcher.
+- [From Rejestr zleceń to Rozliczenia pracowników](./prepare-and-settle.md) covers both processes in turn, the Gotowość hand-over, and the launcher chain.
