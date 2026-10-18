@@ -14,3 +14,4 @@ logs/
 .rozliczenia-metrics.jsonl
 .verification/
 .przygotowanie-pliku-zbiorczego-metrics.jsonl
+.DS_Store
