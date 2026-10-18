@@ -1,6 +1,6 @@
 """Read-only build and fixture check before driving Przygotowanie pliku zbiorczego.
 
-``--worker-template`` also checks the Wzorzec rozliczenia pracownika of the Przebieg rozliczeń that follows.
+``--with-worker-template`` also checks the Wzorzec rozliczenia pracownika of the Przebieg rozliczeń that follows.
 """
 
 from __future__ import annotations
@@ -137,10 +137,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--expected-version", default="0.1.0")
-    parser.add_argument("--worker-template", action="store_true", help="also check the Wzorzec rozliczenia pracownika")
+    parser.add_argument("--with-worker-template", action="store_true", help="also check the Wzorzec rozliczenia pracownika")
     args = parser.parse_args(argv)
     try:
-        period, workers, order_sheets = _check(args.root, args.expected_version, worker_template=args.worker_template)
+        period, workers, order_sheets = _check(args.root, args.expected_version, worker_template=args.with_worker_template)
     except (
         OSError,
         ValueError,
@@ -156,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         f"DOCTOR OK | app=MAXIMISEART-Dad | process=przygotowanie | version={args.expected_version} | "
         f"python={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} | "
         f"period={period} | workers={workers} | order_sheets={order_sheets} | "
-        f"templates=valid | worker_template={'valid' if args.worker_template else 'unchecked'} | "
+        f"templates=valid | worker_template={'valid' if args.with_worker_template else 'unchecked'} | "
         "external_links=present | period_folder_absent=true"
     )
     return 0

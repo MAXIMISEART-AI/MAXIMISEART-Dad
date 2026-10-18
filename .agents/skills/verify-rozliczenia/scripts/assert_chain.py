@@ -38,6 +38,7 @@ EXPECTED_WORKER_ORDERS = {
     "Darek Nowak": ("PREP-SYN-ZL-6",),
     "Kamil Frontczak": ("PREP-SYN-ZL-4",),
 }
+EXPECTED_ROWS = sum(len(orders) for orders in EXPECTED_WORKER_ORDERS.values())
 UNSUCCESSFUL_ORDER = "PREP-SYN-ZL-3"  # Darek's NIE order, present only in the Rozliczenie wewnętrzne
 INPUTS = (
     ("Rejestr zleceń", Path("ZLECENIA INTERMAX OD 08_11_2021.xlsx"), "fixture_manifest.json", "register_sha256"),
@@ -99,7 +100,7 @@ def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str
         counters = record.get("counters") or {}
         if record.get("period") != PERIOD or record.get("completed") is not True:
             errors.append("settlement metrics record is not a completed run of the period")
-        if (counters.get("templates_total"), counters.get("rows")) != (len(EXPECTED_WORKER_ORDERS), 4):
+        if (counters.get("templates_total"), counters.get("rows")) != (len(EXPECTED_WORKER_ORDERS), EXPECTED_ROWS):
             errors.append("settlement metrics counters do not match the Plik zbiorczy")
     root_spellings = (str(root), json.dumps(str(root))[1:-1])
     if ROW_MARKER in content or any(spelling in content for spelling in root_spellings):
@@ -238,19 +239,8 @@ def _check_worker_file(
         errors.append(f"{name}: xl/externalLinks parts differ from the Wzorzec rozliczenia pracownika")
 
 
-def _assert_run(root: Path, transcript: Path | None) -> int:
-    errors: list[str] = []
-    _unchanged_inputs(root, errors)
-    period_directory = root / "INEA" / PERIOD
-    target_directory = period_directory / TARGET_DIRECTORY_NAME
-    if sorted(path.name for path in period_directory.iterdir()) != sorted(
-        [INTERNAL_NAME, COLLECTIVE_NAME, TARGET_DIRECTORY_NAME]
-    ):
-        errors.append("Folder okresu does not hold exactly both period files and the Folder rozliczeń pracowników")
-    expected_files = {f"Rozliczenie {PERIOD} - {name}.xlsx" for name in EXPECTED_WORKER_ORDERS}
-    if not target_directory.is_dir() or {path.name for path in target_directory.iterdir()} != expected_files:
-        errors.append("Folder rozliczeń pracowników does not hold exactly one workbook per Wykonawca")
-        return _finish(errors, "")
+def _check_worker_files(root: Path, period_directory: Path, target_directory: Path, errors: list[str]) -> None:
+    """Every Rozliczenie pracownika against the Plik zbiorczy it was made from and the Wzorzec rozliczenia pracownika."""
 
     filled_orders = _manifest(root, "readiness_manifest.json").get("filled_orders")
     if not isinstance(filled_orders, list) or not filled_orders:
@@ -292,6 +282,22 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
     finally:
         template.close()
 
+
+def _assert_run(root: Path, transcript: Path | None) -> int:
+    errors: list[str] = []
+    _unchanged_inputs(root, errors)
+    period_directory = root / "INEA" / PERIOD
+    target_directory = period_directory / TARGET_DIRECTORY_NAME
+    if sorted(path.name for path in period_directory.iterdir()) != sorted(
+        [INTERNAL_NAME, COLLECTIVE_NAME, TARGET_DIRECTORY_NAME]
+    ):
+        errors.append("Folder okresu does not hold exactly both period files and the Folder rozliczeń pracowników")
+    expected_files = {f"Rozliczenie {PERIOD} - {name}.xlsx" for name in EXPECTED_WORKER_ORDERS}
+    if not target_directory.is_dir() or {path.name for path in target_directory.iterdir()} != expected_files:
+        errors.append("Folder rozliczeń pracowników does not hold exactly one workbook per Wykonawca")
+    else:
+        _check_worker_files(root, period_directory, target_directory, errors)
+
     output = _transcript(transcript, errors)
     phases = [output.find(f"Etap: {phase}") for phase in ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")]
     if -1 in phases or phases != sorted(phases):
@@ -299,7 +305,7 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
     if (
         "Status końcowy: OK" not in output
         or f"Zapisane szablony: {len(EXPECTED_WORKER_ORDERS)}" not in output
-        or "Postęp szablonów: 3/3 (100%)" not in output
+        or f"Postęp szablonów: {len(EXPECTED_WORKER_ORDERS)}/{len(EXPECTED_WORKER_ORDERS)} (100%)" not in output
         or output.count("| ZAPISANO |") != len(EXPECTED_WORKER_ORDERS)
     ):
         errors.append("run transcript does not report a complete run with every template written")

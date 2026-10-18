@@ -123,7 +123,7 @@ The `preparation` variant runs `preparation_doctor.py` instead. `DOCTOR OK`
 there means the Rejestr has a sheet with all required headers, both Wzorce are
 unlocked with their expected headers, the Wzorzec pliku zbiorczego has
 `xl/externalLinks/*` parts, the mapping is readable, and the Folder okresu does
-not yet exist. The `chain` variants pass `--worker-template`, which also
+not yet exist. The `chain` variants pass `--with-worker-template`, which also
 validates the Wzorzec rozliczenia pracownika the way `run.py` does.
 
 For targeted debugging of a fixture that already exists, invoke the primitive
@@ -163,7 +163,7 @@ The `preparation` variant follows the same stages with its own primitives:
 require exit code `0`.
 
 The `chain` variants run, in order: `create_preparation_fixture.py
---worker-template`, `preparation_doctor.py --worker-template`, the four
+--with-worker-template`, `preparation_doctor.py --with-worker-template`, the four
 preparation steps above under a `preparation-` prefix with their own
 `preparation-metrics.jsonl`, `fill_readiness.py` (Gotowość), `run.py --source
 <the Plik zbiorczy written by Przygotowanie> --dry-run`, `assert_chain.py
@@ -254,11 +254,11 @@ already performs both checks and prints `scratch_removed=true`.
   Dry-run additionally requires `--transcript`; write mode checks workbook state.
 - `scripts/create_preparation_fixture.py` creates the synthetic Rejestr zleceń,
   both Wzorce, and the mapping for the `preparation` variant;
-  `--worker-template` adds the Wzorzec rozliczenia pracownika for `chain`, and
+  `--with-worker-template` adds the Wzorzec rozliczenia pracownika for `chain`, and
   `--templates-from "$templatesDir"` copies the real Wzorce instead.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\create_preparation_fixture.py --root "$runRoot"`.
 - `scripts/preparation_doctor.py` performs the read-only preflight for that fixture;
-  `--worker-template` also validates the Wzorzec rozliczenia pracownika.
+  `--with-worker-template` also validates the Wzorzec rozliczenia pracownika.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\preparation_doctor.py --root "$runRoot" --expected-version "0.1.0"`.
 - `scripts/assert_preparation.py` checks the Folder okresu, both period files,
   external links, inputs, transcript, and metrics; `--templates config` swaps

@@ -1,6 +1,6 @@
 """Create a disposable synthetic Rejestr zleceń and both Wzorce for Przygotowanie pliku zbiorczego.
 
-``--worker-template`` also creates the Wzorzec rozliczenia pracownika for the Przebieg rozliczeń
+``--with-worker-template`` also creates the Wzorzec rozliczenia pracownika for the Przebieg rozliczeń
 that follows. With ``--templates-from`` every Wzorce is a byte copy of the real one instead of a
 synthetic workbook.
 """
@@ -345,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=str, required=True)
     parser.add_argument("--templates-from", type=Path, help="copy the real Wzorce from this directory")
     parser.add_argument(
-        "--worker-template",
+        "--with-worker-template",
         action="store_true",
         help="also create the Wzorzec rozliczenia pracownika for the Przebieg rozliczeń",
     )
@@ -356,14 +356,14 @@ def main(argv: list[str] | None = None) -> int:
         if root.exists() and any(root.iterdir()):
             raise ValueError(f"Fixture root is not empty: {root}")
         root.mkdir(parents=True, exist_ok=True)
-        _write_fixture(root, templates_from, with_worker_template=args.worker_template)
+        _write_fixture(root, templates_from, with_worker_template=args.with_worker_template)
     except (OSError, ValueError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
     print(
         f"FIXTURE_READY process=przygotowanie root={root} period={PERIOD} "
         f"register_rows={len(REGISTER_ROWS)} workers={len(WORKERS)} "
-        f"worker_template={str(args.worker_template).lower()} "
+        f"worker_template={str(args.with_worker_template).lower()} "
         f"templates={'synthetic' if templates_from is None else 'copied'}"
     )
     return 0

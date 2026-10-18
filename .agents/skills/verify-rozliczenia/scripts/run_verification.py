@@ -453,7 +453,7 @@ def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory
 
     _run_step(
         "fixture",
-        _fixture_arguments(run_root, templates_directory, "--worker-template"),
+        _fixture_arguments(run_root, templates_directory, "--with-worker-template"),
         evidence_root,
         environment,
         expected_exit=0,
@@ -466,7 +466,7 @@ def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory
             str(run_root),
             "--expected-version",
             _version(),
-            "--worker-template",
+            "--with-worker-template",
         ],
         evidence_root,
         environment,

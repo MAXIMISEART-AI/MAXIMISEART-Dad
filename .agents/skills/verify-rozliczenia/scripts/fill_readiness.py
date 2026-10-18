@@ -130,7 +130,10 @@ def _fill(root: Path) -> int:
         expected = dict(before)
         for index, order in enumerate(FILLED_ORDERS):
             for column, value in _readiness_values(index, order).items():
-                sheet.cell(rows[order], column).value = value
+                cell = sheet.cell(rows[order], column)
+                if cell.data_type == "f":
+                    raise ValueError(f"Plik zbiorczy has a formula in {cell.coordinate}, where Dad types values")
+                cell.value = value
                 expected[(sheet.title, rows[order], column)] = value
         save_workbook(workbook, collective_file)
     finally:
