@@ -10,13 +10,17 @@ ma bezpieczny komunikat, a każdy proces tłumaczy go na swój błąd.
 from __future__ import annotations
 
 import re
+import zipfile
+import zlib
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
+from xml.etree.ElementTree import ParseError
 
 from openpyxl import load_workbook
 from openpyxl.cell.rich_text import CellRichText
+from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -47,6 +51,18 @@ ExcelCellValue = (
     | None
 )
 ExcelRow = tuple[ExcelCellValue, ...]
+
+# Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx: przy otwieraniu
+# i, w trybie tylko do odczytu, także przy czytaniu wierszy uszkodzonego arkusza.
+_UNREADABLE_WORKBOOK_ERRORS = (
+    OSError,
+    InvalidFileException,
+    zipfile.BadZipFile,
+    KeyError,
+    ValueError,
+    zlib.error,
+    ParseError,
+)
 
 _NAME_PREFIX = "Rozliczenie "
 _NAME_SUFFIX = " - zbiorcze.xlsx"
@@ -109,7 +125,10 @@ def read_data_rows(path: Path) -> tuple[list[DataRow], list[Issue]]:
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Plik jest tylko czytany.
     """
 
-    workbook = load_workbook(path, read_only=True, data_only=False)
+    try:
+        workbook = load_workbook(path, read_only=True, data_only=False)
+    except _UNREADABLE_WORKBOOK_ERRORS as exc:
+        raise _unreadable(path) from exc
     try:
         sheet = workbook.active
         if sheet is None:
@@ -133,5 +152,15 @@ def read_data_rows(path: Path) -> tuple[list[DataRow], list[Issue]]:
                 continue
             rows.append(DataRow(number, worker, tuple(values[:last_copied_column])))
         return rows, issues
+    except _UNREADABLE_WORKBOOK_ERRORS as exc:
+        # Tylko do odczytu arkusz jest parsowany leniwie, więc uszkodzony XML wychodzi dopiero przy czytaniu.
+        raise _unreadable(path) from exc
     finally:
         workbook.close()
+
+
+def _unreadable(path: Path) -> CollectiveFileError:
+    return CollectiveFileError(
+        f"Nie można odczytać Pliku zbiorczego {path.name}. "
+        "Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony."
+    )
