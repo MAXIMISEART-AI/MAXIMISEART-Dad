@@ -15,7 +15,7 @@ import pytest
 import rozliczenia.cli as cli
 from rozliczenia.cli import main
 from rozliczenia.collective_file import ExcelRow
-from rozliczenia.domain import ProgressEventFactory, ProgressObserver, ProgressPhase, SettlementSummary, WorkerResult
+from rozliczenia.domain import ProgressEventFactory, ProgressPhase, WorkerResult
 import rozliczenia.engine as settlement_engine
 from rozliczenia.progress import ProgressNotice, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
@@ -530,51 +530,6 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
 
     assert_fixture_workbooks(target_directory, dry_run=dry_run)
     assert_completed_metrics(metrics_path, dry_run=dry_run, issues=1 if dry_run else 0)
-
-
-def test_cli_can_run_the_settlement_engine_without_an_observer(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    metrics_path = tmp_path / "metrics.jsonl"
-    observers: list[ProgressObserver | None] = []
-    original_run_settlements = settlement_engine.run_settlements
-
-    def record_observer(
-        source: Path,
-        config: Path,
-        *,
-        dry_run: bool = False,
-        worker_template_path: Path | None = None,
-        observer: ProgressObserver | None = None,
-    ) -> SettlementSummary:
-        observers.append(observer)
-        return original_run_settlements(
-            source,
-            config,
-            dry_run=dry_run,
-            worker_template_path=worker_template_path,
-            observer=observer,
-        )
-
-    monkeypatch.setattr(cli, "run_settlements", record_observer)
-
-    exit_code, output = run_cli(source_path, config_path, metrics_path, "--no-observer")
-
-    assert exit_code == 0
-    assert observers == [None]
-    assert "Status końcowy: OK" in output
-    assert "Postęp szablonów:" not in output
-    assert_fixture_workbooks(target_directory, dry_run=False)
-    record = assert_completed_metrics(metrics_path, dry_run=False)
-    assert set(record["phase_durations_ms"]) == {
-        "Sprawdzanie",
-        "Odczyt danych",
-        "Planowanie",
-        "Zapisywanie",
-    }
-    assert record["phase_durations_ms"]["Zapisywanie"] > 0
 
 
 def test_cli_existing_folder_rozliczen_pracownikow_is_preserved(tmp_path: Path) -> None:

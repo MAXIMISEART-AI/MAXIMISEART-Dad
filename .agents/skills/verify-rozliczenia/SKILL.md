@@ -9,8 +9,7 @@ This is a short-lived Windows CLI, not a server. Dad has two launchers:
 `Utwórz rozliczenia.cmd` starts `run.py` (Przebieg rozliczeń), and
 `Przygotuj plik zbiorczy.cmd` starts `run_preparation.py` (Przygotowanie pliku
 zbiorczego). The verification harness also drives each CLI directly for
-detailed assertions. The VBA adapter is legacy and
-outside the supported user workflow. Verification uses synthetic `.xlsx` files
+detailed assertions. Verification uses synthetic `.xlsx` files
 and never uses a real customer workbook; the only exceptions are the local
 `preparation-real-templates` and `chain-real-templates` variants, which copy
 the real Wzorce from `config/`.
@@ -176,9 +175,7 @@ UTF-8 evidence files. The default fixture reports two mapped writes, one
 proves that the dry-run warns and the real run publishes nothing.
 
 `Utwórz rozliczenia.cmd` has no `--config` or `--metrics` flags;
-`Przygotuj plik zbiorczy.cmd` passes all its arguments to `run_preparation.py`. The VBA module remains
-in the repository as a legacy adapter; it is not part of the Dad-facing route
-or required verification coverage unless the user reactivates it.
+`Przygotuj plik zbiorczy.cmd` passes all its arguments to `run_preparation.py`.
 
 ## Evidence
 

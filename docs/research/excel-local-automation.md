@@ -67,8 +67,8 @@ w szablonie. Po zapisie workbook jest oznaczany do ponownego przeliczenia po
 otwarciu w Excelu.
 
 To ogranicza ryzyko zmian w formule źródłowej i pozwala testować logikę na
-syntetycznych plikach bez danych klientów. Wariant VBA pozostaje dostępny jako
-adapter dla taty, ale reguły biznesowe są utrzymywane tylko w jednym silniku.
+syntetycznych plikach bez danych klientów. Adapter VBA usunięto zgodnie z
+ADR 0003; reguły biznesowe są utrzymywane tylko w jednym silniku.
 
 ## RODO i AI
 

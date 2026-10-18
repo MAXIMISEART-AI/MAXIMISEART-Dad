@@ -62,25 +62,12 @@ ukończonych obserwacjach tego samego trybu (`RUN` albo `DRY-RUN`).
 
 ## Uruchomienie Przebiegu rozliczeń przez CMD
 
-Dwuklik `Utwórz rozliczenia.cmd` otwiera wybór pliku zbiorczego. Podanie ścieżki
-jest alternatywą dla skryptu VBA:
+Dwuklik `Utwórz rozliczenia.cmd` otwiera wybór pliku zbiorczego. Ścieżkę można
+też podać od razu:
 
 ```powershell
 Utwórz rozliczenia.cmd "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
 ```
-
-## Uruchomienie Przebiegu rozliczeń z Excela
-
-`deploy/AutomatyzacjaRozliczen.bas` jest adapterem VBA do osobnego pliku
-`AutomatyzacjaRozliczen.xlsm`.
-
-1. Utwórz pusty plik Excela i zapisz go jako `.xlsm` obok `Utwórz rozliczenia.cmd`.
-2. Otwórz `Alt+F11`, wybierz `File > Import File` i wskaż plik `.bas`.
-3. Dodaj przycisk formularza na arkuszu i przypisz mu `UruchomRozliczenia`.
-4. Zapisz plik w zaufanej lokalizacji lub uruchom zawartość po świadomym zatwierdzeniu.
-
-Ścieżka VBA nie zawiera osobnej logiki kopiowania. Wywołuje ten sam `run.py`,
-więc obie metody mają te same zabezpieczenia.
 
 ## Przygotowanie pliku zbiorczego
 
@@ -237,10 +224,6 @@ Check formatowania nie jest wymagany.
 
 Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd` i
 `Przygotuj plik zbiorczy.cmd` przez `cmd.exe`.
-Ręczna brama dla adaptera VBA jest opisana w
-[`docs/adapter-validation.md`](docs/adapter-validation.md). Jeśli desktopowy
-Excel nie jest dostępny, bramę VBA oznacz jako nieuruchomioną, a nie jako
-zaliczoną na podstawie testów Pythona.
 
 ## Naprawa plików zapisanych starą wersją
 
