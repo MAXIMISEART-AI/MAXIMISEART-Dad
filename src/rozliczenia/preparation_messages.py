@@ -577,3 +577,14 @@ def unexpected_failure() -> PreparationMessage:
         where="Przygotowanie pliku zbiorczego",
         action="Uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.",
     )
+
+
+def summary_not_shown() -> PreparationMessage:
+    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść exceptiona nie trafia do taty."""
+
+    return PreparationMessage(
+        code="BLAD_PODSUMOWANIA",
+        what="Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
+        where="Przygotowanie pliku zbiorczego",
+        action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+    )

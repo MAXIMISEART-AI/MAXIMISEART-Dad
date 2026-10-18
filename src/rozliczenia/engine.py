@@ -110,6 +110,12 @@ def period_from_source(source_path: Path) -> str:
         raise SettlementError(str(exc)) from exc
 
 
+def default_config_path() -> Path:
+    """Wskazuje konfigurację wykonawców w katalogu konfiguracji."""
+
+    return Path(__file__).resolve().parents[2] / "config" / "worker_mapping.yaml"
+
+
 def default_worker_template_path() -> Path:
     """Wskazuje wspólny Wzorzec rozliczenia pracownika w katalogu konfiguracji."""
 

@@ -13,8 +13,9 @@ from typing import Any, NoReturn, TextIO
 
 import pytest
 
-from rozliczenia import preparation_register
+from rozliczenia import collective_preparation, preparation_register
 import rozliczenia.cli as cli
+import rozliczenia.process_run as process_run
 from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
@@ -30,6 +31,7 @@ from tests.collective_preparation_fixtures import (
     register_order,
 )
 
+DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 PREPARATION_COUNTERS = {"period_orders", "successful_orders", "skipped_empty_rows", "warnings"}
 ORDERS_PER_DAY_LINES = [
     "Zlecenia na dzień:",
@@ -173,6 +175,40 @@ def test_cli_stop_shows_co_gdzie_co_zrobic_and_exits_1(tmp_path: Path) -> None:
     assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
 
 
+def test_summary_failure_after_period_files_were_written_says_they_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    prepare = collective_preparation.prepare_collective_file
+
+    def prepare_with_unprintable_summary(*args: Any, **kwargs: Any) -> Any:
+        summary = prepare(*args, **kwargs)
+        summary.orders_per_day = {"SYN-001": 1}  # type: ignore[dict-item]  # podsumowanie, którego nie da się pokazać
+        return summary
+
+    monkeypatch.setattr(collective_preparation, "prepare_collective_file", prepare_with_unprintable_summary)
+
+    exit_code, output = run_preparation_cli(fixture)
+
+    assert exit_code == 1
+    lines = output.splitlines()
+    status = lines.index("Status końcowy: BŁĄD")
+    assert lines[status + 1 : status + 4] == [
+        "Co się stało: Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
+        "Gdzie: Przygotowanie pliku zbiorczego",
+        "Co zrobić: Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+    ]
+    assert lines[status + 4].startswith("Czas uruchomienia: ")
+    assert "Nie utworzono żadnego pliku" not in output
+    assert "SYN-" not in output
+    assert "Traceback" not in output
+    assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+    [record] = metric_records(fixture)
+    assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
+    assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
+
+
 def test_cli_unexpected_error_hides_exception_text_and_exits_1(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -303,12 +339,12 @@ def test_detached_observer_is_reported_by_one_line_at_the_end_of_przygotowanie_p
     assert record["result"] == expected_result
     assert fixture.internal_settlement_path.is_file() is not interrupted
     if observer_fails:
-        assert output.splitlines()[-1] == cli.DETACHED_OBSERVER_NOTICE
-        assert output.count(cli.DETACHED_OBSERVER_NOTICE) == 1
+        assert output.splitlines()[-1] == DETACHED_OBSERVER_NOTICE
+        assert output.count(DETACHED_OBSERVER_NOTICE) == 1
         assert "synthetic adapter failure" not in output
         assert "SYN-" not in output
     else:
-        assert cli.DETACHED_OBSERVER_NOTICE not in output
+        assert DETACHED_OBSERVER_NOTICE not in output
 
 
 @pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])
@@ -379,8 +415,8 @@ def install_fake_rich(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         def stop(self) -> None:
             live_log.append("stop")
 
-    monkeypatch.setattr(cli, "Console", FakeConsole)
-    monkeypatch.setattr(cli, "Live", FakeLive)
+    monkeypatch.setattr(process_run, "Console", FakeConsole)
+    monkeypatch.setattr(process_run, "Live", FakeLive)
     return live_log
 
 

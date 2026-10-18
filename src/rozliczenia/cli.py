@@ -14,6 +14,7 @@ from . import collective_file
 from .domain import ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import (
     SettlementError,
+    default_config_path,
     default_worker_template_path,
     period_from_source,
     run_settlements,
@@ -47,10 +48,6 @@ def _summary_counter_line(summary: SettlementSummary) -> str:
             "skipped": summary.skipped_count,
         }
     )
-
-
-def default_config_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "worker_mapping.yaml"
 
 
 def default_metrics_path() -> Path:
