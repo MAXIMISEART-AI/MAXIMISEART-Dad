@@ -65,7 +65,8 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
 
 - `Status końcowy: OK` oznacza, że oba pliki powstały razem.
   `Status końcowy: ZATRZYMANO` albo `BŁĄD` oznacza, że nie powstał żaden plik.
-  Wtedy znajdź komunikat w tabeli poniżej.
+  Wtedy znajdź komunikat w tabeli poniżej. Jedyny wyjątek to komunikat, że
+  pliki okresu powstały, ale nie udało się pokazać podsumowania.
 - Sprawdź podsumowanie: `Okres`, `Zlecenia okresu`, `Zlecenia skuteczne`,
   `Pominięte puste wiersze` i `Zlecenia na dzień`. Dzień z liczbą `0` może
   oznaczać brakujący eksport.
@@ -95,7 +96,8 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
 Każdy komunikat ma trzy linie: `Co się stało`, `Gdzie` i `Co zrobić`. Znajdź w
 tabeli wiersz z fragmentem pierwszej linii. `Gdzie` wskazuje plik, arkusz albo
 numery wierszy Rejestru zleceń. Po każdym zatrzymaniu nie powstał żaden plik,
-więc po poprawce wystarczy uruchomić proces ponownie.
+więc po poprawce wystarczy uruchomić proces ponownie. Wyjątkiem jest komunikat
+o niepokazanym podsumowaniu: wtedy pliki okresu już są.
 
 #### Zatrzymania
 
@@ -128,6 +130,8 @@ więc po poprawce wystarczy uruchomić proces ponownie.
 | „Nie można odczytać konfiguracji wykonawców” | Przekaż komunikat osobie utrzymującej narzędzie. Ta sama konfiguracja jest potrzebna w Przebiegu rozliczeń. |
 | „Nie udało się zapisać plików okresu” | Sprawdź, czy folder okresów jest dostępny i czy pliki okresu nie są otwarte w Excelu, potem uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Wystąpił nieoczekiwany błąd” | Pojawia się ze `Status końcowy: BŁĄD`. Uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Pliki okresu powstały, ale nie udało się pokazać podsumowania” | Pojawia się ze `Status końcowy: BŁĄD` po zapisie plików (tryb `RUN`). Oba pliki są już w Folderze okresu, więc nie uruchamiaj procesu ponownie. Sprawdź Folder okresu i przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie udało się pokazać planu” | Pojawia się ze `Status końcowy: BŁĄD` tylko w podglądzie bez zapisu (tryb `DRY-RUN`). Nic nie zapisano. Przekaż komunikat osobie utrzymującej narzędzie. |
 
 #### Ostrzeżenia
 
@@ -165,3 +169,6 @@ Pliki okresu powstały niezależnie od niej.
 - Jeśli pojawi się komunikat „Nie można odczytać Pliku zbiorczego”, sprawdź, czy ten plik otwiera się w Excelu i jest zapisany jako `.xlsx`. Zamknij go i uruchom proces ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie.
 - Jeśli pojawi się informacja o braku szablonu, nie twórz pliku ręcznie z innego pracownika. Przekaż tę informację osobie utrzymującej narzędzie.
 - Jeśli plik pracownika ma już dane, narzędzie go nie nadpisze.
+- Jeśli pojawi się komunikat „Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany”, nie powstał żaden plik pracownika. Uruchom proces ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie.
+- Jeśli pojawi się komunikat „Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania”, pliki pracowników już są w Folderze okresu, więc nie uruchamiaj procesu ponownie. Sprawdź Folder okresu i przekaż komunikat osobie utrzymującej narzędzie.
+- Jeśli w podglądzie bez zapisu (tryb `DRY-RUN`) pojawi się komunikat „Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano”, nie powstał żaden plik. Przekaż komunikat osobie utrzymującej narzędzie.

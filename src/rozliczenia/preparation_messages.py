@@ -1,7 +1,7 @@
 """Katalog komunikatów Przygotowania pliku zbiorczego dla taty.
 
 Każdy komunikat ma trzy części: co się stało, gdzie, co zrobić. Komunikaty są
-po polsku, bez żargonu i treści exceptionów oraz bez adresów, numerów zleceń i
+po polsku, bez żargonu i treści wyjątków oraz bez adresów, numerów zleceń i
 treści wierszy. Wskazują wyłącznie plik, arkusz, nagłówek albo numer wiersza.
 """
 
@@ -569,11 +569,33 @@ def write_failed(period_directory: Path) -> PreparationError:
 
 
 def unexpected_failure() -> PreparationMessage:
-    """Nieprzewidziany błąd; treść exceptiona nie trafia do taty."""
+    """Nieprzewidziany błąd; treść wyjątku nie trafia do taty."""
 
     return PreparationMessage(
         code="BLAD_NIEOCZEKIWANY",
         what="Wystąpił nieoczekiwany błąd. Nie utworzono żadnego pliku.",
         where="Przygotowanie pliku zbiorczego",
         action="Uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.",
+    )
+
+
+def summary_not_shown() -> PreparationMessage:
+    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty."""
+
+    return PreparationMessage(
+        code="BLAD_PODSUMOWANIA",
+        what="Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
+        where="Przygotowanie pliku zbiorczego",
+        action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+    )
+
+
+def plan_not_shown() -> PreparationMessage:
+    """DRY-RUN skończył się, ale planu nie dało się pokazać; nic nie zapisano."""
+
+    return PreparationMessage(
+        code="BLAD_PLANU",
+        what="Nie udało się pokazać planu. Nic nie zapisano.",
+        where="Przygotowanie pliku zbiorczego",
+        action="Przekaż ten komunikat osobie utrzymującej narzędzie.",
     )

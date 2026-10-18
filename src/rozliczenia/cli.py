@@ -1,94 +1,44 @@
-"""Interfejs tekstowy, dashboard i lokalna obserwowalność procesu."""
+"""CLI Przebiegu rozliczeń (uruchamiane przez ``run.py``).
+
+Opisuje proces dla Uruchomienia procesu (``process_run``): argumenty, wybór
+Pliku zbiorczego, wywołanie silnika oraz linie statusu i podsumowania.
+"""
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
-import os
+from dataclasses import dataclass
 from pathlib import Path
-import sys
-import time
-from typing import Any, Callable, Mapping, TextIO
+from typing import TextIO
 
-from . import collective_file
-from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
+from . import collective_file, engine
+from .domain import ProgressObserver, SettlementSummary
 from .engine import (
     SettlementError,
+    default_config_path,
     default_worker_template_path,
     period_from_source,
-    run_settlements,
 )
-from .progress import (
-    ProgressNotice,
-    ProgressProjection,
-)
-from .plain_progress import PlainProgressAdapter
+from .process_run import Conversation, Finished, Process, Stop, run
 from .progress_presentation import format_counter_line
-from .rich_progress import Console, Live, RichProgressAdapter
-from .telemetry import (
-    COUNTER_NAMES,
-    METRICS_SCHEMA_VERSION,
-    UNKNOWN_PERIOD,
-    MetricsStore,
-    comparable_records,
-    statistics_for,
+from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
+
+_UNEXPECTED_FAILURE = (
+    "Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany. "
+    "Uruchom ponownie; jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
 )
-
-
-DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
-
-
-def _summary_counter_line(summary: SettlementSummary) -> str:
-    return format_counter_line(
-        {
-            "written": summary.written_count,
-            "empty": summary.empty_count,
-            "planned": summary.planned_count,
-            "skipped": summary.skipped_count,
-        }
-    )
-
-
-def default_config_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "worker_mapping.yaml"
+_SUMMARY_NOT_SHOWN = (
+    "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
+    "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
+)
+_PLAN_NOT_SHOWN = (
+    "Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. "
+    "Przekaż ten komunikat osobie utrzymującej narzędzie."
+)
 
 
 def default_metrics_path() -> Path:
     return Path(__file__).resolve().parents[2] / ".rozliczenia-metrics.jsonl"
-
-
-def ask_in_dialog(ask: Callable[[Any], str]) -> str:
-    """Pokazuje lokalne okno tkinter; pusty wynik, gdy anulowano albo okna nie da się pokazać.
-
-    ``ask`` dostaje moduł ``tkinter.filedialog`` i zwraca wybraną ścieżkę.
-    """
-
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            return ask(filedialog) or ""
-        finally:
-            root.destroy()
-    except Exception:
-        return ""
-
-
-def choose_source_file() -> Path:
-    """Pokazuje lokalny wybór pliku, gdy launcher nie podał argumentu."""
-
-    selected = ask_in_dialog(
-        lambda dialog: dialog.askopenfilename(
-            title="Wybierz plik zbiorczy rozliczenia",
-            filetypes=[("Plik zbiorczy Excel", collective_file.NAME_GLOB), ("Excel", "*.xlsx")],
-        )
-    )
-    if selected:
-        return Path(selected)
-    raise SettlementError("Nie wybrano pliku zbiorczego.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,208 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-class Dashboard:
-    """Rich dashboard with a line-oriented fallback for non-interactive output.
-
-    ``title`` and ``shows_templates`` let another process (Przygotowanie pliku
-    zbiorczego) reuse the same projection and adapters without Szablony pracownika.
-    """
-
-    def __init__(
-        self,
-        output: TextIO,
-        mode: str,
-        period: str,
-        *,
-        title: str = "Rozliczenia",
-        shows_templates: bool = True,
-    ):
-        self.output = output
-        self.state = ProgressProjection(mode, period)
-        self.plain_adapter = PlainProgressAdapter(self._line, title=title, shows_templates=shows_templates)
-        self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
-        self._output_failed = False
-        self._observer_failed = False
-        try:
-            self.console: Any | None = Console(file=output) if Console is not None else None
-        except Exception:
-            self.console = None
-        self.interactive = (
-            self._supports_live_output(output)
-            and self.console is not None
-            and self.console.color_system is not None
-        )
-        self.live: Any | None = None
-
-    @staticmethod
-    def _supports_live_output(output: TextIO) -> bool:
-        if os.environ.get("NO_COLOR") is not None or os.environ.get("TERM") == "dumb":
-            return False
-        try:
-            return bool(output.isatty())
-        except (AttributeError, OSError):
-            return False
-
-    def start(self) -> None:
-        if self.interactive and Live is not None:
-            try:
-                self.live = Live(self.render(), console=self.console, auto_refresh=False)
-                self.live.start(refresh=True)
-                return
-            except Exception:
-                self._disable_rich()
-        elif self.interactive:
-            self._disable_rich()
-        self.plain_adapter.start(self.state.snapshot)
-
-    def __call__(self, event: ProgressEvent) -> None:
-        """Show one Zdarzenie przebiegu; an exception detaches this observer (ADR 0002)."""
-
-        try:
-            self._show(event)
-        except Exception:
-            self._observer_failed = True
-            raise
-
-    def _show(self, event: ProgressEvent) -> None:
-        update = self.state.update(event)
-        if self._output_failed:
-            raise OSError("Terminal output is unavailable.")
-        if self.interactive:
-            try:
-                if self.live is None:
-                    raise RuntimeError("Rich dashboard did not start.")
-                self.live.update(self.rich_adapter.render(update.snapshot, update.notice), refresh=True)
-                return
-            except Exception:
-                self._disable_rich()
-                self.plain_adapter.start(update.snapshot)
-        self.plain_adapter.update(update.snapshot, update.notice)
-        if self._output_failed:
-            raise OSError("Terminal output is unavailable.")
-
-    def stop(self) -> None:
-        """Stop the live view so that final summary lines follow it."""
-
-        if self.live is not None:
-            try:
-                self.live.stop()
-            except Exception:
-                self._disable_rich()
-            else:
-                self.live = None
-
-    def resume(self) -> None:
-        """Restart the live view after ``stop()``, e.g. after a question to Dad between stages."""
-
-        if not self.interactive or self.live is not None or Live is None:
-            return
-        try:
-            self.live = Live(self.render(), console=self.console, auto_refresh=False)
-            self.live.start(refresh=True)
-        except Exception:
-            self._disable_rich()
-
-    @property
-    def phase_durations_ms(self) -> Mapping[ProgressPhase, int]:
-        """Stage durations seen by the dashboard so far, also after an interruption."""
-
-        return self.state.snapshot.phase_durations_ms
-
-    def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
-        self.stop()
-        if error is not None:
-            self._line("Status semantyczny: BŁĄD")
-            self._line(f"Nie wykonano: {error}")
-            self._line(f"Czas uruchomienia: {total_elapsed_ms} ms")
-            return
-        assert summary is not None
-        status = "OK" if summary.ok else "Wymaga sprawdzenia"
-        self._line(f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}")
-        self._line(f"Status końcowy: {status}")
-        self._line(f"Czas uruchomienia: {total_elapsed_ms} ms")
-        self._line(f"Liczniki: {_summary_counter_line(summary)}")
-        self._line(f"Wiersze danych: {summary.total_rows}")
-        self._line(f"Zapisane szablony: {summary.written_count}")
-        self._line(f"Puste szablony: {summary.empty_count}")
-        self._line(f"Pominięte szablony: {summary.skipped_count}")
-        if summary.planned_count:
-            self._line(f"Planowane szablony: {summary.planned_count}")
-        if self.state.snapshot.mode == "DRY-RUN":
-            self._line(f"Okres rozliczeniowy: {summary.period}")
-            self._line(f"Folder rozliczeń pracowników: {summary.target_directory}")
-            self._line("Plan plików:")
-            for result in summary.results:
-                detail = f"Wiersze do uzupełnienia: {result.rows}"
-                if not result.rows:
-                    detail += " | Pusty skoroszyt"
-                self._line(f"- {result.output_file.name} | {detail}")
-            self._line("DRY-RUN: Nic nie zapisano")
-        self._line(f"Problemy: {len(summary.issues)}")
-        for issue in summary.issues:
-            self._line(f"- {issue.message}")
-
-    def print_detached_observer_notice(self) -> None:
-        """End the run with one neutral line when the progress view stopped updating."""
-
-        if self._observer_failed:
-            self._line(DETACHED_OBSERVER_NOTICE)
-
-    def print_line(self, message: str) -> None:
-        self._line(message)
-
-    def print_warning(self, message: str) -> None:
-        self._line(f"Ostrzeżenie: {message}")
-
-    def print_statistics(
-        self,
-        records: list[dict[str, Any]],
-        *,
-        counter_names: frozenset[str] = COUNTER_NAMES,
-    ) -> None:
-        labels = {"total": "całe uruchomienie"}
-        for mode in ("RUN", "DRY-RUN"):
-            comparable = comparable_records(records, mode, counter_names)
-            stats = statistics_for(records, mode, counter_names)
-            if stats is None:
-                continue
-            self._line(f"Statystyki {mode} | próbek: {len(comparable)}")
-            for name, (p50, p95) in stats.items():
-                self._line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
-
-    def render(self, notice: ProgressNotice | None = None) -> Any:
-        return self.rich_adapter.render(self.state.snapshot, notice)
-
-    def _disable_rich(self) -> None:
-        live, self.live = self.live, None
-        if live is not None:
-            try:
-                live.stop()
-            except Exception:
-                pass
-        self.interactive = False
-        self.console = None
-
-    def _line(self, message: str) -> None:
-        if self._output_failed:
-            return
-        try:
-            if self.interactive and self.console is not None:
-                self.console.print(message)
-            else:
-                self.output.write(f"{message}\n")
-        except (OSError, UnicodeError, ValueError):
-            self._output_failed = True
-
-
-def record_metrics(dashboard: Dashboard, store: MetricsStore, record: dict[str, Any], *, failure_warning: str) -> None:
-    """Dopisuje rekord i pokazuje P50/P95; błąd historii nie zmienia wyniku procesu."""
-
-    try:
-        store.append(record)
-        dashboard.print_statistics(store.read(), counter_names=store.counter_names)
-    except (OSError, UnicodeError, ValueError):
-        dashboard.print_warning(failure_warning)
+@dataclass(frozen=True)
+class _Inputs:
+    source: Path
+    period: str
+    args: argparse.Namespace
 
 
 def _period_label(source: Path) -> str:
@@ -322,59 +75,110 @@ def _period_label(source: Path) -> str:
         return UNKNOWN_PERIOD
 
 
-def _metric_record(
-    *,
-    mode: str,
-    period: str,
-    summary: SettlementSummary | None,
-    dashboard: Dashboard | None,
-    completed: bool,
-    total_elapsed_ms: int,
-    started_at: str,
-) -> dict[str, Any]:
-    snapshot = dashboard.state.snapshot if dashboard else None
-    counters = snapshot.metric_counters() if snapshot else {
-        "templates_total": 0,
-        "templates_completed": 0,
-        "rows": 0,
-        "written": 0,
-        "empty": 0,
-        "planned": 0,
-        "skipped": 0,
+def _gather(args: argparse.Namespace, conversation: Conversation) -> _Inputs:
+    source = args.source or conversation.choose_file(
+        "Wybierz plik zbiorczy rozliczenia",
+        [("Plik zbiorczy Excel", collective_file.NAME_GLOB), ("Excel", "*.xlsx")],
+    )
+    if source is None:
+        raise SettlementError("Nie wybrano pliku zbiorczego.")
+    return _Inputs(source, _period_label(source), args)
+
+
+def _execute(inputs: _Inputs, observer: ProgressObserver, _conversation: Conversation) -> SettlementSummary:
+    args = inputs.args
+    return engine.run_settlements(
+        inputs.source,
+        args.config,
+        dry_run=args.dry_run,
+        worker_template_path=args.worker_template,
+        observer=observer,
+    )
+
+
+def _summary_lines(summary: SettlementSummary, *, dry_run: bool) -> list[str]:
+    counters = {
+        "written": summary.written_count,
+        "empty": summary.empty_count,
+        "planned": summary.planned_count,
+        "skipped": summary.skipped_count,
     }
-    if summary is None:
-        counters["issues"] = (snapshot.issue_count if snapshot else 0) + 1
-        result = "BLAD_KRYTYCZNY"
-    else:
-        counters.update(
-            {
-                "templates_total": summary.template_count,
-                "templates_completed": summary.template_count,
-                "rows": summary.total_rows,
-                "written": summary.written_count,
-                "empty": summary.empty_count,
-                "planned": summary.planned_count,
-                "skipped": summary.skipped_count,
-                "issues": len(summary.issues),
-            }
+    lines = [
+        f"Liczniki: {format_counter_line(counters)}",
+        f"Wiersze danych: {summary.total_rows}",
+        f"Zapisane szablony: {summary.written_count}",
+        f"Puste szablony: {summary.empty_count}",
+        f"Pominięte szablony: {summary.skipped_count}",
+    ]
+    if summary.planned_count:
+        lines.append(f"Planowane szablony: {summary.planned_count}")
+    if dry_run:
+        lines.extend(
+            [
+                f"Okres rozliczeniowy: {summary.period}",
+                f"Folder rozliczeń pracowników: {summary.target_directory}",
+                "Plan plików:",
+            ]
         )
-        result = "OK" if summary.ok else "WYMAGA_SPRAWDZENIA"
-    phase_durations: Mapping[ProgressPhase, int]
-    if summary is not None:
-        phase_durations = summary.phase_durations_ms
-    else:
-        phase_durations = snapshot.phase_durations_ms if snapshot else {ProgressPhase(phase): 0 for phase in PHASES}
-    return {
-        "schema_version": METRICS_SCHEMA_VERSION,
-        "started_at": started_at,
-        "mode": mode,
-        "period": period,
-        "completed": completed,
-        "result": result,
-        "total_duration_ms": total_elapsed_ms,
-        "phase_durations_ms": {str(phase): duration for phase, duration in phase_durations.items()},
-        "counters": counters,
-    }
+        for result in summary.results:
+            detail = f"Wiersze do uzupełnienia: {result.rows}"
+            if not result.rows:
+                detail += " | Pusty skoroszyt"
+            lines.append(f"- {result.output_file.name} | {detail}")
+        lines.append("DRY-RUN: Nic nie zapisano")
+    lines.append(f"Problemy: {len(summary.issues)}")
+    lines.extend(f"- {issue.message}" for issue in summary.issues)
+    return lines
+
+
+def _finished(inputs: _Inputs, summary: SettlementSummary) -> Finished:
+    return Finished(
+        status_lines=[
+            f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}",
+            f"Status końcowy: {'OK' if summary.ok else 'Wymaga sprawdzenia'}",
+        ],
+        summary_lines=_summary_lines(summary, dry_run=inputs.args.dry_run),
+        result="OK" if summary.ok else "WYMAGA_SPRAWDZENIA",
+        counters={
+            "templates_total": summary.template_count,
+            "templates_completed": summary.template_count,
+            "rows": summary.total_rows,
+            "written": summary.written_count,
+            "empty": summary.empty_count,
+            "planned": summary.planned_count,
+            "skipped": summary.skipped_count,
+            "issues": len(summary.issues),
+        },
+        phase_durations_ms=summary.phase_durations_ms,
+    )
+
+
+def _stop_lines(error: Exception) -> list[str]:
+    """Jednoliniowy komunikat ``SettlementError``."""
+
+    return [str(error)]
+
+
+def _stopped(stop: Stop) -> list[str]:
+    if stop.kind == "after_engine":
+        return ["Status semantyczny: BŁĄD", _PLAN_NOT_SHOWN if stop.dry_run else _SUMMARY_NOT_SHOWN]
+    lines = stop.lines if stop.kind == "stop" else (_UNEXPECTED_FAILURE,)
+    return ["Status semantyczny: BŁĄD", *(f"Nie wykonano: {line}" for line in lines)]
+
+
+_PROCESS: Process[_Inputs, SettlementSummary] = Process(
+    title="Rozliczenia",
+    shows_templates=True,
+    parser=build_parser,
+    counter_names=COUNTER_NAMES,
+    metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
+    stop_type=SettlementError,
+    stop_lines=_stop_lines,
+    gather=_gather,
+    execute=_execute,
+    finished=_finished,
+    stopped=_stopped,
+)
 
 
 def main(
@@ -383,74 +187,9 @@ def main(
     output: TextIO | None = None,
     metrics_path: Path | None = None,
 ) -> int:
-    output = output or sys.stdout
-    args = build_parser().parse_args(argv)
-    mode = "DRY-RUN" if args.dry_run else "RUN"
-    started_at = datetime.now(timezone.utc).isoformat()
-    started = time.perf_counter()
-    metrics_store = MetricsStore(metrics_path or args.metrics)
+    """Uruchamia Przebieg rozliczeń; ``0`` OK, ``2`` Wymaga sprawdzenia, ``1`` błąd."""
 
-    try:
-        source = args.source or choose_source_file()
-        period = _period_label(source)
-    except SettlementError as exc:
-        dashboard = Dashboard(output, mode, UNKNOWN_PERIOD)
-        dashboard.start()
-        total_elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
-        dashboard.finish(None, exc, total_elapsed_ms)
-        record = _metric_record(
-            mode=mode,
-            period=UNKNOWN_PERIOD,
-            summary=None,
-            dashboard=dashboard,
-            completed=False,
-            total_elapsed_ms=total_elapsed_ms,
-            started_at=started_at,
-        )
-        try:
-            metrics_store.append(record)
-        except (OSError, UnicodeError, ValueError):
-            dashboard.print_warning("Nie zapisano metryk.")
-        return 1
-
-    dashboard = Dashboard(output, mode, period)
-    dashboard.start()
-    summary: SettlementSummary | None = None
-    error: Exception | None = None
-    try:
-        summary = run_settlements(
-            source,
-            args.config,
-            dry_run=args.dry_run,
-            worker_template_path=args.worker_template,
-            observer=dashboard,
-        )
-    except Exception as exc:
-        error = exc
-
-    total_elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
-    dashboard.finish(summary, error, total_elapsed_ms)
-    record = _metric_record(
-        mode=mode,
-        period=period,
-        summary=summary,
-        dashboard=dashboard,
-        completed=summary is not None,
-        total_elapsed_ms=total_elapsed_ms,
-        started_at=started_at,
-    )
-    record_metrics(
-        dashboard,
-        metrics_store,
-        record,
-        failure_warning="Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.",
-    )
-    dashboard.print_detached_observer_notice()
-
-    if error is not None:
-        return 1
-    assert summary is not None
-    return 0 if summary.ok else 2
+    return run(_PROCESS, argv, output=output, metrics_path=metrics_path)
 
 
 if __name__ == "__main__":

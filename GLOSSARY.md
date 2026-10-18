@@ -123,6 +123,14 @@ Jedno uruchomienie procesu od wskazania Pliku zbiorczego do wyniku końcowego
 albo bezpiecznego przerwania. Obejmuje Przygotowanie skoroszytów pracowników,
 a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 
+## Uruchomienie procesu
+
+Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
+launchera, od wskazania plików przez tatę do wyniku końcowego. Kończy się
+sukcesem, wynikiem wymagającym sprawdzenia albo zatrzymaniem z bezpiecznym
+komunikatem zrozumiałym dla taty, nigdy z treścią błędu technicznego.
+_Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
+
 ## Zdarzenie przebiegu
 
 Bezpieczny fakt opisujący zmianę lub wynik jednego uruchomienia Przebiegu
