@@ -11,7 +11,9 @@ This is a short-lived Windows CLI, not a server. Dad has two launchers:
 zbiorczego). The verification harness also drives each CLI directly for
 detailed assertions. The VBA adapter is legacy and
 outside the supported user workflow. Verification uses synthetic `.xlsx` files
-only and never uses a real customer workbook.
+and never uses a real customer workbook; the one exception is the local
+`preparation-real-templates` variant, which copies the real Wzorce from
+`config/`.
 
 ## Launch
 
@@ -60,7 +62,23 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant pr
 `run_preparation.py` through dry-run and write, and checks both period files.
 Its route, counts, and launcher test are in `features/prepare-collective-file.md`.
 
-Before handing work over, run every variant in one command, as CI does:
+When `config/` holds the real Wzorce, also run the local variant after changes
+to formatting or template handling in Przygotowanie pliku zbiorczego:
+
+```powershell
+py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant preparation-real-templates
+```
+
+It drives the same synthetic Rejestr into byte copies of both real Wzorce and
+checks that the copies stay byte-identical, that every written data cell has
+its header's font face and size, that every Wzorzec cell outside the written
+rows is unchanged, and that `xl/externalLinks/*` stay byte-identical. The
+Wzorce are git-ignored, so CI and `--variant all` leave this variant out. In a
+worktree, pass `--templates-dir <main checkout>\config`. Without both Wzorce
+the runner prints `VERIFY SKIP` and exits `0`; report that as a skip, never as
+a proof.
+
+Before handing work over, run every CI variant in one command, as CI does:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant all
@@ -199,12 +217,14 @@ already performs both checks and prints `scratch_removed=true`.
 - `scripts/assert_results.py` checks workbook state after either mode.
   Dry-run additionally requires `--transcript`; write mode checks workbook state.
 - `scripts/create_preparation_fixture.py` creates the synthetic Rejestr zleceń,
-  both Wzorce, and the mapping for the `preparation` variant.
+  both Wzorce, and the mapping for the `preparation` variant; with
+  `--templates-from "$templatesDir"` it copies the real Wzorce instead.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\create_preparation_fixture.py --root "$runRoot"`.
 - `scripts/preparation_doctor.py` performs the read-only preflight for that fixture.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\preparation_doctor.py --root "$runRoot" --expected-version "0.1.0"`.
 - `scripts/assert_preparation.py` checks the Folder okresu, both period files,
-  external links, inputs, transcript, and metrics.
+  external links, inputs, transcript, and metrics; `--templates config` swaps
+  the synthetic Wzorzec checks for the generic real-Wzorzec checks.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_preparation.py --root "$runRoot" --expect run --transcript "$evidenceRoot\run.txt"`.
 - `scripts/cleanup.py` removes only a run root below `.verification\runs\`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.

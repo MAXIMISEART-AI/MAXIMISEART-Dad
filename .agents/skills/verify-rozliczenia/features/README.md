@@ -14,7 +14,8 @@ outside the supported user workflow.
 - Drive the supported CMD route with `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q`; the test uses a copied runtime and synthetic workbooks.
 - Use `--variant existing`, `--variant locked`, or `--variant unmapped` for the corresponding publication and safety-gate proof.
 - Use `--variant preparation` for Przygotowanie pliku zbiorczego.
-- Never use real customer workbooks or a fixture owned by another verification run.
+- Use `--variant preparation-real-templates` locally when `config/` holds the real Wzorce; it is outside CI and `--variant all`, and prints `VERIFY SKIP` without them.
+- Never use real customer workbooks or a fixture owned by another verification run. The real Wzorce enter only as byte copies inside the run root.
 
 ## Driving conventions
 
@@ -30,10 +31,11 @@ outside the supported user workflow.
 ## Proof and skip reporting
 
 - A terminal transcript alone is insufficient: pair it with workbook state and metrics.
-- Keep row values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths on each transcript's `command:` line; metrics carry no path at all.
+- Keep row values, Wzorzec cell values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths and, for `preparation-real-templates`, the Wzorce directory on each transcript's `command:` line; metrics carry no path at all.
 - The default fixture returns `0`; `--variant unmapped` separately verifies a
   dry-run warning and a failed real run with no published folder.
 - The legacy VBA adapter is not a supported user route and is excluded from live coverage unless reactivated.
+- `VERIFY SKIP` from `preparation-real-templates` is a skip: report it as one.
 - Run cleanup after every failed iteration and confirm the evidence directory still exists.
 
 ## Features

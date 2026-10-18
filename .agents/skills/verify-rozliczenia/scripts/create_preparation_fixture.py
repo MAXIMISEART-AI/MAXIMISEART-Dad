@@ -1,4 +1,7 @@
-"""Create a disposable synthetic Rejestr zleceń and both Wzorce for Przygotowanie pliku zbiorczego."""
+"""Create a disposable synthetic Rejestr zleceń and both Wzorce for Przygotowanie pliku zbiorczego.
+
+With ``--templates-from`` both Wzorce are byte copies of the real ones instead of synthetic workbooks.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -288,7 +292,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _write_fixture(root: Path) -> None:
+def _write_fixture(root: Path, templates_from: Path | None) -> None:
     config_directory = root / "config"
     config_directory.mkdir(parents=True)
     (root / PERIODS_DIRECTORY).mkdir()
@@ -296,8 +300,12 @@ def _write_fixture(root: Path) -> None:
     internal_template = config_directory / INTERNAL_TEMPLATE_NAME
     collective_template = config_directory / COLLECTIVE_TEMPLATE_NAME
     _write_register(register)
-    _write_internal_template(internal_template)
-    _write_collective_template(collective_template)
+    if templates_from is None:
+        _write_internal_template(internal_template)
+        _write_collective_template(collective_template)
+    else:
+        shutil.copyfile(templates_from / INTERNAL_TEMPLATE_NAME, internal_template)
+        shutil.copyfile(templates_from / COLLECTIVE_TEMPLATE_NAME, collective_template)
     (config_directory / "worker_mapping.yaml").write_text(
         yaml.safe_dump({"schema_version": 1, "workers": WORKERS}, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
@@ -313,19 +321,22 @@ def _write_fixture(root: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=str, required=True)
+    parser.add_argument("--templates-from", type=Path, help="copy both real Wzorce from this directory")
     args = parser.parse_args(argv)
+    templates_from = args.templates_from.expanduser().resolve() if args.templates_from else None
     try:
         root = _safe_run_root(args.root)
         if root.exists() and any(root.iterdir()):
             raise ValueError(f"Fixture root is not empty: {root}")
         root.mkdir(parents=True, exist_ok=True)
-        _write_fixture(root)
+        _write_fixture(root, templates_from)
     except (OSError, ValueError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
     print(
         f"FIXTURE_READY process=przygotowanie root={root} period={PERIOD} "
-        f"register_rows={len(REGISTER_ROWS)} workers={len(WORKERS)}"
+        f"register_rows={len(REGISTER_ROWS)} workers={len(WORKERS)} "
+        f"templates={'synthetic' if templates_from is None else 'copied'}"
     )
     return 0
 
