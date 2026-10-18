@@ -30,7 +30,6 @@ from tests.collective_preparation_fixtures import (
     register_order,
 )
 
-DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 PREPARATION_COUNTERS = {"period_orders", "successful_orders", "skipped_empty_rows", "warnings"}
 ORDERS_PER_DAY_LINES = [
     "Zlecenia na dzień:",
@@ -279,7 +278,7 @@ def test_terminal_output_failure_does_not_change_result_files_or_exit_code(tmp_p
     [(False, 0, "OK"), (True, 1, "BLAD_KRYTYCZNY")],
     ids=["sukces", "przerwanie"],
 )
-def test_detached_observer_is_reported_by_one_line_at_the_end_of_przygotowanie(
+def test_detached_observer_is_reported_by_one_line_at_the_end_of_przygotowanie_pliku_zbiorczego(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     observer_fails: bool,
@@ -304,12 +303,12 @@ def test_detached_observer_is_reported_by_one_line_at_the_end_of_przygotowanie(
     assert record["result"] == expected_result
     assert fixture.internal_settlement_path.is_file() is not interrupted
     if observer_fails:
-        assert output.splitlines()[-1] == DETACHED_OBSERVER_NOTICE
-        assert output.count(DETACHED_OBSERVER_NOTICE) == 1
+        assert output.splitlines()[-1] == cli.DETACHED_OBSERVER_NOTICE
+        assert output.count(cli.DETACHED_OBSERVER_NOTICE) == 1
         assert "synthetic adapter failure" not in output
         assert "SYN-" not in output
     else:
-        assert DETACHED_OBSERVER_NOTICE not in output
+        assert cli.DETACHED_OBSERVER_NOTICE not in output
 
 
 @pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])

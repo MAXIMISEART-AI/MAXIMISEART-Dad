@@ -125,7 +125,7 @@ def run_until_plan(runner: PhaseRunner) -> None:
     runner.plan(lambda: None, template_total=lambda result: 1)
 
 
-def test_zdarzenie_etapu_zgloszone_obok_sekwencera_jest_bledem_kodu() -> None:
+def test_zdarzenie_przebiegu_etapu_zgloszone_przez_proces_zamiast_sekwencera_jest_bledem_kodu() -> None:
     runner = PhaseRunner(None)
     run_until_plan(runner)
 
@@ -137,7 +137,7 @@ def test_zdarzenie_etapu_zgloszone_obok_sekwencera_jest_bledem_kodu() -> None:
 
 
 @pytest.mark.parametrize("stage", ["check", "read", "plan"])
-def test_zdarzenie_wykonawcy_w_trakcie_innego_etapu_niz_zapisywanie_jest_bledem_kodu(stage: str) -> None:
+def test_zdarzenie_przetworzenia_szablonu_pracownika_w_innym_etapie_niz_zapisywanie_jest_bledem_kodu(stage: str) -> None:
     runner = PhaseRunner(None)
     if stage != "check":
         runner.check(lambda: None)
@@ -148,7 +148,7 @@ def test_zdarzenie_wykonawcy_w_trakcie_innego_etapu_niz_zapisywanie_jest_bledem_
         getattr(runner, stage)(lambda: runner.notify(worker_started(runner)))
 
 
-def test_zdarzenie_wykonawcy_poza_trwajacym_zapisywaniem_jest_bledem_kodu() -> None:
+def test_zdarzenie_przetworzenia_szablonu_pracownika_poza_trwajacym_zapisywaniem_jest_bledem_kodu() -> None:
     runner = PhaseRunner(None)
     run_until_plan(runner)
 

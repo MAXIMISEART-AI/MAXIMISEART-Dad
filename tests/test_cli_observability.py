@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 import pytest
 
 import rozliczenia.cli as cli
-from rozliczenia.cli import main
+from rozliczenia.cli import DETACHED_OBSERVER_NOTICE, main
 from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEventFactory, ProgressPhase, WorkerResult
 import rozliczenia.engine as settlement_engine
@@ -31,8 +31,6 @@ from tests.test_settlement_engine import (
     make_fixture,
     write_source,
 )
-
-DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 
 
 def run_cli(
