@@ -35,6 +35,9 @@ from .telemetry import (
 )
 
 
+DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
+
+
 def _summary_counter_line(summary: SettlementSummary) -> str:
     return format_counter_line(
         {
@@ -129,6 +132,7 @@ class Dashboard:
         self.plain_adapter = PlainProgressAdapter(self._line, title=title, shows_templates=shows_templates)
         self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
         self._output_failed = False
+        self._observer_failed = False
         try:
             self.console: Any | None = Console(file=output) if Console is not None else None
         except Exception:
@@ -162,6 +166,15 @@ class Dashboard:
         self.plain_adapter.start(self.state.snapshot)
 
     def __call__(self, event: ProgressEvent) -> None:
+        """Show one Zdarzenie przebiegu; an exception detaches this observer (ADR 0002)."""
+
+        try:
+            self._show(event)
+        except Exception:
+            self._observer_failed = True
+            raise
+
+    def _show(self, event: ProgressEvent) -> None:
         update = self.state.update(event)
         if self._output_failed:
             raise OSError("Terminal output is unavailable.")
@@ -238,6 +251,12 @@ class Dashboard:
         self._line(f"Problemy: {len(summary.issues)}")
         for issue in summary.issues:
             self._line(f"- {issue.message}")
+
+    def print_detached_observer_notice(self) -> None:
+        """End the run with one neutral line when the progress view stopped updating."""
+
+        if self._observer_failed:
+            self._line(DETACHED_OBSERVER_NOTICE)
 
     def print_line(self, message: str) -> None:
         self._line(message)
@@ -426,6 +445,7 @@ def main(
         record,
         failure_warning="Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.",
     )
+    dashboard.print_detached_observer_notice()
 
     if error is not None:
         return 1

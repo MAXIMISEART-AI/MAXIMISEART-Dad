@@ -48,6 +48,8 @@ obserwacji.
   plain.
 - Awaria adaptera terminala nie zmienia wyniku, zapisu ani kodu wyjścia silnika;
   po pierwszym wyjątku nie jest on ponownie wywoływany w tym przebiegu.
+  Odłączony obserwator jest sygnalizowany jedną neutralną linią na końcu
+  uruchomienia, bez tekstu wyjątku.
 - Telemetryka końcowego snapshotu zachowuje istniejący schemat i pozostaje
   oparta na `SettlementSummary` dla ukończonego Przebiegu rozliczeń.
 - VBA przekazuje `--no-observer` przez launcher CMD, więc korzysta z tego samego
