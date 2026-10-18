@@ -23,5 +23,5 @@ przycisku w Excelu.
 
 - `deploy/AutomatyzacjaRozliczen.bas`, ukryty przełącznik `--no-observer`
   (ADR 0002), `docs/adapter-validation.md` oraz sekcje README i instrukcji taty
-  dotyczące Excela są do usunięcia w osobnym zadaniu porządkowym.
+  dotyczące Excela zostały usunięte w osobnym zadaniu porządkowym.
 - Nowe procesy nie potrzebują trybu bez obserwatora dla VBA.

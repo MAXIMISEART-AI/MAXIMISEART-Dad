@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import time
@@ -33,7 +33,7 @@ from tests.collective_preparation_fixtures import (
     write_collective_template,
     write_internal_template,
 )
-from tests.test_settlement_engine import active_worksheet, external_link_parts
+from tests.test_settlement_engine import active_worksheet, external_link_parts, projected
 
 
 def run_preparation(
@@ -356,7 +356,7 @@ STAGES_IN_ORDER = [
 def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
     tmp_path: Path, dry_run: bool
 ) -> None:
-    fixture = make_preparation_fixture(tmp_path)
+    fixture = make_preparation_fixture(tmp_path, [register_order(1, datetime(2026, 9, 13, 23, 59))])
     recorded: list[ProgressEvent] = []
     projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
 
@@ -364,12 +364,40 @@ def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
         recorded.append(event)
         projection.update(event)
 
-    run_preparation(fixture, dry_run=dry_run, observer=recording_observer)
+    summary = run_preparation(fixture, dry_run=dry_run, observer=recording_observer)
 
     assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
     assert all(event.worker_name is None for event in recorded)
     assert set(projection.snapshot.phase_states.values()) == {PhaseState.COMPLETED}
+    assert [warning.code for warning in summary.warnings] == ["NIEPELNY_OKRES"]
+    assert projection.snapshot.issue_count == 1
+    assert projection.snapshot.template_total == 0
     assert "SYN-" not in repr(recorded)
+
+
+def test_progress_projection_accepts_przygotowanie_pliku_zbiorczego_interrupted_in_zapisywanie_with_its_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    projection = ProgressProjection("RUN", PERIOD)
+    save_s = 0.05
+
+    def fail_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+        time.sleep(save_s)
+        raise ExternalLinksError("wymuszony błąd")
+
+    monkeypatch.setattr(workbook_files, "save_workbook", fail_save)
+
+    with pytest.raises(PreparationError):
+        run_preparation(fixture, observer=projected(projection))
+
+    assert projection.snapshot.phase_states == {
+        ProgressPhase.CHECKING: PhaseState.COMPLETED,
+        ProgressPhase.READING: PhaseState.COMPLETED,
+        ProgressPhase.PLANNING: PhaseState.COMPLETED,
+        ProgressPhase.SAVING: PhaseState.FAILED,
+    }
+    assert projection.snapshot.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000
 
 
 def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path: Path) -> None:
@@ -868,6 +896,37 @@ def test_confirm_plan_gets_plan_after_planowanie_and_before_zapisywanie(tmp_path
     assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
     assert summary.period_order_count == 4
     assert fixture.collective_file_path.is_file()
+
+
+def test_stage_times_seen_by_confirm_plan_do_not_change_while_zapisywanie_is_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    save_s = 0.05
+    real_save_workbook = workbook_files.save_workbook
+    seen: list[tuple[Mapping[ProgressPhase, int], dict[ProgressPhase, int]]] = []
+
+    def slow_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+        time.sleep(save_s)
+        real_save_workbook(workbook, target, external_links_from=external_links_from)
+
+    def confirm_plan(plan: PreparationSummary) -> None:
+        seen.append((plan.phase_durations_ms, dict(plan.phase_durations_ms)))
+
+    monkeypatch.setattr(workbook_files, "save_workbook", slow_save)
+
+    summary = run_preparation(fixture, confirm_plan=confirm_plan)
+
+    [(seen_durations, read_in_confirm_plan)] = seen
+    assert set(read_in_confirm_plan) == {ProgressPhase.CHECKING, ProgressPhase.READING, ProgressPhase.PLANNING}
+    assert dict(seen_durations) == read_in_confirm_plan
+    assert summary.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000
+    assert dict(summary.phase_durations_ms) == {
+        **read_in_confirm_plan,
+        ProgressPhase.SAVING: summary.phase_durations_ms[ProgressPhase.SAVING],
+    }
+    with pytest.raises(TypeError):
+        summary.phase_durations_ms[ProgressPhase.SAVING] = 0  # type: ignore[index]
 
 
 def test_stop_from_confirm_plan_creates_no_file_and_no_folder_okresu(tmp_path: Path) -> None:

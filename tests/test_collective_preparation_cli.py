@@ -15,6 +15,7 @@ import pytest
 
 from rozliczenia import preparation_register
 import rozliczenia.cli as cli
+from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
 
@@ -269,6 +270,45 @@ def test_terminal_output_failure_does_not_change_result_files_or_exit_code(tmp_p
     [record] = metric_records(fixture)
     assert record["result"] == "OK"
     assert record["counters"]["period_orders"] == 4
+
+
+@pytest.mark.parametrize("observer_fails", [False, True], ids=["bez-awarii", "awaria-obserwatora"])
+@pytest.mark.parametrize(
+    ("interrupted", "expected_exit_code", "expected_result"),
+    [(False, 0, "OK"), (True, 1, "BLAD_KRYTYCZNY")],
+    ids=["sukces", "przerwanie"],
+)
+def test_detached_observer_is_reported_by_one_line_at_the_end_of_przygotowanie_pliku_zbiorczego(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    observer_fails: bool,
+    interrupted: bool,
+    expected_exit_code: int,
+    expected_result: str,
+) -> None:
+    def fail_progress_update(*_args: object) -> NoReturn:
+        raise RuntimeError("synthetic adapter failure")
+
+    if observer_fails:
+        monkeypatch.setattr(PlainProgressAdapter, "update", fail_progress_update)
+    fixture = make_preparation_fixture(tmp_path)
+    if interrupted:
+        fixture.period_directory.mkdir()
+        fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
+
+    exit_code, output = run_preparation_cli(fixture)
+
+    assert exit_code == expected_exit_code
+    [record] = metric_records(fixture)
+    assert record["result"] == expected_result
+    assert fixture.internal_settlement_path.is_file() is not interrupted
+    if observer_fails:
+        assert output.splitlines()[-1] == cli.DETACHED_OBSERVER_NOTICE
+        assert output.count(cli.DETACHED_OBSERVER_NOTICE) == 1
+        assert "synthetic adapter failure" not in output
+        assert "SYN-" not in output
+    else:
+        assert cli.DETACHED_OBSERVER_NOTICE not in output
 
 
 @pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])

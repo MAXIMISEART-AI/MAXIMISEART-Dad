@@ -7,6 +7,7 @@ import tempfile
 import time
 import unicodedata
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -17,7 +18,6 @@ from .domain import (
     Issue,
     ProgressEventFactory,
     ProgressObserver,
-    ProgressPhase,
     SettlementSummary,
     WorkerResult,
 )
@@ -165,24 +165,12 @@ def run_settlements(
             raise SettlementError(str(exc)) from exc
         return period, target_directory, mapping
 
-    period, target_directory, mapping = phases.run(ProgressPhase.CHECKING, check_inputs)
-    rows_by_worker, source_issues = phases.run(
-        ProgressPhase.READING,
+    period, target_directory, mapping = phases.check(check_inputs)
+    rows_by_worker, source_issues = phases.read(
         lambda: _read_source_rows(source_path),
+        issue_count=lambda read_rows: len(read_rows[1]),
     )
-    notify(
-        ProgressEventFactory.issue_count(
-            elapsed_ms=phases.elapsed_ms(),
-            issue_count=len(source_issues),
-        )
-    )
-    summary = SettlementSummary(
-        period,
-        source_path,
-        target_directory,
-        issues=source_issues,
-        phase_durations_ms=phases.phase_durations_ms,
-    )
+    summary = SettlementSummary(period, source_path, target_directory, issues=list(source_issues))
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
         template_files = [
@@ -214,15 +202,12 @@ def run_settlements(
             )
         return template_files, rows_by_target, issues
 
-    template_files, rows_by_target, plan_issues = phases.run(ProgressPhase.PLANNING, plan_rows)
-    summary.issues.extend(plan_issues)
-    notify(
-        ProgressEventFactory.plan_ready(
-            template_total=len(template_files),
-            elapsed_ms=phases.elapsed_ms(),
-            issue_count=len(summary.issues),
-        )
+    template_files, rows_by_target, plan_issues = phases.plan(
+        plan_rows,
+        template_total=lambda planned: len(planned[0]),
+        issue_count=lambda planned: len(source_issues) + len(planned[2]),
     )
+    summary.issues.extend(plan_issues)
 
     def save_targets(files: list[tuple[str, Path]]) -> None:
         for template_index, (worker_name, target_path) in enumerate(files, start=1):
@@ -335,6 +320,5 @@ def run_settlements(
                     "folder wynikowy nie został opublikowany."
                 ) from exc
 
-    phases.run(ProgressPhase.SAVING, save_all, template_total=len(template_files))
-
-    return summary
+    phases.save(save_all)
+    return replace(summary, phase_durations_ms=phases.durations_ms())

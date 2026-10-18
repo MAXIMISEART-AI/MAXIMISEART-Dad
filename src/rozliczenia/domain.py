@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable
+from types import MappingProxyType
+from typing import Callable, Mapping
 
 
 class ProgressPhase(StrEnum):
@@ -362,7 +363,7 @@ class SettlementSummary:
     target_directory: Path
     results: list[WorkerResult] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
-    phase_durations_ms: dict[ProgressPhase, int] = field(default_factory=dict)
+    phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def written_count(self) -> int:

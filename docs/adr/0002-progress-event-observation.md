@@ -18,9 +18,18 @@ interpretują `ProgressEvent`, nie utrzymują własnych liczników ani stanów f
 Dashboard koordynuje wybór adaptera.
 
 Awaria obserwatora odłącza go na resztę Przebiegu rozliczeń i nie przerywa pracy
-silnika. Ukryty przełącznik `--no-observer` jest używany przez launcher CMD
-wywoływany z VBA, aby VBA uruchamiało ten sam `run.py` i `run_settlements()` bez
-podpinania obserwatora CLI. Domyślne uruchomienie CLI nadal obserwuje postęp.
+silnika. Uruchomienie CLI zawsze obserwuje postęp.
+
+Protokół etapów należy do sekwencera etapów (`PhaseRunner`), wspólnego dla
+Przebiegu rozliczeń i Przygotowania pliku zbiorczego. Proces wywołuje cztery
+nazwane etapy i podaje tylko wartości; START, END, FAILED etapów i zdarzenia
+pośrednie `ISSUE_COUNT` oraz `PLAN_READY` wysyła sekwencer w stałej kolejności.
+Proces przekazuje przez sekwencer tylko zdarzenia wykonawców z trwającego
+Zapisywania. Pomylona kolejność albo niedozwolone zdarzenie to błąd kodu:
+sekwencer zgłasza `ProgressProtocolError` w miejscu wywołania, także bez
+obserwatora, zamiast traktować go jak awarię obserwatora. Sekwencer sprawdza
+kolejność sam, bez projekcji, więc projekcja pozostaje niezależną kontrolą tego,
+co wysyła.
 
 Dotychczasowe pola `ProgressEvent` i wartości stanów pozostają zgodne; typed
 states porządkują kontrakt, a `FAILED` dodaje jawny stan przerwania. Końcowa
@@ -48,11 +57,11 @@ obserwacji.
   plain.
 - Awaria adaptera terminala nie zmienia wyniku, zapisu ani kodu wyjścia silnika;
   po pierwszym wyjątku nie jest on ponownie wywoływany w tym przebiegu.
+  Odłączony obserwator jest sygnalizowany jedną neutralną linią na końcu
+  uruchomienia, bez tekstu wyjątku.
 - Telemetryka końcowego snapshotu zachowuje istniejący schemat i pozostaje
   oparta na `SettlementSummary` dla ukończonego Przebiegu rozliczeń.
-- VBA przekazuje `--no-observer` przez launcher CMD, więc korzysta z tego samego
-  silnika bez obserwatora CLI.
-- Zwykłe CLI domyślnie obserwuje postęp; bez Rich używa adaptera plain z tą samą
+- Zwykłe CLI obserwuje postęp; bez Rich używa adaptera plain z tą samą
   projekcją i informacjami operacyjnymi.
 - Nowy stan i walidacja są częścią lokalnego kontraktu; nie są formatem
   zewnętrznej usługi ani zapisem danych klientów.

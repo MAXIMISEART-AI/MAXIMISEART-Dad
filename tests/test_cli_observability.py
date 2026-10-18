@@ -13,10 +13,11 @@ from openpyxl import load_workbook
 import pytest
 
 import rozliczenia.cli as cli
-from rozliczenia.cli import main
+from rozliczenia.cli import DETACHED_OBSERVER_NOTICE, main
 from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEventFactory, ProgressPhase, WorkerResult
 import rozliczenia.engine as settlement_engine
+from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.progress import ProgressNotice, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
 import rozliczenia.template_settlement as template_settlement
@@ -361,6 +362,44 @@ def test_plain_output_failure_detaches_observer_and_completes_przebieg_rozliczen
     assert record["counters"]["written"] == 2
     assert record["result"] == "OK"
     assert output.writes == fail_at_write
+
+
+@pytest.mark.parametrize("observer_fails", [False, True], ids=["bez-awarii", "awaria-obserwatora"])
+@pytest.mark.parametrize(
+    ("interrupted", "expected_exit_code", "expected_result"),
+    [(False, 0, "OK"), (True, 1, "BLAD_KRYTYCZNY")],
+    ids=["sukces", "przerwanie"],
+)
+def test_detached_observer_is_reported_by_one_line_at_the_end_of_przebieg_rozliczen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    observer_fails: bool,
+    interrupted: bool,
+    expected_exit_code: int,
+    expected_result: str,
+) -> None:
+    def fail_progress_update(*_args: object) -> None:
+        raise RuntimeError("synthetic adapter failure")
+
+    if observer_fails:
+        monkeypatch.setattr(PlainProgressAdapter, "update", fail_progress_update)
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    if interrupted:
+        config_path.unlink()
+    metrics_path = tmp_path / "metrics.jsonl"
+
+    exit_code, output = run_cli(source_path, config_path, metrics_path)
+
+    assert exit_code == expected_exit_code
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert record["result"] == expected_result
+    assert target_directory.exists() is not interrupted
+    if observer_fails:
+        assert output.splitlines()[-1] == DETACHED_OBSERVER_NOTICE
+        assert output.count(DETACHED_OBSERVER_NOTICE) == 1
+        assert "synthetic adapter failure" not in output
+    else:
+        assert DETACHED_OBSERVER_NOTICE not in output
 
 
 def test_metrics_store_rejects_record_with_full_path(tmp_path: Path) -> None:
