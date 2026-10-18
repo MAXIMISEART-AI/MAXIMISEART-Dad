@@ -90,7 +90,8 @@ powstają razem albo żaden.
   okresów (np. `INEA`) i token okresu.
 - Okres rozliczeniowy trwa od wtorku 00:00 do następnego wtorku 00:00. Token
   `dd_dd_mm_rrrr` zawiera dzień wtorku, dzień poniedziałku oraz miesiąc i rok
-  poniedziałku, np. `08_14_09_2026` albo `29_05_10_2026` na przełomie miesięcy.
+  wtorku, np. `08_14_09_2026`, a na przełomie miesięcy `27_02_10_2026`
+  (27.10–02.11.2026) i lat `29_04_12_2026` (29.12.2026–04.01.2027).
 - Arkusz ze zleceniami jest wybierany po wymaganych nagłówkach w pierwszym
   wierszu, nie po nazwie. Inne arkusze są ignorowane.
 - Zlecenie należy do okresu po dacie w `DATA GODZ. POCZ.`, niezależnie od

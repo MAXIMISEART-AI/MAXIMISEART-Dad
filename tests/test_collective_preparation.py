@@ -261,9 +261,9 @@ def test_failed_save_of_second_file_publishes_neither_file_nor_folder_okresu(
         "08_15_09_2026",
         "okres",
         "../14_09_2026",
-        # Na przełomie miesięcy i lat miesiąc i rok tokenu są z poniedziałku, nie z wtorku.
-        "29_05_09_2026",
-        "29_04_12_2026",
+        # Na przełomie miesięcy i lat miesiąc i rok tokenu są z wtorku, nie z poniedziałku.
+        "27_02_11_2026",
+        "29_04_01_2027",
     ],
 )
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
@@ -278,9 +278,9 @@ def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token
 
 @pytest.mark.parametrize(
     ("token", "tuesday"),
-    [("29_05_10_2026", datetime(2026, 9, 29)), ("29_04_01_2027", datetime(2026, 12, 29))],
+    [("27_02_10_2026", datetime(2026, 10, 27)), ("29_04_12_2026", datetime(2026, 12, 29))],
 )
-def test_period_crossing_month_or_year_takes_month_and_year_of_monday(
+def test_period_crossing_month_or_year_takes_month_and_year_of_tuesday(
     tmp_path: Path, token: str, tuesday: datetime
 ) -> None:
     rows: list[RegisterRow] = [
