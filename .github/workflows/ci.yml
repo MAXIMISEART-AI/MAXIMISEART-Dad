@@ -28,7 +28,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check -e ".[dev]"
 
       - name: Lint Python code
-        run: python -m ruff check run.py src tests tools .agents/skills/verify-rozliczenia/scripts
+        run: python -m ruff check run.py run_preparation.py src tests tools .agents/skills/verify-rozliczenia/scripts
 
   mypy:
     name: mypy
@@ -116,7 +116,7 @@ jobs:
         run: |
           $verificationScript = ".agents/skills/verify-rozliczenia/scripts/run_verification.py"
           $failedVariants = @()
-          foreach ($variant in @("default", "existing", "locked", "unmapped")) {
+          foreach ($variant in @("default", "existing", "locked", "unmapped", "preparation")) {
             Write-Host "Running E2E verification variant: $variant"
             py -3 $verificationScript --variant $variant
             if ($LASTEXITCODE -ne 0) {
