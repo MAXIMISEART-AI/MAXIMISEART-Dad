@@ -17,6 +17,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 from openpyxl.cell.rich_text import CellRichText
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -59,6 +60,18 @@ class CollectiveFileError(Exception):
     """Plik zbiorczy albo skoroszyt w jego układzie nie nadaje się do użycia; komunikat jest bezpieczny."""
 
 
+class LayoutError(CollectiveFileError):
+    """Arkusz nie ma nagłówka WYKONAWCA w H17.
+
+    ``worker_column`` to litera kolumny A:K, w której wiersz 17 ma WYKONAWCA,
+    albo ``None``, gdy w A17:K17 go nie ma.
+    """
+
+    def __init__(self, worker_column: str | None) -> None:
+        super().__init__("W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H.")
+        self.worker_column = worker_column
+
+
 @dataclass(frozen=True)
 class DataRow:
     """Wiersz danych Pliku zbiorczego z surową wartością WYKONAWCA i wartościami A:AT."""
@@ -92,15 +105,24 @@ def period_from_path(path: Path) -> str:
     return period
 
 
+def _is_worker_header(value: object) -> bool:
+    return str(value or "").casefold().split() == ["wykonawca"]
+
+
 def check_layout(sheet: Worksheet) -> None:
     """Arkusz ma nagłówek WYKONAWCA w H17, bez względu na wielkość liter i spacje.
 
+    Inaczej ``LayoutError`` podaje kolumnę A:K z WYKONAWCA albo jej brak.
     Działa także dla arkusza otwartego tylko do odczytu.
     """
 
-    header = sheet.cell(row=HEADER_ROW, column=WORKER_COLUMN).value
-    if str(header or "").casefold().split() != ["wykonawca"]:
-        raise CollectiveFileError("W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H.")
+    if _is_worker_header(sheet.cell(row=HEADER_ROW, column=WORKER_COLUMN).value):
+        return
+    header = next(
+        sheet.iter_rows(min_row=HEADER_ROW, max_row=HEADER_ROW, max_col=INPUT_COLUMNS[-1], values_only=True), ()
+    )
+    found = next((column for column, value in enumerate(header, start=1) if _is_worker_header(value)), None)
+    raise LayoutError(None if found is None else get_column_letter(found))
 
 
 def read_data_rows(path: Path) -> tuple[list[DataRow], list[Issue]]:
