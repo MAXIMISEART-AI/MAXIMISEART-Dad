@@ -52,7 +52,7 @@ WORKFLOW_VARIANTS = {
         pre_run_setup="locked",
         run_exit=1,
         assertion="no-publish",
-        expected_message="Placeholder jest otwarty lub zablokowany",
+        expected_message="Wzorzec rozliczenia pracownika jest otwarty lub zablokowany",
     ),
     "unmapped": WorkflowVariant(
         include_unmapped=True,
@@ -179,8 +179,8 @@ def _new_paths() -> tuple[Path, Path]:
 
 
 def _create_lock(run_root: Path) -> None:
-    placeholder = run_root / "placeholder.xlsx"
-    placeholder.with_name(f"~${placeholder.name}").touch()
+    worker_template = run_root / "Wzorzec rozliczenia pracownika.xlsx"
+    worker_template.with_name(f"~${worker_template.name}").touch()
 
 
 def _create_existing_output(run_root: Path) -> None:
@@ -243,8 +243,8 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_d
             str(source),
             "--config",
             str(config),
-            "--placeholder",
-            str(run_root / "placeholder.xlsx"),
+            "--worker-template",
+            str(run_root / "Wzorzec rozliczenia pracownika.xlsx"),
             "--metrics",
             str(metrics),
             "--dry-run",
@@ -268,8 +268,8 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_d
             str(source),
             "--config",
             str(config),
-            "--placeholder",
-            str(run_root / "placeholder.xlsx"),
+            "--worker-template",
+            str(run_root / "Wzorzec rozliczenia pracownika.xlsx"),
             "--metrics",
             str(metrics),
         ],

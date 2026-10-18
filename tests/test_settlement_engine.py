@@ -196,13 +196,13 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     source_path = period_directory / SOURCE_NAME
     write_source(source_path, include_unmapped=False)
     config_path = write_mapping(tmp_path / "worker_mapping.yaml")
-    write_template(tmp_path / "placeholder.xlsx")
+    write_template(tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
     return source_path, target_directory, config_path
 
 
 def make_complete_run_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    return source_path, target_directory, config_path, tmp_path / "placeholder.xlsx"
+    return source_path, target_directory, config_path, tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
 
 
 def expected_source_row(address: str, order_number: str, worker_id: str, quantity: int) -> tuple[object, ...]:
@@ -231,10 +231,10 @@ def worksheet_input_row(sheet: Worksheet, row_number: int) -> tuple[object, ...]
 def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracownikow(
     tmp_path: Path,
 ) -> None:
-    source_path, target_directory, config_path, placeholder_path = make_complete_run_fixture(tmp_path)
-    placeholder_before = placeholder_path.read_bytes()
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    worker_template_before = worker_template_path.read_bytes()
 
-    summary = run_settlements(source_path, config_path, placeholder_path=placeholder_path)
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     expected_files = {
         f"Rozliczenie {PERIOD} - {name}.xlsx"
@@ -245,7 +245,7 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
     assert summary.empty_count == 1
     assert summary.issues == []
     assert all(result.output_file.parent == target_directory for result in summary.results)
-    assert placeholder_path.read_bytes() == placeholder_before
+    assert worker_template_path.read_bytes() == worker_template_before
 
     adrian_workbook = load_workbook(
         target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx",
@@ -301,7 +301,7 @@ def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracown
     write_source(source_path, include_unmapped=True)
 
     with pytest.raises(SettlementError, match="WYKONAWCA bez mapowania"):
-        run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
@@ -314,7 +314,7 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
         source_path,
         config_path,
         dry_run=True,
-        placeholder_path=tmp_path / "placeholder.xlsx",
+        worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
     )
 
     assert summary.planned_count == 2
@@ -335,7 +335,7 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     damage(source_path)
 
     with pytest.raises(SettlementError) as stop:
-        run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert str(stop.value) == UNREADABLE_SOURCE_MESSAGE
     assert not target_directory.exists()
@@ -349,34 +349,51 @@ def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: 
     sentinel.write_text("zachowaj", encoding="utf-8")
 
     with pytest.raises(SettlementError, match="Folder docelowy już istnieje"):
-        run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
 
 
 def test_external_link_relationships_survive_target_write(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    placeholder_path = tmp_path / "placeholder.xlsx"
-    add_external_link_fixture(placeholder_path)
-    before = external_link_parts(placeholder_path)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    add_external_link_fixture(worker_template_path)
+    before = external_link_parts(worker_template_path)
 
-    run_settlements(source_path, config_path, placeholder_path=placeholder_path)
+    run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
     assert external_link_parts(target_path) == before
-    assert external_link_parts(placeholder_path) == before
+    assert external_link_parts(worker_template_path) == before
 
 
-def test_blokada_placeholdera_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
+def test_blokada_wzorca_rozliczenia_pracownika_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
     tmp_path: Path,
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    placeholder_path = tmp_path / "placeholder.xlsx"
-    placeholder_path.with_name(f"~${placeholder_path.name}").touch()
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    worker_template_path.with_name(f"~${worker_template_path.name}").touch()
 
-    with pytest.raises(SettlementError, match="Placeholder jest otwarty lub zablokowany"):
-        run_settlements(source_path, config_path, placeholder_path=placeholder_path)
+    with pytest.raises(SettlementError, match="Wzorzec rozliczenia pracownika jest otwarty lub zablokowany"):
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
+    assert not target_directory.exists()
+
+
+def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_pliku(
+    tmp_path: Path,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    worker_template_path.rename(tmp_path / "placeholder.xlsx")
+
+    with pytest.raises(SettlementError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert str(raised.value) == (
+        "Nie znaleziono Wzorca rozliczenia pracownika: Wzorzec rozliczenia pracownika.xlsx. "
+        "Zmień nazwę pliku placeholder.xlsx w tym samym folderze na „Wzorzec rozliczenia pracownika.xlsx”."
+    )
     assert not target_directory.exists()
 
 
@@ -407,7 +424,7 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
     summary = run_settlements(
         source_path,
         config_path,
-        placeholder_path=tmp_path / "placeholder.xlsx",
+        worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
         observer=recording_observer,
     )
 
@@ -445,7 +462,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         run_settlements(
             source_path,
             config_path,
-            placeholder_path=tmp_path / "placeholder.xlsx",
+            worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
             observer=recorded.append,
         )
 
@@ -465,7 +482,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     assert not any(event.state is ProgressState.END and event.phase is ProgressPhase.SAVING for event in recorded)
 
     monkeypatch.setattr(template_settlement, "process_template", original_process_template)
-    summary = run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
+    summary = run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
     assert summary.written_count == 2
     assert target_directory.is_dir()
 

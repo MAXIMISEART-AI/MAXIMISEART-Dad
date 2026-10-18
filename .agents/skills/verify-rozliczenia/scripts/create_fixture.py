@@ -103,13 +103,13 @@ def _write_fixture(root: Path, *, include_unmapped: bool) -> None:
     period_directory = root / PERIOD
     period_directory.mkdir(parents=True, exist_ok=False)
     source = period_directory / SOURCE_NAME
-    placeholder = root / "placeholder.xlsx"
+    worker_template = root / "Wzorzec rozliczenia pracownika.xlsx"
     _write_source(source, include_unmapped=include_unmapped)
     _write_mapping(root / "worker_mapping.yaml")
-    _write_template(placeholder)
+    _write_template(worker_template)
     manifest = {
         "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-        "placeholder_sha256": hashlib.sha256(placeholder.read_bytes()).hexdigest(),
+        "worker_template_sha256": hashlib.sha256(worker_template.read_bytes()).hexdigest(),
         "include_unmapped": include_unmapped,
     }
     (root / "fixture_manifest.json").write_text(

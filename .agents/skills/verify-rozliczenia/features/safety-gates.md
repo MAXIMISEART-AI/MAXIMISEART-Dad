@@ -1,14 +1,14 @@
 # Safety gates
 
 Safety gates prevent a settlement from guessing a worker, modifying the shared
-Placeholder, overwriting an existing output folder, or publishing partial files.
+Wzorzec rozliczenia pracownika, overwriting an existing output folder, or publishing partial files.
 
 ## Sub-features
 
 - `safety-unknown` warns in dry-run and prevents publication for an unmapped source worker.
-- `safety-placeholder` validates and copies the shared Placeholder without modifying it.
+- `safety-worker-template` validates and copies the shared Wzorzec rozliczenia pracownika without modifying it.
 - `safety-target-folder` rejects an existing output folder without changing it.
-- `safety-lock` rejects a Placeholder with an Excel lock before creating output.
+- `safety-lock` rejects a Wzorzec rozliczenia pracownika with an Excel lock before creating output.
 - `safety-rollback` removes staging files after a workbook processing failure.
 - `safety-unreadable-source` stops on a damaged Plik zbiorczy with a safe Polish message and creates no output.
 
@@ -16,7 +16,7 @@ Placeholder, overwriting an existing output folder, or publishing partial files.
 
 - Run a dry-run and a real CLI settlement with an unknown `WYKONAWCA`.
 - Create the output folder before a run and place a sentinel inside.
-- Leave `~$placeholder.xlsx` beside the shared Placeholder as Excel does while it is open.
+- Leave `~$Wzorzec rozliczenia pracownika.xlsx` beside the shared Wzorzec rozliczenia pracownika as Excel does while it is open.
 - Inject a failure while processing the second synthetic workbook and retry.
 - Run against a Plik zbiorczy that is not a valid `.xlsx` (for example damaged).
 
@@ -25,10 +25,10 @@ Placeholder, overwriting an existing output folder, or publishing partial files.
 Preconditions:
 
 - Use the orchestrator's isolated variant for each filesystem safety proof.
-- The locked variant runs the doctor and dry-run before creating the Placeholder lock.
+- The locked variant runs the doctor and dry-run before creating the Wzorzec rozliczenia pracownika lock.
 
 - **Unknown worker.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped`. Dry-run warns and returns `2`; the real run returns `1` and publishes no folder.
-- **Untouched Placeholder.** Every variant's assertion compares the Placeholder `sha256` with the fixture manifest (`placeholder_unchanged`/`inputs_unchanged`).
+- **Untouched Wzorzec rozliczenia pracownika.** Every variant's assertion compares the Wzorzec rozliczenia pracownika `sha256` with the fixture manifest (`worker_template_unchanged`/`inputs_unchanged`).
 - **Existing output folder.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing`; the sentinel remains the only file.
 - **Excel lock.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant locked`; the run returns `1` and creates no output.
 - **Write failure.** Run `py -3 -m pytest tests/test_settlement_engine.py::test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion -q`; it checks cleanup and successful retry.
@@ -39,5 +39,5 @@ Preconditions:
 
 - A missing mapping is a dry-run warning, but the real run does not publish an incomplete roster. A data row with an empty `WYKONAWCA` blocks the real run the same way (`BRAK_WYKONAWCY`).
 - A lock is represented by the exact `~$` filename; do not kill Excel or delete a user-owned lock as cleanup.
-- Workbooks are always copied from the common Placeholder, not reused from a previous period.
+- Workbooks are always copied from the common Wzorzec rozliczenia pracownika, not reused from a previous period.
 - Safety variants are independent fixtures; do not stack them unless the expected result is explicitly recalculated.

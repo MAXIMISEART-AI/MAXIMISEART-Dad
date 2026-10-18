@@ -19,8 +19,11 @@ Co tydzień są dwa kroki, zawsze w tej kolejności:
 Lista zależności zawiera `rich`, potrzebny do kolorowego dashboardu. Bez
 kolorów lub bez interaktywnego terminala narzędzie przełącza się na zwykły tekst.
 
-Osoba utrzymująca narzędzie umieszcza w folderze `config` narzędzia oba
-wzorce: `Wzorzec rozliczenia wewnętrznego.xlsx` i `Wzorzec pliku zbiorczego.xlsx`.
+Osoba utrzymująca narzędzie umieszcza w folderze `config` narzędzia trzy
+wzorce: `Wzorzec rozliczenia wewnętrznego.xlsx`, `Wzorzec pliku zbiorczego.xlsx`
+i `Wzorzec rozliczenia pracownika.xlsx`. Ten ostatni to pusty plik rozliczenia
+pracownika bez nazwy wykonawcy (u Ciebie `Rozliczenie {okres} -.xlsx`); z niego
+powstają pliki pracowników.
 Nie zmieniaj ich i nie podmieniaj plikami z poprzedniego tygodnia.
 
 ## Przygotowanie pliku zbiorczego
@@ -166,6 +169,7 @@ Pliki okresu powstały niezależnie od niej.
 ### Gdy pojawi się problem
 
 - Jeśli plik jest otwarty, zamknij go i uruchom proces ponownie.
+- Jeśli pojawi się komunikat „Nie znaleziono Wzorca rozliczenia pracownika” z prośbą o zmianę nazwy pliku `placeholder.xlsx`, zmień w folderze `config` narzędzia nazwę tego pliku na `Wzorzec rozliczenia pracownika.xlsx` i uruchom proces ponownie. Bez tej prośby przekaż komunikat osobie utrzymującej narzędzie.
 - Jeśli pojawi się komunikat „Nie można odczytać Pliku zbiorczego”, sprawdź, czy ten plik otwiera się w Excelu i jest zapisany jako `.xlsx`. Zamknij go i uruchom proces ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie.
 - Jeśli pojawi się informacja o braku szablonu, nie twórz pliku ręcznie z innego pracownika. Przekaż tę informację osobie utrzymującej narzędzie.
 - Jeśli plik pracownika ma już dane, narzędzie go nie nadpisze.

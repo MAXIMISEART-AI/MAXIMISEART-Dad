@@ -58,13 +58,13 @@ class PreparationSummary:
 
 
 def default_internal_template_path() -> Path:
-    """Wzorzec rozliczenia wewnętrznego w katalogu konfiguracji obok Placeholdera."""
+    """Wzorzec rozliczenia wewnętrznego w katalogu konfiguracji obok Wzorca rozliczenia pracownika."""
 
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia wewnętrznego.xlsx"
 
 
 def default_collective_template_path() -> Path:
-    """Wzorzec pliku zbiorczego w katalogu konfiguracji obok Placeholdera."""
+    """Wzorzec pliku zbiorczego w katalogu konfiguracji obok Wzorca rozliczenia pracownika."""
 
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec pliku zbiorczego.xlsx"
 

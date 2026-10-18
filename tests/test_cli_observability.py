@@ -45,8 +45,8 @@ def run_cli(
             str(source_path),
             "--config",
             str(config_path),
-            "--placeholder",
-            str(config_path.parent / "placeholder.xlsx"),
+            "--worker-template",
+            str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
             "--metrics",
             str(metrics_path),
             *extra_args,
@@ -261,8 +261,8 @@ def test_interactive_rich_render_failure_falls_back_without_interrupting_settlem
             str(source_path),
             "--config",
             str(config_path),
-            "--placeholder",
-            str(config_path.parent / "placeholder.xlsx"),
+            "--worker-template",
+            str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
             "--metrics",
             str(metrics_path),
         ],
@@ -346,8 +346,8 @@ def test_plain_output_failure_detaches_observer_and_completes_przebieg_rozliczen
             str(source_path),
             "--config",
             str(config_path),
-            "--placeholder",
-            str(config_path.parent / "placeholder.xlsx"),
+            "--worker-template",
+            str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
             "--metrics",
             str(metrics_path),
         ],
@@ -412,8 +412,8 @@ def test_cli_runs_without_rich(tmp_path: Path, dry_run: bool, mode: str) -> None
         str(source_path),
         "--config",
         str(config_path),
-        "--placeholder",
-        str(config_path.parent / "placeholder.xlsx"),
+        "--worker-template",
+        str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
         "--metrics",
         str(metrics_path),
     ]
@@ -505,8 +505,8 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
         str(source_path),
         "--config",
         str(config_path),
-        "--placeholder",
-        str(config_path.parent / "placeholder.xlsx"),
+        "--worker-template",
+        str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
         "--metrics",
         str(metrics_path),
     ]
@@ -546,7 +546,7 @@ def test_cli_can_run_the_settlement_engine_without_an_observer(
         config: Path,
         *,
         dry_run: bool = False,
-        placeholder_path: Path | None = None,
+        worker_template_path: Path | None = None,
         observer: ProgressObserver | None = None,
     ) -> SettlementSummary:
         observers.append(observer)
@@ -554,7 +554,7 @@ def test_cli_can_run_the_settlement_engine_without_an_observer(
             source,
             config,
             dry_run=dry_run,
-            placeholder_path=placeholder_path,
+            worker_template_path=worker_template_path,
             observer=observer,
         )
 
@@ -622,9 +622,9 @@ def test_cli_wykonawca_bez_mapowania_nie_publikuje_folderu(tmp_path: Path) -> No
 
 def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_preview_fixture(tmp_path)
-    placeholder_path = tmp_path / "placeholder.xlsx"
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
     source_before = source_path.read_bytes()
-    placeholder_before = placeholder_path.read_bytes()
+    worker_template_before = worker_template_path.read_bytes()
 
     exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
 
@@ -647,18 +647,18 @@ def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path)
     assert "Nic nie zapisano" in output
     assert not target_directory.exists()
     assert source_path.read_bytes() == source_before
-    assert placeholder_path.read_bytes() == placeholder_before
+    assert worker_template_path.read_bytes() == worker_template_before
     assert_completed_metrics(tmp_path / "metrics.jsonl", dry_run=True, issues=1)
 
 
 @pytest.mark.parametrize(
     ("problem", "expected_message"),
     [
-        ("missing-placeholder", "Nie znaleziono Placeholdera"),
-        ("corrupt-placeholder", "Nie można odczytać Placeholdera"),
-        ("locked-placeholder", "Placeholder jest otwarty lub zablokowany"),
-        ("wrong-placeholder-header", "Placeholder nie ma nagłówka WYKONAWCA"),
-        ("placeholder-has-data", "Placeholder zawiera dane"),
+        ("missing-worker-template", "Nie znaleziono Wzorca rozliczenia pracownika"),
+        ("corrupt-worker-template", "Nie można odczytać Wzorca rozliczenia pracownika"),
+        ("locked-worker-template", "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany"),
+        ("wrong-worker-template-header", "Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA"),
+        ("worker-template-has-data", "Wzorzec rozliczenia pracownika zawiera dane"),
         ("invalid-config", "Niepoprawny YAML konfiguracji"),
         ("unsupported-config-version", "Nieobsługiwana wersja konfiguracji"),
         ("unsafe-worker-name", "nieprawidłową dla nazwy pliku"),
@@ -671,22 +671,22 @@ def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
     expected_message: str,
 ) -> None:
     source_path, target_directory, config_path = make_preview_fixture(tmp_path)
-    placeholder_path = tmp_path / "placeholder.xlsx"
-    if problem == "missing-placeholder":
-        placeholder_path.unlink()
-    elif problem == "corrupt-placeholder":
-        placeholder_path.write_bytes(b"not an Excel workbook")
-    elif problem == "locked-placeholder":
-        placeholder_path.with_name(f"~${placeholder_path.name}").touch()
-    elif problem == "wrong-placeholder-header":
-        workbook = load_workbook(placeholder_path)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    if problem == "missing-worker-template":
+        worker_template_path.unlink()
+    elif problem == "corrupt-worker-template":
+        worker_template_path.write_bytes(b"not an Excel workbook")
+    elif problem == "locked-worker-template":
+        worker_template_path.with_name(f"~${worker_template_path.name}").touch()
+    elif problem == "wrong-worker-template-header":
+        workbook = load_workbook(worker_template_path)
         active_worksheet(workbook)["H17"] = "NIE WYKONAWCA"
-        workbook.save(placeholder_path)
+        workbook.save(worker_template_path)
         workbook.close()
-    elif problem == "placeholder-has-data":
-        workbook = load_workbook(placeholder_path)
+    elif problem == "worker-template-has-data":
+        workbook = load_workbook(worker_template_path)
         active_worksheet(workbook)["A18"] = "SENSITIVE-SYNTHETIC"
-        workbook.save(placeholder_path)
+        workbook.save(worker_template_path)
         workbook.close()
     elif problem == "invalid-config":
         config_path.write_text("workers: [", encoding="utf-8")

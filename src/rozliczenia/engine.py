@@ -22,7 +22,7 @@ from .domain import (
     WorkerResult,
 )
 from .phase_runner import PhaseRunner, elapsed_ms_since
-from .template_settlement import PlaceholderValidationError, validate_placeholder
+from .template_settlement import WorkerTemplateValidationError, validate_worker_template
 from .workbook_files import is_open_in_excel
 
 
@@ -110,10 +110,10 @@ def period_from_source(source_path: Path) -> str:
         raise SettlementError(str(exc)) from exc
 
 
-def default_placeholder_path() -> Path:
-    """Wskazuje wspólny Placeholder wersjonowany w katalogu konfiguracji."""
+def default_worker_template_path() -> Path:
+    """Wskazuje wspólny Wzorzec rozliczenia pracownika w katalogu konfiguracji."""
 
-    return Path(__file__).resolve().parents[2] / "config" / "placeholder.xlsx"
+    return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
 
 
 def _ensure_unlocked(path: Path) -> None:
@@ -139,7 +139,7 @@ def run_settlements(
     config_path: Path,
     *,
     dry_run: bool = False,
-    placeholder_path: Path | None = None,
+    worker_template_path: Path | None = None,
     observer: ProgressObserver | None = None,
 ) -> SettlementSummary:
     """Uruchamia pełny proces z ochroną przed błędną lokalizacją i duplikacją."""
@@ -147,7 +147,7 @@ def run_settlements(
     phases = PhaseRunner(observer)
     source_path = source_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
-    placeholder_path = (placeholder_path or default_placeholder_path()).expanduser().resolve()
+    worker_template_path = (worker_template_path or default_worker_template_path()).expanduser().resolve()
     notify = phases.notify
 
     def check_inputs() -> tuple[str, Path, dict[str, str]]:
@@ -160,8 +160,8 @@ def run_settlements(
             raise SettlementError(f"Folder docelowy już istnieje: {target_directory.name}.")
         mapping = load_worker_mapping(config_path)
         try:
-            validate_placeholder(placeholder_path)
-        except PlaceholderValidationError as exc:
+            validate_worker_template(worker_template_path)
+        except WorkerTemplateValidationError as exc:
             raise SettlementError(str(exc)) from exc
         return period, target_directory, mapping
 
@@ -303,10 +303,10 @@ def run_settlements(
                     ]
                     try:
                         for _, staged_path in staged_files:
-                            shutil.copy2(placeholder_path, staged_path)
+                            shutil.copy2(worker_template_path, staged_path)
                     except OSError as exc:
                         raise SettlementError(
-                            "Nie można utworzyć skoroszytów z Placeholdera; "
+                            "Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika; "
                             "folder wynikowy nie został opublikowany."
                         ) from exc
 

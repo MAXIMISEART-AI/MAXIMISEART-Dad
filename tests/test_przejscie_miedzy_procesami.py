@@ -16,11 +16,11 @@ def test_plik_zbiorczy_z_przygotowania_daje_rozliczenia_pracownikow_z_ich_zlecen
     tmp_path: Path,
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    placeholder = tmp_path / "placeholder.xlsx"
-    write_template(placeholder)
+    worker_template = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    write_template(worker_template)
 
     preparation = run_preparation(fixture)
-    settlement = run_settlements(preparation.collective_file, fixture.config_path, placeholder_path=placeholder)
+    settlement = run_settlements(preparation.collective_file, fixture.config_path, worker_template_path=worker_template)
 
     assert settlement.issues == []
     assert [(result.worker_name, result.status, result.rows) for result in settlement.results] == [
