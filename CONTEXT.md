@@ -6,7 +6,47 @@ Ten plik opisuje język procesu. Nie opisuje implementacji.
 
 Tygodniowy przedział pracy od wtorku do poniedziałku. Jest identyfikowany przez
 token zawierający dzień wtorku, dzień poniedziałku, miesiąc i rok, na przykład
-`08_14_09_2026`.
+`08_14_09_2026`. Miesiąc i rok są z wtorku: na przełomie miesięcy i lat liczy
+się starszy miesiąc, więc okres od 27 października do 2 listopada 2026 ma token
+`27_02_10_2026`, a od 29 grudnia 2026 do 4 stycznia 2027 token `29_04_12_2026`.
+Każdy okres ma jeden token.
+
+## Rejestr zleceń
+
+Skoroszyt `ZLECENIA INTERMAX OD 08_11_2021.xlsx`, do którego tata eksportuje
+zlecenia z aplikacji firmowej. Jest jedynym źródłem prawdy o zleceniach
+wszystkich okresów. Po eksporcie zawiera między zleceniami całkowicie puste
+wiersze. Procesy go czytają, ale nigdy nie zmieniają.
+
+## Zlecenie skuteczne
+
+Zlecenie, którego wartość `SKUTECZNE` to `tak`, bez względu na wielkość liter i
+otaczające spacje. Każde zlecenie skuteczne z Rozliczenia wewnętrznego trafia
+do Pliku zbiorczego.
+
+## Rozliczenie wewnętrzne
+
+Skoroszyt `Rozliczenie wew. {okres}.xlsx` zawierający wszystkie zlecenia
+jednego okresu rozliczeniowego z Rejestru zleceń, skuteczne i nieskuteczne, w
+kolejności z Rejestru, bez pustych wierszy. Zachowuje formatowanie, do którego
+tata jest przyzwyczajony.
+
+## Wzorzec rozliczenia wewnętrznego
+
+Wspólny skoroszyt bazowy, z którego powstaje Rozliczenie wewnętrzne nowego
+okresu. Nie zawiera zleceń i pozostaje niezmieniony.
+
+## Wzorzec pliku zbiorczego
+
+Wspólny skoroszyt bazowy, z którego powstaje Plik zbiorczy nowego okresu.
+Zachowuje stawki, sumy, formuły i formatowanie; nie zawiera zleceń i pozostaje
+niezmieniony.
+
+## Przygotowanie pliku zbiorczego
+
+Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
+wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy. Oba pliki
+powstają razem albo żaden. Uruchamiany osobno od Przebiegu rozliczeń.
 
 ## Rejestr zleceń
 
@@ -117,10 +157,12 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 
 ## Zdarzenie przebiegu
 
-Bezpieczny fakt opisujący zmianę lub wynik Przebiegu rozliczeń, na przykład
-rozpoczęcie etapu, zakończenie etapu, rozpoczęcie przetwarzania Szablonu
-pracownika albo zakończenie tego przetwarzania. Nie zawiera adresów klientów,
-numerów zleceń ani treści wierszy.
+Bezpieczny fakt opisujący zmianę lub wynik jednego uruchomienia Przebiegu
+rozliczeń albo Przygotowania pliku zbiorczego, na przykład rozpoczęcie etapu,
+zakończenie etapu albo przerwanie etapu. Oba procesy przechodzą te same etapy:
+Sprawdzanie, Odczyt danych, Planowanie i Zapisywanie. Tylko Przebieg rozliczeń
+zgłasza też rozpoczęcie i zakończenie przetwarzania Szablonu pracownika.
+Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
 
 ## Nienadpisywanie
 

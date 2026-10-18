@@ -103,7 +103,7 @@ def add_external_link_fixture(path: Path) -> None:
                 if info.filename == "xl/workbook.xml":
                     root = ET.fromstring(data)
                     references = ET.SubElement(root, f"{{{ns_main}}}externalReferences")
-                    ET.SubElement(references, f"{{{ns_main}}}externalReference", {f"{{{ns_rel}}}id": "rId2"})
+                    ET.SubElement(references, f"{{{ns_main}}}externalReference", {f"{{{ns_rel}}}id": "rIdSynExternal1"})
                     data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
                 elif info.filename == "xl/_rels/workbook.xml.rels":
                     root = ET.fromstring(data)
@@ -111,7 +111,7 @@ def add_external_link_fixture(path: Path) -> None:
                         root,
                         f"{{{ns_pkg_rel}}}Relationship",
                         {
-                            "Id": "rId2",
+                            "Id": "rIdSynExternal1",
                             "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink",
                             "Target": "externalLinks/externalLink1.xml",
                         },

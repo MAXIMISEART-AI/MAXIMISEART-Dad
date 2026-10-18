@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from .domain import PHASES
+from .settlement_period import PERIOD_TOKEN_PATTERN
 
 
 METRICS_SCHEMA_VERSION = 1
@@ -19,7 +20,9 @@ METRIC_RESULTS = frozenset({"OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"})
 COUNTER_NAMES = frozenset(
     {"templates_total", "templates_completed", "rows", "written", "empty", "planned", "skipped", "issues"}
 )
-PERIOD_PATTERN = re.compile(r"^(?:\d{2}_\d{2}_\d{2}_\d{4}|nieznany)$")
+# Okres w rekordzie, gdy tokenu nie udało się ustalić.
+UNKNOWN_PERIOD = "nieznany"
+PERIOD_PATTERN = re.compile(rf"^(?:{PERIOD_TOKEN_PATTERN}|{UNKNOWN_PERIOD})$")
 RECORD_FIELDS = frozenset(
     {
         "schema_version",
@@ -39,7 +42,7 @@ def _is_nonnegative_int(value: object) -> bool:
     return type(value) is int and value >= 0
 
 
-def _is_valid_record(record: object) -> bool:
+def _is_valid_record(record: object, counter_names: frozenset[str] = COUNTER_NAMES) -> bool:
     if not isinstance(record, dict) or set(record) != RECORD_FIELDS:
         return False
     if type(record["schema_version"]) is not int or record["schema_version"] != METRICS_SCHEMA_VERSION:
@@ -73,19 +76,24 @@ def _is_valid_record(record: object) -> bool:
         return False
 
     counters = record["counters"]
-    if not isinstance(counters, dict) or set(counters) != COUNTER_NAMES:
+    if not isinstance(counters, dict) or set(counters) != counter_names:
         return False
     return all(_is_nonnegative_int(value) for value in counters.values())
 
 
 class MetricsStore:
-    """Dopisuje rekordy JSONL bez przechowywania danych skoroszytów."""
+    """Dopisuje rekordy JSONL bez przechowywania danych skoroszytów.
 
-    def __init__(self, path: Path):
+    Każdy proces ma własną historię i własny zestaw liczników; domyślny zestaw
+    to liczniki Przebiegu rozliczeń. Rekordy z innym zestawem są odrzucane.
+    """
+
+    def __init__(self, path: Path, counter_names: frozenset[str] = COUNTER_NAMES):
         self.path = path.expanduser()
+        self.counter_names = counter_names
 
     def append(self, record: dict[str, Any]) -> None:
-        if not _is_valid_record(record):
+        if not _is_valid_record(record, self.counter_names):
             raise ValueError("Niepoprawny rekord metryk.")
         serialized = (json.dumps(record, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode(
             "utf-8"
@@ -108,7 +116,7 @@ class MetricsStore:
                     final_record = json.loads(final_line.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError):
                     final_record = None
-                if not _is_valid_record(final_record):
+                if not _is_valid_record(final_record, self.counter_names):
                     stream.truncate(final_line_start)
                 elif not has_newline:
                     separator = b"\n"
@@ -127,7 +135,7 @@ class MetricsStore:
                     record = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if _is_valid_record(record):
+                if _is_valid_record(record, self.counter_names):
                     records.append(record)
         return records
 
@@ -143,16 +151,24 @@ def percentile(values: list[float], proportion: float) -> float:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
-def comparable_records(records: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+def comparable_records(
+    records: list[dict[str, Any]],
+    mode: str,
+    counter_names: frozenset[str] = COUNTER_NAMES,
+) -> list[dict[str, Any]]:
     return [
         record
         for record in records
-        if _is_valid_record(record) and record["mode"] == mode and record["completed"] is True
+        if _is_valid_record(record, counter_names) and record["mode"] == mode and record["completed"] is True
     ]
 
 
-def statistics_for(records: list[dict[str, Any]], mode: str) -> dict[str, tuple[int, int]] | None:
-    comparable = comparable_records(records, mode)
+def statistics_for(
+    records: list[dict[str, Any]],
+    mode: str,
+    counter_names: frozenset[str] = COUNTER_NAMES,
+) -> dict[str, tuple[int, int]] | None:
+    comparable = comparable_records(records, mode, counter_names)
     if len(comparable) < MINIMUM_STATISTIC_SAMPLES:
         return None
 

@@ -11,19 +11,22 @@ from .progress_presentation import counter_line, operation_status_presentation, 
 class PlainProgressAdapter:
     """Render safe progress snapshots as ordinary terminal lines."""
 
-    def __init__(self, line: Callable[[str], None]):
+    def __init__(self, line: Callable[[str], None], *, title: str = "Rozliczenia", shows_templates: bool = True):
         self._line = line
+        self._title = title
+        self._shows_templates = shows_templates
 
     def start(self, snapshot: ProgressSnapshot) -> None:
-        self._line(f"Rozliczenia | okres: {snapshot.period} | tryb: {snapshot.mode}")
+        self._line(f"{self._title} | okres: {snapshot.period} | tryb: {snapshot.mode}")
         self._line("Status: uruchomiono")
-        self._line("Ostatnie operacje:")
+        if self._shows_templates:
+            self._line("Ostatnie operacje:")
 
     def update(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
         phase = snapshot.current_phase or "oczekuje"
         if notice.kind is ProgressNoticeKind.PHASE_STARTED:
             self._line(f"Etap: {phase}")
-        elif notice.kind is ProgressNoticeKind.PLAN_READY:
+        elif notice.kind is ProgressNoticeKind.PLAN_READY and self._shows_templates:
             self._line(f"Szablony pracownika: 0/{snapshot.template_total}")
         elif notice.kind is ProgressNoticeKind.WORKER_STARTED:
             worker_name = snapshot.current_worker or "brak"

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any, Mapping, TextIO
+from typing import Any, Callable, Mapping, TextIO
 
 from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import (
@@ -25,7 +25,9 @@ from .plain_progress import PlainProgressAdapter
 from .progress_presentation import format_counter_line
 from .rich_progress import Console, Live, RichProgressAdapter
 from .telemetry import (
+    COUNTER_NAMES,
     METRICS_SCHEMA_VERSION,
+    UNKNOWN_PERIOD,
     MetricsStore,
     comparable_records,
     statistics_for,
@@ -51,8 +53,11 @@ def default_metrics_path() -> Path:
     return Path(__file__).resolve().parents[2] / ".rozliczenia-metrics.jsonl"
 
 
-def choose_source_file() -> Path:
-    """Pokazuje lokalny wybór pliku, gdy launcher nie podał argumentu."""
+def ask_in_dialog(ask: Callable[[Any], str]) -> str:
+    """Pokazuje lokalne okno tkinter; pusty wynik, gdy anulowano albo okna nie da się pokazać.
+
+    ``ask`` dostaje moduł ``tkinter.filedialog`` i zwraca wybraną ścieżkę.
+    """
 
     try:
         import tkinter as tk
@@ -60,15 +65,25 @@ def choose_source_file() -> Path:
 
         root = tk.Tk()
         root.withdraw()
-        selected = filedialog.askopenfilename(
+        try:
+            return ask(filedialog) or ""
+        finally:
+            root.destroy()
+    except Exception:
+        return ""
+
+
+def choose_source_file() -> Path:
+    """Pokazuje lokalny wybór pliku, gdy launcher nie podał argumentu."""
+
+    selected = ask_in_dialog(
+        lambda dialog: dialog.askopenfilename(
             title="Wybierz plik zbiorczy rozliczenia",
             filetypes=[("Plik zbiorczy Excel", "Rozliczenie * - zbiorcze.xlsx"), ("Excel", "*.xlsx")],
         )
-        root.destroy()
-        if selected:
-            return Path(selected)
-    except Exception:
-        pass
+    )
+    if selected:
+        return Path(selected)
     raise SettlementError("Nie wybrano pliku zbiorczego.")
 
 
@@ -94,13 +109,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 class Dashboard:
-    """Rich dashboard with a line-oriented fallback for non-interactive output."""
+    """Rich dashboard with a line-oriented fallback for non-interactive output.
 
-    def __init__(self, output: TextIO, mode: str, period: str):
+    ``title`` and ``shows_templates`` let another process (Przygotowanie pliku
+    zbiorczego) reuse the same projection and adapters without Szablony pracownika.
+    """
+
+    def __init__(
+        self,
+        output: TextIO,
+        mode: str,
+        period: str,
+        *,
+        title: str = "Rozliczenia",
+        shows_templates: bool = True,
+    ):
         self.output = output
         self.state = ProgressProjection(mode, period)
-        self.plain_adapter = PlainProgressAdapter(self._line)
-        self.rich_adapter = RichProgressAdapter()
+        self.plain_adapter = PlainProgressAdapter(self._line, title=title, shows_templates=shows_templates)
+        self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
         self._output_failed = False
         try:
             self.console: Any | None = Console(file=output) if Console is not None else None
@@ -151,7 +178,9 @@ class Dashboard:
         if self._output_failed:
             raise OSError("Terminal output is unavailable.")
 
-    def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
+    def stop(self) -> None:
+        """Stop the live view so that final summary lines follow it."""
+
         if self.live is not None:
             try:
                 self.live.stop()
@@ -159,6 +188,26 @@ class Dashboard:
                 self._disable_rich()
             else:
                 self.live = None
+
+    def resume(self) -> None:
+        """Restart the live view after ``stop()``, e.g. after a question to Dad between stages."""
+
+        if not self.interactive or self.live is not None or Live is None:
+            return
+        try:
+            self.live = Live(self.render(), console=self.console, auto_refresh=False)
+            self.live.start(refresh=True)
+        except Exception:
+            self._disable_rich()
+
+    @property
+    def phase_durations_ms(self) -> Mapping[ProgressPhase, int]:
+        """Stage durations seen by the dashboard so far, also after an interruption."""
+
+        return self.state.snapshot.phase_durations_ms
+
+    def finish(self, summary: SettlementSummary | None, error: Exception | None, total_elapsed_ms: int) -> None:
+        self.stop()
         if error is not None:
             self._line("Status semantyczny: BŁĄD")
             self._line(f"Nie wykonano: {error}")
@@ -190,14 +239,22 @@ class Dashboard:
         for issue in summary.issues:
             self._line(f"- {issue.message}")
 
+    def print_line(self, message: str) -> None:
+        self._line(message)
+
     def print_warning(self, message: str) -> None:
         self._line(f"Ostrzeżenie: {message}")
 
-    def print_statistics(self, records: list[dict[str, Any]]) -> None:
+    def print_statistics(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        counter_names: frozenset[str] = COUNTER_NAMES,
+    ) -> None:
         labels = {"total": "całe uruchomienie"}
         for mode in ("RUN", "DRY-RUN"):
-            comparable = comparable_records(records, mode)
-            stats = statistics_for(records, mode)
+            comparable = comparable_records(records, mode, counter_names)
+            stats = statistics_for(records, mode, counter_names)
             if stats is None:
                 continue
             self._line(f"Statystyki {mode} | próbek: {len(comparable)}")
@@ -229,11 +286,21 @@ class Dashboard:
             self._output_failed = True
 
 
+def record_metrics(dashboard: Dashboard, store: MetricsStore, record: dict[str, Any], *, failure_warning: str) -> None:
+    """Dopisuje rekord i pokazuje P50/P95; błąd historii nie zmienia wyniku procesu."""
+
+    try:
+        store.append(record)
+        dashboard.print_statistics(store.read(), counter_names=store.counter_names)
+    except (OSError, UnicodeError, ValueError):
+        dashboard.print_warning(failure_warning)
+
+
 def _period_label(source: Path) -> str:
     try:
         return period_from_source(source.expanduser().resolve())
     except SettlementError:
-        return "nieznany"
+        return UNKNOWN_PERIOD
 
 
 def _metric_record(
@@ -308,13 +375,13 @@ def main(
         source = args.source or choose_source_file()
         period = _period_label(source)
     except SettlementError as exc:
-        dashboard = Dashboard(output, mode, "nieznany")
+        dashboard = Dashboard(output, mode, UNKNOWN_PERIOD)
         dashboard.start()
         total_elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
         dashboard.finish(None, exc, total_elapsed_ms)
         record = _metric_record(
             mode=mode,
-            period="nieznany",
+            period=UNKNOWN_PERIOD,
             summary=None,
             dashboard=dashboard,
             completed=False,
@@ -353,12 +420,12 @@ def main(
         total_elapsed_ms=total_elapsed_ms,
         started_at=started_at,
     )
-    try:
-        metrics_store.append(record)
-        records = metrics_store.read()
-        dashboard.print_statistics(records)
-    except (OSError, UnicodeError, ValueError):
-        dashboard.print_warning("Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.")
+    record_metrics(
+        dashboard,
+        metrics_store,
+        record,
+        failure_warning="Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.",
+    )
 
     if error is not None:
         return 1

@@ -24,6 +24,7 @@ PYTHON_COMMAND = (sys.executable,)
 
 @dataclass(frozen=True)
 class WorkflowVariant:
+    process: Literal["settlement", "preparation"] = "settlement"
     include_unmapped: bool = False
     pre_run_setup: Literal["existing", "locked"] | None = None
     dry_run_exit: int = 0
@@ -52,6 +53,7 @@ WORKFLOW_VARIANTS = {
         assertion="no-publish",
         expected_message="WYKONAWCA bez mapowania",
     ),
+    "preparation": WorkflowVariant(process="preparation"),
 }
 
 
@@ -110,6 +112,8 @@ def _run_step(
             [*PYTHON_COMMAND, *arguments],
             cwd=REPO_ROOT,
             env=environment,
+            # A CLI question answered by EOF ends the step instead of waiting for the timeout.
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             check=False,
             timeout=TIMEOUT_SECONDS,
@@ -175,11 +179,19 @@ def _create_existing_output(run_root: Path) -> None:
     (target_directory / "existing-synthetic.txt").write_text("preserve", encoding="utf-8")
 
 
-def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
-    variant_config = WORKFLOW_VARIANTS[variant]
+def _utf8_environment() -> dict[str, str]:
     environment = os.environ.copy()
     environment["PYTHONUTF8"] = "1"
     environment["PYTHONIOENCODING"] = "utf-8"
+    return environment
+
+
+def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
+    variant_config = WORKFLOW_VARIANTS[variant]
+    if variant_config.process == "preparation":
+        _run_preparation_workflow(run_root, evidence_root)
+        return
+    environment = _utf8_environment()
     version = _version()
     source = run_root / PERIOD / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
     config = run_root / "worker_mapping.yaml"
@@ -265,6 +277,64 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path) -> None:
     if variant_config.expected_message is not None:
         run_assert_arguments.extend(["--expected-message", variant_config.expected_message])
     _run_step("assert-run", run_assert_arguments, evidence_root, environment, expected_exit=0)
+
+
+def _run_preparation_workflow(run_root: Path, evidence_root: Path) -> None:
+    """Przygotowanie pliku zbiorczego: synthetic Rejestr, dry-run, then the real write."""
+
+    environment = _utf8_environment()
+    helper_directory = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
+    config_directory = run_root / "config"
+    metrics = run_root / "metrics.jsonl"
+    cli_arguments = [
+        "run_preparation.py",
+        "--register",
+        str(run_root / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"),
+        "--periods-directory",
+        str(run_root / "INEA"),
+        "--period",
+        PERIOD,
+        "--config",
+        str(config_directory / "worker_mapping.yaml"),
+        "--internal-template",
+        str(config_directory / "Wzorzec rozliczenia wewnętrznego.xlsx"),
+        "--collective-template",
+        str(config_directory / "Wzorzec pliku zbiorczego.xlsx"),
+        "--metrics",
+        str(metrics),
+    ]
+
+    def assert_arguments(mode: str) -> list[str]:
+        return [
+            str(helper_directory / "assert_preparation.py"),
+            "--root",
+            str(run_root),
+            "--expect",
+            mode,
+            "--transcript",
+            str(evidence_root / f"{mode}.txt"),
+        ]
+
+    _run_step(
+        "fixture",
+        [str(helper_directory / "create_preparation_fixture.py"), "--root", str(run_root)],
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
+    _run_step(
+        "doctor",
+        [str(helper_directory / "preparation_doctor.py"), "--root", str(run_root), "--expected-version", _version()],
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
+    _run_step("dry-run", [*cli_arguments, "--dry-run"], evidence_root, environment, expected_exit=0)
+    _run_step("assert-dry-run", assert_arguments("dry-run"), evidence_root, environment, expected_exit=0)
+    _run_step("run", cli_arguments, evidence_root, environment, expected_exit=0)
+    shutil.copy2(metrics, evidence_root / "metrics.jsonl")
+    _run_step("assert-run", assert_arguments("run"), evidence_root, environment, expected_exit=0)
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)

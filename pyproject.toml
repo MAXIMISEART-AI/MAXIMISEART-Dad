@@ -35,6 +35,7 @@ where = ["src"]
 target-version = "py311"
 include = [
     "run.py",
+    "run_preparation.py",
     "src/**/*.py",
     "tests/**/*.py",
     "tools/**/*.py",
@@ -45,6 +46,7 @@ include = [
 strict = true
 files = [
     "run.py",
+    "run_preparation.py",
     "src",
     "tests",
     "tools",
