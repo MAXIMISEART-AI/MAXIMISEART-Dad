@@ -14,7 +14,7 @@ description: Exhaustively check that Przygotowanie pliku zbiorczego publishes Ro
   holds both period files or neither. A success leaves both. A stop leaves
   neither, because its message says „Nie utworzono żadnego pliku”. Harm: with only
   one file in place, the next run stops on `PLIK_OKRESU_ISTNIEJE` and Dad has to
-  delete a file by hand.
+  delete a file by hand. One break is an accepted risk, listed below.
 
 ## Does the change touch it?
 
@@ -43,12 +43,12 @@ The last line is the verdict:
 | Last line | Exit | Meaning |
 | --- | --- | --- |
 | `PUBLIKACJA OK` | 0 | Both rules hold in every schedule. |
-| `PUBLIKACJA OK, ZNANE USTALENIA: n` | 0 | Only the known findings below, each printed with its counterexample. |
+| `PUBLIKACJA OK, ZNANE USTALENIA: n, ZAAKCEPTOWANE RYZYKA: m` | 0 | Only the known findings and accepted risks below, each printed with its counterexample. A count of zero is left out. |
 | `PUBLIKACJA: NOWE NARUSZENIE (n)` | 1 | A rule breaks in a way not listed below, or `BRAK_PUBLIKACJI`: with no errors, kills, or Dad actions, nothing was ever published. |
 | `PUBLIKACJA: LUKA MODELU (n)` | 2 | The code made a filesystem call the in-memory disk does not model. No verdict on the rules. |
 
 `--scope jedno-uruchomienie` or `--scope dwa-uruchomienia` runs one scope.
-`--strict` counts known findings as violations too.
+`--strict` counts known findings and accepted risks as violations too.
 
 ## How it works and what it covers
 
@@ -87,20 +87,32 @@ above, and Przebieg rozliczeń's own folder publication in `engine.py`.
 
 ## Known findings
 
-Both are real defects in the current code. They are reported on every run until
-the code is fixed:
+A real defect in the current code. It is reported on every run until the code
+is fixed:
 
-1. **Proces zamknięty w trakcie publikacji.** When the Folder okresu already exists,
-   `_publish` moves the two files with two separate `os.rename` calls
-   (`preparation_files.py`, loop in `_publish`). If the process dies between them, only
-   Rozliczenie wewnętrzne is left. The next run stops on `PLIK_OKRESU_ISTNIEJE`.
-2. **Nieudane wycofanie.** If moving the Plik zbiorczy fails and the rollback's
+1. **Nieudane wycofanie.** If moving the Plik zbiorczy fails and the rollback's
    `target.unlink()` fails as well (the file is held by antivirus or OneDrive),
    Rozliczenie wewnętrzne is left. Dad still sees `BLAD_ZAPISU` „Nie utworzono
    żadnego pliku”.
 
-When a code change fixes one, the checker prints it as gone. Delete its entry
+When a code change fixes it, the checker stops printing it. Delete its entry
 from `KNOWN_FINDINGS` in `explore_publication.py` and from this list.
+
+## Accepted risks
+
+A break of a rule that a recorded decision accepts. It is printed as
+`ZAAKCEPTOWANE RYZYKO` on every run and does not fail the check:
+
+1. **Proces zamknięty w trakcie publikacji**
+   ([ADR 0004](../../../docs/adr/0004-przerwana-publikacja-plikow-okresu.md)).
+   When the Folder okresu already exists, `_publish` moves the two files with
+   two separate `os.rename` calls. If the process dies between them, only
+   Rozliczenie wewnętrzne is left. The next run stops on `PLIK_OKRESU_ISTNIEJE`,
+   and Dad's instructions say how to recognise and remove the leftover file.
+
+An entry lives in `ACCEPTED_RISKS` in `explore_publication.py` and names its
+decision. If a change to the publication code makes it disappear, delete the
+entry here and there, and mark the ADR as superseded.
 
 ## When the check fails
 
@@ -111,8 +123,9 @@ is the code that made the call. Then sort it into one of three cases:
 - **Real bug**: the story is something that can happen to Dad on Windows, and
   the end state breaks the rule as stated above. Report it with the story in
   those words. Fix the product code only if the user asks. If the user accepts
-  the risk instead, add the printed signature to `KNOWN_FINDINGS` with a one-line
-  description, and add it to Known findings here.
+  the risk instead, record the decision in an ADR, add the printed signature to
+  `ACCEPTED_RISKS` with a one-line description naming the ADR, and add it to
+  Accepted risks here.
 - **Modeling error**: the story contains a step Windows would not do, such as a
   rename that replaces a file, or a step the code cannot reach. Fix the
   in-memory disk (`VirtualDisk`) or the harness, then rerun the mutations below.

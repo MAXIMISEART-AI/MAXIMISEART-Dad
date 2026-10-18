@@ -59,7 +59,8 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
    sprawdź liczby `Zlecenia na dzień`. Wpisz `t`, żeby kontynuować, albo `n`,
    żeby przerwać bez tworzenia plików.
 6. Poczekaj na `Status końcowy`. Potem naciśnij dowolny klawisz, żeby zamknąć
-   okno.
+   okno. Nie zamykaj okna wcześniej: w trakcie zapisu może zostać samo
+   Rozliczenie wewnętrzne.
 
 ### Co sprawdzić po zakończeniu
 
@@ -114,7 +115,7 @@ o niepokazanym podsumowaniu: wtedy pliki okresu już są.
 | „puste albo nieznane SKUTECZNE” | We wskazanych wierszach wpisz w `SKUTECZNE` `tak` albo `nie`. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „spoza konfiguracji wykonawców” | Literówkę w `WYKONAWCA` popraw we wskazanych wierszach Rejestru. Nowego wykonawcę trzeba dopisać do konfiguracji wykonawców (`config\worker_mapping.yaml`, tej samej co w Przebiegu rozliczeń); poproś o to osobę utrzymującą narzędzie. |
 | „nie ma żadnego zlecenia z tego okresu” | Sprawdź, czy wybrano właściwy okres i czy eksport zleceń jest zapisany w Rejestrze. Uruchom ponownie. |
-| „Plik tego okresu już istnieje” | Narzędzie nie nadpisuje plików okresu, żeby nie stracić ręcznych poprawek. Sprawdź okres. Jeśli plik ma powstać od nowa, przenieś albo usuń wskazany plik i uruchom ponownie. |
+| „Plik tego okresu już istnieje” | Narzędzie nie nadpisuje plików okresu, żeby nie stracić ręcznych poprawek. Sprawdź okres. Jeśli plik ma powstać od nowa, przenieś albo usuń wskazany plik i uruchom ponownie. Jeśli w Folderze okresu jest samo Rozliczenie wewnętrzne, bez Pliku zbiorczego, a poprzednie uruchomienie nie doszło do `Status końcowy` (okno zostało zamknięte albo zabrakło prądu), to jest niedokończony zapis: usuń to Rozliczenie wewnętrzne i uruchom ponownie. |
 | „Nie znaleziono folderu okresów” | Uruchom ponownie i wybierz istniejący folder okresów, np. `INEA`. |
 | „Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku” | Wpisz okres jak nazwę folderu: dzień wtorku, dzień poniedziałku, miesiąc i rok, np. `08_14_09_2026`. Na przełomie miesięcy miesiąc i rok są z wtorku, np. `27_02_10_2026` (27 października – 2 listopada 2026). |
 | „Nie wybrano pliku Rejestru zleceń” | Uruchom ponownie i w pierwszym oknie wybierz plik Rejestru zleceń. |

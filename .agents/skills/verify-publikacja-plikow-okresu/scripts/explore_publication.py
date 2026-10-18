@@ -566,12 +566,16 @@ SCOPES = {
     )
 }
 
-# Findings in the current code. They are reported on every run; any other violation fails the check.
-KNOWN_FINDINGS: dict[tuple[object, ...], str] = {
+# Breaks of a rule that were consciously accepted; each names the decision that accepted it.
+ACCEPTED_RISKS: dict[tuple[object, ...], str] = {
     ("RAZEM_ALBO_ZADEN", "PRZERWANE", (INTERNAL,), False): (
         "proces zamknięty między dwoma os.rename w _publish zostawia w istniejącym Folderze okresu "
-        "samo Rozliczenie wewnętrzne"
+        "samo Rozliczenie wewnętrzne (ADR 0004)"
     ),
+}
+
+# Findings in the current code. They are reported on every run; any other violation fails the check.
+KNOWN_FINDINGS: dict[tuple[object, ...], str] = {
     ("RAZEM_ALBO_ZADEN", "ZATRZYMANE", (INTERNAL,), True): (
         "gdy publikacja Pliku zbiorczego i wycofanie Rozliczenia wewnętrznego (unlink) się nie udają, "
         "Rozliczenie wewnętrzne zostaje, a komunikat BLAD_ZAPISU mówi, że nie utworzono żadnego pliku"
@@ -849,6 +853,7 @@ def explore(scope: Scope) -> ScopeReport:
 class Outcome:
     new_violations: int
     known_findings: int
+    accepted_risks: int
     gaps: int
     vacuous: int
     lines: list[str]
@@ -862,7 +867,7 @@ class Outcome:
 
 def summarize(reports: Sequence[ScopeReport], *, strict: bool = False) -> Outcome:
     lines = ["Publikacja plików okresu (Przygotowanie pliku zbiorczego): sprawdzenie wyczerpujące", ""]
-    new = known = gaps = vacuous = 0
+    new = known = accepted = gaps = vacuous = 0
     shown: dict[tuple[object, ...], str] = {}
     for report in reports:
         lines.append(f"zakres {report.scope.name}: {report.scope.describe()}")
@@ -879,7 +884,11 @@ def summarize(reports: Sequence[ScopeReport], *, strict: bool = False) -> Outcom
             lines.extend(f"    {number}. {step}" for number, step in enumerate(trace, start=1))
         for signature, (violation, trace, _) in sorted(report.counterexamples.items(), key=lambda item: str(item[0])):
             finding = KNOWN_FINDINGS.get(signature)
-            if finding is not None and not strict:
+            risk = ACCEPTED_RISKS.get(signature)
+            if risk is not None and not strict:
+                accepted += signature not in shown
+                lines.append(f"  ZAAKCEPTOWANE RYZYKO ({violation.rule}): {risk}")
+            elif finding is not None and not strict:
                 known += signature not in shown
                 lines.append(f"  ZNANE USTALENIE ({violation.rule}): {finding}")
             else:
@@ -895,17 +904,19 @@ def summarize(reports: Sequence[ScopeReport], *, strict: bool = False) -> Outcom
         lines.append(f"PUBLIKACJA: LUKA MODELU ({gaps}): kod używa wywołania, którego dysk w pamięci nie modeluje.")
     elif new or vacuous:
         lines.append(f"PUBLIKACJA: NOWE NARUSZENIE ({new + vacuous})")
-    elif known:
-        lines.append(f"PUBLIKACJA OK, ZNANE USTALENIA: {known}")
+    elif known or accepted:
+        counts = [f"ZNANE USTALENIA: {known}"] if known else []
+        counts += [f"ZAAKCEPTOWANE RYZYKA: {accepted}"] if accepted else []
+        lines.append(f"PUBLIKACJA OK, {', '.join(counts)}")
     else:
         lines.append("PUBLIKACJA OK")
-    return Outcome(new, known, gaps, vacuous, lines)
+    return Outcome(new, known, accepted, gaps, vacuous, lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Exhaustive check of how Przygotowanie publishes the period files.")
     parser.add_argument("--scope", choices=sorted(SCOPES), action="append", help="one scope; default: all")
-    parser.add_argument("--strict", action="store_true", help="report known findings as violations too")
+    parser.add_argument("--strict", action="store_true", help="report known findings and accepted risks as violations too")
     arguments = parser.parse_args(argv)
     problems = probe_interception()
     if problems:
