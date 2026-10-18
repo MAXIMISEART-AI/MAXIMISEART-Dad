@@ -1,7 +1,7 @@
 """Katalog komunikatów Przygotowania pliku zbiorczego dla taty.
 
 Każdy komunikat ma trzy części: co się stało, gdzie, co zrobić. Komunikaty są
-po polsku, bez żargonu i treści exceptionów oraz bez adresów, numerów zleceń i
+po polsku, bez żargonu i treści wyjątków oraz bez adresów, numerów zleceń i
 treści wierszy. Wskazują wyłącznie plik, arkusz, nagłówek albo numer wiersza.
 """
 
@@ -569,7 +569,7 @@ def write_failed(period_directory: Path) -> PreparationError:
 
 
 def unexpected_failure() -> PreparationMessage:
-    """Nieprzewidziany błąd; treść exceptiona nie trafia do taty."""
+    """Nieprzewidziany błąd; treść wyjątku nie trafia do taty."""
 
     return PreparationMessage(
         code="BLAD_NIEOCZEKIWANY",
@@ -580,7 +580,7 @@ def unexpected_failure() -> PreparationMessage:
 
 
 def summary_not_shown() -> PreparationMessage:
-    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść exceptiona nie trafia do taty."""
+    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty."""
 
     return PreparationMessage(
         code="BLAD_PODSUMOWANIA",

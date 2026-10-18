@@ -128,7 +128,7 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
 launchera, od wskazania plików przez tatę do wyniku końcowego. Kończy się
 sukcesem, wynikiem wymagającym sprawdzenia albo zatrzymaniem z bezpiecznym
-komunikatem; nigdy nie pokazuje tacie treści exceptionu.
+komunikatem zrozumiałym dla taty, nigdy z treścią błędu technicznego.
 _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
 
 ## Zdarzenie przebiegu

@@ -10,12 +10,13 @@ Silnik emituje Zdarzenia przebiegu przez walidowany kontrakt `ProgressEvent` i
 centralne fabryki. `run_settlements()` przyjmuje opcjonalnego obserwatora;
 reguły i wynik silnika nie zależą od jego obecności.
 
-W ścieżce CLI `Dashboard` przekazuje każde zdarzenie dokładnie raz do jednej
-projekcji postępu. Projekcja jest jedynym miejscem, które interpretuje surowe
-zdarzenia. Zwraca niemutowalny snapshot i bezpieczne, neutralne powiadomienie o
-zmianie. Adapter plain i adapter Rich renderują wyłącznie ten wspólny wynik; nie
-interpretują `ProgressEvent`, nie utrzymują własnych liczników ani stanów faz.
-Dashboard koordynuje wybór adaptera.
+Moduł Uruchomienia procesu (`process_run`) ma prywatny podgląd postępu, który
+przekazuje każde zdarzenie dokładnie raz do jednej projekcji postępu. Projekcja
+jest jedynym miejscem, które interpretuje surowe zdarzenia. Zwraca niemutowalny
+snapshot i bezpieczne, neutralne powiadomienie o zmianie. Adapter plain i
+adapter Rich renderują wyłącznie ten wspólny wynik; nie interpretują
+`ProgressEvent`, nie utrzymują własnych liczników ani stanów faz.
+Podgląd postępu koordynuje wybór adaptera.
 
 Awaria obserwatora odłącza go na resztę Przebiegu rozliczeń i nie przerywa pracy
 silnika. Uruchomienie CLI zawsze obserwuje postęp.
@@ -35,8 +36,10 @@ Dotychczasowe pola `ProgressEvent` i wartości stanów pozostają zgodne; typed
 states porządkują kontrakt, a `FAILED` dodaje jawny stan przerwania. Końcowa
 telemetryka ukończonego uruchomienia, w tym czasy faz, pochodzi z
 `SettlementSummary`. Silnik mierzy te czasy niezależnie od obecności obserwatora.
-Telemetryka przerwanego uruchomienia pochodzi z ostatniego poprawnie
-zredukowanego snapshotu. Schemat metryk pozostaje bez zmian.
+Czasy etapów przerwanego uruchomienia pochodzą z ostatniego poprawnie
+zredukowanego snapshotu; liczniki takiego rekordu mają wartość 0, a wynik to
+`BLAD_KRYTYCZNY`, bo statystyki czytają tylko ukończone rekordy. Schemat metryk
+pozostaje bez zmian.
 
 ## Uzasadnienie
 
