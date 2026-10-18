@@ -1,22 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from io import StringIO
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import time
+import types
+import zipfile
 from collections.abc import Iterable
 from typing import Any, TextIO, cast
 
 from openpyxl import load_workbook
 import pytest
 
-import rozliczenia.cli as cli
-from rozliczenia.cli import DETACHED_OBSERVER_NOTICE, main
+from rozliczenia.cli import main
 from rozliczenia.collective_file import ExcelRow
-from rozliczenia.domain import ProgressEventFactory, ProgressPhase, WorkerResult
+from rozliczenia.domain import Issue, ProgressEventFactory, ProgressPhase, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
+import rozliczenia.process_run as process_run
 from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.progress import ProgressNotice, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
@@ -31,6 +35,8 @@ from tests.test_settlement_engine import (
     make_fixture,
     write_source,
 )
+
+DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 
 
 def run_cli(
@@ -136,10 +142,10 @@ def test_interactive_dashboard_does_not_refresh_without_an_event(monkeypatch: py
         def start(self, *, refresh: bool) -> None:
             pass
 
-    monkeypatch.setattr(cli, "Console", FakeConsole)
-    monkeypatch.setattr(cli, "Live", FakeLive)
+    monkeypatch.setattr(process_run, "Console", FakeConsole)
+    monkeypatch.setattr(process_run, "Live", FakeLive)
 
-    dashboard = cli.Dashboard(TtyOutput(), "RUN", PERIOD)
+    dashboard = process_run._Dashboard(TtyOutput(), "RUN", PERIOD, title="Rozliczenia", shows_templates=True)
     dashboard.start()
 
     assert live_instances[0].get("auto_refresh", True) is False
@@ -186,11 +192,11 @@ def test_interactive_dashboard_renders_the_accepted_snapshot_and_notice(
         renders.append((snapshot, notice, renderable))
         return renderable
 
-    monkeypatch.setattr(cli, "Console", FakeConsole)
-    monkeypatch.setattr(cli, "Live", FakeLive)
+    monkeypatch.setattr(process_run, "Console", FakeConsole)
+    monkeypatch.setattr(process_run, "Live", FakeLive)
     monkeypatch.setattr(RichProgressAdapter, "render", record_render)
 
-    dashboard = cli.Dashboard(TtyOutput(), "RUN", PERIOD)
+    dashboard = process_run._Dashboard(TtyOutput(), "RUN", PERIOD, title="Rozliczenia", shows_templates=True)
     dashboard.start()
     dashboard(ProgressEventFactory.phase_started(ProgressPhase.CHECKING))
 
@@ -252,8 +258,8 @@ def test_interactive_rich_render_failure_falls_back_without_interrupting_settlem
             raise RuntimeError("synthetic Rich rendering failure")
         return original_render(adapter, snapshot, notice)
 
-    monkeypatch.setattr(cli, "Console", FakeConsole)
-    monkeypatch.setattr(cli, "Live", FakeLive)
+    monkeypatch.setattr(process_run, "Console", FakeConsole)
+    monkeypatch.setattr(process_run, "Live", FakeLive)
     monkeypatch.setattr(RichProgressAdapter, "render", fail_on_first_refresh)
 
     exit_code = main(
@@ -537,8 +543,8 @@ def test_interactive_rich_cli_uses_shared_progress_for_synthetic_workbooks(
         live_instances.append(live)
         return live
 
-    monkeypatch.setattr(cli, "Console", FakeConsole)
-    monkeypatch.setattr(cli, "Live", make_live)
+    monkeypatch.setattr(process_run, "Console", FakeConsole)
+    monkeypatch.setattr(process_run, "Live", make_live)
     arguments = [
         "--source",
         str(source_path),
@@ -840,29 +846,157 @@ def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
     assert record["result"] == "BLAD_KRYTYCZNY"
 
 
-def test_cancelled_source_selection_shows_critical_dashboard_status(
+UNEXPECTED_FAILURE_LINE = (
+    "Nie wykonano: Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany. "
+    "Uruchom ponownie; jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
+)
+
+
+def install_source_dialog(monkeypatch: pytest.MonkeyPatch, *, selected: str, answer_after_s: float = 0) -> list[str]:
+    """Zastępuje okno wyboru Pliku zbiorczego (tkinter); zwraca tytuły pokazanych okien."""
+
+    shown: list[str] = []
+
+    class FakeRoot:
+        def withdraw(self) -> None:
+            pass
+
+        def destroy(self) -> None:
+            pass
+
+    def askopenfilename(*, title: str, **_kwargs: object) -> str:
+        shown.append(title)
+        time.sleep(answer_after_s)
+        return selected
+
+    filedialog = types.ModuleType("tkinter.filedialog")
+    setattr(filedialog, "askopenfilename", askopenfilename)
+    tk_module = types.ModuleType("tkinter")
+    setattr(tk_module, "Tk", FakeRoot)
+    setattr(tk_module, "filedialog", filedialog)
+    monkeypatch.setitem(sys.modules, "tkinter", tk_module)
+    monkeypatch.setitem(sys.modules, "tkinter.filedialog", filedialog)
+    return shown
+
+
+def append_completed_records(metrics_path: Path, mode: str, count: int = 5) -> None:
+    for sample in range(count):
+        MetricsStore(metrics_path).append(
+            {
+                "schema_version": 1,
+                "started_at": f"2026-09-28T00:00:0{sample}+00:00",
+                "mode": mode,
+                "period": PERIOD,
+                "completed": True,
+                "result": "OK",
+                "total_duration_ms": 1000,
+                "phase_durations_ms": {"Sprawdzanie": 1, "Odczyt danych": 1, "Planowanie": 1, "Zapisywanie": 1},
+                "counters": {
+                    "templates_total": 1,
+                    "templates_completed": 1,
+                    "rows": 1,
+                    "written": 1,
+                    "empty": 0,
+                    "planned": 0,
+                    "skipped": 0,
+                    "issues": 0,
+                },
+            }
+        )
+
+
+def test_cancelled_plik_zbiorczy_selection_stops_with_statistics_and_without_dialog_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
-
-    def cancel_selection() -> Path:
-        raise settlement_engine.SettlementError("Nie wybrano pliku zbiorczego.")
-
-    monkeypatch.setattr("rozliczenia.cli.choose_source_file", cancel_selection)
+    append_completed_records(metrics_path, "RUN")
+    shown = install_source_dialog(monkeypatch, selected="", answer_after_s=1.0)
 
     output = StringIO()
     exit_code = main(["--metrics", str(metrics_path)], output=output)
 
     assert exit_code == 1
-    assert "Rozliczenia | okres: nieznany | tryb: RUN" in output.getvalue()
-    assert "Status semantyczny: BŁĄD" in output.getvalue()
-    assert "Czas uruchomienia:" in output.getvalue()
+    assert shown == ["Wybierz plik zbiorczy rozliczenia"]
+    lines = output.getvalue().splitlines()
+    assert lines[0] == "Rozliczenia | okres: nieznany | tryb: RUN"
+    status = lines.index("Status semantyczny: BŁĄD")
+    assert lines[status + 1] == "Nie wykonano: Nie wybrano pliku zbiorczego."
+    assert lines[status + 2].startswith("Czas uruchomienia: ")
+    assert int(lines[status + 2].removeprefix("Czas uruchomienia: ").removesuffix(" ms")) < 1000
+    assert lines[status + 3] == "Statystyki RUN | próbek: 5"
+    record = MetricsStore(metrics_path).read()[-1]
+    assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
+    assert record["total_duration_ms"] < 1000
+
+
+def test_cancelled_plik_zbiorczy_selection_warns_when_metrics_are_not_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    metrics_parent = tmp_path / "not-a-directory"
+    metrics_parent.write_text("nie katalog", encoding="utf-8")
+    install_source_dialog(monkeypatch, selected="")
+
+    output = StringIO()
+    exit_code = main(["--metrics", str(metrics_parent / "metrics.jsonl")], output=output)
+
+    assert exit_code == 1
+    assert output.getvalue().splitlines()[-1] == (
+        "Ostrzeżenie: Nie zapisano metryk; proces rozliczeń zakończył się niezależnie."
+    )
+
+
+def test_broken_wzorzec_rozliczenia_pracownika_shows_safe_message_instead_of_parser_text(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    worker_template_path = config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"
+    with zipfile.ZipFile(source_path) as source:
+        entries = [(entry.filename, source.read(entry)) for entry in source.infolist()]
+    with zipfile.ZipFile(worker_template_path, "w") as broken:
+        for name, data in entries:
+            broken.writestr(name, b"<x" if name.startswith("xl/worksheets/") else data)
+
+    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
+
+    assert exit_code == 1
+    lines = output.splitlines()
+    status = lines.index("Status semantyczny: BŁĄD")
+    assert lines[status + 1] == UNEXPECTED_FAILURE_LINE
+    assert lines[status + 2].startswith("Czas uruchomienia: ")
+    assert "unclosed token" not in output
+    assert "Traceback" not in output
+    assert not target_directory.exists()
+
+
+def test_summary_failure_after_rozliczenia_pracownikow_were_written_says_they_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    metrics_path = tmp_path / "metrics.jsonl"
+    run_settlements = settlement_engine.run_settlements
+
+    def run_with_unprintable_summary(*args: Any, **kwargs: Any) -> SettlementSummary:
+        summary = run_settlements(*args, **kwargs)
+        return replace(summary, issues=[cast(Issue, "SYN-001")])
+
+    monkeypatch.setattr(settlement_engine, "run_settlements", run_with_unprintable_summary)
+
+    exit_code, output = run_cli(source_path, config_path, metrics_path)
+
+    assert exit_code == 1
+    lines = output.splitlines()
+    status = lines.index("Status semantyczny: BŁĄD")
+    assert lines[status + 1] == (
+        "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
+        "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
+    )
+    assert lines[status + 2].startswith("Czas uruchomienia: ")
+    assert "SYN-" not in output
+    assert "Traceback" not in output
+    assert target_directory.is_dir()
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert record["completed"] is False
-    assert record["result"] == "BLAD_KRYTYCZNY"
+    assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
 
 
-def test_critical_write_failure_preserves_partial_counters(
+def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records_incomplete_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -898,13 +1032,4 @@ def test_critical_write_failure_preserves_partial_counters(
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is False
     assert record["result"] == "BLAD_KRYTYCZNY"
-    assert record["counters"] == {
-        "templates_total": 3,
-        "templates_completed": 1,
-        "rows": 2,
-        "written": 1,
-        "empty": 0,
-        "planned": 0,
-        "skipped": 0,
-        "issues": 1,
-    }
+    assert set(record["counters"].values()) == {0}

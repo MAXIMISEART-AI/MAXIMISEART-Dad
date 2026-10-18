@@ -168,3 +168,5 @@ Pliki okresu powstały niezależnie od niej.
 - Jeśli pojawi się komunikat „Nie można odczytać Pliku zbiorczego”, sprawdź, czy ten plik otwiera się w Excelu i jest zapisany jako `.xlsx`. Zamknij go i uruchom proces ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie.
 - Jeśli pojawi się informacja o braku szablonu, nie twórz pliku ręcznie z innego pracownika. Przekaż tę informację osobie utrzymującej narzędzie.
 - Jeśli plik pracownika ma już dane, narzędzie go nie nadpisze.
+- Jeśli pojawi się komunikat „Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany”, nie powstał żaden plik pracownika. Uruchom proces ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie.
+- Jeśli pojawi się komunikat „Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania”, pliki pracowników już są w Folderze okresu, więc nie uruchamiaj procesu ponownie. Sprawdź Folder okresu i przekaż komunikat osobie utrzymującej narzędzie.
