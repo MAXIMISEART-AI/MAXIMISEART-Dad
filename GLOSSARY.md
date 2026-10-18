@@ -48,43 +48,6 @@ Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
 wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy. Oba pliki
 powstają razem albo żaden. Uruchamiany osobno od Przebiegu rozliczeń.
 
-## Rejestr zleceń
-
-Skoroszyt `ZLECENIA INTERMAX OD 08_11_2021.xlsx`, do którego tata eksportuje
-zlecenia z aplikacji firmowej. Jest jedynym źródłem prawdy o zleceniach
-wszystkich okresów. Po eksporcie zawiera między zleceniami całkowicie puste
-wiersze. Procesy go czytają, ale nigdy nie zmieniają.
-
-## Zlecenie skuteczne
-
-Zlecenie, którego wartość `SKUTECZNE` to `tak`, bez względu na wielkość liter i
-otaczające spacje. Każde zlecenie skuteczne z Rozliczenia wewnętrznego trafia
-do Pliku zbiorczego.
-
-## Rozliczenie wewnętrzne
-
-Skoroszyt `Rozliczenie wew. {okres}.xlsx` zawierający wszystkie zlecenia
-jednego okresu rozliczeniowego z Rejestru zleceń, skuteczne i nieskuteczne, w
-kolejności z Rejestru, bez pustych wierszy. Zachowuje formatowanie, do którego
-tata jest przyzwyczajony.
-
-## Wzorzec rozliczenia wewnętrznego
-
-Wspólny skoroszyt bazowy, z którego powstaje Rozliczenie wewnętrzne nowego
-okresu. Nie zawiera zleceń i pozostaje niezmieniony.
-
-## Wzorzec pliku zbiorczego
-
-Wspólny skoroszyt bazowy, z którego powstaje Plik zbiorczy nowego okresu.
-Zachowuje stawki, sumy, formuły i formatowanie; nie zawiera zleceń i pozostaje
-niezmieniony.
-
-## Przygotowanie pliku zbiorczego
-
-Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
-wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy. Oba pliki
-powstają razem albo żaden. Uruchamiany osobno od Przebiegu rozliczeń.
-
 ## Plik zbiorczy
 
 Skoroszyt `Rozliczenie {okres} - zbiorcze.xlsx`: zlecenia skuteczne wszystkich
@@ -141,6 +104,8 @@ wartości szablonu nie są same w sobie wierszami danych.
 ## Placeholder
 
 Wspólny skoroszyt bazowy bez nazwy wykonawcy, z którego powstają Szablony
+pracowników. Ma ten sam układ kolumn co Plik zbiorczy, ale własne stawki
+pracownika. U taty to plik `Rozliczenie {okres} -.xlsx` w Folderze rozliczeń
 pracowników. Nie jest rozliczeniem konkretnej osoby i pozostaje niezmieniony.
 
 ## Gotowość
