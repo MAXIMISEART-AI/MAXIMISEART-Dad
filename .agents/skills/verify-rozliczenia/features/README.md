@@ -43,6 +43,6 @@ outside the supported user workflow.
 - [Workbook preparation](./prepare-workbooks.md) covers Placeholder copies and all-or-nothing publication.
 - [Dry-run planning](./dry-run.md) covers safe inspection before writing.
 - [Worker settlement](./settle-workbooks.md) covers fan-out into mapped templates and preserved formulas.
-- [Safety gates](./safety-gates.md) covers unknown workers, placeholders, existing data, and Excel locks.
+- [Safety gates](./safety-gates.md) covers unknown workers, placeholders, existing data, Excel locks, and the stop on an unreadable Plik zbiorczy.
 - [Progress and telemetry](./progress-and-metrics.md) covers observable phases, counters, exit semantics, and safe metrics.
 - [Przygotowanie pliku zbiorczego](./prepare-collective-file.md) covers the Rejestr zleceń to Rozliczenie wewnętrzne and Plik zbiorczy process, its dry-run, and its launcher.

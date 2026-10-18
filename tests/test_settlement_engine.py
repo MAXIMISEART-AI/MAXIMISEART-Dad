@@ -13,9 +13,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 import yaml
 
+from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState, WorkerResult
 from rozliczenia.engine import SettlementError, run_settlements
-from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 
 
@@ -174,14 +174,17 @@ def overwrite_with_non_workbook(path: Path) -> None:
     path.write_bytes(b"uszkodzony")
 
 
-def cut_sheet_after_data_rows(path: Path) -> None:
-    """Skoroszyt się otwiera i ma WYKONAWCA w H17, ale XML arkusza urywa się za Wierszami danych."""
+def cut_sheet_after_data_rows(path: Path, sheet_part: str = "xl/worksheets/sheet1.xml") -> None:
+    """Skoroszyt się otwiera, ale XML arkusza ``sheet_part`` urywa się za jego ostatnim wierszem.
+
+    Początek arkusza, np. WYKONAWCA w H17, daje się odczytać; błąd wychodzi dopiero przy dalszym czytaniu.
+    """
 
     with zipfile.ZipFile(path) as source:
         members = [(info, source.read(info.filename)) for info in source.infolist()]
     with zipfile.ZipFile(path, "w") as target:
         for info, data in members:
-            if info.filename == "xl/worksheets/sheet1.xml":
+            if info.filename == sheet_part:
                 data = data[: data.rindex(b"</sheetData>")]
             target.writestr(info, data)
 

@@ -33,7 +33,7 @@ from . import preparation_messages as messages
 from .engine import normalize_text
 from .preparation_messages import PreparationMessage
 from .preparation_plan import PeriodOrder
-from .preparation_register import COLUMNS, UNREADABLE_WORKBOOK_ERRORS, CellFormat, header_columns, is_blank
+from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
 
 
 @dataclass(frozen=True)
@@ -87,7 +87,7 @@ def check_templates(files: PeriodFiles) -> None:
     _ensure_template_available(files.collective_template)
     with _open_template(files.collective_template, _COLLECTIVE) as (_, sheet, _):
         try:
-            collective_file.check_layout(sheet)
+            collective_file.check_worker_header(sheet)
         except collective_file.LayoutError as exc:
             if exc.worker_column is None:
                 raise messages.template_without_header(
@@ -175,7 +175,7 @@ def _open_template(
 
     try:
         workbook = load_workbook(template_path, read_only=False, data_only=False, keep_links=True)
-    except UNREADABLE_WORKBOOK_ERRORS as exc:
+    except workbook_files.UNREADABLE_WORKBOOK_ERRORS as exc:
         raise messages.template_unreadable(template_path) from exc
     try:
         sheet = workbook.active

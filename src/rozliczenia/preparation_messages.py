@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from openpyxl.utils import get_column_letter
+
+from . import collective_file
+
 
 @dataclass(frozen=True)
 class PreparationMessage:
@@ -196,15 +200,17 @@ def template_without_header(template_path: Path, sheet: str, row: int, header: s
 def template_with_worker_outside_h(template_path: Path, sheet: str, column: str) -> PreparationError:
     """Wzorzec pliku zbiorczego ma WYKONAWCA poza H17, a Przebieg rozliczeń czyta Wykonawcę z H17."""
 
+    worker_column = get_column_letter(collective_file.WORKER_COLUMN)
+    header_row = collective_file.HEADER_ROW
     return PreparationError(
         PreparationMessage(
             code="WYKONAWCA_POZA_H",
             what=(
-                f"Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie {column} zamiast w H (wiersz 17). "
-                "Nie utworzono żadnego pliku."
+                f"Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie {column} "
+                f"zamiast w {worker_column} (wiersz {header_row}). Nie utworzono żadnego pliku."
             ),
-            where=f"plik {template_path.name}, arkusz {sheet}, wiersz 17",
-            action="Przenieś WYKONAWCA do kolumny H we wzorcu i uruchom ponownie.",
+            where=f"plik {template_path.name}, arkusz {sheet}, wiersz {header_row}",
+            action=f"Przenieś WYKONAWCA do kolumny {worker_column} we wzorcu i uruchom ponownie.",
         )
     )
 

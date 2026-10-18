@@ -13,8 +13,7 @@ from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from . import collective_file, workbook_files
-from .collective_file import CollectiveFileError
-from .collective_file import ExcelRow as ExcelRow  # część sygnatury process_template()
+from .collective_file import CollectiveFileError, ExcelRow
 from .domain import Issue, WorkerResult
 
 
@@ -58,7 +57,7 @@ def validate_placeholder(path: Path) -> None:
         if sheet is None:
             raise PlaceholderValidationError("Placeholder nie zawiera arkusza roboczego.")
         try:
-            collective_file.check_layout(sheet)
+            collective_file.check_worker_header(sheet)
         except CollectiveFileError as exc:
             raise PlaceholderValidationError("Placeholder nie ma nagłówka WYKONAWCA w H:17.") from exc
         if _target_has_input_data(sheet):
@@ -102,7 +101,7 @@ def process_template(
             if sheet is None:
                 raise ValueError("Szablon nie zawiera arkusza.")
             try:
-                collective_file.check_layout(sheet)
+                collective_file.check_worker_header(sheet)
             except CollectiveFileError:
                 issue = Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w H:17: {target_path.name}.")
                 return WorkerResult(worker_name, target_path, 0, "ZLY_SZABLON", (issue,))

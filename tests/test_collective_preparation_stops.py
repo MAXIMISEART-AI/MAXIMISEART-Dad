@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ from tests.collective_preparation_fixtures import (
     register_order,
     write_register,
 )
+from tests.test_settlement_engine import cut_sheet_after_data_rows
 
 
 def run_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationSummary:
@@ -223,9 +225,17 @@ def test_sheet_with_orders_of_other_periods_does_not_block_period(tmp_path: Path
     assert (summary.period_order_count, summary.successful_order_count) == (4, 3)
 
 
-def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda path: path.write_bytes(b"to nie jest skoroszyt Excela"),
+        lambda path: cut_sheet_after_data_rows(path, "xl/worksheets/sheet2.xml"),  # ZLECENIA za arkuszem lista
+    ],
+    ids=["nie-skoroszyt", "urwany-arkusz-zlecen"],
+)
+def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path, damage: Callable[[Path], object]) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    fixture.register_path.write_bytes(b"to nie jest skoroszyt Excela")
+    damage(fixture.register_path)
 
     error = stop_preparation(fixture)
 
