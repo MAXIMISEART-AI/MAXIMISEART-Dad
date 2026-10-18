@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import time
@@ -375,13 +375,15 @@ def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
     assert "SYN-" not in repr(recorded)
 
 
-def test_projekcja_postepu_przyjmuje_przygotowanie_przerwane_w_zapisywaniu(
+def test_progress_projection_accepts_przygotowanie_pliku_zbiorczego_interrupted_in_zapisywanie_with_its_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     projection = ProgressProjection("RUN", PERIOD)
+    save_s = 0.05
 
     def fail_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+        time.sleep(save_s)
         raise ExternalLinksError("wymuszony błąd")
 
     monkeypatch.setattr(workbook_files, "save_workbook", fail_save)
@@ -395,6 +397,7 @@ def test_projekcja_postepu_przyjmuje_przygotowanie_przerwane_w_zapisywaniu(
         ProgressPhase.PLANNING: PhaseState.COMPLETED,
         ProgressPhase.SAVING: PhaseState.FAILED,
     }
+    assert projection.snapshot.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000
 
 
 def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path: Path) -> None:
@@ -882,12 +885,10 @@ def test_confirm_plan_gets_plan_after_planowanie_and_before_zapisywanie(tmp_path
     fixture = make_preparation_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
     seen: list[tuple[int, int, list[tuple[ProgressPhase, ProgressState]], bool]] = []
-    plans: list[PreparationSummary] = []
 
     def confirm_plan(plan: PreparationSummary) -> None:
         stages = [(event.phase, event.state) for event in recorded]
         seen.append((plan.period_order_count, plan.successful_order_count, stages, fixture.period_directory.exists()))
-        plans.append(plan)
 
     summary = run_preparation(fixture, observer=recorded.append, confirm_plan=confirm_plan)
 
@@ -895,8 +896,35 @@ def test_confirm_plan_gets_plan_after_planowanie_and_before_zapisywanie(tmp_path
     assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
     assert summary.period_order_count == 4
     assert fixture.collective_file_path.is_file()
-    assert set(plans[0].phase_durations_ms) == {ProgressPhase.CHECKING, ProgressPhase.READING, ProgressPhase.PLANNING}
-    assert set(summary.phase_durations_ms) == set(ProgressPhase)
+
+
+def test_stage_times_seen_by_confirm_plan_do_not_change_while_zapisywanie_is_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    save_s = 0.05
+    real_save_workbook = workbook_files.save_workbook
+    seen: list[tuple[Mapping[ProgressPhase, int], dict[ProgressPhase, int]]] = []
+
+    def slow_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+        time.sleep(save_s)
+        real_save_workbook(workbook, target, external_links_from=external_links_from)
+
+    def confirm_plan(plan: PreparationSummary) -> None:
+        seen.append((plan.phase_durations_ms, dict(plan.phase_durations_ms)))
+
+    monkeypatch.setattr(workbook_files, "save_workbook", slow_save)
+
+    summary = run_preparation(fixture, confirm_plan=confirm_plan)
+
+    [(seen_durations, read_in_confirm_plan)] = seen
+    assert set(read_in_confirm_plan) == {ProgressPhase.CHECKING, ProgressPhase.READING, ProgressPhase.PLANNING}
+    assert dict(seen_durations) == read_in_confirm_plan
+    assert summary.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000
+    assert dict(summary.phase_durations_ms) == {
+        **read_in_confirm_plan,
+        ProgressPhase.SAVING: summary.phase_durations_ms[ProgressPhase.SAVING],
+    }
     with pytest.raises(TypeError):
         summary.phase_durations_ms[ProgressPhase.SAVING] = 0  # type: ignore[index]
 

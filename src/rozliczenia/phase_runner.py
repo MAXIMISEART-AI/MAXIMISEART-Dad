@@ -29,7 +29,7 @@ def elapsed_ms_since(started: float) -> int:
     return max(0, round((time.perf_counter() - started) * 1000))
 
 
-def zero(result: object) -> int:
+def _zero(result: object) -> int:
     """Liczba domyślna, gdy etap nie podaje żadnej wartości."""
 
     return 0
@@ -65,8 +65,11 @@ class PhaseRunner:
         self._phase_started = self._run_started
         self._next_phase = 0
         self._active_phase: ProgressPhase | None = None
-        self._failed = False
-        self._failure_reported = False
+        # Któryś etap tego uruchomienia został przerwany; kolejnego etapu już nie ma.
+        self._run_interrupted = False
+        # Bieżące Zapisywanie zgłosiło już FAILED zdarzeniem wykonawcy, więc
+        # sekwencer nie wysyła drugiego FAILED etapu.
+        self._worker_failure_reported = False
         self._issue_count = 0
         self._template_total = 0
         self._durations_ms: dict[ProgressPhase, int] = {}
@@ -74,20 +77,20 @@ class PhaseRunner:
     def check(self, operation: Callable[[], ResultT]) -> ResultT:
         """Sprawdzanie."""
 
-        return self._run_phase(ProgressPhase.CHECKING, operation, lambda result: None)
+        return self._run_phase(ProgressPhase.CHECKING, operation)
 
     def read(
         self,
         operation: Callable[[], ResultT],
         *,
-        issue_count: Callable[[ResultT], int] = zero,
+        issue_count: Callable[[ResultT], int] = _zero,
     ) -> ResultT:
         """Odczyt danych, a po nim ``ISSUE_COUNT``."""
 
-        def settle(result: ResultT) -> None:
-            self._settle_issue_count(issue_count(result))
+        def record_counts(result: ResultT) -> None:
+            self._record_issue_count(issue_count(result))
 
-        result = self._run_phase(ProgressPhase.READING, operation, settle)
+        result = self._run_phase(ProgressPhase.READING, operation, record_counts)
         self._emit(ProgressEventFactory.issue_count(elapsed_ms=self.elapsed_ms(), issue_count=self._issue_count))
         return result
 
@@ -95,17 +98,17 @@ class PhaseRunner:
         self,
         operation: Callable[[], ResultT],
         *,
-        template_total: Callable[[ResultT], int] = zero,
+        template_total: Callable[[ResultT], int] = _zero,
         issue_count: Callable[[ResultT], int] | None = None,
     ) -> ResultT:
         """Planowanie, a po nim ``PLAN_READY``."""
 
-        def settle(result: ResultT) -> None:
+        def record_counts(result: ResultT) -> None:
             if issue_count is not None:
-                self._settle_issue_count(issue_count(result))
+                self._record_issue_count(issue_count(result))
             self._template_total = _count(template_total(result), "Liczba Szablonów pracownika")
 
-        result = self._run_phase(ProgressPhase.PLANNING, operation, settle)
+        result = self._run_phase(ProgressPhase.PLANNING, operation, record_counts)
         self._emit(
             ProgressEventFactory.plan_ready(
                 template_total=self._template_total,
@@ -118,7 +121,7 @@ class PhaseRunner:
     def save(self, operation: Callable[[], ResultT]) -> ResultT:
         """Zapisywanie; END ma liczbę Szablonów pracownika z planu."""
 
-        return self._run_phase(ProgressPhase.SAVING, operation, lambda result: None)
+        return self._run_phase(ProgressPhase.SAVING, operation)
 
     def notify(self, event: ProgressEvent) -> None:
         """Przekazuje obserwatorowi zdarzenie wykonawcy z trwającego Zapisywania."""
@@ -130,7 +133,7 @@ class PhaseRunner:
         if self._active_phase is not ProgressPhase.SAVING:
             raise ProgressProtocolError("Zdarzenie wykonawcy jest dozwolone tylko w trakcie Zapisywania.")
         if event.state is ProgressState.FAILED:
-            self._failure_reported = True
+            self._worker_failure_reported = True
         self._emit(event)
 
     @contextmanager
@@ -166,21 +169,24 @@ class PhaseRunner:
         self,
         phase: ProgressPhase,
         operation: Callable[[], ResultT],
-        settle: Callable[[ResultT], None],
+        record_counts: Callable[[ResultT], None] | None = None,
     ) -> ResultT:
+        """Wykonuje etap; ``record_counts`` zapisuje liczby z wyniku przed END."""
+
         self._enter(phase)
         self._phase_started = time.perf_counter()
-        self._failure_reported = False
+        self._worker_failure_reported = False
         self._emit(ProgressEventFactory.phase_started(phase, elapsed_ms=self.elapsed_ms()))
         try:
             result = operation()
-            settle(result)
+            if record_counts is not None:
+                record_counts(result)
         except Exception:
             phase_elapsed_ms = self.phase_elapsed_ms()
             self._durations_ms[phase] = phase_elapsed_ms
             self._active_phase = None
-            self._failed = True
-            if not self._failure_reported:
+            self._run_interrupted = True
+            if not self._worker_failure_reported:
                 self._emit(
                     ProgressEventFactory.phase_failed(
                         phase,
@@ -204,7 +210,7 @@ class PhaseRunner:
         )
         return result
 
-    def _settle_issue_count(self, issue_count: int) -> None:
+    def _record_issue_count(self, issue_count: int) -> None:
         issue_count = _count(issue_count, "Liczba problemów")
         if issue_count < self._issue_count:
             raise ProgressProtocolError("Liczba problemów uruchomienia nie może się zmniejszyć.")
@@ -215,7 +221,7 @@ class PhaseRunner:
             raise ProgressProtocolError(
                 f"Nie można rozpocząć etapu {phase.value} w trakcie etapu {self._active_phase.value}."
             )
-        if self._failed:
+        if self._run_interrupted:
             raise ProgressProtocolError(f"Nie można rozpocząć etapu {phase.value} po przerwaniu uruchomienia.")
         expected = _PHASE_ORDER[self._next_phase] if self._next_phase < len(_PHASE_ORDER) else None
         if phase is not expected:

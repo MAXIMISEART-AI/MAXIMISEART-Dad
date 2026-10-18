@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable, Iterable
@@ -512,7 +513,7 @@ def projected(projection: ProgressProjection) -> ProgressObserver:
     [(False, False, 0), (True, True, 1)],
     ids=["zapis", "dry-run-z-problemem"],
 )
-def test_projekcja_postepu_przyjmuje_caly_przebieg_rozliczen(
+def test_progress_projection_accepts_whole_przebieg_rozliczen(
     tmp_path: Path, dry_run: bool, include_unmapped: bool, issue_count: int
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
@@ -537,13 +538,15 @@ def test_projekcja_postepu_przyjmuje_caly_przebieg_rozliczen(
         summary.phase_durations_ms[ProgressPhase.SAVING] = 0  # type: ignore[index]
 
 
-def test_projekcja_postepu_przyjmuje_przerwany_przebieg_rozliczen(
+def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywanie_with_its_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     projection = ProgressProjection("RUN", PERIOD)
+    save_s = 0.05
 
     def fail_save(worker_name: str, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+        time.sleep(save_s)
         raise template_settlement.TemplateWriteError("synthetic failure")
 
     monkeypatch.setattr(template_settlement, "process_template", fail_save)
@@ -565,3 +568,4 @@ def test_projekcja_postepu_przyjmuje_przerwany_przebieg_rozliczen(
     }
     assert snapshot.template_total == 3
     assert snapshot.current_worker == "Adrian Maciejewski"
+    assert snapshot.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000

@@ -61,7 +61,7 @@ obserwacji.
   uruchomienia, bez tekstu wyjątku.
 - Telemetryka końcowego snapshotu zachowuje istniejący schemat i pozostaje
   oparta na `SettlementSummary` dla ukończonego Przebiegu rozliczeń.
-- Zwykłe CLI domyślnie obserwuje postęp; bez Rich używa adaptera plain z tą samą
+- Zwykłe CLI obserwuje postęp; bez Rich używa adaptera plain z tą samą
   projekcją i informacjami operacyjnymi.
 - Nowy stan i walidacja są częścią lokalnego kontraktu; nie są formatem
   zewnętrznej usługi ani zapisem danych klientów.

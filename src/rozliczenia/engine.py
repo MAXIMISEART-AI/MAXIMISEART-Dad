@@ -7,6 +7,7 @@ import tempfile
 import time
 import unicodedata
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -320,5 +321,4 @@ def run_settlements(
                 ) from exc
 
     phases.save(save_all)
-    summary.phase_durations_ms = phases.durations_ms()
-    return summary
+    return replace(summary, phase_durations_ms=phases.durations_ms())
