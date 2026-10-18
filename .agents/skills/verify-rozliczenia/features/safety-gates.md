@@ -10,6 +10,7 @@ Placeholder, overwriting an existing output folder, or publishing partial files.
 - `safety-target-folder` rejects an existing output folder without changing it.
 - `safety-lock` rejects a Placeholder with an Excel lock before creating output.
 - `safety-rollback` removes staging files after a workbook processing failure.
+- `safety-unreadable-source` stops on a damaged Plik zbiorczy with a safe Polish message and creates no output.
 
 ## How to get to it (user POV)
 
@@ -17,6 +18,7 @@ Placeholder, overwriting an existing output folder, or publishing partial files.
 - Create the output folder before a run and place a sentinel inside.
 - Leave `~$placeholder.xlsx` beside the shared Placeholder as Excel does while it is open.
 - Inject a failure while processing the second synthetic workbook and retry.
+- Run against a Plik zbiorczy that is not a valid `.xlsx` (for example damaged).
 
 ## Driving it with PowerShell and run.py
 
@@ -30,6 +32,7 @@ Preconditions:
 - **Existing output folder.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing`; the sentinel remains the only file.
 - **Excel lock.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant locked`; the run returns `1` and creates no output.
 - **Write failure.** Run `py -3 -m pytest tests/test_settlement_engine.py::test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion -q`; it checks cleanup and successful retry.
+- **Unreadable Plik zbiorczy.** Run `py -3 -m pytest tests/test_settlement_engine.py tests/test_cli_observability.py -k nieczytelny -q`; the run stops in Odczyt danych with "Nie można odczytać Pliku zbiorczego …", exit code `1`, no exception text and no output folder.
 - **Evidence.** Each command retains terminal output, exit codes, and read-only workbook assertions under its evidence directory. Do not log synthetic row values.
 
 ## Gotchas

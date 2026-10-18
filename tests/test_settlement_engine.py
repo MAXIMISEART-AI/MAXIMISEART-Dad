@@ -5,7 +5,7 @@ import os
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
@@ -21,6 +21,10 @@ import rozliczenia.template_settlement as template_settlement
 
 PERIOD = "08_14_09_2026"
 SOURCE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
+UNREADABLE_SOURCE_MESSAGE = (
+    f"Nie można odczytać Pliku zbiorczego {SOURCE_NAME}. "
+    "Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony."
+)
 
 
 def active_worksheet(workbook: Workbook) -> Worksheet:
@@ -166,6 +170,22 @@ def write_source(path: Path, *, include_unmapped: bool = True) -> None:
     workbook.save(path)
 
 
+def overwrite_with_non_workbook(path: Path) -> None:
+    path.write_bytes(b"uszkodzony")
+
+
+def cut_sheet_after_data_rows(path: Path) -> None:
+    """Skoroszyt się otwiera i ma WYKONAWCA w H17, ale XML arkusza urywa się za Wierszami danych."""
+
+    with zipfile.ZipFile(path) as source:
+        members = [(info, source.read(info.filename)) for info in source.infolist()]
+    with zipfile.ZipFile(path, "w") as target:
+        for info, data in members:
+            if info.filename == "xl/worksheets/sheet1.xml":
+                data = data[: data.rindex(b"</sheetData>")]
+            target.writestr(info, data)
+
+
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     period_directory = tmp_path / PERIOD
     period_directory.mkdir(parents=True)
@@ -297,6 +317,26 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
     assert summary.planned_count == 2
     assert summary.empty_count == 1
     assert not target_directory.exists()
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [overwrite_with_non_workbook, cut_sheet_after_data_rows],
+    ids=["nie-skoroszyt", "urwany-arkusz"],
+)
+def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_komunikatem(
+    tmp_path: Path,
+    damage: Callable[[Path], None],
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    damage(source_path)
+
+    with pytest.raises(SettlementError) as stop:
+        run_settlements(source_path, config_path, placeholder_path=tmp_path / "placeholder.xlsx")
+
+    assert str(stop.value) == UNREADABLE_SOURCE_MESSAGE
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
 def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: Path) -> None:
