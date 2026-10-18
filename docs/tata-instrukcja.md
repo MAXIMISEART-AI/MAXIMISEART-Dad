@@ -48,8 +48,9 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
    - Naciśnij Enter, żeby go potwierdzić.
    - Żeby przygotować inny tydzień, wpisz okres tak jak nazwę folderu, np.
      `08_14_09_2026` (wtorek 8, poniedziałek 14 września 2026) i naciśnij Enter.
-     Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. `29_05_10_2026`
-     dla 29 września – 5 października 2026.
+     Na przełomie miesięcy miesiąc i rok są z wtorku, np. `27_02_10_2026`
+     dla 27 października – 2 listopada 2026 albo `29_04_12_2026` dla
+     29 grudnia 2026 – 4 stycznia 2027.
    - Po złym zapisie narzędzie wyjaśni, co poprawić, i zapyta ponownie.
 5. Jeśli po etapie `Planowanie` pojawi się `Ostrzeżenie: niepełny okres`,
    sprawdź liczby `Zlecenia na dzień`. Wpisz `t`, żeby kontynuować, albo `n`,
@@ -110,7 +111,7 @@ więc po poprawce wystarczy uruchomić proces ponownie.
 | „nie ma żadnego zlecenia z tego okresu” | Sprawdź, czy wybrano właściwy okres i czy eksport zleceń jest zapisany w Rejestrze. Uruchom ponownie. |
 | „Plik tego okresu już istnieje” | Narzędzie nie nadpisuje plików okresu, żeby nie stracić ręcznych poprawek. Sprawdź okres. Jeśli plik ma powstać od nowa, przenieś albo usuń wskazany plik i uruchom ponownie. |
 | „Nie znaleziono folderu okresów” | Uruchom ponownie i wybierz istniejący folder okresów, np. `INEA`. |
-| „Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku” | Wpisz okres jak nazwę folderu: dzień wtorku, dzień poniedziałku, miesiąc i rok, np. `08_14_09_2026`. Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. `29_05_10_2026`. |
+| „Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku” | Wpisz okres jak nazwę folderu: dzień wtorku, dzień poniedziałku, miesiąc i rok, np. `08_14_09_2026`. Na przełomie miesięcy miesiąc i rok są z wtorku, np. `27_02_10_2026` (27 października – 2 listopada 2026). |
 | „Nie wybrano pliku Rejestru zleceń” | Uruchom ponownie i w pierwszym oknie wybierz plik Rejestru zleceń. |
 | „Nie wybrano folderu okresów” | Uruchom ponownie i w drugim oknie wybierz folder okresów, np. `INEA`. |
 | „Nie potwierdzono okresu ani nie wpisano innego” | Uruchom ponownie. Przy pytaniu `Okres:` naciśnij Enter albo wpisz okres. |

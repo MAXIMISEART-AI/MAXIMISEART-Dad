@@ -35,6 +35,6 @@ Preconditions:
 ## Gotchas
 
 - Without `--dry-run`, an incomplete period (last order before the Monday) asks for confirmation after the Planowanie stage, even when `--period` is passed. The orchestrator closes stdin, so such a question ends in refusal and exit `1` instead of a hang; keep a Monday order in the fixture.
-- The period token uses the Monday's month and year (`29_05_10_2026`); the Tuesday-month form is rejected.
+- The period token uses the Tuesday's month and year (`27_02_10_2026`, `29_04_12_2026`); the Monday-month form is rejected.
 - An existing Folder okresu is allowed; an existing period file stops the run (Nienadpisywanie).
 - The CLI prints no row content; the `PREP-SYN-` markers in the fixture exist so the self-test can catch a leak.
