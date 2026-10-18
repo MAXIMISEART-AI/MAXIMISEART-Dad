@@ -28,14 +28,12 @@ from openpyxl.worksheet.dimensions import Dimension
 from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from . import collective_file, workbook_files
 from . import preparation_messages as messages
-from . import workbook_files
 from .engine import normalize_text
 from .preparation_messages import PreparationMessage
 from .preparation_plan import PeriodOrder
-from .preparation_register import COLUMNS, UNREADABLE_WORKBOOK_ERRORS, CellFormat, header_columns, is_blank
-
-_COLLECTIVE_QUANTITY_COLUMNS = (14, 42)  # N:AP
+from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
 
 
 @dataclass(frozen=True)
@@ -48,7 +46,11 @@ class _TemplateLayout:
 
 
 _INTERNAL = _TemplateLayout(header_row=1, first_data_row=2, last_header_column=None)
-_COLLECTIVE = _TemplateLayout(header_row=17, first_data_row=18, last_header_column=11)  # A:K
+_COLLECTIVE = _TemplateLayout(
+    header_row=collective_file.HEADER_ROW,
+    first_data_row=collective_file.FIRST_DATA_ROW,
+    last_header_column=collective_file.INPUT_COLUMNS[-1],
+)
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ class PeriodFiles:
 
     @property
     def collective_file(self) -> Path:
-        return self.period_directory / f"Rozliczenie {self.period} - zbiorcze.xlsx"
+        return collective_file.path_for_period(self.period_directory, self.period)
 
     @property
     def filenames(self) -> tuple[str, str]:
@@ -74,16 +76,34 @@ class PeriodFiles:
 
 
 def check_templates(files: PeriodFiles) -> None:
-    """Sprawdzanie: oba wzorce istnieją, nie są otwarte, dają się odczytać i mają oczekiwane nagłówki."""
+    """Sprawdzanie: oba wzorce istnieją, nie są otwarte, dają się odczytać i mają oczekiwane nagłówki.
 
-    for template_path, layout in ((files.internal_template, _INTERNAL), (files.collective_template, _COLLECTIVE)):
-        workbook_files.ensure_available(
-            template_path,
-            missing=messages.template_missing,
-            open_in_excel=messages.template_open_in_excel,
-        )
-        with _open_template(template_path, layout):
-            pass
+    Wzorzec pliku zbiorczego ma ponadto WYKONAWCA w H17, bo stamtąd czyta go Przebieg rozliczeń.
+    """
+
+    _ensure_template_available(files.internal_template)
+    with _open_template(files.internal_template, _INTERNAL):
+        pass
+    _ensure_template_available(files.collective_template)
+    with _open_template(files.collective_template, _COLLECTIVE) as (_, sheet, _):
+        try:
+            collective_file.check_worker_header(sheet)
+        except collective_file.LayoutError as exc:
+            if exc.worker_column is None:
+                raise messages.template_without_header(
+                    files.collective_template, sheet.title, collective_file.HEADER_ROW, "WYKONAWCA"
+                ) from exc
+            raise messages.template_with_worker_outside_h(
+                files.collective_template, sheet.title, exc.worker_column
+            ) from exc
+
+
+def _ensure_template_available(template_path: Path) -> None:
+    workbook_files.ensure_available(
+        template_path,
+        missing=messages.template_missing,
+        open_in_excel=messages.template_open_in_excel,
+    )
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:
@@ -155,7 +175,7 @@ def _open_template(
 
     try:
         workbook = load_workbook(template_path, read_only=False, data_only=False, keep_links=True)
-    except UNREADABLE_WORKBOOK_ERRORS as exc:
+    except workbook_files.UNREADABLE_WORKBOOK_ERRORS as exc:
         raise messages.template_unreadable(template_path) from exc
     try:
         sheet = workbook.active
@@ -204,10 +224,13 @@ def _is_zero(value: object) -> bool:
 def _zero_row_count(sheet: Worksheet) -> int:
     """Liczba kolejnych wierszy danych Wzorca pliku zbiorczego z zerami w kolumnach ilości."""
 
-    first_column, last_column = _COLLECTIVE_QUANTITY_COLUMNS
+    quantity_columns = collective_file.QUANTITY_COLUMNS
     count = 0
     for values in sheet.iter_rows(
-        min_row=_COLLECTIVE.first_data_row, min_col=first_column, max_col=last_column, values_only=True
+        min_row=_COLLECTIVE.first_data_row,
+        min_col=quantity_columns[0],
+        max_col=quantity_columns[-1],
+        values_only=True,
     ):
         if not any(_is_zero(value) for value in values):
             break

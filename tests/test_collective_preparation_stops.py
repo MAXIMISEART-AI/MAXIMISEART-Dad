@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ from tests.collective_preparation_fixtures import (
     register_order,
     write_register,
 )
+from tests.test_settlement_engine import cut_sheet_after_data_rows
 
 
 def run_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationSummary:
@@ -223,9 +225,17 @@ def test_sheet_with_orders_of_other_periods_does_not_block_period(tmp_path: Path
     assert (summary.period_order_count, summary.successful_order_count) == (4, 3)
 
 
-def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda path: path.write_bytes(b"to nie jest skoroszyt Excela"),
+        lambda path: cut_sheet_after_data_rows(path, "xl/worksheets/sheet2.xml"),  # ZLECENIA za arkuszem lista
+    ],
+    ids=["nie-skoroszyt", "urwany-arkusz-zlecen"],
+)
+def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path, damage: Callable[[Path], object]) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    fixture.register_path.write_bytes(b"to nie jest skoroszyt Excela")
+    damage(fixture.register_path)
 
     error = stop_preparation(fixture)
 
@@ -329,6 +339,29 @@ def test_wzorzec_without_expected_header_stops_before_reading_rejestr(
         "Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {template_name}, arkusz {sheet}, wiersz {row}\n"
         "Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie."
+    )
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_wzorzec_pliku_zbiorczego_with_wykonawca_outside_h_stops_before_reading_rejestr(
+    tmp_path: Path, dry_run: bool
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    workbook = load_workbook(fixture.collective_template_path, keep_links=True)
+    sheet = workbook["Sheet1"]
+    sheet["G17"].value, sheet["H17"].value = sheet["H17"].value, sheet["G17"].value
+    workbook.save(fixture.collective_template_path)
+    workbook.close()
+    fixture.register_path.write_bytes(b"uszkodzony Rejestr")
+
+    error = stop_preparation(fixture, dry_run=dry_run)
+
+    assert error.message.code == "WYKONAWCA_POZA_H"
+    assert str(error) == (
+        "Co się stało: Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie G zamiast w H (wiersz 17). "
+        "Nie utworzono żadnego pliku.\n"
+        "Gdzie: plik Wzorzec pliku zbiorczego.xlsx, arkusz Sheet1, wiersz 17\n"
+        "Co zrobić: Przenieś WYKONAWCA do kolumny H we wzorcu i uruchom ponownie."
     )
 
 

@@ -14,16 +14,22 @@ import pytest
 
 import rozliczenia.cli as cli
 from rozliczenia.cli import main
+from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEventFactory, ProgressObserver, ProgressPhase, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
 from rozliczenia.progress import ProgressNotice, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
-from rozliczenia.template_settlement import ExcelRow
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.progress import PhaseState, ProgressNoticeKind
 from rozliczenia.telemetry import MetricsStore
 
-from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture, write_source
+from tests.test_settlement_engine import (
+    PERIOD,
+    UNREADABLE_SOURCE_MESSAGE,
+    active_worksheet,
+    make_fixture,
+    write_source,
+)
 
 
 def run_cli(
@@ -583,6 +589,19 @@ def test_cli_existing_folder_rozliczen_pracownikow_is_preserved(tmp_path: Path) 
     assert "Folder docelowy już istnieje" in output
     assert "Status semantyczny: BŁĄD" in output
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
+
+
+def test_cli_nieczytelny_plik_zbiorczy_pokazuje_bezpieczny_komunikat(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    source_path.write_bytes(b"uszkodzony")
+
+    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
+
+    assert exit_code == 1
+    assert "Status semantyczny: BŁĄD" in output
+    assert f"Nie wykonano: {UNREADABLE_SOURCE_MESSAGE}" in output
+    assert "File is not a zip file" not in output
+    assert not target_directory.exists()
 
 
 def test_cli_wykonawca_bez_mapowania_nie_publikuje_folderu(tmp_path: Path) -> None:

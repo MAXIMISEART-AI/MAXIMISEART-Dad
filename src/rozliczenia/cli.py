@@ -10,6 +10,7 @@ import sys
 import time
 from typing import Any, Callable, Mapping, TextIO
 
+from . import collective_file
 from .domain import PHASES, ProgressEvent, ProgressPhase, SettlementSummary
 from .engine import (
     SettlementError,
@@ -79,7 +80,7 @@ def choose_source_file() -> Path:
     selected = ask_in_dialog(
         lambda dialog: dialog.askopenfilename(
             title="Wybierz plik zbiorczy rozliczenia",
-            filetypes=[("Plik zbiorczy Excel", "Rozliczenie * - zbiorcze.xlsx"), ("Excel", "*.xlsx")],
+            filetypes=[("Plik zbiorczy Excel", collective_file.NAME_GLOB), ("Excel", "*.xlsx")],
         )
     )
     if selected:
@@ -89,7 +90,7 @@ def choose_source_file() -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Rozdziela plik zbiorczy na szablony pracowników.")
-    parser.add_argument("--source", type=Path, help="Ścieżka do pliku ... - zbiorcze.xlsx")
+    parser.add_argument("--source", type=Path, help=f"Ścieżka do pliku {collective_file.NAME_GLOB}")
     parser.add_argument("--config", type=Path, default=default_config_path())
     parser.add_argument(
         "--placeholder",

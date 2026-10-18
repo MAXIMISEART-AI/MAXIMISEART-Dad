@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import tempfile
 import zipfile
+import zlib
 from collections.abc import Callable
 from pathlib import Path
+from xml.etree.ElementTree import ParseError
 
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook.workbook import Workbook
@@ -15,6 +17,18 @@ from openpyxl.workbook.workbook import Workbook
 _EXTERNAL_LINKS_PREFIX = "xl/externalLinks/"
 _ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 _WORKBOOK_FILE_ERRORS = (OSError, InvalidFileException, ValueError, zipfile.BadZipFile)
+
+# Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx: przy otwieraniu, a w trybie
+# tylko do odczytu także przy czytaniu wierszy, bo arkusz jest wtedy parsowany leniwie.
+UNREADABLE_WORKBOOK_ERRORS = (
+    OSError,
+    InvalidFileException,
+    zipfile.BadZipFile,
+    KeyError,
+    ValueError,
+    zlib.error,
+    ParseError,
+)
 
 
 class WorkbookSaveError(Exception):
