@@ -1,0 +1,141 @@
+---
+name: verify-publikacja-plikow-okresu
+description: Exhaustively check that Przygotowanie pliku zbiorczego publishes Rozliczenie wewnętrzne and Plik zbiorczy together or not at all, and never overwrites another file, under every order of a second run, Dad's actions, filesystem errors, and a killed process. Use when a change touches `write_period_files`, `_publish`, `ensure_period_files_absent` in `src/rozliczenia/preparation_files.py`, or `test_publikacja_plikow_okresu` fails.
+---
+
+# Verify publikacja plików okresu
+
+## The promise
+
+- **NIENADPISYWANIE**: publishing the period files never removes, replaces, or
+  moves away a file or folder that someone else made. Harm: Dad loses a Plik
+  zbiorczy he already filled in for Gotowość.
+- **RAZEM_ALBO_ZADEN**: after an Uruchomienie procesu ends, its Folder okresu
+  holds both period files or neither. A success leaves both. A stop leaves
+  neither, because its message says „Nie utworzono żadnego pliku”. Harm: with only
+  one file in place, the next run stops on `PLIK_OKRESU_ISTNIEJE` and Dad has to
+  delete a file by hand.
+
+## Does the change touch it?
+
+The check covers `preparation_files.write_period_files()` from the staging
+directory onwards: `staged_directory.mkdir()`, both staged writes,
+`_publish()`, `ensure_period_files_absent()` and the rollback. Run it when a diff
+touches any of these, or the exception mapping in `write_period_files`, or makes
+`prepare_collective_file()` publish without going through `write_period_files`.
+Changes to workbook content (`_write_period_file`, styles, Rejestr reading) do
+not matter here: the check replaces workbook writing with one step that creates
+the staged file.
+
+## Run
+
+```powershell
+py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\explore_publication.py
+```
+
+On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 3 s, needs
+nothing beyond the repo's Python, and runs in CI as
+`tests/test_publikacja_plikow_okresu.py`. In a worktree the script checks the
+worktree's own `src`.
+
+The last line is the verdict:
+
+| Last line | Exit | Meaning |
+| --- | --- | --- |
+| `PUBLIKACJA OK` | 0 | Both rules hold in every schedule. |
+| `PUBLIKACJA OK, ZNANE USTALENIA: n` | 0 | Only the known findings below, each printed with its counterexample. |
+| `PUBLIKACJA: NOWE NARUSZENIE (n)` | 1 | A rule breaks in a way not listed below, or `BRAK_PUBLIKACJI`: with no errors, kills, or Dad actions, nothing was ever published. |
+| `PUBLIKACJA: LUKA MODELU (n)` | 2 | The code made a filesystem call the in-memory disk does not model. No verdict on the rules. |
+
+`--scope jedno-uruchomienie` or `--scope dwa-uruchomienia` runs one scope.
+`--strict` counts known findings as violations too.
+
+## How it works and what it covers
+
+The script runs the real `write_period_files()` in threads against an in-memory
+disk with Windows semantics: `os.rename` never replaces an existing target, and
+`os.replace` replaces a file but never a folder. Every filesystem call is one
+indivisible step, the same as one call in the code. Before each step the
+checker tries every possibility: the other run moves first, Dad acts first, the
+call fails with `PermissionError` (Excel, antivirus, or OneDrive holding the
+file), or the process is killed (Dad closes the console window). Schedules that
+reach a state already seen are cut short. This is sound because the code is
+deterministic: a state means the disk, what each run has observed so far, and
+the bounds left.
+
+| Scope | Runs at once | Initial Folder okresu | Dad's actions | Failed calls | Kills |
+| --- | --- | --- | --- | --- | --- |
+| `jedno-uruchomienie` | 1 | absent, empty, with Dad's file named like either period file | ≤ 2 | ≤ 2 | ≤ 1 |
+| `dwa-uruchomienia` (Dad double-clicks the launcher) | 2 | same four | ≤ 1 | ≤ 1 | ≤ 1 |
+
+Dad's actions are: create the Folder okresu, or save his own file under a
+period file's name. Failures are injected only into calls that change the
+disk. Before exploring, a probe confirms that `Path.exists`, `is_symlink`,
+`mkdir`, `rename`, `unlink` and `os.rename` reach the in-memory disk on the
+running Python. CI runs the probe on 3.11 and 3.14. Native fast paths that skip
+the patched `os` functions, such as `_winapi.CopyFile2` inside `shutil.copyfile`
+on Windows with Python 3.14, still raise an audit event. A `sys.addaudithook`
+turns any real filesystem call on an in-memory path into LUKA MODELU.
+Otherwise it would fail on the missing real path as an ordinary `OSError`.
+
+Not covered: the steps before Zapisywanie (Sprawdzanie, Odczyt danych,
+Planowanie), workbook content, POSIX rename semantics (macOS and Linux replace
+an existing target, so there only the re-check in `_publish` guards, with a race
+window after it), symlinks,
+network drives whose rename is not atomic, more than two runs or the bounds
+above, and Przebieg rozliczeń's own folder publication in `engine.py`.
+
+## Known findings
+
+Both are real defects in the current code. They are reported on every run until
+the code is fixed:
+
+1. **Proces zamknięty w trakcie publikacji.** When the Folder okresu already exists,
+   `_publish` moves the two files with two separate `os.rename` calls
+   (`preparation_files.py`, loop in `_publish`). If the process dies between them, only
+   Rozliczenie wewnętrzne is left. The next run stops on `PLIK_OKRESU_ISTNIEJE`.
+2. **Nieudane wycofanie.** If moving the Plik zbiorczy fails and the rollback's
+   `target.unlink()` fails as well (the file is held by antivirus or OneDrive),
+   Rozliczenie wewnętrzne is left. Dad still sees `BLAD_ZAPISU` „Nie utworzono
+   żadnego pliku”.
+
+When a code change fixes one, the checker prints it as gone. Delete its entry
+from `KNOWN_FINDINGS` in `explore_publication.py` and from this list.
+
+## When the check fails
+
+Read the counterexample as a story. Each numbered line is one step:
+`u1`/`u2` are the runs, `tata` is Dad, and `[preparation_files.py:LINE function]`
+is the code that made the call. Then sort it into one of three cases:
+
+- **Real bug**: the story is something that can happen to Dad on Windows, and
+  the end state breaks the rule as stated above. Report it with the story in
+  those words. Fix the product code only if the user asks. If the user accepts
+  the risk instead, add the printed signature to `KNOWN_FINDINGS` with a one-line
+  description, and add it to Known findings here.
+- **Modeling error**: the story contains a step Windows would not do, such as a
+  rename that replaces a file, or a step the code cannot reach. Fix the
+  in-memory disk (`VirtualDisk`) or the harness, then rerun the mutations below.
+- **LUKA MODELU**: the code started using a call the disk does not model (for
+  example `shutil.move`, `open`, `os.scandir`). Model the call in `intercepted()`
+  and `VirtualDisk` with its Windows behaviour, or ask whether the code should
+  avoid it. Never reword a rule or shrink a scope to make a real counterexample
+  disappear.
+
+## After changing the checker or an intended change to the publication code
+
+Prove the check can still fail. This applies the broken variants to a temporary
+copy of `src`, never to the checkout:
+
+```powershell
+py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\check_mutations.py
+```
+
+It must end with `MUTACJE OK`: `os.replace` instead of `os.rename`, a removed
+rollback, and recording a file for rollback before it is moved all give `NOWE
+NARUSZENIE`. `shutil.move` gives `LUKA MODELU`. A mutation reported as
+`NIEAKTUALNA` no longer matches `preparation_files.py`. Rewrite its `anchor` and
+`replacement` in `check_mutations.py` against the new code so it breaks the same
+rule again. If the publication code moves to another file, update
+`VERIFIED_FILE` and the harness in `explore_publication.py`, and update this
+skill's description.
