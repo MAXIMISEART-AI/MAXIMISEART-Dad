@@ -80,6 +80,14 @@ jobs:
       - name: Run tests
         run: py -3 -m pytest
 
+      - name: Prove the publication check fails on broken variants
+        shell: pwsh
+        run: |
+          py -3 .agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "Mutation check failed (exit code $LASTEXITCODE)"
+          }
+
   e2e:
     name: E2E (Python ${{ matrix.python-version }})
     runs-on: windows-latest

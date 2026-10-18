@@ -39,6 +39,7 @@ include = [
     "tests/**/*.py",
     "tools/**/*.py",
     ".agents/skills/verify-rozliczenia/scripts/*.py",
+    ".agents/skills/verify-publikacja-plikow-okresu/scripts/*.py",
 ]
 extend-exclude = [".claude"]
 
@@ -50,6 +51,7 @@ files = [
     "tests",
     "tools",
     ".agents/skills/verify-rozliczenia/scripts",
+    ".agents/skills/verify-publikacja-plikow-okresu/scripts",
 ]
 mypy_path = "src"
 show_error_codes = true
