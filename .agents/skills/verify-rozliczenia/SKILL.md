@@ -60,6 +60,15 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant pr
 `run_preparation.py` through dry-run and write, and checks both period files.
 Its route, counts, and launcher test are in `features/prepare-collective-file.md`.
 
+Before handing work over, run every variant in one command, as CI does:
+
+```powershell
+py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant all
+```
+
+On macOS or Linux, replace `py -3` with `.venv/bin/python`; README.md covers
+the `.venv` setup.
+
 There is no server, port, login, seed database, or persistent instance. The
 runner's subprocess timeout is 120 seconds; a timed-out child is terminated by
 the process handle and the scratch cleanup still runs.
