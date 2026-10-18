@@ -83,6 +83,10 @@ REGISTER_DATE_FORMAT = "dd.mm.yyyy hh:mm"
 # Wygląd wierszy danych z wzorców.
 TEMPLATE_FONT_NAME = "Calibri"
 TEMPLATE_FONT_SIZE = 10
+# Wzorzec ze stylem wiersza: kolumny mają większą czcionkę niż wiersze danych,
+# a komórki danych nie mają własnego stylu. Excel daje wpisanemu tekstowi styl wiersza.
+TEMPLATE_COLUMN_FONT_SIZE = 11
+TEMPLATE_ROW_STYLED_ROWS = 40
 
 
 @dataclass(frozen=True)
@@ -194,24 +198,29 @@ def write_register(
     return path
 
 
-def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int) -> None:
+def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, row_style: bool = False) -> None:
     """Szerokości kolumn, czcionka kolumn, wysokości wierszy, pogrubiony nagłówek i blokada nagłówka.
 
     Autofiltr wzorca celowo obejmuje zły zakres, który Przygotowanie ma zignorować.
+    Z ``row_style`` wiersze danych mają styl wiersza z czcionką wzorca, a kolumny większą czcionkę.
     """
 
+    column_font_size = TEMPLATE_COLUMN_FONT_SIZE if row_style else TEMPLATE_FONT_SIZE
     for column in range(1, columns + 1):
         dimension = sheet.column_dimensions[get_column_letter(column)]
         dimension.width = 9 + column
-        dimension.font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE)
+        dimension.font = Font(name=TEMPLATE_FONT_NAME, size=column_font_size)
         sheet.cell(header_row, column).font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE, bold=True)
     sheet.row_dimensions[header_row].height = 30
     sheet.row_dimensions[header_row + 1].height = 14
     sheet.freeze_panes = f"A{header_row + 1}"
     sheet.auto_filter.ref = f"B{header_row}:C{header_row + 40}"
+    if row_style:
+        for row in range(header_row + 1, header_row + 1 + TEMPLATE_ROW_STYLED_ROWS):
+            sheet.row_dimensions[row].font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE)
 
 
-def write_internal_template(path: Path) -> Path:
+def write_internal_template(path: Path, *, row_style: bool = False) -> Path:
     """Wzorzec rozliczenia wewnętrznego: nagłówki w wierszu 1, bez zleceń."""
 
     workbook = Workbook()
@@ -219,13 +228,16 @@ def write_internal_template(path: Path) -> Path:
     sheet.title = "Arkusz1"
     for column, header in enumerate(INTERNAL_TEMPLATE_HEADERS, start=1):
         sheet.cell(1, column).value = header
-    _apply_template_layout(sheet, 1, len(INTERNAL_TEMPLATE_HEADERS))
+    _apply_template_layout(sheet, 1, len(INTERNAL_TEMPLATE_HEADERS), row_style=row_style)
     workbook.save(path)
     return path
 
 
-def write_collective_template(path: Path) -> Path:
-    """Wzorzec pliku zbiorczego: stawki w wierszach 1–16, nagłówki w 17, zera i formuły, link zewnętrzny."""
+def write_collective_template(path: Path, *, row_style: bool = False) -> Path:
+    """Wzorzec pliku zbiorczego: stawki w wierszach 1–16, nagłówki w 17, zera i formuły, link zewnętrzny.
+
+    Z ``row_style`` komórki A:K wierszy danych nie mają własnego stylu, tylko styl wiersza.
+    """
 
     workbook = Workbook()
     sheet = active_worksheet(workbook)
@@ -239,9 +251,10 @@ def write_collective_template(path: Path) -> Path:
         sheet.cell(17, column).value = header
     sheet["N17"] = "instalacja"
     sheet["AP17"] = "demontaż"
-    _apply_template_layout(sheet, 17, len(COLLECTIVE_TEMPLATE_HEADERS))
+    _apply_template_layout(sheet, 17, len(COLLECTIVE_TEMPLATE_HEADERS), row_style=row_style)
+    styled_data_columns = 0 if row_style else len(COLLECTIVE_TEMPLATE_HEADERS)
     for row in range(18, 18 + COLLECTIVE_TEMPLATE_ZERO_ROWS):
-        for column in range(1, len(COLLECTIVE_TEMPLATE_HEADERS) + 1):  # A:K, przygotowane we wzorcu
+        for column in range(1, styled_data_columns + 1):  # A:K, przygotowane we wzorcu
             cell = sheet.cell(row, column)
             cell.font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE)
             cell.fill = COLLECTIVE_TEMPLATE_DATA_FILL
