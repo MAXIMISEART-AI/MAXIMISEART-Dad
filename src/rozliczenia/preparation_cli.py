@@ -352,6 +352,7 @@ def main(
         record,
         failure_warning="Nie zapisano metryk; Przygotowanie pliku zbiorczego zakończyło się niezależnie.",
     )
+    dashboard.print_detached_observer_notice()
     return 0 if summary is not None else 1
 
 
