@@ -1,13 +1,15 @@
 """CLI Przebiegu rozliczeń (uruchamiane przez ``run.py``).
 
-Opisuje proces dla Uruchomienia procesu (``process_run``): argumenty, wybór
-Pliku zbiorczego, wywołanie silnika oraz linie statusu i podsumowania.
+Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
+(``SettlementInputs``), argumenty i wybór Pliku zbiorczego w terminalu,
+wywołanie silnika oraz linie statusu i podsumowania. Inny rozmówca niż
+terminal podaje gotowe ``SettlementInputs`` do ``run_process(PROCESS, ...)``.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
 
@@ -22,6 +24,7 @@ from .engine import (
 from .process_run import Conversation, Finished, Process, Stop, run
 from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
+from .terminal_conversation import TerminalConversation
 
 _UNEXPECTED_FAILURE = (
     "Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany. "
@@ -61,13 +64,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-@dataclass(frozen=True)
-class _Inputs:
-    source: Path
-    period: str
-    args: argparse.Namespace
-
-
 def _period_label(source: Path) -> str:
     try:
         return period_from_source(source.expanduser().resolve())
@@ -75,23 +71,44 @@ def _period_label(source: Path) -> str:
         return UNKNOWN_PERIOD
 
 
-def _gather(args: argparse.Namespace, conversation: Conversation) -> _Inputs:
+@dataclass(frozen=True)
+class SettlementInputs:
+    """Wejście procesu Przebiegu rozliczeń, niezależne od argumentów CLI.
+
+    Okres wynika z nazwy Pliku zbiorczego (``nieznany``, gdy się nie da).
+    Konfiguracja wykonawców i wzorzec mają te same domyślne ścieżki co CLI.
+    """
+
+    source: Path
+    dry_run: bool = False
+    config_path: Path = field(default_factory=default_config_path)
+    worker_template_path: Path = field(default_factory=default_worker_template_path)
+
+    @property
+    def period(self) -> str:
+        return _period_label(self.source)
+
+
+def _gather(args: argparse.Namespace, conversation: TerminalConversation) -> SettlementInputs:
     source = args.source or conversation.choose_file(
         "Wybierz plik zbiorczy rozliczenia",
         [("Plik zbiorczy Excel", collective_file.NAME_GLOB), ("Excel", "*.xlsx")],
     )
     if source is None:
         raise SettlementError("Nie wybrano pliku zbiorczego.")
-    return _Inputs(source, _period_label(source), args)
+    return SettlementInputs(
+        source, dry_run=args.dry_run, config_path=args.config, worker_template_path=args.worker_template
+    )
 
 
-def _execute(inputs: _Inputs, observer: ProgressObserver, _conversation: Conversation) -> SettlementSummary:
-    args = inputs.args
+def _execute(
+    inputs: SettlementInputs, observer: ProgressObserver, _conversation: Conversation
+) -> SettlementSummary:
     return engine.run_settlements(
         inputs.source,
-        args.config,
-        dry_run=args.dry_run,
-        worker_template_path=args.worker_template,
+        inputs.config_path,
+        dry_run=inputs.dry_run,
+        worker_template_path=inputs.worker_template_path,
         observer=observer,
     )
 
@@ -131,13 +148,13 @@ def _summary_lines(summary: SettlementSummary, *, dry_run: bool) -> list[str]:
     return lines
 
 
-def _finished(inputs: _Inputs, summary: SettlementSummary) -> Finished:
+def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     return Finished(
         status_lines=[
             f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}",
             f"Status końcowy: {'OK' if summary.ok else 'Wymaga sprawdzenia'}",
         ],
-        summary_lines=_summary_lines(summary, dry_run=inputs.args.dry_run),
+        summary_lines=_summary_lines(summary, dry_run=inputs.dry_run),
         result="OK" if summary.ok else "WYMAGA_SPRAWDZENIA",
         counters={
             "templates_total": summary.template_count,
@@ -166,7 +183,8 @@ def _stopped(stop: Stop) -> list[str]:
     return ["Status semantyczny: BŁĄD", *(f"Nie wykonano: {line}" for line in lines)]
 
 
-_PROCESS: Process[_Inputs, SettlementSummary] = Process(
+# Opis Przebiegu rozliczeń dla rdzenia Uruchomienia procesu.
+PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
     title="Rozliczenia",
     shows_templates=True,
     parser=build_parser,
@@ -189,7 +207,7 @@ def main(
 ) -> int:
     """Uruchamia Przebieg rozliczeń; ``0`` OK, ``2`` Wymaga sprawdzenia, ``1`` błąd."""
 
-    return run(_PROCESS, argv, output=output, metrics_path=metrics_path)
+    return run(PROCESS, argv, output=output, metrics_path=metrics_path)
 
 
 if __name__ == "__main__":

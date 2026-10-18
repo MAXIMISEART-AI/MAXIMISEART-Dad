@@ -1,14 +1,16 @@
 """CLI Przygotowania pliku zbiorczego (osobne wejście, uruchamiane przez ``run_preparation.py``).
 
-Opisuje proces dla Uruchomienia procesu (``process_run``): argumenty, wybór
-Rejestru zleceń, folderu okresów i okresu, wywołanie silnika oraz linie
-statusu i podsumowania.
+Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
+(``PreparationInputs``), argumenty i wybór Rejestru zleceń, folderu okresów i
+okresu w terminalu, wywołanie silnika oraz linie statusu i podsumowania.
+Inny rozmówca niż terminal podaje gotowe ``PreparationInputs`` do
+``run_process(PROCESS, ...)``.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from functools import partial
 from pathlib import Path
@@ -27,12 +29,12 @@ from .engine import default_config_path
 from .preparation_messages import PreparationMessage, plan_not_shown, summary_not_shown, unexpected_failure
 from .process_run import Conversation, Finished, Process, Stop, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
+from .terminal_conversation import TerminalConversation
 
 _TITLE = "Przygotowanie pliku zbiorczego"
 # Liczniki historii metryk Przygotowania pliku zbiorczego (inne niż Przebiegu rozliczeń).
 _COUNTERS = frozenset({"period_orders", "successful_orders", "skipped_empty_rows", "warnings"})
 _WEEKDAY_LABELS = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
-_YES_ANSWERS = ("t", "tak")
 
 
 def default_metrics_path() -> Path:
@@ -119,7 +121,7 @@ def _period_label(period: SettlementPeriod) -> str:
     return f"{period.token} (wtorek {period.tuesday:%d.%m.%Y} – poniedziałek {period.monday:%d.%m.%Y})"
 
 
-def _ask_period(today: date, conversation: Conversation) -> str:
+def _ask_period(today: date, conversation: TerminalConversation) -> str:
     """Proponuje ostatni pełny okres; Enter go potwierdza, inny poprawny token go zastępuje."""
 
     proposed = last_complete_period(today)
@@ -143,7 +145,8 @@ def _ask_period(today: date, conversation: Conversation) -> str:
 class _IncompletePeriodQuestion:
     """Decyzja po Planowaniu: przy niepełnym okresie pyta tatę o kontynuację.
 
-    Silnik wywołuje ją z planem między Planowaniem a Zapisywaniem. Odmowa to
+    Silnik wywołuje ją z planem między Planowaniem a Zapisywaniem. Decyzję
+    podejmuje tata przez rozmówcę (``Conversation.confirm``). Odmowa to
     ``PreparationError``.
     """
 
@@ -154,27 +157,33 @@ class _IncompletePeriodQuestion:
         warning = next((item for item in plan.warnings if item.code == messages.INCOMPLETE_PERIOD), None)
         if warning is None:
             return
-        with self._conversation.paused():
-            self._conversation.say(
-                "Ostrzeżenie: niepełny okres",
-                *warning.text.splitlines(),
-                "Zlecenia na dzień:",
-                *_orders_per_day_lines(plan.orders_per_day),
-            )
-            answer = self._conversation.ask("Kontynuować mimo niepełnego okresu? Wpisz t (tak) albo n (nie): ")
-            if answer is None or answer.casefold() not in _YES_ANSWERS:
-                raise messages.incomplete_period_refused(plan.period)
+        lines = [
+            "Ostrzeżenie: niepełny okres",
+            *warning.text.splitlines(),
+            "Zlecenia na dzień:",
+            *_orders_per_day_lines(plan.orders_per_day),
+        ]
+        if not self._conversation.confirm(lines, "Kontynuować mimo niepełnego okresu?"):
+            raise messages.incomplete_period_refused(plan.period)
 
 
 @dataclass(frozen=True)
-class _Inputs:
+class PreparationInputs:
+    """Wejście procesu Przygotowania pliku zbiorczego, niezależne od argumentów CLI.
+
+    Konfiguracja wykonawców i oba wzorce mają te same domyślne ścieżki co CLI.
+    """
+
     register_path: Path
     periods_directory: Path
     period: str
-    args: argparse.Namespace
+    dry_run: bool = False
+    config_path: Path = field(default_factory=default_config_path)
+    internal_template_path: Path = field(default_factory=default_internal_template_path)
+    collective_template_path: Path = field(default_factory=default_collective_template_path)
 
 
-def _gather(today: date | None, args: argparse.Namespace, conversation: Conversation) -> _Inputs:
+def _gather(today: date | None, args: argparse.Namespace, conversation: TerminalConversation) -> PreparationInputs:
     register_path = args.register or conversation.choose_file(
         "Wybierz plik Rejestru zleceń", [("Rejestr zleceń Excel", "ZLECENIA*.xlsx"), ("Excel", "*.xlsx")]
     )
@@ -184,28 +193,37 @@ def _gather(today: date | None, args: argparse.Namespace, conversation: Conversa
     if periods_directory is None:
         raise messages.periods_directory_not_selected()
     period = args.period or _ask_period(today or date.today(), conversation)
-    return _Inputs(register_path, periods_directory, period, args)
+    return PreparationInputs(
+        register_path,
+        periods_directory,
+        period,
+        dry_run=args.dry_run,
+        config_path=args.config,
+        internal_template_path=args.internal_template,
+        collective_template_path=args.collective_template,
+    )
 
 
-def _execute(inputs: _Inputs, observer: ProgressObserver, conversation: Conversation) -> PreparationSummary:
-    args = inputs.args
+def _execute(
+    inputs: PreparationInputs, observer: ProgressObserver, conversation: Conversation
+) -> PreparationSummary:
     return collective_preparation.prepare_collective_file(
         inputs.register_path,
         inputs.periods_directory,
         inputs.period,
-        args.config,
-        internal_template_path=args.internal_template,
-        collective_template_path=args.collective_template,
-        dry_run=args.dry_run,
+        inputs.config_path,
+        internal_template_path=inputs.internal_template_path,
+        collective_template_path=inputs.collective_template_path,
+        dry_run=inputs.dry_run,
         observer=observer,
         confirm_plan=_IncompletePeriodQuestion(conversation),
     )
 
 
-def _finished(inputs: _Inputs, summary: PreparationSummary) -> Finished:
+def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finished:
     return Finished(
         status_lines=["Status końcowy: OK"],
-        summary_lines=_summary_lines(summary, dry_run=inputs.args.dry_run),
+        summary_lines=_summary_lines(summary, dry_run=inputs.dry_run),
         result="OK",
         counters={
             "period_orders": summary.period_order_count,
@@ -235,7 +253,7 @@ def _stopped(stop: Stop) -> list[str]:
     return ["Status końcowy: BŁĄD", *message.text.splitlines()]
 
 
-def _process(today: date | None) -> Process[_Inputs, PreparationSummary]:
+def _process(today: date | None) -> Process[PreparationInputs, PreparationSummary]:
     return Process(
         title=_TITLE,
         shows_templates=False,
@@ -249,6 +267,10 @@ def _process(today: date | None) -> Process[_Inputs, PreparationSummary]:
         finished=_finished,
         stopped=_stopped,
     )
+
+
+# Opis Przygotowania pliku zbiorczego dla rdzenia Uruchomienia procesu.
+PROCESS = _process(None)
 
 
 def main(

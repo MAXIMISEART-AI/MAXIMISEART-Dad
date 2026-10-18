@@ -2,7 +2,7 @@
 
 Wspólne dla testów Uruchomienia procesu i CLI obu procesów: ``TtyOutput``
 udaje terminal, a ``install_fake_rich`` podmienia ``Console`` i ``Live`` w
-``process_run``, żeby dało się czytać, co podgląd pokazał.
+``terminal_conversation``, żeby dało się czytać, co podgląd pokazał.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Any, TextIO
 
 import pytest
 
-import rozliczenia.process_run as process_run
+import rozliczenia.terminal_conversation as terminal_conversation
 
 
 class TtyOutput(StringIO):
@@ -60,8 +60,8 @@ def install_fake_rich(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     def make_live(_renderable: Any, *, console: FakeConsole, auto_refresh: bool = True, **_kwargs: Any) -> FakeLive:
         return FakeLive(live_log, console, auto_refresh=auto_refresh)
 
-    monkeypatch.setattr(process_run, "Console", FakeConsole)
-    monkeypatch.setattr(process_run, "Live", make_live)
+    monkeypatch.setattr(terminal_conversation, "Console", FakeConsole)
+    monkeypatch.setattr(terminal_conversation, "Live", make_live)
     return live_log
 
 

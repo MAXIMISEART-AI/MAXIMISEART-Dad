@@ -1,44 +1,96 @@
-"""Uruchomienie procesu: jedno wejście ``run`` dla CLI obu procesów taty.
+"""Uruchomienie procesu: rdzeń wspólny dla każdego rozmówcy i wejście ``run`` dla CLI.
 
-Moduł prowadzi Uruchomienie procesu od argumentów do kodu wyjścia: rozmowę z
-tatą, start pomiaru i podglądu postępu, przechwycenie każdego wyjątku,
-``Czas uruchomienia``, metryki z P50/P95 i linię o odłączonym obserwatorze.
-Proces opisuje tylko to, co jest jego (``Process``). Tekst wyjątku nigdy nie
-przechodzi przez ten seam: tata widzi wyłącznie linie podane przez proces.
+Rdzeń (``run_process``) prowadzi Uruchomienie procesu od gotowego wejścia
+procesu do wyniku: pomiar ``Czas uruchomienia`` bez czasu decyzji taty, jedną
+projekcję postępu (ADR 0002) z odłączanym obserwatorem, przechwycenie każdego
+wyjątku, zamianę na ``Stop`` albo ``Finished``, metryki z P50/P95 i linie
+końcowe. Rozmówca (``Interlocutor``) rozmawia z tatą i pokazuje postęp:
+terminal (``TerminalConversation``) albo inny, np. Centrum rozliczeń.
+
+``run`` to wejście CLI obu procesów: parsuje argumenty, ustala wejście
+procesu w rozmowie w terminalu i zwraca kod wyjścia. Proces opisuje tylko to,
+co jest jego (``Process``). Tekst wyjątku nigdy nie przechodzi przez ten seam:
+tata widzi wyłącznie linie podane przez proces.
 """
 
 from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import os
 from pathlib import Path
 import sys
 import time
 from typing import Any, Generic, Literal, Protocol, TextIO, TypeVar
 
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase
-from .plain_progress import PlainProgressAdapter
-from .progress import ProgressNotice, ProgressProjection
-from .rich_progress import Console, Live, RichProgressAdapter
+from .progress import ProgressNotice, ProgressProjection, ProgressSnapshot
 from .telemetry import UNKNOWN_PERIOD, MetricsStore, comparable_records, metric_record, statistics_for
+from .terminal_conversation import TerminalConversation
 
-__all__ = ["Conversation", "Finished", "Process", "Stop", "run"]
+__all__ = [
+    "Conversation",
+    "Finished",
+    "Interlocutor",
+    "Outcome",
+    "Process",
+    "ProcessInputs",
+    "Stop",
+    "run",
+    "run_process",
+]
 
 _DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
-_EXIT_CODES = {"OK": 0, "WYMAGA_SPRAWDZENIA": 2}
+_EXIT_CODES = {"OK": 0, "WYMAGA_SPRAWDZENIA": 2, "BLAD_KRYTYCZNY": 1}
 
 
-class _Inputs(Protocol):
+class ProcessInputs(Protocol):
+    """Wejście procesu znane rdzeniowi: okres do metryk i podglądu oraz tryb."""
+
     @property
     def period(self) -> str: ...
 
+    @property
+    def dry_run(self) -> bool: ...
 
-InputsT = TypeVar("InputsT", bound=_Inputs)
+
+InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT")
+
+
+class Conversation(Protocol):
+    """Rozmowa z tatą w trakcie silnika, dostępna dla ``Process.execute``.
+
+    ``confirm`` to decyzja taty (np. o niepełnym okresie): ``True`` to zgoda.
+    ``ask`` to pytanie o tekst; ``None``, gdy odpowiedzi nie ma. ``paused``
+    wstrzymuje podgląd na dłuższą rozmowę. Czas ``confirm`` i ``paused`` nie
+    wlicza się do ``Czas uruchomienia``.
+    """
+
+    def say(self, *lines: str) -> None: ...
+
+    def ask(self, prompt: str) -> str | None: ...
+
+    def confirm(self, lines: Sequence[str], question: str) -> bool: ...
+
+    def paused(self) -> AbstractContextManager[None]: ...
+
+
+class Interlocutor(Conversation, Protocol):
+    """Rozmówca Uruchomienia procesu: rozmowa z tatą i podgląd postępu.
+
+    Podgląd dostaje wyłącznie niemutowalne snapshoty i neutralne powiadomienia
+    jedynej projekcji postępu (ADR 0002). Wyjątek z metody podglądu odłącza
+    go na resztę Uruchomienia bez wpływu na wynik.
+    """
+
+    def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None: ...
+
+    def show_progress(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None: ...
+
+    def stop_progress(self) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -48,7 +100,7 @@ class Stop:
     ``stop``: własne zatrzymanie procesu z bezpiecznymi liniami ``lines``.
     ``unexpected``: inny wyjątek przed końcem silnika. ``after_engine``: silnik
     skończył, ale nie dało się zbudować podsumowania. Tylko ``stop`` ma linie.
-    ``dry_run``: Uruchomienie z ``--dry-run``, w którym nic nie zapisano.
+    ``dry_run``: Uruchomienie DRY-RUN, w którym nic nie zapisano.
     """
 
     kind: Literal["stop", "unexpected", "after_engine"]
@@ -73,13 +125,15 @@ class Finished:
 
 @dataclass(frozen=True)
 class Process(Generic[InputsT, SummaryT]):
-    """Opis procesu dla ``run``.
+    """Opis procesu dla rdzenia Uruchomienia procesu.
 
-    ``parser`` ma ``--dry-run`` i ``--metrics``. ``gather`` ustala wejście
-    (pliki, okres) przed startem pomiaru; ``execute`` wywołuje silnik.
-    Zatrzymanie zgłaszają wyjątkiem ``stop_type``, którego tekst jest z
-    kontraktu bezpieczny; ``stop_lines`` zamienia go na linie. ``finished`` i
-    ``stopped`` są czystymi funkcjami linii końcowych.
+    ``execute`` wywołuje silnik z gotowym wejściem procesu. Zatrzymanie
+    zgłasza wyjątkiem ``stop_type``, którego tekst jest z kontraktu
+    bezpieczny; ``stop_lines`` zamienia go na linie. ``finished`` i ``stopped``
+    są czystymi funkcjami linii końcowych, wspólnymi dla każdego rozmówcy.
+
+    Tylko dla CLI: ``parser`` ma ``--dry-run`` i ``--metrics``, a ``gather``
+    ustala wejście procesu z argumentów w rozmowie w terminalu.
     """
 
     title: str
@@ -89,39 +143,49 @@ class Process(Generic[InputsT, SummaryT]):
     metrics_failure_tail: str
     stop_type: type[Exception]
     stop_lines: Callable[[Exception], Sequence[str]]
-    gather: Callable[[argparse.Namespace, Conversation], InputsT]
+    gather: Callable[[argparse.Namespace, TerminalConversation], InputsT]
     execute: Callable[[InputsT, ProgressObserver, Conversation], SummaryT]
     finished: Callable[[InputsT, SummaryT], Finished]
     stopped: Callable[[Stop], Sequence[str]]
 
 
-def _ask_in_dialog(ask: Callable[[Any], str]) -> str:
-    """Lokalne okno tkinter; pusty wynik, gdy anulowano albo okna nie da się pokazać."""
+@dataclass(frozen=True)
+class Outcome(Generic[SummaryT]):
+    """Wynik Uruchomienia procesu dla rozmówcy, z liniami takimi samymi jak w terminalu.
 
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
+    ``summary`` to podsumowanie silnika, gdy proces się zakończył (``Finished``).
+    ``notice_lines`` to ostrzeżenie o niezapisanych metrykach i linia o
+    odłączonym podglądzie postępu.
+    """
 
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            return ask(filedialog) or ""
-        finally:
-            root.destroy()
-    except Exception:
-        return ""
+    ending: Finished | Stop
+    summary: SummaryT | None
+    total_duration_ms: int
+    status_lines: tuple[str, ...]
+    summary_lines: tuple[str, ...]
+    statistics_lines: tuple[str, ...]
+    notice_lines: tuple[str, ...]
 
+    @property
+    def result(self) -> Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]:
+        return self.ending.result if isinstance(self.ending, Finished) else "BLAD_KRYTYCZNY"
 
-def _is_interactive(stream: TextIO) -> bool:
-    try:
-        return bool(stream.isatty())
-    except (AttributeError, OSError, ValueError):
-        return False
+    @property
+    def lines(self) -> tuple[str, ...]:
+        """Wszystkie linie końcowe w kolejności, w jakiej widzi je tata."""
+
+        return (
+            *self.status_lines,
+            f"Czas uruchomienia: {self.total_duration_ms} ms",
+            *self.summary_lines,
+            *self.statistics_lines,
+            *self.notice_lines,
+        )
 
 
 @dataclass
 class _Clock:
-    """``Czas uruchomienia`` od startu silnika, bez czasu wstrzymania na pytanie."""
+    """``Czas uruchomienia`` od startu silnika, bez czasu decyzji taty."""
 
     started: float = field(default_factory=time.perf_counter)
     paused_s: float = 0.0
@@ -129,204 +193,71 @@ class _Clock:
     def elapsed_ms(self) -> int:
         return max(0, round((time.perf_counter() - self.started - self.paused_s) * 1000))
 
-
-class Conversation:
-    """Rozmowa z tatą: okna wyboru, komunikaty, pytanie i wstrzymanie podglądu.
-
-    Przed startem silnika pisze wprost do wyjścia. W trakcie silnika pytanie
-    trzeba zadać w ``paused()``: podgląd postępu stoi, a czas oczekiwania nie
-    wlicza się do ``Czas uruchomienia``.
-    """
-
-    def __init__(self, output: TextIO, input_stream: TextIO) -> None:
-        self._output = output
-        self._input_stream = input_stream
-        self._dashboard: _Dashboard | None = None
-        self._clock: _Clock | None = None
-
-    def choose_file(self, title: str, filetypes: Sequence[tuple[str, str]]) -> Path | None:
-        selected = _ask_in_dialog(lambda dialog: dialog.askopenfilename(title=title, filetypes=list(filetypes)))
-        return Path(selected) if selected else None
-
-    def choose_folder(self, title: str) -> Path | None:
-        selected = _ask_in_dialog(lambda dialog: dialog.askdirectory(title=title, mustexist=True))
-        return Path(selected) if selected else None
-
-    def say(self, *lines: str) -> None:
-        for line in lines:
-            self._write(line + "\n")
-
-    def ask(self, prompt: str) -> str | None:
-        """Odpowiedź bez otaczających spacji; ``None``, gdy wejście się skończyło.
-
-        Gdy odpowiedź nie pochodzi z terminala (który sam wyświetla Enter),
-        dopisuje koniec linii, żeby kolejny komunikat nie trafił do linii pytania.
-        """
-
-        self._write(prompt)
-        answer = self._input_stream.readline()
-        if not _is_interactive(self._input_stream):
-            self._write("\n")
-        return None if answer == "" else answer.strip()
-
     @contextmanager
     def paused(self) -> Iterator[None]:
-        """Wstrzymuje podgląd i zegar; po wyjątku (np. odmowie taty) podgląd nie wraca."""
-
-        dashboard, clock = self._dashboard, self._clock
-        if dashboard is None or clock is None:
-            yield
-            return
         paused_at = time.perf_counter()
-        dashboard.stop()
         try:
             yield
         finally:
-            clock.paused_s += time.perf_counter() - paused_at
-        dashboard.resume()
+            self.paused_s += time.perf_counter() - paused_at
 
-    def _attach(self, dashboard: _Dashboard, clock: _Clock) -> None:
-        self._dashboard = dashboard
+
+class _ClockedConversation:
+    """Rozmowa rozmówcy dla silnika; decyzja i pauza taty wstrzymują zegar rdzenia."""
+
+    def __init__(self, interlocutor: Interlocutor, clock: _Clock) -> None:
+        self._interlocutor = interlocutor
         self._clock = clock
 
-    def _write(self, text: str) -> None:
+    def say(self, *lines: str) -> None:
+        self._interlocutor.say(*lines)
+
+    def ask(self, prompt: str) -> str | None:
+        return self._interlocutor.ask(prompt)
+
+    def confirm(self, lines: Sequence[str], question: str) -> bool:
+        with self._clock.paused():
+            return self._interlocutor.confirm(lines, question)
+
+    @contextmanager
+    def paused(self) -> Iterator[None]:
+        with self._clock.paused(), self._interlocutor.paused():
+            yield
+
+
+class _Observation:
+    """Obserwator silnika: jedna projekcja postępu i podgląd rozmówcy (ADR 0002).
+
+    Wyjątek projekcji albo podglądu oznacza odłączenie: sekwencer etapów
+    przestaje wysyłać zdarzenia, a rdzeń kończy jedną neutralną linią.
+    """
+
+    def __init__(self, interlocutor: Interlocutor, mode: str, period: str) -> None:
+        self._interlocutor = interlocutor
+        self.projection = ProgressProjection(mode, period)
+        self.failed = False
+
+    def start(self, *, title: str, shows_templates: bool) -> None:
         try:
-            self._output.write(text)
-            self._output.flush()
-        except (OSError, ValueError):
-            pass
-
-
-class _Dashboard:
-    """Podgląd postępu Rich z liniowym trybem tekstowym dla nieinteraktywnego wyjścia."""
-
-    def __init__(self, output: TextIO, mode: str, period: str, *, title: str, shows_templates: bool):
-        self.output = output
-        self.state = ProgressProjection(mode, period)
-        self.plain_adapter = PlainProgressAdapter(self.print_line, title=title, shows_templates=shows_templates)
-        self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
-        self._output_failed = False
-        self.observer_failed = False
-        try:
-            self.console: Any | None = Console(file=output) if Console is not None else None
+            self._interlocutor.start_progress(self.projection.snapshot, title=title, shows_templates=shows_templates)
         except Exception:
-            self.console = None
-        self.interactive = (
-            self._supports_live_output(output)
-            and self.console is not None
-            and self.console.color_system is not None
-        )
-        self.live: Any | None = None
-
-    @staticmethod
-    def _supports_live_output(output: TextIO) -> bool:
-        if os.environ.get("NO_COLOR") is not None or os.environ.get("TERM") == "dumb":
-            return False
-        try:
-            return bool(output.isatty())
-        except (AttributeError, OSError):
-            return False
-
-    def start(self) -> None:
-        if self.interactive and Live is not None:
-            try:
-                self.live = Live(self.render(), console=self.console, auto_refresh=False)
-                self.live.start(refresh=True)
-                return
-            except Exception:
-                self._disable_rich()
-        elif self.interactive:
-            self._disable_rich()
-        self.plain_adapter.start(self.state.snapshot)
+            self.failed = True
 
     def __call__(self, event: ProgressEvent) -> None:
-        """Pokazuje jedno Zdarzenie przebiegu; wyjątek odłącza obserwatora (ADR 0002)."""
-
         try:
-            self._show(event)
+            update = self.projection.update(event)
+            if self.failed:
+                raise RuntimeError("Progress view is detached.")
+            self._interlocutor.show_progress(update.snapshot, update.notice)
         except Exception:
-            self.observer_failed = True
+            self.failed = True
             raise
 
-    def _show(self, event: ProgressEvent) -> None:
-        update = self.state.update(event)
-        if self._output_failed:
-            raise OSError("Terminal output is unavailable.")
-        if self.interactive:
-            try:
-                if self.live is None:
-                    raise RuntimeError("Rich dashboard did not start.")
-                self.live.update(self.rich_adapter.render(update.snapshot, update.notice), refresh=True)
-                return
-            except Exception:
-                self._disable_rich()
-                self.plain_adapter.start(update.snapshot)
-        self.plain_adapter.update(update.snapshot, update.notice)
-        if self._output_failed:
-            raise OSError("Terminal output is unavailable.")
-
     def stop(self) -> None:
-        """Zatrzymuje widok na żywo, żeby kolejne linie szły pod nim."""
-
-        if self.live is not None:
-            try:
-                self.live.stop()
-            except Exception:
-                self._disable_rich()
-            else:
-                self.live = None
-
-    def resume(self) -> None:
-        """Wznawia widok na żywo po ``stop()``, np. po pytaniu do taty między etapami."""
-
-        if not self.interactive or self.live is not None or Live is None:
-            return
         try:
-            self.live = Live(self.render(), console=self.console, auto_refresh=False)
-            self.live.start(refresh=True)
+            self._interlocutor.stop_progress()
         except Exception:
-            self._disable_rich()
-
-    @property
-    def phase_durations_ms(self) -> Mapping[ProgressPhase, int]:
-        """Czasy etapów widziane dotąd przez podgląd, także po przerwaniu."""
-
-        return self.state.snapshot.phase_durations_ms
-
-    def print_statistics(self, records: list[dict[str, Any]], counter_names: frozenset[str]) -> None:
-        labels = {"total": "całe uruchomienie"}
-        for mode in ("RUN", "DRY-RUN"):
-            comparable = comparable_records(records, mode, counter_names)
-            stats = statistics_for(records, mode, counter_names)
-            if stats is None:
-                continue
-            self.print_line(f"Statystyki {mode} | próbek: {len(comparable)}")
-            for name, (p50, p95) in stats.items():
-                self.print_line(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms")
-
-    def render(self, notice: ProgressNotice | None = None) -> Any:
-        return self.rich_adapter.render(self.state.snapshot, notice)
-
-    def _disable_rich(self) -> None:
-        live, self.live = self.live, None
-        if live is not None:
-            try:
-                live.stop()
-            except Exception:
-                pass
-        self.interactive = False
-        self.console = None
-
-    def print_line(self, message: str) -> None:
-        if self._output_failed:
-            return
-        try:
-            if self.interactive and self.console is not None:
-                self.console.print(message)
-            else:
-                self.output.write(f"{message}\n")
-        except (OSError, UnicodeError, ValueError):
-            self._output_failed = True
+            self.failed = True
 
 
 def _stop_from(process: Process[Any, Any], error: Exception, *, dry_run: bool) -> Stop:
@@ -339,7 +270,7 @@ def _stop_from(process: Process[Any, Any], error: Exception, *, dry_run: bool) -
 
 
 def _gather(
-    process: Process[InputsT, SummaryT], args: argparse.Namespace, conversation: Conversation
+    process: Process[InputsT, SummaryT], args: argparse.Namespace, conversation: TerminalConversation
 ) -> InputsT | Stop:
     try:
         return process.gather(args, conversation)
@@ -349,38 +280,135 @@ def _gather(
 
 # Budowa podsumowania odroczona do chwili po pomiarze Czasu uruchomienia i
 # zatrzymaniu podglądu, żeby jej czas się nie liczył, a linie szły pod podglądem.
-_DeferredSummary = Callable[[], Finished]
+_DeferredSummary = Callable[[], tuple[Finished, SummaryT]]
 
 
 def _run_engine(
     process: Process[InputsT, SummaryT],
     inputs: InputsT,
-    dashboard: _Dashboard,
+    observation: _Observation,
     conversation: Conversation,
     *,
     dry_run: bool,
-) -> _DeferredSummary | Stop:
+) -> _DeferredSummary[SummaryT] | Stop:
     """Silnik z podglądem jako obserwatorem; po sukcesie zwraca odroczoną budowę podsumowania."""
 
     try:
-        summary = process.execute(inputs, dashboard, conversation)
+        summary = process.execute(inputs, observation, conversation)
     except Exception as error:
         return _stop_from(process, error, dry_run=dry_run)
     except BaseException:
-        dashboard.stop()
+        observation.stop()
         raise
-    return lambda: process.finished(inputs, summary)
+    return lambda: (process.finished(inputs, summary), summary)
 
 
-def _build_summary(engine_outcome: _DeferredSummary | Stop, *, dry_run: bool) -> Finished | Stop:
+def _build_summary(
+    engine_outcome: _DeferredSummary[SummaryT] | Stop, *, dry_run: bool
+) -> tuple[Finished | Stop, SummaryT | None]:
     """Buduje odroczone podsumowanie; jego błąd to zatrzymanie ``after_engine``."""
 
     if isinstance(engine_outcome, Stop):
-        return engine_outcome
+        return engine_outcome, None
     try:
         return engine_outcome()
     except Exception:
-        return Stop("after_engine", dry_run)
+        return Stop("after_engine", dry_run), None
+
+
+def _statistics_lines(records: list[dict[str, Any]], counter_names: frozenset[str]) -> list[str]:
+    labels = {"total": "całe uruchomienie"}
+    lines: list[str] = []
+    for mode in ("RUN", "DRY-RUN"):
+        comparable = comparable_records(records, mode, counter_names)
+        stats = statistics_for(records, mode, counter_names)
+        if stats is None:
+            continue
+        lines.append(f"Statystyki {mode} | próbek: {len(comparable)}")
+        lines.extend(f"{labels.get(name, name)} | P50: {p50} ms | P95: {p95} ms" for name, (p50, p95) in stats.items())
+    return lines
+
+
+def _conduct(
+    process: Process[InputsT, SummaryT],
+    gathered: InputsT | Stop,
+    interlocutor: Interlocutor,
+    metrics_path: Path,
+) -> Outcome[SummaryT]:
+    """Rdzeń od ustalonego wejścia procesu (albo zatrzymania przy jego ustalaniu) do wyniku."""
+
+    dry_run = gathered.dry_run
+    mode = "DRY-RUN" if dry_run else "RUN"
+    period = UNKNOWN_PERIOD if isinstance(gathered, Stop) else gathered.period
+    # Czas liczony od startu silnika, bez okien wyboru i czasu odpowiedzi taty.
+    started_at = datetime.now(timezone.utc).isoformat()
+    clock = _Clock()
+    observation = _Observation(interlocutor, mode, period)
+    observation.start(title=process.title, shows_templates=process.shows_templates)
+
+    engine_outcome = (
+        gathered
+        if isinstance(gathered, Stop)
+        else _run_engine(process, gathered, observation, _ClockedConversation(interlocutor, clock), dry_run=dry_run)
+    )
+    total_duration_ms = clock.elapsed_ms()
+    observation.stop()
+    ending, summary = _build_summary(engine_outcome, dry_run=dry_run)
+
+    if isinstance(ending, Finished):
+        finished: Finished | None = ending
+        status_lines, summary_lines = tuple(ending.status_lines), tuple(ending.summary_lines)
+    else:
+        finished = None
+        status_lines, summary_lines = tuple(process.stopped(ending)), ()
+
+    record = metric_record(
+        mode=mode,
+        period=period,
+        started_at=started_at,
+        total_duration_ms=total_duration_ms,
+        phase_durations_ms=(
+            finished.phase_durations_ms if finished else observation.projection.snapshot.phase_durations_ms
+        ),
+        result=finished.result if finished else "BLAD_KRYTYCZNY",
+        counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
+    )
+    store = MetricsStore(metrics_path, process.counter_names)
+    statistics_lines: list[str] = []
+    notice_lines: list[str] = []
+    try:
+        store.append(record)
+        statistics_lines = _statistics_lines(store.read(), process.counter_names)
+    except (OSError, UnicodeError, ValueError):
+        notice_lines.append(f"Ostrzeżenie: Nie zapisano metryk; {process.metrics_failure_tail}")
+    if observation.failed:
+        notice_lines.append(_DETACHED_OBSERVER_NOTICE)
+
+    return Outcome(
+        ending=ending,
+        summary=summary,
+        total_duration_ms=total_duration_ms,
+        status_lines=status_lines,
+        summary_lines=summary_lines,
+        statistics_lines=tuple(statistics_lines),
+        notice_lines=tuple(notice_lines),
+    )
+
+
+def run_process(
+    process: Process[InputsT, SummaryT],
+    inputs: InputsT,
+    interlocutor: Interlocutor,
+    *,
+    metrics_path: Path,
+) -> Outcome[SummaryT]:
+    """Prowadzi jedno Uruchomienie procesu z gotowym wejściem procesu i dowolnym rozmówcą.
+
+    Bez ``argparse`` i bez strumieni terminala. Rekord metryk trafia do
+    ``metrics_path``; linie końcowe są w ``Outcome``, rozmówca pokazuje je sam.
+    """
+
+    return _conduct(process, inputs, interlocutor, metrics_path)
 
 
 def run(
@@ -391,57 +419,11 @@ def run(
     input_stream: TextIO | None = None,
     metrics_path: Path | None = None,
 ) -> int:
-    """Prowadzi jedno Uruchomienie procesu; ``0`` OK, ``2`` Wymaga sprawdzenia, ``1`` zatrzymanie."""
+    """Wejście CLI: Uruchomienie procesu w terminalu; ``0`` OK, ``2`` Wymaga sprawdzenia, ``1`` zatrzymanie."""
 
-    output = output or sys.stdout
-    conversation = Conversation(output, input_stream or sys.stdin)
+    terminal = TerminalConversation(output or sys.stdout, input_stream or sys.stdin)
     args = process.parser().parse_args(argv)
-    mode = "DRY-RUN" if args.dry_run else "RUN"
-    store = MetricsStore(metrics_path or args.metrics, process.counter_names)
-
-    gathered = _gather(process, args, conversation)
-    period = UNKNOWN_PERIOD if isinstance(gathered, Stop) else gathered.period
-    # Czas liczony od startu silnika, bez okien wyboru i czasu odpowiedzi taty.
-    started_at = datetime.now(timezone.utc).isoformat()
-    clock = _Clock()
-    dashboard = _Dashboard(output, mode, period, title=process.title, shows_templates=process.shows_templates)
-    dashboard.start()
-    conversation._attach(dashboard, clock)
-    engine_outcome = (
-        gathered
-        if isinstance(gathered, Stop)
-        else _run_engine(process, gathered, dashboard, conversation, dry_run=args.dry_run)
-    )
-    total_duration_ms = clock.elapsed_ms()
-    dashboard.stop()
-    ending = _build_summary(engine_outcome, dry_run=args.dry_run)
-
-    if isinstance(ending, Finished):
-        status_lines, summary_lines = ending.status_lines, ending.summary_lines
-    else:
-        status_lines, summary_lines = process.stopped(ending), ()
-    for line in status_lines:
-        dashboard.print_line(line)
-    dashboard.print_line(f"Czas uruchomienia: {total_duration_ms} ms")
-    for line in summary_lines:
-        dashboard.print_line(line)
-
-    finished = ending if isinstance(ending, Finished) else None
-    record = metric_record(
-        mode=mode,
-        period=period,
-        started_at=started_at,
-        total_duration_ms=total_duration_ms,
-        phase_durations_ms=finished.phase_durations_ms if finished else dashboard.phase_durations_ms,
-        result=finished.result if finished else "BLAD_KRYTYCZNY",
-        counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
-    )
-    try:
-        store.append(record)
-        dashboard.print_statistics(store.read(), process.counter_names)
-    except (OSError, UnicodeError, ValueError):
-        dashboard.print_line(f"Ostrzeżenie: Nie zapisano metryk; {process.metrics_failure_tail}")
-
-    if dashboard.observer_failed:
-        dashboard.print_line(_DETACHED_OBSERVER_NOTICE)
-    return _EXIT_CODES[finished.result] if finished else 1
+    gathered = _gather(process, args, terminal)
+    outcome = _conduct(process, gathered, terminal, metrics_path or args.metrics)
+    terminal.print_lines(outcome.lines)
+    return _EXIT_CODES[outcome.result]
