@@ -38,12 +38,14 @@ their contents.
 
 ## Test Surface
 
-- Test module behaviour through its interface and test the full
-  `run_settlements()` flow separately.
+- Test each process through its operation (`run_settlements()`,
+  `prepare_collective_file()`). Give an internal module its own tests only for
+  behaviour those operations cannot reach.
 - Use synthetic workbook fixtures only. Cover both successful and failure
   paths for each operation's behaviour matrix.
-- For workbook writes, verify values `A:AT`, preserved formulas and formatting,
-  atomic replacement, and every entry under `xl/externalLinks/*`.
+- The test that owns a workbook write verifies values `A:AT`, preserved
+  formulas and formatting, atomic replacement, and every entry under
+  `xl/externalLinks/*`. Other tests assert only the behaviour they name.
 - Keep tests free of client addresses, order numbers, and row contents in
   output or logs.
 - After changes, run the repository test command from `README.md`; before real
