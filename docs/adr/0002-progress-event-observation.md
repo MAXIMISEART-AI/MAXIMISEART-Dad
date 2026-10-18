@@ -10,13 +10,14 @@ Silnik emituje Zdarzenia przebiegu przez walidowany kontrakt `ProgressEvent` i
 centralne fabryki. `run_settlements()` przyjmuje opcjonalnego obserwatora;
 reguły i wynik silnika nie zależą od jego obecności.
 
-Moduł Uruchomienia procesu (`process_run`) ma prywatny podgląd postępu, który
+Rdzeń Uruchomienia procesu (`process_run`) jest obserwatorem silnika i
 przekazuje każde zdarzenie dokładnie raz do jednej projekcji postępu. Projekcja
 jest jedynym miejscem, które interpretuje surowe zdarzenia. Zwraca niemutowalny
-snapshot i bezpieczne, neutralne powiadomienie o zmianie. Adapter plain i
-adapter Rich renderują wyłącznie ten wspólny wynik; nie interpretują
-`ProgressEvent`, nie utrzymują własnych liczników ani stanów faz.
-Podgląd postępu koordynuje wybór adaptera.
+snapshot i bezpieczne, neutralne powiadomienie o zmianie, które rdzeń podaje
+podglądowi postępu rozmówcy. Adapter plain i adapter Rich renderują wyłącznie
+ten wspólny wynik; nie interpretują `ProgressEvent`, nie utrzymują własnych
+liczników ani stanów faz. Podgląd postępu terminala
+(`terminal_conversation`) koordynuje wybór adaptera.
 
 Awaria obserwatora odłącza go na resztę Przebiegu rozliczeń i nie przerywa pracy
 silnika. Uruchomienie CLI zawsze obserwuje postęp.

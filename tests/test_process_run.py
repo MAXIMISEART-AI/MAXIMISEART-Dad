@@ -40,6 +40,7 @@ Durations = Mapping[ProgressPhase, int]
 @dataclass(frozen=True)
 class Inputs:
     period: str = PERIOD
+    dry_run: bool = False
 
 
 class Stopped(Exception):
@@ -53,8 +54,8 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def gather(_args: argparse.Namespace, _conversation: Conversation) -> Inputs:
-    return Inputs()
+def gather(args: argparse.Namespace, _conversation: Conversation) -> Inputs:
+    return Inputs(dry_run=args.dry_run)
 
 
 def all_phases(observer: ProgressObserver, before_save: Callable[[], None] = lambda: None) -> Durations:
