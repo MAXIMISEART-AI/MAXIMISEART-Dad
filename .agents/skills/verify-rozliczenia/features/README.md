@@ -3,8 +3,7 @@
 This is the maintained source for verifying the user-facing MAXIMISEART-Dad
 processes. The Dad-facing launchers are `Utwórz rozliczenia.cmd` (Przebieg
 rozliczeń) and `Przygotuj plik zbiorczy.cmd` (Przygotowanie pliku zbiorczego);
-direct CLI runs provide detailed verification evidence. The VBA adapter is legacy and
-outside the supported user workflow.
+direct CLI runs provide detailed verification evidence.
 
 ## Baseline preconditions
 
@@ -35,7 +34,6 @@ outside the supported user workflow.
 - Keep row values, Wzorzec cell values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths and, for the `*-real-templates` variants, the Wzorce directory on each transcript's `command:` line; metrics carry no path at all.
 - The default fixture returns `0`; `--variant unmapped` separately verifies a
   dry-run warning and a failed real run with no published folder.
-- The legacy VBA adapter is not a supported user route and is excluded from live coverage unless reactivated.
 - `VERIFY SKIP` from `preparation-real-templates` or `chain-real-templates` is a skip: report it as one.
 - Run cleanup after every failed iteration and confirm the evidence directory still exists.
 

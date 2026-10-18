@@ -229,7 +229,40 @@ def _utf8_environment() -> dict[str, str]:
     environment = os.environ.copy()
     environment["PYTHONUTF8"] = "1"
     environment["PYTHONIOENCODING"] = "utf-8"
+    # A stale .pyc from an earlier mutation must never stand in for the current source.
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return environment
+
+
+def _main_checkout_config() -> Path | None:
+    """``config/`` of the main checkout; a worktree shares its git directory but not its git-ignored Wzorce."""
+
+    try:
+        common_directory = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (REPO_ROOT / common_directory).resolve().parent / "config"
+
+
+def _default_templates_directory() -> Path:
+    """This checkout's ``config/`` when it holds real Wzorce, otherwise the main checkout's."""
+
+    local = REPO_ROOT / "config"
+    candidates = [local]
+    main_config = _main_checkout_config()
+    if main_config is not None and main_config != local.resolve():
+        candidates.append(main_config)
+    for directory in candidates:
+        if any((directory / name).is_file() for name in (*PREPARATION_TEMPLATE_NAMES, WORKER_TEMPLATE_NAME)):
+            return directory
+    return local
 
 
 def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_directory: Path) -> None:
@@ -527,12 +560,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--templates-dir",
         type=Path,
-        default=REPO_ROOT / "config",
-        help="directory with the real Wzorce for the *-real-templates variants (default: config/ of this checkout)",
+        default=None,
+        help=(
+            "directory with the real Wzorce for the *-real-templates variants "
+            "(default: config/ of this checkout, or of the main checkout when run from a worktree)"
+        ),
     )
     args = parser.parse_args(argv)
 
-    templates_directory = args.templates_dir.expanduser().resolve()
+    templates_directory = (args.templates_dir or _default_templates_directory()).expanduser().resolve()
     if args.variant != "all":
         return _verify(args.variant, templates_directory)
     failed = [variant for variant in CI_VARIANTS if _verify(variant, templates_directory) != 0]

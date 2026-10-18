@@ -151,20 +151,12 @@ Pliki okresu powstały niezależnie od niej.
 2. Zamknij ten plik w Excelu.
 3. Upewnij się, że folder `Rozliczenie pracowników {okres}` jest dostępny.
 
-### Sposób 1: plik CMD
+### Uruchomienie
 
 1. Dwukrotnie kliknij `Utwórz rozliczenia.cmd`.
 2. Wybierz plik zakończony słowami `- zbiorcze.xlsx`.
 3. Poczekaj na komunikat końcowy.
 4. Otwórz pliki pracowników i sprawdź ich zawartość.
-
-### Sposób 2: przycisk w Excelu
-
-1. Otwórz `AutomatyzacjaRozliczen.xlsm`.
-2. Kliknij przycisk `UruchomRozliczenia`.
-3. Wybierz plik zakończony słowami `- zbiorcze.xlsx`.
-4. Poczekaj na zakończenie procesu.
-5. Otwórz pliki pracowników i sprawdź ich zawartość.
 
 ### Gdy pojawi się problem
 

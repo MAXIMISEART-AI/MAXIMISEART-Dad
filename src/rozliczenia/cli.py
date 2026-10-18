@@ -105,7 +105,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Lokalny plik historii metryk JSONL.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Sprawdź plan bez zapisywania plików.")
-    parser.add_argument("--no-observer", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -405,7 +404,7 @@ def main(
             args.config,
             dry_run=args.dry_run,
             worker_template_path=args.worker_template,
-            observer=None if args.no_observer else dashboard,
+            observer=dashboard,
         )
     except Exception as exc:
         error = exc
