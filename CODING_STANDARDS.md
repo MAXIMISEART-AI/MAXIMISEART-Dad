@@ -1,17 +1,17 @@
 # Coding Standards
 
 These standards are judgement calls for implementation and review. They
-complement `CONTEXT.md`, the ADRs, and the executable checks; they do not copy
+complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not copy
 their contents.
 
 ## Domain Language
 
-- Use the exact terms defined in `CONTEXT.md` in issue titles, specifications,
-  hypotheses, and test names. Treat `CONTEXT.md` as the single source of truth
+- Use the exact terms defined in `GLOSSARY.md` in issue titles, specifications,
+  hypotheses, and test names. Treat `GLOSSARY.md` as the single source of truth
   for domain vocabulary instead of copying its term list here.
 - Name tests after the domain behaviour they protect. Use an implementation
   name only when the test intentionally protects that module's interface.
-- When implementation reveals a missing domain term, sharpen `CONTEXT.md`
+- When implementation reveals a missing domain term, sharpen `GLOSSARY.md`
   before adding another synonym in code or tests.
 
 ## Module Depth
@@ -51,9 +51,10 @@ their contents.
 
 ## Review Context
 
-- Read `CONTEXT.md` and the relevant ADR before changing a domain seam.
+- Read `GLOSSARY.md` and the relevant ADR before changing a domain seam.
 - Treat ADR 0001 as the constraint that Python remains the single source of
-  settlement rules and that CMD and VBA invoke the same engine.
+  settlement rules, and ADR 0003 as the constraint that each process is
+  launched only through its CLI and `.cmd` launcher.
 - Review standards separately from specification compliance. A passing test
   suite does not replace a review of module depth, seam locality, or domain
   vocabulary.

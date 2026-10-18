@@ -34,19 +34,18 @@ where = ["src"]
 [tool.ruff]
 target-version = "py311"
 include = [
-    "run.py",
-    "run_preparation.py",
+    "/*.py",
     "src/**/*.py",
     "tests/**/*.py",
     "tools/**/*.py",
     ".agents/skills/verify-rozliczenia/scripts/*.py",
 ]
+extend-exclude = [".claude"]
 
 [tool.mypy]
 strict = true
 files = [
-    "run.py",
-    "run_preparation.py",
+    "*.py",
     "src",
     "tests",
     "tools",

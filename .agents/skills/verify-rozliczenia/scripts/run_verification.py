@@ -338,14 +338,25 @@ def _run_preparation_workflow(run_root: Path, evidence_root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", choices=tuple(WORKFLOW_VARIANTS), default="default")
+    parser.add_argument("--variant", choices=(*WORKFLOW_VARIANTS, "all"), default="default")
     args = parser.parse_args(argv)
 
+    if args.variant != "all":
+        return _verify(args.variant)
+    failed = [variant for variant in WORKFLOW_VARIANTS if _verify(variant) != 0]
+    if failed:
+        print(f"VERIFY FAIL | variants={', '.join(failed)}", file=sys.stderr)
+        return 1
+    print(f"VERIFY OK | variants={', '.join(WORKFLOW_VARIANTS)}")
+    return 0
+
+
+def _verify(variant: str) -> int:
     run_root, evidence_root = _new_paths()
     failure: BaseException | None = None
     cleanup_failure: BaseException | None = None
     try:
-        _run_workflow(args.variant, run_root, evidence_root)
+        _run_workflow(variant, run_root, evidence_root)
     except Exception as exc:
         failure = exc
     finally:
@@ -370,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     if failure is not None or cleanup_failure is not None:
         details = [f"workflow={failure}" if failure else "workflow=ok"]
         details.append(f"cleanup={cleanup_failure}" if cleanup_failure else "cleanup=ok")
-        print(f"VERIFY FAIL | variant={args.variant} | evidence={evidence_root} | " + "; ".join(details), file=sys.stderr)
+        print(f"VERIFY FAIL | variant={variant} | evidence={evidence_root} | " + "; ".join(details), file=sys.stderr)
         return 1
     if run_root.exists():
         print(f"VERIFY FAIL | scratch root remains: {run_root}", file=sys.stderr)
@@ -414,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"VERIFY FAIL | missing evidence: {', '.join(missing)}", file=sys.stderr)
         return 1
-    print(f"VERIFY OK | variant={args.variant} | evidence={evidence_root} | scratch_removed=true")
+    print(f"VERIFY OK | variant={variant} | evidence={evidence_root} | scratch_removed=true")
     return 0
 
 

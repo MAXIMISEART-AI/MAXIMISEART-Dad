@@ -211,11 +211,23 @@ lintowanie i ścisły typecheck całego utrzymywanego kodu Pythona:
 
 ```powershell
 py -3 -m pip install -e ".[dev]"
-py -3 -m ruff check run.py run_preparation.py src tests tools .agents/skills/verify-rozliczenia/scripts
+py -3 -m ruff check
 py -3 -m mypy
 ```
 
 Ruff i mypy obejmują aplikację, testy, narzędzia oraz skrypty weryfikacyjne.
+Zakres plików jest ustawiony tylko w `pyproject.toml`; nowy plik `*.py` w
+katalogu głównym jest sprawdzany automatycznie.
+
+Na macOS i Linuksie (bez `py -3`) zestaw developerski instaluje się przez
+[`uv`](https://docs.astral.sh/uv/), a komendy uruchamia z `.venv`:
+
+```sh
+uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
+.venv/bin/python -m pytest
+.venv/bin/python -m ruff check
+.venv/bin/python -m mypy
+```
 Check formatowania nie jest wymagany.
 
 Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd` i
