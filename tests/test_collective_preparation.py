@@ -30,6 +30,8 @@ from tests.collective_preparation_fixtures import (
     RegisterRow,
     make_preparation_fixture,
     register_order,
+    write_collective_template,
+    write_internal_template,
 )
 from tests.test_settlement_engine import active_worksheet, external_link_parts
 
@@ -465,6 +467,18 @@ def test_data_rows_take_font_face_and_size_from_wzorzec_not_rejestr(tmp_path: Pa
     run_preparation(fixture)
 
     # Rejestr: Arial 8; wzorce: Calibri 10.
+    assert data_fonts(fixture.internal_settlement_path, min_row=2, max_row=5, max_col=11) == {("Calibri", 10)}
+    assert data_fonts(fixture.collective_file_path, min_row=18, max_row=20, max_col=11) == {("Calibri", 10)}
+
+
+def test_cells_without_own_style_take_wzorzec_row_font_before_column_font(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    write_internal_template(fixture.internal_template_path, row_style=True)
+    write_collective_template(fixture.collective_template_path, row_style=True)
+
+    run_preparation(fixture)
+
+    # Wiersze danych wzorców: styl wiersza Calibri 10; kolumny: Calibri 11; komórki bez własnego stylu.
     assert data_fonts(fixture.internal_settlement_path, min_row=2, max_row=5, max_col=11) == {("Calibri", 10)}
     assert data_fonts(fixture.collective_file_path, min_row=18, max_row=20, max_col=11) == {("Calibri", 10)}
 

@@ -24,6 +24,7 @@ from openpyxl.cell.cell import Cell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet.dimensions import Dimension
 from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -215,18 +216,26 @@ def _zero_row_count(sheet: Worksheet) -> int:
 
 
 def _apply_template_style(sheet: Worksheet, cell: Cell) -> None:
-    """Komórka bez własnego stylu we wzorcu dostaje styl swojej kolumny, tak jak przy wpisaniu w Excelu."""
+    """Komórka bez własnego stylu we wzorcu dostaje styl wiersza, a bez niego styl kolumny, jak przy wpisaniu w Excelu."""
 
     if cell.has_style:
+        return
+    row_dimension = sheet.row_dimensions.get(cell.row)  # bez tworzenia wymiaru, którego nie ma we wzorcu
+    if row_dimension is not None and row_dimension.has_style:
+        _copy_dimension_style(row_dimension, cell)
         return
     for dimension in sheet.column_dimensions.values():
         if dimension.min is not None and dimension.max is not None and dimension.min <= cell.column <= dimension.max:
             if dimension.has_style:
-                cell.font = cast(Font, copy(dimension.font))
-                cell.border = cast(Border, copy(dimension.border))
-                cell.alignment = cast(Alignment, copy(dimension.alignment))
-                cell.protection = cast(Protection, copy(dimension.protection))
+                _copy_dimension_style(dimension, cell)
             return
+
+
+def _copy_dimension_style(dimension: Dimension, cell: Cell) -> None:
+    cell.font = cast(Font, copy(dimension.font))
+    cell.border = cast(Border, copy(dimension.border))
+    cell.alignment = cast(Alignment, copy(dimension.alignment))
+    cell.protection = cast(Protection, copy(dimension.protection))
 
 
 def _apply_register_format(cell: Cell, cell_format: CellFormat) -> None:
