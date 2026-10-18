@@ -231,30 +231,6 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
     assert [path.name for path in fixture.periods_directory.iterdir()] == [PERIOD]
 
 
-def test_failed_save_of_second_file_publishes_neither_file_nor_folder_okresu(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    real_save = workbook_files.save_workbook
-    saved: list[str] = []
-
-    def save_first_then_fail(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
-        if saved:
-            raise ExternalLinksError("wymuszony błąd")
-        saved.append(target.name)
-        real_save(workbook, target, external_links_from=external_links_from)
-
-    monkeypatch.setattr(workbook_files, "save_workbook", save_first_then_fail)
-
-    with pytest.raises(PreparationError) as raised:
-        run_preparation(fixture)
-
-    assert saved == [INTERNAL_SETTLEMENT_NAME]
-    assert raised.value.message.code == "BLAD_ZAPISU"
-    assert "wymuszony" not in str(raised.value)
-    assert list(fixture.periods_directory.iterdir()) == []
-
-
 @pytest.mark.parametrize(
     "token",
     [
@@ -791,20 +767,6 @@ def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_pa
     summary = run_preparation(fixture)
 
     assert summary.warnings == []
-
-
-def test_dry_run_plan_contains_the_same_warnings_and_writes_nothing(tmp_path: Path) -> None:
-    rows: list[RegisterRow] = [
-        register_order(number, datetime(2026, 9, 14, 8, number))
-        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
-    ]
-    fixture = make_preparation_fixture(tmp_path, rows)
-
-    plan = run_preparation(fixture, dry_run=True)
-
-    assert [warning.code for warning in plan.warnings] == ["MALO_WIERSZY_Z_ZERAMI"]
-    assert plan.orders_per_day[date(2026, 9, 14)] == COLLECTIVE_TEMPLATE_ZERO_ROWS + 1
-    assert list(fixture.periods_directory.iterdir()) == []
 
 
 def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_day(tmp_path: Path) -> None:

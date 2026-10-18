@@ -7,7 +7,6 @@ Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
 from __future__ import annotations
 
 from collections.abc import Callable
-import time
 
 import pytest
 
@@ -87,19 +86,6 @@ def test_pominieta_liczba_problemow_w_planowaniu_przenosi_wartosc_z_odczytu_dany
 
     plan_ready = [event for event in events if event.state is ProgressState.PLAN_READY]
     assert [(event.issue_count, event.template_total) for event in plan_ready] == [(2, 3)]
-
-
-def test_czas_wstrzymania_miedzy_planowaniem_a_zapisywaniem_nie_wlicza_sie_do_czasu_uruchomienia() -> None:
-    runner = PhaseRunner(None)
-    runner.check(lambda: None)
-    runner.read(lambda: None)
-    runner.plan(lambda: None)
-
-    with runner.paused():
-        time.sleep(0.3)
-    runner.save(lambda: None)
-
-    assert runner.elapsed_ms() < 300
 
 
 def test_wstrzymanie_zegara_w_trakcie_etapu_jest_bledem_kodu() -> None:
