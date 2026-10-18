@@ -51,9 +51,9 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
      Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. `29_05_10_2026`
      dla 29 września – 5 października 2026.
    - Po złym zapisie narzędzie wyjaśni, co poprawić, i zapyta ponownie.
-5. Jeśli pojawi się `Ostrzeżenie: niepełny okres`, sprawdź liczby
-   `Zlecenia na dzień`. Wpisz `t`, żeby kontynuować, albo `n`, żeby przerwać bez
-   tworzenia plików.
+5. Jeśli po etapie `Planowanie` pojawi się `Ostrzeżenie: niepełny okres`,
+   sprawdź liczby `Zlecenia na dzień`. Wpisz `t`, żeby kontynuować, albo `n`,
+   żeby przerwać bez tworzenia plików.
 6. Poczekaj na `Status końcowy`. Potem naciśnij dowolny klawisz, żeby zamknąć
    okno.
 
@@ -65,6 +65,9 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
 - Sprawdź podsumowanie: `Okres`, `Zlecenia okresu`, `Zlecenia skuteczne`,
   `Pominięte puste wiersze` i `Zlecenia na dzień`. Dzień z liczbą `0` może
   oznaczać brakujący eksport.
+- `Pominięte puste wiersze` to wszystkie całkowicie puste wiersze Rejestru od
+  pierwszego do ostatniego zlecenia okresu, także te między zleceniami innych
+  tygodni. Nie trafiają do żadnego pliku.
 - Liczba przy `Ostrzeżenia:` większa od `0` oznacza, że pliki powstały, ale coś wymaga
   uwagi. Każde ostrzeżenie jest opisane w tabeli poniżej.
 - W Folderze okresu (np. `INEA\08_14_09_2026`) są dwa nowe pliki:
@@ -116,6 +119,7 @@ więc po poprawce wystarczy uruchomić proces ponownie.
 | „Wzorzec jest otwarty w Excelu” | Zamknij wzorzec w Excelu bez zapisywania zmian i uruchom ponownie. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z folderu `config` pozostawiony plik `~$` wskazany w komunikacie. |
 | „Nie można odczytać wzorca” | Przekaż komunikat osobie utrzymującej narzędzie. |
 | „We wzorcu brakuje nagłówka” | Przekaż komunikat osobie utrzymującej narzędzie. |
+| „We wzorcu są scalone komórki” | Przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można odczytać konfiguracji wykonawców” | Przekaż komunikat osobie utrzymującej narzędzie. Ta sama konfiguracja jest potrzebna w Przebiegu rozliczeń. |
 | „Nie udało się zapisać plików okresu” | Sprawdź, czy folder okresów jest dostępny i czy pliki okresu nie są otwarte w Excelu, potem uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Wystąpił nieoczekiwany błąd” | Pojawia się ze `Status końcowy: BŁĄD`. Uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |

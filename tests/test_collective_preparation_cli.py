@@ -7,12 +7,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import types
 from typing import Any, NoReturn, TextIO
 
 import pytest
 
-from rozliczenia import collective_preparation
+from rozliczenia import preparation_register
 import rozliczenia.cli as cli
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
@@ -94,7 +95,7 @@ def test_cli_creates_both_period_files_and_prints_summary_with_orders_per_day(tm
         f"Okres: {PERIOD}",
         "Zlecenia okresu: 4",
         "Zlecenia skuteczne: 3",
-        "Pominięte puste wiersze: 3",
+        "Pominięte puste wiersze: 5",
         *ORDERS_PER_DAY_LINES,
         "Ostrzeżenia: 0",
         f"Rozliczenie wewnętrzne: {INTERNAL_SETTLEMENT_NAME}",
@@ -136,7 +137,7 @@ def test_cli_dry_run_shows_plan_with_orders_per_day_and_creates_nothing(tmp_path
         f"Okres: {PERIOD}",
         "Zlecenia okresu: 4",
         "Zlecenia skuteczne: 3",
-        "Pominięte puste wiersze: 3",
+        "Pominięte puste wiersze: 5",
         *ORDERS_PER_DAY_LINES,
         "Ostrzeżenia: 0",
         f"Rozliczenie wewnętrzne: {INTERNAL_SETTLEMENT_NAME}",
@@ -180,7 +181,7 @@ def test_cli_unexpected_error_hides_exception_text_and_exits_1(
         raise RuntimeError("nieprzewidziany błąd przy SYN-001")
 
     # Uszkodzony Rejestr jest już typowanym zatrzymaniem, więc błąd nieprzewidziany jest wstrzyknięty w Odczyt danych.
-    monkeypatch.setattr(collective_preparation, "_read_register", fail_unexpectedly)
+    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
 
     exit_code, output = run_preparation_cli(fixture)
 
@@ -211,7 +212,7 @@ def test_cli_writes_safe_metrics_with_preparation_counters(
     assert record["counters"] == {
         "period_orders": 4,
         "successful_orders": 3,
-        "skipped_empty_rows": 3,
+        "skipped_empty_rows": 5,
         "warnings": 0,
     }
     metrics_text = metrics_path_for(fixture).read_text(encoding="utf-8")
@@ -303,15 +304,18 @@ def test_cli_runs_without_rich_with_the_same_information(
     assert record["mode"] == mode
 
 
-def test_interactive_rich_dashboard_uses_shared_projection_without_szablony_pracownika(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+class TtyOutput(StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def install_fake_rich(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Rich renderuje do zwykłego tekstu; zwraca dziennik startów i zatrzymań widoku na żywo."""
+
     pytest.importorskip("rich")
     from rich.console import Console as RichConsole
 
-    class TtyOutput(StringIO):
-        def isatty(self) -> bool:
-            return True
+    live_log: list[str] = []
 
     class FakeConsole:
         color_system = "standard"
@@ -327,16 +331,23 @@ def test_interactive_rich_dashboard_uses_shared_projection_without_szablony_prac
             self.console = console
 
         def start(self, *, refresh: bool) -> None:
-            pass
+            live_log.append("start")
 
         def update(self, renderable: Any, *, refresh: bool) -> None:
             self.console.print(renderable)
 
         def stop(self) -> None:
-            pass
+            live_log.append("stop")
 
     monkeypatch.setattr(cli, "Console", FakeConsole)
     monkeypatch.setattr(cli, "Live", FakeLive)
+    return live_log
+
+
+def test_interactive_rich_dashboard_uses_shared_projection_without_szablony_pracownika(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_rich(monkeypatch)
     fixture = make_preparation_fixture(tmp_path)
     output = TtyOutput()
 
@@ -350,6 +361,24 @@ def test_interactive_rich_dashboard_uses_shared_projection_without_szablony_prac
     assert "WYKONAWCA" not in rendered
     assert "\n".join(ORDERS_PER_DAY_LINES) in rendered
     assert "SYN-" not in rendered
+
+
+def test_rich_dashboard_pauses_for_incomplete_period_question_and_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live_log = install_fake_rich(monkeypatch)
+    fixture = incomplete_period_fixture(tmp_path)
+    output = TtyOutput()
+
+    exit_code = main(preparation_arguments(fixture), output=output, input_stream=StringIO("t\n"))
+
+    assert exit_code == 0
+    assert live_log == ["start", "stop", "start", "stop"]
+    rendered = output.getvalue()
+    after_question = rendered[rendered.index("Kontynuować mimo niepełnego okresu?") :]
+    assert "Zapisywanie" in after_question
+    assert "Etap: Zapisywanie" not in rendered.splitlines()  # bez przejścia na widok liniowy
+    assert fixture.collective_file_path.is_file()
 
 
 def test_cli_shows_zero_rows_warning_in_summary_and_exits_0(tmp_path: Path) -> None:
@@ -650,3 +679,56 @@ def test_stop_found_before_question_is_shown_once_on_dashboard(tmp_path: Path) -
     assert "Kontynuować" not in output
     assert output.count("Co się stało: Plik tego okresu już istnieje") == 1
     assert "Etap przerwany: Sprawdzanie" in output
+
+
+def test_incomplete_period_question_follows_planowanie_on_one_dashboard(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+
+    exit_code, output = run_cli_answering(fixture, "t\n")
+
+    assert exit_code == 0
+    lines = output.splitlines()
+    question = next(index for index, line in enumerate(lines) if line.startswith("Kontynuować"))
+    assert lines[: lines.index("Ostrzeżenie: niepełny okres")] == [
+        f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: RUN",
+        "Status: uruchomiono",
+        "Etap: Sprawdzanie",
+        "Etap: Odczyt danych",
+        "Etap: Planowanie",
+    ]
+    assert lines[question + 1] == "Etap: Zapisywanie"
+    assert output.count("Przygotowanie pliku zbiorczego | okres:") == 1
+
+
+def test_refused_incomplete_period_ends_after_planowanie_without_zapisywanie(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+
+    exit_code, output = run_cli_answering(fixture, "n\n")
+
+    assert exit_code == 1
+    assert "Etap: Planowanie" in output
+    assert "Zapisywanie" not in output
+    [record] = metric_records(fixture)
+    assert record["phase_durations_ms"]["Zapisywanie"] == 0
+
+
+class SlowAnswer(StringIO):
+    """Tata odpowiada po chwili namysłu."""
+
+    def readline(self, size: int | None = -1, /) -> str:  # type: ignore[override]  # typeshed: _IOBase -> bytes
+        time.sleep(1.5)
+        return super().readline()
+
+
+def test_time_waiting_for_answer_is_not_counted_in_metrics(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+    output = StringIO()
+
+    exit_code = main(preparation_arguments(fixture), output=output, input_stream=SlowAnswer("t\n"))
+
+    assert exit_code == 0
+    [record] = metric_records(fixture)
+    assert record["total_duration_ms"] < 1500
+    assert sum(record["phase_durations_ms"].values()) <= record["total_duration_ms"]
+    reported = next(line for line in output.getvalue().splitlines() if line.startswith("Czas uruchomienia: "))
+    assert int(reported.removeprefix("Czas uruchomienia: ").removesuffix(" ms")) < 1500

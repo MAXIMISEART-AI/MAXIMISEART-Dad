@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from .domain import PHASES
+from .settlement_period import PERIOD_TOKEN_PATTERN
 
 
 METRICS_SCHEMA_VERSION = 1
@@ -19,7 +20,9 @@ METRIC_RESULTS = frozenset({"OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"})
 COUNTER_NAMES = frozenset(
     {"templates_total", "templates_completed", "rows", "written", "empty", "planned", "skipped", "issues"}
 )
-PERIOD_PATTERN = re.compile(r"^(?:\d{2}_\d{2}_\d{2}_\d{4}|nieznany)$")
+# Okres w rekordzie, gdy tokenu nie udało się ustalić.
+UNKNOWN_PERIOD = "nieznany"
+PERIOD_PATTERN = re.compile(rf"^(?:{PERIOD_TOKEN_PATTERN}|{UNKNOWN_PERIOD})$")
 RECORD_FIELDS = frozenset(
     {
         "schema_version",

@@ -120,10 +120,12 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 
 ## Zdarzenie przebiegu
 
-Bezpieczny fakt opisujący zmianę lub wynik Przebiegu rozliczeń, na przykład
-rozpoczęcie etapu, zakończenie etapu, rozpoczęcie przetwarzania Szablonu
-pracownika albo zakończenie tego przetwarzania. Nie zawiera adresów klientów,
-numerów zleceń ani treści wierszy.
+Bezpieczny fakt opisujący zmianę lub wynik jednego uruchomienia Przebiegu
+rozliczeń albo Przygotowania pliku zbiorczego, na przykład rozpoczęcie etapu,
+zakończenie etapu albo przerwanie etapu. Oba procesy przechodzą te same etapy:
+Sprawdzanie, Odczyt danych, Planowanie i Zapisywanie. Tylko Przebieg rozliczeń
+zgłasza też rozpoczęcie i zakończenie przetwarzania Szablonu pracownika.
+Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
 
 ## Nienadpisywanie
 

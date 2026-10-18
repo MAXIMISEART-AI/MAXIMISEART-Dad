@@ -192,6 +192,22 @@ def template_without_header(template_path: Path, sheet: str, row: int, header: s
     )
 
 
+def template_with_merged_cells(template_path: Path, sheet: str, cell_range: str) -> PreparationError:
+    """Komórki wzorca, do których trafiają zlecenia, są scalone."""
+
+    return PreparationError(
+        PreparationMessage(
+            code="SCALONE_KOMORKI_WZORCA",
+            what=(
+                "We wzorcu są scalone komórki tam, gdzie trafiają zlecenia, więc nie można ich wpisać. "
+                "Nie utworzono żadnego pliku."
+            ),
+            where=f"plik {template_path.name}, arkusz {sheet}, komórki {cell_range}",
+            action=_REPORT_TO_MAINTAINER,
+        )
+    )
+
+
 def register_missing(register_path: Path) -> PreparationError:
     """Rejestr zleceń nie istnieje pod wskazaną ścieżką."""
 

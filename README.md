@@ -95,13 +95,24 @@ powstają razem albo żaden.
   wierszu, nie po nazwie. Inne arkusze są ignorowane.
 - Zlecenie należy do okresu po dacie w `DATA GODZ. POCZ.`, niezależnie od
   miejsca w arkuszu. Kolejność z Rejestru jest zachowana, a całkowicie puste
-  wiersze są pomijane i liczone.
+  wiersze są pomijane.
+- Zakres okresu w Rejestrze to wiersze od pierwszego do ostatniego zlecenia
+  okresu. `Pominięte puste wiersze` to liczba wszystkich całkowicie pustych
+  wierszy w tym zakresie, także leżących między zleceniami innych okresów
+  (np. przed spóźnionym zleceniem dopisanym na końcu). W tym samym zakresie
+  wiersz z danymi bez poprawnej daty zatrzymuje proces.
 - Rozliczenie wewnętrzne (`Rozliczenie wew. {okres}.xlsx`) zawiera wszystkie
   zlecenia okresu, skuteczne i nieskuteczne, w kolumnach dopasowanych po
   nagłówkach. `zwrot` i `UWAGI` zostają puste.
+- Kolumny docelowe są ustalane wyłącznie po nagłówkach wzorca. Trzy pary o
+  innym zapisie są jawne w mapowaniu: `DATA GODZ. POCZ.` → `DATA`, `adres` →
+  `ADRES`, `nr zlecenia` → `NUMER ZL.`. Wzorzec z nagłówkiem w zapisie Rejestru
+  zamiast własnego oznacza zatrzymanie.
 - Plik zbiorczy (`Rozliczenie {okres} - zbiorcze.xlsx`) zawiera każde Zlecenie
   skuteczne w `A:K` od wiersza 18, bez przerw. Wiersze 1–17, kolumny ilości
   `N:AP`, formuły i odwołania zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
+  openpyxl nie zapisuje wyników formuł, więc Plik zbiorczy, tak jak Szablony
+  pracowników, prosi Excela o przeliczenie formuł przy otwarciu.
 - Wypełnienia, kolory czcionki, pogrubienia, kursywa i formaty dat przechodzą z
   Rejestru. Krój i rozmiar czcionki, szerokości kolumn, wysokości wierszy,
   nagłówek i blokada nagłówka pochodzą z wzorca. Autofiltr obejmuje nagłówek i
@@ -129,7 +140,8 @@ Oba wzorce leżą w katalogu konfiguracji obok Placeholdera:
   Słownika.
 
 Pliki `*.xlsx` nie trafiają do repozytorium. Wzorce przygotowuje człowiek z
-pustych plików taty; kod nie poprawia ich wyglądu. Ścieżki domyślne nadpisują
+pustych plików taty; kod nie poprawia ich wyglądu. Komórki wzorca, do których
+trafiają zlecenia, nie mogą być scalone; sprawdza to już `--dry-run`. Ścieżki domyślne nadpisują
 parametry `--internal-template` i `--collective-template`, tak jak
 `--placeholder` w Przebiegu rozliczeń.
 
@@ -166,9 +178,12 @@ liczby zleceń na każdy dzień, ostrzeżenia oraz nazwy obu plików, a na końc
 tylko rekord do historii czasów.
 
 Bez `--dry-run`, gdy ostatnie zlecenie okresu jest sprzed poniedziałku, CLI
-przed zapisem pokazuje ostrzeżenie o niepełnym okresie z liczbami na dzień i
-pyta o kontynuację, także gdy okres podano parametrem. Odpowiedź `t` albo `tak`
-kontynuuje, każda inna przerywa bez zapisu.
+po etapie Planowanie, a przed Zapisywaniem, pokazuje ostrzeżenie o niepełnym
+okresie z liczbami na dzień i pyta o kontynuację, także gdy okres podano
+parametrem. Odpowiedź `t` albo `tak` kontynuuje, każda inna przerywa bez
+zapisu. Silnik o nic nie pyta: przekazuje plan, a decyzję podejmuje CLI.
+Rejestr jest czytany raz, a czas oczekiwania na odpowiedź nie wlicza się do
+czasu uruchomienia ani do historii czasów.
 
 Kody wyjścia: `0` sukces, także z ostrzeżeniami i po potwierdzeniu niepełnego
 okresu; `1` zatrzymanie, błąd, odmowa kontynuacji albo zamknięte okno wyboru.

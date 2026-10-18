@@ -41,6 +41,7 @@ CATALOG_SAMPLES: dict[str, list[Callable[[], PreparationError | PreparationMessa
     "template_open_in_excel": [lambda: messages.template_open_in_excel(TEMPLATE)],
     "template_unreadable": [lambda: messages.template_unreadable(TEMPLATE)],
     "template_without_header": [lambda: messages.template_without_header(TEMPLATE, "Sheet1", 17, "WYKONAWCA")],
+    "template_with_merged_cells": [lambda: messages.template_with_merged_cells(TEMPLATE, "Sheet1", "B19:C20")],
     "register_missing": [lambda: messages.register_missing(REGISTER)],
     "register_open_in_excel": [lambda: messages.register_open_in_excel(REGISTER)],
     "register_unreadable": [lambda: messages.register_unreadable(REGISTER)],

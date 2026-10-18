@@ -23,6 +23,7 @@ from .domain import (
     WorkerResult,
 )
 from .phase_runner import PhaseRunner, elapsed_ms_since
+from .settlement_period import PERIOD_TOKEN_PATTERN
 from .template_settlement import (
     ExcelRow,
     PlaceholderValidationError,
@@ -31,7 +32,7 @@ from .template_settlement import (
 from .workbook_files import is_open_in_excel
 
 
-PERIOD_PATTERN = r"\d{2}_\d{2}_\d{2}_\d{4}"
+PERIOD_PATTERN = PERIOD_TOKEN_PATTERN
 SOURCE_PATTERN = re.compile(
     rf"^Rozliczenie (?P<period>{PERIOD_PATTERN}) - zbiorcze\.xlsx$"
 )

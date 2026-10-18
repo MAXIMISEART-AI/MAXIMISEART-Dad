@@ -1,8 +1,10 @@
-"""Uruchamianie faz przebiegu z opcjonalnym obserwatorem i pomiarem czasów."""
+"""Uruchamianie etapów procesu z opcjonalnym obserwatorem i pomiarem czasów."""
 
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Callable, TypeVar
 
 from .domain import (
@@ -24,12 +26,12 @@ def elapsed_ms_since(started: float) -> int:
 
 
 class PhaseRunner:
-    """Sekwencjonuje fazy jednego przebiegu i przekazuje Zdarzenia przebiegu.
+    """Sekwencjonuje etapy jednego uruchomienia procesu i przekazuje Zdarzenia przebiegu.
 
-    Zegar przebiegu startuje przy utworzeniu. Awaria obserwatora odłącza go do
-    końca przebiegu i nie zmienia wyniku faz. Każda faza zgłasza START, a potem
-    END albo jedno FAILED; czas fazy trafia do ``phase_durations_ms`` także po
-    przerwaniu.
+    Zegar uruchomienia startuje przy utworzeniu. Awaria obserwatora odłącza go do
+    końca uruchomienia i nie zmienia wyniku etapów. Każdy etap zgłasza START, a
+    potem END albo jedno FAILED; czas etapu trafia do ``phase_durations_ms`` także
+    po przerwaniu.
     """
 
     def __init__(self, observer: ProgressObserver | None) -> None:
@@ -40,14 +42,24 @@ class PhaseRunner:
         self.phase_durations_ms: dict[ProgressPhase, int] = {}
 
     def elapsed_ms(self) -> int:
-        """Czas od rozpoczęcia przebiegu."""
+        """Czas od rozpoczęcia uruchomienia, bez czasu wstrzymania."""
 
         return elapsed_ms_since(self._run_started)
 
     def phase_elapsed_ms(self) -> int:
-        """Czas od rozpoczęcia bieżącej (ostatniej) fazy."""
+        """Czas od rozpoczęcia bieżącego (ostatniego) etapu."""
 
         return elapsed_ms_since(self._phase_started)
+
+    @contextmanager
+    def paused(self) -> Iterator[None]:
+        """Wstrzymuje zegar uruchomienia między etapami, np. na czas odpowiedzi taty."""
+
+        paused_at = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._run_started += time.perf_counter() - paused_at
 
     def notify(self, event: ProgressEvent) -> None:
         """Przekazuje zdarzenie obserwatorowi, odłączając go po pierwszej awarii."""
@@ -68,7 +80,7 @@ class PhaseRunner:
         *,
         template_total: int = 0,
     ) -> ResultT:
-        """Wykonuje fazę; ``template_total`` trafia jako końcowa pozycja do END."""
+        """Wykonuje etap; ``template_total`` trafia jako końcowa pozycja do END."""
 
         self._phase_started = time.perf_counter()
         self._failure_reported = False
