@@ -41,6 +41,10 @@ their contents.
 - Test each process through its operation (`run_settlements()`,
   `prepare_collective_file()`). Give an internal module its own tests only for
   behaviour those operations cannot reach.
+- Test Centrum rozliczeń through its HTTP API, the way the browser sees it:
+  responses, the event stream, files on disk, metrics records. Prove UI
+  behaviour in the browser with `verify-centrum-rozliczen`, not with component
+  unit tests.
 - Use synthetic workbook fixtures only. Cover both successful and failure
   paths for each operation's behaviour matrix.
 - The test that owns a workbook write verifies values `A:AT`, preserved
@@ -51,12 +55,32 @@ their contents.
 - After changes, run the repository test command from `README.md`; before real
   files are used, run `--dry-run`.
 
+## Frontend
+
+- The browser holds no domain logic: it displays what the server returns and
+  sends tata's choices back. A rule needed in the UI belongs in the engine.
+- Parse every server response and stream event at the browser boundary with
+  the schemas generated from the server models. Change the contract on the
+  server and regenerate; keep hand-written types for the UI's own state only.
+- Model the UI states of an Uruchomienie procesu as one discriminated union
+  that mirrors the progress projection's snapshot.
+- Use components from the official `@shadcn` registry and semantic theme
+  tokens. Write all UI text in Polish, in the vocabulary of `GLOSSARY.md` and
+  the user guide.
+
 ## Review Context
 
 - Read `GLOSSARY.md` and the relevant ADR before changing a domain seam.
 - Treat ADR 0001 as the constraint that Python remains the single source of
-  settlement rules, and ADR 0003 as the constraint that each process is
-  launched only through its CLI and `.cmd` launcher.
+  settlement rules, and ADR 0003 as the constraint that there is no VBA
+  adapter.
+- Treat ADR 0004 as the constraint that Centrum rozliczeń is an adapter of
+  Uruchomienie procesu, not a second process: it talks to the same core as the
+  terminal, keeps no rules of its own, renders only the progress projection's
+  snapshots and the shared message lines, and leaves the CLI and `.cmd`
+  launchers unchanged. Review every Centrum change for localhost-only
+  listening, `Host`/`Origin` checks, and file actions limited to paths the
+  server derived from the periods folder.
 - Review standards separately from specification compliance. A passing test
   suite does not replace a review of module depth, seam locality, or domain
   vocabulary.
