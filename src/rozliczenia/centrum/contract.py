@@ -11,6 +11,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rozliczenia.period_status import PeriodStatus
+from rozliczenia.process_run import ThreePartMessage
+
 
 class _Model(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -83,9 +86,6 @@ class ThemeChange(_Model):
     theme: Theme
 
 
-PeriodStatus = Literal["no_period_files", "collective_file_prepared", "worker_settlements_ready"]
-
-
 class NextStep(_Model):
     """Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty."""
 
@@ -121,8 +121,11 @@ class BoardMissing(_Model):
 
 
 class BoardReady(_Model):
+    """Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym."""
+
     state: Literal["ready"]
     periods: list[PeriodRow]
+    last_prepared_period: str | None
 
 
 PeriodBoard = Annotated[BoardNotSet | BoardMissing | BoardReady, Field(discriminator="state")]
@@ -140,7 +143,8 @@ class Opened(_Model):
     name: str
 
 
-MetricsProcess = Literal["preparation", "settlement"]
+# Każdy proces ma klucz, ten sam w Uruchomieniach i w Metrykach.
+ProcessKey = Literal["preparation", "settlement"]
 RunMode = Literal["RUN", "DRY-RUN"]
 RunResult = Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
 
@@ -156,7 +160,7 @@ class ProcessRun(_Model):
     ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
     """
 
-    process: MetricsProcess
+    process: ProcessKey
     process_label: str
     started_at: datetime
     mode: RunMode
@@ -190,7 +194,7 @@ class ResultCounts(_Model):
 class ModeStatistics(_Model):
     """Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji."""
 
-    process: MetricsProcess
+    process: ProcessKey
     mode: RunMode
     completed_runs: int
     percentiles: Percentiles | None
@@ -215,8 +219,7 @@ class Metrics(_Model):
     recent: RecentResults
 
 
-# Uruchomienia procesu. Każdy proces ma klucz.
-ProcessKey = Literal["preparation", "settlement"]
+# Uruchomienia procesu.
 PhaseName = Literal["Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"]
 
 
@@ -228,6 +231,8 @@ class PeriodChoice(_Model):
     monday: date
     status_label: str
     last_complete: bool
+    # W historii metryk jest udany podgląd bez zapisu tego procesu i okresu (z Centrum albo z ``.cmd``).
+    previewed: bool
     # Nazwa Pliku zbiorczego okresu, gdy proces go czyta (Przebieg rozliczeń); tata go nie wskazuje.
     collective_file: str | None
 
@@ -269,6 +274,15 @@ class OperationProgress(_Model):
     worker_elapsed_ms: int | None
 
 
+class TemplateCounts(_Model):
+    """Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”."""
+
+    written: int
+    empty: int
+    planned: int
+    skipped: int
+
+
 class Progress(_Model):
     """Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane."""
 
@@ -280,7 +294,7 @@ class Progress(_Model):
     templates_completed: int
     current_worker: str | None
     rows: int
-    operation_counts: dict[str, int]
+    counts: TemplateCounts
     recent_operations: list[OperationProgress]
     total_elapsed_ms: int
     issue_count: int
@@ -309,12 +323,16 @@ class RunInfo(_Model):
     dry_run: bool
 
 
-class RunMessage(_Model):
-    """Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``)."""
+class Message(_Model):
+    """Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."""
 
     what: str
-    where: str | None
-    action: str | None
+    where: str
+    action: str
+
+    @classmethod
+    def of(cls, message: ThreePartMessage) -> Message:
+        return cls(what=message.what, where=message.where, action=message.action)
 
 
 class Count(_Model):
@@ -328,12 +346,12 @@ class CountGroup(_Model):
 
 
 class Decision(_Model):
-    """Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień)."""
+    """Pytanie do taty z części decyzji procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień)."""
 
     question: str
-    title: str | None
-    message: RunMessage | None
-    count_groups: list[CountGroup]
+    title: str
+    message: Message
+    counts: CountGroup
 
 
 class PreparationSummary(_Model):
@@ -375,7 +393,7 @@ RunSummary = Annotated[PreparationSummary | SettlementSummary, Field(discriminat
 
 
 class RunOutcome(_Model):
-    """Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
+    """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
     błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
@@ -386,13 +404,11 @@ class RunOutcome(_Model):
     headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
-    status_line: str
     total_duration_ms: int
-    stops: list[RunMessage]
-    warnings: list[RunMessage]
+    stops: list[Message]
+    warnings: list[Message]
     notices: list[str]
     summary: RunSummary | None
-    lines: list[str]
 
 
 class RunIdle(_Model):
@@ -438,14 +454,6 @@ class RunEvent(_Model):
 
 class DecisionAnswer(_Model):
     answer: Literal["continue", "abort"]
-
-
-class Message(_Model):
-    """Komunikat w trzech częściach, ta sama treść co w terminalu."""
-
-    what: str
-    where: str
-    action: str
 
 
 class TemplateReady(_Model):

@@ -106,7 +106,7 @@ def period_from_source(source_path: Path) -> str:
     try:
         return collective_file.period_from_path(source_path)
     except CollectiveFileError as exc:
-        raise settlement_messages.collective_file_invalid(source_path, str(exc)) from exc
+        raise settlement_messages.collective_file_invalid(source_path, exc.message) from exc
 
 
 def default_config_path() -> Path:
@@ -156,7 +156,7 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], lis
     try:
         data_rows, issues = collective_file.read_data_rows(source_path)
     except CollectiveFileError as exc:
-        raise settlement_messages.collective_file_invalid(source_path, str(exc)) from exc
+        raise settlement_messages.collective_file_invalid(source_path, exc.message) from exc
     rows_by_worker: defaultdict[str, list[ExcelRow]] = defaultdict(list)
     for row in data_rows:
         rows_by_worker[normalize_text(row.worker)].append(row.values)
@@ -191,7 +191,7 @@ def run_settlements(
         try:
             validate_worker_template(worker_template_path)
         except WorkerTemplateValidationError as exc:
-            raise settlement_messages.worker_template_invalid(worker_template_path, str(exc)) from exc
+            raise settlement_messages.worker_template_invalid(worker_template_path, exc.message) from exc
         return period, target_directory, mapping
 
     period, target_directory, mapping = phases.check(check_inputs)

@@ -4,73 +4,74 @@ Plik zbiorczy wynika z folderu okresów i okresu; tata go nie wskazuje. Do
 wyboru są okresy ze Statusem okresu „Plik zbiorczy przygotowany”. Kliknięcie
 „Uruchom” jest potwierdzeniem Gotowości: Centrum nie zgaduje jej z pliku ani
 nie blokuje startu. Proces prowadzi rdzeń Uruchomienia procesu z tym samym
-opisem procesu co CLI (``cli.CENTRUM_PROCESS``), więc liczby, linie i rekord
-metryk są te same.
+opisem procesu co CLI (``cli.PROCESS``), więc liczby, komunikaty i rekord
+metryk są te same. Terminal pokazuje zatrzymanie jedną linią, Centrum ten sam
+komunikat w trzech częściach.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
-from rozliczenia import cli, collective_file
+from rozliczenia import cli, collective_file, settlement_messages
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
 from rozliczenia.centrum.period_board import PeriodFolder, read_board
-from rozliczenia.centrum.run_origins import CentrumRuns
-from rozliczenia.centrum.runs import PreparedRun, run_result
+from rozliczenia.centrum.runs import Endings, PreparedRun
 from rozliczenia.centrum.settings import SettingsStore
-from rozliczenia.domain import Issue, SettlementSummary
-from rozliczenia.process_run import Interlocutor, run_process
-from rozliczenia.settlement_messages import issue_message
+from rozliczenia.domain import SettlementSummary
+from rozliczenia.period_status import PeriodStatus
 from rozliczenia.settlement_period import last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 
-_PROCESS: Final = cli.CENTRUM_PROCESS
-TITLE: Final = "Przebieg rozliczeń"
-_ELIGIBLE: Final[contract.PeriodStatus] = "collective_file_prepared"
+_PROCESS: Final = cli.PROCESS
+_KEY: Final[contract.ProcessKey] = "settlement"
+_ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
+_ENDINGS: Final = Endings(
+    unexpected=settlement_messages.unexpected_failure(),
+    plan_not_shown=settlement_messages.plan_not_shown(),
+    summary_not_shown=settlement_messages.summary_not_shown(),
+)
 
 
+@dataclass(frozen=True)
 class SettlementEntry:
     """Przebieg rozliczeń jako proces uruchamiany z Centrum (``runs.ProcessEntry``)."""
 
-    key: Final[contract.ProcessKey] = "settlement"
+    store: SettingsStore
+    configuration: ConfigurationFiles
+    metrics_path: Path
+    today: Callable[[], date]
 
-    def __init__(
-        self,
-        store: SettingsStore,
-        configuration: ConfigurationFiles,
-        metrics_path: Path,
-        centrum_runs: CentrumRuns,
-        today: Callable[[], date],
-    ) -> None:
-        self._store = store
-        self._configuration = configuration
-        self._metrics_path = metrics_path
-        self._centrum_runs = centrum_runs
-        self._today = today
+    @property
+    def key(self) -> contract.ProcessKey:
+        return _KEY
 
     def setup(self) -> contract.ProcessSetup:
-        board = read_board(self._store.load().periods_directory, self._today())
+        board = read_board(self.store.load().periods_directory, self.today())
         rows = [row for row in board.periods if row.status == _ELIGIBLE] if board.state == "ready" else []
         preselected = next(
             (row.token for row in rows if row.last_complete),
-            rows[0].token if rows else last_complete_period(self._today()).token,
+            rows[0].token if rows else last_complete_period(self.today()).token,
         )
+        previewed = previewed_periods(MetricsStore(self.metrics_path, _PROCESS.counter_names))
         return contract.ProcessSetup(
-            process=self.key,
-            title=TITLE,
+            process=_KEY,
+            title=PROCESS_NAMES[_KEY],
             creates="Rozliczenia pracowników",
             reminder="Zapisz i zamknij Plik zbiorczy w Excelu",
-            periods=[_choice(row) for row in rows],
+            periods=[_choice(row, previewed=row.token in previewed) for row in rows],
             preselected_period=preselected,
             blocker=_blocker(board, rows),
         )
 
-    def prepare(self, request: contract.RunRequest) -> PreparedRun:
-        periods_directory = self._store.load().periods_directory
+    def prepare(self, request: contract.RunRequest) -> PreparedRun[Any, Any]:
+        periods_directory = self.store.load().periods_directory
         if periods_directory is None:
             raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
         try:
@@ -81,38 +82,36 @@ class SettlementEntry:
         inputs = cli.SettlementInputs(
             source,
             dry_run=request.dry_run,
-            config_path=self._configuration.worker_config,
-            worker_template_path=self._configuration.worker_template,
+            config_path=self.configuration.worker_config,
+            worker_template_path=self.configuration.worker_template,
         )
-        metrics_path = self._metrics_path
-        centrum_runs = self._centrum_runs
 
-        def conduct(interlocutor: Interlocutor) -> contract.RunOutcome:
-            since = datetime.now(timezone.utc)
-            outcome = run_process(_PROCESS, inputs, interlocutor, metrics_path=metrics_path)
-            centrum_runs.remember(
-                "settlement", MetricsStore(metrics_path, _PROCESS.counter_names), since, datetime.now(timezone.utc)
-            )
-            summary = outcome.summary
-            return run_result(
-                outcome,
-                dry_run=inputs.dry_run,
-                done="Rozliczenia pracowników gotowe",
-                summary=None if summary is None else _summary(summary),
-                warnings=[] if summary is None else [_issue(issue, source) for issue in summary.issues],
-            )
+        def warnings(summary: SettlementSummary) -> list[settlement_messages.SettlementMessage]:
+            return [settlement_messages.issue_message(issue, source) for issue in summary.issues]
 
-        return PreparedRun(self.key, TITLE, period.token, request.dry_run, conduct)
+        return PreparedRun(
+            key=_KEY,
+            title=PROCESS_NAMES[_KEY],
+            period=period.token,
+            process=_PROCESS,
+            inputs=inputs,
+            metrics_path=self.metrics_path,
+            done="Rozliczenia pracowników gotowe",
+            endings=_ENDINGS,
+            summary=_summary,
+            warnings=warnings,
+        )
 
 
-def _choice(row: contract.PeriodRow) -> contract.PeriodChoice:
+def _choice(row: contract.PeriodRow, *, previewed: bool) -> contract.PeriodChoice:
     return contract.PeriodChoice(
         token=row.token,
         tuesday=row.tuesday,
         monday=row.monday,
         status_label=row.status_label,
         last_complete=row.last_complete,
-        collective_file=collective_file.path_for_period(Path(row.token), row.token).name,
+        previewed=previewed,
+        collective_file=collective_file.name_for_period(row.token),
     )
 
 
@@ -141,8 +140,3 @@ def _summary(summary: SettlementSummary) -> contract.SettlementSummary:
             for result in summary.results
         ],
     )
-
-
-def _issue(issue: Issue, source: Path) -> contract.RunMessage:
-    message = issue_message(issue, source)
-    return contract.RunMessage(what=message.what, where=message.where, action=message.action)

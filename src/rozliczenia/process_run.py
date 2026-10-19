@@ -32,12 +32,14 @@ from .terminal_conversation import TerminalConversation
 
 __all__ = [
     "Conversation",
+    "Decision",
     "Finished",
     "Interlocutor",
     "Outcome",
     "Process",
     "ProcessInputs",
     "Stop",
+    "ThreePartMessage",
     "run",
     "run_process",
 ]
@@ -60,20 +62,63 @@ InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT")
 
 
+class ThreePartMessage(Protocol):
+    """Bezpieczny komunikat procesu w trzech częściach: co się stało, gdzie, co zrobić."""
+
+    @property
+    def what(self) -> str: ...
+
+    @property
+    def where(self) -> str: ...
+
+    @property
+    def action(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class Decision:
+    """Pytanie do taty w trakcie silnika: tytuł, komunikat, liczby z etykietami i pytanie.
+
+    Terminal pokazuje ``lines`` i pyta ``t``/``n``; inny rozmówca pokazuje te
+    same części bez parsowania linii.
+    """
+
+    title: str
+    message: ThreePartMessage
+    counts_title: str
+    counts: Sequence[tuple[str, int]]
+    question: str
+
+    @property
+    def lines(self) -> list[str]:
+        return [
+            self.title,
+            f"Co się stało: {self.message.what}",
+            f"Gdzie: {self.message.where}",
+            f"Co zrobić: {self.message.action}",
+            f"{self.counts_title}:",
+            *(f"- {label}: {count}" for label, count in self.counts),
+        ]
+
+
 class Conversation(Protocol):
     """Rozmowa z tatą w trakcie silnika, dostępna dla ``Process.execute``.
 
     ``confirm`` to decyzja taty (np. o niepełnym okresie): ``True`` to zgoda.
-    ``ask`` to pytanie o tekst; ``None``, gdy odpowiedzi nie ma. ``paused``
-    wstrzymuje podgląd na dłuższą rozmowę. Czas ``confirm`` i ``paused`` nie
-    wlicza się do ``Czas uruchomienia``.
+    ``continue_hint`` mówi, jak u tego rozmówcy wyraża się zgodę (do komunikatu
+    po odmowie). ``ask`` to pytanie o tekst; ``None``, gdy odpowiedzi nie ma.
+    ``paused`` wstrzymuje podgląd na dłuższą rozmowę. Czas ``confirm`` i
+    ``paused`` nie wlicza się do ``Czas uruchomienia``.
     """
+
+    @property
+    def continue_hint(self) -> str: ...
 
     def say(self, *lines: str) -> None: ...
 
     def ask(self, prompt: str) -> str | None: ...
 
-    def confirm(self, lines: Sequence[str], question: str) -> bool: ...
+    def confirm(self, decision: Decision) -> bool: ...
 
     def paused(self) -> AbstractContextManager[None]: ...
 
@@ -97,15 +142,17 @@ class Interlocutor(Conversation, Protocol):
 class Stop:
     """Zatrzymanie Uruchomienia procesu przekazywane procesowi do ``stopped``.
 
-    ``stop``: własne zatrzymanie procesu z bezpiecznymi liniami ``lines``.
+    ``stop``: własne zatrzymanie procesu z bezpiecznymi liniami terminala
+    ``lines`` i tym samym komunikatem w trzech częściach (``message``).
     ``unexpected``: inny wyjątek przed końcem silnika. ``after_engine``: silnik
-    skończył, ale nie dało się zbudować podsumowania. Tylko ``stop`` ma linie.
-    ``dry_run``: Uruchomienie DRY-RUN, w którym nic nie zapisano.
+    skończył, ale nie dało się zbudować podsumowania. Tylko ``stop`` ma linie
+    i komunikat. ``dry_run``: Uruchomienie DRY-RUN, w którym nic nie zapisano.
     """
 
     kind: Literal["stop", "unexpected", "after_engine"]
     dry_run: bool
     lines: tuple[str, ...] = ()
+    message: ThreePartMessage | None = None
 
 
 @dataclass(frozen=True)
@@ -129,8 +176,10 @@ class Process(Generic[InputsT, SummaryT]):
 
     ``execute`` wywołuje silnik z gotowym wejściem procesu. Zatrzymanie
     zgłasza wyjątkiem ``stop_type``, którego tekst jest z kontraktu
-    bezpieczny; ``stop_lines`` zamienia go na linie. ``finished`` i ``stopped``
-    są czystymi funkcjami linii końcowych, wspólnymi dla każdego rozmówcy.
+    bezpieczny; ``stop_lines`` zamienia go na linie terminala, a
+    ``stop_message`` na ten sam komunikat w trzech częściach. ``finished`` i
+    ``stopped`` są czystymi funkcjami linii końcowych, wspólnymi dla każdego
+    rozmówcy.
 
     Tylko dla CLI: ``parser`` ma ``--dry-run`` i ``--metrics``, a ``gather``
     ustala wejście procesu z argumentów w rozmowie w terminalu.
@@ -143,6 +192,7 @@ class Process(Generic[InputsT, SummaryT]):
     metrics_failure_tail: str
     stop_type: type[Exception]
     stop_lines: Callable[[Exception], Sequence[str]]
+    stop_message: Callable[[Exception], ThreePartMessage]
     gather: Callable[[argparse.Namespace, TerminalConversation], InputsT]
     execute: Callable[[InputsT, ProgressObserver, Conversation], SummaryT]
     finished: Callable[[InputsT, SummaryT], Finished]
@@ -209,15 +259,19 @@ class _ClockedConversation:
         self._interlocutor = interlocutor
         self._clock = clock
 
+    @property
+    def continue_hint(self) -> str:
+        return self._interlocutor.continue_hint
+
     def say(self, *lines: str) -> None:
         self._interlocutor.say(*lines)
 
     def ask(self, prompt: str) -> str | None:
         return self._interlocutor.ask(prompt)
 
-    def confirm(self, lines: Sequence[str], question: str) -> bool:
+    def confirm(self, decision: Decision) -> bool:
         with self._clock.paused():
-            return self._interlocutor.confirm(lines, question)
+            return self._interlocutor.confirm(decision)
 
     @contextmanager
     def paused(self) -> Iterator[None]:
@@ -264,7 +318,7 @@ def _stop_from(process: Process[Any, Any], error: Exception, *, dry_run: bool) -
     if not isinstance(error, process.stop_type):
         return Stop("unexpected", dry_run)
     try:
-        return Stop("stop", dry_run, tuple(process.stop_lines(error)))
+        return Stop("stop", dry_run, tuple(process.stop_lines(error)), process.stop_message(error))
     except Exception:
         return Stop("unexpected", dry_run)
 

@@ -315,6 +315,18 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     ]
 
 
+def test_tablica_okresow_wskazuje_ostatni_przygotowany_okres_z_plikiem_zbiorczym(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    before = app.client.get("/api/periods").json()["last_prepared_period"]
+    write_worker_settlements(write_period_files(periods, "22_28_09_2026"), "22_28_09_2026", ["Anna Testowa"])
+    write_period_files(periods, "15_21_09_2026")
+    (periods / "29_05_09_2026").mkdir()
+
+    after = app.client.get("/api/periods").json()["last_prepared_period"]
+
+    assert (before, after) == (None, "22_28_09_2026")
+
+
 def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: Path) -> None:
     app, periods = with_periods_directory(tmp_path)
     write_period_files(periods, "29_05_09_2026")

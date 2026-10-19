@@ -21,9 +21,9 @@ from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import has_console, show_start_problem
 from rozliczenia.centrum.start_problems import StartProblem
+from rozliczenia.centrum.version import SERVICE
 
 DEFAULT_PORT = 47811
-SERVICE = "centrum-rozliczen"
 LOG_PATH = Path(__file__).resolve().parents[3] / "logs" / "centrum-rozliczen.log"
 _HEALTH_TIMEOUT_S = 5  # drugie kliknięcie skrótu może trafić na Centrum, które jeszcze startuje
 

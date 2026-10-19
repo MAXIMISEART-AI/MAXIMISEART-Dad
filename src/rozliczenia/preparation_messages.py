@@ -11,19 +11,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Literal
-
 from openpyxl.utils import get_column_letter
 
 from . import collective_file
-
-
-Channel = Literal["terminal", "centrum"]
-"""Gdzie tata rozmawia z Uruchomieniem procesu: w terminalu (CLI) albo w Centrum rozliczeń.
-
-Tylko kilka komunikatów mówi, jak odpowiedzieć albo czy uruchomić ponownie; ich
-„Co się stało” i kod są w obu kanałach te same.
-"""
 
 
 @dataclass(frozen=True)
@@ -545,14 +535,11 @@ def incomplete_period(
     )
 
 
-_CONSENT: dict[Channel, str] = {
-    "terminal": "przy pytaniu wpisz t",
-    "centrum": "przy decyzji wybierz „Kontynuuj”",
-}
+def incomplete_period_refused(period: str, continue_hint: str) -> PreparationError:
+    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie.
 
-
-def incomplete_period_refused(period: str, channel: Channel = "terminal") -> PreparationError:
-    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie."""
+    ``continue_hint`` mówi, jak u rozmówcy wyraża się zgodę, np. „przy pytaniu wpisz t”.
+    """
 
     return PreparationError(
         PreparationMessage(
@@ -561,7 +548,7 @@ def incomplete_period_refused(period: str, channel: Channel = "terminal") -> Pre
             where=f"okres {period}",
             action=(
                 "Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. "
-                f"Jeśli okres jest pełny, {_CONSENT[channel]}."
+                f"Jeśli okres jest pełny, {continue_hint}."
             ),
         )
     )
@@ -594,11 +581,12 @@ def unexpected_failure() -> PreparationMessage:
     )
 
 
-def summary_not_shown(channel: Channel = "terminal") -> PreparationMessage:
+def summary_not_shown(*, warns_against_rerun: bool = False) -> PreparationMessage:
     """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty.
 
-    W terminalu „nie uruchamiaj ponownie” mówi tabela w instrukcji; Centrum nie
-    odsyła do tabeli, więc mówi to sam komunikat.
+    W terminalu „nie uruchamiaj ponownie” mówi tabela w instrukcji. Gdzie tata
+    nie zagląda do tabeli (Centrum rozliczeń), ``warns_against_rerun`` dopisuje
+    to do „Co zrobić”.
     """
 
     check = "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
@@ -606,7 +594,7 @@ def summary_not_shown(channel: Channel = "terminal") -> PreparationMessage:
         code="BLAD_PODSUMOWANIA",
         what="Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
         where="Przygotowanie pliku zbiorczego",
-        action=check if channel == "terminal" else f"Nie uruchamiaj ponownie: oba pliki okresu już są. {check}",
+        action=f"Nie uruchamiaj ponownie: oba pliki okresu już są. {check}" if warns_against_rerun else check,
     )
 
 

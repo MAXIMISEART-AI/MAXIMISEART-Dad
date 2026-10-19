@@ -22,6 +22,12 @@ INTERNAL = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE = "Wzorzec pliku zbiorczego.xlsx"
 WORKER = "Wzorzec rozliczenia pracownika.xlsx"
 REPORT_TO_MAINTAINER = "Przekaż ten komunikat osobie utrzymującej narzędzie."
+# Wzorzec rozliczenia pracownika ma ten sam komunikat, którym zatrzymałby się Przebieg rozliczeń.
+WORKER_TEMPLATE_STOP = "Nie można użyć Wzorca rozliczenia pracownika."
+WORKER_TEMPLATE_ACTION = (
+    "Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. "
+    "W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie."
+)
 
 
 @dataclass
@@ -78,14 +84,28 @@ def test_wszystkie_trzy_wzorce_sa_na_miejscu_i_czytelne(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("file_name", "what"),
+    ("file_name", "what", "action"),
     [
-        (INTERNAL, "Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku."),
-        (COLLECTIVE, "Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku."),
-        (WORKER, f"Nie znaleziono Wzorca rozliczenia pracownika: {WORKER}."),
+        (
+            INTERNAL,
+            "Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku.",
+            REPORT_TO_MAINTAINER,
+        ),
+        (
+            COLLECTIVE,
+            "Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku.",
+            REPORT_TO_MAINTAINER,
+        ),
+        (
+            WORKER,
+            f"{WORKER_TEMPLATE_STOP} Nie znaleziono Wzorca rozliczenia pracownika: {WORKER}.",
+            WORKER_TEMPLATE_ACTION,
+        ),
     ],
 )
-def test_brak_wzorca_jest_komunikatem_w_trzech_czesciach(tmp_path: Path, file_name: str, what: str) -> None:
+def test_brak_wzorca_jest_komunikatem_w_trzech_czesciach(
+    tmp_path: Path, file_name: str, what: str, action: str
+) -> None:
     app = configured(tmp_path)
     (tmp_path / "config" / file_name).unlink()
 
@@ -96,20 +116,32 @@ def test_brak_wzorca_jest_komunikatem_w_trzech_czesciach(tmp_path: Path, file_na
     assert templates[file_name]["message"] == {
         "what": what,
         "where": f"plik {file_name}, folder config",
-        "action": REPORT_TO_MAINTAINER,
+        "action": action,
     }
     assert [template["state"] for name, template in templates.items() if name != file_name] == ["ready", "ready"]
 
 
+def closing_action(file_name: str) -> str:
+    return (
+        "Zamknij wzorzec w Excelu bez zapisywania zmian i uruchom ponownie. "
+        "Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu "
+        f"pozostawiony plik ~${file_name} i uruchom ponownie."
+    )
+
+
 @pytest.mark.parametrize(
-    ("file_name", "what"),
+    ("file_name", "what", "action"),
     [
-        (INTERNAL, "Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku."),
-        (COLLECTIVE, "Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku."),
-        (WORKER, "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."),
+        (INTERNAL, "Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku.", closing_action(INTERNAL)),
+        (COLLECTIVE, "Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku.", closing_action(COLLECTIVE)),
+        (
+            WORKER,
+            f"{WORKER_TEMPLATE_STOP} Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.",
+            WORKER_TEMPLATE_ACTION,
+        ),
     ],
 )
-def test_wzorzec_otwarty_w_excelu_mowi_jak_go_zamknac(tmp_path: Path, file_name: str, what: str) -> None:
+def test_wzorzec_otwarty_w_excelu_mowi_jak_go_zamknac(tmp_path: Path, file_name: str, what: str, action: str) -> None:
     app = configured(tmp_path)
     lock_file = tmp_path / "config" / f"~${file_name}"
     lock_file.write_bytes(b"blokada Excela")
@@ -120,11 +152,7 @@ def test_wzorzec_otwarty_w_excelu_mowi_jak_go_zamknac(tmp_path: Path, file_name:
     assert template["message"] == {
         "what": what,
         "where": f"plik {file_name}, folder config",
-        "action": (
-            "Zamknij wzorzec w Excelu bez zapisywania zmian i uruchom ponownie. "
-            "Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu "
-            f"pozostawiony plik ~${file_name} i uruchom ponownie."
-        ),
+        "action": action,
     }
     assert lock_file.read_bytes() == b"blokada Excela"
 
@@ -135,15 +163,15 @@ UNREADABLE_TEMPLATE = (
 
 
 @pytest.mark.parametrize(
-    ("file_name", "what"),
+    ("file_name", "what", "action"),
     [
-        (INTERNAL, UNREADABLE_TEMPLATE),
-        (COLLECTIVE, UNREADABLE_TEMPLATE),
-        (WORKER, "Nie można odczytać Wzorca rozliczenia pracownika."),
+        (INTERNAL, UNREADABLE_TEMPLATE, REPORT_TO_MAINTAINER),
+        (COLLECTIVE, UNREADABLE_TEMPLATE, REPORT_TO_MAINTAINER),
+        (WORKER, f"{WORKER_TEMPLATE_STOP} Nie można odczytać Wzorca rozliczenia pracownika.", WORKER_TEMPLATE_ACTION),
     ],
 )
 def test_nieczytelny_wzorzec_trzeba_przekazac_osobie_utrzymujacej_narzedzie(
-    tmp_path: Path, file_name: str, what: str
+    tmp_path: Path, file_name: str, what: str, action: str
 ) -> None:
     app = configured(tmp_path)
     (tmp_path / "config" / file_name).write_bytes(b"to nie jest skoroszyt")
@@ -154,7 +182,7 @@ def test_nieczytelny_wzorzec_trzeba_przekazac_osobie_utrzymujacej_narzedzie(
     assert template["message"] == {
         "what": what,
         "where": f"plik {file_name}, folder config",
-        "action": REPORT_TO_MAINTAINER,
+        "action": action,
     }
 
 
@@ -219,16 +247,19 @@ def test_wykonawcy_sa_wypisani_w_kolejnosci_z_konfiguracji_wykonawcow(tmp_path: 
 
 
 @pytest.mark.parametrize(
-    "content",
+    ("content", "detail"),
     [
-        None,
-        "workers: [niedomknięta lista\n",
-        "schema_version: 1\nworkers:\n  a: Ten Sam\n  b: ten sam\n",
+        (None, "Nie można odczytać pliku konfiguracji."),
+        ("workers: [niedomknięta lista\n", "Plik nie jest poprawnym YAML."),
+        (
+            "schema_version: 1\nworkers:\n  a: Ten Sam\n  b: ten sam\n",
+            "Dwóch identyfikatorów wskazuje ten sam plik pracownika: Ten Sam / ten sam",
+        ),
     ],
     ids=["brak-pliku", "zly-yaml", "dwa-identyfikatory-na-jeden-plik"],
 )
 def test_nieczytelna_konfiguracja_wykonawcow_jest_komunikatem_w_trzech_czesciach(
-    tmp_path: Path, content: str | None
+    tmp_path: Path, content: str | None, detail: str
 ) -> None:
     app = configured(tmp_path)
     if content is None:
@@ -241,9 +272,9 @@ def test_nieczytelna_konfiguracja_wykonawcow_jest_komunikatem_w_trzech_czesciach
     assert configuration["workers"] == {
         "state": "unreadable",
         "message": {
-            "what": "Nie można odczytać konfiguracji wykonawców.",
-            "where": "plik worker_mapping.yaml",
-            "action": "Przekaż to osobie utrzymującej narzędzie.",
+            "what": f"Konfiguracja wykonawców jest niepoprawna. {detail}",
+            "where": "plik worker_mapping.yaml, folder config",
+            "action": REPORT_TO_MAINTAINER,
         },
     }
     assert [template["state"] for template in templates_by_file(configuration).values()] == ["ready"] * 3

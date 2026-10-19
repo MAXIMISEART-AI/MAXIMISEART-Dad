@@ -47,6 +47,13 @@ class Stopped(Exception):
     """Własne zatrzymanie sztucznego procesu; jego tekst jest bezpieczny z kontraktu."""
 
 
+@dataclass(frozen=True)
+class StopMessage:
+    what: str
+    where: str = "Proces testowy"
+    action: str = "Uruchom ponownie."
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser()
     result.add_argument("--metrics", type=Path)
@@ -98,6 +105,7 @@ def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
         "metrics_failure_tail": "Proces testowy zakończył się niezależnie.",
         "stop_type": Stopped,
         "stop_lines": lambda error: str(error).splitlines(),
+        "stop_message": lambda error: StopMessage(str(error)),
         "gather": gather,
         "execute": execute,
         "finished": finished_with("OK"),

@@ -21,7 +21,8 @@ from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.domain import PHASES
 from rozliczenia.telemetry import MINIMUM_STATISTIC_SAMPLES, MetricsStore, comparable_records, statistics_for
 
-_LABELS: Final[dict[contract.MetricsProcess, str]] = {
+# Nazwy procesów w Centrum (Uruchomienia i Metryki); terminal Przebiegu rozliczeń ma własny nagłówek podglądu.
+PROCESS_NAMES: Final[dict[contract.ProcessKey, str]] = {
     "preparation": "Przygotowanie pliku zbiorczego",
     "settlement": "Przebieg rozliczeń",
 }
@@ -40,7 +41,7 @@ class MetricsFiles:
     def of_cli(cls) -> MetricsFiles:
         return cls(preparation=preparation_cli.default_metrics_path(), settlement=cli.default_metrics_path())
 
-    def stores(self) -> dict[contract.MetricsProcess, MetricsStore]:
+    def stores(self) -> dict[contract.ProcessKey, MetricsStore]:
         return {
             "preparation": MetricsStore(self.preparation, preparation_cli.PROCESS.counter_names),
             "settlement": MetricsStore(self.settlement, cli.PROCESS.counter_names),
@@ -82,11 +83,11 @@ def read_metrics(
 
 
 def _run(
-    process: contract.MetricsProcess, record: dict[str, Any], centrum_started: frozenset[tuple[str, str]]
+    process: contract.ProcessKey, record: dict[str, Any], centrum_started: frozenset[tuple[str, str]]
 ) -> contract.ProcessRun:
     return contract.ProcessRun(
         process=process,
-        process_label=_LABELS[process],
+        process_label=PROCESS_NAMES[process],
         started_at=datetime.fromisoformat(record["started_at"]).astimezone(timezone.utc),
         mode=record["mode"],
         period=record["period"],
@@ -101,7 +102,7 @@ def _run(
 
 
 def _statistics(
-    process: contract.MetricsProcess,
+    process: contract.ProcessKey,
     mode: contract.RunMode,
     counter_names: frozenset[str],
     records: list[dict[str, Any]],
@@ -133,6 +134,20 @@ def _results(runs: Iterable[contract.ProcessRun]) -> contract.ResultCounts:
         needs_review=results.count("WYMAGA_SPRAWDZENIA"),
         critical=results.count("BLAD_KRYTYCZNY"),
     )
+
+
+def previewed_periods(store: MetricsStore) -> frozenset[str]:
+    """Okresy, dla których historia metryk ma udany podgląd bez zapisu (DRY-RUN z wynikiem OK).
+
+    Historia jest wspólna dla Centrum i launcherów ``.cmd``, więc liczy się każdy
+    podgląd; nieczytelny plik metryk oznacza „nie było podglądu”.
+    """
+
+    try:
+        records = store.read()
+    except OSError:
+        return frozenset()
+    return frozenset(record["period"] for record in records if (record["mode"], record["result"]) == ("DRY-RUN", "OK"))
 
 
 def metrics_router(files: MetricsFiles, today: Callable[[], date], centrum_runs: CentrumRuns) -> APIRouter:

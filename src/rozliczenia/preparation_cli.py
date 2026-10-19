@@ -26,8 +26,8 @@ from .collective_preparation import (
 )
 from .domain import ProgressObserver
 from .engine import default_config_path
-from .preparation_messages import Channel, PreparationMessage, plan_not_shown, summary_not_shown, unexpected_failure
-from .process_run import Conversation, Finished, Process, Stop, run
+from .preparation_messages import PreparationMessage, plan_not_shown, summary_not_shown, unexpected_failure
+from .process_run import Conversation, Decision, Finished, Process, Stop, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from .terminal_conversation import TerminalConversation
 
@@ -84,16 +84,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def day_label(day: date) -> str:
+def _day_label(day: date) -> str:
     """Dzień okresu tak jak w liniach ``Zlecenia na dzień``, np. ``wt 08.09.2026``."""
 
     return f"{_WEEKDAY_LABELS[day.weekday()]} {day:%d.%m.%Y}"
 
 
-def _orders_per_day_lines(orders_per_day: dict[date, int]) -> list[str]:
-    """Linie ``- wt 08.09.2026: 1`` dla każdego dnia okresu, w kolejności dat."""
+def orders_per_day(plan: PreparationSummary) -> list[tuple[str, int]]:
+    """``Zlecenia na dzień`` z etykietami jak w terminalu, np. ``("wt 08.09.2026", 1)``, w kolejności dat."""
 
-    return [f"- {day_label(day)}: {count}" for day, count in orders_per_day.items()]
+    return [(_day_label(day), count) for day, count in plan.orders_per_day.items()]
 
 
 def _message_lines(message: PreparationMessage) -> list[str]:
@@ -108,7 +108,7 @@ def _summary_lines(summary: PreparationSummary, *, dry_run: bool) -> list[str]:
         f"Zlecenia skuteczne: {summary.successful_order_count}",
         f"Pominięte puste wiersze: {summary.skipped_empty_rows}",
         "Zlecenia na dzień:",
-        *_orders_per_day_lines(summary.orders_per_day),
+        *(f"- {label}: {count}" for label, count in orders_per_day(summary)),
         f"Ostrzeżenia: {len(summary.warnings)}",
     ]
     for warning in summary.warnings:
@@ -150,25 +150,25 @@ class _IncompletePeriodQuestion:
 
     Silnik wywołuje ją z planem między Planowaniem a Zapisywaniem. Decyzję
     podejmuje tata przez rozmówcę (``Conversation.confirm``). Odmowa to
-    ``PreparationError`` z podpowiedzią właściwą dla kanału rozmowy.
+    ``PreparationError`` z podpowiedzią, jak u tego rozmówcy wyraża się zgodę.
     """
 
-    def __init__(self, conversation: Conversation, channel: Channel) -> None:
+    def __init__(self, conversation: Conversation) -> None:
         self._conversation = conversation
-        self._channel = channel
 
     def __call__(self, plan: PreparationSummary) -> None:
         warning = next((item for item in plan.warnings if item.code == messages.INCOMPLETE_PERIOD), None)
         if warning is None:
             return
-        lines = [
-            "Ostrzeżenie: niepełny okres",
-            *warning.text.splitlines(),
-            "Zlecenia na dzień:",
-            *_orders_per_day_lines(plan.orders_per_day),
-        ]
-        if not self._conversation.confirm(lines, "Kontynuować mimo niepełnego okresu?"):
-            raise messages.incomplete_period_refused(plan.period, self._channel)
+        decision = Decision(
+            title="Ostrzeżenie: niepełny okres",
+            message=warning,
+            counts_title="Zlecenia na dzień",
+            counts=orders_per_day(plan),
+            question="Kontynuować mimo niepełnego okresu?",
+        )
+        if not self._conversation.confirm(decision):
+            raise messages.incomplete_period_refused(plan.period, self._conversation.continue_hint)
 
 
 @dataclass(frozen=True)
@@ -208,9 +208,7 @@ def _gather(today: date | None, args: argparse.Namespace, conversation: Terminal
     )
 
 
-def _execute(
-    channel: Channel, inputs: PreparationInputs, observer: ProgressObserver, conversation: Conversation
-) -> PreparationSummary:
+def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation: Conversation) -> PreparationSummary:
     return collective_preparation.prepare_collective_file(
         inputs.register_path,
         inputs.periods_directory,
@@ -220,7 +218,7 @@ def _execute(
         collective_template_path=inputs.collective_template_path,
         dry_run=inputs.dry_run,
         observer=observer,
-        confirm_plan=_IncompletePeriodQuestion(conversation, channel),
+        confirm_plan=_IncompletePeriodQuestion(conversation),
     )
 
 
@@ -239,13 +237,19 @@ def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finishe
     )
 
 
+def _stop_message(error: Exception) -> PreparationMessage:
+    if not isinstance(error, PreparationError):
+        raise TypeError("Zatrzymanie Przygotowania pliku zbiorczego to zawsze PreparationError.")
+    return error.message
+
+
 def _stop_lines(error: Exception) -> list[str]:
     """Linie Co się stało / Gdzie / Co zrobić z ``PreparationError``."""
 
-    return str(error).splitlines()
+    return _stop_message(error).text.splitlines()
 
 
-def _stopped(channel: Channel, stop: Stop) -> list[str]:
+def _stopped(stop: Stop) -> list[str]:
     """``ZATRZYMANO``, gdy nie powstał żaden plik z komunikatem zatrzymania; inaczej ``BŁĄD``."""
 
     if stop.kind == "stop":
@@ -253,11 +257,11 @@ def _stopped(channel: Channel, stop: Stop) -> list[str]:
     if stop.kind == "unexpected":
         message = unexpected_failure()
     else:
-        message = plan_not_shown() if stop.dry_run else summary_not_shown(channel)
+        message = plan_not_shown() if stop.dry_run else summary_not_shown()
     return ["Status końcowy: BŁĄD", *message.text.splitlines()]
 
 
-def _process(today: date | None, channel: Channel = "terminal") -> Process[PreparationInputs, PreparationSummary]:
+def _process(today: date | None) -> Process[PreparationInputs, PreparationSummary]:
     return Process(
         title=_TITLE,
         shows_templates=False,
@@ -266,17 +270,16 @@ def _process(today: date | None, channel: Channel = "terminal") -> Process[Prepa
         metrics_failure_tail="Przygotowanie pliku zbiorczego zakończyło się niezależnie.",
         stop_type=PreparationError,
         stop_lines=_stop_lines,
+        stop_message=_stop_message,
         gather=partial(_gather, today),
-        execute=partial(_execute, channel),
+        execute=_execute,
         finished=_finished,
-        stopped=partial(_stopped, channel),
+        stopped=_stopped,
     )
 
 
-# Opis Przygotowania pliku zbiorczego dla rdzenia Uruchomienia procesu.
+# Opis Przygotowania pliku zbiorczego dla rdzenia Uruchomienia procesu, wspólny dla każdego rozmówcy.
 PROCESS = _process(None)
-# Ten sam proces dla Centrum rozliczeń: decyzja to przyciski, a nie odpowiedź t/n w terminalu.
-CENTRUM_PROCESS = _process(None, "centrum")
 
 
 def main(

@@ -102,7 +102,7 @@ def collective_file_open(source: Path) -> SettlementError:
 
 
 def collective_file_invalid(source: Path, detail: str) -> SettlementError:
-    """Nazwa, folder albo układ Pliku zbiorczego; ``detail`` to bezpieczny komunikat ``CollectiveFileError``."""
+    """Nazwa, folder albo układ Pliku zbiorczego; ``detail`` to ``CollectiveFileError.message``, nie tekst wyjątku."""
 
     return SettlementError(
         detail,
@@ -163,7 +163,7 @@ def worker_config_invalid(config_path: Path, detail: str) -> SettlementError:
 
 
 def worker_template_invalid(template_path: Path, detail: str) -> SettlementError:
-    """Wzorzec rozliczenia pracownika nie przeszedł Sprawdzania; ``detail`` z ``WorkerTemplateValidationError``."""
+    """Wzorzec rozliczenia pracownika nie przeszedł Sprawdzania; ``detail`` to ``WorkerTemplateValidationError.message``."""
 
     return SettlementError(
         detail,

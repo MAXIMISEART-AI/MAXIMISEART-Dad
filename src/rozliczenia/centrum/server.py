@@ -18,7 +18,6 @@ from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.version import tool_version
 
 HOST = "127.0.0.1"  # wyłącznie ten komputer (ADR 0004)
-DEFAULT_PORT = 47811
 _GRACEFUL_SHUTDOWN_S = 5  # otwarte połączenia (np. strumień postępu) nie wstrzymują zamknięcia dłużej
 
 
