@@ -18,7 +18,6 @@ from .period_folder import check_worker_name
 
 __all__ = [
     "WorkerConfigError",
-    "WorkerConfigProblem",
     "default_config_path",
     "load_worker_mapping",
     "normalize_text",
@@ -45,7 +44,7 @@ def normalize_text(value: object) -> str:
     """Normalizuje identyfikator bez usuwania polskich znaków."""
 
     text = unicodedata.normalize("NFC", str(value or ""))
-    return " ".join(text.replace(" ", " ").split()).casefold()
+    return " ".join(text.replace("\u00a0", " ").split()).casefold()
 
 
 def default_config_path() -> Path:
