@@ -6,6 +6,8 @@ pracownika. ``PeriodFolder`` powstaje tylko z folderu okresów i sprawdzonego
 ``SettlementPeriod`` albo ze ścieżki Pliku zbiorczego, którą moduł sam
 sprawdza, więc niesprawdzony token nie trafia do nazw. ``PeriodFolderError``
 ma bezpieczny komunikat, a każdy proces tłumaczy go na swoje zatrzymanie.
+Moduł sprawdza też, czy nazwa Wykonawcy może być nazwą pliku
+(``check_worker_name``), bo zna format nazwy Rozliczenia pracownika.
 
 Status okresu wynika z tej samej obserwacji plików co flagi istnienia
 (``PeriodFolder.observe``), więc nie może się z nimi rozjechać; treści
@@ -97,7 +99,7 @@ class PeriodFolder:
 
     @property
     def collective_file(self) -> Path:
-        return self.directory / _COLLECTIVE_FILE.format(token=self.period.token)
+        return self.directory / collective_file_name(self.period)
 
     @property
     def worker_settlements(self) -> Path:
@@ -134,6 +136,12 @@ class PeriodFolder:
             and entry.name.endswith(suffix)
             and len(entry.name) > len(prefix) + len(suffix)
         )
+
+
+def collective_file_name(period: SettlementPeriod) -> str:
+    """Nazwa Pliku zbiorczego okresu; nie zależy od folderu okresów."""
+
+    return _COLLECTIVE_FILE.format(token=period.token)
 
 
 @dataclass(frozen=True)

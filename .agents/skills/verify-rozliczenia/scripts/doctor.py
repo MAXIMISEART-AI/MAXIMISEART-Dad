@@ -17,7 +17,7 @@ REPO_ROOT = SCRIPT.parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.engine import load_worker_mapping  # noqa: E402
-from rozliczenia.period_folder import PeriodFolder  # noqa: E402
+from rozliczenia.period_folder import PeriodFolder, PeriodFolderError  # noqa: E402
 from rozliczenia.template_settlement import (  # noqa: E402
     WorkerTemplateValidationError,
     validate_worker_template,
@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
         period, template_count = _check(args.root, args.expected_version)
     except (OSError, ValueError, KeyError, TypeError, WorkerTemplateValidationError) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
+        return 1
+    except PeriodFolderError as exc:
+        print(f"DOCTOR FAIL: {exc.message}", file=sys.stderr)
         return 1
     print(
         f"DOCTOR OK | app=MAXIMISEART-Dad | version={args.expected_version} | "

@@ -131,7 +131,7 @@ def run_settlements(
     worker_template_path = (worker_template_path or default_worker_template_path()).expanduser().resolve()
     notify = phases.notify
 
-    def check_inputs() -> tuple[PeriodFolder, dict[str, str]]:
+    def check_inputs() -> tuple[PeriodFolder, Path, dict[str, str]]:
         if not source_path.is_file():
             raise settlement_messages.collective_file_missing(source_path)
         _ensure_unlocked(source_path)
@@ -147,10 +147,9 @@ def run_settlements(
             validate_worker_template(worker_template_path)
         except WorkerTemplateValidationError as exc:
             raise settlement_messages.worker_template_invalid(worker_template_path, exc.message) from exc
-        return folder, mapping
+        return folder, target_directory, mapping
 
-    folder, mapping = phases.check(check_inputs)
-    target_directory = folder.worker_settlements
+    folder, target_directory, mapping = phases.check(check_inputs)
     rows_by_worker, source_issues = phases.read(
         lambda: _read_source_rows(source_path),
         issue_count=lambda read_rows: len(read_rows[1]),
