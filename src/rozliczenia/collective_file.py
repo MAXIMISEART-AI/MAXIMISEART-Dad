@@ -61,7 +61,15 @@ NAME_GLOB = f"{_NAME_PREFIX}*{_NAME_SUFFIX}"  # Plik zbiorczy dowolnego okresu, 
 
 
 class CollectiveFileError(Exception):
-    """Plik zbiorczy albo skoroszyt w jego układzie nie nadaje się do użycia; komunikat jest bezpieczny."""
+    """Plik zbiorczy albo skoroszyt w jego układzie nie nadaje się do użycia.
+
+    ``message`` to bezpieczny komunikat dla taty (bez ścieżek i treści wierszy);
+    komunikaty taty biorą go stąd, nigdy z tekstu wyjątku.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
 
 
 class LayoutError(CollectiveFileError):
@@ -87,14 +95,16 @@ class DataRow:
     values: ExcelRow
 
 
-def _filename(period: str) -> str:
+def name_for_period(period: str) -> str:
+    """Nazwa Pliku zbiorczego okresu, np. ``Rozliczenie 08_14_09_2026 - zbiorcze.xlsx``."""
+
     return f"{_NAME_PREFIX}{period}{_NAME_SUFFIX}"
 
 
 def path_for_period(period_directory: Path, period: str) -> Path:
     """Plik zbiorczy okresu w Folderze okresu."""
 
-    return period_directory / _filename(period)
+    return period_directory / name_for_period(period)
 
 
 def period_from_path(path: Path) -> str:
@@ -104,7 +114,7 @@ def period_from_path(path: Path) -> str:
         raise CollectiveFileError("Plik Rozliczenie wew. jest poza zakresem tego procesu.")
     match = _NAME_PATTERN.fullmatch(path.name)
     if match is None:
-        raise CollectiveFileError(f"Wybierz plik nazwany dokładnie: {_filename('{dd}_{dd}_{mm}_{rrrr}')}.")
+        raise CollectiveFileError(f"Wybierz plik nazwany dokładnie: {name_for_period('{dd}_{dd}_{mm}_{rrrr}')}.")
     period = match.group("period")
     if path.parent.name != period:
         raise CollectiveFileError(f"Folder pliku musi nazywać się tak samo jak okres: {period}.")

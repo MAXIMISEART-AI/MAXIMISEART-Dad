@@ -114,7 +114,6 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
         ],
     }
     assert (result["stops"], result["warnings"]) == ([], [])
-    assert "DRY-RUN: Nic nie zapisano" in result["lines"]
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
     [record] = centrum.metric_records()
     assert (record["mode"], record["period"], record["result"]) == ("DRY-RUN", PERIOD, "OK")
@@ -207,6 +206,28 @@ def test_strumien_pokazuje_postep_szablonow_pracownikow_z_biezacym_wykonawca(tmp
     ]
 
 
+def test_strumien_pokazuje_liczniki_szablonow_pracownikow_na_biezaco(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    seen: list[tuple[str, int, dict[str, int]]] = []
+
+    for event in run_events(centrum.client):
+        view = event["view"]
+        if view["state"] == "idle":
+            centrum.start(dry_run=False)
+            continue
+        notice = view.get("notice")
+        if notice is not None and notice["kind"] == "WORKER_ENDED":
+            seen.append((notice["worker_name"], view["progress"]["rows"], view["progress"]["counts"]))
+        if view["state"] == "finished":
+            break
+
+    assert seen == [
+        ("Adrian Maciejewski", 2, {"written": 1, "empty": 0, "planned": 0, "skipped": 0}),
+        ("Darek Nowak", 3, {"written": 2, "empty": 0, "planned": 0, "skipped": 0}),
+        ("Kamil Frontczak", 3, {"written": 2, "empty": 1, "planned": 0, "skipped": 0}),
+    ]
+
+
 def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path, include_unmapped=True)
 
@@ -214,7 +235,6 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp
 
     assert (result["result"], result["ending"], result["next_action"]) == ("WYMAGA_SPRAWDZENIA", "finished", "rerun")
     assert result["headline"] == "Podgląd wymaga sprawdzenia · nic nie zapisano"
-    assert result["status_line"] == "Status semantyczny: OSTRZEŻENIE"
     assert result["warnings"] == [
         {
             "what": "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
@@ -236,7 +256,7 @@ def test_nieznany_wykonawca_przy_uruchom_zatrzymuje_bez_publikacji_folderu(tmp_p
     result = run_to_end(centrum, dry_run=False)["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert (result["status_line"], result["headline"]) == ("Status semantyczny: BŁĄD", "Zatrzymano")
+    assert result["headline"] == "Zatrzymano"
     [stop] = result["stops"]
     assert stop["what"] == (
         "W Pliku zbiorczym jest WYKONAWCA, którego nie ma w konfiguracji wykonawców. "
@@ -244,12 +264,6 @@ def test_nieznany_wykonawca_przy_uruchom_zatrzymuje_bez_publikacji_folderu(tmp_p
     )
     assert stop["where"] == f"plik {SOURCE_NAME}, folder {PERIOD}, kolumna H"
     assert stop["action"].startswith("Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze.")
-    assert result["lines"][:4] == [
-        "Status semantyczny: BŁĄD",
-        f"Co się stało: {stop['what']}",
-        f"Gdzie: {stop['where']}",
-        f"Co zrobić: {stop['action']}",
-    ]
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"]) == ("RUN", "BLAD_KRYTYCZNY")

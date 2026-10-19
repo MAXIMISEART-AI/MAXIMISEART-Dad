@@ -4,13 +4,14 @@ Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
 (``SettlementInputs``), argumenty i wybór Pliku zbiorczego w terminalu,
 wywołanie silnika oraz linie statusu i podsumowania. Inny rozmówca niż
 terminal podaje gotowe ``SettlementInputs`` do ``run_process(PROCESS, ...)``.
+Terminal pokazuje zatrzymanie jedną linią (``str(error)``); ten sam komunikat
+w trzech częściach daje ``PROCESS.stop_message``.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import TextIO
 
@@ -22,7 +23,6 @@ from .engine import (
     default_worker_template_path,
     period_from_source,
 )
-from .preparation_messages import Channel
 from .process_run import Conversation, Finished, Process, Stop, run
 from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
@@ -172,57 +172,39 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     )
 
 
-def _stop_lines(channel: Channel, error: Exception) -> list[str]:
-    """W terminalu jednoliniowy komunikat ``SettlementError``; w Centrum ten sam w trzech częściach."""
-
-    if channel == "centrum" and isinstance(error, SettlementError):
-        return error.message.text.splitlines()
+def _stop_lines(error: Exception) -> list[str]:
     return [str(error)]
 
 
-def _stopped(channel: Channel, stop: Stop) -> list[str]:
-    if channel == "centrum":
-        return _stopped_in_centrum(stop)
+def _stop_message(error: Exception) -> settlement_messages.SettlementMessage:
+    if not isinstance(error, SettlementError):
+        raise TypeError("Zatrzymanie Przebiegu rozliczeń to zawsze SettlementError.")
+    return error.message
+
+
+def _stopped(stop: Stop) -> list[str]:
     if stop.kind == "after_engine":
         return ["Status semantyczny: BŁĄD", _PLAN_NOT_SHOWN if stop.dry_run else _SUMMARY_NOT_SHOWN]
     lines = stop.lines if stop.kind == "stop" else (_UNEXPECTED_FAILURE,)
     return ["Status semantyczny: BŁĄD", *(f"Nie wykonano: {line}" for line in lines)]
 
 
-def _stopped_in_centrum(stop: Stop) -> list[str]:
-    """Każde zatrzymanie w trzech częściach (Co się stało, Gdzie, Co zrobić), bez ścieżek."""
-
-    if stop.kind == "stop":
-        return ["Status semantyczny: BŁĄD", *stop.lines]
-    if stop.kind == "unexpected":
-        message = settlement_messages.unexpected_failure()
-    elif stop.dry_run:
-        message = settlement_messages.plan_not_shown()
-    else:
-        message = settlement_messages.summary_not_shown()
-    return ["Status semantyczny: BŁĄD", *message.text.splitlines()]
-
-
-def _process(channel: Channel) -> Process[SettlementInputs, SettlementSummary]:
-    return Process(
-        title="Rozliczenia",
-        shows_templates=True,
-        parser=build_parser,
-        counter_names=COUNTER_NAMES,
-        metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
-        stop_type=SettlementError,
-        stop_lines=partial(_stop_lines, channel),
-        gather=_gather,
-        execute=_execute,
-        finished=_finished,
-        stopped=partial(_stopped, channel),
-    )
-
-
-# Opis Przebiegu rozliczeń dla rdzenia Uruchomienia procesu.
-PROCESS = _process("terminal")
-# Ten sam proces dla Centrum rozliczeń: każde zatrzymanie w trzech częściach, bez pełnych ścieżek.
-CENTRUM_PROCESS = _process("centrum")
+# Opis Przebiegu rozliczeń dla rdzenia Uruchomienia procesu, wspólny dla każdego rozmówcy.
+# ``title`` to nagłówek podglądu w terminalu („Rozliczenia | okres | tryb”), bez zmian od pierwszej wersji.
+PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
+    title="Rozliczenia",
+    shows_templates=True,
+    parser=build_parser,
+    counter_names=COUNTER_NAMES,
+    metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
+    stop_type=SettlementError,
+    stop_lines=_stop_lines,
+    stop_message=_stop_message,
+    gather=_gather,
+    execute=_execute,
+    finished=_finished,
+    stopped=_stopped,
+)
 
 
 def main(

@@ -30,6 +30,8 @@ export type BoardNotSet = {
 
 /**
  * BoardReady
+ *
+ * Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym.
  */
 export type BoardReady = {
     /**
@@ -40,6 +42,10 @@ export type BoardReady = {
      * Periods
      */
     periods: Array<PeriodRow>;
+    /**
+     * Last Prepared Period
+     */
+    last_prepared_period: string | null;
 };
 
 /**
@@ -122,7 +128,7 @@ export type CountGroup = {
 /**
  * Decision
  *
- * Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
+ * Pytanie do taty z części decyzji procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
  */
 export type Decision = {
     /**
@@ -132,12 +138,9 @@ export type Decision = {
     /**
      * Title
      */
-    title: string | null;
-    message: RunMessage | null;
-    /**
-     * Count Groups
-     */
-    count_groups: Array<CountGroup>;
+    title: string;
+    message: Message;
+    counts: CountGroup;
 };
 
 /**
@@ -177,7 +180,7 @@ export type Health = {
 /**
  * Message
  *
- * Komunikat w trzech częściach, ta sama treść co w terminalu.
+ * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu.
  */
 export type Message = {
     /**
@@ -383,6 +386,10 @@ export type PeriodChoice = {
      * Last Complete
      */
     last_complete: boolean;
+    /**
+     * Previewed
+     */
+    previewed: boolean;
     /**
      * Collective File
      */
@@ -664,12 +671,7 @@ export type Progress = {
      * Rows
      */
     rows: number;
-    /**
-     * Operation Counts
-     */
-    operation_counts: {
-        [key: string]: number;
-    };
+    counts: TemplateCounts;
     /**
      * Recent Operations
      */
@@ -872,29 +874,9 @@ export type RunInfo = {
 };
 
 /**
- * RunMessage
- *
- * Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``).
- */
-export type RunMessage = {
-    /**
-     * What
-     */
-    what: string;
-    /**
-     * Where
-     */
-    where: string | null;
-    /**
-     * Action
-     */
-    action: string | null;
-};
-
-/**
  * RunOutcome
  *
- * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
+ * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
@@ -918,21 +900,17 @@ export type RunOutcome = {
      */
     next_action: 'run' | 'rerun' | 'open_period_folder';
     /**
-     * Status Line
-     */
-    status_line: string;
-    /**
      * Total Duration Ms
      */
     total_duration_ms: number;
     /**
      * Stops
      */
-    stops: Array<RunMessage>;
+    stops: Array<Message>;
     /**
      * Warnings
      */
-    warnings: Array<RunMessage>;
+    warnings: Array<Message>;
     /**
      * Notices
      */
@@ -945,10 +923,6 @@ export type RunOutcome = {
     } & PreparationSummary) | ({
         process: 'settlement';
     } & SettlementSummary) | null;
-    /**
-     * Lines
-     */
-    lines: Array<string>;
 };
 
 /**
@@ -1070,6 +1044,30 @@ export type SettlementSummary = {
      * Files
      */
     files: Array<WorkerFile>;
+};
+
+/**
+ * TemplateCounts
+ *
+ * Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”.
+ */
+export type TemplateCounts = {
+    /**
+     * Written
+     */
+    written: number;
+    /**
+     * Empty
+     */
+    empty: number;
+    /**
+     * Planned
+     */
+    planned: number;
+    /**
+     * Skipped
+     */
+    skipped: number;
 };
 
 /**

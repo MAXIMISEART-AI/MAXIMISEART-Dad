@@ -20,8 +20,6 @@ type RunsContextValue = {
   view: RunView | null
   /** Połączenie ze strumieniem zerwane; przeglądarka łączy się ponownie sama. */
   disconnected: boolean
-  /** Okresy, dla których w tej karcie był udany podgląd bez zapisu (`proces:okres`). */
-  previewed: ReadonlySet<string>
   draft: RunDraft | null
   setDraft: (draft: RunDraft | null) => void
   /** Zakończone Uruchomienie, którego wynik tata odłożył przyciskiem „Nowe Uruchomienie procesu”. */
@@ -32,10 +30,6 @@ type RunsContextValue = {
 }
 
 const RunsContext = React.createContext<RunsContextValue | null>(null)
-
-export function previewKey(draft: RunDraft): string {
-  return `${draft.process}:${draft.period}`
-}
 
 function showFailure(failure: Error) {
   toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
@@ -71,7 +65,6 @@ function announce(event: RunEvent, before: RunView | null) {
 export function RunsProvider({ children }: { children: React.ReactNode }) {
   const [view, setView] = React.useState<RunView | null>(null)
   const [disconnected, setDisconnected] = React.useState(false)
-  const [previewed, setPreviewed] = React.useState<ReadonlySet<string>>(new Set())
   const [draft, setDraft] = React.useState<RunDraft | null>(null)
   const [dismissed, setDismissed] = React.useState<string | null>(null)
   const latest = React.useRef<RunView | null>(null)
@@ -82,15 +75,6 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
         (event) => {
           announce(event, latest.current)
           latest.current = event.view
-
-          const finished = event.view
-
-          if (finished.state === "finished" && finished.run.dry_run && finished.result.result === "OK") {
-            const key = previewKey(finished.run)
-
-            setPreviewed((keys) => (keys.has(key) ? keys : new Set([...keys, key])))
-          }
-
           setView(event.view)
         },
         (connected) => setDisconnected(!connected)
@@ -102,7 +86,6 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
     () => ({
       view,
       disconnected,
-      previewed,
       draft,
       setDraft,
       dismissed,
@@ -122,7 +105,7 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
         ),
       decide: (runId, answer) => decideRun(runId, answer).then(() => undefined, showFailure),
     }),
-    [view, disconnected, previewed, draft, dismissed]
+    [view, disconnected, draft, dismissed]
   )
 
   return <RunsContext.Provider value={value}>{children}</RunsContext.Provider>

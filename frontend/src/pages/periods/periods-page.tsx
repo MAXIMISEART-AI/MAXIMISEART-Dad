@@ -93,7 +93,7 @@ function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => voi
       return (
         <>
           {lastComplete === undefined ? null : <NextStepCard period={lastComplete} />}
-          <PeriodStats periods={board.periods} />
+          <PeriodStats periods={board.periods} lastPrepared={board.last_prepared_period} />
           <PeriodBoardTable periods={board.periods} onStale={reload} />
         </>
       )

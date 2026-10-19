@@ -87,12 +87,12 @@ CATALOG_SAMPLES: dict[str, list[Callable[[], PreparationError | PreparationMessa
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],
     "incomplete_period_refused": [
-        lambda: messages.incomplete_period_refused(PERIOD),
-        lambda: messages.incomplete_period_refused(PERIOD, "centrum"),
+        lambda: messages.incomplete_period_refused(PERIOD, "przy pytaniu wpisz t"),
+        lambda: messages.incomplete_period_refused(PERIOD, "przy decyzji wybierz „Kontynuuj”"),
     ],
     "write_failed": [lambda: messages.write_failed(PERIOD_DIRECTORY)],
     "unexpected_failure": [messages.unexpected_failure],
-    "summary_not_shown": [messages.summary_not_shown, lambda: messages.summary_not_shown("centrum")],
+    "summary_not_shown": [messages.summary_not_shown, lambda: messages.summary_not_shown(warns_against_rerun=True)],
     "plan_not_shown": [messages.plan_not_shown],
 }
 

@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { previewKey, useRuns, type RunDraft } from "@/lib/runs"
+import { useRuns, type RunDraft } from "@/lib/runs"
 import { useSettings } from "@/lib/settings"
 import { PREVIEW_HINTS } from "@/pages/periods/prepare-actions"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
@@ -39,7 +39,7 @@ const PROCESS_ICONS: Record<RunRequest["process"], React.ReactNode> = {
  * Przebieg rozliczeń nie ma wyboru pliku: Plik zbiorczy wynika z okresu.
  */
 export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSetup> }) {
-  const { draft, setDraft, start, previewed } = useRuns()
+  const { draft, setDraft, start } = useRuns()
   const { settings, chooseOrderRegister, choosePeriodsDirectory } = useSettings()
   const [confirming, setConfirming] = React.useState(false)
   const [starting, setStarting] = React.useState(false)
@@ -196,7 +196,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
         period={period}
         reminder={chosen.reminder}
         confirmsReadiness={chosen.process === "settlement"}
-        previewed={previewed.has(previewKey(selection))}
+        previewed={chosenPeriod?.previewed ?? false}
         onConfirm={() => run(false)}
       />
     </Card>

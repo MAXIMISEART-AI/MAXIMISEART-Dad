@@ -2,20 +2,20 @@
 
 Reguły należą do silnika: Wzorce sprawdzają te same funkcje co Sprawdzanie w
 obu procesach, a konfigurację wykonawców wczytuje ``load_worker_mapping``.
-Centrum tylko zamienia ich wynik na stan dla przeglądarki, z komunikatami w
-trzech częściach z katalogu Przygotowania pliku zbiorczego. Niczego w
-katalogu konfiguracji nie zapisuje.
+Centrum tylko zamienia ich wynik na stan dla przeglądarki, z tym samym
+komunikatem w trzech częściach, którym zatrzymałby się proces używający tego
+pliku. Niczego w katalogu konfiguracji nie zapisuje.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import APIRouter
 
-from rozliczenia import preparation_messages, workbook_files
+from rozliczenia import settlement_messages, workbook_files
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.version import tool_version
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
@@ -26,7 +26,8 @@ from rozliczenia.engine import (
     load_worker_mapping,
 )
 from rozliczenia.preparation_files import check_collective_template, check_internal_template
-from rozliczenia.preparation_messages import PreparationError, PreparationMessage
+from rozliczenia.preparation_messages import PreparationError
+from rozliczenia.process_run import ThreePartMessage
 from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
 
 
@@ -51,7 +52,7 @@ class ConfigurationFiles:
         )
 
 
-_Problem = tuple[contract.TemplateProblemKind, PreparationMessage]
+_Problem = tuple[contract.TemplateProblemKind, ThreePartMessage]
 _FindProblem = Callable[[Path], _Problem | None]
 _PROBLEM_CODES: dict[str, contract.TemplateProblemKind] = {
     "BRAK_WZORCA": "missing",
@@ -94,7 +95,7 @@ class _CheckedTemplates:
             return contract.TemplateReady(state="ready", label=label, file_name=path.name)
         problem, message = found
         return contract.TemplateProblem(
-            state="problem", label=label, file_name=path.name, problem=problem, message=_message(message)
+            state="problem", label=label, file_name=path.name, problem=problem, message=contract.Message.of(message)
         )
 
     def _problem(self, path: Path, find_problem: _FindProblem) -> _Problem | None:
@@ -130,19 +131,12 @@ def _preparation_template_problem(check: Callable[[Path], None], path: Path) -> 
 
 
 def _worker_template_problem(path: Path) -> _Problem | None:
-    """Sprawdzanie z Przebiegu rozliczeń: „Co się stało” z jego komunikatu, „Gdzie” i „Co zrobić” jak dla wzorców."""
+    """Sprawdzanie z Przebiegu rozliczeń z jego komunikatem i rodzajem problemu ze Sprawdzania."""
 
     try:
         validate_worker_template(path)
     except WorkerTemplateValidationError as error:
-        problem: contract.TemplateProblemKind
-        if not path.is_file():
-            problem, message = "missing", preparation_messages.template_missing(path).message
-        elif workbook_files.is_open_in_excel(path):
-            problem, message = "open_in_excel", preparation_messages.template_open_in_excel(path).message
-        else:
-            problem, message = "unreadable", preparation_messages.template_unreadable(path).message
-        return problem, replace(message, what=str(error))
+        return error.problem, settlement_messages.worker_template_invalid(path, error.message).message
     return None
 
 
@@ -151,11 +145,6 @@ def _workers(config_path: Path) -> contract.Workers:
 
     try:
         mapping = load_worker_mapping(config_path)
-    except SettlementError:
-        message = preparation_messages.unreadable_worker_config(config_path).message
-        return contract.WorkersUnreadable(state="unreadable", message=_message(message))
+    except SettlementError as error:
+        return contract.WorkersUnreadable(state="unreadable", message=contract.Message.of(error.message))
     return contract.WorkersReady(state="ready", names=list(mapping.values()))
-
-
-def _message(message: PreparationMessage) -> contract.Message:
-    return contract.Message(what=message.what, where=message.where, action=message.action)

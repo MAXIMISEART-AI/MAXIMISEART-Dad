@@ -37,6 +37,8 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
 # The period the CLI step names: the fixture's last complete period, without a Folder okresu.
 LAST_COMPLETE_FOR_CLI = "06_12_10_2026"
+# An older period with no successful DRY-RUN in the fixture's metrics; its confirmation keeps the no-preview warning.
+NOT_PREVIEWED = "08_14_09_2026"
 
 # Przygotowanie pliku zbiorczego appends to the metrics files that Metryki counts, so it runs after
 # Metryki; Przebieg rozliczeń continues Dad's path from its Plik zbiorczy; start-i-zamykanie closes
@@ -602,7 +604,9 @@ def drive_configuration(run: Run, page: Page) -> None:
         page.reload()
         expect(_template_group(page, "Wzorzec rozliczenia pracownika")).to_contain_text("Brak pliku")
         message = page.get_by_role("alert").filter(has_text=f"Nie znaleziono Wzorca rozliczenia pracownika: {worker_template.name}.")
-        expect(message).to_contain_text(REPORT_TO_MAINTAINER)
+        # The same message as the Przebieg rozliczeń stop for this Wzorzec.
+        expect(message).to_contain_text("Nie można użyć Wzorca rozliczenia pracownika.")
+        expect(message).to_contain_text("W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.")
         answer = _template_answer(run, "konfiguracja-brak-wzorca", "Wzorzec rozliczenia pracownika")
         run.check(answer["problem"] == "missing", "the server reports the Wzorzec rozliczenia pracownika as missing")
         run.capture(page, "13-konfiguracja-brak-wzorca")
@@ -616,9 +620,11 @@ def drive_configuration(run: Run, page: Page) -> None:
     try:
         worker_config.write_text("workers: [niedomknięta lista\n", encoding="utf-8")
         page.reload()
-        message = page.get_by_role("alert").filter(has_text="Nie można odczytać konfiguracji wykonawców.")
+        # The same message as the stop of either process reading this konfiguracja wykonawców.
+        message = page.get_by_role("alert").filter(has_text="Konfiguracja wykonawców jest niepoprawna.")
+        expect(message).to_contain_text("Plik nie jest poprawnym YAML.")
         expect(message).to_contain_text(f"plik {worker_config.name}")
-        expect(message).to_contain_text("Przekaż to osobie utrzymującej narzędzie.")
+        expect(message).to_contain_text(REPORT_TO_MAINTAINER)
         expect(page.get_by_role("list", name="Wykonawcy")).to_have_count(0)
         workers = run.api("/api/configuration", "konfiguracja-nieczytelna-konfiguracja-wykonawcow")["workers"]
         assert isinstance(workers, dict)
@@ -733,12 +739,44 @@ def drive_preparation(run: Run, page: Page) -> None:
         "the DRY-RUN appended one record to the CLI's metrics file",
     )
     run.capture(page, "31-przygotowanie-podglad")
+    preview_warnings = result["warnings"]
+    assert isinstance(preview_warnings, list)
+
+    run.step(feature, "przygotowanie-podglad-po-odswiezeniu")
+    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+    no_preview = confirm.get_by_text("Nie było podglądu bez zapisu", exact=True)
+    page.reload()
+    page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE_FOR_CLI} · ostatni pełny")
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    expect(confirm).to_be_visible()
+    expect(no_preview).to_have_count(0)
+    confirm.get_by_role("button", name="Anuluj").click()
+    page.get_by_role("combobox", name="Okres").click()
+    page.get_by_role("option", name=f"{NOT_PREVIEWED} · Brak plików okresu", exact=True).click()
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    expect(no_preview).to_be_visible()
+    setup = run.api("/api/runs/setup", "przygotowanie-podglad-po-odswiezeniu")["processes"]
+    assert isinstance(setup, list)
+    previewed = {choice["token"]: choice["previewed"] for choice in setup[0]["periods"]}
+    run.check(
+        previewed[LAST_COMPLETE_FOR_CLI] is True and previewed[NOT_PREVIEWED] is False,
+        "the server remembers the successful preview per period from the metrics history",
+    )
+    run.check(
+        True,
+        "after a reload the confirmation warns only for the period without a preview, not for the previewed one",
+    )
+    run.capture(page, "39-przygotowanie-bez-podgladu")
+    confirm.get_by_role("button", name="Anuluj").click()
 
     run.step(feature, "przygotowanie-potwierdzenie")
+    # „Nowe Uruchomienie procesu” is the tab's own choice; a reload shows the finished preview again.
+    page.reload()
+    expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
     live.get_by_role("button", name="Uruchom", exact=True).click()
-    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
     expect(confirm).to_contain_text("Zapisz i zamknij Rejestr zleceń w Excelu")
-    expect(confirm.get_by_text("Nie było podglądu bez zapisu")).to_have_count(0)
+    expect(no_preview).to_have_count(0)
     run.check(True, "Uruchom asks to confirm the write and reminds to close the Rejestr zleceń")
     run.capture(page, "32-przygotowanie-potwierdzenie")
     confirm.get_by_role("button", name="Uruchom", exact=True).click()
@@ -750,6 +788,14 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(decision.get_by_role("button", name="Przerwij bez zapisu")).to_be_focused()
     view = _current_run(run, "przygotowanie-decyzja")
     run.check(view["state"] == "awaiting_decision", "the server waits for Dad's decision")
+    progress = view["progress"]
+    assert isinstance(progress, dict)
+    counters = page.locator('dl[aria-label="Liczniki"]')
+    expect(counters).to_contain_text(f"Ostrzeżenia{progress['issue_count']}")
+    run.check(
+        progress["issue_count"] == len(preview_warnings),
+        "the live counters show the projection's Ostrzeżenia (as many as the preview's warnings) while the decision waits",
+    )
     second = urllib.request.Request(
         run.url.rstrip("/") + "/api/runs",
         data=json.dumps({"process": "preparation", "period": LAST_COMPLETE_FOR_CLI, "dry_run": True}).encode(),
@@ -775,8 +821,10 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(stop).to_contain_text("Przerwano z powodu niepełnego okresu")
     expect(stop).to_contain_text("Jeśli okres jest pełny, przy decyzji wybierz „Kontynuuj”.")
     result = _finished_result(run, "przygotowanie-przerwij")
+    stops = result["stops"]
+    assert isinstance(stops, list)
     run.check(
-        result["ending"] == "stop" and result["status_line"] == "Status końcowy: ZATRZYMANO",
+        result["ending"] == "stop" and result["headline"] == "Zatrzymano" and len(stops) == 1,
         "the refusal is a stop with the three-part message",
     )
     run.check(not period_folder.exists(), "Przerwij bez zapisu wrote nothing")
@@ -965,12 +1013,24 @@ def drive_settlement(run: Run, page: Page) -> None:
     try:
         expect(live.get_by_role("progressbar", name="Szablony pracowników")).to_be_visible()
         expect(live).to_contain_text(f"Szablony pracowników · {workers[0]}")
+        counters = live.locator('dl[aria-label="Liczniki"]')
+        expect(counters).to_contain_text("Zapisane szablony0")
+        # The second Szablon pracownika is paced, so the counters stay at one written while it runs.
+        expect(live).to_contain_text(f"Szablony pracowników · {workers[1]}", timeout=10_000)
+        expect(counters).to_contain_text("Zapisane szablony1")
         view = _current_run(run, "przebieg-na-zywo")
         progress = view["progress"]
         assert isinstance(progress, dict)
         run.check(
             view["state"] == "running" and progress["template_total"] == len(workers),
             "the live view shows the Szablony pracowników progress from the projection (harness pacing on)",
+        )
+        counts = progress["counts"]
+        assert isinstance(counts, dict)
+        expect(counters).to_contain_text(f"Wiersze danych{progress['rows']}")
+        run.check(
+            counts["written"] == 1 and progress["rows"] == run.fixture["settlement"]["rows_per_worker"][0],
+            "the live counters (Wiersze danych, Zapisane szablony) update from the projection during the run",
         )
         close = urllib.request.Request(
             run.url.rstrip("/") + "/api/shutdown", data=b"", method="POST", headers={"Origin": run.url.rstrip("/")}

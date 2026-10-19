@@ -12,11 +12,14 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 import os
 from pathlib import Path
-from typing import Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
 from .plain_progress import PlainProgressAdapter
 from .progress import ProgressNotice, ProgressSnapshot
 from .rich_progress import Console, Live, RichProgressAdapter
+
+if TYPE_CHECKING:
+    from .process_run import Decision
 
 __all__ = ["TerminalConversation"]
 
@@ -84,12 +87,16 @@ class TerminalConversation:
             self._write("\n")
         return None if answer == "" else answer.strip()
 
-    def confirm(self, lines: Sequence[str], question: str) -> bool:
-        """Pokazuje ``lines`` i pyta ``t``/``n``; podgląd wraca tylko po zgodzie taty."""
+    @property
+    def continue_hint(self) -> str:
+        return "przy pytaniu wpisz t"
+
+    def confirm(self, decision: Decision) -> bool:
+        """Pokazuje linie decyzji i pyta ``t``/``n``; podgląd wraca tylko po zgodzie taty."""
 
         with self._view_stopped() as resume:
-            self.say(*lines)
-            answer = self.ask(f"{question} Wpisz t (tak) albo n (nie): ")
+            self.say(*decision.lines)
+            answer = self.ask(f"{decision.question} Wpisz t (tak) albo n (nie): ")
             consent = answer is not None and answer.casefold() in _YES_ANSWERS
             if consent:
                 resume()

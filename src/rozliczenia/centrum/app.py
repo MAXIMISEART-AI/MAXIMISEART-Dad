@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, MutableMapping
 from datetime import date
 from pathlib import Path
-from typing import Any, Final
+from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response
@@ -31,9 +31,8 @@ from rozliczenia.centrum.runs import RunHost, runs_router
 from rozliczenia.centrum.settings import SettingsStore, settings_router
 from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
-from rozliczenia.centrum.version import tool_version
+from rozliczenia.centrum.version import SERVICE, tool_version
 
-SERVICE: Final = "centrum-rozliczen"
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 _LOCAL_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -90,10 +89,10 @@ def create_app(
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
     # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
-    runs = RunHost(log)
+    runs = RunHost(log, centrum_runs)
     shutdown.refuse_while(runs.shutdown_refusal)
-    preparation = PreparationEntry(store, configuration, metrics.preparation, centrum_runs, today)
-    settlement = SettlementEntry(store, configuration, metrics.settlement, centrum_runs, today)
+    preparation = PreparationEntry(store, configuration, metrics.preparation, today)
+    settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration))

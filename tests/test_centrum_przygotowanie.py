@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 import pytest
 
 from rozliczenia import collective_preparation, preparation_cli, preparation_register
-from rozliczenia.telemetry import MetricsStore
-from rozliczenia.centrum import runs
+from rozliczenia.telemetry import MetricsStore, metric_record
+from rozliczenia.centrum import contract
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
@@ -142,7 +142,6 @@ def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu
         "collective_file": COLLECTIVE_FILE_NAME,
     }
     assert (result["stops"], result["warnings"]) == ([], [])
-    assert "DRY-RUN: Nic nie zapisano" in result["lines"]
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["mode"], record["period"], record["result"]) == ("DRY-RUN", PERIOD, "OK")
@@ -155,11 +154,7 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
     result = finished_view(centrum.client)["result"]
     board = centrum.client.get("/api/periods").json()
 
-    assert (result["result"], result["status_line"], result["next_action"]) == (
-        "OK",
-        "Status końcowy: OK",
-        "open_period_folder",
-    )
+    assert (result["result"], result["next_action"]) == ("OK", "open_period_folder")
     assert result["headline"] == "Plik zbiorczy przygotowany"
     assert sorted(path.name for path in centrum.fixture.period_directory.iterdir()) == [
         COLLECTIVE_FILE_NAME,
@@ -222,7 +217,7 @@ def test_niepelny_okres_czeka_na_decyzje_taty_z_zleceniami_na_dzien(tmp_path: Pa
                 "zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj."
             ),
         },
-        "count_groups": [{"title": "Zlecenia na dzień", "counts": INCOMPLETE_ORDERS_PER_DAY}],
+        "counts": {"title": "Zlecenia na dzień", "counts": INCOMPLETE_ORDERS_PER_DAY},
     }
     assert [phase["state"] for phase in view["progress"]["phases"]] == ["completed", "completed", "completed", "pending"]
     assert list(centrum.fixture.periods_directory.iterdir()) == []
@@ -250,7 +245,7 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     result = finished_view(centrum.client)["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert (result["status_line"], result["headline"]) == ("Status końcowy: ZATRZYMANO", "Zatrzymano")
+    assert result["headline"] == "Zatrzymano"
     assert result["stops"] == [
         {
             "what": "Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
@@ -261,7 +256,7 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
             ),
         }
     ]
-    assert "wpisz t" not in " ".join(result["lines"])
+    assert "wpisz t" not in json.dumps(result, ensure_ascii=False)
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["result"], record["phase_durations_ms"]["Zapisywanie"]) == ("BLAD_KRYTYCZNY", 0)
@@ -278,7 +273,6 @@ def test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk(tmp_path: P
     [record] = centrum.metric_records()
     assert result["total_duration_ms"] == record["total_duration_ms"]
     assert record["total_duration_ms"] < waited_ms
-    assert f"Czas uruchomienia: {record['total_duration_ms']} ms" in result["lines"]
 
 
 def test_decyzja_czeka_po_ponownym_podlaczeniu_i_odswiezeniu_karty(tmp_path: Path) -> None:
@@ -379,17 +373,11 @@ def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_pliku_okresu(tmp_pat
     result = view["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert result["status_line"] == "Status końcowy: ZATRZYMANO"
+    assert result["headline"] == "Zatrzymano"
     [stop] = result["stops"]
     assert stop["what"].startswith("Plik tego okresu już istnieje, więc nie został nadpisany.")
     assert stop["where"] == f"folder INEA\\{PERIOD}, plik {COLLECTIVE_FILE_NAME}"
     assert stop["action"].startswith("Sprawdź, czy wybrano właściwy okres.")
-    assert result["lines"][:4] == [
-        "Status końcowy: ZATRZYMANO",
-        f"Co się stało: {stop['what']}",
-        f"Gdzie: {stop['where']}",
-        f"Co zrobić: {stop['action']}",
-    ]
     assert phase_states(view)["Sprawdzanie"] == "failed"
     assert centrum.fixture.collective_file_path.read_bytes() == b"reczne poprawki taty"
     assert not centrum.fixture.internal_settlement_path.exists()
@@ -411,7 +399,7 @@ def test_nieoczekiwany_blad_pokazuje_trzy_czesci_bez_tekstu_wyjatku_i_danych_kli
     view = finished_view(centrum.client)
     shown = json.dumps(view, ensure_ascii=False)
 
-    assert (view["result"]["ending"], view["result"]["status_line"]) == ("unexpected", "Status końcowy: BŁĄD")
+    assert (view["result"]["ending"], view["result"]["headline"]) == ("unexpected", "Błąd")
     assert view["result"]["stops"] == [
         {
             "what": "Wystąpił nieoczekiwany błąd. Nie utworzono żadnego pliku.",
@@ -474,6 +462,70 @@ def test_wybor_okresu_proponuje_ostatni_pelny_okres_i_starsze_ze_statusem_okresu
     assert len(setup["periods"]) == 8
     assert setup["periods"][0]["status_label"] == "Plik zbiorczy przygotowany"
     assert setup["periods"][1]["status_label"] == "Brak plików okresu"
+
+
+def test_wybor_okresu_pamieta_udany_podglad_bez_zapisu_takze_po_odswiezeniu_karty(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    def previewed() -> dict[str, bool]:
+        setup, _settlement = centrum.client.get("/api/runs/setup").json()["processes"]
+        return {choice["token"]: choice["previewed"] for choice in setup["periods"][:2]}
+
+    before = previewed()
+    centrum.start(dry_run=True)
+    finished_view(centrum.client)
+
+    assert before == {PERIOD: False, "01_07_09_2026": False}
+    assert previewed() == {PERIOD: True, "01_07_09_2026": False}
+
+
+def test_uruchom_bez_podgladu_i_podglad_wymagajacy_sprawdzenia_nie_sa_udanym_podgladem(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    MetricsStore(centrum.metrics_path, preparation_cli.PROCESS.counter_names).append(
+        metric_record(
+            mode="DRY-RUN",
+            period="01_07_09_2026",
+            started_at="2026-09-08T08:00:00+00:00",
+            total_duration_ms=1000,
+            phase_durations_ms={},
+            result="BLAD_KRYTYCZNY",
+            counters=dict.fromkeys(preparation_cli.PROCESS.counter_names, 0),
+        )
+    )
+
+    centrum.start(dry_run=False)
+    finished_view(centrum.client)
+    setup, _settlement = centrum.client.get("/api/runs/setup").json()["processes"]
+
+    assert [choice["previewed"] for choice in setup["periods"][:2]] == [False, False]
+
+
+def test_wynik_ktorego_nie_da_sie_pokazac_trafia_do_dziennika_bez_tekstu_wyjatku(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
+        raise ValueError("synthetic summary failure SYN-001")
+
+    monkeypatch.setattr(contract, "PreparationSummary", broken_summary)
+
+    centrum.start(dry_run=True)
+    result = finished_view(centrum.client)["result"]
+    log = centrum.log_path.read_text(encoding="utf-8")
+
+    assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "after_engine", "rerun")
+    assert result["stops"] == [
+        {
+            "what": "Nie udało się pokazać wyniku Uruchomienia procesu.",
+            "where": "Centrum rozliczeń",
+            "action": "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+        }
+    ]
+    assert 'nieoczekiwany-wyjatek typ=ValueError miejsce="wynik Uruchomienia procesu"' in log
+    assert "SYN-" not in log
+    [record] = centrum.metric_records()
+    assert (record["mode"], record["result"]) == ("DRY-RUN", "OK")
 
 
 def test_bez_wskazanego_rejestru_zlecen_uruchomienie_jest_odrzucone(tmp_path: Path) -> None:
@@ -548,7 +600,7 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     def broken_view(*args: object) -> NoReturn:
         raise ValueError("synthetic Centrum view failure")
 
-    monkeypatch.setattr(runs, "notice_view", broken_view)
+    monkeypatch.setattr(contract, "ProgressNotice", broken_view)
 
     centrum.start(dry_run=False)
     views = views_until(centrum.client, "finished")

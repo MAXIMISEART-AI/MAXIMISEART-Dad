@@ -2,8 +2,8 @@
 
 Zamknięcie karty przeglądarki nie wyłącza serwera; robi to tylko ta prośba
 (albo wylogowanie z Windows). ``serve`` czeka na prośbę i kończy pracę po
-wysłaniu odpowiedzi. Inna część serwera może odmówić zamknięcia przez
-``refuse_while``, np. trwające Uruchomienie procesu.
+wysłaniu odpowiedzi. Trwające Uruchomienie procesu odmawia zamknięcia przez
+``refuse_while``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 
-Refusal = Callable[[], str | None]
+ShutdownBlocker = Callable[[], str | None]
 """Bezpieczny komunikat, dlaczego teraz nie można zamknąć Centrum, albo ``None``, gdy można."""
 
 
@@ -24,18 +24,17 @@ class Shutdown:
     def __init__(self, log: CentrumLog) -> None:
         self._log = log
         self._requested = threading.Event()
-        self._refusals: list[Refusal] = []
+        self._blocker: ShutdownBlocker = lambda: None
 
-    def refuse_while(self, refusal: Refusal) -> None:
-        """Dokłada warunek odmowy; sprawdzany przy każdej prośbie o zamknięcie, w kolejności dodania."""
+    def refuse_while(self, blocker: ShutdownBlocker) -> None:
+        """Warunek odmowy, sprawdzany przy każdej prośbie o zamknięcie (``Shutdown`` powstaje przed serwerem)."""
 
-        self._refusals.append(refusal)
+        self._blocker = blocker
 
     def request(self) -> None:
-        for refusal in self._refusals:
-            message = refusal()
-            if message is not None:
-                raise contract.Refusal(409, message)
+        message = self._blocker()
+        if message is not None:
+            raise contract.Refusal(409, message)
         self._log.shutdown_requested()
         self._requested.set()
 

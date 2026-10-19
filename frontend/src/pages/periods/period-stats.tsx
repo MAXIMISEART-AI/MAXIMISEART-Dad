@@ -9,13 +9,18 @@ import { dateTime } from "@/lib/format"
 import { useResource } from "@/lib/use-resource"
 
 /**
- * Najważniejsze liczby na stronie głównej: ostatni przygotowany okres (z Tablicy okresów),
- * ostatnie Uruchomienie procesu i wyniki z ostatnich tygodni (z plików metryk).
+ * Najważniejsze liczby na stronie głównej: ostatni przygotowany okres (wskazany przez serwer w Tablicy
+ * okresów), ostatnie Uruchomienie procesu i wyniki z ostatnich tygodni (z plików metryk).
  */
-export function PeriodStats({ periods }: { periods: ReadonlyArray<PeriodRow> }) {
+export function PeriodStats({
+  periods,
+  lastPrepared,
+}: {
+  periods: ReadonlyArray<PeriodRow>
+  lastPrepared: string | null
+}) {
   const { resource: metrics } = useResource(getMetrics)
-  // Tablica okresów jest od najnowszego, więc pierwszy okres z Plikiem zbiorczym jest ostatnim przygotowanym.
-  const prepared = periods.find((period) => period.collective_file_exists)
+  const prepared = periods.find((period) => period.token === lastPrepared)
 
   const preparedStat: Stat = {
     label: "Ostatni przygotowany okres",

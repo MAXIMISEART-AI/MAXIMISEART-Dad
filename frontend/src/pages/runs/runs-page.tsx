@@ -1,3 +1,4 @@
+import * as React from "react"
 import { HistoryIcon, PlayIcon } from "lucide-react"
 
 import { getMetrics, getRunSetup } from "@/api/centrum"
@@ -75,8 +76,16 @@ function RunHistory() {
 }
 
 function RunsContent() {
-  const { resource: setup } = useResource(getRunSetup)
+  const { resource: setup, reload } = useResource(getRunSetup)
   const { view, dismissed, draft, decide, newRun } = useRuns()
+  const finishedRun = view?.state === "finished" ? view.run.id : null
+
+  // Zakończone Uruchomienie zmienia Status okresu i historię podglądów, więc wybór okresu czytamy od nowa.
+  React.useEffect(() => {
+    if (finishedRun !== null) {
+      reload()
+    }
+  }, [finishedRun, reload])
 
   if (view === null || setup.state === "loading") {
     return <RunsSkeleton />

@@ -638,15 +638,28 @@
             },
             "type": "array",
             "title": "Periods"
+          },
+          "last_prepared_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Prepared Period"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "state",
-          "periods"
+          "periods",
+          "last_prepared_period"
         ],
-        "title": "BoardReady"
+        "title": "BoardReady",
+        "description": "Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym."
       },
       "Choice": {
         "properties": {
@@ -791,32 +804,14 @@
             "title": "Question"
           },
           "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Title"
           },
           "message": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RunMessage"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/Message"
           },
-          "count_groups": {
-            "items": {
-              "$ref": "#/components/schemas/CountGroup"
-            },
-            "type": "array",
-            "title": "Count Groups"
+          "counts": {
+            "$ref": "#/components/schemas/CountGroup"
           }
         },
         "additionalProperties": false,
@@ -825,10 +820,10 @@
           "question",
           "title",
           "message",
-          "count_groups"
+          "counts"
         ],
         "title": "Decision",
-        "description": "Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień)."
+        "description": "Pytanie do taty z części decyzji procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień)."
       },
       "DecisionAnswer": {
         "properties": {
@@ -904,7 +899,7 @@
           "action"
         ],
         "title": "Message",
-        "description": "Komunikat w trzech częściach, ta sama treść co w terminalu."
+        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."
       },
       "Metrics": {
         "properties": {
@@ -1192,6 +1187,10 @@
             "type": "boolean",
             "title": "Last Complete"
           },
+          "previewed": {
+            "type": "boolean",
+            "title": "Previewed"
+          },
           "collective_file": {
             "anyOf": [
               {
@@ -1212,6 +1211,7 @@
           "monday",
           "status_label",
           "last_complete",
+          "previewed",
           "collective_file"
         ],
         "title": "PeriodChoice",
@@ -1637,12 +1637,8 @@
             "type": "integer",
             "title": "Rows"
           },
-          "operation_counts": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Operation Counts"
+          "counts": {
+            "$ref": "#/components/schemas/TemplateCounts"
           },
           "recent_operations": {
             "items": {
@@ -1671,7 +1667,7 @@
           "templates_completed",
           "current_worker",
           "rows",
-          "operation_counts",
+          "counts",
           "recent_operations",
           "total_elapsed_ms",
           "issue_count"
@@ -1995,45 +1991,6 @@
         ],
         "title": "RunInfo"
       },
-      "RunMessage": {
-        "properties": {
-          "what": {
-            "type": "string",
-            "title": "What"
-          },
-          "where": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Where"
-          },
-          "action": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Action"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "what",
-          "where",
-          "action"
-        ],
-        "title": "RunMessage",
-        "description": "Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``)."
-      },
       "RunOutcome": {
         "properties": {
           "result": {
@@ -2068,24 +2025,20 @@
             ],
             "title": "Next Action"
           },
-          "status_line": {
-            "type": "string",
-            "title": "Status Line"
-          },
           "total_duration_ms": {
             "type": "integer",
             "title": "Total Duration Ms"
           },
           "stops": {
             "items": {
-              "$ref": "#/components/schemas/RunMessage"
+              "$ref": "#/components/schemas/Message"
             },
             "type": "array",
             "title": "Stops"
           },
           "warnings": {
             "items": {
-              "$ref": "#/components/schemas/RunMessage"
+              "$ref": "#/components/schemas/Message"
             },
             "type": "array",
             "title": "Warnings"
@@ -2121,13 +2074,6 @@
               }
             ],
             "title": "Summary"
-          },
-          "lines": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Lines"
           }
         },
         "additionalProperties": false,
@@ -2137,16 +2083,14 @@
           "headline",
           "ending",
           "next_action",
-          "status_line",
           "total_duration_ms",
           "stops",
           "warnings",
           "notices",
-          "summary",
-          "lines"
+          "summary"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna\nakcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku."
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna\nakcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku."
       },
       "RunRequest": {
         "properties": {
@@ -2355,6 +2299,36 @@
         ],
         "title": "SettlementSummary",
         "description": "Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów."
+      },
+      "TemplateCounts": {
+        "properties": {
+          "written": {
+            "type": "integer",
+            "title": "Written"
+          },
+          "empty": {
+            "type": "integer",
+            "title": "Empty"
+          },
+          "planned": {
+            "type": "integer",
+            "title": "Planned"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "written",
+          "empty",
+          "planned",
+          "skipped"
+        ],
+        "title": "TemplateCounts",
+        "description": "Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”."
       },
       "TemplateProblem": {
         "properties": {

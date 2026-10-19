@@ -77,10 +77,10 @@ their contents.
 - Treat ADR 0004 as the constraint that Centrum rozliczeń is an adapter of
   Uruchomienie procesu, not a second process: it talks to the same core as the
   terminal, keeps no rules of its own, renders only the progress projection's
-  snapshots and the shared message lines, and leaves the CLI and `.cmd`
-  launchers unchanged. Review every Centrum change for localhost-only
-  listening, `Host`/`Origin` checks, and file actions limited to paths the
-  server derived from the periods folder.
+  snapshots and the process's shared messages as three-part structures, and
+  leaves the CLI and `.cmd` launchers unchanged. Review every Centrum change
+  for localhost-only listening, `Host`/`Origin` checks, and file actions
+  limited to paths the server derived from the periods folder.
 - Review standards separately from specification compliance. A passing test
   suite does not replace a review of module depth, seam locality, or domain
   vocabulary.

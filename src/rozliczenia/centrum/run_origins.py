@@ -29,7 +29,7 @@ class CentrumRuns:
         self._path = path
         self._lock = threading.Lock()
 
-    def remember(self, process: contract.MetricsProcess, metrics: MetricsStore, since: datetime, until: datetime) -> None:
+    def remember(self, process: contract.ProcessKey, metrics: MetricsStore, since: datetime, until: datetime) -> None:
         """Zapamiętuje rekordy metryk ``process``, które zaczęły się między ``since`` a ``until`` (czasy UTC).
 
         Centrum prowadzi jedno Uruchomienie naraz, więc w tym oknie jest jego rekord.

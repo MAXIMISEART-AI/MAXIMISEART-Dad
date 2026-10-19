@@ -47,7 +47,6 @@ export type {
   ResultCounts,
   RunEvent,
   RunInfo,
-  RunMessage,
   RunOutcome,
   RunRequest,
   Settings,
