@@ -25,6 +25,7 @@ from rozliczenia.centrum.period_board import read_board
 from rozliczenia.centrum.runs import Endings, PreparedRun
 from rozliczenia.centrum.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
+from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolder, PeriodStatus, collective_file_name, period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
@@ -87,7 +88,7 @@ class SettlementEntry:
             worker_template_path=self.configuration.worker_template,
         )
 
-        def warnings(summary: SettlementSummary) -> list[settlement_messages.SettlementMessage]:
+        def warnings(summary: SettlementSummary) -> list[Message]:
             return [settlement_messages.issue_message(issue, source) for issue in summary.issues]
 
         return PreparedRun(

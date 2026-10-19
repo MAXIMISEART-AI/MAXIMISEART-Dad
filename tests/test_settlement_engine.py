@@ -16,7 +16,8 @@ import yaml
 
 from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState, WorkerResult
-from rozliczenia.engine import SettlementError, run_settlements
+from rozliczenia.engine import run_settlements
+from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 
@@ -192,6 +193,12 @@ def cut_sheet_after_data_rows(path: Path, sheet_part: str = "xl/worksheets/sheet
             target.writestr(info, data)
 
 
+def terminal_text(error: StopError) -> str:
+    """Tekst, który terminal pokazuje po „Nie wykonano: ” dla tego zatrzymania."""
+
+    return "\n".join(error.message.terminal_lines)
+
+
 def make_fixture(tmp_path: Path, period: str = PERIOD) -> tuple[Path, Path, Path]:
     period_directory = tmp_path / period
     period_directory.mkdir(parents=True)
@@ -303,9 +310,10 @@ def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracown
     source_path, target_directory, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=True)
 
-    with pytest.raises(SettlementError, match="WYKONAWCA bez mapowania"):
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
+    assert "WYKONAWCA bez mapowania" in terminal_text(raised.value)
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -337,10 +345,10 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     source_path, target_directory, config_path = make_fixture(tmp_path)
     damage(source_path)
 
-    with pytest.raises(SettlementError) as stop:
+    with pytest.raises(StopError) as stop:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert str(stop.value) == UNREADABLE_SOURCE_MESSAGE
+    assert terminal_text(stop.value) == UNREADABLE_SOURCE_MESSAGE
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -351,9 +359,10 @@ def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: 
     sentinel = target_directory / "existing.txt"
     sentinel.write_text("zachowaj", encoding="utf-8")
 
-    with pytest.raises(SettlementError, match="Folder docelowy już istnieje"):
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
+    assert "Folder docelowy już istnieje" in terminal_text(raised.value)
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
 
 
@@ -377,9 +386,10 @@ def test_blokada_wzorca_rozliczenia_pracownika_wstrzymuje_publikacje_folderu_roz
     worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
     worker_template_path.with_name(f"~${worker_template_path.name}").touch()
 
-    with pytest.raises(SettlementError, match="Wzorzec rozliczenia pracownika jest otwarty lub zablokowany"):
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
+    assert "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany" in terminal_text(raised.value)
     assert not target_directory.exists()
 
 
@@ -390,10 +400,10 @@ def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_plik
     worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
     worker_template_path.rename(tmp_path / "placeholder.xlsx")
 
-    with pytest.raises(SettlementError) as raised:
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert str(raised.value) == (
+    assert terminal_text(raised.value) == (
         "Nie znaleziono Wzorca rozliczenia pracownika: Wzorzec rozliczenia pracownika.xlsx. "
         "Zmień nazwę pliku placeholder.xlsx w tym samym folderze na „Wzorzec rozliczenia pracownika.xlsx”."
     )
@@ -415,17 +425,17 @@ def test_rozliczenie_wewnetrzne_albo_plik_zbiorczy_poza_folderem_okresu_zatrzymu
     source_path.parent.mkdir()
     source_path.touch()
 
-    with pytest.raises(SettlementError) as raised:
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, tmp_path / "missing.yaml")
 
     assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
-    assert str(raised.value) == detail
+    assert terminal_text(raised.value) == detail
 
 
 def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozliczen(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path, period=NOT_A_PERIOD)
 
-    with pytest.raises(SettlementError) as raised:
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
@@ -481,7 +491,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
-    with pytest.raises(SettlementError, match="folder wynikowy nie został opublikowany"):
+    with pytest.raises(StopError) as raised:
         run_settlements(
             source_path,
             config_path,
@@ -489,6 +499,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
             observer=recorded.append,
         )
 
+    assert "folder wynikowy nie został opublikowany" in terminal_text(raised.value)
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -514,9 +525,10 @@ def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(t
     source_path = tmp_path / "08_14_09_2026" / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
     recorded: list[ProgressEvent] = []
 
-    with pytest.raises(SettlementError, match="Nie znaleziono pliku"):
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)
 
+    assert "Nie znaleziono pliku" in terminal_text(raised.value)
     assert [event.state for event in recorded] == [ProgressState.START, ProgressState.FAILED]
     assert recorded[-1].phase is ProgressPhase.CHECKING
     assert "Nie znaleziono pliku" not in repr(recorded[-1])
@@ -572,7 +584,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
 
     monkeypatch.setattr(template_settlement, "process_template", fail_save)
 
-    with pytest.raises(SettlementError):
+    with pytest.raises(StopError):
         run_settlements(
             source_path,
             config_path,

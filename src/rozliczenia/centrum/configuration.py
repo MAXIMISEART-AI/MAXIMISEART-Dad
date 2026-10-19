@@ -15,19 +15,17 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from rozliczenia import settlement_messages, workbook_files
+from rozliczenia import preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.version import tool_version
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import (
-    SettlementError,
     default_config_path,
     default_worker_template_path,
     load_worker_mapping,
 )
 from rozliczenia.preparation_files import check_collective_template, check_internal_template
-from rozliczenia.preparation_messages import PreparationError
-from rozliczenia.process_run import ThreePartMessage
+from rozliczenia.message import Message, StopError
 from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
 
 
@@ -52,11 +50,11 @@ class ConfigurationFiles:
         )
 
 
-_Problem = tuple[contract.TemplateProblemKind, ThreePartMessage]
+_Problem = tuple[contract.TemplateProblemKind, Message]
 _FindProblem = Callable[[Path], _Problem | None]
 _PROBLEM_CODES: dict[str, contract.TemplateProblemKind] = {
-    "BRAK_WZORCA": "missing",
-    "WZORZEC_OTWARTY": "open_in_excel",
+    preparation_messages.TEMPLATE_MISSING: "missing",
+    preparation_messages.TEMPLATE_OPEN_IN_EXCEL: "open_in_excel",
 }
 
 
@@ -125,7 +123,7 @@ def _preparation_template_problem(check: Callable[[Path], None], path: Path) -> 
 
     try:
         check(path)
-    except PreparationError as error:
+    except StopError as error:
         return _PROBLEM_CODES.get(error.message.code, "unreadable"), error.message
     return None
 
@@ -136,7 +134,7 @@ def _worker_template_problem(path: Path) -> _Problem | None:
     try:
         validate_worker_template(path)
     except WorkerTemplateValidationError as error:
-        return error.problem, settlement_messages.worker_template_invalid(path, error.message).message
+        return error.problem, settlement_messages.worker_template_invalid(path, error.message)
     return None
 
 
@@ -145,6 +143,6 @@ def _workers(config_path: Path) -> contract.Workers:
 
     try:
         mapping = load_worker_mapping(config_path)
-    except SettlementError as error:
+    except StopError as error:
         return contract.WorkersUnreadable(state="unreadable", message=contract.Message.of(error.message))
     return contract.WorkersReady(state="ready", names=list(mapping.values()))

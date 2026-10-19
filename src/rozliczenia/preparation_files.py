@@ -3,7 +3,7 @@
 Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we
 wzorcach (Planowanie), i zapisuje Rozliczenie wewnętrzne oraz Plik zbiorczy
 razem do Folderu okresu (Zapisywanie). Każdy problem ze wzorcem jest typowanym
-zatrzymaniem ``PreparationError``. Moduł wewnętrzny Przygotowania pliku
+zatrzymaniem ``StopError``. Moduł wewnętrzny Przygotowania pliku
 zbiorczego; operacją publiczną pozostaje
 ``collective_preparation.prepare_collective_file()``.
 """
@@ -31,8 +31,8 @@ from openpyxl.worksheet.worksheet import Worksheet
 from . import collective_file, workbook_files
 from . import preparation_messages as messages
 from .engine import normalize_text
+from .message import Message, StopError
 from .period_folder import PeriodFolder
-from .preparation_messages import PreparationMessage
 from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
 
@@ -99,18 +99,22 @@ def check_collective_template(template_path: Path) -> None:
             collective_file.check_worker_header(sheet)
         except collective_file.LayoutError as exc:
             if exc.worker_column is None:
-                raise messages.template_without_header(
-                    template_path, sheet.title, collective_file.HEADER_ROW, "WYKONAWCA"
+                raise StopError(
+                    messages.template_without_header(
+                        template_path, sheet.title, collective_file.HEADER_ROW, "WYKONAWCA"
+                    )
                 ) from exc
-            raise messages.template_with_worker_outside_h(template_path, sheet.title, exc.worker_column) from exc
+            raise StopError(
+                messages.template_with_worker_outside_h(template_path, sheet.title, exc.worker_column)
+            ) from exc
 
 
 def _ensure_template_available(template_path: Path) -> None:
-    workbook_files.ensure_available(
-        template_path,
-        missing=messages.template_missing,
-        open_in_excel=messages.template_open_in_excel,
-    )
+    availability = workbook_files.availability(template_path)
+    if availability is workbook_files.Availability.MISSING:
+        raise StopError(messages.template_missing(template_path))
+    if availability is workbook_files.Availability.OPEN_IN_EXCEL:
+        raise StopError(messages.template_open_in_excel(template_path))
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:
@@ -119,10 +123,10 @@ def ensure_period_files_absent(files: PeriodFiles) -> None:
     folder = files.folder
     for target in (folder.internal_settlement, folder.collective_file):
         if target.exists() or target.is_symlink():
-            raise messages.period_file_exists(folder.directory, target.name)
+            raise StopError(messages.period_file_exists(folder.directory, target.name))
 
 
-def plan_period_files(files: PeriodFiles, order_count: int, successful_count: int) -> list[PreparationMessage]:
+def plan_period_files(files: PeriodFiles, order_count: int, successful_count: int) -> list[Message]:
     """Planowanie: zlecenia zmieszczą się we wzorcach; zwraca ostrzeżenia Pliku zbiorczego.
 
     Scalone komórki w wierszach, do których trafią zlecenia, są zatrzymaniem.
@@ -176,7 +180,7 @@ def write_period_files(
             )
             _publish(staged_directory, files)
     except (OSError, workbook_files.WorkbookSaveError) as exc:
-        raise messages.write_failed(folder.directory) from exc
+        raise StopError(messages.write_failed(folder.directory)) from exc
 
 
 @contextmanager
@@ -188,11 +192,11 @@ def _open_template(
     try:
         workbook = load_workbook(template_path, read_only=False, data_only=False, keep_links=True)
     except workbook_files.UNREADABLE_WORKBOOK_ERRORS as exc:
-        raise messages.template_unreadable(template_path) from exc
+        raise StopError(messages.template_unreadable(template_path)) from exc
     try:
         sheet = workbook.active
         if not isinstance(sheet, Worksheet):
-            raise messages.template_unreadable(template_path)
+            raise StopError(messages.template_unreadable(template_path))
         header = [
             sheet.cell(layout.header_row, column).value
             for column in range(1, (layout.last_header_column or sheet.max_column) + 1)
@@ -210,7 +214,9 @@ def _target_columns(template_path: Path, sheet_title: str, header_row: int, head
     for column in COLUMNS:
         position = columns.get(normalize_text(column.target_header))
         if position is None:
-            raise messages.template_without_header(template_path, sheet_title, header_row, column.target_header)
+            raise StopError(
+                messages.template_without_header(template_path, sheet_title, header_row, column.target_header)
+            )
         positions.append(position)
     return positions
 
@@ -226,7 +232,7 @@ def _ensure_rows_writable(
     for merged in sheet.merged_cells.ranges:
         overlaps_rows = merged.min_row <= last_row and merged.max_row >= first_row
         if overlaps_rows and any(merged.min_col <= position <= merged.max_col for position in positions):
-            raise messages.template_with_merged_cells(template_path, sheet.title, merged.coord)
+            raise StopError(messages.template_with_merged_cells(template_path, sheet.title, merged.coord))
 
 
 def _is_zero(value: object) -> bool:
@@ -312,7 +318,7 @@ def _write_period_file(
             for position, register_cell in zip(positions, order.row.cells):
                 cell = sheet.cell(row, position)
                 if not isinstance(cell, Cell):  # scalona komórka; wykluczona przez _ensure_rows_writable
-                    raise messages.template_with_merged_cells(template_path, sheet.title, cell.coordinate)
+                    raise StopError(messages.template_with_merged_cells(template_path, sheet.title, cell.coordinate))
                 _apply_template_style(sheet, cell)
                 cell.value = register_cell.value  # type: ignore[assignment]
                 _apply_register_format(cell, register_cell.format)
@@ -344,5 +350,5 @@ def _publish(staged_directory: Path, files: PeriodFiles) -> None:
             try:
                 target.unlink(missing_ok=True)
             except OSError as exc:
-                raise messages.write_failed_with_file_left(period_directory, target.name) from exc
+                raise StopError(messages.write_failed_with_file_left(period_directory, target.name)) from exc
         raise

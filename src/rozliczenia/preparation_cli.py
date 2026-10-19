@@ -19,14 +19,14 @@ from typing import TextIO
 from . import collective_preparation
 from . import preparation_messages as messages
 from .collective_preparation import (
-    PreparationError,
     PreparationSummary,
     default_collective_template_path,
     default_internal_template_path,
 )
 from .domain import ProgressObserver
 from .engine import default_config_path
-from .preparation_messages import PreparationMessage, plan_not_shown, summary_not_shown, unexpected_failure
+from .message import Message, StopError
+from .preparation_messages import plan_not_shown, summary_not_shown, unexpected_failure
 from .process_run import Conversation, Decision, Finished, Process, Stop, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from .terminal_conversation import TerminalConversation
@@ -96,7 +96,7 @@ def orders_per_day(plan: PreparationSummary) -> list[tuple[str, int]]:
     return [(_day_label(day), count) for day, count in plan.orders_per_day.items()]
 
 
-def _message_lines(message: PreparationMessage) -> list[str]:
+def _message_lines(message: Message) -> list[str]:
     first, *rest = message.text.splitlines()
     return [f"- {first}", *(f"  {line}" for line in rest)]
 
@@ -136,13 +136,13 @@ def _ask_period(today: date, conversation: TerminalConversation) -> str:
     while True:
         answer = conversation.ask("Okres: ")
         if answer is None:
-            raise messages.period_not_entered()
+            raise StopError(messages.period_not_entered())
         if not answer:
             return proposed.token
         try:
             return parse_period_token(answer).token
         except ValueError:
-            conversation.say(*messages.invalid_period_token(answer).message.text.splitlines())
+            conversation.say(*messages.invalid_period_token(answer).text.splitlines())
 
 
 class _IncompletePeriodQuestion:
@@ -150,7 +150,7 @@ class _IncompletePeriodQuestion:
 
     Silnik wywołuje ją z planem między Planowaniem a Zapisywaniem. Decyzję
     podejmuje tata przez rozmówcę (``Conversation.confirm``). Odmowa to
-    ``PreparationError`` z podpowiedzią, jak u tego rozmówcy wyraża się zgodę.
+    ``StopError`` z podpowiedzią, jak u tego rozmówcy wyraża się zgodę.
     """
 
     def __init__(self, conversation: Conversation) -> None:
@@ -168,7 +168,7 @@ class _IncompletePeriodQuestion:
             question="Kontynuować mimo niepełnego okresu?",
         )
         if not self._conversation.confirm(decision):
-            raise messages.incomplete_period_refused(plan.period, self._conversation.continue_hint)
+            raise StopError(messages.incomplete_period_refused(plan.period, self._conversation.continue_hint))
 
 
 @dataclass(frozen=True)
@@ -192,10 +192,10 @@ def _gather(today: date | None, args: argparse.Namespace, conversation: Terminal
         "Wybierz plik Rejestru zleceń", [("Rejestr zleceń Excel", "ZLECENIA*.xlsx"), ("Excel", "*.xlsx")]
     )
     if register_path is None:
-        raise messages.register_not_selected()
+        raise StopError(messages.register_not_selected())
     periods_directory = args.periods_directory or conversation.choose_folder("Wybierz folder okresów (np. INEA)")
     if periods_directory is None:
-        raise messages.periods_directory_not_selected()
+        raise StopError(messages.periods_directory_not_selected())
     period = args.period or _ask_period(today or date.today(), conversation)
     return PreparationInputs(
         register_path,
@@ -237,18 +237,6 @@ def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finishe
     )
 
 
-def _stop_message(error: Exception) -> PreparationMessage:
-    if not isinstance(error, PreparationError):
-        raise TypeError("Zatrzymanie Przygotowania pliku zbiorczego to zawsze PreparationError.")
-    return error.message
-
-
-def _stop_lines(error: Exception) -> list[str]:
-    """Linie Co się stało / Gdzie / Co zrobić z ``PreparationError``."""
-
-    return _stop_message(error).text.splitlines()
-
-
 def _stopped(stop: Stop) -> list[str]:
     """``ZATRZYMANO``, gdy nie powstał żaden plik z komunikatem zatrzymania; inaczej ``BŁĄD``."""
 
@@ -268,9 +256,6 @@ def _process(today: date | None) -> Process[PreparationInputs, PreparationSummar
         parser=build_parser,
         counter_names=_COUNTERS,
         metrics_failure_tail="Przygotowanie pliku zbiorczego zakończyło się niezależnie.",
-        stop_type=PreparationError,
-        stop_lines=_stop_lines,
-        stop_message=_stop_message,
         gather=partial(_gather, today),
         execute=_execute,
         finished=_finished,

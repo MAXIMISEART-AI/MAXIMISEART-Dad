@@ -18,7 +18,8 @@ SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from rozliczenia.engine import SettlementError, load_worker_mapping  # noqa: E402
+from rozliczenia.engine import load_worker_mapping  # noqa: E402
+from rozliczenia.message import StopError  # noqa: E402
 from rozliczenia.settlement_period import parse_period_token  # noqa: E402
 from rozliczenia.template_settlement import (  # noqa: E402
     WorkerTemplateValidationError,
@@ -147,10 +148,13 @@ def main(argv: list[str] | None = None) -> int:
         KeyError,
         TypeError,
         zipfile.BadZipFile,
-        SettlementError,
         WorkerTemplateValidationError,
     ) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
+        return 1
+    except StopError as stop:
+        terminal_text = "\n".join(stop.message.terminal_lines)
+        print(f"DOCTOR FAIL: {terminal_text}", file=sys.stderr)
         return 1
     print(
         f"DOCTOR OK | app=MAXIMISEART-Dad | process=przygotowanie | version={args.expected_version} | "

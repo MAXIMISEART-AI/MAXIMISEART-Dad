@@ -163,6 +163,18 @@ Sprawdzanie, Odczyt danych, Planowanie i Zapisywanie. Tylko Przebieg rozliczeń
 zgłasza też rozpoczęcie i zakończenie przetwarzania Szablonu pracownika.
 Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
 
+## Komunikat
+
+Bezpieczny tekst dla taty w trzech częściach: Co się stało, Gdzie, Co zrobić.
+Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów ani treści
+wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
+Wykonawcę. Wyjątkiem jest wyłącznie terminalowa dawna jedna linia zatrzymania
+Przebiegu rozliczeń (ADR 0004): może mieć pełną ścieżkę i nie trafia do
+Centrum rozliczeń. Komunikat niesie zatrzymanie, ostrzeżenie, problem z
+podsumowania albo problem startu Centrum rozliczeń. Jego kod jest unikalny w
+obrębie procesu.
+_Avoid_: błąd, wiadomość
+
 ## Nienadpisywanie
 
 Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje

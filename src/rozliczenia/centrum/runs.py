@@ -31,6 +31,7 @@ from fastapi.responses import StreamingResponse
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
+from rozliczenia.message import Message
 from rozliczenia.process_run import (
     Decision,
     Finished,
@@ -38,7 +39,6 @@ from rozliczenia.process_run import (
     Process,
     ProcessInputs,
     Stop,
-    ThreePartMessage,
     run_process,
 )
 from rozliczenia.progress import ProgressNotice, ProgressProjection, ProgressSnapshot
@@ -57,9 +57,9 @@ SummaryT = TypeVar("SummaryT")
 class Endings:
     """Komunikaty procesu dla zakończeń bez jego własnego zatrzymania (``Stop.kind`` inny niż ``stop``)."""
 
-    unexpected: ThreePartMessage
-    plan_not_shown: ThreePartMessage
-    summary_not_shown: ThreePartMessage
+    unexpected: Message
+    plan_not_shown: Message
+    summary_not_shown: Message
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     done: str
     endings: Endings
     summary: Callable[[SummaryT], contract.PreparationSummary | contract.SettlementSummary]
-    warnings: Callable[[SummaryT], Sequence[ThreePartMessage]]
+    warnings: Callable[[SummaryT], Sequence[Message]]
 
     @property
     def dry_run(self) -> bool:
@@ -362,7 +362,7 @@ def _decision_view(decision: Decision) -> contract.Decision:
     )
 
 
-def _stop_message(stop: Stop, endings: Endings) -> ThreePartMessage:
+def _stop_message(stop: Stop, endings: Endings) -> Message:
     if stop.message is not None:
         return stop.message
     if stop.kind == "unexpected":

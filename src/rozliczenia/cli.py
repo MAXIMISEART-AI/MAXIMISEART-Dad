@@ -4,8 +4,8 @@ Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
 (``SettlementInputs``), argumenty i wybór Pliku zbiorczego w terminalu,
 wywołanie silnika oraz linie statusu i podsumowania. Inny rozmówca niż
 terminal podaje gotowe ``SettlementInputs`` do ``run_process(PROCESS, ...)``.
-Terminal pokazuje zatrzymanie jedną linią (``str(error)``); ten sam komunikat
-w trzech częściach daje ``PROCESS.stop_message``.
+Terminal pokazuje zatrzymanie jedną linią (``Message.terminal_line``); ten sam
+Komunikat w trzech częściach dostaje każdy rozmówca w ``Stop.message``.
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from typing import TextIO
 
 from . import engine, settlement_messages
 from .domain import ProgressObserver, SettlementSummary
-from .engine import SettlementError, default_config_path, default_worker_template_path
+from .engine import default_config_path, default_worker_template_path
+from .message import StopError
 from .period_folder import COLLECTIVE_FILE_PATTERN, PeriodFolder, PeriodFolderError
 from .process_run import Conversation, Finished, Process, Stop, run
 from .progress_presentation import format_counter_line
@@ -93,7 +94,7 @@ def _gather(args: argparse.Namespace, conversation: TerminalConversation) -> Set
         [("Plik zbiorczy Excel", COLLECTIVE_FILE_PATTERN), ("Excel", "*.xlsx")],
     )
     if source is None:
-        raise settlement_messages.collective_file_not_selected()
+        raise StopError(settlement_messages.collective_file_not_selected())
     return SettlementInputs(
         source, dry_run=args.dry_run, config_path=args.config, worker_template_path=args.worker_template
     )
@@ -168,16 +169,6 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     )
 
 
-def _stop_lines(error: Exception) -> list[str]:
-    return [str(error)]
-
-
-def _stop_message(error: Exception) -> settlement_messages.SettlementMessage:
-    if not isinstance(error, SettlementError):
-        raise TypeError("Zatrzymanie Przebiegu rozliczeń to zawsze SettlementError.")
-    return error.message
-
-
 def _stopped(stop: Stop) -> list[str]:
     if stop.kind == "after_engine":
         return ["Status semantyczny: BŁĄD", _PLAN_NOT_SHOWN if stop.dry_run else _SUMMARY_NOT_SHOWN]
@@ -193,9 +184,6 @@ PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
     parser=build_parser,
     counter_names=COUNTER_NAMES,
     metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
-    stop_type=SettlementError,
-    stop_lines=_stop_lines,
-    stop_message=_stop_message,
     gather=_gather,
     execute=_execute,
     finished=_finished,

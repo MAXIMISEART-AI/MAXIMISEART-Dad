@@ -6,7 +6,7 @@ import os
 import tempfile
 import zipfile
 import zlib
-from collections.abc import Callable
+from enum import Enum
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
@@ -45,18 +45,22 @@ def is_open_in_excel(path: Path) -> bool:
     return path.with_name(f"~${path.name}").exists()
 
 
-def ensure_available(
-    path: Path,
-    *,
-    missing: Callable[[Path], Exception],
-    open_in_excel: Callable[[Path], Exception],
-) -> None:
-    """Zgłasza ``missing(path)``, gdy skoroszytu nie ma, albo ``open_in_excel(path)``, gdy jest otwarty."""
+class Availability(Enum):
+    """Czy skoroszyt da się użyć: jest na dysku i nie jest otwarty w Excelu."""
+
+    AVAILABLE = "dostępny"
+    MISSING = "brak"
+    OPEN_IN_EXCEL = "otwarty w Excelu"
+
+
+def availability(path: Path) -> Availability:
+    """Stan skoroszytu; miejsce wywołania samo decyduje, czy i jakim Komunikatem się zatrzymać."""
 
     if not path.is_file():
-        raise missing(path)
+        return Availability.MISSING
     if is_open_in_excel(path):
-        raise open_in_excel(path)
+        return Availability.OPEN_IN_EXCEL
+    return Availability.AVAILABLE
 
 
 def request_full_recalculation(workbook: Workbook) -> None:

@@ -19,6 +19,7 @@ from typing import Any, NoReturn, TextIO
 import pytest
 
 from rozliczenia.domain import ProgressObserver, ProgressPhase
+from rozliczenia.message import Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.process_run import Conversation, Finished, Process, Stop, run
@@ -43,15 +44,12 @@ class Inputs:
     dry_run: bool = False
 
 
-class Stopped(Exception):
-    """Własne zatrzymanie sztucznego procesu; jego tekst jest bezpieczny z kontraktu."""
+def stop_error(
+    what: str, where: str = "Proces testowy", action: str = "Uruchom ponownie.", *, terminal_line: str | None = None
+) -> StopError:
+    """Własne zatrzymanie sztucznego procesu z Komunikatem, opcjonalnie z linią terminala."""
 
-
-@dataclass(frozen=True)
-class StopMessage:
-    what: str
-    where: str = "Proces testowy"
-    action: str = "Uruchom ponownie."
+    return StopError(Message(code="ZATRZYMANIE", what=what, where=where, action=action, terminal_line=terminal_line))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -103,9 +101,6 @@ def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
         "parser": parser,
         "counter_names": COUNTERS,
         "metrics_failure_tail": "Proces testowy zakończył się niezależnie.",
-        "stop_type": Stopped,
-        "stop_lines": lambda error: str(error).splitlines(),
-        "stop_message": lambda error: StopMessage(str(error)),
         "gather": gather,
         "execute": execute,
         "finished": finished_with("OK"),
@@ -191,13 +186,29 @@ def test_stop_tells_the_process_whether_nothing_was_written_in_dry_run(
     assert seen == [dry_run]
 
 
-def test_own_stop_of_the_process_shows_its_safe_lines(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("error", "expected_lines"),
+    [
+        (
+            stop_error("Brak pliku.", "folder Dane", "Wybierz plik."),
+            ["Co się stało: Brak pliku.", "Gdzie: folder Dane", "Co zrobić: Wybierz plik."],
+        ),
+        (
+            stop_error("Brak pliku.", "folder Dane", "Wybierz plik.", terminal_line="Nie znaleziono pliku dane.xlsx."),
+            ["Nie znaleziono pliku dane.xlsx."],
+        ),
+    ],
+    ids=["trzy-czesci", "linia-terminala"],
+)
+def test_own_stop_of_the_process_shows_its_terminal_lines(
+    tmp_path: Path, error: StopError, expected_lines: list[str]
+) -> None:
     def stop_in_engine(_inputs: Inputs, observer: ProgressObserver, _conversation: Conversation) -> Durations:
         phases = PhaseRunner(observer)
         phases.check(lambda: None)
 
         def read() -> None:
-            raise Stopped("Co się stało: brak pliku.\nCo zrobić: wybierz plik.")
+            raise error
 
         phases.read(read)
         raise AssertionError("Odczyt danych miał zatrzymać proces.")
@@ -210,8 +221,8 @@ def test_own_stop_of_the_process_shows_its_safe_lines(tmp_path: Path) -> None:
     lines = output.splitlines()
     stop = lines.index("Zatrzymano: stop")
     assert lines[stop - 1] == "Etap przerwany: Odczyt danych"
-    assert lines[stop + 1 : stop + 3] == ["Co się stało: brak pliku.", "Co zrobić: wybierz plik."]
-    assert lines[stop + 3].startswith("Czas uruchomienia: ")
+    assert lines[stop + 1 : stop + 1 + len(expected_lines)] == expected_lines
+    assert lines[stop + 1 + len(expected_lines)].startswith("Czas uruchomienia: ")
     [record] = records(metrics_path)
     assert record["period"] == PERIOD
     assert record["phase_durations_ms"]["Zapisywanie"] == 0
@@ -221,7 +232,7 @@ def test_own_stop_of_the_process_shows_its_safe_lines(tmp_path: Path) -> None:
 def test_stop_before_engine_start_has_unknown_period_and_shows_statistics(tmp_path: Path) -> None:
     def cancelled(_args: argparse.Namespace, conversation: Conversation) -> Inputs:
         conversation.say("Okno wyboru zostało zamknięte.")
-        raise Stopped("Nie wybrano pliku.")
+        raise stop_error("Nie wybrano pliku.", terminal_line="Nie wybrano pliku.")
 
     metrics_path = tmp_path / "metrics.jsonl"
     append_completed_records(metrics_path, "RUN", 1000)
@@ -294,7 +305,7 @@ def asking_between_planning_and_saving(
         with conversation.paused():
             conversation.say("Ostrzeżenie: pytanie")
             if conversation.ask("Kontynuować? ") != "t":
-                raise Stopped("Przerwano zgodnie z odpowiedzią.")
+                raise stop_error("Przerwano zgodnie z odpowiedzią.", terminal_line="Przerwano zgodnie z odpowiedzią.")
 
     return all_phases(observer, before_save=ask)
 
