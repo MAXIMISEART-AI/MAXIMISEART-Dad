@@ -25,6 +25,7 @@ from rozliczenia import settlement_messages
 from rozliczenia.centrum import start_problems
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
+from rozliczenia.worker_config import WorkerConfigError
 
 
 INSTRUCTION = Path(__file__).resolve().parents[1] / "docs" / "tata-instrukcja.md"
@@ -43,6 +44,9 @@ PERIOD = "08_14_09_2026"
 SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
+UNREADABLE_CONFIG = WorkerConfigError("unreadable", "Nie można odczytać pliku konfiguracji.")
+CONFIG_NOT_YAML = WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.")
+INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfiguracji.")
 # Foldery nad folderem config z próbek; żaden Komunikat ich nie pokazuje.
 ABOVE_CONFIG = frozenset({"Wspolne", "Narzedzie"})
 
@@ -124,10 +128,10 @@ SETTLEMENT_SAMPLES: Samples = {
         lambda: settlement_messages.collective_file_without_worker_header(SOURCE)
     ],
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
-    "worker_config_unreadable": [lambda: settlement_messages.worker_config_unreadable(CONFIG)],
-    "worker_config_not_yaml": [lambda: settlement_messages.worker_config_not_yaml(CONFIG)],
     "worker_config_invalid": [
-        lambda: settlement_messages.worker_config_invalid(CONFIG, "Nieobsługiwana wersja konfiguracji.")
+        lambda: settlement_messages.worker_config_invalid(CONFIG, UNREADABLE_CONFIG),
+        lambda: settlement_messages.worker_config_invalid(CONFIG, CONFIG_NOT_YAML),
+        lambda: settlement_messages.worker_config_invalid(CONFIG, INVALID_CONFIG),
     ],
     "worker_template_invalid": [
         lambda: settlement_messages.worker_template_invalid(

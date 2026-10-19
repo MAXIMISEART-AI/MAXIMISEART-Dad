@@ -19,6 +19,7 @@ from typing import Final
 from .domain import Issue
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .workbook_files import WORKER_HEADER
+from .worker_config import WorkerConfigError
 
 _NOTHING_CREATED: Final = "Nie utworzono żadnego pliku pracownika."
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
@@ -113,32 +114,21 @@ def worker_settlements_exist(target_directory: Path) -> Message:
     )
 
 
-def _worker_config(config_path: Path, line: str, detail: str) -> Message:
+def worker_config_invalid(config_path: Path, error: WorkerConfigError) -> Message:
+    """Konfiguracji wykonawców nie da się użyć; ``error.detail`` nie zawiera ścieżki."""
+
+    terminal_lines = {
+        "unreadable": f"Nie można odczytać konfiguracji: {config_path}",
+        "not_yaml": f"Niepoprawny YAML konfiguracji: {config_path}",
+        "invalid": error.detail,
+    }
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
-        what=f"Konfiguracja wykonawców jest niepoprawna. {detail}",
+        what=f"Konfiguracja wykonawców jest niepoprawna. {error.detail}",
         where=file_label(config_path),
         action=REPORT_TO_MAINTAINER,
-        terminal_line=line,
+        terminal_line=terminal_lines[error.reason],
     )
-
-
-def worker_config_unreadable(config_path: Path) -> Message:
-    return _worker_config(
-        config_path, f"Nie można odczytać konfiguracji: {config_path}", "Nie można odczytać pliku konfiguracji."
-    )
-
-
-def worker_config_not_yaml(config_path: Path) -> Message:
-    return _worker_config(
-        config_path, f"Niepoprawny YAML konfiguracji: {config_path}", "Plik nie jest poprawnym YAML."
-    )
-
-
-def worker_config_invalid(config_path: Path, detail: str) -> Message:
-    """Treść konfiguracji wykonawców łamie jej reguły; ``detail`` nie zawiera ścieżki."""
-
-    return _worker_config(config_path, detail, detail)
 
 
 def worker_template_invalid(template_path: Path, detail: str) -> Message:

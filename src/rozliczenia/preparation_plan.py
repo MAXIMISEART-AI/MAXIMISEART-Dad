@@ -15,10 +15,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from . import preparation_messages as messages
-from .engine import normalize_text
 from .message import Message, StopError
 from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterRow, RegisterSheet
 from .settlement_period import SettlementPeriod
+from .worker_config import normalize_text
 
 _SUCCESSFUL_VALUE = "tak"
 _UNSUCCESSFUL_VALUE = "nie"

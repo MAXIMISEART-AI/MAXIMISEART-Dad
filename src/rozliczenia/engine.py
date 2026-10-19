@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import tempfile
 import time
-import unicodedata
 from collections import defaultdict
 from dataclasses import replace
 from pathlib import Path
-
-import yaml
 
 from . import collective_file, settlement_messages, template_settlement, workbook_files
 from .domain import (
@@ -20,74 +17,11 @@ from .domain import (
     WorkerResult,
 )
 from .message import StopError
-from .period_folder import PeriodFolder, PeriodFolderError, check_worker_name
+from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
 from .workbook_files import ExcelRow, Problem, WorkbookError
-
-
-def normalize_text(value: object) -> str:
-    """Normalizuje identyfikator bez usuwania polskich znaków."""
-
-    text = unicodedata.normalize("NFC", str(value or ""))
-    return " ".join(text.replace("\u00a0", " ").split()).casefold()
-
-
-def load_worker_mapping(config_path: Path) -> dict[str, str]:
-    """Wczytuje jawne mapowanie identyfikatorów na nazwy plików."""
-
-    def invalid_config(detail: str) -> StopError:
-        return StopError(settlement_messages.worker_config_invalid(config_path, detail))
-
-    try:
-        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except OSError as exc:
-        raise StopError(settlement_messages.worker_config_unreadable(config_path)) from exc
-    except yaml.YAMLError as exc:
-        raise StopError(settlement_messages.worker_config_not_yaml(config_path)) from exc
-
-    if not isinstance(config, dict):
-        raise invalid_config("Konfiguracja musi być mapą z sekcją workers.")
-    if type(config.get("schema_version")) is not int or config["schema_version"] != 1:
-        raise invalid_config("Nieobsługiwana wersja konfiguracji.")
-
-    workers = config.get("workers")
-    if not isinstance(workers, dict) or not workers:
-        raise invalid_config("Konfiguracja workers musi zawierać co najmniej jeden wpis.")
-
-    mapping: dict[str, str] = {}
-    seen_identifiers: set[str] = set()
-    seen_names: dict[str, str] = {}
-    for source_id, target_name in workers.items():
-        if not isinstance(source_id, str) or not isinstance(target_name, str):
-            raise invalid_config("Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika.")
-        normalized_id = normalize_text(source_id)
-        display_name = target_name.strip()
-        normalized_name = normalize_text(display_name)
-        if not normalized_id or not normalized_name:
-            raise invalid_config("Konfiguracja zawiera pusty identyfikator lub nazwę pracownika.")
-        if normalized_id in seen_identifiers:
-            raise invalid_config("Konfiguracja zawiera powtórzony identyfikator pracownika.")
-        name_check = check_worker_name(display_name)
-        if name_check == "invalid":
-            raise invalid_config("Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.")
-        if name_check == "too_long":
-            raise invalid_config("Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.")
-        if normalized_name in seen_names:
-            raise invalid_config(
-                "Dwóch identyfikatorów wskazuje ten sam plik pracownika: "
-                f"{seen_names[normalized_name]} / {display_name}"
-            )
-        mapping[normalized_id] = display_name
-        seen_identifiers.add(normalized_id)
-        seen_names[normalized_name] = display_name
-    return mapping
-
-
-def default_config_path() -> Path:
-    """Wskazuje konfigurację wykonawców w katalogu konfiguracji."""
-
-    return Path(__file__).resolve().parents[2] / "config" / "worker_mapping.yaml"
+from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
 
 
 def default_worker_template_path() -> Path:
@@ -149,7 +83,10 @@ def run_settlements(
         target_directory = folder.worker_settlements
         if target_directory.exists() or target_directory.is_symlink():
             raise StopError(settlement_messages.worker_settlements_exist(target_directory))
-        mapping = load_worker_mapping(config_path)
+        try:
+            mapping = load_worker_mapping(config_path)
+        except WorkerConfigError as exc:
+            raise StopError(settlement_messages.worker_config_invalid(config_path, exc)) from exc
         try:
             validate_worker_template(worker_template_path)
         except WorkerTemplateValidationError as exc:

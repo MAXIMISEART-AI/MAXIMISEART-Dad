@@ -25,11 +25,11 @@ from .collective_preparation import (
     default_internal_template_path,
 )
 from .domain import ProgressObserver
-from .engine import default_config_path
 from .message import Message, StopError
 from .process_run import Conversation, Decision, Finished, Process, Stop, TerminalSummary, TerminalView, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from .terminal_conversation import TerminalConversation
+from .worker_config import default_config_path
 
 _TITLE = "Przygotowanie pliku zbiorczego"
 # Liczniki historii metryk Przygotowania pliku zbiorczego (inne niż Przebiegu rozliczeń).
