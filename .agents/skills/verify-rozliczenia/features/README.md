@@ -15,6 +15,7 @@ direct CLI runs provide detailed verification evidence.
 - Use `--variant preparation` for Przygotowanie pliku zbiorczego.
 - Use `--variant preparation-real-templates` locally when `config/` holds the real Wzorce; it is outside CI and `--variant all`, and prints `VERIFY SKIP` without them.
 - Use `--variant chain` for the whole path from Rejestr zleceń through both processes to the Rozliczenia pracowników; `--variant chain-real-templates` is its local-only twin on the three real Wzorce, with the same skip rule.
+- Centrum rozliczeń starts both processes too; its route is covered by `verify-centrum-rozliczen`, not by this map.
 - Never use real customer workbooks or a fixture owned by another verification run. The real Wzorce enter only as byte copies inside the run root.
 
 ## Driving conventions

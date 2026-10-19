@@ -21,7 +21,9 @@ metrics file and parent directory if needed.
 - Run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics> --dry-run`.
 - `--worker-template` defaults to `config/Wzorzec rozliczenia pracownika.xlsx`; supply the path to the
   shared Wzorzec rozliczenia pracownika when it is stored elsewhere.
-- The CMD launcher does not expose a dry-run flag; use the direct CLI.
+- `Utwórz rozliczenia.cmd` does not expose a dry-run flag; use the direct CLI.
+  Centrum rozliczeń offers the same dry-run as `Podgląd bez zapisu`, which
+  `verify-centrum-rozliczen` drives.
 
 ## Driving it with PowerShell and run.py
 
@@ -47,8 +49,9 @@ Preconditions:
   zero-I/O simulation.
 - An existing destination folder, invalid mapping, or missing/invalid
   Wzorzec rozliczenia pracownika stops the CLI before any output workbook is created.
-- An unmapped source identifier is reported without printing the identifier or
-  row contents; dry-run returns warning code `2` while showing the full plan.
+- An unmapped source identifier, or a Wiersz danych with an empty `WYKONAWCA`
+  (`BRAK_WYKONAWCY`), is reported without printing the identifier or row
+  contents; dry-run returns warning code `2` while showing the full plan.
 - The default fixture has mapped workers only and returns `0`; use
   `--variant unmapped` to verify the warning path.
 - A dry-run proves the preview path, not the later write path; the default
