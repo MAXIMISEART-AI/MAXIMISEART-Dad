@@ -4,6 +4,8 @@ import { MapPinIcon, OctagonXIcon, TriangleAlertIcon, WrenchIcon } from "lucide-
 import type { Message } from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
+export type MessageKind = "stop" | "warning"
+
 /**
  * Komunikat w trzech częściach (ta sama treść co w terminalu) jako baner: „Co się stało” jest tytułem,
  * „Gdzie” i „Co zrobić” to dwa wiersze z ikonami. Opis jest spokojny, nie cały czerwony. Zatrzymanie
@@ -15,7 +17,7 @@ export function ThreePartMessage({
   action,
 }: {
   message: Message
-  kind: "stop" | "warning"
+  kind: MessageKind
   action?: React.ReactNode
 }) {
   return (

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { ChartColumnIcon, GaugeIcon, ListChecksIcon, TimerIcon } from "lucide-react"
 
-import { getMetrics, type Metrics } from "@/api/centrum"
+import { getMetrics, type Metrics, type Process } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
 import { otherResults } from "@/components/run-result-badge"
 import { SegmentedFilter } from "@/components/segmented-filter"
@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { seconds } from "@/lib/format"
 import { useResource } from "@/lib/use-resource"
 import { InterruptedRunsCard } from "@/pages/metrics/interrupted-runs-card"
-import { MODE_OPTIONS, PROCESS_OPTIONS, type Mode, type Process } from "@/pages/metrics/process-runs"
+import { MODE_OPTIONS, PROCESS_OPTIONS, type Mode } from "@/pages/metrics/process-runs"
 import { RunHistoryCard } from "@/pages/metrics/run-history-card"
 import { StageTimesCard } from "@/pages/metrics/stage-times-card"
 

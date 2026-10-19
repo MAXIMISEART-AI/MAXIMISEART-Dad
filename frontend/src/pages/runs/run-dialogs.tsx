@@ -9,7 +9,7 @@ import {
   WrenchIcon,
 } from "lucide-react"
 
-import type { Decision } from "@/api/centrum"
+import type { Decision, DecisionAnswer } from "@/api/centrum"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -104,13 +104,13 @@ export function DecisionDialog({
   onDecide,
 }: {
   decision: Decision
-  onDecide: (answer: "continue" | "abort") => Promise<void>
+  onDecide: (answer: DecisionAnswer["answer"]) => Promise<void>
 }) {
   const abort = React.useRef<HTMLButtonElement>(null)
   const [sending, setSending] = React.useState(false)
   const message = decision.message
 
-  const decide = (answer: "continue" | "abort") => {
+  const decide = (answer: DecisionAnswer["answer"]) => {
     setSending(true)
     onDecide(answer).finally(() => setSending(false))
   }

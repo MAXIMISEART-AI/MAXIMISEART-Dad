@@ -10,11 +10,10 @@ import { RunsProvider } from "@/lib/runs"
 import { SettingsProvider } from "@/lib/settings"
 import { useCurrentPage } from "@/pages"
 
-// SAFETY: zmienne CSS (`--…`) są poprawnymi kluczami stylu, których CSSProperties nie wymienia.
 const LAYOUT = {
   "--sidebar-width": "calc(var(--spacing) * 66)",
   "--header-height": "calc(var(--spacing) * 14)",
-} as React.CSSProperties
+} satisfies React.CSSProperties
 
 export function App() {
   const page = useCurrentPage()

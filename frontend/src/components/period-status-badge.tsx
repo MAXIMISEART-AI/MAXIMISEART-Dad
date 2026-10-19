@@ -27,5 +27,10 @@ export function PeriodStatusBadge({ period }: { period: PeriodRow }) {
           {period.status_label}
         </Badge>
       )
+    default: {
+      const unhandled: never = period.status
+
+      return unhandled
+    }
   }
 }

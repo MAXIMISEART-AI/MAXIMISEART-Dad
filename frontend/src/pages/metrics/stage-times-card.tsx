@@ -1,5 +1,6 @@
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, type TooltipValueType } from "recharts"
 import { TimerOffIcon } from "lucide-react"
+import * as z from "zod"
 
 import type { Percentiles, ProcessRun } from "@/api/centrum"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -36,6 +37,9 @@ type ChartRow = {
   label: string
   run: ProcessRun
 } & Record<`phase${number}`, number>
+
+// recharts podaje wiersz pod kursorem bez typu (`any`); bierzemy z niego tylko klucz.
+const HOVERED = z.object({ key: z.string() })
 
 /** Czasy etapów kolejnych Uruchomień procesu wybranego procesu i trybu: wykres albo tabela z P50/P95. */
 export function StageTimesCard({
@@ -99,7 +103,11 @@ export function StageTimesCard({
                         content={
                           <ChartTooltipContent
                             labelFormatter={(_, payload) => {
-                              const row = rows.find((candidate) => candidate.key === payload[0]?.payload?.key)
+                              const hovered = HOVERED.safeParse(payload[0]?.payload)
+
+                              const row = hovered.success
+                                ? rows.find((candidate) => candidate.key === hovered.data.key)
+                                : undefined
 
                               return row === undefined ? null : tooltipTitle(row.run)
                             }}

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, EyeIcon, HistoryIcon } from "lucide-react"
 
-import type { ProcessRun } from "@/api/centrum"
+import type { Process, ProcessRun } from "@/api/centrum"
 import { RunResultBadge } from "@/components/run-result-badge"
 import { SegmentedFilter, type FilterOption } from "@/components/segmented-filter"
 import { Badge } from "@/components/ui/badge"
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { dateTime, seconds } from "@/lib/format"
-import { MODE_OPTIONS, PROCESS_OPTIONS, type Mode, type Process } from "@/pages/metrics/process-runs"
+import { MODE_OPTIONS, PROCESS_OPTIONS, type Mode } from "@/pages/metrics/process-runs"
 
 const PAGE = 10
 
