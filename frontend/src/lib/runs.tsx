@@ -41,11 +41,15 @@ function showFailure(failure: Error) {
   toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
 }
 
-/** Powiadomienie tylko po zapisie (RUN), widzianym na żywo; po podglądzie wystarcza baner. */
+/** Powiadomienie tylko po zakończonym zapisie (RUN), widzianym na żywo; podgląd i zatrzymanie mają baner. */
 function announce(event: RunEvent, before: RunView | null) {
   const view = event.view
 
-  if (view.state !== "finished" || view.run.dry_run || before === null || before.state === "idle") {
+  if (view.state !== "finished" || view.run.dry_run || view.result.ending !== "finished") {
+    return
+  }
+
+  if (before === null || before.state === "idle") {
     return
   }
 
@@ -56,7 +60,7 @@ function announce(event: RunEvent, before: RunView | null) {
   toast.add({
     title: view.result.headline,
     description: `Okres ${view.run.period}`,
-    type: view.result.result === "OK" ? "success" : "error",
+    type: view.result.result === "OK" ? "success" : "warning",
   })
 }
 

@@ -15,7 +15,7 @@ export function CountTiles({ title, counts }: { title: string; counts: ReadonlyA
             data-zero={count.count === 0}
             className="flex flex-col items-center gap-1 rounded-lg bg-muted/60 px-1 py-2 data-[zero=true]:bg-warning/10"
           >
-            <span className="text-xs text-muted-foreground tabular-nums">{count.label}</span>
+            <CountLabel label={count.label} />
             <span className="flex items-center gap-1 text-lg font-semibold tabular-nums">
               {count.count === 0 ? <TriangleAlertIcon className="size-3.5 text-warning" aria-hidden /> : null}
               {count.count}
@@ -24,6 +24,21 @@ export function CountTiles({ title, counts }: { title: string; counts: ReadonlyA
         ))}
       </ul>
     </section>
+  )
+}
+
+/**
+ * Etykieta kafelka w dwóch wierszach, np. „wt” i „06.10.2026”: kafelki mają wtedy równą wysokość
+ * w wąskim oknie decyzji. Sama prezentacja tekstu z serwera.
+ */
+function CountLabel({ label }: { label: string }) {
+  const [first, ...rest] = label.split(" ")
+
+  return (
+    <span className="flex flex-col items-center text-xs leading-tight text-muted-foreground tabular-nums">
+      <span>{first}</span>
+      {rest.length === 0 ? null : <span>{rest.join(" ")}</span>}
+    </span>
   )
 }
 

@@ -19,8 +19,9 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
-`--feature ustawienia`, `--feature tablica-okresow`, `--feature konfiguracja`, or
-`--feature metryki` drives one feature; the
+`--feature ustawienia`, `--feature tablica-okresow`, `--feature konfiguracja`,
+`--feature metryki`, or `--feature przygotowanie-pliku-zbiorczego` drives one
+feature; the
 default `all` drives every feature in `features/README.md`. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.

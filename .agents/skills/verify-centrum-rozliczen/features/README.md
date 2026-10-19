@@ -21,6 +21,9 @@ feature file as the recipe.
   synthetic Uruchomienia procesu (Przygotowanie pliku zbiorczego: 6 completed
   RUN, 1 interrupted RUN, 3 DRY-RUN; Przebieg rozliczeń: 5 RUN, one of them
   WYMAGA_SPRAWDZENIA, 1 DRY-RUN) and one record per file that the reader skips.
+- The synthetic Rejestr zleceń has four orders in `06_12_10_2026`, the last on
+  Saturday, so a RUN of Przygotowanie pliku zbiorczego asks about an
+  incomplete period; its order cells carry the row marker.
   Centrum reads these, never the tool's own history.
 - No settings are set when a run starts.
 - The run's `config/` holds a synthetic `worker_mapping.yaml` (three Wykonawcy)
@@ -75,3 +78,4 @@ entry in `drive_centrum.py`, and its screenshots in
 - [Konfiguracja](./konfiguracja.md) covers the read-only view of the three Wzorce, the Wykonawcy from the konfiguracja wykonawców, and the tool version, with a Wzorzec open in Excel, a missing Wzorzec, a broken konfiguracja wykonawców, and proof that Centrum changes none of these files.
 - [Tablica okresów](./tablica-okresow.md) covers the period list with Status okresu, the last complete period and Następny krok, opening period files and folders, refreshing after changes on disk, and refusing foreign requests.
 - [Metryki](./metryki.md) covers the key numbers on Okresy, P50/P95 and the result distribution per process and mode, the stage-times chart and table, interrupted runs, the history table with sorting and filters, a CLI record appearing without a restart, and the empty state.
+- [Przygotowanie pliku zbiorczego](./przygotowanie-pliku-zbiorczego.md) covers choosing the period, Podgląd bez zapisu (DRY-RUN) without writing, the confirmed RUN, the live stages, the incomplete-period decision (abort and continue, surviving a reload), refusing a second Uruchomienie, the three-part stop, Nienadpisywanie, the Status okresu afterwards, the records in the CLI's metrics file, and the Historia tab marking Centrum runs.
