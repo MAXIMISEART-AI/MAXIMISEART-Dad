@@ -8,6 +8,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tomllib
 import urllib.parse
 import urllib.request
 
@@ -78,7 +79,9 @@ def drive_start_and_close(run: Run, page: Page) -> None:
 
     run.step(feature, "start-gotowosc")
     health = run.api("/api/health", "start-health")
-    run.check(health["service"] == "centrum-rozliczen", "health names Centrum rozliczeń and its version")
+    with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
+        version = str(tomllib.load(stream)["project"]["version"])
+    run.check(health == {"service": "centrum-rozliczen", "version": version}, "health names Centrum rozliczeń and its version")
     run.check(_log_events(served_log)[:1] == ["start"], "the Centrum log starts with a start entry")
     run.check(f"port={port}" in served_log.read_text(encoding="utf-8"), "the start entry names the port")
 

@@ -18,6 +18,7 @@ longer exists.
 
 - Okresy with no folder okresów: the `Wskaż folder okresów` button in the empty state.
 - Okresy, card `Ustawienia`: `Wskaż`/`Zmień` next to `Rejestr zleceń` and `Folder okresów`.
+- Uruchomienia: the setup card has the same `Rejestr zleceń` and `Folder okresów` groups and buttons (for Przebieg rozliczeń, group `Plik zbiorczy` replaces the Rejestr); the drive uses Okresy.
 - The sun/moon icon in the header (`Włącz motyw jasny` / `Włącz motyw ciemny`).
 
 ## Driving it with Playwright for Python
@@ -38,5 +39,5 @@ Preconditions:
 
 - `Wskaż folder okresów` (empty state) and `Wskaż Folder okresów` (settings card) differ only in case. Use `exact=True`.
 - The picker request blocks until the picker answers. Write `answer.txt` before the click, never after.
-- The Rejestr zleceń is only remembered here; Centrum does not read it until Przygotowanie pliku zbiorczego (#98).
+- Centrum reads the remembered Rejestr zleceń only when Przygotowanie pliku zbiorczego runs; without it, starting that Uruchomienie is refused with `Najpierw wskaż …`.
 - Settings reload when the tab regains focus, so a missing path can also appear without a manual reload.

@@ -133,7 +133,7 @@ def drive_configuration(run: Run, page: Page) -> None:
     try:
         worker_config.write_text("workers: [niedomknięta lista\n", encoding="utf-8")
         page.reload()
-        # The same message as the stop of either process reading this konfiguracja wykonawców.
+        # The same message as Przebieg rozliczeń's stop on this konfiguracja wykonawców.
         message = page.get_by_role("alert").filter(has_text="Konfiguracja wykonawców jest niepoprawna.")
         expect(message).to_contain_text("Plik nie jest poprawnym YAML.")
         expect(message).to_contain_text(f"plik {worker_config.name}")
