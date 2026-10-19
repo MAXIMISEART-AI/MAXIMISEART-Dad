@@ -12,18 +12,29 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from typing import Any, TextIO
 
+from .decision import Decision
 from .plain_progress import PlainProgressAdapter
 from .progress import ProgressNotice, ProgressSnapshot
 from .rich_progress import Console, Live, RichProgressAdapter
 
-if TYPE_CHECKING:
-    from .process_run import Decision
-
 __all__ = ["TerminalConversation"]
 
 _YES_ANSWERS = ("t", "tak")
+
+
+def _decision_lines(decision: Decision) -> list[str]:
+    """Decyzja w terminalu: tytuł, trzy części Komunikatu i liczby z etykietami."""
+
+    return [
+        decision.title,
+        f"Co się stało: {decision.message.what}",
+        f"Gdzie: {decision.message.where}",
+        f"Co zrobić: {decision.message.action}",
+        f"{decision.counts_title}:",
+        *(f"- {label}: {count}" for label, count in decision.counts),
+    ]
 
 
 def _ask_in_dialog(ask: Callable[[Any], str]) -> str:
@@ -55,8 +66,10 @@ def _is_interactive(stream: TextIO) -> bool:
 class TerminalConversation:
     """Rozmowa z tatą w terminalu: okna wyboru, komunikaty, pytania i podgląd postępu.
 
-    Przed startem podglądu pisze wprost do wyjścia. Pytanie w trakcie silnika
-    zatrzymuje widok na żywo, a wznawia go dopiero po zgodzie taty.
+    Okna wyboru, ``say`` i ``ask`` służą do ustalenia wejścia procesu przed
+    silnikiem i piszą wprost do wyjścia. W trakcie silnika terminal jest
+    rozmówcą rdzenia: Decyzja taty (``confirm``) zatrzymuje widok na żywo, a
+    wznawia go dopiero po zgodzie taty.
     """
 
     def __init__(self, output: TextIO, input_stream: TextIO) -> None:
@@ -97,20 +110,12 @@ class TerminalConversation:
         """Pokazuje linie decyzji i pyta ``t``/``n``; podgląd wraca tylko po zgodzie taty."""
 
         with self._view_stopped() as resume:
-            self.say(*decision.lines)
+            self.say(*_decision_lines(decision))
             answer = self.ask(f"{decision.question} Wpisz t (tak) albo n (nie): ")
             consent = answer is not None and answer.casefold() in _YES_ANSWERS
             if consent:
                 resume()
             return consent
-
-    @contextmanager
-    def paused(self) -> Iterator[None]:
-        """Wstrzymuje podgląd; po wyjątku (np. odmowie taty) podgląd nie wraca."""
-
-        with self._view_stopped() as resume:
-            yield
-            resume()
 
     def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
         self._dashboard = _Dashboard(self._output, title=title, shows_templates=shows_templates)

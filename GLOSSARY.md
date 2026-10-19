@@ -71,6 +71,12 @@ Osoba wskazana w kolumnie `WYKONAWCA` pliku zbiorczego. Wartość w tej kolumnie
 jest identyfikatorem źródłowym, który nie musi być identyczny z nazwą człowieka
 w nazwie pliku docelowego.
 
+## Konfiguracja wykonawców
+
+Plik konfiguracji w folderze `config`, który łączy identyfikator Wykonawcy z
+kolumny `WYKONAWCA` (H) z nazwą Wykonawcy w Rozliczeniu pracownika. Wspólny
+dla Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
+
 ## Szablon pracownika
 
 Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca
@@ -139,12 +145,20 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 
 Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
 launchera albo z Centrum rozliczeń, od ustalenia plików i okresu do wyniku
-końcowego. Decyzja taty o niepełnym okresie należy do Uruchomienia procesu bez
-względu na to, skąd wystartowało; nie jest z definicji pytaniem w terminalu.
+końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na to,
+skąd wystartowało; nie jest z definicji pytaniem w terminalu.
 Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo zatrzymaniem z
 bezpiecznym komunikatem zrozumiałym dla taty, nigdy z treścią błędu
 technicznego.
 _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
+
+## Decyzja taty
+
+Pytanie, które proces zadaje tacie w trakcie Uruchomienia procesu; dziś tylko
+o niepełny okres w Przygotowaniu pliku zbiorczego. Składa ją proces i sam
+zatrzymuje się po odmowie; rozmówca tylko pyta i mówi, jak wyrazić zgodę
+(`t` w terminalu, `Kontynuuj` w Centrum rozliczeń). Czas czekania na Decyzję
+taty nie wlicza się do `Czas uruchomienia` ani do metryk.
 
 ## Centrum rozliczeń
 

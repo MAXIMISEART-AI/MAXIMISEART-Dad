@@ -4,7 +4,8 @@ Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co s
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
 Komunikaty są po polsku, bez żargonu i treści wyjątków oraz bez adresów,
 numerów zleceń i treści wierszy. Wskazują wyłącznie plik, arkusz, nagłówek albo
-numer wiersza.
+numer wiersza. Obok fabryk katalog ma napisy Decyzji taty o niepełnym okresie
+i etykiety liczb zleceń na dzień.
 """
 
 from __future__ import annotations
@@ -12,14 +13,23 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from typing import Final
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .workbook_files import WORKER_HEADER
+from .worker_config import WorkerConfigError
 
 # Kody czytane poza katalogiem: decyzja o niepełnym okresie i problemy Wzorców w Konfiguracji Centrum.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
 TEMPLATE_MISSING = "BRAK_WZORCA"
 TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"
+
+# Napisy Decyzji taty o niepełnym okresie; jej Komunikat to ``incomplete_period``, odmowa ``incomplete_period_refused``.
+INCOMPLETE_PERIOD_TITLE: Final = "Ostrzeżenie: niepełny okres"
+INCOMPLETE_PERIOD_QUESTION: Final = "Kontynuować mimo niepełnego okresu?"
+# Liczby zleceń na dzień okresu, w Decyzji i w podsumowaniu; etykieta dnia to np. „wt 08.09.2026”.
+ORDERS_PER_DAY: Final = "Zlecenia na dzień"
+WEEKDAY_LABELS: Final = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
 
 
 def period_file_exists(period_directory: Path, filename: str) -> Message:
@@ -84,12 +94,15 @@ def period_not_entered() -> Message:
     )
 
 
-def unreadable_worker_config(config_path: Path) -> Message:
-    """Konfiguracja wykonawców nie daje się odczytać."""
+def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
+    """Konfiguracji wykonawców nie da się użyć; przy złym YAML albo złamanej regule ``error.detail`` mówi, co jest nie tak."""
 
+    what = "Nie można odczytać konfiguracji wykonawców."
+    if error.reason != "unreadable":
+        what = f"{what} {error.detail}"
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
-        what="Nie można odczytać konfiguracji wykonawców.",
+        what=what,
         where=f"plik {config_path.name}",
         action="Przekaż to osobie utrzymującej narzędzie.",
     )

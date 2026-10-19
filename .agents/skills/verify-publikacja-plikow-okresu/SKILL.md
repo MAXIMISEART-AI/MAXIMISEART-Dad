@@ -87,7 +87,7 @@ Planowanie), workbook content, POSIX rename semantics (macOS and Linux replace
 an existing target, so there only the re-check in `_publish` guards, with a race
 window after it), symlinks,
 network drives whose rename is not atomic, more than two runs or the bounds
-above, and Przebieg rozliczeń's own folder publication in `engine.py`.
+above, and Przebieg rozliczeń's own folder publication in `settlement_files.py`.
 
 ## Known findings
 

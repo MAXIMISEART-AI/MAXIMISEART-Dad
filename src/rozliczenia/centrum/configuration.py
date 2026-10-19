@@ -1,7 +1,7 @@
 """Konfiguracja tylko do odczytu: trzy Wzorce, Wykonawcy z konfiguracji wykonawców i wersja narzędzia.
 
-Reguły należą do silnika: Wzorce sprawdzają te same funkcje co Sprawdzanie w
-obu procesach, a konfigurację wykonawców wczytuje ``load_worker_mapping``.
+Reguły należą do procesów: Wzorce sprawdzają te same funkcje co Sprawdzanie w
+obu procesach, a Konfigurację wykonawców wczytuje moduł ``worker_config``.
 Centrum tylko zamienia ich wynik na stan dla przeglądarki, z tym samym
 komunikatem w trzech częściach, którym zatrzymałby się proces używający tego
 pliku. Niczego w katalogu konfiguracji nie zapisuje.
@@ -19,14 +19,11 @@ from rozliczenia import preparation_messages, settlement_messages, workbook_file
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.version import tool_version
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
-from rozliczenia.engine import (
-    default_config_path,
-    default_worker_template_path,
-    load_worker_mapping,
-)
+from rozliczenia.engine import default_worker_template_path
 from rozliczenia.preparation_files import check_collective_template, check_internal_template
 from rozliczenia.message import Message, StopError
 from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
+from rozliczenia.worker_config import WorkerConfigError, default_config_path, load_worker_mapping
 
 
 @dataclass(frozen=True)
@@ -143,6 +140,7 @@ def _workers(config_path: Path) -> contract.Workers:
 
     try:
         mapping = load_worker_mapping(config_path)
-    except StopError as error:
-        return contract.WorkersUnreadable(state="unreadable", message=contract.Message.of(error.message))
+    except WorkerConfigError as error:
+        message = settlement_messages.worker_config_problem(config_path, error)
+        return contract.WorkersUnreadable(state="unreadable", message=contract.Message.of(message))
     return contract.WorkersReady(state="ready", names=list(mapping.values()))

@@ -13,7 +13,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final, Generic, TypeVar
 
-from rozliczenia import preparation_cli
 from rozliczenia.centrum import contract
 from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.domain import SettlementSummary
@@ -121,7 +120,7 @@ def _preparation_summary(summary: PreparationSummary, _dry_run: bool) -> contrac
         counts=contract.CountGroup(
             title="Zlecenia na dzień",
             counts=[
-                contract.Count(label=label, count=count) for label, count in preparation_cli.orders_per_day(summary)
+                contract.Count(label=label, count=count) for label, count in summary.labeled_orders_per_day()
             ],
         ),
         files=[

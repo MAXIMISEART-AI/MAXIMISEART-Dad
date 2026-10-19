@@ -20,7 +20,6 @@ from __future__ import annotations
 import threading
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,9 +33,9 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.centrum.run_view import ProcessView
+from rozliczenia.decision import Decision
 from rozliczenia.message import Message
 from rozliczenia.process_run import (
-    Decision,
     Finished,
     Outcome,
     Process,
@@ -255,19 +254,11 @@ class _Run:
         self.awaiting_decision = False
         self._decided.set()
 
-    # Rozmowa z tatą (Conversation). Wejście procesu przychodzi z ustawień, a procesy
-    # rozmawiają w trakcie silnika tylko przez decyzję taty (``confirm``); ``say``,
-    # ``ask`` i ``paused`` są w protokole dla rozmowy w terminalu.
+    # Decyzja taty w trakcie silnika (Conversation); wejście procesu przychodzi z ustawień.
 
     @property
     def continue_hint(self) -> str:
         return _CONTINUE_HINT
-
-    def say(self, *lines: str) -> None:
-        """Wynik ma wszystkie komunikaty końcowe."""
-
-    def ask(self, prompt: str) -> str | None:
-        return None
 
     def confirm(self, decision: Decision) -> bool:
         self._decided.clear()
@@ -280,9 +271,6 @@ class _Run:
         )
         self._decided.wait()
         return self._consent
-
-    def paused(self) -> AbstractContextManager[None]:
-        return nullcontext()
 
     # Podgląd postępu (trzeci adapter projekcji). Każde powiadomienie odświeża widok
     # na żywo; przeglądarka dostaje nowy widok tylko wtedy, gdy zmieniło się to, co pokazuje.
