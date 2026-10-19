@@ -7,6 +7,7 @@ import type {
 } from "@/api/generated"
 import {
   zChangeThemeResponse,
+  zCloseCentrumResponse,
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
   zGetPeriodBoardResponse,
@@ -71,4 +72,9 @@ export function openPeriodPath(token: string, target: OpenTarget) {
     `/api/periods/${encodeURIComponent(token)}/open`,
     send("POST", { target })
   )
+}
+
+/** Serwer kończy pracę po odpowiedzi; odmawia (`CentrumError`), gdy zamknięcie jest teraz zablokowane. */
+export function closeCentrum() {
+  return call(zCloseCentrumResponse, "/api/shutdown", send("POST"))
 }

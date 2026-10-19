@@ -18,6 +18,15 @@ export const zBoardNotSet = z.object({
 });
 
 /**
+ * Closing
+ *
+ * Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi.
+ */
+export const zClosing = z.object({
+    state: z.literal('closing')
+});
+
+/**
  * Health
  */
 export const zHealth = z.object({
@@ -231,3 +240,8 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
+
+/**
+ * Successful Response
+ */
+export const zCloseCentrumResponse = zClosing;

@@ -56,6 +56,18 @@ export type Choice = {
 };
 
 /**
+ * Closing
+ *
+ * Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi.
+ */
+export type Closing = {
+    /**
+     * State
+     */
+    state: 'closing';
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -454,3 +466,28 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
+
+export type CloseCentrumData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/shutdown';
+};
+
+export type CloseCentrumErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type CloseCentrumError = CloseCentrumErrors[keyof CloseCentrumErrors];
+
+export type CloseCentrumResponses = {
+    /**
+     * Successful Response
+     */
+    202: Closing;
+};
+
+export type CloseCentrumResponse = CloseCentrumResponses[keyof CloseCentrumResponses];
