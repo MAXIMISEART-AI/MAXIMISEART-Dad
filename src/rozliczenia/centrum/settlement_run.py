@@ -17,16 +17,16 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Final
 
-from rozliczenia import cli, collective_file, settlement_messages
+from rozliczenia import cli, settlement_messages
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
-from rozliczenia.centrum.period_board import PeriodFolder, read_board
+from rozliczenia.centrum.period_board import read_board
 from rozliczenia.centrum.runs import Endings, PreparedRun
 from rozliczenia.centrum.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
-from rozliczenia.period_status import PeriodStatus
-from rozliczenia.settlement_period import last_complete_period, parse_period_token
+from rozliczenia.period_folder import PeriodFolder, PeriodStatus, collective_file_name, period_status_label
+from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 
 _PROCESS: Final = cli.PROCESS
@@ -53,7 +53,8 @@ class SettlementEntry:
         return _KEY
 
     def setup(self) -> contract.ProcessSetup:
-        board = read_board(self.store.load().periods_directory, self.today())
+        periods_directory = self.store.load().periods_directory
+        board = read_board(periods_directory, self.today())
         rows = [row for row in board.periods if row.status == _ELIGIBLE] if board.state == "ready" else []
         preselected = next(
             (row.token for row in rows if row.last_complete),
@@ -78,7 +79,7 @@ class SettlementEntry:
             period = parse_period_token(request.period)
         except ValueError:
             raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        source = PeriodFolder.of(periods_directory, period).collective_file
+        source = PeriodFolder(periods_directory, period).collective_file
         inputs = cli.SettlementInputs(
             source,
             dry_run=request.dry_run,
@@ -111,7 +112,7 @@ def _choice(row: contract.PeriodRow, *, previewed: bool) -> contract.PeriodChoic
         status_label=row.status_label,
         last_complete=row.last_complete,
         previewed=previewed,
-        collective_file=collective_file.name_for_period(row.token),
+        collective_file=collective_file_name(SettlementPeriod(row.tuesday)),
     )
 
 
@@ -121,7 +122,7 @@ def _blocker(board: contract.PeriodBoard, rows: list[contract.PeriodRow]) -> str
     if board.state == "missing":
         return f"Nie ma już folderu okresów {board.name}. Wskaż go ponownie."
     if not rows:
-        return "Żaden okres nie ma Statusu „Plik zbiorczy przygotowany”. Najpierw przygotuj plik zbiorczy."
+        return f"Żaden okres nie ma Statusu „{period_status_label(_ELIGIBLE)}”. Najpierw przygotuj plik zbiorczy."
     return None
 
 
