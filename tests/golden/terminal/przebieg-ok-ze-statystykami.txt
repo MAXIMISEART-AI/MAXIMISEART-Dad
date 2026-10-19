@@ -8,24 +8,23 @@ Szablony pracownika: 0/3
 Etap: Zapisywanie
 WYKONAWCA: Adrian Maciejewski | etap: Zapisywanie
 Postęp szablonów: 1/3 (33%)
-Liczniki: zapisano: 1 | puste: 0 | planowane: 0 | pominięte: 0
+Liczniki: zapisano: 1 | puste: 0 | planowane: 0
 Ostatnia operacja: Adrian Maciejewski | ZAPISANO | status: OK | wiersze: 2 | czas: <N> ms
 WYKONAWCA: Darek Nowak | etap: Zapisywanie
 Postęp szablonów: 2/3 (67%)
-Liczniki: zapisano: 2 | puste: 0 | planowane: 0 | pominięte: 0
+Liczniki: zapisano: 2 | puste: 0 | planowane: 0
 Ostatnia operacja: Darek Nowak | ZAPISANO | status: OK | wiersze: 1 | czas: <N> ms
 WYKONAWCA: Kamil Frontczak | etap: Zapisywanie
 Postęp szablonów: 3/3 (100%)
-Liczniki: zapisano: 2 | puste: 1 | planowane: 0 | pominięte: 0
+Liczniki: zapisano: 2 | puste: 1 | planowane: 0
 Ostatnia operacja: Kamil Frontczak | PUSTY_SZABLON | status: OK | wiersze: 0 | czas: <N> ms
 Status semantyczny: OK
 Status końcowy: OK
 Czas uruchomienia: <N> ms
-Liczniki: zapisano: 2 | puste: 1 | planowane: 0 | pominięte: 0
+Liczniki: zapisano: 2 | puste: 1 | planowane: 0
 Wiersze danych: 3
 Zapisane szablony: 2
 Puste szablony: 1
-Pominięte szablony: 0
 Problemy: 0
 Statystyki RUN | próbek: 6
 całe uruchomienie | P50: <N> ms | P95: <N> ms

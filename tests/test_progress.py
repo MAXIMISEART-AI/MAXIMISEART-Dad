@@ -406,7 +406,7 @@ def test_rich_adapter_renders_a_progress_snapshot_without_projection_state() -> 
     assert "2 ms" in rendered
     assert "3 ms" in rendered
     assert "Postęp szablonów: 1/2 (50%)" in rendered
-    assert "Liczniki: zapisano: 1 | puste: 0 | planowane: 0 | pominięte: 0" in rendered
+    assert "Liczniki: zapisano: 1 | puste: 0 | planowane: 0" in rendered
     assert "Bieżący WYKONAWCA: Darek Nowak" in rendered
     assert "Adrian Maciejewski" in rendered
     assert "3 wierszy, czas: 4 ms" in rendered

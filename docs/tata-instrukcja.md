@@ -311,12 +311,12 @@ i bez szukania pliku. Plik zbiorczy wynika z okresu: Centrum bierze
    jest potwierdzeniem Gotowości, więc zrób je dopiero po zamknięciu Pliku
    zbiorczego w Excelu.
 5. W trakcie widać etapy, liczniki (`Wiersze danych`, `Zapisane szablony`,
-   `Puste szablony`, `Pominięte szablony`, `Problemy`) i pasek `Szablony
+   `Puste szablony`, `Problemy`) i pasek `Szablony
    pracowników` z bieżącym Wykonawcą i liczbą, np. `2 z 7`. Zamknięcie Centrum
    rozliczeń jest wtedy zablokowane.
 6. Wynik `Rozliczenia pracowników gotowe` oznacza, że cały folder
    `Rozliczenie pracowników {okres}` powstał naraz. Pokazuje liczby `Zapisane
-   szablony`, `Puste szablony` i `Pominięte szablony`. Przycisk `Folder okresu`
+   szablony` i `Puste szablony`. Przycisk `Folder okresu`
    otwiera folder, a na stronie `Okresy` okres ma Status `Rozliczenia
    pracowników gotowe`.
 

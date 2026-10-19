@@ -123,8 +123,9 @@ niezmieniony.
 ## Przetworzenie Szablonu pracownika
 
 Obsłużenie jednego Szablonu pracownika w ramach przygotowania Rozliczeń
-pracowników. Może zakończyć się uzupełnieniem danych, pozostawieniem pustego
-szablonu albo pominięciem, gdy dalsze działanie nie jest bezpieczne.
+pracowników. Kończy się uzupełnieniem danych albo pozostawieniem pustego
+szablonu. Gdy zapis nie jest bezpieczny, Przebieg rozliczeń się zatrzymuje i
+nie publikuje żadnego Rozliczenia pracownika.
 
 ## Rozliczenie pracownika
 

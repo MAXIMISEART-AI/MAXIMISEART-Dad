@@ -90,10 +90,6 @@ class ProgressSnapshot:
             "written": self.operation_counts.get("ZAPISANO", 0),
             "empty": self.operation_counts.get("PUSTY_SZABLON", 0),
             "planned": self.operation_counts.get("PLAN", 0),
-            "skipped": sum(
-                self.operation_counts.get(status, 0)
-                for status in ("ZABLOKOWANY", "ZLY_SZABLON", "POMINIĘTO")
-            ),
         }
 
 

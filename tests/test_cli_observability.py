@@ -136,7 +136,6 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert "Liczniki:" in output
     assert "Zapisane szablony: 2" in output
     assert "Puste szablony: 1" in output
-    assert "Pominięte szablony: 0" in output
     assert "Status końcowy: OK" in output
     assert "\x1b" not in output
 

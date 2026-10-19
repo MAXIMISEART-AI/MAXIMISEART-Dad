@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Callable, Mapping
+from typing import Callable, Literal, Mapping
 
 
 class ProgressPhase(StrEnum):
@@ -42,7 +42,8 @@ def _coerce_phase(value: ProgressPhase | str) -> ProgressPhase:
 
 
 PHASES = tuple(phase.value for phase in ProgressPhase)
-SKIPPED_STATUSES = frozenset({"ZABLOKOWANY", "ZLY_SZABLON", "POMINIĘTO"})
+WorkerStatus = Literal["ZAPISANO", "PUSTY_SZABLON", "PLAN"]
+"""Wynik Przetworzenia Szablonu pracownika; szablonu, którego nie da się bezpiecznie zapisać, nie ma w wynikach."""
 ProgressObserver = Callable[["ProgressEvent"], None]
 
 
@@ -61,8 +62,7 @@ class WorkerResult:
     worker_name: str
     output_file: Path
     rows: int
-    status: str
-    issues: tuple[Issue, ...] = ()
+    status: WorkerStatus
 
 
 @dataclass(frozen=True)
@@ -380,10 +380,6 @@ class SettlementSummary:
     @property
     def total_rows(self) -> int:
         return sum(result.rows for result in self.results)
-
-    @property
-    def skipped_count(self) -> int:
-        return sum(result.status in SKIPPED_STATUSES for result in self.results)
 
     @property
     def template_count(self) -> int:

@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from . import workbook_files
-from .domain import Issue, WorkerResult
+from .domain import WorkerResult
 from .workbook_files import WORKER_HEADER, ExcelRow, Layout, Problem, WorkbookError
 
 
 class TemplateWriteError(Exception):
-    """Błąd właściwego zapisu Szablonu pracownika."""
+    """Szablonu pracownika nie da się bezpiecznie zapisać; Przebieg rozliczeń się zatrzymuje."""
 
 
 # Nazwa pliku sprzed zmiany nazwy Placeholdera; służy tylko podpowiedzi w komunikacie.
@@ -63,14 +63,6 @@ def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidat
     return WorkerTemplateValidationError("Nie można odczytać Wzorca rozliczenia pracownika.")
 
 
-class _TemplateNotUsable(Exception):
-    """Wzorzec nie przeszedł kontroli w bloku pliku z Wzorca, więc Szablon pracownika nie powstaje."""
-
-    def __init__(self, result: WorkerResult) -> None:
-        super().__init__(result.status)
-        self.result = result
-
-
 def process_template(
     worker_name: str,
     template_path: Path,
@@ -80,6 +72,8 @@ def process_template(
     """Tworzy z Wzorca jeden Szablon pracownika z jego Wierszami danych i zwraca jego bezpieczny wynik.
 
     Wzorca, którego nie da się otworzyć, nie maskuje wynik: ``WorkbookError`` przechodzi do rozmówcy.
+    Plik z Wzorca bez WYKONAWCA albo z danymi i nieudany zapis to ``TemplateWriteError``;
+    Szablon pracownika wtedy nie powstaje.
     """
 
     rows = list(rows)
@@ -90,14 +84,12 @@ def process_template(
             except WorkbookError as error:
                 if error.problem is not Problem.LAYOUT:
                     raise
-                issue = Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}: {target_path.name}.")
-                raise _TemplateNotUsable(WorkerResult(worker_name, target_path, 0, "ZLY_SZABLON", (issue,))) from error
+                raise TemplateWriteError(
+                    f"Szablon nie ma WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}: {target_path.name}."
+                ) from error
             if sheet.has_input_data():
-                issue = Issue("NADPISANIE_ZABLOKOWANE", f"Szablon zawiera już dane: {target_path.name}.")
-                raise _TemplateNotUsable(WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,)))
+                raise TemplateWriteError(f"Szablon zawiera już dane: {target_path.name}.")
             sheet.write_data_rows(rows)
-    except _TemplateNotUsable as not_usable:
-        return not_usable.result
     except workbook_files.WorkbookSaveError as exc:
         raise TemplateWriteError(f"Nie można zapisać szablonu: {target_path.name}") from exc
     if not rows:

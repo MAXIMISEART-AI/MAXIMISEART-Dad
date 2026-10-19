@@ -147,7 +147,6 @@ def test_uruchom_publikuje_folder_rozliczen_pracownikow_i_zmienia_status_okresu(
     assert [(figure["label"], figure["value"]) for figure in result["summary"]["figures"]] == [
         ("Zapisane szablony", 2),
         ("Puste szablony", 1),
-        ("Pominięte szablony", 0),
     ]
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME, WORKER_SETTLEMENTS]
     assert sorted(path.name for path in centrum.worker_settlements.iterdir()) == [
@@ -313,12 +312,12 @@ def test_strumien_pokazuje_liczniki_szablonow_pracownikow_na_biezaco(tmp_path: P
         if view["state"] == "finished":
             break
 
-    labels = ["Wiersze danych", "Zapisane szablony", "Puste szablony", "Pominięte szablony", "Problemy"]
+    labels = ["Wiersze danych", "Zapisane szablony", "Puste szablony", "Problemy"]
     assert seen == [
-        list(zip(labels, [0, 0, 0, 0, 0])),
-        list(zip(labels, [2, 1, 0, 0, 0])),
-        list(zip(labels, [3, 2, 0, 0, 0])),
-        list(zip(labels, [3, 2, 1, 0, 0])),
+        list(zip(labels, [0, 0, 0, 0])),
+        list(zip(labels, [2, 1, 0, 0])),
+        list(zip(labels, [3, 2, 0, 0])),
+        list(zip(labels, [3, 2, 1, 0])),
     ]
 
 
@@ -344,7 +343,6 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp
         ("Wiersze danych", 3, "count"),
         ("Planowane szablony", 2, "count"),
         ("Puste szablony", 1, "count"),
-        ("Pominięte szablony", 0, "count"),
         ("Problemy", 1, "count"),
     ]
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
