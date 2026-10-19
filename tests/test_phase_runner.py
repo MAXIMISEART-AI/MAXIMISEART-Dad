@@ -10,7 +10,17 @@ from collections.abc import Callable
 
 import pytest
 
-from rozliczenia.domain import ProgressEvent, ProgressEventFactory, ProgressProtocolError, ProgressState
+from rozliczenia.domain import (
+    IssueCountReady,
+    PhaseFailed,
+    PlanReady,
+    ProgressEvent,
+    ProgressProtocolError,
+    WorkerEnded,
+    WorkerEvent,
+    WorkerFailed,
+    WorkerStarted,
+)
 from rozliczenia.phase_runner import PhaseRunner
 
 
@@ -84,7 +94,7 @@ def test_pominieta_liczba_problemow_w_planowaniu_przenosi_wartosc_z_odczytu_dany
     runner.read(lambda: ["problem", "problem"], issue_count=len)
     runner.plan(lambda: 3, template_total=lambda total: total)
 
-    plan_ready = [event for event in events if event.state is ProgressState.PLAN_READY]
+    plan_ready = [event for event in events if isinstance(event, PlanReady)]
     assert [(event.issue_count, event.template_total) for event in plan_ready] == [(2, 3)]
 
 
@@ -99,16 +109,33 @@ def test_wstrzymanie_zegara_w_trakcie_etapu_jest_bledem_kodu() -> None:
         runner.check(pause_inside_stage)
 
 
-def worker_started(runner: PhaseRunner) -> ProgressEvent:
-    return ProgressEventFactory.worker_started(
-        "Wykonawca", template_index=1, template_total=1, elapsed_ms=runner.elapsed_ms()
+def worker_started(runner: PhaseRunner, index: int = 1, name: str = "Wykonawca") -> WorkerStarted:
+    return WorkerStarted(name, template_index=index, template_total=2, elapsed_ms=runner.elapsed_ms())
+
+
+def worker_ended(runner: PhaseRunner, index: int = 1, name: str = "Wykonawca") -> WorkerEnded:
+    return WorkerEnded(
+        name,
+        template_index=index,
+        template_total=2,
+        status="ZAPISANO",
+        rows=1,
+        elapsed_ms=runner.elapsed_ms(),
+        worker_elapsed_ms=0,
+        issue_count=0,
+    )
+
+
+def worker_failed(runner: PhaseRunner, index: int = 1, name: str = "Wykonawca") -> WorkerFailed:
+    return WorkerFailed(
+        name, template_index=index, template_total=2, elapsed_ms=runner.elapsed_ms(), phase_elapsed_ms=0, worker_elapsed_ms=0
     )
 
 
 def run_until_plan(runner: PhaseRunner) -> None:
     runner.check(lambda: None)
     runner.read(lambda: None)
-    runner.plan(lambda: None, template_total=lambda result: 1)
+    runner.plan(lambda: None, template_total=lambda result: 2)
 
 
 def test_zdarzenie_przebiegu_etapu_zgloszone_przez_proces_zamiast_sekwencera_jest_bledem_kodu() -> None:
@@ -116,7 +143,7 @@ def test_zdarzenie_przebiegu_etapu_zgloszone_przez_proces_zamiast_sekwencera_jes
     run_until_plan(runner)
 
     def notify_phase_event() -> None:
-        runner.notify(ProgressEventFactory.issue_count(elapsed_ms=runner.elapsed_ms(), issue_count=1))
+        runner.notify(IssueCountReady(elapsed_ms=runner.elapsed_ms(), issue_count=1))  # type: ignore[arg-type]
 
     with pytest.raises(ProgressProtocolError):
         runner.save(notify_phase_event)
@@ -165,3 +192,53 @@ def test_niepoprawna_liczba_konczy_etap_przerwaniem_i_bledem_kodu(
     with pytest.raises(ProgressProtocolError):
         getattr(runner, next_stage)(lambda: calls.append(next_stage))
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "notify",
+    [
+        lambda runner: [worker_started(runner, index=2)],
+        lambda runner: [worker_started(runner), worker_started(runner, index=2)],
+        lambda runner: [worker_ended(runner)],
+        lambda runner: [worker_started(runner), worker_ended(runner, name="Inny Wykonawca")],
+        lambda runner: [worker_started(runner), worker_failed(runner, index=2)],
+        lambda runner: [
+            WorkerStarted("Wykonawca", template_index=1, template_total=3, elapsed_ms=runner.elapsed_ms())
+        ],
+    ],
+    ids=[
+        "pominiety-szablon",
+        "drugi-przed-zakonczeniem-pierwszego",
+        "zakonczenie-bez-rozpoczecia",
+        "zakonczenie-innego-wykonawcy",
+        "przerwanie-innego-szablonu",
+        "inna-liczba-szablonow-niz-plan",
+    ],
+)
+def test_zdarzenia_szablonow_pracownika_poza_kolejnoscia_sa_bledem_kodu(
+    notify: Callable[[PhaseRunner], list[WorkerEvent]],
+) -> None:
+    runner = PhaseRunner(None)
+    run_until_plan(runner)
+
+    def save() -> None:
+        for event in notify(runner):
+            runner.notify(event)
+
+    with pytest.raises(ProgressProtocolError):
+        runner.save(save)
+
+
+def test_zapisywanie_konczy_sie_dopiero_po_wszystkich_szablonach_pracownika_z_planu() -> None:
+    events: list[ProgressEvent] = []
+    runner = PhaseRunner(events.append)
+    run_until_plan(runner)
+
+    def save_one_of_two() -> None:
+        runner.notify(worker_started(runner))
+        runner.notify(worker_ended(runner))
+
+    with pytest.raises(ProgressProtocolError):
+        runner.save(save_one_of_two)
+
+    assert isinstance(events[-1], PhaseFailed)

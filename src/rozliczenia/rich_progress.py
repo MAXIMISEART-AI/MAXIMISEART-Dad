@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from .domain import PHASES, ProgressPhase
-from .progress import PhaseState, ProgressNotice, ProgressNoticeKind, ProgressSnapshot
+from .domain import ProgressEvent, WorkerFailed
+from .progress import PhaseState, ProgressSnapshot
 from .progress_presentation import (
     counter_line,
     operation_status_presentation,
@@ -39,7 +40,7 @@ except ImportError:
 
 
 class RichProgressAdapter:
-    """Render a complete Rich view from an immutable snapshot and safe notice.
+    """Render a complete Rich view from an immutable snapshot and the event that produced it.
 
     ``shows_templates=False`` renders only stages and time, for processes
     without Szablony pracownika (Przygotowanie pliku zbiorczego).
@@ -49,7 +50,7 @@ class RichProgressAdapter:
         self._title = title
         self._shows_templates = shows_templates
 
-    def render(self, snapshot: ProgressSnapshot, notice: ProgressNotice | None = None) -> Any:
+    def render(self, snapshot: ProgressSnapshot, event: ProgressEvent | None = None) -> Any:
         if any(component is None for component in (Console, Group, Panel, Table, Text)):
             raise RuntimeError("Rich is not available.")
 
@@ -102,12 +103,8 @@ class RichProgressAdapter:
             operations.add_row("-", "brak")
 
         failure_detail = None
-        if notice is not None and notice.kind is ProgressNoticeKind.FAILED:
-            if snapshot.current_worker and notice.template_index and notice.template_total:
-                failure_detail = (
-                    f"Przerwano przy szablonie pracownika: "
-                    f"{notice.template_index}/{notice.template_total}"
-                )
+        if isinstance(event, WorkerFailed):
+            failure_detail = f"Przerwano przy szablonie pracownika: {event.template_index}/{event.template_total}"
 
         body = Group(
             phases,

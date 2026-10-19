@@ -11,7 +11,15 @@ from openpyxl.utils import get_column_letter
 import pytest
 
 from rozliczenia.decision import Decision
-from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState
+from rozliczenia.domain import (
+    IssueCountReady,
+    PhaseEnded,
+    PhaseFailed,
+    PhaseStarted,
+    PlanReady,
+    ProgressEvent,
+    ProgressPhase,
+)
 from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.message import StopError
 from rozliczenia.workbook_files import ExternalLinksError
@@ -345,16 +353,16 @@ def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: P
 
 
 STAGES_IN_ORDER = [
-    (ProgressPhase.CHECKING, ProgressState.START),
-    (ProgressPhase.CHECKING, ProgressState.END),
-    (ProgressPhase.READING, ProgressState.START),
-    (ProgressPhase.READING, ProgressState.END),
-    (ProgressPhase.READING, ProgressState.ISSUE_COUNT),
-    (ProgressPhase.PLANNING, ProgressState.START),
-    (ProgressPhase.PLANNING, ProgressState.END),
-    (ProgressPhase.PLANNING, ProgressState.PLAN_READY),
-    (ProgressPhase.SAVING, ProgressState.START),
-    (ProgressPhase.SAVING, ProgressState.END),
+    (ProgressPhase.CHECKING, PhaseStarted),
+    (ProgressPhase.CHECKING, PhaseEnded),
+    (ProgressPhase.READING, PhaseStarted),
+    (ProgressPhase.READING, PhaseEnded),
+    (ProgressPhase.READING, IssueCountReady),
+    (ProgressPhase.PLANNING, PhaseStarted),
+    (ProgressPhase.PLANNING, PhaseEnded),
+    (ProgressPhase.PLANNING, PlanReady),
+    (ProgressPhase.SAVING, PhaseStarted),
+    (ProgressPhase.SAVING, PhaseEnded),
 ]
 
 
@@ -372,8 +380,7 @@ def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
 
     summary = run_preparation(fixture, dry_run=dry_run, observer=recording_observer)
 
-    assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
-    assert all(event.worker_name is None for event in recorded)
+    assert [(event.phase, type(event)) for event in recorded] == STAGES_IN_ORDER
     assert set(projection.snapshot.phase_states.values()) == {PhaseState.COMPLETED}
     assert [warning.code for warning in summary.warnings] == ["NIEPELNY_OKRES"]
     assert projection.snapshot.issue_count == 1
@@ -415,9 +422,9 @@ def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path:
     with pytest.raises(StopError):
         run_preparation(fixture, observer=recorded.append)
 
-    assert [(event.phase, event.state) for event in recorded] == [
-        (ProgressPhase.CHECKING, ProgressState.START),
-        (ProgressPhase.CHECKING, ProgressState.FAILED),
+    assert [(event.phase, type(event)) for event in recorded] == [
+        (ProgressPhase.CHECKING, PhaseStarted),
+        (ProgressPhase.CHECKING, PhaseFailed),
     ]
     assert "istnieje" not in repr(recorded)
     assert COLLECTIVE_FILE_NAME not in repr(recorded)
@@ -876,10 +883,10 @@ def test_skipped_empty_rows_are_all_empty_rows_from_first_to_last_period_order(t
 def test_decyzja_taty_about_incomplete_period_comes_after_planowanie_and_before_zapisywanie(tmp_path: Path) -> None:
     fixture = incomplete_period_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
-    seen: list[tuple[list[tuple[ProgressPhase, ProgressState]], bool]] = []
+    seen: list[tuple[list[tuple[ProgressPhase, type[ProgressEvent]]], bool]] = []
     tata = Tata(
         before_answer=lambda: seen.append(
-            ([(event.phase, event.state) for event in recorded], fixture.period_directory.exists())
+            ([(event.phase, type(event)) for event in recorded], fixture.period_directory.exists())
         )
     )
 
@@ -902,7 +909,7 @@ def test_decyzja_taty_about_incomplete_period_comes_after_planowanie_and_before_
         ("pon 14.09.2026", 0),
     ]
     assert seen == [(STAGES_IN_ORDER[:8], False)]
-    assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
+    assert [(event.phase, type(event)) for event in recorded] == STAGES_IN_ORDER
     assert summary.period_order_count == 3
     assert fixture.collective_file_path.is_file()
 
@@ -930,7 +937,7 @@ def test_stage_times_ended_before_zapisywanie_stay_unchanged_after_measured_zapi
         real_save_workbook(workbook, target, external_links_from=external_links_from)
 
     def observer(event: ProgressEvent) -> None:
-        if event.state is ProgressState.END and event.phase is not ProgressPhase.SAVING:
+        if isinstance(event, PhaseEnded) and event.phase is not ProgressPhase.SAVING:
             ended_before_saving[event.phase] = event.phase_elapsed_ms
 
     monkeypatch.setattr(workbook_files, "save_workbook", slow_save)
@@ -961,7 +968,7 @@ def test_refused_incomplete_period_stops_with_hint_of_the_conversation_and_creat
         "Co zrobić: Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. "
         "Jeśli okres jest pełny, przy decyzji wybierz „Kontynuuj”."
     )
-    assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER[:8]
+    assert [(event.phase, type(event)) for event in recorded] == STAGES_IN_ORDER[:8]
     assert list(fixture.periods_directory.iterdir()) == []
 
 

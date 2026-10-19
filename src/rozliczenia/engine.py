@@ -10,10 +10,12 @@ from pathlib import Path
 from . import collective_file, settlement_files, settlement_messages, template_settlement, workbook_files
 from .domain import (
     Issue,
-    ProgressEventFactory,
     ProgressObserver,
     SettlementSummary,
+    WorkerEnded,
+    WorkerFailed,
     WorkerResult,
+    WorkerStarted,
 )
 from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError
@@ -147,7 +149,7 @@ def run_settlements(
             target_path = directory / folder.worker_settlement(worker_name).name
             worker_started = time.perf_counter()
             notify(
-                ProgressEventFactory.worker_started(
+                WorkerStarted(
                     worker_name,
                     template_index=template_index,
                     template_total=len(worker_names),
@@ -172,7 +174,7 @@ def run_settlements(
                     )
             except Exception as exc:
                 notify(
-                    ProgressEventFactory.worker_failed(
+                    WorkerFailed(
                         worker_name,
                         template_index=template_index,
                         template_total=len(worker_names),
@@ -188,7 +190,7 @@ def run_settlements(
                 raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
             results.append(result)
             notify(
-                ProgressEventFactory.worker_ended(
+                WorkerEnded(
                     worker_name,
                     template_index=template_index,
                     template_total=len(worker_names),

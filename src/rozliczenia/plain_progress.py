@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from .progress import ProgressNotice, ProgressNoticeKind, ProgressSnapshot
+from .domain import PhaseFailed, PhaseStarted, PlanReady, ProgressEvent, WorkerEnded, WorkerFailed, WorkerStarted
+from .progress import ProgressSnapshot
 from .progress_presentation import counter_line, operation_status_presentation, progress_line
 
 
@@ -22,16 +23,16 @@ class PlainProgressAdapter:
         if self._shows_templates:
             self._line("Ostatnie operacje:")
 
-    def update(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+    def update(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
         phase = snapshot.current_phase or "oczekuje"
-        if notice.kind is ProgressNoticeKind.PHASE_STARTED:
+        if isinstance(event, PhaseStarted):
             self._line(f"Etap: {phase}")
-        elif notice.kind is ProgressNoticeKind.PLAN_READY and self._shows_templates:
+        elif isinstance(event, PlanReady) and self._shows_templates:
             self._line(f"Szablony pracownika: 0/{snapshot.template_total}")
-        elif notice.kind is ProgressNoticeKind.WORKER_STARTED:
+        elif isinstance(event, WorkerStarted):
             worker_name = snapshot.current_worker or "brak"
             self._line(f"WYKONAWCA: {worker_name} | etap: {phase}")
-        elif notice.kind is ProgressNoticeKind.WORKER_ENDED:
+        elif isinstance(event, WorkerEnded):
             operation = snapshot.recent_operations[-1]
             self._line(f"Postęp szablonów: {progress_line(snapshot)}")
             self._line(f"Liczniki: {counter_line(snapshot)}")
@@ -41,11 +42,11 @@ class PlainProgressAdapter:
                 f"status: {status_label} | "
                 f"wiersze: {operation.rows} | czas: {operation.worker_elapsed_ms or 0} ms"
             )
-        elif notice.kind is ProgressNoticeKind.FAILED:
+        elif isinstance(event, (PhaseFailed, WorkerFailed)):
             if snapshot.current_worker:
                 template_position = (
-                    f" | Szablon pracownika: {notice.template_index}/{notice.template_total}"
-                    if notice.template_index and notice.template_total
+                    f" | Szablon pracownika: {event.template_index}/{event.template_total}"
+                    if isinstance(event, WorkerFailed)
                     else ""
                 )
                 self._line(
