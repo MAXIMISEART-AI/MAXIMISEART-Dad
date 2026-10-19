@@ -25,8 +25,7 @@ from rozliczenia.centrum.period_board import read_board
 from rozliczenia.centrum.runs import Endings, PreparedRun
 from rozliczenia.centrum.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
-from rozliczenia.period_folder import PeriodFolder
-from rozliczenia.period_status import PeriodStatus
+from rozliczenia.period_folder import PeriodFolder, PeriodStatus
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 

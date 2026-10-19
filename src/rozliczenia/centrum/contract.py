@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from rozliczenia.period_status import PeriodStatus
+from rozliczenia.period_folder import PeriodStatus
 from rozliczenia.process_run import ThreePartMessage
 
 
