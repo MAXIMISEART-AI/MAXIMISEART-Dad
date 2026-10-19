@@ -76,7 +76,6 @@ def read_metrics(
         ],
         recent=contract.RecentResults(
             weeks=_RECENT_WEEKS,
-            since=since,
             results=_results(run for run in runs if run.started_at.astimezone().date() >= since),
         ),
     )

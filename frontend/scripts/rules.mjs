@@ -21,8 +21,6 @@ const SCHEMAS_OUTSIDE_UI = new Map([
 // Pola kontraktu, których UI nie pokazuje; każde z uzasadnieniem. Pole użyte w src trzeba stąd usunąć.
 const FIELDS_OUTSIDE_UI = new Map([
   ["Health.service", "czyta je launcher Centrum (launcher.py), nie przeglądarka"],
-  ["Choice.outcome", "przeglądarka bierze ustawienia z odpowiedzi tak samo po wyborze i po anulowaniu"],
-  ["RecentResults.since", "karta pokazuje okno wyników jako liczbę tygodni (weeks)"],
   ["RunEvent.sequence", "numer zdarzenia strumienia SSE, nie treść dla taty"],
 ])
 

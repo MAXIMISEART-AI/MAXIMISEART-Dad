@@ -51,13 +51,9 @@ export type BoardReady = {
 /**
  * Choice
  *
- * Wynik natywnego okna wyboru: ``chosen`` zapisuje ścieżkę, ``cancelled`` niczego nie zmienia.
+ * Ustawienia po natywnym oknie wyboru: wybór zapisuje ścieżkę, anulowanie niczego nie zmienia.
  */
 export type Choice = {
-    /**
-     * Outcome
-     */
-    outcome: 'chosen' | 'cancelled';
     settings: Settings;
 };
 
@@ -698,17 +694,13 @@ export type ReadyPath = {
 /**
  * RecentResults
  *
- * Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni).
+ * Wyniki Uruchomień procesu obu procesów z ostatnich ``weeks`` tygodni.
  */
 export type RecentResults = {
     /**
      * Weeks
      */
     weeks: number;
-    /**
-     * Since
-     */
-    since: string;
     results: ResultCounts;
 };
 

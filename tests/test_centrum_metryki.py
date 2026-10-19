@@ -267,7 +267,7 @@ def test_rozklad_wynikow_z_ostatnich_osmiu_tygodni_obejmuje_oba_procesy(tmp_path
 
     recent = metrics(app)["recent"]
 
-    assert recent == {"weeks": 8, "since": "2026-08-24", "results": {"ok": 1, "needs_review": 1, "critical": 1}}
+    assert recent == {"weeks": 8, "results": {"ok": 1, "needs_review": 1, "critical": 1}}
 
 
 def test_rekord_zapisany_przez_cli_pojawia_sie_bez_restartu_centrum(tmp_path: Path) -> None:

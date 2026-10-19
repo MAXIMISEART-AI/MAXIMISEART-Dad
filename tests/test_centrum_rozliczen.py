@@ -138,7 +138,7 @@ def test_wskazany_rejestr_zlecen_i_folder_okresow_sa_zapamietane(tmp_path: Path)
     periods_choice = first.client.post("/api/settings/periods-directory/choose")
     after_restart = centrum(tmp_path).client.get("/api/settings").json()
 
-    assert register_choice.json()["outcome"] == "chosen"
+    assert register_choice.json()["settings"]["order_register"]["path"] == str(register)
     assert periods_choice.json()["settings"] == after_restart
     assert after_restart["order_register"] == {
         "state": "ready",
@@ -158,7 +158,6 @@ def test_anulowane_okno_wyboru_nie_zmienia_ustawien(tmp_path: Path) -> None:
 
     response = app.client.post("/api/settings/periods-directory/choose")
 
-    assert response.json()["outcome"] == "cancelled"
     assert response.json()["settings"]["periods_directory"]["path"] == str(periods)
 
 

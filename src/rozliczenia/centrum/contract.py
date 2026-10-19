@@ -76,9 +76,8 @@ class Settings(_Model):
 
 
 class Choice(_Model):
-    """Wynik natywnego okna wyboru: ``chosen`` zapisuje ścieżkę, ``cancelled`` niczego nie zmienia."""
+    """Ustawienia po natywnym oknie wyboru: wybór zapisuje ścieżkę, anulowanie niczego nie zmienia."""
 
-    outcome: Literal["chosen", "cancelled"]
     settings: Settings
 
 
@@ -214,10 +213,9 @@ class ModeStatistics(_Model):
 
 
 class RecentResults(_Model):
-    """Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni)."""
+    """Wyniki Uruchomień procesu obu procesów z ostatnich ``weeks`` tygodni."""
 
     weeks: int
-    since: date
     results: ResultCounts
 
 
