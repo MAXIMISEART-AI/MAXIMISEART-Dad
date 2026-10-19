@@ -24,7 +24,7 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
-from rozliczenia.centrum.settings import default_settings_path
+from rozliczenia.settings import default_settings_path
 from rozliczenia.centrum.shutdown import Shutdown
 
 from tests.collective_preparation_fixtures import (

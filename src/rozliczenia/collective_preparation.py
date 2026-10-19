@@ -25,7 +25,7 @@ from . import preparation_messages as messages
 from .decision import Conversation, Decision
 from .domain import ProgressObserver, ProgressPhase
 from .message import Message, StopError
-from .period_folder import PeriodFolder
+from .period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
 from .phase_runner import PhaseRunner
 from .settlement_period import SettlementPeriod, parse_period_token
 from .worker_config import WorkerConfigError, load_worker_mapping
@@ -88,6 +88,13 @@ def _parse_period(token: str) -> SettlementPeriod:
         raise StopError(messages.invalid_period_token(token)) from exc
 
 
+def _locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
+    try:
+        return locate_period_folder(periods_directory, period)
+    except PeriodFolderLookupError as exc:
+        raise StopError(messages.period_folder_lookup_problem(exc)) from exc
+
+
 def _incomplete_period_decision(plan: PreparationSummary) -> Decision | None:
     """Decyzja taty o niepełnym okresie, gdy plan ma takie ostrzeżenie."""
 
@@ -142,15 +149,17 @@ def prepare_collective_file(
     collective_template = (collective_template_path or default_collective_template_path()).expanduser().resolve()
 
     def check_inputs() -> tuple[preparation_files.PeriodFiles, dict[str, str]]:
+        settlement_period = _parse_period(period)
+        preparation_register.ensure_register_available(register_path)
+        preparation_files.check_internal_template(internal_template)
+        preparation_files.check_collective_template(collective_template)
+        if not periods_directory.is_dir():
+            raise StopError(messages.periods_directory_missing(periods_directory))
         files = preparation_files.PeriodFiles(
             internal_template=internal_template,
             collective_template=collective_template,
-            folder=PeriodFolder(periods_directory, _parse_period(period)),
+            folder=_locate_period_folder(periods_directory, settlement_period),
         )
-        preparation_register.ensure_register_available(register_path)
-        preparation_files.check_templates(files)
-        if not periods_directory.is_dir():
-            raise StopError(messages.periods_directory_missing(periods_directory))
         preparation_files.ensure_period_files_absent(files)
         try:
             worker_mapping = load_worker_mapping(config_path)

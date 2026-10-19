@@ -7,7 +7,7 @@ budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -281,10 +281,12 @@ class PreparationFixture:
     config_path: Path
     internal_template_path: Path
     collective_template_path: Path
+    # Folder ``INEA`` miesiąca z Folderem okresu w układzie folderów taty; w płaskim sam folder okresów.
+    month_periods_folder: Path | None = None
 
     @property
     def period_directory(self) -> Path:
-        return self.periods_directory / PERIOD
+        return (self.month_periods_folder or self.periods_directory) / PERIOD
 
     @property
     def internal_settlement_path(self) -> Path:
@@ -313,3 +315,28 @@ def make_preparation_fixture(tmp_path: Path, rows: list[RegisterRow] | None = No
             config_directory / "Wzorzec pliku zbiorczego.xlsx"
         ),
     )
+
+
+def month_periods_folder(periods_directory: Path, month: str, year: int = 2026) -> Path:
+    """Folder ``INEA`` miesiąca w układzie folderów taty, np. ``Rozliczenia 2026\\09_Wrzesień_2026\\INEA``."""
+
+    folder = periods_directory / f"Rozliczenia {year}" / month / "INEA"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def make_dad_layout_fixture(tmp_path: Path, rows: list[RegisterRow] | None = None) -> PreparationFixture:
+    """Jak ``make_preparation_fixture``, ale folder okresów ``Załączniki`` ma układ folderów taty.
+
+    Folder okresu 08_14_09_2026 leży w ``Rozliczenia 2026\\09_Wrzesień_2026\\INEA``, obok
+    folderu sierpnia i folderów, które nie są Folderami okresu.
+    """
+
+    fixture = make_preparation_fixture(tmp_path, rows)
+    periods_directory = tmp_path / "Załączniki"
+    september = month_periods_folder(periods_directory, "09_Wrzesień_2026")
+    (september / PERIOD).mkdir()
+    (september / "Podpisane").mkdir()
+    (month_periods_folder(periods_directory, "08_Sierpień_2026") / "25_31_08_2026").mkdir()
+    (periods_directory / "Rozliczenia 2026" / "Nowe rozliczenia wzór od 01_2026").mkdir()
+    return replace(fixture, periods_directory=periods_directory, month_periods_folder=september)

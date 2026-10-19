@@ -17,9 +17,17 @@ from fastapi import APIRouter
 
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.platform import Platform
-from rozliczenia.centrum.settings import SettingsStore
-from rozliczenia.period_folder import PeriodFolder, PeriodStatus, find_period_folders, period_status_label
-from rozliczenia.settlement_period import last_complete_period, parse_period_token
+from rozliczenia.settings import SettingsStore
+from rozliczenia.period_folder import (
+    PeriodFolder,
+    PeriodFolderLookupError,
+    PeriodStatus,
+    find_period_folders,
+    locate_period_folder,
+    month_folder_label,
+    period_status_label,
+)
+from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 
 _NEXT_STEPS: dict[PeriodStatus, contract.NextStep] = {
     "no_period_files": contract.ProcessStep(
@@ -67,15 +75,47 @@ def read_board(periods_directory: Path | None, today: date) -> contract.PeriodBo
         return contract.BoardNotSet(state="not_set")
     if not periods_directory.is_dir():
         return contract.BoardMissing(state="missing", name=periods_directory.name)
-    last_complete = PeriodFolder(periods_directory, last_complete_period(today))
-    folders = set(find_period_folders(periods_directory)) | {last_complete}
-    newest_first = sorted(folders, key=lambda folder: folder.period.tuesday, reverse=True)
-    rows = [_row(folder, last_complete=folder == last_complete) for folder in newest_first]
+    last_complete = last_complete_period(today)
+    folders = {folder.period: folder for folder in find_period_folders(periods_directory)}
+    folders.setdefault(last_complete, PeriodFolder(periods_directory, last_complete))
+    newest_first = sorted(folders.values(), key=lambda folder: folder.period.tuesday, reverse=True)
+    rows = [_row(folder, last_complete=folder.period == last_complete) for folder in newest_first]
     return contract.BoardReady(
         state="ready",
         periods=rows,
         last_prepared_period=next((row.token for row in rows if row.collective_file_exists), None),
     )
+
+
+def observed_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
+    """Folder okresu do pokazania Statusu okresu; brak albo kilka miejsc nie jest tu zatrzymaniem.
+
+    Gdy Folderu okresu nie ma, obserwacja dotyczy nieistniejącego folderu w
+    samym folderze okresów; gdy jest w kilku miejscach, pierwszego z nich.
+    Zatrzymuje dopiero akcja, która potrzebuje jednego Folderu okresu.
+    """
+
+    try:
+        return locate_period_folder(periods_directory, period)
+    except PeriodFolderLookupError as error:
+        return PeriodFolder(error.locations[0] if error.locations else periods_directory, period)
+
+
+def located_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
+    """Jeden Folder okresu dla akcji Centrum; brak albo kilka miejsc to odmowa ze wskazówką dla taty."""
+
+    try:
+        return locate_period_folder(periods_directory, period)
+    except PeriodFolderLookupError as error:
+        token = period.token
+        if not error.locations:
+            raise contract.Refusal(
+                404, f"Nie ma folderu {token} w żadnym folderze miesiąca. Załóż go w folderze INEA właściwego miesiąca."
+            ) from None
+        months = ", ".join(month_folder_label(periods_directory, location) for location in error.locations)
+        raise contract.Refusal(
+            409, f"Folder {token} jest w więcej niż jednym folderze miesiąca ({months}). Zostaw go tylko w jednym."
+        ) from None
 
 
 _TARGET_LABELS: dict[contract.OpenTarget, str] = {
@@ -103,7 +143,7 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
             period = parse_period_token(token)
         except ValueError:
             raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        folder = PeriodFolder(periods_directory, period)
+        folder = located_period_folder(periods_directory, period)
         path = {
             "internal_settlement": folder.internal_settlement,
             "collective_file": folder.collective_file,

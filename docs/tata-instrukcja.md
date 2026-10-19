@@ -44,6 +44,21 @@ pracownika bez nazwy wykonawcy (u Ciebie `Rozliczenie {okres} -.xlsx`); z niego
 powstają pliki pracowników.
 Nie zmieniaj ich i nie podmieniaj plikami z poprzedniego tygodnia.
 
+### Foldery tygodni
+
+Tygodnie leżą w OneDrive w `Załączniki\Rozliczenia {rok}\{miesiąc}\INEA`, np.
+`Rozliczenia 2026\10_Październik_2026\INEA\13_19_10_2026`. Narzędzie szuka
+folderu tygodnia we wszystkich miesiącach, bo tylko Ty wiesz, w którym miesiącu
+rozliczasz dany tydzień.
+
+- Zakładaj z góry **tylko pusty folder tygodnia**, tak jak dotąd. Nie kopiuj do
+  niego pustych plików rozliczeń: narzędzie nie nadpisuje istniejących plików,
+  więc pusty plik zablokuje Przygotowanie pliku zbiorczego.
+- Nazwa folderu to okres: dzień wtorku, dzień poniedziałku, miesiąc i rok
+  poniedziałku, np. `29_05_10_2026` dla 29 września – 5 października 2026.
+- Jeden tydzień ma jeden folder. Ten sam tydzień w dwóch miesiącach zatrzyma
+  narzędzie z komunikatem, który pokaże oba miejsca.
+
 ## Centrum rozliczeń
 
 Centrum rozliczeń to strona w przeglądarce, która działa tylko na Twoim
@@ -54,8 +69,10 @@ komputerze. Nie otwiera czarnego okna konsoli.
 1. Dwukrotnie kliknij skrót „Centrum rozliczeń” na pulpicie.
 2. Po chwili przeglądarka sama otworzy kartę Centrum rozliczeń
    (`http://127.0.0.1:47811/`).
-3. Za pierwszym razem na stronie `Okresy` wskaż folder okresów (np. `INEA`) i
-   Rejestr zleceń. Centrum je zapamięta.
+3. Za pierwszym razem na stronie `Okresy` wskaż folder okresów, czyli
+   `Załączniki` w OneDrive (ten z folderami `Rozliczenia 2025`,
+   `Rozliczenia 2026`), i Rejestr zleceń. Centrum je zapamięta, a launchery
+   `.cmd` też z nich skorzystają.
 
 Zamknięcie karty przeglądarki nie wyłącza Centrum. Żeby wrócić, kliknij skrót
 jeszcze raz: otworzy się karta działającego Centrum, a nie druga kopia.
@@ -97,26 +114,27 @@ bezpiecznie przekazać do diagnozy.
 - Eksport zleceń całego okresu (od wtorku do poniedziałku) jest już w Rejestrze
   zleceń `ZLECENIA INTERMAX OD 08_11_2021.xlsx`.
 - Rejestr zleceń jest zapisany i **zamknięty** w Excelu.
-- W Folderze okresu nie ma jeszcze plików `Rozliczenie wew. {okres}.xlsx` ani
-  `Rozliczenie {okres} - zbiorcze.xlsx`. Pusty Folder okresu założony wcześniej
-  nie przeszkadza.
+- Folder tygodnia jest założony w folderze `INEA` właściwego miesiąca
+  (zob. [Foldery tygodni](#foldery-tygodni)) i nie ma jeszcze plików
+  `Rozliczenie wew. {okres}.xlsx` ani `Rozliczenie {okres} - zbiorcze.xlsx`.
 
 Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
 
 ### Kroki
 
 1. Dwukrotnie kliknij `Przygotuj plik zbiorczy.cmd`.
-2. W pierwszym oknie wybierz plik Rejestru zleceń
-   `ZLECENIA INTERMAX OD 08_11_2021.xlsx`.
-3. W drugim oknie wybierz folder okresów, w którym są foldery poprzednich
-   tygodni, np. `INEA`.
+2. Rejestr zleceń i folder okresów narzędzie bierze z Centrum rozliczeń. Okno
+   wyboru pojawi się tylko wtedy, gdy nie wskazano ich w Centrum albo plik
+   zniknął z dysku: wtedy w pierwszym oknie wybierz plik Rejestru zleceń
+   `ZLECENIA INTERMAX OD 08_11_2021.xlsx`,
+3. a w drugim folder okresów `Załączniki`.
 4. Narzędzie pokaże `Proponowany okres:`, czyli ostatni pełny tydzień od wtorku
    do poniedziałku przed dzisiejszą datą.
    - Naciśnij Enter, żeby go potwierdzić.
    - Żeby przygotować inny tydzień, wpisz okres tak jak nazwę folderu, np.
      `08_14_09_2026` (wtorek 8, poniedziałek 14 września 2026) i naciśnij Enter.
-     Na przełomie miesięcy miesiąc i rok są z wtorku, np. `27_02_10_2026`
-     dla 27 października – 2 listopada 2026 albo `29_04_12_2026` dla
+     Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. `27_02_11_2026`
+     dla 27 października – 2 listopada 2026 albo `29_04_01_2027` dla
      29 grudnia 2026 – 4 stycznia 2027.
    - Po złym zapisie narzędzie wyjaśni, co poprawić, i zapyta ponownie.
 5. Jeśli po etapie `Planowanie` pojawi się `Ostrzeżenie: niepełny okres`,
@@ -217,10 +235,12 @@ którego nie udało się usunąć, w Folderze okresu został wskazany plik.
 | „spoza konfiguracji wykonawców” | Literówkę w `WYKONAWCA` popraw we wskazanych wierszach Rejestru. Nowego wykonawcę trzeba dopisać do konfiguracji wykonawców (`config\worker_mapping.yaml`, tej samej co w Przebiegu rozliczeń); poproś o to osobę utrzymującą narzędzie. |
 | „nie ma żadnego zlecenia z tego okresu” | Sprawdź, czy wybrano właściwy okres i czy eksport zleceń jest zapisany w Rejestrze. Uruchom ponownie. |
 | „Plik tego okresu już istnieje” | Narzędzie nie nadpisuje plików okresu, żeby nie stracić ręcznych poprawek. Sprawdź okres. Jeśli plik ma powstać od nowa, przenieś albo usuń wskazany plik i uruchom ponownie. Jeśli w Folderze okresu jest samo Rozliczenie wewnętrzne, bez Pliku zbiorczego, a poprzednie uruchomienie nie doszło do `Status końcowy` (okno zostało zamknięte albo zabrakło prądu), to jest niedokończony zapis: usuń to Rozliczenie wewnętrzne i uruchom ponownie. |
-| „Nie znaleziono folderu okresów” | Uruchom ponownie i wybierz istniejący folder okresów, np. `INEA`. |
-| „Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku” | Wpisz okres jak nazwę folderu: dzień wtorku, dzień poniedziałku, miesiąc i rok, np. `08_14_09_2026`. Na przełomie miesięcy miesiąc i rok są z wtorku, np. `27_02_10_2026` (27 października – 2 listopada 2026). |
+| „Nie znaleziono folderu okresów” | Uruchom ponownie i wybierz istniejący folder okresów, np. `Załączniki`. |
+| „w żadnym folderze miesiąca” | W `Rozliczenia {rok}` nie ma folderu tego tygodnia. W folderze `INEA` miesiąca, do którego należy tydzień, załóż pusty folder o nazwie okresu, np. `13_19_10_2026`, i uruchom ponownie. Pliki w nim zrobi narzędzie. |
+| „jest w więcej niż jednym folderze miesiąca” | `Gdzie` pokazuje oba miesiące z folderem tego tygodnia. Zostaw folder tylko w tym miesiącu, w którym ma być rozliczony: drugi usuń albo zmień mu nazwę, np. dopisz na końcu ` stary`. Uruchom ponownie. |
+| „Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku” | Wpisz okres jak nazwę folderu: dzień wtorku, dzień poniedziałku, miesiąc i rok, np. `08_14_09_2026`. Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. `27_02_11_2026` (27 października – 2 listopada 2026). |
 | „Nie wybrano pliku Rejestru zleceń” | Uruchom ponownie i w pierwszym oknie wybierz plik Rejestru zleceń. |
-| „Nie wybrano folderu okresów” | Uruchom ponownie i w drugim oknie wybierz folder okresów, np. `INEA`. |
+| „Nie wybrano folderu okresów” | Uruchom ponownie i w drugim oknie wybierz folder okresów, np. `Załączniki`. |
 | „Nie potwierdzono okresu ani nie wpisano innego” | Uruchom ponownie. Przy pytaniu `Okres:` naciśnij Enter albo wpisz okres. |
 | „Przerwano z powodu niepełnego okresu” | Uzupełnij eksport zleceń w Rejestrze, zapisz go, zamknij i uruchom ponownie. Jeśli okres jest pełny, przy pytaniu wpisz `t`. |
 | „Nie znaleziono wzorca” | Przekaż komunikat osobie utrzymującej narzędzie. Nie twórz wzorca z pliku poprzedniego tygodnia. |
@@ -261,7 +281,11 @@ Pliki okresu powstały niezależnie od niej.
 ### Uruchomienie
 
 1. Dwukrotnie kliknij `Utwórz rozliczenia.cmd`.
-2. Wybierz plik zakończony słowami `- zbiorcze.xlsx`.
+2. Narzędzie pokaże `Proponowany okres:`. Naciśnij Enter albo wpisz inny okres,
+   jak przy Przygotowaniu pliku zbiorczego. Plik zbiorczy narzędzie samo
+   znajdzie w folderze tygodnia. Gdy w Centrum rozliczeń nie wskazano folderu
+   okresów, zamiast pytania pojawi się okno wyboru: wybierz plik zakończony
+   słowami `- zbiorcze.xlsx`.
 3. Poczekaj na komunikat końcowy.
 4. Otwórz pliki pracowników i sprawdź ich zawartość.
 
@@ -333,6 +357,8 @@ komunikat o niepokazanym podsumowaniu: wtedy rozliczenia pracowników już są.
 ### Gdy pojawi się problem
 
 - Jeśli plik jest otwarty, zamknij go i uruchom proces ponownie.
+- Jeśli narzędzie napisze, że nie znalazło folderu tygodnia w żadnym folderze miesiąca, ten tydzień nie ma jeszcze folderu albo wpisano zły okres. Sprawdź okres. Rozliczenia pracowników powstają z Pliku zbiorczego, więc najpierw przygotuj plik zbiorczy w folderze tego tygodnia.
+- Jeśli narzędzie napisze, że folder tygodnia jest w więcej niż jednym folderze miesiąca, zostaw go tylko w jednym miesiącu: drugi usuń albo zmień mu nazwę. Uruchom proces ponownie.
 - Jeśli pojawi się komunikat „Nie znaleziono Wzorca rozliczenia pracownika” z prośbą o zmianę nazwy pliku `placeholder.xlsx`, zmień w folderze `config` narzędzia nazwę tego pliku na `Wzorzec rozliczenia pracownika.xlsx` i uruchom proces ponownie. Bez tej prośby przekaż komunikat osobie utrzymującej narzędzie.
 - Jeśli pojawi się komunikat „Nie można odczytać Pliku zbiorczego”, sprawdź, czy ten plik otwiera się w Excelu i jest zapisany jako `.xlsx`. Zamknij go i uruchom proces ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie.
 - Jeśli pojawi się informacja o braku szablonu, nie twórz pliku ręcznie z innego pracownika. Przekaż tę informację osobie utrzymującej narzędzie.

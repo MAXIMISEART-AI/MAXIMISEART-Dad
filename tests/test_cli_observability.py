@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from io import StringIO
 import json
 import os
@@ -16,6 +17,7 @@ from typing import Any, cast
 from openpyxl import load_workbook
 import pytest
 
+from rozliczenia import settings as settings_file
 from rozliczenia.cli import main
 from rozliczenia.domain import Issue, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
@@ -498,6 +500,60 @@ def append_completed_records(metrics_path: Path, mode: str, count: int = 5) -> N
                 },
             }
         )
+
+
+def run_cli_from_ustawienia_taty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, today: date
+) -> tuple[int, str, Path, list[str]]:
+    """Launcher bez ``--source``; Ustawienia taty wskazują ``Załączniki`` w układzie folderów taty."""
+
+    periods_directory = tmp_path / "Załączniki"
+    month = periods_directory / "Rozliczenia 2026" / "09_Wrzesień_2026" / "INEA"
+    month.mkdir(parents=True)
+    _, target_directory, config_path = make_fixture(month)
+    shown = install_source_dialog(monkeypatch, selected="")
+    monkeypatch.setattr(settings_file, "load_settings", lambda: settings_file.Settings(periods_directory=periods_directory))
+    output = StringIO()
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--worker-template",
+            str(month / "Wzorzec rozliczenia pracownika.xlsx"),
+            "--metrics",
+            str(tmp_path / "metrics.jsonl"),
+        ],
+        output=output,
+        input_stream=StringIO("\n"),
+        today=today,
+    )
+    return exit_code, output.getvalue(), target_directory, shown
+
+
+def test_with_ustawienia_taty_launcher_asks_for_period_instead_of_plik_zbiorczy_dialog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exit_code, output, target_directory, shown = run_cli_from_ustawienia_taty(
+        tmp_path, monkeypatch, today=date(2026, 9, 16)
+    )
+
+    assert exit_code == 0, output
+    assert shown == []
+    assert "Proponowany okres: 08_14_09_2026 (wtorek 08.09.2026 – poniedziałek 14.09.2026)" in output
+    assert f"Rozliczenia | okres: {PERIOD} | tryb: RUN" in output
+    assert len(list(target_directory.glob("*.xlsx"))) == 3
+
+
+def test_with_ustawienia_taty_period_without_folder_okresu_stops_with_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exit_code, output, _, shown = run_cli_from_ustawienia_taty(tmp_path, monkeypatch, today=date(2026, 9, 23))
+
+    assert exit_code == 1
+    assert shown == []
+    lines = output.splitlines()
+    status = lines.index("Status semantyczny: BŁĄD")
+    assert lines[status + 1] == "Nie wykonano: Nie znaleziono folderu 15_21_09_2026 w żadnym folderze miesiąca."
 
 
 def test_cancelled_plik_zbiorczy_selection_stops_with_statistics_and_without_dialog_time(

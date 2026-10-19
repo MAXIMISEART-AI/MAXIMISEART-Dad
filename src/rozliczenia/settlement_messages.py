@@ -18,6 +18,7 @@ from typing import Final
 
 from .domain import Issue
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
+from .period_folder import PeriodFolderLookupError, month_folder_label
 from .workbook_files import WORKER_HEADER
 from .worker_config import WorkerConfigError
 
@@ -36,6 +37,55 @@ def collective_file_not_selected() -> Message:
         where="okno wyboru pliku",
         action="Uruchom ponownie i wybierz Plik zbiorczy okresu.",
         terminal_line="Nie wybrano pliku zbiorczego.",
+    )
+
+
+def period_not_entered() -> Message:
+    """Tylko terminal: tata nie potwierdził proponowanego okresu ani nie wpisał innego."""
+
+    return Message(
+        code="NIE_PODANO_OKRESU",
+        what=f"Nie potwierdzono okresu ani nie wpisano innego. {_NOTHING_CREATED}",
+        where="pytanie o okres",
+        action="Uruchom ponownie i naciśnij Enter, aby potwierdzić proponowany okres, albo wpisz inny.",
+        terminal_line="Nie podano okresu.",
+    )
+
+
+def invalid_period_token(token: str) -> Message:
+    """Tylko terminal: wpisany okres nie opisuje przedziału od wtorku do poniedziałku; pytanie wraca."""
+
+    return Message(
+        code="ZLY_TOKEN_OKRESU",
+        what="Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.",
+        where=f"okres {token!r}",
+        action=(
+            "Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). "
+            "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 27_02_11_2026 "
+            "(wtorek 27 października – poniedziałek 2 listopada 2026)."
+        ),
+    )
+
+
+def period_folder_lookup_problem(error: PeriodFolderLookupError) -> Message:
+    """Tylko terminal: w układzie folderów taty Folderu okresu nie ma albo jest w kilku miesiącach."""
+
+    token = error.period.token
+    if not error.locations:
+        return Message(
+            code="BRAK_FOLDERU_OKRESU",
+            what=f"Nie znaleziono folderu {token} w żadnym folderze miesiąca. {_NOTHING_CREATED}",
+            where=f"foldery INEA w folderze {error.periods_directory.name}",
+            action=f"Najpierw przygotuj plik zbiorczy okresu {token} w jego folderze i uruchom ponownie.",
+            terminal_line=f"Nie znaleziono folderu {token} w żadnym folderze miesiąca.",
+        )
+    months = ", ".join(month_folder_label(error.periods_directory, location) for location in error.locations)
+    return Message(
+        code="POWTORZONY_FOLDER_OKRESU",
+        what=f"Folder {token} jest w więcej niż jednym folderze miesiąca. {_NOTHING_CREATED}",
+        where=months,
+        action=f"Zostaw folder {token} tylko w jednym folderze miesiąca: drugi usuń albo zmień mu nazwę. Potem uruchom ponownie.",
+        terminal_line=f"Folder {token} jest w więcej niż jednym folderze miesiąca: {months}.",
     )
 
 

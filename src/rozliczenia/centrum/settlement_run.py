@@ -21,12 +21,12 @@ from rozliczenia import cli, settlement_messages
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
-from rozliczenia.centrum.period_board import read_board
+from rozliczenia.centrum.period_board import located_period_folder, read_board
 from rozliczenia.centrum.runs import PreparedRun
-from rozliczenia.centrum.settings import SettingsStore
+from rozliczenia.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
 from rozliczenia.message import Message
-from rozliczenia.period_folder import PeriodFolder, PeriodStatus, collective_file_name, period_status_label
+from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 
@@ -78,7 +78,7 @@ class SettlementEntry:
             period = parse_period_token(request.period)
         except ValueError:
             raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        source = PeriodFolder(periods_directory, period).collective_file
+        source = located_period_folder(periods_directory, period).collective_file
         inputs = cli.SettlementInputs(
             source,
             dry_run=request.dry_run,

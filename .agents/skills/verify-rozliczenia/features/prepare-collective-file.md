@@ -18,7 +18,7 @@ okresu, both together or neither. Dad starts it with
 
 ## How to get to it (user POV)
 
-- Dad double-clicks `Przygotuj plik zbiorczy.cmd`, picks the Rejestr and the periods folder in dialogs, and confirms the proposed period with Enter.
+- Dad double-clicks `Przygotuj plik zbiorczy.cmd`, which takes the Rejestr and the folder okresów from Ustawienia taty (dialogs only for what is missing), and confirms the proposed period with Enter. In Dad's layout the folder okresów is `Załączniki` and the Folder okresu is found in `Rozliczenia {rok}\{miesiąc}\INEA`; the synthetic fixture uses the flat layout.
 - Direct verification passes every input explicitly, so no dialog or period question appears: `py -3 run_preparation.py --register <rejestr> --periods-directory <folder okresów> --period 08_14_09_2026 --config <mapping> --internal-template <wzorzec> --collective-template <wzorzec> --metrics <metrics> [--dry-run]`.
 
 ## Driving it with PowerShell and run.py
@@ -43,7 +43,8 @@ Preconditions:
 ## Gotchas
 
 - Without `--dry-run`, an incomplete period (last order before the Monday) asks a Decyzja taty (`Ostrzeżenie: niepełny okres`, then `Kontynuować mimo niepełnego okresu?`) after the Planowanie stage, even when `--period` is passed. The orchestrator closes stdin, so such a question ends in refusal and exit `1` instead of a hang; keep a Monday order in the fixture.
-- The period token uses the Tuesday's month and year (`27_02_10_2026`, `29_04_12_2026`); the Monday-month form is rejected.
+- The period token uses the Monday's month and year (`27_02_11_2026`, `29_04_01_2027`), as in Dad's folders; the Tuesday-month form is rejected.
 - An existing Folder okresu is allowed; an existing period file stops the run (Nienadpisywanie).
+- Subprocess runs never read Dad's `config/centrum-ustawienia.yaml` only because every input is passed explicitly; a run without `--register` or `--periods-directory` would take them from that file.
 - The CLI prints no row content; the `PREP-SYN-` markers in the fixture exist so the self-test can catch a leak.
 - The synthetic Wzorce do not reproduce every style layer of the real ones. Before #66 the code skipped the row style of the real Wzorzec rozliczenia wewnętrznego and wrote Calibri 11 instead of 10; `--variant preparation` passed, only `preparation-real-templates` failed. Run it after any change to how template styles are applied.

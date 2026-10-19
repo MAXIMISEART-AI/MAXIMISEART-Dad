@@ -5,6 +5,8 @@
 Zaakceptowana. Zastępuje część [ADR 0003](0003-cli-only-launcher.md), według
 której procesy są uruchamiane wyłącznie przez CLI i launchery `.cmd`.
 Rezygnacja z adaptera VBA z ADR 0003 pozostaje w mocy.
+[ADR 0006](0006-uklad-folderow-taty-i-wspolne-ustawienia.md) zmienia zdanie o
+launcherach: czytają one Ustawienia taty z Centrum rozliczeń.
 
 ## Decyzja
 

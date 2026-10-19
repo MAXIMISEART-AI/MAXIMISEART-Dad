@@ -44,6 +44,10 @@ REQUIRED_SCREENSHOTS = {
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
     ),
+    "uklad-folderow-taty": (
+        "15-uklad-taty-tablica.png",
+        "16-uklad-taty-otwieranie.png",
+    ),
     "konfiguracja": (
         "10-konfiguracja-gotowa.png",
         "11-konfiguracja-tylko-do-odczytu.png",

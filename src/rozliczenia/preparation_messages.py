@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Final
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
+from .period_folder import PeriodFolderLookupError, month_folder_label
 from .workbook_files import WORKER_HEADER
 from .worker_config import WorkerConfigError
 
@@ -55,7 +56,7 @@ def invalid_period_token(token: str) -> Message:
         where=f"okres {token!r}",
         action=(
             "Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). "
-            "Na przełomie miesięcy miesiąc i rok są z wtorku, np. 27_02_10_2026 "
+            "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 27_02_11_2026 "
             "(wtorek 27 października – poniedziałek 2 listopada 2026)."
         ),
     )
@@ -320,6 +321,28 @@ def periods_directory_missing(periods_directory: Path) -> Message:
             "Wybierz istniejący folder okresów, w którym są foldery poprzednich tygodni, "
             "i uruchom ponownie."
         ),
+    )
+
+
+def period_folder_lookup_problem(error: PeriodFolderLookupError) -> Message:
+    """Układ folderów taty: Folderu okresu nie ma w żadnym miesiącu albo jest w kilku."""
+
+    token = error.period.token
+    if not error.locations:
+        return Message(
+            code="BRAK_FOLDERU_OKRESU",
+            what=f"Nie znaleziono folderu {token} w żadnym folderze miesiąca. Nie utworzono żadnego pliku.",
+            where=f"foldery INEA w folderze {error.periods_directory.name}",
+            action=f"Załóż folder {token} w folderze INEA właściwego miesiąca i uruchom ponownie.",
+        )
+    return Message(
+        code="POWTORZONY_FOLDER_OKRESU",
+        what=(
+            f"Folder {token} jest w więcej niż jednym folderze miesiąca, "
+            "więc nie wiadomo, gdzie zapisać pliki. Nie utworzono żadnego pliku."
+        ),
+        where=", ".join(month_folder_label(error.periods_directory, location) for location in error.locations),
+        action=f"Zostaw folder {token} tylko w jednym folderze miesiąca: drugi usuń albo zmień mu nazwę. Potem uruchom ponownie.",
     )
 
 

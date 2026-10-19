@@ -15,7 +15,7 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
-from rozliczenia.centrum.settings import default_settings_path
+from rozliczenia.settings import default_settings_path
 from rozliczenia.centrum.shutdown import Shutdown
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -146,7 +146,7 @@ def test_wskazany_rejestr_zlecen_i_folder_okresow_sa_zapamietane(tmp_path: Path)
         "name": "ZLECENIA INTERMAX OD 08_11_2021.xlsx",
     }
     assert after_restart["periods_directory"] == {"state": "ready", "path": str(periods), "name": "INEA"}
-    assert first.platform.dialog_titles == ["Wybierz plik Rejestru zleceń", "Wybierz folder okresów (np. INEA)"]
+    assert first.platform.dialog_titles == ["Wybierz plik Rejestru zleceń", "Wybierz folder okresów (np. Załączniki albo INEA)"]
 
 
 def test_anulowane_okno_wyboru_nie_zmienia_ustawien(tmp_path: Path) -> None:
@@ -287,7 +287,7 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     worker_folder = write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa", "Jan Próbny"])
     (worker_folder / "~$Rozliczenie 22_28_09_2026 - Anna Testowa.xlsx").touch()
     (worker_folder / "Rozliczenie 22_28_09_2026 -.xlsx").touch()
-    write_period_files(periods, "29_05_09_2026")
+    write_period_files(periods, "29_05_10_2026")
     (periods / "15_21_09_2026").mkdir()
     (periods / "Archiwum").mkdir()
     (periods / ".13_19_10_2026.staging-abc").mkdir()
@@ -297,7 +297,7 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
 
     assert [(row["token"], row["status"], row["worker_settlement_count"]) for row in rows] == [
         ("06_12_10_2026", "no_period_files", 0),
-        ("29_05_09_2026", "collective_file_prepared", 0),
+        ("29_05_10_2026", "collective_file_prepared", 0),
         ("22_28_09_2026", "worker_settlements_ready", 2),
         ("15_21_09_2026", "no_period_files", 0),
     ]
@@ -320,12 +320,84 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     ]
 
 
+def with_dad_layout(tmp_path: Path) -> tuple[Centrum, Path]:
+    """Centrum z folderem okresów ``Załączniki`` w układzie folderów taty: Rozliczenia {rok}\\{miesiąc}\\INEA."""
+
+    root = tmp_path / "Załączniki"
+    for month in ("12_Grudzień_2025",):
+        (root / "Rozliczenia 2025" / month / "INEA").mkdir(parents=True)
+    for month in ("09_Wrzesień_2026", "10_Październik_2026", "11_Listopad_2026"):
+        (root / "Rozliczenia 2026" / month / "INEA").mkdir(parents=True)
+    (root / "Rozliczenia 2026" / "Nowe rozliczenia wzór od 01_2026" / "Podpisane").mkdir(parents=True)
+    app = centrum(tmp_path)
+    app.platform.chosen_folders.append(root)
+    app.client.post("/api/settings/periods-directory/choose")
+    return app, root
+
+
+def inea(root: Path, month: str, year: int = 2026) -> Path:
+    return root / f"Rozliczenia {year}" / month / "INEA"
+
+
+def test_w_ukladzie_folderow_taty_tablica_okresow_widzi_tygodnie_ze_wszystkich_miesiecy(tmp_path: Path) -> None:
+    app, root = with_dad_layout(tmp_path)
+    write_period_files(inea(root, "10_Październik_2026"), "06_12_10_2026")
+    (inea(root, "10_Październik_2026") / "13_19_10_2026").mkdir()
+    write_period_files(inea(root, "10_Październik_2026"), "29_05_10_2026")
+    (inea(root, "10_Październik_2026") / "Podpisane").mkdir()
+    (inea(root, "11_Listopad_2026") / "27_02_11_2026").mkdir()
+    ready = write_period_files(inea(root, "09_Wrzesień_2026"), "22_28_09_2026")
+    write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa"])
+    (inea(root, "09_Wrzesień_2026") / "28_30_09_2026 tylko dawid").mkdir()
+    (inea(root, "12_Grudzień_2025", year=2025) / "16_22_12_2025").mkdir()
+
+    rows = board_rows(app)
+
+    assert [(row["token"], row["status"], row["last_complete"]) for row in rows] == [
+        ("27_02_11_2026", "no_period_files", False),
+        ("13_19_10_2026", "no_period_files", False),
+        ("06_12_10_2026", "collective_file_prepared", True),
+        ("29_05_10_2026", "collective_file_prepared", False),
+        ("22_28_09_2026", "worker_settlements_ready", False),
+        ("16_22_12_2025", "no_period_files", False),
+    ]
+    assert app.client.get("/api/periods").json()["last_prepared_period"] == "06_12_10_2026"
+
+
+def test_w_ukladzie_folderow_taty_pliki_okresu_otwieraja_sie_z_folderu_miesiaca(tmp_path: Path) -> None:
+    app, root = with_dad_layout(tmp_path)
+    period_folder = write_period_files(inea(root, "10_Październik_2026"), "06_12_10_2026")
+
+    response = app.client.post("/api/periods/06_12_10_2026/open", json={"target": "collective_file"})
+
+    assert response.json() == {"name": "Rozliczenie 06_12_10_2026 - zbiorcze.xlsx"}
+    assert app.platform.opened == [period_folder / "Rozliczenie 06_12_10_2026 - zbiorcze.xlsx"]
+
+
+def test_w_ukladzie_folderow_taty_tydzien_w_dwoch_miesiacach_nie_jest_otwierany(tmp_path: Path) -> None:
+    app, root = with_dad_layout(tmp_path)
+    write_period_files(inea(root, "09_Wrzesień_2026"), "29_05_10_2026")
+    write_period_files(inea(root, "10_Październik_2026"), "29_05_10_2026")
+
+    rows = board_rows(app)
+    response = app.client.post("/api/periods/29_05_10_2026/open", json={"target": "collective_file"})
+
+    assert [row["token"] for row in rows].count("29_05_10_2026") == 1
+    assert response.status_code == 409
+    assert response.json() == {
+        "message": "Folder 29_05_10_2026 jest w więcej niż jednym folderze miesiąca "
+        "(Rozliczenia 2026\\09_Wrzesień_2026\\INEA, Rozliczenia 2026\\10_Październik_2026\\INEA). "
+        "Zostaw go tylko w jednym."
+    }
+    assert app.platform.opened == []
+
+
 def test_tablica_okresow_wskazuje_ostatni_przygotowany_okres_z_plikiem_zbiorczym(tmp_path: Path) -> None:
     app, periods = with_periods_directory(tmp_path)
     before = app.client.get("/api/periods").json()["last_prepared_period"]
     write_worker_settlements(write_period_files(periods, "22_28_09_2026"), "22_28_09_2026", ["Anna Testowa"])
     write_period_files(periods, "15_21_09_2026")
-    (periods / "29_05_09_2026").mkdir()
+    (periods / "29_05_10_2026").mkdir()
 
     after = app.client.get("/api/periods").json()["last_prepared_period"]
 
@@ -334,7 +406,7 @@ def test_tablica_okresow_wskazuje_ostatni_przygotowany_okres_z_plikiem_zbiorczym
 
 def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: Path) -> None:
     app, periods = with_periods_directory(tmp_path)
-    write_period_files(periods, "29_05_09_2026")
+    write_period_files(periods, "29_05_10_2026")
 
     rows = board_rows(app)
 
@@ -362,12 +434,12 @@ def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: 
 
 def test_istniejacy_folder_ostatniego_pelnego_okresu_nie_jest_powtorzony(tmp_path: Path) -> None:
     app, periods = with_periods_directory(tmp_path, today=date(2026, 10, 6))
-    write_period_files(periods, "29_05_09_2026")
+    write_period_files(periods, "29_05_10_2026")
 
     rows = board_rows(app)
 
     assert [(row["token"], row["last_complete"], row["status"]) for row in rows] == [
-        ("29_05_09_2026", True, "collective_file_prepared")
+        ("29_05_10_2026", True, "collective_file_prepared")
     ]
 
 

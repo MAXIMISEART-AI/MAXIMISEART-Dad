@@ -10,16 +10,19 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import date, timedelta
 import os
 from pathlib import Path
 from typing import Any, TextIO
 
 from .decision import Decision
+from .message import Message, StopError
 from .plain_progress import PlainProgressAdapter
 from .progress import ProgressNotice, ProgressSnapshot
 from .rich_progress import Console, Live, RichProgressAdapter
+from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 
-__all__ = ["TerminalConversation"]
+__all__ = ["TerminalConversation", "ask_period"]
 
 _YES_ANSWERS = ("t", "tak")
 
@@ -61,6 +64,40 @@ def _is_interactive(stream: TextIO) -> bool:
         return bool(stream.isatty())
     except (AttributeError, OSError, ValueError):
         return False
+
+
+def _period_label(period: SettlementPeriod) -> str:
+    return f"{period.token} (wtorek {period.tuesday:%d.%m.%Y} – poniedziałek {period.monday:%d.%m.%Y})"
+
+
+def ask_period(
+    today: date,
+    conversation: TerminalConversation,
+    *,
+    not_entered: Message,
+    invalid_token: Callable[[str], Message],
+) -> SettlementPeriod:
+    """Proponuje ostatni pełny okres; Enter go potwierdza, inny poprawny token go zastępuje.
+
+    Zły token pokazuje Komunikat procesu i pyta ponownie; koniec wejścia to zatrzymanie z ``not_entered``.
+    """
+
+    proposed = last_complete_period(today)
+    previous = SettlementPeriod(proposed.tuesday - timedelta(days=7))
+    conversation.say(
+        f"Proponowany okres: {_period_label(proposed)}",
+        f"Enter potwierdza ten okres. Inny okres wpisz jak w nazwie folderu, np. {previous.token}.",
+    )
+    while True:
+        answer = conversation.ask("Okres: ")
+        if answer is None:
+            raise StopError(not_entered)
+        if not answer:
+            return proposed
+        try:
+            return parse_period_token(answer)
+        except ValueError:
+            conversation.say(*invalid_token(answer).text.splitlines())
 
 
 class TerminalConversation:

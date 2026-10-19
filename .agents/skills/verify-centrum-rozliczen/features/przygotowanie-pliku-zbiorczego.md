@@ -53,6 +53,6 @@ Preconditions:
 - `Run.capture` waits for running animations, and a running stage's bar loops forever. Capture only in a settled state (finished, or waiting for the decision, when no stage runs).
 - The Uruchomienie runs in the server's worker thread; wait on `/api/runs/current` (`finished_result` in `drive/common.py`), not on a fixed delay.
 - Count metrics records through `/api/metrics`, not by lines: the fixture's Przygotowanie file ends with an invalid record, which the CLI's store cuts off on the next append.
-- The no-preview warning follows the server: a period counts as previewed when the metrics history (Centrum or `.cmd`) has a DRY-RUN with result OK for it. The fixture's synthetic history already has such records for `15_21_09_2026`, `22_28_09_2026`, and `29_05_09_2026`, so use `08_14_09_2026` for the warning.
+- The no-preview warning follows the server: a period counts as previewed when the metrics history (Centrum or `.cmd`) has a DRY-RUN with result OK for it. The fixture's synthetic history already has such records for `15_21_09_2026`, `22_28_09_2026`, and `29_05_10_2026`, so use `08_14_09_2026` for the warning.
 - The result toast appears only after a finished write and covers the bottom-right corner for a few seconds.
 - `Uruchom` is also the confirmation dialog's button; scope the second click to the alertdialog.

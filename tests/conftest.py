@@ -14,9 +14,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from fastapi.testclient import TestClient  # noqa: E402  (po ścieżce do src)
 from starlette.types import ASGIApp, Message, Receive, Scope, Send  # noqa: E402
 
+from rozliczenia import settings as settings_file  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 
 _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
+
+
+@pytest.fixture(autouse=True)
+def bez_ustawien_taty_z_katalogu_narzedzia(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Launchery w testach nie czytają Ustawień taty z katalogu narzędzia; test, który ich potrzebuje, podmienia je sam."""
+
+    monkeypatch.setattr(settings_file, "load_settings", settings_file.Settings)
 
 
 @pytest.fixture(autouse=True)

@@ -50,7 +50,7 @@ def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
         from rozliczenia.centrum.app import create_app
         from rozliczenia.centrum.platform import system_platform
         from rozliczenia.centrum.server import listen_locally, serve
-        from rozliczenia.centrum.settings import default_settings_path
+        from rozliczenia.settings import default_settings_path
         from rozliczenia.centrum.shutdown import Shutdown
         from rozliczenia.centrum.version import tool_version
     except ModuleNotFoundError as missing:

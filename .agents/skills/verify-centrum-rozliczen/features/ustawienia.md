@@ -28,7 +28,7 @@ Preconditions:
 - Centrum is served for this run and `DOCTOR OK`; no settings file exists yet.
 
 - **Empty state.** Open the URL. The text `Wskaż folder okresów` is visible, and `GET /api/settings` returns `not_set` for both paths (`api/ustawienia-przed.json`).
-- **Folder okresów.** Write the `INEA` path to `picker/answer.txt`, then click button `Wskaż folder okresów` (exact). Table `Tablica okresów` appears, the last line of `dialogs.jsonl` is `Wybierz folder okresów (np. INEA)`, and the settings file contains the `INEA` path.
+- **Folder okresów.** Write the `INEA` path to `picker/answer.txt`, then click button `Wskaż folder okresów` (exact). Table `Tablica okresów` appears, the last line of `dialogs.jsonl` is `Wybierz folder okresów (np. Załączniki albo INEA)`, and the settings file contains the `INEA` path.
 - **Rejestr zleceń.** Write the Rejestr path, then click button `Wskaż Rejestr zleceń`. Group `Rejestr zleceń` shows `ZLECENIA SYNTETYCZNE OD 01_01_2026.xlsx`, `dialogs.jsonl` ends with `Wybierz plik Rejestru zleceń`, and the settings file contains the path.
 - **Cancel.** With no answer file, click button `Zmień Rejestr zleceń`. `dialogs.jsonl` gains one line, the button becomes enabled again, and the settings file is byte-identical.
 - **Path gone.** Rename the Rejestr file, then reload. Group `Rejestr zleceń` shows `Nie ma już: ZLECENIA SYNTETYCZNE OD 01_01_2026.xlsx`, and `GET /api/settings` reports `order_register.state` = `missing` (`api/ustawienia-brak-rejestru.json`). Rename it back.

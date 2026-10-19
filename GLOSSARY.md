@@ -6,9 +6,10 @@ Ten plik opisuje język procesu. Nie opisuje implementacji.
 
 Tygodniowy przedział pracy od wtorku do poniedziałku. Jest identyfikowany przez
 token zawierający dzień wtorku, dzień poniedziałku, miesiąc i rok, na przykład
-`08_14_09_2026`. Miesiąc i rok są z wtorku: na przełomie miesięcy i lat liczy
-się starszy miesiąc, więc okres od 27 października do 2 listopada 2026 ma token
-`27_02_10_2026`, a od 29 grudnia 2026 do 4 stycznia 2027 token `29_04_12_2026`.
+`08_14_09_2026`. Miesiąc i rok są z poniedziałku, tak jak w folderach taty: na
+przełomie miesięcy i lat liczy się nowszy miesiąc, więc okres od 27 października
+do 2 listopada 2026 ma token
+`27_02_11_2026`, a od 29 grudnia 2026 do 4 stycznia 2027 token `29_04_01_2027`.
 Każdy okres ma jeden token.
 
 ## Rejestr zleceń
@@ -91,6 +92,19 @@ okresu rozliczeniowego: Rozliczenia wewnętrznego, Pliku zbiorczego i Folderu
 rozliczeń pracowników. Może istnieć wcześniej, zanim powstaną te pliki.
 Folder, którego nazwa nie jest tokenem żadnego okresu (na przykład
 `09_15_09_2026`, bo 9 września 2026 to nie wtorek), nie jest Folderem okresu.
+
+## Folder okresów
+
+Folder, w którym narzędzie szuka Folderów okresu. W układzie folderów taty to
+`Załączniki`, a Foldery okresu leżą w `Rozliczenia {rok}\{miesiąc}\INEA`.
+Miesiąc to cykl rozliczeniowy taty, nie kalendarz, więc Folder okresu zakłada
+tata, a narzędzie go odszukuje. Bez folderów `Rozliczenia {rok}` Foldery okresu
+leżą w folderze okresów bezpośrednio (np. `INEA`).
+
+## Ustawienia taty
+
+Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. Launchery
+`.cmd` biorą je stamtąd i pytają oknem wyboru tylko o to, czego brak.
 
 ## Folder rozliczeń pracowników
 

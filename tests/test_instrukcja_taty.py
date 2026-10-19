@@ -26,6 +26,8 @@ from rozliczenia import settlement_messages
 from rozliczenia.centrum import start_problems
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
+from rozliczenia.period_folder import PeriodFolderLookupError
+from rozliczenia.settlement_period import parse_period_token
 from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
 from rozliczenia.worker_config import WorkerConfigError
 
@@ -39,6 +41,10 @@ FULL_PATH = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]|(?<![:\\/])(?:\\\\|//)[^\\/
 REGISTER = Path("C:/Dane/ZLECENIA INTERMAX OD 08_11_2021.xlsx")
 PERIODS = Path("C:/Dane/INEA")
 PERIOD_DIRECTORY = PERIODS / "08_14_09_2026"
+DAD_PERIODS = Path("C:/Users/tata/OneDrive/Załączniki")
+JUNE = DAD_PERIODS / "Rozliczenia 2026" / "06_Czerwiec_2026" / "INEA"
+JULY = DAD_PERIODS / "Rozliczenia 2026" / "07_Lipiec_2026" / "INEA"
+PARSED_PERIOD = parse_period_token("08_14_09_2026")
 TEMPLATE = Path("C:/Narzedzie/config/Wzorzec pliku zbiorczego.xlsx")
 CONFIG = Path("//nas/Wspolne/Narzedzie/config/worker_mapping.yaml")
 SHEET = "ZLECENIA"
@@ -99,6 +105,12 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.period_orders_in_many_sheets(REGISTER, ["ZLECENIA", "ZLECENIA 2"], PERIOD)
     ],
     "periods_directory_missing": [lambda: messages.periods_directory_missing(PERIODS)],
+    "period_folder_lookup_problem": [
+        lambda: messages.period_folder_lookup_problem(PeriodFolderLookupError(DAD_PERIODS, PARSED_PERIOD, ())),
+        lambda: messages.period_folder_lookup_problem(
+            PeriodFolderLookupError(DAD_PERIODS, PARSED_PERIOD, (JUNE, JULY))
+        ),
+    ],
     "rows_without_date": [
         lambda: messages.rows_without_date(REGISTER, SHEET, [7]),
         lambda: messages.rows_without_date(REGISTER, SHEET, [7, 9]),
@@ -218,7 +230,9 @@ CATALOGS = {
         "### Komunikat w Centrum rozliczeń → co zrobić",
         SETTLEMENT_SAMPLES,
         # Tylko terminal: w Centrum Plik zbiorczy wynika z okresu, więc okna wyboru pliku nie ma.
-        terminal_only=frozenset({"collective_file_not_selected"}),
+        terminal_only=frozenset(
+            {"collective_file_not_selected", "period_not_entered", "invalid_period_token", "period_folder_lookup_problem"}
+        ),
         # Przebieg wskazuje najwyżej folder okresu, więc folderów nad nim nie widać.
         hidden_folders=ABOVE_CONFIG | {"Dane", "INEA"},
     ),

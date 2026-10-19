@@ -24,6 +24,7 @@ from drive import (
     przygotowanie_pliku_zbiorczego,
     start_i_zamykanie,
     tablica_okresow,
+    uklad_folderow_taty,
     ustawienia,
 )
 from drive.common import DAD_TIME_ZONE, DriveFailure, Run
@@ -34,6 +35,7 @@ from drive.common import DAD_TIME_ZONE, DriveFailure, Run
 FEATURES = (
     "ustawienia",
     "tablica-okresow",
+    "uklad-folderow-taty",
     "konfiguracja",
     "metryki",
     "przygotowanie-pliku-zbiorczego",
@@ -53,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     drives = {
         "ustawienia": ustawienia.drive_settings,
         "tablica-okresow": tablica_okresow.drive_period_board,
+        "uklad-folderow-taty": uklad_folderow_taty.drive_dad_layout,
         "konfiguracja": konfiguracja.drive_configuration,
         "metryki": metryki.drive_metrics,
         "przygotowanie-pliku-zbiorczego": przygotowanie_pliku_zbiorczego.drive_preparation,

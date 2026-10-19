@@ -19,7 +19,7 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
-`--feature ustawienia`, `--feature tablica-okresow`, `--feature konfiguracja`,
+`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
 `--feature przebieg-rozliczen`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
@@ -80,7 +80,7 @@ built frontend, and the settings and metrics files belong to this run. The docto
 Chromium at 1440×1000, locale `pl-PL`. It finds elements by ARIA role and
 accessible name, the same Polish names Dad reads: buttons such as
 `Wskaż folder okresów`, `Zmień Rejestr zleceń`, `Włącz motyw jasny`, and
-`Plik zbiorczy, okres 29_05_09_2026`; the table `Tablica okresów`; the region
+`Plik zbiorczy, okres 29_05_10_2026`; the table `Tablica okresów`; the region
 `Następny krok`; the groups `Rejestr zleceń` and `Folder okresów`; on
 Konfiguracja the groups named after each Wzorzec and the list `Wykonawcy`. The recipes
 and their exact handles are in the feature files. To drive one feature against

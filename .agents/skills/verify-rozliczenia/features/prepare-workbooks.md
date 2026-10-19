@@ -14,7 +14,7 @@ only after every workbook is ready.
 
 ## How to get to it (user POV)
 
-- Dad double-clicks `Utwórz rozliczenia.cmd` and picks the Plik zbiorczy in a file dialog, or passes its path as an argument; Centrum rozliczeń starts the same process from its `Uruchomienia` page, which `verify-centrum-rozliczen` drives.
+- Dad double-clicks `Utwórz rozliczenia.cmd` and confirms the proposed period with Enter; the Plik zbiorczy comes from that Folder okresu in the folder okresów of Ustawienia taty. Without Ustawienia taty he picks the Plik zbiorczy in a file dialog, or passes its path as an argument; Centrum rozliczeń starts the same process from its `Uruchomienia` page, which `verify-centrum-rozliczen` drives.
 - For direct verification, run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
 
 ## Driving it with PowerShell and run.py

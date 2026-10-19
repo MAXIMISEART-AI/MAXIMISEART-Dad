@@ -31,6 +31,7 @@ from tests.collective_preparation_fixtures import (
     PreparationFixture,
     RegisterRow,
     default_register_rows,
+    make_dad_layout_fixture,
     make_preparation_fixture,
     register_order,
     write_collective_template,
@@ -255,6 +256,19 @@ def test_existing_empty_folder_okresu_is_allowed(tmp_path: Path) -> None:
     assert fixture.collective_file_path.is_file()
 
 
+def test_in_dad_layout_period_files_go_to_folder_okresu_found_in_its_month(tmp_path: Path) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_directory == fixture.period_directory
+    assert fixture.period_directory.parent.parent.name == "09_Wrzesień_2026"
+    assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
+        [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
+    )
+    assert not (fixture.periods_directory / PERIOD).exists()
+
+
 @pytest.mark.parametrize("existing_name", [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME])
 def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_name: str) -> None:
     fixture = make_preparation_fixture(tmp_path)
@@ -287,9 +301,9 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
         "08_15_09_2026",
         "okres",
         "../14_09_2026",
-        # Na przełomie miesięcy i lat miesiąc i rok tokenu są z wtorku, nie z poniedziałku.
-        "27_02_11_2026",
-        "29_04_01_2027",
+        # Na przełomie miesięcy i lat miesiąc i rok tokenu są z poniedziałku, nie z wtorku.
+        "27_02_10_2026",
+        "29_04_12_2026",
     ],
 )
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
@@ -304,9 +318,9 @@ def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token
 
 @pytest.mark.parametrize(
     ("token", "tuesday"),
-    [("27_02_10_2026", datetime(2026, 10, 27)), ("29_04_12_2026", datetime(2026, 12, 29))],
+    [("27_02_11_2026", datetime(2026, 10, 27)), ("29_04_01_2027", datetime(2026, 12, 29))],
 )
-def test_period_crossing_month_or_year_takes_month_and_year_of_tuesday(
+def test_period_crossing_month_or_year_takes_month_and_year_of_monday(
     tmp_path: Path, token: str, tuesday: datetime
 ) -> None:
     rows: list[RegisterRow] = [

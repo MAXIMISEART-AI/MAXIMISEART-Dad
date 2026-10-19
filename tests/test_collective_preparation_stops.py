@@ -22,7 +22,9 @@ from tests.collective_preparation_fixtures import (
     REGISTER_HEADERS,
     PreparationFixture,
     RegisterRow,
+    make_dad_layout_fixture,
     make_preparation_fixture,
+    month_periods_folder,
     register_order,
     write_register,
 )
@@ -461,6 +463,39 @@ def test_merged_cells_of_wzorzec_below_written_orders_do_not_stop(tmp_path: Path
 
     assert summary.successful_order_count == 3
     assert fixture.collective_file_path.is_file()
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_in_dad_layout_missing_folder_okresu_stops_without_creating_it(tmp_path: Path, dry_run: bool) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+    fixture.period_directory.rmdir()
+    tree_before = sorted(fixture.periods_directory.rglob("*"))
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(fixture, dry_run=dry_run)
+
+    assert raised.value.message.code == "BRAK_FOLDERU_OKRESU"
+    assert raised.value.message.text == (
+        "Co się stało: Nie znaleziono folderu 08_14_09_2026 w żadnym folderze miesiąca. "
+        "Nie utworzono żadnego pliku.\n"
+        "Gdzie: foldery INEA w folderze Załączniki\n"
+        "Co zrobić: Załóż folder 08_14_09_2026 w folderze INEA właściwego miesiąca i uruchom ponownie."
+    )
+    assert sorted(fixture.periods_directory.rglob("*")) == tree_before
+
+
+def test_in_dad_layout_folder_okresu_in_two_months_stops_with_both_months(tmp_path: Path) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+    (month_periods_folder(fixture.periods_directory, "10_Październik_2026") / PERIOD).mkdir()
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(fixture)
+
+    assert raised.value.message.code == "POWTORZONY_FOLDER_OKRESU"
+    assert raised.value.message.where == (
+        "Rozliczenia 2026\\09_Wrzesień_2026\\INEA, Rozliczenia 2026\\10_Październik_2026\\INEA"
+    )
+    assert [list(folder.iterdir()) for folder in fixture.periods_directory.glob(f"*/*/INEA/{PERIOD}")] == [[], []]
 
 
 def test_missing_folder_okresow_stops_without_creating_it(tmp_path: Path) -> None:
