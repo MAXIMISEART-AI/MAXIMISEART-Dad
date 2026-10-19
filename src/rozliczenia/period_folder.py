@@ -6,6 +6,8 @@ pracownika. ``PeriodFolder`` powstaje tylko z folderu okresów i sprawdzonego
 ``SettlementPeriod`` albo ze ścieżki Pliku zbiorczego, którą moduł sam
 sprawdza, więc niesprawdzony token nie trafia do nazw. ``PeriodFolderError``
 ma bezpieczny komunikat, a każdy proces tłumaczy go na swoje zatrzymanie.
+Moduł sprawdza też, czy nazwa Wykonawcy może być nazwą pliku
+(``check_worker_name``), bo zna format nazwy Rozliczenia pracownika.
 
 Status okresu wynika z tej samej obserwacji plików co flagi istnienia
 (``PeriodFolder.observe``), więc nie może się z nimi rozjechać; treści
