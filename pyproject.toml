@@ -54,6 +54,10 @@ include = [
 ]
 extend-exclude = [".claude"]
 
+[tool.ruff.lint]
+# Szeroki except tylko z wpisem do dziennika albo ponownym rzuceniem.
+extend-select = ["BLE001", "S110"]
+
 [tool.mypy]
 strict = true
 files = [

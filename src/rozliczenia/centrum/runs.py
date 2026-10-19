@@ -225,7 +225,7 @@ class _Run:
             outcome = run_process(prepared.process, prepared.inputs, self, metrics_path=prepared.metrics_path)
             self._host.remember(prepared, since)
             result = _run_result(outcome, prepared)
-        except Exception as failure:
+        except Exception as failure:  # noqa: BLE001 - granica wątku Uruchomienia: typ wyjątku trafia do dziennika Centrum
             self._host.failed(failure)
             result = _unexpected_result(prepared.dry_run)
         self._host.finished(self, result)
