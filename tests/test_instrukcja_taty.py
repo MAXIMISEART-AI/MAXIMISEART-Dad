@@ -5,7 +5,8 @@ Centrum rozliczeń) ma w ``docs/tata-instrukcja.md`` swoją sekcję z tabelą,
 której wiersze cytują faktyczną treść „Co się stało”. Jeden zestaw sprawdzeń
 obejmuje każdy katalog: nowy katalog dostaje wszystkie sprawdzenia, gdy tylko
 trafi do ``CATALOGS``. Zmiana treści Komunikatu bez poprawki instrukcji psuje
-test.
+test. Cytaty z punktów sekcji „Gdy pojawi się problem” Przebiegu rozliczeń
+też muszą odpowiadać treści Komunikatu: „Co się stało” albo linii terminala.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from rozliczenia import settlement_messages
 from rozliczenia.centrum import start_problems
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
+from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
 from rozliczenia.worker_config import WorkerConfigError
 
 
@@ -51,6 +53,17 @@ INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfigurac
 ABOVE_CONFIG = frozenset({"Wspolne", "Narzedzie"})
 
 Samples = Mapping[str, Sequence[Callable[[], Message]]]
+
+
+def _missing_worker_template_detail() -> str:
+    """Treść ze Sprawdzania Wzorca rozliczenia pracownika, którego nie ma pod ścieżką ``WORKER_TEMPLATE``."""
+
+    try:
+        validate_worker_template(WORKER_TEMPLATE)
+    except WorkerTemplateValidationError as error:
+        return error.message
+    raise AssertionError("Sprawdzanie przyjęło nieistniejący Wzorzec rozliczenia pracownika.")
+
 
 # Każda fabryka katalogu z przykładowymi argumentami; warianty liczby pojedynczej i mnogiej osobno.
 PREPARATION_SAMPLES: Samples = {
@@ -140,7 +153,8 @@ SETTLEMENT_SAMPLES: Samples = {
     "worker_template_invalid": [
         lambda: settlement_messages.worker_template_invalid(
             WORKER_TEMPLATE, "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
-        )
+        ),
+        lambda: settlement_messages.worker_template_invalid(WORKER_TEMPLATE, _missing_worker_template_detail()),
     ],
     "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
     "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
@@ -214,6 +228,20 @@ CATALOGS = {
 each_catalog = pytest.mark.parametrize("catalog", CATALOGS.values(), ids=CATALOGS.keys())
 
 
+def _settlement_problem_quotes() -> list[str]:
+    """Cytaty „…” z punktów sekcji „Gdy pojawi się problem” w części Przebiegu rozliczeń."""
+
+    lines = INSTRUCTION.read_text(encoding="utf-8").splitlines()
+    start = lines.index("### Gdy pojawi się problem", lines.index("## Przebieg rozliczeń"))
+    quotes: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("#"):
+            break
+        if line.startswith("- "):
+            quotes.extend(QUOTED.findall(line))
+    return quotes
+
+
 def _instruction_fragments(section: str) -> list[str]:
     """Cytaty „…” z pierwszej kolumny tabel w sekcji instrukcji, razem z jej podsekcjami."""
 
@@ -270,6 +298,19 @@ def test_kazdy_kod_katalogu_ma_dokladnie_jeden_cytat_instrukcji(catalog: Catalog
         fragments_per_code.setdefault(message.code, set()).update(f for f in fragments if f in message.what)
 
     assert {code: found for code, found in fragments_per_code.items() if len(found) != 1} == {}
+
+
+def test_cytaty_sekcji_gdy_pojawi_sie_problem_odpowiadaja_komunikatom_przebiegu_rozliczen() -> None:
+    texts = [
+        text
+        for message in CATALOGS["przebieg-rozliczen"].messages()
+        for text in (message.what, message.terminal_line)
+        if text is not None
+    ]
+    quotes = _settlement_problem_quotes()
+
+    assert quotes
+    assert [quote for quote in quotes if not any(quote in text for text in texts)] == []
 
 
 @each_catalog
