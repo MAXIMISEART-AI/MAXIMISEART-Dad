@@ -35,7 +35,6 @@ from .period_folder import PeriodFolder
 from .preparation_messages import PreparationMessage
 from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
-from .settlement_period import parse_period_token
 
 
 @dataclass(frozen=True)
@@ -57,29 +56,20 @@ _COLLECTIVE = _TemplateLayout(
 
 @dataclass(frozen=True)
 class PeriodFiles:
-    """Ścieżki obu wzorców i obu plików okresu w Folderze okresu."""
+    """Ścieżki obu wzorców i Folder okresu, w którym powstają oba pliki okresu.
+
+    ``PeriodFolder`` wymaga sprawdzonego okresu, więc wartość powstaje dopiero po sprawdzeniu tokenu.
+    """
 
     internal_template: Path
     collective_template: Path
-    period_directory: Path
-    period: str
-
-    @property
-    def _folder(self) -> PeriodFolder:
-        # Wartość powstaje przed sprawdzeniem tokenu; ścieżki plików są potrzebne dopiero po nim.
-        return PeriodFolder(self.period_directory.parent, parse_period_token(self.period))
-
-    @property
-    def internal_settlement_file(self) -> Path:
-        return self._folder.internal_settlement
-
-    @property
-    def collective_file(self) -> Path:
-        return self._folder.collective_file
+    folder: PeriodFolder
 
     @property
     def filenames(self) -> tuple[str, str]:
-        return (self.internal_settlement_file.name, self.collective_file.name)
+        """Rozliczenie wewnętrzne i Plik zbiorczy, w kolejności publikacji."""
+
+        return (self.folder.internal_settlement.name, self.folder.collective_file.name)
 
 
 def check_templates(files: PeriodFiles) -> None:
@@ -126,9 +116,10 @@ def _ensure_template_available(template_path: Path) -> None:
 def ensure_period_files_absent(files: PeriodFiles) -> None:
     """Nienadpisywanie: żaden z dwóch plików okresu nie istnieje jeszcze w Folderze okresu."""
 
-    for target in (files.internal_settlement_file, files.collective_file):
+    folder = files.folder
+    for target in (folder.internal_settlement, folder.collective_file):
         if target.exists() or target.is_symlink():
-            raise messages.period_file_exists(files.period_directory, target.name)
+            raise messages.period_file_exists(folder.directory, target.name)
 
 
 def plan_period_files(files: PeriodFiles, order_count: int, successful_count: int) -> list[PreparationMessage]:
@@ -147,7 +138,7 @@ def plan_period_files(files: PeriodFiles, order_count: int, successful_count: in
         return []
     return [
         messages.too_few_zero_rows(
-            files.collective_file.name,
+            files.folder.collective_file.name,
             successful_count,
             zero_row_count,
             _COLLECTIVE.first_data_row + zero_row_count,
@@ -157,19 +148,22 @@ def plan_period_files(files: PeriodFiles, order_count: int, successful_count: in
 
 def write_period_files(
     files: PeriodFiles,
-    staging_parent: Path,
     orders: Sequence[PeriodOrder],
     successful_orders: Sequence[PeriodOrder],
 ) -> None:
     """Zapisywanie: przygotowuje oba pliki w katalogu tymczasowym i publikuje je razem.
 
-    Błąd nie zostawia żadnego z plików ani nowo założonego Folderu okresu, chyba że
+    Katalog tymczasowy leży w folderze okresów, obok Folderu okresu. Błąd nie
+    zostawia żadnego z plików ani nowo założonego Folderu okresu, chyba że
     zatrzymanie wskazuje plik, którego nie udało się usunąć.
     """
 
+    folder = files.folder
     try:
-        with tempfile.TemporaryDirectory(prefix=f".{files.period}.staging-", dir=staging_parent) as staging:
-            staged_directory = Path(staging) / files.period
+        with tempfile.TemporaryDirectory(
+            prefix=f".{folder.period.token}.staging-", dir=folder.periods_directory
+        ) as staging:
+            staged_directory = Path(staging) / folder.directory.name
             staged_directory.mkdir()
             internal_name, collective_name = files.filenames
             _write_period_file(files.internal_template, _INTERNAL, staged_directory / internal_name, orders)
@@ -182,7 +176,7 @@ def write_period_files(
             )
             _publish(staged_directory, files)
     except (OSError, workbook_files.WorkbookSaveError) as exc:
-        raise messages.write_failed(files.period_directory) from exc
+        raise messages.write_failed(folder.directory) from exc
 
 
 @contextmanager
@@ -335,7 +329,7 @@ def _publish(staged_directory: Path, files: PeriodFiles) -> None:
     """
 
     ensure_period_files_absent(files)
-    period_directory = files.period_directory
+    period_directory = files.folder.directory
     if not period_directory.exists():
         staged_directory.rename(period_directory)
         return
