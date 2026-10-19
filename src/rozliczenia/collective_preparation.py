@@ -22,6 +22,7 @@ from . import preparation_messages as messages
 from .domain import ProgressObserver, ProgressPhase
 from .engine import load_worker_mapping
 from .message import Message, StopError
+from .period_folder import PeriodFolder
 from .phase_runner import PhaseRunner
 from .settlement_period import SettlementPeriod, parse_period_token
 
@@ -108,15 +109,15 @@ def prepare_collective_file(
     register_path = register_path.expanduser().resolve()
     periods_directory = periods_directory.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
-    files = preparation_files.PeriodFiles(
-        internal_template=(internal_template_path or default_internal_template_path()).expanduser().resolve(),
-        collective_template=(collective_template_path or default_collective_template_path()).expanduser().resolve(),
-        period_directory=periods_directory / period,
-        period=period,
-    )
+    internal_template = (internal_template_path or default_internal_template_path()).expanduser().resolve()
+    collective_template = (collective_template_path or default_collective_template_path()).expanduser().resolve()
 
-    def check_inputs() -> tuple[SettlementPeriod, dict[str, str]]:
-        parsed_period = _parse_period(period)
+    def check_inputs() -> tuple[preparation_files.PeriodFiles, dict[str, str]]:
+        files = preparation_files.PeriodFiles(
+            internal_template=internal_template,
+            collective_template=collective_template,
+            folder=PeriodFolder(periods_directory, _parse_period(period)),
+        )
         preparation_register.ensure_register_available(register_path)
         preparation_files.check_templates(files)
         if not periods_directory.is_dir():
@@ -126,13 +127,14 @@ def prepare_collective_file(
             worker_mapping = load_worker_mapping(config_path)
         except StopError as exc:
             raise StopError(messages.unreadable_worker_config(config_path)) from exc
-        return parsed_period, worker_mapping
+        return files, worker_mapping
 
-    parsed_period, worker_mapping = phases.check(check_inputs)
+    files, worker_mapping = phases.check(check_inputs)
+    folder = files.folder
     register = phases.read(lambda: preparation_register.read_register(register_path))
 
     def plan_orders() -> tuple[preparation_plan.Plan, list[Message]]:
-        plan = preparation_plan.plan_period_orders(register_path, register, parsed_period, config_path, worker_mapping)
+        plan = preparation_plan.plan_period_orders(register_path, register, folder.period, config_path, worker_mapping)
         warnings = preparation_files.plan_period_files(files, len(plan.orders), len(plan.successful_orders))
         warnings.extend(preparation_plan.period_warnings(register_path, plan))
         return plan, warnings
@@ -140,9 +142,9 @@ def prepare_collective_file(
     plan, warnings = phases.plan(plan_orders, issue_count=lambda planned: len(planned[1]))
     summary = PreparationSummary(
         period=period,
-        period_directory=files.period_directory,
-        internal_settlement_file=files.internal_settlement_file,
-        collective_file=files.collective_file,
+        period_directory=folder.directory,
+        internal_settlement_file=folder.internal_settlement,
+        collective_file=folder.collective_file,
         period_order_count=len(plan.orders),
         successful_order_count=len(plan.successful_orders),
         skipped_empty_rows=plan.skipped_empty_rows,
@@ -155,7 +157,7 @@ def prepare_collective_file(
 
     def save_both() -> None:
         if not dry_run:
-            preparation_files.write_period_files(files, periods_directory, plan.orders, plan.successful_orders)
+            preparation_files.write_period_files(files, plan.orders, plan.successful_orders)
 
     phases.save(save_both)
     return replace(summary, phase_durations_ms=phases.durations_ms())

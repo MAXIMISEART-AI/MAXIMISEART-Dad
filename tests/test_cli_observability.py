@@ -25,6 +25,7 @@ from rozliczenia.telemetry import MetricsStore
 
 from tests.rich_fakes import TtyOutput, install_fake_rich
 from tests.test_settlement_engine import (
+    NOT_A_PERIOD,
     PERIOD,
     UNREADABLE_SOURCE_MESSAGE,
     active_worksheet,
@@ -291,6 +292,24 @@ def test_cli_nieczytelny_plik_zbiorczy_pokazuje_bezpieczny_komunikat(tmp_path: P
     assert f"Nie wykonano: {UNREADABLE_SOURCE_MESSAGE}" in output
     assert "File is not a zip file" not in output
     assert not target_directory.exists()
+
+
+def test_cli_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_z_okresem_nieznanym(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path, period=NOT_A_PERIOD)
+    metrics_path = tmp_path / "metrics.jsonl"
+
+    exit_code, output = run_cli(source_path, config_path, metrics_path)
+
+    assert exit_code == 1
+    lines = output.splitlines()
+    assert lines[0] == "Rozliczenia | okres: nieznany | tryb: RUN"
+    status = lines.index("Status semantyczny: BŁĄD")
+    assert lines[status + 1] == (
+        "Nie wykonano: Okres 09_15_09_2026 w nazwie pliku nie jest okresem od wtorku do poniedziałku "
+        "(przykład okresu: 08_14_09_2026)."
+    )
+    record = MetricsStore(metrics_path).read()[-1]
+    assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
 
 
 def test_cli_wykonawca_bez_mapowania_nie_publikuje_folderu(tmp_path: Path) -> None:

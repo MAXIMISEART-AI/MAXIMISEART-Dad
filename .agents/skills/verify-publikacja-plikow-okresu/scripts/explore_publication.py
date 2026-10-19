@@ -50,6 +50,8 @@ SOURCE_ROOT = Path(os.environ.get("VERIFY_PUBLIKACJA_SRC", REPO_ROOT / "src"))
 sys.path.insert(0, str(SOURCE_ROOT))
 
 from rozliczenia import preparation_files  # noqa: E402
+from rozliczenia.period_folder import PeriodFolder  # noqa: E402
+from rozliczenia.settlement_period import parse_period_token  # noqa: E402
 
 PERIOD = "08_14_09_2026"
 DAD = "tata"
@@ -592,11 +594,11 @@ def make_layout() -> Layout:
     if disk_root.exists():
         raise RuntimeError(f"Katalog dysku w pamięci istnieje na prawdziwym dysku: {disk_root}")
     periods_directory = disk_root / "Rozliczenia"
+    # As in prepare_collective_file(): the value is built only from a checked period.
     files = preparation_files.PeriodFiles(
         internal_template=disk_root / "config" / "Wzorzec rozliczenia wewnętrznego.xlsx",
         collective_template=disk_root / "config" / "Wzorzec pliku zbiorczego.xlsx",
-        period_directory=periods_directory / PERIOD,
-        period=PERIOD,
+        folder=PeriodFolder(periods_directory, parse_period_token(PERIOD)),
     )
     return Layout(disk_root, periods_directory, files)
 
@@ -614,21 +616,21 @@ def prepare_disk(disk: VirtualDisk, layout: Layout, initial_state: str) -> None:
     disk.create(layout.periods_directory, is_dir=True, owner=DAD)
     if initial_state == NO_FOLDER:
         return
-    disk.create(layout.files.period_directory, is_dir=True, owner=DAD)
+    disk.create(layout.files.folder.directory, is_dir=True, owner=DAD)
     if initial_state == DAD_INTERNAL:
-        disk.create(layout.files.internal_settlement_file, is_dir=False, owner=DAD)
+        disk.create(layout.files.folder.internal_settlement, is_dir=False, owner=DAD)
     elif initial_state == DAD_COLLECTIVE:
-        disk.create(layout.files.collective_file, is_dir=False, owner=DAD)
+        disk.create(layout.files.folder.collective_file, is_dir=False, owner=DAD)
 
 
 def dad_actions(disk: VirtualDisk, layout: Layout) -> list[tuple[str, Callable[[], None]]]:
     """What Dad, or OneDrive acting for him, may do in the Folder okresu while a process runs."""
 
-    if disk.entry(layout.files.period_directory) is None:
+    if disk.entry(layout.files.folder.directory) is None:
         return [
             (
                 "tata zakłada Folder okresu",
-                lambda: disk.create(layout.files.period_directory, is_dir=True, owner=DAD),
+                lambda: disk.create(layout.files.folder.directory, is_dir=True, owner=DAD),
             )
         ]
     def save_dad_file(target: Path) -> Callable[[], None]:
@@ -636,7 +638,7 @@ def dad_actions(disk: VirtualDisk, layout: Layout) -> list[tuple[str, Callable[[
 
     return [
         (f"tata zapisuje własny plik {target.name} w Folderze okresu", save_dad_file(target))
-        for target in (layout.files.internal_settlement_file, layout.files.collective_file)
+        for target in (layout.files.folder.internal_settlement, layout.files.folder.collective_file)
         if disk.entry(target) is None
     ]
 
@@ -660,7 +662,7 @@ class Execution:
 def _run_body(run: Run, layout: Layout) -> None:
     _CURRENT.run = run
     try:
-        preparation_files.write_period_files(layout.files, layout.periods_directory, [], [])
+        preparation_files.write_period_files(layout.files, [], [])
         run.result = "SUKCES"
     except (Crash, Abort):
         run.result = "PRZERWANE"
@@ -680,7 +682,7 @@ NOTHING_CREATED = "Nie utworzono żadnego pliku"
 
 
 def _period_files(layout: Layout) -> dict[str, Path]:
-    return {INTERNAL: layout.files.internal_settlement_file, COLLECTIVE: layout.files.collective_file}
+    return {INTERNAL: layout.files.folder.internal_settlement, COLLECTIVE: layout.files.folder.collective_file}
 
 
 def _owned_period_files(disk: VirtualDisk, layout: Layout, run: Run) -> tuple[str, ...]:

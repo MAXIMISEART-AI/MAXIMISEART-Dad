@@ -1,15 +1,15 @@
-"""Plik zbiorczy: układ wspólny dla obu procesów i nazwa ``Rozliczenie {okres} - zbiorcze.xlsx``.
+"""Plik zbiorczy: układ wspólny dla obu procesów (wiersz nagłówka, Wiersze danych, kolumny).
 
 Przygotowanie pliku zbiorczego zapisuje Plik zbiorczy w tym układzie, a Przebieg
 rozliczeń go czyta i kopiuje Wiersze danych po pozycji kolumn do Szablonów
 pracowników. Dlatego ten sam układ mają Wzorzec pliku zbiorczego, Wzorzec rozliczenia pracownika i
-Szablony pracowników. Moduł nie zna mapowania Wykonawców. ``CollectiveFileError``
-ma bezpieczny komunikat, a każdy proces tłumaczy go na swój błąd.
+Szablony pracowników. Moduł nie zna mapowania Wykonawców ani nazw plików okresu
+(``period_folder``). ``CollectiveFileError`` ma bezpieczny komunikat, a każdy
+proces tłumaczy go na swój błąd.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -24,7 +24,6 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .domain import Issue
-from .settlement_period import PERIOD_TOKEN_PATTERN
 from .workbook_files import UNREADABLE_WORKBOOK_ERRORS
 
 HEADER_ROW = 17
@@ -51,13 +50,6 @@ _ExcelCellValue = (
     | None
 )
 ExcelRow = tuple[_ExcelCellValue, ...]
-
-_NAME_PREFIX = "Rozliczenie "
-_NAME_SUFFIX = " - zbiorcze.xlsx"
-_NAME_PATTERN = re.compile(
-    rf"{re.escape(_NAME_PREFIX)}(?P<period>{PERIOD_TOKEN_PATTERN}){re.escape(_NAME_SUFFIX)}"
-)
-NAME_GLOB = f"{_NAME_PREFIX}*{_NAME_SUFFIX}"  # Plik zbiorczy dowolnego okresu, np. w oknie wyboru pliku
 
 
 class CollectiveFileError(Exception):
@@ -93,32 +85,6 @@ class DataRow:
 
     worker: _ExcelCellValue
     values: ExcelRow
-
-
-def name_for_period(period: str) -> str:
-    """Nazwa Pliku zbiorczego okresu, np. ``Rozliczenie 08_14_09_2026 - zbiorcze.xlsx``."""
-
-    return f"{_NAME_PREFIX}{period}{_NAME_SUFFIX}"
-
-
-def path_for_period(period_directory: Path, period: str) -> Path:
-    """Plik zbiorczy okresu w Folderze okresu."""
-
-    return period_directory / name_for_period(period)
-
-
-def period_from_path(path: Path) -> str:
-    """Token okresu z nazwy Pliku zbiorczego leżącego w Folderze okresu o tej samej nazwie."""
-
-    if "Rozliczenie wew." in path.name:
-        raise CollectiveFileError("Plik Rozliczenie wew. jest poza zakresem tego procesu.")
-    match = _NAME_PATTERN.fullmatch(path.name)
-    if match is None:
-        raise CollectiveFileError(f"Wybierz plik nazwany dokładnie: {name_for_period('{dd}_{dd}_{mm}_{rrrr}')}.")
-    period = match.group("period")
-    if path.parent.name != period:
-        raise CollectiveFileError(f"Folder pliku musi nazywać się tak samo jak okres: {period}.")
-    return period
 
 
 def _is_worker_header(value: object) -> bool:

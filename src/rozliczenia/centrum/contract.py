@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from rozliczenia.message import Message as ProcessMessage
-from rozliczenia.period_status import PeriodStatus
+from rozliczenia.period_folder import PeriodStatus
 
 
 class _Model(BaseModel):

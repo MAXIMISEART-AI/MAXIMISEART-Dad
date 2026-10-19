@@ -66,7 +66,10 @@ def collective_file_open(source: Path) -> Message:
 
 
 def collective_file_invalid(source: Path, detail: str) -> Message:
-    """Nazwa, folder albo układ Pliku zbiorczego; ``detail`` to ``CollectiveFileError.message``, nie tekst wyjątku."""
+    """Nazwa, folder albo układ Pliku zbiorczego.
+
+    ``detail`` to ``message`` z ``PeriodFolderError`` albo ``CollectiveFileError``, nie tekst wyjątku.
+    """
 
     return Message(
         code="ZLY_PLIK_ZBIORCZY",

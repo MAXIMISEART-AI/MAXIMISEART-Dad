@@ -22,22 +22,10 @@ from .domain import (
     WorkerResult,
 )
 from .message import StopError
+from .period_folder import PeriodFolder, PeriodFolderError, check_worker_name
 from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
 from .workbook_files import is_open_in_excel
-
-
-_INVALID_FILENAME_CHARACTERS = frozenset('<>:"/\\|?*')
-_MAX_WINDOWS_FILENAME_CODE_UNITS = 255
-
-
-def _worker_filename_fits_windows(name: str) -> bool:
-    filename = f"Rozliczenie 00_00_00_0000 - {name}.xlsx"
-    try:
-        filename_length = len(filename.encode("utf-16-le")) // 2
-    except UnicodeEncodeError:
-        return False
-    return filename_length <= _MAX_WINDOWS_FILENAME_CODE_UNITS
 
 
 def normalize_text(value: object) -> str:
@@ -82,13 +70,10 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
             raise invalid_config("Konfiguracja zawiera pusty identyfikator lub nazwę pracownika.")
         if normalized_id in seen_identifiers:
             raise invalid_config("Konfiguracja zawiera powtórzony identyfikator pracownika.")
-        if (
-            any(character in _INVALID_FILENAME_CHARACTERS for character in display_name)
-            or any(ord(character) < 32 for character in display_name)
-            or display_name.endswith((".", " "))
-        ):
+        name_check = check_worker_name(display_name)
+        if name_check == "invalid":
             raise invalid_config("Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.")
-        if not _worker_filename_fits_windows(display_name):
+        if name_check == "too_long":
             raise invalid_config("Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.")
         if normalized_name in seen_names:
             raise invalid_config(
@@ -101,15 +86,6 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
     return mapping
 
 
-def period_from_source(source_path: Path) -> str:
-    """Waliduje nazwę i lokalizację pliku zbiorczego."""
-
-    try:
-        return collective_file.period_from_path(source_path)
-    except CollectiveFileError as exc:
-        raise StopError(settlement_messages.collective_file_invalid(source_path, exc.message)) from exc
-
-
 def default_config_path() -> Path:
     """Wskazuje konfigurację wykonawców w katalogu konfiguracji."""
 
@@ -120,30 +96,6 @@ def default_worker_template_path() -> Path:
     """Wskazuje wspólny Wzorzec rozliczenia pracownika w katalogu konfiguracji."""
 
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
-
-
-def worker_settlements_directory(period_directory: Path, period: str) -> Path:
-    """Folder rozliczeń pracowników okresu w jego Folderze okresu."""
-
-    return period_directory / f"Rozliczenie pracowników {period}"
-
-
-def _worker_settlement_filename(period: str, worker_name: str) -> str:
-    return f"Rozliczenie {period} - {worker_name}.xlsx"
-
-
-def count_worker_settlements(target_directory: Path, period: str) -> int:
-    """Liczba Rozliczeń pracowników w folderze; pomija pliki blokady Excela, ukryte i Wzorzec bez nazwy wykonawcy."""
-
-    prefix, suffix = _worker_settlement_filename(period, "\0").split("\0")
-    return sum(
-        1
-        for entry in target_directory.iterdir()
-        if entry.is_file()
-        and entry.name.startswith(prefix)
-        and entry.name.endswith(suffix)
-        and len(entry.name) > len(prefix) + len(suffix)
-    )
 
 
 def _ensure_unlocked(source_path: Path) -> None:
@@ -180,12 +132,15 @@ def run_settlements(
     worker_template_path = (worker_template_path or default_worker_template_path()).expanduser().resolve()
     notify = phases.notify
 
-    def check_inputs() -> tuple[str, Path, dict[str, str]]:
+    def check_inputs() -> tuple[PeriodFolder, Path, dict[str, str]]:
         if not source_path.is_file():
             raise StopError(settlement_messages.collective_file_missing(source_path))
         _ensure_unlocked(source_path)
-        period = period_from_source(source_path)
-        target_directory = worker_settlements_directory(source_path.parent, period)
+        try:
+            folder = PeriodFolder.from_collective_file(source_path)
+        except PeriodFolderError as exc:
+            raise StopError(settlement_messages.collective_file_invalid(source_path, exc.message)) from exc
+        target_directory = folder.worker_settlements
         if target_directory.exists() or target_directory.is_symlink():
             raise StopError(settlement_messages.worker_settlements_exist(target_directory))
         mapping = load_worker_mapping(config_path)
@@ -193,20 +148,17 @@ def run_settlements(
             validate_worker_template(worker_template_path)
         except WorkerTemplateValidationError as exc:
             raise StopError(settlement_messages.worker_template_invalid(worker_template_path, exc.message)) from exc
-        return period, target_directory, mapping
+        return folder, target_directory, mapping
 
-    period, target_directory, mapping = phases.check(check_inputs)
+    folder, target_directory, mapping = phases.check(check_inputs)
     rows_by_worker, source_issues = phases.read(
         lambda: _read_source_rows(source_path),
         issue_count=lambda read_rows: len(read_rows[1]),
     )
-    summary = SettlementSummary(period, source_path, target_directory, issues=list(source_issues))
+    summary = SettlementSummary(folder.period.token, source_path, target_directory, issues=list(source_issues))
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
-        template_files = [
-            (name, target_directory / _worker_settlement_filename(period, name))
-            for name in mapping.values()
-        ]
+        template_files = [(name, folder.worker_settlement(name)) for name in mapping.values()]
         rows_by_target: defaultdict[str, list[ExcelRow]] = defaultdict(list)
         issues: list[Issue] = []
 

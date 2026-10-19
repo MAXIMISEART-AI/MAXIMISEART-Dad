@@ -18,11 +18,10 @@ from rozliczenia import preparation_cli, preparation_messages
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
-from rozliczenia.centrum.period_board import status_label
 from rozliczenia.centrum.runs import Endings, PreparedRun
 from rozliczenia.centrum.settings import CentrumSettings, SettingsStore
 from rozliczenia.collective_preparation import PreparationSummary
-from rozliczenia.period_status import period_status
+from rozliczenia.period_folder import PeriodFolder, period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 
@@ -114,15 +113,13 @@ def _choice(
 ) -> contract.PeriodChoice:
     periods_directory = settings.periods_directory
     status = (
-        period_status(periods_directory / period.token, period.token)
-        if periods_directory is not None
-        else "no_period_files"
+        PeriodFolder(periods_directory, period).observe().status if periods_directory is not None else "no_period_files"
     )
     return contract.PeriodChoice(
         token=period.token,
         tuesday=period.tuesday,
         monday=period.monday,
-        status_label=status_label(status),
+        status_label=period_status_label(status),
         last_complete=last_complete,
         previewed=previewed,
         collective_file=None,

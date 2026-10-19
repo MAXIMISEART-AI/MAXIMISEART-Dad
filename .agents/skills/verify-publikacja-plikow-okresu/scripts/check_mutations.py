@@ -49,7 +49,7 @@ MUTATIONS = (
     Mutation(
         "nieudane wycofanie zgłaszane jak zwykły błąd zapisu",
         "zostaje Rozliczenie wewnętrzne, a komunikat mówi, że nie utworzono żadnego pliku",
-        "                raise messages.write_failed_with_file_left(period_directory, target.name) from exc\n",
+        "                raise StopError(messages.write_failed_with_file_left(period_directory, target.name)) from exc\n",
         "                raise\n",
         "PUBLIKACJA: NOWE NARUSZENIE",
     ),

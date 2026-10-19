@@ -1,34 +1,26 @@
 """Tablica okresów: Foldery okresu z folderu okresów i ich Status okresu, wyliczane przy każdym odczycie.
 
-Nie ma bazy ani pamięci podręcznej. Status okresu wylicza silnik
-(``period_status``) z obecności plików; treści skoroszytów Centrum nie czyta.
-Tu są tylko etykiety, podpowiedzi następnego kroku i ścieżki do otwarcia.
+Nie ma bazy ani pamięci podręcznej. Foldery okresu, ścieżki ich plików,
+obserwację plików i Status okresu z nazwą zna silnik (``period_folder``);
+treści skoroszytów Centrum nie czyta. Tu są tylko podpowiedzi następnego
+kroku oraz etykiety i wybór plików do otwarcia.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
 
-from rozliczenia import collective_file
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.settings import SettingsStore
-from rozliczenia.engine import count_worker_settlements, worker_settlements_directory
-from rozliczenia.period_status import PeriodStatus, period_status
-from rozliczenia.preparation_files import internal_settlement_path
-from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
+from rozliczenia.period_folder import PeriodFolder, PeriodStatus, find_period_folders, period_status_label
+from rozliczenia.settlement_period import last_complete_period, parse_period_token
 
-_STATUS_LABELS: dict[PeriodStatus, str] = {
-    "no_period_files": "Brak plików okresu",
-    "collective_file_prepared": "Plik zbiorczy przygotowany",
-    "worker_settlements_ready": "Rozliczenia pracowników gotowe",
-}
 _NEXT_STEPS: dict[PeriodStatus, contract.NextStep] = {
     "no_period_files": contract.NextStep(
         action="prepare_collective_file",
@@ -48,52 +40,24 @@ _NEXT_STEPS: dict[PeriodStatus, contract.NextStep] = {
 }
 
 
-def status_label(status: PeriodStatus) -> str:
-    return _STATUS_LABELS[status]
-
-
-@dataclass(frozen=True)
-class PeriodFolder:
-    """Folder okresu i ścieżki jego plików, wyliczone z folderu okresów i tokenu."""
-
-    period: SettlementPeriod
-    directory: Path
-
-    @classmethod
-    def of(cls, periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
-        return cls(period, periods_directory / period.token)
-
-    @property
-    def internal_settlement(self) -> Path:
-        return internal_settlement_path(self.directory, self.period.token)
-
-    @property
-    def collective_file(self) -> Path:
-        return collective_file.path_for_period(self.directory, self.period.token)
-
-    @property
-    def worker_settlements(self) -> Path:
-        return worker_settlements_directory(self.directory, self.period.token)
-
-    def row(self, *, last_complete: bool) -> contract.PeriodRow:
-        has_worker_settlements = self.worker_settlements.is_dir()
-        status = period_status(self.directory, self.period.token)
-        return contract.PeriodRow(
-            token=self.period.token,
-            tuesday=self.period.tuesday,
-            monday=self.period.monday,
-            status=status,
-            status_label=_STATUS_LABELS[status],
-            period_folder_exists=self.directory.is_dir(),
-            internal_settlement_exists=self.internal_settlement.is_file(),
-            collective_file_exists=self.collective_file.is_file(),
-            worker_settlements_folder_exists=has_worker_settlements,
-            worker_settlement_count=(
-                count_worker_settlements(self.worker_settlements, self.period.token) if has_worker_settlements else 0
-            ),
-            last_complete=last_complete,
-            next_step=_NEXT_STEPS[status],
-        )
+def _row(folder: PeriodFolder, *, last_complete: bool) -> contract.PeriodRow:
+    period = folder.period
+    observation = folder.observe()
+    status = observation.status
+    return contract.PeriodRow(
+        token=period.token,
+        tuesday=period.tuesday,
+        monday=period.monday,
+        status=status,
+        status_label=period_status_label(status),
+        period_folder_exists=observation.period_folder_exists,
+        internal_settlement_exists=observation.internal_settlement_exists,
+        collective_file_exists=observation.collective_file_exists,
+        worker_settlements_folder_exists=observation.worker_settlements_folder_exists,
+        worker_settlement_count=observation.worker_settlement_count,
+        last_complete=last_complete,
+        next_step=_NEXT_STEPS[status],
+    )
 
 
 def read_board(periods_directory: Path | None, today: date) -> contract.PeriodBoard:
@@ -101,30 +65,15 @@ def read_board(periods_directory: Path | None, today: date) -> contract.PeriodBo
         return contract.BoardNotSet(state="not_set")
     if not periods_directory.is_dir():
         return contract.BoardMissing(state="missing", name=periods_directory.name)
-    last_complete = last_complete_period(today)
-    periods = set(_period_folders(periods_directory)) | {last_complete}
-    newest_first = sorted(periods, key=lambda period: period.tuesday, reverse=True)
-    rows = [
-        PeriodFolder.of(periods_directory, period).row(last_complete=period == last_complete)
-        for period in newest_first
-    ]
+    last_complete = PeriodFolder(periods_directory, last_complete_period(today))
+    folders = set(find_period_folders(periods_directory)) | {last_complete}
+    newest_first = sorted(folders, key=lambda folder: folder.period.tuesday, reverse=True)
+    rows = [_row(folder, last_complete=folder == last_complete) for folder in newest_first]
     return contract.BoardReady(
         state="ready",
         periods=rows,
         last_prepared_period=next((row.token for row in rows if row.collective_file_exists), None),
     )
-
-
-def _period_folders(periods_directory: Path) -> list[SettlementPeriod]:
-    periods = []
-    for entry in periods_directory.iterdir():
-        if not entry.is_dir():
-            continue
-        try:
-            periods.append(parse_period_token(entry.name))
-        except ValueError:
-            continue
-    return periods
 
 
 _TARGET_LABELS: dict[contract.OpenTarget, str] = {
@@ -152,7 +101,7 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
             period = parse_period_token(token)
         except ValueError:
             raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        folder = PeriodFolder.of(periods_directory, period)
+        folder = PeriodFolder(periods_directory, period)
         path = {
             "internal_settlement": folder.internal_settlement,
             "collective_file": folder.collective_file,

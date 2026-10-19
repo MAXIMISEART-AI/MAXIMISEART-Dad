@@ -15,14 +15,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
 
-from . import collective_file, engine, settlement_messages
+from . import engine, settlement_messages
 from .domain import ProgressObserver, SettlementSummary
-from .engine import (
-    default_config_path,
-    default_worker_template_path,
-    period_from_source,
-)
+from .engine import default_config_path, default_worker_template_path
 from .message import StopError
+from .period_folder import COLLECTIVE_FILE_PATTERN, PeriodFolder, PeriodFolderError
 from .process_run import Conversation, Finished, Process, Stop, run
 from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
@@ -48,7 +45,7 @@ def default_metrics_path() -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Rozdziela plik zbiorczy na szablony pracowników.")
-    parser.add_argument("--source", type=Path, help=f"Ścieżka do pliku {collective_file.NAME_GLOB}")
+    parser.add_argument("--source", type=Path, help=f"Ścieżka do pliku {COLLECTIVE_FILE_PATTERN}")
     parser.add_argument("--config", type=Path, default=default_config_path())
     parser.add_argument(
         "--worker-template",
@@ -68,8 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _period_label(source: Path) -> str:
     try:
-        return period_from_source(source.expanduser().resolve())
-    except StopError:
+        return PeriodFolder.from_collective_file(source.expanduser().resolve()).period.token
+    except PeriodFolderError:
         return UNKNOWN_PERIOD
 
 
@@ -94,7 +91,7 @@ class SettlementInputs:
 def _gather(args: argparse.Namespace, conversation: TerminalConversation) -> SettlementInputs:
     source = args.source or conversation.choose_file(
         "Wybierz plik zbiorczy rozliczenia",
-        [("Plik zbiorczy Excel", collective_file.NAME_GLOB), ("Excel", "*.xlsx")],
+        [("Plik zbiorczy Excel", COLLECTIVE_FILE_PATTERN), ("Excel", "*.xlsx")],
     )
     if source is None:
         raise StopError(settlement_messages.collective_file_not_selected())
