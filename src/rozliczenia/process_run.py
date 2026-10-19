@@ -6,8 +6,9 @@ projekcję postępu (ADR 0002) z odłączanym obserwatorem, przechwycenie każde
 wyjątku, widok podsumowania rozmówcy w tej samej osłonie, rekord metryk i
 wynik jako strukturę (``Outcome``). Każde zakończenie to ``Finished`` albo
 ``Stop`` z Komunikatem z katalogu procesu. Rozmówca (``Interlocutor``)
-rozmawia z tatą, pokazuje postęp i sam renderuje wynik: terminal
-(``TerminalConversation``) albo inny, np. Centrum rozliczeń.
+pokazuje tacie Decyzję w trakcie silnika (``decision``), pokazuje postęp i sam
+renderuje wynik: terminal (``TerminalConversation``) albo inny, np. Centrum
+rozliczeń. Decyzję składa proces, nie rozmówca.
 
 ``run`` to wejście CLI obu procesów: parsuje argumenty, ustala wejście
 procesu w rozmowie w terminalu, renderuje linie końcowe (status, ``Czas
@@ -21,7 +22,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,7 @@ import sys
 import time
 from typing import Any, Generic, Literal, Protocol, TextIO, TypeVar
 
+from .decision import Conversation, Decision
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase
 from .message import Message, StopError
 from .progress import ProgressNotice, ProgressProjection, ProgressSnapshot
@@ -36,8 +38,6 @@ from .telemetry import UNKNOWN_PERIOD, MetricsStore, comparable_records, metric_
 from .terminal_conversation import TerminalConversation
 
 __all__ = [
-    "Conversation",
-    "Decision",
     "Finished",
     "Interlocutor",
     "Outcome",
@@ -69,56 +69,8 @@ SummaryT = TypeVar("SummaryT")
 ViewT = TypeVar("ViewT")
 
 
-@dataclass(frozen=True)
-class Decision:
-    """Pytanie do taty w trakcie silnika: tytuł, komunikat, liczby z etykietami i pytanie.
-
-    Terminal pokazuje ``lines`` i pyta ``t``/``n``; inny rozmówca pokazuje te
-    same części bez parsowania linii.
-    """
-
-    title: str
-    message: Message
-    counts_title: str
-    counts: Sequence[tuple[str, int]]
-    question: str
-
-    @property
-    def lines(self) -> list[str]:
-        return [
-            self.title,
-            f"Co się stało: {self.message.what}",
-            f"Gdzie: {self.message.where}",
-            f"Co zrobić: {self.message.action}",
-            f"{self.counts_title}:",
-            *(f"- {label}: {count}" for label, count in self.counts),
-        ]
-
-
-class Conversation(Protocol):
-    """Rozmowa z tatą w trakcie silnika, dostępna dla ``Process.execute``.
-
-    ``confirm`` to decyzja taty (np. o niepełnym okresie): ``True`` to zgoda.
-    ``continue_hint`` mówi, jak u tego rozmówcy wyraża się zgodę (do komunikatu
-    po odmowie). ``ask`` to pytanie o tekst; ``None``, gdy odpowiedzi nie ma.
-    ``paused`` wstrzymuje podgląd na dłuższą rozmowę. Czas ``confirm`` i
-    ``paused`` nie wlicza się do ``Czas uruchomienia``.
-    """
-
-    @property
-    def continue_hint(self) -> str: ...
-
-    def say(self, *lines: str) -> None: ...
-
-    def ask(self, prompt: str) -> str | None: ...
-
-    def confirm(self, decision: Decision) -> bool: ...
-
-    def paused(self) -> AbstractContextManager[None]: ...
-
-
 class Interlocutor(Conversation, Protocol):
-    """Rozmówca Uruchomienia procesu: rozmowa z tatą i podgląd postępu.
+    """Rozmówca Uruchomienia procesu: Decyzja taty w trakcie silnika i podgląd postępu.
 
     Podgląd dostaje wyłącznie niemutowalne snapshoty i neutralne powiadomienia
     jedynej projekcji postępu (ADR 0002). Wyjątek z metody podglądu odłącza
@@ -249,7 +201,7 @@ class _Clock:
 
 
 class _ClockedConversation:
-    """Rozmowa rozmówcy dla silnika; decyzja i pauza taty wstrzymują zegar rdzenia."""
+    """Rozmowa rozmówcy dla silnika; czas czekania na Decyzję taty wstrzymuje zegar rdzenia."""
 
     def __init__(self, interlocutor: Interlocutor, clock: _Clock) -> None:
         self._interlocutor = interlocutor
@@ -259,20 +211,9 @@ class _ClockedConversation:
     def continue_hint(self) -> str:
         return self._interlocutor.continue_hint
 
-    def say(self, *lines: str) -> None:
-        self._interlocutor.say(*lines)
-
-    def ask(self, prompt: str) -> str | None:
-        return self._interlocutor.ask(prompt)
-
     def confirm(self, decision: Decision) -> bool:
         with self._clock.paused():
             return self._interlocutor.confirm(decision)
-
-    @contextmanager
-    def paused(self) -> Iterator[None]:
-        with self._clock.paused(), self._interlocutor.paused():
-            yield
 
 
 class _Observation:

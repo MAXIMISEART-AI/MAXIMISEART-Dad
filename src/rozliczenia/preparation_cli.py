@@ -24,9 +24,10 @@ from .collective_preparation import (
     default_collective_template_path,
     default_internal_template_path,
 )
+from .decision import Conversation
 from .domain import ProgressObserver
 from .message import Message, StopError
-from .process_run import Conversation, Decision, Finished, Process, Stop, TerminalSummary, TerminalView, run
+from .process_run import Finished, Process, Stop, TerminalSummary, TerminalView, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from .terminal_conversation import TerminalConversation
 from .worker_config import default_config_path
@@ -34,7 +35,6 @@ from .worker_config import default_config_path
 _TITLE = "Przygotowanie pliku zbiorczego"
 # Liczniki historii metryk Przygotowania pliku zbiorczego (inne niż Przebiegu rozliczeń).
 _COUNTERS = frozenset({"period_orders", "successful_orders", "skipped_empty_rows", "warnings"})
-_WEEKDAY_LABELS = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
 
 
 def default_metrics_path() -> Path:
@@ -84,18 +84,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _day_label(day: date) -> str:
-    """Dzień okresu tak jak w liniach ``Zlecenia na dzień``, np. ``wt 08.09.2026``."""
-
-    return f"{_WEEKDAY_LABELS[day.weekday()]} {day:%d.%m.%Y}"
-
-
-def orders_per_day(plan: PreparationSummary) -> list[tuple[str, int]]:
-    """``Zlecenia na dzień`` z etykietami jak w terminalu, np. ``("wt 08.09.2026", 1)``, w kolejności dat."""
-
-    return [(_day_label(day), count) for day, count in plan.orders_per_day.items()]
-
-
 def _message_lines(message: Message) -> list[str]:
     first, *rest = message.text.splitlines()
     return [f"- {first}", *(f"  {line}" for line in rest)]
@@ -107,8 +95,8 @@ def _summary_lines(summary: PreparationSummary, *, dry_run: bool) -> list[str]:
         f"Zlecenia okresu: {summary.period_order_count}",
         f"Zlecenia skuteczne: {summary.successful_order_count}",
         f"Pominięte puste wiersze: {summary.skipped_empty_rows}",
-        "Zlecenia na dzień:",
-        *(f"- {label}: {count}" for label, count in orders_per_day(summary)),
+        f"{messages.ORDERS_PER_DAY}:",
+        *(f"- {label}: {count}" for label, count in summary.labeled_orders_per_day()),
         f"Ostrzeżenia: {len(summary.warnings)}",
     ]
     for warning in summary.warnings:
@@ -143,32 +131,6 @@ def _ask_period(today: date, conversation: TerminalConversation) -> str:
             return parse_period_token(answer).token
         except ValueError:
             conversation.say(*messages.invalid_period_token(answer).text.splitlines())
-
-
-class _IncompletePeriodQuestion:
-    """Decyzja po Planowaniu: przy niepełnym okresie pyta tatę o kontynuację.
-
-    Silnik wywołuje ją z planem między Planowaniem a Zapisywaniem. Decyzję
-    podejmuje tata przez rozmówcę (``Conversation.confirm``). Odmowa to
-    ``StopError`` z podpowiedzią, jak u tego rozmówcy wyraża się zgodę.
-    """
-
-    def __init__(self, conversation: Conversation) -> None:
-        self._conversation = conversation
-
-    def __call__(self, plan: PreparationSummary) -> None:
-        warning = next((item for item in plan.warnings if item.code == messages.INCOMPLETE_PERIOD), None)
-        if warning is None:
-            return
-        decision = Decision(
-            title="Ostrzeżenie: niepełny okres",
-            message=warning,
-            counts_title="Zlecenia na dzień",
-            counts=orders_per_day(plan),
-            question="Kontynuować mimo niepełnego okresu?",
-        )
-        if not self._conversation.confirm(decision):
-            raise StopError(messages.incomplete_period_refused(plan.period, self._conversation.continue_hint))
 
 
 @dataclass(frozen=True)
@@ -218,7 +180,7 @@ def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation
         collective_template_path=inputs.collective_template_path,
         dry_run=inputs.dry_run,
         observer=observer,
-        confirm_plan=_IncompletePeriodQuestion(conversation),
+        conversation=conversation,
     )
 
 

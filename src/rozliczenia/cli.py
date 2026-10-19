@@ -17,11 +17,12 @@ from pathlib import Path
 from typing import TextIO
 
 from . import engine, settlement_messages
+from .decision import Conversation
 from .domain import ProgressObserver, SettlementSummary
 from .engine import default_worker_template_path
 from .message import StopError
 from .period_folder import COLLECTIVE_FILE_PATTERN, PeriodFolder, PeriodFolderError
-from .process_run import Conversation, Finished, Process, Stop, TerminalSummary, TerminalView, run
+from .process_run import Finished, Process, Stop, TerminalSummary, TerminalView, run
 from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
 from .terminal_conversation import TerminalConversation
