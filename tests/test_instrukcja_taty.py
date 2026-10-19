@@ -59,10 +59,10 @@ PREPARATION_SAMPLES: Samples = {
     "register_not_selected": [messages.register_not_selected],
     "periods_directory_not_selected": [messages.periods_directory_not_selected],
     "period_not_entered": [messages.period_not_entered],
-    "worker_config_invalid": [
-        lambda: messages.worker_config_invalid(CONFIG, UNREADABLE_CONFIG),
-        lambda: messages.worker_config_invalid(CONFIG, CONFIG_NOT_YAML),
-        lambda: messages.worker_config_invalid(CONFIG, INVALID_CONFIG),
+    "worker_config_problem": [
+        lambda: messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
+        lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
+        lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
     "template_missing": [lambda: messages.template_missing(TEMPLATE)],
     "template_open_in_excel": [lambda: messages.template_open_in_excel(TEMPLATE)],
@@ -132,10 +132,10 @@ SETTLEMENT_SAMPLES: Samples = {
         lambda: settlement_messages.collective_file_without_worker_header(SOURCE)
     ],
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
-    "worker_config_invalid": [
-        lambda: settlement_messages.worker_config_invalid(CONFIG, UNREADABLE_CONFIG),
-        lambda: settlement_messages.worker_config_invalid(CONFIG, CONFIG_NOT_YAML),
-        lambda: settlement_messages.worker_config_invalid(CONFIG, INVALID_CONFIG),
+    "worker_config_problem": [
+        lambda: settlement_messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
+        lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
+        lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
     "worker_template_invalid": [
         lambda: settlement_messages.worker_template_invalid(

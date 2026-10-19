@@ -141,6 +141,6 @@ def _workers(config_path: Path) -> contract.Workers:
     try:
         mapping = load_worker_mapping(config_path)
     except WorkerConfigError as error:
-        message = settlement_messages.worker_config_invalid(config_path, error)
+        message = settlement_messages.worker_config_problem(config_path, error)
         return contract.WorkersUnreadable(state="unreadable", message=contract.Message.of(message))
     return contract.WorkersReady(state="ready", names=list(mapping.values()))

@@ -114,7 +114,7 @@ def worker_settlements_exist(target_directory: Path) -> Message:
     )
 
 
-def worker_config_invalid(config_path: Path, error: WorkerConfigError) -> Message:
+def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
     """Konfiguracji wykonawców nie da się użyć; ``error.detail`` nie zawiera ścieżki."""
 
     terminal_lines = {

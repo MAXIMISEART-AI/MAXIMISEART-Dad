@@ -119,7 +119,7 @@ def run_settlements(
         try:
             mapping = load_worker_mapping(config_path)
         except WorkerConfigError as exc:
-            raise StopError(settlement_messages.worker_config_invalid(config_path, exc)) from exc
+            raise StopError(settlement_messages.worker_config_problem(config_path, exc)) from exc
         try:
             validate_worker_template(worker_template_path)
         except WorkerTemplateValidationError as exc:
