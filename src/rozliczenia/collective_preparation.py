@@ -126,7 +126,7 @@ def prepare_collective_file(
         try:
             worker_mapping = load_worker_mapping(config_path)
         except WorkerConfigError as exc:
-            raise StopError(messages.unreadable_worker_config(config_path)) from exc
+            raise StopError(messages.worker_config_invalid(config_path, exc)) from exc
         return files, worker_mapping
 
     files, worker_mapping = phases.check(check_inputs)

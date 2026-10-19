@@ -59,7 +59,11 @@ PREPARATION_SAMPLES: Samples = {
     "register_not_selected": [messages.register_not_selected],
     "periods_directory_not_selected": [messages.periods_directory_not_selected],
     "period_not_entered": [messages.period_not_entered],
-    "unreadable_worker_config": [lambda: messages.unreadable_worker_config(CONFIG)],
+    "worker_config_invalid": [
+        lambda: messages.worker_config_invalid(CONFIG, UNREADABLE_CONFIG),
+        lambda: messages.worker_config_invalid(CONFIG, CONFIG_NOT_YAML),
+        lambda: messages.worker_config_invalid(CONFIG, INVALID_CONFIG),
+    ],
     "template_missing": [lambda: messages.template_missing(TEMPLATE)],
     "template_open_in_excel": [lambda: messages.template_open_in_excel(TEMPLATE)],
     "template_unreadable": [lambda: messages.template_unreadable(TEMPLATE)],

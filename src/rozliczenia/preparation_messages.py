@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .workbook_files import WORKER_HEADER
+from .worker_config import WorkerConfigError
 
 # Kody czytane poza katalogiem: decyzja o niepełnym okresie i problemy Wzorców w Konfiguracji Centrum.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
@@ -84,12 +85,12 @@ def period_not_entered() -> Message:
     )
 
 
-def unreadable_worker_config(config_path: Path) -> Message:
-    """Konfiguracja wykonawców nie daje się odczytać."""
+def worker_config_invalid(config_path: Path, error: WorkerConfigError) -> Message:
+    """Konfiguracji wykonawców nie da się użyć; ``error.detail`` mówi, która reguła jest złamana."""
 
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
-        what="Nie można odczytać konfiguracji wykonawców.",
+        what=f"Nie można odczytać konfiguracji wykonawców. {error.detail}",
         where=f"plik {config_path.name}",
         action="Przekaż to osobie utrzymującej narzędzie.",
     )

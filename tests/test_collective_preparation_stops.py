@@ -467,6 +467,21 @@ def test_missing_folder_okresow_stops_without_creating_it(tmp_path: Path) -> Non
     assert not fixture.periods_directory.exists()
 
 
+def test_zlamana_regula_konfiguracji_wykonawcow_zatrzymuje_przygotowanie_ze_szczegolem(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    fixture.config_path.write_text("schema_version: 1\nworkers:\n  a: Ten Sam\n  b: ten sam\n", encoding="utf-8")
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "ZLA_KONFIGURACJA_WYKONAWCOW"
+    assert error.message.text == (
+        "Co się stało: Nie można odczytać konfiguracji wykonawców. "
+        "Dwóch identyfikatorów wskazuje ten sam plik pracownika: Ten Sam / ten sam\n"
+        "Gdzie: plik worker_mapping.yaml\n"
+        "Co zrobić: Przekaż to osobie utrzymującej narzędzie."
+    )
+
+
 @pytest.mark.parametrize(
     ("failure", "period_directory_exists"),
     [
