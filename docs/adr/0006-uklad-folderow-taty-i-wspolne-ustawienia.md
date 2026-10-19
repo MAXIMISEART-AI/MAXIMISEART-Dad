@@ -37,6 +37,9 @@ i folder okresów, choć tata wskazał je już w Centrum rozliczeń.
    folder okresów ma foldery `Rozliczenia {rok}`, Folder okresu jest **szukany**
    w `Rozliczenia {rok}\{miesiąc}\INEA` każdego roku i miesiąca. Tata wskazuje
    wtedy `Załączniki`.
+   Folder okresów wskazany wewnątrz `Rozliczenia {rok}` (np. `INEA` jednego
+   miesiąca) to ten sam układ liczony od folderu nad `Rozliczenia {rok}`, więc
+   brakujący Folder okresu nie powstaje w miesiącu, który akurat wskazano.
 3. **Folder okresu zakłada tata.** W układzie folderów taty brak Folderu
    okresu zatrzymuje proces komunikatem „Załóż folder … w folderze INEA
    właściwego miesiąca”. Ten sam okres w dwóch miesiącach też zatrzymuje proces

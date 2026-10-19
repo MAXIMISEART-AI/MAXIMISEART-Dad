@@ -18,7 +18,10 @@ bezpośrednio, a brakujący Folder okresu powstaje przy zapisie. W układzie
 folderów taty leżą w ``Rozliczenia {rok}\\{miesiąc}\\INEA``; miesiąc to cykl
 rozliczeniowy taty, nie kalendarz, więc Folder okresu jest szukany, a nie
 wyliczany (``locate_period_folder``). Tata zakłada go sam; brak albo ten sam
-okres w dwóch miesiącach to ``PeriodFolderLookupError``.
+okres w dwóch miesiącach to ``PeriodFolderLookupError``. Folder okresów
+wskazany wewnątrz ``Rozliczenia {rok}`` (np. ``INEA`` jednego miesiąca) to ten
+sam układ liczony od folderu nad ``Rozliczenia {rok}``, więc brakujący Folder
+okresu nie powstaje w złym miesiącu.
 """
 
 from __future__ import annotations
@@ -217,6 +220,22 @@ def _month_periods_folders(periods_directory: Path) -> list[Path]:
     ]
 
 
+def _layout_root(periods_directory: Path) -> Path:
+    """Folder, od którego liczy się układ folderów okresów.
+
+    Folder okresów wewnątrz ``Rozliczenia {rok}`` (np. ``INEA`` jednego miesiąca)
+    oznacza folder nad ``Rozliczenia {rok}``, gdy ten ma foldery ``INEA``
+    miesięcy. Inaczej to sam folder okresów.
+    """
+
+    if _month_periods_folders(periods_directory):
+        return periods_directory
+    for directory in (periods_directory, *periods_directory.parents):
+        if _YEAR_FOLDER.fullmatch(directory.name) and _month_periods_folders(directory.parent):
+            return directory.parent
+    return periods_directory
+
+
 def _period_folder_parents(periods_directory: Path) -> list[Path]:
     """Foldery, w których leżą Foldery okresu: sam folder okresów i foldery ``INEA`` miesięcy."""
 
@@ -237,9 +256,10 @@ def locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> P
 
     W układzie płaskim Folder okresu może jeszcze nie istnieć. W układzie
     folderów taty musi istnieć dokładnie w jednym miejscu; inaczej
-    ``PeriodFolderLookupError``.
+    ``PeriodFolderLookupError`` z folderem okresów liczonym od ``_layout_root``.
     """
 
+    periods_directory = _layout_root(periods_directory)
     month_folders = _month_periods_folders(periods_directory)
     found = tuple(parent for parent in (periods_directory, *month_folders) if (parent / period.token).is_dir())
     if len(found) == 1:
@@ -256,7 +276,7 @@ def find_period_folders(periods_directory: Path) -> list[PeriodFolder]:
     """
 
     folders: dict[SettlementPeriod, PeriodFolder] = {}
-    for parent in _period_folder_parents(periods_directory):
+    for parent in _period_folder_parents(_layout_root(periods_directory)):
         for entry in parent.iterdir():
             if not entry.is_dir():
                 continue

@@ -98,8 +98,10 @@ Folder, którego nazwa nie jest tokenem żadnego okresu (na przykład
 Folder, w którym narzędzie szuka Folderów okresu. W układzie folderów taty to
 `Załączniki`, a Foldery okresu leżą w `Rozliczenia {rok}\{miesiąc}\INEA`.
 Miesiąc to cykl rozliczeniowy taty, nie kalendarz, więc Folder okresu zakłada
-tata, a narzędzie go odszukuje. Bez folderów `Rozliczenia {rok}` Foldery okresu
-leżą w folderze okresów bezpośrednio (np. `INEA`).
+tata, a narzędzie go odszukuje. Folder wskazany wewnątrz `Rozliczenia {rok}`
+(np. `INEA` jednego miesiąca) to ten sam układ liczony od `Załączniki`. Bez
+folderów `Rozliczenia {rok}` Foldery okresu leżą w folderze okresów
+bezpośrednio (np. `INEA`).
 
 ## Ustawienia taty
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import time
@@ -267,6 +267,24 @@ def test_in_dad_layout_period_files_go_to_folder_okresu_found_in_its_month(tmp_p
         [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
     )
     assert not (fixture.periods_directory / PERIOD).exists()
+
+
+@pytest.mark.parametrize("levels_up", [0, 1, 2], ids=["INEA", "miesiąc", "rok"])
+def test_in_dad_layout_folder_okresow_chosen_inside_another_month_finds_folder_okresu_in_its_month(
+    tmp_path: Path, levels_up: int
+) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+    august = fixture.periods_directory / "Rozliczenia 2026" / "08_Sierpień_2026" / "INEA"
+    chosen = ([august, *august.parents])[levels_up]
+
+    summary = run_preparation(replace(fixture, periods_directory=chosen))
+
+    assert summary.period_directory == fixture.period_directory
+    assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
+        [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
+    )
+    assert not (chosen / PERIOD).exists()
+    assert sorted(path.name for path in august.iterdir()) == ["25_31_08_2026"]
 
 
 @pytest.mark.parametrize("existing_name", [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME])

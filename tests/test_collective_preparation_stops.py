@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 import os
 from pathlib import Path
@@ -481,6 +482,20 @@ def test_in_dad_layout_missing_folder_okresu_stops_without_creating_it(tmp_path:
         "Gdzie: foldery INEA w folderze Załączniki\n"
         "Co zrobić: Załóż folder 08_14_09_2026 w folderze INEA właściwego miesiąca i uruchom ponownie."
     )
+    assert sorted(fixture.periods_directory.rglob("*")) == tree_before
+
+
+def test_in_dad_layout_folder_inea_of_another_month_does_not_get_missing_folder_okresu(tmp_path: Path) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+    fixture.period_directory.rmdir()
+    august = fixture.periods_directory / "Rozliczenia 2026" / "08_Sierpień_2026" / "INEA"
+    tree_before = sorted(fixture.periods_directory.rglob("*"))
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(replace(fixture, periods_directory=august))
+
+    assert raised.value.message.code == "BRAK_FOLDERU_OKRESU"
+    assert raised.value.message.where == "foldery INEA w folderze Załączniki"
     assert sorted(fixture.periods_directory.rglob("*")) == tree_before
 
 
