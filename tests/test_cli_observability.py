@@ -552,7 +552,7 @@ def test_cancelled_plik_zbiorczy_selection_warns_when_metrics_are_not_saved(
     )
 
 
-def test_broken_wzorzec_rozliczenia_pracownika_shows_safe_message_instead_of_parser_text(tmp_path: Path) -> None:
+def test_broken_wzorzec_rozliczenia_pracownika_shows_unreadable_wzorzec_message(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     worker_template_path = config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"
     with zipfile.ZipFile(source_path) as source:
@@ -566,7 +566,7 @@ def test_broken_wzorzec_rozliczenia_pracownika_shows_safe_message_instead_of_par
     assert exit_code == 1
     lines = output.splitlines()
     status = lines.index("Status semantyczny: BŁĄD")
-    assert lines[status + 1] == UNEXPECTED_FAILURE_LINE
+    assert lines[status + 1] == "Nie wykonano: Nie można odczytać Wzorca rozliczenia pracownika."
     assert lines[status + 2].startswith("Czas uruchomienia: ")
     assert "unclosed token" not in output
     assert "Traceback" not in output

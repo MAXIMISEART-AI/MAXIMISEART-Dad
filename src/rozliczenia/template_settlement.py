@@ -15,6 +15,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from . import collective_file, workbook_files
 from .collective_file import CollectiveFileError, ExcelRow
 from .domain import Issue, WorkerResult
+from .workbook_files import WORKER_HEADER, Layout, Problem, WorkbookError
 
 
 class TemplateWriteError(Exception):
@@ -59,32 +60,30 @@ def _target_has_input_data(sheet: Worksheet) -> bool:
 def validate_worker_template(path: Path) -> None:
     """Sprawdza Wzorzec rozliczenia pracownika bez modyfikowania jego zawartości."""
 
-    if not path.is_file():
+    try:
+        with workbook_files.open_template(path, Layout.COLLECTIVE) as sheet:
+            sheet.check_worker_header()
+            if sheet.has_input_data():
+                raise WorkerTemplateValidationError(
+                    "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór."
+                )
+    except WorkbookError as error:
+        raise _validation_error(path, error) from error
+
+
+def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidationError:
+    if error.problem is Problem.MISSING:
         message = f"Nie znaleziono Wzorca rozliczenia pracownika: {path.name}."
         if path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
             message += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{path.name}”."
-        raise WorkerTemplateValidationError(message, "missing")
-    if workbook_files.is_open_in_excel(path):
-        raise WorkerTemplateValidationError(
-            "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.", "open_in_excel"
+        return WorkerTemplateValidationError(message, "missing")
+    if error.problem is Problem.OPEN_IN_EXCEL:
+        return WorkerTemplateValidationError("Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.", "open_in_excel")
+    if error.problem is Problem.LAYOUT:
+        return WorkerTemplateValidationError(
+            f"Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}."
         )
-    try:
-        workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
-    except (OSError, InvalidFileException, zipfile.BadZipFile) as exc:
-        raise WorkerTemplateValidationError("Nie można odczytać Wzorca rozliczenia pracownika.") from exc
-
-    try:
-        sheet = _active_worksheet(workbook)
-        if sheet is None:
-            raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika nie zawiera arkusza roboczego.")
-        try:
-            collective_file.check_worker_header(sheet)
-        except CollectiveFileError as exc:
-            raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w H:17.") from exc
-        if _target_has_input_data(sheet):
-            raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.")
-    finally:
-        workbook.close()
+    return WorkerTemplateValidationError("Nie można odczytać Wzorca rozliczenia pracownika.")
 
 
 def _active_worksheet(workbook: Workbook) -> Worksheet | None:

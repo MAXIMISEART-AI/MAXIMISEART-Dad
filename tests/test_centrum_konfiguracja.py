@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
 from tests.collective_preparation_fixtures import write_collective_template, write_internal_template
 from tests.test_centrum_rozliczen import CENTRUM, FakePlatform, project_version
-from tests.test_settlement_engine import write_mapping, write_template
+from tests.test_settlement_engine import cut_sheet_after_data_rows, write_mapping, write_template
 
 INTERNAL = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE = "Wzorzec pliku zbiorczego.xlsx"
@@ -170,11 +171,19 @@ UNREADABLE_TEMPLATE = (
         (WORKER, f"{WORKER_TEMPLATE_STOP} Nie można odczytać Wzorca rozliczenia pracownika.", WORKER_TEMPLATE_ACTION),
     ],
 )
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda path: path.write_bytes(b"to nie jest skoroszyt"),
+        cut_sheet_after_data_rows,
+    ],
+    ids=["nie-skoroszyt", "uciety-xml-arkusza"],
+)
 def test_nieczytelny_wzorzec_trzeba_przekazac_osobie_utrzymujacej_narzedzie(
-    tmp_path: Path, file_name: str, what: str, action: str
+    tmp_path: Path, file_name: str, what: str, action: str, damage: Callable[[Path], object]
 ) -> None:
     app = configured(tmp_path)
-    (tmp_path / "config" / file_name).write_bytes(b"to nie jest skoroszyt")
+    damage(tmp_path / "config" / file_name)
 
     template = templates_by_file(read_configuration(app))[file_name]
 
