@@ -482,6 +482,21 @@ def test_zlamana_regula_konfiguracji_wykonawcow_zatrzymuje_przygotowanie_ze_szcz
     )
 
 
+def test_nieczytelna_konfiguracja_wykonawcow_zatrzymuje_przygotowanie_bez_powtorzenia(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    fixture.config_path.unlink()
+    fixture.config_path.mkdir()
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "ZLA_KONFIGURACJA_WYKONAWCOW"
+    assert error.message.text == (
+        "Co się stało: Nie można odczytać konfiguracji wykonawców.\n"
+        "Gdzie: plik worker_mapping.yaml\n"
+        "Co zrobić: Przekaż to osobie utrzymującej narzędzie."
+    )
+
+
 @pytest.mark.parametrize(
     ("failure", "period_directory_exists"),
     [
