@@ -11,8 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import collective_file, settlement_messages, template_settlement
-from .collective_file import CollectiveFileError, ExcelRow
+from . import collective_file, settlement_messages, template_settlement, workbook_files
 from .domain import (
     Issue,
     ProgressEventFactory,
@@ -24,7 +23,7 @@ from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError, check_worker_name
 from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import WorkbookError, is_open_in_excel
+from .workbook_files import ExcelRow, Problem, WorkbookError
 
 
 def normalize_text(value: object) -> str:
@@ -97,9 +96,16 @@ def default_worker_template_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
 
 
-def _ensure_unlocked(source_path: Path) -> None:
-    if is_open_in_excel(source_path):
-        raise StopError(settlement_messages.collective_file_open(source_path))
+def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
+    """Zatrzymanie z Komunikatem Przebiegu rozliczeń dla Pliku zbiorczego, którego nie da się użyć."""
+
+    if error.problem is Problem.MISSING:
+        return StopError(settlement_messages.collective_file_missing(source_path))
+    if error.problem is Problem.OPEN_IN_EXCEL:
+        return StopError(settlement_messages.collective_file_open(source_path))
+    if error.problem is Problem.LAYOUT:
+        return StopError(settlement_messages.collective_file_without_worker_header(source_path))
+    return StopError(settlement_messages.collective_file_unreadable(source_path))
 
 
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], list[Issue]]:
@@ -107,8 +113,8 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], lis
 
     try:
         data_rows, issues = collective_file.read_data_rows(source_path)
-    except CollectiveFileError as exc:
-        raise StopError(settlement_messages.collective_file_invalid(source_path, exc.message)) from exc
+    except WorkbookError as error:
+        raise _collective_file_stop(source_path, error) from error
     rows_by_worker: defaultdict[str, list[ExcelRow]] = defaultdict(list)
     for row in data_rows:
         rows_by_worker[normalize_text(row.worker)].append(row.values)
@@ -132,9 +138,10 @@ def run_settlements(
     notify = phases.notify
 
     def check_inputs() -> tuple[PeriodFolder, Path, dict[str, str]]:
-        if not source_path.is_file():
-            raise StopError(settlement_messages.collective_file_missing(source_path))
-        _ensure_unlocked(source_path)
+        try:
+            workbook_files.ensure_available(source_path)
+        except WorkbookError as error:
+            raise _collective_file_stop(source_path, error) from error
         try:
             folder = PeriodFolder.from_collective_file(source_path)
         except PeriodFolderError as exc:

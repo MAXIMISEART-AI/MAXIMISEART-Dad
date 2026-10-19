@@ -17,11 +17,11 @@ from openpyxl import load_workbook
 import pytest
 
 from rozliczenia.cli import main
-from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import Issue, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
+from rozliczenia.workbook_files import ExcelRow
 
 from tests.rich_fakes import TtyOutput, install_fake_rich
 from tests.test_settlement_engine import (

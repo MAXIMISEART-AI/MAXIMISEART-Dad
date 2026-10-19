@@ -18,6 +18,7 @@ from typing import Final
 
 from .domain import Issue
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
+from .workbook_files import WORKER_HEADER
 
 _NOTHING_CREATED: Final = "Nie utworzono żadnego pliku pracownika."
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
@@ -68,7 +69,7 @@ def collective_file_open(source: Path) -> Message:
 def collective_file_invalid(source: Path, detail: str) -> Message:
     """Nazwa, folder albo układ Pliku zbiorczego.
 
-    ``detail`` to ``message`` z ``PeriodFolderError`` albo ``CollectiveFileError``, nie tekst wyjątku.
+    ``detail`` to ``message`` z ``PeriodFolderError`` albo opis problemu z odczytem, nie tekst wyjątku.
     """
 
     return Message(
@@ -77,6 +78,23 @@ def collective_file_invalid(source: Path, detail: str) -> Message:
         where=file_label(source),
         action=f"Popraw Plik zbiorczy w Excelu. {_SAVE_AND_RETRY} Jeśli błąd wraca, {REPORT_TO_MAINTAINER.lower()}",
         terminal_line=detail,
+    )
+
+
+def collective_file_unreadable(source: Path) -> Message:
+    """Plik zbiorczy nie daje się odczytać jako skoroszyt .xlsx."""
+
+    return collective_file_invalid(
+        source,
+        f"Nie można odczytać Pliku zbiorczego {source.name}. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.",
+    )
+
+
+def collective_file_without_worker_header(source: Path) -> Message:
+    """Plik zbiorczy nie ma nagłówka WYKONAWCA w H17, skąd Przebieg rozliczeń czyta Wykonawcę."""
+
+    return collective_file_invalid(
+        source, f"W wierszu {WORKER_HEADER.row} nie znaleziono nagłówka WYKONAWCA w kolumnie {WORKER_HEADER.column}."
     )
 
 

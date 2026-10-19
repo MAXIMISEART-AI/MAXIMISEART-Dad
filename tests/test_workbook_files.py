@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -29,38 +27,15 @@ from tests.test_settlement_engine import (
     add_external_link_fixture,
     cut_sheet_after_data_rows,
     external_link_parts,
+    without_sheet,
+    without_styles,
     write_source,
     write_template,
 )
 
 
-def _rewrite_parts(path: Path, change: Callable[[str, bytes], bytes | None]) -> None:
-    """Przepisuje części archiwum .xlsx; ``None`` usuwa część."""
-
-    with zipfile.ZipFile(path) as source:
-        members = [(info, source.read(info.filename)) for info in source.infolist()]
-    with zipfile.ZipFile(path, "w") as target:
-        for info, data in members:
-            changed = change(info.filename, data)
-            if changed is not None:
-                target.writestr(info, changed)
-
-
 def not_a_zip(path: Path) -> None:
     path.write_bytes(b"to nie jest skoroszyt")
-
-
-def without_styles(path: Path) -> None:
-    """Komórki zostają ze stylem, ale ``xl/styles.xml`` znika."""
-
-    _rewrite_parts(path, lambda name, data: None if name == "xl/styles.xml" else data)
-
-
-def without_sheet(path: Path) -> None:
-    _rewrite_parts(
-        path,
-        lambda name, data: re.sub(rb"<sheets>.*?</sheets>", b"<sheets/>", data) if name == "xl/workbook.xml" else data,
-    )
 
 
 def styled_template(path: Path) -> Path:
