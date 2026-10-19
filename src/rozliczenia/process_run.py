@@ -127,19 +127,17 @@ class Interlocutor(Conversation, Protocol):
 
 @dataclass(frozen=True)
 class Stop:
-    """Zatrzymanie Uruchomienia procesu przekazywane procesowi do ``stopped``.
+    """Zatrzymanie Uruchomienia procesu; zawsze z Komunikatem z katalogu procesu (``message``).
 
-    ``stop``: własne zatrzymanie procesu (``StopError``) z liniami terminala
-    ``lines`` i jego Komunikatem (``message``).
-    ``unexpected``: inny wyjątek przed końcem silnika. ``after_engine``: silnik
-    skończył, ale nie dało się zbudować podsumowania. Tylko ``stop`` ma linie
-    i komunikat. ``dry_run``: Uruchomienie DRY-RUN, w którym nic nie zapisano.
+    ``stop``: własne zatrzymanie procesu (``StopError``) z jego Komunikatem.
+    ``unexpected``: inny wyjątek przed końcem silnika, z Komunikatem
+    ``Process.unexpected_failure``. ``after_engine``: silnik skończył, ale nie
+    dało się zbudować podsumowania, z Komunikatem ``Process.plan_not_shown``
+    (DRY-RUN) albo ``Process.summary_not_shown`` (RUN).
     """
 
     kind: Literal["stop", "unexpected", "after_engine"]
-    dry_run: bool
-    lines: tuple[str, ...] = ()
-    message: Message | None = None
+    message: Message
 
 
 @dataclass(frozen=True)
@@ -163,6 +161,9 @@ class Process(Generic[InputsT, SummaryT]):
 
     ``execute`` wywołuje silnik z gotowym wejściem procesu. Zatrzymanie
     zgłasza ``StopError`` z Komunikatem z katalogu procesu (``gather`` też).
+    Komunikaty zakończeń z tego samego katalogu (``unexpected_failure``,
+    ``plan_not_shown``, ``summary_not_shown``) rdzeń dołącza do każdego innego
+    zatrzymania, więc żaden rozmówca nie dobiera treści sam.
     ``finished`` i ``stopped`` są czystymi funkcjami linii końcowych, wspólnymi
     dla każdego rozmówcy.
 
@@ -179,6 +180,9 @@ class Process(Generic[InputsT, SummaryT]):
     execute: Callable[[InputsT, ProgressObserver, Conversation], SummaryT]
     finished: Callable[[InputsT, SummaryT], Finished]
     stopped: Callable[[Stop], Sequence[str]]
+    unexpected_failure: Message
+    plan_not_shown: Message
+    summary_not_shown: Message
 
 
 @dataclass(frozen=True)
@@ -296,12 +300,12 @@ class _Observation:
             self.failed = True
 
 
-def _stop_from(error: Exception, *, dry_run: bool) -> Stop:
-    """Linie terminala to ``terminal_line`` Komunikatu, jeśli jest, a w przeciwnym razie jego trzy części."""
+def _stop_from(error: Exception, process: Process[Any, Any]) -> Stop:
+    """Własne zatrzymanie procesu z jego Komunikatem; każdy inny wyjątek to Komunikat nieoczekiwanego błędu."""
 
-    if not isinstance(error, StopError):
-        return Stop("unexpected", dry_run)
-    return Stop("stop", dry_run, tuple(error.message.terminal_lines), error.message)
+    if isinstance(error, StopError):
+        return Stop("stop", error.message)
+    return Stop("unexpected", process.unexpected_failure)
 
 
 def _gather(
@@ -310,7 +314,7 @@ def _gather(
     try:
         return process.gather(args, conversation)
     except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
-        return _stop_from(error, dry_run=args.dry_run)
+        return _stop_from(error, process)
 
 
 # Budowa podsumowania odroczona do chwili po pomiarze Czasu uruchomienia i
@@ -323,15 +327,13 @@ def _run_engine(
     inputs: InputsT,
     observation: _Observation,
     conversation: Conversation,
-    *,
-    dry_run: bool,
 ) -> _DeferredSummary[SummaryT] | Stop:
     """Silnik z podglądem jako obserwatorem; po sukcesie zwraca odroczoną budowę podsumowania."""
 
     try:
         summary = process.execute(inputs, observation, conversation)
     except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
-        return _stop_from(error, dry_run=dry_run)
+        return _stop_from(error, process)
     except BaseException:
         observation.stop()
         raise
@@ -339,16 +341,16 @@ def _run_engine(
 
 
 def _build_summary(
-    engine_outcome: _DeferredSummary[SummaryT] | Stop, *, dry_run: bool
+    engine_outcome: _DeferredSummary[SummaryT] | Stop, *, not_shown: Message
 ) -> tuple[Finished | Stop, SummaryT | None]:
-    """Buduje odroczone podsumowanie; jego błąd to zatrzymanie ``after_engine``."""
+    """Buduje odroczone podsumowanie; jego błąd to zatrzymanie ``after_engine`` z Komunikatem ``not_shown``."""
 
     if isinstance(engine_outcome, Stop):
         return engine_outcome, None
     try:
         return engine_outcome()
     except Exception:  # noqa: BLE001 - granica procesu: kończy jako zatrzymanie "after_engine" w wyniku i metrykach
-        return Stop("after_engine", dry_run), None
+        return Stop("after_engine", not_shown), None
 
 
 def _statistics_lines(records: list[dict[str, Any]], counter_names: frozenset[str]) -> list[str]:
@@ -369,10 +371,11 @@ def _conduct(
     gathered: InputsT | Stop,
     interlocutor: Interlocutor,
     metrics_path: Path,
+    *,
+    dry_run: bool,
 ) -> Outcome[SummaryT]:
     """Rdzeń od ustalonego wejścia procesu (albo zatrzymania przy jego ustalaniu) do wyniku."""
 
-    dry_run = gathered.dry_run
     mode = "DRY-RUN" if dry_run else "RUN"
     period = UNKNOWN_PERIOD if isinstance(gathered, Stop) else gathered.period
     # Czas liczony od startu silnika, bez okien wyboru i czasu odpowiedzi taty.
@@ -384,11 +387,13 @@ def _conduct(
     engine_outcome = (
         gathered
         if isinstance(gathered, Stop)
-        else _run_engine(process, gathered, observation, _ClockedConversation(interlocutor, clock), dry_run=dry_run)
+        else _run_engine(process, gathered, observation, _ClockedConversation(interlocutor, clock))
     )
     total_duration_ms = clock.elapsed_ms()
     observation.stop()
-    ending, summary = _build_summary(engine_outcome, dry_run=dry_run)
+    ending, summary = _build_summary(
+        engine_outcome, not_shown=process.plan_not_shown if dry_run else process.summary_not_shown
+    )
 
     if isinstance(ending, Finished):
         finished: Finished | None = ending
@@ -443,7 +448,7 @@ def run_process(
     ``metrics_path``; linie końcowe są w ``Outcome``, rozmówca pokazuje je sam.
     """
 
-    return _conduct(process, inputs, interlocutor, metrics_path)
+    return _conduct(process, inputs, interlocutor, metrics_path, dry_run=inputs.dry_run)
 
 
 def run(
@@ -459,6 +464,6 @@ def run(
     terminal = TerminalConversation(output or sys.stdout, input_stream or sys.stdin)
     args = process.parser().parse_args(argv)
     gathered = _gather(process, args, terminal)
-    outcome = _conduct(process, gathered, terminal, metrics_path or args.metrics)
+    outcome = _conduct(process, gathered, terminal, metrics_path or args.metrics, dry_run=args.dry_run)
     terminal.print_lines(outcome.lines)
     return _EXIT_CODES[outcome.result]

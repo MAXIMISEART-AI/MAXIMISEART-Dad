@@ -156,11 +156,12 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
 
 
 def _stopped(stop: Stop) -> list[str]:
-    if stop.kind == "after_engine":
-        message = settlement_messages.plan_not_shown() if stop.dry_run else settlement_messages.summary_not_shown()
-        return ["Status semantyczny: BŁĄD", *message.terminal_lines]
-    lines = stop.lines if stop.kind == "stop" else settlement_messages.unexpected_failure().terminal_lines
-    return ["Status semantyczny: BŁĄD", *(f"Nie wykonano: {line}" for line in lines)]
+    """Zatrzymanie jedną linią po „Nie wykonano: ”; niepokazane podsumowanie albo plan bez tego przedrostka."""
+
+    lines = stop.message.terminal_lines
+    if stop.kind != "after_engine":
+        lines = [f"Nie wykonano: {line}" for line in lines]
+    return ["Status semantyczny: BŁĄD", *lines]
 
 
 # Opis Przebiegu rozliczeń dla rdzenia Uruchomienia procesu, wspólny dla każdego rozmówcy.
@@ -175,6 +176,9 @@ PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
     execute=_execute,
     finished=_finished,
     stopped=_stopped,
+    unexpected_failure=settlement_messages.unexpected_failure(),
+    plan_not_shown=settlement_messages.plan_not_shown(),
+    summary_not_shown=settlement_messages.summary_not_shown(),
 )
 
 

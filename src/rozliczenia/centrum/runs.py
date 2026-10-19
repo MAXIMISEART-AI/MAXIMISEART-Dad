@@ -38,7 +38,6 @@ from rozliczenia.process_run import (
     Outcome,
     Process,
     ProcessInputs,
-    Stop,
     run_process,
 )
 from rozliczenia.progress import ProgressNotice, ProgressProjection, ProgressSnapshot
@@ -51,15 +50,6 @@ _CONTINUE_HINT: Final = "przy decyzji wybierz „Kontynuuj”"
 
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT")
-
-
-@dataclass(frozen=True)
-class Endings:
-    """Komunikaty procesu dla zakończeń bez jego własnego zatrzymania (``Stop.kind`` inny niż ``stop``)."""
-
-    unexpected: Message
-    plan_not_shown: Message
-    summary_not_shown: Message
 
 
 @dataclass(frozen=True)
@@ -77,7 +67,6 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     inputs: InputsT
     metrics_path: Path
     done: str
-    endings: Endings
     summary: Callable[[SummaryT], contract.PreparationSummary | contract.SettlementSummary]
     warnings: Callable[[SummaryT], Sequence[Message]]
 
@@ -362,14 +351,6 @@ def _decision_view(decision: Decision) -> contract.Decision:
     )
 
 
-def _stop_message(stop: Stop, endings: Endings) -> Message:
-    if stop.message is not None:
-        return stop.message
-    if stop.kind == "unexpected":
-        return endings.unexpected
-    return endings.plan_not_shown if stop.dry_run else endings.summary_not_shown
-
-
 def _run_result(outcome: Outcome[Any], prepared: PreparedRun[Any, Any]) -> contract.RunOutcome:
     """Wynik dla przeglądarki z ``Outcome`` rdzenia.
 
@@ -384,7 +365,7 @@ def _run_result(outcome: Outcome[Any], prepared: PreparedRun[Any, Any]) -> contr
     stops: list[contract.Message] = []
     if not isinstance(ending, Finished):
         kind = ending.kind
-        stops = [contract.Message.of(_stop_message(ending, prepared.endings))]
+        stops = [contract.Message.of(ending.message)]
         headline = "Zatrzymano" if kind == "stop" else "Błąd"
         # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
         next_action = "open_period_folder" if kind == "after_engine" and not dry_run else "rerun"

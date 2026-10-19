@@ -26,7 +26,6 @@ from .collective_preparation import (
 from .domain import ProgressObserver
 from .engine import default_config_path
 from .message import Message, StopError
-from .preparation_messages import plan_not_shown, summary_not_shown, unexpected_failure
 from .process_run import Conversation, Decision, Finished, Process, Stop, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from .terminal_conversation import TerminalConversation
@@ -240,13 +239,7 @@ def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finishe
 def _stopped(stop: Stop) -> list[str]:
     """``ZATRZYMANO``, gdy nie powstał żaden plik z komunikatem zatrzymania; inaczej ``BŁĄD``."""
 
-    if stop.kind == "stop":
-        return ["Status końcowy: ZATRZYMANO", *stop.lines]
-    if stop.kind == "unexpected":
-        message = unexpected_failure()
-    else:
-        message = plan_not_shown() if stop.dry_run else summary_not_shown()
-    return ["Status końcowy: BŁĄD", *message.text.splitlines()]
+    return [f"Status końcowy: {'ZATRZYMANO' if stop.kind == 'stop' else 'BŁĄD'}", *stop.message.terminal_lines]
 
 
 def _process(today: date | None) -> Process[PreparationInputs, PreparationSummary]:
@@ -260,6 +253,9 @@ def _process(today: date | None) -> Process[PreparationInputs, PreparationSummar
         execute=_execute,
         finished=_finished,
         stopped=_stopped,
+        unexpected_failure=messages.unexpected_failure(),
+        plan_not_shown=messages.plan_not_shown(),
+        summary_not_shown=messages.summary_not_shown(),
     )
 
 

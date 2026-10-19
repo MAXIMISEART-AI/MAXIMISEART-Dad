@@ -22,7 +22,7 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
 from rozliczenia.centrum.period_board import read_board
-from rozliczenia.centrum.runs import Endings, PreparedRun
+from rozliczenia.centrum.runs import PreparedRun
 from rozliczenia.centrum.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
 from rozliczenia.message import Message
@@ -33,11 +33,6 @@ from rozliczenia.telemetry import MetricsStore
 _PROCESS: Final = cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "settlement"
 _ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
-_ENDINGS: Final = Endings(
-    unexpected=settlement_messages.unexpected_failure(),
-    plan_not_shown=settlement_messages.plan_not_shown(),
-    summary_not_shown=settlement_messages.summary_not_shown(),
-)
 
 
 @dataclass(frozen=True)
@@ -99,7 +94,6 @@ class SettlementEntry:
             inputs=inputs,
             metrics_path=self.metrics_path,
             done="Rozliczenia pracowników gotowe",
-            endings=_ENDINGS,
             summary=_summary,
             warnings=warnings,
         )
