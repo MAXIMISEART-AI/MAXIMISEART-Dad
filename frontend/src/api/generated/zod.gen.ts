@@ -18,6 +18,17 @@ export const zBoardNotSet = z.object({
 });
 
 /**
+ * ClosedStep
+ *
+ * Okres jest zamknięty: następnego kroku nie robi żaden proces.
+ */
+export const zClosedStep = z.object({
+    action: z.literal('none'),
+    label: z.string(),
+    hint: z.string()
+});
+
+/**
  * Closing
  *
  * Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi.
@@ -47,6 +58,17 @@ export const zCountGroup = z.object({
  */
 export const zDecisionAnswer = z.object({
     answer: z.enum(['continue', 'abort'])
+});
+
+/**
+ * Figure
+ *
+ * Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach.
+ */
+export const zFigure = z.object({
+    label: z.string(),
+    value: z.int(),
+    unit: z.enum(['count', 'ms'])
 });
 
 /**
@@ -92,21 +114,6 @@ export const zMissingPath = z.object({
 });
 
 /**
- * NextStep
- *
- * Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty.
- */
-export const zNextStep = z.object({
-    action: z.enum([
-        'prepare_collective_file',
-        'create_worker_settlements',
-        'none'
-    ]),
-    label: z.string(),
-    hint: z.string()
-});
-
-/**
  * NotSetPath
  *
  * Ścieżka jeszcze niewskazana albo plik ustawień nieczytelny.
@@ -137,16 +144,6 @@ export const zOpened = z.object({
 });
 
 /**
- * OperationProgress
- */
-export const zOperationProgress = z.object({
-    worker_name: z.string(),
-    status: z.string(),
-    rows: z.int(),
-    worker_elapsed_ms: z.int().nullable()
-});
-
-/**
  * PeriodChoice
  *
  * Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików.
@@ -162,38 +159,13 @@ export const zPeriodChoice = z.object({
 });
 
 /**
- * PeriodRow
+ * PeriodFile
  *
- * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
+ * Plik okresu z wyniku, sama nazwa: Rozliczenie wewnętrzne albo Plik zbiorczy.
  */
-export const zPeriodRow = z.object({
-    token: z.string(),
-    tuesday: z.iso.date(),
-    monday: z.iso.date(),
-    status: z.enum([
-        'no_period_files',
-        'collective_file_prepared',
-        'worker_settlements_ready'
-    ]),
-    status_label: z.string(),
-    period_folder_exists: z.boolean(),
-    internal_settlement_exists: z.boolean(),
-    collective_file_exists: z.boolean(),
-    worker_settlements_folder_exists: z.boolean(),
-    worker_settlement_count: z.int(),
-    last_complete: z.boolean(),
-    next_step: zNextStep
-});
-
-/**
- * BoardReady
- *
- * Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym.
- */
-export const zBoardReady = z.object({
-    state: z.literal('ready'),
-    periods: z.array(zPeriodRow),
-    last_prepared_period: z.string().nullable()
+export const zPeriodFile = z.object({
+    name: z.string(),
+    kind: z.enum(['internal_settlement', 'collective_file'])
 });
 
 /**
@@ -244,22 +216,6 @@ export const zPhaseProgress = z.object({
 });
 
 /**
- * PreparationSummary
- *
- * Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów.
- */
-export const zPreparationSummary = z.object({
-    process: z.literal('preparation'),
-    period: z.string(),
-    period_order_count: z.int(),
-    successful_order_count: z.int(),
-    skipped_empty_rows: z.int(),
-    orders_per_day: z.array(zCount),
-    internal_settlement_file: z.string(),
-    collective_file: z.string()
-});
-
-/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -295,44 +251,84 @@ export const zProcessRun = z.object({
  * ProcessSetup
  *
  * Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
+ *
+ * ``reminder``, ``confirms_readiness`` i ``preview_hint`` deklaruje proces: przypomnienie przed
+ * uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
  */
 export const zProcessSetup = z.object({
     process: z.enum(['preparation', 'settlement']),
     title: z.string(),
     creates: z.string(),
     reminder: z.string(),
+    confirms_readiness: z.boolean(),
+    preview_hint: z.string(),
     periods: z.array(zPeriodChoice),
     preselected_period: z.string(),
     blocker: z.string().nullable()
 });
 
 /**
- * ProgressNotice
+ * ProcessStep
  *
- * Neutralne powiadomienie o ostatniej zmianie postępu.
+ * Następny krok okresu robi proces; ``preview_hint`` to podpowiedź „Podgląd bez zapisu” tego procesu.
  */
-export const zProgressNotice = z.object({
-    kind: z.enum([
-        'PHASE_STARTED',
-        'PHASE_ENDED',
-        'ISSUE_COUNT',
-        'PLAN_READY',
-        'WORKER_STARTED',
-        'WORKER_ENDED',
-        'FAILED'
+export const zProcessStep = z.object({
+    action: z.enum(['prepare_collective_file', 'create_worker_settlements']),
+    label: z.string(),
+    hint: z.string(),
+    preview_hint: z.string()
+});
+
+/**
+ * PeriodRow
+ *
+ * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
+ */
+export const zPeriodRow = z.object({
+    token: z.string(),
+    tuesday: z.iso.date(),
+    monday: z.iso.date(),
+    status: z.enum([
+        'no_period_files',
+        'collective_file_prepared',
+        'worker_settlements_ready'
     ]),
-    phase: z.enum([
-        'Sprawdzanie',
-        'Odczyt danych',
-        'Planowanie',
-        'Zapisywanie'
-    ]),
-    worker_name: z.string().nullable(),
-    status: z.string().nullable(),
-    rows: z.int(),
-    worker_elapsed_ms: z.int().nullable(),
-    template_index: z.int(),
-    template_total: z.int()
+    status_label: z.string(),
+    period_folder_exists: z.boolean(),
+    internal_settlement_exists: z.boolean(),
+    collective_file_exists: z.boolean(),
+    worker_settlements_folder_exists: z.boolean(),
+    worker_settlement_count: z.int(),
+    last_complete: z.boolean(),
+    next_step: z.discriminatedUnion('action', [
+        zProcessStep.extend({ action: z.literal('create_worker_settlements') }),
+        zProcessStep.extend({ action: z.literal('prepare_collective_file') }),
+        zClosedStep
+    ])
+});
+
+/**
+ * BoardReady
+ *
+ * Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym.
+ */
+export const zBoardReady = z.object({
+    state: z.literal('ready'),
+    periods: z.array(zPeriodRow),
+    last_prepared_period: z.string().nullable()
+});
+
+/**
+ * Progress
+ *
+ * Wyświetlany podzbiór snapshotu jedynej projekcji postępu (ADR 0002): etapy, Szablony pracowników i liczby.
+ */
+export const zProgress = z.object({
+    phases: z.array(zPhaseProgress),
+    template_total: z.int(),
+    templates_completed: z.int(),
+    current_worker: z.string().nullable(),
+    figures: z.array(zFigure)
 });
 
 /**
@@ -401,13 +397,28 @@ export const zRunIdle = z.object({
 
 /**
  * RunInfo
+ *
+ * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
  */
 export const zRunInfo = z.object({
     id: z.string(),
     process: z.enum(['preparation', 'settlement']),
     title: z.string(),
     period: z.string(),
-    dry_run: z.boolean()
+    dry_run: z.boolean(),
+    confirms_readiness: z.boolean()
+});
+
+/**
+ * RunAwaitingDecision
+ *
+ * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
+ */
+export const zRunAwaitingDecision = z.object({
+    state: z.literal('awaiting_decision'),
+    run: zRunInfo,
+    progress: zProgress,
+    decision: zDecision
 });
 
 /**
@@ -419,6 +430,16 @@ export const zRunRequest = z.object({
     process: z.enum(['preparation', 'settlement']),
     period: z.string(),
     dry_run: z.boolean()
+});
+
+/**
+ * RunRunning
+ */
+export const zRunRunning = z.object({
+    state: z.literal('running'),
+    run: zRunInfo,
+    progress: zProgress,
+    progress_stale: z.boolean()
 });
 
 /**
@@ -453,66 +474,6 @@ export const zSettings = z.object({
 export const zChoice = z.object({
     outcome: z.enum(['chosen', 'cancelled']),
     settings: zSettings
-});
-
-/**
- * TemplateCounts
- *
- * Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”.
- */
-export const zTemplateCounts = z.object({
-    written: z.int(),
-    empty: z.int(),
-    planned: z.int(),
-    skipped: z.int()
-});
-
-/**
- * Progress
- *
- * Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane.
- */
-export const zProgress = z.object({
-    mode: z.enum(['RUN', 'DRY-RUN']),
-    period: z.string(),
-    phases: z.array(zPhaseProgress),
-    current_phase: z.enum([
-        'Sprawdzanie',
-        'Odczyt danych',
-        'Planowanie',
-        'Zapisywanie'
-    ]).nullable(),
-    template_total: z.int(),
-    templates_completed: z.int(),
-    current_worker: z.string().nullable(),
-    rows: z.int(),
-    counts: zTemplateCounts,
-    recent_operations: z.array(zOperationProgress),
-    total_elapsed_ms: z.int(),
-    issue_count: z.int()
-});
-
-/**
- * RunAwaitingDecision
- *
- * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
- */
-export const zRunAwaitingDecision = z.object({
-    state: z.literal('awaiting_decision'),
-    run: zRunInfo,
-    progress: zProgress,
-    decision: zDecision
-});
-
-/**
- * RunRunning
- */
-export const zRunRunning = z.object({
-    state: z.literal('running'),
-    run: zRunInfo,
-    progress: zProgress,
-    notice: zProgressNotice.nullable(),
-    progress_stale: z.boolean()
 });
 
 /**
@@ -571,29 +532,26 @@ export const zHttpValidationError = z.object({
 /**
  * WorkerFile
  *
- * Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt).
+ * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
  */
 export const zWorkerFile = z.object({
-    worker_name: z.string(),
     file: z.string(),
     rows: z.int()
 });
 
 /**
- * SettlementSummary
+ * RunSummary
  *
- * Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów.
+ * Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
+ *
+ * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
+ * (``None``, gdy proces go nie ma).
  */
-export const zSettlementSummary = z.object({
-    process: z.literal('settlement'),
-    period: z.string(),
-    worker_settlements_folder: z.string(),
-    rows: z.int(),
-    written_count: z.int(),
-    planned_count: z.int(),
-    empty_count: z.int(),
-    skipped_count: z.int(),
-    files: z.array(zWorkerFile)
+export const zRunSummary = z.object({
+    figures: z.array(zFigure),
+    counts: zCountGroup.nullable(),
+    files: z.array(zPeriodFile),
+    file_plan: z.array(zWorkerFile).nullable()
 });
 
 /**
@@ -623,14 +581,10 @@ export const zRunOutcome = z.object({
         'rerun',
         'open_period_folder'
     ]),
-    total_duration_ms: z.int(),
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
     notices: z.array(z.string()),
-    summary: z.discriminatedUnion('process', [
-        zPreparationSummary,
-        zSettlementSummary
-    ]).nullable()
+    summary: zRunSummary.nullable()
 });
 
 /**

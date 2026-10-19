@@ -86,12 +86,24 @@ class ThemeChange(_Model):
     theme: Theme
 
 
-class NextStep(_Model):
-    """Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty."""
+class ProcessStep(_Model):
+    """Następny krok okresu robi proces; ``preview_hint`` to podpowiedź „Podgląd bez zapisu” tego procesu."""
 
-    action: Literal["prepare_collective_file", "create_worker_settlements", "none"]
+    action: Literal["prepare_collective_file", "create_worker_settlements"]
     label: str
     hint: str
+    preview_hint: str
+
+
+class ClosedStep(_Model):
+    """Okres jest zamknięty: następnego kroku nie robi żaden proces."""
+
+    action: Literal["none"]
+    label: str
+    hint: str
+
+
+NextStep = Annotated[ProcessStep | ClosedStep, Field(discriminator="action")]
 
 
 class PeriodRow(_Model):
@@ -238,12 +250,18 @@ class PeriodChoice(_Model):
 
 
 class ProcessSetup(_Model):
-    """Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach."""
+    """Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
+
+    ``reminder``, ``confirms_readiness`` i ``preview_hint`` deklaruje proces: przypomnienie przed
+    uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
+    """
 
     process: ProcessKey
     title: str
     creates: str
     reminder: str
+    confirms_readiness: bool
+    preview_hint: str
     periods: list[PeriodChoice]
     preselected_period: str
     blocker: str | None
@@ -267,60 +285,33 @@ class PhaseProgress(_Model):
     duration_ms: int
 
 
-class OperationProgress(_Model):
-    worker_name: str
-    status: str
-    rows: int
-    worker_elapsed_ms: int | None
+class Figure(_Model):
+    """Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach."""
 
-
-class TemplateCounts(_Model):
-    """Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”."""
-
-    written: int
-    empty: int
-    planned: int
-    skipped: int
+    label: str
+    value: int
+    unit: Literal["count", "ms"]
 
 
 class Progress(_Model):
-    """Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane."""
+    """Wyświetlany podzbiór snapshotu jedynej projekcji postępu (ADR 0002): etapy, Szablony pracowników i liczby."""
 
-    mode: RunMode
-    period: str
     phases: list[PhaseProgress]
-    current_phase: PhaseName | None
     template_total: int
     templates_completed: int
     current_worker: str | None
-    rows: int
-    counts: TemplateCounts
-    recent_operations: list[OperationProgress]
-    total_elapsed_ms: int
-    issue_count: int
-
-
-class ProgressNotice(_Model):
-    """Neutralne powiadomienie o ostatniej zmianie postępu."""
-
-    kind: Literal[
-        "PHASE_STARTED", "PHASE_ENDED", "ISSUE_COUNT", "PLAN_READY", "WORKER_STARTED", "WORKER_ENDED", "FAILED"
-    ]
-    phase: PhaseName
-    worker_name: str | None
-    status: str | None
-    rows: int
-    worker_elapsed_ms: int | None
-    template_index: int
-    template_total: int
+    figures: list[Figure]
 
 
 class RunInfo(_Model):
+    """Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."""
+
     id: str
     process: ProcessKey
     title: str
     period: str
     dry_run: bool
+    confirms_readiness: bool
 
 
 class Message(_Model):
@@ -356,42 +347,31 @@ class Decision(_Model):
     counts: CountGroup
 
 
-class PreparationSummary(_Model):
-    """Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów."""
+class PeriodFile(_Model):
+    """Plik okresu z wyniku, sama nazwa: Rozliczenie wewnętrzne albo Plik zbiorczy."""
 
-    process: Literal["preparation"]
-    period: str
-    period_order_count: int
-    successful_order_count: int
-    skipped_empty_rows: int
-    orders_per_day: list[Count]
-    internal_settlement_file: str
-    collective_file: str
+    name: str
+    kind: Literal["internal_settlement", "collective_file"]
 
 
 class WorkerFile(_Model):
-    """Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt)."""
+    """Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt)."""
 
-    worker_name: str
     file: str
     rows: int
 
 
-class SettlementSummary(_Model):
-    """Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów."""
+class RunSummary(_Model):
+    """Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
 
-    process: Literal["settlement"]
-    period: str
-    worker_settlements_folder: str
-    rows: int
-    written_count: int
-    planned_count: int
-    empty_count: int
-    skipped_count: int
-    files: list[WorkerFile]
+    Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
+    (``None``, gdy proces go nie ma).
+    """
 
-
-RunSummary = Annotated[PreparationSummary | SettlementSummary, Field(discriminator="process")]
+    figures: list[Figure]
+    counts: CountGroup | None
+    files: list[PeriodFile]
+    file_plan: list[WorkerFile] | None
 
 
 class RunOutcome(_Model):
@@ -406,7 +386,6 @@ class RunOutcome(_Model):
     headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
-    total_duration_ms: int
     stops: list[Message]
     warnings: list[Message]
     notices: list[str]
@@ -423,7 +402,6 @@ class RunRunning(_Model):
     state: Literal["running"]
     run: RunInfo
     progress: Progress
-    notice: ProgressNotice | None
     progress_stale: bool
 
 

@@ -3,7 +3,7 @@
 Nie ma bazy ani pamięci podręcznej. Foldery okresu, ścieżki ich plików,
 obserwację plików i Status okresu z nazwą zna silnik (``period_folder``);
 treści skoroszytów Centrum nie czyta. Tu są tylko podpowiedzi następnego
-kroku oraz etykiety i wybór plików do otwarcia.
+kroku (podpowiedź podglądu deklaruje proces w ``run_view``) oraz etykiety i wybór plików do otwarcia.
 """
 
 from __future__ import annotations
@@ -15,24 +15,26 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from rozliczenia.centrum import contract
+from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.settings import SettingsStore
 from rozliczenia.period_folder import PeriodFolder, PeriodStatus, find_period_folders, period_status_label
 from rozliczenia.settlement_period import last_complete_period, parse_period_token
 
 _NEXT_STEPS: dict[PeriodStatus, contract.NextStep] = {
-    "no_period_files": contract.NextStep(
+    "no_period_files": contract.ProcessStep(
         action="prepare_collective_file",
         label="Przygotuj plik zbiorczy",
         hint="Z Rejestru zleceń powstaną Rozliczenie wewnętrzne i Plik zbiorczy.",
+        preview_hint=run_view.PREPARATION.preview_hint,
     ),
-    "collective_file_prepared": contract.NextStep(
+    "collective_file_prepared": contract.ProcessStep(
         action="create_worker_settlements",
         label="Utwórz rozliczenia pracowników",
         hint="Najpierw uzupełnij Plik zbiorczy w Excelu, zapisz go i zamknij.",
+        preview_hint=run_view.SETTLEMENT.preview_hint,
     ),
-    "worker_settlements_ready": contract.NextStep(
+    "worker_settlements_ready": contract.ClosedStep(
         action="none",
         label="Okres zamknięty",
         hint="Rozliczenia pracowników są w Folderze okresu.",

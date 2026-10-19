@@ -144,3 +144,12 @@ def finished_result(run: Run, name: str) -> dict[str, object]:
     result = current_run(run, name)["result"]
     assert isinstance(result, dict)
     return result
+
+
+def figure(shown: object, label: str) -> int:
+    """Value of the number labelled ``label`` in a server view's ``figures`` (live progress or result summary)."""
+
+    assert isinstance(shown, dict)
+    [value] = [entry["value"] for entry in shown["figures"] if entry["label"] == label]
+    assert isinstance(value, int)
+    return value

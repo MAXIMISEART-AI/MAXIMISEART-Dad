@@ -1,6 +1,6 @@
 import { ArrowRightIcon, EyeIcon, PlayIcon } from "lucide-react"
 
-import type { NextStep, PeriodRow, Process } from "@/api/centrum"
+import type { NextStep, PeriodRow, Process, ProcessStep } from "@/api/centrum"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { isActive, useRuns } from "@/lib/runs"
@@ -9,15 +9,9 @@ import type { PageHref } from "@/pages"
 const RUNS_PAGE: PageHref = "#/uruchomienia"
 
 /** Proces, który robi następny krok okresu; „none” (okres zamknięty) nie ma procesu. */
-const STEP_PROCESSES: Record<Exclude<NextStep["action"], "none">, Process> = {
+const STEP_PROCESSES: Record<ProcessStep["action"], Process> = {
   prepare_collective_file: "preparation",
   create_worker_settlements: "settlement",
-}
-
-/** Podpowiedź „Podgląd bez zapisu”: co zobaczy tata, zanim cokolwiek zapisze. */
-export const PREVIEW_HINTS: Record<Process, string> = {
-  preparation: "Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
-  settlement: "Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
 }
 
 /** Proces następnego kroku okresu albo `null`, gdy okres jest zamknięty. */
@@ -31,10 +25,11 @@ function showRuns() {
 
 /**
  * Akcja główna karty „Następny krok”: podgląd bez zapisu procesu następnego kroku od razu,
- * a w trakcie Uruchomienia przejście do podglądu na żywo.
+ * a w trakcie Uruchomienia przejście do podglądu na żywo. Podpowiedź podglądu przychodzi z krokiem.
  */
-export function PreviewAction({ period, process }: { period: PeriodRow; process: Process }) {
+export function PreviewAction({ period, step }: { period: PeriodRow; step: ProcessStep }) {
   const { view, start } = useRuns()
+  const process = STEP_PROCESSES[step.action]
 
   if (isActive(view)) {
     return (
@@ -61,7 +56,7 @@ export function PreviewAction({ period, process }: { period: PeriodRow; process:
         <EyeIcon data-icon="inline-start" />
         Podgląd bez zapisu
       </TooltipTrigger>
-      <TooltipContent>{PREVIEW_HINTS[process]}</TooltipContent>
+      <TooltipContent>{step.preview_hint}</TooltipContent>
     </Tooltip>
   )
 }

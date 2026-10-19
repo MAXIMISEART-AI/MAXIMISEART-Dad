@@ -62,6 +62,26 @@ export type Choice = {
 };
 
 /**
+ * ClosedStep
+ *
+ * Okres jest zamknięty: następnego kroku nie robi żaden proces.
+ */
+export type ClosedStep = {
+    /**
+     * Action
+     */
+    action: 'none';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Hint
+     */
+    hint: string;
+};
+
+/**
  * Closing
  *
  * Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi.
@@ -151,6 +171,26 @@ export type DecisionAnswer = {
      * Answer
      */
     answer: 'continue' | 'abort';
+};
+
+/**
+ * Figure
+ *
+ * Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach.
+ */
+export type Figure = {
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Value
+     */
+    value: number;
+    /**
+     * Unit
+     */
+    unit: 'count' | 'ms';
 };
 
 /**
@@ -265,26 +305,6 @@ export type ModeStatistics = {
 };
 
 /**
- * NextStep
- *
- * Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty.
- */
-export type NextStep = {
-    /**
-     * Action
-     */
-    action: 'prepare_collective_file' | 'create_worker_settlements' | 'none';
-    /**
-     * Label
-     */
-    label: string;
-    /**
-     * Hint
-     */
-    hint: string;
-};
-
-/**
  * NotSetPath
  *
  * Ścieżka jeszcze niewskazana albo plik ustawień nieczytelny.
@@ -316,28 +336,6 @@ export type Opened = {
      * Name
      */
     name: string;
-};
-
-/**
- * OperationProgress
- */
-export type OperationProgress = {
-    /**
-     * Worker Name
-     */
-    worker_name: string;
-    /**
-     * Status
-     */
-    status: string;
-    /**
-     * Rows
-     */
-    rows: number;
-    /**
-     * Worker Elapsed Ms
-     */
-    worker_elapsed_ms: number | null;
 };
 
 /**
@@ -397,6 +395,22 @@ export type PeriodChoice = {
 };
 
 /**
+ * PeriodFile
+ *
+ * Plik okresu z wyniku, sama nazwa: Rozliczenie wewnętrzne albo Plik zbiorczy.
+ */
+export type PeriodFile = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Kind
+     */
+    kind: 'internal_settlement' | 'collective_file';
+};
+
+/**
  * PeriodRow
  *
  * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
@@ -446,7 +460,14 @@ export type PeriodRow = {
      * Last Complete
      */
     last_complete: boolean;
-    next_step: NextStep;
+    /**
+     * Next Step
+     */
+    next_step: ({
+        action: 'create_worker_settlements' | 'prepare_collective_file';
+    } & ProcessStep) | ({
+        action: 'none';
+    } & ClosedStep);
 };
 
 /**
@@ -497,46 +518,6 @@ export type PhaseProgress = {
      * Duration Ms
      */
     duration_ms: number;
-};
-
-/**
- * PreparationSummary
- *
- * Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów.
- */
-export type PreparationSummary = {
-    /**
-     * Process
-     */
-    process: 'preparation';
-    /**
-     * Period
-     */
-    period: string;
-    /**
-     * Period Order Count
-     */
-    period_order_count: number;
-    /**
-     * Successful Order Count
-     */
-    successful_order_count: number;
-    /**
-     * Skipped Empty Rows
-     */
-    skipped_empty_rows: number;
-    /**
-     * Orders Per Day
-     */
-    orders_per_day: Array<Count>;
-    /**
-     * Internal Settlement File
-     */
-    internal_settlement_file: string;
-    /**
-     * Collective File
-     */
-    collective_file: string;
 };
 
 /**
@@ -601,6 +582,9 @@ export type ProcessRun = {
  * ProcessSetup
  *
  * Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
+ *
+ * ``reminder``, ``confirms_readiness`` i ``preview_hint`` deklaruje proces: przypomnienie przed
+ * uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
  */
 export type ProcessSetup = {
     /**
@@ -620,6 +604,14 @@ export type ProcessSetup = {
      */
     reminder: string;
     /**
+     * Confirms Readiness
+     */
+    confirms_readiness: boolean;
+    /**
+     * Preview Hint
+     */
+    preview_hint: string;
+    /**
      * Periods
      */
     periods: Array<PeriodChoice>;
@@ -634,27 +626,39 @@ export type ProcessSetup = {
 };
 
 /**
+ * ProcessStep
+ *
+ * Następny krok okresu robi proces; ``preview_hint`` to podpowiedź „Podgląd bez zapisu” tego procesu.
+ */
+export type ProcessStep = {
+    /**
+     * Action
+     */
+    action: 'prepare_collective_file' | 'create_worker_settlements';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Hint
+     */
+    hint: string;
+    /**
+     * Preview Hint
+     */
+    preview_hint: string;
+};
+
+/**
  * Progress
  *
- * Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane.
+ * Wyświetlany podzbiór snapshotu jedynej projekcji postępu (ADR 0002): etapy, Szablony pracowników i liczby.
  */
 export type Progress = {
-    /**
-     * Mode
-     */
-    mode: 'RUN' | 'DRY-RUN';
-    /**
-     * Period
-     */
-    period: string;
     /**
      * Phases
      */
     phases: Array<PhaseProgress>;
-    /**
-     * Current Phase
-     */
-    current_phase: 'Sprawdzanie' | 'Odczyt danych' | 'Planowanie' | 'Zapisywanie' | null;
     /**
      * Template Total
      */
@@ -668,62 +672,9 @@ export type Progress = {
      */
     current_worker: string | null;
     /**
-     * Rows
+     * Figures
      */
-    rows: number;
-    counts: TemplateCounts;
-    /**
-     * Recent Operations
-     */
-    recent_operations: Array<OperationProgress>;
-    /**
-     * Total Elapsed Ms
-     */
-    total_elapsed_ms: number;
-    /**
-     * Issue Count
-     */
-    issue_count: number;
-};
-
-/**
- * ProgressNotice
- *
- * Neutralne powiadomienie o ostatniej zmianie postępu.
- */
-export type ProgressNotice = {
-    /**
-     * Kind
-     */
-    kind: 'PHASE_STARTED' | 'PHASE_ENDED' | 'ISSUE_COUNT' | 'PLAN_READY' | 'WORKER_STARTED' | 'WORKER_ENDED' | 'FAILED';
-    /**
-     * Phase
-     */
-    phase: 'Sprawdzanie' | 'Odczyt danych' | 'Planowanie' | 'Zapisywanie';
-    /**
-     * Worker Name
-     */
-    worker_name: string | null;
-    /**
-     * Status
-     */
-    status: string | null;
-    /**
-     * Rows
-     */
-    rows: number;
-    /**
-     * Worker Elapsed Ms
-     */
-    worker_elapsed_ms: number | null;
-    /**
-     * Template Index
-     */
-    template_index: number;
-    /**
-     * Template Total
-     */
-    template_total: number;
+    figures: Array<Figure>;
 };
 
 /**
@@ -849,6 +800,8 @@ export type RunIdle = {
 
 /**
  * RunInfo
+ *
+ * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
  */
 export type RunInfo = {
     /**
@@ -871,6 +824,10 @@ export type RunInfo = {
      * Dry Run
      */
     dry_run: boolean;
+    /**
+     * Confirms Readiness
+     */
+    confirms_readiness: boolean;
 };
 
 /**
@@ -900,10 +857,6 @@ export type RunOutcome = {
      */
     next_action: 'run' | 'rerun' | 'open_period_folder';
     /**
-     * Total Duration Ms
-     */
-    total_duration_ms: number;
-    /**
      * Stops
      */
     stops: Array<Message>;
@@ -915,14 +868,7 @@ export type RunOutcome = {
      * Notices
      */
     notices: Array<string>;
-    /**
-     * Summary
-     */
-    summary: ({
-        process: 'preparation';
-    } & PreparationSummary) | ({
-        process: 'settlement';
-    } & SettlementSummary) | null;
+    summary: RunSummary | null;
 };
 
 /**
@@ -955,7 +901,6 @@ export type RunRunning = {
     state: 'running';
     run: RunInfo;
     progress: Progress;
-    notice: ProgressNotice | null;
     /**
      * Progress Stale
      */
@@ -970,6 +915,30 @@ export type RunSetup = {
      * Processes
      */
     processes: Array<ProcessSetup>;
+};
+
+/**
+ * RunSummary
+ *
+ * Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
+ *
+ * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
+ * (``None``, gdy proces go nie ma).
+ */
+export type RunSummary = {
+    /**
+     * Figures
+     */
+    figures: Array<Figure>;
+    counts: CountGroup | null;
+    /**
+     * Files
+     */
+    files: Array<PeriodFile>;
+    /**
+     * File Plan
+     */
+    file_plan: Array<WorkerFile> | null;
 };
 
 /**
@@ -1000,74 +969,6 @@ export type Settings = {
      * Theme
      */
     theme: 'dark' | 'light';
-};
-
-/**
- * SettlementSummary
- *
- * Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów.
- */
-export type SettlementSummary = {
-    /**
-     * Process
-     */
-    process: 'settlement';
-    /**
-     * Period
-     */
-    period: string;
-    /**
-     * Worker Settlements Folder
-     */
-    worker_settlements_folder: string;
-    /**
-     * Rows
-     */
-    rows: number;
-    /**
-     * Written Count
-     */
-    written_count: number;
-    /**
-     * Planned Count
-     */
-    planned_count: number;
-    /**
-     * Empty Count
-     */
-    empty_count: number;
-    /**
-     * Skipped Count
-     */
-    skipped_count: number;
-    /**
-     * Files
-     */
-    files: Array<WorkerFile>;
-};
-
-/**
- * TemplateCounts
- *
- * Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”.
- */
-export type TemplateCounts = {
-    /**
-     * Written
-     */
-    written: number;
-    /**
-     * Empty
-     */
-    empty: number;
-    /**
-     * Planned
-     */
-    planned: number;
-    /**
-     * Skipped
-     */
-    skipped: number;
 };
 
 /**
@@ -1156,13 +1057,9 @@ export type ValidationError = {
 /**
  * WorkerFile
  *
- * Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt).
+ * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
  */
 export type WorkerFile = {
-    /**
-     * Worker Name
-     */
-    worker_name: string;
     /**
      * File
      */

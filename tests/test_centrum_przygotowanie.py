@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
 from io import StringIO
+import itertools
 import json
 from pathlib import Path
 import subprocess
@@ -17,7 +18,7 @@ import pytest
 
 from rozliczenia import collective_preparation, preparation_cli, preparation_register
 from rozliczenia.telemetry import MetricsStore, metric_record
-from rozliczenia.centrum import contract
+from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
@@ -120,26 +121,33 @@ def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu
     assert started.json()["state"] == "running"
     assert finished["run"]["process"] == "preparation"
     assert (finished["run"]["period"], finished["run"]["dry_run"]) == (PERIOD, True)
+    assert finished["run"]["confirms_readiness"] is False
     result = finished["result"]
     assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "run")
     assert result["headline"] == "Podgląd gotowy · nic nie zapisano"
     assert result["summary"] == {
-        "process": "preparation",
-        "period": PERIOD,
-        "period_order_count": 4,
-        "successful_order_count": 3,
-        "skipped_empty_rows": 5,
-        "orders_per_day": [
-            {"label": "wt 08.09.2026", "count": 1},
-            {"label": "śr 09.09.2026", "count": 1},
-            {"label": "czw 10.09.2026", "count": 0},
-            {"label": "pt 11.09.2026", "count": 0},
-            {"label": "sob 12.09.2026", "count": 1},
-            {"label": "niedz 13.09.2026", "count": 0},
-            {"label": "pon 14.09.2026", "count": 1},
+        "figures": [
+            {"label": "Zlecenia okresu", "value": 4, "unit": "count"},
+            {"label": "Zlecenia skuteczne", "value": 3, "unit": "count"},
+            {"label": "Pominięte puste wiersze", "value": 5, "unit": "count"},
         ],
-        "internal_settlement_file": INTERNAL_SETTLEMENT_NAME,
-        "collective_file": COLLECTIVE_FILE_NAME,
+        "counts": {
+            "title": "Zlecenia na dzień",
+            "counts": [
+                {"label": "wt 08.09.2026", "count": 1},
+                {"label": "śr 09.09.2026", "count": 1},
+                {"label": "czw 10.09.2026", "count": 0},
+                {"label": "pt 11.09.2026", "count": 0},
+                {"label": "sob 12.09.2026", "count": 1},
+                {"label": "niedz 13.09.2026", "count": 0},
+                {"label": "pon 14.09.2026", "count": 1},
+            ],
+        },
+        "files": [
+            {"name": INTERNAL_SETTLEMENT_NAME, "kind": "internal_settlement"},
+            {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
+        ],
+        "file_plan": None,
     }
     assert (result["stops"], result["warnings"]) == ([], [])
     assert list(centrum.fixture.periods_directory.iterdir()) == []
@@ -233,7 +241,7 @@ def test_kontynuuj_przy_niepelnym_okresie_publikuje_pliki_z_ostrzezeniem(tmp_pat
     assert (decided.status_code, decided.json()["state"]) == (200, "running")
     assert (result["result"], result["ending"]) == ("OK", "finished")
     assert [warning["what"] for warning in result["warnings"]] == [view["decision"]["message"]["what"]]
-    assert result["summary"]["orders_per_day"] == INCOMPLETE_ORDERS_PER_DAY
+    assert result["summary"]["counts"] == {"title": "Zlecenia na dzień", "counts": INCOMPLETE_ORDERS_PER_DAY}
     assert centrum.fixture.collective_file_path.is_file()
     assert centrum.fixture.internal_settlement_path.is_file()
 
@@ -268,11 +276,19 @@ def test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk(tmp_path: P
 
     time.sleep(waited_ms / 1000)
     decide(centrum, view, "continue")
-    result = finished_view(centrum.client)["result"]
+    views = views_until(centrum.client, "finished")
 
     [record] = centrum.metric_records()
-    assert result["total_duration_ms"] == record["total_duration_ms"]
     assert record["total_duration_ms"] < waited_ms
+    assert all(shown_time(view) < waited_ms for view in views if view["state"] == "running")
+
+
+def shown_time(view: dict[str, Any]) -> int:
+    """„Czas uruchomienia” z liczb na żywo Przygotowania pliku zbiorczego, w ms."""
+
+    [time_ms] = [figure["value"] for figure in view["progress"]["figures"] if figure["label"] == "Czas uruchomienia"]
+    assert isinstance(time_ms, int)
+    return time_ms
 
 
 def test_decyzja_czeka_po_ponownym_podlaczeniu_i_odswiezeniu_karty(tmp_path: Path) -> None:
@@ -320,42 +336,43 @@ def test_strumien_pokazuje_etapy_po_kolei_z_licznikami_i_decyzja_miedzy_planowan
     tmp_path: Path,
 ) -> None:
     centrum = preparing_centrum(tmp_path, incomplete_period_rows())
-    seen: list[tuple[str, str | None, str | None, int]] = []
+    seen: list[tuple[str, tuple[str, ...], list[str], int]] = []
 
     for event in run_events(centrum.client):
         view = event["view"]
         if view["state"] == "idle":
             centrum.start(dry_run=False)
             continue
-        notice = view.get("notice")
-        seen.append(
-            (
-                view["state"],
-                notice and notice["kind"],
-                notice and notice["phase"],
-                view["progress"]["issue_count"],
-            )
+        figures = view["progress"]["figures"]
+        shown = (
+            view["state"],
+            tuple(phase_states(view).values()),
+            [figure["label"] for figure in figures],
+            figures[0]["value"],
         )
+        if not seen or seen[-1] != shown:
+            seen.append(shown)
         if view["state"] == "awaiting_decision":
             decide(centrum, view, "continue")
         if view["state"] == "finished":
             break
 
+    labels = ["Ostrzeżenia", "Czas uruchomienia"]
+    pending, running, completed = "pending", "running", "completed"
     assert seen == [
-        ("running", None, None, 0),
-        ("running", "PHASE_STARTED", "Sprawdzanie", 0),
-        ("running", "PHASE_ENDED", "Sprawdzanie", 0),
-        ("running", "PHASE_STARTED", "Odczyt danych", 0),
-        ("running", "PHASE_ENDED", "Odczyt danych", 0),
-        ("running", "ISSUE_COUNT", "Odczyt danych", 0),
-        ("running", "PHASE_STARTED", "Planowanie", 0),
-        ("running", "PHASE_ENDED", "Planowanie", 0),
-        ("running", "PLAN_READY", "Planowanie", 1),
-        ("awaiting_decision", None, None, 1),
-        ("running", "PLAN_READY", "Planowanie", 1),
-        ("running", "PHASE_STARTED", "Zapisywanie", 1),
-        ("running", "PHASE_ENDED", "Zapisywanie", 1),
-        ("finished", None, None, 1),
+        ("running", (pending, pending, pending, pending), labels, 0),
+        ("running", (running, pending, pending, pending), labels, 0),
+        ("running", (completed, pending, pending, pending), labels, 0),
+        ("running", (completed, running, pending, pending), labels, 0),
+        ("running", (completed, completed, pending, pending), labels, 0),
+        ("running", (completed, completed, running, pending), labels, 0),
+        ("running", (completed, completed, completed, pending), labels, 0),
+        ("running", (completed, completed, completed, pending), labels, 1),
+        ("awaiting_decision", (completed, completed, completed, pending), labels, 1),
+        ("running", (completed, completed, completed, pending), labels, 1),
+        ("running", (completed, completed, completed, running), labels, 1),
+        ("running", (completed, completed, completed, completed), labels, 1),
+        ("finished", (completed, completed, completed, completed), labels, 1),
     ]
 
 
@@ -453,6 +470,10 @@ def test_wybor_okresu_proponuje_ostatni_pelny_okres_i_starsze_ze_statusem_okresu
 
     assert (setup["process"], setup["title"], setup["blocker"]) == ("preparation", "Przygotowanie pliku zbiorczego", None)
     assert setup["reminder"] == "Zapisz i zamknij Rejestr zleceń w Excelu"
+    assert (setup["confirms_readiness"], setup["preview_hint"]) == (
+        False,
+        "Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
+    )
     assert setup["preselected_period"] == PERIOD
     assert [(choice["token"], choice["last_complete"]) for choice in setup["periods"][:3]] == [
         (PERIOD, True),
@@ -603,11 +624,15 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
+    shown_before_start = run_view.ProcessView.progress
+    calls = itertools.count()
 
-    def broken_view(*args: object) -> NoReturn:
+    def broken_after_start(view: Any, *args: Any, **kwargs: Any) -> Any:
+        if next(calls) == 0:
+            return shown_before_start(view, *args, **kwargs)
         raise ValueError("synthetic Centrum view failure")
 
-    monkeypatch.setattr(contract, "ProgressNotice", broken_view)
+    monkeypatch.setattr(run_view.ProcessView, "progress", broken_after_start)
 
     centrum.start(dry_run=False)
     views = views_until(centrum.client, "finished")

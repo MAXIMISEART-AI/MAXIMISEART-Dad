@@ -14,6 +14,7 @@ from drive.common import (
     Run,
     choose_periods_directory,
     current_run,
+    figure,
     finished_result,
     history_rows,
     period_files,
@@ -79,9 +80,9 @@ def drive_preparation(run: Run, page: Page) -> None:
     assert isinstance(summary, dict)
     run.check(
         result["result"] == "OK"
-        and summary["period_order_count"] == expected["period_order_count"]
-        and summary["successful_order_count"] == expected["successful_order_count"]
-        and [day["count"] for day in summary["orders_per_day"]] == expected["orders_per_day"],
+        and figure(summary, "Zlecenia okresu") == expected["period_order_count"]
+        and figure(summary, "Zlecenia skuteczne") == expected["successful_order_count"]
+        and [day["count"] for day in summary["counts"]["counts"]] == expected["orders_per_day"],
         "the DRY-RUN plan has the Rejestr zleceń's counts and Zlecenia na dzień",
     )
     expect(live.get_by_role("listitem", name="sob 10.10.2026: 1", exact=True)).to_be_visible()
@@ -146,9 +147,9 @@ def drive_preparation(run: Run, page: Page) -> None:
     progress = view["progress"]
     assert isinstance(progress, dict)
     counters = page.locator('dl[aria-label="Liczniki"]')
-    expect(counters).to_contain_text(f"Ostrzeżenia{progress['issue_count']}")
+    expect(counters).to_contain_text(f"Ostrzeżenia{figure(progress, 'Ostrzeżenia')}")
     run.check(
-        progress["issue_count"] == len(preview_warnings),
+        figure(progress, "Ostrzeżenia") == len(preview_warnings),
         "the live counters show the projection's Ostrzeżenia (as many as the preview's warnings) while the decision waits",
     )
     second = urllib.request.Request(
