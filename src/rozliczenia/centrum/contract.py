@@ -11,8 +11,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rozliczenia.message import Message as ProcessMessage
 from rozliczenia.period_status import PeriodStatus
-from rozliczenia.process_run import ThreePartMessage
 
 
 class _Model(BaseModel):
@@ -331,7 +331,9 @@ class Message(_Model):
     action: str
 
     @classmethod
-    def of(cls, message: ThreePartMessage) -> Message:
+    def of(cls, message: ProcessMessage) -> Message:
+        """Tylko trzy części Komunikatu; ``terminal_line`` nie trafia do Centrum, bo może mieć pełną ścieżkę."""
+
         return cls(what=message.what, where=message.where, action=message.action)
 
 

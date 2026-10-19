@@ -17,7 +17,7 @@ from typing import TextIO
 
 from . import collective_file, engine, settlement_messages
 from .domain import ProgressObserver, SettlementSummary
-from .message import Message, StopError
+from .message import StopError
 from .engine import (
     default_config_path,
     default_worker_template_path,
@@ -172,16 +172,6 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     )
 
 
-def _stop_message(error: Exception) -> Message:
-    if not isinstance(error, StopError):
-        raise TypeError("Zatrzymanie Przebiegu rozliczeń to zawsze StopError.")
-    return error.message
-
-
-def _stop_lines(error: Exception) -> list[str]:
-    return _stop_message(error).terminal_lines
-
-
 def _stopped(stop: Stop) -> list[str]:
     if stop.kind == "after_engine":
         return ["Status semantyczny: BŁĄD", _PLAN_NOT_SHOWN if stop.dry_run else _SUMMARY_NOT_SHOWN]
@@ -197,9 +187,6 @@ PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
     parser=build_parser,
     counter_names=COUNTER_NAMES,
     metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
-    stop_type=StopError,
-    stop_lines=_stop_lines,
-    stop_message=_stop_message,
     gather=_gather,
     execute=_execute,
     finished=_finished,

@@ -26,6 +26,7 @@ import time
 from typing import Any, Generic, Literal, Protocol, TextIO, TypeVar
 
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase
+from .message import Message, StopError
 from .progress import ProgressNotice, ProgressProjection, ProgressSnapshot
 from .telemetry import UNKNOWN_PERIOD, MetricsStore, comparable_records, metric_record, statistics_for
 from .terminal_conversation import TerminalConversation
@@ -39,7 +40,6 @@ __all__ = [
     "Process",
     "ProcessInputs",
     "Stop",
-    "ThreePartMessage",
     "run",
     "run_process",
 ]
@@ -62,19 +62,6 @@ InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT")
 
 
-class ThreePartMessage(Protocol):
-    """Bezpieczny komunikat procesu w trzech częściach: co się stało, gdzie, co zrobić."""
-
-    @property
-    def what(self) -> str: ...
-
-    @property
-    def where(self) -> str: ...
-
-    @property
-    def action(self) -> str: ...
-
-
 @dataclass(frozen=True)
 class Decision:
     """Pytanie do taty w trakcie silnika: tytuł, komunikat, liczby z etykietami i pytanie.
@@ -84,7 +71,7 @@ class Decision:
     """
 
     title: str
-    message: ThreePartMessage
+    message: Message
     counts_title: str
     counts: Sequence[tuple[str, int]]
     question: str
@@ -142,8 +129,8 @@ class Interlocutor(Conversation, Protocol):
 class Stop:
     """Zatrzymanie Uruchomienia procesu przekazywane procesowi do ``stopped``.
 
-    ``stop``: własne zatrzymanie procesu z bezpiecznymi liniami terminala
-    ``lines`` i tym samym komunikatem w trzech częściach (``message``).
+    ``stop``: własne zatrzymanie procesu (``StopError``) z liniami terminala
+    ``lines`` i jego Komunikatem (``message``).
     ``unexpected``: inny wyjątek przed końcem silnika. ``after_engine``: silnik
     skończył, ale nie dało się zbudować podsumowania. Tylko ``stop`` ma linie
     i komunikat. ``dry_run``: Uruchomienie DRY-RUN, w którym nic nie zapisano.
@@ -152,7 +139,7 @@ class Stop:
     kind: Literal["stop", "unexpected", "after_engine"]
     dry_run: bool
     lines: tuple[str, ...] = ()
-    message: ThreePartMessage | None = None
+    message: Message | None = None
 
 
 @dataclass(frozen=True)
@@ -175,11 +162,9 @@ class Process(Generic[InputsT, SummaryT]):
     """Opis procesu dla rdzenia Uruchomienia procesu.
 
     ``execute`` wywołuje silnik z gotowym wejściem procesu. Zatrzymanie
-    zgłasza wyjątkiem ``stop_type``, którego tekst jest z kontraktu
-    bezpieczny; ``stop_lines`` zamienia go na linie terminala, a
-    ``stop_message`` na ten sam komunikat w trzech częściach. ``finished`` i
-    ``stopped`` są czystymi funkcjami linii końcowych, wspólnymi dla każdego
-    rozmówcy.
+    zgłasza ``StopError`` z Komunikatem z katalogu procesu (``gather`` też).
+    ``finished`` i ``stopped`` są czystymi funkcjami linii końcowych, wspólnymi
+    dla każdego rozmówcy.
 
     Tylko dla CLI: ``parser`` ma ``--dry-run`` i ``--metrics``, a ``gather``
     ustala wejście procesu z argumentów w rozmowie w terminalu.
@@ -190,9 +175,6 @@ class Process(Generic[InputsT, SummaryT]):
     parser: Callable[[], argparse.ArgumentParser]
     counter_names: frozenset[str]
     metrics_failure_tail: str
-    stop_type: type[Exception]
-    stop_lines: Callable[[Exception], Sequence[str]]
-    stop_message: Callable[[Exception], ThreePartMessage]
     gather: Callable[[argparse.Namespace, TerminalConversation], InputsT]
     execute: Callable[[InputsT, ProgressObserver, Conversation], SummaryT]
     finished: Callable[[InputsT, SummaryT], Finished]
@@ -314,13 +296,12 @@ class _Observation:
             self.failed = True
 
 
-def _stop_from(process: Process[Any, Any], error: Exception, *, dry_run: bool) -> Stop:
-    if not isinstance(error, process.stop_type):
+def _stop_from(error: Exception, *, dry_run: bool) -> Stop:
+    """Linie terminala to ``terminal_line`` Komunikatu, jeśli jest, a w przeciwnym razie jego trzy części."""
+
+    if not isinstance(error, StopError):
         return Stop("unexpected", dry_run)
-    try:
-        return Stop("stop", dry_run, tuple(process.stop_lines(error)), process.stop_message(error))
-    except Exception:  # noqa: BLE001 - granica procesu: kończy jako zatrzymanie "unexpected" w wyniku i metrykach
-        return Stop("unexpected", dry_run)
+    return Stop("stop", dry_run, tuple(error.message.terminal_lines), error.message)
 
 
 def _gather(
@@ -329,7 +310,7 @@ def _gather(
     try:
         return process.gather(args, conversation)
     except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
-        return _stop_from(process, error, dry_run=args.dry_run)
+        return _stop_from(error, dry_run=args.dry_run)
 
 
 # Budowa podsumowania odroczona do chwili po pomiarze Czasu uruchomienia i
@@ -350,7 +331,7 @@ def _run_engine(
     try:
         summary = process.execute(inputs, observation, conversation)
     except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
-        return _stop_from(process, error, dry_run=dry_run)
+        return _stop_from(error, dry_run=dry_run)
     except BaseException:
         observation.stop()
         raise

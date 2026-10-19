@@ -237,16 +237,6 @@ def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finishe
     )
 
 
-def _stop_message(error: Exception) -> Message:
-    if not isinstance(error, StopError):
-        raise TypeError("Zatrzymanie Przygotowania pliku zbiorczego to zawsze StopError.")
-    return error.message
-
-
-def _stop_lines(error: Exception) -> list[str]:
-    return _stop_message(error).terminal_lines
-
-
 def _stopped(stop: Stop) -> list[str]:
     """``ZATRZYMANO``, gdy nie powstał żaden plik z komunikatem zatrzymania; inaczej ``BŁĄD``."""
 
@@ -266,9 +256,6 @@ def _process(today: date | None) -> Process[PreparationInputs, PreparationSummar
         parser=build_parser,
         counter_names=_COUNTERS,
         metrics_failure_tail="Przygotowanie pliku zbiorczego zakończyło się niezależnie.",
-        stop_type=StopError,
-        stop_lines=_stop_lines,
-        stop_message=_stop_message,
         gather=partial(_gather, today),
         execute=_execute,
         finished=_finished,

@@ -19,6 +19,7 @@ from typing import Any, NoReturn, TextIO
 import pytest
 
 from rozliczenia.domain import ProgressObserver, ProgressPhase
+from rozliczenia.message import Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.process_run import Conversation, Finished, Process, Stop, run
@@ -43,15 +44,13 @@ class Inputs:
     dry_run: bool = False
 
 
-class Stopped(Exception):
-    """Własne zatrzymanie sztucznego procesu; jego tekst jest bezpieczny z kontraktu."""
+class Stopped(StopError):
+    """Własne zatrzymanie sztucznego procesu; ``lines`` to jego bezpieczna linia terminala."""
 
-
-@dataclass(frozen=True)
-class StopMessage:
-    what: str
-    where: str = "Proces testowy"
-    action: str = "Uruchom ponownie."
+    def __init__(self, lines: str) -> None:
+        super().__init__(
+            Message(code="ZATRZYMANIE", what=lines, where="Proces testowy", action="Uruchom ponownie.", terminal_line=lines)
+        )
 
 
 def parser() -> argparse.ArgumentParser:
@@ -103,9 +102,6 @@ def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
         "parser": parser,
         "counter_names": COUNTERS,
         "metrics_failure_tail": "Proces testowy zakończył się niezależnie.",
-        "stop_type": Stopped,
-        "stop_lines": lambda error: str(error).splitlines(),
-        "stop_message": lambda error: StopMessage(str(error)),
         "gather": gather,
         "execute": execute,
         "finished": finished_with("OK"),

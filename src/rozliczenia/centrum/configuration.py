@@ -25,8 +25,7 @@ from rozliczenia.engine import (
     load_worker_mapping,
 )
 from rozliczenia.preparation_files import check_collective_template, check_internal_template
-from rozliczenia.message import StopError
-from rozliczenia.process_run import ThreePartMessage
+from rozliczenia.message import Message, StopError
 from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
 
 
@@ -51,7 +50,7 @@ class ConfigurationFiles:
         )
 
 
-_Problem = tuple[contract.TemplateProblemKind, ThreePartMessage]
+_Problem = tuple[contract.TemplateProblemKind, Message]
 _FindProblem = Callable[[Path], _Problem | None]
 _PROBLEM_CODES: dict[str, contract.TemplateProblemKind] = {
     preparation_messages.TEMPLATE_MISSING: "missing",
