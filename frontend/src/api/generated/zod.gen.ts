@@ -114,6 +114,34 @@ export const zBoardReady = z.object({
 });
 
 /**
+ * PhaseDuration
+ */
+export const zPhaseDuration = z.object({
+    phase: z.string(),
+    duration_ms: z.int()
+});
+
+/**
+ * PhasePercentiles
+ */
+export const zPhasePercentiles = z.object({
+    phase: z.string(),
+    p50_ms: z.int(),
+    p95_ms: z.int()
+});
+
+/**
+ * Percentiles
+ *
+ * P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach.
+ */
+export const zPercentiles = z.object({
+    p50_ms: z.int(),
+    p95_ms: z.int(),
+    phases: z.array(zPhasePercentiles)
+});
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -123,12 +151,81 @@ export const zProblem = z.object({
 });
 
 /**
+ * ProcessRun
+ *
+ * Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
+ *
+ * ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+ */
+export const zProcessRun = z.object({
+    process: z.enum(['preparation', 'settlement']),
+    process_label: z.string(),
+    started_at: z.iso.datetime(),
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    period: z.string(),
+    result: z.enum([
+        'OK',
+        'WYMAGA_SPRAWDZENIA',
+        'BLAD_KRYTYCZNY'
+    ]),
+    total_duration_ms: z.int(),
+    phase_durations: z.array(zPhaseDuration),
+    origin: z.enum(['cmd', 'centrum'])
+});
+
+/**
  * ReadyPath
  */
 export const zReadyPath = z.object({
     state: z.literal('ready'),
     path: z.string(),
     name: z.string()
+});
+
+/**
+ * ResultCounts
+ */
+export const zResultCounts = z.object({
+    ok: z.int(),
+    needs_review: z.int(),
+    critical: z.int()
+});
+
+/**
+ * ModeStatistics
+ *
+ * Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji.
+ */
+export const zModeStatistics = z.object({
+    process: z.enum(['preparation', 'settlement']),
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    completed_runs: z.int(),
+    percentiles: zPercentiles.nullable(),
+    results: zResultCounts
+});
+
+/**
+ * RecentResults
+ *
+ * Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni).
+ */
+export const zRecentResults = z.object({
+    weeks: z.int(),
+    since: z.iso.date(),
+    results: zResultCounts
+});
+
+/**
+ * Metrics
+ *
+ * Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego.
+ */
+export const zMetrics = z.object({
+    phases: z.array(z.string()),
+    minimum_completed_runs: z.int(),
+    runs: z.array(zProcessRun),
+    statistics: z.array(zModeStatistics),
+    recent: zRecentResults
 });
 
 /**
@@ -231,3 +328,8 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
+
+/**
+ * Successful Response
+ */
+export const zGetMetricsResponse = zMetrics;
