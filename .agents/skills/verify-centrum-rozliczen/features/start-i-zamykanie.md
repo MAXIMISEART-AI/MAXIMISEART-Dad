@@ -28,7 +28,7 @@ Preconditions:
 - Centrum is served for this run with `DOCTOR OK`. This feature closes it, so it runs last in `all`; nothing can be driven after it.
 - The launcher steps copy the tool into `<root>/narzedzie` so the real launcher's log stays in the run root, and set `BROWSER` to a recorder that appends to `<root>/browser.txt`.
 
-- **Readiness.** `GET /api/health` (`api/start-health.json`) names `centrum-rozliczen`; `<root>/logs/centrum-rozliczen.log` starts with `start … port=<port>`.
+- **Readiness.** `GET /api/health` (`api/start-health.json`) names `centrum-rozliczen` and the `pyproject.toml` version; `<root>/logs/centrum-rozliczen.log` starts with `start … port=<port>`.
 - **Second start.** Run `<root>/narzedzie/run_centrum.py --port <port>`. It exits 0, prints `Centrum rozliczeń już działa: <url>` (`api/start-druga-instancja.txt`), `browser.txt` holds exactly the URL, the copy's log holds `juz-dziala`, and `health` still answers.
 - **Foreign program.** Bind a socket on a free port, then run the launcher on it. It exits 1, prints the lines `Co się stało`, `Gdzie`, `Co zrobić` with `zajmuje inny program`, nothing on stderr (`api/start-obcy-program.txt`), and the copy's log ends with `blad-startu`.
 - **Tab close.** Open the URL in a second tab (`context.new_page()`), wait for heading `Okresy`, close it; `health` still answers.
@@ -38,7 +38,7 @@ Preconditions:
 
 ## Gotchas
 
-- Run this feature last: after `zamykanie` the server is gone, and the runner's stop and cleanup report it as already stopped, which is expected.
+- Run this feature last: after `zamykanie` the server is gone, and cleanup reports `recorded server already stopped`, which is expected.
 - `--feature start-i-zamykanie` alone works on a fresh run; no settings are needed.
 - The shortcut path (`pythonw`, no console) shows start messages in a native dialog that Playwright cannot click. This skill drives the console path of the same launcher; the windowless path is covered by `tests/test_centrum_launcher.py` (a simulated `pythonw` on macOS/Linux, the real `pythonw.exe` and the `.lnk` on Windows) and by hand.
 - The foreign-program step waits up to 5 seconds: the launcher gives a program that accepts the connection but never answers `health` that long before deciding it is not Centrum.

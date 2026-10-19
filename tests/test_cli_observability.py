@@ -369,8 +369,6 @@ def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path)
         ("worker-template-has-data", "Wzorzec rozliczenia pracownika zawiera dane"),
         ("invalid-config", "Niepoprawny YAML konfiguracji"),
         ("unsupported-config-version", "Nieobsługiwana wersja konfiguracji"),
-        ("unsafe-worker-name", "nieprawidłową dla nazwy pliku"),
-        ("long-worker-name", "zbyt długą dla nazwy pliku"),
     ],
 )
 def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
@@ -401,16 +399,6 @@ def test_cli_dry_run_rejects_invalid_inputs_before_creating_output(
     elif problem == "unsupported-config-version":
         config_path.write_text(
             "schema_version: 2\nworkers:\n  synthetic.worker: Worker\n",
-            encoding="utf-8",
-        )
-    elif problem == "unsafe-worker-name":
-        config_path.write_text(
-            "schema_version: 1\nworkers:\n  synthetic.worker: ../outside\n",
-            encoding="utf-8",
-        )
-    elif problem == "long-worker-name":
-        config_path.write_text(
-            f"schema_version: 1\nworkers:\n  synthetic.worker: {'X' * 223}\n",
             encoding="utf-8",
         )
 

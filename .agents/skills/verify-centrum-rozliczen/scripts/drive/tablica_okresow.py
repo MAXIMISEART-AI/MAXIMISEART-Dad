@@ -40,6 +40,10 @@ def drive_period_board(run: Run, page: Page) -> None:
             expect(row).to_have_attribute("data-state", "selected")
             expect(row).to_contain_text("ostatni pełny okres")
     run.check(True, "the screen shows the same order, Status okresu, and highlighted last complete period")
+    run.check(
+        all(("preview_hint" in row["next_step"]) == (row["next_step"]["action"] != "none") for row in rows),
+        "every process step carries its Podgląd bez zapisu hint; a closed period has none",
+    )
     run.capture(page, "06-tablica-okresow")
 
     run.step(feature, "tablica-nastepny-krok")
@@ -47,6 +51,7 @@ def drive_period_board(run: Run, page: Page) -> None:
     expect(next_step).to_contain_text("Przygotuj plik zbiorczy")
     expect(next_step).to_contain_text(expected[0][0])
     expect(next_step).to_contain_text("Brak Folderu okresu")
+    expect(next_step.get_by_role("button", name="Podgląd bez zapisu", exact=True)).to_be_visible()
     run.check(True, "Następny krok targets the last complete period, whose Folder okresu does not exist")
 
     run.step(feature, "tablica-otwieranie")
@@ -86,6 +91,10 @@ def drive_period_board(run: Run, page: Page) -> None:
     period_row(page, "29_05_09_2026").get_by_text("Utwórz rozliczenia pracowników").hover()
     expect(page.get_by_text("Najpierw uzupełnij Plik zbiorczy w Excelu, zapisz go i zamknij.")).to_be_visible()
     run.capture(page, "09-tablica-podpowiedz", full_page=False)
+    preview_hint = rows[0]["next_step"]["preview_hint"]
+    page.get_by_role("region", name="Następny krok").get_by_role("button", name="Podgląd bez zapisu", exact=True).hover()
+    expect(page.get_by_text(preview_hint, exact=True)).to_be_visible()
+    run.check(True, "Podgląd bez zapisu on Następny krok shows the hint the board sent for its period")
 
     run.step(feature, "tablica-ochrona")
     opened = len(run.lines("opened.jsonl"))
