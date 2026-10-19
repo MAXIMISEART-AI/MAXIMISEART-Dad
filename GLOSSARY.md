@@ -71,6 +71,12 @@ Osoba wskazana w kolumnie `WYKONAWCA` pliku zbiorczego. Wartość w tej kolumnie
 jest identyfikatorem źródłowym, który nie musi być identyczny z nazwą człowieka
 w nazwie pliku docelowego.
 
+## Konfiguracja wykonawców
+
+Plik konfiguracji w folderze `config`, który łączy identyfikator Wykonawcy z
+kolumny `WYKONAWCA` (H) z nazwą Wykonawcy w Rozliczeniu pracownika. Wspólny
+dla Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
+
 ## Szablon pracownika
 
 Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca

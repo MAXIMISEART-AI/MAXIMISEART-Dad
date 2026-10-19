@@ -18,9 +18,9 @@ from openpyxl.styles.fills import Fill
 
 from . import preparation_messages as messages
 from . import workbook_files
-from .engine import normalize_text
 from .message import StopError
 from .workbook_files import FormattedCell, Problem, ReadWorkbook, WorkbookError
+from .worker_config import normalize_text
 
 
 @dataclass(frozen=True)
