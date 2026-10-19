@@ -26,7 +26,7 @@ from tests.collective_preparation_fixtures import (
     register_order,
     write_register,
 )
-from tests.test_settlement_engine import cut_sheet_after_data_rows
+from tests.test_settlement_engine import cut_sheet_after_data_rows, without_sheet, without_styles
 
 
 def run_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationSummary:
@@ -231,8 +231,10 @@ def test_sheet_with_orders_of_other_periods_does_not_block_period(tmp_path: Path
     [
         lambda path: path.write_bytes(b"to nie jest skoroszyt Excela"),
         lambda path: cut_sheet_after_data_rows(path, "xl/worksheets/sheet2.xml"),  # ZLECENIA za arkuszem lista
+        without_styles,
+        without_sheet,
     ],
-    ids=["nie-skoroszyt", "urwany-arkusz-zlecen"],
+    ids=["nie-skoroszyt", "urwany-arkusz-zlecen", "bez-styles-xml", "bez-arkusza"],
 )
 def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path, damage: Callable[[Path], object]) -> None:
     fixture = make_preparation_fixture(tmp_path)
