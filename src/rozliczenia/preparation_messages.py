@@ -11,10 +11,19 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from openpyxl.utils import get_column_letter
 
 from . import collective_file
+
+
+Channel = Literal["terminal", "centrum"]
+"""Gdzie tata rozmawia z Uruchomieniem procesu: w terminalu (CLI) albo w Centrum rozliczeń.
+
+Tylko kilka komunikatów mówi, jak odpowiedzieć albo czy uruchomić ponownie; ich
+„Co się stało” i kod są w obu kanałach te same.
+"""
 
 
 @dataclass(frozen=True)
@@ -536,7 +545,13 @@ def incomplete_period(
     )
 
 
-def incomplete_period_refused(period: str) -> PreparationError:
+_CONSENT: dict[Channel, str] = {
+    "terminal": "przy pytaniu wpisz t",
+    "centrum": "przy decyzji wybierz „Kontynuuj”",
+}
+
+
+def incomplete_period_refused(period: str, channel: Channel = "terminal") -> PreparationError:
     """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie."""
 
     return PreparationError(
@@ -546,7 +561,7 @@ def incomplete_period_refused(period: str) -> PreparationError:
             where=f"okres {period}",
             action=(
                 "Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. "
-                "Jeśli okres jest pełny, przy pytaniu wpisz t."
+                f"Jeśli okres jest pełny, {_CONSENT[channel]}."
             ),
         )
     )
@@ -579,14 +594,19 @@ def unexpected_failure() -> PreparationMessage:
     )
 
 
-def summary_not_shown() -> PreparationMessage:
-    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty."""
+def summary_not_shown(channel: Channel = "terminal") -> PreparationMessage:
+    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty.
 
+    W terminalu „nie uruchamiaj ponownie” mówi tabela w instrukcji; Centrum nie
+    odsyła do tabeli, więc mówi to sam komunikat.
+    """
+
+    check = "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
     return PreparationMessage(
         code="BLAD_PODSUMOWANIA",
         what="Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
         where="Przygotowanie pliku zbiorczego",
-        action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+        action=check if channel == "terminal" else f"Nie uruchamiaj ponownie: oba pliki okresu już są. {check}",
     )
 
 

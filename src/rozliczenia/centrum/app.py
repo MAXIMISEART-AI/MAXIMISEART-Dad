@@ -1,6 +1,6 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
-Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``);
+Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``, ``runs_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004) i
 zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``.
 """
@@ -20,7 +20,10 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
+from rozliczenia.centrum.preparation_run import PreparationEntry
+from rozliczenia.centrum.runs import RunHost, runs_router
 from rozliczenia.centrum.settings import SettingsStore, settings_router
+from rozliczenia.centrum.tool_paths import ToolPaths
 from rozliczenia.centrum.version import tool_version
 
 SERVICE: Final = "centrum-rozliczen"
@@ -34,6 +37,7 @@ def create_app(
     settings_path: Path,
     platform: Platform,
     today: Callable[[], date] = date.today,
+    tool_paths: ToolPaths | None = None,
 ) -> FastAPI:
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -60,6 +64,11 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
+    # Jedno Uruchomienie procesu naraz; ``runs.in_progress()`` blokuje zamknięcie serwera w jego trakcie.
+    runs = RunHost()
+    app.state.runs = runs
+    tools = tool_paths or ToolPaths()
+    app.include_router(runs_router(runs, [PreparationEntry(store, tools, today)]))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")
     return app
