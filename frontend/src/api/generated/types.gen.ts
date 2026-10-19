@@ -383,6 +383,10 @@ export type PeriodChoice = {
      * Last Complete
      */
     last_complete: boolean;
+    /**
+     * Collective File
+     */
+    collective_file: string | null;
 };
 
 /**
@@ -495,6 +499,10 @@ export type PhaseProgress = {
  */
 export type PreparationSummary = {
     /**
+     * Process
+     */
+    process: 'preparation';
+    /**
      * Period
      */
     period: string;
@@ -591,7 +599,7 @@ export type ProcessSetup = {
     /**
      * Process
      */
-    process: 'preparation';
+    process: 'preparation' | 'settlement';
     /**
      * Title
      */
@@ -848,7 +856,7 @@ export type RunInfo = {
     /**
      * Process
      */
-    process: 'preparation';
+    process: 'preparation' | 'settlement';
     /**
      * Title
      */
@@ -929,7 +937,14 @@ export type RunOutcome = {
      * Notices
      */
     notices: Array<string>;
-    summary: PreparationSummary | null;
+    /**
+     * Summary
+     */
+    summary: ({
+        process: 'preparation';
+    } & PreparationSummary) | ({
+        process: 'settlement';
+    } & SettlementSummary) | null;
     /**
      * Lines
      */
@@ -945,7 +960,7 @@ export type RunRequest = {
     /**
      * Process
      */
-    process: 'preparation';
+    process: 'preparation' | 'settlement';
     /**
      * Period
      */
@@ -1011,6 +1026,50 @@ export type Settings = {
      * Theme
      */
     theme: 'dark' | 'light';
+};
+
+/**
+ * SettlementSummary
+ *
+ * Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów.
+ */
+export type SettlementSummary = {
+    /**
+     * Process
+     */
+    process: 'settlement';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Worker Settlements Folder
+     */
+    worker_settlements_folder: string;
+    /**
+     * Rows
+     */
+    rows: number;
+    /**
+     * Written Count
+     */
+    written_count: number;
+    /**
+     * Planned Count
+     */
+    planned_count: number;
+    /**
+     * Empty Count
+     */
+    empty_count: number;
+    /**
+     * Skipped Count
+     */
+    skipped_count: number;
+    /**
+     * Files
+     */
+    files: Array<WorkerFile>;
 };
 
 /**
@@ -1094,6 +1153,26 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
+};
+
+/**
+ * WorkerFile
+ *
+ * Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt).
+ */
+export type WorkerFile = {
+    /**
+     * Worker Name
+     */
+    worker_name: string;
+    /**
+     * File
+     */
+    file: string;
+    /**
+     * Rows
+     */
+    rows: number;
 };
 
 /**

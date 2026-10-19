@@ -144,7 +144,8 @@ export const zPeriodChoice = z.object({
     tuesday: z.iso.date(),
     monday: z.iso.date(),
     status_label: z.string(),
-    last_complete: z.boolean()
+    last_complete: z.boolean(),
+    collective_file: z.string().nullable()
 });
 
 /**
@@ -232,6 +233,7 @@ export const zPhaseProgress = z.object({
  * Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów.
  */
 export const zPreparationSummary = z.object({
+    process: z.literal('preparation'),
     period: z.string(),
     period_order_count: z.int(),
     successful_order_count: z.int(),
@@ -279,7 +281,7 @@ export const zProcessRun = z.object({
  * Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
  */
 export const zProcessSetup = z.object({
-    process: z.literal('preparation'),
+    process: z.enum(['preparation', 'settlement']),
     title: z.string(),
     creates: z.string(),
     reminder: z.string(),
@@ -411,7 +413,7 @@ export const zRunIdle = z.object({
  */
 export const zRunInfo = z.object({
     id: z.string(),
-    process: z.literal('preparation'),
+    process: z.enum(['preparation', 'settlement']),
     title: z.string(),
     period: z.string(),
     dry_run: z.boolean()
@@ -453,59 +455,12 @@ export const zRunAwaitingDecision = z.object({
 });
 
 /**
- * RunOutcome
- *
- * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
- *
- * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
- * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
- */
-export const zRunOutcome = z.object({
-    result: z.enum([
-        'OK',
-        'WYMAGA_SPRAWDZENIA',
-        'BLAD_KRYTYCZNY'
-    ]),
-    headline: z.string(),
-    ending: z.enum([
-        'finished',
-        'stop',
-        'unexpected',
-        'after_engine'
-    ]),
-    next_action: z.enum([
-        'run',
-        'rerun',
-        'open_period_folder'
-    ]),
-    status_line: z.string(),
-    total_duration_ms: z.int(),
-    stops: z.array(zRunMessage),
-    warnings: z.array(zRunMessage),
-    notices: z.array(z.string()),
-    summary: zPreparationSummary.nullable(),
-    lines: z.array(z.string())
-});
-
-/**
- * RunFinished
- */
-export const zRunFinished = z.object({
-    state: z.literal('finished'),
-    run: zRunInfo,
-    progress: zProgress,
-    progress_stale: z.boolean(),
-    result: zRunOutcome
-});
-
-/**
  * RunRequest
  *
  * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
  */
 export const zRunRequest = z.object({
-    process: z.literal('preparation'),
+    process: z.enum(['preparation', 'settlement']),
     period: z.string(),
     dry_run: z.boolean()
 });
@@ -519,21 +474,6 @@ export const zRunRunning = z.object({
     progress: zProgress,
     notice: zProgressNotice.nullable(),
     progress_stale: z.boolean()
-});
-
-/**
- * RunEvent
- *
- * Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu.
- */
-export const zRunEvent = z.object({
-    sequence: z.int(),
-    view: z.discriminatedUnion('state', [
-        zRunIdle,
-        zRunRunning,
-        zRunAwaitingDecision,
-        zRunFinished
-    ])
 });
 
 /**
@@ -621,6 +561,99 @@ export const zValidationError = z.object({
  */
 export const zHttpValidationError = z.object({
     detail: z.array(zValidationError).optional()
+});
+
+/**
+ * WorkerFile
+ *
+ * Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt).
+ */
+export const zWorkerFile = z.object({
+    worker_name: z.string(),
+    file: z.string(),
+    rows: z.int()
+});
+
+/**
+ * SettlementSummary
+ *
+ * Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów.
+ */
+export const zSettlementSummary = z.object({
+    process: z.literal('settlement'),
+    period: z.string(),
+    worker_settlements_folder: z.string(),
+    rows: z.int(),
+    written_count: z.int(),
+    planned_count: z.int(),
+    empty_count: z.int(),
+    skipped_count: z.int(),
+    files: z.array(zWorkerFile)
+});
+
+/**
+ * RunOutcome
+ *
+ * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
+ *
+ * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
+ * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ */
+export const zRunOutcome = z.object({
+    result: z.enum([
+        'OK',
+        'WYMAGA_SPRAWDZENIA',
+        'BLAD_KRYTYCZNY'
+    ]),
+    headline: z.string(),
+    ending: z.enum([
+        'finished',
+        'stop',
+        'unexpected',
+        'after_engine'
+    ]),
+    next_action: z.enum([
+        'run',
+        'rerun',
+        'open_period_folder'
+    ]),
+    status_line: z.string(),
+    total_duration_ms: z.int(),
+    stops: z.array(zRunMessage),
+    warnings: z.array(zRunMessage),
+    notices: z.array(z.string()),
+    summary: z.discriminatedUnion('process', [
+        zPreparationSummary,
+        zSettlementSummary
+    ]).nullable(),
+    lines: z.array(z.string())
+});
+
+/**
+ * RunFinished
+ */
+export const zRunFinished = z.object({
+    state: z.literal('finished'),
+    run: zRunInfo,
+    progress: zProgress,
+    progress_stale: z.boolean(),
+    result: zRunOutcome
+});
+
+/**
+ * RunEvent
+ *
+ * Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu.
+ */
+export const zRunEvent = z.object({
+    sequence: z.int(),
+    view: z.discriminatedUnion('state', [
+        zRunIdle,
+        zRunRunning,
+        zRunAwaitingDecision,
+        zRunFinished
+    ])
 });
 
 /**

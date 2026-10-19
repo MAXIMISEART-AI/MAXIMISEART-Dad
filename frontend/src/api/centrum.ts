@@ -51,7 +51,9 @@ export type {
   RunOutcome,
   RunRequest,
   Settings,
+  SettlementSummary,
   TemplateProblem,
+  WorkerFile,
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse

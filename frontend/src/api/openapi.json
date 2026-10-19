@@ -1191,6 +1191,17 @@
           "last_complete": {
             "type": "boolean",
             "title": "Last Complete"
+          },
+          "collective_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collective File"
           }
         },
         "additionalProperties": false,
@@ -1200,7 +1211,8 @@
           "tuesday",
           "monday",
           "status_label",
-          "last_complete"
+          "last_complete",
+          "collective_file"
         ],
         "title": "PeriodChoice",
         "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."
@@ -1362,6 +1374,11 @@
       },
       "PreparationSummary": {
         "properties": {
+          "process": {
+            "type": "string",
+            "const": "preparation",
+            "title": "Process"
+          },
           "period": {
             "type": "string",
             "title": "Period"
@@ -1397,6 +1414,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "process",
           "period",
           "period_order_count",
           "successful_order_count",
@@ -1503,7 +1521,10 @@
         "properties": {
           "process": {
             "type": "string",
-            "const": "preparation",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
             "title": "Process"
           },
           "title": {
@@ -1944,7 +1965,10 @@
           },
           "process": {
             "type": "string",
-            "const": "preparation",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
             "title": "Process"
           },
           "title": {
@@ -2076,12 +2100,27 @@
           "summary": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/PreparationSummary"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PreparationSummary"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SettlementSummary"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "process",
+                  "mapping": {
+                    "preparation": "#/components/schemas/PreparationSummary",
+                    "settlement": "#/components/schemas/SettlementSummary"
+                  }
+                }
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Summary"
           },
           "lines": {
             "items": {
@@ -2113,7 +2152,10 @@
         "properties": {
           "process": {
             "type": "string",
-            "const": "preparation",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
             "title": "Process"
           },
           "period": {
@@ -2255,6 +2297,65 @@
         ],
         "title": "Settings"
       },
+      "SettlementSummary": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "const": "settlement",
+            "title": "Process"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "worker_settlements_folder": {
+            "type": "string",
+            "title": "Worker Settlements Folder"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "written_count": {
+            "type": "integer",
+            "title": "Written Count"
+          },
+          "planned_count": {
+            "type": "integer",
+            "title": "Planned Count"
+          },
+          "empty_count": {
+            "type": "integer",
+            "title": "Empty Count"
+          },
+          "skipped_count": {
+            "type": "integer",
+            "title": "Skipped Count"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerFile"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "period",
+          "worker_settlements_folder",
+          "rows",
+          "written_count",
+          "planned_count",
+          "empty_count",
+          "skipped_count",
+          "files"
+        ],
+        "title": "SettlementSummary",
+        "description": "Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów."
+      },
       "TemplateProblem": {
         "properties": {
           "state": {
@@ -2378,6 +2479,31 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkerFile": {
+        "properties": {
+          "worker_name": {
+            "type": "string",
+            "title": "Worker Name"
+          },
+          "file": {
+            "type": "string",
+            "title": "File"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "worker_name",
+          "file",
+          "rows"
+        ],
+        "title": "WorkerFile",
+        "description": "Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt)."
       },
       "WorkersReady": {
         "properties": {
