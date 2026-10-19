@@ -1,0 +1,8 @@
+Rozliczenia | okres: 08_14_09_2026 | tryb: RUN
+Status: uruchomiono
+Ostatnie operacje:
+Etap: Sprawdzanie
+Etap przerwany: Sprawdzanie
+Status semantyczny: BŁĄD
+Nie wykonano: Folder docelowy już istnieje: Rozliczenie pracowników 08_14_09_2026.
+Czas uruchomienia: <N> ms

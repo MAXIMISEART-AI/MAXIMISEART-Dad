@@ -1,0 +1,39 @@
+Przygotowanie pliku zbiorczego | okres: 08_14_09_2026 | tryb: RUN
+Status: uruchomiono
+Etap: Sprawdzanie
+Etap: Odczyt danych
+Etap: Planowanie
+Ostrzeżenie: niepełny okres
+Co się stało: Ostatnie zlecenie okresu jest z soboty 12.09.2026, a okres kończy się w poniedziałek 14.09.2026. Rejestr zleceń może nie mieć jeszcze wszystkich zleceń tego okresu.
+Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, okres 08_14_09_2026
+Co zrobić: Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport w Rejestrze zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj.
+Zlecenia na dzień:
+- wt 08.09.2026: 1
+- śr 09.09.2026: 1
+- czw 10.09.2026: 0
+- pt 11.09.2026: 0
+- sob 12.09.2026: 1
+- niedz 13.09.2026: 0
+- pon 14.09.2026: 0
+Kontynuować mimo niepełnego okresu? Wpisz t (tak) albo n (nie): 
+Etap: Zapisywanie
+Status końcowy: OK
+Czas uruchomienia: <N> ms
+Okres: 08_14_09_2026
+Zlecenia okresu: 3
+Zlecenia skuteczne: 2
+Pominięte puste wiersze: 1
+Zlecenia na dzień:
+- wt 08.09.2026: 1
+- śr 09.09.2026: 1
+- czw 10.09.2026: 0
+- pt 11.09.2026: 0
+- sob 12.09.2026: 1
+- niedz 13.09.2026: 0
+- pon 14.09.2026: 0
+Ostrzeżenia: 1
+- Co się stało: Ostatnie zlecenie okresu jest z soboty 12.09.2026, a okres kończy się w poniedziałek 14.09.2026. Rejestr zleceń może nie mieć jeszcze wszystkich zleceń tego okresu.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, okres 08_14_09_2026
+  Co zrobić: Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport w Rejestrze zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj.
+Rozliczenie wewnętrzne: Rozliczenie wew. 08_14_09_2026.xlsx
+Plik zbiorczy: Rozliczenie 08_14_09_2026 - zbiorcze.xlsx

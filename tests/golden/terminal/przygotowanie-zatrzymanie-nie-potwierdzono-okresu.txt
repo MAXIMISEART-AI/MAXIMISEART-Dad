@@ -1,0 +1,14 @@
+Proponowany okres: 08_14_09_2026 (wtorek 08.09.2026 – poniedziałek 14.09.2026)
+Enter potwierdza ten okres. Inny okres wpisz jak w nazwie folderu, np. 01_07_09_2026.
+Okres: 
+Co się stało: Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.
+Gdzie: okres 'okres'
+Co zrobić: Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). Na przełomie miesięcy miesiąc i rok są z wtorku, np. 27_02_10_2026 (wtorek 27 października – poniedziałek 2 listopada 2026).
+Okres: 
+Przygotowanie pliku zbiorczego | okres: nieznany | tryb: RUN
+Status: uruchomiono
+Status końcowy: ZATRZYMANO
+Co się stało: Nie potwierdzono okresu ani nie wpisano innego. Nie utworzono żadnego pliku.
+Gdzie: pytanie o okres
+Co zrobić: Uruchom ponownie i naciśnij Enter, aby potwierdzić proponowany okres, albo wpisz inny.
+Czas uruchomienia: <N> ms

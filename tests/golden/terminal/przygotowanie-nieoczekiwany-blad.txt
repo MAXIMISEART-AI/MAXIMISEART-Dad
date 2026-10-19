@@ -1,0 +1,10 @@
+Przygotowanie pliku zbiorczego | okres: 08_14_09_2026 | tryb: RUN
+Status: uruchomiono
+Etap: Sprawdzanie
+Etap: Odczyt danych
+Etap przerwany: Odczyt danych
+Status końcowy: BŁĄD
+Co się stało: Wystąpił nieoczekiwany błąd. Nie utworzono żadnego pliku.
+Gdzie: Przygotowanie pliku zbiorczego
+Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+Czas uruchomienia: <N> ms
