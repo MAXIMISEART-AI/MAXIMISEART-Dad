@@ -25,7 +25,7 @@ from rozliczenia.centrum.period_board import read_board
 from rozliczenia.centrum.runs import Endings, PreparedRun
 from rozliczenia.centrum.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
-from rozliczenia.period_folder import PeriodFolder, PeriodStatus
+from rozliczenia.period_folder import PeriodFolder, PeriodStatus, collective_file_name, period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 
@@ -61,18 +61,12 @@ class SettlementEntry:
             rows[0].token if rows else last_complete_period(self.today()).token,
         )
         previewed = previewed_periods(MetricsStore(self.metrics_path, _PROCESS.counter_names))
-        # Wiersze okresów są tylko wtedy, gdy folder okresów jest wskazany.
-        choices = (
-            [_choice(row, periods_directory, previewed=row.token in previewed) for row in rows]
-            if periods_directory is not None
-            else []
-        )
         return contract.ProcessSetup(
             process=_KEY,
             title=PROCESS_NAMES[_KEY],
             creates="Rozliczenia pracowników",
             reminder="Zapisz i zamknij Plik zbiorczy w Excelu",
-            periods=choices,
+            periods=[_choice(row, previewed=row.token in previewed) for row in rows],
             preselected_period=preselected,
             blocker=_blocker(board, rows),
         )
@@ -110,8 +104,7 @@ class SettlementEntry:
         )
 
 
-def _choice(row: contract.PeriodRow, periods_directory: Path, *, previewed: bool) -> contract.PeriodChoice:
-    folder = PeriodFolder(periods_directory, SettlementPeriod(row.tuesday))
+def _choice(row: contract.PeriodRow, *, previewed: bool) -> contract.PeriodChoice:
     return contract.PeriodChoice(
         token=row.token,
         tuesday=row.tuesday,
@@ -119,7 +112,7 @@ def _choice(row: contract.PeriodRow, periods_directory: Path, *, previewed: bool
         status_label=row.status_label,
         last_complete=row.last_complete,
         previewed=previewed,
-        collective_file=folder.collective_file.name,
+        collective_file=collective_file_name(SettlementPeriod(row.tuesday)),
     )
 
 
@@ -129,7 +122,7 @@ def _blocker(board: contract.PeriodBoard, rows: list[contract.PeriodRow]) -> str
     if board.state == "missing":
         return f"Nie ma już folderu okresów {board.name}. Wskaż go ponownie."
     if not rows:
-        return "Żaden okres nie ma Statusu „Plik zbiorczy przygotowany”. Najpierw przygotuj plik zbiorczy."
+        return f"Żaden okres nie ma Statusu „{period_status_label(_ELIGIBLE)}”. Najpierw przygotuj plik zbiorczy."
     return None
 
 

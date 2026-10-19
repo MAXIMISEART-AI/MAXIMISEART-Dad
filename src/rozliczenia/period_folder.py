@@ -97,7 +97,7 @@ class PeriodFolder:
 
     @property
     def collective_file(self) -> Path:
-        return self.directory / _COLLECTIVE_FILE.format(token=self.period.token)
+        return self.directory / collective_file_name(self.period)
 
     @property
     def worker_settlements(self) -> Path:
@@ -134,6 +134,12 @@ class PeriodFolder:
             and entry.name.endswith(suffix)
             and len(entry.name) > len(prefix) + len(suffix)
         )
+
+
+def collective_file_name(period: SettlementPeriod) -> str:
+    """Nazwa Pliku zbiorczego okresu; nie zależy od folderu okresów."""
+
+    return _COLLECTIVE_FILE.format(token=period.token)
 
 
 @dataclass(frozen=True)
