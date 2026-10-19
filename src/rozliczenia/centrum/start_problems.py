@@ -1,15 +1,15 @@
-"""Komunikaty startu Centrum rozliczeń dla taty: co się stało, gdzie, co zrobić.
+"""Katalog Komunikatów startu Centrum rozliczeń dla taty: co się stało, gdzie, co zrobić.
 
-Bez konsoli (skrót ``pythonw``) komunikat pokazuje natywne okienko, z konsolą
+Bez konsoli (skrót ``pythonw``) Komunikat pokazuje natywne okienko, z konsolą
 (launcher ``.cmd``) trzy linie w konsoli. Treść nie zawiera tekstu wyjątku.
-Instrukcja taty cytuje „Co się stało” każdego komunikatu
+Instrukcja taty cytuje „Co się stało” każdego Komunikatu
 (``tests/test_instrukcja_taty.py``). Moduł używa tylko biblioteki standardowej,
-bo jeden z komunikatów mówi o brakujących zależnościach.
+bo jeden z Komunikatów mówi o brakujących zależnościach.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from rozliczenia.message import Message
 
 TITLE = "Centrum rozliczeń"
 _SHORTCUT = "skrót „Centrum rozliczeń”"
@@ -17,26 +17,14 @@ _FALLBACK = "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utw
 _LOG = "logs\\centrum-rozliczen.log"
 
 
-@dataclass(frozen=True)
-class StartProblem:
-    code: str
-    what: str
-    where: str
-    action: str
-
-    @property
-    def text(self) -> str:
-        return f"Co się stało: {self.what}\nGdzie: {self.where}\nCo zrobić: {self.action}"
-
-
 def _address(port: int) -> str:
     return f"adres http://127.0.0.1:{port}/ na tym komputerze"
 
 
-def port_taken(port: int) -> StartProblem:
+def port_taken(port: int) -> Message:
     """Port Centrum zajmuje program, który nie odpowiada jak Centrum rozliczeń."""
 
-    return StartProblem(
+    return Message(
         code="PORT_ZAJETY",
         what=f"Centrum rozliczeń nie wystartowało, bo port {port} zajmuje inny program.",
         where=_address(port),
@@ -47,10 +35,10 @@ def port_taken(port: int) -> StartProblem:
     )
 
 
-def other_version_running(port: int, version: str) -> StartProblem:
+def other_version_running(port: int, version: str) -> Message:
     """Na porcie działa Centrum rozliczeń innej wersji, np. sprzed aktualizacji narzędzia."""
 
-    return StartProblem(
+    return Message(
         code="INNA_WERSJA_CENTRUM",
         what=f"Działa już Centrum rozliczeń w innej wersji ({version}).",
         where=_address(port),
@@ -58,10 +46,10 @@ def other_version_running(port: int, version: str) -> StartProblem:
     )
 
 
-def missing_library(name: str) -> StartProblem:
+def missing_library(name: str) -> Message:
     """Python na komputerze taty nie ma biblioteki z ``requirements.txt``."""
 
-    return StartProblem(
+    return Message(
         code="BRAK_BIBLIOTEKI",
         what=f"Brakuje biblioteki potrzebnej Centrum rozliczeń ({name}).",
         where="Python na tym komputerze",
@@ -72,8 +60,8 @@ def missing_library(name: str) -> StartProblem:
     )
 
 
-def unexpected_start_failure() -> StartProblem:
-    return StartProblem(
+def unexpected_start_failure() -> Message:
+    return Message(
         code="NIEOCZEKIWANY_BLAD_STARTU",
         what="Centrum rozliczeń nie wystartowało z nieoczekiwanego powodu.",
         where=f"dziennik Centrum {_LOG} w folderze narzędzia",

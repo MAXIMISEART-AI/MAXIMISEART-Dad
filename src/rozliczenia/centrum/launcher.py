@@ -20,8 +20,8 @@ import webbrowser
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import has_console, show_start_problem
-from rozliczenia.centrum.start_problems import StartProblem
 from rozliczenia.centrum.version import SERVICE
+from rozliczenia.message import Message
 
 DEFAULT_PORT = 47811
 LOG_PATH = Path(__file__).resolve().parents[3] / "logs" / "centrum-rozliczen.log"
@@ -95,7 +95,7 @@ def _running_centrum_version(url: str) -> str | None:
     return version if isinstance(version, str) else None
 
 
-def _refuse(problem: StartProblem, port: int, log: CentrumLog) -> int:
+def _refuse(problem: Message, port: int, log: CentrumLog) -> int:
     log.start_failed(problem.code, port=port)
     if has_console():
         print(problem.text, flush=True)
