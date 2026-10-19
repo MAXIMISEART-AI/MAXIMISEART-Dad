@@ -39,8 +39,13 @@ their contents.
 ## Test Surface
 
 - Test each process through its operation (`run_settlements()`,
-  `prepare_collective_file()`). Give an internal module its own tests only for
-  behaviour those operations cannot reach.
+  `prepare_collective_file()`). Give a module with one entry point (one
+  operation or the HTTP API of Centrum rozliczeń) its own tests only for
+  behaviour that entry point cannot reach.
+- A module whose interface at least two entry points call (two processes, or a
+  process and Centrum rozliczeń) is a seam: test its rule matrix once, on its
+  interface. Each entry point that uses it has one translation test (module
+  error → that entry point's Komunikat) and does not repeat the matrix.
 - Test Centrum rozliczeń through its HTTP API, the way the browser sees it:
   responses, the event stream, files on disk, metrics records. Prove UI
   behaviour in the browser with `verify-centrum-rozliczen`, not with component
