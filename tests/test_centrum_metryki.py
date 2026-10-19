@@ -82,8 +82,8 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
     app = centrum(tmp_path)
     write_lines(
         app.metrics.preparation,
-        preparation("2026-10-06T06:21:00+00:00", period="29_05_09_2026", total=11_200),
-        preparation("2026-10-06T06:12:00+00:00", mode="DRY-RUN", period="29_05_09_2026", total=8_100),
+        preparation("2026-10-06T06:21:00+00:00", period="29_05_10_2026", total=11_200),
+        preparation("2026-10-06T06:12:00+00:00", mode="DRY-RUN", period="29_05_10_2026", total=8_100),
     )
     write_lines(
         app.metrics.settlement,
@@ -98,7 +98,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
             "process_label": "Przygotowanie pliku zbiorczego",
             "started_at": "2026-10-06T06:21:00Z",
             "mode": "RUN",
-            "period": "29_05_09_2026",
+            "period": "29_05_10_2026",
             "result": "OK",
             "total_duration_ms": 11_200,
             "phase_durations": [
@@ -114,7 +114,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
             "process_label": "Przygotowanie pliku zbiorczego",
             "started_at": "2026-10-06T06:12:00Z",
             "mode": "DRY-RUN",
-            "period": "29_05_09_2026",
+            "period": "29_05_10_2026",
             "result": "OK",
             "total_duration_ms": 8_100,
             "phase_durations": [

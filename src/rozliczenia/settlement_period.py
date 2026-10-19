@@ -1,10 +1,11 @@
 """Okres rozliczeniowy: token ``dd_dd_mm_rrrr`` i ostatni pełny okres przed danym dniem.
 
-Token zawiera dzień wtorku, dzień poniedziałku oraz miesiąc i rok wtorku, jak
-zapis zakresu dat ``08–14.09.2026``. Na przełomie miesięcy i lat liczy się
-starszy miesiąc: okres od wtorku 27 października do poniedziałku 2 listopada 2026
-ma token ``27_02_10_2026``, a od 29 grudnia 2026 do 4 stycznia 2027 token
-``29_04_12_2026``. Każdy okres ma dokładnie jeden token, więc jeden Folder okresu.
+Token zawiera dzień wtorku, dzień poniedziałku oraz miesiąc i rok poniedziałku,
+jak zapis zakresu dat ``08–14.09.2026``. Na przełomie miesięcy i lat liczy się
+miesiąc poniedziałku, tak jak w folderach taty: okres od wtorku 27 października
+do poniedziałku 2 listopada 2026 ma token ``27_02_11_2026``, a od 29 grudnia
+2026 do 4 stycznia 2027 token ``29_04_01_2027``. Każdy okres ma dokładnie jeden
+token, więc jeden Folder okresu.
 """
 
 from __future__ import annotations
@@ -34,8 +35,8 @@ class SettlementPeriod:
 
     @property
     def token(self) -> str:
-        tuesday = self.tuesday
-        return f"{tuesday.day:02d}_{self.monday.day:02d}_{tuesday.month:02d}_{tuesday.year:04d}"
+        monday = self.monday
+        return f"{self.tuesday.day:02d}_{monday.day:02d}_{monday.month:02d}_{monday.year:04d}"
 
     @property
     def start(self) -> datetime:
@@ -55,9 +56,12 @@ def parse_period_token(token: str) -> SettlementPeriod:
 
     if re.fullmatch(PERIOD_TOKEN_PATTERN, token) is None:
         raise ValueError("Token okresu ma postać dd_dd_mm_rrrr.")
-    tuesday_day, _, month, year = (int(part) for part in token.split("_"))
-    period = SettlementPeriod(date(year, month, tuesday_day))
-    if period.token != token:
+    _, monday_day, month, year = (int(part) for part in token.split("_"))
+    try:
+        period = SettlementPeriod(date(year, month, monday_day) - timedelta(days=6))
+    except ValueError:
+        period = None
+    if period is None or period.token != token:
         raise ValueError("Token okresu nie opisuje okresu od wtorku do poniedziałku.")
     return period
 

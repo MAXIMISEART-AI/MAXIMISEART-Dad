@@ -57,7 +57,7 @@ def drive_period_board(run: Run, page: Page) -> None:
     run.step(feature, "tablica-otwieranie")
     opened_before = len(run.lines("opened.jsonl"))
     clicks = [
-        ("Plik zbiorczy, okres 29_05_09_2026", periods / "29_05_09_2026" / "Rozliczenie 29_05_09_2026 - zbiorcze.xlsx"),
+        ("Plik zbiorczy, okres 29_05_10_2026", periods / "29_05_10_2026" / "Rozliczenie 29_05_10_2026 - zbiorcze.xlsx"),
         ("Rozliczenie wewnętrzne, okres 22_28_09_2026", periods / "22_28_09_2026" / "Rozliczenie wew. 22_28_09_2026.xlsx"),
         ("Folder okresu, okres 15_21_09_2026", periods / "15_21_09_2026"),
         ("Rozliczenia pracowników: 3, okres 22_28_09_2026",
@@ -88,7 +88,7 @@ def drive_period_board(run: Run, page: Page) -> None:
     run.capture(page, "08-tablica-po-zmianie-na-dysku")
 
     run.step(feature, "tablica-podpowiedz")
-    period_row(page, "29_05_09_2026").get_by_text("Utwórz rozliczenia pracowników").hover()
+    period_row(page, "29_05_10_2026").get_by_text("Utwórz rozliczenia pracowników").hover()
     expect(page.get_by_text("Najpierw uzupełnij Plik zbiorczy w Excelu, zapisz go i zamknij.")).to_be_visible()
     run.capture(page, "09-tablica-podpowiedz", full_page=False)
     preview_hint = rows[0]["next_step"]["preview_hint"]

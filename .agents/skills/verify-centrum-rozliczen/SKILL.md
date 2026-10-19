@@ -80,7 +80,7 @@ built frontend, and the settings and metrics files belong to this run. The docto
 Chromium at 1440×1000, locale `pl-PL`. It finds elements by ARIA role and
 accessible name, the same Polish names Dad reads: buttons such as
 `Wskaż folder okresów`, `Zmień Rejestr zleceń`, `Włącz motyw jasny`, and
-`Plik zbiorczy, okres 29_05_09_2026`; the table `Tablica okresów`; the region
+`Plik zbiorczy, okres 29_05_10_2026`; the table `Tablica okresów`; the region
 `Następny krok`; the groups `Rejestr zleceń` and `Folder okresów`; on
 Konfiguracja the groups named after each Wzorzec and the list `Wykonawcy`. The recipes
 and their exact handles are in the feature files. To drive one feature against

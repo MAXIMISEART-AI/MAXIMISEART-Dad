@@ -14,7 +14,7 @@ feature file as the recipe.
   `centrum_doctor.py` reported `DOCTOR OK`.
 - The fixture's "today" is Monday `2026-10-19`, so the last complete period is
   `06_12_10_2026`, whose Folder okresu does not exist. The folder okresów
-  `INEA` holds `29_05_09_2026` (Plik zbiorczy przygotowany; its Plik zbiorczy
+  `INEA` holds `29_05_10_2026` (Plik zbiorczy przygotowany; its Plik zbiorczy
   has a Wykonawca missing from the konfiguracja wykonawców), `22_28_09_2026`
   (Rozliczenia pracowników gotowe, three files), `15_21_09_2026` (empty Folder
   okresu), and `Archiwum` (not a period).

@@ -427,9 +427,9 @@ def _proposals_around_boundary(
 @pytest.mark.parametrize(
     ("today", "proposed", "monday"),
     [
-        # Na przełomie miesięcy i lat token ma miesiąc i rok wtorku.
-        *_proposals_around_boundary("20_26_10_2026", "27_02_10_2026", "03_09_11_2026", date(2026, 11, 2)),
-        *_proposals_around_boundary("22_28_12_2026", "29_04_12_2026", "05_11_01_2027", date(2027, 1, 4)),
+        # Na przełomie miesięcy i lat token ma miesiąc i rok poniedziałku.
+        *_proposals_around_boundary("20_26_10_2026", "27_02_11_2026", "03_09_11_2026", date(2026, 11, 2)),
+        *_proposals_around_boundary("22_28_12_2026", "29_04_01_2027", "05_11_01_2027", date(2027, 1, 4)),
     ],
 )
 def test_proposed_period_at_month_and_year_boundary_names_folder_okresu(
@@ -458,13 +458,13 @@ def test_typed_period_replaces_proposed_one(tmp_path: Path) -> None:
 def test_invalid_typed_period_is_rejected_with_message_and_asked_again(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
-    exit_code, output = run_cli_asking_for_period(fixture, "15_21_09_2025\n27_02_11_2026\n\n")
+    exit_code, output = run_cli_asking_for_period(fixture, "15_21_09_2025\n27_02_10_2026\n\n")
 
     assert exit_code == 0
     assert output.count("Co się stało: Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.") == 2
     assert "Gdzie: okres '15_21_09_2025'" in output
-    assert "Gdzie: okres '27_02_11_2026'" in output
-    assert "Na przełomie miesięcy miesiąc i rok są z wtorku, np. 27_02_10_2026" in output
+    assert "Gdzie: okres '27_02_10_2026'" in output
+    assert "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 27_02_11_2026" in output
     assert sorted(path.name for path in fixture.periods_directory.iterdir()) == [PERIOD]
     assert fixture.collective_file_path.is_file()
 

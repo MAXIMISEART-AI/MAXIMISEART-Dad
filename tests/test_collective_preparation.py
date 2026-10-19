@@ -256,9 +256,9 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
         "08_15_09_2026",
         "okres",
         "../14_09_2026",
-        # Na przełomie miesięcy i lat miesiąc i rok tokenu są z wtorku, nie z poniedziałku.
-        "27_02_11_2026",
-        "29_04_01_2027",
+        # Na przełomie miesięcy i lat miesiąc i rok tokenu są z poniedziałku, nie z wtorku.
+        "27_02_10_2026",
+        "29_04_12_2026",
     ],
 )
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
@@ -273,9 +273,9 @@ def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token
 
 @pytest.mark.parametrize(
     ("token", "tuesday"),
-    [("27_02_10_2026", datetime(2026, 10, 27)), ("29_04_12_2026", datetime(2026, 12, 29))],
+    [("27_02_11_2026", datetime(2026, 10, 27)), ("29_04_01_2027", datetime(2026, 12, 29))],
 )
-def test_period_crossing_month_or_year_takes_month_and_year_of_tuesday(
+def test_period_crossing_month_or_year_takes_month_and_year_of_monday(
     tmp_path: Path, token: str, tuesday: datetime
 ) -> None:
     rows: list[RegisterRow] = [

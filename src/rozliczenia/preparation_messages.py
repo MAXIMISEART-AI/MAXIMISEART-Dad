@@ -55,7 +55,7 @@ def invalid_period_token(token: str) -> Message:
         where=f"okres {token!r}",
         action=(
             "Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). "
-            "Na przełomie miesięcy miesiąc i rok są z wtorku, np. 27_02_10_2026 "
+            "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 27_02_11_2026 "
             "(wtorek 27 października – poniedziałek 2 listopada 2026)."
         ),
     )

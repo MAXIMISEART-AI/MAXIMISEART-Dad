@@ -287,7 +287,7 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     worker_folder = write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa", "Jan Próbny"])
     (worker_folder / "~$Rozliczenie 22_28_09_2026 - Anna Testowa.xlsx").touch()
     (worker_folder / "Rozliczenie 22_28_09_2026 -.xlsx").touch()
-    write_period_files(periods, "29_05_09_2026")
+    write_period_files(periods, "29_05_10_2026")
     (periods / "15_21_09_2026").mkdir()
     (periods / "Archiwum").mkdir()
     (periods / ".13_19_10_2026.staging-abc").mkdir()
@@ -297,7 +297,7 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
 
     assert [(row["token"], row["status"], row["worker_settlement_count"]) for row in rows] == [
         ("06_12_10_2026", "no_period_files", 0),
-        ("29_05_09_2026", "collective_file_prepared", 0),
+        ("29_05_10_2026", "collective_file_prepared", 0),
         ("22_28_09_2026", "worker_settlements_ready", 2),
         ("15_21_09_2026", "no_period_files", 0),
     ]
@@ -325,7 +325,7 @@ def test_tablica_okresow_wskazuje_ostatni_przygotowany_okres_z_plikiem_zbiorczym
     before = app.client.get("/api/periods").json()["last_prepared_period"]
     write_worker_settlements(write_period_files(periods, "22_28_09_2026"), "22_28_09_2026", ["Anna Testowa"])
     write_period_files(periods, "15_21_09_2026")
-    (periods / "29_05_09_2026").mkdir()
+    (periods / "29_05_10_2026").mkdir()
 
     after = app.client.get("/api/periods").json()["last_prepared_period"]
 
@@ -334,7 +334,7 @@ def test_tablica_okresow_wskazuje_ostatni_przygotowany_okres_z_plikiem_zbiorczym
 
 def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: Path) -> None:
     app, periods = with_periods_directory(tmp_path)
-    write_period_files(periods, "29_05_09_2026")
+    write_period_files(periods, "29_05_10_2026")
 
     rows = board_rows(app)
 
@@ -362,12 +362,12 @@ def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: 
 
 def test_istniejacy_folder_ostatniego_pelnego_okresu_nie_jest_powtorzony(tmp_path: Path) -> None:
     app, periods = with_periods_directory(tmp_path, today=date(2026, 10, 6))
-    write_period_files(periods, "29_05_09_2026")
+    write_period_files(periods, "29_05_10_2026")
 
     rows = board_rows(app)
 
     assert [(row["token"], row["last_complete"], row["status"]) for row in rows] == [
-        ("29_05_09_2026", True, "collective_file_prepared")
+        ("29_05_10_2026", True, "collective_file_prepared")
     ]
 
 

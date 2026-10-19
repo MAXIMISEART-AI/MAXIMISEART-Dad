@@ -8,7 +8,7 @@ hold a synthetic history in the CLI's schema for Metryki.
 The Rejestr zleceń holds orders of the last complete period ``06_12_10_2026``
 whose last order is on Saturday, so a RUN of Przygotowanie pliku zbiorczego
 asks Dad's decision about the incomplete period. Its order cells carry
-``ROW_MARKER``. The Plik zbiorczy of ``29_05_09_2026`` has a Wiersz danych of a
+``ROW_MARKER``. The Plik zbiorczy of ``29_05_10_2026`` has a Wiersz danych of a
 Wykonawca missing from the konfiguracja wykonawców, so a Podgląd bez zapisu of
 Przebieg rozliczeń for that period needs checking.
 """
@@ -30,7 +30,7 @@ import yaml
 TODAY = "2026-10-19"
 LAST_COMPLETE = "06_12_10_2026"
 # A period whose Plik zbiorczy has a Wiersz danych of a Wykonawca the konfiguracja wykonawców does not know.
-NEEDS_CHECK = "29_05_09_2026"
+NEEDS_CHECK = "29_05_10_2026"
 UNKNOWN_WORKER = "wykonawca.spoza.konfiguracji"
 WORKERS = ("Wykonawca Testowy A", "Wykonawca Testowy B", "Wykonawca Testowy C")
 # A synthetic row value inside every workbook. Centrum must never read or show workbook content,
@@ -60,8 +60,8 @@ PREPARATION_RUNS: tuple[MetricRun, ...] = (
     ("2026-09-22T06:21:00+00:00", "RUN", "15_21_09_2026", "OK", (400, 7900, 900, 2700)),
     ("2026-09-29T06:12:00+00:00", "DRY-RUN", "22_28_09_2026", "OK", (300, 6900, 900, 0)),
     ("2026-09-29T06:21:00+00:00", "RUN", "22_28_09_2026", "OK", (300, 7100, 900, 2600)),
-    ("2026-10-06T06:12:00+00:00", "DRY-RUN", "29_05_09_2026", "OK", (300, 7100, 900, 0)),
-    ("2026-10-06T06:21:00+00:00", "RUN", "29_05_09_2026", "OK", (400, 7600, 900, 2700)),
+    ("2026-10-06T06:12:00+00:00", "DRY-RUN", "29_05_10_2026", "OK", (300, 7100, 900, 0)),
+    ("2026-10-06T06:21:00+00:00", "RUN", "29_05_10_2026", "OK", (400, 7600, 900, 2700)),
 )
 SETTLEMENT_RUNS: tuple[MetricRun, ...] = (
     ("2026-09-03T15:46:00+00:00", "RUN", "25_31_08_2026", "OK", (500, 3100, 700, 8000)),
@@ -265,7 +265,7 @@ def create(root: Path) -> dict[str, object]:
         # token, Status okresu, number of Rozliczenia pracowników, last complete period
         "board": [
             [LAST_COMPLETE, "no_period_files", 0, True],
-            ["29_05_09_2026", "collective_file_prepared", 0, False],
+            ["29_05_10_2026", "collective_file_prepared", 0, False],
             ["22_28_09_2026", "worker_settlements_ready", len(WORKERS), False],
             ["15_21_09_2026", "no_period_files", 0, False],
         ],
