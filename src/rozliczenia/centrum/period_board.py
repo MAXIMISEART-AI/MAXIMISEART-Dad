@@ -101,6 +101,15 @@ def observed_period_folder(periods_directory: Path, period: SettlementPeriod) ->
         return PeriodFolder(error.locations[0] if error.locations else periods_directory, period)
 
 
+def requested_period(token: str) -> SettlementPeriod:
+    """Okres z tokenu żądania przeglądarki; zły token to odmowa 404."""
+
+    try:
+        return parse_period_token(token)
+    except ValueError:
+        raise contract.Refusal(404, "Nie ma takiego okresu.") from None
+
+
 def located_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
     """Jeden Folder okresu dla akcji Centrum; brak albo kilka miejsc to odmowa ze wskazówką dla taty."""
 
@@ -139,11 +148,7 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
         periods_directory = store.load().periods_directory
         if periods_directory is None or not periods_directory.is_dir():
             raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
-        try:
-            period = parse_period_token(token)
-        except ValueError:
-            raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        folder = located_period_folder(periods_directory, period)
+        folder = located_period_folder(periods_directory, requested_period(token))
         path = {
             "internal_settlement": folder.internal_settlement,
             "collective_file": folder.collective_file,

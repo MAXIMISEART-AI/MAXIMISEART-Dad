@@ -4,7 +4,7 @@ Plik zbiorczy wynika z folderu okresów i okresu; tata go nie wskazuje. Do
 wyboru są okresy ze Statusem okresu „Plik zbiorczy przygotowany”. Kliknięcie
 „Uruchom” jest potwierdzeniem Gotowości: Centrum nie zgaduje jej z pliku ani
 nie blokuje startu. Proces prowadzi rdzeń Uruchomienia procesu z tym samym
-opisem procesu co CLI (``cli.PROCESS``), więc liczby, komunikaty i rekord
+opisem procesu co CLI (``settlement_process.PROCESS``), więc liczby, komunikaty i rekord
 metryk są te same. Terminal pokazuje zatrzymanie jedną linią, Centrum ten sam
 komunikat w trzech częściach.
 """
@@ -17,20 +17,20 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Final
 
-from rozliczenia import cli, settlement_messages
+from rozliczenia import settlement_messages
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles
-from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
-from rozliczenia.centrum.period_board import located_period_folder, read_board
+from rozliczenia.centrum.metrics import previewed_periods
+from rozliczenia.centrum.period_board import located_period_folder, read_board, requested_period
 from rozliczenia.centrum.runs import PreparedRun
 from rozliczenia.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label
-from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
+from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
+from rozliczenia.settlement_process import PROCESS, SettlementInputs
 from rozliczenia.telemetry import MetricsStore
 
-_PROCESS: Final = cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "settlement"
 _VIEW: Final = run_view.SETTLEMENT
 _ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
@@ -57,10 +57,10 @@ class SettlementEntry:
             (row.token for row in rows if row.last_complete),
             rows[0].token if rows else last_complete_period(self.today()).token,
         )
-        previewed = previewed_periods(MetricsStore(self.metrics_path, _PROCESS.counter_names))
+        previewed = previewed_periods(MetricsStore(self.metrics_path, PROCESS.counter_names))
         return contract.ProcessSetup(
             process=_KEY,
-            title=PROCESS_NAMES[_KEY],
+            title=PROCESS.name,
             creates="Rozliczenia pracowników",
             reminder=_VIEW.reminder,
             confirms_readiness=_VIEW.confirms_readiness,
@@ -74,12 +74,9 @@ class SettlementEntry:
         periods_directory = self.store.load().periods_directory
         if periods_directory is None:
             raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
-        try:
-            period = parse_period_token(request.period)
-        except ValueError:
-            raise contract.Refusal(404, "Nie ma takiego okresu.") from None
+        period = requested_period(request.period)
         source = located_period_folder(periods_directory, period).collective_file
-        inputs = cli.SettlementInputs(
+        inputs = SettlementInputs(
             source,
             dry_run=request.dry_run,
             config_path=self.configuration.worker_config,
@@ -91,9 +88,8 @@ class SettlementEntry:
 
         return PreparedRun(
             key=_KEY,
-            title=PROCESS_NAMES[_KEY],
             period=period.token,
-            process=_PROCESS,
+            process=PROCESS,
             inputs=inputs,
             metrics_path=self.metrics_path,
             done="Rozliczenia pracowników gotowe",

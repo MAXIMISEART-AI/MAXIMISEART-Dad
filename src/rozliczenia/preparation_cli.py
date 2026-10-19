@@ -1,23 +1,18 @@
 """CLI Przygotowania pliku zbiorczego (osobne wejście, uruchamiane przez ``run_preparation.py``).
 
-Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
-(``PreparationInputs``), argumenty i wybór Rejestru zleceń, folderu okresów i
-okresu w terminalu, wywołanie silnika i fakty zakończenia, a dla terminala
-linie statusu i podsumowania. Inny rozmówca niż terminal podaje gotowe
-``PreparationInputs`` do ``run_process(PROCESS, ...)`` razem z własnym
-widokiem podsumowania.
+Argumenty, wybór Rejestru zleceń, folderu okresów i okresu w terminalu oraz
+linie statusu i podsumowania (``CliEntry``). Opis procesu wspólny z Centrum
+rozliczeń jest w ``preparation_process``.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, field
 from datetime import date
 from functools import partial
 from pathlib import Path
 from typing import TextIO
 
-from . import collective_preparation
 from . import settings as settings_file
 from . import preparation_messages as messages
 from .collective_preparation import (
@@ -25,22 +20,11 @@ from .collective_preparation import (
     default_collective_template_path,
     default_internal_template_path,
 )
-from .decision import Conversation
-from .domain import ProgressObserver
 from .message import Message, StopError
-from .process_run import Finished, Process, Stop, TerminalSummary, TerminalView, run
+from .preparation_process import PROCESS, PreparationInputs, default_metrics_path
+from .process_run import CliEntry, Stop, TerminalSummary, run
 from .terminal_conversation import TerminalConversation, ask_period
 from .worker_config import default_config_path
-
-_TITLE = "Przygotowanie pliku zbiorczego"
-# Liczniki historii metryk Przygotowania pliku zbiorczego (inne niż Przebiegu rozliczeń).
-_COUNTERS = frozenset({"period_orders", "successful_orders", "skipped_empty_rows", "warnings"})
-
-
-def default_metrics_path() -> Path:
-    """Osobna lokalna historia metryk, obok historii Przebiegu rozliczeń."""
-
-    return Path(__file__).resolve().parents[2] / ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -108,22 +92,6 @@ def _summary_lines(summary: PreparationSummary, *, dry_run: bool) -> list[str]:
     return lines
 
 
-@dataclass(frozen=True)
-class PreparationInputs:
-    """Wejście procesu Przygotowania pliku zbiorczego, niezależne od argumentów CLI.
-
-    Konfiguracja wykonawców i oba wzorce mają te same domyślne ścieżki co CLI.
-    """
-
-    register_path: Path
-    periods_directory: Path
-    period: str
-    dry_run: bool = False
-    config_path: Path = field(default_factory=default_config_path)
-    internal_template_path: Path = field(default_factory=default_internal_template_path)
-    collective_template_path: Path = field(default_factory=default_collective_template_path)
-
-
 def _gather(today: date | None, args: argparse.Namespace, conversation: TerminalConversation) -> PreparationInputs:
     """Argumenty, potem Ustawienia taty z Centrum rozliczeń, a okno wyboru tylko dla tego, czego nie wskazano."""
 
@@ -161,33 +129,6 @@ def _gather(today: date | None, args: argparse.Namespace, conversation: Terminal
     )
 
 
-def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation: Conversation) -> PreparationSummary:
-    return collective_preparation.prepare_collective_file(
-        inputs.register_path,
-        inputs.periods_directory,
-        inputs.period,
-        inputs.config_path,
-        internal_template_path=inputs.internal_template_path,
-        collective_template_path=inputs.collective_template_path,
-        dry_run=inputs.dry_run,
-        observer=observer,
-        conversation=conversation,
-    )
-
-
-def _finished(summary: PreparationSummary) -> Finished:
-    return Finished(
-        result="OK",
-        counters={
-            "period_orders": summary.period_order_count,
-            "successful_orders": summary.successful_order_count,
-            "skipped_empty_rows": summary.skipped_empty_rows,
-            "warnings": len(summary.warnings),
-        },
-        phase_durations_ms=summary.phase_durations_ms,
-    )
-
-
 def _terminal_summary(inputs: PreparationInputs, summary: PreparationSummary) -> TerminalSummary:
     return TerminalSummary(
         status_lines=["Status końcowy: OK"], summary_lines=_summary_lines(summary, dry_run=inputs.dry_run)
@@ -200,28 +141,8 @@ def _stop_lines(stop: Stop) -> list[str]:
     return [f"Status końcowy: {'ZATRZYMANO' if stop.kind == 'stop' else 'BŁĄD'}", *stop.message.terminal_lines]
 
 
-def _process(today: date | None) -> Process[PreparationInputs, PreparationSummary]:
-    return Process(
-        title=_TITLE,
-        shows_templates=False,
-        parser=build_parser,
-        counter_names=_COUNTERS,
-        metrics_failure_tail="Przygotowanie pliku zbiorczego zakończyło się niezależnie.",
-        gather=partial(_gather, today),
-        execute=_execute,
-        finished=_finished,
-        unexpected_failure=messages.unexpected_failure(),
-        plan_not_shown=messages.plan_not_shown(),
-        summary_not_shown=messages.summary_not_shown(),
-    )
-
-
-# Opis Przygotowania pliku zbiorczego dla rdzenia Uruchomienia procesu, wspólny dla każdego rozmówcy.
-PROCESS = _process(None)
-# Jak terminal pokazuje zakończenie Przygotowania pliku zbiorczego.
-_TERMINAL: TerminalView[PreparationInputs, PreparationSummary] = TerminalView(
-    summary=_terminal_summary, stop=_stop_lines
-)
+def _entry(today: date | None) -> CliEntry[PreparationInputs, PreparationSummary]:
+    return CliEntry(parser=build_parser, gather=partial(_gather, today), summary=_terminal_summary, stop=_stop_lines)
 
 
 def main(
@@ -234,9 +155,7 @@ def main(
 ) -> int:
     """Uruchamia Przygotowanie pliku zbiorczego; ``0`` sukces, ``1`` zatrzymanie, błąd albo odmowa."""
 
-    return run(
-        _process(today), _TERMINAL, argv, output=output, input_stream=input_stream, metrics_path=metrics_path
-    )
+    return run(PROCESS, _entry(today), argv, output=output, input_stream=input_stream, metrics_path=metrics_path)
 
 
 if __name__ == "__main__":

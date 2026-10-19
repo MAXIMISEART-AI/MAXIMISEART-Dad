@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import StringIO
 import json
 from pathlib import Path
@@ -24,11 +24,11 @@ from rozliczenia.message import Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.process_run import (
+    CliEntry,
     Finished,
     Process,
     Stop,
     TerminalSummary,
-    TerminalView,
     run,
     run_process,
 )
@@ -116,19 +116,19 @@ def stop_lines(stop: Stop) -> Sequence[str]:
     return [f"Zatrzymano: {stop.kind}", *stop.message.terminal_lines]
 
 
-TERMINAL = TerminalView(summary=terminal_summary, stop=stop_lines)
+TERMINAL: CliEntry[Inputs, Durations] = CliEntry(parser=parser, gather=gather, summary=terminal_summary, stop=stop_lines)
 # Podsumowanie, którego terminal nie umie pokazać: wyjątek w widoku rozmówcy.
-UNPRINTABLE: TerminalView[Inputs, Durations] = TerminalView(summary=fail, stop=stop_lines)
+UNPRINTABLE: CliEntry[Inputs, Durations] = replace(TERMINAL, summary=fail)
 
 
 def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
     fields: dict[str, Any] = {
+        "name": "Proces testowy",
         "title": "Proces testowy",
         "shows_templates": False,
-        "parser": parser,
         "counter_names": COUNTERS,
+        "metrics_path": lambda: Path("nieuzywany-plik-metryk.jsonl"),
         "metrics_failure_tail": "Proces testowy zakończył się niezależnie.",
-        "gather": gather,
         "execute": execute,
         "finished": finished_with("OK"),
         **ENDINGS,
@@ -143,7 +143,7 @@ def run_fake(
     *args: str,
     output: TextIO | None = None,
     input_stream: TextIO | None = None,
-    terminal: TerminalView[Inputs, Durations] = TERMINAL,
+    terminal: CliEntry[Inputs, Durations] = TERMINAL,
 ) -> tuple[int, str]:
     output = output or StringIO()
     exit_code = run(
@@ -174,11 +174,13 @@ def append_completed_records(metrics_path: Path, mode: str, total_duration_ms: i
         )
 
 
-def failing_at(failing: str) -> tuple[Process[Inputs, Durations], TerminalView[Inputs, Durations]]:
+def failing_at(failing: str) -> tuple[Process[Inputs, Durations], CliEntry[Inputs, Durations]]:
     """Sztuczny proces z wyjątkiem w ``gather``, ``execute``, ``finished`` albo w widoku podsumowania terminala."""
 
     if failing == "summary":
         return fake_process(), UNPRINTABLE
+    if failing == "gather":
+        return fake_process(), replace(TERMINAL, gather=fail)
     return fake_process(**{failing: fail}), TERMINAL
 
 
@@ -316,7 +318,7 @@ def test_stop_before_engine_start_has_unknown_period_and_shows_statistics(tmp_pa
     metrics_path = tmp_path / "metrics.jsonl"
     append_completed_records(metrics_path, "RUN", 1000)
 
-    exit_code, output = run_fake(fake_process(gather=cancelled), metrics_path)
+    exit_code, output = run_fake(fake_process(), metrics_path, terminal=replace(TERMINAL, gather=cancelled))
 
     assert exit_code == 1
     lines = output.splitlines()

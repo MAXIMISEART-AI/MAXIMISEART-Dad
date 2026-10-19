@@ -13,7 +13,7 @@ from typing import Any, NoReturn
 from fastapi.testclient import TestClient
 import pytest
 
-from rozliczenia import cli, engine, template_settlement
+from rozliczenia import cli, engine, settlement_process, template_settlement
 from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
@@ -418,10 +418,10 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_cli_i_rozpoznaje_swoje_uruchomi
         ],
         output=StringIO(),
     )
-    records = MetricsStore(centrum.metrics_path, cli.PROCESS.counter_names).read()
+    records = MetricsStore(centrum.metrics_path, settlement_process.PROCESS.counter_names).read()
     history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert MetricsFiles.of_cli().settlement == cli.default_metrics_path()
+    assert MetricsFiles.of_cli().settlement == settlement_process.default_metrics_path()
     assert cli_exit_code == 0
     assert [(run["process"], run["origin"]) for run in history] == [("settlement", "cmd"), ("settlement", "centrum")]
     assert [(record["mode"], record["result"]) for record in records] == [("DRY-RUN", "OK"), ("DRY-RUN", "OK")]

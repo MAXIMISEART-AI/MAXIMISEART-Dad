@@ -15,16 +15,17 @@ from typing import Any, Final
 
 from fastapi import APIRouter
 
-from rozliczenia import cli, preparation_cli
+from rozliczenia import preparation_process, settlement_process
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.domain import PHASES
+from rozliczenia.process_run import Process
 from rozliczenia.telemetry import MINIMUM_STATISTIC_SAMPLES, MetricsStore, comparable_records, statistics_for
 
-# Nazwy procesów w Centrum (Uruchomienia i Metryki); terminal Przebiegu rozliczeń ma własny nagłówek podglądu.
-PROCESS_NAMES: Final[dict[contract.ProcessKey, str]] = {
-    "preparation": "Przygotowanie pliku zbiorczego",
-    "settlement": "Przebieg rozliczeń",
+# Procesy Centrum rozliczeń pod kluczami kontraktu; opis procesu ten sam co w CLI.
+PROCESSES: Final[dict[contract.ProcessKey, Process[Any, Any]]] = {
+    "preparation": preparation_process.PROCESS,
+    "settlement": settlement_process.PROCESS,
 }
 _MODES: Final[tuple[contract.RunMode, ...]] = ("RUN", "DRY-RUN")
 _RECENT_WEEKS = 8
@@ -39,13 +40,11 @@ class MetricsFiles:
 
     @classmethod
     def of_cli(cls) -> MetricsFiles:
-        return cls(preparation=preparation_cli.default_metrics_path(), settlement=cli.default_metrics_path())
+        return cls(**{key: process.metrics_path() for key, process in PROCESSES.items()})
 
     def stores(self) -> dict[contract.ProcessKey, MetricsStore]:
-        return {
-            "preparation": MetricsStore(self.preparation, preparation_cli.PROCESS.counter_names),
-            "settlement": MetricsStore(self.settlement, cli.PROCESS.counter_names),
-        }
+        paths: dict[contract.ProcessKey, Path] = {"preparation": self.preparation, "settlement": self.settlement}
+        return {key: MetricsStore(paths[key], process.counter_names) for key, process in PROCESSES.items()}
 
 
 def read_metrics(
@@ -86,7 +85,7 @@ def _run(
 ) -> contract.ProcessRun:
     return contract.ProcessRun(
         process=process,
-        process_label=PROCESS_NAMES[process],
+        process_label=PROCESSES[process].name,
         started_at=datetime.fromisoformat(record["started_at"]).astimezone(timezone.utc),
         mode=record["mode"],
         period=record["period"],

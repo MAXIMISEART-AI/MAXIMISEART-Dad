@@ -2,7 +2,7 @@
 
 Rejestr zleceń i folder okresów pochodzą z ustawień, okres z listy ostatnich
 pełnych okresów. Proces prowadzi rdzeń Uruchomienia procesu z tym samym opisem
-procesu co CLI (``preparation_cli.PROCESS``), więc liczby, ostrzeżenia,
+procesu co CLI (``preparation_process.PROCESS``), więc liczby, ostrzeżenia,
 komunikaty i rekord metryk są te same.
 """
 
@@ -14,18 +14,17 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Final
 
-from rozliczenia import preparation_cli
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles
-from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
-from rozliczenia.centrum.period_board import observed_period_folder
+from rozliczenia.centrum.metrics import previewed_periods
+from rozliczenia.centrum.period_board import observed_period_folder, requested_period
 from rozliczenia.centrum.runs import PreparedRun
 from rozliczenia.settings import Settings, SettingsStore
 from rozliczenia.period_folder import period_status_label
-from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
+from rozliczenia.preparation_process import PROCESS, PreparationInputs
+from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.telemetry import MetricsStore
 
-_PROCESS: Final = preparation_cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "preparation"
 _VIEW: Final = run_view.PREPARATION
 _CHOSEN_WEEKS: Final = 8
@@ -48,10 +47,10 @@ class PreparationEntry:
         settings = self.store.load()
         last_complete = last_complete_period(self.today())
         periods = [SettlementPeriod(last_complete.tuesday - timedelta(weeks=week)) for week in range(_CHOSEN_WEEKS)]
-        previewed = previewed_periods(MetricsStore(self.metrics_path, _PROCESS.counter_names))
+        previewed = previewed_periods(MetricsStore(self.metrics_path, PROCESS.counter_names))
         return contract.ProcessSetup(
             process=_KEY,
-            title=PROCESS_NAMES[_KEY],
+            title=PROCESS.name,
             creates="Rozliczenie wewnętrzne i Plik zbiorczy",
             reminder=_VIEW.reminder,
             confirms_readiness=_VIEW.confirms_readiness,
@@ -69,11 +68,8 @@ class PreparationEntry:
         blocker = _blocker(settings)
         if blocker is not None or settings.register is None or settings.periods_directory is None:
             raise contract.Refusal(409, blocker or "Najpierw wskaż Rejestr zleceń i folder okresów.")
-        try:
-            period = parse_period_token(request.period).token
-        except ValueError:
-            raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        inputs = preparation_cli.PreparationInputs(
+        period = requested_period(request.period).token
+        inputs = PreparationInputs(
             settings.register,
             settings.periods_directory,
             period,
@@ -84,9 +80,8 @@ class PreparationEntry:
         )
         return PreparedRun(
             key=_KEY,
-            title=PROCESS_NAMES[_KEY],
             period=period,
-            process=_PROCESS,
+            process=PROCESS,
             inputs=inputs,
             metrics_path=self.metrics_path,
             done="Plik zbiorczy przygotowany",
