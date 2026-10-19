@@ -50,6 +50,6 @@ Preconditions:
 
 - Statistics are per process and mode. A `BLAD_KRYTYCZNY` record is not a completed observation, but `WYMAGA_SPRAWDZENIA` is.
 - The header filter (`Proces`, `Tryb`) drives the strip and the chart only; the history card has its own filters (`Proces w historii`, `Tryb w historii`). Filter and sort state is lost on reload.
-- Every run is marked `.cmd`: the metrics schema has no origin field, and Centrum does not start Uruchomienia procesu yet. Once it does, its runs must not carry the badge.
+- Every fixture run is marked `.cmd`: the metrics schema has no origin field, so Centrum takes `origin` from its own `centrum-uruchomienia.jsonl`, and Metryki runs before any feature that starts an Uruchomienie procesu from Centrum. Runs Centrum started carry `origin: centrum` and no badge, so `--feature metryki` on a run root where they already ran fails the `.cmd` count.
 - The CLI step writes a record with the real current time, so it is the newest run; it uses the run-local metrics file, never the tool's.
 - Bars render without animation; a capture right after a filter click is still stable.
