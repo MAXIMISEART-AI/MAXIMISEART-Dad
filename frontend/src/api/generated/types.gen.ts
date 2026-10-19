@@ -124,6 +124,31 @@ export type Message = {
 };
 
 /**
+ * Metrics
+ *
+ * Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego.
+ */
+export type Metrics = {
+    /**
+     * Phases
+     */
+    phases: Array<string>;
+    /**
+     * Minimum Completed Runs
+     */
+    minimum_completed_runs: number;
+    /**
+     * Runs
+     */
+    runs: Array<ProcessRun>;
+    /**
+     * Statistics
+     */
+    statistics: Array<ModeStatistics>;
+    recent: RecentResults;
+};
+
+/**
  * MissingPath
  *
  * Zapamiętana ścieżka, pod którą nie ma już pliku albo folderu.
@@ -141,6 +166,28 @@ export type MissingPath = {
      * Name
      */
     name: string;
+};
+
+/**
+ * ModeStatistics
+ *
+ * Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji.
+ */
+export type ModeStatistics = {
+    /**
+     * Process
+     */
+    process: 'preparation' | 'settlement';
+    /**
+     * Mode
+     */
+    mode: 'RUN' | 'DRY-RUN';
+    /**
+     * Completed Runs
+     */
+    completed_runs: number;
+    percentiles: Percentiles | null;
+    results: ResultCounts;
 };
 
 /**
@@ -198,6 +245,26 @@ export type Opened = {
 };
 
 /**
+ * Percentiles
+ *
+ * P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach.
+ */
+export type Percentiles = {
+    /**
+     * P50 Ms
+     */
+    p50_ms: number;
+    /**
+     * P95 Ms
+     */
+    p95_ms: number;
+    /**
+     * Phases
+     */
+    phases: Array<PhasePercentiles>;
+};
+
+/**
  * PeriodRow
  *
  * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
@@ -251,6 +318,38 @@ export type PeriodRow = {
 };
 
 /**
+ * PhaseDuration
+ */
+export type PhaseDuration = {
+    /**
+     * Phase
+     */
+    phase: string;
+    /**
+     * Duration Ms
+     */
+    duration_ms: number;
+};
+
+/**
+ * PhasePercentiles
+ */
+export type PhasePercentiles = {
+    /**
+     * Phase
+     */
+    phase: string;
+    /**
+     * P50 Ms
+     */
+    p50_ms: number;
+    /**
+     * P95 Ms
+     */
+    p95_ms: number;
+};
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -260,6 +359,52 @@ export type Problem = {
      * Message
      */
     message: string;
+};
+
+/**
+ * ProcessRun
+ *
+ * Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
+ *
+ * ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+ */
+export type ProcessRun = {
+    /**
+     * Process
+     */
+    process: 'preparation' | 'settlement';
+    /**
+     * Process Label
+     */
+    process_label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Mode
+     */
+    mode: 'RUN' | 'DRY-RUN';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Result
+     */
+    result: 'OK' | 'WYMAGA_SPRAWDZENIA' | 'BLAD_KRYTYCZNY';
+    /**
+     * Total Duration Ms
+     */
+    total_duration_ms: number;
+    /**
+     * Phase Durations
+     */
+    phase_durations: Array<PhaseDuration>;
+    /**
+     * Origin
+     */
+    origin: 'cmd' | 'centrum';
 };
 
 /**
@@ -278,6 +423,41 @@ export type ReadyPath = {
      * Name
      */
     name: string;
+};
+
+/**
+ * RecentResults
+ *
+ * Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni).
+ */
+export type RecentResults = {
+    /**
+     * Weeks
+     */
+    weeks: number;
+    /**
+     * Since
+     */
+    since: string;
+    results: ResultCounts;
+};
+
+/**
+ * ResultCounts
+ */
+export type ResultCounts = {
+    /**
+     * Ok
+     */
+    ok: number;
+    /**
+     * Needs Review
+     */
+    needs_review: number;
+    /**
+     * Critical
+     */
+    critical: number;
 };
 
 /**
@@ -570,6 +750,31 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
+
+export type GetMetricsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/metrics';
+};
+
+export type GetMetricsErrors = {
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
+};
+
+export type GetMetricsError = GetMetricsErrors[keyof GetMetricsErrors];
+
+export type GetMetricsResponses = {
+    /**
+     * Successful Response
+     */
+    200: Metrics;
+};
+
+export type GetMetricsResponse = GetMetricsResponses[keyof GetMetricsResponses];
 
 export type GetConfigurationData = {
     body?: never;

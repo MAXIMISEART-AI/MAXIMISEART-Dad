@@ -1,8 +1,9 @@
-"""Create a synthetic folder okresów, Rejestr zleceń, and configuration directory for one Centrum run.
+"""Create a synthetic folder okresów, Rejestr zleceń, configuration directory, and metrics files for one Centrum run.
 
 The configuration directory holds what Konfiguracja reads: a synthetic konfiguracja
 wykonawców and the three Wzorce, valid for the engine's Sprawdzanie. Centrum's
-settings file is written there too, as in Dad's ``config/``.
+settings file is written there too, as in Dad's ``config/``. The metrics files
+hold a synthetic history in the CLI's schema for Metryki.
 """
 
 from __future__ import annotations
@@ -24,6 +25,41 @@ WORKERS = ("Wykonawca Testowy A", "Wykonawca Testowy B", "Wykonawca Testowy C")
 # A synthetic row value inside every workbook. Centrum must never read or show workbook content,
 # so this marker must never appear in evidence (centrum_self_test.py checks it).
 ROW_MARKER = "CENTRUM-SYN-ROW"
+PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
+PREPARATION_COUNTERS = {"period_orders": 9, "successful_orders": 8, "skipped_empty_rows": 1, "warnings": 0}
+SETTLEMENT_COUNTERS = {
+    "templates_total": 3,
+    "templates_completed": 3,
+    "rows": 8,
+    "written": 3,
+    "empty": 0,
+    "planned": 3,
+    "skipped": 0,
+    "issues": 0,
+}
+# Synthetic history in the CLI's metrics schema (schema_version 1), as the .cmd launchers write it:
+# (started_at UTC, mode, period, result, phase times in ms; the total is their sum).
+MetricRun = tuple[str, str, str, str, tuple[int, int, int, int]]
+PREPARATION_RUNS: tuple[MetricRun, ...] = (
+    ("2026-08-25T06:15:00+00:00", "RUN", "18_24_08_2026", "BLAD_KRYTYCZNY", (400, 1300, 0, 0)),
+    ("2026-09-01T06:21:00+00:00", "RUN", "25_31_08_2026", "OK", (300, 7100, 900, 2500)),
+    ("2026-09-08T06:21:00+00:00", "RUN", "01_07_09_2026", "OK", (300, 7400, 900, 2600)),
+    ("2026-09-15T06:21:00+00:00", "RUN", "08_14_09_2026", "OK", (300, 6800, 800, 2500)),
+    ("2026-09-22T06:12:00+00:00", "DRY-RUN", "15_21_09_2026", "OK", (300, 6700, 800, 0)),
+    ("2026-09-22T06:21:00+00:00", "RUN", "15_21_09_2026", "OK", (400, 7900, 900, 2700)),
+    ("2026-09-29T06:12:00+00:00", "DRY-RUN", "22_28_09_2026", "OK", (300, 6900, 900, 0)),
+    ("2026-09-29T06:21:00+00:00", "RUN", "22_28_09_2026", "OK", (300, 7100, 900, 2600)),
+    ("2026-10-06T06:12:00+00:00", "DRY-RUN", "29_05_09_2026", "OK", (300, 7100, 900, 0)),
+    ("2026-10-06T06:21:00+00:00", "RUN", "29_05_09_2026", "OK", (400, 7600, 900, 2700)),
+)
+SETTLEMENT_RUNS: tuple[MetricRun, ...] = (
+    ("2026-09-03T15:46:00+00:00", "RUN", "25_31_08_2026", "OK", (500, 3100, 700, 8000)),
+    ("2026-09-10T15:46:00+00:00", "RUN", "01_07_09_2026", "OK", (500, 3000, 700, 7600)),
+    ("2026-09-17T15:46:00+00:00", "RUN", "08_14_09_2026", "WYMAGA_SPRAWDZENIA", (500, 3200, 800, 7600)),
+    ("2026-09-24T15:40:00+00:00", "DRY-RUN", "15_21_09_2026", "OK", (500, 2100, 700, 0)),
+    ("2026-09-24T15:46:00+00:00", "RUN", "15_21_09_2026", "OK", (400, 2900, 700, 7100)),
+    ("2026-10-01T15:46:00+00:00", "RUN", "22_28_09_2026", "OK", (500, 3400, 800, 8000)),
+)
 WORKER_IDS = ("wykonawca.a", "wykonawca.b", "wykonawca.c")
 INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
@@ -86,6 +122,47 @@ def _period_files(periods: Path, token: str) -> Path:
     return period_folder
 
 
+def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object]:
+    started_at, mode, period, result, phases = run
+    completed = result != "BLAD_KRYTYCZNY"
+    return {
+        "schema_version": 1,
+        "started_at": started_at,
+        "mode": mode,
+        "period": period,
+        "completed": completed,
+        "result": result,
+        "total_duration_ms": sum(phases),
+        "phase_durations_ms": dict(zip(PHASES, phases)),
+        "counters": counters if completed else dict.fromkeys(counters, 0),
+    }
+
+
+def _metrics(root: Path) -> dict[str, object]:
+    """Both metrics files with a valid history and one record each that the CLI's reader skips."""
+
+    metrics = root / "metrics"
+    metrics.mkdir()
+    preparation = metrics / "przygotowanie-pliku-zbiorczego-metrics.jsonl"
+    settlement = metrics / "rozliczenia-metrics.jsonl"
+    preparation_lines = [json.dumps(_metric_record(run, PREPARATION_COUNTERS)) for run in PREPARATION_RUNS]
+    # Przebieg rozliczeń counters in the Przygotowanie file: invalid there, so skipped.
+    preparation_lines.append(json.dumps(_metric_record(SETTLEMENT_RUNS[0], SETTLEMENT_COUNTERS)))
+    settlement_lines = [json.dumps(_metric_record(run, SETTLEMENT_COUNTERS)) for run in SETTLEMENT_RUNS]
+    settlement_lines.append('{"schema_version":1,"started_at":"2026-10-0')  # a torn last line
+    preparation.write_text("".join(line + "\n" for line in preparation_lines), encoding="utf-8")
+    settlement.write_text("".join(line + "\n" for line in settlement_lines), encoding="utf-8")
+    interrupted = PREPARATION_RUNS[0]
+    return {
+        "preparation": str(preparation),
+        "settlement": str(settlement),
+        "runs": len(PREPARATION_RUNS) + len(SETTLEMENT_RUNS),
+        "oldest": min(run[0] for run in (*PREPARATION_RUNS, *SETTLEMENT_RUNS)),
+        # period, then the measured phase times until the interruption
+        "interrupted": [interrupted[2], [phase for phase in interrupted[4] if phase]],
+    }
+
+
 def create(root: Path) -> dict[str, object]:
     root.mkdir(parents=True)
     (root / "config").mkdir()
@@ -111,6 +188,7 @@ def create(root: Path) -> dict[str, object]:
         "periods_directory": str(periods),
         "order_register": str(register),
         "settings": str(root / "config" / "centrum-ustawienia.yaml"),
+        "metrics": _metrics(root),
         # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
         "configuration": configuration,
         "workers": list(WORKERS),

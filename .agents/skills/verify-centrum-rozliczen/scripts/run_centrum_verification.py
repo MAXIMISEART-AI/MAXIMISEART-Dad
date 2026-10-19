@@ -51,6 +51,16 @@ REQUIRED_SCREENSHOTS = {
         "13-konfiguracja-brak-wzorca.png",
         "14-konfiguracja-nieczytelna-konfiguracja-wykonawcow.png",
     ),
+    "metryki": (
+        "20-metryki-karty-okresow.png",
+        "21-metryki-wykres.png",
+        "22-metryki-tabela-etapow.png",
+        "23-metryki-za-malo-obserwacji.png",
+        "24-metryki-historia.png",
+        "25-metryki-historia-filtry.png",
+        "26-metryki-nowy-rekord-z-cli.png",
+        "27-metryki-pusty-stan.png",
+    ),
 }
 
 

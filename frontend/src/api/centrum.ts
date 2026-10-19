@@ -7,9 +7,10 @@ import type {
 } from "@/api/generated"
 import {
   zChangeThemeResponse,
-  zGetConfigurationResponse,
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
+  zGetConfigurationResponse,
+  zGetMetricsResponse,
   zGetPeriodBoardResponse,
   zGetSettingsResponse,
   zOpenPeriodPathResponse,
@@ -19,9 +20,14 @@ export type {
   Choice,
   Configuration,
   Message,
+  Metrics,
+  ModeStatistics,
   NextStep,
   OpenRequest,
+  Percentiles,
   PeriodRow,
+  ProcessRun,
+  ResultCounts,
   Settings,
   TemplateProblem,
 } from "@/api/generated"
@@ -75,6 +81,11 @@ export function openPeriodPath(token: string, target: OpenTarget) {
     `/api/periods/${encodeURIComponent(token)}/open`,
     send("POST", { target })
   )
+}
+
+/** Historia Uruchomień procesu z obu plików metryk, z P50/P95 i rozkładem wyników; serwer czyta pliki przy każdym odczycie. */
+export function getMetrics() {
+  return call(zGetMetricsResponse, "/api/metrics")
 }
 
 /** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
