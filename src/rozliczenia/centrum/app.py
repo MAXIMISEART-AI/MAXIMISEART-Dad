@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from rozliczenia.centrum.contract import Health, Problem, Refusal
+from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.settings import SettingsStore, settings_router
@@ -34,6 +35,7 @@ def create_app(
     settings_path: Path,
     platform: Platform,
     today: Callable[[], date] = date.today,
+    metrics_files: MetricsFiles | None = None,
 ) -> FastAPI:
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -60,6 +62,7 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
+    app.include_router(metrics_router(metrics_files or MetricsFiles.of_cli(), today))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")
     return app

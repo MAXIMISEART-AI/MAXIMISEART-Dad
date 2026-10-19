@@ -6,7 +6,7 @@ Z tych modeli powstaje OpenAPI, a z niego schematy zod i typy w
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -132,3 +132,78 @@ class OpenRequest(_Model):
 
 class Opened(_Model):
     name: str
+
+
+MetricsProcess = Literal["preparation", "settlement"]
+RunMode = Literal["RUN", "DRY-RUN"]
+RunResult = Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
+
+
+class PhaseDuration(_Model):
+    phase: str
+    duration_ms: int
+
+
+class ProcessRun(_Model):
+    """Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
+
+    ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+    """
+
+    process: MetricsProcess
+    process_label: str
+    started_at: datetime
+    mode: RunMode
+    period: str
+    result: RunResult
+    total_duration_ms: int
+    phase_durations: list[PhaseDuration]
+    origin: Literal["cmd", "centrum"]
+
+
+class PhasePercentiles(_Model):
+    phase: str
+    p50_ms: int
+    p95_ms: int
+
+
+class Percentiles(_Model):
+    """P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach."""
+
+    p50_ms: int
+    p95_ms: int
+    phases: list[PhasePercentiles]
+
+
+class ResultCounts(_Model):
+    ok: int
+    needs_review: int
+    critical: int
+
+
+class ModeStatistics(_Model):
+    """Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji."""
+
+    process: MetricsProcess
+    mode: RunMode
+    completed_runs: int
+    percentiles: Percentiles | None
+    results: ResultCounts
+
+
+class RecentResults(_Model):
+    """Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni)."""
+
+    weeks: int
+    since: date
+    results: ResultCounts
+
+
+class Metrics(_Model):
+    """Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego."""
+
+    phases: list[str]
+    minimum_completed_runs: int
+    runs: list[ProcessRun]
+    statistics: list[ModeStatistics]
+    recent: RecentResults

@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.settings import default_settings_path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,14 +45,17 @@ class Centrum:
     client: TestClient
     platform: FakePlatform
     settings_path: Path
+    metrics: MetricsFiles
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     platform = FakePlatform()
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
-    app = create_app(settings_path=settings_path, platform=platform, today=lambda: today)
+    # Pliki metryk obu procesów w katalogu testu, nigdy historia z katalogu narzędzia.
+    metrics = MetricsFiles(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
+    app = create_app(settings_path=settings_path, platform=platform, today=lambda: today, metrics_files=metrics)
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path)
+    return Centrum(client, platform, settings_path, metrics)
 
 
 def project_version() -> str:
