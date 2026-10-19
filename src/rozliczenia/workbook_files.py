@@ -1,4 +1,18 @@
-"""Skoroszyty na dysku: blokada Excela i bezpieczny zapis."""
+"""Skoroszyty na dysku: otwarcie z jedną klasyfikacją uszkodzeń, układ arkusza i plik z Wzorca.
+
+Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
+zbiorczy (``read_data_rows``), Rejestr zleceń (``read_workbook``, z formatem
+komórek) i Wzorce (``open_template``, ``file_from_template``). Otwarcie
+sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
+``WorkbookError`` z powodem. Moduł nie zna Komunikatów: proces tłumaczy powód
+na Komunikat ze swojego katalogu.
+
+Moduł jest właścicielem układu arkusza Pliku zbiorczego, wspólnego dla Wzorca
+pliku zbiorczego, Wzorca rozliczenia pracownika i Szablonów pracowników:
+nagłówek w wierszu 17 z WYKONAWCA w H, Wiersze danych od 18, dane wejściowe
+A:K, ilości N:AP i kolumny Wiersza danych A:AT. Publiczna jest tylko etykieta
+komórki nagłówka ``WORKER_HEADER`` do treści Komunikatów.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +20,27 @@ import os
 import tempfile
 import zipfile
 import zlib
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
+from typing import TypeVar, cast
 from xml.etree.ElementTree import ParseError
 
+from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell, MergedCell
+from openpyxl.cell.rich_text import CellRichText
+from openpyxl.styles.fills import Fill
+from openpyxl.styles.fonts import Font
+from openpyxl.utils import get_column_letter
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet._read_only import ReadOnlyWorksheet
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 _EXTERNAL_LINKS_PREFIX = "xl/externalLinks/"
@@ -19,16 +48,67 @@ _ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 _WORKBOOK_FILE_ERRORS = (OSError, InvalidFileException, ValueError, zipfile.BadZipFile)
 
 # Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx: przy otwieraniu, a w trybie
-# tylko do odczytu także przy czytaniu wierszy, bo arkusz jest wtedy parsowany leniwie.
-UNREADABLE_WORKBOOK_ERRORS = (
+# tylko do odczytu także przy czytaniu wierszy, bo arkusz jest wtedy parsowany leniwie. ``IndexError``:
+# komórka ze stylem w skoroszycie bez ``xl/styles.xml``.
+_UNREADABLE_WORKBOOK_ERRORS = (
     OSError,
     InvalidFileException,
     zipfile.BadZipFile,
     KeyError,
+    IndexError,
     ValueError,
     zlib.error,
     ParseError,
 )
+
+_HEADER_ROW = 17
+_FIRST_DATA_ROW = 18
+_WORKER_COLUMN = 8  # H
+_INPUT_COLUMNS = range(1, 12)  # A:K: nagłówki w wierszu 17 i dane wejściowe Wiersza danych
+_QUANTITY_COLUMNS = range(14, 43)  # N:AP
+_DATA_ROW_COLUMNS = range(1, 47)  # A:AT: kopiowane z Pliku zbiorczego do Szablonu pracownika
+
+
+_ExcelCellValue = (
+    bool
+    | int
+    | float
+    | Decimal
+    | str
+    | CellRichText
+    | date
+    | datetime
+    | time
+    | timedelta
+    | DataTableFormula
+    | ArrayFormula
+    | bytes
+    | None
+)
+ExcelRow = tuple[_ExcelCellValue, ...]
+
+
+class Problem(Enum):
+    """Powód, dla którego skoroszytu nie da się użyć."""
+
+    MISSING = "brak pliku"
+    OPEN_IN_EXCEL = "otwarty w Excelu"
+    UNREADABLE = "nieczytelny"
+    LAYOUT = "zły układ"
+
+
+class WorkbookError(Exception):
+    """Skoroszytu nie da się użyć; ``problem`` mówi dlaczego.
+
+    Przy złym układzie ``worker_column`` to litera kolumny A:K, w której wiersz
+    17 ma WYKONAWCA, albo ``None``, gdy w A17:K17 go nie ma.
+    """
+
+    def __init__(self, path: Path, problem: Problem, *, worker_column: str | None = None) -> None:
+        super().__init__(f"{problem.value}: {path.name}")
+        self.path = path
+        self.problem = problem
+        self.worker_column = worker_column
 
 
 class WorkbookSaveError(Exception):
@@ -39,31 +119,333 @@ class ExternalLinksError(WorkbookSaveError):
     """Nie można przygotować ani przywrócić części ``xl/externalLinks/*``."""
 
 
+@dataclass(frozen=True)
+class HeaderCell:
+    """Etykieta komórki nagłówka do treści Komunikatów: ``str()`` daje np. ``H17``."""
+
+    column: str
+    row: int
+
+    def __str__(self) -> str:
+        return f"{self.column}{self.row}"
+
+
+WORKER_HEADER = HeaderCell(get_column_letter(_WORKER_COLUMN), _HEADER_ROW)
+
+
+@dataclass(frozen=True)
+class _Rows:
+    header_row: int
+    first_data_row: int
+    last_header_column: int | None  # ``None``: cały wiersz nagłówka
+
+
+class Layout(Enum):
+    """Układ arkusza Wzorca: gdzie jest nagłówek i od którego wiersza są Wiersze danych."""
+
+    COLLECTIVE = _Rows(_HEADER_ROW, _FIRST_DATA_ROW, _INPUT_COLUMNS[-1])
+    """Plik zbiorczy, Wzorzec pliku zbiorczego i Wzorzec rozliczenia pracownika."""
+    INTERNAL = _Rows(header_row=1, first_data_row=2, last_header_column=None)
+    """Rozliczenie wewnętrzne i jego Wzorzec."""
+
+
+@dataclass(frozen=True)
+class DataRow:
+    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA i wartości A:AT."""
+
+    number: int
+    worker: _ExcelCellValue
+    values: ExcelRow
+
+
+@dataclass(frozen=True)
+class FormattedCell:
+    """Wartość komórki z wyróżnieniami odczytanymi przy otwarciu; brakująca komórka ma same ``None``."""
+
+    value: object
+    font: Font | None
+    fill: Fill | None
+    number_format: str | None
+
+
+_EMPTY_CELL = FormattedCell(None, None, None, None)
+
+
 def is_open_in_excel(path: Path) -> bool:
     """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``."""
 
     return path.with_name(f"~${path.name}").exists()
 
 
-class Availability(Enum):
-    """Czy skoroszyt da się użyć: jest na dysku i nie jest otwarty w Excelu."""
-
-    AVAILABLE = "dostępny"
-    MISSING = "brak"
-    OPEN_IN_EXCEL = "otwarty w Excelu"
-
-
-def availability(path: Path) -> Availability:
-    """Stan skoroszytu; miejsce wywołania samo decyduje, czy i jakim Komunikatem się zatrzymać."""
+def ensure_available(path: Path) -> None:
+    """Skoroszyt jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``."""
 
     if not path.is_file():
-        return Availability.MISSING
+        raise WorkbookError(path, Problem.MISSING)
     if is_open_in_excel(path):
-        return Availability.OPEN_IN_EXCEL
-    return Availability.AVAILABLE
+        raise WorkbookError(path, Problem.OPEN_IN_EXCEL)
 
 
-def request_full_recalculation(workbook: Workbook) -> None:
+_T = TypeVar("_T")
+
+
+@contextmanager
+def _unreadable_as_error(path: Path) -> Iterator[None]:
+    """Uszkodzenie skoroszytu zgłoszone przez openpyxl staje się ``WorkbookError``; inne błędy przechodzą."""
+
+    try:
+        yield
+    except _UNREADABLE_WORKBOOK_ERRORS as exc:
+        raise WorkbookError(path, Problem.UNREADABLE) from exc
+
+
+def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
+    """Elementy leniwego odczytu openpyxl; klasyfikowane jest tylko pobranie elementu."""
+
+    while True:
+        with _unreadable_as_error(path):
+            try:
+                item = next(items)
+            except StopIteration:
+                return
+        yield item
+
+
+def _load(path: Path, *, read_only: bool) -> Workbook:
+    ensure_available(path)
+    with _unreadable_as_error(path):
+        if read_only:
+            workbook = load_workbook(path, read_only=True, data_only=False)
+        else:
+            workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
+    if not isinstance(workbook.active, (Worksheet, ReadOnlyWorksheet)):
+        workbook.close()
+        raise WorkbookError(path, Problem.UNREADABLE)
+    return workbook
+
+
+def _is_worker_header(value: object) -> bool:
+    return str(value or "").casefold().split() == ["wykonawca"]
+
+
+def _check_worker_header(path: Path, header: Sequence[object]) -> None:
+    """Jedno sprawdzenie nagłówka WYKONAWCA w H17 (bez względu na wielkość liter i spacje) dla wartości A17:K17."""
+
+    columns = [column for column, value in enumerate(header[: _INPUT_COLUMNS[-1]], start=1) if _is_worker_header(value)]
+    if _WORKER_COLUMN not in columns:
+        raise WorkbookError(path, Problem.LAYOUT, worker_column=get_column_letter(columns[0]) if columns else None)
+
+
+def read_data_rows(path: Path) -> list[DataRow]:
+    """Wiersze danych Pliku zbiorczego w kolejności z pliku; plik jest tylko czytany.
+
+    Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
+    nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem.
+    """
+
+    workbook = _load(path, read_only=True)
+    try:
+        sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
+        header = next(
+            _classified(
+                path,
+                sheet.iter_rows(min_row=_HEADER_ROW, max_row=_HEADER_ROW, max_col=_INPUT_COLUMNS[-1], values_only=True),
+            ),
+            (),
+        )
+        _check_worker_header(path, header)
+        with _unreadable_as_error(path):
+            max_column = max(_DATA_ROW_COLUMNS[-1], sheet.max_column)
+        sheet_rows = list(_classified(path, sheet.iter_rows(min_row=_FIRST_DATA_ROW, max_col=max_column, values_only=True)))
+    finally:
+        workbook.close()
+
+    last_column = _DATA_ROW_COLUMNS[-1]
+    return [
+        DataRow(number, values[_WORKER_COLUMN - 1], tuple(values[:last_column]))
+        for number, values in enumerate(sheet_rows, start=_FIRST_DATA_ROW)
+        if any(value is not None for value in values[: _INPUT_COLUMNS[-1]])
+    ]
+
+
+class ReadSheet:
+    """Arkusz skoroszytu otwartego tylko do odczytu; każdy odczyt komórek jest klasyfikowany."""
+
+    def __init__(self, path: Path, sheet: Worksheet) -> None:
+        self._path = path
+        self._sheet = sheet
+
+    @property
+    def title(self) -> str:
+        return self._sheet.title
+
+    def values(self, min_row: int, max_row: int | None = None) -> Iterator[tuple[object, ...]]:
+        return _classified(self._path, self._sheet.iter_rows(min_row=min_row, max_row=max_row, values_only=True))
+
+    def formatted_rows(
+        self, min_row: int, columns: Sequence[int]
+    ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
+        """Wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami, od ``min_row`` w dół."""
+
+        return _classified(self._path, self._formatted_rows(min_row, columns))
+
+    def _formatted_rows(
+        self, min_row: int, columns: Sequence[int]
+    ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
+        for cells in self._sheet.iter_rows(min_row=min_row):
+            values = tuple(getattr(cell, "value", None) for cell in cells)
+            yield values, tuple(_formatted(cells[column - 1]) if column <= len(cells) else _EMPTY_CELL for column in columns)
+
+
+def _formatted(cell: object) -> FormattedCell:
+    return FormattedCell(
+        value=getattr(cell, "value", None),
+        font=getattr(cell, "font", None),
+        fill=getattr(cell, "fill", None),
+        number_format=getattr(cell, "number_format", None),
+    )
+
+
+class ReadWorkbook:
+    """Skoroszyt otwarty tylko do odczytu, np. Rejestr zleceń."""
+
+    def __init__(self, path: Path, workbook: Workbook) -> None:
+        self._path = path
+        self._workbook = workbook
+
+    def sheets(self) -> Iterator[ReadSheet]:
+        with _unreadable_as_error(self._path):
+            worksheets = list(self._workbook.worksheets)
+        for sheet in worksheets:
+            yield ReadSheet(self._path, cast(Worksheet, sheet))
+
+
+@contextmanager
+def read_workbook(path: Path) -> Iterator[ReadWorkbook]:
+    """Skoroszyt tylko do odczytu z formatem komórek; zamykany przy wyjściu z bloku."""
+
+    workbook = _load(path, read_only=True)
+    try:
+        yield ReadWorkbook(path, workbook)
+    finally:
+        workbook.close()
+
+
+class TemplateSheet:
+    """Arkusz roboczy Wzorca w jego układzie.
+
+    ``worksheet`` służy formatowaniu wewnątrz bloku. Sprawdzenie nagłówka
+    WYKONAWCA, dane wejściowe, zera w kolumnach ilości i wpisanie Wierszy
+    danych dotyczą układu Pliku zbiorczego.
+    """
+
+    def __init__(self, path: Path, worksheet: Worksheet, layout: Layout) -> None:
+        self._path = path
+        self._rows = layout.value
+        self.worksheet = worksheet
+
+    @property
+    def title(self) -> str:
+        return self.worksheet.title
+
+    @property
+    def header_row(self) -> int:
+        return self._rows.header_row
+
+    def header(self) -> list[object]:
+        """Wartości wiersza nagłówka od kolumny A."""
+
+        last_column = self._rows.last_header_column or self.worksheet.max_column
+        return [self.worksheet.cell(self._rows.header_row, column).value for column in range(1, last_column + 1)]
+
+    def data_row(self, index: int) -> int:
+        """Numer wiersza arkusza ``index``-tego (od 0) Wiersza danych."""
+
+        return self._rows.first_data_row + index
+
+    def check_worker_header(self) -> None:
+        """Nagłówek WYKONAWCA w H17; inaczej ``WorkbookError`` ze złym układem."""
+
+        _check_worker_header(self._path, self.header())
+
+    def has_input_data(self) -> bool:
+        """Wiersze danych mają wartość w A:K; formuły Wzorca nie są danymi."""
+
+        for row in range(self._rows.first_data_row, self.worksheet.max_row + 1):
+            if any(_is_value(self.worksheet.cell(row, column)) for column in _INPUT_COLUMNS):
+                return True
+        return False
+
+    def zero_row_count(self) -> int:
+        """Liczba kolejnych Wierszy danych z zerami w kolumnach ilości N:AP."""
+
+        count = 0
+        for values in self.worksheet.iter_rows(
+            min_row=self._rows.first_data_row,
+            min_col=_QUANTITY_COLUMNS[0],
+            max_col=_QUANTITY_COLUMNS[-1],
+            values_only=True,
+        ):
+            if not any(_is_zero(value) for value in values):
+                break
+            count += 1
+        return count
+
+    def write_data_rows(self, rows: Sequence[ExcelRow]) -> None:
+        """Wpisuje Wiersze danych po pozycji kolumn A:AT od pierwszego Wiersza danych."""
+
+        for index, values in enumerate(rows):
+            for column, value in zip(_DATA_ROW_COLUMNS, values):
+                self.worksheet.cell(self.data_row(index), column).value = value
+
+
+def _is_value(cell: Cell | MergedCell) -> bool:
+    return cell.value is not None and cell.data_type != "f"
+
+
+def _is_zero(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0
+
+
+@contextmanager
+def open_template(path: Path, layout: Layout) -> Iterator[TemplateSheet]:
+    """Wzorzec do sprawdzenia; niczego nie zapisuje."""
+
+    workbook = _load(path, read_only=False)
+    try:
+        yield _template_sheet(path, workbook, layout)
+    finally:
+        workbook.close()
+
+
+@contextmanager
+def file_from_template(template: Path, target: Path, layout: Layout, *, recalculate: bool) -> Iterator[TemplateSheet]:
+    """Plik z Wzorca: arkusz Wzorca do wypełnienia, zapisany atomowo pod ``target`` przy wyjściu z bloku.
+
+    Odwołania zewnętrzne ``xl/externalLinks/*`` zostają 1:1 z Wzorca;
+    ``recalculate`` każe Excelowi przeliczyć formuły przy otwarciu. Przy
+    wyjątku w bloku albo nieudanym zapisie ``target`` nie powstaje, a Wzorzec
+    zawsze pozostaje niezmieniony.
+    """
+
+    workbook = _load(template, read_only=False)
+    try:
+        yield _template_sheet(template, workbook, layout)
+        if recalculate:
+            _request_full_recalculation(workbook)
+        save_workbook(workbook, target, external_links_from=template)
+    finally:
+        workbook.close()
+
+
+def _template_sheet(path: Path, workbook: Workbook, layout: Layout) -> TemplateSheet:
+    worksheet = workbook.active
+    if not isinstance(worksheet, Worksheet):
+        raise WorkbookError(path, Problem.UNREADABLE)
+    return TemplateSheet(path, worksheet, layout)
+
+
+def _request_full_recalculation(workbook: Workbook) -> None:
     """Excel przeliczy formuły przy otwarciu; openpyxl nie zapisuje wyników formuł."""
 
     calculation = getattr(workbook, "calculation", None)

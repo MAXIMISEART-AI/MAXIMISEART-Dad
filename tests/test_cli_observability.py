@@ -17,11 +17,11 @@ from openpyxl import load_workbook
 import pytest
 
 from rozliczenia.cli import main
-from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import Issue, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
+from rozliczenia.workbook_files import ExcelRow
 
 from tests.rich_fakes import TtyOutput, install_fake_rich
 from tests.test_settlement_engine import (
@@ -552,7 +552,7 @@ def test_cancelled_plik_zbiorczy_selection_warns_when_metrics_are_not_saved(
     )
 
 
-def test_broken_wzorzec_rozliczenia_pracownika_shows_safe_message_instead_of_parser_text(tmp_path: Path) -> None:
+def test_broken_wzorzec_rozliczenia_pracownika_shows_unreadable_wzorzec_message(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     worker_template_path = config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"
     with zipfile.ZipFile(source_path) as source:
@@ -566,7 +566,7 @@ def test_broken_wzorzec_rozliczenia_pracownika_shows_safe_message_instead_of_par
     assert exit_code == 1
     lines = output.splitlines()
     status = lines.index("Status semantyczny: BŁĄD")
-    assert lines[status + 1] == UNEXPECTED_FAILURE_LINE
+    assert lines[status + 1] == "Nie wykonano: Nie można odczytać Wzorca rozliczenia pracownika."
     assert lines[status + 2].startswith("Czas uruchomienia: ")
     assert "unclosed token" not in output
     assert "Traceback" not in output
@@ -627,6 +627,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
 
     def fail_on_second_save(
         worker_name: str,
+        template_path: Path,
         path: Path,
         rows: Iterable[ExcelRow],
     ) -> WorkerResult:
@@ -634,7 +635,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
         save_calls += 1
         if save_calls == 2:
             raise template_settlement.TemplateWriteError("synthetic write failure")
-        return original_process_template(worker_name, path, rows)
+        return original_process_template(worker_name, template_path, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 

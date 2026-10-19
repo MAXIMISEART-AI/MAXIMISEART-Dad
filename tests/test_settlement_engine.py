@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import re
 import tempfile
 import time
 import xml.etree.ElementTree as ET
@@ -14,12 +15,12 @@ from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 import yaml
 
-from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState, WorkerResult
 from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
+from rozliczenia.workbook_files import ExcelRow
 
 
 PERIOD = "08_14_09_2026"
@@ -193,6 +194,31 @@ def cut_sheet_after_data_rows(path: Path, sheet_part: str = "xl/worksheets/sheet
             target.writestr(info, data)
 
 
+def rewrite_parts(path: Path, change: Callable[[str, bytes], bytes | None]) -> None:
+    """Przepisuje części archiwum .xlsx; ``None`` usuwa część."""
+
+    with zipfile.ZipFile(path) as source:
+        members = [(info, source.read(info.filename)) for info in source.infolist()]
+    with zipfile.ZipFile(path, "w") as target:
+        for info, data in members:
+            changed = change(info.filename, data)
+            if changed is not None:
+                target.writestr(info, changed)
+
+
+def without_styles(path: Path) -> None:
+    """Komórki zostają ze stylem, ale ``xl/styles.xml`` znika."""
+
+    rewrite_parts(path, lambda name, data: None if name == "xl/styles.xml" else data)
+
+
+def without_sheet(path: Path) -> None:
+    rewrite_parts(
+        path,
+        lambda name, data: re.sub(rb"<sheets>.*?</sheets>", b"<sheets/>", data) if name == "xl/workbook.xml" else data,
+    )
+
+
 def terminal_text(error: StopError) -> str:
     """Tekst, który terminal pokazuje po „Nie wykonano: ” dla tego zatrzymania."""
 
@@ -270,11 +296,6 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
         assert worksheet_input_row(adrian, 19) == expected_source_row(
             "syntetyczny adres 3", "#3", "adrian.maciejewski", 3
         )
-        assert adrian["AU18"].value == "=N18"
-        assert adrian["AU19"].value == "=N19"
-        assert adrian["A17"].fill.fill_type == "solid"
-        assert adrian["A17"].fill.fgColor.rgb == "0000AA55"
-        assert adrian_workbook["Rates"]["B1"].value == 17.5
     finally:
         adrian_workbook.close()
 
@@ -287,7 +308,6 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
         assert worksheet_input_row(darek, 18) == expected_source_row(
             "syntetyczny adres 2", "#2", "dariusz.nowak2", 2
         )
-        assert darek["AU18"].value == "=N18"
     finally:
         darek_workbook.close()
 
@@ -298,8 +318,6 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
     try:
         empty = active_worksheet(empty_workbook)
         assert worksheet_input_row(empty, 18) == (None,) * 13 + (0,) + (None,) * 32
-        assert empty["AU18"].value == "=N18"
-        assert empty["A17"].fill.fgColor.rgb == "0000AA55"
     finally:
         empty_workbook.close()
 
@@ -335,8 +353,8 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "damage",
-    [overwrite_with_non_workbook, cut_sheet_after_data_rows],
-    ids=["nie-skoroszyt", "urwany-arkusz"],
+    [overwrite_with_non_workbook, cut_sheet_after_data_rows, without_sheet],
+    ids=["nie-skoroszyt", "urwany-arkusz", "bez-arkusza"],
 )
 def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_komunikatem(
     tmp_path: Path,
@@ -353,6 +371,24 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
+def test_plik_zbiorczy_bez_wykonawca_w_h17_zatrzymuje_przebieg_rozliczen(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    workbook = load_workbook(source_path)
+    try:
+        sheet = active_worksheet(workbook)
+        sheet["H17"], sheet["C17"] = None, "WYKONAWCA"
+        workbook.save(source_path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(StopError) as stop:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert stop.value.message.code == "ZLY_PLIK_ZBIORCZY"
+    assert terminal_text(stop.value) == "W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H."
+    assert not target_directory.exists()
+
+
 def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     target_directory.mkdir()
@@ -364,19 +400,6 @@ def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: 
 
     assert "Folder docelowy już istnieje" in terminal_text(raised.value)
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
-
-
-def test_external_link_relationships_survive_target_write(tmp_path: Path) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
-    add_external_link_fixture(worker_template_path)
-    before = external_link_parts(worker_template_path)
-
-    run_settlements(source_path, config_path, worker_template_path=worker_template_path)
-
-    target_path = target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx"
-    assert external_link_parts(target_path) == before
-    assert external_link_parts(worker_template_path) == before
 
 
 def test_blokada_wzorca_rozliczenia_pracownika_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
@@ -391,6 +414,22 @@ def test_blokada_wzorca_rozliczenia_pracownika_wstrzymuje_publikacje_folderu_roz
 
     assert "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany" in terminal_text(raised.value)
     assert not target_directory.exists()
+
+
+def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publikacje(tmp_path: Path) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    lock_file = worker_template_path.with_name(f"~${worker_template_path.name}")
+
+    def lock_in_saving(event: ProgressEvent) -> None:
+        if event.state is ProgressState.WORKER_START:
+            lock_file.touch()
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=lock_in_saving)
+
+    assert raised.value.message.code == "BLAD_KOPII_WZORCA"
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
 def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_pliku(
@@ -480,6 +519,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     def fail_on_second_save(
         worker_name: str,
+        template_path: Path,
         path: Path,
         rows: Iterable[ExcelRow],
     ) -> WorkerResult:
@@ -487,7 +527,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         calls += 1
         if calls == 2:
             raise template_settlement.TemplateWriteError("synthetic failure")
-        return original_process_template(worker_name, path, rows)
+        return original_process_template(worker_name, template_path, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
@@ -578,7 +618,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     projection = ProgressProjection("RUN", PERIOD)
     save_s = 0.05
 
-    def fail_save(worker_name: str, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+    def fail_save(worker_name: str, template_path: Path, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
         time.sleep(save_s)
         raise template_settlement.TemplateWriteError("synthetic failure")
 

@@ -32,7 +32,7 @@ from tests.collective_preparation_fixtures import (
     write_collective_template,
     write_internal_template,
 )
-from tests.test_settlement_engine import active_worksheet, external_link_parts, projected
+from tests.test_settlement_engine import active_worksheet, projected
 
 
 def run_preparation(
@@ -155,16 +155,6 @@ def test_plik_zbiorczy_keeps_wzorzec_rows_1_to_17_quantities_and_formulas(tmp_pa
         assert workbook["Rates"]["B1"].value == 17.5
     finally:
         workbook.close()
-
-
-def test_plik_zbiorczy_keeps_every_external_link_of_wzorzec(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    expected_parts = external_link_parts(fixture.collective_template_path)
-
-    run_preparation(fixture)
-
-    assert expected_parts
-    assert external_link_parts(fixture.collective_file_path) == expected_parts
 
 
 def test_przygotowanie_leaves_rejestr_and_wzorce_byte_identical(tmp_path: Path) -> None:

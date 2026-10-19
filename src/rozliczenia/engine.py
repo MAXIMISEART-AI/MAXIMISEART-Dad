@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import tempfile
 import time
 import unicodedata
@@ -12,8 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import collective_file, settlement_messages, template_settlement
-from .collective_file import CollectiveFileError, ExcelRow
+from . import collective_file, settlement_messages, template_settlement, workbook_files
 from .domain import (
     Issue,
     ProgressEventFactory,
@@ -25,7 +23,7 @@ from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError, check_worker_name
 from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import is_open_in_excel
+from .workbook_files import ExcelRow, Problem, WorkbookError
 
 
 def normalize_text(value: object) -> str:
@@ -98,9 +96,16 @@ def default_worker_template_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
 
 
-def _ensure_unlocked(source_path: Path) -> None:
-    if is_open_in_excel(source_path):
-        raise StopError(settlement_messages.collective_file_open(source_path))
+def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
+    """Zatrzymanie z Komunikatem Przebiegu rozliczeń dla Pliku zbiorczego, którego nie da się użyć."""
+
+    if error.problem is Problem.MISSING:
+        return StopError(settlement_messages.collective_file_missing(source_path))
+    if error.problem is Problem.OPEN_IN_EXCEL:
+        return StopError(settlement_messages.collective_file_open(source_path))
+    if error.problem is Problem.LAYOUT:
+        return StopError(settlement_messages.collective_file_without_worker_header(source_path))
+    return StopError(settlement_messages.collective_file_unreadable(source_path))
 
 
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], list[Issue]]:
@@ -108,8 +113,8 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], lis
 
     try:
         data_rows, issues = collective_file.read_data_rows(source_path)
-    except CollectiveFileError as exc:
-        raise StopError(settlement_messages.collective_file_invalid(source_path, exc.message)) from exc
+    except WorkbookError as error:
+        raise _collective_file_stop(source_path, error) from error
     rows_by_worker: defaultdict[str, list[ExcelRow]] = defaultdict(list)
     for row in data_rows:
         rows_by_worker[normalize_text(row.worker)].append(row.values)
@@ -133,9 +138,10 @@ def run_settlements(
     notify = phases.notify
 
     def check_inputs() -> tuple[PeriodFolder, Path, dict[str, str]]:
-        if not source_path.is_file():
-            raise StopError(settlement_messages.collective_file_missing(source_path))
-        _ensure_unlocked(source_path)
+        try:
+            workbook_files.ensure_available(source_path)
+        except WorkbookError as error:
+            raise _collective_file_stop(source_path, error) from error
         try:
             folder = PeriodFolder.from_collective_file(source_path)
         except PeriodFolderError as exc:
@@ -210,6 +216,7 @@ def run_settlements(
                 else:
                     result = template_settlement.process_template(
                         worker_name,
+                        worker_template_path,
                         target_path,
                         rows,
                     )
@@ -229,6 +236,8 @@ def run_settlements(
                 )
                 if isinstance(exc, StopError):
                     raise
+                if isinstance(exc, WorkbookError):
+                    raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
                 raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
             summary.issues.extend(result.issues)
             summary.results.append(result)
@@ -255,17 +264,12 @@ def run_settlements(
                     dir=source_path.parent,
                 ) as staging_name:
                     staging_directory = Path(staging_name)
-                    staged_files = [
-                        (worker_name, staging_directory / target_path.name)
-                        for worker_name, target_path in template_files
-                    ]
-                    try:
-                        for _, staged_path in staged_files:
-                            shutil.copy2(worker_template_path, staged_path)
-                    except OSError as exc:
-                        raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
-
-                    save_targets(staged_files)
+                    save_targets(
+                        [
+                            (worker_name, staging_directory / target_path.name)
+                            for worker_name, target_path in template_files
+                        ]
+                    )
                     if target_directory.exists() or target_directory.is_symlink():
                         raise StopError(settlement_messages.worker_settlements_exist(target_directory))
                     try:

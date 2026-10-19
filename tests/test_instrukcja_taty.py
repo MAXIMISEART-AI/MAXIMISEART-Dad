@@ -115,7 +115,13 @@ SETTLEMENT_SAMPLES: Samples = {
     "collective_file_missing": [lambda: settlement_messages.collective_file_missing(SOURCE)],
     "collective_file_open": [lambda: settlement_messages.collective_file_open(SOURCE)],
     "collective_file_invalid": [
-        lambda: settlement_messages.collective_file_invalid(SOURCE, "Skoroszyt źródłowy nie zawiera arkusza.")
+        lambda: settlement_messages.collective_file_invalid(
+            SOURCE, "Plik Rozliczenie wew. jest poza zakresem tego procesu."
+        )
+    ],
+    "collective_file_unreadable": [lambda: settlement_messages.collective_file_unreadable(SOURCE)],
+    "collective_file_without_worker_header": [
+        lambda: settlement_messages.collective_file_without_worker_header(SOURCE)
     ],
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
     "worker_config_unreadable": [lambda: settlement_messages.worker_config_unreadable(CONFIG)],
