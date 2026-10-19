@@ -67,6 +67,8 @@ their contents.
 - Use components from the official `@shadcn` registry and semantic theme
   tokens. Write all UI text in Polish, in the vocabulary of `GLOSSARY.md` and
   the user guide.
+- Display every contract field the UI receives, or remove it from the contract.
+- Build new UI to the accepted [v3 brief](https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad/issues/90#issuecomment-6257321289) with the `emil-design-eng` skill.
 
 ## Review Context
 
