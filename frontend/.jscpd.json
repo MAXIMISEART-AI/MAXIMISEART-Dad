@@ -1,0 +1,6 @@
+{
+  "path": ["src"],
+  "ignore": ["src/api/generated/**", "src/api/openapi.json", "src/components/ui/**"],
+  "minTokens": 50,
+  "threshold": 0
+}

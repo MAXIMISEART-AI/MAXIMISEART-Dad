@@ -3,7 +3,7 @@ import type * as z from "zod"
 import { zProblem } from "@/api/generated/zod.gen"
 
 /** Odmowa albo awaria z komunikatem, który można pokazać tacie (bez treści błędu technicznego). */
-export class CentrumError extends Error {}
+class CentrumError extends Error {}
 
 const UNREACHABLE =
   "Centrum rozliczeń nie odpowiada. Zamknij kartę i uruchom Centrum ponownie."
