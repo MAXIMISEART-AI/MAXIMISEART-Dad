@@ -7,7 +7,7 @@ only after every workbook is ready.
 ## Sub-features
 
 - `prepare-roster` creates one named workbook for every configured worker.
-- `prepare-copy` preserves Wzorzec rozliczenia pracownika sheets, formulas, rates, formatting, and external links (the live fixture has no external link; `tests/test_settlement_engine.py::test_external_link_relationships_survive_target_write` proves that part).
+- `prepare-copy` preserves Wzorzec rozliczenia pracownika sheets, formulas, rates, formatting, and external links (the live fixture has no external link; `tests/test_workbook_files.py::test_plik_z_wzorca_ma_wiersze_danych_formuly_formatowanie_i_kazdy_link_zewnetrzny` proves that part for every file made from a Wzorzec).
 - `prepare-empty` creates an empty workbook for a configured worker without source rows.
 - `prepare-atomic` stages the folder and publishes it only after all workbooks succeed.
 - `prepare-rollback` removes staging files after a workbook failure; an unknown worker blocks a real run during planning, before staging starts.

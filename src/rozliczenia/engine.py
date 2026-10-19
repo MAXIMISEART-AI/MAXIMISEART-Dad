@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import tempfile
 import time
 import unicodedata
@@ -25,7 +24,7 @@ from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError, check_worker_name
 from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import is_open_in_excel
+from .workbook_files import WorkbookError, is_open_in_excel
 
 
 def normalize_text(value: object) -> str:
@@ -210,6 +209,7 @@ def run_settlements(
                 else:
                     result = template_settlement.process_template(
                         worker_name,
+                        worker_template_path,
                         target_path,
                         rows,
                     )
@@ -229,6 +229,8 @@ def run_settlements(
                 )
                 if isinstance(exc, StopError):
                     raise
+                if isinstance(exc, WorkbookError):
+                    raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
                 raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
             summary.issues.extend(result.issues)
             summary.results.append(result)
@@ -255,17 +257,12 @@ def run_settlements(
                     dir=source_path.parent,
                 ) as staging_name:
                     staging_directory = Path(staging_name)
-                    staged_files = [
-                        (worker_name, staging_directory / target_path.name)
-                        for worker_name, target_path in template_files
-                    ]
-                    try:
-                        for _, staged_path in staged_files:
-                            shutil.copy2(worker_template_path, staged_path)
-                    except OSError as exc:
-                        raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
-
-                    save_targets(staged_files)
+                    save_targets(
+                        [
+                            (worker_name, staging_directory / target_path.name)
+                            for worker_name, target_path in template_files
+                        ]
+                    )
                     if target_directory.exists() or target_directory.is_symlink():
                         raise StopError(settlement_messages.worker_settlements_exist(target_directory))
                     try:

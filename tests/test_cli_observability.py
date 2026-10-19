@@ -627,6 +627,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
 
     def fail_on_second_save(
         worker_name: str,
+        template_path: Path,
         path: Path,
         rows: Iterable[ExcelRow],
     ) -> WorkerResult:
@@ -634,7 +635,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
         save_calls += 1
         if save_calls == 2:
             raise template_settlement.TemplateWriteError("synthetic write failure")
-        return original_process_template(worker_name, path, rows)
+        return original_process_template(worker_name, template_path, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 

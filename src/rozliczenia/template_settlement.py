@@ -2,20 +2,12 @@
 
 from __future__ import annotations
 
-import zipfile
 from pathlib import Path
 from typing import Iterable, Literal
 
-from openpyxl import load_workbook
-from openpyxl.cell.cell import Cell, MergedCell
-from openpyxl.utils.exceptions import InvalidFileException
-from openpyxl.workbook.workbook import Workbook
-from openpyxl.worksheet.worksheet import Worksheet
-
-from . import collective_file, workbook_files
-from .collective_file import CollectiveFileError, ExcelRow
+from . import workbook_files
 from .domain import Issue, WorkerResult
-from .workbook_files import WORKER_HEADER, Layout, Problem, WorkbookError
+from .workbook_files import WORKER_HEADER, ExcelRow, Layout, Problem, WorkbookError
 
 
 class TemplateWriteError(Exception):
@@ -40,21 +32,6 @@ class WorkerTemplateValidationError(Exception):
         super().__init__(message)
         self.message = message
         self.problem: WorkerTemplateProblem = problem
-
-
-def _is_real_value(cell: Cell | MergedCell) -> bool:
-    """Pomija formuły szablonu przy wykrywaniu istniejących danych."""
-
-    return cell.value is not None and cell.data_type != "f"
-
-
-def _target_has_input_data(sheet: Worksheet) -> bool:
-    """Sprawdza dane wejściowe A:K, ignorując formuły w szablonie."""
-
-    for row in range(collective_file.FIRST_DATA_ROW, sheet.max_row + 1):
-        if any(_is_real_value(sheet.cell(row=row, column=column)) for column in collective_file.INPUT_COLUMNS):
-            return True
-    return False
 
 
 def validate_worker_template(path: Path) -> None:
@@ -86,64 +63,43 @@ def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidat
     return WorkerTemplateValidationError("Nie można odczytać Wzorca rozliczenia pracownika.")
 
 
-def _active_worksheet(workbook: Workbook) -> Worksheet | None:
-    sheet = workbook.active
-    return sheet if isinstance(sheet, Worksheet) else None
+class _TemplateNotUsable(Exception):
+    """Wzorzec nie przeszedł kontroli w bloku pliku z Wzorca, więc Szablon pracownika nie powstaje."""
 
-
-def _write_workbook(path: Path, workbook: Workbook, rows: list[ExcelRow]) -> None:
-    sheet = _active_worksheet(workbook)
-    if sheet is None:
-        raise ValueError("Szablon nie zawiera arkusza roboczego.")
-    for destination_row, values in enumerate(rows, start=collective_file.FIRST_DATA_ROW):
-        for column, value in zip(collective_file.COPIED_COLUMNS, values):
-            sheet.cell(row=destination_row, column=column).value = value
-
-    workbook_files.request_full_recalculation(workbook)
-    workbook_files.save_workbook(workbook, path)
+    def __init__(self, result: WorkerResult) -> None:
+        super().__init__(result.status)
+        self.result = result
 
 
 def process_template(
     worker_name: str,
+    template_path: Path,
     target_path: Path,
     rows: Iterable[ExcelRow],
 ) -> WorkerResult:
-    """Przetwarza jeden Szablon pracownika i zwraca jego bezpieczny wynik."""
+    """Tworzy z Wzorca jeden Szablon pracownika z jego Wierszami danych i zwraca jego bezpieczny wynik.
+
+    Wzorca, którego nie da się otworzyć, nie maskuje wynik: ``WorkbookError`` przechodzi do rozmówcy.
+    """
 
     rows = list(rows)
-    if workbook_files.is_open_in_excel(target_path):
-        issue = Issue("PLIK_ZABLOKOWANY", f"Plik jest otwarty lub zablokowany: {target_path.name}")
-        return WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,))
     try:
-        workbook = load_workbook(target_path, read_only=False, data_only=False, keep_links=True)
-        try:
-            sheet = _active_worksheet(workbook)
-            if sheet is None:
-                raise ValueError("Szablon nie zawiera arkusza.")
+        with workbook_files.file_from_template(template_path, target_path, Layout.COLLECTIVE, recalculate=True) as sheet:
             try:
-                collective_file.check_worker_header(sheet)
-            except CollectiveFileError:
-                issue = Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w H:17: {target_path.name}.")
-                return WorkerResult(worker_name, target_path, 0, "ZLY_SZABLON", (issue,))
-            if _target_has_input_data(sheet):
+                sheet.check_worker_header()
+            except WorkbookError as error:
+                if error.problem is not Problem.LAYOUT:
+                    raise
+                issue = Issue("ZLY_SZABLON", f"Szablon nie ma WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}: {target_path.name}.")
+                raise _TemplateNotUsable(WorkerResult(worker_name, target_path, 0, "ZLY_SZABLON", (issue,))) from error
+            if sheet.has_input_data():
                 issue = Issue("NADPISANIE_ZABLOKOWANE", f"Szablon zawiera już dane: {target_path.name}.")
-                return WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,))
-            if not rows:
-                return WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
-
-            try:
-                _write_workbook(target_path, workbook, rows)
-            except (
-                workbook_files.WorkbookSaveError,
-                OSError,
-                InvalidFileException,
-                ValueError,
-                zipfile.BadZipFile,
-            ) as exc:
-                raise TemplateWriteError(f"Nie można zapisać szablonu: {target_path.name}") from exc
-            return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO")
-        finally:
-            workbook.close()
-    except (OSError, InvalidFileException, ValueError, zipfile.BadZipFile):
-        issue = Issue("BLAD_SZABLONU", f"Nie można obsłużyć szablonu: {target_path.name}.")
-        return WorkerResult(worker_name, target_path, 0, "POMINIĘTO", (issue,))
+                raise _TemplateNotUsable(WorkerResult(worker_name, target_path, 0, "ZABLOKOWANY", (issue,)))
+            sheet.write_data_rows(rows)
+    except _TemplateNotUsable as not_usable:
+        return not_usable.result
+    except workbook_files.WorkbookSaveError as exc:
+        raise TemplateWriteError(f"Nie można zapisać szablonu: {target_path.name}") from exc
+    if not rows:
+        return WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
+    return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO")
