@@ -1,6 +1,160 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+import json
 from pathlib import Path
 import sys
+from typing import Any
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from fastapi.testclient import TestClient  # noqa: E402  (po ścieżce do src)
+from starlette.types import ASGIApp, Message, Receive, Scope, Send  # noqa: E402
+
+from rozliczenia.centrum.log import CentrumLog  # noqa: E402
+
+_CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
+
+
+@pytest.fixture(autouse=True)
+def regula_prywatnosci_centrum_rozliczen(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[None]:
+    """Reguła prywatności z ADR 0004 dla każdego testu Centrum rozliczeń przez HTTP API.
+
+    Każda odpowiedź JSON, każde zdarzenie strumienia i dziennik Centrum aplikacji
+    testowej nie mogą zawierać ścieżki z katalogu tymczasowego testów ani tekstu
+    ``Traceback``. Wyjątki to ścieżki, które tata sam wskazał w ustawieniach
+    (Rejestr zleceń, folder okresów), bo Centrum pokazuje je celowo, oraz pole
+    ``input`` odpowiedzi 422, w którym FastAPI odsyła treść samego żądania.
+    """
+
+    responses: list[_Response] = []
+    log_paths: list[Path] = []
+    _record_responses(monkeypatch, responses)
+    _record_log_paths(monkeypatch, log_paths)
+
+    yield
+
+    roots = _forms_of(tmp_path_factory.getbasetemp())
+    leaks = [
+        f"{response.where}: {leak}"
+        for response in responses
+        for leak in _leaks_in_response(response, roots)
+    ]
+    leaks += [
+        f"dziennik Centrum: {line}"
+        for log_path in log_paths
+        if log_path.exists()
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+        if _leaks_in_text(line, roots)
+    ]
+    assert leaks == [], "Reguła prywatności Centrum (ADR 0004) złamana:\n" + "\n".join(leaks)
+
+
+@dataclass(frozen=True)
+class _Response:
+    """Treść odpowiedzi JSON albo jednego zdarzenia strumienia, tak jak dostaje ją przeglądarka."""
+
+    where: str
+    status: int
+    body: str
+
+
+def _record_responses(monkeypatch: pytest.MonkeyPatch, responses: list[_Response]) -> None:
+    """Każdy TestClient dostaje aplikację, która zapisuje treść odpowiedzi JSON i zdarzeń SSE."""
+
+    original_init = TestClient.__init__
+
+    def recording_init(self: TestClient, app: ASGIApp, *args: Any, **kwargs: Any) -> None:
+        original_init(self, _ResponseRecorder(app, responses), *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", recording_init)
+
+
+def _record_log_paths(monkeypatch: pytest.MonkeyPatch, log_paths: list[Path]) -> None:
+    original_init: Callable[[CentrumLog, Path], None] = CentrumLog.__init__
+
+    def recording_init(self: CentrumLog, path: Path) -> None:
+        log_paths.append(path)
+        original_init(self, path)
+
+    monkeypatch.setattr(CentrumLog, "__init__", recording_init)
+
+
+class _ResponseRecorder:
+    """Warstwa ASGI między TestClient a Centrum: widzi to samo, co dostaje przeglądarka."""
+
+    def __init__(self, app: ASGIApp, responses: list[_Response]) -> None:
+        self.app = app
+        self._responses = responses
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        where = f"{scope['method']} {scope['path']}"
+        status = 0
+        content_type = ""
+        body = bytearray()
+
+        async def recording_send(message: Message) -> None:
+            nonlocal status, content_type
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                headers = dict(message.get("headers", []))
+                content_type = headers.get(b"content-type", b"").decode("latin-1")
+            elif message["type"] == "http.response.body" and content_type.startswith(_CHECKED_CONTENT_TYPES):
+                body.extend(message.get("body", b""))
+                # Strumień zdarzeń może nie mieć końca, więc każde zdarzenie trafia do sprawdzenia od razu.
+                if not message.get("more_body", False) or body.endswith(b"\n\n"):
+                    self._responses.append(_Response(where, status, body.decode("utf-8")))
+                    body.clear()
+            await send(message)
+
+        await self.app(scope, receive, recording_send)
+
+
+def _forms_of(root: Path) -> tuple[str, ...]:
+    """Ścieżka katalogu tymczasowego w każdej postaci, w jakiej może ją podać system."""
+
+    forms = {str(root), str(root.resolve()), root.as_posix()}
+    forms |= {form.removeprefix("/private") for form in forms if form.startswith("/private/")}
+    return tuple(forms)
+
+
+def _leaks_in_response(response: _Response, roots: tuple[str, ...]) -> list[str]:
+    lines = response.body.splitlines()
+    payloads = [line.removeprefix("data:").strip() for line in lines if line.startswith("data:")]
+    echoed_request = response.status == 422
+    leaks = []
+    for payload in payloads or [response.body]:
+        try:
+            value = json.loads(payload)
+        except ValueError:
+            strings = [payload]
+        else:
+            strings = list(_strings_shown_to_browser(value, echoed_request=echoed_request))
+        leaks += [text for text in strings if _leaks_in_text(text, roots)]
+    return leaks
+
+
+def _strings_shown_to_browser(value: object, *, echoed_request: bool) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings_shown_to_browser(item, echoed_request=echoed_request)
+    elif isinstance(value, dict):
+        chosen_by_tata = set(value) == {"state", "path", "name"} and value["state"] in {"ready", "missing"}
+        for key, item in value.items():
+            if (chosen_by_tata and key == "path") or (echoed_request and key == "input"):
+                continue
+            yield from _strings_shown_to_browser(item, echoed_request=echoed_request)
+
+
+def _leaks_in_text(text: str, roots: tuple[str, ...]) -> bool:
+    return "Traceback" in text or any(root in text for root in roots)
