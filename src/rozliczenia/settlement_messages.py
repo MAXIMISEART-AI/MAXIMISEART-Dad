@@ -234,6 +234,10 @@ def unexpected_failure() -> Message:
         what=f"Wystąpił nieoczekiwany błąd. {_NOTHING_CREATED}",
         where="Przebieg rozliczeń",
         action=_RETRY,
+        terminal_line=(
+            "Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany. "
+            "Uruchom ponownie; jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
+        ),
     )
 
 
@@ -248,6 +252,10 @@ def summary_not_shown() -> Message:
             "Nie uruchamiaj ponownie: Folder rozliczeń pracowników już jest. "
             "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
         ),
+        terminal_line=(
+            "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
+            "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
+        ),
     )
 
 
@@ -259,6 +267,7 @@ def plan_not_shown() -> Message:
         what="Nie udało się pokazać planu. Nic nie zapisano.",
         where="Przebieg rozliczeń",
         action=REPORT_TO_MAINTAINER,
+        terminal_line=f"Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. {REPORT_TO_MAINTAINER}",
     )
 
 

@@ -14,11 +14,11 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Final
 
-from rozliczenia import preparation_cli, preparation_messages
+from rozliczenia import preparation_cli
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
-from rozliczenia.centrum.runs import Endings, PreparedRun
+from rozliczenia.centrum.runs import PreparedRun
 from rozliczenia.centrum.settings import CentrumSettings, SettingsStore
 from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.period_folder import PeriodFolder, period_status_label
@@ -28,12 +28,6 @@ from rozliczenia.telemetry import MetricsStore
 _PROCESS: Final = preparation_cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "preparation"
 _CHOSEN_WEEKS: Final = 8
-# Centrum nie odsyła do tabeli w instrukcji, więc komunikat sam mówi, żeby nie uruchamiać ponownie.
-_ENDINGS: Final = Endings(
-    unexpected=preparation_messages.unexpected_failure(),
-    plan_not_shown=preparation_messages.plan_not_shown(),
-    summary_not_shown=preparation_messages.summary_not_shown(warns_against_rerun=True),
-)
 
 
 @dataclass(frozen=True)
@@ -93,7 +87,6 @@ class PreparationEntry:
             inputs=inputs,
             metrics_path=self.metrics_path,
             done="Plik zbiorczy przygotowany",
-            endings=_ENDINGS,
             summary=_summary,
             warnings=lambda summary: summary.warnings,
         )

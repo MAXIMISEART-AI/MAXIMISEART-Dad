@@ -22,10 +22,20 @@ from rozliczenia.domain import ProgressObserver, ProgressPhase
 from rozliczenia.message import Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.plain_progress import PlainProgressAdapter
-from rozliczenia.process_run import Conversation, Finished, Process, Stop, run
+from rozliczenia.process_run import (
+    Conversation,
+    Finished,
+    Process,
+    Stop,
+    TerminalSummary,
+    TerminalView,
+    run,
+    run_process,
+)
 from rozliczenia.progress import PhaseState, ProgressNotice, ProgressNoticeKind, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
 from rozliczenia.telemetry import MetricsStore
+from rozliczenia.terminal_conversation import TerminalConversation
 
 from tests.rich_fakes import TtyOutput, install_fake_rich, live_starts_and_stops
 
@@ -34,6 +44,12 @@ COUNTERS = frozenset({"items"})
 DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 METRICS_WARNING = "Ostrzeżenie: Nie zapisano metryk; Proces testowy zakończył się niezależnie."
 SECRET = "sekret klienta SYN-001"
+# Komunikaty zakończeń sztucznego procesu: każde zatrzymanie bez własnego Komunikatu procesu dostaje jeden z nich.
+ENDINGS = {
+    "unexpected_failure": Message("BLAD_NIEOCZEKIWANY", "Wystąpił nieoczekiwany błąd.", "Proces testowy", "Uruchom ponownie."),
+    "plan_not_shown": Message("BLAD_PLANU", "Nie udało się pokazać planu.", "Proces testowy", "Zgłoś to."),
+    "summary_not_shown": Message("BLAD_PODSUMOWANIA", "Nie udało się pokazać podsumowania.", "Proces testowy", "Zgłoś to."),
+}
 
 Durations = Mapping[ProgressPhase, int]
 
@@ -77,11 +93,9 @@ def execute(_inputs: Inputs, observer: ProgressObserver, _conversation: Conversa
     return all_phases(observer)
 
 
-def finished_with(result: str) -> Callable[[Inputs, Durations], Finished]:
-    def finished(_inputs: Inputs, durations: Durations) -> Finished:
+def finished_with(result: str) -> Callable[[Durations], Finished]:
+    def finished(durations: Durations) -> Finished:
         return Finished(
-            status_lines=["Status: gotowe"],
-            summary_lines=["Podsumowanie: 1 element"],
             result=result,  # type: ignore[arg-type]  # parametr testu: "OK" albo "WYMAGA_SPRAWDZENIA"
             counters={"items": 1},
             phase_durations_ms=durations,
@@ -90,8 +104,21 @@ def finished_with(result: str) -> Callable[[Inputs, Durations], Finished]:
     return finished
 
 
-def stopped(stop: Stop) -> Sequence[str]:
-    return [f"Zatrzymano: {stop.kind}", *stop.lines]
+def fail(*_args: object) -> NoReturn:
+    raise RuntimeError(SECRET)
+
+
+def terminal_summary(_inputs: Inputs, _durations: Durations) -> TerminalSummary:
+    return TerminalSummary(status_lines=["Status: gotowe"], summary_lines=["Podsumowanie: 1 element"])
+
+
+def stop_lines(stop: Stop) -> Sequence[str]:
+    return [f"Zatrzymano: {stop.kind}", *stop.message.terminal_lines]
+
+
+TERMINAL = TerminalView(summary=terminal_summary, stop=stop_lines)
+# Podsumowanie, którego terminal nie umie pokazać: wyjątek w widoku rozmówcy.
+UNPRINTABLE: TerminalView[Inputs, Durations] = TerminalView(summary=fail, stop=stop_lines)
 
 
 def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
@@ -104,7 +131,7 @@ def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
         "gather": gather,
         "execute": execute,
         "finished": finished_with("OK"),
-        "stopped": stopped,
+        **ENDINGS,
     }
     fields.update(overrides)
     return Process(**fields)
@@ -116,9 +143,12 @@ def run_fake(
     *args: str,
     output: TextIO | None = None,
     input_stream: TextIO | None = None,
+    terminal: TerminalView[Inputs, Durations] = TERMINAL,
 ) -> tuple[int, str]:
     output = output or StringIO()
-    exit_code = run(process, list(args), output=output, input_stream=input_stream, metrics_path=metrics_path)
+    exit_code = run(
+        process, terminal, list(args), output=output, input_stream=input_stream, metrics_path=metrics_path
+    )
     return exit_code, output.getvalue() if isinstance(output, StringIO) else ""
 
 
@@ -144,46 +174,95 @@ def append_completed_records(metrics_path: Path, mode: str, total_duration_ms: i
         )
 
 
-def fail(*_args: object) -> NoReturn:
-    raise RuntimeError(SECRET)
+def failing_at(failing: str) -> tuple[Process[Inputs, Durations], TerminalView[Inputs, Durations]]:
+    """Sztuczny proces z wyjątkiem w ``gather``, ``execute``, ``finished`` albo w widoku podsumowania terminala."""
+
+    if failing == "summary":
+        return fake_process(), UNPRINTABLE
+    return fake_process(**{failing: fail}), TERMINAL
 
 
 @pytest.mark.parametrize(
     ("failing", "kind"),
-    [("gather", "unexpected"), ("execute", "unexpected"), ("finished", "after_engine")],
+    [("gather", "unexpected"), ("execute", "unexpected"), ("finished", "after_engine"), ("summary", "after_engine")],
 )
 def test_exception_text_never_reaches_tata(tmp_path: Path, failing: str, kind: str) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
+    process, terminal = failing_at(failing)
 
-    exit_code, output = run_fake(fake_process(**{failing: fail}), metrics_path)
+    exit_code, output = run_fake(process, metrics_path, terminal=terminal)
 
     assert exit_code == 1
     assert SECRET not in output
     assert "RuntimeError" not in output
     assert "Traceback" not in output
     lines = output.splitlines()
-    assert lines[lines.index(f"Zatrzymano: {kind}") + 1].startswith("Czas uruchomienia: ")
+    assert lines[lines.index(f"Zatrzymano: {kind}") + 4].startswith("Czas uruchomienia: ")
     [record] = records(metrics_path)
     assert (record["completed"], record["result"], record["counters"]) == (False, "BLAD_KRYTYCZNY", {"items": 0})
 
 
-@pytest.mark.parametrize("failing", ["gather", "execute", "finished"])
-@pytest.mark.parametrize(("args", "dry_run"), [((), False), (("--dry-run",), True)], ids=["RUN", "DRY-RUN"])
-def test_stop_tells_the_process_whether_nothing_was_written_in_dry_run(
-    tmp_path: Path, failing: str, args: tuple[str, ...], dry_run: bool
+@pytest.mark.parametrize(
+    ("failing", "kind", "ending"),
+    [
+        ("gather", "unexpected", "unexpected_failure"),
+        ("execute", "unexpected", "unexpected_failure"),
+        ("finished", "after_engine", "summary_not_shown"),
+        ("summary", "after_engine", "summary_not_shown"),
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True], ids=["RUN", "DRY-RUN"])
+def test_every_ending_without_own_stop_shows_the_process_ending_message(
+    tmp_path: Path, failing: str, kind: str, ending: str, dry_run: bool
 ) -> None:
-    seen: list[bool] = []
+    expected = ENDINGS["plan_not_shown" if dry_run and ending == "summary_not_shown" else ending]
 
-    def stopped_in_mode(stop: Stop) -> Sequence[str]:
-        seen.append(stop.dry_run)
-        return ["Zatrzymano"]
+    process, terminal = failing_at(failing)
 
-    exit_code, _ = run_fake(
-        fake_process(**{failing: fail}, stopped=stopped_in_mode), tmp_path / "metrics.jsonl", *args
-    )
+    _, output = run_fake(process, tmp_path / "metrics.jsonl", *(["--dry-run"] if dry_run else []), terminal=terminal)
 
-    assert exit_code == 1
-    assert seen == [dry_run]
+    lines = output.splitlines()
+    stop = lines.index(f"Zatrzymano: {kind}")
+    assert lines[stop + 1 : stop + 4] == expected.text.splitlines()
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["RUN", "DRY-RUN"])
+def test_core_closes_every_ending_with_a_message(tmp_path: Path, dry_run: bool) -> None:
+    own = stop_error("Brak pliku.")
+
+    def stop_in_engine(_inputs: Inputs, _observer: ProgressObserver, _conversation: Conversation) -> NoReturn:
+        raise own
+
+    def view(_inputs: Inputs, durations: Durations) -> Durations:
+        return durations
+
+    endings: dict[str, tuple[Process[Inputs, Durations], Callable[[Inputs, Durations], Durations]]] = {
+        "stop": (fake_process(execute=stop_in_engine), view),
+        "unexpected": (fake_process(execute=fail), view),
+        "after_engine": (fake_process(finished=fail), view),
+        "view": (fake_process(), fail),
+    }
+    terminal = TerminalConversation(StringIO(), StringIO())
+
+    seen = {
+        name: run_process(
+            process, Inputs(dry_run=dry_run), terminal, view=view, metrics_path=tmp_path / "metrics.jsonl"
+        )
+        for name, (process, view) in endings.items()
+    }
+
+    not_shown = ENDINGS["plan_not_shown" if dry_run else "summary_not_shown"]
+    assert {
+        name: (outcome.ending.kind, outcome.ending.message, outcome.view)
+        for name, outcome in seen.items()
+        if isinstance(outcome.ending, Stop)
+    } == {
+        "stop": ("stop", own.message, None),
+        "unexpected": ("unexpected", ENDINGS["unexpected_failure"], None),
+        "after_engine": ("after_engine", not_shown, None),
+        "view": ("after_engine", not_shown, None),
+    }
+    assert [record["result"] for record in records(tmp_path / "metrics.jsonl")] == ["BLAD_KRYTYCZNY"] * 4
 
 
 @pytest.mark.parametrize(
@@ -272,17 +351,20 @@ def test_final_lines_are_status_czas_summary_statistics_and_one_detached_observe
     monkeypatch.setattr(PlainProgressAdapter, "update", fail)
     metrics_path = tmp_path / "metrics.jsonl"
     append_completed_records(metrics_path, "RUN", 1000)
-    process = fake_process(finished=fail) if interrupted else fake_process()
-
-    exit_code, output = run_fake(process, metrics_path)
+    exit_code, output = run_fake(fake_process(), metrics_path, terminal=UNPRINTABLE if interrupted else TERMINAL)
 
     assert exit_code == (1 if interrupted else 0)
     lines = output.splitlines()
-    status = lines.index("Zatrzymano: after_engine" if interrupted else "Status: gotowe")
+    expected_status = (
+        ["Zatrzymano: after_engine", *ENDINGS["summary_not_shown"].text.splitlines()] if interrupted else ["Status: gotowe"]
+    )
     expected_summary = [] if interrupted else ["Podsumowanie: 1 element"]
-    assert lines[status + 1].startswith("Czas uruchomienia: ")
-    assert lines[status + 2 : status + 2 + len(expected_summary)] == expected_summary
-    statistics = status + 2 + len(expected_summary)
+    status = lines.index(expected_status[0])
+    czas = status + len(expected_status)
+    assert lines[status:czas] == expected_status
+    assert lines[czas].startswith("Czas uruchomienia: ")
+    assert lines[czas + 1 : czas + 1 + len(expected_summary)] == expected_summary
+    statistics = czas + 1 + len(expected_summary)
     assert lines[statistics] == f"Statystyki RUN | próbek: {5 if interrupted else 6}"
     assert lines[statistics + 1].startswith("całe uruchomienie | P50: ")
     assert lines[-1] == DETACHED_OBSERVER_NOTICE
@@ -363,7 +445,7 @@ def test_interrupt_by_tata_stops_live_view_and_passes_through(tmp_path: Path, mo
         raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        run(fake_process(execute=interrupted), [], output=TtyOutput(), metrics_path=tmp_path / "metrics.jsonl")
+        run(fake_process(execute=interrupted), TERMINAL, [], output=TtyOutput(), metrics_path=tmp_path / "metrics.jsonl")
 
     assert live_log[-1] == "stop"
 
@@ -490,7 +572,7 @@ def test_rich_failure_falls_back_to_plain_lines_without_changing_the_result(
     output = TtyOutput()
     metrics_path = tmp_path / "metrics.jsonl"
 
-    exit_code = run(fake_process(), [], output=output, metrics_path=metrics_path)
+    exit_code = run(fake_process(), TERMINAL, [], output=output, metrics_path=metrics_path)
 
     assert exit_code == 0
     lines = output.getvalue().splitlines()

@@ -516,20 +516,17 @@ def unexpected_failure() -> Message:
     )
 
 
-def summary_not_shown(*, warns_against_rerun: bool = False) -> Message:
-    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty.
+def summary_not_shown() -> Message:
+    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty."""
 
-    W terminalu „nie uruchamiaj ponownie” mówi tabela w instrukcji. Gdzie tata
-    nie zagląda do tabeli (Centrum rozliczeń), ``warns_against_rerun`` dopisuje
-    to do „Co zrobić”.
-    """
-
-    check = "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
     return Message(
         code="BLAD_PODSUMOWANIA",
         what="Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
         where="Przygotowanie pliku zbiorczego",
-        action=f"Nie uruchamiaj ponownie: oba pliki okresu już są. {check}" if warns_against_rerun else check,
+        action=(
+            "Nie uruchamiaj ponownie: oba pliki okresu już są. "
+            "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
+        ),
     )
 
 

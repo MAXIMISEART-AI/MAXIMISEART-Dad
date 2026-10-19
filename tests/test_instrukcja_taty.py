@@ -107,7 +107,7 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.write_failed_with_file_left(PERIOD_DIRECTORY, f"Rozliczenie wew. {PERIOD}.xlsx")
     ],
     "unexpected_failure": [messages.unexpected_failure],
-    "summary_not_shown": [messages.summary_not_shown, lambda: messages.summary_not_shown(warns_against_rerun=True)],
+    "summary_not_shown": [messages.summary_not_shown],
     "plan_not_shown": [messages.plan_not_shown],
 }
 
