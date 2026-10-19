@@ -1,4 +1,4 @@
-# ADR 0004: Przerwana publikacja plików okresu jako zaakceptowane ryzyko
+# ADR 0005: Przerwana publikacja plików okresu jako zaakceptowane ryzyko
 
 ## Status
 

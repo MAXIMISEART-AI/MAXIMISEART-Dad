@@ -103,7 +103,7 @@ A break of a rule that a recorded decision accepts. It is printed as
 `ZAAKCEPTOWANE RYZYKO` on every run and does not fail the check:
 
 1. **Proces zamknięty w trakcie publikacji**
-   ([ADR 0004](../../../docs/adr/0004-przerwana-publikacja-plikow-okresu.md)).
+   ([ADR 0005](../../../docs/adr/0005-przerwana-publikacja-plikow-okresu.md)).
    When the Folder okresu already exists, `_publish` moves the two files with
    two separate `os.rename` calls. If the process dies between them, only
    Rozliczenie wewnętrzne is left. The next run stops on `PLIK_OKRESU_ISTNIEJE`,
