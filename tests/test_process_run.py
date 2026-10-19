@@ -445,6 +445,28 @@ def test_live_view_resumes_after_decyzja_taty_only_after_consent(
     assert live_starts_and_stops(live_log) == expected_live_log
 
 
+def test_terminal_shows_each_part_of_decyzja_taty_komunikat_on_one_line_as_is() -> None:
+    output = StringIO()
+    decision = Decision(
+        title="Ostrzeżenie",
+        message=Message(code="KOD", what="coś się stało", where="okres\x0cX", action="zrób\x1cto"),
+        counts_title="Liczby",
+        counts=[("wt", 1)],
+        question="Dalej?",
+    )
+
+    TerminalConversation(output, StringIO("n\n")).confirm(decision)
+
+    assert output.getvalue().split("\n")[:6] == [
+        "Ostrzeżenie",
+        "Co się stało: coś się stało",
+        "Gdzie: okres\x0cX",
+        "Co zrobić: zrób\x1cto",
+        "Liczby:",
+        "- wt: 1",
+    ]
+
+
 def test_interrupt_by_tata_stops_live_view_and_passes_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     live_log = install_fake_rich(monkeypatch)
 

@@ -29,7 +29,9 @@ def _decision_lines(decision: Decision) -> list[str]:
 
     return [
         decision.title,
-        *decision.message.text.splitlines(),
+        f"Co się stało: {decision.message.what}",
+        f"Gdzie: {decision.message.where}",
+        f"Co zrobić: {decision.message.action}",
         f"{decision.counts_title}:",
         *(f"- {label}: {count}" for label, count in decision.counts),
     ]
