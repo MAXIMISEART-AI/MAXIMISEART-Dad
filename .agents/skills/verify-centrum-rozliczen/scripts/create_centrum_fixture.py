@@ -4,11 +4,17 @@ The configuration directory holds what Konfiguracja reads: a synthetic konfigura
 wykonawców and the three Wzorce, valid for the engine's Sprawdzanie. Centrum's
 settings file is written there too, as in Dad's ``config/``. The metrics files
 hold a synthetic history in the CLI's schema for Metryki.
+
+The Rejestr zleceń holds orders of the last complete period ``06_12_10_2026``
+whose last order is on Saturday, so a RUN of Przygotowanie pliku zbiorczego
+asks Dad's decision about the incomplete period. Its order cells carry
+``ROW_MARKER``.
 """
 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 import sys
@@ -73,6 +79,43 @@ COLLECTIVE_HEADERS = (
     "MIASTO", "ADRES", "UMOWA", "URZĄDZENIA", "CZYNNOŚCI", "NUMER ZL.", "DATA", "WYKONAWCA",
     "NUMER UMOWY/ZLECENIA ORANGE", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE",
 )
+
+
+REGISTER_HEADERS = (
+    "nr zlecenia", "DATA GODZ. POCZ.", "WYKONAWCA", "MIASTO", "adres", "STATUS APLIKACJI", "UMOWA",
+    "URZĄDZENIA", "CZYNNOŚCI", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE", "NUMER UMOWY/ZLECENIA ORANGE",
+)
+# (start, worker, SKUTECZNE): one order of the previous period, then 06_12_10_2026 ending on Saturday.
+ORDERS = (
+    (datetime(2026, 10, 5, 9, 0), "wykonawca.a", "tak"),
+    (datetime(2026, 10, 6, 8, 0), "wykonawca.a", "tak"),
+    (datetime(2026, 10, 7, 10, 0), "wykonawca.b", "nie"),
+    (datetime(2026, 10, 8, 12, 0), "wykonawca.b", "tak"),
+    (datetime(2026, 10, 10, 9, 30), "wykonawca.c", "tak"),
+)
+# What Przygotowanie pliku zbiorczego of LAST_COMPLETE reports for these orders (orders per day from Tuesday).
+EXPECTED_PREPARATION = {
+    "period_order_count": 4,
+    "successful_order_count": 3,
+    "skipped_empty_rows": 0,
+    "orders_per_day": [1, 1, 1, 0, 1, 0, 0],
+}
+
+
+def _register(path: Path) -> None:
+    """A Rejestr zleceń with one data sheet; every order cell with content carries the row marker."""
+
+    workbook = Workbook()
+    sheet = workbook.active
+    assert isinstance(sheet, Worksheet)
+    sheet.title = "ZLECENIA"
+    sheet.append(REGISTER_HEADERS)
+    for number, (started, worker, successful) in enumerate(ORDERS, start=1):
+        content = f"{ROW_MARKER}-{number:03d}"
+        values: dict[str, object] = dict.fromkeys(REGISTER_HEADERS, content)
+        values.update({"DATA GODZ. POCZ.": started, "WYKONAWCA": worker, "SKUTECZNE": successful})
+        sheet.append([values[header] for header in REGISTER_HEADERS])
+    workbook.save(path)
 
 
 def _workbook(path: Path) -> None:
@@ -181,7 +224,7 @@ def create(root: Path) -> dict[str, object]:
     (periods / "Archiwum").mkdir()
 
     register = root / "ZLECENIA SYNTETYCZNE OD 01_01_2026.xlsx"
-    _workbook(register)
+    _register(register)
 
     fixture: dict[str, object] = {
         "today": TODAY,
@@ -192,6 +235,8 @@ def create(root: Path) -> dict[str, object]:
         # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
         "configuration": configuration,
         "workers": list(WORKERS),
+        # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
+        "preparation": EXPECTED_PREPARATION,
         # token, Status okresu, number of Rozliczenia pracowników, last complete period
         "board": [
             [LAST_COMPLETE, "no_period_files", 0, True],

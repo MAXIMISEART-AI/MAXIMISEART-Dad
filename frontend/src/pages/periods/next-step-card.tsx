@@ -5,17 +5,23 @@ import { PeriodPath } from "@/components/period-path"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { fullDate } from "@/lib/format"
+import { PreviewAction } from "@/pages/periods/prepare-actions"
 
 /**
  * „Następny krok” zawsze dla ostatniego pełnego okresu: krótki tytuł, fakty z ikonami i droga okresu.
- * Akcję główną („Podgląd bez zapisu”) dokłada Przygotowanie pliku zbiorczego z Centrum (#98).
+ * Przy Statusie „Brak plików okresu” jedyną akcją główną strony jest „Podgląd bez zapisu”.
  */
 export function NextStepCard({ period }: { period: PeriodRow }) {
   const closed = period.next_step.action === "none"
 
   return (
     <Card className="bg-linear-to-br from-muted/60 to-card" role="region" aria-label="Następny krok">
-      <CardContent className="flex flex-col gap-4 py-2">
+      <CardContent className="relative flex flex-col gap-4 py-2">
+        {period.next_step.action === "prepare_collective_file" ? (
+          <div className="absolute top-1/2 right-4 -translate-y-1/2">
+            <PreviewAction period={period} />
+          </div>
+        ) : null}
         <Badge variant="outline">Następny krok</Badge>
         <h2 className="flex items-center gap-3 text-3xl font-semibold tracking-tight">
           {closed ? <CircleCheckIcon className="size-7 text-success" aria-hidden /> : null}

@@ -27,6 +27,29 @@ export const zClosing = z.object({
 });
 
 /**
+ * Count
+ */
+export const zCount = z.object({
+    label: z.string(),
+    count: z.int()
+});
+
+/**
+ * CountGroup
+ */
+export const zCountGroup = z.object({
+    title: z.string(),
+    counts: z.array(zCount)
+});
+
+/**
+ * DecisionAnswer
+ */
+export const zDecisionAnswer = z.object({
+    answer: z.enum(['continue', 'abort'])
+});
+
+/**
  * Health
  */
 export const zHealth = z.object({
@@ -102,6 +125,29 @@ export const zOpened = z.object({
 });
 
 /**
+ * OperationProgress
+ */
+export const zOperationProgress = z.object({
+    worker_name: z.string(),
+    status: z.string(),
+    rows: z.int(),
+    worker_elapsed_ms: z.int().nullable()
+});
+
+/**
+ * PeriodChoice
+ *
+ * Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików.
+ */
+export const zPeriodChoice = z.object({
+    token: z.string(),
+    tuesday: z.iso.date(),
+    monday: z.iso.date(),
+    status_label: z.string(),
+    last_complete: z.boolean()
+});
+
+/**
  * PeriodRow
  *
  * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
@@ -162,6 +208,40 @@ export const zPercentiles = z.object({
 });
 
 /**
+ * PhaseProgress
+ */
+export const zPhaseProgress = z.object({
+    phase: z.enum([
+        'Sprawdzanie',
+        'Odczyt danych',
+        'Planowanie',
+        'Zapisywanie'
+    ]),
+    state: z.enum([
+        'pending',
+        'running',
+        'completed',
+        'failed'
+    ]),
+    duration_ms: z.int()
+});
+
+/**
+ * PreparationSummary
+ *
+ * Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów.
+ */
+export const zPreparationSummary = z.object({
+    period: z.string(),
+    period_order_count: z.int(),
+    successful_order_count: z.int(),
+    skipped_empty_rows: z.int(),
+    orders_per_day: z.array(zCount),
+    internal_settlement_file: z.string(),
+    collective_file: z.string()
+});
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -191,6 +271,75 @@ export const zProcessRun = z.object({
     total_duration_ms: z.int(),
     phase_durations: z.array(zPhaseDuration),
     origin: z.enum(['cmd', 'centrum'])
+});
+
+/**
+ * ProcessSetup
+ *
+ * Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
+ */
+export const zProcessSetup = z.object({
+    process: z.literal('preparation'),
+    title: z.string(),
+    creates: z.string(),
+    reminder: z.string(),
+    periods: z.array(zPeriodChoice),
+    preselected_period: z.string(),
+    blocker: z.string().nullable()
+});
+
+/**
+ * Progress
+ *
+ * Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane.
+ */
+export const zProgress = z.object({
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    period: z.string(),
+    phases: z.array(zPhaseProgress),
+    current_phase: z.enum([
+        'Sprawdzanie',
+        'Odczyt danych',
+        'Planowanie',
+        'Zapisywanie'
+    ]).nullable(),
+    template_total: z.int(),
+    templates_completed: z.int(),
+    current_worker: z.string().nullable(),
+    rows: z.int(),
+    operation_counts: z.record(z.string(), z.int()),
+    recent_operations: z.array(zOperationProgress),
+    total_elapsed_ms: z.int(),
+    issue_count: z.int()
+});
+
+/**
+ * ProgressNotice
+ *
+ * Neutralne powiadomienie o ostatniej zmianie postępu.
+ */
+export const zProgressNotice = z.object({
+    kind: z.enum([
+        'PHASE_STARTED',
+        'PHASE_ENDED',
+        'ISSUE_COUNT',
+        'PLAN_READY',
+        'WORKER_STARTED',
+        'WORKER_ENDED',
+        'FAILED'
+    ]),
+    phase: z.enum([
+        'Sprawdzanie',
+        'Odczyt danych',
+        'Planowanie',
+        'Zapisywanie'
+    ]),
+    worker_name: z.string().nullable(),
+    status: z.string().nullable(),
+    rows: z.int(),
+    worker_elapsed_ms: z.int().nullable(),
+    template_index: z.int(),
+    template_total: z.int()
 });
 
 /**
@@ -246,6 +395,152 @@ export const zMetrics = z.object({
     runs: z.array(zProcessRun),
     statistics: z.array(zModeStatistics),
     recent: zRecentResults
+});
+
+/**
+ * RunIdle
+ *
+ * Od startu serwera nie było żadnego Uruchomienia procesu.
+ */
+export const zRunIdle = z.object({
+    state: z.literal('idle')
+});
+
+/**
+ * RunInfo
+ */
+export const zRunInfo = z.object({
+    id: z.string(),
+    process: z.literal('preparation'),
+    title: z.string(),
+    period: z.string(),
+    dry_run: z.boolean()
+});
+
+/**
+ * RunMessage
+ *
+ * Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``).
+ */
+export const zRunMessage = z.object({
+    what: z.string(),
+    where: z.string().nullable(),
+    action: z.string().nullable()
+});
+
+/**
+ * Decision
+ *
+ * Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
+ */
+export const zDecision = z.object({
+    question: z.string(),
+    title: z.string().nullable(),
+    message: zRunMessage.nullable(),
+    count_groups: z.array(zCountGroup)
+});
+
+/**
+ * RunAwaitingDecision
+ *
+ * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
+ */
+export const zRunAwaitingDecision = z.object({
+    state: z.literal('awaiting_decision'),
+    run: zRunInfo,
+    progress: zProgress,
+    decision: zDecision
+});
+
+/**
+ * RunOutcome
+ *
+ * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
+ *
+ * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
+ * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ */
+export const zRunOutcome = z.object({
+    result: z.enum([
+        'OK',
+        'WYMAGA_SPRAWDZENIA',
+        'BLAD_KRYTYCZNY'
+    ]),
+    headline: z.string(),
+    ending: z.enum([
+        'finished',
+        'stop',
+        'unexpected',
+        'after_engine'
+    ]),
+    next_action: z.enum([
+        'run',
+        'rerun',
+        'open_period_folder'
+    ]),
+    status_line: z.string(),
+    total_duration_ms: z.int(),
+    stops: z.array(zRunMessage),
+    warnings: z.array(zRunMessage),
+    notices: z.array(z.string()),
+    summary: zPreparationSummary.nullable(),
+    lines: z.array(z.string())
+});
+
+/**
+ * RunFinished
+ */
+export const zRunFinished = z.object({
+    state: z.literal('finished'),
+    run: zRunInfo,
+    progress: zProgress,
+    progress_stale: z.boolean(),
+    result: zRunOutcome
+});
+
+/**
+ * RunRequest
+ *
+ * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
+ */
+export const zRunRequest = z.object({
+    process: z.literal('preparation'),
+    period: z.string(),
+    dry_run: z.boolean()
+});
+
+/**
+ * RunRunning
+ */
+export const zRunRunning = z.object({
+    state: z.literal('running'),
+    run: zRunInfo,
+    progress: zProgress,
+    notice: zProgressNotice.nullable(),
+    progress_stale: z.boolean()
+});
+
+/**
+ * RunEvent
+ *
+ * Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu.
+ */
+export const zRunEvent = z.object({
+    sequence: z.int(),
+    view: z.discriminatedUnion('state', [
+        zRunIdle,
+        zRunRunning,
+        zRunAwaitingDecision,
+        zRunFinished
+    ])
+});
+
+/**
+ * RunSetup
+ */
+export const zRunSetup = z.object({
+    processes: z.array(zProcessSetup)
 });
 
 /**
@@ -408,6 +703,60 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
+
+/**
+ * Successful Response
+ */
+export const zGetRunSetupResponse = zRunSetup;
+
+export const zStartRunBody = zRunRequest;
+
+/**
+ * Response Startrun
+ *
+ * Successful Response
+ */
+export const zStartRunResponse = z.discriminatedUnion('state', [
+    zRunIdle,
+    zRunRunning,
+    zRunAwaitingDecision,
+    zRunFinished
+]);
+
+/**
+ * Response Getcurrentrun
+ *
+ * Successful Response
+ */
+export const zGetCurrentRunResponse = z.discriminatedUnion('state', [
+    zRunIdle,
+    zRunRunning,
+    zRunAwaitingDecision,
+    zRunFinished
+]);
+
+export const zDecideRunBody = zDecisionAnswer;
+
+export const zDecideRunPath = z.object({
+    run_id: z.string()
+});
+
+/**
+ * Response Deciderun
+ *
+ * Successful Response
+ */
+export const zDecideRunResponse = z.discriminatedUnion('state', [
+    zRunIdle,
+    zRunRunning,
+    zRunAwaitingDecision,
+    zRunFinished
+]);
+
+/**
+ * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
+ */
+export const zStreamRunEventsResponse = zRunEvent;
 
 /**
  * Successful Response

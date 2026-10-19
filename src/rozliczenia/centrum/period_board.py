@@ -46,6 +46,10 @@ _NEXT_STEPS: dict[contract.PeriodStatus, contract.NextStep] = {
 }
 
 
+def status_label(status: contract.PeriodStatus) -> str:
+    return _STATUS_LABELS[status]
+
+
 @dataclass(frozen=True)
 class PeriodFolder:
     """Folder okresu i ścieżki jego plików, wyliczone z folderu okresów i tokenu."""

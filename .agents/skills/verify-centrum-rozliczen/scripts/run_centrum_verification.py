@@ -61,6 +61,17 @@ REQUIRED_SCREENSHOTS = {
         "26-metryki-nowy-rekord-z-cli.png",
         "27-metryki-pusty-stan.png",
     ),
+    "przygotowanie-pliku-zbiorczego": (
+        "30-przygotowanie-nowe-uruchomienie.png",
+        "31-przygotowanie-podglad.png",
+        "32-przygotowanie-potwierdzenie.png",
+        "33-przygotowanie-decyzja.png",
+        "34-przygotowanie-zatrzymanie.png",
+        "35-przygotowanie-zapisane.png",
+        "36-przygotowanie-status-okresu.png",
+        "37-przygotowanie-nienadpisywanie.png",
+        "38-przygotowanie-historia.png",
+    ),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",

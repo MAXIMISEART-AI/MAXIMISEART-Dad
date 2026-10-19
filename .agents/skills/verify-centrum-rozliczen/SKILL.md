@@ -20,9 +20,10 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 ```
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature konfiguracja`,
-`--feature metryki`, or `--feature start-i-zamykanie` drives one feature; the
-default `all` drives every feature in `features/README.md`, ending with
-`start-i-zamykanie`, which closes Centrum through its own button. Success prints
+`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`, or
+`--feature start-i-zamykanie` drives one feature; the default `all` drives every
+feature in `features/README.md`, ending with `start-i-zamykanie`, which closes
+Centrum through its own button. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 

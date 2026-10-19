@@ -17,6 +17,7 @@ from fastapi import APIRouter
 
 from rozliczenia import cli, preparation_cli
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.domain import PHASES
 from rozliczenia.telemetry import MINIMUM_STATISTIC_SAMPLES, MetricsStore, comparable_records, statistics_for
 
@@ -46,11 +47,19 @@ class MetricsFiles:
         }
 
 
-def read_metrics(files: MetricsFiles, today: date) -> contract.Metrics:
+def read_metrics(
+    files: MetricsFiles, today: date, centrum_started: frozenset[tuple[str, str]] = frozenset()
+) -> contract.Metrics:
+    """``centrum_started``: pary (proces, ``started_at``) Uruchomień z Centrum (``run_origins``)."""
+
     stores = files.stores()
     records = {process: store.read() for process, store in stores.items()}
     runs = sorted(
-        (_run(process, record) for process, process_records in records.items() for record in process_records),
+        (
+            _run(process, record, centrum_started)
+            for process, process_records in records.items()
+            for record in process_records
+        ),
         key=lambda run: run.started_at,
         reverse=True,
     )
@@ -72,7 +81,9 @@ def read_metrics(files: MetricsFiles, today: date) -> contract.Metrics:
     )
 
 
-def _run(process: contract.MetricsProcess, record: dict[str, Any]) -> contract.ProcessRun:
+def _run(
+    process: contract.MetricsProcess, record: dict[str, Any], centrum_started: frozenset[tuple[str, str]]
+) -> contract.ProcessRun:
     return contract.ProcessRun(
         process=process,
         process_label=_LABELS[process],
@@ -84,8 +95,8 @@ def _run(process: contract.MetricsProcess, record: dict[str, Any]) -> contract.P
         phase_durations=[
             contract.PhaseDuration(phase=phase, duration_ms=record["phase_durations_ms"][phase]) for phase in PHASES
         ],
-        # Rekord metryk nie mówi, skąd wystartował (schemat bez zmian); Centrum nie uruchamia jeszcze procesów.
-        origin="cmd",
+        # Rekord metryk nie mówi, skąd wystartował (schemat bez zmian); Centrum pamięta swoje Uruchomienia samo.
+        origin="centrum" if (process, record["started_at"]) in centrum_started else "cmd",
     )
 
 
@@ -124,13 +135,13 @@ def _results(runs: Iterable[contract.ProcessRun]) -> contract.ResultCounts:
     )
 
 
-def metrics_router(files: MetricsFiles, today: Callable[[], date]) -> APIRouter:
+def metrics_router(files: MetricsFiles, today: Callable[[], date], centrum_runs: CentrumRuns) -> APIRouter:
     router = APIRouter(prefix="/api/metrics", tags=["metryki"])
 
     @router.get("", operation_id="getMetrics", responses={500: {"model": contract.Problem}})
     def metrics() -> contract.Metrics:
         try:
-            return read_metrics(files, today())
+            return read_metrics(files, today(), centrum_runs.started())
         except OSError:
             raise contract.Refusal(500, "Nie udało się odczytać plików metryk. Odśwież kartę.") from None
 

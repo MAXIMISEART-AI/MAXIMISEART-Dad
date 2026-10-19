@@ -1,10 +1,10 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``configuration_router``, ``shutdown_router``); ``create_app`` składa je,
-pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004), zamienia odmowy
-(``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a nieoczekiwany
-wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku.
+``runs_router``, ``metrics_router``, ``configuration_router``, ``shutdown_router``);
+``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
+zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a
+nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku.
 """
 
 from __future__ import annotations
@@ -25,6 +25,9 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
+from rozliczenia.centrum.preparation_run import PreparationEntry
+from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
+from rozliczenia.centrum.runs import RunHost, runs_router
 from rozliczenia.centrum.settings import SettingsStore, settings_router
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.version import tool_version
@@ -81,8 +84,17 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
-    app.include_router(metrics_router(metrics_files or MetricsFiles.of_cli(), today))
-    app.include_router(configuration_router(configuration_files or ConfigurationFiles.default()))
+    metrics = metrics_files or MetricsFiles.of_cli()
+    configuration = configuration_files or ConfigurationFiles.default()
+    # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
+    centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
+    # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
+    runs = RunHost(log)
+    shutdown.refuse_while(runs.shutdown_refusal)
+    preparation = PreparationEntry(store, configuration, metrics.preparation, centrum_runs, today)
+    app.include_router(runs_router(runs, [preparation]))
+    app.include_router(metrics_router(metrics, today, centrum_runs))
+    app.include_router(configuration_router(configuration))
     app.include_router(shutdown_router(shutdown))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")

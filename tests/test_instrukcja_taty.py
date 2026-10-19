@@ -82,10 +82,13 @@ CATALOG_SAMPLES: dict[str, list[Callable[[], PreparationError | PreparationMessa
     "incomplete_period": [
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],
-    "incomplete_period_refused": [lambda: messages.incomplete_period_refused(PERIOD)],
+    "incomplete_period_refused": [
+        lambda: messages.incomplete_period_refused(PERIOD),
+        lambda: messages.incomplete_period_refused(PERIOD, "centrum"),
+    ],
     "write_failed": [lambda: messages.write_failed(PERIOD_DIRECTORY)],
     "unexpected_failure": [messages.unexpected_failure],
-    "summary_not_shown": [messages.summary_not_shown],
+    "summary_not_shown": [messages.summary_not_shown, lambda: messages.summary_not_shown("centrum")],
     "plan_not_shown": [messages.plan_not_shown],
 }
 

@@ -37,6 +37,16 @@ class CentrumLog:
     def stopped(self, *, port: int) -> None:
         self._write("stop", port=port)
 
+    def run_started(self, *, process: str, mode: str, period: str) -> None:
+        """Początek Uruchomienia procesu z Centrum: klucz procesu, tryb i token okresu."""
+
+        self._write("uruchomienie-start", proces=process, tryb=mode, okres=period)
+
+    def run_finished(self, *, process: str, mode: str, period: str, result: str, ending: str) -> None:
+        """Koniec Uruchomienia procesu z Centrum: wynik i sposób zakończenia, bez linii komunikatu."""
+
+        self._write("uruchomienie-koniec", proces=process, tryb=mode, okres=period, wynik=result, koniec=ending)
+
     def unexpected_failure(self, failure: BaseException, *, where: str) -> None:
         """Nieoczekiwany wyjątek: tylko nazwa typu i miejsce (np. trasa API), bez tekstu wyjątku."""
 

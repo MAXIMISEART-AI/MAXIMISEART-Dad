@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { RunsProvider } from "@/lib/runs"
 import { SettingsProvider } from "@/lib/settings"
 import { useCurrentPage } from "@/pages"
 
@@ -27,6 +28,7 @@ export function App() {
     <SettingsProvider>
       <TooltipProvider>
         <Toaster>
+          <RunsProvider>
           <SidebarProvider style={LAYOUT}>
             <AppSidebar variant="inset" current={page} onClosed={() => setClosed(true)} />
             <SidebarInset>
@@ -36,6 +38,7 @@ export function App() {
               </div>
             </SidebarInset>
           </SidebarProvider>
+          </RunsProvider>
         </Toaster>
       </TooltipProvider>
     </SettingsProvider>

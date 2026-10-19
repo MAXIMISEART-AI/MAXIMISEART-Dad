@@ -67,6 +67,10 @@ jeszcze raz: otworzy się karta działającego Centrum, a nie druga kopia.
 
 Centrum kończy pracę także po wylogowaniu albo wyłączeniu komputera.
 
+Gdy trwa Uruchomienie procesu (także gdy czeka na Twoją decyzję), Centrum się
+nie zamknie: pokaże, że trwa Uruchomienie procesu. Poczekaj na wynik na stronie
+`Uruchomienia` i zamknij Centrum potem.
+
 ### Komunikaty startu Centrum rozliczeń
 
 Gdy Centrum nie może wystartować, zamiast karty pojawi się okienko z trzema
@@ -119,6 +123,40 @@ Narzędzie tylko czyta Rejestr zleceń i wzorce. Nigdy ich nie zmienia.
    żeby przerwać bez tworzenia plików.
 6. Poczekaj na `Status końcowy`. Potem naciśnij dowolny klawisz, żeby zamknąć
    okno.
+
+### Kroki w Centrum rozliczeń
+
+To samo Przygotowanie pliku zbiorczego można zrobić w Centrum rozliczeń, bez
+okna terminala. Rejestr zleceń i folder okresów wskazujesz raz w `Ustawieniach`
+na stronie `Okresy`; potem Centrum je pamięta.
+
+1. Na stronie `Okresy` karta `Następny krok` pokazuje ostatni pełny okres.
+   Kliknij `Podgląd bez zapisu`. Żeby przygotować inny tydzień, kliknij
+   `Przygotuj plik zbiorczy` w jego wierszu Tablicy okresów albo wybierz okres
+   z listy `Okres` na stronie `Uruchomienia`.
+2. Podgląd bez zapisu niczego nie tworzy. Pokazuje plan: liczby zleceń,
+   ostrzeżenia, `Zlecenia na dzień` (dzień z liczbą `0` ma żółty znak) i nazwy
+   obu plików. Na górze widać etapy `Sprawdzanie`, `Odczyt danych`,
+   `Planowanie` i `Zapisywanie`.
+3. Zapisz i zamknij Rejestr zleceń w Excelu. Kliknij `Uruchom` i potwierdź w
+   okienku `Uruchomić z zapisem?`.
+4. Jeśli okres jest niepełny, pojawi się okienko `Kontynuować mimo niepełnego
+   okresu?` z liczbami `Zlecenia na dzień`. Kliknij `Kontynuuj` albo `Przerwij
+   bez zapisu`. Okienko czeka na Ciebie także po odświeżeniu albo ponownym
+   otwarciu karty.
+5. Wynik `Plik zbiorczy przygotowany` oznacza, że oba pliki powstały razem.
+   Przycisk `Folder okresu` otwiera folder z nimi, a na stronie `Okresy` okres
+   ma Status `Plik zbiorczy przygotowany`.
+
+Zatrzymanie pokazuje od razu trzy części komunikatu: co się stało (tytuł),
+gdzie (pinezka) i co zrobić (klucz). To ta sama treść co w terminalu, więc
+tabela niżej też pasuje. Po poprawce kliknij `Uruchom ponownie`. Ostrzeżenia
+są osobno, pod wynikiem: pliki powstały, ale coś wymaga uwagi.
+
+Zamknięcie karty przeglądarki nie przerywa pracy. Gdy coś już trwa, drugie
+uruchomienie dostaje komunikat, że trwa już Uruchomienie procesu. Zakładka
+`Historia` pokazuje wszystkie uruchomienia, także te z `.cmd` (z odznaką
+`.cmd`).
 
 ### Co sprawdzić po zakończeniu
 

@@ -239,6 +239,271 @@
         }
       }
     },
+    "/api/runs/setup": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Setup",
+        "operationId": "getRunSetup",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunSetup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Start",
+        "operationId": "startRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "title": "Response Startrun",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/current": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Current",
+        "operationId": "getCurrentRun",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "title": "Response Getcurrentrun",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/decision": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Decide",
+        "operationId": "decideRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionAnswer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  },
+                  "title": "Response Deciderun"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/events": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Events",
+        "operationId": "streamRunEvents",
+        "responses": {
+          "200": {
+            "description": "Strumień SSE; każde pole `data` to `RunEvent` (JSON).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEvent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/metrics": {
       "get": {
         "tags": [
@@ -477,6 +742,111 @@
         ],
         "title": "Configuration",
         "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."
+      },
+      "Count": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "count"
+        ],
+        "title": "Count"
+      },
+      "CountGroup": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "counts": {
+            "items": {
+              "$ref": "#/components/schemas/Count"
+            },
+            "type": "array",
+            "title": "Counts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "counts"
+        ],
+        "title": "CountGroup"
+      },
+      "Decision": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunMessage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "count_groups": {
+            "items": {
+              "$ref": "#/components/schemas/CountGroup"
+            },
+            "type": "array",
+            "title": "Count Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question",
+          "title",
+          "message",
+          "count_groups"
+        ],
+        "title": "Decision",
+        "description": "Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień)."
+      },
+      "DecisionAnswer": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "enum": [
+              "continue",
+              "abort"
+            ],
+            "title": "Answer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "title": "DecisionAnswer"
       },
       "HTTPValidationError": {
         "properties": {
@@ -734,6 +1104,42 @@
         ],
         "title": "Opened"
       },
+      "OperationProgress": {
+        "properties": {
+          "worker_name": {
+            "type": "string",
+            "title": "Worker Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "worker_elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Elapsed Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "worker_name",
+          "status",
+          "rows",
+          "worker_elapsed_ms"
+        ],
+        "title": "OperationProgress"
+      },
       "Percentiles": {
         "properties": {
           "p50_ms": {
@@ -761,6 +1167,43 @@
         ],
         "title": "Percentiles",
         "description": "P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach."
+      },
+      "PeriodChoice": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "tuesday": {
+            "type": "string",
+            "format": "date",
+            "title": "Tuesday"
+          },
+          "monday": {
+            "type": "string",
+            "format": "date",
+            "title": "Monday"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "last_complete": {
+            "type": "boolean",
+            "title": "Last Complete"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "tuesday",
+          "monday",
+          "status_label",
+          "last_complete"
+        ],
+        "title": "PeriodChoice",
+        "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."
       },
       "PeriodRow": {
         "properties": {
@@ -881,6 +1324,90 @@
         ],
         "title": "PhasePercentiles"
       },
+      "PhaseProgress": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "Sprawdzanie",
+              "Odczyt danych",
+              "Planowanie",
+              "Zapisywanie"
+            ],
+            "title": "Phase"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "State"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phase",
+          "state",
+          "duration_ms"
+        ],
+        "title": "PhaseProgress"
+      },
+      "PreparationSummary": {
+        "properties": {
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "period_order_count": {
+            "type": "integer",
+            "title": "Period Order Count"
+          },
+          "successful_order_count": {
+            "type": "integer",
+            "title": "Successful Order Count"
+          },
+          "skipped_empty_rows": {
+            "type": "integer",
+            "title": "Skipped Empty Rows"
+          },
+          "orders_per_day": {
+            "items": {
+              "$ref": "#/components/schemas/Count"
+            },
+            "type": "array",
+            "title": "Orders Per Day"
+          },
+          "internal_settlement_file": {
+            "type": "string",
+            "title": "Internal Settlement File"
+          },
+          "collective_file": {
+            "type": "string",
+            "title": "Collective File"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "period",
+          "period_order_count",
+          "successful_order_count",
+          "skipped_empty_rows",
+          "orders_per_day",
+          "internal_settlement_file",
+          "collective_file"
+        ],
+        "title": "PreparationSummary",
+        "description": "Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów."
+      },
       "Problem": {
         "properties": {
           "message": {
@@ -972,6 +1499,251 @@
         "title": "ProcessRun",
         "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń."
       },
+      "ProcessSetup": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "const": "preparation",
+            "title": "Process"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "creates": {
+            "type": "string",
+            "title": "Creates"
+          },
+          "reminder": {
+            "type": "string",
+            "title": "Reminder"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/PeriodChoice"
+            },
+            "type": "array",
+            "title": "Periods"
+          },
+          "preselected_period": {
+            "type": "string",
+            "title": "Preselected Period"
+          },
+          "blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocker"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "title",
+          "creates",
+          "reminder",
+          "periods",
+          "preselected_period",
+          "blocker"
+        ],
+        "title": "ProcessSetup",
+        "description": "Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach."
+      },
+      "Progress": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "phases": {
+            "items": {
+              "$ref": "#/components/schemas/PhaseProgress"
+            },
+            "type": "array",
+            "title": "Phases"
+          },
+          "current_phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "Sprawdzanie",
+                  "Odczyt danych",
+                  "Planowanie",
+                  "Zapisywanie"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Phase"
+          },
+          "template_total": {
+            "type": "integer",
+            "title": "Template Total"
+          },
+          "templates_completed": {
+            "type": "integer",
+            "title": "Templates Completed"
+          },
+          "current_worker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Worker"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "operation_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Operation Counts"
+          },
+          "recent_operations": {
+            "items": {
+              "$ref": "#/components/schemas/OperationProgress"
+            },
+            "type": "array",
+            "title": "Recent Operations"
+          },
+          "total_elapsed_ms": {
+            "type": "integer",
+            "title": "Total Elapsed Ms"
+          },
+          "issue_count": {
+            "type": "integer",
+            "title": "Issue Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "period",
+          "phases",
+          "current_phase",
+          "template_total",
+          "templates_completed",
+          "current_worker",
+          "rows",
+          "operation_counts",
+          "recent_operations",
+          "total_elapsed_ms",
+          "issue_count"
+        ],
+        "title": "Progress",
+        "description": "Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane."
+      },
+      "ProgressNotice": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PHASE_STARTED",
+              "PHASE_ENDED",
+              "ISSUE_COUNT",
+              "PLAN_READY",
+              "WORKER_STARTED",
+              "WORKER_ENDED",
+              "FAILED"
+            ],
+            "title": "Kind"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "Sprawdzanie",
+              "Odczyt danych",
+              "Planowanie",
+              "Zapisywanie"
+            ],
+            "title": "Phase"
+          },
+          "worker_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "worker_elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Elapsed Ms"
+          },
+          "template_index": {
+            "type": "integer",
+            "title": "Template Index"
+          },
+          "template_total": {
+            "type": "integer",
+            "title": "Template Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "phase",
+          "worker_name",
+          "status",
+          "rows",
+          "worker_elapsed_ms",
+          "template_index",
+          "template_total"
+        ],
+        "title": "ProgressNotice",
+        "description": "Neutralne powiadomienie o ostatniej zmianie postępu."
+      },
       "ReadyPath": {
         "properties": {
           "state": {
@@ -1045,6 +1817,379 @@
           "critical"
         ],
         "title": "ResultCounts"
+      },
+      "RunAwaitingDecision": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "awaiting_decision",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "progress",
+          "decision"
+        ],
+        "title": "RunAwaitingDecision",
+        "description": "Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk."
+      },
+      "RunEvent": {
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "view": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RunIdle"
+              },
+              {
+                "$ref": "#/components/schemas/RunRunning"
+              },
+              {
+                "$ref": "#/components/schemas/RunAwaitingDecision"
+              },
+              {
+                "$ref": "#/components/schemas/RunFinished"
+              }
+            ],
+            "title": "View",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                "finished": "#/components/schemas/RunFinished",
+                "idle": "#/components/schemas/RunIdle",
+                "running": "#/components/schemas/RunRunning"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sequence",
+          "view"
+        ],
+        "title": "RunEvent",
+        "description": "Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu."
+      },
+      "RunFinished": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "finished",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          },
+          "progress_stale": {
+            "type": "boolean",
+            "title": "Progress Stale"
+          },
+          "result": {
+            "$ref": "#/components/schemas/RunOutcome"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "progress",
+          "progress_stale",
+          "result"
+        ],
+        "title": "RunFinished"
+      },
+      "RunIdle": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "idle",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "RunIdle",
+        "description": "Od startu serwera nie było żadnego Uruchomienia procesu."
+      },
+      "RunInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "process": {
+            "type": "string",
+            "const": "preparation",
+            "title": "Process"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "process",
+          "title",
+          "period",
+          "dry_run"
+        ],
+        "title": "RunInfo"
+      },
+      "RunMessage": {
+        "properties": {
+          "what": {
+            "type": "string",
+            "title": "What"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Where"
+          },
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "what",
+          "where",
+          "action"
+        ],
+        "title": "RunMessage",
+        "description": "Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``)."
+      },
+      "RunOutcome": {
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WYMAGA_SPRAWDZENIA",
+              "BLAD_KRYTYCZNY"
+            ],
+            "title": "Result"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "ending": {
+            "type": "string",
+            "enum": [
+              "finished",
+              "stop",
+              "unexpected",
+              "after_engine"
+            ],
+            "title": "Ending"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "run",
+              "rerun",
+              "open_period_folder"
+            ],
+            "title": "Next Action"
+          },
+          "status_line": {
+            "type": "string",
+            "title": "Status Line"
+          },
+          "total_duration_ms": {
+            "type": "integer",
+            "title": "Total Duration Ms"
+          },
+          "stops": {
+            "items": {
+              "$ref": "#/components/schemas/RunMessage"
+            },
+            "type": "array",
+            "title": "Stops"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/RunMessage"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notices"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreparationSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "result",
+          "headline",
+          "ending",
+          "next_action",
+          "status_line",
+          "total_duration_ms",
+          "stops",
+          "warnings",
+          "notices",
+          "summary",
+          "lines"
+        ],
+        "title": "RunOutcome",
+        "description": "Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna\nakcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku."
+      },
+      "RunRequest": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "const": "preparation",
+            "title": "Process"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "period",
+          "dry_run"
+        ],
+        "title": "RunRequest",
+        "description": "Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu."
+      },
+      "RunRunning": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "running",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgressNotice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress_stale": {
+            "type": "boolean",
+            "title": "Progress Stale"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "progress",
+          "notice",
+          "progress_stale"
+        ],
+        "title": "RunRunning"
+      },
+      "RunSetup": {
+        "properties": {
+          "processes": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessSetup"
+            },
+            "type": "array",
+            "title": "Processes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "processes"
+        ],
+        "title": "RunSetup"
       },
       "Settings": {
         "properties": {
