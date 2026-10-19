@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import time
@@ -9,13 +10,14 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 import pytest
 
+from rozliczenia.decision import Conversation, Decision
 from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState
 from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.collective_preparation import (
     PreparationSummary,
     prepare_collective_file,
 )
-from rozliczenia.message import Message, StopError
+from rozliczenia.message import StopError
 from rozliczenia.workbook_files import ExternalLinksError
 import rozliczenia.workbook_files as workbook_files
 
@@ -41,7 +43,7 @@ def run_preparation(
     *,
     dry_run: bool = False,
     observer: ProgressObserver | None = None,
-    confirm_plan: Callable[[PreparationSummary], None] | None = None,
+    conversation: Conversation | None = None,
 ) -> PreparationSummary:
     return prepare_collective_file(
         fixture.register_path,
@@ -52,8 +54,34 @@ def run_preparation(
         collective_template_path=fixture.collective_template_path,
         dry_run=dry_run,
         observer=observer,
-        confirm_plan=confirm_plan,
+        conversation=conversation,
     )
+
+
+@dataclass
+class Tata:
+    """Rozmówca w teście: zapisuje każdą Decyzję, robi ``before_answer`` i odpowiada ``consent``."""
+
+    consent: bool = True
+    continue_hint: str = "przy pytaniu wpisz t"
+    before_answer: Callable[[], None] = lambda: None
+    decisions: list[Decision] = field(default_factory=list)
+
+    def confirm(self, decision: Decision) -> bool:
+        self.decisions.append(decision)
+        self.before_answer()
+        return self.consent
+
+
+def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
+
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 8, 8, 0)),
+        register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
+        register_order(3, datetime(2026, 9, 12, 12, 0)),
+    ]
+    return make_preparation_fixture(tmp_path, rows)
 
 
 def sheet_rows(path: Path, *, min_row: int, max_col: int) -> list[tuple[object, ...]]:
@@ -832,88 +860,106 @@ def test_skipped_empty_rows_are_all_empty_rows_from_first_to_last_period_order(t
     assert summary.skipped_empty_rows == 3
 
 
-def test_confirm_plan_gets_plan_after_planowanie_and_before_zapisywanie(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
+def test_decyzja_taty_about_incomplete_period_comes_after_planowanie_and_before_zapisywanie(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
-    seen: list[tuple[int, int, list[tuple[ProgressPhase, ProgressState]], bool]] = []
+    seen: list[tuple[list[tuple[ProgressPhase, ProgressState]], bool]] = []
+    tata = Tata(
+        before_answer=lambda: seen.append(
+            ([(event.phase, event.state) for event in recorded], fixture.period_directory.exists())
+        )
+    )
 
-    def confirm_plan(plan: PreparationSummary) -> None:
-        stages = [(event.phase, event.state) for event in recorded]
-        seen.append((plan.period_order_count, plan.successful_order_count, stages, fixture.period_directory.exists()))
+    summary = run_preparation(fixture, observer=recorded.append, conversation=tata)
 
-    summary = run_preparation(fixture, observer=recorded.append, confirm_plan=confirm_plan)
-
-    assert seen == [(4, 3, STAGES_IN_ORDER[:8], False)]
+    [decision] = tata.decisions
+    assert (decision.title, decision.message.code, decision.question) == (
+        "Ostrzeżenie: niepełny okres",
+        "NIEPELNY_OKRES",
+        "Kontynuować mimo niepełnego okresu?",
+    )
+    assert decision.counts_title == "Zlecenia na dzień"
+    assert list(decision.counts) == [
+        ("wt 08.09.2026", 1),
+        ("śr 09.09.2026", 1),
+        ("czw 10.09.2026", 0),
+        ("pt 11.09.2026", 0),
+        ("sob 12.09.2026", 1),
+        ("niedz 13.09.2026", 0),
+        ("pon 14.09.2026", 0),
+    ]
+    assert seen == [(STAGES_IN_ORDER[:8], False)]
     assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER
-    assert summary.period_order_count == 4
+    assert summary.period_order_count == 3
     assert fixture.collective_file_path.is_file()
 
 
-def test_stage_times_seen_by_confirm_plan_do_not_change_while_zapisywanie_is_measured(
+def test_full_period_does_not_ask_tata(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    tata = Tata(consent=False)
+
+    run_preparation(fixture, conversation=tata)
+
+    assert tata.decisions == []
+    assert fixture.collective_file_path.is_file()
+
+
+def test_stage_times_include_measured_zapisywanie_and_cannot_be_changed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     save_s = 0.05
     real_save_workbook = workbook_files.save_workbook
-    seen: list[tuple[Mapping[ProgressPhase, int], dict[ProgressPhase, int]]] = []
 
     def slow_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
         time.sleep(save_s)
         real_save_workbook(workbook, target, external_links_from=external_links_from)
 
-    def confirm_plan(plan: PreparationSummary) -> None:
-        seen.append((plan.phase_durations_ms, dict(plan.phase_durations_ms)))
-
     monkeypatch.setattr(workbook_files, "save_workbook", slow_save)
 
-    summary = run_preparation(fixture, confirm_plan=confirm_plan)
+    summary = run_preparation(fixture)
 
-    [(seen_durations, read_in_confirm_plan)] = seen
-    assert set(read_in_confirm_plan) == {ProgressPhase.CHECKING, ProgressPhase.READING, ProgressPhase.PLANNING}
-    assert dict(seen_durations) == read_in_confirm_plan
+    assert set(summary.phase_durations_ms) == set(ProgressPhase)
     assert summary.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000
-    assert dict(summary.phase_durations_ms) == {
-        **read_in_confirm_plan,
-        ProgressPhase.SAVING: summary.phase_durations_ms[ProgressPhase.SAVING],
-    }
     with pytest.raises(TypeError):
         summary.phase_durations_ms[ProgressPhase.SAVING] = 0  # type: ignore[index]
 
 
-def test_stop_from_confirm_plan_creates_no_file_and_no_folder_okresu(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
+def test_refused_incomplete_period_stops_with_hint_of_the_conversation_and_creates_nothing(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
-    refusal = StopError(
-        Message(code="ODMOWA", what="Odmowa w teście.", where="test", action="Nic.")
-    )
-
-    def refuse(plan: PreparationSummary) -> None:
-        raise refusal
+    tata = Tata(consent=False, continue_hint="przy decyzji wybierz „Kontynuuj”")
 
     with pytest.raises(StopError) as raised:
-        run_preparation(fixture, observer=recorded.append, confirm_plan=refuse)
+        run_preparation(fixture, observer=recorded.append, conversation=tata)
 
-    assert raised.value is refusal
+    assert raised.value.message.text == (
+        "Co się stało: Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.\n"
+        f"Gdzie: okres {PERIOD}\n"
+        "Co zrobić: Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. "
+        "Jeśli okres jest pełny, przy decyzji wybierz „Kontynuuj”."
+    )
     assert [(event.phase, event.state) for event in recorded] == STAGES_IN_ORDER[:8]
     assert list(fixture.periods_directory.iterdir()) == []
 
 
-def test_dry_run_does_not_call_confirm_plan(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    calls: list[PreparationSummary] = []
+def test_dry_run_of_incomplete_period_does_not_ask_tata(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
+    tata = Tata(consent=False)
 
-    run_preparation(fixture, dry_run=True, confirm_plan=calls.append)
+    plan = run_preparation(fixture, dry_run=True, conversation=tata)
 
-    assert calls == []
+    assert tata.decisions == []
+    assert [warning.code for warning in plan.warnings] == ["NIEPELNY_OKRES"]
 
 
-def test_time_spent_in_confirm_plan_is_not_counted_in_przygotowanie_time(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
+def test_time_of_decyzja_taty_is_not_counted_in_przygotowanie_time(tmp_path: Path) -> None:
+    fixture = incomplete_period_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
     pause_s = 1.5
 
     summary = run_preparation(
-        fixture, observer=recorded.append, confirm_plan=lambda plan: time.sleep(pause_s)
+        fixture, observer=recorded.append, conversation=Tata(before_answer=lambda: time.sleep(pause_s))
     )
 
     assert sum(summary.phase_durations_ms.values()) < pause_s * 1000

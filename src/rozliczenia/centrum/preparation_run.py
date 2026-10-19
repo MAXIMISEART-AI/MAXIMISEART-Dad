@@ -126,9 +126,7 @@ def _summary(summary: PreparationSummary) -> contract.PreparationSummary:
         period_order_count=summary.period_order_count,
         successful_order_count=summary.successful_order_count,
         skipped_empty_rows=summary.skipped_empty_rows,
-        orders_per_day=[
-            contract.Count(label=label, count=count) for label, count in preparation_cli.orders_per_day(summary)
-        ],
+        orders_per_day=[contract.Count(label=label, count=count) for label, count in summary.labeled_orders_per_day()],
         internal_settlement_file=summary.internal_settlement_file.name,
         collective_file=summary.collective_file.name,
     )

@@ -1,7 +1,9 @@
 """Przygotowanie pliku zbiorczego: z Rejestru zleceń do Rozliczenia wewnętrznego i Pliku zbiorczego.
 
-Jedyną operacją publiczną jest ``prepare_collective_file()``. Silnik nie pyta o
-nic i nie proponuje okresu; zatrzymania zgłasza jako ``StopError`` z
+Jedyną operacją publiczną jest ``prepare_collective_file()``. Silnik nie
+proponuje okresu; pyta tylko o Decyzję taty o niepełnym okresie, przez
+rozmowę od rdzenia Uruchomienia procesu (``decision.Conversation``), i sam
+zatrzymuje się po odmowie. Zatrzymania zgłasza jako ``StopError`` z
 Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
 Ten moduł tylko sekwencjonuje cztery etapy. Odczyt Rejestru zleceń jest w
@@ -11,7 +13,7 @@ Ten moduł tylko sekwencjonuje cztery etapy. Odczyt Rejestru zleceń jest w
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -19,6 +21,7 @@ from types import MappingProxyType
 
 from . import preparation_files, preparation_plan, preparation_register
 from . import preparation_messages as messages
+from .decision import Conversation, Decision
 from .domain import ProgressObserver, ProgressPhase
 from .engine import load_worker_mapping
 from .message import Message, StopError
@@ -56,6 +59,14 @@ class PreparationSummary:
     warnings: list[Message] = field(default_factory=list)
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
+    def labeled_orders_per_day(self) -> list[tuple[str, int]]:
+        """``Zlecenia na dzień`` z etykietami dni dla taty, np. ``("wt 08.09.2026", 1)``, w kolejności dat."""
+
+        return [
+            (f"{messages.WEEKDAY_LABELS[day.weekday()]} {day:%d.%m.%Y}", count)
+            for day, count in self.orders_per_day.items()
+        ]
+
 
 def default_internal_template_path() -> Path:
     """Wzorzec rozliczenia wewnętrznego w katalogu konfiguracji obok Wzorca rozliczenia pracownika."""
@@ -76,6 +87,21 @@ def _parse_period(token: str) -> SettlementPeriod:
         raise StopError(messages.invalid_period_token(token)) from exc
 
 
+def _incomplete_period_decision(plan: PreparationSummary) -> Decision | None:
+    """Decyzja taty o niepełnym okresie, gdy plan ma takie ostrzeżenie."""
+
+    warning = next((item for item in plan.warnings if item.code == messages.INCOMPLETE_PERIOD), None)
+    if warning is None:
+        return None
+    return Decision(
+        title=messages.INCOMPLETE_PERIOD_TITLE,
+        message=warning,
+        counts_title=messages.ORDERS_PER_DAY,
+        counts=plan.labeled_orders_per_day(),
+        question=messages.INCOMPLETE_PERIOD_QUESTION,
+    )
+
+
 def prepare_collective_file(
     register_path: Path,
     periods_directory: Path,
@@ -86,7 +112,7 @@ def prepare_collective_file(
     collective_template_path: Path | None = None,
     dry_run: bool = False,
     observer: ProgressObserver | None = None,
-    confirm_plan: Callable[[PreparationSummary], None] | None = None,
+    conversation: Conversation | None = None,
 ) -> PreparationSummary:
     """Tworzy w Folderze okresu razem Rozliczenie wewnętrzne i Plik zbiorczy.
 
@@ -99,10 +125,12 @@ def prepare_collective_file(
     Zapisywanie kończy bez tworzenia czegokolwiek (także Folderu okresu). Wynik
     jest wtedy planem z tymi samymi liczbami, ostrzeżeniami i nazwami plików.
 
-    ``confirm_plan`` dostaje plan po Planowaniu, a przed Zapisywaniem, tylko
-    przy zapisie. Silnik sam o nic nie pyta: wywołujący decyduje, a żeby
-    przerwać bez zapisu, zgłasza ``StopError``. Czas tego wywołania nie
-    wlicza się do czasu uruchomienia.
+    ``conversation`` to rozmowa z tatą od rdzenia Uruchomienia procesu. Przy
+    zapisie, gdy plan ma ostrzeżenie o niepełnym okresie, Przygotowanie po
+    Planowaniu, a przed Zapisywaniem pyta przez nią o Decyzję taty; odmowa to
+    ``StopError`` bez zapisu, z podpowiedzią zgody tego rozmówcy. Czas
+    czekania na Decyzję nie wlicza się do czasów etapów. Bez rozmowy
+    Przygotowanie o nic nie pyta.
     """
 
     phases = PhaseRunner(observer)
@@ -151,9 +179,12 @@ def prepare_collective_file(
         orders_per_day=plan.orders_per_day,
         warnings=warnings,
     )
-    if confirm_plan is not None and not dry_run:
+    decision = _incomplete_period_decision(summary)
+    if conversation is not None and decision is not None and not dry_run:
         with phases.paused():
-            confirm_plan(replace(summary, phase_durations_ms=phases.durations_ms()))
+            consent = conversation.confirm(decision)
+        if not consent:
+            raise StopError(messages.incomplete_period_refused(period, conversation.continue_hint))
 
     def save_both() -> None:
         if not dry_run:
