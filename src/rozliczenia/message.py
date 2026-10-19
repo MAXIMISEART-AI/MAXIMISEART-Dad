@@ -7,8 +7,10 @@ każda ich fabryka zwraca ``Message``. Zatrzymanie Uruchomienia procesu to
 
 Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów ani treści
 wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
-Wykonawcę. Kod jest unikalny w obrębie katalogu procesu
-(``tests/test_instrukcja_taty.py``).
+Wykonawcę. Kod jest unikalny w obrębie katalogu procesu: w
+``tests/test_instrukcja_taty.py`` każdy kod katalogu ma dokładnie jeden cytat
+instrukcji taty, a każdy cytat wskazuje dokładnie jeden kod. Typ zwracany przez
+każdą fabrykę pilnuje mypy (tryb strict obejmuje testy).
 
 Moduł używa tylko biblioteki standardowej, bo Komunikat startu Centrum o
 brakującej bibliotece musi działać bez zależności.

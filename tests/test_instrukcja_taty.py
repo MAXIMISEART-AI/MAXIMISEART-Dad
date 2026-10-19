@@ -214,13 +214,6 @@ def test_probki_pokrywaja_kazda_fabryke_katalogu(catalog: Catalog) -> None:
 
 
 @each_catalog
-def test_kazda_fabryka_katalogu_zwraca_komunikat(catalog: Catalog) -> None:
-    produced = {name: sample() for name, samples in catalog.samples.items() for sample in samples}
-
-    assert {name: type(item).__name__ for name, item in produced.items() if not isinstance(item, Message)} == {}
-
-
-@each_catalog
 def test_instrukcja_taty_objasnia_kazdy_komunikat_katalogu(catalog: Catalog) -> None:
     fragments = _instruction_fragments(catalog.section)
     unexplained = sorted(
@@ -241,8 +234,12 @@ def test_kazdy_cytat_instrukcji_wskazuje_dokladnie_jeden_kod(catalog: Catalog) -
 
 
 @each_catalog
-def test_kod_jest_unikalny_w_katalogu(catalog: Catalog) -> None:
-    """Jeden kod to jeden Komunikat: jego warianty objaśnia ten sam, jedyny cytat instrukcji."""
+def test_kazdy_kod_katalogu_ma_dokladnie_jeden_cytat_instrukcji(catalog: Catalog) -> None:
+    """Jeden kod to jeden Komunikat: jego warianty objaśnia ten sam, jedyny cytat instrukcji.
+
+    Razem z ``test_kazdy_cytat_instrukcji_wskazuje_dokladnie_jeden_kod`` pilnuje,
+    że dwie fabryki o różnej treści nie dzielą kodu w obrębie katalogu.
+    """
 
     fragments = _instruction_fragments(catalog.section)
     fragments_per_code: dict[str, set[str]] = {}
