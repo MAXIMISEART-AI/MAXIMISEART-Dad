@@ -37,14 +37,13 @@ def synthetic_rows() -> list[ExcelRow]:
     return [("syntetyczne miasto",) + (None,) * 45]
 
 
-def test_przetworzenie_szablonu_pracownika_zglasza_bledny_naglowek(tmp_path: Path) -> None:
+def test_przetworzenie_szablonu_pracownika_przerywa_przy_blednym_naglowku(tmp_path: Path) -> None:
     template_path, target_path = make_template_fixture(tmp_path)
     change_template(template_path, "H17", "NIE WYKONAWCA")
 
-    result = process_template(WORKER, template_path, target_path, [])
+    with pytest.raises(TemplateWriteError):
+        process_template(WORKER, template_path, target_path, [])
 
-    assert result.status == "ZLY_SZABLON"
-    assert [issue.code for issue in result.issues] == ["ZLY_SZABLON"]
     assert not target_path.exists()
 
 
@@ -68,8 +67,7 @@ def test_przetworzenie_szablonu_pracownika_nie_nadpisuje_danych(tmp_path: Path) 
     template_path, target_path = make_template_fixture(tmp_path)
     change_template(template_path, "A18", "wczesniejsza wartosc")
 
-    result = process_template(WORKER, template_path, target_path, synthetic_rows())
+    with pytest.raises(TemplateWriteError):
+        process_template(WORKER, template_path, target_path, synthetic_rows())
 
-    assert result.status == "ZABLOKOWANY"
-    assert [issue.code for issue in result.issues] == ["NADPISANIE_ZABLOKOWANE"]
     assert not target_path.exists()

@@ -136,14 +136,12 @@ def _summary_lines(summary: SettlementSummary, *, dry_run: bool) -> list[str]:
         "written": summary.written_count,
         "empty": summary.empty_count,
         "planned": summary.planned_count,
-        "skipped": summary.skipped_count,
     }
     lines = [
         f"Liczniki: {format_counter_line(counters)}",
         f"Wiersze danych: {summary.total_rows}",
         f"Zapisane szablony: {summary.written_count}",
         f"Puste szablony: {summary.empty_count}",
-        f"Pominięte szablony: {summary.skipped_count}",
     ]
     if summary.planned_count:
         lines.append(f"Planowane szablony: {summary.planned_count}")
@@ -176,7 +174,9 @@ def _finished(summary: SettlementSummary) -> Finished:
             "written": summary.written_count,
             "empty": summary.empty_count,
             "planned": summary.planned_count,
-            "skipped": summary.skipped_count,
+            # Licznik ze schematu metryk sprzed usunięcia pominiętych szablonów; zawsze 0,
+            # żeby stare i nowe rekordy miały te same klucze.
+            "skipped": 0,
             "issues": len(summary.issues),
         },
         phase_durations_ms=summary.phase_durations_ms,

@@ -11,9 +11,6 @@ OPERATION_STATUS_PRESENTATION: dict[str, tuple[str, str]] = {
     "ZAPISANO": ("OK", "green"),
     "PUSTY_SZABLON": ("OK", "green"),
     "PLAN": ("OK", "green"),
-    "ZABLOKOWANY": ("OSTRZEŻENIE", "yellow"),
-    "ZLY_SZABLON": ("BŁĄD", "red"),
-    "POMINIĘTO": ("BŁĄD", "red"),
 }
 
 
@@ -38,6 +35,5 @@ def format_counter_line(counters: Mapping[str, int]) -> str:
     return (
         f"zapisano: {counters['written']} | "
         f"puste: {counters['empty']} | "
-        f"planowane: {counters['planned']} | "
-        f"pominięte: {counters['skipped']}"
+        f"planowane: {counters['planned']}"
     )

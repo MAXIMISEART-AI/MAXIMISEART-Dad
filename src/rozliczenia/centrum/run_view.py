@@ -67,7 +67,6 @@ _ROWS: Final = "Wiersze danych"
 _PLANNED: Final = "Planowane szablony"
 _WRITTEN: Final = "Zapisane szablony"
 _EMPTY: Final = "Puste szablony"
-_SKIPPED: Final = "Pominięte szablony"
 
 
 def _settlement_figures(snapshot: ProgressSnapshot, dry_run: bool) -> list[contract.Figure]:
@@ -76,7 +75,6 @@ def _settlement_figures(snapshot: ProgressSnapshot, dry_run: bool) -> list[contr
         _count(_ROWS, snapshot.rows),
         _count(_PLANNED, counters["planned"]) if dry_run else _count(_WRITTEN, counters["written"]),
         _count(_EMPTY, counters["empty"]),
-        _count(_SKIPPED, counters["skipped"]),
         _count("Problemy", snapshot.issue_count),
     ]
 
@@ -92,7 +90,6 @@ def _settlement_summary(summary: SettlementSummary, dry_run: bool) -> contract.R
         else [
             _count(_WRITTEN, summary.written_count),
             _count(_EMPTY, summary.empty_count),
-            _count(_SKIPPED, summary.skipped_count),
         ]
     )
     return contract.RunSummary(

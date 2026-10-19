@@ -170,9 +170,6 @@ def run_settlements(
                         target_path,
                         rows,
                     )
-                    if result.status not in {"ZAPISANO", "PUSTY_SZABLON"}:
-                        summary.issues.extend(result.issues)
-                        raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name))
             except Exception as exc:
                 notify(
                     ProgressEventFactory.worker_failed(
@@ -189,7 +186,6 @@ def run_settlements(
                 if isinstance(exc, WorkbookError):
                     raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
                 raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
-            summary.issues.extend(result.issues)
             results.append(result)
             notify(
                 ProgressEventFactory.worker_ended(
