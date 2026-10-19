@@ -105,6 +105,9 @@ przejmie całą pracę, są ścieżką zapasową, gdy Centrum nie wystartuje.
   blokady: przed zderzeniem chronią Nienadpisywanie i atomowa publikacja plików
   okresu.
 - Awaria adaptera Centrum odłącza go bez wpływu na wynik, zapis i metryki, tak
-  jak awaria adaptera terminala (ADR 0002).
+  jak awaria adaptera terminala (ADR 0002). Dotyczy to obserwatora postępu;
+  przygotowanie widoku wyniku jest częścią rdzenia, jak podsumowanie w
+  terminalu, więc jego awaria to błąd po silniku z Komunikatem z katalogu
+  procesu i `BLAD_KRYTYCZNY` w metrykach.
 - Zmiany w Centrum weryfikuje end-to-end skill `verify-centrum-rozliczen`.
 - Edycja danych w Centrum wymaga osobnego ADR i rewizji reguły prywatności.
