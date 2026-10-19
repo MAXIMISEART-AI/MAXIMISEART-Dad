@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from rozliczenia import cli, engine, template_settlement
-from rozliczenia.centrum import contract
+from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
@@ -96,22 +96,22 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
     finished = finished_view(centrum.client)
 
     assert (finished["run"]["process"], finished["run"]["title"]) == ("settlement", "Przebieg rozliczeń")
+    assert finished["run"]["confirms_readiness"] is True
     result = finished["result"]
     assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "run")
     assert result["headline"] == "Podgląd gotowy · nic nie zapisano"
     assert result["summary"] == {
-        "process": "settlement",
-        "period": PERIOD,
-        "worker_settlements_folder": WORKER_SETTLEMENTS,
-        "rows": 3,
-        "written_count": 0,
-        "planned_count": 2,
-        "empty_count": 1,
-        "skipped_count": 0,
-        "files": [
-            {"worker_name": "Adrian Maciejewski", "file": f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx", "rows": 2},
-            {"worker_name": "Darek Nowak", "file": f"Rozliczenie {PERIOD} - Darek Nowak.xlsx", "rows": 1},
-            {"worker_name": "Kamil Frontczak", "file": f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx", "rows": 0},
+        "figures": [
+            {"label": "Wiersze danych", "value": 3, "unit": "count"},
+            {"label": "Planowane szablony", "value": 2, "unit": "count"},
+            {"label": "Puste szablony", "value": 1, "unit": "count"},
+        ],
+        "counts": None,
+        "files": [],
+        "file_plan": [
+            {"file": f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx", "rows": 2},
+            {"file": f"Rozliczenie {PERIOD} - Darek Nowak.xlsx", "rows": 1},
+            {"file": f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx", "rows": 0},
         ],
     }
     assert (result["stops"], result["warnings"]) == ([], [])
@@ -134,11 +134,14 @@ def test_uruchom_publikuje_folder_rozliczen_pracownikow_i_zmienia_status_okresu(
 
     assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "open_period_folder")
     assert result["headline"] == "Rozliczenia pracowników gotowe"
-    assert result["summary"]["process"] == "settlement"
-    assert (result["summary"]["written_count"], result["summary"]["empty_count"]) == (2, 1)
+    assert [(figure["label"], figure["value"]) for figure in result["summary"]["figures"]] == [
+        ("Zapisane szablony", 2),
+        ("Puste szablony", 1),
+        ("Pominięte szablony", 0),
+    ]
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME, WORKER_SETTLEMENTS]
     assert sorted(path.name for path in centrum.worker_settlements.iterdir()) == [
-        file["file"] for file in result["summary"]["files"]
+        file["file"] for file in result["summary"]["file_plan"]
     ]
     [row] = [row for row in board["periods"] if row["token"] == PERIOD]
     assert (row["status_label"], row["worker_settlement_count"]) == ("Rozliczenia pracowników gotowe", 3)
@@ -209,7 +212,7 @@ def test_wynik_ktorego_nie_da_sie_pokazac_to_niepokazane_podsumowanie_z_tym_samy
     def broken_summary(*args: object, **kwargs: object) -> NoReturn:
         raise ValueError("synthetic summary failure SYN-001")
 
-    monkeypatch.setattr(contract, "SettlementSummary", broken_summary)
+    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
 
     result = run_to_end(centrum, dry_run=False)["result"]
 
@@ -233,57 +236,52 @@ def test_wynik_ktorego_nie_da_sie_pokazac_to_niepokazane_podsumowanie_z_tym_samy
 
 def test_strumien_pokazuje_postep_szablonow_pracownikow_z_biezacym_wykonawca(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-    seen: list[tuple[str, str | None, str | None, int, int]] = []
+    seen: list[tuple[str | None, int, int]] = []
 
     for event in run_events(centrum.client):
         view = event["view"]
         if view["state"] == "idle":
             centrum.start(dry_run=False)
             continue
-        notice = view.get("notice")
-        if notice is not None and notice["kind"] in {"WORKER_STARTED", "WORKER_ENDED"}:
-            progress = view["progress"]
-            seen.append(
-                (
-                    notice["kind"],
-                    notice["worker_name"],
-                    progress["current_worker"],
-                    progress["templates_completed"],
-                    progress["template_total"],
-                )
-            )
+        progress = view["progress"]
+        shown = (progress["current_worker"], progress["templates_completed"], progress["template_total"])
+        if view["state"] == "running" and progress["template_total"] > 0 and (not seen or seen[-1] != shown):
+            seen.append(shown)
         if view["state"] == "finished":
             break
 
     assert seen == [
-        ("WORKER_STARTED", "Adrian Maciejewski", "Adrian Maciejewski", 0, 3),
-        ("WORKER_ENDED", "Adrian Maciejewski", None, 1, 3),
-        ("WORKER_STARTED", "Darek Nowak", "Darek Nowak", 1, 3),
-        ("WORKER_ENDED", "Darek Nowak", None, 2, 3),
-        ("WORKER_STARTED", "Kamil Frontczak", "Kamil Frontczak", 2, 3),
-        ("WORKER_ENDED", "Kamil Frontczak", None, 3, 3),
+        (None, 0, 3),
+        ("Adrian Maciejewski", 0, 3),
+        (None, 1, 3),
+        ("Darek Nowak", 1, 3),
+        (None, 2, 3),
+        ("Kamil Frontczak", 2, 3),
+        (None, 3, 3),
     ]
 
 
 def test_strumien_pokazuje_liczniki_szablonow_pracownikow_na_biezaco(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-    seen: list[tuple[str, int, dict[str, int]]] = []
+    seen: list[list[tuple[str, int]]] = []
 
     for event in run_events(centrum.client):
         view = event["view"]
         if view["state"] == "idle":
             centrum.start(dry_run=False)
             continue
-        notice = view.get("notice")
-        if notice is not None and notice["kind"] == "WORKER_ENDED":
-            seen.append((notice["worker_name"], view["progress"]["rows"], view["progress"]["counts"]))
+        shown = [(figure["label"], figure["value"]) for figure in view["progress"]["figures"]]
+        if view["state"] == "running" and (not seen or seen[-1] != shown):
+            seen.append(shown)
         if view["state"] == "finished":
             break
 
+    labels = ["Wiersze danych", "Zapisane szablony", "Puste szablony", "Pominięte szablony", "Problemy"]
     assert seen == [
-        ("Adrian Maciejewski", 2, {"written": 1, "empty": 0, "planned": 0, "skipped": 0}),
-        ("Darek Nowak", 3, {"written": 2, "empty": 0, "planned": 0, "skipped": 0}),
-        ("Kamil Frontczak", 3, {"written": 2, "empty": 1, "planned": 0, "skipped": 0}),
+        list(zip(labels, [0, 0, 0, 0, 0])),
+        list(zip(labels, [2, 1, 0, 0, 0])),
+        list(zip(labels, [3, 2, 0, 0, 0])),
+        list(zip(labels, [3, 2, 1, 0, 0])),
     ]
 
 
@@ -452,6 +450,10 @@ def test_wybor_okresu_to_okresy_z_przygotowanym_plikiem_zbiorczym(tmp_path: Path
 
     assert (setup["title"], setup["creates"], setup["blocker"]) == ("Przebieg rozliczeń", "Rozliczenia pracowników", None)
     assert setup["reminder"] == "Zapisz i zamknij Plik zbiorczy w Excelu"
+    assert (setup["confirms_readiness"], setup["preview_hint"]) == (
+        True,
+        "Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
+    )
     assert setup["preselected_period"] == PERIOD
     assert [(choice["token"], choice["last_complete"], choice["collective_file"]) for choice in setup["periods"]] == [
         (PERIOD, True, SOURCE_NAME),

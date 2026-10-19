@@ -3,8 +3,8 @@
 Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i trzecim
 adapterem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
 procesu: proces podaje gotowe ``PreparedRun`` (opis procesu z CLI, wejście
-procesu, plik metryk i sposób pokazania podsumowania), a moduł prowadzi z nim
-rdzeń i zamienia wynik na widok dla przeglądarki. Widok podsumowania robi rdzeń
+procesu, plik metryk i widok Uruchomienia procesu z ``run_view``), a moduł
+prowadzi z nim rdzeń i publikuje widoki dla przeglądarki. Widok podsumowania robi rdzeń
 w swojej osłonie, więc jego awaria to błąd po silniku z Komunikatem z katalogu
 procesu, ten sam wynik co w metrykach. Zatrzymania, ostrzeżenia i decyzja taty
 przechodzą jako komunikaty w trzech częściach, bez linii terminala.
@@ -33,6 +33,7 @@ from fastapi.responses import StreamingResponse
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
+from rozliczenia.centrum.run_view import ProcessView
 from rozliczenia.message import Message
 from rozliczenia.process_run import (
     Decision,
@@ -59,8 +60,9 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     """Uruchomienie procesu gotowe do startu: ten sam opis procesu co w CLI i wejście procesu z ustawień.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
-    ``summary`` i ``warnings`` zamieniają podsumowanie silnika na widok dla przeglądarki
-    (``summary_view``, woła go rdzeń).
+    ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
+    ``view`` (liczby na żywo i wynik) i ``warnings`` zamieniają snapshot postępu i podsumowanie
+    silnika na widok dla przeglądarki; ``summary_view`` woła rdzeń.
     """
 
     key: contract.ProcessKey
@@ -70,16 +72,21 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     inputs: InputsT
     metrics_path: Path
     done: str
-    summary: Callable[[SummaryT], contract.PreparationSummary | contract.SettlementSummary]
+    confirms_readiness: bool
+    view: ProcessView[SummaryT]
     warnings: Callable[[SummaryT], Sequence[Message]]
 
     @property
     def dry_run(self) -> bool:
         return self.inputs.dry_run
 
+    def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
+        return self.view.progress(snapshot, dry_run=self.dry_run)
+
     def summary_view(self, _inputs: InputsT, summary: SummaryT) -> _SummaryView:
         return _SummaryView(
-            summary=self.summary(summary), warnings=[contract.Message.of(warning) for warning in self.warnings(summary)]
+            summary=self.view.summary(summary, dry_run=self.dry_run),
+            warnings=[contract.Message.of(warning) for warning in self.warnings(summary)],
         )
 
 
@@ -87,7 +94,7 @@ class PreparedRun(Generic[InputsT, SummaryT]):
 class _SummaryView:
     """Podsumowanie i ostrzeżenia zakończonego procesu w kształcie kontraktu."""
 
-    summary: contract.PreparationSummary | contract.SettlementSummary
+    summary: contract.RunSummary
     warnings: list[contract.Message]
 
 
@@ -205,9 +212,9 @@ class _Run:
             title=prepared.title,
             period=prepared.period,
             dry_run=prepared.dry_run,
+            confirms_readiness=prepared.confirms_readiness,
         )
-        self._progress = _progress_view(ProgressProjection(_mode(prepared.dry_run), prepared.period).snapshot)
-        self._notice: contract.ProgressNotice | None = None
+        self._progress = prepared.progress_view(ProgressProjection(_mode(prepared.dry_run), prepared.period).snapshot)
         self._stale = False
         self._decided = threading.Event()
         self._consent = False
@@ -219,7 +226,6 @@ class _Run:
             state="running",
             run=self.info,
             progress=self._progress,
-            notice=self._notice,
             progress_stale=self._stale,
         )
 
@@ -280,81 +286,32 @@ class _Run:
     def paused(self) -> AbstractContextManager[None]:
         return nullcontext()
 
-    # Podgląd postępu (trzeci adapter projekcji)
+    # Podgląd postępu (trzeci adapter projekcji). Każde powiadomienie odświeża widok
+    # na żywo; przeglądarka dostaje nowy widok tylko wtedy, gdy zmieniło się to, co pokazuje.
 
     def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
-        self._show(snapshot, None)
+        self._show(snapshot)
 
     def show_progress(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
-        self._show(snapshot, notice)
+        self._show(snapshot)
 
     def stop_progress(self) -> None:
         """Widok końcowy publikuje ``work`` razem z wynikiem."""
 
-    def _show(self, snapshot: ProgressSnapshot, notice: ProgressNotice | None) -> None:
+    def _show(self, snapshot: ProgressSnapshot) -> None:
         try:
-            progress = _progress_view(snapshot)
-            notice_shown = None if notice is None else _notice_view(notice)
+            progress = self._prepared.progress_view(snapshot)
         except Exception:
             self._stale = True
             self._host.publish(self, self.running_view())
             raise
-        if (progress, notice_shown) != (self._progress, self._notice):
-            self._progress, self._notice = progress, notice_shown
+        if progress != self._progress:
+            self._progress = progress
             self._host.publish(self, self.running_view())
 
 
 def _mode(dry_run: bool) -> str:
     return "DRY-RUN" if dry_run else "RUN"
-
-
-def _progress_view(snapshot: ProgressSnapshot) -> contract.Progress:
-    counters = snapshot.metric_counters()
-    return contract.Progress(
-        mode="DRY-RUN" if snapshot.mode == "DRY-RUN" else "RUN",
-        period=snapshot.period,
-        phases=[
-            contract.PhaseProgress(
-                phase=phase.value, state=state.value, duration_ms=snapshot.phase_durations_ms.get(phase, 0)
-            )
-            for phase, state in snapshot.phase_states.items()
-        ],
-        current_phase=None if snapshot.current_phase is None else snapshot.current_phase.value,
-        template_total=snapshot.template_total,
-        templates_completed=snapshot.templates_completed,
-        current_worker=snapshot.current_worker,
-        rows=snapshot.rows,
-        counts=contract.TemplateCounts(
-            written=counters["written"],
-            empty=counters["empty"],
-            planned=counters["planned"],
-            skipped=counters["skipped"],
-        ),
-        recent_operations=[
-            contract.OperationProgress(
-                worker_name=operation.worker_name,
-                status=operation.status,
-                rows=operation.rows,
-                worker_elapsed_ms=operation.worker_elapsed_ms,
-            )
-            for operation in snapshot.recent_operations
-        ],
-        total_elapsed_ms=snapshot.total_elapsed_ms,
-        issue_count=snapshot.issue_count,
-    )
-
-
-def _notice_view(notice: ProgressNotice) -> contract.ProgressNotice:
-    return contract.ProgressNotice(
-        kind=notice.kind.value,
-        phase=notice.phase.value,
-        worker_name=notice.worker_name,
-        status=notice.status,
-        rows=notice.rows,
-        worker_elapsed_ms=notice.worker_elapsed_ms,
-        template_index=notice.template_index,
-        template_total=notice.template_total,
-    )
 
 
 def _decision_view(decision: Decision) -> contract.Decision:
@@ -401,7 +358,6 @@ def _run_result(outcome: Outcome[_SummaryView], prepared: PreparedRun[Any, Any])
         headline=headline,
         ending=kind,
         next_action=next_action,
-        total_duration_ms=outcome.total_duration_ms,
         stops=stops,
         warnings=[] if shown is None else shown.warnings,
         notices=list(outcome.notices),
@@ -417,7 +373,6 @@ def _unexpected_result(dry_run: bool) -> contract.RunOutcome:
         headline="Błąd",
         ending="after_engine",
         next_action="rerun" if dry_run else "open_period_folder",
-        total_duration_ms=0,
         stops=[
             contract.Message(
                 what="Nie udało się pokazać wyniku Uruchomienia procesu.",

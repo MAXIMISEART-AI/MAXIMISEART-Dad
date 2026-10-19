@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from rozliczenia import cli, settlement_messages
-from rozliczenia.centrum import contract
+from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
 from rozliczenia.centrum.period_board import read_board
@@ -33,6 +33,9 @@ from rozliczenia.telemetry import MetricsStore
 _PROCESS: Final = cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "settlement"
 _ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
+_REMINDER: Final = "Zapisz i zamknij Plik zbiorczy w Excelu"
+_CONFIRMS_READINESS: Final = True
+_PREVIEW_HINT: Final = "Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy."
 
 
 @dataclass(frozen=True)
@@ -61,7 +64,9 @@ class SettlementEntry:
             process=_KEY,
             title=PROCESS_NAMES[_KEY],
             creates="Rozliczenia pracowników",
-            reminder="Zapisz i zamknij Plik zbiorczy w Excelu",
+            reminder=_REMINDER,
+            confirms_readiness=_CONFIRMS_READINESS,
+            preview_hint=_PREVIEW_HINT,
             periods=[_choice(row, previewed=row.token in previewed) for row in rows],
             preselected_period=preselected,
             blocker=_blocker(board, rows),
@@ -94,7 +99,8 @@ class SettlementEntry:
             inputs=inputs,
             metrics_path=self.metrics_path,
             done="Rozliczenia pracowników gotowe",
-            summary=_summary,
+            confirms_readiness=_CONFIRMS_READINESS,
+            view=run_view.SETTLEMENT,
             warnings=warnings,
         )
 
@@ -120,19 +126,3 @@ def _blocker(board: contract.PeriodBoard, rows: list[contract.PeriodRow]) -> str
         return f"Żaden okres nie ma Statusu „{period_status_label(_ELIGIBLE)}”. Najpierw przygotuj plik zbiorczy."
     return None
 
-
-def _summary(summary: SettlementSummary) -> contract.SettlementSummary:
-    return contract.SettlementSummary(
-        process="settlement",
-        period=summary.period,
-        worker_settlements_folder=summary.target_directory.name,
-        rows=summary.total_rows,
-        written_count=summary.written_count,
-        planned_count=summary.planned_count,
-        empty_count=summary.empty_count,
-        skipped_count=summary.skipped_count,
-        files=[
-            contract.WorkerFile(worker_name=result.worker_name, file=result.output_file.name, rows=result.rows)
-            for result in summary.results
-        ],
-    )
