@@ -904,23 +904,32 @@ def test_full_period_does_not_ask_tata(tmp_path: Path) -> None:
     assert fixture.collective_file_path.is_file()
 
 
-def test_stage_times_include_measured_zapisywanie_and_cannot_be_changed(
+def test_stage_times_ended_before_zapisywanie_stay_unchanged_after_measured_zapisywanie(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     save_s = 0.05
     real_save_workbook = workbook_files.save_workbook
+    ended_before_saving: dict[ProgressPhase, int | None] = {}
 
     def slow_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
         time.sleep(save_s)
         real_save_workbook(workbook, target, external_links_from=external_links_from)
 
+    def observer(event: ProgressEvent) -> None:
+        if event.state is ProgressState.END and event.phase is not ProgressPhase.SAVING:
+            ended_before_saving[event.phase] = event.phase_elapsed_ms
+
     monkeypatch.setattr(workbook_files, "save_workbook", slow_save)
 
-    summary = run_preparation(fixture)
+    summary = run_preparation(fixture, observer=observer)
 
-    assert set(summary.phase_durations_ms) == set(ProgressPhase)
+    assert set(ended_before_saving) == {ProgressPhase.CHECKING, ProgressPhase.READING, ProgressPhase.PLANNING}
     assert summary.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000
+    assert dict(summary.phase_durations_ms) == {
+        **ended_before_saving,
+        ProgressPhase.SAVING: summary.phase_durations_ms[ProgressPhase.SAVING],
+    }
     with pytest.raises(TypeError):
         summary.phase_durations_ms[ProgressPhase.SAVING] = 0  # type: ignore[index]
 
