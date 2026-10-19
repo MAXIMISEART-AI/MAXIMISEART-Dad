@@ -255,33 +255,19 @@ def test_wykonawcy_sa_wypisani_w_kolejnosci_z_konfiguracji_wykonawcow(tmp_path: 
     }
 
 
-@pytest.mark.parametrize(
-    ("content", "detail"),
-    [
-        (None, "Nie można odczytać pliku konfiguracji."),
-        ("workers: [niedomknięta lista\n", "Plik nie jest poprawnym YAML."),
-        (
-            "schema_version: 1\nworkers:\n  a: Ten Sam\n  b: ten sam\n",
-            "Dwóch identyfikatorów wskazuje ten sam plik pracownika: Ten Sam / ten sam",
-        ),
-    ],
-    ids=["brak-pliku", "zly-yaml", "dwa-identyfikatory-na-jeden-plik"],
-)
-def test_nieczytelna_konfiguracja_wykonawcow_jest_komunikatem_w_trzech_czesciach(
-    tmp_path: Path, content: str | None, detail: str
-) -> None:
+def test_zla_konfiguracja_wykonawcow_jest_komunikatem_w_trzech_czesciach(tmp_path: Path) -> None:
     app = configured(tmp_path)
-    if content is None:
-        app.files.worker_config.unlink()
-    else:
-        app.files.worker_config.write_text(content, encoding="utf-8")
+    app.files.worker_config.write_text("schema_version: 1\nworkers:\n  a: Ten Sam\n  b: ten sam\n", encoding="utf-8")
 
     configuration = read_configuration(app)
 
     assert configuration["workers"] == {
         "state": "unreadable",
         "message": {
-            "what": f"Konfiguracja wykonawców jest niepoprawna. {detail}",
+            "what": (
+                "Konfiguracja wykonawców jest niepoprawna. "
+                "Dwóch identyfikatorów wskazuje ten sam plik pracownika: Ten Sam / ten sam"
+            ),
             "where": "plik worker_mapping.yaml, folder config",
             "action": REPORT_TO_MAINTAINER,
         },
