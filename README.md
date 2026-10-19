@@ -13,7 +13,7 @@ Narzędzie nie używa AI ani zewnętrznych API. Instrukcja dla taty jest w
 ## Reguły Przebiegu rozliczeń
 
 - Wejście: `Rozliczenie {okres} - zbiorcze.xlsx`.
-- Folder wejścia ma nazwę identyczną jak `{okres}`.
+- Folder wejścia ma nazwę identyczną jak `{okres}`, a `{okres}` jest tokenem okresu od wtorku do poniedziałku.
 - Wyjście: `Rozliczenie pracowników {okres}`.
 - Każdy skoroszyt pracownika powstaje z kopii wspólnego Wzorca rozliczenia pracownika.
 - Powstaje dokładnie jeden skoroszyt dla każdego pracownika z konfiguracji.
