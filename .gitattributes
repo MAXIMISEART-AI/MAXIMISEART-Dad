@@ -1,0 +1,4 @@
+# The committed Centrum build and the generated contract are compared byte for byte in CI.
+src/rozliczenia/centrum/static/** -text
+frontend/src/api/openapi.json text eol=lf
+frontend/src/api/generated/** text eol=lf

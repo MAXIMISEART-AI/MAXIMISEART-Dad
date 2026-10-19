@@ -68,6 +68,14 @@ def test_health_przedstawia_centrum_rozliczen_z_wersja_narzedzia(tmp_path: Path)
     assert response.json() == {"service": "centrum-rozliczen", "version": project_version()}
 
 
+def test_ten_sam_serwer_podaje_zbudowane_centrum_bez_node(tmp_path: Path) -> None:
+    response = centrum(tmp_path).client.get("/")
+
+    assert response.status_code == 200
+    assert "<title>Centrum rozliczeń</title>" in response.text
+    assert response.headers["cache-control"] == "no-cache"
+
+
 def test_zadanie_z_obcym_naglowkiem_host_jest_odrzucone(tmp_path: Path) -> None:
     client = centrum(tmp_path).client
 
