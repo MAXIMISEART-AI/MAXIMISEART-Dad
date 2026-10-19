@@ -46,9 +46,6 @@ różni się rozmowa:
 
 - zgodę na niepełny okres wyraża się w terminalu wpisaniem `t`, a w Centrum
   przyciskiem `Kontynuuj`; mówi o tym rozmówca, nie proces;
-- terminal odsyła do tabeli w instrukcji, Centrum nie, więc komunikat
-  „pliki okresu powstały, ale nie udało się pokazać podsumowania” sam mówi w
-  Centrum, żeby nie uruchamiać ponownie;
 - terminal Przebiegu rozliczeń pokazuje zatrzymanie dawną jedną linią, a
   Centrum ten sam komunikat w trzech częściach.
 
@@ -108,6 +105,9 @@ przejmie całą pracę, są ścieżką zapasową, gdy Centrum nie wystartuje.
   blokady: przed zderzeniem chronią Nienadpisywanie i atomowa publikacja plików
   okresu.
 - Awaria adaptera Centrum odłącza go bez wpływu na wynik, zapis i metryki, tak
-  jak awaria adaptera terminala (ADR 0002).
+  jak awaria adaptera terminala (ADR 0002). Dotyczy to obserwatora postępu;
+  przygotowanie widoku wyniku jest częścią rdzenia, jak podsumowanie w
+  terminalu, więc jego awaria to błąd po silniku z Komunikatem z katalogu
+  procesu i `BLAD_KRYTYCZNY` w metrykach.
 - Zmiany w Centrum weryfikuje end-to-end skill `verify-centrum-rozliczen`.
 - Edycja danych w Centrum wymaga osobnego ADR i rewizji reguły prywatności.

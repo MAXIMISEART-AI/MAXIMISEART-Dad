@@ -500,15 +500,22 @@ def test_uruchom_bez_podgladu_i_podglad_wymagajacy_sprawdzenia_nie_sa_udanym_pod
     assert [choice["previewed"] for choice in setup["periods"][:2]] == [False, False]
 
 
-def test_wynik_ktorego_nie_da_sie_pokazac_trafia_do_dziennika_bez_tekstu_wyjatku(
+def test_awaria_adaptera_po_rdzeniu_trafia_do_dziennika_bez_tekstu_wyjatku(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Ostatnia siatka Centrum: rdzeń skończył i zapisał metryki, ale adapter nie zbudował wyniku dla przeglądarki."""
+
     centrum = preparing_centrum(tmp_path)
+    run_outcome = contract.RunOutcome
+    built: list[str] = []
 
-    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
-        raise ValueError("synthetic summary failure SYN-001")
+    def broken_once(**fields: Any) -> contract.RunOutcome:
+        built.append(fields["ending"])
+        if len(built) == 1:
+            raise ValueError("synthetic contract failure SYN-001")
+        return run_outcome(**fields)
 
-    monkeypatch.setattr(contract, "PreparationSummary", broken_summary)
+    monkeypatch.setattr(contract, "RunOutcome", broken_once)
 
     centrum.start(dry_run=True)
     result = finished_view(centrum.client)["result"]

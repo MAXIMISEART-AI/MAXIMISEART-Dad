@@ -4,8 +4,10 @@ Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i trzecim
 adapterem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
 procesu: proces podaje gotowe ``PreparedRun`` (opis procesu z CLI, wejście
 procesu, plik metryk i sposób pokazania podsumowania), a moduł prowadzi z nim
-rdzeń i zamienia wynik na widok dla przeglądarki. Zatrzymania, ostrzeżenia i
-decyzja taty przechodzą jako komunikaty w trzech częściach, bez linii terminala.
+rdzeń i zamienia wynik na widok dla przeglądarki. Widok podsumowania robi rdzeń
+w swojej osłonie, więc jego awaria to błąd po silniku z Komunikatem z katalogu
+procesu, ten sam wynik co w metrykach. Zatrzymania, ostrzeżenia i decyzja taty
+przechodzą jako komunikaty w trzech częściach, bez linii terminala.
 
 Każda zmiana stanu to nowy niemutowalny widok (``contract.RunView``) z kolejnym
 numerem. Strumień SSE wysyła najpierw bieżący widok, potem każdy kolejny, więc
@@ -38,7 +40,6 @@ from rozliczenia.process_run import (
     Outcome,
     Process,
     ProcessInputs,
-    Stop,
     run_process,
 )
 from rozliczenia.progress import ProgressNotice, ProgressProjection, ProgressSnapshot
@@ -54,20 +55,12 @@ SummaryT = TypeVar("SummaryT")
 
 
 @dataclass(frozen=True)
-class Endings:
-    """Komunikaty procesu dla zakończeń bez jego własnego zatrzymania (``Stop.kind`` inny niż ``stop``)."""
-
-    unexpected: Message
-    plan_not_shown: Message
-    summary_not_shown: Message
-
-
-@dataclass(frozen=True)
 class PreparedRun(Generic[InputsT, SummaryT]):
     """Uruchomienie procesu gotowe do startu: ten sam opis procesu co w CLI i wejście procesu z ustawień.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
-    ``summary`` i ``warnings`` zamieniają podsumowanie silnika na widok dla przeglądarki.
+    ``summary`` i ``warnings`` zamieniają podsumowanie silnika na widok dla przeglądarki
+    (``summary_view``, woła go rdzeń).
     """
 
     key: contract.ProcessKey
@@ -77,13 +70,25 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     inputs: InputsT
     metrics_path: Path
     done: str
-    endings: Endings
     summary: Callable[[SummaryT], contract.PreparationSummary | contract.SettlementSummary]
     warnings: Callable[[SummaryT], Sequence[Message]]
 
     @property
     def dry_run(self) -> bool:
         return self.inputs.dry_run
+
+    def summary_view(self, _inputs: InputsT, summary: SummaryT) -> _SummaryView:
+        return _SummaryView(
+            summary=self.summary(summary), warnings=[contract.Message.of(warning) for warning in self.warnings(summary)]
+        )
+
+
+@dataclass(frozen=True)
+class _SummaryView:
+    """Podsumowanie i ostrzeżenia zakończonego procesu w kształcie kontraktu."""
+
+    summary: contract.PreparationSummary | contract.SettlementSummary
+    warnings: list[contract.Message]
 
 
 class RunHost:
@@ -222,7 +227,9 @@ class _Run:
         prepared = self._prepared
         try:
             since = datetime.now(timezone.utc)
-            outcome = run_process(prepared.process, prepared.inputs, self, metrics_path=prepared.metrics_path)
+            outcome = run_process(
+                prepared.process, prepared.inputs, self, view=prepared.summary_view, metrics_path=prepared.metrics_path
+            )
             self._host.remember(prepared, since)
             result = _run_result(outcome, prepared)
         except Exception as failure:  # noqa: BLE001 - granica wątku Uruchomienia: typ wyjątku trafia do dziennika Centrum
@@ -362,15 +369,7 @@ def _decision_view(decision: Decision) -> contract.Decision:
     )
 
 
-def _stop_message(stop: Stop, endings: Endings) -> Message:
-    if stop.message is not None:
-        return stop.message
-    if stop.kind == "unexpected":
-        return endings.unexpected
-    return endings.plan_not_shown if stop.dry_run else endings.summary_not_shown
-
-
-def _run_result(outcome: Outcome[Any], prepared: PreparedRun[Any, Any]) -> contract.RunOutcome:
+def _run_result(outcome: Outcome[_SummaryView], prepared: PreparedRun[Any, Any]) -> contract.RunOutcome:
     """Wynik dla przeglądarki z ``Outcome`` rdzenia.
 
     Wynik „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje
@@ -384,7 +383,7 @@ def _run_result(outcome: Outcome[Any], prepared: PreparedRun[Any, Any]) -> contr
     stops: list[contract.Message] = []
     if not isinstance(ending, Finished):
         kind = ending.kind
-        stops = [contract.Message.of(_stop_message(ending, prepared.endings))]
+        stops = [contract.Message.of(ending.message)]
         headline = "Zatrzymano" if kind == "stop" else "Błąd"
         # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
         next_action = "open_period_folder" if kind == "after_engine" and not dry_run else "rerun"
@@ -396,7 +395,7 @@ def _run_result(outcome: Outcome[Any], prepared: PreparedRun[Any, Any]) -> contr
         kind = "finished"
         next_action = "run" if dry_run else "open_period_folder"
         headline = "Podgląd gotowy · nic nie zapisano" if dry_run else prepared.done
-    summary = outcome.summary
+    shown = outcome.view
     return contract.RunOutcome(
         result=outcome.result,
         headline=headline,
@@ -404,14 +403,14 @@ def _run_result(outcome: Outcome[Any], prepared: PreparedRun[Any, Any]) -> contr
         next_action=next_action,
         total_duration_ms=outcome.total_duration_ms,
         stops=stops,
-        warnings=[] if summary is None else [contract.Message.of(warning) for warning in prepared.warnings(summary)],
-        notices=list(outcome.notice_lines),
-        summary=None if summary is None else prepared.summary(summary),
+        warnings=[] if shown is None else shown.warnings,
+        notices=list(outcome.notices),
+        summary=None if shown is None else shown.summary,
     )
 
 
 def _unexpected_result(dry_run: bool) -> contract.RunOutcome:
-    """Wynik, gdy nie dało się zbudować widoku wyniku; rdzeń zapisał już metryki."""
+    """Ostatnia siatka: błąd samego adaptera po zakończeniu rdzenia (np. kontraktu wyniku); rdzeń zapisał już metryki."""
 
     return contract.RunOutcome(
         result="BLAD_KRYTYCZNY",
