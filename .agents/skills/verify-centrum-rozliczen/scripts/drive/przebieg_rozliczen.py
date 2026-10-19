@@ -15,6 +15,7 @@ from drive.common import (
     ROW_MARKER,
     Run,
     current_run,
+    figure,
     finished_result,
     last_opened_is,
     period_files,
@@ -117,8 +118,8 @@ def drive_settlement(run: Run, page: Page) -> None:
     assert isinstance(summary, dict)
     run.check(
         result["result"] == "OK"
-        and [file["file"] for file in summary["files"]] == files
-        and [file["rows"] for file in summary["files"]] == run.fixture["settlement"]["rows_per_worker"],
+        and [file["file"] for file in summary["file_plan"]] == files
+        and [file["rows"] for file in summary["file_plan"]] == run.fixture["settlement"]["rows_per_worker"],
         "the DRY-RUN plans one Rozliczenie pracownika per Wykonawca with its number of rows",
     )
     plan = live.get_by_role("table", name="Plan plików")
@@ -161,11 +162,10 @@ def drive_settlement(run: Run, page: Page) -> None:
             view["state"] == "running" and progress["template_total"] == len(workers),
             "the live view shows the Szablony pracowników progress from the projection (harness pacing on)",
         )
-        counts = progress["counts"]
-        assert isinstance(counts, dict)
-        expect(counters).to_contain_text(f"Wiersze danych{progress['rows']}")
+        rows = figure(progress, "Wiersze danych")
+        expect(counters).to_contain_text(f"Wiersze danych{rows}")
         run.check(
-            counts["written"] == 1 and progress["rows"] == run.fixture["settlement"]["rows_per_worker"][0],
+            figure(progress, "Zapisane szablony") == 1 and rows == run.fixture["settlement"]["rows_per_worker"][0],
             "the live counters (Wiersze danych, Zapisane szablony) update from the projection during the run",
         )
         close = urllib.request.Request(
@@ -185,7 +185,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     result = finished_result(run, "przebieg-zapisane")
     summary = result["summary"]
     assert isinstance(summary, dict)
-    run.check(result["result"] == "OK" and summary["written_count"] == len(workers), "the RUN finished OK")
+    run.check(result["result"] == "OK" and figure(summary, "Zapisane szablony") == len(workers), "the RUN finished OK")
     run.check(
         sorted(path.name for path in worker_settlements.iterdir()) == sorted(files),
         "the Folder rozliczeń pracowników holds one Rozliczenie pracownika per Wykonawca",
