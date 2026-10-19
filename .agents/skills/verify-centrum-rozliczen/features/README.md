@@ -17,6 +17,11 @@ feature file as the recipe.
   `INEA` holds `29_05_09_2026` (Plik zbiorczy przygotowany), `22_28_09_2026`
   (Rozliczenia pracowników gotowe, three files), `15_21_09_2026` (empty Folder
   okresu), and `Archiwum` (not a period).
+- `<root>/metrics/` holds both metrics files in the CLI's schema: 16 valid
+  synthetic Uruchomienia procesu (Przygotowanie pliku zbiorczego: 6 completed
+  RUN, 1 interrupted RUN, 3 DRY-RUN; Przebieg rozliczeń: 5 RUN, one of them
+  WYMAGA_SPRAWDZENIA, 1 DRY-RUN) and one record per file that the reader skips.
+  Centrum reads these, never the tool's own history.
 - No settings are set when a run starts.
 
 ## Driving conventions
@@ -65,3 +70,4 @@ entry in `drive_centrum.py`, and its screenshots in
 
 - [Ustawienia](./ustawienia.md) covers pointing to the folder okresów and the Rejestr zleceń through the native picker, cancelling, a remembered path that is gone, and the remembered theme.
 - [Tablica okresów](./tablica-okresow.md) covers the period list with Status okresu, the last complete period and Następny krok, opening period files and folders, refreshing after changes on disk, and refusing foreign requests.
+- [Metryki](./metryki.md) covers the key numbers on Okresy, P50/P95 and the result distribution per process and mode, the stage-times chart and table, interrupted runs, the history table with sorting and filters, a CLI record appearing without a restart, and the empty state.

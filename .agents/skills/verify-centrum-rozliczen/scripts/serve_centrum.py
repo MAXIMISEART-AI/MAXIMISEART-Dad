@@ -1,8 +1,9 @@
 """Serve the real Centrum rozliczeń for one verification run on 127.0.0.1.
 
 This is the production app (``create_app`` + ``serve`` from ``rozliczenia.centrum``)
-with two run-local inputs: the settings file lives in the run root, and the
-platform adapter, the production boundary for Dad's computer, is scripted:
+with run-local inputs: the settings file and both metrics files live in the run
+root (never Dad's history next to the tool), and the platform adapter, the
+production boundary for Dad's computer, is scripted:
 
 - the native file and folder pickers answer with the path written to
   ``<root>/picker/answer.txt`` (consumed by the next picker; no file = Dad
@@ -28,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
+from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.centrum.server import serve  # noqa: E402
 
 
@@ -67,7 +69,15 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve()
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
-    app = create_app(settings_path=Path(fixture["settings"]), platform=ScriptedPlatform(root), today=lambda: today)
+    metrics = MetricsFiles(
+        preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
+    )
+    app = create_app(
+        settings_path=Path(fixture["settings"]),
+        platform=ScriptedPlatform(root),
+        today=lambda: today,
+        metrics_files=metrics,
+    )
 
     def record_bound_server(url: str) -> None:
         record = {"pid": os.getpid(), "port": args.port, "url": url}

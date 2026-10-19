@@ -19,7 +19,7 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
-`--feature ustawienia` or `--feature tablica-okresow` drives one feature; the
+`--feature ustawienia`, `--feature tablica-okresow`, or `--feature metryki` drives one feature; the
 default `all` drives every feature in `features/README.md`. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
@@ -39,8 +39,8 @@ Preconditions, checked by the runner before launching:
   `py -3 -m pip install -e ".[dev]"` then `py -3 -m playwright install chromium`.
 
 `serve_centrum.py` runs the production app (`create_app` and `serve`), not a
-test double. Two inputs are run-local: the settings file lives in the run root,
-and the platform adapter (Dad's computer) is scripted. A native picker answers
+test double. Its inputs are run-local: the settings file and both metrics files
+live in the run root, and the platform adapter (Dad's computer) is scripted. A native picker answers
 with the path in `<root>/picker/answer.txt` (no file means Dad cancelled) and
 logs its title to `<root>/dialogs.jsonl`. Opening a file in Excel or a folder in
 Explorer appends the path to `<root>/opened.jsonl` instead of launching an
@@ -63,7 +63,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\centrum_doctor.py --root "
 
 `DOCTOR OK` means `server.json` exists, the URL is on `127.0.0.1`, `/api/health`
 returns Centrum's identity and the `pyproject.toml` version, `/` serves the
-built frontend, and the settings belong to this run. The doctor only reads.
+built frontend, and the settings and metrics files belong to this run. The doctor only reads.
 
 ## Drive
 
@@ -123,8 +123,9 @@ Then confirm the evidence directory still exists.
 - `scripts/run_centrum_verification.py`: the one-command orchestrator (above).
 - `scripts/create_centrum_fixture.py --root "$runRoot"`: synthetic folder
   okresów `INEA` (one period per Status okresu, plus a non-period folder),
-  synthetic Rejestr zleceń, `fixture.json` with "today" `2026-10-19` and the
-  expected Tablica okresów.
+  synthetic Rejestr zleceń, both metrics files with a synthetic history,
+  `fixture.json` with "today" `2026-10-19`, the expected Tablica okresów, and
+  the metrics facts the drive checks.
 - `scripts/serve_centrum.py --root "$runRoot" --port 47900`: serves Centrum for
   the run.
 - `scripts/centrum_doctor.py --root "$runRoot"`: the read-only doctor.

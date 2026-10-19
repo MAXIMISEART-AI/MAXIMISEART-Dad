@@ -44,6 +44,16 @@ REQUIRED_SCREENSHOTS = {
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
     ),
+    "metryki": (
+        "10-metryki-karty-okresow.png",
+        "11-metryki-wykres.png",
+        "12-metryki-tabela-etapow.png",
+        "13-metryki-za-malo-obserwacji.png",
+        "14-metryki-historia.png",
+        "15-metryki-historia-filtry.png",
+        "16-metryki-nowy-rekord-z-cli.png",
+        "17-metryki-pusty-stan.png",
+    ),
 }
 
 
