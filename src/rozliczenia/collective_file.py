@@ -24,7 +24,7 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .domain import Issue
-from .settlement_period import PERIOD_TOKEN_PATTERN
+from .settlement_period import PERIOD_TOKEN_PATTERN, parse_period_token
 from .workbook_files import UNREADABLE_WORKBOOK_ERRORS
 
 HEADER_ROW = 17
@@ -108,7 +108,7 @@ def path_for_period(period_directory: Path, period: str) -> Path:
 
 
 def period_from_path(path: Path) -> str:
-    """Token okresu z nazwy Pliku zbiorczego leżącego w Folderze okresu o tej samej nazwie."""
+    """Token okresu od wtorku do poniedziałku z nazwy Pliku zbiorczego leżącego w Folderze okresu o tej samej nazwie."""
 
     if "Rozliczenie wew." in path.name:
         raise CollectiveFileError("Plik Rozliczenie wew. jest poza zakresem tego procesu.")
@@ -116,6 +116,13 @@ def period_from_path(path: Path) -> str:
     if match is None:
         raise CollectiveFileError(f"Wybierz plik nazwany dokładnie: {name_for_period('{dd}_{dd}_{mm}_{rrrr}')}.")
     period = match.group("period")
+    try:
+        parse_period_token(period)
+    except ValueError:
+        raise CollectiveFileError(
+            f"Okres {period} w nazwie pliku nie jest okresem od wtorku do poniedziałku "
+            "(przykład okresu: 08_14_09_2026)."
+        ) from None
     if path.parent.name != period:
         raise CollectiveFileError(f"Folder pliku musi nazywać się tak samo jak okres: {period}.")
     return period
