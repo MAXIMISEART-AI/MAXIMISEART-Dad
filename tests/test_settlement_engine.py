@@ -16,7 +16,8 @@ import yaml
 
 from rozliczenia.collective_file import ExcelRow
 from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState, WorkerResult
-from rozliczenia.engine import SettlementError, run_settlements
+from rozliczenia.engine import run_settlements
+from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 
@@ -302,7 +303,7 @@ def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracown
     source_path, target_directory, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=True)
 
-    with pytest.raises(SettlementError, match="WYKONAWCA bez mapowania"):
+    with pytest.raises(StopError, match="WYKONAWCA bez mapowania"):
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert not target_directory.exists()
@@ -336,7 +337,7 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     source_path, target_directory, config_path = make_fixture(tmp_path)
     damage(source_path)
 
-    with pytest.raises(SettlementError) as stop:
+    with pytest.raises(StopError) as stop:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert str(stop.value) == UNREADABLE_SOURCE_MESSAGE
@@ -350,7 +351,7 @@ def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: 
     sentinel = target_directory / "existing.txt"
     sentinel.write_text("zachowaj", encoding="utf-8")
 
-    with pytest.raises(SettlementError, match="Folder docelowy już istnieje"):
+    with pytest.raises(StopError, match="Folder docelowy już istnieje"):
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
@@ -376,7 +377,7 @@ def test_blokada_wzorca_rozliczenia_pracownika_wstrzymuje_publikacje_folderu_roz
     worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
     worker_template_path.with_name(f"~${worker_template_path.name}").touch()
 
-    with pytest.raises(SettlementError, match="Wzorzec rozliczenia pracownika jest otwarty lub zablokowany"):
+    with pytest.raises(StopError, match="Wzorzec rozliczenia pracownika jest otwarty lub zablokowany"):
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     assert not target_directory.exists()
@@ -389,7 +390,7 @@ def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_plik
     worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
     worker_template_path.rename(tmp_path / "placeholder.xlsx")
 
-    with pytest.raises(SettlementError) as raised:
+    with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     assert str(raised.value) == (
@@ -406,7 +407,7 @@ def test_internal_settlement_file_is_rejected(tmp_path: Path) -> None:
 
     try:
         run_settlements(internal_path, tmp_path / "missing.yaml")
-    except SettlementError as exc:
+    except StopError as exc:
         assert "wew." in str(exc)
     else:
         raise AssertionError("Plik Rozliczenie wew. powinien zostać odrzucony")
@@ -460,7 +461,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
-    with pytest.raises(SettlementError, match="folder wynikowy nie został opublikowany"):
+    with pytest.raises(StopError, match="folder wynikowy nie został opublikowany"):
         run_settlements(
             source_path,
             config_path,
@@ -493,7 +494,7 @@ def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(t
     source_path = tmp_path / "08_14_09_2026" / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
     recorded: list[ProgressEvent] = []
 
-    with pytest.raises(SettlementError, match="Nie znaleziono pliku"):
+    with pytest.raises(StopError, match="Nie znaleziono pliku"):
         run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)
 
     assert [event.state for event in recorded] == [ProgressState.START, ProgressState.FAILED]
@@ -551,7 +552,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
 
     monkeypatch.setattr(template_settlement, "process_template", fail_save)
 
-    with pytest.raises(SettlementError):
+    with pytest.raises(StopError):
         run_settlements(
             source_path,
             config_path,

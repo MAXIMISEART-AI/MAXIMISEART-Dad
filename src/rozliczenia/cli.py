@@ -4,8 +4,8 @@ Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
 (``SettlementInputs``), argumenty i wybór Pliku zbiorczego w terminalu,
 wywołanie silnika oraz linie statusu i podsumowania. Inny rozmówca niż
 terminal podaje gotowe ``SettlementInputs`` do ``run_process(PROCESS, ...)``.
-Terminal pokazuje zatrzymanie jedną linią (``str(error)``); ten sam komunikat
-w trzech częściach daje ``PROCESS.stop_message``.
+Terminal pokazuje zatrzymanie jedną linią (``Message.terminal_line``); ten sam
+Komunikat w trzech częściach dostaje każdy rozmówca w ``Stop.message``.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from typing import TextIO
 
 from . import collective_file, engine, settlement_messages
 from .domain import ProgressObserver, SettlementSummary
+from .message import Message, StopError
 from .engine import (
-    SettlementError,
     default_config_path,
     default_worker_template_path,
     period_from_source,
@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _period_label(source: Path) -> str:
     try:
         return period_from_source(source.expanduser().resolve())
-    except SettlementError:
+    except StopError:
         return UNKNOWN_PERIOD
 
 
@@ -97,7 +97,7 @@ def _gather(args: argparse.Namespace, conversation: TerminalConversation) -> Set
         [("Plik zbiorczy Excel", collective_file.NAME_GLOB), ("Excel", "*.xlsx")],
     )
     if source is None:
-        raise settlement_messages.collective_file_not_selected()
+        raise StopError(settlement_messages.collective_file_not_selected())
     return SettlementInputs(
         source, dry_run=args.dry_run, config_path=args.config, worker_template_path=args.worker_template
     )
@@ -172,14 +172,14 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     )
 
 
-def _stop_lines(error: Exception) -> list[str]:
-    return [str(error)]
-
-
-def _stop_message(error: Exception) -> settlement_messages.SettlementMessage:
-    if not isinstance(error, SettlementError):
-        raise TypeError("Zatrzymanie Przebiegu rozliczeń to zawsze SettlementError.")
+def _stop_message(error: Exception) -> Message:
+    if not isinstance(error, StopError):
+        raise TypeError("Zatrzymanie Przebiegu rozliczeń to zawsze StopError.")
     return error.message
+
+
+def _stop_lines(error: Exception) -> list[str]:
+    return _stop_message(error).terminal_lines
 
 
 def _stopped(stop: Stop) -> list[str]:
@@ -197,7 +197,7 @@ PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
     parser=build_parser,
     counter_names=COUNTER_NAMES,
     metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
-    stop_type=SettlementError,
+    stop_type=StopError,
     stop_lines=_stop_lines,
     stop_message=_stop_message,
     gather=_gather,

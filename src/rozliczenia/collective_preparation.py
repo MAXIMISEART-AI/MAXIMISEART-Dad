@@ -20,7 +20,7 @@ from types import MappingProxyType
 from . import preparation_files, preparation_plan, preparation_register
 from . import preparation_messages as messages
 from .domain import ProgressObserver, ProgressPhase
-from .engine import SettlementError, load_worker_mapping
+from .engine import load_worker_mapping
 from .message import Message, StopError
 from .phase_runner import PhaseRunner
 from .settlement_period import SettlementPeriod, parse_period_token
@@ -124,7 +124,7 @@ def prepare_collective_file(
         preparation_files.ensure_period_files_absent(files)
         try:
             worker_mapping = load_worker_mapping(config_path)
-        except SettlementError as exc:
+        except StopError as exc:
             raise StopError(messages.unreadable_worker_config(config_path)) from exc
         return parsed_period, worker_mapping
 

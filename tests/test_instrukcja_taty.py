@@ -17,7 +17,6 @@ import inspect
 from pathlib import Path
 import re
 from types import ModuleType
-from typing import Any
 
 import pytest
 
@@ -25,6 +24,7 @@ from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
 from rozliczenia.centrum import start_problems
 from rozliczenia.domain import Issue
+from rozliczenia.message import Message
 
 
 INSTRUCTION = Path(__file__).resolve().parents[1] / "docs" / "tata-instrukcja.md"
@@ -43,7 +43,7 @@ SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
 
-Samples = Mapping[str, Sequence[Callable[[], Any]]]
+Samples = Mapping[str, Sequence[Callable[[], Message]]]
 
 # Każda fabryka katalogu z przykładowymi argumentami; warianty liczby pojedynczej i mnogiej osobno.
 PREPARATION_SAMPLES: Samples = {
@@ -172,9 +172,8 @@ class Catalog:
             if function.__module__ == self.module.__name__ and not name.startswith("_")
         }
 
-    def messages(self) -> list[Any]:
-        produced = [sample() for samples in self.samples.values() for sample in samples]
-        return [item.message if isinstance(item, settlement_messages.SettlementError) else item for item in produced]
+    def messages(self) -> list[Message]:
+        return [sample() for samples in self.samples.values() for sample in samples]
 
 
 CATALOGS = {
@@ -212,6 +211,13 @@ def _instruction_fragments(section: str) -> list[str]:
 @each_catalog
 def test_probki_pokrywaja_kazda_fabryke_katalogu(catalog: Catalog) -> None:
     assert set(catalog.samples) | catalog.terminal_only == catalog.factories()
+
+
+@each_catalog
+def test_kazda_fabryka_katalogu_zwraca_komunikat(catalog: Catalog) -> None:
+    produced = {name: sample() for name, samples in catalog.samples.items() for sample in samples}
+
+    assert {name: type(item).__name__ for name, item in produced.items() if not isinstance(item, Message)} == {}
 
 
 @each_catalog
