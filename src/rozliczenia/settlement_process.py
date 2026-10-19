@@ -1,0 +1,96 @@
+"""Przebieg rozliczeń dla Uruchomienia procesu: wejście procesu, wywołanie silnika i fakty zakończenia.
+
+Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy: CLI (``cli``)
+i Centrum rozliczeń podają gotowe ``SettlementInputs`` do ``run_process``,
+więc liczby, Komunikaty i rekord metryk są te same.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from . import engine, settlement_messages
+from .decision import Conversation
+from .domain import ProgressObserver, SettlementSummary
+from .engine import default_worker_template_path
+from .period_folder import PeriodFolder, PeriodFolderError
+from .process_run import Finished, Process
+from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
+from .worker_config import default_config_path
+
+
+def default_metrics_path() -> Path:
+    return Path(__file__).resolve().parents[2] / ".rozliczenia-metrics.jsonl"
+
+
+def _period_label(source: Path) -> str:
+    try:
+        return PeriodFolder.from_collective_file(source.expanduser().resolve()).period.token
+    except PeriodFolderError:
+        return UNKNOWN_PERIOD
+
+
+@dataclass(frozen=True)
+class SettlementInputs:
+    """Wejście procesu Przebiegu rozliczeń, niezależne od argumentów CLI.
+
+    Okres wynika z nazwy Pliku zbiorczego (``nieznany``, gdy się nie da).
+    Konfiguracja wykonawców i wzorzec mają te same domyślne ścieżki co CLI.
+    """
+
+    source: Path
+    dry_run: bool = False
+    config_path: Path = field(default_factory=default_config_path)
+    worker_template_path: Path = field(default_factory=default_worker_template_path)
+
+    @property
+    def period(self) -> str:
+        return _period_label(self.source)
+
+
+def _execute(
+    inputs: SettlementInputs, observer: ProgressObserver, _conversation: Conversation
+) -> SettlementSummary:
+    return engine.run_settlements(
+        inputs.source,
+        inputs.config_path,
+        dry_run=inputs.dry_run,
+        worker_template_path=inputs.worker_template_path,
+        observer=observer,
+    )
+
+
+def _finished(summary: SettlementSummary) -> Finished:
+    return Finished(
+        result="OK" if summary.ok else "WYMAGA_SPRAWDZENIA",
+        counters={
+            "templates_total": summary.template_count,
+            "templates_completed": summary.template_count,
+            "rows": summary.total_rows,
+            "written": summary.written_count,
+            "empty": summary.empty_count,
+            "planned": summary.planned_count,
+            # Licznik ze schematu metryk sprzed usunięcia pominiętych szablonów; zawsze 0,
+            # żeby stare i nowe rekordy miały te same klucze.
+            "skipped": 0,
+            "issues": len(summary.issues),
+        },
+        phase_durations_ms=summary.phase_durations_ms,
+    )
+
+
+# ``title`` to nagłówek podglądu w terminalu („Rozliczenia | okres | tryb”), bez zmian od pierwszej wersji.
+PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
+    name="Przebieg rozliczeń",
+    title="Rozliczenia",
+    shows_templates=True,
+    counter_names=COUNTER_NAMES,
+    metrics_path=default_metrics_path,
+    metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
+    execute=_execute,
+    finished=_finished,
+    unexpected_failure=settlement_messages.unexpected_failure(),
+    plan_not_shown=settlement_messages.plan_not_shown(),
+    summary_not_shown=settlement_messages.summary_not_shown(),
+)

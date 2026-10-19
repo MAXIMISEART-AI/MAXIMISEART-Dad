@@ -14,8 +14,9 @@ import pytest
 
 from rozliczenia import collective_preparation
 from rozliczenia import settings as settings_file
-import rozliczenia.cli as cli
-from rozliczenia.preparation_cli import default_metrics_path, main
+from rozliczenia import settlement_process
+from rozliczenia.preparation_cli import main
+from rozliczenia.preparation_process import default_metrics_path
 from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.preparation import (
@@ -207,7 +208,7 @@ def test_cli_writes_safe_metrics_with_preparation_counters(
 
 
 def test_przygotowanie_has_own_metrics_history_next_to_przebieg_rozliczen() -> None:
-    assert default_metrics_path().parent == cli.default_metrics_path().parent
+    assert default_metrics_path().parent == settlement_process.default_metrics_path().parent
     assert default_metrics_path().name == ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
 
 

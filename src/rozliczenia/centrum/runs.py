@@ -65,7 +65,6 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     """
 
     key: contract.ProcessKey
-    title: str
     period: str
     process: Process[InputsT, SummaryT]
     inputs: InputsT
@@ -207,7 +206,7 @@ class _Run:
         self.info = contract.RunInfo(
             id=uuid.uuid4().hex,
             process=prepared.key,
-            title=prepared.title,
+            title=prepared.process.name,
             period=prepared.period,
             dry_run=prepared.dry_run,
             confirms_readiness=prepared.view.confirms_readiness,

@@ -14,7 +14,7 @@ from typing import Any, NoReturn
 from fastapi.testclient import TestClient
 import pytest
 
-from rozliczenia import collective_preparation, preparation_cli, preparation_register
+from rozliczenia import collective_preparation, preparation_cli, preparation_process, preparation_register
 from rozliczenia.telemetry import MetricsStore, metric_record
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.app import create_app
@@ -478,7 +478,7 @@ def test_wybor_okresu_pamieta_udany_podglad_bez_zapisu_takze_po_odswiezeniu_kart
 
 def test_uruchom_bez_podgladu_i_podglad_wymagajacy_sprawdzenia_nie_sa_udanym_podgladem(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    MetricsStore(centrum.metrics_path, preparation_cli.PROCESS.counter_names).append(
+    MetricsStore(centrum.metrics_path, preparation_process.PROCESS.counter_names).append(
         metric_record(
             mode="DRY-RUN",
             period="01_07_09_2026",
@@ -486,7 +486,7 @@ def test_uruchom_bez_podgladu_i_podglad_wymagajacy_sprawdzenia_nie_sa_udanym_pod
             total_duration_ms=1000,
             phase_durations_ms={},
             result="BLAD_KRYTYCZNY",
-            counters=dict.fromkeys(preparation_cli.PROCESS.counter_names, 0),
+            counters=dict.fromkeys(preparation_process.PROCESS.counter_names, 0),
         )
     )
 
@@ -585,10 +585,10 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_cli_w_jego_schemacie_i_rozpozna
         ],
         output=StringIO(),
     )
-    records = MetricsStore(centrum.metrics_path, preparation_cli.PROCESS.counter_names).read()
+    records = MetricsStore(centrum.metrics_path, preparation_process.PROCESS.counter_names).read()
     history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert MetricsFiles.of_cli().preparation == preparation_cli.default_metrics_path()
+    assert MetricsFiles.of_cli().preparation == preparation_process.default_metrics_path()
     assert cli_exit_code == 0
     assert [(run["origin"], run["mode"]) for run in history] == [("cmd", "DRY-RUN"), ("centrum", "DRY-RUN")]
     assert [(record["mode"], record["result"]) for record in records] == [("DRY-RUN", "OK"), ("DRY-RUN", "OK")]

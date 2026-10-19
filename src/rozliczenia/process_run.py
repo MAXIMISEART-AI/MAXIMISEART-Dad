@@ -13,8 +13,9 @@ rozliczeń. Decyzję składa proces, nie rozmówca.
 ``run`` to wejście CLI obu procesów: parsuje argumenty, ustala wejście
 procesu w rozmowie w terminalu, renderuje linie końcowe (status, ``Czas
 uruchomienia``, podsumowanie, P50/P95 z pliku metryk) i zwraca kod wyjścia.
-Proces opisuje tylko to, co jest jego (``Process``), a jego terminal to, jak
-pokazać zakończenie (``TerminalView``). Tekst wyjątku nigdy nie przechodzi
+Proces opisuje tylko to, co jest jego i wspólne dla każdego rozmówcy
+(``Process``); CLI procesu to argumenty, rozmowa i linie zakończenia
+(``CliEntry``). Tekst wyjątku nigdy nie przechodzi
 przez ten seam: tata widzi wyłącznie Komunikaty i linie podane przez proces.
 """
 
@@ -44,8 +45,8 @@ __all__ = [
     "Process",
     "ProcessInputs",
     "Stop",
+    "CliEntry",
     "TerminalSummary",
-    "TerminalView",
     "run",
     "run_process",
 ]
@@ -113,25 +114,24 @@ class Finished:
 
 @dataclass(frozen=True)
 class Process(Generic[InputsT, SummaryT]):
-    """Opis procesu dla rdzenia Uruchomienia procesu.
+    """Opis procesu dla rdzenia Uruchomienia procesu, wspólny dla każdego rozmówcy.
 
-    ``execute`` wywołuje silnik z gotowym wejściem procesu. Zatrzymanie
-    zgłasza ``StopError`` z Komunikatem z katalogu procesu (``gather`` też).
+    ``name`` to nazwa procesu z GLOSSARY, a ``title`` nagłówek podglądu
+    postępu. ``execute`` wywołuje silnik z gotowym wejściem procesu.
+    Zatrzymanie zgłasza ``StopError`` z Komunikatem z katalogu procesu.
     Komunikaty zakończeń z tego samego katalogu (``unexpected_failure``,
     ``plan_not_shown``, ``summary_not_shown``) rdzeń dołącza do każdego innego
     zatrzymania, więc żaden rozmówca nie dobiera treści sam. ``finished`` to
-    czysta funkcja faktów zakończonego procesu.
-
-    Tylko dla CLI: ``parser`` ma ``--dry-run`` i ``--metrics``, a ``gather``
-    ustala wejście procesu z argumentów w rozmowie w terminalu.
+    czysta funkcja faktów zakończonego procesu. ``metrics_path`` to domyślny
+    plik metryk, ten sam dla CLI i Centrum rozliczeń.
     """
 
+    name: str
     title: str
     shows_templates: bool
-    parser: Callable[[], argparse.ArgumentParser]
     counter_names: frozenset[str]
+    metrics_path: Callable[[], Path]
     metrics_failure_tail: str
-    gather: Callable[[argparse.Namespace, TerminalConversation], InputsT]
     execute: Callable[[InputsT, ProgressObserver, Conversation], SummaryT]
     finished: Callable[[SummaryT], Finished]
     unexpected_failure: Message
@@ -169,14 +169,18 @@ class TerminalSummary:
 
 
 @dataclass(frozen=True)
-class TerminalView(Generic[InputsT, SummaryT]):
-    """Jak terminal procesu pokazuje zakończenie Uruchomienia procesu.
+class CliEntry(Generic[InputsT, SummaryT]):
+    """CLI procesu: argumenty, ustalenie wejścia procesu w terminalu i linie zakończenia.
 
-    ``summary`` robi linie podsumowania; rdzeń woła ją w swojej osłonie, więc
-    jej wyjątek to błąd po silniku. ``stop`` renderuje zatrzymanie z
-    ``Stop.message.terminal_lines``.
+    ``parser`` ma ``--dry-run`` i ``--metrics``. ``gather`` ustala wejście
+    procesu z argumentów w rozmowie w terminalu; zatrzymanie zgłasza
+    ``StopError`` z Komunikatem z katalogu procesu. ``summary`` robi linie
+    podsumowania; rdzeń woła ją w swojej osłonie, więc jej wyjątek to błąd po
+    silniku. ``stop`` renderuje zatrzymanie z ``Stop.message.terminal_lines``.
     """
 
+    parser: Callable[[], argparse.ArgumentParser]
+    gather: Callable[[argparse.Namespace, TerminalConversation], InputsT]
     summary: Callable[[InputsT, SummaryT], TerminalSummary]
     stop: Callable[[Stop], Sequence[str]]
 
@@ -260,10 +264,13 @@ def _stop_from(error: Exception, process: Process[Any, Any]) -> Stop:
 
 
 def _gather(
-    process: Process[InputsT, SummaryT], args: argparse.Namespace, conversation: TerminalConversation
+    process: Process[InputsT, SummaryT],
+    entry: CliEntry[InputsT, SummaryT],
+    args: argparse.Namespace,
+    conversation: TerminalConversation,
 ) -> InputsT | Stop:
     try:
-        return process.gather(args, conversation)
+        return entry.gather(args, conversation)
     except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
         return _stop_from(error, process)
 
@@ -403,12 +410,12 @@ def _statistics_lines(records: list[dict[str, Any]], counter_names: frozenset[st
 
 
 def _final_lines(
-    process: Process[Any, Any], terminal: TerminalView[Any, Any], outcome: Outcome[TerminalSummary], metrics_path: Path
+    process: Process[Any, Any], entry: CliEntry[Any, Any], outcome: Outcome[TerminalSummary], metrics_path: Path
 ) -> list[str]:
     """Linie końcowe w terminalu: status, ``Czas uruchomienia``, podsumowanie, P50/P95 i ostrzeżenia."""
 
     if isinstance(outcome.ending, Stop):
-        status, summary = list(terminal.stop(outcome.ending)), []
+        status, summary = list(entry.stop(outcome.ending)), []
     else:
         assert outcome.view is not None  # zakończony proces zawsze ma widok podsumowania
         status, summary = list(outcome.view.status_lines), list(outcome.view.summary_lines)
@@ -427,7 +434,7 @@ def _final_lines(
 
 def run(
     process: Process[InputsT, SummaryT],
-    terminal_view: TerminalView[InputsT, SummaryT],
+    entry: CliEntry[InputsT, SummaryT],
     argv: list[str] | None = None,
     *,
     output: TextIO | None = None,
@@ -437,9 +444,9 @@ def run(
     """Wejście CLI: Uruchomienie procesu w terminalu; ``0`` OK, ``2`` Wymaga sprawdzenia, ``1`` zatrzymanie."""
 
     terminal = TerminalConversation(output or sys.stdout, input_stream or sys.stdin)
-    args = process.parser().parse_args(argv)
-    gathered = _gather(process, args, terminal)
+    args = entry.parser().parse_args(argv)
+    gathered = _gather(process, entry, args, terminal)
     metrics = metrics_path or args.metrics
-    outcome = _conduct(process, gathered, terminal, terminal_view.summary, metrics, dry_run=args.dry_run)
-    terminal.print_lines(_final_lines(process, terminal_view, outcome, metrics))
+    outcome = _conduct(process, gathered, terminal, entry.summary, metrics, dry_run=args.dry_run)
+    terminal.print_lines(_final_lines(process, entry, outcome, metrics))
     return _EXIT_CODES[outcome.result]
