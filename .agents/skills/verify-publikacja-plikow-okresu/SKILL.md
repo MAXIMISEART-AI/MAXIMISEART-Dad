@@ -74,7 +74,9 @@ the bounds left.
 
 Dad's actions are: create the Folder okresu, or save his own file under a
 period file's name. Failures are injected only into calls that change the
-disk. Before exploring, a probe confirms that `Path.exists`, `is_symlink`,
+disk. Removing the staging directory is one such call, so it can fail
+as when OneDrive holds the folder; the process is not killed right before it,
+because the run's outcome is already decided then. Before exploring, a probe confirms that `Path.exists`, `is_symlink`,
 `mkdir`, `rename`, `unlink` and `os.rename` reach the in-memory disk on the
 running Python. CI runs the probe on 3.11 and 3.14. Native fast paths that skip
 the patched `os` functions, such as `_winapi.CopyFile2` inside `shutil.copyfile`
@@ -144,8 +146,9 @@ py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\check_mutations.py
 ```
 
 It must end with `MUTACJE OK`: `os.replace` instead of `os.rename`, a removed
-rollback, a failed rollback reported as plain `BLAD_ZAPISU`, and recording a file
-for rollback before it is moved all give `NOWE NARUSZENIE`. `shutil.move` gives `LUKA MODELU`. A mutation reported as
+rollback, a failed rollback reported as plain `BLAD_ZAPISU`, recording a file
+for rollback before it is moved, and a failed staging cleanup reported as
+`BLAD_ZAPISU` all give `NOWE NARUSZENIE`. `shutil.move` gives `LUKA MODELU`. A mutation reported as
 `NIEAKTUALNA` no longer matches `preparation_files.py`. Rewrite its `anchor` and
 `replacement` in `check_mutations.py` against the new code so it breaks the same
 rule again. If the publication code moves to another file, update

@@ -112,7 +112,7 @@ def located_period_folder(periods_directory: Path, period: SettlementPeriod) -> 
             raise contract.Refusal(
                 404, f"Nie ma folderu {token} w żadnym folderze miesiąca. Załóż go w folderze INEA właściwego miesiąca."
             ) from None
-        months = ", ".join(month_folder_label(periods_directory, location) for location in error.locations)
+        months = ", ".join(month_folder_label(error.periods_directory, location) for location in error.locations)
         raise contract.Refusal(
             409, f"Folder {token} jest w więcej niż jednym folderze miesiąca ({months}). Zostaw go tylko w jednym."
         ) from None

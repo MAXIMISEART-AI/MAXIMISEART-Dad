@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 import os
 from pathlib import Path
@@ -484,6 +485,20 @@ def test_in_dad_layout_missing_folder_okresu_stops_without_creating_it(tmp_path:
     assert sorted(fixture.periods_directory.rglob("*")) == tree_before
 
 
+def test_in_dad_layout_folder_inea_of_another_month_does_not_get_missing_folder_okresu(tmp_path: Path) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+    fixture.period_directory.rmdir()
+    august = fixture.periods_directory / "Rozliczenia 2026" / "08_Sierpień_2026" / "INEA"
+    tree_before = sorted(fixture.periods_directory.rglob("*"))
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(replace(fixture, periods_directory=august))
+
+    assert raised.value.message.code == "BRAK_FOLDERU_OKRESU"
+    assert raised.value.message.where == "foldery INEA w folderze Załączniki"
+    assert sorted(fixture.periods_directory.rglob("*")) == tree_before
+
+
 def test_in_dad_layout_folder_okresu_in_two_months_stops_with_both_months(tmp_path: Path) -> None:
     fixture = make_dad_layout_fixture(tmp_path)
     (month_periods_folder(fixture.periods_directory, "10_Październik_2026") / PERIOD).mkdir()
@@ -631,3 +646,27 @@ def test_failed_removal_of_published_rozliczenie_wewnetrzne_names_the_file_left(
         "utrzymującej narzędzie."
     )
     assert [path.name for path in fixture.period_directory.iterdir()] == [INTERNAL_SETTLEMENT_NAME]
+
+
+@pytest.mark.parametrize("period_directory_exists", [False, True])
+def test_staging_folder_that_cannot_be_removed_after_publication_does_not_stop_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, period_directory_exists: bool
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    if period_directory_exists:
+        fixture.period_directory.mkdir()
+    real_rmdir = os.rmdir
+
+    def rmdir_fails_for_staging_folder(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if Path(path).name.startswith(f".{PERIOD}.staging-"):
+            raise PermissionError("wymuszony: folder trzyma OneDrive")
+        real_rmdir(path, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "rmdir", rmdir_fails_for_staging_folder)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_directory == fixture.period_directory
+    assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
+        [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
+    )

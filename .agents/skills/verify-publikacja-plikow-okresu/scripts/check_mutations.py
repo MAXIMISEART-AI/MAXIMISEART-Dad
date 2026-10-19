@@ -61,6 +61,13 @@ MUTATIONS = (
         "PUBLIKACJA: NOWE NARUSZENIE",
     ),
     Mutation(
+        "błąd sprzątania katalogu tymczasowego jako błąd zapisu",
+        "oba pliki okresu są w Folderze okresu, a komunikat mówi, że nie utworzono żadnego pliku",
+        ", ignore_cleanup_errors=True\n",
+        "\n",
+        "PUBLIKACJA: NOWE NARUSZENIE",
+    ),
+    Mutation(
         "shutil.move zamiast os.rename",
         "przy zajętej nazwie shutil.move kopiuje plik i nadpisuje cel",
         "            os.rename(staged_directory / filename, target)\n",
