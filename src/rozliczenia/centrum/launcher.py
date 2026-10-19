@@ -83,8 +83,9 @@ def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
 def _running_centrum_version(url: str) -> str | None:
     """Wersja Centrum, które odpowiada na tym adresie; ``None``, gdy odpowiada coś innego albo nic."""
 
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # serwer proxy nie widzi 127.0.0.1 taty
     try:
-        with urllib.request.urlopen(url + "api/health", timeout=_HEALTH_TIMEOUT_S) as response:
+        with direct.open(url + "api/health", timeout=_HEALTH_TIMEOUT_S) as response:
             health = json.load(response)
     except (OSError, ValueError):
         return None
