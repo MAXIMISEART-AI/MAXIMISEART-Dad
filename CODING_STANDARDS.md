@@ -57,6 +57,10 @@ their contents.
   `xl/externalLinks/*`. Other tests assert only the behaviour they name.
 - Keep tests free of client addresses, order numbers, and row contents in
   output or logs.
+- Terminal output of both processes is pinned by golden files in
+  `tests/golden/terminal/`. A change to terminal text is a deliberate change
+  to its golden file in the same commit (`UPDATE_GOLDEN=1`, then review the
+  diff).
 - After changes, run the repository test command from `README.md`; before real
   files are used, run `--dry-run`.
 

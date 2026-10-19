@@ -365,11 +365,10 @@ export const zModeStatistics = z.object({
 /**
  * RecentResults
  *
- * Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni).
+ * Wyniki Uruchomień procesu obu procesów z ostatnich ``weeks`` tygodni.
  */
 export const zRecentResults = z.object({
     weeks: z.int(),
-    since: z.iso.date(),
     results: zResultCounts
 });
 
@@ -469,10 +468,9 @@ export const zSettings = z.object({
 /**
  * Choice
  *
- * Wynik natywnego okna wyboru: ``chosen`` zapisuje ścieżkę, ``cancelled`` niczego nie zmienia.
+ * Ustawienia po natywnym oknie wyboru: wybór zapisuje ścieżkę, anulowanie niczego nie zmienia.
  */
 export const zChoice = z.object({
-    outcome: z.enum(['chosen', 'cancelled']),
     settings: zSettings
 });
 

@@ -175,6 +175,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: Frontend rules (every contract field used, no process-name comparisons)
+        working-directory: frontend
+        run: npm run rules
+
       - name: Unused files, exports and dependencies (knip)
         working-directory: frontend
         run: npm run unused

@@ -111,15 +111,15 @@ def settings_router(store: SettingsStore, platform: Platform) -> APIRouter:
     def choose_register() -> contract.Choice:
         chosen = platform.choose_file(_REGISTER_DIALOG, _REGISTER_FILETYPES)
         if chosen is None:
-            return contract.Choice(outcome="cancelled", settings=describe(store.load()))
-        return contract.Choice(outcome="chosen", settings=describe(store.update(register=chosen)))
+            return contract.Choice(settings=describe(store.load()))
+        return contract.Choice(settings=describe(store.update(register=chosen)))
 
     @router.post("/periods-directory/choose", operation_id="choosePeriodsDirectory")
     def choose_periods_directory() -> contract.Choice:
         chosen = platform.choose_folder(_PERIODS_DIALOG)
         if chosen is None:
-            return contract.Choice(outcome="cancelled", settings=describe(store.load()))
-        return contract.Choice(outcome="chosen", settings=describe(store.update(periods_directory=chosen)))
+            return contract.Choice(settings=describe(store.load()))
+        return contract.Choice(settings=describe(store.update(periods_directory=chosen)))
 
     @router.put("/theme", operation_id="changeTheme")
     def change_theme(change: contract.ThemeChange) -> contract.Settings:

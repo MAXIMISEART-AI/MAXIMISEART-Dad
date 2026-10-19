@@ -118,7 +118,7 @@ powstają razem albo żaden.
   zatrzymuje.
 - Oba pliki są przygotowywane w katalogu tymczasowym i publikowane razem. Błąd
   nie zostawia żadnego z nich ani nowo założonego Folderu okresu. Wyjątek
-  zaakceptowany w [ADR 0004](docs/adr/0004-przerwana-publikacja-plikow-okresu.md):
+  zaakceptowany w [ADR 0005](docs/adr/0005-przerwana-publikacja-plikow-okresu.md):
   do istniejącego Folderu okresu pliki trafiają dwoma przeniesieniami, więc
   proces zamknięty między nimi zostawia samo Rozliczenie wewnętrzne.
 - Rejestr zleceń i wzorce są tylko czytane.
@@ -278,6 +278,7 @@ npm ci
 npm run contract   # OpenAPI z modeli Pydantic → typy i schematy zod (Python z zależnościami: zmienna PYTHON)
 npm run typecheck  # tsc strict
 npm run lint       # Oxlint z wtyczkami anti-slop
+npm run rules      # każde pole kontraktu użyte w UI, brak porównań nazwy procesu
 npm run build      # build do src/rozliczenia/centrum/static/
 ```
 

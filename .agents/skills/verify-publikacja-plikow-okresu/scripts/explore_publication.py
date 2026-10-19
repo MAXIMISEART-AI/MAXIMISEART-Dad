@@ -574,7 +574,7 @@ SCOPES = {
 ACCEPTED_RISKS: dict[tuple[object, ...], str] = {
     ("RAZEM_ALBO_ZADEN", "PRZERWANE", (INTERNAL,), False): (
         "proces zamknięty między dwoma os.rename w _publish zostawia w istniejącym Folderze okresu "
-        "samo Rozliczenie wewnętrzne (ADR 0004)"
+        "samo Rozliczenie wewnętrzne (ADR 0005)"
     ),
 }
 
