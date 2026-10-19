@@ -29,19 +29,22 @@ from rozliczenia.message import Message
 
 INSTRUCTION = Path(__file__).resolve().parents[1] / "docs" / "tata-instrukcja.md"
 QUOTED = re.compile(r"„([^”]+)”")
-# Pełna ścieżka zaczyna się literą dysku, np. C:\Dane albo C:/Dane.
-FULL_PATH = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]")
+# Pełna ścieżka zaczyna się literą dysku (C:\Dane, C:/Dane) albo jest ścieżką sieciową
+# (\\nas\Wspolne, //nas/Wspolne); „//” po dwukropku to adres, nie ścieżka.
+FULL_PATH = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]|(?<![:\\/])(?:\\\\|//)[^\\/\s]")
 
 REGISTER = Path("C:/Dane/ZLECENIA INTERMAX OD 08_11_2021.xlsx")
 PERIODS = Path("C:/Dane/INEA")
 PERIOD_DIRECTORY = PERIODS / "08_14_09_2026"
 TEMPLATE = Path("C:/Narzedzie/config/Wzorzec pliku zbiorczego.xlsx")
-CONFIG = Path("C:/Narzedzie/config/worker_mapping.yaml")
+CONFIG = Path("//nas/Wspolne/Narzedzie/config/worker_mapping.yaml")
 SHEET = "ZLECENIA"
 PERIOD = "08_14_09_2026"
 SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
+# Foldery nad folderem config z próbek; żaden Komunikat ich nie pokazuje.
+ABOVE_CONFIG = frozenset({"Wspolne", "Narzedzie"})
 
 Samples = Mapping[str, Sequence[Callable[[], Message]]]
 
@@ -157,13 +160,16 @@ class Catalog:
     """Katalog Komunikatów, jego sekcja w instrukcji i próbki każdej fabryki.
 
     ``terminal_only`` to fabryki, których Komunikatu tata nie widzi poza
-    terminalem, więc instrukcja ich nie cytuje.
+    terminalem, więc instrukcja ich nie cytuje. ``hidden_folders`` to foldery
+    ze ścieżek próbek leżące wyżej niż folder nadrzędny wskazywanego pliku albo
+    folderu; trzy części Komunikatu ich nie pokazują.
     """
 
     module: ModuleType
     section: str
     samples: Samples
     terminal_only: frozenset[str] = frozenset()
+    hidden_folders: frozenset[str] = ABOVE_CONFIG
 
     def factories(self) -> set[str]:
         return {
@@ -177,13 +183,16 @@ class Catalog:
 
 
 CATALOGS = {
+    # Folder Dane i folder okresów INEA legalnie widać jako folder nadrzędny Rejestru zleceń i folderu okresu.
     "przygotowanie-pliku-zbiorczego": Catalog(messages, "### Komunikat → co zrobić", PREPARATION_SAMPLES),
-    # Tylko terminal: w Centrum Plik zbiorczy wynika z okresu, więc okna wyboru pliku nie ma.
     "przebieg-rozliczen": Catalog(
         settlement_messages,
         "### Komunikat w Centrum rozliczeń → co zrobić",
         SETTLEMENT_SAMPLES,
-        frozenset({"collective_file_not_selected"}),
+        # Tylko terminal: w Centrum Plik zbiorczy wynika z okresu, więc okna wyboru pliku nie ma.
+        terminal_only=frozenset({"collective_file_not_selected"}),
+        # Przebieg wskazuje najwyżej folder okresu, więc folderów nad nim nie widać.
+        hidden_folders=ABOVE_CONFIG | {"Dane", "INEA"},
     ),
     "start-centrum-rozliczen": Catalog(start_problems, "### Komunikaty startu Centrum rozliczeń", START_SAMPLES),
 }
@@ -255,7 +264,7 @@ def test_komunikaty_katalogu_nie_maja_pelnych_sciezek(catalog: Catalog) -> None:
         message.code: part
         for message in catalog.messages()
         for part in (message.what, message.where, message.action)
-        if FULL_PATH.search(part)
+        if FULL_PATH.search(part) or any(folder in part for folder in catalog.hidden_folders)
     }
 
     assert shown == {}
