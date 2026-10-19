@@ -229,6 +229,10 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 ```
 Check formatowania nie jest wymagany.
 
+W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
+(macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
+checkoutu importuje `src` głównego checkoutu.
+
 Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd`,
 `Przygotuj plik zbiorczy.cmd` i `Centrum rozliczeń (konsola).cmd` przez
 `cmd.exe`, tworzą skrót przez `Zainstaluj skrót Centrum rozliczeń.cmd` i
@@ -276,6 +280,13 @@ npm run typecheck  # tsc strict
 npm run lint       # Oxlint z wtyczkami anti-slop
 npm run build      # build do src/rozliczenia/centrum/static/
 ```
+
+- Zmiana kontraktu API to zmiana modeli Pydantic w `src/rozliczenia/centrum/contract.py`,
+  potem `npm run regen` (kontrakt i build); `frontend/src/api/` i `static/` są generowane.
+- Konflikt scalania w plikach generowanych: weź dowolną stronę, `npm run regen`, commit.
+- Nowy proces w Uruchomieniach: klasa spełniająca `runs.ProcessEntry` (wzór:
+  `SettlementEntry`), klucz w `contract.ProcessKey` i `metrics.PROCESS_NAMES`,
+  wpis w `runs_router(runs, [...])` w `create_app`; `runs.py` się nie zmienia.
 
 Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
 i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill

@@ -237,5 +237,5 @@ class PhaseRunner:
             return
         try:
             self._observer(event)
-        except Exception:
+        except Exception:  # noqa: BLE001 - ADR 0002: awaria obserwatora odłącza go, rdzeń zgłasza to neutralną linią
             self._observer = None

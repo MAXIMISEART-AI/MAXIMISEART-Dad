@@ -105,9 +105,9 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant al
 On macOS or Linux, replace `py -3` with `.venv/bin/python`; README.md covers
 the `.venv` setup.
 
-In a worktree, use the main checkout's `.venv` and run ad-hoc `python -c` with
-`PYTHONPATH=src`: its editable install otherwise imports the main checkout's
-`src`. pytest and the runner already import the worktree's own `src`.
+In a worktree, create its own `.venv` with `tools/setup_worktree.py` first:
+the main checkout's `.venv` is an editable install of the main checkout's
+`src`, so ad-hoc `python -c` there silently imports `main`'s code.
 
 There is no server, port, login, seed database, or persistent instance. The
 runner's subprocess timeout is 120 seconds; a timed-out child is terminated by

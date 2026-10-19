@@ -4,4 +4,5 @@ rich>=13.7
 fastapi>=0.146
 uvicorn>=0.54
 pytest>=8.0
+pytest-timeout>=2.4
 httpx2>=2.14

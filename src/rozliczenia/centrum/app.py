@@ -68,7 +68,7 @@ def create_app(
     ) -> Response:
         try:
             return await call_next(request)
-        except Exception as failure:
+        except Exception as failure:  # noqa: BLE001 - granica API: typ wyjątku trafia do dziennika Centrum
             route = request.scope.get("route")
             log.unexpected_failure(failure, where=f"{request.method} {getattr(route, 'path', 'poza API')}")
             return _problem(500, "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie.")

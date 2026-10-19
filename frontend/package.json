@@ -11,7 +11,8 @@
     "unused": "knip",
     "duplicates": "jscpd",
     "build": "tsc -b && vite build",
-    "check": "npm run typecheck && npm run lint && npm run unused && npm run duplicates"
+    "check": "npm run typecheck && npm run lint && npm run unused && npm run duplicates",
+    "regen": "npm run contract && npm run build"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

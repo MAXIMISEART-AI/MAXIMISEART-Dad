@@ -594,7 +594,7 @@ def _verify(variant: str, templates_directory: Path) -> int:
     cleanup_failure: BaseException | None = None
     try:
         _run_workflow(variant, run_root, evidence_root, templates_directory)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - granica weryfikacji: błąd trafia do VERIFY FAIL po sprzątaniu
         failure = exc
     finally:
         cleanup_environment = os.environ.copy()
@@ -612,7 +612,7 @@ def _verify(variant: str, templates_directory: Path) -> int:
                 cleanup_environment,
                 expected_exit=0,
             )
-        except BaseException as exc:
+        except (VerificationFailure, OSError) as exc:
             cleanup_failure = exc
 
     if failure is not None or cleanup_failure is not None:
@@ -644,7 +644,7 @@ def _verify(variant: str, templates_directory: Path) -> int:
             self_test_environment,
             expected_exit=0,
         )
-    except BaseException as exc:
+    except (VerificationFailure, OSError) as exc:
         print(f"VERIFY FAIL | self-test={exc} | evidence={evidence_root}", file=sys.stderr)
         return 1
 

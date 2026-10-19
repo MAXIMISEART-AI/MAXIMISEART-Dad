@@ -76,7 +76,7 @@ built frontend, and the settings and metrics files belong to this run. The docto
 
 ## Drive
 
-`scripts/drive_centrum.py` is the harness: Playwright for Python, sync API,
+`scripts/drive_centrum.py` is the harness, with each feature's steps in `scripts/drive/<feature>.py`: Playwright for Python, sync API,
 Chromium at 1440×1000, locale `pl-PL`. It finds elements by ARIA role and
 accessible name, the same Polish names Dad reads: buttons such as
 `Wskaż folder okresów`, `Zmień Rejestr zleceń`, `Włącz motyw jasny`, and
