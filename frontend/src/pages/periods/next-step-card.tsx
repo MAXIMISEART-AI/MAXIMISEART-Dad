@@ -5,7 +5,7 @@ import { PeriodPath } from "@/components/period-path"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { fullDate } from "@/lib/format"
-import { PreviewAction, stepProcess } from "@/pages/periods/prepare-actions"
+import { PreviewAction } from "@/pages/periods/prepare-actions"
 
 /**
  * „Następny krok” zawsze dla ostatniego pełnego okresu: krótki tytuł, fakty z ikonami i droga okresu.
@@ -13,20 +13,20 @@ import { PreviewAction, stepProcess } from "@/pages/periods/prepare-actions"
  * główną strony jest „Podgląd bez zapisu” tego procesu.
  */
 export function NextStepCard({ period }: { period: PeriodRow }) {
-  const process = stepProcess(period.next_step)
+  const step = period.next_step
 
   return (
     <Card className="bg-linear-to-br from-muted/60 to-card" role="region" aria-label="Następny krok">
       <CardContent className="relative flex flex-col gap-4 py-2">
-        {process === null ? null : (
+        {step.action === "none" ? null : (
           <div className="absolute top-1/2 right-4 -translate-y-1/2">
-            <PreviewAction period={period} process={process} />
+            <PreviewAction period={period} step={step} />
           </div>
         )}
         <Badge variant="outline">Następny krok</Badge>
         <h2 className="flex items-center gap-3 text-3xl font-semibold tracking-tight">
-          {process === null ? <CircleCheckIcon className="size-7 text-success" aria-hidden /> : null}
-          {period.next_step.label}
+          {step.action === "none" ? <CircleCheckIcon className="size-7 text-success" aria-hidden /> : null}
+          {step.label}
         </h2>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground [&_svg]:size-4">
           <span className="flex items-center gap-1.5 font-medium text-foreground tabular-nums">
@@ -44,7 +44,7 @@ export function NextStepCard({ period }: { period: PeriodRow }) {
           )}
         </div>
         <PeriodPath status={period.status} />
-        <p className="text-sm text-muted-foreground">{period.next_step.hint}</p>
+        <p className="text-sm text-muted-foreground">{step.hint}</p>
       </CardContent>
     </Card>
   )

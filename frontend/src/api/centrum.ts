@@ -4,6 +4,7 @@ import type {
   GetCurrentRunResponse,
   GetPeriodBoardResponse,
   OpenRequest,
+  PeriodRow,
   RunEvent,
   RunRequest,
   Settings,
@@ -34,13 +35,13 @@ export type {
   Figure,
   Message,
   Metrics,
-  NextStep,
   Percentiles,
   PeriodChoice,
   PeriodRow,
   PeriodFile,
   PhaseProgress,
   ProcessRun,
+  ProcessStep,
   ProcessSetup,
   Progress,
   ResultCounts,
@@ -55,6 +56,9 @@ export type {
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse
+
+/** Następny krok okresu: proces z podpowiedzią podglądu albo okres zamknięty (unia z kontraktu). */
+export type NextStep = PeriodRow["next_step"]
 
 export type PathSetting = Settings["order_register"]
 

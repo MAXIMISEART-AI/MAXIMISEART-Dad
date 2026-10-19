@@ -313,6 +313,12 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
         "none",
         "prepare_collective_file",
     ]
+    assert [row["next_step"].get("preview_hint") for row in rows] == [  # type: ignore[attr-defined]
+        "Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
+        "Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
+        None,
+        "Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
+    ]
 
 
 def test_tablica_okresow_wskazuje_ostatni_przygotowany_okres_z_plikiem_zbiorczym(tmp_path: Path) -> None:
@@ -349,6 +355,7 @@ def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: 
             "action": "prepare_collective_file",
             "label": "Przygotuj plik zbiorczy",
             "hint": "Z Rejestru zleceń powstaną Rozliczenie wewnętrzne i Plik zbiorczy.",
+            "preview_hint": "Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
         },
     }
     assert [row["last_complete"] for row in rows] == [True, False]

@@ -1,16 +1,15 @@
 import { ArrowRightIcon, EyeIcon, PlayIcon } from "lucide-react"
 
-import { getRunSetup, type NextStep, type PeriodRow, type Process } from "@/api/centrum"
+import type { NextStep, PeriodRow, Process, ProcessStep } from "@/api/centrum"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { isActive, useRuns } from "@/lib/runs"
-import { useResource } from "@/lib/use-resource"
 import type { PageHref } from "@/pages"
 
 const RUNS_PAGE: PageHref = "#/uruchomienia"
 
 /** Proces, który robi następny krok okresu; „none” (okres zamknięty) nie ma procesu. */
-const STEP_PROCESSES: Record<Exclude<NextStep["action"], "none">, Process> = {
+const STEP_PROCESSES: Record<ProcessStep["action"], Process> = {
   prepare_collective_file: "preparation",
   create_worker_settlements: "settlement",
 }
@@ -26,14 +25,11 @@ function showRuns() {
 
 /**
  * Akcja główna karty „Następny krok”: podgląd bez zapisu procesu następnego kroku od razu,
- * a w trakcie Uruchomienia przejście do podglądu na żywo. Podpowiedź podglądu deklaruje proces.
+ * a w trakcie Uruchomienia przejście do podglądu na żywo. Podpowiedź podglądu przychodzi z krokiem.
  */
-export function PreviewAction({ period, process }: { period: PeriodRow; process: Process }) {
+export function PreviewAction({ period, step }: { period: PeriodRow; step: ProcessStep }) {
   const { view, start } = useRuns()
-  const { resource: setup } = useResource(getRunSetup)
-
-  const hint =
-    setup.state === "ready" ? setup.data.processes.find((shown) => shown.process === process)?.preview_hint : undefined
+  const process = STEP_PROCESSES[step.action]
 
   if (isActive(view)) {
     return (
@@ -60,7 +56,7 @@ export function PreviewAction({ period, process }: { period: PeriodRow; process:
         <EyeIcon data-icon="inline-start" />
         Podgląd bez zapisu
       </TooltipTrigger>
-      {hint === undefined ? null : <TooltipContent>{hint}</TooltipContent>}
+      <TooltipContent>{step.preview_hint}</TooltipContent>
     </Tooltip>
   )
 }

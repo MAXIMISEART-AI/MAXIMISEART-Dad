@@ -86,12 +86,24 @@ class ThemeChange(_Model):
     theme: Theme
 
 
-class NextStep(_Model):
-    """Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty."""
+class ProcessStep(_Model):
+    """Następny krok okresu robi proces; ``preview_hint`` to podpowiedź „Podgląd bez zapisu” tego procesu."""
 
-    action: Literal["prepare_collective_file", "create_worker_settlements", "none"]
+    action: Literal["prepare_collective_file", "create_worker_settlements"]
     label: str
     hint: str
+    preview_hint: str
+
+
+class ClosedStep(_Model):
+    """Okres jest zamknięty: następnego kroku nie robi żaden proces."""
+
+    action: Literal["none"]
+    label: str
+    hint: str
+
+
+NextStep = Annotated[ProcessStep | ClosedStep, Field(discriminator="action")]
 
 
 class PeriodRow(_Model):

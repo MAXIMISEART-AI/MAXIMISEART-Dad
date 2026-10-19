@@ -18,6 +18,17 @@ export const zBoardNotSet = z.object({
 });
 
 /**
+ * ClosedStep
+ *
+ * Okres jest zamknięty: następnego kroku nie robi żaden proces.
+ */
+export const zClosedStep = z.object({
+    action: z.literal('none'),
+    label: z.string(),
+    hint: z.string()
+});
+
+/**
  * Closing
  *
  * Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi.
@@ -103,21 +114,6 @@ export const zMissingPath = z.object({
 });
 
 /**
- * NextStep
- *
- * Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty.
- */
-export const zNextStep = z.object({
-    action: z.enum([
-        'prepare_collective_file',
-        'create_worker_settlements',
-        'none'
-    ]),
-    label: z.string(),
-    hint: z.string()
-});
-
-/**
  * NotSetPath
  *
  * Ścieżka jeszcze niewskazana albo plik ustawień nieczytelny.
@@ -170,41 +166,6 @@ export const zPeriodChoice = z.object({
 export const zPeriodFile = z.object({
     name: z.string(),
     kind: z.enum(['internal_settlement', 'collective_file'])
-});
-
-/**
- * PeriodRow
- *
- * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
- */
-export const zPeriodRow = z.object({
-    token: z.string(),
-    tuesday: z.iso.date(),
-    monday: z.iso.date(),
-    status: z.enum([
-        'no_period_files',
-        'collective_file_prepared',
-        'worker_settlements_ready'
-    ]),
-    status_label: z.string(),
-    period_folder_exists: z.boolean(),
-    internal_settlement_exists: z.boolean(),
-    collective_file_exists: z.boolean(),
-    worker_settlements_folder_exists: z.boolean(),
-    worker_settlement_count: z.int(),
-    last_complete: z.boolean(),
-    next_step: zNextStep
-});
-
-/**
- * BoardReady
- *
- * Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym.
- */
-export const zBoardReady = z.object({
-    state: z.literal('ready'),
-    periods: z.array(zPeriodRow),
-    last_prepared_period: z.string().nullable()
 });
 
 /**
@@ -304,6 +265,57 @@ export const zProcessSetup = z.object({
     periods: z.array(zPeriodChoice),
     preselected_period: z.string(),
     blocker: z.string().nullable()
+});
+
+/**
+ * ProcessStep
+ *
+ * Następny krok okresu robi proces; ``preview_hint`` to podpowiedź „Podgląd bez zapisu” tego procesu.
+ */
+export const zProcessStep = z.object({
+    action: z.enum(['prepare_collective_file', 'create_worker_settlements']),
+    label: z.string(),
+    hint: z.string(),
+    preview_hint: z.string()
+});
+
+/**
+ * PeriodRow
+ *
+ * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
+ */
+export const zPeriodRow = z.object({
+    token: z.string(),
+    tuesday: z.iso.date(),
+    monday: z.iso.date(),
+    status: z.enum([
+        'no_period_files',
+        'collective_file_prepared',
+        'worker_settlements_ready'
+    ]),
+    status_label: z.string(),
+    period_folder_exists: z.boolean(),
+    internal_settlement_exists: z.boolean(),
+    collective_file_exists: z.boolean(),
+    worker_settlements_folder_exists: z.boolean(),
+    worker_settlement_count: z.int(),
+    last_complete: z.boolean(),
+    next_step: z.discriminatedUnion('action', [
+        zProcessStep.extend({ action: z.literal('create_worker_settlements') }),
+        zProcessStep.extend({ action: z.literal('prepare_collective_file') }),
+        zClosedStep
+    ])
+});
+
+/**
+ * BoardReady
+ *
+ * Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym.
+ */
+export const zBoardReady = z.object({
+    state: z.literal('ready'),
+    periods: z.array(zPeriodRow),
+    last_prepared_period: z.string().nullable()
 });
 
 /**

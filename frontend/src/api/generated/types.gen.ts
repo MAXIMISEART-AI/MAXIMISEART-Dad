@@ -62,6 +62,26 @@ export type Choice = {
 };
 
 /**
+ * ClosedStep
+ *
+ * Okres jest zamknięty: następnego kroku nie robi żaden proces.
+ */
+export type ClosedStep = {
+    /**
+     * Action
+     */
+    action: 'none';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Hint
+     */
+    hint: string;
+};
+
+/**
  * Closing
  *
  * Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi.
@@ -285,26 +305,6 @@ export type ModeStatistics = {
 };
 
 /**
- * NextStep
- *
- * Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty.
- */
-export type NextStep = {
-    /**
-     * Action
-     */
-    action: 'prepare_collective_file' | 'create_worker_settlements' | 'none';
-    /**
-     * Label
-     */
-    label: string;
-    /**
-     * Hint
-     */
-    hint: string;
-};
-
-/**
  * NotSetPath
  *
  * Ścieżka jeszcze niewskazana albo plik ustawień nieczytelny.
@@ -460,7 +460,14 @@ export type PeriodRow = {
      * Last Complete
      */
     last_complete: boolean;
-    next_step: NextStep;
+    /**
+     * Next Step
+     */
+    next_step: ({
+        action: 'create_worker_settlements' | 'prepare_collective_file';
+    } & ProcessStep) | ({
+        action: 'none';
+    } & ClosedStep);
 };
 
 /**
@@ -616,6 +623,30 @@ export type ProcessSetup = {
      * Blocker
      */
     blocker: string | null;
+};
+
+/**
+ * ProcessStep
+ *
+ * Następny krok okresu robi proces; ``preview_hint`` to podpowiedź „Podgląd bez zapisu” tego procesu.
+ */
+export type ProcessStep = {
+    /**
+     * Action
+     */
+    action: 'prepare_collective_file' | 'create_worker_settlements';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Hint
+     */
+    hint: string;
+    /**
+     * Preview Hint
+     */
+    preview_hint: string;
 };
 
 /**

@@ -684,6 +684,32 @@
         "title": "Choice",
         "description": "Wynik natywnego okna wyboru: ``chosen`` zapisuje ścieżkę, ``cancelled`` niczego nie zmienia."
       },
+      "ClosedStep": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "none",
+            "title": "Action"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "label",
+          "hint"
+        ],
+        "title": "ClosedStep",
+        "description": "Okres jest zamknięty: następnego kroku nie robi żaden proces."
+      },
       "Closing": {
         "properties": {
           "state": {
@@ -1047,36 +1073,6 @@
         "title": "ModeStatistics",
         "description": "Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji."
       },
-      "NextStep": {
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "prepare_collective_file",
-              "create_worker_settlements",
-              "none"
-            ],
-            "title": "Action"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "hint": {
-            "type": "string",
-            "title": "Hint"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "action",
-          "label",
-          "hint"
-        ],
-        "title": "NextStep",
-        "description": "Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty."
-      },
       "NotSetPath": {
         "properties": {
           "state": {
@@ -1288,7 +1284,23 @@
             "title": "Last Complete"
           },
           "next_step": {
-            "$ref": "#/components/schemas/NextStep"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProcessStep"
+              },
+              {
+                "$ref": "#/components/schemas/ClosedStep"
+              }
+            ],
+            "title": "Next Step",
+            "discriminator": {
+              "propertyName": "action",
+              "mapping": {
+                "create_worker_settlements": "#/components/schemas/ProcessStep",
+                "none": "#/components/schemas/ClosedStep",
+                "prepare_collective_file": "#/components/schemas/ProcessStep"
+              }
+            }
           }
         },
         "additionalProperties": false,
@@ -1548,6 +1560,40 @@
         ],
         "title": "ProcessSetup",
         "description": "Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.\n\n``reminder``, ``confirms_readiness`` i ``preview_hint`` deklaruje proces: przypomnienie przed\nuruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”."
+      },
+      "ProcessStep": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "prepare_collective_file",
+              "create_worker_settlements"
+            ],
+            "title": "Action"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint"
+          },
+          "preview_hint": {
+            "type": "string",
+            "title": "Preview Hint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "label",
+          "hint",
+          "preview_hint"
+        ],
+        "title": "ProcessStep",
+        "description": "Następny krok okresu robi proces; ``preview_hint`` to podpowiedź „Podgląd bez zapisu” tego procesu."
       },
       "Progress": {
         "properties": {
