@@ -63,13 +63,21 @@ def _count(label: str, value: int) -> contract.Figure:
     return contract.Figure(label=label, value=value, unit="count")
 
 
+# Etykiety Przebiegu rozliczeń wspólne dla liczb na żywo i wyniku.
+_ROWS: Final = "Wiersze danych"
+_PLANNED: Final = "Planowane szablony"
+_WRITTEN: Final = "Zapisane szablony"
+_EMPTY: Final = "Puste szablony"
+_SKIPPED: Final = "Pominięte szablony"
+
+
 def _settlement_figures(snapshot: ProgressSnapshot, dry_run: bool) -> list[contract.Figure]:
     counters = snapshot.metric_counters()
     return [
-        _count("Wiersze danych", snapshot.rows),
-        _count("Planowane szablony", counters["planned"]) if dry_run else _count("Zapisane szablony", counters["written"]),
-        _count("Puste szablony", counters["empty"]),
-        _count("Pominięte szablony", counters["skipped"]),
+        _count(_ROWS, snapshot.rows),
+        _count(_PLANNED, counters["planned"]) if dry_run else _count(_WRITTEN, counters["written"]),
+        _count(_EMPTY, counters["empty"]),
+        _count(_SKIPPED, counters["skipped"]),
         _count("Problemy", snapshot.issue_count),
     ]
 
@@ -77,15 +85,15 @@ def _settlement_figures(snapshot: ProgressSnapshot, dry_run: bool) -> list[contr
 def _settlement_summary(summary: SettlementSummary, dry_run: bool) -> contract.RunSummary:
     figures = (
         [
-            _count("Wiersze danych", summary.total_rows),
-            _count("Planowane szablony", summary.planned_count),
-            _count("Puste szablony", summary.empty_count),
+            _count(_ROWS, summary.total_rows),
+            _count(_PLANNED, summary.planned_count),
+            _count(_EMPTY, summary.empty_count),
         ]
         if dry_run
         else [
-            _count("Zapisane szablony", summary.written_count),
-            _count("Puste szablony", summary.empty_count),
-            _count("Pominięte szablony", summary.skipped_count),
+            _count(_WRITTEN, summary.written_count),
+            _count(_EMPTY, summary.empty_count),
+            _count(_SKIPPED, summary.skipped_count),
         ]
     )
     return contract.RunSummary(
