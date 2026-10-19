@@ -56,6 +56,30 @@ export type Choice = {
 };
 
 /**
+ * Configuration
+ *
+ * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ */
+export type Configuration = {
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Templates
+     */
+    templates: Array<TemplateReady | TemplateProblem>;
+    /**
+     * Workers
+     */
+    workers: ({
+        state: 'ready';
+    } & WorkersReady) | ({
+        state: 'unreadable';
+    } & WorkersUnreadable);
+};
+
+/**
  * Count
  */
 export type Count = {
@@ -97,7 +121,7 @@ export type Decision = {
      * Title
      */
     title: string | null;
-    message: Message | null;
+    message: RunMessage | null;
     /**
      * Count Groups
      */
@@ -141,7 +165,7 @@ export type Health = {
 /**
  * Message
  *
- * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) z liniami terminala; jednoliniowy ma tylko ``what``.
+ * Komunikat w trzech częściach, ta sama treść co w terminalu.
  */
 export type Message = {
     /**
@@ -151,11 +175,36 @@ export type Message = {
     /**
      * Where
      */
-    where: string | null;
+    where: string;
     /**
      * Action
      */
-    action: string | null;
+    action: string;
+};
+
+/**
+ * Metrics
+ *
+ * Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego.
+ */
+export type Metrics = {
+    /**
+     * Phases
+     */
+    phases: Array<string>;
+    /**
+     * Minimum Completed Runs
+     */
+    minimum_completed_runs: number;
+    /**
+     * Runs
+     */
+    runs: Array<ProcessRun>;
+    /**
+     * Statistics
+     */
+    statistics: Array<ModeStatistics>;
+    recent: RecentResults;
 };
 
 /**
@@ -176,6 +225,28 @@ export type MissingPath = {
      * Name
      */
     name: string;
+};
+
+/**
+ * ModeStatistics
+ *
+ * Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji.
+ */
+export type ModeStatistics = {
+    /**
+     * Process
+     */
+    process: 'preparation' | 'settlement';
+    /**
+     * Mode
+     */
+    mode: 'RUN' | 'DRY-RUN';
+    /**
+     * Completed Runs
+     */
+    completed_runs: number;
+    percentiles: Percentiles | null;
+    results: ResultCounts;
 };
 
 /**
@@ -252,6 +323,26 @@ export type OperationProgress = {
      * Worker Elapsed Ms
      */
     worker_elapsed_ms: number | null;
+};
+
+/**
+ * Percentiles
+ *
+ * P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach.
+ */
+export type Percentiles = {
+    /**
+     * P50 Ms
+     */
+    p50_ms: number;
+    /**
+     * P95 Ms
+     */
+    p95_ms: number;
+    /**
+     * Phases
+     */
+    phases: Array<PhasePercentiles>;
 };
 
 /**
@@ -336,6 +427,38 @@ export type PeriodRow = {
 };
 
 /**
+ * PhaseDuration
+ */
+export type PhaseDuration = {
+    /**
+     * Phase
+     */
+    phase: string;
+    /**
+     * Duration Ms
+     */
+    duration_ms: number;
+};
+
+/**
+ * PhasePercentiles
+ */
+export type PhasePercentiles = {
+    /**
+     * Phase
+     */
+    phase: string;
+    /**
+     * P50 Ms
+     */
+    p50_ms: number;
+    /**
+     * P95 Ms
+     */
+    p95_ms: number;
+};
+
+/**
  * PhaseProgress
  */
 export type PhaseProgress = {
@@ -399,6 +522,52 @@ export type Problem = {
      * Message
      */
     message: string;
+};
+
+/**
+ * ProcessRun
+ *
+ * Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
+ *
+ * ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+ */
+export type ProcessRun = {
+    /**
+     * Process
+     */
+    process: 'preparation' | 'settlement';
+    /**
+     * Process Label
+     */
+    process_label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Mode
+     */
+    mode: 'RUN' | 'DRY-RUN';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Result
+     */
+    result: 'OK' | 'WYMAGA_SPRAWDZENIA' | 'BLAD_KRYTYCZNY';
+    /**
+     * Total Duration Ms
+     */
+    total_duration_ms: number;
+    /**
+     * Phase Durations
+     */
+    phase_durations: Array<PhaseDuration>;
+    /**
+     * Origin
+     */
+    origin: 'cmd' | 'centrum';
 };
 
 /**
@@ -554,6 +723,41 @@ export type ReadyPath = {
 };
 
 /**
+ * RecentResults
+ *
+ * Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni).
+ */
+export type RecentResults = {
+    /**
+     * Weeks
+     */
+    weeks: number;
+    /**
+     * Since
+     */
+    since: string;
+    results: ResultCounts;
+};
+
+/**
+ * ResultCounts
+ */
+export type ResultCounts = {
+    /**
+     * Ok
+     */
+    ok: number;
+    /**
+     * Needs Review
+     */
+    needs_review: number;
+    /**
+     * Critical
+     */
+    critical: number;
+};
+
+/**
  * RunAwaitingDecision
  *
  * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
@@ -606,7 +810,7 @@ export type RunFinished = {
      * Progress Stale
      */
     progress_stale: boolean;
-    result: RunResult;
+    result: RunOutcome;
 };
 
 /**
@@ -648,27 +852,27 @@ export type RunInfo = {
 };
 
 /**
- * RunRequest
+ * RunMessage
  *
- * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
+ * Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``).
  */
-export type RunRequest = {
+export type RunMessage = {
     /**
-     * Process
+     * What
      */
-    process: 'preparation';
+    what: string;
     /**
-     * Period
+     * Where
      */
-    period: string;
+    where: string | null;
     /**
-     * Dry Run
+     * Action
      */
-    dry_run: boolean;
+    action: string | null;
 };
 
 /**
- * RunResult
+ * RunOutcome
  *
  * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
  *
@@ -676,7 +880,7 @@ export type RunRequest = {
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
  * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
  */
-export type RunResult = {
+export type RunOutcome = {
     /**
      * Result
      */
@@ -704,11 +908,11 @@ export type RunResult = {
     /**
      * Stops
      */
-    stops: Array<Message>;
+    stops: Array<RunMessage>;
     /**
      * Warnings
      */
-    warnings: Array<Message>;
+    warnings: Array<RunMessage>;
     /**
      * Notices
      */
@@ -718,6 +922,26 @@ export type RunResult = {
      * Lines
      */
     lines: Array<string>;
+};
+
+/**
+ * RunRequest
+ *
+ * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
+ */
+export type RunRequest = {
+    /**
+     * Process
+     */
+    process: 'preparation';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Dry Run
+     */
+    dry_run: boolean;
 };
 
 /**
@@ -778,6 +1002,51 @@ export type Settings = {
 };
 
 /**
+ * TemplateProblem
+ *
+ * Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania.
+ */
+export type TemplateProblem = {
+    /**
+     * State
+     */
+    state: 'problem';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * File Name
+     */
+    file_name: string;
+    /**
+     * Problem
+     */
+    problem: 'missing' | 'open_in_excel' | 'unreadable';
+    message: Message;
+};
+
+/**
+ * TemplateReady
+ *
+ * Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie.
+ */
+export type TemplateReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * File Name
+     */
+    file_name: string;
+};
+
+/**
  * ThemeChange
  */
 export type ThemeChange = {
@@ -813,6 +1082,33 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
+};
+
+/**
+ * WorkersReady
+ *
+ * Nazwy Wykonawców w kolejności z konfiguracji wykonawców.
+ */
+export type WorkersReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    /**
+     * Names
+     */
+    names: Array<string>;
+};
+
+/**
+ * WorkersUnreadable
+ */
+export type WorkersUnreadable = {
+    /**
+     * State
+     */
+    state: 'unreadable';
+    message: Message;
 };
 
 export type GetHealthData = {
@@ -1114,3 +1410,44 @@ export type StreamRunEventsResponses = {
 };
 
 export type StreamRunEventsResponse = StreamRunEventsResponses[keyof StreamRunEventsResponses];
+
+export type GetMetricsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/metrics';
+};
+
+export type GetMetricsErrors = {
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
+};
+
+export type GetMetricsError = GetMetricsErrors[keyof GetMetricsErrors];
+
+export type GetMetricsResponses = {
+    /**
+     * Successful Response
+     */
+    200: Metrics;
+};
+
+export type GetMetricsResponse = GetMetricsResponses[keyof GetMetricsResponses];
+
+export type GetConfigurationData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/configuration';
+};
+
+export type GetConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: Configuration;
+};
+
+export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];

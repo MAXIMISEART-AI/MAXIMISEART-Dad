@@ -14,7 +14,7 @@ import {
   WifiOffIcon,
 } from "lucide-react"
 
-import type { PhaseProgress, PreparationSummary, RunInfo, RunResult, RunView } from "@/api/centrum"
+import type { PhaseProgress, PreparationSummary, RunInfo, RunOutcome, RunView } from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -152,7 +152,7 @@ export function RunCard({
   )
 }
 
-function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunResult; reminder: string }) {
+function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcome; reminder: string }) {
   const { start, previewed } = useRuns()
   const [confirming, setConfirming] = React.useState(false)
   const openFolder = () => openAndConfirm(run.period, "period_folder", () => undefined)

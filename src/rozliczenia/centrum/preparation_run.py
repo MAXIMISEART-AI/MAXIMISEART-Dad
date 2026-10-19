@@ -9,18 +9,21 @@ linie i rekord metryk są te same.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Final
 
 from rozliczenia import preparation_cli
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.period_board import PeriodFolder, status_label
+from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.centrum.runs import PreparedRun, run_result
 from rozliczenia.centrum.settings import CentrumSettings, SettingsStore
-from rozliczenia.centrum.tool_paths import ToolPaths
 from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.preparation_messages import PreparationMessage
 from rozliczenia.process_run import Interlocutor, run_process
+from rozliczenia.telemetry import MetricsStore
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 
 _PROCESS: Final = preparation_cli.CENTRUM_PROCESS
@@ -32,9 +35,18 @@ class PreparationEntry:
 
     key: Final[contract.ProcessKey] = "preparation"
 
-    def __init__(self, store: SettingsStore, tool_paths: ToolPaths, today: Callable[[], date]) -> None:
+    def __init__(
+        self,
+        store: SettingsStore,
+        configuration: ConfigurationFiles,
+        metrics_path: Path,
+        centrum_runs: CentrumRuns,
+        today: Callable[[], date],
+    ) -> None:
         self._store = store
-        self._tool_paths = tool_paths
+        self._configuration = configuration
+        self._metrics_path = metrics_path
+        self._centrum_runs = centrum_runs
         self._today = today
 
     def setup(self) -> contract.ProcessSetup:
@@ -65,14 +77,18 @@ class PreparationEntry:
             settings.periods_directory,
             period,
             dry_run=request.dry_run,
-            config_path=self._tool_paths.worker_config,
-            internal_template_path=self._tool_paths.internal_template,
-            collective_template_path=self._tool_paths.collective_template,
+            config_path=self._configuration.worker_config,
+            internal_template_path=self._configuration.internal_template,
+            collective_template_path=self._configuration.collective_template,
         )
-        metrics_path = self._tool_paths.preparation_metrics
+        metrics_path = self._metrics_path
+        centrum_runs = self._centrum_runs
 
-        def conduct(interlocutor: Interlocutor) -> contract.RunResult:
+        def conduct(interlocutor: Interlocutor) -> contract.RunOutcome:
+            since = datetime.now(timezone.utc)
             outcome = run_process(_PROCESS, inputs, interlocutor, metrics_path=metrics_path)
+            metrics = MetricsStore(metrics_path, _PROCESS.counter_names)
+            centrum_runs.remember("preparation", metrics, since, datetime.now(timezone.utc))
             summary = outcome.summary
             return run_result(
                 outcome,
@@ -125,5 +141,5 @@ def _summary(summary: PreparationSummary) -> contract.PreparationSummary:
     )
 
 
-def _message(message: PreparationMessage) -> contract.Message:
-    return contract.Message(what=message.what, where=message.where, action=message.action)
+def _message(message: PreparationMessage) -> contract.RunMessage:
+    return contract.RunMessage(what=message.what, where=message.where, action=message.action)

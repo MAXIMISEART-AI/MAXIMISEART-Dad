@@ -1,7 +1,7 @@
 import type * as React from "react"
 import { MapPinIcon, OctagonXIcon, TriangleAlertIcon, WrenchIcon } from "lucide-react"
 
-import type { Message } from "@/api/centrum"
+import type { RunMessage } from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 /**
@@ -13,7 +13,7 @@ export function ThreePartMessage({
   kind,
   action,
 }: {
-  message: Message
+  message: RunMessage
   kind: "stop" | "warning"
   action?: React.ReactNode
 }) {

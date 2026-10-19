@@ -44,7 +44,7 @@ class PreparedRun:
     title: str
     period: str
     dry_run: bool
-    conduct: Callable[[Interlocutor], contract.RunResult]
+    conduct: Callable[[Interlocutor], contract.RunOutcome]
 
 
 class RunHost:
@@ -256,7 +256,7 @@ def notice_view(notice: ProgressNotice) -> contract.ProgressNotice:
     )
 
 
-def messages(lines: Sequence[str]) -> list[contract.Message]:
+def messages(lines: Sequence[str]) -> list[contract.RunMessage]:
     """Linie komunikatów z ``Co się stało``/``Gdzie``/``Co zrobić`` w trzech częściach; inna linia to komunikat sam w sobie."""
 
     found: list[dict[str, str | None]] = []
@@ -270,7 +270,7 @@ def messages(lines: Sequence[str]) -> list[contract.Message]:
             found[-1]["action"] = line.removeprefix(action)
         else:
             found.append({"what": line, "where": None, "action": None})
-    return [contract.Message.model_validate(message) for message in found]
+    return [contract.RunMessage.model_validate(message) for message in found]
 
 
 def decision(lines: Sequence[str], question: str) -> contract.Decision:
@@ -304,8 +304,8 @@ def run_result(
     dry_run: bool,
     done: str,
     summary: contract.PreparationSummary | None,
-    warnings: Sequence[contract.Message],
-) -> contract.RunResult:
+    warnings: Sequence[contract.RunMessage],
+) -> contract.RunOutcome:
     """Wynik dla przeglądarki z ``Outcome`` rdzenia: linie bez zmian, zatrzymania z linii statusu procesu.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
@@ -322,7 +322,7 @@ def run_result(
         headline = "Zatrzymano" if kind == "stop" else "Błąd"
         # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
         next_action = "open_period_folder" if kind == "after_engine" and not dry_run else "rerun"
-    return contract.RunResult(
+    return contract.RunOutcome(
         result=outcome.result,
         headline=headline,
         ending=kind,
@@ -337,19 +337,19 @@ def run_result(
     )
 
 
-def _unexpected_result(dry_run: bool) -> contract.RunResult:
+def _unexpected_result(dry_run: bool) -> contract.RunOutcome:
     """Wynik, gdy nie dało się zbudować widoku wyniku; rdzeń zapisał już metryki."""
 
     what = "Nie udało się pokazać wyniku Uruchomienia procesu."
     action = "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
-    return contract.RunResult(
+    return contract.RunOutcome(
         result="BLAD_KRYTYCZNY",
         headline="Błąd",
         ending="after_engine",
         next_action="rerun" if dry_run else "open_period_folder",
         status_line="Status końcowy: BŁĄD",
         total_duration_ms=0,
-        stops=[contract.Message(what=what, where=None, action=action)],
+        stops=[contract.RunMessage(what=what, where=None, action=action)],
         warnings=[],
         notices=[],
         summary=None,

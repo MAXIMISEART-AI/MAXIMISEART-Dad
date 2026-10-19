@@ -51,24 +51,12 @@ export const zHealth = z.object({
 /**
  * Message
  *
- * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) z liniami terminala; jednoliniowy ma tylko ``what``.
+ * Komunikat w trzech częściach, ta sama treść co w terminalu.
  */
 export const zMessage = z.object({
     what: z.string(),
-    where: z.string().nullable(),
-    action: z.string().nullable()
-});
-
-/**
- * Decision
- *
- * Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
- */
-export const zDecision = z.object({
-    question: z.string(),
-    title: z.string().nullable(),
-    message: zMessage.nullable(),
-    count_groups: z.array(zCountGroup)
+    where: z.string(),
+    action: z.string()
 });
 
 /**
@@ -183,6 +171,34 @@ export const zBoardReady = z.object({
 });
 
 /**
+ * PhaseDuration
+ */
+export const zPhaseDuration = z.object({
+    phase: z.string(),
+    duration_ms: z.int()
+});
+
+/**
+ * PhasePercentiles
+ */
+export const zPhasePercentiles = z.object({
+    phase: z.string(),
+    p50_ms: z.int(),
+    p95_ms: z.int()
+});
+
+/**
+ * Percentiles
+ *
+ * P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach.
+ */
+export const zPercentiles = z.object({
+    p50_ms: z.int(),
+    p95_ms: z.int(),
+    phases: z.array(zPhasePercentiles)
+});
+
+/**
  * PhaseProgress
  */
 export const zPhaseProgress = z.object({
@@ -223,6 +239,29 @@ export const zPreparationSummary = z.object({
  */
 export const zProblem = z.object({
     message: z.string()
+});
+
+/**
+ * ProcessRun
+ *
+ * Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
+ *
+ * ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+ */
+export const zProcessRun = z.object({
+    process: z.enum(['preparation', 'settlement']),
+    process_label: z.string(),
+    started_at: z.iso.datetime(),
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    period: z.string(),
+    result: z.enum([
+        'OK',
+        'WYMAGA_SPRAWDZENIA',
+        'BLAD_KRYTYCZNY'
+    ]),
+    total_duration_ms: z.int(),
+    phase_durations: z.array(zPhaseDuration),
+    origin: z.enum(['cmd', 'centrum'])
 });
 
 /**
@@ -304,6 +343,52 @@ export const zReadyPath = z.object({
 });
 
 /**
+ * ResultCounts
+ */
+export const zResultCounts = z.object({
+    ok: z.int(),
+    needs_review: z.int(),
+    critical: z.int()
+});
+
+/**
+ * ModeStatistics
+ *
+ * Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji.
+ */
+export const zModeStatistics = z.object({
+    process: z.enum(['preparation', 'settlement']),
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    completed_runs: z.int(),
+    percentiles: zPercentiles.nullable(),
+    results: zResultCounts
+});
+
+/**
+ * RecentResults
+ *
+ * Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni).
+ */
+export const zRecentResults = z.object({
+    weeks: z.int(),
+    since: z.iso.date(),
+    results: zResultCounts
+});
+
+/**
+ * Metrics
+ *
+ * Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego.
+ */
+export const zMetrics = z.object({
+    phases: z.array(z.string()),
+    minimum_completed_runs: z.int(),
+    runs: z.array(zProcessRun),
+    statistics: z.array(zModeStatistics),
+    recent: zRecentResults
+});
+
+/**
  * RunIdle
  *
  * Od startu serwera nie było żadnego Uruchomienia procesu.
@@ -324,6 +409,29 @@ export const zRunInfo = z.object({
 });
 
 /**
+ * RunMessage
+ *
+ * Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``).
+ */
+export const zRunMessage = z.object({
+    what: z.string(),
+    where: z.string().nullable(),
+    action: z.string().nullable()
+});
+
+/**
+ * Decision
+ *
+ * Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
+ */
+export const zDecision = z.object({
+    question: z.string(),
+    title: z.string().nullable(),
+    message: zRunMessage.nullable(),
+    count_groups: z.array(zCountGroup)
+});
+
+/**
  * RunAwaitingDecision
  *
  * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
@@ -336,18 +444,7 @@ export const zRunAwaitingDecision = z.object({
 });
 
 /**
- * RunRequest
- *
- * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
- */
-export const zRunRequest = z.object({
-    process: z.literal('preparation'),
-    period: z.string(),
-    dry_run: z.boolean()
-});
-
-/**
- * RunResult
+ * RunOutcome
  *
  * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
  *
@@ -355,7 +452,7 @@ export const zRunRequest = z.object({
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
  * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
  */
-export const zRunResult = z.object({
+export const zRunOutcome = z.object({
     result: z.enum([
         'OK',
         'WYMAGA_SPRAWDZENIA',
@@ -375,8 +472,8 @@ export const zRunResult = z.object({
     ]),
     status_line: z.string(),
     total_duration_ms: z.int(),
-    stops: z.array(zMessage),
-    warnings: z.array(zMessage),
+    stops: z.array(zRunMessage),
+    warnings: z.array(zRunMessage),
     notices: z.array(z.string()),
     summary: zPreparationSummary.nullable(),
     lines: z.array(z.string())
@@ -390,7 +487,18 @@ export const zRunFinished = z.object({
     run: zRunInfo,
     progress: zProgress,
     progress_stale: z.boolean(),
-    result: zRunResult
+    result: zRunOutcome
+});
+
+/**
+ * RunRequest
+ *
+ * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
+ */
+export const zRunRequest = z.object({
+    process: z.literal('preparation'),
+    period: z.string(),
+    dry_run: z.boolean()
 });
 
 /**
@@ -454,6 +562,34 @@ export const zChoice = z.object({
 });
 
 /**
+ * TemplateProblem
+ *
+ * Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania.
+ */
+export const zTemplateProblem = z.object({
+    state: z.literal('problem'),
+    label: z.string(),
+    file_name: z.string(),
+    problem: z.enum([
+        'missing',
+        'open_in_excel',
+        'unreadable'
+    ]),
+    message: zMessage
+});
+
+/**
+ * TemplateReady
+ *
+ * Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie.
+ */
+export const zTemplateReady = z.object({
+    state: z.literal('ready'),
+    label: z.string(),
+    file_name: z.string()
+});
+
+/**
  * ThemeChange
  */
 export const zThemeChange = z.object({
@@ -476,6 +612,38 @@ export const zValidationError = z.object({
  */
 export const zHttpValidationError = z.object({
     detail: z.array(zValidationError).optional()
+});
+
+/**
+ * WorkersReady
+ *
+ * Nazwy Wykonawców w kolejności z konfiguracji wykonawców.
+ */
+export const zWorkersReady = z.object({
+    state: z.literal('ready'),
+    names: z.array(z.string())
+});
+
+/**
+ * WorkersUnreadable
+ */
+export const zWorkersUnreadable = z.object({
+    state: z.literal('unreadable'),
+    message: zMessage
+});
+
+/**
+ * Configuration
+ *
+ * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ */
+export const zConfiguration = z.object({
+    version: z.string(),
+    templates: z.array(z.union([zTemplateReady, zTemplateProblem])),
+    workers: z.discriminatedUnion('state', [
+        zWorkersReady,
+        zWorkersUnreadable
+    ])
 });
 
 /**
@@ -580,3 +748,13 @@ export const zDecideRunResponse = z.discriminatedUnion('state', [
  * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
  */
 export const zStreamRunEventsResponse = zRunEvent;
+
+/**
+ * Successful Response
+ */
+export const zGetMetricsResponse = zMetrics;
+
+/**
+ * Successful Response
+ */
+export const zGetConfigurationResponse = zConfiguration;

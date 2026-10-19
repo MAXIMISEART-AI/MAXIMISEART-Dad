@@ -19,6 +19,7 @@ import { useResource } from "@/lib/use-resource"
 import { FileSettingsCard } from "@/pages/periods/file-settings-card"
 import { NextStepCard } from "@/pages/periods/next-step-card"
 import { PeriodBoardTable } from "@/pages/periods/period-board-table"
+import { PeriodStats } from "@/pages/periods/period-stats"
 
 export function PeriodsPage() {
   const { settings } = useSettings()
@@ -92,6 +93,7 @@ function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => voi
       return (
         <>
           {lastComplete === undefined ? null : <NextStepCard period={lastComplete} />}
+          <PeriodStats periods={board.periods} />
           <PeriodBoardTable periods={board.periods} onStale={reload} />
         </>
       )

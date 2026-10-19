@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from io import StringIO
 import json
-import time
 from pathlib import Path
+import subprocess
+import time
 from typing import Any, NoReturn
 
 from fastapi.testclient import TestClient
@@ -18,7 +19,10 @@ from rozliczenia import collective_preparation, preparation_cli, preparation_reg
 from rozliczenia.telemetry import MetricsStore
 from rozliczenia.centrum import runs
 from rozliczenia.centrum.app import create_app
-from rozliczenia.centrum.tool_paths import ToolPaths
+from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
+from rozliczenia.centrum.settings import default_settings_path
 
 from tests.collective_preparation_fixtures import (
     COLLECTIVE_FILE_NAME,
@@ -29,7 +33,7 @@ from tests.collective_preparation_fixtures import (
     make_preparation_fixture,
     register_order,
 )
-from tests.test_centrum_rozliczen import CENTRUM, FakePlatform, centrum as bare_centrum
+from tests.test_centrum_rozliczen import CENTRUM, ROOT, FakePlatform, centrum as bare_centrum
 
 # Wtorek po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
@@ -59,12 +63,13 @@ def preparing_centrum(tmp_path: Path, rows: list[RegisterRow] | None = None) -> 
         settings_path=tmp_path / "config" / "centrum-ustawienia.yaml",
         platform=platform,
         today=lambda: TODAY,
-        tool_paths=ToolPaths(
+        configuration_files=ConfigurationFiles(
             worker_config=fixture.config_path,
             internal_template=fixture.internal_template_path,
             collective_template=fixture.collective_template_path,
-            preparation_metrics=metrics_path,
+            worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
         ),
+        metrics_files=MetricsFiles(preparation=metrics_path, settlement=tmp_path / ".rozliczenia-metrics.jsonl"),
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
     client.post("/api/settings/register/choose")
@@ -497,7 +502,7 @@ def test_uruchomienie_z_obcej_strony_jest_odrzucone(tmp_path: Path) -> None:
     assert list(centrum.fixture.periods_directory.iterdir()) == []
 
 
-def test_centrum_dopisuje_rekord_do_pliku_metryk_cli_w_jego_schemacie(tmp_path: Path) -> None:
+def test_centrum_dopisuje_rekord_do_pliku_metryk_cli_w_jego_schemacie_i_rozpoznaje_swoje_uruchomienia(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     centrum.start(dry_run=True)
     finished_view(centrum.client)
@@ -517,9 +522,11 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_cli_w_jego_schemacie(tmp_path: 
         output=StringIO(),
     )
     records = MetricsStore(centrum.metrics_path, preparation_cli.PROCESS.counter_names).read()
+    history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert ToolPaths().preparation_metrics == preparation_cli.default_metrics_path()
+    assert MetricsFiles.of_cli().preparation == preparation_cli.default_metrics_path()
     assert cli_exit_code == 0
+    assert [(run["origin"], run["mode"]) for run in history] == [("cmd", "DRY-RUN"), ("centrum", "DRY-RUN")]
     assert [(record["mode"], record["result"]) for record in records] == [("DRY-RUN", "OK"), ("DRY-RUN", "OK")]
     assert records[0].keys() == records[1].keys()
     assert records[0]["counters"] == records[1]["counters"]
@@ -546,3 +553,11 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     assert centrum.fixture.collective_file_path.is_file()
     [record] = centrum.metric_records()
     assert (record["result"], record["completed"]) == ("OK", True)
+
+
+def test_dziennik_uruchomien_z_centrum_jest_poza_gitem_obok_ustawien() -> None:
+    log = (default_settings_path().parent / CENTRUM_RUNS_FILE).relative_to(ROOT)
+
+    ignored = subprocess.run(["git", "check-ignore", "--quiet", str(log)], cwd=ROOT, check=False)
+
+    assert ignored.returncode == 0

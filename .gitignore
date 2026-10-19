@@ -16,4 +16,5 @@ logs/
 .przygotowanie-pliku-zbiorczego-metrics.jsonl
 .DS_Store
 config/centrum-ustawienia.yaml
+config/centrum-uruchomienia.jsonl
 node_modules/

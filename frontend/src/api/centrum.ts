@@ -14,7 +14,8 @@ import {
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
   zDecideRunResponse,
-  zGetCurrentRunResponse,
+  zGetConfigurationResponse,
+  zGetMetricsResponse,
   zGetPeriodBoardResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
@@ -25,23 +26,31 @@ import {
 
 export type {
   Choice,
+  Configuration,
   Count,
   Decision,
   DecisionAnswer,
   Message,
+  Metrics,
+  ModeStatistics,
   NextStep,
   OpenRequest,
+  Percentiles,
   PeriodChoice,
   PeriodRow,
   PhaseProgress,
   PreparationSummary,
+  ProcessRun,
   ProcessSetup,
   Progress,
+  ResultCounts,
   RunEvent,
   RunInfo,
+  RunMessage,
+  RunOutcome,
   RunRequest,
-  RunResult,
   Settings,
+  TemplateProblem,
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse
@@ -106,10 +115,6 @@ export function getRunSetup() {
   return call(zGetRunSetupResponse, "/api/runs/setup")
 }
 
-export function getCurrentRun() {
-  return call(zGetCurrentRunResponse, "/api/runs/current")
-}
-
 /** Start Uruchomienia procesu; gdy trwa już inne, serwer odmawia z bezpiecznym komunikatem. */
 export function startRun(request: RunRequest) {
   return call(zStartRunResponse, "/api/runs", send("POST", request))
@@ -152,4 +157,14 @@ export function watchRunEvents(
   })
 
   return () => source.close()
+}
+
+/** Historia Uruchomień procesu z obu plików metryk, z P50/P95 i rozkładem wyników; serwer czyta pliki przy każdym odczycie. */
+export function getMetrics() {
+  return call(zGetMetricsResponse, "/api/metrics")
+}
+
+/** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
+export function getConfiguration() {
+  return call(zGetConfigurationResponse, "/api/configuration")
 }

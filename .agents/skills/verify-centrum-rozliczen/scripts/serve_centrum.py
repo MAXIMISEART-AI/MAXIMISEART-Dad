@@ -1,10 +1,10 @@
 """Serve the real Centrum rozliczeń for one verification run on 127.0.0.1.
 
 This is the production app (``create_app`` + ``serve`` from ``rozliczenia.centrum``)
-with run-local inputs: the settings file and the tool's own files (worker
-config, Wzorce, metrics; ``fixture.json`` → ``tool_paths``) live in the run
-root, and the platform adapter, the production boundary for Dad's computer, is
-scripted:
+with run-local inputs: the settings file, the configuration directory
+(konfiguracja wykonawców and the three Wzorce), and both metrics files live in
+the run root (never Dad's files next to the tool), and the platform adapter,
+the production boundary for Dad's computer, is scripted:
 
 - the native file and folder pickers answer with the path written to
   ``<root>/picker/answer.txt`` (consumed by the next picker; no file = Dad
@@ -30,8 +30,9 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
+from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
+from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.server import serve  # noqa: E402
-from rozliczenia.centrum.tool_paths import ToolPaths  # noqa: E402
 
 
 class ScriptedPlatform:
@@ -70,12 +71,16 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve()
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
-    tool_paths = ToolPaths(**{name: Path(path) for name, path in fixture["tool_paths"].items()})
+    metrics = MetricsFiles(
+        preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
+    )
+    configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
     app = create_app(
         settings_path=Path(fixture["settings"]),
         platform=ScriptedPlatform(root),
         today=lambda: today,
-        tool_paths=tool_paths,
+        metrics_files=metrics,
+        configuration_files=ConfigurationFiles(**configuration),
     )
 
     def record_bound_server(url: str) -> None:

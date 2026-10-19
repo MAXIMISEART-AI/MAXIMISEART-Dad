@@ -6,7 +6,7 @@ Z tych modeli powstaje OpenAPI, a z niego schematy zod i typy w
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -134,6 +134,81 @@ class Opened(_Model):
     name: str
 
 
+MetricsProcess = Literal["preparation", "settlement"]
+RunMode = Literal["RUN", "DRY-RUN"]
+RunResult = Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
+
+
+class PhaseDuration(_Model):
+    phase: str
+    duration_ms: int
+
+
+class ProcessRun(_Model):
+    """Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
+
+    ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+    """
+
+    process: MetricsProcess
+    process_label: str
+    started_at: datetime
+    mode: RunMode
+    period: str
+    result: RunResult
+    total_duration_ms: int
+    phase_durations: list[PhaseDuration]
+    origin: Literal["cmd", "centrum"]
+
+
+class PhasePercentiles(_Model):
+    phase: str
+    p50_ms: int
+    p95_ms: int
+
+
+class Percentiles(_Model):
+    """P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach."""
+
+    p50_ms: int
+    p95_ms: int
+    phases: list[PhasePercentiles]
+
+
+class ResultCounts(_Model):
+    ok: int
+    needs_review: int
+    critical: int
+
+
+class ModeStatistics(_Model):
+    """Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji."""
+
+    process: MetricsProcess
+    mode: RunMode
+    completed_runs: int
+    percentiles: Percentiles | None
+    results: ResultCounts
+
+
+class RecentResults(_Model):
+    """Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni)."""
+
+    weeks: int
+    since: date
+    results: ResultCounts
+
+
+class Metrics(_Model):
+    """Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego."""
+
+    phases: list[str]
+    minimum_completed_runs: int
+    runs: list[ProcessRun]
+    statistics: list[ModeStatistics]
+    recent: RecentResults
+
+
 # Uruchomienia procesu. Każdy proces ma klucz; Przebieg rozliczeń dopisze swój (#99).
 ProcessKey = Literal["preparation"]
 PhaseName = Literal["Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"]
@@ -189,7 +264,7 @@ class OperationProgress(_Model):
 class Progress(_Model):
     """Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane."""
 
-    mode: Literal["RUN", "DRY-RUN"]
+    mode: RunMode
     period: str
     phases: list[PhaseProgress]
     current_phase: PhaseName | None
@@ -226,8 +301,8 @@ class RunInfo(_Model):
     dry_run: bool
 
 
-class Message(_Model):
-    """Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) z liniami terminala; jednoliniowy ma tylko ``what``."""
+class RunMessage(_Model):
+    """Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``)."""
 
     what: str
     where: str | None
@@ -249,7 +324,7 @@ class Decision(_Model):
 
     question: str
     title: str | None
-    message: Message | None
+    message: RunMessage | None
     count_groups: list[CountGroup]
 
 
@@ -265,7 +340,7 @@ class PreparationSummary(_Model):
     collective_file: str
 
 
-class RunResult(_Model):
+class RunOutcome(_Model):
     """Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
@@ -273,14 +348,14 @@ class RunResult(_Model):
     akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
     """
 
-    result: Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
+    result: RunResult
     headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
     status_line: str
     total_duration_ms: int
-    stops: list[Message]
-    warnings: list[Message]
+    stops: list[RunMessage]
+    warnings: list[RunMessage]
     notices: list[str]
     summary: PreparationSummary | None
     lines: list[str]
@@ -314,7 +389,7 @@ class RunFinished(_Model):
     run: RunInfo
     progress: Progress
     progress_stale: bool
-    result: RunResult
+    result: RunOutcome
 
 
 RunView = Annotated[RunIdle | RunRunning | RunAwaitingDecision | RunFinished, Field(discriminator="state")]
@@ -329,3 +404,58 @@ class RunEvent(_Model):
 
 class DecisionAnswer(_Model):
     answer: Literal["continue", "abort"]
+
+
+class Message(_Model):
+    """Komunikat w trzech częściach, ta sama treść co w terminalu."""
+
+    what: str
+    where: str
+    action: str
+
+
+class TemplateReady(_Model):
+    """Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie."""
+
+    state: Literal["ready"]
+    label: str
+    file_name: str
+
+
+TemplateProblemKind = Literal["missing", "open_in_excel", "unreadable"]
+
+
+class TemplateProblem(_Model):
+    """Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania."""
+
+    state: Literal["problem"]
+    label: str
+    file_name: str
+    problem: TemplateProblemKind
+    message: Message
+
+
+TemplateStatus = Annotated[TemplateReady | TemplateProblem, Field(discriminator="state")]
+
+
+class WorkersReady(_Model):
+    """Nazwy Wykonawców w kolejności z konfiguracji wykonawców."""
+
+    state: Literal["ready"]
+    names: list[str]
+
+
+class WorkersUnreadable(_Model):
+    state: Literal["unreadable"]
+    message: Message
+
+
+Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
+
+
+class Configuration(_Model):
+    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."""
+
+    version: str
+    templates: list[TemplateStatus]
+    workers: Workers

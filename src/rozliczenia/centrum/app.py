@@ -1,6 +1,7 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
-Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``, ``runs_router``);
+Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
+``runs_router``, ``metrics_router``, ``configuration_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004) i
 zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``.
 """
@@ -17,13 +18,15 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
+from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.preparation_run import PreparationEntry
+from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
 from rozliczenia.centrum.settings import SettingsStore, settings_router
-from rozliczenia.centrum.tool_paths import ToolPaths
 from rozliczenia.centrum.version import tool_version
 
 SERVICE: Final = "centrum-rozliczen"
@@ -37,7 +40,8 @@ def create_app(
     settings_path: Path,
     platform: Platform,
     today: Callable[[], date] = date.today,
-    tool_paths: ToolPaths | None = None,
+    metrics_files: MetricsFiles | None = None,
+    configuration_files: ConfigurationFiles | None = None,
 ) -> FastAPI:
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -64,11 +68,17 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
+    metrics = metrics_files or MetricsFiles.of_cli()
+    configuration = configuration_files or ConfigurationFiles.default()
+    # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
+    centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
     # Jedno Uruchomienie procesu naraz; ``runs.in_progress()`` blokuje zamknięcie serwera w jego trakcie.
     runs = RunHost()
     app.state.runs = runs
-    tools = tool_paths or ToolPaths()
-    app.include_router(runs_router(runs, [PreparationEntry(store, tools, today)]))
+    preparation = PreparationEntry(store, configuration, metrics.preparation, centrum_runs, today)
+    app.include_router(runs_router(runs, [preparation]))
+    app.include_router(metrics_router(metrics, today, centrum_runs))
+    app.include_router(configuration_router(configuration))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")
     return app

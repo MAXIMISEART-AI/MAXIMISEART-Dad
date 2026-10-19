@@ -1,0 +1,72 @@
+import type * as React from "react"
+import { ClockIcon, FileSpreadsheetIcon, ListChecksIcon } from "lucide-react"
+
+import { getMetrics, type PeriodRow } from "@/api/centrum"
+import { otherResults, RunResultBadge } from "@/components/run-result-badge"
+import { StatStrip, type Stat } from "@/components/stat-strip"
+import { Skeleton } from "@/components/ui/skeleton"
+import { dateTime } from "@/lib/format"
+import { useResource } from "@/lib/use-resource"
+
+/**
+ * Najważniejsze liczby na stronie głównej: ostatni przygotowany okres (z Tablicy okresów),
+ * ostatnie Uruchomienie procesu i wyniki z ostatnich tygodni (z plików metryk).
+ */
+export function PeriodStats({ periods }: { periods: ReadonlyArray<PeriodRow> }) {
+  const { resource: metrics } = useResource(getMetrics)
+  // Tablica okresów jest od najnowszego, więc pierwszy okres z Plikiem zbiorczym jest ostatnim przygotowanym.
+  const prepared = periods.find((period) => period.collective_file_exists)
+
+  const preparedStat: Stat = {
+    label: "Ostatni przygotowany okres",
+    icon: <FileSpreadsheetIcon aria-hidden />,
+    value: prepared?.token ?? "–",
+    note: prepared?.status_label ?? "jeszcze nie ma Pliku zbiorczego",
+  }
+
+  if (metrics.state !== "ready") {
+    const pending: Pick<Stat, "value" | "note"> =
+      metrics.state === "loading"
+        ? { value: <Skeleton className="h-8 w-24" />, note: <Skeleton className="h-4 w-36" /> }
+        : { value: "–", note: metrics.message }
+
+    return (
+      <StatStrip
+        label="Najważniejsze liczby"
+        stats={[
+          preparedStat,
+          { label: "Ostatnie uruchomienie", icon: <ClockIcon aria-hidden />, ...pending },
+          { label: "Ostatnie 8 tygodni", icon: <ListChecksIcon aria-hidden />, ...pending },
+        ]}
+      />
+    )
+  }
+
+  const [latest] = metrics.data.runs
+  const { recent } = metrics.data
+  const latestValue: React.ReactNode = latest === undefined ? "–" : <RunResultBadge result={latest.result} />
+
+  return (
+    <StatStrip
+      label="Najważniejsze liczby"
+      stats={[
+        preparedStat,
+        {
+          label: "Ostatnie uruchomienie",
+          icon: <ClockIcon aria-hidden />,
+          value: latestValue,
+          note:
+            latest === undefined
+              ? "jeszcze nie było"
+              : `${latest.process_label} · ${dateTime(latest.started_at)}`,
+        },
+        {
+          label: `Ostatnie ${recent.weeks} tygodni`,
+          icon: <ListChecksIcon aria-hidden />,
+          value: `${recent.results.ok} OK`,
+          note: otherResults(recent.results),
+        },
+      ]}
+    />
+  )
+}
