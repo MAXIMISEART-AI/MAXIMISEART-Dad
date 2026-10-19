@@ -227,6 +227,40 @@ def _metrics(root: Path) -> dict[str, object]:
     }
 
 
+def _dad_layout(root: Path) -> dict[str, object]:
+    """Dad's folder layout: ``Załączniki\\Rozliczenia {rok}\\{miesiąc}\\INEA\\{okres}``, months as billing cycles.
+
+    ``06_12_10_2026`` (the last complete period) has both period files in the October folder, so the
+    board shows it as prepared; ``29_05_10_2026`` crosses the month and sits in October by its Monday.
+    """
+
+    attachments = root / "Załączniki"
+    september = attachments / "Rozliczenia 2026" / "09_Wrzesień_2026" / "INEA"
+    october = attachments / "Rozliczenia 2026" / "10_Październik_2026" / "INEA"
+    november = attachments / "Rozliczenia 2026" / "11_Listopad_2026" / "INEA"
+    for folder in (september, october, november):
+        folder.mkdir(parents=True)
+    (attachments / "Rozliczenia 2026" / "Nowe rozliczenia wzór od 01_2026" / "Podpisane").mkdir(parents=True)
+    (september / "22_28_09_2026").mkdir()
+    (september / "Podpisane").mkdir()
+    _period_files(october, "29_05_10_2026")
+    prepared = _period_files(october, LAST_COMPLETE)
+    (october / "13_19_10_2026").mkdir()
+    (november / "27_02_11_2026").mkdir()
+    return {
+        "periods_directory": str(attachments),
+        "opened": str(prepared / f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx"),
+        # token, Status okresu, last complete period
+        "board": [
+            ["27_02_11_2026", "no_period_files", False],
+            ["13_19_10_2026", "no_period_files", False],
+            [LAST_COMPLETE, "collective_file_prepared", True],
+            ["29_05_10_2026", "collective_file_prepared", False],
+            ["22_28_09_2026", "no_period_files", False],
+        ],
+    }
+
+
 def create(root: Path) -> dict[str, object]:
     root.mkdir(parents=True)
     (root / "config").mkdir()
@@ -262,6 +296,8 @@ def create(root: Path) -> dict[str, object]:
         # Przebieg rozliczeń: one Wiersz danych per Wykonawca after Przygotowanie of the last complete period,
         # and the period whose Podgląd bez zapisu needs checking
         "settlement": {"rows_per_worker": [1, 1, 1], "needs_check": NEEDS_CHECK},
+        # Dad's own layout with months as billing cycles, for uklad-folderow-taty
+        "dad_layout": _dad_layout(root),
         # token, Status okresu, number of Rozliczenia pracowników, last complete period
         "board": [
             [LAST_COMPLETE, "no_period_files", 0, True],

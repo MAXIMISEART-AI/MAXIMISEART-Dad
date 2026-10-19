@@ -19,7 +19,7 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
-`--feature ustawienia`, `--feature tablica-okresow`, `--feature konfiguracja`,
+`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
 `--feature przebieg-rozliczen`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending

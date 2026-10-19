@@ -26,7 +26,7 @@ def drive_settings(run: Run, page: Page) -> None:
     run.step(feature, "ustawienia-folder-okresow")
     choose_periods_directory(run, page)
     run.check(
-        run.lines("dialogs.jsonl")[-1]["title"] == "Wybierz folder okresów (np. INEA)",
+        run.lines("dialogs.jsonl")[-1]["title"] == "Wybierz folder okresów (np. Załączniki albo INEA)",
         "the folder picker opened with the CLI's title",
     )
     run.check(
