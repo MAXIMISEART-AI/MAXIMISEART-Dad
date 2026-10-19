@@ -12,10 +12,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
-from openpyxl.utils import get_column_letter
 
-from . import collective_file
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
+from .workbook_files import WORKER_HEADER
 
 # Kody czytane poza katalogiem: decyzja o niepełnym okresie i problemy Wzorców w Konfiguracji Centrum.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
@@ -153,8 +152,8 @@ def template_without_header(template_path: Path, sheet: str, row: int, header: s
 def template_with_worker_outside_h(template_path: Path, sheet: str, column: str) -> Message:
     """Wzorzec pliku zbiorczego ma WYKONAWCA poza H17, a Przebieg rozliczeń czyta Wykonawcę z H17."""
 
-    worker_column = get_column_letter(collective_file.WORKER_COLUMN)
-    header_row = collective_file.HEADER_ROW
+    worker_column = WORKER_HEADER.column
+    header_row = WORKER_HEADER.row
     return Message(
         code="WYKONAWCA_POZA_H",
         what=(

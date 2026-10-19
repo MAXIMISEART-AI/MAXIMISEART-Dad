@@ -19,39 +19,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection
 from openpyxl.utils import get_column_letter
-from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.dimensions import Dimension
 from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from . import collective_file, workbook_files
+from . import workbook_files
 from . import preparation_messages as messages
 from .engine import normalize_text
 from .message import Message, StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
-
-
-@dataclass(frozen=True)
-class _TemplateLayout:
-    """Gdzie we wzorcu jest nagłówek i od którego wiersza trafiają zlecenia."""
-
-    header_row: int
-    first_data_row: int
-    last_header_column: int | None  # ``None``: cały wiersz nagłówka
-
-
-_INTERNAL = _TemplateLayout(header_row=1, first_data_row=2, last_header_column=None)
-_COLLECTIVE = _TemplateLayout(
-    header_row=collective_file.HEADER_ROW,
-    first_data_row=collective_file.FIRST_DATA_ROW,
-    last_header_column=collective_file.INPUT_COLUMNS[-1],
-)
+from .workbook_files import Layout, Problem, TemplateSheet, WorkbookError
 
 
 @dataclass(frozen=True)
@@ -85,36 +67,24 @@ def check_templates(files: PeriodFiles) -> None:
 def check_internal_template(template_path: Path) -> None:
     """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki."""
 
-    _ensure_template_available(template_path)
-    with _open_template(template_path, _INTERNAL):
+    with _template(template_path, Layout.INTERNAL):
         pass
 
 
 def check_collective_template(template_path: Path) -> None:
     """Wzorzec pliku zbiorczego jak ``check_internal_template`` i z WYKONAWCA w H17."""
 
-    _ensure_template_available(template_path)
-    with _open_template(template_path, _COLLECTIVE) as (_, sheet, _):
+    with _template(template_path, Layout.COLLECTIVE) as (sheet, _):
         try:
-            collective_file.check_worker_header(sheet)
-        except collective_file.LayoutError as exc:
+            sheet.check_worker_header()
+        except WorkbookError as exc:
             if exc.worker_column is None:
                 raise StopError(
-                    messages.template_without_header(
-                        template_path, sheet.title, collective_file.HEADER_ROW, "WYKONAWCA"
-                    )
+                    messages.template_without_header(template_path, sheet.title, sheet.header_row, "WYKONAWCA")
                 ) from exc
             raise StopError(
                 messages.template_with_worker_outside_h(template_path, sheet.title, exc.worker_column)
             ) from exc
-
-
-def _ensure_template_available(template_path: Path) -> None:
-    availability = workbook_files.availability(template_path)
-    if availability is workbook_files.Availability.MISSING:
-        raise StopError(messages.template_missing(template_path))
-    if availability is workbook_files.Availability.OPEN_IN_EXCEL:
-        raise StopError(messages.template_open_in_excel(template_path))
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:
@@ -133,11 +103,12 @@ def plan_period_files(files: PeriodFiles, order_count: int, successful_count: in
     Wzorca pliku zbiorczego nie wydłużamy, więc za mało wierszy z zerami to ostrzeżenie.
     """
 
-    with _open_template(files.internal_template, _INTERNAL) as (_, sheet, positions):
-        _ensure_rows_writable(files.internal_template, sheet, positions, _INTERNAL.first_data_row, order_count)
-    with _open_template(files.collective_template, _COLLECTIVE) as (_, sheet, positions):
-        _ensure_rows_writable(files.collective_template, sheet, positions, _COLLECTIVE.first_data_row, successful_count)
-        zero_row_count = _zero_row_count(sheet)
+    with _template(files.internal_template, Layout.INTERNAL) as (sheet, positions):
+        _ensure_rows_writable(files.internal_template, sheet, positions, order_count)
+    with _template(files.collective_template, Layout.COLLECTIVE) as (sheet, positions):
+        _ensure_rows_writable(files.collective_template, sheet, positions, successful_count)
+        zero_row_count = sheet.zero_row_count()
+        first_row_without_zeros = sheet.data_row(zero_row_count)
     if successful_count <= zero_row_count:
         return []
     return [
@@ -145,7 +116,7 @@ def plan_period_files(files: PeriodFiles, order_count: int, successful_count: in
             files.folder.collective_file.name,
             successful_count,
             zero_row_count,
-            _COLLECTIVE.first_data_row + zero_row_count,
+            first_row_without_zeros,
         )
     ]
 
@@ -170,10 +141,10 @@ def write_period_files(
             staged_directory = Path(staging) / folder.directory.name
             staged_directory.mkdir()
             internal_name, collective_name = files.filenames
-            _write_period_file(files.internal_template, _INTERNAL, staged_directory / internal_name, orders)
+            _write_period_file(files.internal_template, Layout.INTERNAL, staged_directory / internal_name, orders)
             _write_period_file(
                 files.collective_template,
-                _COLLECTIVE,
+                Layout.COLLECTIVE,
                 staged_directory / collective_name,
                 successful_orders,
                 recalculate_on_open=True,
@@ -184,26 +155,28 @@ def write_period_files(
 
 
 @contextmanager
-def _open_template(
-    template_path: Path, layout: _TemplateLayout
-) -> Iterator[tuple[Workbook, Worksheet, list[int]]]:
-    """Wzorzec z arkuszem roboczym i kolumnami ``COLUMNS``; problem ze wzorcem to zatrzymanie."""
+def _template(
+    template_path: Path, layout: Layout, target: Path | None = None, *, recalculate_on_open: bool = False
+) -> Iterator[tuple[TemplateSheet, list[int]]]:
+    """Wzorzec z kolumnami ``COLUMNS``; problem z otwarciem wzorca to zatrzymanie.
+
+    Z ``target`` to plik z Wzorca zapisany pod ``target`` przy wyjściu z bloku.
+    Zły układ tłumaczy ``check_collective_template``, bo zna arkusz.
+    """
 
     try:
-        workbook = load_workbook(template_path, read_only=False, data_only=False, keep_links=True)
-    except workbook_files.UNREADABLE_WORKBOOK_ERRORS as exc:
-        raise StopError(messages.template_unreadable(template_path)) from exc
-    try:
-        sheet = workbook.active
-        if not isinstance(sheet, Worksheet):
-            raise StopError(messages.template_unreadable(template_path))
-        header = [
-            sheet.cell(layout.header_row, column).value
-            for column in range(1, (layout.last_header_column or sheet.max_column) + 1)
-        ]
-        yield workbook, sheet, _target_columns(template_path, sheet.title, layout.header_row, header)
-    finally:
-        workbook.close()
+        with (
+            workbook_files.open_template(template_path, layout)
+            if target is None
+            else workbook_files.file_from_template(template_path, target, layout, recalculate=recalculate_on_open)
+        ) as sheet:
+            yield sheet, _target_columns(template_path, sheet.title, sheet.header_row, sheet.header())
+    except WorkbookError as error:
+        if error.problem is Problem.MISSING:
+            raise StopError(messages.template_missing(template_path)) from error
+        if error.problem is Problem.OPEN_IN_EXCEL:
+            raise StopError(messages.template_open_in_excel(template_path)) from error
+        raise StopError(messages.template_unreadable(template_path)) from error
 
 
 def _target_columns(template_path: Path, sheet_title: str, header_row: int, header: Sequence[object]) -> list[int]:
@@ -222,38 +195,17 @@ def _target_columns(template_path: Path, sheet_title: str, header_row: int, head
 
 
 def _ensure_rows_writable(
-    template_path: Path, sheet: Worksheet, positions: Sequence[int], first_row: int, row_count: int
+    template_path: Path, sheet: TemplateSheet, positions: Sequence[int], row_count: int
 ) -> None:
     """Zatrzymanie, gdy komórki, do których trafią zlecenia, są scalone we wzorcu."""
 
     if row_count == 0:
         return
-    last_row = first_row + row_count - 1
-    for merged in sheet.merged_cells.ranges:
+    first_row, last_row = sheet.data_row(0), sheet.data_row(row_count - 1)
+    for merged in sheet.worksheet.merged_cells.ranges:
         overlaps_rows = merged.min_row <= last_row and merged.max_row >= first_row
         if overlaps_rows and any(merged.min_col <= position <= merged.max_col for position in positions):
             raise StopError(messages.template_with_merged_cells(template_path, sheet.title, merged.coord))
-
-
-def _is_zero(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0
-
-
-def _zero_row_count(sheet: Worksheet) -> int:
-    """Liczba kolejnych wierszy danych Wzorca pliku zbiorczego z zerami w kolumnach ilości."""
-
-    quantity_columns = collective_file.QUANTITY_COLUMNS
-    count = 0
-    for values in sheet.iter_rows(
-        min_row=_COLLECTIVE.first_data_row,
-        min_col=quantity_columns[0],
-        max_col=quantity_columns[-1],
-        values_only=True,
-    ):
-        if not any(_is_zero(value) for value in values):
-            break
-        count += 1
-    return count
 
 
 def _apply_template_style(sheet: Worksheet, cell: Cell) -> None:
@@ -304,28 +256,25 @@ def _set_autofilter(sheet: Worksheet, header_row: int, order_count: int) -> None
 
 def _write_period_file(
     template_path: Path,
-    layout: _TemplateLayout,
+    layout: Layout,
     target: Path,
     orders: Sequence[PeriodOrder],
     *,
     recalculate_on_open: bool = False,
 ) -> None:
-    """Kopia wzorca ze zleceniami od pierwszego wiersza danych; odwołania zewnętrzne zostają 1:1."""
+    """Plik z Wzorca ze zleceniami od pierwszego wiersza danych; odwołania zewnętrzne zostają 1:1."""
 
-    with _open_template(template_path, layout) as (workbook, sheet, positions):
-        _ensure_rows_writable(template_path, sheet, positions, layout.first_data_row, len(orders))
-        for row, order in enumerate(orders, start=layout.first_data_row):
+    with _template(template_path, layout, target, recalculate_on_open=recalculate_on_open) as (sheet, positions):
+        _ensure_rows_writable(template_path, sheet, positions, len(orders))
+        for index, order in enumerate(orders):
             for position, register_cell in zip(positions, order.row.cells):
-                cell = sheet.cell(row, position)
+                cell = sheet.worksheet.cell(sheet.data_row(index), position)
                 if not isinstance(cell, Cell):  # scalona komórka; wykluczona przez _ensure_rows_writable
                     raise StopError(messages.template_with_merged_cells(template_path, sheet.title, cell.coordinate))
-                _apply_template_style(sheet, cell)
+                _apply_template_style(sheet.worksheet, cell)
                 cell.value = register_cell.value  # type: ignore[assignment]
                 _apply_register_format(cell, register_cell.format)
-        _set_autofilter(sheet, layout.header_row, len(orders))
-        if recalculate_on_open:
-            workbook_files.request_full_recalculation(workbook)
-        workbook_files.save_workbook(workbook, target, external_links_from=template_path)
+        _set_autofilter(sheet.worksheet, sheet.header_row, len(orders))
 
 
 def _publish(staged_directory: Path, files: PeriodFiles) -> None:
