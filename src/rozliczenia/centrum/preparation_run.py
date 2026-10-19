@@ -18,9 +18,10 @@ from rozliczenia import preparation_cli
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
+from rozliczenia.centrum.period_board import observed_period_folder
 from rozliczenia.centrum.runs import PreparedRun
-from rozliczenia.centrum.settings import CentrumSettings, SettingsStore
-from rozliczenia.period_folder import PeriodFolder, period_status_label
+from rozliczenia.settings import Settings, SettingsStore
+from rozliczenia.period_folder import period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 
@@ -94,7 +95,7 @@ class PreparationEntry:
         )
 
 
-def _blocker(settings: CentrumSettings) -> str | None:
+def _blocker(settings: Settings) -> str | None:
     missing = [
         name
         for name, path in (("Rejestr zleceń", settings.register), ("folder okresów", settings.periods_directory))
@@ -104,11 +105,13 @@ def _blocker(settings: CentrumSettings) -> str | None:
 
 
 def _choice(
-    settings: CentrumSettings, period: SettlementPeriod, *, last_complete: bool, previewed: bool
+    settings: Settings, period: SettlementPeriod, *, last_complete: bool, previewed: bool
 ) -> contract.PeriodChoice:
     periods_directory = settings.periods_directory
     status = (
-        PeriodFolder(periods_directory, period).observe().status if periods_directory is not None else "no_period_files"
+        observed_period_folder(periods_directory, period).observe().status
+        if periods_directory is not None
+        else "no_period_files"
     )
     return contract.PeriodChoice(
         token=period.token,

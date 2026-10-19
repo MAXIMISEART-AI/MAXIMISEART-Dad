@@ -28,7 +28,8 @@ from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
-from rozliczenia.centrum.settings import SettingsStore, settings_router
+from rozliczenia.centrum.settings import settings_router
+from rozliczenia.settings import SettingsStore
 from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.version import SERVICE, tool_version

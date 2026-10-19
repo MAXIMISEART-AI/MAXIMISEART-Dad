@@ -37,10 +37,11 @@ class SettlingCentrum:
     periods_directory: Path
     metrics_path: Path
     log_path: Path
+    period_parent: Path
 
     @property
     def period_directory(self) -> Path:
-        return self.periods_directory / PERIOD
+        return self.period_parent / PERIOD
 
     @property
     def worker_settlements(self) -> Path:
@@ -54,12 +55,18 @@ class SettlingCentrum:
         return [json.loads(line) for line in text.splitlines()]
 
 
-def settling_centrum(tmp_path: Path, *, include_unmapped: bool = False) -> SettlingCentrum:
-    """Centrum z zapamiętanym folderem okresów, w którym okres ma tylko syntetyczny Plik zbiorczy."""
+def settling_centrum(
+    tmp_path: Path, *, include_unmapped: bool = False, dad_layout: bool = False
+) -> SettlingCentrum:
+    """Centrum z zapamiętanym folderem okresów, w którym okres ma tylko syntetyczny Plik zbiorczy.
 
-    periods_directory = tmp_path / "INEA"
-    (periods_directory / PERIOD).mkdir(parents=True)
-    write_source(periods_directory / PERIOD / SOURCE_NAME, include_unmapped=include_unmapped)
+    ``dad_layout`` kładzie Folder okresu w ``Załączniki\\Rozliczenia 2026\\09_Wrzesień_2026\\INEA``.
+    """
+
+    periods_directory = tmp_path / ("Załączniki" if dad_layout else "INEA")
+    parent = periods_directory / "Rozliczenia 2026" / "09_Wrzesień_2026" / "INEA" if dad_layout else periods_directory
+    (parent / PERIOD).mkdir(parents=True)
+    write_source(parent / PERIOD / SOURCE_NAME, include_unmapped=include_unmapped)
     config = tmp_path / "config"
     config.mkdir()
     worker_template = config / "Wzorzec rozliczenia pracownika.xlsx"
@@ -85,7 +92,7 @@ def settling_centrum(tmp_path: Path, *, include_unmapped: bool = False) -> Settl
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
     client.post("/api/settings/periods-directory/choose")
-    return SettlingCentrum(client, periods_directory, metrics_path, log_path)
+    return SettlingCentrum(client, periods_directory, metrics_path, log_path, parent)
 
 
 def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozliczen_pracownikow(tmp_path: Path) -> None:
@@ -150,6 +157,33 @@ def test_uruchom_publikuje_folder_rozliczen_pracownikow_i_zmienia_status_okresu(
     assert (row["status_label"], row["worker_settlement_count"]) == ("Rozliczenia pracowników gotowe", 3)
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"], record["counters"]["written"]) == ("RUN", "OK", 2)
+
+
+def test_w_ukladzie_folderow_taty_uruchom_publikuje_rozliczenia_pracownikow_w_folderze_miesiaca(
+    tmp_path: Path,
+) -> None:
+    centrum = settling_centrum(tmp_path, dad_layout=True)
+
+    setup = settlement_setup(centrum.client)
+    result = run_to_end(centrum, dry_run=False)["result"]
+
+    assert [choice["token"] for choice in setup["periods"]] == [PERIOD]
+    assert result["headline"] == "Rozliczenia pracowników gotowe"
+    assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME, WORKER_SETTLEMENTS]
+
+
+def test_w_ukladzie_folderow_taty_okres_bez_folderu_okresu_jest_odrzucony(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path, dad_layout=True)
+
+    refused = centrum.start(dry_run=True, period="15_21_09_2026")
+
+    assert (refused.status_code, refused.json()) == (
+        404,
+        {
+            "message": "Nie ma folderu 15_21_09_2026 w żadnym folderze miesiąca. "
+            "Załóż go w folderze INEA właściwego miesiąca."
+        },
+    )
 
 
 def test_blad_przy_szablonie_pracownika_nie_publikuje_zadnego_pliku_pracownika(

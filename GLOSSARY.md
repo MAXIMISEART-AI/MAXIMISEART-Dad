@@ -93,6 +93,19 @@ rozliczeń pracowników. Może istnieć wcześniej, zanim powstaną te pliki.
 Folder, którego nazwa nie jest tokenem żadnego okresu (na przykład
 `09_15_09_2026`, bo 9 września 2026 to nie wtorek), nie jest Folderem okresu.
 
+## Folder okresów
+
+Folder, w którym narzędzie szuka Folderów okresu. W układzie folderów taty to
+`Załączniki`, a Foldery okresu leżą w `Rozliczenia {rok}\{miesiąc}\INEA`.
+Miesiąc to cykl rozliczeniowy taty, nie kalendarz, więc Folder okresu zakłada
+tata, a narzędzie go odszukuje. Bez folderów `Rozliczenia {rok}` Foldery okresu
+leżą w folderze okresów bezpośrednio (np. `INEA`).
+
+## Ustawienia taty
+
+Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. Launchery
+`.cmd` biorą je stamtąd i pytają oknem wyboru tylko o to, czego brak.
+
 ## Folder rozliczeń pracowników
 
 Folder danego okresu zawierający osobny skoroszyt dla każdego wykonawcy.

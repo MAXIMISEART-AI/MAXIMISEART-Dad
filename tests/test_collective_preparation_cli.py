@@ -13,6 +13,7 @@ from typing import Any, NoReturn
 import pytest
 
 from rozliczenia import collective_preparation, preparation_register
+from rozliczenia import settings as settings_file
 import rozliczenia.cli as cli
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
@@ -24,6 +25,7 @@ from tests.collective_preparation_fixtures import (
     PERIOD,
     PreparationFixture,
     RegisterRow,
+    make_dad_layout_fixture,
     make_preparation_fixture,
     register_order,
 )
@@ -528,8 +530,53 @@ def test_rejestr_and_folder_okresow_are_chosen_in_dialogs_one_after_another(
     exit_code = main(arguments_without_paths(fixture), output=StringIO())
 
     assert exit_code == 0
-    assert shown == ["Wybierz plik Rejestru zleceń", "Wybierz folder okresów (np. INEA)"]
+    assert shown == ["Wybierz plik Rejestru zleceń", "Wybierz folder okresów (np. Załączniki albo INEA)"]
     assert fixture.internal_settlement_path.is_file()
+    assert fixture.collective_file_path.is_file()
+
+
+def test_with_ustawienia_taty_launcher_takes_rejestr_and_folder_okresow_without_dialogs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+    shown = install_dialogs(monkeypatch, file="", directory="")
+    monkeypatch.setattr(
+        settings_file,
+        "load_settings",
+        lambda: settings_file.Settings(register=fixture.register_path, periods_directory=fixture.periods_directory),
+    )
+    output = StringIO()
+
+    exit_code = main(
+        without_option(arguments_without_paths(fixture), "--period"),
+        output=output,
+        input_stream=StringIO("\n"),
+        today=date(2026, 9, 16),
+    )
+
+    assert exit_code == 0, output.getvalue()
+    assert shown == []
+    assert "Proponowany okres: 08_14_09_2026 " in output.getvalue()
+    assert fixture.collective_file_path.is_file()
+
+
+def test_ustawienia_taty_with_moved_rejestr_fall_back_to_dialog_only_for_rejestr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    shown = install_dialogs(monkeypatch, file=str(fixture.register_path), directory="")
+    monkeypatch.setattr(
+        settings_file,
+        "load_settings",
+        lambda: settings_file.Settings(
+            register=tmp_path / "przeniesiony.xlsx", periods_directory=fixture.periods_directory
+        ),
+    )
+
+    exit_code = main(arguments_without_paths(fixture), output=StringIO())
+
+    assert exit_code == 0
+    assert shown == ["Wybierz plik Rejestru zleceń"]
     assert fixture.collective_file_path.is_file()
 
 

@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from functools import partial
 from pathlib import Path
 from typing import TextIO
 
 from . import collective_preparation
+from . import settings as settings_file
 from . import preparation_messages as messages
 from .collective_preparation import (
     PreparationSummary,
@@ -28,8 +29,7 @@ from .decision import Conversation
 from .domain import ProgressObserver
 from .message import Message, StopError
 from .process_run import Finished, Process, Stop, TerminalSummary, TerminalView, run
-from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
-from .terminal_conversation import TerminalConversation
+from .terminal_conversation import TerminalConversation, ask_period
 from .worker_config import default_config_path
 
 _TITLE = "Przygotowanie pliku zbiorczego"
@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--periods-directory",
         type=Path,
-        help="Folder okresów, w którym powstaje Folder okresu; bez niego okno wyboru folderu.",
+        help="Folder okresów z Folderami okresu; bez niego folder z Ustawień Centrum albo okno wyboru folderu.",
     )
     parser.add_argument(
         "--period",
@@ -108,31 +108,6 @@ def _summary_lines(summary: PreparationSummary, *, dry_run: bool) -> list[str]:
     return lines
 
 
-def _period_label(period: SettlementPeriod) -> str:
-    return f"{period.token} (wtorek {period.tuesday:%d.%m.%Y} – poniedziałek {period.monday:%d.%m.%Y})"
-
-
-def _ask_period(today: date, conversation: TerminalConversation) -> str:
-    """Proponuje ostatni pełny okres; Enter go potwierdza, inny poprawny token go zastępuje."""
-
-    proposed = last_complete_period(today)
-    previous = SettlementPeriod(proposed.tuesday - timedelta(days=7))
-    conversation.say(
-        f"Proponowany okres: {_period_label(proposed)}",
-        f"Enter potwierdza ten okres. Inny okres wpisz jak w nazwie folderu, np. {previous.token}.",
-    )
-    while True:
-        answer = conversation.ask("Okres: ")
-        if answer is None:
-            raise StopError(messages.period_not_entered())
-        if not answer:
-            return proposed.token
-        try:
-            return parse_period_token(answer).token
-        except ValueError:
-            conversation.say(*messages.invalid_period_token(answer).text.splitlines())
-
-
 @dataclass(frozen=True)
 class PreparationInputs:
     """Wejście procesu Przygotowania pliku zbiorczego, niezależne od argumentów CLI.
@@ -150,15 +125,31 @@ class PreparationInputs:
 
 
 def _gather(today: date | None, args: argparse.Namespace, conversation: TerminalConversation) -> PreparationInputs:
-    register_path = args.register or conversation.choose_file(
-        "Wybierz plik Rejestru zleceń", [("Rejestr zleceń Excel", "ZLECENIA*.xlsx"), ("Excel", "*.xlsx")]
+    """Argumenty, potem Ustawienia taty z Centrum rozliczeń, a okno wyboru tylko dla tego, czego nie wskazano."""
+
+    settings = settings_file.load_settings()
+    register_path = (
+        args.register
+        or settings.existing_register
+        or conversation.choose_file(
+            "Wybierz plik Rejestru zleceń", [("Rejestr zleceń Excel", "ZLECENIA*.xlsx"), ("Excel", "*.xlsx")]
+        )
     )
     if register_path is None:
         raise StopError(messages.register_not_selected())
-    periods_directory = args.periods_directory or conversation.choose_folder("Wybierz folder okresów (np. INEA)")
+    periods_directory = (
+        args.periods_directory
+        or settings.existing_periods_directory
+        or conversation.choose_folder("Wybierz folder okresów (np. Załączniki albo INEA)")
+    )
     if periods_directory is None:
         raise StopError(messages.periods_directory_not_selected())
-    period = args.period or _ask_period(today or date.today(), conversation)
+    period = args.period or ask_period(
+        today or date.today(),
+        conversation,
+        not_entered=messages.period_not_entered(),
+        invalid_token=messages.invalid_period_token,
+    ).token
     return PreparationInputs(
         register_path,
         periods_directory,

@@ -29,6 +29,7 @@ from tests.collective_preparation_fixtures import (
     PERIOD,
     PreparationFixture,
     RegisterRow,
+    make_dad_layout_fixture,
     make_preparation_fixture,
     register_order,
     write_collective_template,
@@ -222,6 +223,19 @@ def test_existing_empty_folder_okresu_is_allowed(tmp_path: Path) -> None:
 
     assert fixture.internal_settlement_path.is_file()
     assert fixture.collective_file_path.is_file()
+
+
+def test_in_dad_layout_period_files_go_to_folder_okresu_found_in_its_month(tmp_path: Path) -> None:
+    fixture = make_dad_layout_fixture(tmp_path)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_directory == fixture.period_directory
+    assert fixture.period_directory.parent.parent.name == "09_Wrzesień_2026"
+    assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
+        [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
+    )
+    assert not (fixture.periods_directory / PERIOD).exists()
 
 
 @pytest.mark.parametrize("existing_name", [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME])

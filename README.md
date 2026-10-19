@@ -66,8 +66,10 @@ ukończonych obserwacjach tego samego trybu (`RUN` albo `DRY-RUN`).
 
 ## Uruchomienie Przebiegu rozliczeń przez CMD
 
-Dwuklik `Utwórz rozliczenia.cmd` otwiera wybór pliku zbiorczego. Ścieżkę można
-też podać od razu:
+Dwuklik `Utwórz rozliczenia.cmd` z folderem okresów w Ustawieniach taty pyta o
+okres z propozycją ostatniego pełnego okresu, tak jak Przygotowanie pliku
+zbiorczego, i bierze Plik zbiorczy z jego Folderu okresu. Bez Ustawień taty
+otwiera okno wyboru Pliku zbiorczego. Ścieżkę można też podać od razu:
 
 ```powershell
 Utwórz rozliczenia.cmd "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
@@ -82,7 +84,7 @@ powstają razem albo żaden.
 ### Reguły procesu
 
 - Wejście: Rejestr zleceń (`ZLECENIA INTERMAX OD 08_11_2021.xlsx`), folder
-  okresów (np. `INEA`) i token okresu.
+  okresów (u taty `Załączniki`, w układzie płaskim np. `INEA`) i token okresu.
 - Okres rozliczeniowy trwa od wtorku 00:00 do następnego wtorku 00:00. Token
   `dd_dd_mm_rrrr` zawiera dzień wtorku, dzień poniedziałku oraz miesiąc i rok
   poniedziałku, np. `08_14_09_2026`, a na przełomie miesięcy `27_02_11_2026`
@@ -113,9 +115,16 @@ powstają razem albo żaden.
   Rejestru. Krój i rozmiar czcionki, szerokości kolumn, wysokości wierszy,
   nagłówek i blokada nagłówka pochodzą z wzorca. Autofiltr obejmuje nagłówek i
   wiersze danych.
-- Folder okresu `{folder okresów}\{okres}` może już istnieć. Nienadpisywanie:
-  jeśli istnieje w nim którykolwiek z dwóch plików okresu, proces się
-  zatrzymuje.
+- Folder okresu leży w układzie folderów taty w
+  `{folder okresów}\Rozliczenia {rok}\{miesiąc}\INEA\{okres}`, a w układzie
+  płaskim w `{folder okresów}\{okres}`. Układ folderów taty obowiązuje, gdy
+  folder okresów ma foldery `Rozliczenia {rok}`. Miesiąc to cykl rozliczeniowy
+  taty, więc Folder okresu jest szukany we wszystkich miesiącach, a nie
+  wyliczany. W układzie folderów taty brak Folderu okresu albo ten sam okres w
+  dwóch miesiącach zatrzymuje proces; w płaskim brakujący Folder okresu powstaje
+  przy zapisie ([ADR 0006](docs/adr/0006-uklad-folderow-taty-i-wspolne-ustawienia.md)).
+- Folder okresu może już istnieć. Nienadpisywanie: jeśli istnieje w nim
+  którykolwiek z dwóch plików okresu, proces się zatrzymuje.
 - Oba pliki są przygotowywane w katalogu tymczasowym i publikowane razem. Błąd
   nie zostawia żadnego z nich ani nowo założonego Folderu okresu. Wyjątek
   zaakceptowany w [ADR 0005](docs/adr/0005-przerwana-publikacja-plikow-okresu.md):
@@ -147,10 +156,12 @@ parametry `--internal-template` i `--collective-template`, tak jak
 
 ### Uruchomienie
 
-Dla taty: dwuklik `Przygotuj plik zbiorczy.cmd`. Launcher otwiera kolejno okno
-wyboru pliku Rejestru i okno wyboru folderu okresów, proponuje ostatni pełny
-okres przed dzisiejszą datą (Enter potwierdza, można wpisać inny token) i po
-zakończeniu czeka na klawisz. Argumenty podane launcherowi trafiają bez zmian do
+Dla taty: dwuklik `Przygotuj plik zbiorczy.cmd`. Launcher bierze Rejestr zleceń
+i folder okresów z Ustawień taty wskazanych w Centrum rozliczeń
+(`config\centrum-ustawienia.yaml`). Okno wyboru otwiera tylko dla tego, czego
+tam nie ma albo co zniknęło z dysku. Potem proponuje ostatni pełny okres przed
+dzisiejszą datą (Enter potwierdza, można wpisać inny token) i po zakończeniu
+czeka na klawisz. Argumenty podane launcherowi trafiają bez zmian do
 `run_preparation.py`.
 
 Kontrola bez zapisu z wiersza poleceń:
@@ -161,8 +172,8 @@ py -3 run_preparation.py --dry-run --register "C:\Dane\ZLECENIA INTERMAX OD 08_1
 
 | Parametr | Domyślnie | Znaczenie |
 |---|---|---|
-| `--register` | okno wyboru pliku | Rejestr zleceń. |
-| `--periods-directory` | okno wyboru folderu | Folder okresów, w którym powstaje Folder okresu. |
+| `--register` | Ustawienia taty, potem okno wyboru pliku | Rejestr zleceń. |
+| `--periods-directory` | Ustawienia taty, potem okno wyboru folderu | Folder okresów z Folderami okresu. |
 | `--period` | pytanie z propozycją | Token okresu. |
 | `--config` | `config\worker_mapping.yaml` | Konfiguracja wykonawców. |
 | `--internal-template` | `config\Wzorzec rozliczenia wewnętrznego.xlsx` | Wzorzec rozliczenia wewnętrznego. |

@@ -54,16 +54,6 @@ class PeriodFiles:
         return (self.folder.internal_settlement.name, self.folder.collective_file.name)
 
 
-def check_templates(files: PeriodFiles) -> None:
-    """Sprawdzanie: oba wzorce istnieją, nie są otwarte, dają się odczytać i mają oczekiwane nagłówki.
-
-    Wzorzec pliku zbiorczego ma ponadto WYKONAWCA w H17, bo stamtąd czyta go Przebieg rozliczeń.
-    """
-
-    check_internal_template(files.internal_template)
-    check_collective_template(files.collective_template)
-
-
 def check_internal_template(template_path: Path) -> None:
     """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki."""
 
