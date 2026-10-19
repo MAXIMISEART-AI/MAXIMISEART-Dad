@@ -115,22 +115,6 @@ def _environment(browser: Path) -> dict[str, str]:
     return environment
 
 
-def test_centrum_startuje_na_localhost_i_otwiera_karte_w_przegladarce(tmp_path: Path) -> None:
-    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
-    browser, opened = _browser_recorder(tmp_path)
-    port = _free_port()
-
-    with _started(
-        [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)], runtime, _environment(browser)
-    ):
-        health = _health(port)
-        address = _wait_for_line(opened)
-
-    assert health["service"] == "centrum-rozliczen"
-    assert address == f"http://127.0.0.1:{port}/"
-    assert not (runtime / "config" / "centrum-ustawienia.yaml").exists()
-
-
 @pytest.mark.skipif(os.name != "nt", reason="The CMD launcher is Windows-only.")
 def test_launcher_cmd_uruchamia_centrum_z_konsola_i_otwiera_przegladarke(tmp_path: Path) -> None:
     runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
@@ -192,6 +176,7 @@ def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path:
     assert addresses == [f"http://127.0.0.1:{port}/"] * 2
     assert still_serving["service"] == "centrum-rozliczen"
     assert first.text.count("Centrum rozliczeń działa:") == 1
+    assert not (runtime / "config" / "centrum-ustawienia.yaml").exists()
 
 
 def _log_events(runtime: Path) -> list[str]:

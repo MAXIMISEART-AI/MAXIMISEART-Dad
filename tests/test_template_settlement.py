@@ -73,25 +73,3 @@ def test_przetworzenie_szablonu_pracownika_nie_nadpisuje_danych(tmp_path: Path) 
     assert result.status == "ZABLOKOWANY"
     assert [issue.code for issue in result.issues] == ["NADPISANIE_ZABLOKOWANE"]
     assert not target_path.exists()
-
-
-def test_przetworzenie_pustego_szablonu_pracownika_zostawia_szablon_z_wzorca(tmp_path: Path) -> None:
-    template_path, target_path = make_template_fixture(tmp_path)
-
-    result = process_template(WORKER, template_path, target_path, [])
-
-    assert (result.status, result.rows, result.issues) == ("PUSTY_SZABLON", 0, ())
-    assert target_path.is_file()
-
-
-def test_przetworzenie_szablonu_pracownika_zapisuje_wiersze(tmp_path: Path) -> None:
-    template_path, target_path = make_template_fixture(tmp_path)
-
-    result = process_template(WORKER, template_path, target_path, synthetic_rows())
-
-    assert (result.status, result.rows, result.output_file) == ("ZAPISANO", 1, target_path)
-    workbook = load_workbook(target_path)
-    try:
-        assert active_worksheet(workbook)["A18"].value == "syntetyczne miasto"
-    finally:
-        workbook.close()

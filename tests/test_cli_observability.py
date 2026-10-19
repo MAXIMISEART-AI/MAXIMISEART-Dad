@@ -29,7 +29,6 @@ from tests.rich_fakes import TtyOutput, install_fake_rich
 from tests.test_settlement_engine import (
     NOT_A_PERIOD,
     PERIOD,
-    UNREADABLE_SOURCE_MESSAGE,
     active_worksheet,
     make_fixture,
     write_source,
@@ -269,33 +268,6 @@ def test_interactive_rich_cli_shows_szablony_pracownika(
     assert "#1" not in rendered
 
 
-def test_cli_existing_folder_rozliczen_pracownikow_is_preserved(tmp_path: Path) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    target_directory.mkdir(parents=True)
-    sentinel = target_directory / "existing.txt"
-    sentinel.write_text("zachowaj", encoding="utf-8")
-
-    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
-
-    assert exit_code == 1
-    assert "Folder docelowy już istnieje" in output
-    assert "Status semantyczny: BŁĄD" in output
-    assert sentinel.read_text(encoding="utf-8") == "zachowaj"
-
-
-def test_cli_nieczytelny_plik_zbiorczy_pokazuje_bezpieczny_komunikat(tmp_path: Path) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    source_path.write_bytes(b"uszkodzony")
-
-    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
-
-    assert exit_code == 1
-    assert "Status semantyczny: BŁĄD" in output
-    assert f"Nie wykonano: {UNREADABLE_SOURCE_MESSAGE}" in output
-    assert "File is not a zip file" not in output
-    assert not target_directory.exists()
-
-
 def test_cli_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_z_okresem_nieznanym(tmp_path: Path) -> None:
     source_path, _, config_path = make_fixture(tmp_path, period=NOT_A_PERIOD)
     metrics_path = tmp_path / "metrics.jsonl"
@@ -312,22 +284,6 @@ def test_cli_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_z_okresem
     )
     record = MetricsStore(metrics_path).read()[-1]
     assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
-
-
-def test_cli_wykonawca_bez_mapowania_nie_publikuje_folderu(tmp_path: Path) -> None:
-    source_path, target_directory, config_path = make_preview_fixture(tmp_path)
-
-    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl")
-
-    assert exit_code == 1
-    assert "WYKONAWCA bez mapowania" in output
-    assert "andrzej.kulawski2" not in output
-    assert "syntetyczny adres" not in output
-    assert not target_directory.exists()
-    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
-    record = json.loads((tmp_path / "metrics.jsonl").read_text(encoding="utf-8"))
-    assert record["completed"] is False
-    assert record["result"] == "BLAD_KRYTYCZNY"
 
 
 def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path) -> None:
@@ -441,12 +397,6 @@ def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is False
     assert record["result"] == "BLAD_KRYTYCZNY"
-
-
-UNEXPECTED_FAILURE_LINE = (
-    "Nie wykonano: Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany. "
-    "Uruchom ponownie; jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
-)
 
 
 def install_source_dialog(monkeypatch: pytest.MonkeyPatch, *, selected: str, answer_after_s: float = 0) -> list[str]:

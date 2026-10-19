@@ -9,7 +9,6 @@ from io import StringIO
 import itertools
 import json
 from pathlib import Path
-import subprocess
 import time
 from typing import Any, NoReturn
 
@@ -23,8 +22,6 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
-from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
-from rozliczenia.settings import default_settings_path
 from rozliczenia.centrum.shutdown import Shutdown
 
 from tests.collective_preparation_fixtures import (
@@ -36,7 +33,7 @@ from tests.collective_preparation_fixtures import (
     make_preparation_fixture,
     register_order,
 )
-from tests.test_centrum_rozliczen import CENTRUM, ROOT, FakePlatform, centrum as bare_centrum
+from tests.test_centrum_rozliczen import CENTRUM, FakePlatform, centrum as bare_centrum
 
 # Wtorek po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
@@ -654,14 +651,6 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     assert centrum.fixture.collective_file_path.is_file()
     [record] = centrum.metric_records()
     assert (record["result"], record["completed"]) == ("OK", True)
-
-
-def test_dziennik_uruchomien_z_centrum_jest_poza_gitem_obok_ustawien() -> None:
-    log = (default_settings_path().parent / CENTRUM_RUNS_FILE).relative_to(ROOT)
-
-    ignored = subprocess.run(["git", "check-ignore", "--quiet", str(log)], cwd=ROOT, check=False)
-
-    assert ignored.returncode == 0
 
 
 def test_zamkniecie_centrum_w_trakcie_uruchomienia_procesu_jest_odrzucone(tmp_path: Path) -> None:

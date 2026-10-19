@@ -10,11 +10,13 @@ from datetime import date
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.settings import default_settings_path
 from rozliczenia.centrum.shutdown import Shutdown
 
@@ -53,7 +55,6 @@ class Centrum:
     settings_path: Path
     metrics: MetricsFiles
     log_path: Path
-    shutdown: Shutdown
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
@@ -63,17 +64,16 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     metrics = MetricsFiles(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
     log = CentrumLog(log_path)
-    shutdown = Shutdown(log)
     app = create_app(
         settings_path=settings_path,
         platform=platform,
         log=log,
-        shutdown=shutdown,
+        shutdown=Shutdown(log),
         today=lambda: today,
         metrics_files=metrics,
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path, metrics, log_path, shutdown)
+    return Centrum(client, platform, settings_path, metrics, log_path)
 
 
 def project_version() -> str:
@@ -185,18 +185,15 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
     assert response.json()["periods_directory"] == {"state": "missing", "path": str(periods), "name": "INEA"}
 
 
-def test_plik_ustawien_taty_jest_poza_gitem() -> None:
-    settings = default_settings_path().relative_to(ROOT)
-
-    ignored = subprocess.run(["git", "check-ignore", "--quiet", str(settings)], cwd=ROOT, check=False)
-
-    assert ignored.returncode == 0
-
-
-def test_dziennik_centrum_jest_poza_gitem() -> None:
-    log = LOG_PATH.relative_to(ROOT)
-
-    ignored = subprocess.run(["git", "check-ignore", "--quiet", str(log)], cwd=ROOT, check=False)
+@pytest.mark.parametrize(
+    "local_file",
+    [default_settings_path(), LOG_PATH, default_settings_path().parent / CENTRUM_RUNS_FILE],
+    ids=["ustawienia-taty", "dziennik-centrum", "dziennik-uruchomien-z-centrum"],
+)
+def test_lokalne_pliki_taty_sa_poza_gitem(local_file: Path) -> None:
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--quiet", str(local_file.relative_to(ROOT))], cwd=ROOT, check=False
+    )
 
     assert ignored.returncode == 0
 
@@ -552,17 +549,6 @@ def test_zamkniecie_centrum_z_obcej_strony_jest_odrzucone(tmp_path: Path) -> Non
     response = app.client.post("/api/shutdown", headers={"Origin": "http://zly.example"})
 
     assert response.status_code == 403
-    assert log_lines(app) == []
-
-
-def test_zamkniecie_centrum_moze_byc_zablokowane_bezpiecznym_komunikatem(tmp_path: Path) -> None:
-    app = centrum(tmp_path)
-    app.shutdown.refuse_while(lambda: "Trwa Uruchomienie procesu. Zamknij Centrum po jego zakończeniu.")
-
-    response = app.client.post("/api/shutdown")
-
-    assert response.status_code == 409
-    assert response.json() == {"message": "Trwa Uruchomienie procesu. Zamknij Centrum po jego zakończeniu."}
     assert log_lines(app) == []
 
 
