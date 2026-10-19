@@ -111,6 +111,33 @@ def finished_view(client: TestClient) -> dict[str, Any]:
     return views_until(client, "finished")[-1]
 
 
+# Podsumowanie wyniku na domyślnym syntetycznym Rejestrze zleceń, takie samo w podglądzie i przy Uruchom.
+SUMMARY: dict[str, Any] = {
+    "figures": [
+        {"label": "Zlecenia okresu", "value": 4, "unit": "count"},
+        {"label": "Zlecenia skuteczne", "value": 3, "unit": "count"},
+        {"label": "Pominięte puste wiersze", "value": 5, "unit": "count"},
+    ],
+    "counts": {
+        "title": "Zlecenia na dzień",
+        "counts": [
+            {"label": "wt 08.09.2026", "count": 1},
+            {"label": "śr 09.09.2026", "count": 1},
+            {"label": "czw 10.09.2026", "count": 0},
+            {"label": "pt 11.09.2026", "count": 0},
+            {"label": "sob 12.09.2026", "count": 1},
+            {"label": "niedz 13.09.2026", "count": 0},
+            {"label": "pon 14.09.2026", "count": 1},
+        ],
+    },
+    "files": [
+        {"name": INTERNAL_SETTLEMENT_NAME, "kind": "internal_settlement"},
+        {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
+    ],
+    "file_plan": None,
+}
+
+
 def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
 
@@ -125,31 +152,12 @@ def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu
     result = finished["result"]
     assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "run")
     assert result["headline"] == "Podgląd gotowy · nic nie zapisano"
-    assert result["summary"] == {
-        "figures": [
-            {"label": "Zlecenia okresu", "value": 4, "unit": "count"},
-            {"label": "Zlecenia skuteczne", "value": 3, "unit": "count"},
-            {"label": "Pominięte puste wiersze", "value": 5, "unit": "count"},
-        ],
-        "counts": {
-            "title": "Zlecenia na dzień",
-            "counts": [
-                {"label": "wt 08.09.2026", "count": 1},
-                {"label": "śr 09.09.2026", "count": 1},
-                {"label": "czw 10.09.2026", "count": 0},
-                {"label": "pt 11.09.2026", "count": 0},
-                {"label": "sob 12.09.2026", "count": 1},
-                {"label": "niedz 13.09.2026", "count": 0},
-                {"label": "pon 14.09.2026", "count": 1},
-            ],
-        },
-        "files": [
-            {"name": INTERNAL_SETTLEMENT_NAME, "kind": "internal_settlement"},
-            {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
-        ],
-        "file_plan": None,
-    }
+    assert result["summary"] == SUMMARY
     assert (result["stops"], result["warnings"]) == ([], [])
+    assert [(figure["label"], figure["unit"]) for figure in finished["progress"]["figures"]] == [
+        ("Ostrzeżenia", "count"),
+        ("Czas uruchomienia", "ms"),
+    ]
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["mode"], record["period"], record["result"]) == ("DRY-RUN", PERIOD, "OK")
@@ -164,6 +172,7 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
 
     assert (result["result"], result["next_action"]) == ("OK", "open_period_folder")
     assert result["headline"] == "Plik zbiorczy przygotowany"
+    assert result["summary"] == SUMMARY
     assert sorted(path.name for path in centrum.fixture.period_directory.iterdir()) == [
         COLLECTIVE_FILE_NAME,
         INTERNAL_SETTLEMENT_NAME,
