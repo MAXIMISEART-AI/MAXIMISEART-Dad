@@ -1,0 +1,130 @@
+import * as React from "react"
+import { ChartColumnIcon, GaugeIcon, ListChecksIcon, TimerIcon } from "lucide-react"
+
+import { getMetrics, type Metrics } from "@/api/centrum"
+import { PageHeader } from "@/components/page-header"
+import { otherResults } from "@/components/run-result-badge"
+import { SegmentedFilter } from "@/components/segmented-filter"
+import { StatStrip } from "@/components/stat-strip"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import { Skeleton } from "@/components/ui/skeleton"
+import { seconds } from "@/lib/format"
+import { useResource } from "@/lib/use-resource"
+import { InterruptedRunsCard } from "@/pages/metrics/interrupted-runs-card"
+import { MODE_OPTIONS, PROCESS_OPTIONS, type Mode, type Process } from "@/pages/metrics/process-runs"
+import { RunHistoryCard } from "@/pages/metrics/run-history-card"
+import { StageTimesCard } from "@/pages/metrics/stage-times-card"
+
+export function MetricsPage() {
+  const { resource: metrics } = useResource(getMetrics)
+  const [process, setProcess] = React.useState<Process>("preparation")
+  const [mode, setMode] = React.useState<Mode>("RUN")
+  const hasRuns = metrics.state === "ready" && metrics.data.runs.length > 0
+
+  // Jeden filtr w nagłówku steruje statystykami i wykresem; historia ma własne filtry.
+  const filters = hasRuns ? (
+    <>
+      <SegmentedFilter label="Proces" options={PROCESS_OPTIONS} value={process} onChange={setProcess} />
+      <SegmentedFilter label="Tryb" options={MODE_OPTIONS} value={mode} onChange={setMode} />
+    </>
+  ) : undefined
+
+  return (
+    <>
+      <PageHeader title="Metryki" action={filters} />
+      {metrics.state === "loading" ? <MetricsSkeleton /> : null}
+      {metrics.state === "failed" ? (
+        <Alert variant="destructive" className="wejscie">
+          <AlertTitle>Nie udało się odczytać metryk</AlertTitle>
+          <AlertDescription>{metrics.message}</AlertDescription>
+        </Alert>
+      ) : null}
+      {metrics.state === "ready" && !hasRuns ? <NoMetrics /> : null}
+      {metrics.state === "ready" && hasRuns ? (
+        <MetricsContent metrics={metrics.data} process={process} mode={mode} />
+      ) : null}
+    </>
+  )
+}
+
+function MetricsContent({ metrics, process, mode }: { metrics: Metrics; process: Process; mode: Mode }) {
+  const runs = metrics.runs.filter((run) => run.process === process && run.mode === mode)
+  const statistics = metrics.statistics.find((entry) => entry.process === process && entry.mode === mode)
+  const percentiles = statistics?.percentiles ?? undefined
+  const tooFew = `od ${metrics.minimum_completed_runs} ukończonych (jest ${statistics?.completed_runs ?? 0})`
+
+  return (
+    <div className="pojawienie flex flex-col gap-6">
+      <StatStrip
+        label="Statystyki"
+        stats={[
+          {
+            label: "P50",
+            icon: <TimerIcon aria-hidden />,
+            value: percentiles === undefined ? "–" : seconds(percentiles.p50_ms),
+            note: percentiles === undefined ? tooFew : "typowy czas",
+          },
+          {
+            label: "P95",
+            icon: <GaugeIcon aria-hidden />,
+            value: percentiles === undefined ? "–" : seconds(percentiles.p95_ms),
+            note: percentiles === undefined ? tooFew : "najdłuższy zwykły czas",
+          },
+          {
+            label: "Wyniki",
+            icon: <ListChecksIcon aria-hidden />,
+            value: `${statistics?.results.ok ?? 0} OK`,
+            note: statistics === undefined ? undefined : otherResults(statistics.results),
+          },
+        ]}
+      />
+      <StageTimesCard phases={metrics.phases} runs={runs} percentiles={percentiles} />
+      <InterruptedRunsCard phases={metrics.phases} runs={metrics.runs} />
+      <RunHistoryCard runs={metrics.runs} />
+    </div>
+  )
+}
+
+function NoMetrics() {
+  return (
+    <Card>
+      <CardContent>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ChartColumnIcon />
+            </EmptyMedia>
+            <EmptyTitle>Jeszcze nie ma metryk</EmptyTitle>
+            <EmptyDescription>
+              Pojawią się po pierwszym Uruchomieniu procesu, z Centrum albo z launchera .cmd.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MetricsSkeleton() {
+  return (
+    <div className="flex flex-col gap-6" aria-busy="true" aria-label="Wczytywanie metryk">
+      <Skeleton className="h-28 w-full rounded-xl" />
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-36" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-72 w-full" />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

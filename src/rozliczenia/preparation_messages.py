@@ -11,7 +11,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-
 from openpyxl.utils import get_column_letter
 
 from . import collective_file
@@ -536,8 +535,11 @@ def incomplete_period(
     )
 
 
-def incomplete_period_refused(period: str) -> PreparationError:
-    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie."""
+def incomplete_period_refused(period: str, continue_hint: str) -> PreparationError:
+    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie.
+
+    ``continue_hint`` mówi, jak u rozmówcy wyraża się zgodę, np. „przy pytaniu wpisz t”.
+    """
 
     return PreparationError(
         PreparationMessage(
@@ -546,7 +548,7 @@ def incomplete_period_refused(period: str) -> PreparationError:
             where=f"okres {period}",
             action=(
                 "Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. "
-                "Jeśli okres jest pełny, przy pytaniu wpisz t."
+                f"Jeśli okres jest pełny, {continue_hint}."
             ),
         )
     )
@@ -596,14 +598,20 @@ def unexpected_failure() -> PreparationMessage:
     )
 
 
-def summary_not_shown() -> PreparationMessage:
-    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty."""
+def summary_not_shown(*, warns_against_rerun: bool = False) -> PreparationMessage:
+    """Pliki okresu powstały, ale podsumowania nie dało się pokazać; treść wyjątku nie trafia do taty.
 
+    W terminalu „nie uruchamiaj ponownie” mówi tabela w instrukcji. Gdzie tata
+    nie zagląda do tabeli (Centrum rozliczeń), ``warns_against_rerun`` dopisuje
+    to do „Co zrobić”.
+    """
+
+    check = "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
     return PreparationMessage(
         code="BLAD_PODSUMOWANIA",
         what="Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
         where="Przygotowanie pliku zbiorczego",
-        action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+        action=f"Nie uruchamiaj ponownie: oba pliki okresu już są. {check}" if warns_against_rerun else check,
     )
 
 

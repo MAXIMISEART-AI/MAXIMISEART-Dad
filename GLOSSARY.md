@@ -119,6 +119,14 @@ wartości szablonu nie są same w sobie wierszami danych.
 rozliczenia pracowników. W pierwszej wersji gotowość jest potwierdzana przez
 uruchomienie procesu, a nie zgadywana na podstawie samego zapisu pliku.
 
+## Status okresu
+
+Etap okresu rozliczeniowego wynikający z plików w jego Folderze okresu: Brak
+plików okresu, gdy nie ma Pliku zbiorczego; Plik zbiorczy przygotowany, gdy
+jest Plik zbiorczy, ale nie ma Folderu rozliczeń pracowników; Rozliczenia
+pracowników gotowe, gdy jest Folder rozliczeń pracowników. Nie zastępuje
+Gotowości: Plik zbiorczy przygotowany nie znaczy, że tata go zakończył.
+
 ## Przebieg rozliczeń
 
 Jedno uruchomienie procesu od wskazania Pliku zbiorczego do wyniku końcowego
@@ -128,10 +136,21 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 ## Uruchomienie procesu
 
 Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
-launchera, od wskazania plików przez tatę do wyniku końcowego. Kończy się
-sukcesem, wynikiem wymagającym sprawdzenia albo zatrzymaniem z bezpiecznym
-komunikatem zrozumiałym dla taty, nigdy z treścią błędu technicznego.
+launchera albo z Centrum rozliczeń, od ustalenia plików i okresu do wyniku
+końcowego. Decyzja taty o niepełnym okresie należy do Uruchomienia procesu bez
+względu na to, skąd wystartowało; nie jest z definicji pytaniem w terminalu.
+Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo zatrzymaniem z
+bezpiecznym komunikatem zrozumiałym dla taty, nigdy z treścią błędu
+technicznego.
 _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
+
+## Centrum rozliczeń
+
+Lokalna aplikacja w przeglądarce na komputerze taty, z której uruchamia
+Przygotowanie pliku zbiorczego i Przebieg rozliczeń oraz widzi Status okresu
+każdego okresu i historię Uruchomień procesu. Jest drugim wejściem do tych
+samych procesów obok launcherów, nie osobnym procesem.
+_Avoid_: dashboard, panel, centrum dowodzenia
 
 ## Zdarzenie przebiegu
 

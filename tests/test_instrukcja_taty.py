@@ -1,8 +1,10 @@
-"""Instrukcja dla taty a katalog komunikatów Przygotowania pliku zbiorczego.
+"""Instrukcja dla taty a katalogi komunikatów Przygotowania pliku zbiorczego i startu Centrum rozliczeń.
 
 Tabela „komunikat → co zrobić” w ``docs/tata-instrukcja.md`` ma wiersz dla
 każdego zatrzymania i ostrzeżenia, a jej wiersze cytują faktyczną treść „Co się
-stało” z katalogu. Zmiana treści komunikatu bez poprawki instrukcji psuje test.
+stało” z katalogu. Tak samo tabela komunikatów startu Centrum rozliczeń i tabela
+zatrzymań Przebiegu rozliczeń w Centrum (``settlement_messages``). Zmiana
+treści komunikatu bez poprawki instrukcji psuje test.
 """
 
 from __future__ import annotations
@@ -14,7 +16,12 @@ from pathlib import Path
 import re
 
 from rozliczenia import preparation_messages as messages
+from rozliczenia import settlement_messages
+from rozliczenia.centrum import start_problems
+from rozliczenia.centrum.start_problems import StartProblem
+from rozliczenia.domain import Issue
 from rozliczenia.preparation_messages import PreparationError, PreparationMessage
+from rozliczenia.settlement_messages import SettlementError, SettlementMessage
 
 
 INSTRUCTION = Path(__file__).resolve().parents[1] / "docs" / "tata-instrukcja.md"
@@ -79,13 +86,16 @@ CATALOG_SAMPLES: dict[str, list[Callable[[], PreparationError | PreparationMessa
     "incomplete_period": [
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],
-    "incomplete_period_refused": [lambda: messages.incomplete_period_refused(PERIOD)],
+    "incomplete_period_refused": [
+        lambda: messages.incomplete_period_refused(PERIOD, "przy pytaniu wpisz t"),
+        lambda: messages.incomplete_period_refused(PERIOD, "przy decyzji wybierz „Kontynuuj”"),
+    ],
     "write_failed": [lambda: messages.write_failed(PERIOD_DIRECTORY)],
     "write_failed_with_file_left": [
         lambda: messages.write_failed_with_file_left(PERIOD_DIRECTORY, f"Rozliczenie wew. {PERIOD}.xlsx")
     ],
     "unexpected_failure": [messages.unexpected_failure],
-    "summary_not_shown": [messages.summary_not_shown],
+    "summary_not_shown": [messages.summary_not_shown, lambda: messages.summary_not_shown(warns_against_rerun=True)],
     "plan_not_shown": [messages.plan_not_shown],
 }
 
@@ -107,12 +117,12 @@ def _catalog_messages() -> list[PreparationMessage]:
     return result
 
 
-def _instruction_fragments() -> list[str]:
+def _instruction_fragments(section: str = MESSAGES_SECTION) -> list[str]:
     """Cytaty „…” z pierwszej kolumny tabel w sekcji komunikatów instrukcji."""
 
     lines = INSTRUCTION.read_text(encoding="utf-8").splitlines()
-    start = lines.index(MESSAGES_SECTION)
-    level = MESSAGES_SECTION.split(" ", 1)[0]
+    start = lines.index(section)
+    level = section.split(" ", 1)[0]
     fragments: list[str] = []
     for line in lines[start + 1 :]:
         if line.startswith("#") and len(line.split(" ", 1)[0]) <= len(level):
@@ -146,3 +156,108 @@ def test_instrukcja_taty_quotes_only_actual_message_texts() -> None:
 
     assert {fragment: codes for fragment, codes in codes_per_fragment.items() if len(codes) != 1} == {}
     assert len(codes_per_fragment) == len(set().union(*codes_per_fragment.values()))
+
+
+START_SECTION = "### Komunikaty startu Centrum rozliczeń"
+START_SAMPLES: dict[str, Callable[[], StartProblem]] = {
+    "port_taken": lambda: start_problems.port_taken(47811),
+    "other_version_running": lambda: start_problems.other_version_running(47811, "0.0.9"),
+    "missing_library": lambda: start_problems.missing_library("fastapi"),
+    "unexpected_start_failure": start_problems.unexpected_start_failure,
+}
+
+
+def test_start_samples_cover_every_centrum_start_problem() -> None:
+    factories = {
+        name
+        for name, function in inspect.getmembers(start_problems, inspect.isfunction)
+        if function.__module__ == start_problems.__name__ and not name.startswith("_")
+    }
+
+    assert set(START_SAMPLES) == factories
+
+
+def test_instrukcja_taty_wyjasnia_kazdy_komunikat_startu_centrum() -> None:
+    fragments = _instruction_fragments(START_SECTION)
+    problems = [sample() for sample in START_SAMPLES.values()]
+    quoted = {problem.code: [fragment for fragment in fragments if fragment in problem.what] for problem in problems}
+
+    assert {code: found for code, found in quoted.items() if len(found) != 1} == {}
+    assert len(fragments) == len(problems)
+
+
+SETTLEMENT_SECTION = "### Komunikat w Centrum rozliczeń → co zrobić"
+SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
+WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
+WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
+# Tylko terminal: w Centrum Plik zbiorczy wynika z okresu, więc okna wyboru pliku nie ma.
+SETTLEMENT_TERMINAL_ONLY = {"collective_file_not_selected"}
+SETTLEMENT_SAMPLES: dict[str, list[Callable[[], SettlementError | SettlementMessage]]] = {
+    "collective_file_missing": [lambda: settlement_messages.collective_file_missing(SOURCE)],
+    "collective_file_open": [lambda: settlement_messages.collective_file_open(SOURCE)],
+    "collective_file_invalid": [
+        lambda: settlement_messages.collective_file_invalid(SOURCE, "Skoroszyt źródłowy nie zawiera arkusza.")
+    ],
+    "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
+    "worker_config_unreadable": [lambda: settlement_messages.worker_config_unreadable(CONFIG)],
+    "worker_config_not_yaml": [lambda: settlement_messages.worker_config_not_yaml(CONFIG)],
+    "worker_config_invalid": [
+        lambda: settlement_messages.worker_config_invalid(CONFIG, "Nieobsługiwana wersja konfiguracji.")
+    ],
+    "worker_template_invalid": [
+        lambda: settlement_messages.worker_template_invalid(
+            WORKER_TEMPLATE, "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
+        )
+    ],
+    "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
+    "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
+    "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
+    "worker_files_not_copied": [lambda: settlement_messages.worker_files_not_copied(WORKER_TEMPLATE)],
+    "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
+    "write_failed": [lambda: settlement_messages.write_failed(WORKER_SETTLEMENTS)],
+    "unexpected_failure": [settlement_messages.unexpected_failure],
+    "summary_not_shown": [settlement_messages.summary_not_shown],
+    "plan_not_shown": [settlement_messages.plan_not_shown],
+    "issue_message": [
+        lambda: settlement_messages.issue_message(
+            Issue("BRAK_MAPOWANIA", "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników."), SOURCE
+        ),
+        lambda: settlement_messages.issue_message(
+            Issue("BRAK_WYKONAWCY", "Wiersz 19 ma dane, ale nie ma wykonawcy w kolumnie H."), SOURCE
+        ),
+    ],
+}
+
+
+def _settlement_messages() -> list[SettlementMessage]:
+    produced = [sample() for samples in SETTLEMENT_SAMPLES.values() for sample in samples]
+    return [message.message if isinstance(message, SettlementError) else message for message in produced]
+
+
+def test_settlement_samples_cover_every_przebieg_message_factory() -> None:
+    factories = {
+        name
+        for name, function in inspect.getmembers(settlement_messages, inspect.isfunction)
+        if function.__module__ == settlement_messages.__name__ and not name.startswith("_")
+    }
+
+    assert set(SETTLEMENT_SAMPLES) | SETTLEMENT_TERMINAL_ONLY == factories
+
+
+def test_instrukcja_taty_wyjasnia_kazde_zatrzymanie_przebiegu_rozliczen_w_centrum() -> None:
+    fragments = _instruction_fragments(SETTLEMENT_SECTION)
+    catalog = _settlement_messages()
+    codes_per_fragment = {
+        fragment: {message.code for message in catalog if fragment in message.what} for fragment in fragments
+    }
+
+    assert sorted({message.code for message in catalog if not any(f in message.what for f in fragments)}) == []
+    assert {fragment: codes for fragment, codes in codes_per_fragment.items() if len(codes) != 1} == {}
+    assert len(codes_per_fragment) == len(set().union(*codes_per_fragment.values()))
+
+
+def test_zatrzymania_przebiegu_w_centrum_nie_maja_pelnych_sciezek() -> None:
+    shown = " ".join(f"{message.what} {message.where} {message.action}" for message in _settlement_messages())
+
+    assert "Narzedzie" not in shown
+    assert "Dane" not in shown

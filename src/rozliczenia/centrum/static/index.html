@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pl" class="dark" style="color-scheme: dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Centrum rozliczeń</title>
+    <script>
+      // Motyw ciemny domyślnie; zapamiętany jasny już przy pierwszym malowaniu, zanim przyjdą ustawienia z serwera.
+      try {
+        if (localStorage.getItem("centrum-rozliczen-motyw") === "light") {
+          document.documentElement.classList.remove("dark")
+          document.documentElement.style.colorScheme = "light"
+        }
+      } catch {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-FXvk6H6n.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CxHXlj9A.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

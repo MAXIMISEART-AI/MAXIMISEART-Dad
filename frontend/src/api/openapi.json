@@ -1,0 +1,2527 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Centrum rozliczeń",
+    "version": "kontrakt"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Read",
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/register/choose": {
+      "post": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Choose Register",
+        "operationId": "chooseRegister",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Choice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/periods-directory/choose": {
+      "post": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Choose Periods Directory",
+        "operationId": "choosePeriodsDirectory",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Choice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/theme": {
+      "put": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Change Theme",
+        "operationId": "changeTheme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThemeChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/periods": {
+      "get": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Board",
+        "operationId": "getPeriodBoard",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BoardNotSet"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BoardMissing"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BoardReady"
+                    }
+                  ],
+                  "title": "Response Getperiodboard",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "not_set": "#/components/schemas/BoardNotSet",
+                      "missing": "#/components/schemas/BoardMissing",
+                      "ready": "#/components/schemas/BoardReady"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/periods/{token}/open": {
+      "post": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Open Period Path",
+        "operationId": "openPeriodPath",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Opened"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/setup": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Setup",
+        "operationId": "getRunSetup",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunSetup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Start",
+        "operationId": "startRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "title": "Response Startrun",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/current": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Current",
+        "operationId": "getCurrentRun",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "title": "Response Getcurrentrun",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/decision": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Decide",
+        "operationId": "decideRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionAnswer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  },
+                  "title": "Response Deciderun"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/events": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Events",
+        "operationId": "streamRunEvents",
+        "responses": {
+          "200": {
+            "description": "Strumień SSE; każde pole `data` to `RunEvent` (JSON).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEvent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "tags": [
+          "metryki"
+        ],
+        "summary": "Metrics",
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metrics"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/configuration": {
+      "get": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Configuration",
+        "operationId": "getConfiguration",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shutdown": {
+      "post": {
+        "tags": [
+          "centrum"
+        ],
+        "summary": "Close",
+        "operationId": "closeCentrum",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Closing"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BoardMissing": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "missing",
+            "title": "State"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "name"
+        ],
+        "title": "BoardMissing"
+      },
+      "BoardNotSet": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "not_set",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "BoardNotSet"
+      },
+      "BoardReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/PeriodRow"
+            },
+            "type": "array",
+            "title": "Periods"
+          },
+          "last_prepared_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Prepared Period"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "periods",
+          "last_prepared_period"
+        ],
+        "title": "BoardReady",
+        "description": "Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym."
+      },
+      "Choice": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "chosen",
+              "cancelled"
+            ],
+            "title": "Outcome"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "outcome",
+          "settings"
+        ],
+        "title": "Choice",
+        "description": "Wynik natywnego okna wyboru: ``chosen`` zapisuje ścieżkę, ``cancelled`` niczego nie zmienia."
+      },
+      "Closing": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "closing",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "Closing",
+        "description": "Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi."
+      },
+      "Configuration": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "templates": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TemplateReady"
+                },
+                {
+                  "$ref": "#/components/schemas/TemplateProblem"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "state",
+                "mapping": {
+                  "problem": "#/components/schemas/TemplateProblem",
+                  "ready": "#/components/schemas/TemplateReady"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Templates"
+          },
+          "workers": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorkersReady"
+              },
+              {
+                "$ref": "#/components/schemas/WorkersUnreadable"
+              }
+            ],
+            "title": "Workers",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "ready": "#/components/schemas/WorkersReady",
+                "unreadable": "#/components/schemas/WorkersUnreadable"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "templates",
+          "workers"
+        ],
+        "title": "Configuration",
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."
+      },
+      "Count": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "count"
+        ],
+        "title": "Count"
+      },
+      "CountGroup": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "counts": {
+            "items": {
+              "$ref": "#/components/schemas/Count"
+            },
+            "type": "array",
+            "title": "Counts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "counts"
+        ],
+        "title": "CountGroup"
+      },
+      "Decision": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/CountGroup"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question",
+          "title",
+          "message",
+          "counts"
+        ],
+        "title": "Decision",
+        "description": "Pytanie do taty z części decyzji procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień)."
+      },
+      "DecisionAnswer": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "enum": [
+              "continue",
+              "abort"
+            ],
+            "title": "Answer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "title": "DecisionAnswer"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Health": {
+        "properties": {
+          "service": {
+            "type": "string",
+            "const": "centrum-rozliczen",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "service",
+          "version"
+        ],
+        "title": "Health"
+      },
+      "Message": {
+        "properties": {
+          "what": {
+            "type": "string",
+            "title": "What"
+          },
+          "where": {
+            "type": "string",
+            "title": "Where"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "what",
+          "where",
+          "action"
+        ],
+        "title": "Message",
+        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."
+      },
+      "Metrics": {
+        "properties": {
+          "phases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Phases"
+          },
+          "minimum_completed_runs": {
+            "type": "integer",
+            "title": "Minimum Completed Runs"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessRun"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "statistics": {
+            "items": {
+              "$ref": "#/components/schemas/ModeStatistics"
+            },
+            "type": "array",
+            "title": "Statistics"
+          },
+          "recent": {
+            "$ref": "#/components/schemas/RecentResults"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phases",
+          "minimum_completed_runs",
+          "runs",
+          "statistics",
+          "recent"
+        ],
+        "title": "Metrics",
+        "description": "Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego."
+      },
+      "MissingPath": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "missing",
+            "title": "State"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "path",
+          "name"
+        ],
+        "title": "MissingPath",
+        "description": "Zapamiętana ścieżka, pod którą nie ma już pliku albo folderu."
+      },
+      "ModeStatistics": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
+            "title": "Process"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "completed_runs": {
+            "type": "integer",
+            "title": "Completed Runs"
+          },
+          "percentiles": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Percentiles"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "results": {
+            "$ref": "#/components/schemas/ResultCounts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "mode",
+          "completed_runs",
+          "percentiles",
+          "results"
+        ],
+        "title": "ModeStatistics",
+        "description": "Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji."
+      },
+      "NextStep": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "prepare_collective_file",
+              "create_worker_settlements",
+              "none"
+            ],
+            "title": "Action"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "label",
+          "hint"
+        ],
+        "title": "NextStep",
+        "description": "Podpowiedź następnego kroku okresu; ``none``, gdy okres jest zamknięty."
+      },
+      "NotSetPath": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "not_set",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "NotSetPath",
+        "description": "Ścieżka jeszcze niewskazana albo plik ustawień nieczytelny."
+      },
+      "OpenRequest": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "internal_settlement",
+              "collective_file",
+              "period_folder",
+              "worker_settlements_folder"
+            ],
+            "title": "Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "OpenRequest",
+        "description": "Co otworzyć w okresie; ścieżkę wylicza serwer z folderu okresów, nigdy z żądania."
+      },
+      "Opened": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "Opened"
+      },
+      "OperationProgress": {
+        "properties": {
+          "worker_name": {
+            "type": "string",
+            "title": "Worker Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "worker_elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Elapsed Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "worker_name",
+          "status",
+          "rows",
+          "worker_elapsed_ms"
+        ],
+        "title": "OperationProgress"
+      },
+      "Percentiles": {
+        "properties": {
+          "p50_ms": {
+            "type": "integer",
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "type": "integer",
+            "title": "P95 Ms"
+          },
+          "phases": {
+            "items": {
+              "$ref": "#/components/schemas/PhasePercentiles"
+            },
+            "type": "array",
+            "title": "Phases"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "p50_ms",
+          "p95_ms",
+          "phases"
+        ],
+        "title": "Percentiles",
+        "description": "P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach."
+      },
+      "PeriodChoice": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "tuesday": {
+            "type": "string",
+            "format": "date",
+            "title": "Tuesday"
+          },
+          "monday": {
+            "type": "string",
+            "format": "date",
+            "title": "Monday"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "last_complete": {
+            "type": "boolean",
+            "title": "Last Complete"
+          },
+          "previewed": {
+            "type": "boolean",
+            "title": "Previewed"
+          },
+          "collective_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collective File"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "tuesday",
+          "monday",
+          "status_label",
+          "last_complete",
+          "previewed",
+          "collective_file"
+        ],
+        "title": "PeriodChoice",
+        "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."
+      },
+      "PeriodRow": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "tuesday": {
+            "type": "string",
+            "format": "date",
+            "title": "Tuesday"
+          },
+          "monday": {
+            "type": "string",
+            "format": "date",
+            "title": "Monday"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "no_period_files",
+              "collective_file_prepared",
+              "worker_settlements_ready"
+            ],
+            "title": "Status"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "period_folder_exists": {
+            "type": "boolean",
+            "title": "Period Folder Exists"
+          },
+          "internal_settlement_exists": {
+            "type": "boolean",
+            "title": "Internal Settlement Exists"
+          },
+          "collective_file_exists": {
+            "type": "boolean",
+            "title": "Collective File Exists"
+          },
+          "worker_settlements_folder_exists": {
+            "type": "boolean",
+            "title": "Worker Settlements Folder Exists"
+          },
+          "worker_settlement_count": {
+            "type": "integer",
+            "title": "Worker Settlement Count"
+          },
+          "last_complete": {
+            "type": "boolean",
+            "title": "Last Complete"
+          },
+          "next_step": {
+            "$ref": "#/components/schemas/NextStep"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "tuesday",
+          "monday",
+          "status",
+          "status_label",
+          "period_folder_exists",
+          "internal_settlement_exists",
+          "collective_file_exists",
+          "worker_settlements_folder_exists",
+          "worker_settlement_count",
+          "last_complete",
+          "next_step"
+        ],
+        "title": "PeriodRow",
+        "description": "Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie."
+      },
+      "PhaseDuration": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phase",
+          "duration_ms"
+        ],
+        "title": "PhaseDuration"
+      },
+      "PhasePercentiles": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "p50_ms": {
+            "type": "integer",
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "type": "integer",
+            "title": "P95 Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phase",
+          "p50_ms",
+          "p95_ms"
+        ],
+        "title": "PhasePercentiles"
+      },
+      "PhaseProgress": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "Sprawdzanie",
+              "Odczyt danych",
+              "Planowanie",
+              "Zapisywanie"
+            ],
+            "title": "Phase"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "State"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phase",
+          "state",
+          "duration_ms"
+        ],
+        "title": "PhaseProgress"
+      },
+      "PreparationSummary": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "const": "preparation",
+            "title": "Process"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "period_order_count": {
+            "type": "integer",
+            "title": "Period Order Count"
+          },
+          "successful_order_count": {
+            "type": "integer",
+            "title": "Successful Order Count"
+          },
+          "skipped_empty_rows": {
+            "type": "integer",
+            "title": "Skipped Empty Rows"
+          },
+          "orders_per_day": {
+            "items": {
+              "$ref": "#/components/schemas/Count"
+            },
+            "type": "array",
+            "title": "Orders Per Day"
+          },
+          "internal_settlement_file": {
+            "type": "string",
+            "title": "Internal Settlement File"
+          },
+          "collective_file": {
+            "type": "string",
+            "title": "Collective File"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "period",
+          "period_order_count",
+          "successful_order_count",
+          "skipped_empty_rows",
+          "orders_per_day",
+          "internal_settlement_file",
+          "collective_file"
+        ],
+        "title": "PreparationSummary",
+        "description": "Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów."
+      },
+      "Problem": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "Problem",
+        "description": "Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku."
+      },
+      "ProcessRun": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
+            "title": "Process"
+          },
+          "process_label": {
+            "type": "string",
+            "title": "Process Label"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WYMAGA_SPRAWDZENIA",
+              "BLAD_KRYTYCZNY"
+            ],
+            "title": "Result"
+          },
+          "total_duration_ms": {
+            "type": "integer",
+            "title": "Total Duration Ms"
+          },
+          "phase_durations": {
+            "items": {
+              "$ref": "#/components/schemas/PhaseDuration"
+            },
+            "type": "array",
+            "title": "Phase Durations"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "cmd",
+              "centrum"
+            ],
+            "title": "Origin"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "process_label",
+          "started_at",
+          "mode",
+          "period",
+          "result",
+          "total_duration_ms",
+          "phase_durations",
+          "origin"
+        ],
+        "title": "ProcessRun",
+        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń."
+      },
+      "ProcessSetup": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
+            "title": "Process"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "creates": {
+            "type": "string",
+            "title": "Creates"
+          },
+          "reminder": {
+            "type": "string",
+            "title": "Reminder"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/PeriodChoice"
+            },
+            "type": "array",
+            "title": "Periods"
+          },
+          "preselected_period": {
+            "type": "string",
+            "title": "Preselected Period"
+          },
+          "blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocker"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "title",
+          "creates",
+          "reminder",
+          "periods",
+          "preselected_period",
+          "blocker"
+        ],
+        "title": "ProcessSetup",
+        "description": "Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach."
+      },
+      "Progress": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "phases": {
+            "items": {
+              "$ref": "#/components/schemas/PhaseProgress"
+            },
+            "type": "array",
+            "title": "Phases"
+          },
+          "current_phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "Sprawdzanie",
+                  "Odczyt danych",
+                  "Planowanie",
+                  "Zapisywanie"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Phase"
+          },
+          "template_total": {
+            "type": "integer",
+            "title": "Template Total"
+          },
+          "templates_completed": {
+            "type": "integer",
+            "title": "Templates Completed"
+          },
+          "current_worker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Worker"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TemplateCounts"
+          },
+          "recent_operations": {
+            "items": {
+              "$ref": "#/components/schemas/OperationProgress"
+            },
+            "type": "array",
+            "title": "Recent Operations"
+          },
+          "total_elapsed_ms": {
+            "type": "integer",
+            "title": "Total Elapsed Ms"
+          },
+          "issue_count": {
+            "type": "integer",
+            "title": "Issue Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "period",
+          "phases",
+          "current_phase",
+          "template_total",
+          "templates_completed",
+          "current_worker",
+          "rows",
+          "counts",
+          "recent_operations",
+          "total_elapsed_ms",
+          "issue_count"
+        ],
+        "title": "Progress",
+        "description": "Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane."
+      },
+      "ProgressNotice": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PHASE_STARTED",
+              "PHASE_ENDED",
+              "ISSUE_COUNT",
+              "PLAN_READY",
+              "WORKER_STARTED",
+              "WORKER_ENDED",
+              "FAILED"
+            ],
+            "title": "Kind"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "Sprawdzanie",
+              "Odczyt danych",
+              "Planowanie",
+              "Zapisywanie"
+            ],
+            "title": "Phase"
+          },
+          "worker_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "worker_elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Elapsed Ms"
+          },
+          "template_index": {
+            "type": "integer",
+            "title": "Template Index"
+          },
+          "template_total": {
+            "type": "integer",
+            "title": "Template Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "phase",
+          "worker_name",
+          "status",
+          "rows",
+          "worker_elapsed_ms",
+          "template_index",
+          "template_total"
+        ],
+        "title": "ProgressNotice",
+        "description": "Neutralne powiadomienie o ostatniej zmianie postępu."
+      },
+      "ReadyPath": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "path",
+          "name"
+        ],
+        "title": "ReadyPath"
+      },
+      "RecentResults": {
+        "properties": {
+          "weeks": {
+            "type": "integer",
+            "title": "Weeks"
+          },
+          "since": {
+            "type": "string",
+            "format": "date",
+            "title": "Since"
+          },
+          "results": {
+            "$ref": "#/components/schemas/ResultCounts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "weeks",
+          "since",
+          "results"
+        ],
+        "title": "RecentResults",
+        "description": "Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni)."
+      },
+      "ResultCounts": {
+        "properties": {
+          "ok": {
+            "type": "integer",
+            "title": "Ok"
+          },
+          "needs_review": {
+            "type": "integer",
+            "title": "Needs Review"
+          },
+          "critical": {
+            "type": "integer",
+            "title": "Critical"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "needs_review",
+          "critical"
+        ],
+        "title": "ResultCounts"
+      },
+      "RunAwaitingDecision": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "awaiting_decision",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "progress",
+          "decision"
+        ],
+        "title": "RunAwaitingDecision",
+        "description": "Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk."
+      },
+      "RunEvent": {
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "view": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RunIdle"
+              },
+              {
+                "$ref": "#/components/schemas/RunRunning"
+              },
+              {
+                "$ref": "#/components/schemas/RunAwaitingDecision"
+              },
+              {
+                "$ref": "#/components/schemas/RunFinished"
+              }
+            ],
+            "title": "View",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                "finished": "#/components/schemas/RunFinished",
+                "idle": "#/components/schemas/RunIdle",
+                "running": "#/components/schemas/RunRunning"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sequence",
+          "view"
+        ],
+        "title": "RunEvent",
+        "description": "Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu."
+      },
+      "RunFinished": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "finished",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          },
+          "progress_stale": {
+            "type": "boolean",
+            "title": "Progress Stale"
+          },
+          "result": {
+            "$ref": "#/components/schemas/RunOutcome"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "progress",
+          "progress_stale",
+          "result"
+        ],
+        "title": "RunFinished"
+      },
+      "RunIdle": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "idle",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "RunIdle",
+        "description": "Od startu serwera nie było żadnego Uruchomienia procesu."
+      },
+      "RunInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "process": {
+            "type": "string",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
+            "title": "Process"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "process",
+          "title",
+          "period",
+          "dry_run"
+        ],
+        "title": "RunInfo"
+      },
+      "RunOutcome": {
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WYMAGA_SPRAWDZENIA",
+              "BLAD_KRYTYCZNY"
+            ],
+            "title": "Result"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "ending": {
+            "type": "string",
+            "enum": [
+              "finished",
+              "stop",
+              "unexpected",
+              "after_engine"
+            ],
+            "title": "Ending"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "run",
+              "rerun",
+              "open_period_folder"
+            ],
+            "title": "Next Action"
+          },
+          "total_duration_ms": {
+            "type": "integer",
+            "title": "Total Duration Ms"
+          },
+          "stops": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Stops"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notices"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PreparationSummary"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SettlementSummary"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "process",
+                  "mapping": {
+                    "preparation": "#/components/schemas/PreparationSummary",
+                    "settlement": "#/components/schemas/SettlementSummary"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "result",
+          "headline",
+          "ending",
+          "next_action",
+          "total_duration_ms",
+          "stops",
+          "warnings",
+          "notices",
+          "summary"
+        ],
+        "title": "RunOutcome",
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna\nakcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku."
+      },
+      "RunRequest": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
+            "title": "Process"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "period",
+          "dry_run"
+        ],
+        "title": "RunRequest",
+        "description": "Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu."
+      },
+      "RunRunning": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "running",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgressNotice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress_stale": {
+            "type": "boolean",
+            "title": "Progress Stale"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "progress",
+          "notice",
+          "progress_stale"
+        ],
+        "title": "RunRunning"
+      },
+      "RunSetup": {
+        "properties": {
+          "processes": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessSetup"
+            },
+            "type": "array",
+            "title": "Processes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "processes"
+        ],
+        "title": "RunSetup"
+      },
+      "Settings": {
+        "properties": {
+          "order_register": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NotSetPath"
+              },
+              {
+                "$ref": "#/components/schemas/MissingPath"
+              },
+              {
+                "$ref": "#/components/schemas/ReadyPath"
+              }
+            ],
+            "title": "Order Register",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "missing": "#/components/schemas/MissingPath",
+                "not_set": "#/components/schemas/NotSetPath",
+                "ready": "#/components/schemas/ReadyPath"
+              }
+            }
+          },
+          "periods_directory": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NotSetPath"
+              },
+              {
+                "$ref": "#/components/schemas/MissingPath"
+              },
+              {
+                "$ref": "#/components/schemas/ReadyPath"
+              }
+            ],
+            "title": "Periods Directory",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "missing": "#/components/schemas/MissingPath",
+                "not_set": "#/components/schemas/NotSetPath",
+                "ready": "#/components/schemas/ReadyPath"
+              }
+            }
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "dark",
+              "light"
+            ],
+            "title": "Theme"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "order_register",
+          "periods_directory",
+          "theme"
+        ],
+        "title": "Settings"
+      },
+      "SettlementSummary": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "const": "settlement",
+            "title": "Process"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "worker_settlements_folder": {
+            "type": "string",
+            "title": "Worker Settlements Folder"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "written_count": {
+            "type": "integer",
+            "title": "Written Count"
+          },
+          "planned_count": {
+            "type": "integer",
+            "title": "Planned Count"
+          },
+          "empty_count": {
+            "type": "integer",
+            "title": "Empty Count"
+          },
+          "skipped_count": {
+            "type": "integer",
+            "title": "Skipped Count"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerFile"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "period",
+          "worker_settlements_folder",
+          "rows",
+          "written_count",
+          "planned_count",
+          "empty_count",
+          "skipped_count",
+          "files"
+        ],
+        "title": "SettlementSummary",
+        "description": "Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów."
+      },
+      "TemplateCounts": {
+        "properties": {
+          "written": {
+            "type": "integer",
+            "title": "Written"
+          },
+          "empty": {
+            "type": "integer",
+            "title": "Empty"
+          },
+          "planned": {
+            "type": "integer",
+            "title": "Planned"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "written",
+          "empty",
+          "planned",
+          "skipped"
+        ],
+        "title": "TemplateCounts",
+        "description": "Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”."
+      },
+      "TemplateProblem": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "problem",
+            "title": "State"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "problem": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "open_in_excel",
+              "unreadable"
+            ],
+            "title": "Problem"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "label",
+          "file_name",
+          "problem",
+          "message"
+        ],
+        "title": "TemplateProblem",
+        "description": "Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania."
+      },
+      "TemplateReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "label",
+          "file_name"
+        ],
+        "title": "TemplateReady",
+        "description": "Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie."
+      },
+      "ThemeChange": {
+        "properties": {
+          "theme": {
+            "type": "string",
+            "enum": [
+              "dark",
+              "light"
+            ],
+            "title": "Theme"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "theme"
+        ],
+        "title": "ThemeChange"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WorkerFile": {
+        "properties": {
+          "worker_name": {
+            "type": "string",
+            "title": "Worker Name"
+          },
+          "file": {
+            "type": "string",
+            "title": "File"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "worker_name",
+          "file",
+          "rows"
+        ],
+        "title": "WorkerFile",
+        "description": "Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt)."
+      },
+      "WorkersReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "names"
+        ],
+        "title": "WorkersReady",
+        "description": "Nazwy Wykonawców w kolejności z konfiguracji wykonawców."
+      },
+      "WorkersUnreadable": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "unreadable",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "WorkersUnreadable"
+      }
+    }
+  }
+}

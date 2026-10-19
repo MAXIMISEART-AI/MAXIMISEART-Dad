@@ -2,7 +2,9 @@
 
 ## Status
 
-Zaakceptowana. Zastępuje część ADR 0001 dotyczącą adaptera VBA.
+Zaakceptowana. Zastępuje część ADR 0001 dotyczącą adaptera VBA. Część o
+uruchamianiu procesów wyłącznie przez CLI zastąpiona przez
+[ADR 0004](0004-centrum-rozliczen-adapter.md).
 
 ## Decyzja
 

@@ -1,0 +1,113 @@
+"""Check the verify-centrum-rozliczen skill package and the hygiene of one run's evidence.
+
+Checks the frontmatter, the feature-map headings, that every helper named in
+SKILL.md exists and answers ``--help``, that evidence text is strict UTF-8 and
+screenshots are PNG files, and that no workbook content (the fixture's row
+marker) reached the evidence.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+SCRIPT = Path(__file__).resolve()
+SKILL_ROOT = SCRIPT.parents[1]
+FEATURES_ROOT = SKILL_ROOT / "features"
+SCRIPTS_ROOT = SKILL_ROOT / "scripts"
+HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
+REQUIRED_MAP_HEADINGS = (
+    "# Centrum rozliczeń verification map",
+    "## Baseline preconditions",
+    "## Driving conventions",
+    "## Proof and skip reporting",
+    "## Feature entry contract",
+    "## Features",
+)
+REQUIRED_FEATURE_HEADINGS = (
+    "## Sub-features",
+    "## How to get to it (user POV)",
+    "## Driving it with Playwright for Python",
+    "## Gotchas",
+)
+ROW_MARKER = "CENTRUM-SYN-ROW"  # create_centrum_fixture.py puts it in every synthetic workbook
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _check_skill(errors: list[str]) -> None:
+    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter = skill.split("---")[1] if skill.startswith("---") else ""
+    if "name: verify-centrum-rozliczen" not in frontmatter or "description:" not in frontmatter:
+        errors.append("SKILL.md frontmatter needs name: verify-centrum-rozliczen and a description")
+    for helper in sorted(set(HELPER_REFERENCE.findall(skill))):
+        path = SCRIPTS_ROOT / helper
+        if not path.exists():
+            errors.append(f"SKILL.md names a missing helper: {helper}")
+            continue
+        answered = subprocess.run([sys.executable, str(path), "--help"], capture_output=True, check=False)
+        if answered.returncode != 0:
+            errors.append(f"{helper} --help failed")
+
+
+def _check_feature_map(errors: list[str]) -> None:
+    index = (FEATURES_ROOT / "README.md").read_text(encoding="utf-8")
+    for heading in REQUIRED_MAP_HEADINGS:
+        if heading not in index.splitlines():
+            errors.append(f"features/README.md is missing {heading}")
+    linked = re.findall(r"\]\(\./([a-z0-9-]+\.md)\)", index)
+    if not linked:
+        errors.append("features/README.md links no feature file")
+    for name in linked:
+        path = FEATURES_ROOT / name
+        if not path.exists():
+            errors.append(f"features/README.md links a missing file: {name}")
+            continue
+        lines = path.read_text(encoding="utf-8").splitlines()
+        headings = [line for line in lines if line.startswith("## ")]
+        if headings != list(REQUIRED_FEATURE_HEADINGS):
+            errors.append(f"{name} must have exactly the H2s {REQUIRED_FEATURE_HEADINGS}, in order")
+
+
+def _check_evidence(root: Path, errors: list[str]) -> None:
+    if not root.is_dir():
+        errors.append(f"evidence directory is missing: {root}")
+        return
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        data = path.read_bytes()
+        if path.suffix == ".png":
+            if not data.startswith(PNG_SIGNATURE):
+                errors.append(f"{path.relative_to(root)} is not a PNG")
+            continue
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            errors.append(f"{path.relative_to(root)} is not UTF-8")
+            continue
+        if ROW_MARKER in text:
+            errors.append(f"{path.relative_to(root)} contains workbook row content")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--evidence-root", help="Evidence of one run; omit to check only the skill package.")
+    args = parser.parse_args(argv)
+    errors: list[str] = []
+    _check_skill(errors)
+    _check_feature_map(errors)
+    if args.evidence_root:
+        _check_evidence(Path(args.evidence_root), errors)
+    if errors:
+        for error in errors:
+            print(f"SELF-TEST FAIL | {error}", file=sys.stderr)
+        return 1
+    print("SELF-TEST OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

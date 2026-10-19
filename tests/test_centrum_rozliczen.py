@@ -1,0 +1,505 @@
+"""Centrum rozliczeń przez jego HTTP API, tak jak widzi je przeglądarka taty."""
+
+from __future__ import annotations
+
+import subprocess
+import tomllib
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.launcher import LOG_PATH
+from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.settings import default_settings_path
+from rozliczenia.centrum.shutdown import Shutdown
+
+ROOT = Path(__file__).resolve().parents[1]
+CENTRUM = "http://127.0.0.1:47811"
+
+
+@dataclass
+class FakePlatform:
+    """Akcje systemowe komputera taty zastąpione zapisem wywołań i przygotowanymi odpowiedziami."""
+
+    chosen_files: list[Path | None] = field(default_factory=list)
+    chosen_folders: list[Path | None] = field(default_factory=list)
+    opened: list[Path] = field(default_factory=list)
+    dialog_titles: list[str] = field(default_factory=list)
+    failure: Exception | None = None  # awaria systemu przy otwieraniu, np. zablokowany Excel
+
+    def open_path(self, path: Path) -> None:
+        if self.failure is not None:
+            raise self.failure
+        self.opened.append(path)
+
+    def choose_file(self, title: str, filetypes: Sequence[tuple[str, str]]) -> Path | None:
+        self.dialog_titles.append(title)
+        return self.chosen_files.pop(0)
+
+    def choose_folder(self, title: str) -> Path | None:
+        self.dialog_titles.append(title)
+        return self.chosen_folders.pop(0)
+
+
+@dataclass
+class Centrum:
+    client: TestClient
+    platform: FakePlatform
+    settings_path: Path
+    metrics: MetricsFiles
+    log_path: Path
+    shutdown: Shutdown
+
+
+def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
+    platform = FakePlatform()
+    settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
+    # Pliki metryk obu procesów w katalogu testu, nigdy historia z katalogu narzędzia.
+    metrics = MetricsFiles(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
+    log_path = tmp_path / "logs" / "centrum-rozliczen.log"
+    log = CentrumLog(log_path)
+    shutdown = Shutdown(log)
+    app = create_app(
+        settings_path=settings_path,
+        platform=platform,
+        log=log,
+        shutdown=shutdown,
+        today=lambda: today,
+        metrics_files=metrics,
+    )
+    client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+    return Centrum(client, platform, settings_path, metrics, log_path, shutdown)
+
+
+def project_version() -> str:
+    with (ROOT / "pyproject.toml").open("rb") as file:
+        version = tomllib.load(file)["project"]["version"]
+    assert isinstance(version, str)
+    return version
+
+
+def test_health_przedstawia_centrum_rozliczen_z_wersja_narzedzia(tmp_path: Path) -> None:
+    response = centrum(tmp_path).client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"service": "centrum-rozliczen", "version": project_version()}
+
+
+def test_ten_sam_serwer_podaje_zbudowane_centrum_bez_node(tmp_path: Path) -> None:
+    response = centrum(tmp_path).client.get("/")
+
+    assert response.status_code == 200
+    assert "<title>Centrum rozliczeń</title>" in response.text
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_zadanie_z_obcym_naglowkiem_host_jest_odrzucone(tmp_path: Path) -> None:
+    client = centrum(tmp_path).client
+
+    response = client.get("/api/health", headers={"Host": "zly.example:47811"})
+
+    assert response.status_code == 403
+    assert "version" not in response.text
+
+
+def test_localhost_jest_dozwolonym_naglowkiem_host(tmp_path: Path) -> None:
+    client = centrum(tmp_path).client
+
+    response = client.get("/api/health", headers={"Host": "localhost:47811"})
+
+    assert response.status_code == 200
+
+
+NOT_SET = {"state": "not_set"}
+
+
+def test_brak_pliku_ustawien_znaczy_nie_ustawiono(tmp_path: Path) -> None:
+    response = centrum(tmp_path).client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert response.json() == {"order_register": NOT_SET, "periods_directory": NOT_SET, "theme": "dark"}
+
+
+def test_wskazany_rejestr_zlecen_i_folder_okresow_sa_zapamietane(tmp_path: Path) -> None:
+    register = tmp_path / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+    register.touch()
+    periods = tmp_path / "INEA"
+    periods.mkdir()
+    first = centrum(tmp_path)
+    first.platform.chosen_files.append(register)
+    first.platform.chosen_folders.append(periods)
+
+    register_choice = first.client.post("/api/settings/register/choose")
+    periods_choice = first.client.post("/api/settings/periods-directory/choose")
+    after_restart = centrum(tmp_path).client.get("/api/settings").json()
+
+    assert register_choice.json()["outcome"] == "chosen"
+    assert periods_choice.json()["settings"] == after_restart
+    assert after_restart["order_register"] == {
+        "state": "ready",
+        "path": str(register),
+        "name": "ZLECENIA INTERMAX OD 08_11_2021.xlsx",
+    }
+    assert after_restart["periods_directory"] == {"state": "ready", "path": str(periods), "name": "INEA"}
+    assert first.platform.dialog_titles == ["Wybierz plik Rejestru zleceń", "Wybierz folder okresów (np. INEA)"]
+
+
+def test_anulowane_okno_wyboru_nie_zmienia_ustawien(tmp_path: Path) -> None:
+    periods = tmp_path / "INEA"
+    periods.mkdir()
+    app = centrum(tmp_path)
+    app.platform.chosen_folders.extend([periods, None])
+    app.client.post("/api/settings/periods-directory/choose")
+
+    response = app.client.post("/api/settings/periods-directory/choose")
+
+    assert response.json()["outcome"] == "cancelled"
+    assert response.json()["settings"]["periods_directory"]["path"] == str(periods)
+
+
+def test_uszkodzony_plik_ustawien_znaczy_nie_ustawiono(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+    app.settings_path.parent.mkdir(parents=True)
+    app.settings_path.write_text("rejestr: [nie zamknięta lista\n", encoding="utf-8")
+
+    response = app.client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert response.json() == {"order_register": NOT_SET, "periods_directory": NOT_SET, "theme": "dark"}
+
+
+def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_path: Path) -> None:
+    periods = tmp_path / "INEA"
+    periods.mkdir()
+    app = centrum(tmp_path)
+    app.platform.chosen_folders.append(periods)
+    app.client.post("/api/settings/periods-directory/choose")
+    periods.rmdir()
+
+    response = app.client.get("/api/settings")
+
+    assert response.json()["periods_directory"] == {"state": "missing", "path": str(periods), "name": "INEA"}
+
+
+def test_plik_ustawien_taty_jest_poza_gitem() -> None:
+    settings = default_settings_path().relative_to(ROOT)
+
+    ignored = subprocess.run(["git", "check-ignore", "--quiet", str(settings)], cwd=ROOT, check=False)
+
+    assert ignored.returncode == 0
+
+
+def test_dziennik_centrum_jest_poza_gitem() -> None:
+    log = LOG_PATH.relative_to(ROOT)
+
+    ignored = subprocess.run(["git", "check-ignore", "--quiet", str(log)], cwd=ROOT, check=False)
+
+    assert ignored.returncode == 0
+
+
+def test_motyw_jasny_jest_zapamietany(tmp_path: Path) -> None:
+    centrum(tmp_path).client.put("/api/settings/theme", json={"theme": "light"})
+
+    response = centrum(tmp_path).client.get("/api/settings")
+
+    assert response.json()["theme"] == "light"
+
+
+def test_akcja_zmieniajaca_stan_wymaga_origin_centrum(tmp_path: Path) -> None:
+    client = centrum(tmp_path).client
+
+    foreign = client.put("/api/settings/theme", json={"theme": "light"}, headers={"Origin": "http://zly.example"})
+    other_port = client.put(
+        "/api/settings/theme", json={"theme": "light"}, headers={"Origin": "http://127.0.0.1:3000"}
+    )
+
+    assert (foreign.status_code, other_port.status_code) == (403, 403)
+    assert client.get("/api/settings").json()["theme"] == "dark"
+
+
+def test_akcja_bez_origin_jest_odrzucona(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+    no_origin = TestClient(app.client.app, base_url=CENTRUM)
+
+    response = no_origin.post("/api/settings/register/choose")
+
+    assert response.status_code == 403
+    assert app.platform.dialog_titles == []
+
+
+def with_periods_directory(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> tuple[Centrum, Path]:
+    periods = tmp_path / "INEA"
+    periods.mkdir(exist_ok=True)
+    app = centrum(tmp_path, today=today)
+    app.platform.chosen_folders.append(periods)
+    app.client.post("/api/settings/periods-directory/choose")
+    return app, periods
+
+
+def write_period_files(periods: Path, token: str) -> Path:
+    period_folder = periods / token
+    period_folder.mkdir()
+    (period_folder / f"Rozliczenie wew. {token}.xlsx").touch()
+    (period_folder / f"Rozliczenie {token} - zbiorcze.xlsx").touch()
+    return period_folder
+
+
+def write_worker_settlements(period_folder: Path, token: str, workers: Sequence[str]) -> Path:
+    worker_folder = period_folder / f"Rozliczenie pracowników {token}"
+    worker_folder.mkdir()
+    for worker in workers:
+        (worker_folder / f"Rozliczenie {token} - {worker}.xlsx").touch()
+    return worker_folder
+
+
+def board_rows(app: Centrum) -> list[dict[str, object]]:
+    response = app.client.get("/api/periods")
+    assert response.status_code == 200
+    board = response.json()
+    assert board["state"] == "ready"
+    rows = board["periods"]
+    assert isinstance(rows, list)
+    return rows
+
+
+def test_tablica_okresow_bez_folderu_okresow_prosi_o_jego_wskazanie(tmp_path: Path) -> None:
+    response = centrum(tmp_path).client.get("/api/periods")
+
+    assert response.json() == {"state": "not_set"}
+
+
+def test_tablica_okresow_z_nieistniejacym_folderem_okresow_mowi_o_tym_wprost(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    periods.rmdir()
+
+    response = app.client.get("/api/periods")
+
+    assert response.json() == {"state": "missing", "name": "INEA"}
+
+
+def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnowszego(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    ready = write_period_files(periods, "22_28_09_2026")
+    worker_folder = write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa", "Jan Próbny"])
+    (worker_folder / "~$Rozliczenie 22_28_09_2026 - Anna Testowa.xlsx").touch()
+    (worker_folder / "Rozliczenie 22_28_09_2026 -.xlsx").touch()
+    write_period_files(periods, "29_05_09_2026")
+    (periods / "15_21_09_2026").mkdir()
+    (periods / "Archiwum").mkdir()
+    (periods / ".13_19_10_2026.staging-abc").mkdir()
+    (periods / "notatki.txt").touch()
+
+    rows = board_rows(app)
+
+    assert [(row["token"], row["status"], row["worker_settlement_count"]) for row in rows] == [
+        ("06_12_10_2026", "no_period_files", 0),
+        ("29_05_09_2026", "collective_file_prepared", 0),
+        ("22_28_09_2026", "worker_settlements_ready", 2),
+        ("15_21_09_2026", "no_period_files", 0),
+    ]
+    assert [row["status_label"] for row in rows[1:]] == [
+        "Plik zbiorczy przygotowany",
+        "Rozliczenia pracowników gotowe",
+        "Brak plików okresu",
+    ]
+    assert [row["next_step"]["action"] for row in rows] == [  # type: ignore[index]
+        "prepare_collective_file",
+        "create_worker_settlements",
+        "none",
+        "prepare_collective_file",
+    ]
+
+
+def test_tablica_okresow_wskazuje_ostatni_przygotowany_okres_z_plikiem_zbiorczym(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    before = app.client.get("/api/periods").json()["last_prepared_period"]
+    write_worker_settlements(write_period_files(periods, "22_28_09_2026"), "22_28_09_2026", ["Anna Testowa"])
+    write_period_files(periods, "15_21_09_2026")
+    (periods / "29_05_09_2026").mkdir()
+
+    after = app.client.get("/api/periods").json()["last_prepared_period"]
+
+    assert (before, after) == (None, "22_28_09_2026")
+
+
+def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    write_period_files(periods, "29_05_09_2026")
+
+    rows = board_rows(app)
+
+    assert rows[0] == {
+        "token": "06_12_10_2026",
+        "tuesday": "2026-10-06",
+        "monday": "2026-10-12",
+        "status": "no_period_files",
+        "status_label": "Brak plików okresu",
+        "period_folder_exists": False,
+        "internal_settlement_exists": False,
+        "collective_file_exists": False,
+        "worker_settlements_folder_exists": False,
+        "worker_settlement_count": 0,
+        "last_complete": True,
+        "next_step": {
+            "action": "prepare_collective_file",
+            "label": "Przygotuj plik zbiorczy",
+            "hint": "Z Rejestru zleceń powstaną Rozliczenie wewnętrzne i Plik zbiorczy.",
+        },
+    }
+    assert [row["last_complete"] for row in rows] == [True, False]
+
+
+def test_istniejacy_folder_ostatniego_pelnego_okresu_nie_jest_powtorzony(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path, today=date(2026, 10, 6))
+    write_period_files(periods, "29_05_09_2026")
+
+    rows = board_rows(app)
+
+    assert [(row["token"], row["last_complete"], row["status"]) for row in rows] == [
+        ("29_05_09_2026", True, "collective_file_prepared")
+    ]
+
+
+def test_status_okresu_odzwierciedla_zmiany_na_dysku_przy_kazdym_odczycie(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    before = board_rows(app)[0]["status"]
+
+    period_folder = write_period_files(periods, "06_12_10_2026")
+    prepared = board_rows(app)[0]
+    write_worker_settlements(period_folder, "06_12_10_2026", ["Anna Testowa"])
+    ready = board_rows(app)[0]
+
+    assert (before, prepared["status"], ready["status"]) == (
+        "no_period_files",
+        "collective_file_prepared",
+        "worker_settlements_ready",
+    )
+    assert prepared["internal_settlement_exists"] is True
+    assert ready["worker_settlement_count"] == 1
+
+
+def test_pliki_i_foldery_okresu_otwieraja_sie_jednym_kliknieciem(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    period_folder = write_period_files(periods, "22_28_09_2026")
+    worker_folder = write_worker_settlements(period_folder, "22_28_09_2026", ["Anna Testowa"])
+    targets = ["internal_settlement", "collective_file", "period_folder", "worker_settlements_folder"]
+
+    responses = [
+        app.client.post("/api/periods/22_28_09_2026/open", json={"target": target}) for target in targets
+    ]
+
+    assert [response.json() for response in responses] == [
+        {"name": "Rozliczenie wew. 22_28_09_2026.xlsx"},
+        {"name": "Rozliczenie 22_28_09_2026 - zbiorcze.xlsx"},
+        {"name": "22_28_09_2026"},
+        {"name": "Rozliczenie pracowników 22_28_09_2026"},
+    ]
+    assert app.platform.opened == [
+        period_folder / "Rozliczenie wew. 22_28_09_2026.xlsx",
+        period_folder / "Rozliczenie 22_28_09_2026 - zbiorcze.xlsx",
+        period_folder,
+        worker_folder,
+    ]
+
+
+def test_nieistniejacy_plik_okresu_nie_jest_otwierany(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    (periods / "22_28_09_2026").mkdir()
+
+    response = app.client.post("/api/periods/22_28_09_2026/open", json={"target": "collective_file"})
+
+    assert response.status_code == 404
+    assert response.json() == {"message": "Plik zbiorczy okresu 22_28_09_2026 jeszcze nie istnieje."}
+    assert app.platform.opened == []
+
+
+def test_otwierane_sa_tylko_sciezki_wyliczone_z_folderu_okresow(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    write_period_files(periods, "22_28_09_2026")
+    (periods / "Archiwum").mkdir()
+    (tmp_path / "poza.xlsx").touch()
+
+    attempts = [
+        app.client.post("/api/periods/Archiwum/open", json={"target": "period_folder"}),
+        app.client.post("/api/periods/../open", json={"target": "period_folder"}),
+        app.client.post("/api/periods/%2E%2E/open", json={"target": "period_folder"}),
+        app.client.post("/api/periods/23_29_09_2026/open", json={"target": "period_folder"}),
+        app.client.post(
+            "/api/periods/22_28_09_2026/open",
+            json={"target": "collective_file", "path": str(tmp_path / "poza.xlsx")},
+        ),
+        app.client.post("/api/periods/22_28_09_2026/open", json={"target": "../../poza.xlsx"}),
+    ]
+
+    assert all(400 <= attempt.status_code < 500 for attempt in attempts)
+    assert app.platform.opened == []
+
+
+def test_otwieranie_bez_wskazanego_folderu_okresow_prosi_o_jego_wskazanie(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+
+    response = app.client.post("/api/periods/22_28_09_2026/open", json={"target": "period_folder"})
+
+    assert response.status_code == 409
+    assert response.json() == {"message": "Najpierw wskaż folder okresów."}
+    assert app.platform.opened == []
+
+
+def log_lines(app: Centrum) -> list[str]:
+    """Wpisy dziennika Centrum bez znacznika czasu."""
+
+    if not app.log_path.exists():
+        return []
+    return [line.split(" ", 1)[1] for line in app.log_path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_zamkniecie_centrum_z_karty_jest_przyjete_i_zapisane_w_dzienniku(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+
+    response = app.client.post("/api/shutdown")
+
+    assert response.status_code == 202
+    assert response.json() == {"state": "closing"}
+    assert log_lines(app) == ['zamkniecie z="karta Centrum"']
+
+
+def test_zamkniecie_centrum_z_obcej_strony_jest_odrzucone(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+
+    response = app.client.post("/api/shutdown", headers={"Origin": "http://zly.example"})
+
+    assert response.status_code == 403
+    assert log_lines(app) == []
+
+
+def test_zamkniecie_centrum_moze_byc_zablokowane_bezpiecznym_komunikatem(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+    app.shutdown.refuse_while(lambda: "Trwa Uruchomienie procesu. Zamknij Centrum po jego zakończeniu.")
+
+    response = app.client.post("/api/shutdown")
+
+    assert response.status_code == 409
+    assert response.json() == {"message": "Trwa Uruchomienie procesu. Zamknij Centrum po jego zakończeniu."}
+    assert log_lines(app) == []
+
+
+def test_nieoczekiwany_wyjatek_daje_bezpieczny_komunikat_i_wpis_bez_tekstu_wyjatku(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    write_period_files(periods, "22_28_09_2026")
+    secret = f"{periods / '22_28_09_2026'} ul. Syntetyczna 1 CENTRUM-SYN-ROW"
+    app.platform.failure = RuntimeError(secret)
+
+    response = app.client.post("/api/periods/22_28_09_2026/open", json={"target": "collective_file"})
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "message": "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie."
+    }
+    assert log_lines(app) == ['nieoczekiwany-wyjatek typ=RuntimeError miejsce="POST /api/periods/{token}/open"']
+    log = app.log_path.read_text(encoding="utf-8")
+    assert "Syntetyczna" not in log and "CENTRUM-SYN-ROW" not in log and str(periods) not in log

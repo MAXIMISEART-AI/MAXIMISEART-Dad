@@ -53,6 +53,12 @@ _COLLECTIVE = _TemplateLayout(
 )
 
 
+def internal_settlement_path(period_directory: Path, period: str) -> Path:
+    """Rozliczenie wewnętrzne okresu w Folderze okresu."""
+
+    return period_directory / f"Rozliczenie wew. {period}.xlsx"
+
+
 @dataclass(frozen=True)
 class PeriodFiles:
     """Ścieżki obu wzorców i obu plików okresu w Folderze okresu."""
@@ -64,7 +70,7 @@ class PeriodFiles:
 
     @property
     def internal_settlement_file(self) -> Path:
-        return self.period_directory / f"Rozliczenie wew. {self.period}.xlsx"
+        return internal_settlement_path(self.period_directory, self.period)
 
     @property
     def collective_file(self) -> Path:
@@ -81,21 +87,31 @@ def check_templates(files: PeriodFiles) -> None:
     Wzorzec pliku zbiorczego ma ponadto WYKONAWCA w H17, bo stamtąd czyta go Przebieg rozliczeń.
     """
 
-    _ensure_template_available(files.internal_template)
-    with _open_template(files.internal_template, _INTERNAL):
+    check_internal_template(files.internal_template)
+    check_collective_template(files.collective_template)
+
+
+def check_internal_template(template_path: Path) -> None:
+    """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki."""
+
+    _ensure_template_available(template_path)
+    with _open_template(template_path, _INTERNAL):
         pass
-    _ensure_template_available(files.collective_template)
-    with _open_template(files.collective_template, _COLLECTIVE) as (_, sheet, _):
+
+
+def check_collective_template(template_path: Path) -> None:
+    """Wzorzec pliku zbiorczego jak ``check_internal_template`` i z WYKONAWCA w H17."""
+
+    _ensure_template_available(template_path)
+    with _open_template(template_path, _COLLECTIVE) as (_, sheet, _):
         try:
             collective_file.check_worker_header(sheet)
         except collective_file.LayoutError as exc:
             if exc.worker_column is None:
                 raise messages.template_without_header(
-                    files.collective_template, sheet.title, collective_file.HEADER_ROW, "WYKONAWCA"
+                    template_path, sheet.title, collective_file.HEADER_ROW, "WYKONAWCA"
                 ) from exc
-            raise messages.template_with_worker_outside_h(
-                files.collective_template, sheet.title, exc.worker_column
-            ) from exc
+            raise messages.template_with_worker_outside_h(template_path, sheet.title, exc.worker_column) from exc
 
 
 def _ensure_template_available(template_path: Path) -> None:

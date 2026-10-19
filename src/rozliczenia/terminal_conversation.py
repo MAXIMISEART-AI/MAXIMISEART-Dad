@@ -1,0 +1,258 @@
+"""Terminal jako rozmówca Uruchomienia procesu.
+
+Okna wyboru tkinter, komunikaty i pytania w terminalu oraz podgląd postępu
+Rich z liniowym trybem tekstowym dla nieinteraktywnego wyjścia. Rdzeń
+Uruchomienia procesu (``process_run``) nie zna strumieni terminala: dostaje
+tego rozmówcę tak samo jak każdego innego.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, TextIO
+
+from .plain_progress import PlainProgressAdapter
+from .progress import ProgressNotice, ProgressSnapshot
+from .rich_progress import Console, Live, RichProgressAdapter
+
+if TYPE_CHECKING:
+    from .process_run import Decision
+
+__all__ = ["TerminalConversation"]
+
+_YES_ANSWERS = ("t", "tak")
+
+
+def _ask_in_dialog(ask: Callable[[Any], str]) -> str:
+    """Lokalne okno tkinter; pusty wynik, gdy anulowano albo okna nie da się pokazać."""
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            return ask(filedialog) or ""
+        finally:
+            root.destroy()
+    except Exception:
+        return ""
+
+
+def _is_interactive(stream: TextIO) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+class TerminalConversation:
+    """Rozmowa z tatą w terminalu: okna wyboru, komunikaty, pytania i podgląd postępu.
+
+    Przed startem podglądu pisze wprost do wyjścia. Pytanie w trakcie silnika
+    zatrzymuje widok na żywo, a wznawia go dopiero po zgodzie taty.
+    """
+
+    def __init__(self, output: TextIO, input_stream: TextIO) -> None:
+        self._output = output
+        self._input_stream = input_stream
+        self._dashboard: _Dashboard | None = None
+
+    def choose_file(self, title: str, filetypes: Sequence[tuple[str, str]]) -> Path | None:
+        selected = _ask_in_dialog(lambda dialog: dialog.askopenfilename(title=title, filetypes=list(filetypes)))
+        return Path(selected) if selected else None
+
+    def choose_folder(self, title: str) -> Path | None:
+        selected = _ask_in_dialog(lambda dialog: dialog.askdirectory(title=title, mustexist=True))
+        return Path(selected) if selected else None
+
+    def say(self, *lines: str) -> None:
+        for line in lines:
+            self._write(line + "\n")
+
+    def ask(self, prompt: str) -> str | None:
+        """Odpowiedź bez otaczających spacji; ``None``, gdy wejście się skończyło.
+
+        Gdy odpowiedź nie pochodzi z terminala (który sam wyświetla Enter),
+        dopisuje koniec linii, żeby kolejny komunikat nie trafił do linii pytania.
+        """
+
+        self._write(prompt)
+        answer = self._input_stream.readline()
+        if not _is_interactive(self._input_stream):
+            self._write("\n")
+        return None if answer == "" else answer.strip()
+
+    @property
+    def continue_hint(self) -> str:
+        return "przy pytaniu wpisz t"
+
+    def confirm(self, decision: Decision) -> bool:
+        """Pokazuje linie decyzji i pyta ``t``/``n``; podgląd wraca tylko po zgodzie taty."""
+
+        with self._view_stopped() as resume:
+            self.say(*decision.lines)
+            answer = self.ask(f"{decision.question} Wpisz t (tak) albo n (nie): ")
+            consent = answer is not None and answer.casefold() in _YES_ANSWERS
+            if consent:
+                resume()
+            return consent
+
+    @contextmanager
+    def paused(self) -> Iterator[None]:
+        """Wstrzymuje podgląd; po wyjątku (np. odmowie taty) podgląd nie wraca."""
+
+        with self._view_stopped() as resume:
+            yield
+            resume()
+
+    def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
+        self._dashboard = _Dashboard(self._output, title=title, shows_templates=shows_templates)
+        self._dashboard.start(snapshot)
+
+    def show_progress(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+        if self._dashboard is not None:
+            self._dashboard.show(snapshot, notice)
+
+    def stop_progress(self) -> None:
+        if self._dashboard is not None:
+            self._dashboard.stop()
+
+    def print_lines(self, lines: Sequence[str]) -> None:
+        """Linie końcowe pod zatrzymanym podglądem, tą samą drogą co jego linie."""
+
+        for line in lines:
+            if self._dashboard is not None:
+                self._dashboard.print_line(line)
+            else:
+                self.say(line)
+
+    @contextmanager
+    def _view_stopped(self) -> Iterator[Callable[[], None]]:
+        dashboard = self._dashboard
+        if dashboard is None:
+            yield lambda: None
+            return
+        dashboard.stop()
+        yield dashboard.resume
+
+    def _write(self, text: str) -> None:
+        try:
+            self._output.write(text)
+            self._output.flush()
+        except (OSError, ValueError):
+            pass
+
+
+class _Dashboard:
+    """Podgląd postępu Rich z liniowym trybem tekstowym dla nieinteraktywnego wyjścia.
+
+    Renderuje wyłącznie snapshoty projekcji postępu (ADR 0002). Awaria wyjścia
+    zgłasza wyjątek z ``show``, żeby rdzeń odłączył obserwatora.
+    """
+
+    def __init__(self, output: TextIO, *, title: str, shows_templates: bool):
+        self.output = output
+        self.snapshot: ProgressSnapshot | None = None
+        self.plain_adapter = PlainProgressAdapter(self.print_line, title=title, shows_templates=shows_templates)
+        self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
+        self._output_failed = False
+        try:
+            self.console: Any | None = Console(file=output) if Console is not None else None
+        except Exception:
+            self.console = None
+        self.interactive = (
+            self._supports_live_output(output)
+            and self.console is not None
+            and self.console.color_system is not None
+        )
+        self.live: Any | None = None
+
+    @staticmethod
+    def _supports_live_output(output: TextIO) -> bool:
+        if os.environ.get("NO_COLOR") is not None or os.environ.get("TERM") == "dumb":
+            return False
+        try:
+            return bool(output.isatty())
+        except (AttributeError, OSError):
+            return False
+
+    def start(self, snapshot: ProgressSnapshot) -> None:
+        self.snapshot = snapshot
+        if self.interactive and Live is not None:
+            try:
+                self.live = Live(self.render(), console=self.console, auto_refresh=False)
+                self.live.start(refresh=True)
+                return
+            except Exception:
+                self._disable_rich()
+        elif self.interactive:
+            self._disable_rich()
+        self.plain_adapter.start(snapshot)
+
+    def show(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+        self.snapshot = snapshot
+        if self._output_failed:
+            raise OSError("Terminal output is unavailable.")
+        if self.interactive:
+            try:
+                if self.live is None:
+                    raise RuntimeError("Rich dashboard did not start.")
+                self.live.update(self.rich_adapter.render(snapshot, notice), refresh=True)
+                return
+            except Exception:
+                self._disable_rich()
+                self.plain_adapter.start(snapshot)
+        self.plain_adapter.update(snapshot, notice)
+        if self._output_failed:
+            raise OSError("Terminal output is unavailable.")
+
+    def stop(self) -> None:
+        """Zatrzymuje widok na żywo, żeby kolejne linie szły pod nim."""
+
+        if self.live is not None:
+            try:
+                self.live.stop()
+            except Exception:
+                self._disable_rich()
+            else:
+                self.live = None
+
+    def resume(self) -> None:
+        """Wznawia widok na żywo po ``stop()``, np. po pytaniu do taty między etapami."""
+
+        if not self.interactive or self.live is not None or Live is None:
+            return
+        try:
+            self.live = Live(self.render(), console=self.console, auto_refresh=False)
+            self.live.start(refresh=True)
+        except Exception:
+            self._disable_rich()
+
+    def render(self) -> Any:
+        return self.rich_adapter.render(self.snapshot) if self.snapshot is not None else None
+
+    def _disable_rich(self) -> None:
+        live, self.live = self.live, None
+        if live is not None:
+            try:
+                live.stop()
+            except Exception:
+                pass
+        self.interactive = False
+        self.console = None
+
+    def print_line(self, message: str) -> None:
+        if self._output_failed:
+            return
+        try:
+            if self.interactive and self.console is not None:
+                self.console.print(message)
+            else:
+                self.output.write(f"{message}\n")
+        except (OSError, UnicodeError, ValueError):
+            self._output_failed = True

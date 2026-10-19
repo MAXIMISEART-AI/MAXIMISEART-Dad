@@ -33,6 +33,10 @@ Wymagany jest Python 3.11 lub nowszy na komputerze taty.
 py -3 -m pip install -r requirements.txt
 ```
 
+Potem jednorazowo dwukrotne kliknięcie `Zainstaluj skrót Centrum rozliczeń.cmd`
+tworzy na pulpicie skrót „Centrum rozliczeń” (zob.
+[Centrum rozliczeń](#centrum-rozliczeń-rozwój)).
+
 Instalacja obejmuje `rich`, używany przez kolorowy dashboard CLI. Jeśli terminal
 nie obsługuje kolorów albo pakiet jest chwilowo niedostępny, narzędzie używa
 tekstowego fallbacku z tymi samymi informacjami operacyjnymi.
@@ -225,8 +229,57 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 ```
 Check formatowania nie jest wymagany.
 
-Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd` i
-`Przygotuj plik zbiorczy.cmd` przez `cmd.exe`.
+Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd`,
+`Przygotuj plik zbiorczy.cmd` i `Centrum rozliczeń (konsola).cmd` przez
+`cmd.exe`, tworzą skrót przez `Zainstaluj skrót Centrum rozliczeń.cmd` i
+uruchamiają Centrum przez `pythonw.exe`.
+
+## Centrum rozliczeń (rozwój)
+
+Centrum rozliczeń to lokalny serwer (`src/rozliczenia/centrum/`) z
+frontendem w przeglądarce (`frontend/`), opisany w
+[ADR 0004](docs/adr/0004-centrum-rozliczen-adapter.md). Zbudowany frontend jest
+commitowany w `src/rozliczenia/centrum/static/`, więc do uruchomienia
+wystarczają zależności z `requirements.txt`, bez Node.
+
+- Tata uruchamia Centrum skrótem „Centrum rozliczeń” z pulpitu. Skrót tworzy
+  jednorazowo `Zainstaluj skrót Centrum rozliczeń.cmd`: wskazuje `pythonw.exe`
+  tego samego Pythona co `py -3` i `run_centrum.py`, więc nie ma okna konsoli.
+  Ponowne kliknięcie rozpoznaje działające Centrum po `/api/health` (tożsamość
+  i wersja) i tylko otwiera kartę. Błąd startu (port zajęty przez inny
+  program, inna wersja Centrum, brak biblioteki) bez konsoli pokazuje
+  natywne okienko, z konsolą trzy linie komunikatu
+  (`src/rozliczenia/centrum/start_problems.py`).
+- `Centrum rozliczeń (konsola).cmd` (albo `py -3 run_centrum.py`) uruchamia
+  Centrum z widoczną konsolą na `http://127.0.0.1:47811/` i otwiera kartę w
+  przeglądarce. `--port` zmienia port, `--no-browser` nie otwiera karty.
+- Serwer działa do kliknięcia „Zamknij Centrum rozliczeń” w karcie
+  (`POST /api/shutdown`), Ctrl+C w konsoli albo wylogowania; zamknięcie karty
+  go nie wyłącza.
+- Dziennik Centrum `logs/centrum-rozliczen.log` (poza gitem) ma jedną linię na
+  fakt: `start`, `juz-dziala`, `blad-startu`, `zamkniecie`, `stop`,
+  `nieoczekiwany-wyjatek` (tylko typ i trasa, bez tekstu wyjątku).
+- Ustawienia Centrum (Rejestr zleceń, folder okresów, motyw) są w
+  `config/centrum-ustawienia.yaml`, poza gitem.
+- Metryki czytają przy każdym odczycie oba pliki metryk CLI
+  (`.rozliczenia-metrics.jsonl`, `.przygotowanie-pliku-zbiorczego-metrics.jsonl`)
+  bez zmiany schematu, więc widać w nich także Uruchomienia procesu z `.cmd`.
+
+Zmiana frontendu wymaga Node 24 i kończy się commitem źródeł razem z
+odbudowanym buildem; CI sprawdza, że build i kontrakt odpowiadają źródłom:
+
+```sh
+cd frontend
+npm ci
+npm run contract   # OpenAPI z modeli Pydantic → typy i schematy zod (Python z zależnościami: zmienna PYTHON)
+npm run typecheck  # tsc strict
+npm run lint       # Oxlint z wtyczkami anti-slop
+npm run build      # build do src/rozliczenia/centrum/static/
+```
+
+Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
+i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill
+[`verify-centrum-rozliczen`](.agents/skills/verify-centrum-rozliczen/SKILL.md).
 
 ## Naprawa plików zapisanych starą wersją
 

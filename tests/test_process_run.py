@@ -40,10 +40,18 @@ Durations = Mapping[ProgressPhase, int]
 @dataclass(frozen=True)
 class Inputs:
     period: str = PERIOD
+    dry_run: bool = False
 
 
 class Stopped(Exception):
     """Własne zatrzymanie sztucznego procesu; jego tekst jest bezpieczny z kontraktu."""
+
+
+@dataclass(frozen=True)
+class StopMessage:
+    what: str
+    where: str = "Proces testowy"
+    action: str = "Uruchom ponownie."
 
 
 def parser() -> argparse.ArgumentParser:
@@ -53,8 +61,8 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def gather(_args: argparse.Namespace, _conversation: Conversation) -> Inputs:
-    return Inputs()
+def gather(args: argparse.Namespace, _conversation: Conversation) -> Inputs:
+    return Inputs(dry_run=args.dry_run)
 
 
 def all_phases(observer: ProgressObserver, before_save: Callable[[], None] = lambda: None) -> Durations:
@@ -97,6 +105,7 @@ def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
         "metrics_failure_tail": "Proces testowy zakończył się niezależnie.",
         "stop_type": Stopped,
         "stop_lines": lambda error: str(error).splitlines(),
+        "stop_message": lambda error: StopMessage(str(error)),
         "gather": gather,
         "execute": execute,
         "finished": finished_with("OK"),

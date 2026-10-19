@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import zipfile
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell, MergedCell
@@ -25,8 +25,20 @@ class TemplateWriteError(Exception):
 _LEGACY_WORKER_TEMPLATE_NAME = "placeholder.xlsx"
 
 
+WorkerTemplateProblem = Literal["missing", "open_in_excel", "unreadable"]
+
+
 class WorkerTemplateValidationError(Exception):
-    """Wzorzec rozliczenia pracownika nie może bezpiecznie posłużyć jako wzór nowych skoroszytów."""
+    """Wzorzec rozliczenia pracownika nie może bezpiecznie posłużyć jako wzór nowych skoroszytów.
+
+    ``message`` to bezpieczny komunikat dla taty; ``problem`` mówi, czy Wzorca
+    nie ma, czy jest otwarty w Excelu, czy nie przechodzi Sprawdzania.
+    """
+
+    def __init__(self, message: str, problem: WorkerTemplateProblem = "unreadable") -> None:
+        super().__init__(message)
+        self.message = message
+        self.problem: WorkerTemplateProblem = problem
 
 
 def _is_real_value(cell: Cell | MergedCell) -> bool:
@@ -51,9 +63,11 @@ def validate_worker_template(path: Path) -> None:
         message = f"Nie znaleziono Wzorca rozliczenia pracownika: {path.name}."
         if path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
             message += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{path.name}”."
-        raise WorkerTemplateValidationError(message)
+        raise WorkerTemplateValidationError(message, "missing")
     if workbook_files.is_open_in_excel(path):
-        raise WorkerTemplateValidationError("Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.")
+        raise WorkerTemplateValidationError(
+            "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.", "open_in_excel"
+        )
     try:
         workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
     except (OSError, InvalidFileException, zipfile.BadZipFile) as exc:
