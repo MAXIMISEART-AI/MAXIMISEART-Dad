@@ -281,6 +281,13 @@ npm run lint       # Oxlint z wtyczkami anti-slop
 npm run build      # build do src/rozliczenia/centrum/static/
 ```
 
+- Zmiana kontraktu API to zmiana modeli Pydantic w `src/rozliczenia/centrum/contract.py`,
+  potem `npm run regen` (kontrakt i build); `frontend/src/api/` i `static/` są generowane.
+- Konflikt scalania w plikach generowanych: weź dowolną stronę, `npm run regen`, commit.
+- Nowy proces w Uruchomieniach: klasa spełniająca `runs.ProcessEntry` (wzór:
+  `SettlementEntry`), klucz w `contract.ProcessKey` i `metrics.PROCESS_NAMES`,
+  wpis w `runs_router(runs, [...])` w `create_app`; `runs.py` się nie zmienia.
+
 Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
 i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill
 [`verify-centrum-rozliczen`](.agents/skills/verify-centrum-rozliczen/SKILL.md).
