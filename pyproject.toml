@@ -53,7 +53,7 @@ include = [
     "tools/**/*.py",
     ".agents/skills/verify-rozliczenia/scripts/*.py",
     ".agents/skills/verify-publikacja-plikow-okresu/scripts/*.py",
-    ".agents/skills/verify-centrum-rozliczen/scripts/*.py",
+    ".agents/skills/verify-centrum-rozliczen/scripts/**/*.py",
 ]
 extend-exclude = [".claude"]
 

@@ -1,0 +1,101 @@
+"""Drive features/tablica-okresow.md."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import urllib.request
+
+from playwright.sync_api import Page, expect
+
+from drive.common import Run, choose_periods_directory, last_opened_is, period_row
+
+
+def drive_period_board(run: Run, page: Page) -> None:
+    feature = "tablica-okresow"
+    periods = Path(run.fixture["periods_directory"])
+
+    run.step(feature, "tablica-kolejnosc-i-status")
+    page.goto(run.url)
+    if run.api("/api/settings", "tablica-ustawienia")["periods_directory"] == {"state": "not_set"}:
+        choose_periods_directory(run, page)
+    board = run.api("/api/periods", "tablica-okresow")
+    rows = board["periods"]
+    assert isinstance(rows, list)
+    expected = run.fixture["board"]
+    run.check(
+        [[row["token"], row["status"], row["worker_settlement_count"], row["last_complete"]] for row in rows]
+        == expected,
+        "the server lists every Folder okresu newest first with its Status okresu",
+    )
+    table_rows = page.get_by_role("table", name="Tablica okresów").get_by_role("row")
+    expect(table_rows).to_have_count(len(expected) + 1)
+    labels = {"no_period_files": "Brak plików okresu", "collective_file_prepared": "Plik zbiorczy przygotowany",
+              "worker_settlements_ready": "Rozliczenia pracowników gotowe"}
+    for index, (token, status, _, last_complete) in enumerate(expected, start=1):
+        row = table_rows.nth(index)
+        expect(row).to_contain_text(token)
+        expect(row).to_contain_text(labels[status])
+        if last_complete:
+            expect(row).to_have_attribute("data-state", "selected")
+            expect(row).to_contain_text("ostatni pełny okres")
+    run.check(True, "the screen shows the same order, Status okresu, and highlighted last complete period")
+    run.capture(page, "06-tablica-okresow")
+
+    run.step(feature, "tablica-nastepny-krok")
+    next_step = page.get_by_role("region", name="Następny krok")
+    expect(next_step).to_contain_text("Przygotuj plik zbiorczy")
+    expect(next_step).to_contain_text(expected[0][0])
+    expect(next_step).to_contain_text("Brak Folderu okresu")
+    run.check(True, "Następny krok targets the last complete period, whose Folder okresu does not exist")
+
+    run.step(feature, "tablica-otwieranie")
+    opened_before = len(run.lines("opened.jsonl"))
+    clicks = [
+        ("Plik zbiorczy, okres 29_05_09_2026", periods / "29_05_09_2026" / "Rozliczenie 29_05_09_2026 - zbiorcze.xlsx"),
+        ("Rozliczenie wewnętrzne, okres 22_28_09_2026", periods / "22_28_09_2026" / "Rozliczenie wew. 22_28_09_2026.xlsx"),
+        ("Folder okresu, okres 15_21_09_2026", periods / "15_21_09_2026"),
+        ("Rozliczenia pracowników: 3, okres 22_28_09_2026",
+         periods / "22_28_09_2026" / "Rozliczenie pracowników 22_28_09_2026"),
+    ]
+    for name, path in clicks:
+        page.get_by_role("button", name=name, exact=True).click()
+        run.wait_for(last_opened_is(run, path), f"{name} opened {path.name}")
+        expect(page.get_by_text(path.name, exact=True).last).to_be_visible()
+    run.check(len(run.lines("opened.jsonl")) == opened_before + len(clicks), "one open per click, nothing else")
+    run.capture(page, "07-tablica-otwieranie", full_page=False)
+    expect(page.get_by_role("button", name="Plik zbiorczy, okres 15_21_09_2026", exact=True)).to_be_disabled()
+    run.check(True, "a period file that does not exist cannot be opened")
+
+    run.step(feature, "tablica-zmiana-na-dysku")
+    changed = periods / "15_21_09_2026"
+    for name in ("Rozliczenie wew. 15_21_09_2026.xlsx", "Rozliczenie 15_21_09_2026 - zbiorcze.xlsx"):
+        (changed / name).write_bytes(b"")
+    page.reload()
+    expect(period_row(page, "15_21_09_2026")).to_contain_text("Plik zbiorczy przygotowany")
+    run.check(True, "after a reload the board shows a Plik zbiorczy added outside Centrum")
+    (changed / "Rozliczenie pracowników 15_21_09_2026").mkdir()
+    # Headless Chromium keeps every tab visible, so returning to the tab is simulated with the
+    # `focus` event the browser fires then; the page itself is not touched.
+    page.evaluate("window.dispatchEvent(new FocusEvent('focus'))")
+    expect(period_row(page, "15_21_09_2026")).to_contain_text("Rozliczenia pracowników gotowe")
+    run.check(True, "a (simulated) return to the tab shows a Folder rozliczeń pracowników added outside Centrum")
+    run.capture(page, "08-tablica-po-zmianie-na-dysku")
+
+    run.step(feature, "tablica-podpowiedz")
+    period_row(page, "29_05_09_2026").get_by_text("Utwórz rozliczenia pracowników").hover()
+    expect(page.get_by_text("Najpierw uzupełnij Plik zbiorczy w Excelu, zapisz go i zamknij.")).to_be_visible()
+    run.capture(page, "09-tablica-podpowiedz", full_page=False)
+
+    run.step(feature, "tablica-ochrona")
+    opened = len(run.lines("opened.jsonl"))
+    open_url = run.url.rstrip("/") + "/api/periods/22_28_09_2026/open"
+    payload = json.dumps({"target": "collective_file"}).encode()
+    foreign_origin = urllib.request.Request(
+        open_url, data=payload, method="POST",
+        headers={"Content-Type": "application/json", "Origin": "http://zly.example"},
+    )
+    foreign_host = urllib.request.Request(run.url.rstrip("/") + "/api/health", headers={"Host": "zly.example"})
+    run.check(run.refused(foreign_origin, "odmowa-obcy-origin") == 403, "an action from a foreign Origin is refused")
+    run.check(run.refused(foreign_host, "odmowa-obcy-host") == 403, "a request with a foreign Host is refused")
+    run.check(len(run.lines("opened.jsonl")) == opened, "a refused request opens nothing")
