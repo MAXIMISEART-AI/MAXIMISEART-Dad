@@ -174,8 +174,7 @@ class Catalog:
 
     def messages(self) -> list[Any]:
         produced = [sample() for samples in self.samples.values() for sample in samples]
-        stops = (messages.PreparationError, settlement_messages.SettlementError)
-        return [item.message if isinstance(item, stops) else item for item in produced]
+        return [item.message if isinstance(item, settlement_messages.SettlementError) else item for item in produced]
 
 
 CATALOGS = {

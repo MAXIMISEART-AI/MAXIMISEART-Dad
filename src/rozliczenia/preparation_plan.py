@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import preparation_messages as messages
 from .engine import normalize_text
-from .preparation_messages import PreparationMessage
+from .message import Message, StopError
 from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterRow, RegisterSheet
 from .settlement_period import SettlementPeriod
 
@@ -80,26 +80,26 @@ def plan_period_orders(
         elif period.start <= started < period.end:
             orders.append(PeriodOrder(row, started))
     if not orders:
-        raise messages.no_period_orders(register_path, register.name, period.token)
+        raise StopError(messages.no_period_orders(register_path, register.name, period.token))
     first_row, last_row = orders[0].row_number, orders[-1].row_number
     undated_between = [row for row in undated_rows if first_row < row < last_row]
     if undated_between:
-        raise messages.rows_without_date(register_path, register.name, undated_between)
+        raise StopError(messages.rows_without_date(register_path, register.name, undated_between))
     invalid_successful = [
         order.row_number
         for order in orders
         if normalize_text(order.row.value(SUCCESSFUL)) not in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE)
     ]
     if invalid_successful:
-        raise messages.invalid_successful_values(register_path, register.name, invalid_successful)
+        raise StopError(messages.invalid_successful_values(register_path, register.name, invalid_successful))
     unknown_workers = _unknown_workers(orders, worker_mapping)
     if unknown_workers:
-        raise messages.unknown_workers(register_path, register.name, config_path, unknown_workers)
+        raise StopError(messages.unknown_workers(register_path, register.name, config_path, unknown_workers))
     skipped_empty_rows = sum(1 for row in register.empty_rows if first_row < row < last_row)
     return Plan(period, register.name, orders, skipped_empty_rows)
 
 
-def period_warnings(register_path: Path, plan: Plan) -> list[PreparationMessage]:
+def period_warnings(register_path: Path, plan: Plan) -> list[Message]:
     """Ostrzeżenie o niepełnym okresie, gdy żadne zlecenie okresu nie jest z poniedziałku."""
 
     monday = plan.period.monday
@@ -127,7 +127,9 @@ def _period_sheet(register_path: Path, sheets: Sequence[RegisterSheet], period: 
 
     with_orders = [sheet for sheet in sheets if any(_in_period(row, period) for row in sheet.rows)]
     if len(with_orders) > 1:
-        raise messages.period_orders_in_many_sheets(register_path, [sheet.name for sheet in with_orders], period.token)
+        raise StopError(
+            messages.period_orders_in_many_sheets(register_path, [sheet.name for sheet in with_orders], period.token)
+        )
     return (with_orders or list(sheets))[0]
 
 

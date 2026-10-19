@@ -20,6 +20,7 @@ from openpyxl.styles.fills import Fill
 from . import preparation_messages as messages
 from . import workbook_files
 from .engine import normalize_text
+from .message import StopError
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,7 @@ def read_register(register_path: Path) -> list[RegisterSheet]:
     try:
         return _read_register_sheets(register_path)
     except workbook_files.UNREADABLE_WORKBOOK_ERRORS as exc:
-        raise messages.register_unreadable(register_path) from exc
+        raise StopError(messages.register_unreadable(register_path)) from exc
 
 
 def _cell_format(cell: object) -> CellFormat:
@@ -177,7 +178,7 @@ def _read_register_sheets(register_path: Path) -> list[RegisterSheet]:
                 continue
             duplicated = _duplicated_headers(header)
             if duplicated:
-                raise messages.register_with_duplicated_headers(register_path, sheet.title, duplicated)
+                raise StopError(messages.register_with_duplicated_headers(register_path, sheet.title, duplicated))
             columns = header_columns(header)
             positions = [columns[normalize_text(column.register_header)] for column in COLUMNS]
             rows: list[RegisterRow] = []
@@ -203,5 +204,5 @@ def _read_register_sheets(register_path: Path) -> list[RegisterSheet]:
     if sheets:
         return sheets
     if closest is not None:
-        raise messages.register_without_headers(register_path, *closest)
-    raise messages.register_without_data_sheet(register_path, [column.register_header for column in COLUMNS])
+        raise StopError(messages.register_without_headers(register_path, *closest))
+    raise StopError(messages.register_without_data_sheet(register_path, [column.register_header for column in COLUMNS]))

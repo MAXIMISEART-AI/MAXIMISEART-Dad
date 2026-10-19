@@ -12,11 +12,10 @@ import pytest
 from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState
 from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.collective_preparation import (
-    PreparationError,
-    PreparationMessage,
     PreparationSummary,
     prepare_collective_file,
 )
+from rozliczenia.message import Message, StopError
 from rozliczenia.workbook_files import ExternalLinksError
 import rozliczenia.workbook_files as workbook_files
 
@@ -214,7 +213,7 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
     existing = fixture.period_directory / existing_name
     existing.write_bytes(b"reczne poprawki taty")
 
-    with pytest.raises(PreparationError) as raised:
+    with pytest.raises(StopError) as raised:
         run_preparation(fixture)
 
     message = str(raised.value)
@@ -247,7 +246,7 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
-    with pytest.raises(PreparationError) as raised:
+    with pytest.raises(StopError) as raised:
         run_preparation(fixture, token)
 
     assert raised.value.message.code == "ZLY_TOKEN_OKRESU"
@@ -364,7 +363,7 @@ def test_progress_projection_accepts_przygotowanie_pliku_zbiorczego_interrupted_
 
     monkeypatch.setattr(workbook_files, "save_workbook", fail_save)
 
-    with pytest.raises(PreparationError):
+    with pytest.raises(StopError):
         run_preparation(fixture, observer=projected(projection))
 
     assert projection.snapshot.phase_states == {
@@ -382,7 +381,7 @@ def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path:
     fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
     recorded: list[ProgressEvent] = []
 
-    with pytest.raises(PreparationError):
+    with pytest.raises(StopError):
         run_preparation(fixture, observer=recorded.append)
 
     assert [(event.phase, event.state) for event in recorded] == [
@@ -595,10 +594,10 @@ def test_autofilter_covers_only_header_when_period_has_no_zlecenia_skuteczne(tmp
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
 
 
-def stop_message(fixture: PreparationFixture) -> PreparationError:
+def stop_message(fixture: PreparationFixture) -> StopError:
     """Uruchamia Przygotowanie, oczekuje zatrzymania i sprawdza, że nic nie powstało."""
 
-    with pytest.raises(PreparationError) as raised:
+    with pytest.raises(StopError) as raised:
         run_preparation(fixture)
     assert list(fixture.periods_directory.iterdir()) == []
     assert "SYN-" not in str(raised.value)
@@ -894,14 +893,14 @@ def test_stage_times_seen_by_confirm_plan_do_not_change_while_zapisywanie_is_mea
 def test_stop_from_confirm_plan_creates_no_file_and_no_folder_okresu(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
-    refusal = PreparationError(
-        PreparationMessage(code="ODMOWA", what="Odmowa w teście.", where="test", action="Nic.")
+    refusal = StopError(
+        Message(code="ODMOWA", what="Odmowa w teście.", where="test", action="Nic.")
     )
 
     def refuse(plan: PreparationSummary) -> None:
         raise refusal
 
-    with pytest.raises(PreparationError) as raised:
+    with pytest.raises(StopError) as raised:
         run_preparation(fixture, observer=recorded.append, confirm_plan=refuse)
 
     assert raised.value is refusal

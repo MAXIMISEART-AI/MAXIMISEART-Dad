@@ -13,6 +13,8 @@ from xml.etree.ElementTree import ParseError
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook.workbook import Workbook
 
+from .message import Message, StopError
+
 
 _EXTERNAL_LINKS_PREFIX = "xl/externalLinks/"
 _ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
@@ -48,15 +50,15 @@ def is_open_in_excel(path: Path) -> bool:
 def ensure_available(
     path: Path,
     *,
-    missing: Callable[[Path], Exception],
-    open_in_excel: Callable[[Path], Exception],
+    missing: Callable[[Path], Message],
+    open_in_excel: Callable[[Path], Message],
 ) -> None:
-    """Zgłasza ``missing(path)``, gdy skoroszytu nie ma, albo ``open_in_excel(path)``, gdy jest otwarty."""
+    """Zatrzymanie z Komunikatem ``missing(path)``, gdy skoroszytu nie ma, albo ``open_in_excel(path)``, gdy jest otwarty."""
 
     if not path.is_file():
-        raise missing(path)
+        raise StopError(missing(path))
     if is_open_in_excel(path):
-        raise open_in_excel(path)
+        raise StopError(open_in_excel(path))
 
 
 def request_full_recalculation(workbook: Workbook) -> None:

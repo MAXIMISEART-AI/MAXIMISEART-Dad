@@ -10,7 +10,8 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 import pytest
 
-from rozliczenia.collective_preparation import PreparationError, PreparationSummary, prepare_collective_file
+from rozliczenia.collective_preparation import PreparationSummary, prepare_collective_file
+from rozliczenia.message import StopError
 from rozliczenia.workbook_files import ExternalLinksError, WorkbookSaveError
 import rozliczenia.workbook_files as workbook_files
 
@@ -45,13 +46,13 @@ def input_snapshot(fixture: PreparationFixture) -> dict[Path, bytes]:
     return {path: path.read_bytes() for path in paths if path.exists()}
 
 
-def stop_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationError:
+def stop_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> StopError:
     """Uruchamia proces, oczekuje zatrzymania i sprawdza, że nic nie powstało ani nie zmieniło się."""
 
     inputs_before = input_snapshot(fixture)
     periods_before = sorted(path.name for path in fixture.periods_directory.iterdir())
 
-    with pytest.raises(PreparationError) as raised:
+    with pytest.raises(StopError) as raised:
         run_preparation(fixture, dry_run=dry_run)
 
     assert sorted(path.name for path in fixture.periods_directory.iterdir()) == periods_before
@@ -444,7 +445,7 @@ def test_missing_folder_okresow_stops_without_creating_it(tmp_path: Path) -> Non
     fixture = make_preparation_fixture(tmp_path)
     fixture.periods_directory.rmdir()
 
-    with pytest.raises(PreparationError) as raised:
+    with pytest.raises(StopError) as raised:
         run_preparation(fixture)
 
     assert raised.value.message.code == "BRAK_FOLDERU_OKRESOW"

@@ -1,8 +1,8 @@
 """Przygotowanie pliku zbiorczego: z Rejestru zleceń do Rozliczenia wewnętrznego i Pliku zbiorczego.
 
 Jedyną operacją publiczną jest ``prepare_collective_file()``. Silnik nie pyta o
-nic i nie proponuje okresu; zatrzymania zgłasza jako ``PreparationError`` z
-bezpiecznym komunikatem dla taty, a wynik nie zawiera danych klientów.
+nic i nie proponuje okresu; zatrzymania zgłasza jako ``StopError`` z
+Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
 Ten moduł tylko sekwencjonuje cztery etapy. Odczyt Rejestru zleceń jest w
 ``preparation_register``, wybór zleceń okresu i reguły zleceń w
@@ -21,13 +21,11 @@ from . import preparation_files, preparation_plan, preparation_register
 from . import preparation_messages as messages
 from .domain import ProgressObserver, ProgressPhase
 from .engine import SettlementError, load_worker_mapping
+from .message import Message, StopError
 from .phase_runner import PhaseRunner
-from .preparation_messages import PreparationError, PreparationMessage
 from .settlement_period import SettlementPeriod, parse_period_token
 
 __all__ = [
-    "PreparationError",
-    "PreparationMessage",
     "PreparationSummary",
     "default_collective_template_path",
     "default_internal_template_path",
@@ -54,7 +52,7 @@ class PreparationSummary:
     successful_order_count: int
     skipped_empty_rows: int
     orders_per_day: dict[date, int] = field(default_factory=dict)
-    warnings: list[PreparationMessage] = field(default_factory=list)
+    warnings: list[Message] = field(default_factory=list)
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
 
@@ -74,7 +72,7 @@ def _parse_period(token: str) -> SettlementPeriod:
     try:
         return parse_period_token(token)
     except ValueError as exc:
-        raise messages.invalid_period_token(token) from exc
+        raise StopError(messages.invalid_period_token(token)) from exc
 
 
 def prepare_collective_file(
@@ -91,7 +89,7 @@ def prepare_collective_file(
 ) -> PreparationSummary:
     """Tworzy w Folderze okresu razem Rozliczenie wewnętrzne i Plik zbiorczy.
 
-    Zgłasza ``PreparationError``, gdy nie można działać bezpiecznie; wtedy nie
+    Zgłasza ``StopError``, gdy nie można działać bezpiecznie; wtedy nie
     powstaje żaden plik ani nowy Folder okresu, chyba że komunikat wskazuje plik
     okresu, którego po nieudanym zapisie nie udało się usunąć. Rejestr zleceń i
     wzorce są tylko czytane.
@@ -102,7 +100,7 @@ def prepare_collective_file(
 
     ``confirm_plan`` dostaje plan po Planowaniu, a przed Zapisywaniem, tylko
     przy zapisie. Silnik sam o nic nie pyta: wywołujący decyduje, a żeby
-    przerwać bez zapisu, zgłasza ``PreparationError``. Czas tego wywołania nie
+    przerwać bez zapisu, zgłasza ``StopError``. Czas tego wywołania nie
     wlicza się do czasu uruchomienia.
     """
 
@@ -122,18 +120,18 @@ def prepare_collective_file(
         preparation_register.ensure_register_available(register_path)
         preparation_files.check_templates(files)
         if not periods_directory.is_dir():
-            raise messages.periods_directory_missing(periods_directory)
+            raise StopError(messages.periods_directory_missing(periods_directory))
         preparation_files.ensure_period_files_absent(files)
         try:
             worker_mapping = load_worker_mapping(config_path)
         except SettlementError as exc:
-            raise messages.unreadable_worker_config(config_path) from exc
+            raise StopError(messages.unreadable_worker_config(config_path)) from exc
         return parsed_period, worker_mapping
 
     parsed_period, worker_mapping = phases.check(check_inputs)
     register = phases.read(lambda: preparation_register.read_register(register_path))
 
-    def plan_orders() -> tuple[preparation_plan.Plan, list[PreparationMessage]]:
+    def plan_orders() -> tuple[preparation_plan.Plan, list[Message]]:
         plan = preparation_plan.plan_period_orders(register_path, register, parsed_period, config_path, worker_mapping)
         warnings = preparation_files.plan_period_files(files, len(plan.orders), len(plan.successful_orders))
         warnings.extend(preparation_plan.period_warnings(register_path, plan))
