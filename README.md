@@ -258,6 +258,9 @@ wystarczają zależności z `requirements.txt`, bez Node.
   `nieoczekiwany-wyjatek` (tylko typ i trasa, bez tekstu wyjątku).
 - Ustawienia Centrum (Rejestr zleceń, folder okresów, motyw) są w
   `config/centrum-ustawienia.yaml`, poza gitem.
+- Metryki czytają przy każdym odczycie oba pliki metryk CLI
+  (`.rozliczenia-metrics.jsonl`, `.przygotowanie-pliku-zbiorczego-metrics.jsonl`)
+  bez zmiany schematu, więc widać w nich także Uruchomienia procesu z `.cmd`.
 
 Zmiana frontendu wymaga Node 24 i kończy się commitem źródeł razem z
 odbudowanym buildem; CI sprawdza, że build i kontrakt odpowiadają źródłom:

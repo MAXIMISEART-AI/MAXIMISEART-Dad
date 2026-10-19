@@ -1,6 +1,8 @@
 import * as React from "react"
-import { CalendarRangeIcon, type LucideIcon } from "lucide-react"
+import { CalendarRangeIcon, ChartColumnIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react"
 
+import { ConfigurationPage } from "@/pages/configuration/configuration-page"
+import { MetricsPage } from "@/pages/metrics/metrics-page"
 import { PeriodsPage } from "@/pages/periods/periods-page"
 
 /**
@@ -9,6 +11,8 @@ import { PeriodsPage } from "@/pages/periods/periods-page"
  */
 export const PAGES = [
   { id: "okresy", title: "Okresy", icon: CalendarRangeIcon, Content: PeriodsPage },
+  { id: "metryki", title: "Metryki", icon: ChartColumnIcon, Content: MetricsPage },
+  { id: "konfiguracja", title: "Konfiguracja", icon: SlidersHorizontalIcon, Content: ConfigurationPage },
 ] as const satisfies ReadonlyArray<{
   id: string
   title: string

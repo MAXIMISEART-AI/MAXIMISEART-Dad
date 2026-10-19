@@ -32,9 +32,9 @@ Preconditions:
 - **Second start.** Run `<root>/narzedzie/run_centrum.py --port <port>`. It exits 0, prints `Centrum rozliczeń już działa: <url>` (`api/start-druga-instancja.txt`), `browser.txt` holds exactly the URL, the copy's log holds `juz-dziala`, and `health` still answers.
 - **Foreign program.** Bind a socket on a free port, then run the launcher on it. It exits 1, prints the lines `Co się stało`, `Gdzie`, `Co zrobić` with `zajmuje inny program`, nothing on stderr (`api/start-obcy-program.txt`), and the copy's log ends with `blad-startu`.
 - **Tab close.** Open the URL in a second tab (`context.new_page()`), wait for heading `Okresy`, close it; `health` still answers.
-- **Confirmation.** Click button `Zamknij Centrum rozliczeń` (exact). Alert dialog `Zamknąć Centrum rozliczeń?` shows `Wrócisz skrótem „Centrum rozliczeń” na pulpicie.`; capture `10`. Click `Anuluj`; the dialog closes and the log has no `zamkniecie`.
-- **Close.** Click `Zamknij Centrum rozliczeń`, then `Zamknij Centrum`. Heading `Centrum rozliczeń jest zamknięte` appears, `health` stops answering, the log ends with `zamkniecie`, `stop`; capture `11`.
-- **Proof.** Screenshots `10`–`11`, `api/start-*.txt`, `state/centrum-rozliczen.log`.
+- **Confirmation.** Click button `Zamknij Centrum rozliczeń` (exact). Alert dialog `Zamknąć Centrum rozliczeń?` shows `Wrócisz skrótem „Centrum rozliczeń” na pulpicie.`; capture `90`. Click `Anuluj`; the dialog closes and the log has no `zamkniecie`.
+- **Close.** Click `Zamknij Centrum rozliczeń`, then `Zamknij Centrum`. Heading `Centrum rozliczeń jest zamknięte` appears, `health` stops answering, the log ends with `zamkniecie`, `stop`; capture `91`.
+- **Proof.** Screenshots `90`–`91`, `api/start-*.txt`, `state/centrum-rozliczen.log`.
 
 ## Gotchas
 

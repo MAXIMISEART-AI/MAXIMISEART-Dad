@@ -10,6 +10,8 @@ import {
   zCloseCentrumResponse,
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
+  zGetConfigurationResponse,
+  zGetMetricsResponse,
   zGetPeriodBoardResponse,
   zGetSettingsResponse,
   zOpenPeriodPathResponse,
@@ -17,10 +19,18 @@ import {
 
 export type {
   Choice,
+  Configuration,
+  Message,
+  Metrics,
+  ModeStatistics,
   NextStep,
   OpenRequest,
+  Percentiles,
   PeriodRow,
+  ProcessRun,
+  ResultCounts,
   Settings,
+  TemplateProblem,
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse
@@ -72,6 +82,16 @@ export function openPeriodPath(token: string, target: OpenTarget) {
     `/api/periods/${encodeURIComponent(token)}/open`,
     send("POST", { target })
   )
+}
+
+/** Historia Uruchomień procesu z obu plików metryk, z P50/P95 i rozkładem wyników; serwer czyta pliki przy każdym odczycie. */
+export function getMetrics() {
+  return call(zGetMetricsResponse, "/api/metrics")
+}
+
+/** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
+export function getConfiguration() {
+  return call(zGetConfigurationResponse, "/api/configuration")
 }
 
 /** Serwer kończy pracę po odpowiedzi; odmawia (`CentrumError`), gdy zamknięcie jest teraz zablokowane. */

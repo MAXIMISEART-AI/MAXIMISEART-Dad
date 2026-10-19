@@ -1,8 +1,10 @@
 """Serve the real Centrum rozliczeń for one verification run on 127.0.0.1.
 
 This is the production app (``create_app`` + ``serve`` from ``rozliczenia.centrum``)
-with two run-local inputs: the settings file lives in the run root, and the
-platform adapter, the production boundary for Dad's computer, is scripted:
+with run-local inputs: the settings file, the configuration directory
+(konfiguracja wykonawców and the three Wzorce), and both metrics files live in
+the run root (never Dad's files next to the tool), and the platform adapter,
+the production boundary for Dad's computer, is scripted:
 
 - the native file and folder pickers answer with the path written to
   ``<root>/picker/answer.txt`` (consumed by the next picker; no file = Dad
@@ -30,7 +32,9 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
+from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
+from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 
@@ -71,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve()
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
+    metrics = MetricsFiles(
+        preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
+    )
+    configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
     app = create_app(
@@ -79,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         log=log,
         shutdown=shutdown,
         today=lambda: today,
+        metrics_files=metrics,
+        configuration_files=ConfigurationFiles(**configuration),
     )
 
     def record_bound_server(url: str) -> None:

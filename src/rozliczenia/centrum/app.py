@@ -1,10 +1,10 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``shutdown_router``); ``create_app`` składa je, pilnuje nagłówków ``Host`` i
-``Origin`` (ADR 0004), zamienia odmowy (``contract.Refusal``) na bezpieczne
-odpowiedzi ``Problem``, a nieoczekiwany wyjątek na wpis w dzienniku Centrum i
-odpowiedź bez treści wyjątku.
+``configuration_router``, ``shutdown_router``); ``create_app`` składa je,
+pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004), zamienia odmowy
+(``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a nieoczekiwany
+wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku.
 """
 
 from __future__ import annotations
@@ -19,8 +19,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.settings import SettingsStore, settings_router
@@ -40,6 +42,8 @@ def create_app(
     log: CentrumLog,
     shutdown: Shutdown,
     today: Callable[[], date] = date.today,
+    metrics_files: MetricsFiles | None = None,
+    configuration_files: ConfigurationFiles | None = None,
 ) -> FastAPI:
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -77,6 +81,8 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
+    app.include_router(metrics_router(metrics_files or MetricsFiles.of_cli(), today))
+    app.include_router(configuration_router(configuration_files or ConfigurationFiles.default()))
     app.include_router(shutdown_router(shutdown))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")

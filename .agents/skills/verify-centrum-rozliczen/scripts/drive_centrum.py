@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -19,16 +20,24 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
+from zoneinfo import ZoneInfo
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page, expect, sync_playwright
 import yaml
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
+# Dad's computer runs on Polish time; dates in Centrum are shown in the browser's time zone.
+DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
+# The period the CLI step names: the fixture's last complete period, without a Folder okresu.
+LAST_COMPLETE_FOR_CLI = "06_12_10_2026"
+
 # start-i-zamykanie closes Centrum, so it stays last.
-FEATURES = ("ustawienia", "tablica-okresow", "start-i-zamykanie")
+FEATURES = ("ustawienia", "tablica-okresow", "konfiguracja", "metryki", "start-i-zamykanie")
 
 
 class DriveFailure(Exception):
@@ -293,16 +302,335 @@ def drive_period_board(run: Run, page: Page) -> None:
     run.check(len(run.lines("opened.jsonl")) == opened, "a refused request opens nothing")
 
 
+def _seconds(duration_ms: int) -> str:
+    """The UI's duration text: tenths of a second rounded half up, Polish comma (``7250`` → ``7,3 s``)."""
+
+    tenths = (duration_ms + 50) // 100
+    return f"{tenths // 10},{tenths % 10} s"
+
+
+def _local(started_at: str) -> str:
+    """The UI's date text in Dad's time zone (``06.10.2026, 08:21``)."""
+
+    return datetime.fromisoformat(started_at).astimezone(DAD_TIME_ZONE).strftime("%d.%m.%Y, %H:%M")
+
+
+def _history_rows(page: Page) -> Locator:
+    return page.get_by_role("table", name="Historia Uruchomień procesu").get_by_role("row")
+
+
+def drive_metrics(run: Run, page: Page) -> None:
+    feature = "metryki"
+    fixture_metrics = run.fixture["metrics"]
+
+    run.step(feature, "metryki-karty-okresow")
+    page.goto(run.url + "#/okresy")
+    if run.api("/api/settings", "metryki-ustawienia")["periods_directory"] == {"state": "not_set"}:
+        _choose_periods_directory(run, page)
+    metrics = run.api("/api/metrics", "metryki")
+    runs = metrics["runs"]
+    recent = metrics["recent"]
+    assert isinstance(runs, list) and isinstance(recent, dict)
+    run.check(len(runs) == fixture_metrics["runs"], "the server reads every valid record of both metrics files")
+    run.check(
+        {entry["process"] for entry in runs} == {"preparation", "settlement"},
+        "the history holds both processes, and the records the CLI's reader skips are absent",
+    )
+    stats = page.get_by_role("group", name="Najważniejsze liczby")
+    board = run.api("/api/periods", "metryki-tablica")["periods"]
+    assert isinstance(board, list)
+    prepared = next(period for period in board if period["collective_file_exists"])
+    expect(stats.get_by_role("group", name="Ostatni przygotowany okres")).to_contain_text(prepared["token"])
+    latest = runs[0]
+    latest_card = stats.get_by_role("group", name="Ostatnie uruchomienie")
+    expect(latest_card).to_contain_text(f"{latest['process_label']} · {_local(latest['started_at'])}")
+    expect(latest_card).to_contain_text("OK")
+    results = recent["results"]
+    recent_card = stats.get_by_role("group", name=f"Ostatnie {recent['weeks']} tygodni")
+    expect(recent_card).to_contain_text(f"{results['ok']} OK")
+    expect(recent_card).to_contain_text(f"{results['needs_review']} do sprawdzenia · {results['critical']} zatrzymane")
+    run.check(True, "Okresy shows the last prepared period, the last Uruchomienie procesu and the recent results")
+    run.capture(page, "20-metryki-karty-okresow")
+
+    run.step(feature, "metryki-p50-p95")
+    page.get_by_role("link", name="Metryki", exact=True).click()
+    expect(page.get_by_role("heading", name="Metryki", exact=True)).to_be_visible()
+    entries = metrics["statistics"]
+    assert isinstance(entries, list)
+    statistics = {(entry["process"], entry["mode"]): entry for entry in entries}
+    preparation_run = statistics[("preparation", "RUN")]
+    percentiles = preparation_run["percentiles"]
+    run.check(
+        preparation_run["completed_runs"] >= 5 and percentiles is not None,
+        "Przygotowanie RUN has five completed observations, so P50/P95 exist",
+    )
+    strip = page.get_by_role("group", name="Statystyki")
+    expect(strip.get_by_role("group", name="P50")).to_contain_text(_seconds(percentiles["p50_ms"]))
+    expect(strip.get_by_role("group", name="P95")).to_contain_text(_seconds(percentiles["p95_ms"]))
+    counts = preparation_run["results"]
+    expect(strip.get_by_role("group", name="Wyniki")).to_contain_text(f"{counts['ok']} OK")
+    expect(strip.get_by_role("group", name="Wyniki")).to_contain_text(f"{counts['critical']} zatrzymane")
+    run.check(True, "the strip shows the server's P50/P95 and result counts for Przygotowanie RUN")
+
+    run.step(feature, "metryki-wykres")
+    chart = page.get_by_role("figure", name="Wykres czasów etapów")
+    expect(chart).to_be_visible()
+    shown_runs = [entry for entry in runs if (entry["process"], entry["mode"]) == ("preparation", "RUN")][:12]
+    bars = chart.locator(".recharts-bar-rectangle")
+    expect(bars).to_have_count(len(shown_runs) * 4 - sum(
+        1 for entry in shown_runs for phase in entry["phase_durations"] if phase["duration_ms"] == 0
+    ))
+    for phase in ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"):
+        expect(chart.get_by_text(phase, exact=True)).to_be_visible()
+    run.check(True, "the stage-times chart stacks the four phases of each Przygotowanie RUN")
+    run.capture(page, "21-metryki-wykres")
+
+    run.step(feature, "metryki-tabela-etapow")
+    page.get_by_role("tab", name="Tabela", exact=True).click()
+    table = page.get_by_role("table", name="Czasy etapów")
+    expect(table.get_by_role("row")).to_have_count(1 + len(shown_runs) + 2)
+    p50_row = table.get_by_role("row").filter(has_text="P50")
+    expect(p50_row).to_contain_text(_seconds(percentiles["p50_ms"]))
+    for phase in percentiles["phases"]:
+        if any(p["phase"] == phase["phase"] and p["duration_ms"] for e in shown_runs for p in e["phase_durations"]):
+            expect(p50_row).to_contain_text(_seconds(phase["p50_ms"]))
+    run.check(True, "the table view lists each run's phase times with per-phase P50/P95 from the server")
+    run.capture(page, "22-metryki-tabela-etapow")
+    page.get_by_role("tab", name="Wykres", exact=True).click()
+
+    run.step(feature, "metryki-za-malo-obserwacji")
+    page.get_by_role("group", name="Tryb", exact=True).get_by_role("button", name="DRY-RUN", exact=True).click()
+    dry_run = statistics[("preparation", "DRY-RUN")]
+    run.check(
+        dry_run["percentiles"] is None and dry_run["completed_runs"] < 5,
+        "Przygotowanie DRY-RUN has fewer than five completed observations",
+    )
+    expect(strip.get_by_role("group", name="P50")).to_contain_text(f"od 5 ukończonych (jest {dry_run['completed_runs']})")
+    run.check(True, "below five completed observations P50/P95 show a dash and the count")
+    run.capture(page, "23-metryki-za-malo-obserwacji")
+    page.get_by_role("group", name="Tryb", exact=True).get_by_role("button", name="RUN", exact=True).click()
+
+    run.step(feature, "metryki-przerwane")
+    period, phase_times = fixture_metrics["interrupted"]
+    interrupted = page.get_by_role("region", name="Przerwane")
+    expect(interrupted).to_contain_text(period)
+    expect(interrupted).to_contain_text(
+        f"Sprawdzanie {_seconds(phase_times[0])} · Odczyt danych {_seconds(phase_times[1])}"
+    )
+    expect(interrupted).to_contain_text(f"do przerwania {_seconds(sum(phase_times))}")
+    run.check(True, "an interrupted Uruchomienie procesu shows its phase times until the interruption")
+
+    run.step(feature, "metryki-historia")
+    rows = _history_rows(page)
+    expect(rows).to_have_count(1 + min(10, len(runs)))
+    expect(rows.nth(1)).to_contain_text(_local(runs[0]["started_at"]))
+    dry_runs_on_page = sum(1 for entry in runs[:10] if entry["mode"] == "DRY-RUN")
+    history = page.get_by_role("table", name="Historia Uruchomień procesu")
+    expect(history.get_by_text("DRY-RUN", exact=True)).to_have_count(dry_runs_on_page)
+    expect(history.get_by_text(".cmd", exact=True)).to_have_count(min(10, len(runs)))
+    run.capture(page, "24-metryki-historia")
+    history.get_by_role("button", name="Czas", exact=True).click()
+    longest = max(runs, key=lambda entry: entry["total_duration_ms"])
+    expect(rows.nth(1)).to_contain_text(_seconds(longest["total_duration_ms"]))
+    expect(history.get_by_role("columnheader", name="Czas")).to_have_attribute("aria-sort", "descending")
+    page.get_by_role("group", name="Proces w historii").get_by_role("button", name="Przebieg", exact=True).click()
+    settlements = [entry for entry in runs if entry["process"] == "settlement"]
+    expect(rows).to_have_count(1 + min(10, len(settlements)))
+    for index in range(1, min(10, len(settlements)) + 1):
+        expect(rows.nth(index)).to_contain_text("Przebieg rozliczeń")
+    page.get_by_role("group", name="Proces w historii").get_by_role("button", name="Wszystkie", exact=True).click()
+    page.get_by_role("button", name="Pokaż starsze", exact=True).click()
+    expect(rows).to_have_count(1 + min(20, len(runs)))
+    run.check(True, "the history sorts by time, filters by process and shows older runs on demand")
+    run.capture(page, "25-metryki-historia-filtry")
+
+    run.step(feature, "metryki-nowy-rekord-z-cli")
+    completed = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "run_preparation.py"),
+         "--register", str(run.root / "brak-rejestru.xlsx"),
+         "--periods-directory", run.fixture["periods_directory"],
+         "--period", LAST_COMPLETE_FOR_CLI, "--dry-run",
+         "--metrics", fixture_metrics["preparation"]],
+        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, check=False,
+    )
+    run.check(completed.returncode == 1, "the CLI stopped (no Rejestr zleceń) and wrote its metrics record")
+    after = run.api("/api/metrics", "metryki-po-cli")["runs"]
+    assert isinstance(after, list)
+    run.check(len(after) == len(runs) + 1, "the next read includes the CLI's record without restarting Centrum")
+    page.reload()
+    newest = _history_rows(page).nth(1)
+    expect(newest).to_contain_text(_local(after[0]["started_at"]))
+    expect(newest).to_contain_text(LAST_COMPLETE_FOR_CLI)
+    expect(newest).to_contain_text("Zatrzymano")
+    expect(newest).to_contain_text(".cmd")
+    run.check(True, "the reloaded page shows the CLI's DRY-RUN as the newest Uruchomienie procesu")
+    run.capture(page, "26-metryki-nowy-rekord-z-cli")
+
+    run.step(feature, "metryki-pusty-stan")
+    moved = [Path(fixture_metrics[name]) for name in ("preparation", "settlement")]
+    for path in moved:
+        path.rename(path.with_name(path.name + ".odlozony"))
+    try:
+        run.check(run.api("/api/metrics", "metryki-brak-plikow")["runs"] == [], "no metrics files is an empty list")
+        page.reload()
+        expect(page.get_by_text("Jeszcze nie ma metryk", exact=True)).to_be_visible()
+        run.capture(page, "27-metryki-pusty-stan")
+    finally:
+        for path in moved:
+            path.with_name(path.name + ".odlozony").rename(path)
+TEMPLATE_LABELS = ("Wzorzec rozliczenia wewnętrznego", "Wzorzec pliku zbiorczego", "Wzorzec rozliczenia pracownika")
+REPORT_TO_MAINTAINER = "Przekaż ten komunikat osobie utrzymującej narzędzie."
+
+
+def _project_version() -> str:
+    with (REPO_ROOT / "pyproject.toml").open("rb") as file:
+        version = tomllib.load(file)["project"]["version"]
+    assert isinstance(version, str)
+    return version
+
+
+def _configuration_snapshot(files: dict[str, Path]) -> dict[str, tuple[bytes, int]]:
+    """Bytes and modification time of the konfiguracja wykonawców and the three Wzorce, plus every lock file."""
+
+    config = next(iter(files.values())).parent
+    paths = [*files.values(), *config.glob("~$*")]
+    return {path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in sorted(paths)}
+
+
+def _template_group(page: Page, label: str) -> Locator:
+    return page.get_by_role("group", name=label, exact=True)
+
+
+def _shown_as_ready(page: Page, label: str) -> None:
+    expect(_template_group(page, label).get_by_role("img", name="Na miejscu i czytelny")).to_be_visible()
+
+
+def _template_answer(run: Run, name: str, label: str) -> dict[str, object]:
+    templates = run.api("/api/configuration", name)["templates"]
+    assert isinstance(templates, list)
+    return next(template for template in templates if template["label"] == label)
+
+
+def drive_configuration(run: Run, page: Page) -> None:
+    """Every broken state is made by renaming or adding files and undone by renaming back, so a
+    Centrum that wrote nothing leaves bytes and modification times exactly as the fixture made them."""
+
+    feature = "konfiguracja"
+    files = {name: Path(path) for name, path in run.fixture["configuration"].items()}
+    before = _configuration_snapshot(files)
+
+    run.step(feature, "konfiguracja-gotowa")
+    page.goto(run.url)
+    page.get_by_role("link", name="Konfiguracja", exact=True).click()
+    expect(page.get_by_role("heading", name="Konfiguracja", level=1)).to_be_visible()
+    configuration = run.api("/api/configuration", "konfiguracja-gotowa")
+    templates = configuration["templates"]
+    assert isinstance(templates, list)
+    run.check(
+        [(template["label"], template["state"]) for template in templates]
+        == [(label, "ready") for label in TEMPLATE_LABELS],
+        "the server reports all three Wzorce present and readable",
+    )
+    run.check(
+        configuration["workers"] == {"state": "ready", "names": run.fixture["workers"]},
+        "the server lists the Wykonawcy in the order of the konfiguracja wykonawców",
+    )
+    version = _project_version()
+    run.check(configuration["version"] == version, "the server reports the pyproject.toml version")
+    for label in TEMPLATE_LABELS:
+        _shown_as_ready(page, label)
+    expect(page.get_by_text("3 z 3", exact=True)).to_be_visible()
+    expect(page.get_by_role("list", name="Wykonawcy").get_by_role("listitem")).to_have_text(run.fixture["workers"])
+    expect(page.get_by_text(f"Wersja {version}", exact=True)).to_be_visible()
+    expect(page.get_by_role("alert")).to_have_count(0)
+    run.check(True, "the screen shows the same Wzorce, Wykonawcy, and version, with no problem")
+    run.capture(page, "10-konfiguracja-gotowa")
+
+    run.step(feature, "konfiguracja-tylko-do-odczytu")
+    page.get_by_text("Tylko do odczytu", exact=True).hover()
+    expect(page.get_by_text("Zmiany robi osoba utrzymująca narzędzie.", exact=True)).to_be_visible()
+    run.check(
+        page.url.endswith("#/konfiguracja") and page.locator("main").get_by_role("button").count() == 2,
+        "the page offers no action besides the header's menu and theme buttons",
+    )
+    run.capture(page, "11-konfiguracja-tylko-do-odczytu", full_page=False)
+    page.mouse.move(0, 0)
+
+    run.step(feature, "konfiguracja-wzorzec-otwarty")
+    collective = files["collective_template"]
+    lock = collective.with_name(f"~${collective.name}")
+    lock.write_bytes(b"")
+    try:
+        page.reload()
+        expect(_template_group(page, "Wzorzec pliku zbiorczego")).to_contain_text("Otwarty w Excelu")
+        message = page.get_by_role("alert").filter(has_text="Wzorzec jest otwarty w Excelu.")
+        expect(message).to_contain_text(f"plik {collective.name}, folder config")
+        expect(message).to_contain_text(f"usuń z tego samego folderu pozostawiony plik ~${collective.name}")
+        expect(page.get_by_text("2 z 3", exact=True)).to_be_visible()
+        answer = _template_answer(run, "konfiguracja-wzorzec-otwarty", "Wzorzec pliku zbiorczego")
+        run.check(answer["problem"] == "open_in_excel", "the server reports the Wzorzec as open in Excel")
+        run.capture(page, "12-konfiguracja-wzorzec-otwarty")
+        run.check(lock.exists(), "Centrum leaves Excel's lock file alone")
+    finally:
+        lock.unlink()
+    # Headless Chromium keeps every tab visible, so returning to the tab is simulated with `focus`.
+    page.evaluate("window.dispatchEvent(new FocusEvent('focus'))")
+    _shown_as_ready(page, "Wzorzec pliku zbiorczego")
+    run.check(True, "a (simulated) return to the tab shows the Wzorzec ready once Excel has closed it")
+
+    run.step(feature, "konfiguracja-brak-wzorca")
+    worker_template = files["worker_template"]
+    moved = worker_template.with_name(worker_template.name + ".przeniesiony")
+    worker_template.rename(moved)
+    try:
+        page.reload()
+        expect(_template_group(page, "Wzorzec rozliczenia pracownika")).to_contain_text("Brak pliku")
+        message = page.get_by_role("alert").filter(has_text=f"Nie znaleziono Wzorca rozliczenia pracownika: {worker_template.name}.")
+        expect(message).to_contain_text(REPORT_TO_MAINTAINER)
+        answer = _template_answer(run, "konfiguracja-brak-wzorca", "Wzorzec rozliczenia pracownika")
+        run.check(answer["problem"] == "missing", "the server reports the Wzorzec rozliczenia pracownika as missing")
+        run.capture(page, "13-konfiguracja-brak-wzorca")
+    finally:
+        moved.rename(worker_template)
+
+    run.step(feature, "konfiguracja-nieczytelna-konfiguracja-wykonawcow")
+    worker_config = files["worker_config"]
+    moved = worker_config.with_name(worker_config.name + ".przeniesiony")
+    worker_config.rename(moved)
+    try:
+        worker_config.write_text("workers: [niedomknięta lista\n", encoding="utf-8")
+        page.reload()
+        message = page.get_by_role("alert").filter(has_text="Nie można odczytać konfiguracji wykonawców.")
+        expect(message).to_contain_text(f"plik {worker_config.name}")
+        expect(message).to_contain_text("Przekaż to osobie utrzymującej narzędzie.")
+        expect(page.get_by_role("list", name="Wykonawcy")).to_have_count(0)
+        workers = run.api("/api/configuration", "konfiguracja-nieczytelna-konfiguracja-wykonawcow")["workers"]
+        assert isinstance(workers, dict)
+        run.check(workers["state"] == "unreadable", "the server reports the konfiguracja wykonawców as unreadable")
+        run.capture(page, "14-konfiguracja-nieczytelna-konfiguracja-wykonawcow")
+    finally:
+        worker_config.unlink(missing_ok=True)
+        moved.rename(worker_config)
+
+    run.step(feature, "konfiguracja-bez-zmian")
+    page.reload()
+    for label in TEMPLATE_LABELS:
+        _shown_as_ready(page, label)
+    run.check(
+        _configuration_snapshot(files) == before,
+        "the konfiguracja wykonawców and every Wzorzec keep their bytes and modification times; no lock file is left",
+    )
+
+
 def _copy_tool(run: Run) -> Path:
     """A copy of the tool inside the run root, so the real launcher logs there and never in Dad's ``logs``."""
 
     tool = run.root / "narzedzie"
     if not tool.exists():
-        repo = Path(__file__).resolve().parents[4]
         tool.mkdir()
         for name in ("run_centrum.py", "pyproject.toml"):
-            shutil.copy2(repo / name, tool)
-        shutil.copytree(repo / "src", tool / "src", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copy2(REPO_ROOT / name, tool)
+        shutil.copytree(REPO_ROOT / "src", tool / "src", ignore=shutil.ignore_patterns("__pycache__"))
     return tool
 
 
@@ -396,7 +724,7 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     dialog = page.get_by_role("alertdialog", name="Zamknąć Centrum rozliczeń?")
     expect(dialog).to_be_visible()
     expect(dialog).to_contain_text("Wrócisz skrótem „Centrum rozliczeń” na pulpicie.")
-    run.capture(page, "10-start-i-zamykanie-potwierdzenie", full_page=False)
+    run.capture(page, "90-start-i-zamykanie-potwierdzenie", full_page=False)
     dialog.get_by_role("button", name="Anuluj", exact=True).click()
     expect(dialog).to_be_hidden()
     run.check(_answers(run.url) and "zamkniecie" not in _log_events(served_log), "Anuluj leaves Centrum running")
@@ -407,7 +735,7 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     expect(page.get_by_role("heading", name="Centrum rozliczeń jest zamknięte", exact=True)).to_be_visible()
     run.wait_for(lambda: not _answers(run.url), "the Centrum process stops serving")
     run.wait_for(lambda: _log_events(served_log)[-2:] == ["zamkniecie", "stop"], "the log ends with zamkniecie, stop")
-    run.capture(page, "11-start-i-zamykanie-zamkniete")
+    run.capture(page, "91-start-i-zamykanie-zamkniete")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -421,6 +749,8 @@ def main(argv: list[str] | None = None) -> int:
     drives = {
         "ustawienia": drive_settings,
         "tablica-okresow": drive_period_board,
+        "konfiguracja": drive_configuration,
+        "metryki": drive_metrics,
         "start-i-zamykanie": drive_start_and_close,
     }
     selected = FEATURES if args.feature == "all" else (args.feature,)
@@ -428,7 +758,9 @@ def main(argv: list[str] | None = None) -> int:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             try:
-                context = browser.new_context(viewport={"width": 1440, "height": 1000}, locale="pl-PL")
+                context = browser.new_context(
+                    viewport={"width": 1440, "height": 1000}, locale="pl-PL", timezone_id=DAD_TIME_ZONE.key
+                )
                 page = context.new_page()
                 page.set_default_timeout(10_000)
                 for feature in selected:

@@ -239,6 +239,58 @@
         }
       }
     },
+    "/api/metrics": {
+      "get": {
+        "tags": [
+          "metryki"
+        ],
+        "summary": "Metrics",
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metrics"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/configuration": {
+      "get": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Configuration",
+        "operationId": "getConfiguration",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/shutdown": {
       "post": {
         "tags": [
@@ -370,6 +422,62 @@
         "title": "Closing",
         "description": "Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi."
       },
+      "Configuration": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "templates": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TemplateReady"
+                },
+                {
+                  "$ref": "#/components/schemas/TemplateProblem"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "state",
+                "mapping": {
+                  "problem": "#/components/schemas/TemplateProblem",
+                  "ready": "#/components/schemas/TemplateReady"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Templates"
+          },
+          "workers": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorkersReady"
+              },
+              {
+                "$ref": "#/components/schemas/WorkersUnreadable"
+              }
+            ],
+            "title": "Workers",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "ready": "#/components/schemas/WorkersReady",
+                "unreadable": "#/components/schemas/WorkersUnreadable"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "templates",
+          "workers"
+        ],
+        "title": "Configuration",
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -403,6 +511,74 @@
         ],
         "title": "Health"
       },
+      "Message": {
+        "properties": {
+          "what": {
+            "type": "string",
+            "title": "What"
+          },
+          "where": {
+            "type": "string",
+            "title": "Where"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "what",
+          "where",
+          "action"
+        ],
+        "title": "Message",
+        "description": "Komunikat w trzech częściach, ta sama treść co w terminalu."
+      },
+      "Metrics": {
+        "properties": {
+          "phases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Phases"
+          },
+          "minimum_completed_runs": {
+            "type": "integer",
+            "title": "Minimum Completed Runs"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessRun"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "statistics": {
+            "items": {
+              "$ref": "#/components/schemas/ModeStatistics"
+            },
+            "type": "array",
+            "title": "Statistics"
+          },
+          "recent": {
+            "$ref": "#/components/schemas/RecentResults"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phases",
+          "minimum_completed_runs",
+          "runs",
+          "statistics",
+          "recent"
+        ],
+        "title": "Metrics",
+        "description": "Historia Uruchomień procesu z obu plików metryk, czytanych przy każdym odczycie, od najnowszego."
+      },
       "MissingPath": {
         "properties": {
           "state": {
@@ -428,6 +604,54 @@
         ],
         "title": "MissingPath",
         "description": "Zapamiętana ścieżka, pod którą nie ma już pliku albo folderu."
+      },
+      "ModeStatistics": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
+            "title": "Process"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "completed_runs": {
+            "type": "integer",
+            "title": "Completed Runs"
+          },
+          "percentiles": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Percentiles"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "results": {
+            "$ref": "#/components/schemas/ResultCounts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "mode",
+          "completed_runs",
+          "percentiles",
+          "results"
+        ],
+        "title": "ModeStatistics",
+        "description": "Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji."
       },
       "NextStep": {
         "properties": {
@@ -510,6 +734,34 @@
         ],
         "title": "Opened"
       },
+      "Percentiles": {
+        "properties": {
+          "p50_ms": {
+            "type": "integer",
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "type": "integer",
+            "title": "P95 Ms"
+          },
+          "phases": {
+            "items": {
+              "$ref": "#/components/schemas/PhasePercentiles"
+            },
+            "type": "array",
+            "title": "Phases"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "p50_ms",
+          "p95_ms",
+          "phases"
+        ],
+        "title": "Percentiles",
+        "description": "P50 i P95 czasu całego Uruchomienia procesu i każdego etapu, w milisekundach."
+      },
       "PeriodRow": {
         "properties": {
           "token": {
@@ -586,6 +838,49 @@
         "title": "PeriodRow",
         "description": "Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie."
       },
+      "PhaseDuration": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phase",
+          "duration_ms"
+        ],
+        "title": "PhaseDuration"
+      },
+      "PhasePercentiles": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "p50_ms": {
+            "type": "integer",
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "type": "integer",
+            "title": "P95 Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phase",
+          "p50_ms",
+          "p95_ms"
+        ],
+        "title": "PhasePercentiles"
+      },
       "Problem": {
         "properties": {
           "message": {
@@ -600,6 +895,82 @@
         ],
         "title": "Problem",
         "description": "Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku."
+      },
+      "ProcessRun": {
+        "properties": {
+          "process": {
+            "type": "string",
+            "enum": [
+              "preparation",
+              "settlement"
+            ],
+            "title": "Process"
+          },
+          "process_label": {
+            "type": "string",
+            "title": "Process Label"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WYMAGA_SPRAWDZENIA",
+              "BLAD_KRYTYCZNY"
+            ],
+            "title": "Result"
+          },
+          "total_duration_ms": {
+            "type": "integer",
+            "title": "Total Duration Ms"
+          },
+          "phase_durations": {
+            "items": {
+              "$ref": "#/components/schemas/PhaseDuration"
+            },
+            "type": "array",
+            "title": "Phase Durations"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "cmd",
+              "centrum"
+            ],
+            "title": "Origin"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "process",
+          "process_label",
+          "started_at",
+          "mode",
+          "period",
+          "result",
+          "total_duration_ms",
+          "phase_durations",
+          "origin"
+        ],
+        "title": "ProcessRun",
+        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń."
       },
       "ReadyPath": {
         "properties": {
@@ -625,6 +996,55 @@
           "name"
         ],
         "title": "ReadyPath"
+      },
+      "RecentResults": {
+        "properties": {
+          "weeks": {
+            "type": "integer",
+            "title": "Weeks"
+          },
+          "since": {
+            "type": "string",
+            "format": "date",
+            "title": "Since"
+          },
+          "results": {
+            "$ref": "#/components/schemas/ResultCounts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "weeks",
+          "since",
+          "results"
+        ],
+        "title": "RecentResults",
+        "description": "Wyniki Uruchomień procesu obu procesów od ``since`` (ostatnie ``weeks`` tygodni)."
+      },
+      "ResultCounts": {
+        "properties": {
+          "ok": {
+            "type": "integer",
+            "title": "Ok"
+          },
+          "needs_review": {
+            "type": "integer",
+            "title": "Needs Review"
+          },
+          "critical": {
+            "type": "integer",
+            "title": "Critical"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "needs_review",
+          "critical"
+        ],
+        "title": "ResultCounts"
       },
       "Settings": {
         "properties": {
@@ -690,6 +1110,72 @@
         ],
         "title": "Settings"
       },
+      "TemplateProblem": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "problem",
+            "title": "State"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "problem": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "open_in_excel",
+              "unreadable"
+            ],
+            "title": "Problem"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "label",
+          "file_name",
+          "problem",
+          "message"
+        ],
+        "title": "TemplateProblem",
+        "description": "Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania."
+      },
+      "TemplateReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "label",
+          "file_name"
+        ],
+        "title": "TemplateReady",
+        "description": "Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie."
+      },
       "ThemeChange": {
         "properties": {
           "theme": {
@@ -747,6 +1233,49 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkersReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "names"
+        ],
+        "title": "WorkersReady",
+        "description": "Nazwy Wykonawców w kolejności z konfiguracji wykonawców."
+      },
+      "WorkersUnreadable": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "unreadable",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "WorkersUnreadable"
       }
     }
   }

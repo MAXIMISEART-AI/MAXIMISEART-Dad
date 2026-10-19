@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.settings import default_settings_path
 from rozliczenia.centrum.shutdown import Shutdown
 
@@ -50,6 +51,7 @@ class Centrum:
     client: TestClient
     platform: FakePlatform
     settings_path: Path
+    metrics: MetricsFiles
     log_path: Path
     shutdown: Shutdown
 
@@ -57,12 +59,21 @@ class Centrum:
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     platform = FakePlatform()
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
+    # Pliki metryk obu procesów w katalogu testu, nigdy historia z katalogu narzędzia.
+    metrics = MetricsFiles(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
     log = CentrumLog(log_path)
     shutdown = Shutdown(log)
-    app = create_app(settings_path=settings_path, platform=platform, log=log, shutdown=shutdown, today=lambda: today)
+    app = create_app(
+        settings_path=settings_path,
+        platform=platform,
+        log=log,
+        shutdown=shutdown,
+        today=lambda: today,
+        metrics_files=metrics,
+    )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path, log_path, shutdown)
+    return Centrum(client, platform, settings_path, metrics, log_path, shutdown)
 
 
 def project_version() -> str:
