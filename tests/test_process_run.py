@@ -18,12 +18,12 @@ from typing import Any, NoReturn, TextIO
 
 import pytest
 
+from rozliczenia.decision import Conversation, Decision
 from rozliczenia.domain import ProgressObserver, ProgressPhase
 from rozliczenia.message import Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.plain_progress import PlainProgressAdapter
 from rozliczenia.process_run import (
-    Conversation,
     Finished,
     Process,
     Stop,
@@ -75,7 +75,7 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def gather(args: argparse.Namespace, _conversation: Conversation) -> Inputs:
+def gather(args: argparse.Namespace, _conversation: TerminalConversation) -> Inputs:
     return Inputs(dry_run=args.dry_run)
 
 
@@ -309,7 +309,7 @@ def test_own_stop_of_the_process_shows_its_terminal_lines(
 
 
 def test_stop_before_engine_start_has_unknown_period_and_shows_statistics(tmp_path: Path) -> None:
-    def cancelled(_args: argparse.Namespace, conversation: Conversation) -> Inputs:
+    def cancelled(_args: argparse.Namespace, conversation: TerminalConversation) -> Inputs:
         conversation.say("Okno wyboru zostało zamknięte.")
         raise stop_error("Nie wybrano pliku.", terminal_line="Nie wybrano pliku.")
 
@@ -380,19 +380,26 @@ class SlowAnswer(StringIO):
         return super().readline()
 
 
+QUESTION = Decision(
+    title="Ostrzeżenie: pytanie",
+    message=Message("PYTANIE", "Dane mogą być niepełne.", "Proces testowy", "Sprawdź liczby."),
+    counts_title="Elementy",
+    counts=[("pierwszy", 1)],
+    question="Kontynuować?",
+)
+
+
 def asking_between_planning_and_saving(
     _inputs: Inputs, observer: ProgressObserver, conversation: Conversation
 ) -> Durations:
     def ask() -> None:
-        with conversation.paused():
-            conversation.say("Ostrzeżenie: pytanie")
-            if conversation.ask("Kontynuować? ") != "t":
-                raise stop_error("Przerwano zgodnie z odpowiedzią.", terminal_line="Przerwano zgodnie z odpowiedzią.")
+        if not conversation.confirm(QUESTION):
+            raise stop_error("Przerwano zgodnie z odpowiedzią.", terminal_line="Przerwano zgodnie z odpowiedzią.")
 
     return all_phases(observer, before_save=ask)
 
 
-def test_time_in_paused_conversation_is_not_counted_in_czas_uruchomienia(tmp_path: Path) -> None:
+def test_time_of_decyzja_taty_is_not_counted_in_czas_uruchomienia(tmp_path: Path) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
 
     exit_code, output = run_fake(
@@ -414,7 +421,7 @@ def test_answer_from_a_file_is_followed_by_a_new_line(tmp_path: Path) -> None:
     )
 
     lines = output.splitlines()
-    assert lines[lines.index("Ostrzeżenie: pytanie") + 1] == "Kontynuować? "
+    assert lines[lines.index("- pierwszy: 1") + 1] == "Kontynuować? Wpisz t (tak) albo n (nie): "
 
 
 @pytest.mark.parametrize(
@@ -422,7 +429,7 @@ def test_answer_from_a_file_is_followed_by_a_new_line(tmp_path: Path) -> None:
     [("t\n", ["start", "stop", "start", "stop"]), ("n\n", ["start", "stop"])],
     ids=["zgoda", "odmowa"],
 )
-def test_paused_conversation_resumes_live_view_only_after_consent(
+def test_live_view_resumes_after_decyzja_taty_only_after_consent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str, expected_live_log: list[str]
 ) -> None:
     live_log = install_fake_rich(monkeypatch)

@@ -27,7 +27,8 @@ from .collective_preparation import (
 from .domain import ProgressObserver
 from .engine import default_config_path
 from .message import Message, StopError
-from .process_run import Conversation, Decision, Finished, Process, Stop, TerminalSummary, TerminalView, run
+from .decision import Conversation, Decision
+from .process_run import Finished, Process, Stop, TerminalSummary, TerminalView, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from .terminal_conversation import TerminalConversation
 
