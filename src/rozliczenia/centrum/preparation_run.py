@@ -28,11 +28,10 @@ from rozliczenia.telemetry import MetricsStore
 _PROCESS: Final = preparation_cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "preparation"
 _CHOSEN_WEEKS: Final = 8
-# Centrum nie odsyła do tabeli w instrukcji, więc komunikat sam mówi, żeby nie uruchamiać ponownie.
 _ENDINGS: Final = Endings(
     unexpected=preparation_messages.unexpected_failure(),
     plan_not_shown=preparation_messages.plan_not_shown(),
-    summary_not_shown=preparation_messages.summary_not_shown(warns_against_rerun=True),
+    summary_not_shown=preparation_messages.summary_not_shown(),
 )
 
 

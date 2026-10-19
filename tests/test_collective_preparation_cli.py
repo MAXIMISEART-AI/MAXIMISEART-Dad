@@ -180,7 +180,8 @@ def test_cli_stop_shows_co_gdzie_co_zrobic_and_exits_1(tmp_path: Path) -> None:
             [
                 "Co się stało: Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
                 "Gdzie: Przygotowanie pliku zbiorczego",
-                "Co zrobić: Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+                "Co zrobić: Nie uruchamiaj ponownie: oba pliki okresu już są. "
+                "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
             ],
         ),
         (

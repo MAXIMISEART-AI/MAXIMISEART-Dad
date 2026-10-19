@@ -46,9 +46,6 @@ różni się rozmowa:
 
 - zgodę na niepełny okres wyraża się w terminalu wpisaniem `t`, a w Centrum
   przyciskiem `Kontynuuj`; mówi o tym rozmówca, nie proces;
-- terminal odsyła do tabeli w instrukcji, Centrum nie, więc komunikat
-  „pliki okresu powstały, ale nie udało się pokazać podsumowania” sam mówi w
-  Centrum, żeby nie uruchamiać ponownie;
 - terminal Przebiegu rozliczeń pokazuje zatrzymanie dawną jedną linią, a
   Centrum ten sam komunikat w trzech częściach.
 
