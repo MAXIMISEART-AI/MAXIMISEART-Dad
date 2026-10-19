@@ -118,6 +118,9 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
     [record] = centrum.metric_records()
     assert (record["mode"], record["period"], record["result"]) == ("DRY-RUN", PERIOD, "OK")
+    phases = finished["progress"]["phases"]
+    assert [phase["phase"] for phase in phases] == ["Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"]
+    assert {phase["phase"]: phase["duration_ms"] for phase in phases} == record["phase_durations_ms"]
 
 
 def run_to_end(centrum: SettlingCentrum, *, dry_run: bool) -> dict[str, Any]:
@@ -288,7 +291,8 @@ def test_strumien_pokazuje_liczniki_szablonow_pracownikow_na_biezaco(tmp_path: P
 def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path, include_unmapped=True)
 
-    result = run_to_end(centrum, dry_run=True)["result"]
+    view = run_to_end(centrum, dry_run=True)
+    result = view["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("WYMAGA_SPRAWDZENIA", "finished", "rerun")
     assert result["headline"] == "Podgląd wymaga sprawdzenia · nic nie zapisano"
@@ -301,6 +305,13 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp
                 "do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
             ),
         }
+    ]
+    assert [(figure["label"], figure["value"], figure["unit"]) for figure in view["progress"]["figures"]] == [
+        ("Wiersze danych", 3, "count"),
+        ("Planowane szablony", 2, "count"),
+        ("Puste szablony", 1, "count"),
+        ("Pominięte szablony", 0, "count"),
+        ("Problemy", 1, "count"),
     ]
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
     [record] = centrum.metric_records()
