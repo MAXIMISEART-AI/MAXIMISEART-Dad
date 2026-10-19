@@ -1,0 +1,241 @@
+"""Drive features/przygotowanie-pliku-zbiorczego.md."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import urllib.request
+
+from playwright.sync_api import Page, expect
+
+from drive.common import (
+    LAST_COMPLETE_FOR_CLI,
+    ROW_MARKER,
+    Run,
+    choose_periods_directory,
+    current_run,
+    finished_result,
+    history_rows,
+    period_files,
+    period_row,
+)
+
+# An older period with no successful DRY-RUN in the fixture's metrics; its confirmation keeps the no-preview warning.
+NOT_PREVIEWED = "08_14_09_2026"
+PREPARATION = "przygotowanie-pliku-zbiorczego"
+INCOMPLETE_PERIOD_WHAT = "Ostatnie zlecenie okresu jest z soboty 10.10.2026"
+
+
+def _preparation_records(run: Run, name: str) -> list[dict[str, object]]:
+    """Valid records of the CLI's Przygotowanie metrics file as the server reads them, newest first."""
+
+    runs = run.api("/api/metrics", name)["runs"]
+    assert isinstance(runs, list)
+    return [entry for entry in runs if entry["process"] == "preparation"]
+
+
+def _ensure_files_set(run: Run, page: Page) -> None:
+    settings = run.api("/api/settings", "przygotowanie-ustawienia")
+    if settings["periods_directory"] == {"state": "not_set"}:
+        choose_periods_directory(run, page)
+    if settings["order_register"] == {"state": "not_set"}:
+        run.answer_picker(run.fixture["order_register"])
+        page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
+        run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
+
+
+def drive_preparation(run: Run, page: Page) -> None:
+    feature = PREPARATION
+    expected = run.fixture["preparation"]
+    period_folder = period_files(run)[0].parent
+    register_name = Path(run.fixture["order_register"]).name
+    records_before = len(_preparation_records(run, "przygotowanie-metryki-przed"))
+
+    run.step(feature, "przygotowanie-wybor-okresu")
+    page.goto(run.url)
+    _ensure_files_set(run, page)
+    page.reload()
+    page.get_by_role("button", name=f"Przygotuj plik zbiorczy, okres {LAST_COMPLETE_FOR_CLI}", exact=True).click()
+    expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
+    run.check(page.url.endswith("#/uruchomienia"), "the row's next step opens Uruchomienia")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE_FOR_CLI} · ostatni pełny")
+    expect(page.get_by_role("group", name="Rejestr zleceń")).to_contain_text(register_name)
+    expect(page.get_by_text("Zapisz i zamknij Rejestr zleceń w Excelu", exact=True)).to_be_visible()
+    setup = run.api("/api/runs/setup", "przygotowanie-wybor-okresu")["processes"]
+    assert isinstance(setup, list)
+    run.check(
+        setup[0]["preselected_period"] == LAST_COMPLETE_FOR_CLI and setup[0]["blocker"] is None,
+        "the server preselects the last complete period and nothing is missing",
+    )
+    run.capture(page, "30-przygotowanie-nowe-uruchomienie")
+
+    run.step(feature, "przygotowanie-podglad")
+    page.goto(run.url)
+    page.get_by_role("region", name="Następny krok").get_by_role("button", name="Podgląd bez zapisu").click()
+    live = page.get_by_role("region", name="Podgląd na żywo")
+    expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
+    result = finished_result(run, "przygotowanie-podglad")
+    summary = result["summary"]
+    assert isinstance(summary, dict)
+    run.check(
+        result["result"] == "OK"
+        and summary["period_order_count"] == expected["period_order_count"]
+        and summary["successful_order_count"] == expected["successful_order_count"]
+        and [day["count"] for day in summary["orders_per_day"]] == expected["orders_per_day"],
+        "the DRY-RUN plan has the Rejestr zleceń's counts and Zlecenia na dzień",
+    )
+    expect(live.get_by_role("listitem", name="sob 10.10.2026: 1", exact=True)).to_be_visible()
+    expect(live.get_by_label("Ostrzeżenie").filter(has_text=INCOMPLETE_PERIOD_WHAT)).to_be_visible()
+    expect(live).to_contain_text(f"Rozliczenie {LAST_COMPLETE_FOR_CLI} - zbiorcze.xlsx")
+    run.check(not period_folder.exists(), "the DRY-RUN created neither files nor the Folder okresu")
+    records = _preparation_records(run, "przygotowanie-metryki-podglad")
+    run.check(
+        len(records) == records_before + 1 and records[0]["mode"] == "DRY-RUN",
+        "the DRY-RUN appended one record to the CLI's metrics file",
+    )
+    run.capture(page, "31-przygotowanie-podglad")
+    preview_warnings = result["warnings"]
+    assert isinstance(preview_warnings, list)
+
+    run.step(feature, "przygotowanie-podglad-po-odswiezeniu")
+    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+    no_preview = confirm.get_by_text("Nie było podglądu bez zapisu", exact=True)
+    page.reload()
+    page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE_FOR_CLI} · ostatni pełny")
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    expect(confirm).to_be_visible()
+    expect(no_preview).to_have_count(0)
+    confirm.get_by_role("button", name="Anuluj").click()
+    page.get_by_role("combobox", name="Okres").click()
+    page.get_by_role("option", name=f"{NOT_PREVIEWED} · Brak plików okresu", exact=True).click()
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    expect(no_preview).to_be_visible()
+    setup = run.api("/api/runs/setup", "przygotowanie-podglad-po-odswiezeniu")["processes"]
+    assert isinstance(setup, list)
+    previewed = {choice["token"]: choice["previewed"] for choice in setup[0]["periods"]}
+    run.check(
+        previewed[LAST_COMPLETE_FOR_CLI] is True and previewed[NOT_PREVIEWED] is False,
+        "the server remembers the successful preview per period from the metrics history",
+    )
+    run.check(
+        True,
+        "after a reload the confirmation warns only for the period without a preview, not for the previewed one",
+    )
+    run.capture(page, "39-przygotowanie-bez-podgladu")
+    confirm.get_by_role("button", name="Anuluj").click()
+
+    run.step(feature, "przygotowanie-potwierdzenie")
+    # „Nowe Uruchomienie procesu” is the tab's own choice; a reload shows the finished preview again.
+    page.reload()
+    expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
+    live.get_by_role("button", name="Uruchom", exact=True).click()
+    expect(confirm).to_contain_text("Zapisz i zamknij Rejestr zleceń w Excelu")
+    expect(no_preview).to_have_count(0)
+    run.check(True, "Uruchom asks to confirm the write and reminds to close the Rejestr zleceń")
+    run.capture(page, "32-przygotowanie-potwierdzenie")
+    confirm.get_by_role("button", name="Uruchom", exact=True).click()
+
+    run.step(feature, "przygotowanie-decyzja")
+    decision = page.get_by_role("alertdialog", name="Kontynuować mimo niepełnego okresu?")
+    expect(decision).to_contain_text(INCOMPLETE_PERIOD_WHAT)
+    expect(decision.get_by_role("listitem", name="pon 12.10.2026: 0", exact=True)).to_be_visible()
+    expect(decision.get_by_role("button", name="Przerwij bez zapisu")).to_be_focused()
+    view = current_run(run, "przygotowanie-decyzja")
+    run.check(view["state"] == "awaiting_decision", "the server waits for Dad's decision")
+    progress = view["progress"]
+    assert isinstance(progress, dict)
+    counters = page.locator('dl[aria-label="Liczniki"]')
+    expect(counters).to_contain_text(f"Ostrzeżenia{progress['issue_count']}")
+    run.check(
+        progress["issue_count"] == len(preview_warnings),
+        "the live counters show the projection's Ostrzeżenia (as many as the preview's warnings) while the decision waits",
+    )
+    second = urllib.request.Request(
+        run.url.rstrip("/") + "/api/runs",
+        data=json.dumps({"process": "preparation", "period": LAST_COMPLETE_FOR_CLI, "dry_run": True}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json", "Origin": run.url.rstrip("/")},
+    )
+    run.check(run.refused(second, "przygotowanie-trwa-juz") == 409, "a second Uruchomienie procesu is refused")
+    close = urllib.request.Request(
+        run.url.rstrip("/") + "/api/shutdown", data=b"", method="POST", headers={"Origin": run.url.rstrip("/")}
+    )
+    run.check(
+        run.refused(close, "przygotowanie-zamkniecie-odmowa") == 409,
+        "closing Centrum is refused while the Uruchomienie procesu waits for the decision",
+    )
+    page.reload()
+    expect(decision).to_be_visible()
+    run.check(True, "the decision survives a reload of the tab")
+    run.capture(page, "33-przygotowanie-decyzja")
+
+    run.step(feature, "przygotowanie-przerwij")
+    decision.get_by_role("button", name="Przerwij bez zapisu").click()
+    stop = page.get_by_label("Zatrzymanie")
+    expect(stop).to_contain_text("Przerwano z powodu niepełnego okresu")
+    expect(stop).to_contain_text("Jeśli okres jest pełny, przy decyzji wybierz „Kontynuuj”.")
+    result = finished_result(run, "przygotowanie-przerwij")
+    stops = result["stops"]
+    assert isinstance(stops, list)
+    run.check(
+        result["ending"] == "stop" and result["headline"] == "Zatrzymano" and len(stops) == 1,
+        "the refusal is a stop with the three-part message",
+    )
+    run.check(not period_folder.exists(), "Przerwij bez zapisu wrote nothing")
+    run.capture(page, "34-przygotowanie-zatrzymanie")
+
+    run.step(feature, "przygotowanie-kontynuuj")
+    stop.get_by_role("button", name="Uruchom ponownie").click()
+    decision.get_by_role("button", name="Kontynuuj").click()
+    expect(page.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany")
+    result = finished_result(run, "przygotowanie-kontynuuj")
+    run.check(result["result"] == "OK", "the RUN finished OK")
+    run.check(all(path.is_file() for path in period_files(run)), "both period files are in the Folder okresu")
+    records = _preparation_records(run, "przygotowanie-metryki-zapisane")
+    run.check(
+        len(records) == records_before + 3
+        and [(record["mode"], record["result"]) for record in records[:3]]
+        == [("RUN", "OK"), ("RUN", "BLAD_KRYTYCZNY"), ("DRY-RUN", "OK")],
+        "every Uruchomienie procesu appended one record to the CLI's metrics file",
+    )
+    log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
+    run.check(
+        f"uruchomienie-koniec proces=preparation tryb=RUN okres={LAST_COMPLETE_FOR_CLI} wynik=OK koniec=finished" in log
+        and "uruchomienie-start proces=preparation tryb=RUN" in log
+        and ROW_MARKER not in log,
+        "the Centrum log records the start and end of each Uruchomienie procesu with safe facts only",
+    )
+    run.capture(page, "35-przygotowanie-zapisane")
+
+    run.step(feature, "przygotowanie-status-okresu")
+    page.goto(run.url)
+    expect(period_row(page, LAST_COMPLETE_FOR_CLI)).to_contain_text("Plik zbiorczy przygotowany")
+    expect(page.get_by_role("region", name="Następny krok")).to_contain_text("Utwórz rozliczenia pracowników")
+    run.check(True, "the Status okresu on Tablica okresów is Plik zbiorczy przygotowany")
+    run.capture(page, "36-przygotowanie-status-okresu")
+
+    run.step(feature, "przygotowanie-nienadpisywanie")
+    before = [path.read_bytes() for path in period_files(run)]
+    page.goto(run.url + "#/uruchomienia")
+    page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    page.get_by_role("alertdialog", name="Uruchomić z zapisem?").get_by_role("button", name="Uruchom", exact=True).click()
+    expect(page.get_by_label("Zatrzymanie")).to_contain_text("Plik tego okresu już istnieje, więc nie został nadpisany.")
+    finished_result(run, "przygotowanie-nienadpisywanie")
+    run.check([path.read_bytes() for path in period_files(run)] == before, "Nienadpisywanie: both files are unchanged")
+    run.capture(page, "37-przygotowanie-nienadpisywanie")
+
+    run.step(feature, "przygotowanie-historia")
+    page.get_by_role("tab", name="Historia").click()
+    history = run.api("/api/metrics", "przygotowanie-historia")["runs"]
+    assert isinstance(history, list)
+    run.check(
+        [entry["origin"] for entry in history[:4]] == ["centrum"] * 4,
+        "the metrics history marks the four Uruchomienia from Centrum without a schema change",
+    )
+    newest = history_rows(page).nth(1)
+    expect(newest).to_contain_text(LAST_COMPLETE_FOR_CLI)
+    expect(newest).not_to_contain_text(".cmd")
+    run.check(True, "the Historia tab shows the newest Uruchomienie without the .cmd badge")
+    run.capture(page, "38-przygotowanie-historia")

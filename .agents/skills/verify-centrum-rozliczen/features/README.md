@@ -69,7 +69,7 @@ behaviour, then exactly these H2s in order:
    observable result.
 4. `Gotchas`: traps that waste or invalidate a run.
 
-When a slice adds a feature, add its file here, a `drive_<feature>` function and
+When a slice adds a feature, add its file here, its module in `scripts/drive/` and an
 entry in `drive_centrum.py`, and its screenshots in
 `REQUIRED_SCREENSHOTS` of `run_centrum_verification.py`, in the same PR.
 
