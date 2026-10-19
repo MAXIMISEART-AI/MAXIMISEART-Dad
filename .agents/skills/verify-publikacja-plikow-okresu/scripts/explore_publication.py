@@ -671,7 +671,7 @@ def _run_body(run: Run, layout: Layout) -> None:
         run.result = "ZATRZYMANE"
         message = getattr(error, "message", None)
         run.error = f"{type(error).__name__} {message.code}" if message is not None else type(error).__name__
-        run.stop_text = str(error)
+        run.stop_text = message.text if message is not None else str(error)
     finally:
         _CURRENT.run = None
 

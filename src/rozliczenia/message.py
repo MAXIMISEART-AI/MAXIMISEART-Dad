@@ -52,11 +52,13 @@ class Message:
 class StopError(Exception):
     """Zatrzymanie Uruchomienia procesu z Komunikatem z katalogu procesu.
 
-    Treść dla taty jest w ``message``, nigdy w ``str(error)`` (ADR 0004).
+    Treść dla taty jest w ``message``, nigdy w ``str(error)`` (ADR 0004):
+    ``str(error)`` to sam kod Komunikatu, więc zapis wyjątku do logu nie
+    przenosi pełnej ścieżki z ``terminal_line``.
     """
 
     def __init__(self, message: Message) -> None:
-        super().__init__("\n".join(message.terminal_lines))
+        super().__init__(message.code)
         self.message = message
 
 

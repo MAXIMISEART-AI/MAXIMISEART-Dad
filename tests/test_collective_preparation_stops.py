@@ -57,7 +57,7 @@ def stop_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> S
 
     assert sorted(path.name for path in fixture.periods_directory.iterdir()) == periods_before
     assert input_snapshot(fixture) == inputs_before
-    assert "SYN-" not in str(raised.value)
+    assert "SYN-" not in raised.value.message.text
     return raised.value
 
 
@@ -68,7 +68,7 @@ def test_missing_rejestr_zlecen_stops_without_files(tmp_path: Path) -> None:
     error = stop_preparation(fixture)
 
     assert error.message.code == "BRAK_REJESTRU"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Nie znaleziono Rejestru zleceń. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder {tmp_path.name}\n"
         "Co zrobić: Wybierz właściwy plik Rejestru zleceń i uruchom ponownie."
@@ -83,7 +83,7 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
     error = stop_preparation(fixture)
 
     assert error.message.code == "REJESTR_OTWARTY"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder {tmp_path.name}\n"
         "Co zrobić: Zapisz i zamknij Rejestr zleceń w Excelu, potem uruchom ponownie. "
@@ -103,7 +103,7 @@ def test_rejestr_without_required_header_stops_with_header_name(tmp_path: Path) 
     error = stop_preparation(fixture)
 
     assert error.message.code == "BRAK_NAGLOWKA_REJESTRU"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: W Rejestrze zleceń brakuje wymaganego nagłówka SKUTECZNE. "
         "Nie utworzono żadnego pliku.\n"
         "Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 1\n"
@@ -119,7 +119,7 @@ def test_rejestr_with_duplicated_required_header_stops_with_header_name(tmp_path
     error = stop_preparation(fixture)
 
     assert error.message.code == "POWTORZONY_NAGLOWEK_REJESTRU"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: W Rejestrze zleceń nagłówek WYKONAWCA występuje więcej niż raz, "
         "więc nie wiadomo, z której kolumny brać dane. Nie utworzono żadnego pliku.\n"
         "Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 1\n"
@@ -135,7 +135,7 @@ def test_rejestr_without_sheet_with_required_headers_stops(tmp_path: Path) -> No
     error = stop_preparation(fixture)
 
     assert error.message.code == "BRAK_ARKUSZA_ZLECEN"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: W Rejestrze zleceń nie znaleziono arkusza ze zleceniami, czyli arkusza "
         "z wymaganymi nagłówkami w pierwszym wierszu. Nie utworzono żadnego pliku.\n"
         "Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx\n"
@@ -202,7 +202,7 @@ def test_period_orders_in_more_than_one_sheet_stop_with_sheet_names(tmp_path: Pa
     error = stop_preparation(fixture)
 
     assert error.message.code == "ZLECENIA_W_WIELU_ARKUSZACH"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Zlecenia tego okresu są w więcej niż jednym arkuszu Rejestru zleceń, "
         "więc nie wiadomo, który arkusz jest właściwy. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusze ZLECENIA, ZLECENIA 2, okres {PERIOD}\n"
@@ -241,7 +241,7 @@ def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path, damage: Call
     error = stop_preparation(fixture)
 
     assert error.message.code == "USZKODZONY_REJESTR"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony "
         "albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder {tmp_path.name}\n"
@@ -270,7 +270,7 @@ def test_missing_wzorzec_stops_without_files(tmp_path: Path, template_name: str)
     error = stop_preparation(fixture)
 
     assert error.message.code == "BRAK_WZORCA"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {template_name}, folder config\n"
         "Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie."
@@ -286,7 +286,7 @@ def test_wzorzec_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path, templa
     error = stop_preparation(fixture)
 
     assert error.message.code == "WZORZEC_OTWARTY"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {template_name}, folder config\n"
         "Co zrobić: Zamknij wzorzec w Excelu bez zapisywania zmian i uruchom ponownie. "
@@ -305,7 +305,7 @@ def test_damaged_wzorzec_stops_before_reading_rejestr(tmp_path: Path, template_n
     error = stop_preparation(fixture)
 
     assert error.message.code == "USZKODZONY_WZORZEC"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Nie można odczytać wzorca. Plik jest uszkodzony "
         "albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {template_name}, folder config\n"
@@ -335,7 +335,7 @@ def test_wzorzec_without_expected_header_stops_before_reading_rejestr(
     error = stop_preparation(fixture, dry_run=dry_run)
 
     assert error.message.code == "ZLY_WZORZEC"
-    assert str(error) == (
+    assert error.message.text == (
         f"Co się stało: We wzorcu brakuje nagłówka {header}, więc nie wiadomo, gdzie wpisać zlecenia. "
         "Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {template_name}, arkusz {sheet}, wiersz {row}\n"
@@ -358,7 +358,7 @@ def test_wzorzec_pliku_zbiorczego_with_wykonawca_outside_h_stops_before_reading_
     error = stop_preparation(fixture, dry_run=dry_run)
 
     assert error.message.code == "WYKONAWCA_POZA_H"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie G zamiast w H (wiersz 17). "
         "Nie utworzono żadnego pliku.\n"
         "Gdzie: plik Wzorzec pliku zbiorczego.xlsx, arkusz Sheet1, wiersz 17\n"
@@ -420,7 +420,7 @@ def test_wzorzec_with_merged_cells_where_orders_go_stops_without_files(
     error = stop_preparation(fixture, dry_run=dry_run)
 
     assert error.message.code == "SCALONE_KOMORKI_WZORCA"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: We wzorcu są scalone komórki tam, gdzie trafiają zlecenia, więc nie można ich wpisać. "
         "Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {template_name}, arkusz {sheet}, komórki {merged_range}\n"
@@ -449,7 +449,7 @@ def test_missing_folder_okresow_stops_without_creating_it(tmp_path: Path) -> Non
         run_preparation(fixture)
 
     assert raised.value.message.code == "BRAK_FOLDERU_OKRESOW"
-    assert str(raised.value) == (
+    assert raised.value.message.text == (
         "Co się stało: Nie znaleziono folderu okresów. Nie utworzono żadnego pliku.\n"
         f"Gdzie: folder {tmp_path.name}\\INEA\n"
         "Co zrobić: Wybierz istniejący folder okresów, w którym są foldery poprzednich tygodni, "
@@ -487,7 +487,7 @@ def test_failed_save_of_plik_zbiorczy_leaves_no_period_file(
 
     assert saved == [INTERNAL_SETTLEMENT_NAME]
     assert error.message.code == "BLAD_ZAPISU"
-    assert "wymuszony" not in str(error)
+    assert "wymuszony" not in error.message.text
     assert [path.name for path in fixture.periods_directory.iterdir()] == ([PERIOD] if period_directory_exists else [])
     if period_directory_exists:
         assert list(fixture.period_directory.iterdir()) == []
@@ -536,7 +536,7 @@ def test_failed_removal_of_published_rozliczenie_wewnetrzne_names_the_file_left(
     error = stop_preparation(fixture)
 
     assert error.message.code == "BLAD_ZAPISU_POZOSTAL_PLIK"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Zapisano tylko jeden z dwóch plików okresu i nie udało się go usunąć.\n"
         f"Gdzie: folder INEA\\{PERIOD}, plik {INTERNAL_SETTLEMENT_NAME}\n"
         "Co zrobić: Usuń wskazany plik, bo bez drugiego pliku okresu jest niepełny, i uruchom ponownie. "

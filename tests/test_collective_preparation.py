@@ -216,7 +216,7 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
     with pytest.raises(StopError) as raised:
         run_preparation(fixture)
 
-    message = str(raised.value)
+    message = raised.value.message.text
     assert message == (
         "Co się stało: Plik tego okresu już istnieje, więc nie został nadpisany. "
         "Nie utworzono żadnego pliku.\n"
@@ -600,7 +600,7 @@ def stop_message(fixture: PreparationFixture) -> StopError:
     with pytest.raises(StopError) as raised:
         run_preparation(fixture)
     assert list(fixture.periods_directory.iterdir()) == []
-    assert "SYN-" not in str(raised.value)
+    assert "SYN-" not in raised.value.message.text
     return raised.value
 
 
@@ -621,7 +621,7 @@ def test_row_without_date_between_period_orders_stops_with_register_row_numbers(
     error = stop_message(fixture)
 
     assert error.message.code == "WIERSZ_BEZ_DATY"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Między zleceniami okresu są wiersze z danymi bez poprawnej daty "
         "w kolumnie DATA GODZ. POCZ. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, wiersze 3, 5\n"
@@ -661,7 +661,7 @@ def test_period_without_orders_stops(tmp_path: Path) -> None:
     error = stop_message(fixture)
 
     assert error.message.code == "BRAK_ZLECEN_OKRESU"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, okres {PERIOD}\n"
         "Co zrobić: Sprawdź, czy wybrano właściwy okres i czy eksport zleceń do Rejestru został "
@@ -683,14 +683,14 @@ def test_period_order_with_empty_or_unknown_skuteczne_stops_with_register_row_nu
     error = stop_message(fixture)
 
     assert error.message.code == "ZLE_SKUTECZNE"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Zlecenia okresu mają puste albo nieznane SKUTECZNE (dozwolone: tak, nie). "
         "Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, wiersze 4, 6, 7\n"
         "Co zrobić: Wpisz tak albo nie w kolumnie SKUTECZNE we wskazanych wierszach Rejestru zleceń. "
         "Zapisz i zamknij Rejestr, i uruchom ponownie."
     )
-    assert "częściowo" not in str(error)
+    assert "częściowo" not in error.message.text
 
 
 def test_zlecenie_skuteczne_with_worker_outside_worker_config_stops_with_identifier(tmp_path: Path) -> None:
@@ -706,7 +706,7 @@ def test_zlecenie_skuteczne_with_worker_outside_worker_config_stops_with_identif
     error = stop_message(fixture)
 
     assert error.message.code == "NIEZNANY_WYKONAWCA"
-    assert str(error) == (
+    assert error.message.text == (
         "Co się stało: Zlecenia skuteczne mają wykonawców spoza konfiguracji wykonawców: "
         "nowy.wykonawca, (pusty). Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, nowy.wykonawca: wiersze 2, 4; (pusty): wiersz 6\n"
@@ -714,7 +714,7 @@ def test_zlecenie_skuteczne_with_worker_outside_worker_config_stops_with_identif
         "tej samej co w Przebiegu rozliczeń, albo popraw WYKONAWCA we wskazanych wierszach Rejestru zleceń. "
         "Zapisz i zamknij Rejestr, i uruchom ponownie."
     )
-    assert "ktos.nieskuteczny" not in str(error)
+    assert "ktos.nieskuteczny" not in error.message.text
 
 
 def test_worker_outside_worker_config_in_unsuccessful_order_does_not_stop(tmp_path: Path) -> None:

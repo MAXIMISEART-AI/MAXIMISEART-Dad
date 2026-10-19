@@ -148,10 +148,13 @@ def main(argv: list[str] | None = None) -> int:
         KeyError,
         TypeError,
         zipfile.BadZipFile,
-        StopError,
         WorkerTemplateValidationError,
     ) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
+        return 1
+    except StopError as stop:
+        terminal_text = "\n".join(stop.message.terminal_lines)
+        print(f"DOCTOR FAIL: {terminal_text}", file=sys.stderr)
         return 1
     print(
         f"DOCTOR OK | app=MAXIMISEART-Dad | process=przygotowanie | version={args.expected_version} | "
