@@ -1,9 +1,10 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``runs_router``, ``metrics_router``, ``configuration_router``);
-``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004) i
-zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``.
+``runs_router``, ``metrics_router``, ``configuration_router``, ``shutdown_router``);
+``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
+zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a
+nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
+from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
@@ -27,6 +29,7 @@ from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
 from rozliczenia.centrum.settings import SettingsStore, settings_router
+from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.version import tool_version
 
 SERVICE: Final = "centrum-rozliczen"
@@ -39,6 +42,8 @@ def create_app(
     *,
     settings_path: Path,
     platform: Platform,
+    log: CentrumLog,
+    shutdown: Shutdown,
     today: Callable[[], date] = date.today,
     metrics_files: MetricsFiles | None = None,
     configuration_files: ConfigurationFiles | None = None,
@@ -57,6 +62,17 @@ def create_app(
             return _problem(403, "Tę akcję można wykonać tylko z karty Centrum rozliczeń.")
         return await call_next(request)
 
+    @app.middleware("http")
+    async def unexpected_failure(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        try:
+            return await call_next(request)
+        except Exception as failure:
+            route = request.scope.get("route")
+            log.unexpected_failure(failure, where=f"{request.method} {getattr(route, 'path', 'poza API')}")
+            return _problem(500, "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie.")
+
     @app.exception_handler(Refusal)
     async def refused(request: Request, refusal: Refusal) -> Response:
         return _problem(refusal.status_code, refusal.message)
@@ -72,13 +88,14 @@ def create_app(
     configuration = configuration_files or ConfigurationFiles.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
-    # Jedno Uruchomienie procesu naraz; ``runs.in_progress()`` blokuje zamknięcie serwera w jego trakcie.
-    runs = RunHost()
-    app.state.runs = runs
+    # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
+    runs = RunHost(log)
+    shutdown.refuse_while(runs.shutdown_refusal)
     preparation = PreparationEntry(store, configuration, metrics.preparation, centrum_runs, today)
     app.include_router(runs_router(runs, [preparation]))
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration))
+    app.include_router(shutdown_router(shutdown))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")
     return app

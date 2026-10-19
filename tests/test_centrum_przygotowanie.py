@@ -20,9 +20,11 @@ from rozliczenia.telemetry import MetricsStore
 from rozliczenia.centrum import runs
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.centrum.settings import default_settings_path
+from rozliczenia.centrum.shutdown import Shutdown
 
 from tests.collective_preparation_fixtures import (
     COLLECTIVE_FILE_NAME,
@@ -44,6 +46,7 @@ class PreparingCentrum:
     client: TestClient
     fixture: PreparationFixture
     metrics_path: Path
+    log_path: Path
 
     def start(self, *, dry_run: bool, period: str = PERIOD) -> Any:
         return self.client.post("/api/runs", json={"process": "preparation", "period": period, "dry_run": dry_run})
@@ -59,9 +62,13 @@ def preparing_centrum(tmp_path: Path, rows: list[RegisterRow] | None = None) -> 
     fixture = make_preparation_fixture(tmp_path, rows)
     metrics_path = tmp_path / ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
     platform = FakePlatform(chosen_files=[fixture.register_path], chosen_folders=[fixture.periods_directory])
+    log_path = tmp_path / "logs" / "centrum-rozliczen.log"
+    log = CentrumLog(log_path)
     app = create_app(
         settings_path=tmp_path / "config" / "centrum-ustawienia.yaml",
         platform=platform,
+        log=log,
+        shutdown=Shutdown(log),
         today=lambda: TODAY,
         configuration_files=ConfigurationFiles(
             worker_config=fixture.config_path,
@@ -74,7 +81,7 @@ def preparing_centrum(tmp_path: Path, rows: list[RegisterRow] | None = None) -> 
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
     client.post("/api/settings/register/choose")
     client.post("/api/settings/periods-directory/choose")
-    return PreparingCentrum(client, fixture, metrics_path)
+    return PreparingCentrum(client, fixture, metrics_path, log_path)
 
 
 def run_events(client: TestClient) -> Iterator[dict[str, Any]]:
@@ -561,3 +568,39 @@ def test_dziennik_uruchomien_z_centrum_jest_poza_gitem_obok_ustawien() -> None:
     ignored = subprocess.run(["git", "check-ignore", "--quiet", str(log)], cwd=ROOT, check=False)
 
     assert ignored.returncode == 0
+
+
+def test_zamkniecie_centrum_w_trakcie_uruchomienia_procesu_jest_odrzucone(tmp_path: Path) -> None:
+    centrum, view = awaiting_decision(tmp_path)
+
+    refused = centrum.client.post("/api/shutdown")
+    decide(centrum, view, "abort")
+    finished_view(centrum.client)
+    accepted = centrum.client.post("/api/shutdown")
+
+    assert (refused.status_code, refused.json()) == (
+        409,
+        {
+            "message": (
+                f"Trwa Uruchomienie procesu: Przygotowanie pliku zbiorczego, okres {PERIOD}. "
+                "Poczekaj na jego wynik w Uruchomieniach, potem zamknij Centrum rozliczeń."
+            )
+        },
+    )
+    assert accepted.status_code == 202
+
+
+def test_dziennik_centrum_ma_poczatek_i_koniec_uruchomienia_z_wynikiem_bez_danych_klientow(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    centrum.start(dry_run=False)
+    finished_view(centrum.client)
+
+    log = centrum.log_path.read_text(encoding="utf-8")
+    events = [line.split(" ", 1)[1] for line in log.splitlines()]
+    assert events == [
+        f"uruchomienie-start proces=preparation tryb=RUN okres={PERIOD}",
+        f"uruchomienie-koniec proces=preparation tryb=RUN okres={PERIOD} wynik=OK koniec=finished",
+    ]
+    assert "SYN-" not in log
+    assert str(centrum.fixture.periods_directory) not in log

@@ -7,6 +7,18 @@ Co tydzień są dwa kroki, zawsze w tej kolejności:
 2. **Przebieg rozliczeń**: z Pliku zbiorczego powstają rozliczenia
    pracowników (`Utwórz rozliczenia.cmd`).
 
+Narzędzie ma dwa wejścia, które działają obok siebie:
+
+| Co chcesz zrobić | Centrum rozliczeń (skrót na pulpicie) | Launchery `.cmd` w folderze narzędzia |
+|---|---|---|
+| Zobaczyć Status okresu każdego tygodnia | Strona `Okresy` | — |
+| Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu | Ręcznie w Eksploratorze |
+| Przygotować plik zbiorczy | — | `Przygotuj plik zbiorczy.cmd` |
+| Utworzyć rozliczenia pracowników | — | `Utwórz rozliczenia.cmd` |
+
+Oba procesy uruchamiasz na razie launcherami `.cmd`, opisanymi niżej. Launchery
+działają też wtedy, gdy Centrum rozliczeń nie wystartuje.
+
 ## Pierwsza instalacja
 
 1. Zainstaluj Python 3.11 lub nowszy.
@@ -15,6 +27,11 @@ Co tydzień są dwa kroki, zawsze w tej kolejności:
    ```powershell
    py -3 -m pip install -r requirements.txt
    ```
+
+3. Dwukrotnie kliknij `Zainstaluj skrót Centrum rozliczeń.cmd`. Na pulpicie
+   pojawi się skrót „Centrum rozliczeń” z ikoną. Naciśnij dowolny klawisz, żeby
+   zamknąć okno. Ten krok powtórz tylko po przeniesieniu folderu narzędzia albo
+   po instalacji nowego Pythona.
 
 Lista zależności zawiera `rich`, potrzebny do kolorowego dashboardu. Bez
 kolorów lub bez interaktywnego terminala narzędzie przełącza się na zwykły tekst.
@@ -25,6 +42,48 @@ i `Wzorzec rozliczenia pracownika.xlsx`. Ten ostatni to pusty plik rozliczenia
 pracownika bez nazwy wykonawcy (u Ciebie `Rozliczenie {okres} -.xlsx`); z niego
 powstają pliki pracowników.
 Nie zmieniaj ich i nie podmieniaj plikami z poprzedniego tygodnia.
+
+## Centrum rozliczeń
+
+Centrum rozliczeń to strona w przeglądarce, która działa tylko na Twoim
+komputerze. Nie otwiera czarnego okna konsoli.
+
+### Uruchomienie
+
+1. Dwukrotnie kliknij skrót „Centrum rozliczeń” na pulpicie.
+2. Po chwili przeglądarka sama otworzy kartę Centrum rozliczeń
+   (`http://127.0.0.1:47811/`).
+3. Za pierwszym razem na stronie `Okresy` wskaż folder okresów (np. `INEA`) i
+   Rejestr zleceń. Centrum je zapamięta.
+
+Zamknięcie karty przeglądarki nie wyłącza Centrum. Żeby wrócić, kliknij skrót
+jeszcze raz: otworzy się karta działającego Centrum, a nie druga kopia.
+
+### Zamknięcie
+
+1. W menu po lewej kliknij `Zamknij Centrum rozliczeń`.
+2. Potwierdź przyciskiem `Zamknij Centrum`.
+3. Karta pokaże `Centrum rozliczeń jest zamknięte`. Możesz ją zamknąć.
+
+Centrum kończy pracę także po wylogowaniu albo wyłączeniu komputera.
+
+### Komunikaty startu Centrum rozliczeń
+
+Gdy Centrum nie może wystartować, zamiast karty pojawi się okienko z trzema
+częściami: `Co się stało`, `Gdzie` i `Co zrobić`. Znajdź w tabeli wiersz z
+fragmentem pierwszej części. Przebieg rozliczeń i Przygotowanie pliku
+zbiorczego możesz zawsze uruchomić launcherami `.cmd`.
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „zajmuje inny program” | Uruchom ponownie komputer i kliknij skrót. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
+| „Działa już Centrum rozliczeń w innej wersji” | Zdarza się po aktualizacji narzędzia. W otwartej karcie Centrum kliknij `Zamknij Centrum rozliczeń`, potem kliknij skrót ponownie. |
+| „Brakuje biblioteki potrzebnej Centrum rozliczeń” | W folderze narzędzia uruchom `py -3 -m pip install -r requirements.txt` i kliknij skrót ponownie. |
+| „nie wystartowało z nieoczekiwanego powodu” | Kliknij skrót ponownie. Jeśli komunikat wraca, przekaż osobie utrzymującej narzędzie plik `logs\centrum-rozliczen.log` z folderu narzędzia. |
+
+Plik `logs\centrum-rozliczen.log` to dziennik Centrum: zapisuje tylko start,
+zamknięcie, port i rodzaj błędu, bez danych z Twoich plików. Możesz go
+bezpiecznie przekazać do diagnozy.
 
 ## Przygotowanie pliku zbiorczego
 

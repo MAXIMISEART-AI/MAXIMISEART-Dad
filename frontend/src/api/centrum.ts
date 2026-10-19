@@ -11,6 +11,7 @@ import type {
 } from "@/api/generated"
 import {
   zChangeThemeResponse,
+  zCloseCentrumResponse,
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
   zDecideRunResponse,
@@ -167,4 +168,9 @@ export function getMetrics() {
 /** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
 export function getConfiguration() {
   return call(zGetConfigurationResponse, "/api/configuration")
+}
+
+/** Serwer kończy pracę po odpowiedzi; odmawia (`CentrumError`), gdy zamknięcie jest teraz zablokowane. */
+export function closeCentrum() {
+  return call(zCloseCentrumResponse, "/api/shutdown", send("POST"))
 }

@@ -26,6 +26,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.process_run import Finished, Interlocutor, Outcome
 from rozliczenia.progress import ProgressNotice, ProgressProjection, ProgressSnapshot
 
@@ -51,10 +52,12 @@ class RunHost:
     """Jedno Uruchomienie procesu naraz w obrębie serwera i jego widoki dla przeglądarki.
 
     ``in_progress()`` mówi, czy Uruchomienie trwa (także gdy czeka na decyzję
-    taty); zamknięcie serwera w tym czasie jest zablokowane.
+    taty); ``shutdown_refusal()`` odmawia wtedy zamknięcia serwera. Początek i
+    koniec każdego Uruchomienia trafiają do dziennika Centrum jako bezpieczne fakty.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, log: CentrumLog) -> None:
+        self._log = log
         self._lock = threading.Lock()
         self._sequence = 0
         self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=contract.RunIdle(state="idle"))]
@@ -63,6 +66,18 @@ class RunHost:
     def in_progress(self) -> bool:
         with self._lock:
             return self._run is not None and not self._run.ended
+
+    def shutdown_refusal(self) -> str | None:
+        """Dlaczego teraz nie można zamknąć Centrum (``Shutdown.refuse_while``); ``None``, gdy nic nie trwa."""
+
+        with self._lock:
+            run = self._run
+            if run is None or run.ended:
+                return None
+            return (
+                f"Trwa Uruchomienie procesu: {run.info.title}, okres {run.info.period}. "
+                "Poczekaj na jego wynik w Uruchomieniach, potem zamknij Centrum rozliczeń."
+            )
 
     def current(self) -> contract.RunEvent:
         with self._lock:
@@ -86,6 +101,7 @@ class RunHost:
             self._events = []
             self._publish_locked(run.running_view())
             view = self._events[-1].view
+        self._log.run_started(process=prepared.process, mode=_mode(prepared.dry_run), period=prepared.period)
         threading.Thread(target=run.work, name=f"uruchomienie-{run.info.id}", daemon=True).start()
         return view
 
@@ -99,6 +115,16 @@ class RunHost:
             run.answer(answer.answer == "continue")
             self._publish_locked(run.running_view())
             return self._events[-1].view
+
+    def finished(self, run: _Run, result: contract.RunOutcome) -> None:
+        info = run.info
+        self._log.run_finished(
+            process=info.process,
+            mode=_mode(info.dry_run),
+            period=info.period,
+            result=result.result,
+            ending=result.ending,
+        )
 
     def publish(self, run: _Run, view: contract.RunView) -> None:
         with self._lock:
@@ -128,8 +154,7 @@ class _Run:
             period=prepared.period,
             dry_run=prepared.dry_run,
         )
-        mode = "DRY-RUN" if prepared.dry_run else "RUN"
-        self._progress = progress_view(ProgressProjection(mode, prepared.period).snapshot)
+        self._progress = progress_view(ProgressProjection(_mode(prepared.dry_run), prepared.period).snapshot)
         self._notice: contract.ProgressNotice | None = None
         self._stale = False
         self._decided = threading.Event()
@@ -151,6 +176,7 @@ class _Run:
             result = self._prepared.conduct(self)
         except Exception:
             result = _unexpected_result(self.info.dry_run)
+        self._host.finished(self, result)
         self.ended = True
         self._host.publish(
             self,
@@ -211,6 +237,10 @@ class _Run:
         if (progress, notice_shown) != (self._progress, self._notice):
             self._progress, self._notice = progress, notice_shown
             self._host.publish(self, self.running_view())
+
+
+def _mode(dry_run: bool) -> str:
+    return "DRY-RUN" if dry_run else "RUN"
 
 
 def progress_view(snapshot: ProgressSnapshot) -> contract.Progress:

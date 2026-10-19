@@ -20,9 +20,10 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 ```
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature konfiguracja`,
-`--feature metryki`, or `--feature przygotowanie-pliku-zbiorczego` drives one
-feature; the
-default `all` drives every feature in `features/README.md`. Success prints
+`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`, or
+`--feature start-i-zamykanie` drives one feature; the default `all` drives every
+feature in `features/README.md`, ending with `start-i-zamykanie`, which closes
+Centrum through its own button. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 
@@ -92,9 +93,10 @@ Evidence lives in `.verification/evidence/centrum-<id>/` and survives cleanup:
 - `screenshots/NN-<step>.png` and `aria/NN-<step>.txt` for each step, captured
   after transitions finish; on failure, also `screenshots/zz-failure.png`;
 - `api/*.json` with the server's answers, including the refused foreign
-  `Origin` and `Host` requests;
-- `state/` with `opened.jsonl`, `dialogs.jsonl`, and the settings file as the
-  run left them.
+  `Origin` and `Host` requests, and `api/start-*.txt` with the real launcher's
+  console output;
+- `state/` with `opened.jsonl`, `dialogs.jsonl`, the settings file, and the
+  Centrum log (`centrum-rozliczen.log`) as the run left them.
 
 Proof standards:
 

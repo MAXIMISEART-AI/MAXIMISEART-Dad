@@ -72,6 +72,11 @@ REQUIRED_SCREENSHOTS = {
         "37-przygotowanie-nienadpisywanie.png",
         "38-przygotowanie-historia.png",
     ),
+    # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
+    "start-i-zamykanie": (
+        "90-start-i-zamykanie-potwierdzenie.png",
+        "91-start-i-zamykanie-zamkniete.png",
+    ),
 }
 
 

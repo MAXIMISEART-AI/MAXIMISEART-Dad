@@ -1,9 +1,11 @@
 import type * as React from "react"
 import { ReceiptTextIcon } from "lucide-react"
 
+import { CloseCentrumButton } from "@/components/close-centrum"
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -15,8 +17,9 @@ import { PAGES, pageHref, type Page } from "@/pages"
 
 export function AppSidebar({
   current,
+  onClosed,
   ...props
-}: React.ComponentProps<typeof Sidebar> & { current: Page }) {
+}: React.ComponentProps<typeof Sidebar> & { current: Page; onClosed: () => void }) {
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -56,6 +59,9 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <CloseCentrumButton onClosed={onClosed} />
+      </SidebarFooter>
     </Sidebar>
   )
 }

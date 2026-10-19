@@ -1,8 +1,9 @@
-"""Instrukcja dla taty a katalog komunikatów Przygotowania pliku zbiorczego.
+"""Instrukcja dla taty a katalogi komunikatów Przygotowania pliku zbiorczego i startu Centrum rozliczeń.
 
 Tabela „komunikat → co zrobić” w ``docs/tata-instrukcja.md`` ma wiersz dla
 każdego zatrzymania i ostrzeżenia, a jej wiersze cytują faktyczną treść „Co się
-stało” z katalogu. Zmiana treści komunikatu bez poprawki instrukcji psuje test.
+stało” z katalogu. Tak samo tabela komunikatów startu Centrum rozliczeń. Zmiana
+treści komunikatu bez poprawki instrukcji psuje test.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from pathlib import Path
 import re
 
 from rozliczenia import preparation_messages as messages
+from rozliczenia.centrum import start_problems
+from rozliczenia.centrum.start_problems import StartProblem
 from rozliczenia.preparation_messages import PreparationError, PreparationMessage
 
 
@@ -107,12 +110,12 @@ def _catalog_messages() -> list[PreparationMessage]:
     return result
 
 
-def _instruction_fragments() -> list[str]:
+def _instruction_fragments(section: str = MESSAGES_SECTION) -> list[str]:
     """Cytaty „…” z pierwszej kolumny tabel w sekcji komunikatów instrukcji."""
 
     lines = INSTRUCTION.read_text(encoding="utf-8").splitlines()
-    start = lines.index(MESSAGES_SECTION)
-    level = MESSAGES_SECTION.split(" ", 1)[0]
+    start = lines.index(section)
+    level = section.split(" ", 1)[0]
     fragments: list[str] = []
     for line in lines[start + 1 :]:
         if line.startswith("#") and len(line.split(" ", 1)[0]) <= len(level):
@@ -146,3 +149,31 @@ def test_instrukcja_taty_quotes_only_actual_message_texts() -> None:
 
     assert {fragment: codes for fragment, codes in codes_per_fragment.items() if len(codes) != 1} == {}
     assert len(codes_per_fragment) == len(set().union(*codes_per_fragment.values()))
+
+
+START_SECTION = "### Komunikaty startu Centrum rozliczeń"
+START_SAMPLES: dict[str, Callable[[], StartProblem]] = {
+    "port_taken": lambda: start_problems.port_taken(47811),
+    "other_version_running": lambda: start_problems.other_version_running(47811, "0.0.9"),
+    "missing_library": lambda: start_problems.missing_library("fastapi"),
+    "unexpected_start_failure": start_problems.unexpected_start_failure,
+}
+
+
+def test_start_samples_cover_every_centrum_start_problem() -> None:
+    factories = {
+        name
+        for name, function in inspect.getmembers(start_problems, inspect.isfunction)
+        if function.__module__ == start_problems.__name__ and not name.startswith("_")
+    }
+
+    assert set(START_SAMPLES) == factories
+
+
+def test_instrukcja_taty_wyjasnia_kazdy_komunikat_startu_centrum() -> None:
+    fragments = _instruction_fragments(START_SECTION)
+    problems = [sample() for sample in START_SAMPLES.values()]
+    quoted = {problem.code: [fragment for fragment in fragments if fragment in problem.what] for problem in problems}
+
+    assert {code: found for code, found in quoted.items() if len(found) != 1} == {}
+    assert len(fragments) == len(problems)
