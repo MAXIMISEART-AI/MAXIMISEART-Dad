@@ -1,7 +1,8 @@
 """Serve the real Centrum rozliczeń for one verification run on 127.0.0.1.
 
 This is the production app (``create_app`` + ``serve`` from ``rozliczenia.centrum``)
-with two run-local inputs: the settings file lives in the run root, and the
+with run-local inputs: the settings file and the configuration directory
+(konfiguracja wykonawców and the three Wzorce) live in the run root, and the
 platform adapter, the production boundary for Dad's computer, is scripted:
 
 - the native file and folder pickers answer with the path written to
@@ -28,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
+from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.server import serve  # noqa: E402
 
 
@@ -67,7 +69,13 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve()
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
-    app = create_app(settings_path=Path(fixture["settings"]), platform=ScriptedPlatform(root), today=lambda: today)
+    configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
+    app = create_app(
+        settings_path=Path(fixture["settings"]),
+        platform=ScriptedPlatform(root),
+        today=lambda: today,
+        configuration_files=ConfigurationFiles(**configuration),
+    )
 
     def record_bound_server(url: str) -> None:
         record = {"pid": os.getpid(), "port": args.port, "url": url}

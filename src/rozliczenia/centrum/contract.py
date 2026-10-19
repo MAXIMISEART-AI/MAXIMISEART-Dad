@@ -132,3 +132,58 @@ class OpenRequest(_Model):
 
 class Opened(_Model):
     name: str
+
+
+class Message(_Model):
+    """Komunikat w trzech częściach, ta sama treść co w terminalu."""
+
+    what: str
+    where: str
+    action: str
+
+
+class TemplateReady(_Model):
+    """Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie."""
+
+    state: Literal["ready"]
+    label: str
+    file_name: str
+
+
+TemplateProblemKind = Literal["missing", "open_in_excel", "unreadable"]
+
+
+class TemplateProblem(_Model):
+    """Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania."""
+
+    state: Literal["problem"]
+    label: str
+    file_name: str
+    problem: TemplateProblemKind
+    message: Message
+
+
+TemplateStatus = Annotated[TemplateReady | TemplateProblem, Field(discriminator="state")]
+
+
+class WorkersReady(_Model):
+    """Nazwy Wykonawców w kolejności z konfiguracji wykonawców."""
+
+    state: Literal["ready"]
+    names: list[str]
+
+
+class WorkersUnreadable(_Model):
+    state: Literal["unreadable"]
+    message: Message
+
+
+Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
+
+
+class Configuration(_Model):
+    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."""
+
+    version: str
+    templates: list[TemplateStatus]
+    workers: Workers
