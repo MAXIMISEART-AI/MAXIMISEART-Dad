@@ -269,6 +269,27 @@
           }
         }
       }
+    },
+    "/api/configuration": {
+      "get": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Configuration",
+        "operationId": "getConfiguration",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -354,6 +375,62 @@
         "title": "Choice",
         "description": "Wynik natywnego okna wyboru: ``chosen`` zapisuje ścieżkę, ``cancelled`` niczego nie zmienia."
       },
+      "Configuration": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "templates": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TemplateReady"
+                },
+                {
+                  "$ref": "#/components/schemas/TemplateProblem"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "state",
+                "mapping": {
+                  "problem": "#/components/schemas/TemplateProblem",
+                  "ready": "#/components/schemas/TemplateReady"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Templates"
+          },
+          "workers": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorkersReady"
+              },
+              {
+                "$ref": "#/components/schemas/WorkersUnreadable"
+              }
+            ],
+            "title": "Workers",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "ready": "#/components/schemas/WorkersReady",
+                "unreadable": "#/components/schemas/WorkersUnreadable"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "templates",
+          "workers"
+        ],
+        "title": "Configuration",
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -386,6 +463,31 @@
           "version"
         ],
         "title": "Health"
+      },
+      "Message": {
+        "properties": {
+          "what": {
+            "type": "string",
+            "title": "What"
+          },
+          "where": {
+            "type": "string",
+            "title": "Where"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "what",
+          "where",
+          "action"
+        ],
+        "title": "Message",
+        "description": "Komunikat w trzech częściach, ta sama treść co w terminalu."
       },
       "Metrics": {
         "properties": {
@@ -961,6 +1063,72 @@
         ],
         "title": "Settings"
       },
+      "TemplateProblem": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "problem",
+            "title": "State"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "problem": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "open_in_excel",
+              "unreadable"
+            ],
+            "title": "Problem"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "label",
+          "file_name",
+          "problem",
+          "message"
+        ],
+        "title": "TemplateProblem",
+        "description": "Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania."
+      },
+      "TemplateReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "label",
+          "file_name"
+        ],
+        "title": "TemplateReady",
+        "description": "Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie."
+      },
       "ThemeChange": {
         "properties": {
           "theme": {
@@ -1018,6 +1186,49 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkersReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "names"
+        ],
+        "title": "WorkersReady",
+        "description": "Nazwy Wykonawców w kolejności z konfiguracji wykonawców."
+      },
+      "WorkersUnreadable": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "unreadable",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "WorkersUnreadable"
       }
     }
   }

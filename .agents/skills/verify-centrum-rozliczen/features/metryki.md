@@ -44,7 +44,7 @@ Preconditions:
 - **Historia.** Table `Historia Uruchomień procesu` shows 10 rows, newest first; the screen-reader text `DRY-RUN` appears once per DRY-RUN row and `.cmd` once per row. Click button `Czas`: the longest run is first and the column header has `aria-sort="descending"`. In group `Proces w historii` click `Przebieg`: only `Przebieg rozliczeń` rows. Click `Wszystkie`, then `Pokaż starsze`: up to 20 rows.
 - **Nowy rekord z CLI.** Run `run_preparation.py --register <root>/brak-rejestru.xlsx --periods-directory <INEA> --period 06_12_10_2026 --dry-run --metrics <fixture.metrics.preparation>`; it exits `1` (no Rejestr zleceń) after appending a `BLAD_KRYTYCZNY` record. `/api/metrics` (`api/metryki-po-cli.json`) has one more run; after a reload the first history row shows `06_12_10_2026`, `Zatrzymano` and `.cmd`.
 - **Pusty stan.** Rename both metrics files; `/api/metrics` returns `runs: []` (`api/metryki-brak-plikow.json`) and the page shows `Jeszcze nie ma metryk`. The drive renames them back.
-- **Proof.** Screenshots `10`–`17`, `api/metryki*.json`.
+- **Proof.** Screenshots `20`–`27`, `api/metryki*.json`.
 
 ## Gotchas
 
