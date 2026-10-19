@@ -55,20 +55,8 @@ def test_cmd_launcher_runs_przebieg_rozliczen(tmp_path: Path) -> None:
     source_path, target_directory, _ = make_fixture(tmp_path / "fixture")
     launcher_path = _copy_launcher_runtime(tmp_path / "launcher")
     _configure_launcher(launcher_path, tmp_path / "fixture" / "worker_mapping.yaml")
-    environment = os.environ.copy()
-    environment["PYTHONUTF8"] = "1"
-    command_line = f'cmd.exe /d /c ""{launcher_path}" "{source_path}""'
 
-    result = subprocess.run(
-        command_line,
-        cwd=launcher_path.parent,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=environment,
-        timeout=120,
-    )
+    result = _run_launcher(launcher_path, f'"{source_path}"')
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Status końcowy: OK" in result.stdout

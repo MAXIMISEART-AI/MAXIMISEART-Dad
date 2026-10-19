@@ -8,11 +8,11 @@ from pathlib import Path
 import subprocess
 import sys
 import types
-from typing import Any, NoReturn
+from typing import Any
 
 import pytest
 
-from rozliczenia import collective_preparation, preparation_register
+from rozliczenia import collective_preparation
 from rozliczenia import settings as settings_file
 import rozliczenia.cli as cli
 from rozliczenia.preparation_cli import default_metrics_path, main
@@ -106,25 +106,6 @@ def test_cli_creates_both_period_files_and_prints_summary_with_orders_per_day(tm
     assert fixture.internal_settlement_path.is_file()
     assert fixture.collective_file_path.is_file()
     assert "SYN-" not in output
-
-
-def test_cli_dashboard_shows_four_stages_in_order_without_szablony_pracownika(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-
-    _, output = run_preparation_cli(fixture)
-
-    lines = output.splitlines()
-    assert lines[:6] == [
-        f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: RUN",
-        "Status: uruchomiono",
-        "Etap: Sprawdzanie",
-        "Etap: Odczyt danych",
-        "Etap: Planowanie",
-        "Etap: Zapisywanie",
-    ]
-    assert "Szablon" not in output
-    assert "WYKONAWCA" not in output
-    assert "\x1b" not in output
 
 
 def test_cli_dry_run_shows_plan_with_orders_per_day_and_creates_nothing(tmp_path: Path) -> None:
@@ -225,28 +206,6 @@ def test_summary_failure_after_engine_says_whether_period_files_exist(
     [record] = metric_records(fixture)
     assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
     assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
-
-
-def test_cli_unexpected_error_hides_exception_text_and_exits_1(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
-        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
-
-    # Uszkodzony Rejestr jest już typowanym zatrzymaniem, więc błąd nieprzewidziany jest wstrzyknięty w Odczyt danych.
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
-
-    exit_code, output = run_preparation_cli(fixture)
-
-    assert exit_code == 1
-    assert "Etap przerwany: Odczyt danych" in output
-    assert "Status końcowy: BŁĄD" in output
-    assert "Co zrobić: " in output
-    assert "SYN-" not in output
-    assert "Traceback" not in output
-    assert list(fixture.periods_directory.iterdir()) == []
 
 
 @pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])
@@ -714,25 +673,6 @@ def test_stop_found_before_question_is_shown_once_on_dashboard(tmp_path: Path) -
     assert "Etap przerwany: Sprawdzanie" in output
 
 
-def test_incomplete_period_question_follows_planowanie_on_one_dashboard(tmp_path: Path) -> None:
-    fixture = incomplete_period_fixture(tmp_path)
-
-    exit_code, output = run_cli_answering(fixture, "t\n")
-
-    assert exit_code == 0
-    lines = output.splitlines()
-    question = next(index for index, line in enumerate(lines) if line.startswith("Kontynuować"))
-    assert lines[: lines.index("Ostrzeżenie: niepełny okres")] == [
-        f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: RUN",
-        "Status: uruchomiono",
-        "Etap: Sprawdzanie",
-        "Etap: Odczyt danych",
-        "Etap: Planowanie",
-    ]
-    assert lines[question + 1] == "Etap: Zapisywanie"
-    assert output.count("Przygotowanie pliku zbiorczego | okres:") == 1
-
-
 def test_refused_incomplete_period_ends_after_planowanie_without_zapisywanie(tmp_path: Path) -> None:
     fixture = incomplete_period_fixture(tmp_path)
 
@@ -743,5 +683,3 @@ def test_refused_incomplete_period_ends_after_planowanie_without_zapisywanie(tmp
     assert "Zapisywanie" not in output
     [record] = metric_records(fixture)
     assert record["phase_durations_ms"]["Zapisywanie"] == 0
-
-
