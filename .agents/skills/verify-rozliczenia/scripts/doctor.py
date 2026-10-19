@@ -16,7 +16,8 @@ SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from rozliczenia.engine import load_worker_mapping, period_from_source  # noqa: E402
+from rozliczenia.engine import load_worker_mapping  # noqa: E402
+from rozliczenia.period_folder import PeriodFolder  # noqa: E402
 from rozliczenia.template_settlement import (  # noqa: E402
     WorkerTemplateValidationError,
     validate_worker_template,
@@ -35,8 +36,9 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
         raise ValueError("Python 3.11 or newer is required")
 
     source = root / "08_14_09_2026" / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
-    period = period_from_source(source)
-    target_directory = source.parent / f"Rozliczenie pracowników {period}"
+    folder = PeriodFolder.from_collective_file(source)
+    period = folder.period.token
+    target_directory = folder.worker_settlements
     mapping = load_worker_mapping(root / "worker_mapping.yaml")
     if len(mapping) != 3:
         raise ValueError("synthetic mapping must contain three workers")

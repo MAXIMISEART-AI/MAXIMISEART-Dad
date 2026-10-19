@@ -17,16 +17,17 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Final
 
-from rozliczenia import cli, collective_file, settlement_messages
+from rozliczenia import cli, settlement_messages
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import PROCESS_NAMES, previewed_periods
-from rozliczenia.centrum.period_board import PeriodFolder, read_board
+from rozliczenia.centrum.period_board import read_board
 from rozliczenia.centrum.runs import Endings, PreparedRun
 from rozliczenia.centrum.settings import SettingsStore
 from rozliczenia.domain import SettlementSummary
+from rozliczenia.period_folder import PeriodFolder
 from rozliczenia.period_status import PeriodStatus
-from rozliczenia.settlement_period import last_complete_period, parse_period_token
+from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from rozliczenia.telemetry import MetricsStore
 
 _PROCESS: Final = cli.PROCESS
@@ -53,19 +54,26 @@ class SettlementEntry:
         return _KEY
 
     def setup(self) -> contract.ProcessSetup:
-        board = read_board(self.store.load().periods_directory, self.today())
+        periods_directory = self.store.load().periods_directory
+        board = read_board(periods_directory, self.today())
         rows = [row for row in board.periods if row.status == _ELIGIBLE] if board.state == "ready" else []
         preselected = next(
             (row.token for row in rows if row.last_complete),
             rows[0].token if rows else last_complete_period(self.today()).token,
         )
         previewed = previewed_periods(MetricsStore(self.metrics_path, _PROCESS.counter_names))
+        # Wiersze okresów są tylko wtedy, gdy folder okresów jest wskazany.
+        choices = (
+            [_choice(row, periods_directory, previewed=row.token in previewed) for row in rows]
+            if periods_directory is not None
+            else []
+        )
         return contract.ProcessSetup(
             process=_KEY,
             title=PROCESS_NAMES[_KEY],
             creates="Rozliczenia pracowników",
             reminder="Zapisz i zamknij Plik zbiorczy w Excelu",
-            periods=[_choice(row, previewed=row.token in previewed) for row in rows],
+            periods=choices,
             preselected_period=preselected,
             blocker=_blocker(board, rows),
         )
@@ -78,7 +86,7 @@ class SettlementEntry:
             period = parse_period_token(request.period)
         except ValueError:
             raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        source = PeriodFolder.of(periods_directory, period).collective_file
+        source = PeriodFolder(periods_directory, period).collective_file
         inputs = cli.SettlementInputs(
             source,
             dry_run=request.dry_run,
@@ -103,7 +111,8 @@ class SettlementEntry:
         )
 
 
-def _choice(row: contract.PeriodRow, *, previewed: bool) -> contract.PeriodChoice:
+def _choice(row: contract.PeriodRow, periods_directory: Path, *, previewed: bool) -> contract.PeriodChoice:
+    folder = PeriodFolder(periods_directory, SettlementPeriod(row.tuesday))
     return contract.PeriodChoice(
         token=row.token,
         tuesday=row.tuesday,
@@ -111,7 +120,7 @@ def _choice(row: contract.PeriodRow, *, previewed: bool) -> contract.PeriodChoic
         status_label=row.status_label,
         last_complete=row.last_complete,
         previewed=previewed,
-        collective_file=collective_file.name_for_period(row.token),
+        collective_file=folder.collective_file.name,
     )
 
 
