@@ -16,7 +16,7 @@ from rozliczenia.message import StopError
 from rozliczenia.workbook_files import ExternalLinksError, WorkbookSaveError
 import rozliczenia.workbook_files as workbook_files
 
-from tests.collective_preparation_fixtures import (
+from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
@@ -29,7 +29,7 @@ from tests.collective_preparation_fixtures import (
     register_order,
     write_register,
 )
-from tests.test_settlement_engine import cut_sheet_after_data_rows, without_sheet, without_styles
+from tests.fixtures.workbooks import cut_sheet_after_data_rows, without_sheet, without_styles
 
 
 def run_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationSummary:

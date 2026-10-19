@@ -1,239 +1,37 @@
 from __future__ import annotations
 
 from pathlib import Path
-import os
-import re
-import tempfile
 import time
-import xml.etree.ElementTree as ET
-import zipfile
 from collections.abc import Callable, Iterable
 
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import PatternFill
+from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 import pytest
-import yaml
 
-from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState, WorkerResult
+from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState, WorkerResult
 from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.workbook_files import ExcelRow
+from tests.fixtures.workbooks import active_worksheet, cut_sheet_after_data_rows, without_sheet
+from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, SOURCE_NAME, make_fixture, projected, write_source
 
 
-PERIOD = "08_14_09_2026"
-NOT_A_PERIOD = "09_15_09_2026"  # wygląda jak token okresu, ale 9 września 2026 to środa
-SOURCE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 UNREADABLE_SOURCE_MESSAGE = (
     f"Nie można odczytać Pliku zbiorczego {SOURCE_NAME}. "
     "Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony."
 )
 
 
-def active_worksheet(workbook: Workbook) -> Worksheet:
-    sheet = workbook.active
-    assert isinstance(sheet, Worksheet)
-    return sheet
-
-
-def write_mapping(path: Path) -> Path:
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "workers": {
-                    "adrian.maciejewski": "Adrian Maciejewski",
-                    "dariusz.nowak2": "Darek Nowak",
-                    "kamil.frontczak": "Kamil Frontczak",
-                },
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    return path
-
-
-def write_template(path: Path) -> None:
-    workbook = Workbook()
-    sheet = active_worksheet(workbook)
-    sheet.title = "Sheet1"
-    sheet.cell(17, 8).value = "WYKONAWCA"
-    sheet["A17"].fill = PatternFill(fill_type="solid", fgColor="00AA55")
-    sheet.cell(18, 47).value = "=N18"
-    sheet.cell(19, 47).value = "=N19"
-    sheet.cell(18, 14).value = 0
-    sheet.cell(19, 14).value = 0
-    rates = workbook.create_sheet("Rates")
-    rates["A1"] = "synthetic rate"
-    rates["B1"] = 17.5
-    workbook.save(path)
-
-
-def add_external_link_fixture(path: Path) -> None:
-    """Dodaje minimalny, prawidłowy link zewnętrzny do syntetycznego XLSX."""
-
-    ns_main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-    ns_rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-    ns_pkg_rel = "http://schemas.openxmlformats.org/package/2006/relationships"
-    ns_content = "http://schemas.openxmlformats.org/package/2006/content-types"
-    ET.register_namespace("", ns_main)
-    ET.register_namespace("r", ns_rel)
-    ET.register_namespace("", ns_pkg_rel)
-
-    descriptor = {
-        "xl/externalLinks/externalLink1.xml": (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            f'<externalLink xmlns="{ns_main}" xmlns:r="{ns_rel}">'
-            '<externalBook><sheetNames><sheetName val="Słownik"/></sheetNames>'
-            '<definedNames/><sheetDataSet><sheetData sheetId="0"/></sheetDataSet>'
-            "</externalBook></externalLink>"
-        ).encode("utf-8"),
-        "xl/externalLinks/_rels/externalLink1.xml.rels": (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            f'<Relationships xmlns="{ns_pkg_rel}">'
-            '<Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2019/04/relationships/externalLinkLongPath" '
-            'Target="https://example.invalid/workbook.xlsm" TargetMode="External"/>'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath" '
-            'Target="file:///C:/workbook.xlsm" TargetMode="External"/>'
-            "</Relationships>"
-        ).encode("utf-8"),
-    }
-    file_descriptor, temp_name = tempfile.mkstemp(suffix=".xlsx", dir=path.parent)
-    os.close(file_descriptor)
-    temporary_path = Path(temp_name)
-    try:
-        with zipfile.ZipFile(path) as source, zipfile.ZipFile(temporary_path, "w") as target:
-            for info in source.infolist():
-                data = source.read(info.filename)
-                if info.filename == "xl/workbook.xml":
-                    root = ET.fromstring(data)
-                    references = ET.SubElement(root, f"{{{ns_main}}}externalReferences")
-                    ET.SubElement(references, f"{{{ns_main}}}externalReference", {f"{{{ns_rel}}}id": "rIdSynExternal1"})
-                    data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-                elif info.filename == "xl/_rels/workbook.xml.rels":
-                    root = ET.fromstring(data)
-                    ET.SubElement(
-                        root,
-                        f"{{{ns_pkg_rel}}}Relationship",
-                        {
-                            "Id": "rIdSynExternal1",
-                            "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink",
-                            "Target": "externalLinks/externalLink1.xml",
-                        },
-                    )
-                    data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-                elif info.filename == "[Content_Types].xml":
-                    root = ET.fromstring(data)
-                    ET.SubElement(
-                        root,
-                        f"{{{ns_content}}}Override",
-                        {
-                            "PartName": "/xl/externalLinks/externalLink1.xml",
-                            "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml",
-                        },
-                    )
-                    data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-                target.writestr(info, data)
-            for name, data in descriptor.items():
-                target.writestr(name, data)
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
-def external_link_parts(path: Path) -> dict[str, bytes]:
-    with zipfile.ZipFile(path) as archive:
-        return {
-            info.filename: archive.read(info.filename)
-            for info in archive.infolist()
-            if info.filename.startswith("xl/externalLinks/")
-        }
-
-
-def write_source(path: Path, *, include_unmapped: bool = True) -> None:
-    workbook = Workbook()
-    sheet = active_worksheet(workbook)
-    sheet.title = "Sheet1"
-    sheet.cell(17, 8).value = "WYKONAWCA"
-    rows = [
-        ("POZNAŃ", "syntetyczny adres 1", "adrian.maciejewski", "#1"),
-        ("POZNAŃ", "syntetyczny adres 2", "dariusz.nowak2", "#2"),
-        ("POZNAŃ", "syntetyczny adres 3", "adrian.maciejewski", "#3"),
-    ]
-    if include_unmapped:
-        rows.append(("POZNAŃ", "syntetyczny adres 4", "andrzej.kulawski2", "#4"))
-    for row_number, (city, address, worker, order_number) in enumerate(rows, start=18):
-        sheet.cell(row_number, 1).value = city
-        sheet.cell(row_number, 2).value = address
-        sheet.cell(row_number, 6).value = order_number
-        sheet.cell(row_number, 8).value = worker
-        sheet.cell(row_number, 14).value = row_number - 17
-    workbook.save(path)
-
-
 def overwrite_with_non_workbook(path: Path) -> None:
     path.write_bytes(b"uszkodzony")
-
-
-def cut_sheet_after_data_rows(path: Path, sheet_part: str = "xl/worksheets/sheet1.xml") -> None:
-    """Skoroszyt się otwiera, ale XML arkusza ``sheet_part`` urywa się za jego ostatnim wierszem.
-
-    Początek arkusza, np. WYKONAWCA w H17, daje się odczytać; błąd wychodzi dopiero przy dalszym czytaniu.
-    """
-
-    with zipfile.ZipFile(path) as source:
-        members = [(info, source.read(info.filename)) for info in source.infolist()]
-    with zipfile.ZipFile(path, "w") as target:
-        for info, data in members:
-            if info.filename == sheet_part:
-                data = data[: data.rindex(b"</sheetData>")]
-            target.writestr(info, data)
-
-
-def rewrite_parts(path: Path, change: Callable[[str, bytes], bytes | None]) -> None:
-    """Przepisuje części archiwum .xlsx; ``None`` usuwa część."""
-
-    with zipfile.ZipFile(path) as source:
-        members = [(info, source.read(info.filename)) for info in source.infolist()]
-    with zipfile.ZipFile(path, "w") as target:
-        for info, data in members:
-            changed = change(info.filename, data)
-            if changed is not None:
-                target.writestr(info, changed)
-
-
-def without_styles(path: Path) -> None:
-    """Komórki zostają ze stylem, ale ``xl/styles.xml`` znika."""
-
-    rewrite_parts(path, lambda name, data: None if name == "xl/styles.xml" else data)
-
-
-def without_sheet(path: Path) -> None:
-    rewrite_parts(
-        path,
-        lambda name, data: re.sub(rb"<sheets>.*?</sheets>", b"<sheets/>", data) if name == "xl/workbook.xml" else data,
-    )
 
 
 def terminal_text(error: StopError) -> str:
     """Tekst, który terminal pokazuje po „Nie wykonano: ” dla tego zatrzymania."""
 
     return "\n".join(error.message.terminal_lines)
-
-
-def make_fixture(tmp_path: Path, period: str = PERIOD) -> tuple[Path, Path, Path]:
-    period_directory = tmp_path / period
-    period_directory.mkdir(parents=True)
-    target_directory = period_directory / f"Rozliczenie pracowników {period}"
-    source_path = period_directory / f"Rozliczenie {period} - zbiorcze.xlsx"
-    write_source(source_path, include_unmapped=False)
-    config_path = write_mapping(tmp_path / "worker_mapping.yaml")
-    write_template(tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
-    return source_path, target_directory, config_path
 
 
 def make_complete_run_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -592,13 +390,6 @@ def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(t
     assert [event.state for event in recorded] == [ProgressState.START, ProgressState.FAILED]
     assert recorded[-1].phase is ProgressPhase.CHECKING
     assert "Nie znaleziono pliku" not in repr(recorded[-1])
-
-
-def projected(projection: ProgressProjection) -> ProgressObserver:
-    def observer(event: ProgressEvent) -> None:
-        projection.update(event)
-
-    return observer
 
 
 @pytest.mark.parametrize(

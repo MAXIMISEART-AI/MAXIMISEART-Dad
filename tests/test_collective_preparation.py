@@ -10,18 +10,14 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 import pytest
 
-from rozliczenia.decision import Conversation, Decision
-from rozliczenia.domain import ProgressEvent, ProgressObserver, ProgressPhase, ProgressState
+from rozliczenia.decision import Decision
+from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState
 from rozliczenia.progress import PhaseState, ProgressProjection
-from rozliczenia.collective_preparation import (
-    PreparationSummary,
-    prepare_collective_file,
-)
 from rozliczenia.message import StopError
 from rozliczenia.workbook_files import ExternalLinksError
 import rozliczenia.workbook_files as workbook_files
 
-from tests.collective_preparation_fixtures import (
+from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
@@ -38,28 +34,9 @@ from tests.collective_preparation_fixtures import (
     write_internal_template,
     write_register,
 )
-from tests.test_settlement_engine import active_worksheet, projected
-
-
-def run_preparation(
-    fixture: PreparationFixture,
-    period: str = PERIOD,
-    *,
-    dry_run: bool = False,
-    observer: ProgressObserver | None = None,
-    conversation: Conversation | None = None,
-) -> PreparationSummary:
-    return prepare_collective_file(
-        fixture.register_path,
-        fixture.periods_directory,
-        period,
-        fixture.config_path,
-        internal_template_path=fixture.internal_template_path,
-        collective_template_path=fixture.collective_template_path,
-        dry_run=dry_run,
-        observer=observer,
-        conversation=conversation,
-    )
+from tests.fixtures.workbooks import active_worksheet
+from tests.fixtures.settlement import projected
+from tests.fixtures.preparation import cell_values, collective_row, run_preparation
 
 
 @dataclass
@@ -126,33 +103,6 @@ def test_rozliczenie_wewnetrzne_contains_exactly_period_orders_in_register_order
         internal_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
         internal_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
     ]
-
-
-def collective_row(number: int, started: datetime, successful: str, worker: str) -> tuple[object, ...]:
-    return (
-        "POZNAŃ",
-        f"syntetyczny adres SYN-{number:03d}",
-        f"UM-SYN-{number:03d}",
-        "dekoder",
-        "instalacja",
-        f"ZL-SYN-{number:03d}",
-        started,
-        worker,
-        f"OR-SYN-{number:03d}",
-        successful,
-        "montaż",
-    )
-
-
-def cell_values(path: Path, *, min_row: int, max_row: int, min_col: int, max_col: int) -> list[tuple[object, ...]]:
-    workbook = load_workbook(path)
-    try:
-        sheet = active_worksheet(workbook)
-        return list(
-            sheet.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col, values_only=True)
-        )
-    finally:
-        workbook.close()
 
 
 def test_plik_zbiorczy_contains_exactly_zlecenia_skuteczne_from_row_18(tmp_path: Path) -> None:

@@ -15,9 +15,10 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
-from tests.collective_preparation_fixtures import write_collective_template, write_internal_template
-from tests.test_centrum_rozliczen import CENTRUM, FakePlatform, project_version
-from tests.test_settlement_engine import cut_sheet_after_data_rows, write_mapping, write_template
+from tests.fixtures.preparation import write_collective_template, write_internal_template
+from tests.fixtures.centrum import CENTRUM, FakePlatform, project_version
+from tests.fixtures.workbooks import cut_sheet_after_data_rows
+from tests.fixtures.settlement import write_mapping, write_template
 
 INTERNAL = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE = "Wzorzec pliku zbiorczego.xlsx"

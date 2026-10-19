@@ -18,7 +18,7 @@ import rozliczenia.cli as cli
 from rozliczenia.preparation_cli import default_metrics_path, main
 from rozliczenia.telemetry import MetricsStore
 
-from tests.collective_preparation_fixtures import (
+from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
@@ -29,7 +29,8 @@ from tests.collective_preparation_fixtures import (
     make_preparation_fixture,
     register_order,
 )
-from tests.rich_fakes import TtyOutput, install_fake_rich, live_starts_and_stops
+from tests.fixtures.terminal import TtyOutput, install_fake_rich, live_starts_and_stops
+from tests.fixtures.preparation import incomplete_period_fixture, metrics_path_for, preparation_arguments, run_cli_answering, run_cli_asking_for_period, run_preparation_cli, without_option
 
 PREPARATION_COUNTERS = {"period_orders", "successful_orders", "skipped_empty_rows", "warnings"}
 ORDERS_PER_DAY_LINES = [
@@ -42,36 +43,6 @@ ORDERS_PER_DAY_LINES = [
     "- niedz 13.09.2026: 0",
     "- pon 14.09.2026: 1",
 ]
-
-
-def metrics_path_for(fixture: PreparationFixture) -> Path:
-    return fixture.register_path.parent / "przygotowanie-metrics.jsonl"
-
-
-def preparation_arguments(fixture: PreparationFixture, *extra_args: str) -> list[str]:
-    return [
-        "--register",
-        str(fixture.register_path),
-        "--periods-directory",
-        str(fixture.periods_directory),
-        "--period",
-        PERIOD,
-        "--config",
-        str(fixture.config_path),
-        "--internal-template",
-        str(fixture.internal_template_path),
-        "--collective-template",
-        str(fixture.collective_template_path),
-        "--metrics",
-        str(metrics_path_for(fixture)),
-        *extra_args,
-    ]
-
-
-def run_preparation_cli(fixture: PreparationFixture, *extra_args: str) -> tuple[int, str]:
-    output = StringIO()
-    exit_code = main(preparation_arguments(fixture, *extra_args), output=output)
-    return exit_code, output.getvalue()
 
 
 def metric_records(fixture: PreparationFixture) -> list[dict[str, Any]]:
@@ -345,20 +316,6 @@ def test_cli_shows_zero_rows_warning_in_summary_and_exits_0(tmp_path: Path) -> N
     assert "SYN-" not in output
 
 
-def without_option(arguments: list[str], option: str) -> list[str]:
-    index = arguments.index(option)
-    return arguments[:index] + arguments[index + 2 :]
-
-
-def run_cli_asking_for_period(
-    fixture: PreparationFixture, answers: str, *extra_args: str, today: date = date(2026, 9, 16)
-) -> tuple[int, str]:
-    output = StringIO()
-    arguments = without_option(preparation_arguments(fixture, *extra_args), "--period")
-    exit_code = main(arguments, output=output, input_stream=StringIO(answers), today=today)
-    return exit_code, output.getvalue()
-
-
 @pytest.mark.parametrize("today", [date(2026, 9, 15) + timedelta(days=offset) for offset in range(7)])
 def test_enter_confirms_proposed_last_full_period_on_every_weekday(tmp_path: Path, today: date) -> None:
     fixture = make_preparation_fixture(tmp_path)
@@ -569,18 +526,6 @@ def test_cancelled_dialog_stops_with_message_and_writes_nothing(
     assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
 
 
-def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
-    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
-
-    rows: list[RegisterRow] = [
-        register_order(1, datetime(2026, 9, 8, 8, 0)),
-        None,
-        register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
-        register_order(3, datetime(2026, 9, 12, 12, 0)),
-    ]
-    return make_preparation_fixture(tmp_path, rows)
-
-
 INCOMPLETE_ORDERS_PER_DAY_LINES = [
     "Zlecenia na dzień:",
     "- wt 08.09.2026: 1",
@@ -591,12 +536,6 @@ INCOMPLETE_ORDERS_PER_DAY_LINES = [
     "- niedz 13.09.2026: 0",
     "- pon 14.09.2026: 0",
 ]
-
-
-def run_cli_answering(fixture: PreparationFixture, answers: str, *extra_args: str) -> tuple[int, str]:
-    output = StringIO()
-    exit_code = main(preparation_arguments(fixture, *extra_args), output=output, input_stream=StringIO(answers))
-    return exit_code, output.getvalue()
 
 
 def test_incomplete_period_shows_orders_per_day_and_refusal_writes_nothing(tmp_path: Path) -> None:

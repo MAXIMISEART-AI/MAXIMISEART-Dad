@@ -37,7 +37,7 @@ from rozliczenia.rich_progress import RichProgressAdapter
 from rozliczenia.telemetry import MetricsStore
 from rozliczenia.terminal_conversation import TerminalConversation
 
-from tests.rich_fakes import TtyOutput, install_fake_rich, live_starts_and_stops
+from tests.fixtures.terminal import TtyOutput, install_fake_rich, live_starts_and_stops
 
 PERIOD = "08_14_09_2026"
 COUNTERS = frozenset({"items"})
