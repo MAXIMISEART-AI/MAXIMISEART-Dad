@@ -9,9 +9,10 @@ import subprocess
 from openpyxl import load_workbook
 import pytest
 
-from tests.collective_preparation_fixtures import PERIOD as PREPARATION_PERIOD
-from tests.collective_preparation_fixtures import PreparationFixture, make_preparation_fixture, register_order
-from tests.test_settlement_engine import PERIOD, active_worksheet, make_fixture, write_template
+from tests.fixtures.preparation import PERIOD as PREPARATION_PERIOD
+from tests.fixtures.preparation import PreparationFixture, make_preparation_fixture, register_order
+from tests.fixtures.settlement import PERIOD, make_fixture, write_template
+from tests.fixtures.workbooks import active_worksheet
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]

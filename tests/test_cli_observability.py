@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import time
-import types
 import zipfile
 from collections.abc import Iterable
 from typing import Any, cast
@@ -25,44 +23,10 @@ import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
 from rozliczenia.workbook_files import ExcelRow
 
-from tests.rich_fakes import TtyOutput, install_fake_rich
-from tests.test_settlement_engine import (
-    NOT_A_PERIOD,
-    PERIOD,
-    active_worksheet,
-    make_fixture,
-    write_source,
-)
-
-
-def run_cli(
-    source_path: Path,
-    config_path: Path,
-    metrics_path: Path,
-    *extra_args: str,
-) -> tuple[int, str]:
-    output = StringIO()
-    exit_code = main(
-        [
-            "--source",
-            str(source_path),
-            "--config",
-            str(config_path),
-            "--worker-template",
-            str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
-            "--metrics",
-            str(metrics_path),
-            *extra_args,
-        ],
-        output=output,
-    )
-    return exit_code, output.getvalue()
-
-
-def make_preview_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    write_source(source_path, include_unmapped=True)
-    return source_path, target_directory, config_path
+from tests.fixtures.terminal import TtyOutput, install_fake_rich
+from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, make_fixture
+from tests.fixtures.workbooks import active_worksheet
+from tests.fixtures.settlement import append_completed_records, install_source_dialog, make_preview_fixture, run_cli
 
 
 def assert_fixture_workbooks(target_directory: Path, *, dry_run: bool) -> None:
@@ -396,59 +360,6 @@ def test_critical_failure_is_recorded_as_incomplete_run(tmp_path: Path) -> None:
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["completed"] is False
     assert record["result"] == "BLAD_KRYTYCZNY"
-
-
-def install_source_dialog(monkeypatch: pytest.MonkeyPatch, *, selected: str, answer_after_s: float = 0) -> list[str]:
-    """Zastępuje okno wyboru Pliku zbiorczego (tkinter); zwraca tytuły pokazanych okien."""
-
-    shown: list[str] = []
-
-    class FakeRoot:
-        def withdraw(self) -> None:
-            pass
-
-        def destroy(self) -> None:
-            pass
-
-    def askopenfilename(*, title: str, **_kwargs: object) -> str:
-        shown.append(title)
-        time.sleep(answer_after_s)
-        return selected
-
-    filedialog = types.ModuleType("tkinter.filedialog")
-    setattr(filedialog, "askopenfilename", askopenfilename)
-    tk_module = types.ModuleType("tkinter")
-    setattr(tk_module, "Tk", FakeRoot)
-    setattr(tk_module, "filedialog", filedialog)
-    monkeypatch.setitem(sys.modules, "tkinter", tk_module)
-    monkeypatch.setitem(sys.modules, "tkinter.filedialog", filedialog)
-    return shown
-
-
-def append_completed_records(metrics_path: Path, mode: str, count: int = 5) -> None:
-    for sample in range(count):
-        MetricsStore(metrics_path).append(
-            {
-                "schema_version": 1,
-                "started_at": f"2026-09-28T00:00:0{sample}+00:00",
-                "mode": mode,
-                "period": PERIOD,
-                "completed": True,
-                "result": "OK",
-                "total_duration_ms": 1000,
-                "phase_durations_ms": {"Sprawdzanie": 1, "Odczyt danych": 1, "Planowanie": 1, "Zapisywanie": 1},
-                "counters": {
-                    "templates_total": 1,
-                    "templates_completed": 1,
-                    "rows": 1,
-                    "written": 1,
-                    "empty": 0,
-                    "planned": 0,
-                    "skipped": 0,
-                    "issues": 0,
-                },
-            }
-        )
 
 
 def run_cli_from_ustawienia_taty(

@@ -1,4 +1,4 @@
-"""Syntetyczne skoroszyty dla Przygotowania pliku zbiorczego.
+"""Przygotowanie pliku zbiorczego w testach: syntetyczne skoroszyty, operacja i CLI.
 
 Rejestr zleceń, Wzorzec rozliczenia wewnętrznego i Wzorzec pliku zbiorczego są
 budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
@@ -8,16 +8,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
+from io import StringIO
 from pathlib import Path
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from tests.test_settlement_engine import active_worksheet, add_external_link_fixture, write_mapping
-
+from rozliczenia.collective_preparation import (
+    PreparationSummary,
+    prepare_collective_file,
+)
+from rozliczenia.decision import Conversation
+from rozliczenia.domain import ProgressObserver
+from rozliczenia.preparation_cli import main
+from tests.fixtures.settlement import write_mapping
+from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture
 
 PERIOD = "08_14_09_2026"
 INTERNAL_SETTLEMENT_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
@@ -340,3 +348,113 @@ def make_dad_layout_fixture(tmp_path: Path, rows: list[RegisterRow] | None = Non
     (month_periods_folder(periods_directory, "08_Sierpień_2026") / "25_31_08_2026").mkdir()
     (periods_directory / "Rozliczenia 2026" / "Nowe rozliczenia wzór od 01_2026").mkdir()
     return replace(fixture, periods_directory=periods_directory, month_periods_folder=september)
+
+
+def run_preparation(
+    fixture: PreparationFixture,
+    period: str = PERIOD,
+    *,
+    dry_run: bool = False,
+    observer: ProgressObserver | None = None,
+    conversation: Conversation | None = None,
+) -> PreparationSummary:
+    return prepare_collective_file(
+        fixture.register_path,
+        fixture.periods_directory,
+        period,
+        fixture.config_path,
+        internal_template_path=fixture.internal_template_path,
+        collective_template_path=fixture.collective_template_path,
+        dry_run=dry_run,
+        observer=observer,
+        conversation=conversation,
+    )
+
+
+def collective_row(number: int, started: datetime, successful: str, worker: str) -> tuple[object, ...]:
+    return (
+        "POZNAŃ",
+        f"syntetyczny adres SYN-{number:03d}",
+        f"UM-SYN-{number:03d}",
+        "dekoder",
+        "instalacja",
+        f"ZL-SYN-{number:03d}",
+        started,
+        worker,
+        f"OR-SYN-{number:03d}",
+        successful,
+        "montaż",
+    )
+
+
+def cell_values(path: Path, *, min_row: int, max_row: int, min_col: int, max_col: int) -> list[tuple[object, ...]]:
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        return list(
+            sheet.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col, values_only=True)
+        )
+    finally:
+        workbook.close()
+
+
+def metrics_path_for(fixture: PreparationFixture) -> Path:
+    return fixture.register_path.parent / "przygotowanie-metrics.jsonl"
+
+
+def preparation_arguments(fixture: PreparationFixture, *extra_args: str) -> list[str]:
+    return [
+        "--register",
+        str(fixture.register_path),
+        "--periods-directory",
+        str(fixture.periods_directory),
+        "--period",
+        PERIOD,
+        "--config",
+        str(fixture.config_path),
+        "--internal-template",
+        str(fixture.internal_template_path),
+        "--collective-template",
+        str(fixture.collective_template_path),
+        "--metrics",
+        str(metrics_path_for(fixture)),
+        *extra_args,
+    ]
+
+
+def run_preparation_cli(fixture: PreparationFixture, *extra_args: str) -> tuple[int, str]:
+    output = StringIO()
+    exit_code = main(preparation_arguments(fixture, *extra_args), output=output)
+    return exit_code, output.getvalue()
+
+
+def without_option(arguments: list[str], option: str) -> list[str]:
+    index = arguments.index(option)
+    return arguments[:index] + arguments[index + 2 :]
+
+
+def run_cli_asking_for_period(
+    fixture: PreparationFixture, answers: str, *extra_args: str, today: date = date(2026, 9, 16)
+) -> tuple[int, str]:
+    output = StringIO()
+    arguments = without_option(preparation_arguments(fixture, *extra_args), "--period")
+    exit_code = main(arguments, output=output, input_stream=StringIO(answers), today=today)
+    return exit_code, output.getvalue()
+
+
+def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
+
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 8, 8, 0)),
+        None,
+        register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
+        register_order(3, datetime(2026, 9, 12, 12, 0)),
+    ]
+    return make_preparation_fixture(tmp_path, rows)
+
+
+def run_cli_answering(fixture: PreparationFixture, answers: str, *extra_args: str) -> tuple[int, str]:
+    output = StringIO()
+    exit_code = main(preparation_arguments(fixture, *extra_args), output=output, input_stream=StringIO(answers))
+    return exit_code, output.getvalue()

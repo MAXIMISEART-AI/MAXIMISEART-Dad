@@ -22,16 +22,8 @@ from rozliczenia.workbook_files import (
     save_workbook,
 )
 
-from tests.test_settlement_engine import (
-    active_worksheet,
-    add_external_link_fixture,
-    cut_sheet_after_data_rows,
-    external_link_parts,
-    without_sheet,
-    without_styles,
-    write_source,
-    write_template,
-)
+from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture, cut_sheet_after_data_rows, external_link_parts, without_sheet, without_styles
+from tests.fixtures.settlement import write_source, write_template
 
 
 def not_a_zip(path: Path) -> None:

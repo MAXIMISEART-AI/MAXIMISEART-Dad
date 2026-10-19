@@ -7,9 +7,9 @@ from pathlib import Path
 
 from rozliczenia.engine import run_settlements
 
-from tests.collective_preparation_fixtures import PERIOD, make_preparation_fixture
-from tests.test_collective_preparation import cell_values, collective_row, run_preparation
-from tests.test_settlement_engine import write_template
+from tests.fixtures.preparation import PERIOD, make_preparation_fixture
+from tests.fixtures.preparation import cell_values, collective_row, run_preparation
+from tests.fixtures.settlement import write_template
 
 
 def test_plik_zbiorczy_z_przygotowania_daje_rozliczenia_pracownikow_z_ich_zleceniami_skutecznymi(

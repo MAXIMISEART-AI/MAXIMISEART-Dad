@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
 from io import StringIO
@@ -24,7 +23,7 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.collective_preparation_fixtures import (
+from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
@@ -33,7 +32,8 @@ from tests.collective_preparation_fixtures import (
     make_preparation_fixture,
     register_order,
 )
-from tests.test_centrum_rozliczen import CENTRUM, FakePlatform, centrum as bare_centrum
+from tests.fixtures.centrum import CENTRUM, FakePlatform, centrum as bare_centrum
+from tests.fixtures.centrum import finished_view, phase_states, run_events, views_until
 
 # Wtorek po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
@@ -80,32 +80,6 @@ def preparing_centrum(tmp_path: Path, rows: list[RegisterRow] | None = None) -> 
     client.post("/api/settings/register/choose")
     client.post("/api/settings/periods-directory/choose")
     return PreparingCentrum(client, fixture, metrics_path, log_path)
-
-
-def run_events(client: TestClient) -> Iterator[dict[str, Any]]:
-    """Zdarzenia strumienia SSE Uruchomień procesu, każde jako sparsowany JSON z linii ``data:``."""
-
-    with client.stream("GET", "/api/runs/events") as response:
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/event-stream")
-        for line in response.iter_lines():
-            if line.startswith("data: "):
-                yield json.loads(line.removeprefix("data: "))
-
-
-def views_until(client: TestClient, *states: str) -> list[dict[str, Any]]:
-    """Widoki bieżącego Uruchomienia ze strumienia, aż do pierwszego w jednym ze stanów ``states``."""
-
-    views = []
-    for event in run_events(client):
-        views.append(event["view"])
-        if event["view"]["state"] in states:
-            return views
-    raise AssertionError("Strumień skończył się przed oczekiwanym stanem.")
-
-
-def finished_view(client: TestClient) -> dict[str, Any]:
-    return views_until(client, "finished")[-1]
 
 
 # Podsumowanie wyniku na domyślnym syntetycznym Rejestrze zleceń, takie samo w podglądzie i przy Uruchom.
@@ -380,10 +354,6 @@ def test_strumien_pokazuje_etapy_po_kolei_z_licznikami_i_decyzja_miedzy_planowan
         ("running", (completed, completed, completed, completed), labels, 1),
         ("finished", (completed, completed, completed, completed), labels, 1),
     ]
-
-
-def phase_states(view: dict[str, Any]) -> dict[str, str]:
-    return {phase["phase"]: phase["state"] for phase in view["progress"]["phases"]}
 
 
 def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_pliku_okresu(tmp_path: Path) -> None:

@@ -9,7 +9,8 @@ from rozliczenia.workbook_files import ExcelRow
 import rozliczenia.workbook_files as workbook_files
 from rozliczenia.template_settlement import TemplateWriteError, process_template
 
-from tests.test_settlement_engine import PERIOD, active_worksheet, write_template
+from tests.fixtures.settlement import PERIOD, write_template
+from tests.fixtures.workbooks import active_worksheet
 
 WORKER = "Adrian Maciejewski"
 

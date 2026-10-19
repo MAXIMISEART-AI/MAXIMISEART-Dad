@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from rozliczenia import preparation_cli
-from tests.test_centrum_rozliczen import Centrum, centrum
+from tests.fixtures.centrum import Centrum, centrum
 
 PREPARATION_COUNTERS = {"period_orders": 3, "successful_orders": 2, "skipped_empty_rows": 1, "warnings": 0}
 SETTLEMENT_COUNTERS = {

@@ -22,9 +22,9 @@ from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.telemetry import MetricsStore
 
-from tests.test_centrum_przygotowanie import finished_view, phase_states, run_events
-from tests.test_centrum_rozliczen import CENTRUM, FakePlatform, centrum as bare_centrum
-from tests.test_settlement_engine import PERIOD, SOURCE_NAME, write_mapping, write_source, write_template
+from tests.fixtures.centrum import finished_view, phase_states, run_events
+from tests.fixtures.centrum import CENTRUM, FakePlatform, centrum as bare_centrum
+from tests.fixtures.settlement import PERIOD, SOURCE_NAME, write_mapping, write_source, write_template
 
 # Środa po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
