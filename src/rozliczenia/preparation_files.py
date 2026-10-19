@@ -119,11 +119,11 @@ def check_collective_template(template_path: Path) -> None:
 
 
 def _ensure_template_available(template_path: Path) -> None:
-    workbook_files.ensure_available(
-        template_path,
-        missing=messages.template_missing,
-        open_in_excel=messages.template_open_in_excel,
-    )
+    availability = workbook_files.availability(template_path)
+    if availability is workbook_files.Availability.MISSING:
+        raise StopError(messages.template_missing(template_path))
+    if availability is workbook_files.Availability.OPEN_IN_EXCEL:
+        raise StopError(messages.template_open_in_excel(template_path))
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:

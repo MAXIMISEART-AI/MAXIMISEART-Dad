@@ -113,11 +113,11 @@ def header_columns(values: Sequence[object]) -> dict[str, int]:
 def ensure_register_available(register_path: Path) -> None:
     """Rejestr istnieje i nie jest otwarty w Excelu."""
 
-    workbook_files.ensure_available(
-        register_path,
-        missing=messages.register_missing,
-        open_in_excel=messages.register_open_in_excel,
-    )
+    availability = workbook_files.availability(register_path)
+    if availability is workbook_files.Availability.MISSING:
+        raise StopError(messages.register_missing(register_path))
+    if availability is workbook_files.Availability.OPEN_IN_EXCEL:
+        raise StopError(messages.register_open_in_excel(register_path))
 
 
 def read_register(register_path: Path) -> list[RegisterSheet]:
