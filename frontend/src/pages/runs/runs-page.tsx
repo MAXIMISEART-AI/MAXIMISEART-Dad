@@ -72,6 +72,11 @@ function RunHistory() {
           <RunHistoryCard runs={metrics.data.runs} />
         </div>
       )
+    default: {
+      const unhandled: never = metrics
+
+      return unhandled
+    }
   }
 }
 

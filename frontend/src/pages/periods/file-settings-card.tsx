@@ -129,5 +129,10 @@ function PathDescription({ setting }: { setting: PathSetting }) {
           <TooltipContent>{setting.path}</TooltipContent>
         </Tooltip>
       )
+    default: {
+      const unhandled: never = setting
+
+      return unhandled
+    }
   }
 }

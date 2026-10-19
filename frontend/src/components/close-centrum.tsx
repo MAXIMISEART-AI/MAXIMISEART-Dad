@@ -26,19 +26,21 @@ import { toast } from "@/components/ui/toast"
 
 const BACK_WITH_SHORTCUT = "Wrócisz skrótem „Centrum rozliczeń” na pulpicie."
 
+/** Okno potwierdzenia: zamknięte, otwarte albo czekające na odpowiedź serwera (wtedy nie da się go zamknąć). */
+type Dialog = "closed" | "confirming" | "closing"
+
 /**
  * „Zamknij Centrum rozliczeń” w stopce menu. Zamknięcie karty nie wyłącza serwera, robi to tylko ten przycisk.
  * Odmowa serwera (np. w trakcie Uruchomienia procesu) wraca jako powiadomienie z jego komunikatem.
  */
 export function CloseCentrumButton({ onClosed }: { onClosed: () => void }) {
-  const [open, setOpen] = React.useState(false)
-  const [closing, setClosing] = React.useState(false)
+  const [dialog, setDialog] = React.useState<Dialog>("closed")
+  const closing = dialog === "closing"
 
   function close() {
-    setClosing(true)
+    setDialog("closing")
     closeCentrum().then(onClosed, (failure: Error) => {
-      setClosing(false)
-      setOpen(false)
+      setDialog("closed")
       toast.add({
         title: "Nie zamknięto Centrum rozliczeń",
         description: failureMessage(failure),
@@ -51,13 +53,20 @@ export function CloseCentrumButton({ onClosed }: { onClosed: () => void }) {
     <>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton tooltip="Zamknij Centrum rozliczeń" onClick={() => setOpen(true)}>
+          <SidebarMenuButton tooltip="Zamknij Centrum rozliczeń" onClick={() => setDialog("confirming")}>
             <PowerIcon />
             <span>Zamknij Centrum rozliczeń</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
-      <AlertDialog open={open} onOpenChange={(next) => setOpen(next || closing)}>
+      <AlertDialog
+        open={dialog !== "closed"}
+        onOpenChange={(next) => {
+          if (!closing) {
+            setDialog(next ? "confirming" : "closed")
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Zamknąć Centrum rozliczeń?</AlertDialogTitle>

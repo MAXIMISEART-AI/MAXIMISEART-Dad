@@ -1,7 +1,5 @@
-import type { ProcessRun } from "@/api/centrum"
+import type { Process, ProcessRun } from "@/api/centrum"
 import type { FilterOption } from "@/components/segmented-filter"
-
-export type Process = ProcessRun["process"]
 
 export type Mode = ProcessRun["mode"]
 

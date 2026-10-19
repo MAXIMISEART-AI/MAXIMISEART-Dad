@@ -50,6 +50,11 @@ function PeriodBoardSection() {
       return <Failure message={board.message} />
     case "ready":
       return <BoardContent board={board.data} reload={reload} />
+    default: {
+      const unhandled: never = board
+
+      return unhandled
+    }
   }
 }
 
@@ -97,6 +102,12 @@ function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => voi
           <PeriodBoardTable periods={board.periods} onStale={reload} />
         </>
       )
+    }
+
+    default: {
+      const unhandled: never = board
+
+      return unhandled
     }
   }
 }

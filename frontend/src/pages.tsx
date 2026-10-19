@@ -24,13 +24,15 @@ export const PAGES = [
 
 export type Page = (typeof PAGES)[number]
 
+export type PageHref = `#/${Page["id"]}`
+
 function pageFromHash(): Page {
   const id = window.location.hash.replace(/^#\//, "")
 
   return PAGES.find((page) => page.id === id) ?? PAGES[0]
 }
 
-export function pageHref(page: Page): string {
+export function pageHref(page: Page): PageHref {
   return `#/${page.id}`
 }
 

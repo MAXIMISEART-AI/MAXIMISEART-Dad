@@ -23,7 +23,6 @@ import type {
   RunInfo,
   RunOutcome,
   RunView,
-  SettlementSummary,
   WorkerFile,
 } from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -43,6 +42,8 @@ import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
 
 type ShownRun = Exclude<RunView, { state: "idle" }>
+
+type RunSummary = NonNullable<RunOutcome["summary"]>
 
 const PHASE_ICONS: Record<PhaseProgress["state"], React.ReactNode> = {
   pending: <CircleDashedIcon className="text-muted-foreground" aria-hidden />,
@@ -158,35 +159,26 @@ export function RunCard({
             Czeka na Twoją decyzję.
           </p>
         ) : null}
-        {view.state === "finished" ? <RunOutcome run={run} result={view.result} reminder={reminder} /> : null}
+        {view.state === "finished" ? <RunOutcomeSection run={run} result={view.result} reminder={reminder} /> : null}
       </CardContent>
     </Card>
   )
 }
 
-function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcome; reminder: string }) {
+function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: RunOutcome; reminder: string }) {
   const { start } = useRuns()
   const [confirming, setConfirming] = React.useState(false)
   const openFolder = () => openAndConfirm(run.period, "period_folder", () => undefined)
   const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
 
-  const action =
-    result.next_action === "run" ? (
-      <Button size="sm" onClick={() => setConfirming(true)}>
-        <PlayIcon data-icon="inline-start" />
-        Uruchom
-      </Button>
-    ) : result.next_action === "rerun" ? (
-      <Button size="sm" variant="outline" onClick={() => again(run.dry_run)}>
-        <RotateCcwIcon data-icon="inline-start" />
-        Uruchom ponownie
-      </Button>
-    ) : (
-      <Button size="sm" variant="outline" onClick={openFolder}>
-        <FolderOpenIcon data-icon="inline-start" />
-        Folder okresu
-      </Button>
-    )
+  const action = (
+    <NextActionButton
+      action={result.next_action}
+      onRun={() => setConfirming(true)}
+      onRerun={() => again(run.dry_run)}
+      onOpenFolder={openFolder}
+    />
+  )
 
   return (
     <>
@@ -229,6 +221,48 @@ function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcom
       />
     </>
   )
+}
+
+/** Jedyna akcja przy wyniku; którą pokazać, mówi serwer. */
+function NextActionButton({
+  action,
+  onRun,
+  onRerun,
+  onOpenFolder,
+}: {
+  action: RunOutcome["next_action"]
+  onRun: () => void
+  onRerun: () => void
+  onOpenFolder: () => void
+}) {
+  switch (action) {
+    case "run":
+      return (
+        <Button size="sm" onClick={onRun}>
+          <PlayIcon data-icon="inline-start" />
+          Uruchom
+        </Button>
+      )
+    case "rerun":
+      return (
+        <Button size="sm" variant="outline" onClick={onRerun}>
+          <RotateCcwIcon data-icon="inline-start" />
+          Uruchom ponownie
+        </Button>
+      )
+    case "open_period_folder":
+      return (
+        <Button size="sm" variant="outline" onClick={onOpenFolder}>
+          <FolderOpenIcon data-icon="inline-start" />
+          Folder okresu
+        </Button>
+      )
+    default: {
+      const unhandled: never = action
+
+      return unhandled
+    }
+  }
 }
 
 /**
@@ -281,7 +315,7 @@ function TemplateProgress({ progress }: { progress: RunProgress }) {
   )
 }
 
-function SummaryNumbers({ summary, dryRun }: { summary: PreparationSummary | SettlementSummary; dryRun: boolean }) {
+function SummaryNumbers({ summary, dryRun }: { summary: RunSummary; dryRun: boolean }) {
   switch (summary.process) {
     case "preparation":
       return (
@@ -311,15 +345,25 @@ function SummaryNumbers({ summary, dryRun }: { summary: PreparationSummary | Set
           }
         />
       )
+    default: {
+      const unhandled: never = summary
+
+      return unhandled
+    }
   }
 }
 
-function SummaryDetails({ summary, dryRun }: { summary: PreparationSummary | SettlementSummary; dryRun: boolean }) {
+function SummaryDetails({ summary, dryRun }: { summary: RunSummary; dryRun: boolean }) {
   switch (summary.process) {
     case "preparation":
       return <PeriodFiles summary={summary} />
     case "settlement":
       return <FilePlan files={summary.files} defaultOpen={dryRun} />
+    default: {
+      const unhandled: never = summary
+
+      return unhandled
+    }
   }
 }
 

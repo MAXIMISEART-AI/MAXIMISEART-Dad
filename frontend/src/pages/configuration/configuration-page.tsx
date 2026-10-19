@@ -8,7 +8,7 @@ import {
 
 import { getConfiguration, type Configuration, type TemplateProblem } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
-import { ThreePartMessage } from "@/components/three-part-message"
+import { ThreePartMessage, type MessageKind } from "@/components/three-part-message"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -69,6 +69,12 @@ const PROBLEM_LABELS: Record<TemplateProblem["problem"], string> = {
   unreadable: "Nie przechodzi sprawdzenia",
 }
 
+const PROBLEM_KINDS: Record<TemplateProblem["problem"], MessageKind> = {
+  missing: "stop",
+  open_in_excel: "warning",
+  unreadable: "stop",
+}
+
 function TemplatesCard({ templates }: { templates: Configuration["templates"] }) {
   const ready = templates.filter((template) => template.state === "ready").length
   const allReady = ready === templates.length
@@ -122,7 +128,7 @@ function TemplatesCard({ templates }: { templates: Configuration["templates"] })
                     <Badge variant="outline">
                       <TriangleAlertIcon
                         data-icon="inline-start"
-                        className={template.problem === "open_in_excel" ? "text-warning" : "text-destructive"}
+                        className={PROBLEM_KINDS[template.problem] === "warning" ? "text-warning" : "text-destructive"}
                       />
                       {PROBLEM_LABELS[template.problem]}
                     </Badge>
@@ -132,7 +138,7 @@ function TemplatesCard({ templates }: { templates: Configuration["templates"] })
               {template.state === "problem" ? (
                 <ThreePartMessage
                   message={template.message}
-                  kind={template.problem === "open_in_excel" ? "warning" : "stop"}
+                  kind={PROBLEM_KINDS[template.problem]}
                 />
               ) : null}
             </li>

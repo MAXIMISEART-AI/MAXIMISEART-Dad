@@ -1,7 +1,7 @@
 import * as React from "react"
 import { EyeIcon, FileSpreadsheetIcon, FolderIcon, InfoIcon, TriangleAlertIcon, UsersIcon } from "lucide-react"
 
-import type { PathSetting, PeriodChoice, ProcessSetup, RunRequest } from "@/api/centrum"
+import type { PathSetting, PeriodChoice, Process, ProcessSetup } from "@/api/centrum"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,7 +28,7 @@ import { useSettings } from "@/lib/settings"
 import { PREVIEW_HINTS } from "@/pages/periods/prepare-actions"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
 
-const PROCESS_ICONS: Record<RunRequest["process"], React.ReactNode> = {
+const PROCESS_ICONS: Record<Process, React.ReactNode> = {
   preparation: <FileSpreadsheetIcon aria-hidden />,
   settlement: <UsersIcon aria-hidden />,
 }

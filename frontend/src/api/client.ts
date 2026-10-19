@@ -25,12 +25,13 @@ export async function call<T>(
   init?: RequestInit
 ): Promise<T> {
   let response: Response
+  // `Headers` przyjmuje każdą postać nagłówków z `RequestInit`; rozpakowanie `...` gubi obiekt `Headers`.
+  const headers = new Headers(init?.headers)
+
+  headers.set("Accept", "application/json")
 
   try {
-    response = await fetch(path, {
-      ...init,
-      headers: { Accept: "application/json", ...init?.headers },
-    })
+    response = await fetch(path, { ...init, headers })
   } catch {
     throw new CentrumError(UNREACHABLE)
   }

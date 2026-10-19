@@ -48,7 +48,6 @@ export type {
   RunOutcome,
   RunRequest,
   Settings,
-  SettlementSummary,
   TemplateProblem,
   WorkerFile,
 } from "@/api/generated"
@@ -58,6 +57,8 @@ export type PeriodBoard = GetPeriodBoardResponse
 export type PathSetting = Settings["order_register"]
 
 export type Theme = ThemeChange["theme"]
+
+export type Process = RunRequest["process"]
 
 export type OpenTarget = OpenRequest["target"]
 
@@ -143,13 +144,15 @@ export function watchRunEvents(
   source.addEventListener("open", () => onConnection(true))
   source.addEventListener("error", () => onConnection(false))
   source.addEventListener("message", (message: MessageEvent<string>) => {
-    let parsed: ReturnType<typeof zRunEvent.safeParse>
+    let data: unknown
 
     try {
-      parsed = zRunEvent.safeParse(JSON.parse(message.data))
+      data = JSON.parse(message.data)
     } catch {
       return
     }
+
+    const parsed = zRunEvent.safeParse(data)
 
     if (parsed.success) {
       onEvent(parsed.data)

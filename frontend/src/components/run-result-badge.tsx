@@ -27,6 +27,11 @@ export function RunResultBadge({ result }: { result: ProcessRun["result"] }) {
           Zatrzymano
         </Badge>
       )
+    default: {
+      const unhandled: never = result
+
+      return unhandled
+    }
   }
 }
 
