@@ -12,6 +12,8 @@ from openpyxl import load_workbook
 
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.shutdown import Shutdown
 from tests.collective_preparation_fixtures import write_collective_template, write_internal_template
 from tests.test_centrum_rozliczen import CENTRUM, FakePlatform, project_version
 from tests.test_settlement_engine import write_mapping, write_template
@@ -40,9 +42,12 @@ def configured(tmp_path: Path) -> Configured:
         worker_template=config / WORKER,
     )
     write_template(files.worker_template)
+    log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
     app = create_app(
         settings_path=config / "centrum-ustawienia.yaml",
         platform=FakePlatform(),
+        log=log,
+        shutdown=Shutdown(log),
         configuration_files=files,
     )
     return Configured(TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}), files)

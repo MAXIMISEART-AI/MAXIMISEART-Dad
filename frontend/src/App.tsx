@@ -1,6 +1,7 @@
-import type * as React from "react"
+import * as React from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { CentrumClosed } from "@/components/close-centrum"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/toast"
@@ -16,13 +17,18 @@ const LAYOUT = {
 
 export function App() {
   const page = useCurrentPage()
+  const [closed, setClosed] = React.useState(false)
+
+  if (closed) {
+    return <CentrumClosed />
+  }
 
   return (
     <SettingsProvider>
       <TooltipProvider>
         <Toaster>
           <SidebarProvider style={LAYOUT}>
-            <AppSidebar variant="inset" current={page} />
+            <AppSidebar variant="inset" current={page} onClosed={() => setClosed(true)} />
             <SidebarInset>
               <SiteHeader />
               <div className="@container/main mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pb-10 lg:px-8">

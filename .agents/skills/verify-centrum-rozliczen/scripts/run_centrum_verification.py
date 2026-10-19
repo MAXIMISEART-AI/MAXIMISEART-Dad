@@ -61,6 +61,11 @@ REQUIRED_SCREENSHOTS = {
         "26-metryki-nowy-rekord-z-cli.png",
         "27-metryki-pusty-stan.png",
     ),
+    # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
+    "start-i-zamykanie": (
+        "90-start-i-zamykanie-potwierdzenie.png",
+        "91-start-i-zamykanie-zamkniete.png",
+    ),
 }
 
 

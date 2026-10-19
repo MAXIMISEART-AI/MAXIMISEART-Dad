@@ -56,6 +56,18 @@ export type Choice = {
 };
 
 /**
+ * Closing
+ *
+ * Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi.
+ */
+export type Closing = {
+    /**
+     * State
+     */
+    state: 'closing';
+};
+
+/**
  * Configuration
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
@@ -791,3 +803,28 @@ export type GetConfigurationResponses = {
 };
 
 export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];
+
+export type CloseCentrumData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/shutdown';
+};
+
+export type CloseCentrumErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type CloseCentrumError = CloseCentrumErrors[keyof CloseCentrumErrors];
+
+export type CloseCentrumResponses = {
+    /**
+     * Successful Response
+     */
+    202: Closing;
+};
+
+export type CloseCentrumResponse = CloseCentrumResponses[keyof CloseCentrumResponses];

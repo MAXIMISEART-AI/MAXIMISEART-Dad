@@ -5,6 +5,11 @@ to te same okna tkinter co w CLI. Przy rozwoju na macOS działają odpowiedniki
 systemu: ``open`` i ``osascript``, bo tkinter na macOS działa tylko w wątku
 głównym, a serwer obsługuje żądania w wątkach roboczych. Testy API podają
 własny adapter do ``create_app``; serwer dostaje ``system_platform()``.
+
+Przed startem serwera (``launcher``) są jeszcze dwie akcje systemowe:
+``has_console()`` i ``show_start_problem()``, czyli natywne okienko z
+komunikatem startu, gdy Centrum uruchomiono skrótem bez konsoli. Moduł używa
+tylko biblioteki standardowej.
 """
 
 from __future__ import annotations
@@ -30,6 +35,38 @@ class Platform(Protocol):
 
     def choose_folder(self, title: str) -> Path | None:
         """Natywne okno wyboru folderu; ``None``, gdy tata anulował."""
+
+
+def has_console() -> bool:
+    """``pythonw`` (skrót „Centrum rozliczeń”) nie daje procesowi ``sys.stdout`` ani ``sys.stderr``."""
+
+    return sys.stdout is not None and sys.stderr is not None
+
+
+def show_start_problem(title: str, text: str) -> None:
+    """Natywne okienko błędu nad innymi oknami; wraca, gdy tata je zamknie."""
+
+    if sys.platform == "win32":
+        import ctypes
+
+        mb_iconerror, mb_setforeground, mb_topmost = 0x10, 0x10000, 0x40000
+        ctypes.windll.user32.MessageBoxW(None, text, title, mb_iconerror | mb_setforeground | mb_topmost)
+    elif sys.platform == "darwin":
+        script = (
+            f"display dialog {_applescript_text(text)} with title {_applescript_text(title)} "
+            'buttons {"OK"} default button "OK" with icon stop'
+        )
+        subprocess.run(["osascript", "-e", script], capture_output=True, check=False)
+    else:
+        import tkinter
+        from tkinter import messagebox
+
+        root = tkinter.Tk()
+        try:
+            root.withdraw()
+            messagebox.showerror(title, text, parent=root)
+        finally:
+            root.destroy()
 
 
 def system_platform() -> Platform:

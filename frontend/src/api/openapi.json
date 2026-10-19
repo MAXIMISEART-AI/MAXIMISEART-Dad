@@ -290,6 +290,37 @@
           }
         }
       }
+    },
+    "/api/shutdown": {
+      "post": {
+        "tags": [
+          "centrum"
+        ],
+        "summary": "Close",
+        "operationId": "closeCentrum",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Closing"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -374,6 +405,22 @@
         ],
         "title": "Choice",
         "description": "Wynik natywnego okna wyboru: ``chosen`` zapisuje ścieżkę, ``cancelled`` niczego nie zmienia."
+      },
+      "Closing": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "closing",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "Closing",
+        "description": "Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi."
       },
       "Configuration": {
         "properties": {

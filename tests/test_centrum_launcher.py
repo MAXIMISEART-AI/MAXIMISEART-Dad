@@ -19,13 +19,14 @@ import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CENTRUM_LAUNCHER = "Centrum rozliczeń (konsola).cmd"
+SHORTCUT_INSTALLER = "Zainstaluj skrót Centrum rozliczeń.cmd"
 
 
 def _copy_centrum_runtime(destination: Path) -> Path:
-    """Kopia narzędzia z launcherem Centrum, bez ustawień taty; zwraca katalog kopii."""
+    """Kopia narzędzia z launcherem Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
 
     destination.mkdir()
-    for name in (CENTRUM_LAUNCHER, "run_centrum.py", "pyproject.toml"):
+    for name in (CENTRUM_LAUNCHER, SHORTCUT_INSTALLER, "run_centrum.py", "install_centrum_shortcut.py", "pyproject.toml"):
         shutil.copy2(REPOSITORY_ROOT / name, destination)
     shutil.copytree(REPOSITORY_ROOT / "src", destination / "src", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(
@@ -144,3 +145,219 @@ def test_launcher_cmd_uruchamia_centrum_z_konsola_i_otwiera_przegladarke(tmp_pat
     assert health["service"] == "centrum-rozliczen"
     assert address == f"http://127.0.0.1:{port}/"
     assert f"Centrum rozliczeń działa: http://127.0.0.1:{port}/" in console.text
+
+
+def _launch_again(runtime: Path, port: int, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)],
+        cwd=runtime,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+
+
+def _opened_addresses(path: Path, count: int, *, timeout_s: float = 10) -> list[str]:
+    """Adresy otwarte w przeglądarce, gdy jest ich już ``count``."""
+
+    deadline = time.monotonic() + timeout_s
+    while True:
+        addresses = path.read_text(encoding="utf-8").split() if path.exists() else []
+        if len(addresses) >= count:
+            return addresses
+        assert time.monotonic() < deadline, "Przeglądarka nie dostała adresu Centrum."
+        time.sleep(0.1)
+
+
+def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path: Path) -> None:
+    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    browser, opened = _browser_recorder(tmp_path)
+    port = _free_port()
+    environment = _environment(browser)
+
+    with _started(
+        [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)], runtime, environment
+    ) as first:
+        _health(port)
+        _wait_for_line(opened)
+        again = _launch_again(runtime, port, environment)
+        addresses = _opened_addresses(opened, 2)
+        still_serving = _health(port, timeout_s=2)
+
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert f"Centrum rozliczeń już działa: http://127.0.0.1:{port}/" in again.stdout
+    assert addresses == [f"http://127.0.0.1:{port}/"] * 2
+    assert still_serving["service"] == "centrum-rozliczen"
+    assert first.text.count("Centrum rozliczeń działa:") == 1
+
+
+def _log_events(runtime: Path) -> list[str]:
+    """Nazwy zdarzeń z dziennika Centrum w kolejności wpisów."""
+
+    log = runtime / "logs" / "centrum-rozliczen.log"
+    return [line.split(" ")[1] for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+def test_obcy_program_na_porcie_daje_bezpieczny_komunikat_w_trzech_czesciach(tmp_path: Path) -> None:
+    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    browser, opened = _browser_recorder(tmp_path)
+
+    with socket.socket() as foreign_program:
+        foreign_program.bind(("127.0.0.1", 0))
+        foreign_program.listen()
+        port = foreign_program.getsockname()[1]
+        result = _launch_again(runtime, port, _environment(browser))
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f"Co się stało: Centrum rozliczeń nie wystartowało, bo port {port} zajmuje inny program.",
+        f"Gdzie: adres http://127.0.0.1:{port}/ na tym komputerze",
+        "Co zrobić: Uruchom ponownie komputer i kliknij skrót „Centrum rozliczeń”. Jeśli komunikat wraca, "
+        "przekaż go osobie utrzymującej narzędzie. "
+        "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd.",
+    ]
+    assert result.stderr == ""
+    assert not opened.exists()
+    assert _log_events(runtime) == ["blad-startu"]
+    assert "kod=PORT_ZAJETY" in (runtime / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
+
+
+def _close(port: int) -> dict[str, object]:
+    origin = f"http://127.0.0.1:{port}"
+    request = urllib.request.Request(f"{origin}/api/shutdown", method="POST", headers={"Origin": origin})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        assert response.status == 202
+        body = json.load(response)
+        assert isinstance(body, dict)
+        return body
+
+
+def test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku(tmp_path: Path) -> None:
+    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    browser, _ = _browser_recorder(tmp_path)
+    port = _free_port()
+    process = subprocess.Popen(
+        [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port), "--no-browser"],
+        cwd=runtime,
+        env=_environment(browser),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        _health(port)
+        closing = _close(port)
+        exit_code = process.wait(timeout=30)
+    finally:
+        process.kill()
+        process.wait()
+
+    assert closing == {"state": "closing"}
+    assert exit_code == 0
+    assert _log_events(runtime) == ["start", "zamkniecie", "stop"]
+    with pytest.raises(OSError):
+        _health(port, timeout_s=0)
+
+
+def _windowless(runtime: Path, port: int) -> list[str]:
+    """Polecenie skrótu: na Windows prawdziwy ``pythonw.exe``, gdzie indziej Python bez ``sys.stdout`` i ``sys.stderr``."""
+
+    script = str(runtime / "run_centrum.py")
+    if os.name == "nt":
+        return [str(Path(sys.executable).with_name("pythonw.exe")), script, "--port", str(port)]
+    # Tak widzi świat kod pod pythonw: strumienie konsoli to None.
+    simulated = f"import runpy, sys; sys.stdout = sys.stderr = None; runpy.run_path({script!r}, run_name='__main__')"
+    return [sys.executable, "-c", simulated, "--port", str(port)]
+
+
+def test_centrum_bez_konsoli_startuje_rozpoznaje_sie_i_zamyka(tmp_path: Path) -> None:
+    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    browser, opened = _browser_recorder(tmp_path)
+    port = _free_port()
+    environment = _environment(browser)
+    first = subprocess.Popen(_windowless(runtime, port), cwd=runtime, env=environment)
+    try:
+        health = _health(port)
+        second = subprocess.run(_windowless(runtime, port), cwd=runtime, env=environment, timeout=60)
+        addresses = _opened_addresses(opened, 2)
+        _close(port)
+        exit_code = first.wait(timeout=30)
+    finally:
+        first.kill()
+        first.wait()
+
+    assert health["service"] == "centrum-rozliczen"
+    assert second.returncode == 0
+    assert addresses == [f"http://127.0.0.1:{port}/"] * 2
+    assert exit_code == 0
+    assert _log_events(runtime) == ["start", "juz-dziala", "zamkniecie", "stop"]
+    assert "konsola=nie" in (runtime / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
+
+
+def _read_shortcut(link: Path) -> dict[str, str]:
+    script = (
+        "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; "
+        "$l = (New-Object -ComObject WScript.Shell).CreateShortcut($env:SKROT); "
+        "@{TargetPath=$l.TargetPath; Arguments=$l.Arguments; WorkingDirectory=$l.WorkingDirectory; "
+        "IconLocation=$l.IconLocation} | ConvertTo-Json -Compress"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        env=os.environ | {"SKROT": str(link)},
+        capture_output=True,
+        text=True,
+        encoding="utf-8-sig",
+        check=True,
+    )
+    shortcut = json.loads(result.stdout)
+    assert isinstance(shortcut, dict)
+    return shortcut
+
+
+@pytest.mark.skipif(os.name != "nt", reason="The desktop shortcut and pythonw.exe are Windows-only.")
+def test_krok_instalacji_tworzy_skrot_ktory_uruchamia_centrum_przez_pythonw(tmp_path: Path) -> None:
+    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    desktop = tmp_path / "pulpit"
+    desktop.mkdir()
+    browser, opened = _browser_recorder(tmp_path)
+
+    installed = subprocess.run(
+        f'cmd.exe /d /c ""{runtime / SHORTCUT_INSTALLER}" --folder "{desktop}""',
+        cwd=runtime,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=_environment(browser),
+        timeout=120,
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    shortcut = _read_shortcut(desktop / "Centrum rozliczeń.lnk")
+    target = Path(shortcut["TargetPath"])
+    icon, index = shortcut["IconLocation"].rsplit(",", 1)
+
+    assert target.name.lower() == "pythonw.exe" and target.is_file()
+    assert shortcut["Arguments"] == f'"{runtime / "run_centrum.py"}"'
+    assert Path(shortcut["WorkingDirectory"]) == runtime
+    assert (Path(icon), index) == (runtime / "src" / "rozliczenia" / "centrum" / "centrum-rozliczen.ico", "0")
+
+    port = _free_port()
+    process = subprocess.Popen(
+        [str(target), shortcut["Arguments"].strip('"'), "--port", str(port)],
+        cwd=shortcut["WorkingDirectory"],
+        env=_environment(browser),
+    )
+    try:
+        health = _health(port)
+        address = _wait_for_line(opened)
+        _close(port)
+        exit_code = process.wait(timeout=30)
+    finally:
+        process.kill()
+        process.wait()
+
+    assert health["service"] == "centrum-rozliczen"
+    assert address == f"http://127.0.0.1:{port}/"
+    assert exit_code == 0

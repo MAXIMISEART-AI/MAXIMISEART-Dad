@@ -13,13 +13,16 @@ import argparse
 from collections.abc import Callable
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import time
 import tomllib
 import urllib.error
+import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
 
@@ -33,7 +36,8 @@ DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
 # The period the CLI step names: the fixture's last complete period, without a Folder okresu.
 LAST_COMPLETE_FOR_CLI = "06_12_10_2026"
 
-FEATURES = ("ustawienia", "tablica-okresow", "konfiguracja", "metryki")
+# start-i-zamykanie closes Centrum, so it stays last.
+FEATURES = ("ustawienia", "tablica-okresow", "konfiguracja", "metryki", "start-i-zamykanie")
 
 
 class DriveFailure(Exception):
@@ -618,6 +622,122 @@ def drive_configuration(run: Run, page: Page) -> None:
     )
 
 
+def _copy_tool(run: Run) -> Path:
+    """A copy of the tool inside the run root, so the real launcher logs there and never in Dad's ``logs``."""
+
+    tool = run.root / "narzedzie"
+    if not tool.exists():
+        tool.mkdir()
+        for name in ("run_centrum.py", "pyproject.toml"):
+            shutil.copy2(REPO_ROOT / name, tool)
+        shutil.copytree(REPO_ROOT / "src", tool / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    return tool
+
+
+def _browser_recorder(run: Run) -> tuple[Path, Path]:
+    """Stands in for the browser (``BROWSER``) and appends each opened address to ``browser.txt``."""
+
+    record = run.root / "browser.txt"
+    if os.name == "nt":
+        recorder = run.root / "browser.cmd"
+        recorder.write_text(f'@echo %~1>>"{record}"\r\n', encoding="utf-8")
+    else:
+        recorder = run.root / "browser.sh"
+        recorder.write_text(f'#!/bin/sh\nprintf "%s\\n" "$1" >> "{record}"\n', encoding="utf-8")
+        recorder.chmod(0o755)
+    return recorder, record
+
+
+def _launch(run: Run, port: int, name: str) -> subprocess.CompletedProcess[str]:
+    """The real launcher (``run_centrum.py``, the console path) from the run's copy of the tool."""
+
+    tool = _copy_tool(run)
+    recorder, _ = _browser_recorder(run)
+    environment = os.environ | {"PYTHONUTF8": "1", "BROWSER": str(recorder)}
+    result = subprocess.run(
+        [sys.executable, str(tool / "run_centrum.py"), "--port", str(port)],
+        cwd=tool, env=environment, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    (run.evidence / "api" / f"{name}.txt").write_text(
+        f"exit_code={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}", encoding="utf-8"
+    )
+    return result
+
+
+def _log_events(path: Path) -> list[str]:
+    return [line.split(" ")[1] for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+
+def _answers(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/api/health", timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+def drive_start_and_close(run: Run, page: Page) -> None:
+    feature = "start-i-zamykanie"
+    port = int(urllib.parse.urlsplit(run.url).port or 0)
+    served_log = run.root / "logs" / "centrum-rozliczen.log"
+    tool_log = run.root / "narzedzie" / "logs" / "centrum-rozliczen.log"
+
+    run.step(feature, "start-gotowosc")
+    health = run.api("/api/health", "start-health")
+    run.check(health["service"] == "centrum-rozliczen", "health names Centrum rozliczeń and its version")
+    run.check(_log_events(served_log)[:1] == ["start"], "the Centrum log starts with a start entry")
+    run.check(f"port={port}" in served_log.read_text(encoding="utf-8"), "the start entry names the port")
+
+    run.step(feature, "start-druga-instancja")
+    again = _launch(run, port, "start-druga-instancja")
+    run.check(again.returncode == 0, "a second launch on the same port exits 0")
+    run.check(f"Centrum rozliczeń już działa: {run.url}" in again.stdout, "it says Centrum is already running")
+    run.check((run.root / "browser.txt").read_text(encoding="utf-8").split() == [run.url], "it only opens the tab")
+    run.check(_log_events(tool_log) == ["juz-dziala"], "its log records the recognised running Centrum")
+    run.check(_answers(run.url), "the first Centrum keeps serving")
+
+    run.step(feature, "start-obcy-program")
+    with socket.socket() as foreign_program:
+        foreign_program.bind(("127.0.0.1", 0))
+        foreign_program.listen()
+        foreign_port = foreign_program.getsockname()[1]
+        refused = _launch(run, foreign_port, "start-obcy-program")
+    run.check(refused.returncode == 1, "a launch on a port held by another program exits 1")
+    run.check(
+        [line.split(":", 1)[0] for line in refused.stdout.splitlines()] == ["Co się stało", "Gdzie", "Co zrobić"],
+        "the console shows the three-part start message",
+    )
+    run.check("zajmuje inny program" in refused.stdout and refused.stderr == "", "no exception text, only the message")
+    run.check(_log_events(tool_log)[-1:] == ["blad-startu"], "the log records the start failure")
+
+    run.step(feature, "zamykanie-karta")
+    page.goto(run.url)
+    other_tab = page.context.new_page()
+    other_tab.goto(run.url)
+    expect(other_tab.get_by_role("heading", name="Okresy", exact=True)).to_be_visible()
+    other_tab.close()
+    run.check(_answers(run.url), "closing a tab leaves Centrum running")
+
+    run.step(feature, "zamykanie-potwierdzenie")
+    close_button = page.get_by_role("button", name="Zamknij Centrum rozliczeń", exact=True)
+    close_button.click()
+    dialog = page.get_by_role("alertdialog", name="Zamknąć Centrum rozliczeń?")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text("Wrócisz skrótem „Centrum rozliczeń” na pulpicie.")
+    run.capture(page, "90-start-i-zamykanie-potwierdzenie", full_page=False)
+    dialog.get_by_role("button", name="Anuluj", exact=True).click()
+    expect(dialog).to_be_hidden()
+    run.check(_answers(run.url) and "zamkniecie" not in _log_events(served_log), "Anuluj leaves Centrum running")
+
+    run.step(feature, "zamykanie")
+    close_button.click()
+    page.get_by_role("button", name="Zamknij Centrum", exact=True).click()
+    expect(page.get_by_role("heading", name="Centrum rozliczeń jest zamknięte", exact=True)).to_be_visible()
+    run.wait_for(lambda: not _answers(run.url), "the Centrum process stops serving")
+    run.wait_for(lambda: _log_events(served_log)[-2:] == ["zamkniecie", "stop"], "the log ends with zamkniecie, stop")
+    run.capture(page, "91-start-i-zamykanie-zamkniete")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="Run root with fixture.json and a served Centrum.")
@@ -631,6 +751,7 @@ def main(argv: list[str] | None = None) -> int:
         "tablica-okresow": drive_period_board,
         "konfiguracja": drive_configuration,
         "metryki": drive_metrics,
+        "start-i-zamykanie": drive_start_and_close,
     }
     selected = FEATURES if args.feature == "all" else (args.feature,)
     try:
@@ -654,7 +775,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"DRIVE FAIL | {exc}", file=sys.stderr)
         return 1
     finally:
-        for name in ("opened.jsonl", "dialogs.jsonl", "config/centrum-ustawienia.yaml"):
+        for name in ("opened.jsonl", "dialogs.jsonl", "config/centrum-ustawienia.yaml", "logs/centrum-rozliczen.log"):
             source = run.root / name
             if source.exists():
                 shutil.copy2(source, run.evidence / "state" / source.name)
