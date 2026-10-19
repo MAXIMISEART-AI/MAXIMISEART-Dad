@@ -60,12 +60,24 @@ export const zHealth = z.object({
 /**
  * Message
  *
- * Komunikat w trzech częściach, ta sama treść co w terminalu.
+ * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu.
  */
 export const zMessage = z.object({
     what: z.string(),
     where: z.string(),
     action: z.string()
+});
+
+/**
+ * Decision
+ *
+ * Pytanie do taty z części decyzji procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
+ */
+export const zDecision = z.object({
+    question: z.string(),
+    title: z.string(),
+    message: zMessage,
+    counts: zCountGroup
 });
 
 /**
@@ -145,6 +157,7 @@ export const zPeriodChoice = z.object({
     monday: z.iso.date(),
     status_label: z.string(),
     last_complete: z.boolean(),
+    previewed: z.boolean(),
     collective_file: z.string().nullable()
 });
 
@@ -174,10 +187,13 @@ export const zPeriodRow = z.object({
 
 /**
  * BoardReady
+ *
+ * Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym.
  */
 export const zBoardReady = z.object({
     state: z.literal('ready'),
-    periods: z.array(zPeriodRow)
+    periods: z.array(zPeriodRow),
+    last_prepared_period: z.string().nullable()
 });
 
 /**
@@ -291,31 +307,6 @@ export const zProcessSetup = z.object({
 });
 
 /**
- * Progress
- *
- * Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane.
- */
-export const zProgress = z.object({
-    mode: z.enum(['RUN', 'DRY-RUN']),
-    period: z.string(),
-    phases: z.array(zPhaseProgress),
-    current_phase: z.enum([
-        'Sprawdzanie',
-        'Odczyt danych',
-        'Planowanie',
-        'Zapisywanie'
-    ]).nullable(),
-    template_total: z.int(),
-    templates_completed: z.int(),
-    current_worker: z.string().nullable(),
-    rows: z.int(),
-    operation_counts: z.record(z.string(), z.int()),
-    recent_operations: z.array(zOperationProgress),
-    total_elapsed_ms: z.int(),
-    issue_count: z.int()
-});
-
-/**
  * ProgressNotice
  *
  * Neutralne powiadomienie o ostatniej zmianie postępu.
@@ -420,41 +411,6 @@ export const zRunInfo = z.object({
 });
 
 /**
- * RunMessage
- *
- * Komunikat Uruchomienia z liniami terminala: trzy części (Co się stało, Gdzie, Co zrobić) albo jedna linia (tylko ``what``).
- */
-export const zRunMessage = z.object({
-    what: z.string(),
-    where: z.string().nullable(),
-    action: z.string().nullable()
-});
-
-/**
- * Decision
- *
- * Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
- */
-export const zDecision = z.object({
-    question: z.string(),
-    title: z.string().nullable(),
-    message: zRunMessage.nullable(),
-    count_groups: z.array(zCountGroup)
-});
-
-/**
- * RunAwaitingDecision
- *
- * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
- */
-export const zRunAwaitingDecision = z.object({
-    state: z.literal('awaiting_decision'),
-    run: zRunInfo,
-    progress: zProgress,
-    decision: zDecision
-});
-
-/**
  * RunRequest
  *
  * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
@@ -463,17 +419,6 @@ export const zRunRequest = z.object({
     process: z.enum(['preparation', 'settlement']),
     period: z.string(),
     dry_run: z.boolean()
-});
-
-/**
- * RunRunning
- */
-export const zRunRunning = z.object({
-    state: z.literal('running'),
-    run: zRunInfo,
-    progress: zProgress,
-    notice: zProgressNotice.nullable(),
-    progress_stale: z.boolean()
 });
 
 /**
@@ -508,6 +453,66 @@ export const zSettings = z.object({
 export const zChoice = z.object({
     outcome: z.enum(['chosen', 'cancelled']),
     settings: zSettings
+});
+
+/**
+ * TemplateCounts
+ *
+ * Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”.
+ */
+export const zTemplateCounts = z.object({
+    written: z.int(),
+    empty: z.int(),
+    planned: z.int(),
+    skipped: z.int()
+});
+
+/**
+ * Progress
+ *
+ * Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane.
+ */
+export const zProgress = z.object({
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    period: z.string(),
+    phases: z.array(zPhaseProgress),
+    current_phase: z.enum([
+        'Sprawdzanie',
+        'Odczyt danych',
+        'Planowanie',
+        'Zapisywanie'
+    ]).nullable(),
+    template_total: z.int(),
+    templates_completed: z.int(),
+    current_worker: z.string().nullable(),
+    rows: z.int(),
+    counts: zTemplateCounts,
+    recent_operations: z.array(zOperationProgress),
+    total_elapsed_ms: z.int(),
+    issue_count: z.int()
+});
+
+/**
+ * RunAwaitingDecision
+ *
+ * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
+ */
+export const zRunAwaitingDecision = z.object({
+    state: z.literal('awaiting_decision'),
+    run: zRunInfo,
+    progress: zProgress,
+    decision: zDecision
+});
+
+/**
+ * RunRunning
+ */
+export const zRunRunning = z.object({
+    state: z.literal('running'),
+    run: zRunInfo,
+    progress: zProgress,
+    notice: zProgressNotice.nullable(),
+    progress_stale: z.boolean()
 });
 
 /**
@@ -594,7 +599,7 @@ export const zSettlementSummary = z.object({
 /**
  * RunOutcome
  *
- * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
+ * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
@@ -618,16 +623,14 @@ export const zRunOutcome = z.object({
         'rerun',
         'open_period_folder'
     ]),
-    status_line: z.string(),
     total_duration_ms: z.int(),
-    stops: z.array(zRunMessage),
-    warnings: z.array(zRunMessage),
+    stops: z.array(zMessage),
+    warnings: z.array(zMessage),
     notices: z.array(z.string()),
     summary: z.discriminatedUnion('process', [
         zPreparationSummary,
         zSettlementSummary
-    ]).nullable(),
-    lines: z.array(z.string())
+    ]).nullable()
 });
 
 /**

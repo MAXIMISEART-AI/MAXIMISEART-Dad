@@ -35,11 +35,12 @@ import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress
 import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { previewKey, useRuns } from "@/lib/runs"
+import { ThreePartMessage } from "@/components/three-part-message"
+import { seconds } from "@/lib/format"
+import { useRuns } from "@/lib/runs"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
-import { ThreePartMessage } from "@/pages/runs/three-part-message"
 
 type ShownRun = Exclude<RunView, { state: "idle" }>
 
@@ -63,12 +64,6 @@ const PHASE_VALUES: Record<PhaseProgress["state"], number | null> = {
   running: null,
   completed: 100,
   failed: 100,
-}
-
-function duration(milliseconds: number): string {
-  return milliseconds < 1000
-    ? `${milliseconds} ms`
-    : `${(milliseconds / 1000).toLocaleString("pl-PL", { maximumFractionDigits: 1 })} s`
 }
 
 /** Podgląd na żywo bieżącego Uruchomienia procesu i jego wynik; wszystko z widoku serwera. */
@@ -134,11 +129,12 @@ export function RunCard({
                 className={phase.state === "failed" ? "**:data-[slot=progress-indicator]:bg-destructive" : undefined}
               />
               <span className="h-4 text-xs text-muted-foreground tabular-nums">
-                {phase.state === "completed" || phase.state === "failed" ? duration(phase.duration_ms) : null}
+                {phase.state === "completed" || phase.state === "failed" ? seconds(phase.duration_ms) : null}
               </span>
             </li>
           ))}
         </ol>
+        {view.state === "finished" ? null : <LiveCounts run={run} progress={view.progress} />}
         {view.state !== "finished" && view.progress.template_total > 0 ? (
           <TemplateProgress progress={view.progress} />
         ) : null}
@@ -169,7 +165,7 @@ export function RunCard({
 }
 
 function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcome; reminder: string }) {
-  const { start, previewed } = useRuns()
+  const { start } = useRuns()
   const [confirming, setConfirming] = React.useState(false)
   const openFolder = () => openAndConfirm(run.period, "period_folder", () => undefined)
   const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
@@ -227,10 +223,40 @@ function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcom
         period={run.period}
         reminder={reminder}
         confirmsReadiness={run.process === "settlement"}
-        previewed={previewed.has(previewKey(run))}
+        // „Uruchom” przy wyniku jest tylko po udanym podglądzie bez zapisu tego okresu.
+        previewed
         onConfirm={() => again(false)}
       />
     </>
+  )
+}
+
+/**
+ * Liczniki z projekcji postępu, aktualizowane z każdym Zdarzeniem przebiegu, te same co w terminalu:
+ * Przebieg rozliczeń liczy Wiersze danych, Szablony pracowników i problemy, Przygotowanie pliku
+ * zbiorczego ostrzeżenia i czas. Wartości zmieniają się bez animacji.
+ */
+function LiveCounts({ run, progress }: { run: RunInfo; progress: RunProgress }) {
+  const { counts } = progress
+
+  return (
+    <NumberStrip
+      name="Liczniki"
+      numbers={
+        run.process === "settlement"
+          ? [
+              ["Wiersze danych", progress.rows],
+              run.dry_run ? ["Planowane szablony", counts.planned] : ["Zapisane szablony", counts.written],
+              ["Puste szablony", counts.empty],
+              ["Pominięte szablony", counts.skipped],
+              ["Problemy", progress.issue_count],
+            ]
+          : [
+              ["Ostrzeżenia", progress.issue_count],
+              ["Czas uruchomienia", seconds(progress.total_elapsed_ms)],
+            ]
+      }
+    />
   )
 }
 

@@ -42,10 +42,16 @@ function CountLabel({ label }: { label: string }) {
   )
 }
 
-/** Pasek kilku liczb w jednej karcie z separatorami. */
-export function NumberStrip({ numbers }: { numbers: ReadonlyArray<readonly [string, number]> }) {
+/** Pasek kilku liczb w jednej karcie z separatorami, w równych kolumnach. */
+export function NumberStrip({
+  numbers,
+  name,
+}: {
+  numbers: ReadonlyArray<readonly [string, number | string]>
+  name?: string
+}) {
   return (
-    <dl className="grid grid-cols-3 divide-x rounded-lg border">
+    <dl className="grid auto-cols-fr grid-flow-col divide-x rounded-lg border" aria-label={name}>
       {numbers.map(([label, value]) => (
         <div key={label} className="flex flex-col gap-1 px-4 py-3">
           <dt className="text-xs text-muted-foreground">{label}</dt>
