@@ -20,10 +20,13 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 ```
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature konfiguracja`,
-`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`, or
-`--feature start-i-zamykanie` drives one feature; the default `all` drives every
-feature in `features/README.md`, ending with `start-i-zamykanie`, which closes
-Centrum through its own button. Success prints
+`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
+`--feature przebieg-rozliczen`, or `--feature start-i-zamykanie` drives one
+feature; the default `all` drives every feature in `features/README.md`, ending
+with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
+Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and
+Przebieg rozliczeń up to the Status okresu `Rozliczenia pracowników gotowe`;
+`przebieg-rozliczen` alone drives Przygotowanie first. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 
@@ -47,7 +50,10 @@ live in the run root, and the platform adapter (Dad's computer) is scripted. A n
 with the path in `<root>/picker/answer.txt` (no file means Dad cancelled) and
 logs its title to `<root>/dialogs.jsonl`. Opening a file in Excel or a folder in
 Explorer appends the path to `<root>/opened.jsonl` instead of launching an
-application. The adapter is the production boundary for those actions; the real
+application. While `<root>/pacing/szablony-ms.txt` exists, each Szablon
+pracownika of a Przebieg rozliczeń RUN waits that many milliseconds, so the
+live progress and the refused closing can be observed; the drive turns it on
+for one RUN only. The adapter is the production boundary for those actions; the real
 Windows and macOS adapters are covered by `tests/test_centrum_launcher.py` (real
 process, real browser opening) and by hand.
 
@@ -103,7 +109,9 @@ Proof standards:
 - Drive Dad's path through the UI. A screen state alone is not proof: pair it
   with the API answer and the side effect (settings file, picker log, opened
   path).
-- Treat the scripted platform adapter as the only stand-in.
+- Treat the scripted platform adapter as the only stand-in for Dad's computer.
+  Two harness steps are labelled in `drive.txt`: Gotowość, where the drive
+  edits the Plik zbiorczy instead of Excel, and the Szablony pacing.
 - Look at the screenshots after a UI change; a passing run does not judge
   visual quality.
 - Evidence holds synthetic paths only. The self-test fails if the fixture's
@@ -127,7 +135,8 @@ Then confirm the evidence directory still exists.
 
 - `scripts/run_centrum_verification.py`: the one-command orchestrator (above).
 - `scripts/create_centrum_fixture.py --root "$runRoot"`: synthetic folder
-  okresów `INEA` (one period per Status okresu, plus a non-period folder),
+  okresów `INEA` (one period per Status okresu, one Plik zbiorczy with a
+  Wykonawca missing from the konfiguracja wykonawców, plus a non-period folder),
   synthetic Rejestr zleceń, a `config/` with a synthetic konfiguracja
   wykonawców and the three Wzorce, both metrics files with a synthetic history,
   `fixture.json` with "today" `2026-10-19`, the expected Tablica okresów, the

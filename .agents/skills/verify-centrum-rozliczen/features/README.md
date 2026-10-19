@@ -14,7 +14,8 @@ feature file as the recipe.
   `centrum_doctor.py` reported `DOCTOR OK`.
 - The fixture's "today" is Monday `2026-10-19`, so the last complete period is
   `06_12_10_2026`, whose Folder okresu does not exist. The folder okresów
-  `INEA` holds `29_05_09_2026` (Plik zbiorczy przygotowany), `22_28_09_2026`
+  `INEA` holds `29_05_09_2026` (Plik zbiorczy przygotowany; its Plik zbiorczy
+  has a Wykonawca missing from the konfiguracja wykonawców), `22_28_09_2026`
   (Rozliczenia pracowników gotowe, three files), `15_21_09_2026` (empty Folder
   okresu), and `Archiwum` (not a period).
 - `<root>/metrics/` holds both metrics files in the CLI's schema: 16 valid
@@ -79,4 +80,5 @@ entry in `drive_centrum.py`, and its screenshots in
 - [Tablica okresów](./tablica-okresow.md) covers the period list with Status okresu, the last complete period and Następny krok, opening period files and folders, refreshing after changes on disk, and refusing foreign requests.
 - [Metryki](./metryki.md) covers the key numbers on Okresy, P50/P95 and the result distribution per process and mode, the stage-times chart and table, interrupted runs, the history table with sorting and filters, a CLI record appearing without a restart, and the empty state.
 - [Przygotowanie pliku zbiorczego](./przygotowanie-pliku-zbiorczego.md) covers choosing the period, Podgląd bez zapisu (DRY-RUN) without writing, the confirmed RUN, the live stages, the incomplete-period decision (abort and continue, surviving a reload), refusing a second Uruchomienie, the three-part stop, Nienadpisywanie, the Status okresu afterwards, the records in the CLI's metrics file, and the Historia tab marking Centrum runs.
+- [Przebieg rozliczeń](./przebieg-rozliczen.md) continues Dad's path from the Plik zbiorczy of Przygotowanie: Gotowość in Excel (simulated), choosing the period without a file, Podgląd bez zapisu with the plan per Wykonawca, the RUN confirmed as Gotowość with the live Szablony pracowników progress and closing refused, the Folder rozliczeń pracowników published at once, the Status okresu `Rozliczenia pracowników gotowe`, Nienadpisywanie, and a preview that needs checking.
 - [Start i zamykanie](./start-i-zamykanie.md) covers readiness, the second start that only opens the tab, the three-part message for a port held by another program, the Centrum log, and closing Centrum from the sidebar. It closes the server, so it runs last.

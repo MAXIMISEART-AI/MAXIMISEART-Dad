@@ -72,6 +72,16 @@ REQUIRED_SCREENSHOTS = {
         "37-przygotowanie-nienadpisywanie.png",
         "38-przygotowanie-historia.png",
     ),
+    "przebieg-rozliczen": (
+        "40-przebieg-nowe-uruchomienie.png",
+        "41-przebieg-podglad.png",
+        "42-przebieg-potwierdzenie.png",
+        "43-przebieg-na-zywo.png",
+        "44-przebieg-zapisane.png",
+        "45-przebieg-status-okresu.png",
+        "46-przebieg-nienadpisywanie.png",
+        "47-przebieg-wymaga-sprawdzenia.png",
+    ),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",
