@@ -535,22 +535,3 @@ def _restore_external_link_parts(path: Path, parts: _ExternalLinkParts) -> None:
         os.replace(temporary_path, path)
     finally:
         temporary_path.unlink(missing_ok=True)
-
-
-# Tymczasowo, do przeniesienia rozmówców na otwarcie przez moduł.
-UNREADABLE_WORKBOOK_ERRORS = _UNREADABLE_WORKBOOK_ERRORS
-request_full_recalculation = _request_full_recalculation
-
-
-class Availability(Enum):
-    AVAILABLE = "dostępny"
-    MISSING = "brak"
-    OPEN_IN_EXCEL = "otwarty w Excelu"
-
-
-def availability(path: Path) -> Availability:
-    if not path.is_file():
-        return Availability.MISSING
-    if is_open_in_excel(path):
-        return Availability.OPEN_IN_EXCEL
-    return Availability.AVAILABLE
