@@ -8,7 +8,9 @@ hold a synthetic history in the CLI's schema for Metryki.
 The Rejestr zleceń holds orders of the last complete period ``06_12_10_2026``
 whose last order is on Saturday, so a RUN of Przygotowanie pliku zbiorczego
 asks Dad's decision about the incomplete period. Its order cells carry
-``ROW_MARKER``.
+``ROW_MARKER``. The Plik zbiorczy of ``29_05_09_2026`` has a Wiersz danych of a
+Wykonawca missing from the konfiguracja wykonawców, so a Podgląd bez zapisu of
+Przebieg rozliczeń for that period needs checking.
 """
 
 from __future__ import annotations
@@ -27,6 +29,9 @@ import yaml
 # whose Folder okresu deliberately does not exist.
 TODAY = "2026-10-19"
 LAST_COMPLETE = "06_12_10_2026"
+# A period whose Plik zbiorczy has a Wiersz danych of a Wykonawca the konfiguracja wykonawców does not know.
+NEEDS_CHECK = "29_05_09_2026"
+UNKNOWN_WORKER = "wykonawca.spoza.konfiguracji"
 WORKERS = ("Wykonawca Testowy A", "Wykonawca Testowy B", "Wykonawca Testowy C")
 # A synthetic row value inside every workbook. Centrum must never read or show workbook content,
 # so this marker must never appear in evidence (centrum_self_test.py checks it).
@@ -165,6 +170,22 @@ def _period_files(periods: Path, token: str) -> Path:
     return period_folder
 
 
+def _collective_file(path: Path, workers: tuple[str, ...]) -> None:
+    """A Plik zbiorczy in the engine's layout: headers in row 17, one Wiersz danych per worker id from row 18."""
+
+    workbook = Workbook()
+    sheet = workbook.active
+    assert isinstance(sheet, Worksheet)
+    for column, header in enumerate(COLLECTIVE_HEADERS, start=1):
+        sheet.cell(17, column).value = header
+    worker_column = COLLECTIVE_HEADERS.index("WYKONAWCA") + 1
+    for row, worker in enumerate(workers, start=18):
+        for column in range(1, len(COLLECTIVE_HEADERS) + 1):
+            sheet.cell(row, column).value = f"{ROW_MARKER}-{row:03d}"
+        sheet.cell(row, worker_column).value = worker
+    workbook.save(path)
+
+
 def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object]:
     started_at, mode, period, result, phases = run
     completed = result != "BLAD_KRYTYCZNY"
@@ -219,7 +240,8 @@ def create(root: Path) -> dict[str, object]:
     workers.mkdir()
     for worker in WORKERS:
         _workbook(workers / f"Rozliczenie 22_28_09_2026 - {worker}.xlsx")
-    _period_files(periods, "29_05_09_2026")
+    needs_check = _period_files(periods, NEEDS_CHECK)
+    _collective_file(needs_check / f"Rozliczenie {NEEDS_CHECK} - zbiorcze.xlsx", ("wykonawca.a", UNKNOWN_WORKER))
     (periods / "15_21_09_2026").mkdir()
     (periods / "Archiwum").mkdir()
 
@@ -237,6 +259,9 @@ def create(root: Path) -> dict[str, object]:
         "workers": list(WORKERS),
         # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
         "preparation": EXPECTED_PREPARATION,
+        # Przebieg rozliczeń: one Wiersz danych per Wykonawca after Przygotowanie of the last complete period,
+        # and the period whose Podgląd bez zapisu needs checking
+        "settlement": {"rows_per_worker": [1, 1, 1], "needs_check": NEEDS_CHECK},
         # token, Status okresu, number of Rozliczenia pracowników, last complete period
         "board": [
             [LAST_COMPLETE, "no_period_files", 0, True],

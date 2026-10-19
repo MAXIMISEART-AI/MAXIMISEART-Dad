@@ -13,11 +13,12 @@ Narzędzie ma dwa wejścia, które działają obok siebie:
 |---|---|---|
 | Zobaczyć Status okresu każdego tygodnia | Strona `Okresy` | — |
 | Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu | Ręcznie w Eksploratorze |
-| Przygotować plik zbiorczy | — | `Przygotuj plik zbiorczy.cmd` |
-| Utworzyć rozliczenia pracowników | — | `Utwórz rozliczenia.cmd` |
+| Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` | `Przygotuj plik zbiorczy.cmd` |
+| Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` | `Utwórz rozliczenia.cmd` |
 
-Oba procesy uruchamiasz na razie launcherami `.cmd`, opisanymi niżej. Launchery
-działają też wtedy, gdy Centrum rozliczeń nie wystartuje.
+Oba procesy możesz uruchomić w Centrum rozliczeń albo launcherami `.cmd`,
+opisanymi niżej. Launchery działają też wtedy, gdy Centrum rozliczeń nie
+wystartuje.
 
 ## Pierwsza instalacja
 
@@ -186,7 +187,7 @@ uruchomienie dostaje komunikat, że trwa już Uruchomienie procesu. Zakładka
 2. Wpisz ilości 0/1 w Pliku zbiorczym. Jeśli chcesz pominąć jakieś Zlecenie
    skuteczne, usuń je ręcznie.
 3. Zapisz i zamknij oba pliki.
-4. Uruchom Przebieg rozliczeń (`Utwórz rozliczenia.cmd`).
+4. Uruchom Przebieg rozliczeń w Centrum rozliczeń albo `Utwórz rozliczenia.cmd`.
 
 ### Komunikat → co zrobić
 
@@ -258,6 +259,69 @@ Pliki okresu powstały niezależnie od niej.
 2. Wybierz plik zakończony słowami `- zbiorcze.xlsx`.
 3. Poczekaj na komunikat końcowy.
 4. Otwórz pliki pracowników i sprawdź ich zawartość.
+
+### Kroki w Centrum rozliczeń
+
+Ten sam Przebieg rozliczeń można zrobić w Centrum rozliczeń, bez okna terminala
+i bez szukania pliku. Plik zbiorczy wynika z okresu: Centrum bierze
+`Rozliczenie {okres} - zbiorcze.xlsx` z Folderu okresu w folderze okresów.
+
+1. Uzupełnij Plik zbiorczy w Excelu, zapisz go i zamknij (Gotowość). Centrum
+   nie sprawdza, czy skończyłeś: to Ty decydujesz, kiedy plik jest gotowy.
+2. Na stronie `Okresy` okres ma Status `Plik zbiorczy przygotowany`, a karta
+   `Następny krok` pokazuje `Utwórz rozliczenia pracowników`. Kliknij
+   `Podgląd bez zapisu`. Dla innego tygodnia kliknij `Utwórz rozliczenia
+   pracowników` w jego wierszu Tablicy okresów albo na stronie `Uruchomienia`
+   wybierz kafelek `Przebieg rozliczeń` i okres z listy `Okres`. Lista ma tylko
+   okresy ze Statusem `Plik zbiorczy przygotowany`.
+3. Podgląd bez zapisu niczego nie tworzy. Pokazuje liczby `Wiersze danych`,
+   `Planowane szablony` i `Puste szablony` oraz zwijany `Plan plików`: nazwę
+   pliku każdego Wykonawcy z liczbą wierszy (`Pusty skoroszyt`, gdy Wykonawca
+   nie ma wierszy).
+4. Kliknij `Uruchom` i potwierdź w okienku `Uruchomić z zapisem?`. To kliknięcie
+   jest potwierdzeniem Gotowości, więc zrób je dopiero po zamknięciu Pliku
+   zbiorczego w Excelu.
+5. W trakcie widać etapy i pasek `Szablony pracowników` z bieżącym Wykonawcą i
+   liczbą, np. `2 z 7`. Zamknięcie Centrum rozliczeń jest wtedy zablokowane.
+6. Wynik `Rozliczenia pracowników gotowe` oznacza, że cały folder
+   `Rozliczenie pracowników {okres}` powstał naraz. Pokazuje liczby `Zapisane
+   szablony`, `Puste szablony` i `Pominięte szablony`. Przycisk `Folder okresu`
+   otwiera folder, a na stronie `Okresy` okres ma Status `Rozliczenia
+   pracowników gotowe`.
+
+Wynik z żółtym znakiem `Podgląd wymaga sprawdzenia · nic nie zapisano` to nie
+sukces: pod nim są problemy w Pliku zbiorczym, każdy w trzech częściach. Popraw
+je, zapisz i zamknij Plik zbiorczy i kliknij `Uruchom ponownie`. Zapis
+(`Uruchom`) z takimi problemami zatrzyma się bez tworzenia plików.
+
+Zatrzymanie pokazuje od razu trzy części komunikatu: co się stało (tytuł),
+gdzie (pinezka) i co zrobić (klucz). Komunikaty Centrum są w tabeli niżej; w
+terminalu ten sam problem ma jedną linię po `Nie wykonano:`.
+
+### Komunikat w Centrum rozliczeń → co zrobić
+
+Po każdym zatrzymaniu nie powstał żaden plik pracownika. Wyjątkiem jest
+komunikat o niepokazanym podsumowaniu: wtedy rozliczenia pracowników już są.
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „Nie znaleziono Pliku zbiorczego tego okresu” | Sprawdź, czy Plik zbiorczy leży w Folderze okresu pod nazwą `Rozliczenie {okres} - zbiorcze.xlsx`. Jeśli okresu nie przygotowano, najpierw przygotuj plik zbiorczy. |
+| „Plik zbiorczy jest otwarty w Excelu” | Zapisz i zamknij Plik zbiorczy, potem kliknij `Uruchom ponownie`. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z Folderu okresu pozostawiony plik `~$` z nazwą Pliku zbiorczego. |
+| „Plik zbiorczy nie nadaje się do Przebiegu rozliczeń” | Dalsza część komunikatu mówi, co jest nie tak (np. plik nie otwiera się w Excelu albo nie ma nagłówka WYKONAWCA). Popraw Plik zbiorczy, zapisz go, zamknij i uruchom ponownie. |
+| „Folder rozliczeń pracowników tego okresu już istnieje” | Rozliczenia pracowników tego okresu już są; narzędzie ich nie nadpisze. Sprawdź, czy wybrano właściwy okres. Żeby utworzyć je od nowa, najpierw przenieś ten folder poza Folder okresu. |
+| „Konfiguracja wykonawców jest niepoprawna” | Przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie można użyć Wzorca rozliczenia pracownika” | Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania i uruchom ponownie. Jeśli komunikat prosi o zmianę nazwy `placeholder.xlsx`, zrób to jak wyżej. W innym wypadku przekaż komunikat osobie utrzymującej narzędzie. |
+| „W Pliku zbiorczym jest WYKONAWCA, którego nie ma w konfiguracji wykonawców” | Uruchom `Podgląd bez zapisu`, żeby zobaczyć problemy. Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy. Zapisz, zamknij i uruchom ponownie. |
+| „Nie wszystkie Wiersze danych Pliku zbiorczego mają WYKONAWCĘ” | Uruchom `Podgląd bez zapisu`: problemy pokażą numery wierszy. Wpisz w nich WYKONAWCĘ w kolumnie H, zapisz, zamknij i uruchom ponownie. |
+| „Nieznany identyfikator WYKONAWCA” | Problem z podglądu (wynik wymaga sprawdzenia). Popraw WYKONAWCĘ w kolumnie H albo poproś o dopisanie Wykonawcy do konfiguracji wykonawców. |
+| „ma dane, ale nie ma wykonawcy w kolumnie H” | Problem z podglądu (wynik wymaga sprawdzenia). Wpisz WYKONAWCĘ we wskazanym wierszu albo wyczyść wiersz, jeśli jest zbędny. |
+| „Nie udało się przygotować skoroszytu pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie można opublikować gotowego Folderu rozliczeń pracowników” | Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie można przygotować Folderu rozliczeń pracowników” | Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Wystąpił nieoczekiwany błąd” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania” | Nie uruchamiaj ponownie: folder rozliczeń pracowników już jest. Sprawdź Folder okresu i przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie udało się pokazać planu” | Nic nie zapisano. Przekaż komunikat osobie utrzymującej narzędzie. |
 
 ### Gdy pojawi się problem
 

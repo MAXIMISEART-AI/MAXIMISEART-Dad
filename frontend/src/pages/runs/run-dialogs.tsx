@@ -1,5 +1,6 @@
 import * as React from "react"
 import {
+  CircleCheckIcon,
   ChevronDownIcon,
   InfoIcon,
   MapPinIcon,
@@ -26,6 +27,7 @@ import { CountTiles } from "@/pages/runs/count-tiles"
 /**
  * Potwierdzenie zapisu (RUN): przypomnienie o zamknięciu pliku w Excelu i, gdy w tej karcie nie było
  * udanego podglądu bez zapisu tego okresu, bursztynowa uwaga. Bez podglądu „Uruchom” jest dozwolone.
+ * Przy Przebiegu rozliczeń „Uruchom” jest potwierdzeniem Gotowości i okno to mówi.
  */
 export function ConfirmRunDialog({
   open,
@@ -33,6 +35,7 @@ export function ConfirmRunDialog({
   title,
   period,
   reminder,
+  confirmsReadiness,
   previewed,
   onConfirm,
 }: {
@@ -41,6 +44,7 @@ export function ConfirmRunDialog({
   title: string
   period: string
   reminder: string
+  confirmsReadiness: boolean
   previewed: boolean
   onConfirm: () => void
 }) {
@@ -61,6 +65,12 @@ export function ConfirmRunDialog({
             <InfoIcon className="size-4 text-muted-foreground" aria-hidden />
             {reminder}
           </span>
+          {confirmsReadiness ? (
+            <span className="flex items-center gap-2">
+              <CircleCheckIcon className="size-4 text-muted-foreground" aria-hidden />
+              „Uruchom” potwierdza Gotowość Pliku zbiorczego
+            </span>
+          ) : null}
           {previewed ? null : (
             <span className="flex items-center gap-2 text-warning">
               <TriangleAlertIcon className="size-4" aria-hidden />

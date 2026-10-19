@@ -1,7 +1,7 @@
 import * as React from "react"
-import { EyeIcon, FileSpreadsheetIcon, FolderIcon, InfoIcon, TriangleAlertIcon } from "lucide-react"
+import { EyeIcon, FileSpreadsheetIcon, FolderIcon, InfoIcon, TriangleAlertIcon, UsersIcon } from "lucide-react"
 
-import type { PathSetting, ProcessSetup } from "@/api/centrum"
+import type { PathSetting, PeriodChoice, ProcessSetup, RunRequest } from "@/api/centrum"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,11 +25,18 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { previewKey, useRuns, type RunDraft } from "@/lib/runs"
 import { useSettings } from "@/lib/settings"
+import { PREVIEW_HINTS } from "@/pages/periods/prepare-actions"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
+
+const PROCESS_ICONS: Record<RunRequest["process"], React.ReactNode> = {
+  preparation: <FileSpreadsheetIcon aria-hidden />,
+  settlement: <UsersIcon aria-hidden />,
+}
 
 /**
  * Nowe Uruchomienie procesu: proces (kafelki), okres z preselekcją ostatniego pełnego okresu, pliki
  * z ustawień i jedna akcja główna „Podgląd bez zapisu”. „Uruchom” zapisuje po potwierdzeniu.
+ * Przebieg rozliczeń nie ma wyboru pliku: Plik zbiorczy wynika z okresu.
  */
 export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSetup> }) {
   const { draft, setDraft, start, previewed } = useRuns()
@@ -48,6 +55,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
       : chosen.preselected_period
 
   const selection: RunDraft = { process: chosen.process, period }
+  const chosenPeriod = chosen.periods.find((choice) => choice.token === period)
   const blocked = chosen.blocker !== null
 
   const choices = chosen.periods.map((choice) => ({
@@ -83,7 +91,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
               <FieldLabel key={setup.process} htmlFor={`proces-${setup.process}`}>
                 <Field orientation="horizontal">
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted [&_svg]:size-4">
-                    <FileSpreadsheetIcon aria-hidden />
+                    {PROCESS_ICONS[setup.process]}
                   </span>
                   <FieldContent>
                     <FieldTitle>{setup.title}</FieldTitle>
@@ -99,6 +107,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
               <FieldLabel htmlFor="okres">Okres</FieldLabel>
               <Select
                 items={choices}
+                disabled={choices.length === 0}
                 value={period}
                 onValueChange={(value) => {
                   const choice = chosen.periods.find((candidate) => candidate.token === value)
@@ -126,12 +135,16 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
               <FieldLabel>Pliki</FieldLabel>
               {settings.state === "ready" ? (
                 <div className="flex flex-col gap-1">
-                  <SettingPath
-                    label="Rejestr zleceń"
-                    icon={<FileSpreadsheetIcon />}
-                    setting={settings.data.order_register}
-                    onChoose={chooseOrderRegister}
-                  />
+                  {chosen.process === "settlement" ? (
+                    <CollectiveFile choice={chosenPeriod} />
+                  ) : (
+                    <SettingPath
+                      label="Rejestr zleceń"
+                      icon={<FileSpreadsheetIcon />}
+                      setting={settings.data.order_register}
+                      onChoose={chooseOrderRegister}
+                    />
+                  )}
                   <SettingPath
                     label="Folder okresów"
                     icon={<FolderIcon />}
@@ -173,7 +186,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
             <EyeIcon data-icon="inline-start" />
             Podgląd bez zapisu
           </TooltipTrigger>
-          <TooltipContent>Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.</TooltipContent>
+          <TooltipContent>{PREVIEW_HINTS[chosen.process]}</TooltipContent>
         </Tooltip>
       </CardFooter>
       <ConfirmRunDialog
@@ -182,10 +195,27 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
         title={chosen.title}
         period={period}
         reminder={chosen.reminder}
+        confirmsReadiness={chosen.process === "settlement"}
         previewed={previewed.has(previewKey(selection))}
         onConfirm={() => run(false)}
       />
     </Card>
+  )
+}
+
+/** Plik zbiorczy wybranego okresu: tylko nazwa, bo wynika z okresu i folderu okresów. */
+function CollectiveFile({ choice }: { choice: PeriodChoice | undefined }) {
+  return (
+    <div className="flex items-center gap-2 text-sm" role="group" aria-label="Plik zbiorczy">
+      <span className="text-muted-foreground [&_svg]:size-4" aria-hidden>
+        <FileSpreadsheetIcon />
+      </span>
+      {choice === undefined || choice.collective_file === null ? (
+        <span className="text-muted-foreground">Plik zbiorczy: brak okresu do wyboru</span>
+      ) : (
+        <span className="truncate tabular-nums">{choice.collective_file}</span>
+      )}
+    </div>
   )
 }
 

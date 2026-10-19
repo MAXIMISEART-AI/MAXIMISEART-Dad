@@ -12,6 +12,12 @@ the production boundary for Dad's computer, is scripted:
 - opening a file in Excel or a folder in Explorer appends the path to
   ``<root>/opened.jsonl`` instead of launching an application.
 
+One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
+each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
+milliseconds before it is written. The synthetic Szablony take milliseconds,
+so without it the live Szablony pracowników progress and the refused closing
+during the Uruchomienie could not be observed. Results are unchanged.
+
 Once the port is bound, ``<root>/server.json`` records this process and URL.
 The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
 „Zamknij Centrum rozliczeń” stops this process the way it stops Dad's.
@@ -20,23 +26,27 @@ The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import date
 import json
 import os
 from pathlib import Path
 import sys
 import threading
+import time
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from rozliczenia import template_settlement  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
+from rozliczenia.collective_file import ExcelRow  # noqa: E402
+from rozliczenia.domain import WorkerResult  # noqa: E402
 
 
 class ScriptedPlatform:
@@ -67,6 +77,20 @@ class ScriptedPlatform:
         return self._answer(title)
 
 
+def _pace_worker_templates(root: Path) -> None:
+    """Slow each written Szablon pracownika while ``<root>/pacing/szablony-ms.txt`` exists (see the module doc)."""
+
+    write = template_settlement.process_template
+
+    def paced(worker_name: str, target_path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+        pacing = root / "pacing" / "szablony-ms.txt"
+        if pacing.exists():
+            time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
+        return write(worker_name, target_path, rows)
+
+    template_settlement.process_template = paced
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="Run root created by create_centrum_fixture.py.")
@@ -81,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
+    _pace_worker_templates(root)
     app = create_app(
         settings_path=Path(fixture["settings"]),
         platform=ScriptedPlatform(root),

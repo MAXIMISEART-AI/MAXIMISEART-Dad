@@ -29,6 +29,7 @@ from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
 from rozliczenia.centrum.settings import SettingsStore, settings_router
+from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.version import tool_version
 
@@ -92,7 +93,8 @@ def create_app(
     runs = RunHost(log)
     shutdown.refuse_while(runs.shutdown_refusal)
     preparation = PreparationEntry(store, configuration, metrics.preparation, centrum_runs, today)
-    app.include_router(runs_router(runs, [preparation]))
+    settlement = SettlementEntry(store, configuration, metrics.settlement, centrum_runs, today)
+    app.include_router(runs_router(runs, [preparation, settlement]))
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration))
     app.include_router(shutdown_router(shutdown))

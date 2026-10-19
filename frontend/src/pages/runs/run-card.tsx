@@ -1,5 +1,6 @@
 import * as React from "react"
 import {
+  ChevronDownIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleXIcon,
@@ -11,16 +12,28 @@ import {
   PlayIcon,
   PlusIcon,
   RotateCcwIcon,
+  TriangleAlertIcon,
   WifiOffIcon,
 } from "lucide-react"
 
-import type { PhaseProgress, PreparationSummary, RunInfo, RunOutcome, RunView } from "@/api/centrum"
+import type {
+  PhaseProgress,
+  PreparationSummary,
+  Progress as RunProgress,
+  RunInfo,
+  RunOutcome,
+  RunView,
+  SettlementSummary,
+  WorkerFile,
+} from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { previewKey, useRuns } from "@/lib/runs"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
@@ -126,6 +139,9 @@ export function RunCard({
             </li>
           ))}
         </ol>
+        {view.state !== "finished" && view.progress.template_total > 0 ? (
+          <TemplateProgress progress={view.progress} />
+        ) : null}
         {stale && view.state === "running" ? (
           <Alert className="wejscie">
             <WifiOffIcon />
@@ -178,10 +194,14 @@ function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcom
 
   return (
     <>
-      {result.summary === null ? null : <SummaryNumbers summary={result.summary} />}
+      {result.summary === null ? null : <SummaryNumbers summary={result.summary} dryRun={run.dry_run} />}
       {result.stops.length === 0 ? (
         <Alert className="wejscie p-4" aria-label="Wynik">
-          <CircleCheckIcon className="text-success!" />
+          {result.result === "OK" ? (
+            <CircleCheckIcon className="text-success!" />
+          ) : (
+            <TriangleAlertIcon className="text-warning!" />
+          )}
           <AlertTitle className="text-base">{result.headline}</AlertTitle>
           <AlertAction className="top-3 right-3">{action}</AlertAction>
         </Alert>
@@ -199,13 +219,14 @@ function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcom
           {notice}
         </p>
       ))}
-      {result.summary === null ? null : <SummaryDetails summary={result.summary} />}
+      {result.summary === null ? null : <SummaryDetails summary={result.summary} dryRun={run.dry_run} />}
       <ConfirmRunDialog
         open={confirming}
         onOpenChange={setConfirming}
         title={run.title}
         period={run.period}
         reminder={reminder}
+        confirmsReadiness={run.process === "settlement"}
         previewed={previewed.has(previewKey(run))}
         onConfirm={() => again(false)}
       />
@@ -213,19 +234,70 @@ function RunOutcome({ run, result, reminder }: { run: RunInfo; result: RunOutcom
   )
 }
 
-function SummaryNumbers({ summary }: { summary: PreparationSummary }) {
+/** Postęp Szablonów pracowników z projekcji: bieżący Wykonawca i „x z y”. */
+function TemplateProgress({ progress }: { progress: RunProgress }) {
+  const counted = `${progress.templates_completed} z ${progress.template_total}`
+
   return (
-    <NumberStrip
-      numbers={[
-        ["Zlecenia okresu", summary.period_order_count],
-        ["Zlecenia skuteczne", summary.successful_order_count],
-        ["Pominięte puste wiersze", summary.skipped_empty_rows],
-      ]}
-    />
+    <Progress
+      value={(progress.templates_completed / progress.template_total) * 100}
+      getAriaValueText={() => counted}
+      aria-label="Szablony pracowników"
+    >
+      <ProgressLabel>
+        Szablony pracowników
+        {progress.current_worker === null ? null : (
+          <span className="font-normal text-muted-foreground"> · {progress.current_worker}</span>
+        )}
+      </ProgressLabel>
+      <ProgressValue>{() => counted}</ProgressValue>
+    </Progress>
   )
 }
 
-function SummaryDetails({ summary }: { summary: PreparationSummary }) {
+function SummaryNumbers({ summary, dryRun }: { summary: PreparationSummary | SettlementSummary; dryRun: boolean }) {
+  switch (summary.process) {
+    case "preparation":
+      return (
+        <NumberStrip
+          numbers={[
+            ["Zlecenia okresu", summary.period_order_count],
+            ["Zlecenia skuteczne", summary.successful_order_count],
+            ["Pominięte puste wiersze", summary.skipped_empty_rows],
+          ]}
+        />
+      )
+    case "settlement":
+      return (
+        <NumberStrip
+          numbers={
+            dryRun
+              ? [
+                  ["Wiersze danych", summary.rows],
+                  ["Planowane szablony", summary.planned_count],
+                  ["Puste szablony", summary.empty_count],
+                ]
+              : [
+                  ["Zapisane szablony", summary.written_count],
+                  ["Puste szablony", summary.empty_count],
+                  ["Pominięte szablony", summary.skipped_count],
+                ]
+          }
+        />
+      )
+  }
+}
+
+function SummaryDetails({ summary, dryRun }: { summary: PreparationSummary | SettlementSummary; dryRun: boolean }) {
+  switch (summary.process) {
+    case "preparation":
+      return <PeriodFiles summary={summary} />
+    case "settlement":
+      return <FilePlan files={summary.files} defaultOpen={dryRun} />
+  }
+}
+
+function PeriodFiles({ summary }: { summary: PreparationSummary }) {
   return (
     <>
       <CountTiles title="Zlecenia na dzień" counts={summary.orders_per_day} />
@@ -241,4 +313,45 @@ function SummaryDetails({ summary }: { summary: PreparationSummary }) {
       </ul>
     </>
   )
+}
+
+/** Plan plików: nazwa pliku każdego Wykonawcy i liczba wierszy; po podglądzie rozwinięty od razu. */
+function FilePlan({ files, defaultOpen }: { files: ReadonlyArray<WorkerFile>; defaultOpen: boolean }) {
+  return (
+    <Collapsible defaultOpen={defaultOpen}>
+      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="group -ml-2" />}>
+        Plan plików ({files.length})
+        <ChevronDownIcon
+          data-icon="inline-end"
+          className="transition-[rotate] duration-200 ease-out group-data-[panel-open]:rotate-180"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="transition-opacity duration-150 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
+        <Table aria-label="Plan plików">
+          <TableBody>
+            {files.map((file) => (
+              <TableRow key={file.file}>
+                <TableCell>{file.file}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {file.rows === 0 ? <Badge variant="outline">Pusty skoroszyt</Badge> : `${file.rows} ${rowsWord(file.rows)}`}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+/** „1 wiersz”, „2 wiersze”, „5 wierszy”, „22 wiersze”. */
+function rowsWord(count: number): string {
+  const lastTwo = count % 100
+  const last = count % 10
+
+  if (count === 1) {
+    return "wiersz"
+  }
+
+  return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? "wiersze" : "wierszy"
 }
