@@ -299,9 +299,16 @@ def test_wzorzec_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path, templa
 
 
 @WZORCE
-def test_damaged_wzorzec_stops_before_reading_rejestr(tmp_path: Path, template_name: str) -> None:
+@pytest.mark.parametrize(
+    "damage",
+    [lambda path: path.write_bytes(b"uszkodzony wzorzec"), without_styles],
+    ids=["nie-skoroszyt", "bez-styles-xml"],
+)
+def test_damaged_wzorzec_stops_before_reading_rejestr(
+    tmp_path: Path, template_name: str, damage: Callable[[Path], object]
+) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    template_path(fixture, template_name).write_bytes(b"uszkodzony wzorzec")
+    damage(template_path(fixture, template_name))
     fixture.register_path.write_bytes(b"uszkodzony Rejestr")
 
     error = stop_preparation(fixture)
