@@ -2,19 +2,23 @@
 
 ## Status
 
-Zaakceptowana
+Zaakceptowana. Zmieniona 2026-10-20: Zdarzenia przebiegu są osobnymi typami, a
+kolejność sprawdza tylko sekwencer etapów (patrz „Zmiana z 2026-10-20”).
 
 ## Decyzja
 
-Silnik emituje Zdarzenia przebiegu przez walidowany kontrakt `ProgressEvent` i
-centralne fabryki. `run_settlements()` przyjmuje opcjonalnego obserwatora;
-reguły i wynik silnika nie zależą od jego obecności.
+Silnik emituje Zdarzenia przebiegu jako `ProgressEvent`: sumę typów
+`PhaseStarted`, `PhaseEnded`, `PhaseFailed`, `IssueCountReady`, `PlanReady`,
+`WorkerStarted`, `WorkerEnded` i `WorkerFailed`. Każdy typ ma tylko swoje pola,
+więc niedozwolonej kombinacji pól nie da się zbudować. `run_settlements()`
+przyjmuje opcjonalnego obserwatora; reguły i wynik silnika nie zależą od jego
+obecności.
 
 Rdzeń Uruchomienia procesu (`process_run`) jest obserwatorem silnika i
 przekazuje każde zdarzenie dokładnie raz do jednej projekcji postępu. Projekcja
 jest jedynym miejscem, które interpretuje surowe zdarzenia. Zwraca niemutowalny
-snapshot i bezpieczne, neutralne powiadomienie o zmianie, które rdzeń podaje
-podglądowi postępu rozmówcy. Adapter plain i adapter Rich renderują wyłącznie
+snapshot razem ze zdarzeniem, które go zmieniło; rdzeń podaje oba podglądowi
+postępu rozmówcy. Adapter plain i adapter Rich renderują wyłącznie
 ten wspólny wynik; nie interpretują `ProgressEvent`, nie utrzymują własnych
 liczników ani stanów faz. Podgląd postępu terminala
 (`terminal_conversation`) koordynuje wybór adaptera.
@@ -24,17 +28,17 @@ silnika. Uruchomienie CLI zawsze obserwuje postęp.
 
 Protokół etapów należy do sekwencera etapów (`PhaseRunner`), wspólnego dla
 Przebiegu rozliczeń i Przygotowania pliku zbiorczego. Proces wywołuje cztery
-nazwane etapy i podaje tylko wartości; START, END, FAILED etapów i zdarzenia
-pośrednie `ISSUE_COUNT` oraz `PLAN_READY` wysyła sekwencer w stałej kolejności.
-Proces przekazuje przez sekwencer tylko zdarzenia wykonawców z trwającego
-Zapisywania. Pomylona kolejność albo niedozwolone zdarzenie to błąd kodu:
-sekwencer zgłasza `ProgressProtocolError` w miejscu wywołania, także bez
-obserwatora, zamiast traktować go jak awarię obserwatora. Sekwencer sprawdza
-kolejność sam, bez projekcji, więc projekcja pozostaje niezależną kontrolą tego,
-co wysyła.
+nazwane etapy i podaje tylko wartości; zdarzenia etapów oraz pośrednie
+`IssueCountReady` i `PlanReady` wysyła sekwencer w stałej kolejności. Proces
+przekazuje przez sekwencer tylko zdarzenia Szablonów pracownika z trwającego
+Zapisywania. Sekwencer jest jedynym miejscem, które sprawdza kolejność: etapów,
+Szablonów pracownika (po kolei od 1 do liczby z planu, zakończenie pasuje do
+rozpoczęcia) i to, że Zapisywanie kończy się po wszystkich Szablonach
+pracownika. Pomyłka to błąd kodu: sekwencer zgłasza `ProgressProtocolError` w
+miejscu wywołania, także bez obserwatora, zamiast traktować go jak awarię
+obserwatora. Projekcja redukuje zdarzenia bez ponownego sprawdzania.
 
-Dotychczasowe pola `ProgressEvent` i wartości stanów pozostają zgodne; typed
-states porządkują kontrakt, a `FAILED` dodaje jawny stan przerwania. Końcowa
+`PhaseFailed` i `WorkerFailed` są jawnym przerwaniem. Końcowa
 telemetryka ukończonego uruchomienia, w tym czasy faz, pochodzi z
 `SettlementSummary`. Silnik mierzy te czasy niezależnie od obecności obserwatora.
 Czasy etapów przerwanego uruchomienia pochodzą z ostatniego poprawnie
@@ -69,3 +73,18 @@ obserwacji.
   projekcją i informacjami operacyjnymi.
 - Nowy stan i walidacja są częścią lokalnego kontraktu; nie są formatem
   zewnętrznej usługi ani zapisem danych klientów.
+
+## Zmiana z 2026-10-20
+
+Dotąd `ProgressEvent` był jednym rekordem z polem stanu i jedenastoma polami
+opcjonalnymi, a dozwolone kombinacje pól sprawdzał ręcznie konstruktor (ok. 140
+linii). Kolejność sprawdzały dwa miejsca: sekwencer etapów i projekcja. Od
+wprowadzenia sekwencera jest on jedynym nadawcą zdarzeń, więc druga kontrola
+powtarzała pierwszą, a zdarzenia Szablonów pracownika sprawdzała tylko
+projekcja.
+
+Zdarzenia są teraz osobnymi typami, więc kontrola kształtu znika razem z
+fabrykami i osobnym powiadomieniem projekcji. Kontrola kolejności Szablonów
+pracownika przechodzi do sekwencera, a projekcja tylko redukuje. Odrzucony
+kierunek: zostawienie projekcji jako drugiej kontroli. Testy projekcji musiałyby
+budować zdarzenia, których sekwencer nigdy nie wyśle.

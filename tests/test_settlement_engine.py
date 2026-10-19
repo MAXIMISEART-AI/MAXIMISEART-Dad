@@ -8,7 +8,17 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 
-from rozliczenia.domain import ProgressEvent, ProgressPhase, ProgressState, WorkerResult
+from rozliczenia.domain import (
+    PhaseEnded,
+    PhaseFailed,
+    PhaseStarted,
+    ProgressEvent,
+    ProgressPhase,
+    WorkerEnded,
+    WorkerFailed,
+    WorkerResult,
+    WorkerStarted,
+)
 from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
@@ -262,7 +272,7 @@ def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publika
     lock_file = worker_template_path.with_name(f"~${worker_template_path.name}")
 
     def lock_in_saving(event: ProgressEvent) -> None:
-        if event.state is ProgressState.WORKER_START:
+        if isinstance(event, WorkerStarted):
             lock_file.touch()
 
     with pytest.raises(StopError) as raised:
@@ -278,7 +288,7 @@ def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_n
     sentinel = target_directory / "existing.txt"
 
     def create_folder_in_saving(event: ProgressEvent) -> None:
-        if event.state is ProgressState.WORKER_START and not target_directory.exists():
+        if isinstance(event, WorkerStarted) and not target_directory.exists():
             target_directory.mkdir()
             sentinel.write_text("zachowaj", encoding="utf-8")
 
@@ -365,8 +375,7 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
     assert summary.issues == []
     assert calls == 1
     assert len(recorded) == 1
-    assert isinstance(recorded[0], ProgressEvent)
-    assert recorded[0].state is ProgressState.START
+    assert isinstance(recorded[0], PhaseStarted)
     assert "syntetyczny" not in repr(recorded[0])
 
 
@@ -404,17 +413,16 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
-    failed = [event for event in recorded if event.state is ProgressState.FAILED]
+    failed = [event for event in recorded if isinstance(event, (PhaseFailed, WorkerFailed))]
     assert len(failed) == 1
-    assert failed[0].phase is ProgressPhase.SAVING
+    assert isinstance(failed[0], WorkerFailed)
     assert failed[0].worker_name == "Darek Nowak"
     assert failed[0].template_index == 2
-    assert failed[0].worker_elapsed_ms is not None
     assert all("syntetyczny" not in repr(event) and "#1" not in repr(event) for event in failed)
     assert not any(
-        event.state is ProgressState.WORKER_END and event.worker_name == "Darek Nowak" for event in recorded
+        isinstance(event, WorkerEnded) and event.worker_name == "Darek Nowak" for event in recorded
     )
-    assert not any(event.state is ProgressState.END and event.phase is ProgressPhase.SAVING for event in recorded)
+    assert not any(isinstance(event, PhaseEnded) and event.phase is ProgressPhase.SAVING for event in recorded)
 
     monkeypatch.setattr(template_settlement, "process_template", original_process_template)
     summary = run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
@@ -430,7 +438,7 @@ def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(t
         run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)
 
     assert "Nie znaleziono pliku" in terminal_text(raised.value)
-    assert [event.state for event in recorded] == [ProgressState.START, ProgressState.FAILED]
+    assert [type(event) for event in recorded] == [PhaseStarted, PhaseFailed]
     assert recorded[-1].phase is ProgressPhase.CHECKING
     assert "Nie znaleziono pliku" not in repr(recorded[-1])
 

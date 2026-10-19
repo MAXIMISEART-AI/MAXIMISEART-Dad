@@ -19,7 +19,7 @@ from typing import Any, NoReturn, TextIO
 import pytest
 
 from rozliczenia.decision import Conversation, Decision
-from rozliczenia.domain import ProgressObserver, ProgressPhase
+from rozliczenia.domain import PhaseStarted, ProgressEvent, ProgressObserver, ProgressPhase
 from rozliczenia.message import Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.plain_progress import PlainProgressAdapter
@@ -32,7 +32,7 @@ from rozliczenia.process_run import (
     run,
     run_process,
 )
-from rozliczenia.progress import PhaseState, ProgressNotice, ProgressNoticeKind, ProgressSnapshot
+from rozliczenia.progress import PhaseState, ProgressSnapshot
 from rozliczenia.rich_progress import RichProgressAdapter
 from rozliczenia.telemetry import MetricsStore
 from rozliczenia.terminal_conversation import TerminalConversation
@@ -555,12 +555,12 @@ def test_terminal_output_failure_does_not_change_result_metrics_or_exit_code(
 
 def test_live_view_refreshes_only_on_zdarzenie_przebiegu(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     live_log = install_fake_rich(monkeypatch)
-    renders: list[tuple[ProgressSnapshot, ProgressNotice | None]] = []
+    renders: list[tuple[ProgressSnapshot, ProgressEvent | None]] = []
     original_render = RichProgressAdapter.render
 
-    def record_render(adapter: RichProgressAdapter, snapshot: ProgressSnapshot, notice: ProgressNotice | None = None) -> Any:
-        renders.append((snapshot, notice))
-        return original_render(adapter, snapshot, notice)
+    def record_render(adapter: RichProgressAdapter, snapshot: ProgressSnapshot, event: ProgressEvent | None = None) -> Any:
+        renders.append((snapshot, event))
+        return original_render(adapter, snapshot, event)
 
     monkeypatch.setattr(RichProgressAdapter, "render", record_render)
 
@@ -573,11 +573,11 @@ def test_live_view_refreshes_only_on_zdarzenie_przebiegu(tmp_path: Path, monkeyp
 
     assert live_log[:2] == ["auto_refresh=False", "start"]
     assert live_log.count("update refresh=True") == 2
-    first_snapshot, first_notice = renders[0]
-    assert first_notice is None
+    first_snapshot, first_event = renders[0]
+    assert first_event is None
     assert first_snapshot.phase_states[ProgressPhase.CHECKING] is PhaseState.PENDING
-    started_snapshot, started_notice = renders[1]
-    assert started_notice is not None and started_notice.kind is ProgressNoticeKind.PHASE_STARTED
+    started_snapshot, started_event = renders[1]
+    assert isinstance(started_event, PhaseStarted)
     assert started_snapshot.phase_states[ProgressPhase.CHECKING] is PhaseState.RUNNING
 
 
@@ -589,13 +589,13 @@ def test_rich_failure_falls_back_to_plain_lines_without_changing_the_result(
     original_render = RichProgressAdapter.render
 
     def fail_on_first_refresh(
-        adapter: RichProgressAdapter, snapshot: ProgressSnapshot, notice: ProgressNotice | None = None
+        adapter: RichProgressAdapter, snapshot: ProgressSnapshot, event: ProgressEvent | None = None
     ) -> Any:
         nonlocal render_calls
         render_calls += 1
         if render_calls == 2:
             raise RuntimeError("synthetic Rich rendering failure")
-        return original_render(adapter, snapshot, notice)
+        return original_render(adapter, snapshot, event)
 
     monkeypatch.setattr(RichProgressAdapter, "render", fail_on_first_refresh)
     output = TtyOutput()

@@ -42,7 +42,8 @@ from rozliczenia.process_run import (
     ProcessInputs,
     run_process,
 )
-from rozliczenia.progress import ProgressNotice, ProgressProjection, ProgressSnapshot
+from rozliczenia.domain import ProgressEvent
+from rozliczenia.progress import ProgressProjection, ProgressSnapshot
 from rozliczenia.telemetry import MetricsStore
 
 _STREAM_POLL_SECONDS: Final = 0.05
@@ -278,7 +279,7 @@ class _Run:
     def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
         self._show(snapshot)
 
-    def show_progress(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
         self._show(snapshot)
 
     def stop_progress(self) -> None:

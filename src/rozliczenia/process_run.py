@@ -33,7 +33,7 @@ from typing import Any, Generic, Literal, Protocol, TextIO, TypeVar
 from .decision import Conversation, Decision
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase
 from .message import Message, StopError
-from .progress import ProgressNotice, ProgressProjection, ProgressSnapshot
+from .progress import ProgressProjection, ProgressSnapshot
 from .telemetry import UNKNOWN_PERIOD, MetricsStore, comparable_records, metric_record, statistics_for
 from .terminal_conversation import TerminalConversation
 
@@ -79,7 +79,7 @@ class Interlocutor(Conversation, Protocol):
 
     def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None: ...
 
-    def show_progress(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None: ...
+    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None: ...
 
     def stop_progress(self) -> None: ...
 
@@ -239,7 +239,7 @@ class _Observation:
             update = self.projection.update(event)
             if self.failed:
                 raise RuntimeError("Progress view is detached.")
-            self._interlocutor.show_progress(update.snapshot, update.notice)
+            self._interlocutor.show_progress(update.snapshot, update.event)
         except Exception:
             self.failed = True
             raise

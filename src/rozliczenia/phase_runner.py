@@ -9,18 +9,24 @@ from types import MappingProxyType
 from typing import Callable, TypeVar
 
 from .domain import (
+    IssueCountReady,
+    PhaseEnded,
+    PhaseFailed,
+    PhaseStarted,
+    PlanReady,
     ProgressEvent,
-    ProgressEventFactory,
     ProgressObserver,
     ProgressPhase,
     ProgressProtocolError,
-    ProgressState,
+    WorkerEnded,
+    WorkerEvent,
+    WorkerFailed,
+    WorkerStarted,
 )
 
 
 ResultT = TypeVar("ResultT")
 _PHASE_ORDER = tuple(ProgressPhase)
-_WORKER_STATES = frozenset({ProgressState.WORKER_START, ProgressState.WORKER_END, ProgressState.FAILED})
 
 
 def elapsed_ms_since(started: float) -> int:
@@ -45,14 +51,18 @@ class PhaseRunner:
     """Właściciel protokołu etapów jednego uruchomienia procesu.
 
     Proces wywołuje cztery etapy w stałej kolejności: ``check``, ``read``,
-    ``plan`` i ``save``. Sekwencer wysyła START, END albo jedno FAILED każdego
-    etapu oraz zdarzenia pośrednie: ``ISSUE_COUNT`` po Odczycie danych i
-    ``PLAN_READY`` po Planowaniu. END Zapisywania dostaje liczbę Szablonów
-    pracownika z planu.
+    ``plan`` i ``save``. Sekwencer wysyła ``PhaseStarted``, ``PhaseEnded`` albo
+    jedno ``PhaseFailed`` każdego etapu oraz zdarzenia pośrednie:
+    ``IssueCountReady`` po Odczycie danych i ``PlanReady`` po Planowaniu.
+    ``PhaseEnded`` Zapisywania dostaje liczbę Szablonów pracownika z planu.
 
     Funkcje liczące są czystymi funkcjami wyniku etapu; sekwencer wywołuje je
     przed END. Liczba problemów jest łączna dla uruchomienia, a pominięta w
     Planowaniu oznacza wartość z Odczytu danych.
+
+    Sekwencer jest jedynym miejscem, które sprawdza kolejność Zdarzeń
+    przebiegu: etapów i Szablonów pracownika w Zapisywaniu. Pomyłka to
+    ``ProgressProtocolError`` w miejscu wywołania, także bez obserwatora.
 
     Zegar uruchomienia startuje przy utworzeniu. Awaria obserwatora odłącza go
     do końca uruchomienia i nie zmienia wyniku etapów. Czas etapu jest
@@ -72,6 +82,9 @@ class PhaseRunner:
         self._worker_failure_reported = False
         self._issue_count = 0
         self._template_total = 0
+        self._templates_completed = 0
+        # Szablon pracownika, który się rozpoczął i jeszcze nie zakończył: (Wykonawca, pozycja).
+        self._active_worker: tuple[str, int] | None = None
         self._durations_ms: dict[ProgressPhase, int] = {}
 
     def check(self, operation: Callable[[], ResultT]) -> ResultT:
@@ -85,13 +98,13 @@ class PhaseRunner:
         *,
         issue_count: Callable[[ResultT], int] = _zero,
     ) -> ResultT:
-        """Odczyt danych, a po nim ``ISSUE_COUNT``."""
+        """Odczyt danych, a po nim ``IssueCountReady``."""
 
         def record_counts(result: ResultT) -> None:
             self._record_issue_count(issue_count(result))
 
         result = self._run_phase(ProgressPhase.READING, operation, record_counts)
-        self._emit(ProgressEventFactory.issue_count(elapsed_ms=self.elapsed_ms(), issue_count=self._issue_count))
+        self._emit(IssueCountReady(elapsed_ms=self.elapsed_ms(), issue_count=self._issue_count))
         return result
 
     def plan(
@@ -101,7 +114,7 @@ class PhaseRunner:
         template_total: Callable[[ResultT], int] = _zero,
         issue_count: Callable[[ResultT], int] | None = None,
     ) -> ResultT:
-        """Planowanie, a po nim ``PLAN_READY``."""
+        """Planowanie, a po nim ``PlanReady``."""
 
         def record_counts(result: ResultT) -> None:
             if issue_count is not None:
@@ -109,31 +122,49 @@ class PhaseRunner:
             self._template_total = _count(template_total(result), "Liczba Szablonów pracownika")
 
         result = self._run_phase(ProgressPhase.PLANNING, operation, record_counts)
-        self._emit(
-            ProgressEventFactory.plan_ready(
-                template_total=self._template_total,
-                elapsed_ms=self.elapsed_ms(),
-                issue_count=self._issue_count,
-            )
-        )
+        self._emit(PlanReady(elapsed_ms=self.elapsed_ms(), template_total=self._template_total, issue_count=self._issue_count))
         return result
 
     def save(self, operation: Callable[[], ResultT]) -> ResultT:
-        """Zapisywanie; END ma liczbę Szablonów pracownika z planu."""
+        """Zapisywanie; END ma liczbę Szablonów pracownika z planu, a wszystkie muszą się zakończyć."""
 
-        return self._run_phase(ProgressPhase.SAVING, operation)
+        def every_template_ended(_result: ResultT) -> None:
+            if self._active_worker is not None or self._templates_completed != self._template_total:
+                raise ProgressProtocolError(
+                    f"Zapisywanie kończy się po {self._templates_completed} z {self._template_total} Szablonów pracownika."
+                )
 
-    def notify(self, event: ProgressEvent) -> None:
-        """Przekazuje obserwatorowi zdarzenie wykonawcy z trwającego Zapisywania."""
+        return self._run_phase(ProgressPhase.SAVING, operation, every_template_ended)
 
-        if event.worker_name is None or event.state not in _WORKER_STATES:
-            raise ProgressProtocolError(
-                f"Zdarzenie {event.state.value} etapu {event.phase.value} wysyła tylko sekwencer etapów."
-            )
+    def notify(self, event: WorkerEvent) -> None:
+        """Przekazuje obserwatorowi zdarzenie Szablonu pracownika z trwającego Zapisywania.
+
+        Szablony pracownika idą po kolei od 1 do liczby z planu; zakończenie albo
+        przerwanie dotyczy szablonu, który się rozpoczął.
+        """
+
+        if not isinstance(event, (WorkerStarted, WorkerEnded, WorkerFailed)):
+            raise ProgressProtocolError(f"Zdarzenie {type(event).__name__} wysyła tylko sekwencer etapów.")
         if self._active_phase is not ProgressPhase.SAVING:
             raise ProgressProtocolError("Zdarzenie wykonawcy jest dozwolone tylko w trakcie Zapisywania.")
-        if event.state is ProgressState.FAILED:
-            self._worker_failure_reported = True
+        if event.template_total != self._template_total:
+            raise ProgressProtocolError("Zdarzenie wykonawcy ma inną liczbę Szablonów pracownika niż plan.")
+        position = (event.worker_name, event.template_index)
+        if isinstance(event, WorkerStarted):
+            if self._active_worker is not None:
+                raise ProgressProtocolError("Nie można rozpocząć drugiego Szablonu pracownika przed zakończeniem pierwszego.")
+            if event.template_index != self._templates_completed + 1:
+                raise ProgressProtocolError("Zdarzenie rozpoczęcia musi wskazywać następny Szablon pracownika.")
+            self._active_worker = position
+        else:
+            if self._active_worker != position:
+                raise ProgressProtocolError("Zdarzenie nie pasuje do bieżącego Szablonu pracownika.")
+            self._active_worker = None
+            if isinstance(event, WorkerEnded):
+                self._record_issue_count(event.issue_count)
+                self._templates_completed = event.template_index
+            else:
+                self._worker_failure_reported = True
         self._emit(event)
 
     @contextmanager
@@ -176,7 +207,7 @@ class PhaseRunner:
         self._enter(phase)
         self._phase_started = time.perf_counter()
         self._worker_failure_reported = False
-        self._emit(ProgressEventFactory.phase_started(phase, elapsed_ms=self.elapsed_ms()))
+        self._emit(PhaseStarted(phase, elapsed_ms=self.elapsed_ms()))
         try:
             result = operation()
             if record_counts is not None:
@@ -187,25 +218,17 @@ class PhaseRunner:
             self._active_phase = None
             self._run_interrupted = True
             if not self._worker_failure_reported:
-                self._emit(
-                    ProgressEventFactory.phase_failed(
-                        phase,
-                        elapsed_ms=self.elapsed_ms(),
-                        phase_elapsed_ms=phase_elapsed_ms,
-                    )
-                )
+                self._emit(PhaseFailed(phase, elapsed_ms=self.elapsed_ms(), phase_elapsed_ms=phase_elapsed_ms))
             raise
         phase_elapsed_ms = self.phase_elapsed_ms()
         self._durations_ms[phase] = phase_elapsed_ms
         self._active_phase = None
-        final_template = self._template_total if phase is ProgressPhase.SAVING else 0
         self._emit(
-            ProgressEventFactory.phase_ended(
+            PhaseEnded(
                 phase,
-                template_index=final_template,
-                template_total=final_template,
                 elapsed_ms=self.elapsed_ms(),
                 phase_elapsed_ms=phase_elapsed_ms,
+                template_total=self._template_total if phase is ProgressPhase.SAVING else 0,
             )
         )
         return result

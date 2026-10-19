@@ -18,7 +18,8 @@ from typing import Any, TextIO
 from .decision import Decision
 from .message import Message, StopError
 from .plain_progress import PlainProgressAdapter
-from .progress import ProgressNotice, ProgressSnapshot
+from .domain import ProgressEvent
+from .progress import ProgressSnapshot
 from .rich_progress import Console, Live, RichProgressAdapter
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 
@@ -158,9 +159,9 @@ class TerminalConversation:
         self._dashboard = _Dashboard(self._output, title=title, shows_templates=shows_templates)
         self._dashboard.start(snapshot)
 
-    def show_progress(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
         if self._dashboard is not None:
-            self._dashboard.show(snapshot, notice)
+            self._dashboard.show(snapshot, event)
 
     def stop_progress(self) -> None:
         if self._dashboard is not None:
@@ -236,7 +237,7 @@ class _Dashboard:
             self._disable_rich()
         self.plain_adapter.start(snapshot)
 
-    def show(self, snapshot: ProgressSnapshot, notice: ProgressNotice) -> None:
+    def show(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
         self.snapshot = snapshot
         if self._output_failed:
             raise OSError("Terminal output is unavailable.")
@@ -244,10 +245,10 @@ class _Dashboard:
             with self._plain_text_on_rich_failure():
                 if self.live is None:
                     raise RuntimeError("Rich dashboard did not start.")
-                self.live.update(self.rich_adapter.render(snapshot, notice), refresh=True)
+                self.live.update(self.rich_adapter.render(snapshot, event), refresh=True)
                 return
             self.plain_adapter.start(snapshot)
-        self.plain_adapter.update(snapshot, notice)
+        self.plain_adapter.update(snapshot, event)
         if self._output_failed:
             raise OSError("Terminal output is unavailable.")
 
