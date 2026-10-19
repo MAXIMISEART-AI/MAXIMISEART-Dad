@@ -12,7 +12,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.launcher import LOG_PATH
+from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.settings import default_settings_path
+from rozliczenia.centrum.shutdown import Shutdown
 
 ROOT = Path(__file__).resolve().parents[1]
 CENTRUM = "http://127.0.0.1:47811"
@@ -26,8 +29,11 @@ class FakePlatform:
     chosen_folders: list[Path | None] = field(default_factory=list)
     opened: list[Path] = field(default_factory=list)
     dialog_titles: list[str] = field(default_factory=list)
+    failure: Exception | None = None  # awaria systemu przy otwieraniu, np. zablokowany Excel
 
     def open_path(self, path: Path) -> None:
+        if self.failure is not None:
+            raise self.failure
         self.opened.append(path)
 
     def choose_file(self, title: str, filetypes: Sequence[tuple[str, str]]) -> Path | None:
@@ -44,14 +50,19 @@ class Centrum:
     client: TestClient
     platform: FakePlatform
     settings_path: Path
+    log_path: Path
+    shutdown: Shutdown
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     platform = FakePlatform()
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
-    app = create_app(settings_path=settings_path, platform=platform, today=lambda: today)
+    log_path = tmp_path / "logs" / "centrum-rozliczen.log"
+    log = CentrumLog(log_path)
+    shutdown = Shutdown(log)
+    app = create_app(settings_path=settings_path, platform=platform, log=log, shutdown=shutdown, today=lambda: today)
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path)
+    return Centrum(client, platform, settings_path, log_path, shutdown)
 
 
 def project_version() -> str:
@@ -168,6 +179,14 @@ def test_plik_ustawien_taty_jest_poza_gitem() -> None:
     settings = default_settings_path().relative_to(ROOT)
 
     ignored = subprocess.run(["git", "check-ignore", "--quiet", str(settings)], cwd=ROOT, check=False)
+
+    assert ignored.returncode == 0
+
+
+def test_dziennik_centrum_jest_poza_gitem() -> None:
+    log = LOG_PATH.relative_to(ROOT)
+
+    ignored = subprocess.run(["git", "check-ignore", "--quiet", str(log)], cwd=ROOT, check=False)
 
     assert ignored.returncode == 0
 
@@ -406,3 +425,58 @@ def test_otwieranie_bez_wskazanego_folderu_okresow_prosi_o_jego_wskazanie(tmp_pa
     assert response.status_code == 409
     assert response.json() == {"message": "Najpierw wskaż folder okresów."}
     assert app.platform.opened == []
+
+
+def log_lines(app: Centrum) -> list[str]:
+    """Wpisy dziennika Centrum bez znacznika czasu."""
+
+    if not app.log_path.exists():
+        return []
+    return [line.split(" ", 1)[1] for line in app.log_path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_zamkniecie_centrum_z_karty_jest_przyjete_i_zapisane_w_dzienniku(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+
+    response = app.client.post("/api/shutdown")
+
+    assert response.status_code == 202
+    assert response.json() == {"state": "closing"}
+    assert log_lines(app) == ['zamkniecie z="karta Centrum"']
+
+
+def test_zamkniecie_centrum_z_obcej_strony_jest_odrzucone(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+
+    response = app.client.post("/api/shutdown", headers={"Origin": "http://zly.example"})
+
+    assert response.status_code == 403
+    assert log_lines(app) == []
+
+
+def test_zamkniecie_centrum_moze_byc_zablokowane_bezpiecznym_komunikatem(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+    app.shutdown.refuse_while(lambda: "Trwa Uruchomienie procesu. Zamknij Centrum po jego zakończeniu.")
+
+    response = app.client.post("/api/shutdown")
+
+    assert response.status_code == 409
+    assert response.json() == {"message": "Trwa Uruchomienie procesu. Zamknij Centrum po jego zakończeniu."}
+    assert log_lines(app) == []
+
+
+def test_nieoczekiwany_wyjatek_daje_bezpieczny_komunikat_i_wpis_bez_tekstu_wyjatku(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    write_period_files(periods, "22_28_09_2026")
+    secret = f"{periods / '22_28_09_2026'} ul. Syntetyczna 1 CENTRUM-SYN-ROW"
+    app.platform.failure = RuntimeError(secret)
+
+    response = app.client.post("/api/periods/22_28_09_2026/open", json={"target": "collective_file"})
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "message": "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie."
+    }
+    assert log_lines(app) == ['nieoczekiwany-wyjatek typ=RuntimeError miejsce="POST /api/periods/{token}/open"']
+    log = app.log_path.read_text(encoding="utf-8")
+    assert "Syntetyczna" not in log and "CENTRUM-SYN-ROW" not in log and str(periods) not in log

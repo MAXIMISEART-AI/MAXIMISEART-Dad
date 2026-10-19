@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from rozliczenia.centrum.server import main
+from rozliczenia.centrum.launcher import main
 
 
 if __name__ == "__main__":

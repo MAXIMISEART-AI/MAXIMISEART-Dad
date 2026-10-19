@@ -11,6 +11,8 @@ platform adapter, the production boundary for Dad's computer, is scripted:
   ``<root>/opened.jsonl`` instead of launching an application.
 
 Once the port is bound, ``<root>/server.json`` records this process and URL.
+The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
+„Zamknij Centrum rozliczeń” stops this process the way it stops Dad's.
 """
 
 from __future__ import annotations
@@ -28,7 +30,9 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
-from rozliczenia.centrum.server import serve  # noqa: E402
+from rozliczenia.centrum.log import CentrumLog  # noqa: E402
+from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
+from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 
 
 class ScriptedPlatform:
@@ -67,14 +71,22 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve()
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
-    app = create_app(settings_path=Path(fixture["settings"]), platform=ScriptedPlatform(root), today=lambda: today)
+    log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
+    shutdown = Shutdown(log)
+    app = create_app(
+        settings_path=Path(fixture["settings"]),
+        platform=ScriptedPlatform(root),
+        log=log,
+        shutdown=shutdown,
+        today=lambda: today,
+    )
 
     def record_bound_server(url: str) -> None:
         record = {"pid": os.getpid(), "port": args.port, "url": url}
         (root / "server.json").write_text(json.dumps(record), encoding="utf-8")
         print(f"SERVING {url}", flush=True)
 
-    return serve(app, port=args.port, on_ready=record_bound_server)
+    return serve(app, listener=listen_locally(args.port), on_ready=record_bound_server, shutdown=shutdown, log=log)
 
 
 if __name__ == "__main__":

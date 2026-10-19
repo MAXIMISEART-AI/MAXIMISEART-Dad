@@ -36,6 +36,12 @@ class Health(_Model):
     version: str
 
 
+class Closing(_Model):
+    """Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi."""
+
+    state: Literal["closing"]
+
+
 class NotSetPath(_Model):
     """Ścieżka jeszcze niewskazana albo plik ustawień nieczytelny."""
 

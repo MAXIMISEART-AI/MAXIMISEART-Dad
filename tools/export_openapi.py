@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -15,7 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
+from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.platform import FileTypes  # noqa: E402
+from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 
 
 class _NoPlatform:
@@ -35,7 +38,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "frontend" / "src" / "api" / "openapi.json")
     args = parser.parse_args()
-    app = create_app(settings_path=ROOT / "config" / "centrum-ustawienia.yaml", platform=_NoPlatform())
+    log = CentrumLog(Path(os.devnull))  # eksport nie obsługuje żądań, więc niczego nie zapisuje
+    app = create_app(
+        settings_path=ROOT / "config" / "centrum-ustawienia.yaml",
+        platform=_NoPlatform(),
+        log=log,
+        shutdown=Shutdown(log),
+    )
     document = json.dumps(app.openapi(), ensure_ascii=False, indent=2) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(document.encode("utf-8"))
