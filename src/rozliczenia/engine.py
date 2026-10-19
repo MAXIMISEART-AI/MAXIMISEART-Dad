@@ -122,6 +122,30 @@ def default_worker_template_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
 
 
+def worker_settlements_directory(period_directory: Path, period: str) -> Path:
+    """Folder rozliczeń pracowników okresu w jego Folderze okresu."""
+
+    return period_directory / f"Rozliczenie pracowników {period}"
+
+
+def _worker_settlement_filename(period: str, worker_name: str) -> str:
+    return f"Rozliczenie {period} - {worker_name}.xlsx"
+
+
+def count_worker_settlements(target_directory: Path, period: str) -> int:
+    """Liczba Rozliczeń pracowników w folderze; pomija pliki blokady Excela, ukryte i Wzorzec bez nazwy wykonawcy."""
+
+    prefix, suffix = _worker_settlement_filename(period, "\0").split("\0")
+    return sum(
+        1
+        for entry in target_directory.iterdir()
+        if entry.is_file()
+        and entry.name.startswith(prefix)
+        and entry.name.endswith(suffix)
+        and len(entry.name) > len(prefix) + len(suffix)
+    )
+
+
 def _ensure_unlocked(path: Path) -> None:
     if is_open_in_excel(path):
         raise SettlementError(f"Plik jest otwarty lub zablokowany: {path.name}")
@@ -161,7 +185,7 @@ def run_settlements(
             raise SettlementError(f"Nie znaleziono pliku źródłowego: {source_path}")
         _ensure_unlocked(source_path)
         period = period_from_source(source_path)
-        target_directory = source_path.parent / f"Rozliczenie pracowników {period}"
+        target_directory = worker_settlements_directory(source_path.parent, period)
         if target_directory.exists() or target_directory.is_symlink():
             raise SettlementError(f"Folder docelowy już istnieje: {target_directory.name}.")
         mapping = load_worker_mapping(config_path)
@@ -180,7 +204,7 @@ def run_settlements(
 
     def plan_rows() -> tuple[list[tuple[str, Path]], dict[str, list[ExcelRow]], list[Issue]]:
         template_files = [
-            (name, target_directory / f"Rozliczenie {period} - {name}.xlsx")
+            (name, target_directory / _worker_settlement_filename(period, name))
             for name in mapping.values()
         ]
         rows_by_target: defaultdict[str, list[ExcelRow]] = defaultdict(list)

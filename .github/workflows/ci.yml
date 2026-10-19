@@ -137,6 +137,57 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
 
+  frontend:
+    # Centrum rozliczeń: the committed build and contract must match their sources (tata has no Node).
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install development dependencies (pinned FastAPI and Pydantic shape the contract)
+        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Generate the contract from the server models
+        working-directory: frontend
+        env:
+          PYTHON: python
+        run: npm run contract
+
+      - name: Typecheck (tsc strict)
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint (Oxlint with anti-slop)
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Require the committed contract and build to be fresh
+        run: |
+          stale="$(git status --porcelain -- frontend/src/api src/rozliczenia/centrum/static)"
+          if [ -n "$stale" ]; then
+            echo "$stale"
+            echo "Run 'npm run contract' and 'npm run build' in frontend/ and commit the result."
+            exit 1
+          fi
+
   required:
     # Configure only this stable status as required in branch protection.
     name: Required CI status
@@ -146,6 +197,7 @@ jobs:
       - mypy
       - pytest
       - e2e
+      - frontend
     if: ${{ always() }}
     steps:
       - name: Require every CI check to succeed
@@ -155,12 +207,14 @@ jobs:
           MYPY_RESULT: ${{ needs.mypy.result }}
           PYTEST_RESULT: ${{ needs.pytest.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: |
           $results = [ordered]@{
             Ruff = $env:RUFF_RESULT
             mypy = $env:MYPY_RESULT
             pytest = $env:PYTEST_RESULT
             E2E = $env:E2E_RESULT
+            Frontend = $env:FRONTEND_RESULT
           }
           $failedChecks = @(
             foreach ($result in $results.GetEnumerator()) {

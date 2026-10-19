@@ -53,6 +53,12 @@ _COLLECTIVE = _TemplateLayout(
 )
 
 
+def internal_settlement_path(period_directory: Path, period: str) -> Path:
+    """Rozliczenie wewnętrzne okresu w Folderze okresu."""
+
+    return period_directory / f"Rozliczenie wew. {period}.xlsx"
+
+
 @dataclass(frozen=True)
 class PeriodFiles:
     """Ścieżki obu wzorców i obu plików okresu w Folderze okresu."""
@@ -64,7 +70,7 @@ class PeriodFiles:
 
     @property
     def internal_settlement_file(self) -> Path:
-        return self.period_directory / f"Rozliczenie wew. {self.period}.xlsx"
+        return internal_settlement_path(self.period_directory, self.period)
 
     @property
     def collective_file(self) -> Path:

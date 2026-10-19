@@ -222,8 +222,39 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 ```
 Check formatowania nie jest wymagany.
 
-Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd` i
-`Przygotuj plik zbiorczy.cmd` przez `cmd.exe`.
+Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd`,
+`Przygotuj plik zbiorczy.cmd` i `Centrum rozliczeń (konsola).cmd` przez `cmd.exe`.
+
+## Centrum rozliczeń (rozwój)
+
+Centrum rozliczeń to lokalny serwer (`src/rozliczenia/centrum/`) z
+frontendem w przeglądarce (`frontend/`), opisany w
+[ADR 0004](docs/adr/0004-centrum-rozliczen-adapter.md). Zbudowany frontend jest
+commitowany w `src/rozliczenia/centrum/static/`, więc do uruchomienia
+wystarczają zależności z `requirements.txt`, bez Node.
+
+- `Centrum rozliczeń (konsola).cmd` (albo `py -3 run_centrum.py`) uruchamia
+  Centrum z widoczną konsolą na `http://127.0.0.1:47811/` i otwiera kartę w
+  przeglądarce. `--port` zmienia port, `--no-browser` nie otwiera karty;
+  Ctrl+C zamyka serwer.
+- Ustawienia Centrum (Rejestr zleceń, folder okresów, motyw) są w
+  `config/centrum-ustawienia.yaml`, poza gitem.
+
+Zmiana frontendu wymaga Node 24 i kończy się commitem źródeł razem z
+odbudowanym buildem; CI sprawdza, że build i kontrakt odpowiadają źródłom:
+
+```sh
+cd frontend
+npm ci
+npm run contract   # OpenAPI z modeli Pydantic → typy i schematy zod (Python z zależnościami: zmienna PYTHON)
+npm run typecheck  # tsc strict
+npm run lint       # Oxlint z wtyczkami anti-slop
+npm run build      # build do src/rozliczenia/centrum/static/
+```
+
+Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
+i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill
+[`verify-centrum-rozliczen`](.agents/skills/verify-centrum-rozliczen/SKILL.md).
 
 ## Naprawa plików zapisanych starą wersją
 
