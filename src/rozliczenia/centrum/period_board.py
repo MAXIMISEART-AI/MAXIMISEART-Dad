@@ -1,27 +1,25 @@
 """Tablica okresów: Foldery okresu z folderu okresów i ich Status okresu, wyliczane przy każdym odczycie.
 
-Nie ma bazy ani pamięci podręcznej. Status okresu wylicza silnik
-(``period_status``) z obecności plików; treści skoroszytów Centrum nie czyta.
-Tu są tylko etykiety, podpowiedzi następnego kroku i ścieżki do otwarcia.
+Nie ma bazy ani pamięci podręcznej. Ścieżki plików okresu zna silnik
+(``period_folder``), a Status okresu wylicza z obecności plików
+(``period_status``); treści skoroszytów Centrum nie czyta. Tu są tylko
+etykiety, podpowiedzi następnego kroku i wybór pliku do otwarcia.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
 
-from rozliczenia import collective_file
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.settings import SettingsStore
-from rozliczenia.engine import count_worker_settlements, worker_settlements_directory
+from rozliczenia.period_folder import PeriodFolder
 from rozliczenia.period_status import PeriodStatus, period_status
-from rozliczenia.preparation_files import internal_settlement_path
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 
 _STATUS_LABELS: dict[PeriodStatus, str] = {
@@ -52,48 +50,24 @@ def status_label(status: PeriodStatus) -> str:
     return _STATUS_LABELS[status]
 
 
-@dataclass(frozen=True)
-class PeriodFolder:
-    """Folder okresu i ścieżki jego plików, wyliczone z folderu okresów i tokenu."""
-
-    period: SettlementPeriod
-    directory: Path
-
-    @classmethod
-    def of(cls, periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
-        return cls(period, periods_directory / period.token)
-
-    @property
-    def internal_settlement(self) -> Path:
-        return internal_settlement_path(self.directory, self.period.token)
-
-    @property
-    def collective_file(self) -> Path:
-        return collective_file.path_for_period(self.directory, self.period.token)
-
-    @property
-    def worker_settlements(self) -> Path:
-        return worker_settlements_directory(self.directory, self.period.token)
-
-    def row(self, *, last_complete: bool) -> contract.PeriodRow:
-        has_worker_settlements = self.worker_settlements.is_dir()
-        status = period_status(self.directory, self.period.token)
-        return contract.PeriodRow(
-            token=self.period.token,
-            tuesday=self.period.tuesday,
-            monday=self.period.monday,
-            status=status,
-            status_label=_STATUS_LABELS[status],
-            period_folder_exists=self.directory.is_dir(),
-            internal_settlement_exists=self.internal_settlement.is_file(),
-            collective_file_exists=self.collective_file.is_file(),
-            worker_settlements_folder_exists=has_worker_settlements,
-            worker_settlement_count=(
-                count_worker_settlements(self.worker_settlements, self.period.token) if has_worker_settlements else 0
-            ),
-            last_complete=last_complete,
-            next_step=_NEXT_STEPS[status],
-        )
+def _row(folder: PeriodFolder, *, last_complete: bool) -> contract.PeriodRow:
+    period = folder.period
+    has_worker_settlements = folder.worker_settlements.is_dir()
+    status = period_status(folder)
+    return contract.PeriodRow(
+        token=period.token,
+        tuesday=period.tuesday,
+        monday=period.monday,
+        status=status,
+        status_label=_STATUS_LABELS[status],
+        period_folder_exists=folder.directory.is_dir(),
+        internal_settlement_exists=folder.internal_settlement.is_file(),
+        collective_file_exists=folder.collective_file.is_file(),
+        worker_settlements_folder_exists=has_worker_settlements,
+        worker_settlement_count=folder.count_worker_settlements() if has_worker_settlements else 0,
+        last_complete=last_complete,
+        next_step=_NEXT_STEPS[status],
+    )
 
 
 def read_board(periods_directory: Path | None, today: date) -> contract.PeriodBoard:
@@ -105,8 +79,7 @@ def read_board(periods_directory: Path | None, today: date) -> contract.PeriodBo
     periods = set(_period_folders(periods_directory)) | {last_complete}
     newest_first = sorted(periods, key=lambda period: period.tuesday, reverse=True)
     rows = [
-        PeriodFolder.of(periods_directory, period).row(last_complete=period == last_complete)
-        for period in newest_first
+        _row(PeriodFolder(periods_directory, period), last_complete=period == last_complete) for period in newest_first
     ]
     return contract.BoardReady(
         state="ready",
@@ -152,7 +125,7 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
             period = parse_period_token(token)
         except ValueError:
             raise contract.Refusal(404, "Nie ma takiego okresu.") from None
-        folder = PeriodFolder.of(periods_directory, period)
+        folder = PeriodFolder(periods_directory, period)
         path = {
             "internal_settlement": folder.internal_settlement,
             "collective_file": folder.collective_file,

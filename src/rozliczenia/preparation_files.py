@@ -31,9 +31,11 @@ from openpyxl.worksheet.worksheet import Worksheet
 from . import collective_file, workbook_files
 from . import preparation_messages as messages
 from .engine import normalize_text
+from .period_folder import PeriodFolder
 from .preparation_messages import PreparationMessage
 from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
+from .settlement_period import parse_period_token
 
 
 @dataclass(frozen=True)
@@ -53,12 +55,6 @@ _COLLECTIVE = _TemplateLayout(
 )
 
 
-def internal_settlement_path(period_directory: Path, period: str) -> Path:
-    """Rozliczenie wewnętrzne okresu w Folderze okresu."""
-
-    return period_directory / f"Rozliczenie wew. {period}.xlsx"
-
-
 @dataclass(frozen=True)
 class PeriodFiles:
     """Ścieżki obu wzorców i obu plików okresu w Folderze okresu."""
@@ -69,12 +65,17 @@ class PeriodFiles:
     period: str
 
     @property
+    def _folder(self) -> PeriodFolder:
+        # Wartość powstaje przed sprawdzeniem tokenu; ścieżki plików są potrzebne dopiero po nim.
+        return PeriodFolder(self.period_directory.parent, parse_period_token(self.period))
+
+    @property
     def internal_settlement_file(self) -> Path:
-        return internal_settlement_path(self.period_directory, self.period)
+        return self._folder.internal_settlement
 
     @property
     def collective_file(self) -> Path:
-        return collective_file.path_for_period(self.period_directory, self.period)
+        return self._folder.collective_file
 
     @property
     def filenames(self) -> tuple[str, str]:
