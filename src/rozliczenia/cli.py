@@ -25,20 +25,6 @@ from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
 from .terminal_conversation import TerminalConversation
 
-_UNEXPECTED_FAILURE = (
-    "Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany. "
-    "Uruchom ponownie; jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
-)
-_SUMMARY_NOT_SHOWN = (
-    "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
-    "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
-)
-_PLAN_NOT_SHOWN = (
-    "Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. "
-    "Przekaż ten komunikat osobie utrzymującej narzędzie."
-)
-
-
 def default_metrics_path() -> Path:
     return Path(__file__).resolve().parents[2] / ".rozliczenia-metrics.jsonl"
 
@@ -171,8 +157,9 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
 
 def _stopped(stop: Stop) -> list[str]:
     if stop.kind == "after_engine":
-        return ["Status semantyczny: BŁĄD", _PLAN_NOT_SHOWN if stop.dry_run else _SUMMARY_NOT_SHOWN]
-    lines = stop.lines if stop.kind == "stop" else (_UNEXPECTED_FAILURE,)
+        message = settlement_messages.plan_not_shown() if stop.dry_run else settlement_messages.summary_not_shown()
+        return ["Status semantyczny: BŁĄD", *message.terminal_lines]
+    lines = stop.lines if stop.kind == "stop" else settlement_messages.unexpected_failure().terminal_lines
     return ["Status semantyczny: BŁĄD", *(f"Nie wykonano: {line}" for line in lines)]
 
 
