@@ -2,8 +2,9 @@
 
 Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
 (``SettlementInputs``), argumenty i wybór Pliku zbiorczego w terminalu,
-wywołanie silnika oraz linie statusu i podsumowania. Inny rozmówca niż
-terminal podaje gotowe ``SettlementInputs`` do ``run_process(PROCESS, ...)``.
+wywołanie silnika i fakty zakończenia, a dla terminala linie statusu i
+podsumowania. Inny rozmówca niż terminal podaje gotowe ``SettlementInputs``
+do ``run_process(PROCESS, ...)`` razem z własnym widokiem podsumowania.
 Terminal pokazuje zatrzymanie jedną linią (``Message.terminal_line``); ten sam
 Komunikat w trzech częściach dostaje każdy rozmówca w ``Stop.message``.
 """
@@ -20,7 +21,7 @@ from .domain import ProgressObserver, SettlementSummary
 from .engine import default_config_path, default_worker_template_path
 from .message import StopError
 from .period_folder import COLLECTIVE_FILE_PATTERN, PeriodFolder, PeriodFolderError
-from .process_run import Conversation, Finished, Process, Stop, run
+from .process_run import Conversation, Finished, Process, Stop, TerminalSummary, TerminalView, run
 from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
 from .terminal_conversation import TerminalConversation
@@ -133,13 +134,8 @@ def _summary_lines(summary: SettlementSummary, *, dry_run: bool) -> list[str]:
     return lines
 
 
-def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
+def _finished(summary: SettlementSummary) -> Finished:
     return Finished(
-        status_lines=[
-            f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}",
-            f"Status końcowy: {'OK' if summary.ok else 'Wymaga sprawdzenia'}",
-        ],
-        summary_lines=_summary_lines(summary, dry_run=inputs.dry_run),
         result="OK" if summary.ok else "WYMAGA_SPRAWDZENIA",
         counters={
             "templates_total": summary.template_count,
@@ -155,7 +151,17 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     )
 
 
-def _stopped(stop: Stop) -> list[str]:
+def _terminal_summary(inputs: SettlementInputs, summary: SettlementSummary) -> TerminalSummary:
+    return TerminalSummary(
+        status_lines=[
+            f"Status semantyczny: {'OK' if summary.ok else 'OSTRZEŻENIE'}",
+            f"Status końcowy: {'OK' if summary.ok else 'Wymaga sprawdzenia'}",
+        ],
+        summary_lines=_summary_lines(summary, dry_run=inputs.dry_run),
+    )
+
+
+def _stop_lines(stop: Stop) -> list[str]:
     """Zatrzymanie jedną linią po „Nie wykonano: ”; niepokazane podsumowanie albo plan bez tego przedrostka."""
 
     lines = stop.message.terminal_lines
@@ -175,10 +181,13 @@ PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
     gather=_gather,
     execute=_execute,
     finished=_finished,
-    stopped=_stopped,
     unexpected_failure=settlement_messages.unexpected_failure(),
     plan_not_shown=settlement_messages.plan_not_shown(),
     summary_not_shown=settlement_messages.summary_not_shown(),
+)
+# Jak terminal pokazuje zakończenie Przebiegu rozliczeń; inny rozmówca renderuje ``Outcome`` po swojemu.
+_TERMINAL: TerminalView[SettlementInputs, SettlementSummary] = TerminalView(
+    summary=_terminal_summary, stop=_stop_lines
 )
 
 
@@ -190,7 +199,7 @@ def main(
 ) -> int:
     """Uruchamia Przebieg rozliczeń; ``0`` OK, ``2`` Wymaga sprawdzenia, ``1`` błąd."""
 
-    return run(PROCESS, argv, output=output, metrics_path=metrics_path)
+    return run(PROCESS, _TERMINAL, argv, output=output, metrics_path=metrics_path)
 
 
 if __name__ == "__main__":

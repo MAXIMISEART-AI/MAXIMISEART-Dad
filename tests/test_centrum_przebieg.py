@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from rozliczenia import cli, engine, template_settlement
+from rozliczenia.centrum import contract
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
@@ -198,6 +199,36 @@ def test_nieoczekiwany_blad_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"]) == ("RUN", "BLAD_KRYTYCZNY")
+
+
+def test_wynik_ktorego_nie_da_sie_pokazac_to_niepokazane_podsumowanie_z_tym_samym_wynikiem_co_w_metrykach(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = settling_centrum(tmp_path)
+
+    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
+        raise ValueError("synthetic summary failure SYN-001")
+
+    monkeypatch.setattr(contract, "SettlementSummary", broken_summary)
+
+    result = run_to_end(centrum, dry_run=False)["result"]
+
+    assert (result["ending"], result["headline"], result["next_action"]) == ("after_engine", "Błąd", "open_period_folder")
+    assert result["stops"] == [
+        {
+            "what": "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania.",
+            "where": "Przebieg rozliczeń",
+            "action": (
+                "Nie uruchamiaj ponownie: Folder rozliczeń pracowników już jest. "
+                "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
+            ),
+        }
+    ]
+    assert (result["summary"], result["warnings"]) == (None, [])
+    assert "SYN-" not in json.dumps(result, ensure_ascii=False)
+    assert centrum.worker_settlements.is_dir()
+    [record] = centrum.metric_records()
+    assert record["result"] == result["result"] == "BLAD_KRYTYCZNY"
 
 
 def test_strumien_pokazuje_postep_szablonow_pracownikow_z_biezacym_wykonawca(tmp_path: Path) -> None:

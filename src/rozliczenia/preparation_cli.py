@@ -2,9 +2,10 @@
 
 Opisuje proces dla Uruchomienia procesu (``process_run``): wejście procesu
 (``PreparationInputs``), argumenty i wybór Rejestru zleceń, folderu okresów i
-okresu w terminalu, wywołanie silnika oraz linie statusu i podsumowania.
-Inny rozmówca niż terminal podaje gotowe ``PreparationInputs`` do
-``run_process(PROCESS, ...)``.
+okresu w terminalu, wywołanie silnika i fakty zakończenia, a dla terminala
+linie statusu i podsumowania. Inny rozmówca niż terminal podaje gotowe
+``PreparationInputs`` do ``run_process(PROCESS, ...)`` razem z własnym
+widokiem podsumowania.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from .collective_preparation import (
 from .domain import ProgressObserver
 from .engine import default_config_path
 from .message import Message, StopError
-from .process_run import Conversation, Decision, Finished, Process, Stop, run
+from .process_run import Conversation, Decision, Finished, Process, Stop, TerminalSummary, TerminalView, run
 from .settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 from .terminal_conversation import TerminalConversation
 
@@ -221,10 +222,8 @@ def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation
     )
 
 
-def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finished:
+def _finished(summary: PreparationSummary) -> Finished:
     return Finished(
-        status_lines=["Status końcowy: OK"],
-        summary_lines=_summary_lines(summary, dry_run=inputs.dry_run),
         result="OK",
         counters={
             "period_orders": summary.period_order_count,
@@ -236,7 +235,13 @@ def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finishe
     )
 
 
-def _stopped(stop: Stop) -> list[str]:
+def _terminal_summary(inputs: PreparationInputs, summary: PreparationSummary) -> TerminalSummary:
+    return TerminalSummary(
+        status_lines=["Status końcowy: OK"], summary_lines=_summary_lines(summary, dry_run=inputs.dry_run)
+    )
+
+
+def _stop_lines(stop: Stop) -> list[str]:
     """``ZATRZYMANO``, gdy nie powstał żaden plik z komunikatem zatrzymania; inaczej ``BŁĄD``."""
 
     return [f"Status końcowy: {'ZATRZYMANO' if stop.kind == 'stop' else 'BŁĄD'}", *stop.message.terminal_lines]
@@ -252,7 +257,6 @@ def _process(today: date | None) -> Process[PreparationInputs, PreparationSummar
         gather=partial(_gather, today),
         execute=_execute,
         finished=_finished,
-        stopped=_stopped,
         unexpected_failure=messages.unexpected_failure(),
         plan_not_shown=messages.plan_not_shown(),
         summary_not_shown=messages.summary_not_shown(),
@@ -261,6 +265,10 @@ def _process(today: date | None) -> Process[PreparationInputs, PreparationSummar
 
 # Opis Przygotowania pliku zbiorczego dla rdzenia Uruchomienia procesu, wspólny dla każdego rozmówcy.
 PROCESS = _process(None)
+# Jak terminal pokazuje zakończenie Przygotowania pliku zbiorczego.
+_TERMINAL: TerminalView[PreparationInputs, PreparationSummary] = TerminalView(
+    summary=_terminal_summary, stop=_stop_lines
+)
 
 
 def main(
@@ -273,7 +281,9 @@ def main(
 ) -> int:
     """Uruchamia Przygotowanie pliku zbiorczego; ``0`` sukces, ``1`` zatrzymanie, błąd albo odmowa."""
 
-    return run(_process(today), argv, output=output, input_stream=input_stream, metrics_path=metrics_path)
+    return run(
+        _process(today), _TERMINAL, argv, output=output, input_stream=input_stream, metrics_path=metrics_path
+    )
 
 
 if __name__ == "__main__":
