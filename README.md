@@ -229,6 +229,10 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 ```
 Check formatowania nie jest wymagany.
 
+W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
+(macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
+checkoutu importuje `src` głównego checkoutu.
+
 Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd`,
 `Przygotuj plik zbiorczy.cmd` i `Centrum rozliczeń (konsola).cmd` przez
 `cmd.exe`, tworzą skrót przez `Zainstaluj skrót Centrum rozliczeń.cmd` i

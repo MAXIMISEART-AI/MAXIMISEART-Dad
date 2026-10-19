@@ -32,14 +32,16 @@ def _ask_in_dialog(ask: Callable[[Any], str]) -> str:
     try:
         import tkinter as tk
         from tkinter import filedialog
-
+    except ImportError:
+        return ""
+    try:
         root = tk.Tk()
         root.withdraw()
         try:
             return ask(filedialog) or ""
         finally:
             root.destroy()
-    except Exception:
+    except tk.TclError:  # brak ekranu albo okna Tk
         return ""
 
 
@@ -161,16 +163,16 @@ class _Dashboard:
         self.plain_adapter = PlainProgressAdapter(self.print_line, title=title, shows_templates=shows_templates)
         self.rich_adapter = RichProgressAdapter(title=title, shows_templates=shows_templates)
         self._output_failed = False
-        try:
-            self.console: Any | None = Console(file=output) if Console is not None else None
-        except Exception:
-            self.console = None
+        self.console: Any | None = None
+        self.live: Any | None = None
+        self.interactive = False
+        with self._plain_text_on_rich_failure():
+            self.console = Console(file=output) if Console is not None else None
         self.interactive = (
             self._supports_live_output(output)
             and self.console is not None
             and self.console.color_system is not None
         )
-        self.live: Any | None = None
 
     @staticmethod
     def _supports_live_output(output: TextIO) -> bool:
@@ -184,12 +186,10 @@ class _Dashboard:
     def start(self, snapshot: ProgressSnapshot) -> None:
         self.snapshot = snapshot
         if self.interactive and Live is not None:
-            try:
+            with self._plain_text_on_rich_failure():
                 self.live = Live(self.render(), console=self.console, auto_refresh=False)
                 self.live.start(refresh=True)
                 return
-            except Exception:
-                self._disable_rich()
         elif self.interactive:
             self._disable_rich()
         self.plain_adapter.start(snapshot)
@@ -199,14 +199,12 @@ class _Dashboard:
         if self._output_failed:
             raise OSError("Terminal output is unavailable.")
         if self.interactive:
-            try:
+            with self._plain_text_on_rich_failure():
                 if self.live is None:
                     raise RuntimeError("Rich dashboard did not start.")
                 self.live.update(self.rich_adapter.render(snapshot, notice), refresh=True)
                 return
-            except Exception:
-                self._disable_rich()
-                self.plain_adapter.start(snapshot)
+            self.plain_adapter.start(snapshot)
         self.plain_adapter.update(snapshot, notice)
         if self._output_failed:
             raise OSError("Terminal output is unavailable.")
@@ -215,11 +213,8 @@ class _Dashboard:
         """Zatrzymuje widok na żywo, żeby kolejne linie szły pod nim."""
 
         if self.live is not None:
-            try:
+            with self._plain_text_on_rich_failure():
                 self.live.stop()
-            except Exception:
-                self._disable_rich()
-            else:
                 self.live = None
 
     def resume(self) -> None:
@@ -227,24 +222,29 @@ class _Dashboard:
 
         if not self.interactive or self.live is not None or Live is None:
             return
-        try:
+        with self._plain_text_on_rich_failure():
             self.live = Live(self.render(), console=self.console, auto_refresh=False)
             self.live.start(refresh=True)
-        except Exception:
-            self._disable_rich()
 
     def render(self) -> Any:
         return self.rich_adapter.render(self.snapshot) if self.snapshot is not None else None
 
+    @contextmanager
+    def _plain_text_on_rich_failure(self) -> Iterator[None]:
+        """Awaria Rich przełącza podgląd na tryb tekstowy, zamiast odłączać go od rdzenia (ADR 0002)."""
+
+        try:
+            yield
+        except Exception:  # noqa: BLE001 - granica z Rich: każda jego awaria to powrót do trybu tekstowego
+            self._disable_rich()
+
     def _disable_rich(self) -> None:
         live, self.live = self.live, None
-        if live is not None:
-            try:
-                live.stop()
-            except Exception:
-                pass
         self.interactive = False
         self.console = None
+        if live is not None:
+            with self._plain_text_on_rich_failure():
+                live.stop()
 
     def print_line(self, message: str) -> None:
         if self._output_failed:

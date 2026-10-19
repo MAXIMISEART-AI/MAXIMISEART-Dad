@@ -294,7 +294,7 @@ class _Observation:
     def start(self, *, title: str, shows_templates: bool) -> None:
         try:
             self._interlocutor.start_progress(self.projection.snapshot, title=title, shows_templates=shows_templates)
-        except Exception:
+        except Exception:  # noqa: BLE001 - ADR 0002: awaria podglądu odłącza go, rdzeń zgłasza to neutralną linią
             self.failed = True
 
     def __call__(self, event: ProgressEvent) -> None:
@@ -310,7 +310,7 @@ class _Observation:
     def stop(self) -> None:
         try:
             self._interlocutor.stop_progress()
-        except Exception:
+        except Exception:  # noqa: BLE001 - ADR 0002: awaria podglądu odłącza go, rdzeń zgłasza to neutralną linią
             self.failed = True
 
 
@@ -319,7 +319,7 @@ def _stop_from(process: Process[Any, Any], error: Exception, *, dry_run: bool) -
         return Stop("unexpected", dry_run)
     try:
         return Stop("stop", dry_run, tuple(process.stop_lines(error)), process.stop_message(error))
-    except Exception:
+    except Exception:  # noqa: BLE001 - granica procesu: kończy jako zatrzymanie "unexpected" w wyniku i metrykach
         return Stop("unexpected", dry_run)
 
 
@@ -328,7 +328,7 @@ def _gather(
 ) -> InputsT | Stop:
     try:
         return process.gather(args, conversation)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
         return _stop_from(process, error, dry_run=args.dry_run)
 
 
@@ -349,7 +349,7 @@ def _run_engine(
 
     try:
         summary = process.execute(inputs, observation, conversation)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
         return _stop_from(process, error, dry_run=dry_run)
     except BaseException:
         observation.stop()
@@ -366,7 +366,7 @@ def _build_summary(
         return engine_outcome, None
     try:
         return engine_outcome()
-    except Exception:
+    except Exception:  # noqa: BLE001 - granica procesu: kończy jako zatrzymanie "after_engine" w wyniku i metrykach
         return Stop("after_engine", dry_run), None
 
 

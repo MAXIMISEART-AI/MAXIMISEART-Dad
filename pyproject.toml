@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "httpx2>=2.14"]
+test = ["pytest>=8.0", "pytest-timeout>=2.4", "httpx2>=2.14"]
 dev = [
     "fastapi==0.146.0",
     "httpx2==2.14.0",
@@ -24,6 +24,7 @@ dev = [
     "playwright==1.64.0",
     "pydantic==2.14.1",
     "pytest==8.3.3",
+    "pytest-timeout==2.4.0",
     "ruff==0.15.12",
     "types-openpyxl==3.1.5.20260827",
     "types-PyYAML==6.0.12.20260906",
@@ -33,7 +34,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-asyncio_default_fixture_loop_scope = "function"
+addopts = ["--strict-config"]
+# Najwolniejszy test trwa kilka sekund; zawieszony test kończy się błędem zamiast blokować przebieg.
+timeout = 120
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -53,6 +56,10 @@ include = [
     ".agents/skills/verify-centrum-rozliczen/scripts/*.py",
 ]
 extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+# Szeroki except tylko z wpisem do dziennika albo ponownym rzuceniem.
+extend-select = ["BLE001", "S110"]
 
 [tool.mypy]
 strict = true

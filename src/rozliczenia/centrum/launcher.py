@@ -36,7 +36,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     log = CentrumLog(LOG_PATH)
     try:
         return _start(args.port, log, browser=not args.no_browser)
-    except Exception as failure:
+    except Exception as failure:  # noqa: BLE001 - granica startu: typ wyjątku trafia do dziennika Centrum
         log.unexpected_failure(failure, where="start")
         return _refuse(start_problems.unexpected_start_failure(), args.port, log)
 
