@@ -1,4 +1,9 @@
-"""Create a synthetic folder okresów, Rejestr zleceń, and empty settings directory for one Centrum run."""
+"""Create a synthetic folder okresów, Rejestr zleceń, and configuration directory for one Centrum run.
+
+The configuration directory holds what Konfiguracja reads: a synthetic konfiguracja
+wykonawców and the three Wzorce, valid for the engine's Sprawdzanie. Centrum's
+settings file is written there too, as in Dad's ``config/``.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +13,8 @@ from pathlib import Path
 import sys
 
 from openpyxl import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
+import yaml
 
 # Dad's "today" for the run: Monday 19.10.2026, so the last complete period is 06_12_10_2026,
 # whose Folder okresu deliberately does not exist.
@@ -17,6 +24,19 @@ WORKERS = ("Wykonawca Testowy A", "Wykonawca Testowy B", "Wykonawca Testowy C")
 # A synthetic row value inside every workbook. Centrum must never read or show workbook content,
 # so this marker must never appear in evidence (centrum_self_test.py checks it).
 ROW_MARKER = "CENTRUM-SYN-ROW"
+WORKER_IDS = ("wykonawca.a", "wykonawca.b", "wykonawca.c")
+INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
+COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
+WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
+# The target headers the engine looks for; in the Wzorzec pliku zbiorczego WYKONAWCA must be in H17.
+INTERNAL_HEADERS = (
+    "DATA", "MIASTO", "ADRES", "UMOWA", "URZĄDZENIA", "CZYNNOŚCI", "NUMER ZL.", "WYKONAWCA",
+    "NUMER UMOWY/ZLECENIA ORANGE", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE",
+)
+COLLECTIVE_HEADERS = (
+    "MIASTO", "ADRES", "UMOWA", "URZĄDZENIA", "CZYNNOŚCI", "NUMER ZL.", "DATA", "WYKONAWCA",
+    "NUMER UMOWY/ZLECENIA ORANGE", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE",
+)
 
 
 def _workbook(path: Path) -> None:
@@ -25,6 +45,37 @@ def _workbook(path: Path) -> None:
     assert sheet is not None
     sheet["A18"] = ROW_MARKER
     workbook.save(path)
+
+
+def _template(path: Path, header_row: int, headers: tuple[str, ...]) -> None:
+    """A Wzorzec without orders; the row marker sits on a second sheet the Sprawdzanie never reads."""
+
+    workbook = Workbook()
+    sheet = workbook.active
+    assert isinstance(sheet, Worksheet)
+    for column, header in enumerate(headers, start=1):
+        sheet.cell(header_row, column).value = header
+    workbook.create_sheet("Stawki")["A1"] = ROW_MARKER
+    workbook.save(path)
+
+
+def _configuration(config: Path) -> dict[str, str]:
+    worker_config = config / "worker_mapping.yaml"
+    worker_config.write_text(
+        yaml.safe_dump(
+            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, WORKERS))}, allow_unicode=True, sort_keys=False
+        ),
+        encoding="utf-8",
+    )
+    _template(config / INTERNAL_TEMPLATE, 1, INTERNAL_HEADERS)
+    _template(config / COLLECTIVE_TEMPLATE, 17, COLLECTIVE_HEADERS)
+    _template(config / WORKER_TEMPLATE, 17, COLLECTIVE_HEADERS)
+    return {
+        "worker_config": str(worker_config),
+        "internal_template": str(config / INTERNAL_TEMPLATE),
+        "collective_template": str(config / COLLECTIVE_TEMPLATE),
+        "worker_template": str(config / WORKER_TEMPLATE),
+    }
 
 
 def _period_files(periods: Path, token: str) -> Path:
@@ -38,6 +89,7 @@ def _period_files(periods: Path, token: str) -> Path:
 def create(root: Path) -> dict[str, object]:
     root.mkdir(parents=True)
     (root / "config").mkdir()
+    configuration = _configuration(root / "config")
     (root / "picker").mkdir()
     periods = root / "INEA"
     periods.mkdir()
@@ -59,6 +111,9 @@ def create(root: Path) -> dict[str, object]:
         "periods_directory": str(periods),
         "order_register": str(register),
         "settings": str(root / "config" / "centrum-ustawienia.yaml"),
+        # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
+        "configuration": configuration,
+        "workers": list(WORKERS),
         # token, Status okresu, number of Rozliczenia pracowników, last complete period
         "board": [
             [LAST_COMPLETE, "no_period_files", 0, True],

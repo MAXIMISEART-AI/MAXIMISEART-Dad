@@ -44,6 +44,13 @@ REQUIRED_SCREENSHOTS = {
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
     ),
+    "konfiguracja": (
+        "10-konfiguracja-gotowa.png",
+        "11-konfiguracja-tylko-do-odczytu.png",
+        "12-konfiguracja-wzorzec-otwarty.png",
+        "13-konfiguracja-brak-wzorca.png",
+        "14-konfiguracja-nieczytelna-konfiguracja-wykonawcow.png",
+    ),
 }
 
 
