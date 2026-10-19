@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import TextIO
 
-from . import collective_file, engine
+from . import collective_file, engine, settlement_messages
 from .domain import ProgressObserver, SettlementSummary
 from .engine import (
     SettlementError,
@@ -21,6 +22,7 @@ from .engine import (
     default_worker_template_path,
     period_from_source,
 )
+from .preparation_messages import Channel
 from .process_run import Conversation, Finished, Process, Stop, run
 from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
@@ -95,7 +97,7 @@ def _gather(args: argparse.Namespace, conversation: TerminalConversation) -> Set
         [("Plik zbiorczy Excel", collective_file.NAME_GLOB), ("Excel", "*.xlsx")],
     )
     if source is None:
-        raise SettlementError("Nie wybrano pliku zbiorczego.")
+        raise settlement_messages.collective_file_not_selected()
     return SettlementInputs(
         source, dry_run=args.dry_run, config_path=args.config, worker_template_path=args.worker_template
     )
@@ -170,33 +172,57 @@ def _finished(inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     )
 
 
-def _stop_lines(error: Exception) -> list[str]:
-    """Jednoliniowy komunikat ``SettlementError``."""
+def _stop_lines(channel: Channel, error: Exception) -> list[str]:
+    """W terminalu jednoliniowy komunikat ``SettlementError``; w Centrum ten sam w trzech częściach."""
 
+    if channel == "centrum" and isinstance(error, SettlementError):
+        return error.message.text.splitlines()
     return [str(error)]
 
 
-def _stopped(stop: Stop) -> list[str]:
+def _stopped(channel: Channel, stop: Stop) -> list[str]:
+    if channel == "centrum":
+        return _stopped_in_centrum(stop)
     if stop.kind == "after_engine":
         return ["Status semantyczny: BŁĄD", _PLAN_NOT_SHOWN if stop.dry_run else _SUMMARY_NOT_SHOWN]
     lines = stop.lines if stop.kind == "stop" else (_UNEXPECTED_FAILURE,)
     return ["Status semantyczny: BŁĄD", *(f"Nie wykonano: {line}" for line in lines)]
 
 
+def _stopped_in_centrum(stop: Stop) -> list[str]:
+    """Każde zatrzymanie w trzech częściach (Co się stało, Gdzie, Co zrobić), bez ścieżek."""
+
+    if stop.kind == "stop":
+        return ["Status semantyczny: BŁĄD", *stop.lines]
+    if stop.kind == "unexpected":
+        message = settlement_messages.unexpected_failure()
+    elif stop.dry_run:
+        message = settlement_messages.plan_not_shown()
+    else:
+        message = settlement_messages.summary_not_shown()
+    return ["Status semantyczny: BŁĄD", *message.text.splitlines()]
+
+
+def _process(channel: Channel) -> Process[SettlementInputs, SettlementSummary]:
+    return Process(
+        title="Rozliczenia",
+        shows_templates=True,
+        parser=build_parser,
+        counter_names=COUNTER_NAMES,
+        metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
+        stop_type=SettlementError,
+        stop_lines=partial(_stop_lines, channel),
+        gather=_gather,
+        execute=_execute,
+        finished=_finished,
+        stopped=partial(_stopped, channel),
+    )
+
+
 # Opis Przebiegu rozliczeń dla rdzenia Uruchomienia procesu.
-PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
-    title="Rozliczenia",
-    shows_templates=True,
-    parser=build_parser,
-    counter_names=COUNTER_NAMES,
-    metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",
-    stop_type=SettlementError,
-    stop_lines=_stop_lines,
-    gather=_gather,
-    execute=_execute,
-    finished=_finished,
-    stopped=_stopped,
-)
+PROCESS = _process("terminal")
+# Ten sam proces dla Centrum rozliczeń: każde zatrzymanie w trzech częściach, bez pełnych ścieżek.
+CENTRUM_PROCESS = _process("centrum")
 
 
 def main(

@@ -215,8 +215,8 @@ class Metrics(_Model):
     recent: RecentResults
 
 
-# Uruchomienia procesu. Każdy proces ma klucz; Przebieg rozliczeń dopisze swój (#99).
-ProcessKey = Literal["preparation"]
+# Uruchomienia procesu. Każdy proces ma klucz.
+ProcessKey = Literal["preparation", "settlement"]
 PhaseName = Literal["Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"]
 
 
@@ -228,6 +228,8 @@ class PeriodChoice(_Model):
     monday: date
     status_label: str
     last_complete: bool
+    # Nazwa Pliku zbiorczego okresu, gdy proces go czyta (Przebieg rozliczeń); tata go nie wskazuje.
+    collective_file: str | None
 
 
 class ProcessSetup(_Model):
@@ -337,6 +339,7 @@ class Decision(_Model):
 class PreparationSummary(_Model):
     """Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów."""
 
+    process: Literal["preparation"]
     period: str
     period_order_count: int
     successful_order_count: int
@@ -344,6 +347,31 @@ class PreparationSummary(_Model):
     orders_per_day: list[Count]
     internal_settlement_file: str
     collective_file: str
+
+
+class WorkerFile(_Model):
+    """Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt)."""
+
+    worker_name: str
+    file: str
+    rows: int
+
+
+class SettlementSummary(_Model):
+    """Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów."""
+
+    process: Literal["settlement"]
+    period: str
+    worker_settlements_folder: str
+    rows: int
+    written_count: int
+    planned_count: int
+    empty_count: int
+    skipped_count: int
+    files: list[WorkerFile]
+
+
+RunSummary = Annotated[PreparationSummary | SettlementSummary, Field(discriminator="process")]
 
 
 class RunOutcome(_Model):
@@ -363,7 +391,7 @@ class RunOutcome(_Model):
     stops: list[RunMessage]
     warnings: list[RunMessage]
     notices: list[str]
-    summary: PreparationSummary | None
+    summary: RunSummary | None
     lines: list[str]
 
 

@@ -124,6 +124,7 @@ def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu
     assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "run")
     assert result["headline"] == "Podgląd gotowy · nic nie zapisano"
     assert result["summary"] == {
+        "process": "preparation",
         "period": PERIOD,
         "period_order_count": 4,
         "successful_order_count": 3,
@@ -460,7 +461,7 @@ def test_wybor_okresu_proponuje_ostatni_pelny_okres_i_starsze_ze_statusem_okresu
     centrum.fixture.period_directory.mkdir()
     centrum.fixture.collective_file_path.touch()
 
-    [setup] = centrum.client.get("/api/runs/setup").json()["processes"]
+    setup, _settlement = centrum.client.get("/api/runs/setup").json()["processes"]
 
     assert (setup["process"], setup["title"], setup["blocker"]) == ("preparation", "Przygotowanie pliku zbiorczego", None)
     assert setup["reminder"] == "Zapisz i zamknij Rejestr zleceń w Excelu"
@@ -478,7 +479,7 @@ def test_wybor_okresu_proponuje_ostatni_pelny_okres_i_starsze_ze_statusem_okresu
 def test_bez_wskazanego_rejestru_zlecen_uruchomienie_jest_odrzucone(tmp_path: Path) -> None:
     client = bare_centrum(tmp_path, today=TODAY).client
 
-    [setup] = client.get("/api/runs/setup").json()["processes"]
+    setup, _settlement = client.get("/api/runs/setup").json()["processes"]
     refused = client.post("/api/runs", json={"process": "preparation", "period": PERIOD, "dry_run": True})
 
     assert setup["blocker"] == "Najpierw wskaż Rejestr zleceń i folder okresów."

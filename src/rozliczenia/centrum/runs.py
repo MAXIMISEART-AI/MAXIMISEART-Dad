@@ -333,19 +333,23 @@ def run_result(
     *,
     dry_run: bool,
     done: str,
-    summary: contract.PreparationSummary | None,
+    summary: contract.PreparationSummary | contract.SettlementSummary | None,
     warnings: Sequence[contract.RunMessage],
 ) -> contract.RunOutcome:
     """Wynik dla przeglądarki z ``Outcome`` rdzenia: linie bez zmian, zatrzymania z linii statusu procesu.
 
-    ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
+    ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”. Wynik „Wymaga sprawdzenia”
+    ma własny tytuł, a po podglądzie proponuje ponowny podgląd po poprawce zamiast zapisu.
     """
 
     ending = outcome.ending
     finished = isinstance(ending, Finished)
     kind = "finished" if isinstance(ending, Finished) else ending.kind
     next_action: Literal["run", "rerun", "open_period_folder"]
-    if finished:
+    if finished and outcome.result == "WYMAGA_SPRAWDZENIA":
+        next_action = "rerun" if dry_run else "open_period_folder"
+        headline = "Podgląd wymaga sprawdzenia · nic nie zapisano" if dry_run else f"{done} · wymaga sprawdzenia"
+    elif finished:
         next_action = "run" if dry_run else "open_period_folder"
         headline = "Podgląd gotowy · nic nie zapisano" if dry_run else done
     else:

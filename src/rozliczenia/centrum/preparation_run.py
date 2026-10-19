@@ -123,11 +123,13 @@ def _choice(settings: CentrumSettings, period: SettlementPeriod, *, last_complet
         monday=period.monday,
         status_label=label,
         last_complete=last_complete,
+        collective_file=None,
     )
 
 
 def _summary(summary: PreparationSummary) -> contract.PreparationSummary:
     return contract.PreparationSummary(
+        process="preparation",
         period=summary.period,
         period_order_count=summary.period_order_count,
         successful_order_count=summary.successful_order_count,

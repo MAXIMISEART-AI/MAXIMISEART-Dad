@@ -2,7 +2,8 @@
 
 Tabela „komunikat → co zrobić” w ``docs/tata-instrukcja.md`` ma wiersz dla
 każdego zatrzymania i ostrzeżenia, a jej wiersze cytują faktyczną treść „Co się
-stało” z katalogu. Tak samo tabela komunikatów startu Centrum rozliczeń. Zmiana
+stało” z katalogu. Tak samo tabela komunikatów startu Centrum rozliczeń i tabela
+zatrzymań Przebiegu rozliczeń w Centrum (``settlement_messages``). Zmiana
 treści komunikatu bez poprawki instrukcji psuje test.
 """
 
@@ -15,9 +16,12 @@ from pathlib import Path
 import re
 
 from rozliczenia import preparation_messages as messages
+from rozliczenia import settlement_messages
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.start_problems import StartProblem
+from rozliczenia.domain import Issue
 from rozliczenia.preparation_messages import PreparationError, PreparationMessage
+from rozliczenia.settlement_messages import SettlementError, SettlementMessage
 
 
 INSTRUCTION = Path(__file__).resolve().parents[1] / "docs" / "tata-instrukcja.md"
@@ -177,3 +181,80 @@ def test_instrukcja_taty_wyjasnia_kazdy_komunikat_startu_centrum() -> None:
 
     assert {code: found for code, found in quoted.items() if len(found) != 1} == {}
     assert len(fragments) == len(problems)
+
+
+SETTLEMENT_SECTION = "### Komunikat w Centrum rozliczeń → co zrobić"
+SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
+WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
+WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
+# Tylko terminal: w Centrum Plik zbiorczy wynika z okresu, więc okna wyboru pliku nie ma.
+SETTLEMENT_TERMINAL_ONLY = {"collective_file_not_selected"}
+SETTLEMENT_SAMPLES: dict[str, list[Callable[[], SettlementError | SettlementMessage]]] = {
+    "collective_file_missing": [lambda: settlement_messages.collective_file_missing(SOURCE)],
+    "collective_file_open": [lambda: settlement_messages.collective_file_open(SOURCE)],
+    "collective_file_invalid": [
+        lambda: settlement_messages.collective_file_invalid(SOURCE, "Skoroszyt źródłowy nie zawiera arkusza.")
+    ],
+    "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
+    "worker_config_unreadable": [lambda: settlement_messages.worker_config_unreadable(CONFIG)],
+    "worker_config_not_yaml": [lambda: settlement_messages.worker_config_not_yaml(CONFIG)],
+    "worker_config_invalid": [
+        lambda: settlement_messages.worker_config_invalid(CONFIG, "Nieobsługiwana wersja konfiguracji.")
+    ],
+    "worker_template_invalid": [
+        lambda: settlement_messages.worker_template_invalid(
+            WORKER_TEMPLATE, "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
+        )
+    ],
+    "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
+    "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
+    "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
+    "worker_files_not_copied": [lambda: settlement_messages.worker_files_not_copied(WORKER_TEMPLATE)],
+    "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
+    "write_failed": [lambda: settlement_messages.write_failed(WORKER_SETTLEMENTS)],
+    "unexpected_failure": [settlement_messages.unexpected_failure],
+    "summary_not_shown": [settlement_messages.summary_not_shown],
+    "plan_not_shown": [settlement_messages.plan_not_shown],
+    "issue_message": [
+        lambda: settlement_messages.issue_message(
+            Issue("BRAK_MAPOWANIA", "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników."), SOURCE
+        ),
+        lambda: settlement_messages.issue_message(
+            Issue("BRAK_WYKONAWCY", "Wiersz 19 ma dane, ale nie ma wykonawcy w kolumnie H."), SOURCE
+        ),
+    ],
+}
+
+
+def _settlement_messages() -> list[SettlementMessage]:
+    produced = [sample() for samples in SETTLEMENT_SAMPLES.values() for sample in samples]
+    return [message.message if isinstance(message, SettlementError) else message for message in produced]
+
+
+def test_settlement_samples_cover_every_przebieg_message_factory() -> None:
+    factories = {
+        name
+        for name, function in inspect.getmembers(settlement_messages, inspect.isfunction)
+        if function.__module__ == settlement_messages.__name__ and not name.startswith("_")
+    }
+
+    assert set(SETTLEMENT_SAMPLES) | SETTLEMENT_TERMINAL_ONLY == factories
+
+
+def test_instrukcja_taty_wyjasnia_kazde_zatrzymanie_przebiegu_rozliczen_w_centrum() -> None:
+    fragments = _instruction_fragments(SETTLEMENT_SECTION)
+    catalog = _settlement_messages()
+    codes_per_fragment = {
+        fragment: {message.code for message in catalog if fragment in message.what} for fragment in fragments
+    }
+
+    assert sorted({message.code for message in catalog if not any(f in message.what for f in fragments)}) == []
+    assert {fragment: codes for fragment, codes in codes_per_fragment.items() if len(codes) != 1} == {}
+    assert len(codes_per_fragment) == len(set().union(*codes_per_fragment.values()))
+
+
+def test_zatrzymania_przebiegu_w_centrum_nie_maja_pelnych_sciezek() -> None:
+    shown = " ".join(f"{message.what} {message.where} {message.action}" for message in _settlement_messages())
+
+    assert "Narzedzie" not in shown
+    assert "Dane" not in shown
