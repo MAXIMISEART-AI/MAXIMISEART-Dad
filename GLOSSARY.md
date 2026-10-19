@@ -83,6 +83,8 @@ wykonawca nie ma wierszy w Pliku zbiorczym.
 Folder o nazwie równej tokenowi okresu, wspólny dla wszystkich plików jednego
 okresu rozliczeniowego: Rozliczenia wewnętrznego, Pliku zbiorczego i Folderu
 rozliczeń pracowników. Może istnieć wcześniej, zanim powstaną te pliki.
+Folder, którego nazwa nie jest tokenem żadnego okresu (na przykład
+`09_15_09_2026`, bo 9 września 2026 to nie wtorek), nie jest Folderem okresu.
 
 ## Folder rozliczeń pracowników
 

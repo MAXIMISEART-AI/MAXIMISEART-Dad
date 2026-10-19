@@ -31,7 +31,7 @@ Preconditions:
 
 ## Gotchas
 
-- The source file must be named `Rozliczenie {okres} - zbiorcze.xlsx` and live in a folder named after the same period token; the fixture uses `08_14_09_2026`.
+- The source file must be named `Rozliczenie {okres} - zbiorcze.xlsx` and live in a folder named after the same period token; the fixture uses `08_14_09_2026`. A token that is not a Tuesday–Monday period (e.g. `09_15_09_2026`) stops with `ZLY_PLIK_ZBIORCZY`.
 - The configured shared Wzorzec rozliczenia pracownika is copied into each new workbook and is
   never modified. The final output folder appears only after all files are ready.
 - The proof must inspect formulas with `data_only=False`; cached formula results are not the template-preservation proof.

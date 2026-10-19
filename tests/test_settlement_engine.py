@@ -22,6 +22,7 @@ import rozliczenia.template_settlement as template_settlement
 
 
 PERIOD = "08_14_09_2026"
+NOT_A_PERIOD = "09_15_09_2026"  # wygląda jak token okresu, ale 9 września 2026 to środa
 SOURCE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 UNREADABLE_SOURCE_MESSAGE = (
     f"Nie można odczytać Pliku zbiorczego {SOURCE_NAME}. "
@@ -191,11 +192,11 @@ def cut_sheet_after_data_rows(path: Path, sheet_part: str = "xl/worksheets/sheet
             target.writestr(info, data)
 
 
-def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
-    period_directory = tmp_path / PERIOD
+def make_fixture(tmp_path: Path, period: str = PERIOD) -> tuple[Path, Path, Path]:
+    period_directory = tmp_path / period
     period_directory.mkdir(parents=True)
-    target_directory = period_directory / f"Rozliczenie pracowników {PERIOD}"
-    source_path = period_directory / SOURCE_NAME
+    target_directory = period_directory / f"Rozliczenie pracowników {period}"
+    source_path = period_directory / f"Rozliczenie {period} - zbiorcze.xlsx"
     write_source(source_path, include_unmapped=False)
     config_path = write_mapping(tmp_path / "worker_mapping.yaml")
     write_template(tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
@@ -399,17 +400,37 @@ def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_plik
     assert not target_directory.exists()
 
 
-def test_internal_settlement_file_is_rejected(tmp_path: Path) -> None:
-    internal_path = tmp_path / PERIOD / f"Rozliczenie wew. {PERIOD}.xlsx"
-    internal_path.parent.mkdir()
-    internal_path.touch()
+@pytest.mark.parametrize(
+    ("source", "detail"),
+    [
+        (f"{PERIOD}/Rozliczenie wew. {PERIOD}.xlsx", "Plik Rozliczenie wew. jest poza zakresem tego procesu."),
+        (f"INEA/{SOURCE_NAME}", f"Folder pliku musi nazywać się tak samo jak okres: {PERIOD}."),
+    ],
+    ids=["rozliczenie_wewnetrzne", "folder_nazwany_inaczej_niz_okres"],
+)
+def test_rozliczenie_wewnetrzne_albo_plik_zbiorczy_poza_folderem_okresu_zatrzymuje_przebieg_rozliczen(
+    tmp_path: Path, source: str, detail: str
+) -> None:
+    source_path = tmp_path / source
+    source_path.parent.mkdir()
+    source_path.touch()
 
-    try:
-        run_settlements(internal_path, tmp_path / "missing.yaml")
-    except SettlementError as exc:
-        assert "wew." in str(exc)
-    else:
-        raise AssertionError("Plik Rozliczenie wew. powinien zostać odrzucony")
+    with pytest.raises(SettlementError) as raised:
+        run_settlements(source_path, tmp_path / "missing.yaml")
+
+    assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
+    assert str(raised.value) == detail
+
+
+def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozliczen(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path, period=NOT_A_PERIOD)
+
+    with pytest.raises(SettlementError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
+    assert not target_directory.exists()
+    assert [path.name for path in source_path.parent.iterdir()] == [source_path.name]
 
 
 def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disabled(tmp_path: Path) -> None:
