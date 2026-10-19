@@ -120,13 +120,15 @@ def write_period_files(
 
     Katalog tymczasowy leży w folderze okresów, obok Folderu okresu. Błąd nie
     zostawia żadnego z plików ani nowo założonego Folderu okresu, chyba że
-    zatrzymanie wskazuje plik, którego nie udało się usunąć.
+    zatrzymanie wskazuje plik, którego nie udało się usunąć. Katalogu
+    tymczasowego, którego nie da się usunąć (np. trzyma go OneDrive), nie
+    zgłaszamy: nie jest plikiem okresu, a po publikacji oba pliki już są.
     """
 
     folder = files.folder
     try:
         with tempfile.TemporaryDirectory(
-            prefix=f".{folder.period.token}.staging-", dir=folder.periods_directory
+            prefix=f".{folder.period.token}.staging-", dir=folder.periods_directory, ignore_cleanup_errors=True
         ) as staging:
             staged_directory = Path(staging) / folder.directory.name
             staged_directory.mkdir()

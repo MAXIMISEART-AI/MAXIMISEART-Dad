@@ -16,7 +16,8 @@ re-running the code once per schedule, and checks two rules:
 
 Only two things are replaced: workbook writing (``_write_period_file``) by a step
 that creates the staged file, and ``tempfile.TemporaryDirectory`` by a directory
-on the in-memory disk. A filesystem call that the in-memory disk does not model
+on the in-memory disk whose removal is one step that may fail, as when OneDrive
+holds the folder. A filesystem call that the in-memory disk does not model
 stops the check as LUKA MODELU instead of passing silently.
 
 Schedules that reach a state already explored are cut short: the code is
@@ -222,6 +223,7 @@ class Pending:
     paths: tuple[str, ...]
     mutating: bool
     where: str
+    killable: bool = True
 
     def describe(self, run: str) -> str:
         return f"{run}: {self.call}({' → '.join(self.paths)}) [{self.where}]"
@@ -265,8 +267,19 @@ class Scheduler:
         self.condition = threading.Condition()
         self.probe_calls: list[str] | None = None
 
-    def step(self, call: str, paths: Sequence[object], *, mutating: bool, perform: Callable[[], Any]) -> Any:
-        """Parks the calling Uruchomienie procesu until this step is picked, then performs it."""
+    def step(
+        self,
+        call: str,
+        paths: Sequence[object],
+        *,
+        mutating: bool,
+        perform: Callable[[], Any],
+        killable: bool = True,
+    ) -> Any:
+        """Parks the calling Uruchomienie procesu until this step is picked, then performs it.
+
+        A step that is not ``killable`` may still fail, but the process is never killed right before it.
+        """
 
         if self.probe_calls is not None:
             self.probe_calls.append(call)
@@ -276,7 +289,7 @@ class Scheduler:
             raise ModelGap(f"{call} poza uruchomieniem procesu")
         if run.stopped_by is not None:
             raise run.stopped_by()
-        pending = Pending(call, tuple(self.disk.label(path) for path in paths), mutating, _code_location())
+        pending = Pending(call, tuple(self.disk.label(path) for path in paths), mutating, _code_location(), killable)
         with self.condition:
             run.pending = pending
             run.status = "parked"
@@ -424,13 +437,23 @@ def intercepted(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
 
 
 class _StagingDirectory:
-    """``tempfile.TemporaryDirectory`` on the in-memory disk; a killed process leaves it behind."""
+    """``tempfile.TemporaryDirectory`` on the in-memory disk; a killed process leaves it behind.
 
-    def __init__(self, disk: VirtualDisk, *, prefix: str, dir: Path) -> None:
+    Its removal fails like the real one: with ``ignore_cleanup_errors`` the folder
+    stays and the failure is swallowed, otherwise it is raised. A kill during the
+    removal is not explored: the run's outcome is already decided, as with a kill
+    while the terminal prints it, which the checker does not explore either.
+    """
+
+    def __init__(
+        self, disk: VirtualDisk, scheduler: Scheduler, *, prefix: str, dir: Path, ignore_cleanup_errors: bool
+    ) -> None:
         run = _current_run()
         if run is None:
             raise ModelGap("katalog tymczasowy poza uruchomieniem procesu")
         self.disk = disk
+        self.scheduler = scheduler
+        self.ignore_cleanup_errors = ignore_cleanup_errors
         self.path = Path(dir) / f"{prefix}{run.name}"
 
     def __enter__(self) -> str:
@@ -442,7 +465,17 @@ class _StagingDirectory:
     ) -> None:
         if exc_type is not None and issubclass(exc_type, (Crash, Abort, ModelGap)):
             return
-        self.disk.remove_tree(self.path)
+        try:
+            self.scheduler.step(
+                "usunięcie katalogu tymczasowego",
+                (self.path,),
+                mutating=True,
+                perform=lambda: self.disk.remove_tree(self.path),
+                killable=False,
+            )
+        except PermissionError:
+            if not self.ignore_cleanup_errors:
+                raise
 
 
 @contextmanager
@@ -459,8 +492,10 @@ def harness(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
 
     class TempfileShim:
         @staticmethod
-        def TemporaryDirectory(*, prefix: str, dir: Path) -> _StagingDirectory:  # noqa: N802 - tempfile's name
-            return _StagingDirectory(disk, prefix=prefix, dir=dir)
+        def TemporaryDirectory(  # noqa: N802 - tempfile's name
+            *, prefix: str, dir: Path, ignore_cleanup_errors: bool = False
+        ) -> _StagingDirectory:
+            return _StagingDirectory(disk, scheduler, prefix=prefix, dir=dir, ignore_cleanup_errors=ignore_cleanup_errors)
 
     replacements: dict[str, Any] = {"_write_period_file": write_period_file, "tempfile": TempfileShim}
     originals = {name: getattr(preparation_files, name) for name in replacements}
@@ -783,7 +818,7 @@ def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execut
                 options.append(("ok", run, None, step))
                 if run.pending.mutating and faults_left:
                     options.append(("fault", run, None, f"{step} → błąd: plik używany przez inny proces"))
-                if run.pending.mutating and crashes_left:
+                if run.pending.mutating and run.pending.killable and crashes_left:
                     options.append(("crash", run, None, f"{run.name}: proces zamknięty tuż przed krokiem {step}"))
             if dad_left:
                 options.extend(("dad", None, action, text) for text, action in dad_actions(disk, layout))

@@ -646,3 +646,27 @@ def test_failed_removal_of_published_rozliczenie_wewnetrzne_names_the_file_left(
         "utrzymującej narzędzie."
     )
     assert [path.name for path in fixture.period_directory.iterdir()] == [INTERNAL_SETTLEMENT_NAME]
+
+
+@pytest.mark.parametrize("period_directory_exists", [False, True])
+def test_staging_folder_that_cannot_be_removed_after_publication_does_not_stop_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, period_directory_exists: bool
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    if period_directory_exists:
+        fixture.period_directory.mkdir()
+    real_rmdir = os.rmdir
+
+    def rmdir_fails_for_staging_folder(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if Path(path).name.startswith(f".{PERIOD}.staging-"):
+            raise PermissionError("wymuszony: folder trzyma OneDrive")
+        real_rmdir(path, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "rmdir", rmdir_fails_for_staging_folder)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_directory == fixture.period_directory
+    assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
+        [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
+    )
