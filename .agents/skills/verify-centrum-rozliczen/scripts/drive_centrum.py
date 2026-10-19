@@ -604,7 +604,9 @@ def drive_configuration(run: Run, page: Page) -> None:
         page.reload()
         expect(_template_group(page, "Wzorzec rozliczenia pracownika")).to_contain_text("Brak pliku")
         message = page.get_by_role("alert").filter(has_text=f"Nie znaleziono Wzorca rozliczenia pracownika: {worker_template.name}.")
-        expect(message).to_contain_text(REPORT_TO_MAINTAINER)
+        # The same message as the Przebieg rozliczeń stop for this Wzorzec.
+        expect(message).to_contain_text("Nie można użyć Wzorca rozliczenia pracownika.")
+        expect(message).to_contain_text("W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.")
         answer = _template_answer(run, "konfiguracja-brak-wzorca", "Wzorzec rozliczenia pracownika")
         run.check(answer["problem"] == "missing", "the server reports the Wzorzec rozliczenia pracownika as missing")
         run.capture(page, "13-konfiguracja-brak-wzorca")
@@ -618,9 +620,11 @@ def drive_configuration(run: Run, page: Page) -> None:
     try:
         worker_config.write_text("workers: [niedomknięta lista\n", encoding="utf-8")
         page.reload()
-        message = page.get_by_role("alert").filter(has_text="Nie można odczytać konfiguracji wykonawców.")
+        # The same message as the stop of either process reading this konfiguracja wykonawców.
+        message = page.get_by_role("alert").filter(has_text="Konfiguracja wykonawców jest niepoprawna.")
+        expect(message).to_contain_text("Plik nie jest poprawnym YAML.")
         expect(message).to_contain_text(f"plik {worker_config.name}")
-        expect(message).to_contain_text("Przekaż to osobie utrzymującej narzędzie.")
+        expect(message).to_contain_text(REPORT_TO_MAINTAINER)
         expect(page.get_by_role("list", name="Wykonawcy")).to_have_count(0)
         workers = run.api("/api/configuration", "konfiguracja-nieczytelna-konfiguracja-wykonawcow")["workers"]
         assert isinstance(workers, dict)
