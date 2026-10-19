@@ -17,12 +17,12 @@ from typing import TextIO
 
 from . import collective_file, engine, settlement_messages
 from .domain import ProgressObserver, SettlementSummary
-from .message import StopError
 from .engine import (
     default_config_path,
     default_worker_template_path,
     period_from_source,
 )
+from .message import StopError
 from .process_run import Conversation, Finished, Process, Stop, run
 from .progress_presentation import format_counter_line
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
