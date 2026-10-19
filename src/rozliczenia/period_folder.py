@@ -1,4 +1,4 @@
-"""Folder okresu: nazwy i ścieżki plików okresu oraz okres zapisany w ścieżce Pliku zbiorczego (GLOSSARY).
+"""Folder okresu: nazwy i ścieżki plików okresu, okres ze ścieżki Pliku zbiorczego i Status okresu (GLOSSARY).
 
 To jedyne miejsce, które zna nazwy w Folderze okresu: Rozliczenia
 wewnętrznego, Pliku zbiorczego, Folderu rozliczeń pracowników i Rozliczenia
@@ -6,6 +6,10 @@ pracownika. ``PeriodFolder`` powstaje tylko z folderu okresów i sprawdzonego
 ``SettlementPeriod`` albo ze ścieżki Pliku zbiorczego, którą moduł sam
 sprawdza, więc niesprawdzony token nie trafia do nazw. ``PeriodFolderError``
 ma bezpieczny komunikat, a każdy proces tłumaczy go na swoje zatrzymanie.
+
+Status okresu wynika z tej samej obserwacji plików co flagi istnienia
+(``PeriodFolder.observe``), więc nie może się z nimi rozjechać; treści
+skoroszytów się nie czyta. Status nie zastępuje Gotowości.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ _COLLECTIVE_FILE_NAME = re.compile(
 COLLECTIVE_FILE_PATTERN = _COLLECTIVE_FILE.format(token="*")
 """Plik zbiorczy dowolnego okresu, np. w oknie wyboru pliku."""
 
+PeriodStatus = Literal["no_period_files", "collective_file_prepared", "worker_settlements_ready"]
 WorkerNameCheck = Literal["fine", "invalid", "too_long"]
 _FORBIDDEN_IN_FILE_NAME = frozenset('<>:"/\\|?*')
 _MAX_FILE_NAME_CODE_UNITS = 255  # Windows liczy nazwę pliku w jednostkach UTF-16
@@ -105,11 +110,20 @@ class PeriodFolder:
 
         return self.worker_settlements / _WORKER_SETTLEMENT.format(token=self.period.token, worker=worker_name)
 
-    def count_worker_settlements(self) -> int:
-        """Liczba Rozliczeń pracowników w istniejącym Folderze rozliczeń pracowników.
+    def observe(self) -> PeriodFolderObservation:
+        """Jeden odczyt plików Folderu okresu, który może nie istnieć."""
 
-        Pomija pliki blokady Excela, pliki ukryte i Wzorzec rozliczenia pracownika bez nazwy wykonawcy.
-        """
+        has_worker_settlements = self.worker_settlements.is_dir()
+        return PeriodFolderObservation(
+            period_folder_exists=self.directory.is_dir(),
+            internal_settlement_exists=self.internal_settlement.is_file(),
+            collective_file_exists=self.collective_file.is_file(),
+            worker_settlements_folder_exists=has_worker_settlements,
+            worker_settlement_count=self._count_worker_settlements() if has_worker_settlements else 0,
+        )
+
+    def _count_worker_settlements(self) -> int:
+        """Pomija pliki blokady Excela, pliki ukryte i Wzorzec rozliczenia pracownika bez nazwy wykonawcy."""
 
         prefix, suffix = _WORKER_SETTLEMENT.format(token=self.period.token, worker="\0").split("\0")
         return sum(
@@ -120,6 +134,53 @@ class PeriodFolder:
             and entry.name.endswith(suffix)
             and len(entry.name) > len(prefix) + len(suffix)
         )
+
+
+@dataclass(frozen=True)
+class PeriodFolderObservation:
+    """Pliki Folderu okresu w chwili jednego odczytu i Status okresu wyliczony z tych samych flag."""
+
+    period_folder_exists: bool
+    internal_settlement_exists: bool
+    collective_file_exists: bool
+    worker_settlements_folder_exists: bool
+    worker_settlement_count: int
+
+    @property
+    def status(self) -> PeriodStatus:
+        if self.worker_settlements_folder_exists:
+            return "worker_settlements_ready"
+        if self.collective_file_exists:
+            return "collective_file_prepared"
+        return "no_period_files"
+
+
+def period_status_label(status: PeriodStatus) -> str:
+    """Nazwa Statusu okresu z GLOSSARY."""
+
+    # Status okresu bez nazwy mypy zgłasza jako brakujący return.
+    match status:
+        case "no_period_files":
+            return "Brak plików okresu"
+        case "collective_file_prepared":
+            return "Plik zbiorczy przygotowany"
+        case "worker_settlements_ready":
+            return "Rozliczenia pracowników gotowe"
+
+
+def find_period_folders(periods_directory: Path) -> list[PeriodFolder]:
+    """Foldery okresu w istniejącym folderze okresów: tylko foldery, których nazwa jest tokenem okresu."""
+
+    folders = []
+    for entry in periods_directory.iterdir():
+        if not entry.is_dir():
+            continue
+        try:
+            period = parse_period_token(entry.name)
+        except ValueError:
+            continue
+        folders.append(PeriodFolder(periods_directory, period))
+    return folders
 
 
 def check_worker_name(worker_name: str) -> WorkerNameCheck:
