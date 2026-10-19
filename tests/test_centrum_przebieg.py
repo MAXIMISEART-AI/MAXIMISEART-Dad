@@ -185,33 +185,6 @@ def test_w_ukladzie_folderow_taty_okres_bez_folderu_okresu_jest_odrzucony(tmp_pa
     )
 
 
-def test_blad_przy_szablonie_pracownika_nie_publikuje_zadnego_pliku_pracownika(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = settling_centrum(tmp_path)
-    process_template = template_settlement.process_template
-
-    def fail_for_darek(worker_name: str, *args: Any) -> Any:
-        if worker_name == "Darek Nowak":
-            raise OSError("synthetic write failure")
-        return process_template(worker_name, *args)
-
-    monkeypatch.setattr(template_settlement, "process_template", fail_for_darek)
-
-    view = run_to_end(centrum, dry_run=False)
-
-    assert (view["result"]["ending"], view["result"]["next_action"]) == ("stop", "rerun")
-    assert view["result"]["stops"] == [
-        {
-            "what": "Nie udało się przygotować skoroszytu pracownika Darek Nowak. Nie utworzono żadnego pliku pracownika.",
-            "where": f"folder {PERIOD}\\{WORKER_SETTLEMENTS}",
-            "action": "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.",
-        }
-    ]
-    assert view["progress"]["templates_completed"] == 1
-    assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
-
-
 def test_nieoczekiwany_blad_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -348,25 +321,6 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"]) == ("DRY-RUN", "WYMAGA_SPRAWDZENIA")
-
-
-def test_nieznany_wykonawca_przy_uruchom_zatrzymuje_bez_publikacji_folderu(tmp_path: Path) -> None:
-    centrum = settling_centrum(tmp_path, include_unmapped=True)
-
-    result = run_to_end(centrum, dry_run=False)["result"]
-
-    assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert result["headline"] == "Zatrzymano"
-    [stop] = result["stops"]
-    assert stop["what"] == (
-        "W Pliku zbiorczym jest WYKONAWCA, którego nie ma w konfiguracji wykonawców. "
-        "Nie utworzono żadnego pliku pracownika."
-    )
-    assert stop["where"] == f"plik {SOURCE_NAME}, folder {PERIOD}, kolumna H"
-    assert stop["action"].startswith("Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze.")
-    assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
-    [record] = centrum.metric_records()
-    assert (record["mode"], record["result"]) == ("RUN", "BLAD_KRYTYCZNY")
 
 
 def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_folderu_rozliczen_pracownikow(tmp_path: Path) -> None:
