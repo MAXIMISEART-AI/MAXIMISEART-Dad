@@ -102,10 +102,14 @@ powstają razem albo żaden.
 - Rozliczenie wewnętrzne (`Rozliczenie wew. {okres}.xlsx`) zawiera wszystkie
   zlecenia okresu, skuteczne i nieskuteczne, w kolumnach dopasowanych po
   nagłówkach. `zwrot` i `UWAGI` zostają puste.
-- Kolumny docelowe są ustalane wyłącznie po nagłówkach wzorca. Trzy pary o
-  innym zapisie są jawne w mapowaniu: `DATA GODZ. POCZ.` → `DATA`, `adres` →
-  `ADRES`, `nr zlecenia` → `NUMER ZL.`. Wzorzec z nagłówkiem w zapisie Rejestru
-  zamiast własnego oznacza zatrzymanie.
+- Kolumny docelowe są ustalane wyłącznie po nagłówkach wzorca. Pary o innym
+  zapisie są jawne w mapowaniu: `DATA GODZ. POCZ.` → `DATA`, `adres` →
+  `ADRES`, `nr zlecenia` → `NUMER ZL.`, `NUMER UMOWY` →
+  `NUMER UMOWY/ZLECENIA ORANGE`. Dwa nagłówki Rejestru mają po dwa przyjmowane
+  zapisy: `NUMER ZL.` albo `nr zlecenia` oraz `NUMER UMOWY` albo
+  `NUMER UMOWY/ZLECENIA ORANGE`; oba zapisy jednej kolumny naraz to powtórzony
+  nagłówek. Wzorzec z nagłówkiem w zapisie Rejestru zamiast własnego oznacza
+  zatrzymanie.
 - Plik zbiorczy (`Rozliczenie {okres} - zbiorcze.xlsx`) zawiera każde Zlecenie
   skuteczne w `A:K` od wiersza 18, bez przerw. Wiersze 1–17, kolumny ilości
   `N:AP`, formuły i odwołania zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
