@@ -1,9 +1,10 @@
 import { ArrowRightIcon, EyeIcon, PlayIcon } from "lucide-react"
 
-import type { NextStep, PeriodRow, Process } from "@/api/centrum"
+import { getRunSetup, type NextStep, type PeriodRow, type Process } from "@/api/centrum"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { isActive, useRuns } from "@/lib/runs"
+import { useResource } from "@/lib/use-resource"
 import type { PageHref } from "@/pages"
 
 const RUNS_PAGE: PageHref = "#/uruchomienia"
@@ -12,12 +13,6 @@ const RUNS_PAGE: PageHref = "#/uruchomienia"
 const STEP_PROCESSES: Record<Exclude<NextStep["action"], "none">, Process> = {
   prepare_collective_file: "preparation",
   create_worker_settlements: "settlement",
-}
-
-/** Podpowiedź „Podgląd bez zapisu”: co zobaczy tata, zanim cokolwiek zapisze. */
-export const PREVIEW_HINTS: Record<Process, string> = {
-  preparation: "Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
-  settlement: "Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
 }
 
 /** Proces następnego kroku okresu albo `null`, gdy okres jest zamknięty. */
@@ -31,10 +26,14 @@ function showRuns() {
 
 /**
  * Akcja główna karty „Następny krok”: podgląd bez zapisu procesu następnego kroku od razu,
- * a w trakcie Uruchomienia przejście do podglądu na żywo.
+ * a w trakcie Uruchomienia przejście do podglądu na żywo. Podpowiedź podglądu deklaruje proces.
  */
 export function PreviewAction({ period, process }: { period: PeriodRow; process: Process }) {
   const { view, start } = useRuns()
+  const { resource: setup } = useResource(getRunSetup)
+
+  const hint =
+    setup.state === "ready" ? setup.data.processes.find((shown) => shown.process === process)?.preview_hint : undefined
 
   if (isActive(view)) {
     return (
@@ -61,7 +60,7 @@ export function PreviewAction({ period, process }: { period: PeriodRow; process:
         <EyeIcon data-icon="inline-start" />
         Podgląd bez zapisu
       </TooltipTrigger>
-      <TooltipContent>{PREVIEW_HINTS[process]}</TooltipContent>
+      {hint === undefined ? null : <TooltipContent>{hint}</TooltipContent>}
     </Tooltip>
   )
 }

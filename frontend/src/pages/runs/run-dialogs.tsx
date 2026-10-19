@@ -28,7 +28,7 @@ import { CountTiles } from "@/pages/runs/count-tiles"
  * Potwierdzenie zapisu (RUN): przypomnienie o zamknięciu pliku w Excelu i, gdy w historii metryk nie ma
  * udanego podglądu bez zapisu tego okresu (serwer mówi to w wyborze okresu), bursztynowa uwaga. Bez
  * podglądu „Uruchom” jest dozwolone.
- * Przy Przebiegu rozliczeń „Uruchom” jest potwierdzeniem Gotowości i okno to mówi.
+ * Gdy proces deklaruje, że „Uruchom” potwierdza Gotowość (Przebieg rozliczeń), okno to mówi.
  */
 export function ConfirmRunDialog({
   open,

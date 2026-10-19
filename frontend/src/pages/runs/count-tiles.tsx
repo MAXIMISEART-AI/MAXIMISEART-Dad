@@ -1,6 +1,7 @@
 import { TriangleAlertIcon } from "lucide-react"
 
-import type { Count } from "@/api/centrum"
+import type { Count, Figure } from "@/api/centrum"
+import { seconds } from "@/lib/format"
 
 /** Liczby z etykietami jako kafelki (np. Zlecenia na dzień); zero ma ikonę, nie tylko kolor. */
 export function CountTiles({ title, counts }: { title: string; counts: ReadonlyArray<Count> }) {
@@ -42,20 +43,16 @@ function CountLabel({ label }: { label: string }) {
   )
 }
 
-/** Pasek kilku liczb w jednej karcie z separatorami, w równych kolumnach. */
-export function NumberStrip({
-  numbers,
-  name,
-}: {
-  numbers: ReadonlyArray<readonly [string, number | string]>
-  name?: string
-}) {
+/** Pasek kilku liczb z serwera w jednej karcie z separatorami, w równych kolumnach; czas w sekundach. */
+export function NumberStrip({ figures, name }: { figures: ReadonlyArray<Figure>; name?: string }) {
   return (
     <dl className="grid auto-cols-fr grid-flow-col divide-x rounded-lg border" aria-label={name}>
-      {numbers.map(([label, value]) => (
-        <div key={label} className="flex flex-col gap-1 px-4 py-3">
-          <dt className="text-xs text-muted-foreground">{label}</dt>
-          <dd className="text-2xl font-semibold tabular-nums">{value}</dd>
+      {figures.map((figure) => (
+        <div key={figure.label} className="flex flex-col gap-1 px-4 py-3">
+          <dt className="text-xs text-muted-foreground">{figure.label}</dt>
+          <dd className="text-2xl font-semibold tabular-nums">
+            {figure.unit === "ms" ? seconds(figure.value) : figure.value}
+          </dd>
         </div>
       ))}
     </dl>

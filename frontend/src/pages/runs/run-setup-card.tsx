@@ -25,7 +25,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useRuns, type RunDraft } from "@/lib/runs"
 import { useSettings } from "@/lib/settings"
-import { PREVIEW_HINTS } from "@/pages/periods/prepare-actions"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
 
 const PROCESS_ICONS: Record<Process, React.ReactNode> = {
@@ -186,7 +185,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
             <EyeIcon data-icon="inline-start" />
             Podgląd bez zapisu
           </TooltipTrigger>
-          <TooltipContent>{PREVIEW_HINTS[chosen.process]}</TooltipContent>
+          <TooltipContent>{chosen.preview_hint}</TooltipContent>
         </Tooltip>
       </CardFooter>
       <ConfirmRunDialog
@@ -195,7 +194,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
         title={chosen.title}
         period={period}
         reminder={chosen.reminder}
-        confirmsReadiness={chosen.process === "settlement"}
+        confirmsReadiness={chosen.confirms_readiness}
         previewed={chosenPeriod?.previewed ?? false}
         onConfirm={() => run(false)}
       />

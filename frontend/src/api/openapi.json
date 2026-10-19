@@ -843,6 +843,35 @@
         ],
         "title": "DecisionAnswer"
       },
+      "Figure": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "count",
+              "ms"
+            ],
+            "title": "Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "value",
+          "unit"
+        ],
+        "title": "Figure",
+        "description": "Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1099,42 +1128,6 @@
         ],
         "title": "Opened"
       },
-      "OperationProgress": {
-        "properties": {
-          "worker_name": {
-            "type": "string",
-            "title": "Worker Name"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "rows": {
-            "type": "integer",
-            "title": "Rows"
-          },
-          "worker_elapsed_ms": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Worker Elapsed Ms"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "worker_name",
-          "status",
-          "rows",
-          "worker_elapsed_ms"
-        ],
-        "title": "OperationProgress"
-      },
       "Percentiles": {
         "properties": {
           "p50_ms": {
@@ -1216,6 +1209,30 @@
         ],
         "title": "PeriodChoice",
         "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."
+      },
+      "PeriodFile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "internal_settlement",
+              "collective_file"
+            ],
+            "title": "Kind"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "PeriodFile",
+        "description": "Plik okresu z wyniku, sama nazwa: Rozliczenie wewnętrzne albo Plik zbiorczy."
       },
       "PeriodRow": {
         "properties": {
@@ -1372,60 +1389,6 @@
         ],
         "title": "PhaseProgress"
       },
-      "PreparationSummary": {
-        "properties": {
-          "process": {
-            "type": "string",
-            "const": "preparation",
-            "title": "Process"
-          },
-          "period": {
-            "type": "string",
-            "title": "Period"
-          },
-          "period_order_count": {
-            "type": "integer",
-            "title": "Period Order Count"
-          },
-          "successful_order_count": {
-            "type": "integer",
-            "title": "Successful Order Count"
-          },
-          "skipped_empty_rows": {
-            "type": "integer",
-            "title": "Skipped Empty Rows"
-          },
-          "orders_per_day": {
-            "items": {
-              "$ref": "#/components/schemas/Count"
-            },
-            "type": "array",
-            "title": "Orders Per Day"
-          },
-          "internal_settlement_file": {
-            "type": "string",
-            "title": "Internal Settlement File"
-          },
-          "collective_file": {
-            "type": "string",
-            "title": "Collective File"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "process",
-          "period",
-          "period_order_count",
-          "successful_order_count",
-          "skipped_empty_rows",
-          "orders_per_day",
-          "internal_settlement_file",
-          "collective_file"
-        ],
-        "title": "PreparationSummary",
-        "description": "Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów."
-      },
       "Problem": {
         "properties": {
           "message": {
@@ -1539,6 +1502,14 @@
             "type": "string",
             "title": "Reminder"
           },
+          "confirms_readiness": {
+            "type": "boolean",
+            "title": "Confirms Readiness"
+          },
+          "preview_hint": {
+            "type": "string",
+            "title": "Preview Hint"
+          },
           "periods": {
             "items": {
               "$ref": "#/components/schemas/PeriodChoice"
@@ -1569,50 +1540,23 @@
           "title",
           "creates",
           "reminder",
+          "confirms_readiness",
+          "preview_hint",
           "periods",
           "preselected_period",
           "blocker"
         ],
         "title": "ProcessSetup",
-        "description": "Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach."
+        "description": "Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.\n\n``reminder``, ``confirms_readiness`` i ``preview_hint`` deklaruje proces: przypomnienie przed\nuruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”."
       },
       "Progress": {
         "properties": {
-          "mode": {
-            "type": "string",
-            "enum": [
-              "RUN",
-              "DRY-RUN"
-            ],
-            "title": "Mode"
-          },
-          "period": {
-            "type": "string",
-            "title": "Period"
-          },
           "phases": {
             "items": {
               "$ref": "#/components/schemas/PhaseProgress"
             },
             "type": "array",
             "title": "Phases"
-          },
-          "current_phase": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "Sprawdzanie",
-                  "Odczyt danych",
-                  "Planowanie",
-                  "Zapisywanie"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Current Phase"
           },
           "template_total": {
             "type": "integer",
@@ -1633,133 +1577,25 @@
             ],
             "title": "Current Worker"
           },
-          "rows": {
-            "type": "integer",
-            "title": "Rows"
-          },
-          "counts": {
-            "$ref": "#/components/schemas/TemplateCounts"
-          },
-          "recent_operations": {
+          "figures": {
             "items": {
-              "$ref": "#/components/schemas/OperationProgress"
+              "$ref": "#/components/schemas/Figure"
             },
             "type": "array",
-            "title": "Recent Operations"
-          },
-          "total_elapsed_ms": {
-            "type": "integer",
-            "title": "Total Elapsed Ms"
-          },
-          "issue_count": {
-            "type": "integer",
-            "title": "Issue Count"
+            "title": "Figures"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "mode",
-          "period",
           "phases",
-          "current_phase",
           "template_total",
           "templates_completed",
           "current_worker",
-          "rows",
-          "counts",
-          "recent_operations",
-          "total_elapsed_ms",
-          "issue_count"
+          "figures"
         ],
         "title": "Progress",
-        "description": "Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane."
-      },
-      "ProgressNotice": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "PHASE_STARTED",
-              "PHASE_ENDED",
-              "ISSUE_COUNT",
-              "PLAN_READY",
-              "WORKER_STARTED",
-              "WORKER_ENDED",
-              "FAILED"
-            ],
-            "title": "Kind"
-          },
-          "phase": {
-            "type": "string",
-            "enum": [
-              "Sprawdzanie",
-              "Odczyt danych",
-              "Planowanie",
-              "Zapisywanie"
-            ],
-            "title": "Phase"
-          },
-          "worker_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Worker Name"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status"
-          },
-          "rows": {
-            "type": "integer",
-            "title": "Rows"
-          },
-          "worker_elapsed_ms": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Worker Elapsed Ms"
-          },
-          "template_index": {
-            "type": "integer",
-            "title": "Template Index"
-          },
-          "template_total": {
-            "type": "integer",
-            "title": "Template Total"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "kind",
-          "phase",
-          "worker_name",
-          "status",
-          "rows",
-          "worker_elapsed_ms",
-          "template_index",
-          "template_total"
-        ],
-        "title": "ProgressNotice",
-        "description": "Neutralne powiadomienie o ostatniej zmianie postępu."
+        "description": "Wyświetlany podzbiór snapshotu jedynej projekcji postępu (ADR 0002): etapy, Szablony pracowników i liczby."
       },
       "ReadyPath": {
         "properties": {
@@ -1978,6 +1814,10 @@
           "dry_run": {
             "type": "boolean",
             "title": "Dry Run"
+          },
+          "confirms_readiness": {
+            "type": "boolean",
+            "title": "Confirms Readiness"
           }
         },
         "additionalProperties": false,
@@ -1987,9 +1827,11 @@
           "process",
           "title",
           "period",
-          "dry_run"
+          "dry_run",
+          "confirms_readiness"
         ],
-        "title": "RunInfo"
+        "title": "RunInfo",
+        "description": "Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."
       },
       "RunOutcome": {
         "properties": {
@@ -2025,10 +1867,6 @@
             ],
             "title": "Next Action"
           },
-          "total_duration_ms": {
-            "type": "integer",
-            "title": "Total Duration Ms"
-          },
           "stops": {
             "items": {
               "$ref": "#/components/schemas/Message"
@@ -2053,27 +1891,12 @@
           "summary": {
             "anyOf": [
               {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/PreparationSummary"
-                  },
-                  {
-                    "$ref": "#/components/schemas/SettlementSummary"
-                  }
-                ],
-                "discriminator": {
-                  "propertyName": "process",
-                  "mapping": {
-                    "preparation": "#/components/schemas/PreparationSummary",
-                    "settlement": "#/components/schemas/SettlementSummary"
-                  }
-                }
+                "$ref": "#/components/schemas/RunSummary"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Summary"
+            ]
           }
         },
         "additionalProperties": false,
@@ -2083,7 +1906,6 @@
           "headline",
           "ending",
           "next_action",
-          "total_duration_ms",
           "stops",
           "warnings",
           "notices",
@@ -2134,16 +1956,6 @@
           "progress": {
             "$ref": "#/components/schemas/Progress"
           },
-          "notice": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ProgressNotice"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "progress_stale": {
             "type": "boolean",
             "title": "Progress Stale"
@@ -2155,7 +1967,6 @@
           "state",
           "run",
           "progress",
-          "notice",
           "progress_stale"
         ],
         "title": "RunRunning"
@@ -2176,6 +1987,58 @@
           "processes"
         ],
         "title": "RunSetup"
+      },
+      "RunSummary": {
+        "properties": {
+          "figures": {
+            "items": {
+              "$ref": "#/components/schemas/Figure"
+            },
+            "type": "array",
+            "title": "Figures"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CountGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/PeriodFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "file_plan": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/WorkerFile"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Plan"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "figures",
+          "counts",
+          "files",
+          "file_plan"
+        ],
+        "title": "RunSummary",
+        "description": "Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.\n\nLiczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików\n(``None``, gdy proces go nie ma)."
       },
       "Settings": {
         "properties": {
@@ -2240,95 +2103,6 @@
           "theme"
         ],
         "title": "Settings"
-      },
-      "SettlementSummary": {
-        "properties": {
-          "process": {
-            "type": "string",
-            "const": "settlement",
-            "title": "Process"
-          },
-          "period": {
-            "type": "string",
-            "title": "Period"
-          },
-          "worker_settlements_folder": {
-            "type": "string",
-            "title": "Worker Settlements Folder"
-          },
-          "rows": {
-            "type": "integer",
-            "title": "Rows"
-          },
-          "written_count": {
-            "type": "integer",
-            "title": "Written Count"
-          },
-          "planned_count": {
-            "type": "integer",
-            "title": "Planned Count"
-          },
-          "empty_count": {
-            "type": "integer",
-            "title": "Empty Count"
-          },
-          "skipped_count": {
-            "type": "integer",
-            "title": "Skipped Count"
-          },
-          "files": {
-            "items": {
-              "$ref": "#/components/schemas/WorkerFile"
-            },
-            "type": "array",
-            "title": "Files"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "process",
-          "period",
-          "worker_settlements_folder",
-          "rows",
-          "written_count",
-          "planned_count",
-          "empty_count",
-          "skipped_count",
-          "files"
-        ],
-        "title": "SettlementSummary",
-        "description": "Podsumowanie albo plan (DRY-RUN) Przebiegu rozliczeń: liczby Szablonów pracowników i plan plików, bez danych klientów."
-      },
-      "TemplateCounts": {
-        "properties": {
-          "written": {
-            "type": "integer",
-            "title": "Written"
-          },
-          "empty": {
-            "type": "integer",
-            "title": "Empty"
-          },
-          "planned": {
-            "type": "integer",
-            "title": "Planned"
-          },
-          "skipped": {
-            "type": "integer",
-            "title": "Skipped"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "written",
-          "empty",
-          "planned",
-          "skipped"
-        ],
-        "title": "TemplateCounts",
-        "description": "Liczniki Szablonów pracowników z projekcji, te same co w linii terminala „Liczniki”."
       },
       "TemplateProblem": {
         "properties": {
@@ -2456,10 +2230,6 @@
       },
       "WorkerFile": {
         "properties": {
-          "worker_name": {
-            "type": "string",
-            "title": "Worker Name"
-          },
           "file": {
             "type": "string",
             "title": "File"
@@ -2472,12 +2242,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "worker_name",
           "file",
           "rows"
         ],
         "title": "WorkerFile",
-        "description": "Szablon pracownika jednego Wykonawcy: nazwa pliku i liczba Wierszy danych (0 = pusty skoroszyt)."
+        "description": "Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt)."
       },
       "WorkersReady": {
         "properties": {

@@ -17,11 +17,12 @@ import {
 } from "lucide-react"
 
 import type {
+  PeriodFile,
   PhaseProgress,
-  PreparationSummary,
   Progress as RunProgress,
   RunInfo,
   RunOutcome,
+  RunSummary,
   RunView,
   WorkerFile,
 } from "@/api/centrum"
@@ -42,8 +43,6 @@ import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
 
 type ShownRun = Exclude<RunView, { state: "idle" }>
-
-type RunSummary = NonNullable<RunOutcome["summary"]>
 
 const PHASE_ICONS: Record<PhaseProgress["state"], React.ReactNode> = {
   pending: <CircleDashedIcon className="text-muted-foreground" aria-hidden />,
@@ -135,7 +134,7 @@ export function RunCard({
             </li>
           ))}
         </ol>
-        {view.state === "finished" ? null : <LiveCounts run={run} progress={view.progress} />}
+        {view.state === "finished" ? null : <NumberStrip name="Liczniki" figures={view.progress.figures} />}
         {view.state !== "finished" && view.progress.template_total > 0 ? (
           <TemplateProgress progress={view.progress} />
         ) : null}
@@ -182,7 +181,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
 
   return (
     <>
-      {result.summary === null ? null : <SummaryNumbers summary={result.summary} dryRun={run.dry_run} />}
+      {result.summary === null ? null : <NumberStrip figures={result.summary.figures} />}
       {result.stops.length === 0 ? (
         <Alert className="wejscie p-4" aria-label="Wynik">
           {result.result === "OK" ? (
@@ -214,7 +213,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
         title={run.title}
         period={run.period}
         reminder={reminder}
-        confirmsReadiness={run.process === "settlement"}
+        confirmsReadiness={run.confirms_readiness}
         // „Uruchom” przy wyniku jest tylko po udanym podglądzie bez zapisu tego okresu.
         previewed
         onConfirm={() => again(false)}
@@ -265,35 +264,6 @@ function NextActionButton({
   }
 }
 
-/**
- * Liczniki z projekcji postępu, aktualizowane z każdym Zdarzeniem przebiegu, te same co w terminalu:
- * Przebieg rozliczeń liczy Wiersze danych, Szablony pracowników i problemy, Przygotowanie pliku
- * zbiorczego ostrzeżenia i czas. Wartości zmieniają się bez animacji.
- */
-function LiveCounts({ run, progress }: { run: RunInfo; progress: RunProgress }) {
-  const { counts } = progress
-
-  return (
-    <NumberStrip
-      name="Liczniki"
-      numbers={
-        run.process === "settlement"
-          ? [
-              ["Wiersze danych", progress.rows],
-              run.dry_run ? ["Planowane szablony", counts.planned] : ["Zapisane szablony", counts.written],
-              ["Puste szablony", counts.empty],
-              ["Pominięte szablony", counts.skipped],
-              ["Problemy", progress.issue_count],
-            ]
-          : [
-              ["Ostrzeżenia", progress.issue_count],
-              ["Czas uruchomienia", seconds(progress.total_elapsed_ms)],
-            ]
-      }
-    />
-  )
-}
-
 /** Postęp Szablonów pracowników z projekcji: bieżący Wykonawca i „x z y”. */
 function TemplateProgress({ progress }: { progress: RunProgress }) {
   const counted = `${progress.templates_completed} z ${progress.template_total}`
@@ -315,73 +285,32 @@ function TemplateProgress({ progress }: { progress: RunProgress }) {
   )
 }
 
-function SummaryNumbers({ summary, dryRun }: { summary: RunSummary; dryRun: boolean }) {
-  switch (summary.process) {
-    case "preparation":
-      return (
-        <NumberStrip
-          numbers={[
-            ["Zlecenia okresu", summary.period_order_count],
-            ["Zlecenia skuteczne", summary.successful_order_count],
-            ["Pominięte puste wiersze", summary.skipped_empty_rows],
-          ]}
-        />
-      )
-    case "settlement":
-      return (
-        <NumberStrip
-          numbers={
-            dryRun
-              ? [
-                  ["Wiersze danych", summary.rows],
-                  ["Planowane szablony", summary.planned_count],
-                  ["Puste szablony", summary.empty_count],
-                ]
-              : [
-                  ["Zapisane szablony", summary.written_count],
-                  ["Puste szablony", summary.empty_count],
-                  ["Pominięte szablony", summary.skipped_count],
-                ]
-          }
-        />
-      )
-    default: {
-      const unhandled: never = summary
-
-      return unhandled
-    }
-  }
-}
-
+/** Szczegóły wyniku z serwera: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików. */
 function SummaryDetails({ summary, dryRun }: { summary: RunSummary; dryRun: boolean }) {
-  switch (summary.process) {
-    case "preparation":
-      return <PeriodFiles summary={summary} />
-    case "settlement":
-      return <FilePlan files={summary.files} defaultOpen={dryRun} />
-    default: {
-      const unhandled: never = summary
-
-      return unhandled
-    }
-  }
-}
-
-function PeriodFiles({ summary }: { summary: PreparationSummary }) {
   return (
     <>
-      <CountTiles title="Zlecenia na dzień" counts={summary.orders_per_day} />
-      <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm" aria-label="Pliki okresu">
-        <li className="flex items-center gap-2">
-          <FileTextIcon className="size-4 text-muted-foreground" aria-hidden />
-          {summary.internal_settlement_file}
-        </li>
-        <li className="flex items-center gap-2">
-          <FileSpreadsheetIcon className="size-4 text-muted-foreground" aria-hidden />
-          {summary.collective_file}
-        </li>
-      </ul>
+      {summary.counts === null ? null : <CountTiles title={summary.counts.title} counts={summary.counts.counts} />}
+      {summary.files.length === 0 ? null : <PeriodFiles files={summary.files} />}
+      {summary.file_plan === null ? null : <FilePlan files={summary.file_plan} defaultOpen={dryRun} />}
     </>
+  )
+}
+
+const PERIOD_FILE_ICONS: Record<PeriodFile["kind"], React.ReactNode> = {
+  internal_settlement: <FileTextIcon className="size-4 text-muted-foreground" aria-hidden />,
+  collective_file: <FileSpreadsheetIcon className="size-4 text-muted-foreground" aria-hidden />,
+}
+
+function PeriodFiles({ files }: { files: ReadonlyArray<PeriodFile> }) {
+  return (
+    <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm" aria-label="Pliki okresu">
+      {files.map((file) => (
+        <li key={file.name} className="flex items-center gap-2">
+          {PERIOD_FILE_ICONS[file.kind]}
+          {file.name}
+        </li>
+      ))}
+    </ul>
   )
 }
 
