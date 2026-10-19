@@ -65,6 +65,7 @@ REQUIRED_SCREENSHOTS = {
         "30-przygotowanie-nowe-uruchomienie.png",
         "31-przygotowanie-podglad.png",
         "32-przygotowanie-potwierdzenie.png",
+        "39-przygotowanie-bez-podgladu.png",
         "33-przygotowanie-decyzja.png",
         "34-przygotowanie-zatrzymanie.png",
         "35-przygotowanie-zapisane.png",

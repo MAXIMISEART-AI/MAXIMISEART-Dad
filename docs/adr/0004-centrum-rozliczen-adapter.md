@@ -22,14 +22,47 @@ procesie co silnik, bez okna konsoli. Nasłuchuje wyłącznie na `127.0.0.1`.
 Odrzuca każde żądanie z nagłówkiem `Host` spoza localhost, a akcje zmieniające
 stan przyjmuje tylko z `Origin` Centrum. Nie ma logowania, zdalnego dostępu ani
 własnej bazy danych: stan wylicza przy każdym odczycie z folderu okresów,
-plików metryk i konfiguracji. Pliki i foldery otwiera tylko wtedy, gdy sam
+plików metryk i konfiguracji. Własne pliki Centrum to tylko ustawienia taty i
+dziennik pochodzenia Uruchomień (niżej); żaden z nich nie jest źródłem Statusu
+okresu, wyniku ani metryk. Pliki i foldery otwiera tylko wtedy, gdy sam
 wyliczył je z folderu okresów, nigdy dla ścieżki podanej w żądaniu.
 
 Reguła prywatności: do Centrum trafia tylko to, co przechodzi przez seam
 obserwacji z ADR 0002 (snapshoty projekcji i neutralne powiadomienia), oraz
-bezpieczne linie komunikatów wspólne z terminalem. Adresy klientów, numery
+bezpieczne komunikaty procesu wspólne z terminalem. Adresy klientów, numery
 zleceń, treści Wierszy danych i tekst wyjątków nie trafiają do przeglądarki,
-dziennika Centrum ani metryk.
+dziennika Centrum ani metryk. Typowane błędy silnika niosą jawny bezpieczny
+komunikat dla taty (`message`), napisany jak komunikat, nie jak opis błędu;
+terminal i Centrum biorą go stamtąd, nigdy z `str()` wyjątku.
+
+Komunikaty w Centrum mają tę samą treść co w terminalu, ale inną postać:
+Centrum dostaje każde zatrzymanie, ostrzeżenie i decyzję taty jako strukturę w
+trzech częściach (co się stało, gdzie, co zrobić) z tego samego katalogu
+komunikatów, a nie linie terminala do parsowania. Linie wyłącznie terminalowe
+(`Status końcowy`, `Czas uruchomienia`, statystyki P50/P95, plan z pełną ścieżką
+Folderu rozliczeń pracowników) nie trafiają do przeglądarki; zastępuje je tytuł
+wyniku i podsumowanie z samymi nazwami plików. Treść różni się tylko tam, gdzie
+różni się rozmowa:
+
+- zgodę na niepełny okres wyraża się w terminalu wpisaniem `t`, a w Centrum
+  przyciskiem `Kontynuuj`; mówi o tym rozmówca, nie proces;
+- terminal odsyła do tabeli w instrukcji, Centrum nie, więc komunikat
+  „pliki okresu powstały, ale nie udało się pokazać podsumowania” sam mówi w
+  Centrum, żeby nie uruchamiać ponownie;
+- terminal Przebiegu rozliczeń pokazuje zatrzymanie dawną jedną linią, a
+  Centrum ten sam komunikat w trzech częściach.
+
+Dziennik pochodzenia Uruchomień, `config/centrum-uruchomienia.jsonl`, to
+lokalny plik Centrum obok ustawień, poza gitem. Schemat metryk się nie zmienia,
+a historia ma odróżniać Uruchomienia z Centrum od tych z `.cmd`, więc po każdym
+Uruchomieniu z Centrum dopisuje on parę (proces, `started_at`) rekordu metryk,
+który to Uruchomienie dodało. Zawiera tylko te dwa bezpieczne fakty. Brak,
+uszkodzenie albo nieudany zapis pliku oznacza jedynie, że Uruchomienie pokaże
+się w historii jako `.cmd`; nigdy nie zmienia wyniku, zapisu ani metryk.
+Rekord rozpoznaje okno czasu Uruchomienia, więc Uruchomienie z `.cmd` tego
+samego procesu, które wystartuje w tym oknie, też zostanie oznaczone jako z
+Centrum. To rzadkie (tata nie prowadzi dwóch Uruchomień naraz) i tylko
+kosmetyczne, więc nie uzasadnia zmiany schematu metryk.
 
 Launchery `.cmd` i CLI zostają bez zmian. Ich porzucenie to osobna, przyszła
 decyzja z własnym ADR, podejmowana dopiero wtedy, gdy Centrum przejmie całą
@@ -68,7 +101,9 @@ przejmie całą pracę, są ścieżką zapasową, gdy Centrum nie wystartuje.
 - Wejście CLI zachowuje dzisiejsze zachowanie, a jego testy pilnują regresji
   wydzielenia rdzenia.
 - Uruchomienia z obu wejść trafiają do tych samych plików metryk, bez zmiany
-  schematu.
+  schematu. Pochodzenie Uruchomienia (Centrum albo `.cmd`) i udany podgląd bez
+  zapisu okresu Centrum wylicza z tych plików i z dziennika pochodzenia, nie z
+  pamięci karty przeglądarki.
 - Serwer prowadzi jedno Uruchomienie procesu naraz. Między CLI a Centrum nie ma
   blokady: przed zderzeniem chronią Nienadpisywanie i atomowa publikacja plików
   okresu.
