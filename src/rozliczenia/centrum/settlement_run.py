@@ -32,10 +32,8 @@ from rozliczenia.telemetry import MetricsStore
 
 _PROCESS: Final = cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "settlement"
+_VIEW: Final = run_view.SETTLEMENT
 _ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
-_REMINDER: Final = "Zapisz i zamknij Plik zbiorczy w Excelu"
-_CONFIRMS_READINESS: Final = True
-_PREVIEW_HINT: Final = "Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy."
 
 
 @dataclass(frozen=True)
@@ -64,9 +62,9 @@ class SettlementEntry:
             process=_KEY,
             title=PROCESS_NAMES[_KEY],
             creates="Rozliczenia pracowników",
-            reminder=_REMINDER,
-            confirms_readiness=_CONFIRMS_READINESS,
-            preview_hint=_PREVIEW_HINT,
+            reminder=_VIEW.reminder,
+            confirms_readiness=_VIEW.confirms_readiness,
+            preview_hint=_VIEW.preview_hint,
             periods=[_choice(row, previewed=row.token in previewed) for row in rows],
             preselected_period=preselected,
             blocker=_blocker(board, rows),
@@ -99,8 +97,7 @@ class SettlementEntry:
             inputs=inputs,
             metrics_path=self.metrics_path,
             done="Rozliczenia pracowników gotowe",
-            confirms_readiness=_CONFIRMS_READINESS,
-            view=run_view.SETTLEMENT,
+            view=_VIEW,
             warnings=warnings,
         )
 

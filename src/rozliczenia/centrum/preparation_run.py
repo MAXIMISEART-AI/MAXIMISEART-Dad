@@ -26,10 +26,8 @@ from rozliczenia.telemetry import MetricsStore
 
 _PROCESS: Final = preparation_cli.PROCESS
 _KEY: Final[contract.ProcessKey] = "preparation"
+_VIEW: Final = run_view.PREPARATION
 _CHOSEN_WEEKS: Final = 8
-_REMINDER: Final = "Zapisz i zamknij Rejestr zleceń w Excelu"
-_CONFIRMS_READINESS: Final = False
-_PREVIEW_HINT: Final = "Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików."
 
 
 @dataclass(frozen=True)
@@ -54,9 +52,9 @@ class PreparationEntry:
             process=_KEY,
             title=PROCESS_NAMES[_KEY],
             creates="Rozliczenie wewnętrzne i Plik zbiorczy",
-            reminder=_REMINDER,
-            confirms_readiness=_CONFIRMS_READINESS,
-            preview_hint=_PREVIEW_HINT,
+            reminder=_VIEW.reminder,
+            confirms_readiness=_VIEW.confirms_readiness,
+            preview_hint=_VIEW.preview_hint,
             periods=[
                 _choice(settings, period, last_complete=period == last_complete, previewed=period.token in previewed)
                 for period in periods
@@ -91,8 +89,7 @@ class PreparationEntry:
             inputs=inputs,
             metrics_path=self.metrics_path,
             done="Plik zbiorczy przygotowany",
-            confirms_readiness=_CONFIRMS_READINESS,
-            view=run_view.PREPARATION,
+            view=_VIEW,
             warnings=lambda summary: summary.warnings,
         )
 

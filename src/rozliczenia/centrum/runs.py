@@ -60,8 +60,7 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     """Uruchomienie procesu gotowe do startu: ten sam opis procesu co w CLI i wejście procesu z ustawień.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
-    ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
-    ``view`` (liczby na żywo i wynik) i ``warnings`` zamieniają snapshot postępu i podsumowanie
+    ``view`` (deklaracja procesu, liczby na żywo i wynik) i ``warnings`` zamieniają snapshot postępu i podsumowanie
     silnika na widok dla przeglądarki; ``summary_view`` woła rdzeń.
     """
 
@@ -72,7 +71,6 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     inputs: InputsT
     metrics_path: Path
     done: str
-    confirms_readiness: bool
     view: ProcessView[SummaryT]
     warnings: Callable[[SummaryT], Sequence[Message]]
 
@@ -212,7 +210,7 @@ class _Run:
             title=prepared.title,
             period=prepared.period,
             dry_run=prepared.dry_run,
-            confirms_readiness=prepared.confirms_readiness,
+            confirms_readiness=prepared.view.confirms_readiness,
         )
         self._progress = prepared.progress_view(ProgressProjection(_mode(prepared.dry_run), prepared.period).snapshot)
         self._stale = False

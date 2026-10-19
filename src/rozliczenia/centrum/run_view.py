@@ -1,7 +1,8 @@
 """Widok Uruchomienia: to, co karta Uruchomienia pokazuje ze snapshotu postępu i z podsumowania procesu.
 
-Jedyne miejsce prezentacji procesów w Centrum rozliczeń: etykiety i kolejność liczb na żywo, liczb
-wyniku i szczegóły wyniku. Projekcja postępu pozostaje jedynym interpretatorem Zdarzeń przebiegu
+Jedyne miejsce prezentacji procesów w Centrum rozliczeń: deklaracja procesu (przypomnienie przed
+uruchomieniem, Gotowość, podpowiedź podglądu), etykiety i kolejność liczb na żywo, liczb wyniku
+i szczegóły wyniku. Projekcja postępu pozostaje jedynym interpretatorem Zdarzeń przebiegu
 (ADR 0002); widok tylko wybiera i nazywa jej fakty, a przeglądarka renderuje go bez rozróżniania
 procesów (ADR 0004). Kontrakt niesie wyłącznie to, co karta pokazuje.
 """
@@ -23,8 +24,16 @@ SummaryT = TypeVar("SummaryT")
 
 @dataclass(frozen=True)
 class ProcessView(Generic[SummaryT]):
-    """Widok Uruchomienia jednego procesu: liczby na żywo i wynik w kształcie kontraktu."""
+    """Widok Uruchomienia jednego procesu: deklaracja procesu, liczby na żywo i wynik w kształcie kontraktu.
 
+    Deklaracja procesu: ``reminder`` to przypomnienie przed uruchomieniem, ``confirms_readiness``
+    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, a ``preview_hint`` to podpowiedź
+    „Podgląd bez zapisu”.
+    """
+
+    reminder: str
+    confirms_readiness: bool
+    preview_hint: str
     _figures: Callable[[ProgressSnapshot, bool], list[contract.Figure]]
     _summary: Callable[[SummaryT, bool], contract.RunSummary]
 
@@ -115,5 +124,17 @@ def _preparation_summary(summary: PreparationSummary, _dry_run: bool) -> contrac
     )
 
 
-SETTLEMENT: Final[ProcessView[SettlementSummary]] = ProcessView(_settlement_figures, _settlement_summary)
-PREPARATION: Final[ProcessView[PreparationSummary]] = ProcessView(_preparation_figures, _preparation_summary)
+SETTLEMENT: Final[ProcessView[SettlementSummary]] = ProcessView(
+    reminder="Zapisz i zamknij Plik zbiorczy w Excelu",
+    confirms_readiness=True,
+    preview_hint="Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
+    _figures=_settlement_figures,
+    _summary=_settlement_summary,
+)
+PREPARATION: Final[ProcessView[PreparationSummary]] = ProcessView(
+    reminder="Zapisz i zamknij Rejestr zleceń w Excelu",
+    confirms_readiness=False,
+    preview_hint="Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
+    _figures=_preparation_figures,
+    _summary=_preparation_summary,
+)
