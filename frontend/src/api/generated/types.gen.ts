@@ -56,6 +56,30 @@ export type Choice = {
 };
 
 /**
+ * Configuration
+ *
+ * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ */
+export type Configuration = {
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Templates
+     */
+    templates: Array<TemplateReady | TemplateProblem>;
+    /**
+     * Workers
+     */
+    workers: ({
+        state: 'ready';
+    } & WorkersReady) | ({
+        state: 'unreadable';
+    } & WorkersUnreadable);
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -77,6 +101,26 @@ export type Health = {
      * Version
      */
     version: string;
+};
+
+/**
+ * Message
+ *
+ * Komunikat w trzech częściach, ta sama treść co w terminalu.
+ */
+export type Message = {
+    /**
+     * What
+     */
+    what: string;
+    /**
+     * Where
+     */
+    where: string;
+    /**
+     * Action
+     */
+    action: string;
 };
 
 /**
@@ -267,6 +311,51 @@ export type Settings = {
 };
 
 /**
+ * TemplateProblem
+ *
+ * Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania.
+ */
+export type TemplateProblem = {
+    /**
+     * State
+     */
+    state: 'problem';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * File Name
+     */
+    file_name: string;
+    /**
+     * Problem
+     */
+    problem: 'missing' | 'open_in_excel' | 'unreadable';
+    message: Message;
+};
+
+/**
+ * TemplateReady
+ *
+ * Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie.
+ */
+export type TemplateReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * File Name
+     */
+    file_name: string;
+};
+
+/**
  * ThemeChange
  */
 export type ThemeChange = {
@@ -302,6 +391,33 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
+};
+
+/**
+ * WorkersReady
+ *
+ * Nazwy Wykonawców w kolejności z konfiguracji wykonawców.
+ */
+export type WorkersReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    /**
+     * Names
+     */
+    names: Array<string>;
+};
+
+/**
+ * WorkersUnreadable
+ */
+export type WorkersUnreadable = {
+    /**
+     * State
+     */
+    state: 'unreadable';
+    message: Message;
 };
 
 export type GetHealthData = {
@@ -454,3 +570,19 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
+
+export type GetConfigurationData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/configuration';
+};
+
+export type GetConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: Configuration;
+};
+
+export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];

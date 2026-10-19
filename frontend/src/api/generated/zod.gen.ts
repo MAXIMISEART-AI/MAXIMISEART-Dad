@@ -26,6 +26,17 @@ export const zHealth = z.object({
 });
 
 /**
+ * Message
+ *
+ * Komunikat w trzech częściach, ta sama treść co w terminalu.
+ */
+export const zMessage = z.object({
+    what: z.string(),
+    where: z.string(),
+    action: z.string()
+});
+
+/**
  * MissingPath
  *
  * Zapamiętana ścieżka, pod którą nie ma już pliku albo folderu.
@@ -159,6 +170,34 @@ export const zChoice = z.object({
 });
 
 /**
+ * TemplateProblem
+ *
+ * Wzorca nie ma, jest otwarty w Excelu albo nie przechodzi Sprawdzania.
+ */
+export const zTemplateProblem = z.object({
+    state: z.literal('problem'),
+    label: z.string(),
+    file_name: z.string(),
+    problem: z.enum([
+        'missing',
+        'open_in_excel',
+        'unreadable'
+    ]),
+    message: zMessage
+});
+
+/**
+ * TemplateReady
+ *
+ * Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie.
+ */
+export const zTemplateReady = z.object({
+    state: z.literal('ready'),
+    label: z.string(),
+    file_name: z.string()
+});
+
+/**
  * ThemeChange
  */
 export const zThemeChange = z.object({
@@ -181,6 +220,38 @@ export const zValidationError = z.object({
  */
 export const zHttpValidationError = z.object({
     detail: z.array(zValidationError).optional()
+});
+
+/**
+ * WorkersReady
+ *
+ * Nazwy Wykonawców w kolejności z konfiguracji wykonawców.
+ */
+export const zWorkersReady = z.object({
+    state: z.literal('ready'),
+    names: z.array(z.string())
+});
+
+/**
+ * WorkersUnreadable
+ */
+export const zWorkersUnreadable = z.object({
+    state: z.literal('unreadable'),
+    message: zMessage
+});
+
+/**
+ * Configuration
+ *
+ * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ */
+export const zConfiguration = z.object({
+    version: z.string(),
+    templates: z.array(z.union([zTemplateReady, zTemplateProblem])),
+    workers: z.discriminatedUnion('state', [
+        zWorkersReady,
+        zWorkersUnreadable
+    ])
 });
 
 /**
@@ -231,3 +302,8 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
+
+/**
+ * Successful Response
+ */
+export const zGetConfigurationResponse = zConfiguration;

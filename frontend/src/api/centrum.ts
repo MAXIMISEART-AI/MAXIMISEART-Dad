@@ -7,6 +7,7 @@ import type {
 } from "@/api/generated"
 import {
   zChangeThemeResponse,
+  zGetConfigurationResponse,
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
   zGetPeriodBoardResponse,
@@ -16,10 +17,13 @@ import {
 
 export type {
   Choice,
+  Configuration,
+  Message,
   NextStep,
   OpenRequest,
   PeriodRow,
   Settings,
+  TemplateProblem,
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse
@@ -71,4 +75,9 @@ export function openPeriodPath(token: string, target: OpenTarget) {
     `/api/periods/${encodeURIComponent(token)}/open`,
     send("POST", { target })
   )
+}
+
+/** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
+export function getConfiguration() {
+  return call(zGetConfigurationResponse, "/api/configuration")
 }
