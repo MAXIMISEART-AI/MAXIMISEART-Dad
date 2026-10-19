@@ -65,3 +65,4 @@ entry in `drive_centrum.py`, and its screenshots in
 
 - [Ustawienia](./ustawienia.md) covers pointing to the folder okresów and the Rejestr zleceń through the native picker, cancelling, a remembered path that is gone, and the remembered theme.
 - [Tablica okresów](./tablica-okresow.md) covers the period list with Status okresu, the last complete period and Następny krok, opening period files and folders, refreshing after changes on disk, and refusing foreign requests.
+- [Start i zamykanie](./start-i-zamykanie.md) covers readiness, the second start that only opens the tab, the three-part message for a port held by another program, the Centrum log, and closing Centrum from the sidebar. It closes the server, so it runs last.

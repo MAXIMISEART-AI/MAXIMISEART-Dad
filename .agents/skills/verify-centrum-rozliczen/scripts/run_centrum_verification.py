@@ -44,6 +44,10 @@ REQUIRED_SCREENSHOTS = {
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
     ),
+    "start-i-zamykanie": (
+        "10-start-i-zamykanie-potwierdzenie.png",
+        "11-start-i-zamykanie-zamkniete.png",
+    ),
 }
 
 
