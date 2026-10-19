@@ -6,7 +6,8 @@ rozmowę od rdzenia Uruchomienia procesu (``decision.Conversation``), i sam
 zatrzymuje się po odmowie. Zatrzymania zgłasza jako ``StopError`` z
 Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
-Ten moduł tylko sekwencjonuje cztery etapy. Odczyt Rejestru zleceń jest w
+Ten moduł sekwencjonuje cztery etapy i między Planowaniem a Zapisywaniem
+składa Decyzję taty o niepełnym okresie. Odczyt Rejestru zleceń jest w
 ``preparation_register``, wybór zleceń okresu i reguły zleceń w
 ``preparation_plan``, a wzorce i zapis plików okresu w ``preparation_files``.
 """
@@ -179,12 +180,13 @@ def prepare_collective_file(
         orders_per_day=plan.orders_per_day,
         warnings=warnings,
     )
-    decision = _incomplete_period_decision(summary)
-    if conversation is not None and decision is not None and not dry_run:
-        with phases.paused():
-            consent = conversation.confirm(decision)
-        if not consent:
-            raise StopError(messages.incomplete_period_refused(period, conversation.continue_hint))
+    if conversation is not None and not dry_run:
+        decision = _incomplete_period_decision(summary)
+        if decision is not None:
+            with phases.paused():
+                consent = conversation.confirm(decision)
+            if not consent:
+                raise StopError(messages.incomplete_period_refused(period, conversation.continue_hint))
 
     def save_both() -> None:
         if not dry_run:

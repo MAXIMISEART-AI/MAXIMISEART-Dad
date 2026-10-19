@@ -2,9 +2,10 @@
 
 Proces (np. Przygotowanie pliku zbiorczego) sam składa Decyzję i sam
 zatrzymuje się po odmowie; rozmówca rdzenia Uruchomienia procesu (terminal albo
-Centrum rozliczeń) tylko ją pokazuje i zwraca zgodę taty. Moduł używa tylko
-biblioteki standardowej, żeby moduły procesu nie zależały od rdzenia
-Uruchomienia procesu.
+Centrum rozliczeń) tylko ją pokazuje i zwraca zgodę taty. Moduł zależy tylko
+od biblioteki standardowej i od ``message`` (który sam używa tylko biblioteki
+standardowej), żeby moduły procesu nie zależały od rdzenia Uruchomienia
+procesu.
 """
 
 from __future__ import annotations
