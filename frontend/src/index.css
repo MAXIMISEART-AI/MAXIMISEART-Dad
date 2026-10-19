@@ -188,6 +188,16 @@
   }
 }
 
+/* Pasek etapu, który trwa: ⅓ szerokości przesuwana w pętli; stały ruch, więc liniowo, bez udawanych procentów. */
+@keyframes postep-nieokreslony {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 300% 0;
+  }
+}
+
 /* Ograniczony ruch: zostają przezroczystość i kolor, znika przesuwanie i skalowanie. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -206,6 +216,11 @@
   .wejscie {
     transition: opacity 200ms var(--ease-out);
     translate: none;
+  }
+  [data-slot="progress-indicator"][data-indeterminate] {
+    animation: none !important;
+    width: 100% !important;
+    opacity: 0.35;
   }
   [data-slot="toast"] {
     transition-property: opacity !important;

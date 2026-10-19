@@ -302,10 +302,14 @@ def run_result(
     outcome: Outcome[Any],
     *,
     dry_run: bool,
+    done: str,
     summary: contract.PreparationSummary | None,
     warnings: Sequence[contract.Message],
 ) -> contract.RunResult:
-    """Wynik dla przeglądarki z ``Outcome`` rdzenia: linie bez zmian, zatrzymania z linii statusu procesu."""
+    """Wynik dla przeglądarki z ``Outcome`` rdzenia: linie bez zmian, zatrzymania z linii statusu procesu.
+
+    ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
+    """
 
     ending = outcome.ending
     finished = isinstance(ending, Finished)
@@ -313,11 +317,14 @@ def run_result(
     next_action: Literal["run", "rerun", "open_period_folder"]
     if finished:
         next_action = "run" if dry_run else "open_period_folder"
+        headline = "Podgląd gotowy · nic nie zapisano" if dry_run else done
     else:
+        headline = "Zatrzymano" if kind == "stop" else "Błąd"
         # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
         next_action = "open_period_folder" if kind == "after_engine" and not dry_run else "rerun"
     return contract.RunResult(
         result=outcome.result,
+        headline=headline,
         ending=kind,
         next_action=next_action,
         status_line=outcome.status_lines[0] if outcome.status_lines else "",
@@ -337,6 +344,7 @@ def _unexpected_result(dry_run: bool) -> contract.RunResult:
     action = "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
     return contract.RunResult(
         result="BLAD_KRYTYCZNY",
+        headline="Błąd",
         ending="after_engine",
         next_action="rerun" if dry_run else "open_period_folder",
         status_line="Status końcowy: BŁĄD",

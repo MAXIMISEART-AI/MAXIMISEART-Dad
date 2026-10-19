@@ -56,6 +56,65 @@ export type Choice = {
 };
 
 /**
+ * Count
+ */
+export type Count = {
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * CountGroup
+ */
+export type CountGroup = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Counts
+     */
+    counts: Array<Count>;
+};
+
+/**
+ * Decision
+ *
+ * Pytanie do taty z liniami procesu: tytuł, komunikat w trzech częściach i liczby (np. Zlecenia na dzień).
+ */
+export type Decision = {
+    /**
+     * Question
+     */
+    question: string;
+    /**
+     * Title
+     */
+    title: string | null;
+    message: Message | null;
+    /**
+     * Count Groups
+     */
+    count_groups: Array<CountGroup>;
+};
+
+/**
+ * DecisionAnswer
+ */
+export type DecisionAnswer = {
+    /**
+     * Answer
+     */
+    answer: 'continue' | 'abort';
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -77,6 +136,26 @@ export type Health = {
      * Version
      */
     version: string;
+};
+
+/**
+ * Message
+ *
+ * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) z liniami terminala; jednoliniowy ma tylko ``what``.
+ */
+export type Message = {
+    /**
+     * What
+     */
+    what: string;
+    /**
+     * Where
+     */
+    where: string | null;
+    /**
+     * Action
+     */
+    action: string | null;
 };
 
 /**
@@ -154,6 +233,56 @@ export type Opened = {
 };
 
 /**
+ * OperationProgress
+ */
+export type OperationProgress = {
+    /**
+     * Worker Name
+     */
+    worker_name: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Rows
+     */
+    rows: number;
+    /**
+     * Worker Elapsed Ms
+     */
+    worker_elapsed_ms: number | null;
+};
+
+/**
+ * PeriodChoice
+ *
+ * Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików.
+ */
+export type PeriodChoice = {
+    /**
+     * Token
+     */
+    token: string;
+    /**
+     * Tuesday
+     */
+    tuesday: string;
+    /**
+     * Monday
+     */
+    monday: string;
+    /**
+     * Status Label
+     */
+    status_label: string;
+    /**
+     * Last Complete
+     */
+    last_complete: boolean;
+};
+
+/**
  * PeriodRow
  *
  * Jeden okres Tablicy okresów, wyliczony z plików przy każdym odczycie.
@@ -207,6 +336,60 @@ export type PeriodRow = {
 };
 
 /**
+ * PhaseProgress
+ */
+export type PhaseProgress = {
+    /**
+     * Phase
+     */
+    phase: 'Sprawdzanie' | 'Odczyt danych' | 'Planowanie' | 'Zapisywanie';
+    /**
+     * State
+     */
+    state: 'pending' | 'running' | 'completed' | 'failed';
+    /**
+     * Duration Ms
+     */
+    duration_ms: number;
+};
+
+/**
+ * PreparationSummary
+ *
+ * Podsumowanie albo plan (DRY-RUN) Przygotowania pliku zbiorczego, bez danych klientów.
+ */
+export type PreparationSummary = {
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Period Order Count
+     */
+    period_order_count: number;
+    /**
+     * Successful Order Count
+     */
+    successful_order_count: number;
+    /**
+     * Skipped Empty Rows
+     */
+    skipped_empty_rows: number;
+    /**
+     * Orders Per Day
+     */
+    orders_per_day: Array<Count>;
+    /**
+     * Internal Settlement File
+     */
+    internal_settlement_file: string;
+    /**
+     * Collective File
+     */
+    collective_file: string;
+};
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -216,6 +399,140 @@ export type Problem = {
      * Message
      */
     message: string;
+};
+
+/**
+ * ProcessSetup
+ *
+ * Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
+ */
+export type ProcessSetup = {
+    /**
+     * Process
+     */
+    process: 'preparation';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Creates
+     */
+    creates: string;
+    /**
+     * Reminder
+     */
+    reminder: string;
+    /**
+     * Periods
+     */
+    periods: Array<PeriodChoice>;
+    /**
+     * Preselected Period
+     */
+    preselected_period: string;
+    /**
+     * Blocker
+     */
+    blocker: string | null;
+};
+
+/**
+ * Progress
+ *
+ * Snapshot jedynej projekcji postępu (ADR 0002) w kształcie dla przeglądarki; nic nie jest tu wyliczane.
+ */
+export type Progress = {
+    /**
+     * Mode
+     */
+    mode: 'RUN' | 'DRY-RUN';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Phases
+     */
+    phases: Array<PhaseProgress>;
+    /**
+     * Current Phase
+     */
+    current_phase: 'Sprawdzanie' | 'Odczyt danych' | 'Planowanie' | 'Zapisywanie' | null;
+    /**
+     * Template Total
+     */
+    template_total: number;
+    /**
+     * Templates Completed
+     */
+    templates_completed: number;
+    /**
+     * Current Worker
+     */
+    current_worker: string | null;
+    /**
+     * Rows
+     */
+    rows: number;
+    /**
+     * Operation Counts
+     */
+    operation_counts: {
+        [key: string]: number;
+    };
+    /**
+     * Recent Operations
+     */
+    recent_operations: Array<OperationProgress>;
+    /**
+     * Total Elapsed Ms
+     */
+    total_elapsed_ms: number;
+    /**
+     * Issue Count
+     */
+    issue_count: number;
+};
+
+/**
+ * ProgressNotice
+ *
+ * Neutralne powiadomienie o ostatniej zmianie postępu.
+ */
+export type ProgressNotice = {
+    /**
+     * Kind
+     */
+    kind: 'PHASE_STARTED' | 'PHASE_ENDED' | 'ISSUE_COUNT' | 'PLAN_READY' | 'WORKER_STARTED' | 'WORKER_ENDED' | 'FAILED';
+    /**
+     * Phase
+     */
+    phase: 'Sprawdzanie' | 'Odczyt danych' | 'Planowanie' | 'Zapisywanie';
+    /**
+     * Worker Name
+     */
+    worker_name: string | null;
+    /**
+     * Status
+     */
+    status: string | null;
+    /**
+     * Rows
+     */
+    rows: number;
+    /**
+     * Worker Elapsed Ms
+     */
+    worker_elapsed_ms: number | null;
+    /**
+     * Template Index
+     */
+    template_index: number;
+    /**
+     * Template Total
+     */
+    template_total: number;
 };
 
 /**
@@ -234,6 +551,200 @@ export type ReadyPath = {
      * Name
      */
     name: string;
+};
+
+/**
+ * RunAwaitingDecision
+ *
+ * Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk.
+ */
+export type RunAwaitingDecision = {
+    /**
+     * State
+     */
+    state: 'awaiting_decision';
+    run: RunInfo;
+    progress: Progress;
+    decision: Decision;
+};
+
+/**
+ * RunEvent
+ *
+ * Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu.
+ */
+export type RunEvent = {
+    /**
+     * Sequence
+     */
+    sequence: number;
+    /**
+     * View
+     */
+    view: ({
+        state: 'idle';
+    } & RunIdle) | ({
+        state: 'running';
+    } & RunRunning) | ({
+        state: 'awaiting_decision';
+    } & RunAwaitingDecision) | ({
+        state: 'finished';
+    } & RunFinished);
+};
+
+/**
+ * RunFinished
+ */
+export type RunFinished = {
+    /**
+     * State
+     */
+    state: 'finished';
+    run: RunInfo;
+    progress: Progress;
+    /**
+     * Progress Stale
+     */
+    progress_stale: boolean;
+    result: RunResult;
+};
+
+/**
+ * RunIdle
+ *
+ * Od startu serwera nie było żadnego Uruchomienia procesu.
+ */
+export type RunIdle = {
+    /**
+     * State
+     */
+    state: 'idle';
+};
+
+/**
+ * RunInfo
+ */
+export type RunInfo = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Process
+     */
+    process: 'preparation';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Dry Run
+     */
+    dry_run: boolean;
+};
+
+/**
+ * RunRequest
+ *
+ * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
+ */
+export type RunRequest = {
+    /**
+     * Process
+     */
+    process: 'preparation';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Dry Run
+     */
+    dry_run: boolean;
+};
+
+/**
+ * RunResult
+ *
+ * Wynik Uruchomienia procesu: te same linie co w terminalu, rozdzielone na zatrzymania, ostrzeżenia i resztę.
+ *
+ * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
+ * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ */
+export type RunResult = {
+    /**
+     * Result
+     */
+    result: 'OK' | 'WYMAGA_SPRAWDZENIA' | 'BLAD_KRYTYCZNY';
+    /**
+     * Headline
+     */
+    headline: string;
+    /**
+     * Ending
+     */
+    ending: 'finished' | 'stop' | 'unexpected' | 'after_engine';
+    /**
+     * Next Action
+     */
+    next_action: 'run' | 'rerun' | 'open_period_folder';
+    /**
+     * Status Line
+     */
+    status_line: string;
+    /**
+     * Total Duration Ms
+     */
+    total_duration_ms: number;
+    /**
+     * Stops
+     */
+    stops: Array<Message>;
+    /**
+     * Warnings
+     */
+    warnings: Array<Message>;
+    /**
+     * Notices
+     */
+    notices: Array<string>;
+    summary: PreparationSummary | null;
+    /**
+     * Lines
+     */
+    lines: Array<string>;
+};
+
+/**
+ * RunRunning
+ */
+export type RunRunning = {
+    /**
+     * State
+     */
+    state: 'running';
+    run: RunInfo;
+    progress: Progress;
+    notice: ProgressNotice | null;
+    /**
+     * Progress Stale
+     */
+    progress_stale: boolean;
+};
+
+/**
+ * RunSetup
+ */
+export type RunSetup = {
+    /**
+     * Processes
+     */
+    processes: Array<ProcessSetup>;
 };
 
 /**
@@ -454,3 +965,152 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
+
+export type GetRunSetupData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/runs/setup';
+};
+
+export type GetRunSetupResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunSetup;
+};
+
+export type GetRunSetupResponse = GetRunSetupResponses[keyof GetRunSetupResponses];
+
+export type StartRunData = {
+    body: RunRequest;
+    path?: never;
+    query?: never;
+    url: '/api/runs';
+};
+
+export type StartRunErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StartRunError = StartRunErrors[keyof StartRunErrors];
+
+export type StartRunResponses = {
+    /**
+     * Response Startrun
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'idle';
+    } & RunIdle) | ({
+        state: 'running';
+    } & RunRunning) | ({
+        state: 'awaiting_decision';
+    } & RunAwaitingDecision) | ({
+        state: 'finished';
+    } & RunFinished);
+};
+
+export type StartRunResponse = StartRunResponses[keyof StartRunResponses];
+
+export type GetCurrentRunData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/runs/current';
+};
+
+export type GetCurrentRunResponses = {
+    /**
+     * Response Getcurrentrun
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'idle';
+    } & RunIdle) | ({
+        state: 'running';
+    } & RunRunning) | ({
+        state: 'awaiting_decision';
+    } & RunAwaitingDecision) | ({
+        state: 'finished';
+    } & RunFinished);
+};
+
+export type GetCurrentRunResponse = GetCurrentRunResponses[keyof GetCurrentRunResponses];
+
+export type DecideRunData = {
+    body: DecisionAnswer;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/runs/{run_id}/decision';
+};
+
+export type DecideRunErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DecideRunError = DecideRunErrors[keyof DecideRunErrors];
+
+export type DecideRunResponses = {
+    /**
+     * Response Deciderun
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'idle';
+    } & RunIdle) | ({
+        state: 'running';
+    } & RunRunning) | ({
+        state: 'awaiting_decision';
+    } & RunAwaitingDecision) | ({
+        state: 'finished';
+    } & RunFinished);
+};
+
+export type DecideRunResponse = DecideRunResponses[keyof DecideRunResponses];
+
+export type StreamRunEventsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/runs/events';
+};
+
+export type StreamRunEventsResponses = {
+    /**
+     * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
+     */
+    200: RunEvent;
+};
+
+export type StreamRunEventsResponse = StreamRunEventsResponses[keyof StreamRunEventsResponses];

@@ -16,6 +16,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { shortDate } from "@/lib/format"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
+import { PrepareLink } from "@/pages/periods/prepare-actions"
 
 /** Tablica okresów: od najnowszego, ostatni pełny okres wyróżniony tłem. */
 export function PeriodBoardTable({
@@ -70,20 +71,24 @@ function PeriodBoardRow({ period, onStale }: { period: PeriodRow; onStale: () =>
         <PeriodFiles period={period} onStale={onStale} />
       </TableCell>
       <TableCell className="text-right">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span
-                tabIndex={0}
-                className="rounded-md text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-[closed=true]:text-muted-foreground data-[closed=false]:font-medium"
-                data-closed={period.next_step.action === "none"}
-              />
-            }
-          >
-            {period.next_step.action === "none" ? "Zamknięty" : period.next_step.label}
-          </TooltipTrigger>
-          <TooltipContent>{period.next_step.hint}</TooltipContent>
-        </Tooltip>
+        {period.next_step.action === "prepare_collective_file" ? (
+          <PrepareLink period={period} />
+        ) : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  tabIndex={0}
+                  className="rounded-md text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-[closed=true]:text-muted-foreground data-[closed=false]:font-medium"
+                  data-closed={period.next_step.action === "none"}
+                />
+              }
+            >
+              {period.next_step.action === "none" ? "Zamknięty" : period.next_step.label}
+            </TooltipTrigger>
+            <TooltipContent>{period.next_step.hint}</TooltipContent>
+          </Tooltip>
+        )}
       </TableCell>
     </TableRow>
   )

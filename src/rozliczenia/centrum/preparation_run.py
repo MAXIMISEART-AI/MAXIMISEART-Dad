@@ -77,6 +77,7 @@ class PreparationEntry:
             return run_result(
                 outcome,
                 dry_run=inputs.dry_run,
+                done="Plik zbiorczy przygotowany",
                 summary=None if summary is None else _summary(summary),
                 warnings=[] if summary is None else [_message(warning) for warning in summary.warnings],
             )

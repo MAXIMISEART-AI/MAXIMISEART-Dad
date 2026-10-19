@@ -1,7 +1,11 @@
 import { call } from "@/api/client"
 import type {
+  DecisionAnswer,
+  GetCurrentRunResponse,
   GetPeriodBoardResponse,
   OpenRequest,
+  RunEvent,
+  RunRequest,
   Settings,
   ThemeChange,
 } from "@/api/generated"
@@ -9,16 +13,34 @@ import {
   zChangeThemeResponse,
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
+  zDecideRunResponse,
+  zGetCurrentRunResponse,
   zGetPeriodBoardResponse,
+  zGetRunSetupResponse,
   zGetSettingsResponse,
   zOpenPeriodPathResponse,
+  zRunEvent,
+  zStartRunResponse,
 } from "@/api/generated/zod.gen"
 
 export type {
   Choice,
+  Count,
+  Decision,
+  DecisionAnswer,
+  Message,
   NextStep,
   OpenRequest,
+  PeriodChoice,
   PeriodRow,
+  PhaseProgress,
+  PreparationSummary,
+  ProcessSetup,
+  Progress,
+  RunEvent,
+  RunInfo,
+  RunRequest,
+  RunResult,
   Settings,
 } from "@/api/generated"
 
@@ -30,7 +52,13 @@ export type Theme = ThemeChange["theme"]
 
 export type OpenTarget = OpenRequest["target"]
 
-function send(method: "POST" | "PUT", body?: OpenRequest | ThemeChange): RequestInit {
+/** Widok bieżącego Uruchomienia procesu; jego `state` to stany UI (unia z kontraktu). */
+export type RunView = GetCurrentRunResponse
+
+function send(
+  method: "POST" | "PUT",
+  body?: OpenRequest | ThemeChange | RunRequest | DecisionAnswer
+): RequestInit {
   return {
     method,
     headers: { "Content-Type": "application/json" },
@@ -71,4 +99,57 @@ export function openPeriodPath(token: string, target: OpenTarget) {
     `/api/periods/${encodeURIComponent(token)}/open`,
     send("POST", { target })
   )
+}
+
+/** Co tata wybiera przed Uruchomieniem procesu: procesy, okresy z preselekcją, przypomnienie, brakujące ustawienia. */
+export function getRunSetup() {
+  return call(zGetRunSetupResponse, "/api/runs/setup")
+}
+
+export function getCurrentRun() {
+  return call(zGetCurrentRunResponse, "/api/runs/current")
+}
+
+/** Start Uruchomienia procesu; gdy trwa już inne, serwer odmawia z bezpiecznym komunikatem. */
+export function startRun(request: RunRequest) {
+  return call(zStartRunResponse, "/api/runs", send("POST", request))
+}
+
+/** Decyzja taty o niepełnym okresie dla Uruchomienia `runId`. */
+export function decideRun(runId: string, answer: DecisionAnswer["answer"]) {
+  return call(
+    zDecideRunResponse,
+    `/api/runs/${encodeURIComponent(runId)}/decision`,
+    send("POST", { answer })
+  )
+}
+
+/**
+ * Strumień SSE Uruchomień procesu. Najpierw przychodzi bieżący widok, potem każda zmiana; po zerwaniu
+ * przeglądarka sama łączy się ponownie i znowu dostaje bieżący widok. Każde zdarzenie jest parsowane
+ * schematem z kontraktu; zdarzenie, którego nie da się sparsować, jest pomijane.
+ */
+export function watchRunEvents(
+  onEvent: (event: RunEvent) => void,
+  onConnection: (connected: boolean) => void
+): () => void {
+  const source = new EventSource("/api/runs/events")
+
+  source.addEventListener("open", () => onConnection(true))
+  source.addEventListener("error", () => onConnection(false))
+  source.addEventListener("message", (message: MessageEvent<string>) => {
+    let parsed: ReturnType<typeof zRunEvent.safeParse>
+
+    try {
+      parsed = zRunEvent.safeParse(JSON.parse(message.data))
+    } catch {
+      return
+    }
+
+    if (parsed.success) {
+      onEvent(parsed.data)
+    }
+  })
+
+  return () => source.close()
 }

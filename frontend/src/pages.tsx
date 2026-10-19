@@ -1,7 +1,8 @@
 import * as React from "react"
-import { CalendarRangeIcon, type LucideIcon } from "lucide-react"
+import { CalendarRangeIcon, PlayIcon, type LucideIcon } from "lucide-react"
 
 import { PeriodsPage } from "@/pages/periods/periods-page"
+import { RunsPage } from "@/pages/runs/runs-page"
 
 /**
  * Strony z bocznego menu. Nowa strona to nowy wpis: menu, adres `#/<id>` i treść biorą się stąd.
@@ -9,6 +10,7 @@ import { PeriodsPage } from "@/pages/periods/periods-page"
  */
 export const PAGES = [
   { id: "okresy", title: "Okresy", icon: CalendarRangeIcon, Content: PeriodsPage },
+  { id: "uruchomienia", title: "Uruchomienia", icon: PlayIcon, Content: RunsPage },
 ] as const satisfies ReadonlyArray<{
   id: string
   title: string

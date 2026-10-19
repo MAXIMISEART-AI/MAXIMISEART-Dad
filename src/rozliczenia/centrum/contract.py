@@ -270,10 +270,11 @@ class RunResult(_Model):
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
     błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
-    akcja, którą Centrum proponuje po wyniku.
+    akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
     """
 
     result: Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
+    headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
     status_line: str

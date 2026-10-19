@@ -110,6 +110,7 @@ def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu
     assert (finished["run"]["period"], finished["run"]["dry_run"]) == (PERIOD, True)
     result = finished["result"]
     assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "run")
+    assert result["headline"] == "Podgląd gotowy · nic nie zapisano"
     assert result["summary"] == {
         "period": PERIOD,
         "period_order_count": 4,
@@ -146,6 +147,7 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
         "Status końcowy: OK",
         "open_period_folder",
     )
+    assert result["headline"] == "Plik zbiorczy przygotowany"
     assert sorted(path.name for path in centrum.fixture.period_directory.iterdir()) == [
         COLLECTIVE_FILE_NAME,
         INTERNAL_SETTLEMENT_NAME,
@@ -235,7 +237,7 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     result = finished_view(centrum.client)["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert result["status_line"] == "Status końcowy: ZATRZYMANO"
+    assert (result["status_line"], result["headline"]) == ("Status końcowy: ZATRZYMANO", "Zatrzymano")
     assert result["stops"] == [
         {
             "what": "Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
