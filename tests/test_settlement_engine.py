@@ -200,17 +200,60 @@ def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: 
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
 
 
-def test_blokada_wzorca_rozliczenia_pracownika_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
-    tmp_path: Path,
+def lock_in_excel(path: Path) -> None:
+    path.with_name(f"~${path.name}").touch()
+
+
+def set_cell(cell: str, value: str) -> Callable[[Path], None]:
+    def change(path: Path) -> None:
+        workbook = load_workbook(path)
+        try:
+            active_worksheet(workbook)[cell] = value
+            workbook.save(path)
+        finally:
+            workbook.close()
+
+    return change
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["RUN", "DRY-RUN"])
+@pytest.mark.parametrize(
+    ("damage", "detail"),
+    [
+        (lock_in_excel, "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."),
+        (overwrite_with_non_workbook, "Nie można odczytać Wzorca rozliczenia pracownika."),
+        (set_cell("H17", "NIE WYKONAWCA"), "Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w H:17."),
+        (
+            set_cell("A18", "SENSITIVE-SYNTHETIC"),
+            "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.",
+        ),
+    ],
+    ids=["otwarty-w-excelu", "nie-skoroszyt", "bez-wykonawca-w-h17", "z-danymi"],
+)
+def test_wzorzec_rozliczenia_pracownika_ktorego_nie_mozna_uzyc_zatrzymuje_sprawdzanie(
+    tmp_path: Path, damage: Callable[[Path], None], detail: str, dry_run: bool
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
-    worker_template_path.with_name(f"~${worker_template_path.name}").touch()
+    damage(worker_template_path)
 
     with pytest.raises(StopError) as raised:
-        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+        run_settlements(source_path, config_path, dry_run=dry_run, worker_template_path=worker_template_path)
 
-    assert "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany" in terminal_text(raised.value)
+    assert raised.value.message.code == "ZLY_WZORZEC_PRACOWNIKA"
+    assert terminal_text(raised.value) == detail
+    assert "SENSITIVE-SYNTHETIC" not in raised.value.message.text
+    assert not target_directory.exists()
+
+
+def test_niepoprawna_konfiguracja_wykonawcow_zatrzymuje_sprawdzanie(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    config_path.write_text("workers: [", encoding="utf-8")
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert raised.value.message.code == "ZLA_KONFIGURACJA_WYKONAWCOW"
     assert not target_directory.exists()
 
 
