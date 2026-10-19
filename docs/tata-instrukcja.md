@@ -67,6 +67,10 @@ jeszcze raz: otworzy się karta działającego Centrum, a nie druga kopia.
 
 Centrum kończy pracę także po wylogowaniu albo wyłączeniu komputera.
 
+Gdy trwa Uruchomienie procesu (także gdy czeka na Twoją decyzję), Centrum się
+nie zamknie: pokaże, że trwa Uruchomienie procesu. Poczekaj na wynik na stronie
+`Uruchomienia` i zamknij Centrum potem.
+
 ### Komunikaty startu Centrum rozliczeń
 
 Gdy Centrum nie może wystartować, zamiast karty pojawi się okienko z trzema
