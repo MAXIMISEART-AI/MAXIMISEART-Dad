@@ -128,6 +128,18 @@ def test_rejestr_with_duplicated_required_header_stops_with_header_name(tmp_path
     )
 
 
+def test_rejestr_with_both_spellings_of_one_header_stops_as_duplicated(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    write_register(fixture.register_path, headers=(*REGISTER_HEADERS, "NUMER ZL."))
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "POWTORZONY_NAGLOWEK_REJESTRU"
+    assert error.message.what.startswith(
+        "W Rejestrze zleceń nagłówek NUMER ZL. albo nr zlecenia występuje więcej niż raz"
+    )
+
+
 def test_rejestr_without_sheet_with_required_headers_stops(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     write_register(fixture.register_path, headers=("KLIENT", "TELEFON", "WYKONAWCA"))
@@ -141,7 +153,8 @@ def test_rejestr_without_sheet_with_required_headers_stops(tmp_path: Path) -> No
         "Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx\n"
         "Co zrobić: Sprawdź, czy wybrano właściwy plik Rejestru zleceń. Pierwszy wiersz arkusza "
         "ze zleceniami musi zawierać nagłówki: DATA GODZ. POCZ., MIASTO, adres, UMOWA, URZĄDZENIA, "
-        "CZYNNOŚCI, nr zlecenia, WYKONAWCA, NUMER UMOWY/ZLECENIA ORANGE, SKUTECZNE, "
+        "CZYNNOŚCI, NUMER ZL. albo nr zlecenia, WYKONAWCA, NUMER UMOWY albo NUMER UMOWY/ZLECENIA ORANGE, "
+        "SKUTECZNE, "
         "CZYNNOŚCI ZREALIZOWANE."
     )
 

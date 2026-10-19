@@ -27,12 +27,15 @@ from tests.collective_preparation_fixtures import (
     INTERNAL_SETTLEMENT_NAME,
     INTERNAL_TEMPLATE_HEADERS,
     PERIOD,
+    REGISTER_HEADERS,
     PreparationFixture,
     RegisterRow,
+    default_register_rows,
     make_preparation_fixture,
     register_order,
     write_collective_template,
     write_internal_template,
+    write_register,
 )
 from tests.test_settlement_engine import active_worksheet, projected
 
@@ -161,6 +164,34 @@ def test_plik_zbiorczy_contains_exactly_zlecenia_skuteczne_from_row_18(tmp_path:
         collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
         collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
         *[(None,) * 11] * 4,
+    ]
+
+
+# Rejestr taty zapisuje dwa nagłówki inaczej niż starsza kopia Rejestru.
+TATA_REGISTER_HEADERS = {"nr zlecenia": "NUMER ZL.", "NUMER UMOWY/ZLECENIA ORANGE": "NUMER UMOWY"}
+
+
+def test_rejestr_with_numer_zl_and_numer_umowy_headers_fills_both_period_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    rows = [
+        None if row is None else {TATA_REGISTER_HEADERS.get(header, header): value for header, value in row.items()}
+        for row in default_register_rows()
+    ]
+    headers = tuple(TATA_REGISTER_HEADERS.get(header, header) for header in REGISTER_HEADERS)
+    write_register(fixture.register_path, rows, headers=headers)
+
+    run_preparation(fixture)
+
+    assert sheet_rows(fixture.internal_settlement_path, min_row=2, max_col=len(INTERNAL_TEMPLATE_HEADERS)) == [
+        internal_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.maciejewski"),
+        internal_row(3, datetime(2026, 9, 9, 10, 30), "NIE", "dariusz.nowak2"),
+        internal_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
+        internal_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
+    ]
+    assert cell_values(fixture.collective_file_path, min_row=18, max_row=20, min_col=1, max_col=11) == [
+        collective_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.maciejewski"),
+        collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
+        collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
     ]
 
 

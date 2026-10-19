@@ -27,12 +27,24 @@ from .worker_config import normalize_text
 class Column:
     """Kolumna przenoszona z Rejestru zleceń; nagłówek docelowy jest szukany we wzorcach.
 
-    Trzy pary różniące się zapisem są jawne; nagłówek Rejestru nigdy nie zastępuje
-    nagłówka docelowego.
+    Pary różniące się zapisem są jawne; nagłówek Rejestru nigdy nie zastępuje
+    nagłówka docelowego. Kolumna może mieć w Rejestrze drugi przyjmowany zapis;
+    ``register_header`` to zapis z Rejestru taty.
     """
 
     register_header: str
     target_header: str
+    alternative_register_headers: tuple[str, ...] = ()
+
+    @property
+    def register_headers(self) -> tuple[str, ...]:
+        return (self.register_header, *self.alternative_register_headers)
+
+    @property
+    def label(self) -> str:
+        """Nagłówek w komunikacie: wszystkie przyjmowane zapisy."""
+
+        return " albo ".join(self.register_headers)
 
 
 DATE = Column("DATA GODZ. POCZ.", "DATA")
@@ -45,9 +57,9 @@ COLUMNS: tuple[Column, ...] = (
     Column("UMOWA", "UMOWA"),
     Column("URZĄDZENIA", "URZĄDZENIA"),
     Column("CZYNNOŚCI", "CZYNNOŚCI"),
-    Column("nr zlecenia", "NUMER ZL."),
+    Column("NUMER ZL.", "NUMER ZL.", ("nr zlecenia",)),
     WORKER,
-    Column("NUMER UMOWY/ZLECENIA ORANGE", "NUMER UMOWY/ZLECENIA ORANGE"),
+    Column("NUMER UMOWY", "NUMER UMOWY/ZLECENIA ORANGE", ("NUMER UMOWY/ZLECENIA ORANGE",)),
     SUCCESSFUL,
     Column("CZYNNOŚCI ZREALIZOWANE", "CZYNNOŚCI ZREALIZOWANE"),
 )
@@ -150,17 +162,26 @@ def _cell_format(cell: FormattedCell) -> CellFormat:
     )
 
 
+def _register_position(column: Column, columns: dict[str, int]) -> int | None:
+    return next(
+        (columns[name] for name in map(normalize_text, column.register_headers) if name in columns),
+        None,
+    )
+
+
 def _missing_headers(header: Sequence[object]) -> list[str]:
-    present = set(header_columns(header))
-    return [column.register_header for column in COLUMNS if normalize_text(column.register_header) not in present]
+    columns = header_columns(header)
+    return [column.label for column in COLUMNS if _register_position(column, columns) is None]
 
 
 def _duplicated_headers(header: Sequence[object]) -> list[str]:
+    """Kolumny, których nagłówek, w dowolnym przyjmowanym zapisie, występuje więcej niż raz."""
+
     normalized = [normalize_text(value) for value in header if not is_blank(value)]
     return [
-        column.register_header
+        column.label
         for column in COLUMNS
-        if normalized.count(normalize_text(column.register_header)) > 1
+        if sum(normalized.count(name) for name in set(map(normalize_text, column.register_headers))) > 1
     ]
 
 
@@ -184,7 +205,7 @@ def _read_register_sheets(register_path: Path, workbook: ReadWorkbook) -> list[R
         if duplicated:
             raise StopError(messages.register_with_duplicated_headers(register_path, sheet.title, duplicated))
         columns = header_columns(header)
-        positions = [columns[normalize_text(column.register_header)] for column in COLUMNS]
+        positions = [position for column in COLUMNS if (position := _register_position(column, columns)) is not None]
         rows: list[RegisterRow] = []
         empty_rows: list[int] = []
         for row_number, (values, cells) in enumerate(sheet.formatted_rows(min_row=2, columns=positions), start=2):
@@ -197,4 +218,4 @@ def _read_register_sheets(register_path: Path, workbook: ReadWorkbook) -> list[R
         return sheets
     if closest is not None:
         raise StopError(messages.register_without_headers(register_path, *closest))
-    raise StopError(messages.register_without_data_sheet(register_path, [column.register_header for column in COLUMNS]))
+    raise StopError(messages.register_without_data_sheet(register_path, [column.label for column in COLUMNS]))
