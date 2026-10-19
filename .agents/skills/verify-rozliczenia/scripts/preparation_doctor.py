@@ -18,7 +18,7 @@ SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from rozliczenia.engine import load_worker_mapping  # noqa: E402
+from rozliczenia.worker_config import load_worker_mapping  # noqa: E402
 from rozliczenia.message import StopError  # noqa: E402
 from rozliczenia.settlement_period import parse_period_token  # noqa: E402
 from rozliczenia.template_settlement import (  # noqa: E402

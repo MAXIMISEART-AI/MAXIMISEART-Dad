@@ -432,6 +432,26 @@ def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publika
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
+def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(tmp_path: Path) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    sentinel = target_directory / "existing.txt"
+
+    def create_folder_in_saving(event: ProgressEvent) -> None:
+        if event.state is ProgressState.WORKER_START and not target_directory.exists():
+            target_directory.mkdir()
+            sentinel.write_text("zachowaj", encoding="utf-8")
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(
+            source_path, config_path, worker_template_path=worker_template_path, observer=create_folder_in_saving
+        )
+
+    assert raised.value.message.code == "FOLDER_ROZLICZEN_ISTNIEJE"
+    assert [path.name for path in target_directory.iterdir()] == [sentinel.name]
+    assert sentinel.read_text(encoding="utf-8") == "zachowaj"
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
 def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_pliku(
     tmp_path: Path,
 ) -> None:

@@ -28,12 +28,12 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from . import workbook_files
 from . import preparation_messages as messages
-from .engine import normalize_text
 from .message import Message, StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
 from .workbook_files import Layout, Problem, TemplateSheet, WorkbookError
+from .worker_config import normalize_text
 
 
 @dataclass(frozen=True)
