@@ -25,11 +25,17 @@ def test_konfiguracja_wykonawcow_laczy_znormalizowany_identyfikator_z_nazwa_w_ko
 ) -> None:
     config_path = write_config(
         tmp_path,
-        "schema_version: 1\nworkers:\n  '  Łukasz  KOWALSKI ': '  Łukasz Kowalski  '\n  adrian.m: Adrian Maciejewski\n",
+        "schema_version: 1\nworkers:\n  '  Łukasz  KOWALSKI ': '  Łukasz Kowalski  '\n  adrian.m: Adrian Testowy\n",
     )
 
-    assert load_worker_mapping(config_path) == {"łukasz kowalski": "Łukasz Kowalski", "adrian.m": "Adrian Maciejewski"}
-    assert list(load_worker_mapping(config_path).values()) == ["Łukasz Kowalski", "Adrian Maciejewski"]
+    assert load_worker_mapping(config_path) == {"łukasz kowalski": "Łukasz Kowalski", "adrian.m": "Adrian Testowy"}
+    assert list(load_worker_mapping(config_path).values()) == ["Łukasz Kowalski", "Adrian Testowy"]
+
+
+def test_przyklad_konfiguracji_wykonawcow_w_repozytorium_jest_poprawna_konfiguracja() -> None:
+    example = Path(__file__).resolve().parents[1] / "config" / "worker_mapping.example.yaml"
+
+    assert list(load_worker_mapping(example).values()) == ["Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny"]
 
 
 def test_identyfikator_wykonawcy_jest_porownywany_bez_wielkosci_liter_i_nadmiarowych_spacji() -> None:

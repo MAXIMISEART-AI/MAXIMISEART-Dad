@@ -33,9 +33,9 @@ INTERNAL_TEMPLATE_NAME = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE_NAME = "Wzorzec pliku zbiorczego.xlsx"
 WORKER_TEMPLATE_NAME = "Wzorzec rozliczenia pracownika.xlsx"
 WORKERS = {
-    "adrian.maciejewski": "Adrian Maciejewski",
-    "dariusz.nowak2": "Darek Nowak",
-    "kamil.frontczak": "Kamil Frontczak",
+    "adrian.testowy": "Adrian Testowy",
+    "dariusz.fikcyjny2": "Darek Fikcyjny",
+    "kamil.syntetyczny": "Kamil Syntetyczny",
 }
 # Register column order deliberately differs from both Wzorce; STATUS APLIKACJI is not carried over.
 REGISTER_HEADERS = (
@@ -134,13 +134,13 @@ def _order(number: int, started: datetime, worker: str, successful: str) -> dict
 
 # Excel row -> order; rows without an entry are fully empty export rows.
 REGISTER_ROWS: dict[int, dict[str, object]] = {
-    2: _order(1, datetime(2026, 9, 7, 15, 0), "adrian.maciejewski", "tak"),  # previous period
-    4: _order(2, datetime(2026, 9, 8, 0, 0), "adrian.maciejewski", "tak"),
-    6: _order(3, datetime(2026, 9, 9, 10, 30), "dariusz.nowak2", "NIE"),
-    9: _order(4, datetime(2026, 9, 12, 12, 0), "kamil.frontczak", " Tak "),
-    11: _order(5, datetime(2026, 9, 15, 0, 0), "adrian.maciejewski", "tak"),  # next period
-    12: _order(7, datetime(2026, 9, 13, 9, 0), "adrian.maciejewski", "tak"),  # Adrian again, after Kamil
-    13: _order(6, datetime(2026, 9, 14, 18, 30), "dariusz.nowak2", "TAK"),  # late order of the period
+    2: _order(1, datetime(2026, 9, 7, 15, 0), "adrian.testowy", "tak"),  # previous period
+    4: _order(2, datetime(2026, 9, 8, 0, 0), "adrian.testowy", "tak"),
+    6: _order(3, datetime(2026, 9, 9, 10, 30), "dariusz.fikcyjny2", "NIE"),
+    9: _order(4, datetime(2026, 9, 12, 12, 0), "kamil.syntetyczny", " Tak "),
+    11: _order(5, datetime(2026, 9, 15, 0, 0), "adrian.testowy", "tak"),  # next period
+    12: _order(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),  # Adrian again, after Kamil
+    13: _order(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),  # late order of the period
 }
 
 
@@ -152,7 +152,7 @@ def _write_register(path: Path) -> None:
     archive = workbook.create_sheet("ARCHIWUM")
     archive.sheet_state = "hidden"
     sheet = workbook.create_sheet("ZLECENIA")
-    for target, rows in ((archive, {2: _order(90, datetime(2025, 9, 9, 9, 0), "kamil.frontczak", "tak")}), (sheet, REGISTER_ROWS)):
+    for target, rows in ((archive, {2: _order(90, datetime(2025, 9, 9, 9, 0), "kamil.syntetyczny", "tak")}), (sheet, REGISTER_ROWS)):
         for column, header in enumerate(REGISTER_HEADERS, start=1):
             target.cell(1, column).value = header
         for row_number, order in rows.items():

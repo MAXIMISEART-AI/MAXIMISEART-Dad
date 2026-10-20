@@ -17,9 +17,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 PERIOD = "08_14_09_2026"
 SOURCE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKERS = {
-    "adrian.maciejewski": "Adrian Maciejewski",
-    "dariusz.nowak2": "Darek Nowak",
-    "kamil.frontczak": "Kamil Frontczak",
+    "adrian.testowy": "Adrian Testowy",
+    "dariusz.fikcyjny2": "Darek Fikcyjny",
+    "kamil.syntetyczny": "Kamil Syntetyczny",
 }
 
 
@@ -73,9 +73,9 @@ def _write_source(path: Path, *, include_unmapped: bool) -> None:
     sheet.title = "Sheet1"
     sheet.cell(17, 8).value = "WYKONAWCA"
     rows = [
-        ("TEST-CITY", "adrian.maciejewski", "SYNTHETIC-1"),
-        ("TEST-CITY", "dariusz.nowak2", "SYNTHETIC-2"),
-        ("TEST-CITY", "adrian.maciejewski", "SYNTHETIC-3"),
+        ("TEST-CITY", "adrian.testowy", "SYNTHETIC-1"),
+        ("TEST-CITY", "dariusz.fikcyjny2", "SYNTHETIC-2"),
+        ("TEST-CITY", "adrian.testowy", "SYNTHETIC-3"),
     ]
     if include_unmapped:
         rows.append(("TEST-CITY", "unknown.synthetic", "SYNTHETIC-4"))

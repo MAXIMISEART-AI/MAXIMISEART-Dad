@@ -192,7 +192,7 @@ def test_decoy_sheets_do_not_hide_sheet_with_orders(tmp_path: Path) -> None:
     add_register_sheet(
         fixture.register_path,
         "komentarze",
-        [{"UWAGI": "sprawdzić w poniedziałek", "WYKONAWCA": "adrian.maciejewski"}],
+        [{"UWAGI": "sprawdzić w poniedziałek", "WYKONAWCA": "adrian.testowy"}],
         headers=("DATA GODZ. POCZ.", "WYKONAWCA", "UWAGI"),
         first=True,
     )

@@ -42,9 +42,9 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
         "counts": None,
         "files": [],
         "file_plan": [
-            {"file": f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx", "rows": 2},
-            {"file": f"Rozliczenie {PERIOD} - Darek Nowak.xlsx", "rows": 1},
-            {"file": f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx", "rows": 0},
+            {"file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "rows": 2},
+            {"file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "rows": 1},
+            {"file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "rows": 0},
         ],
     }
     assert (result["stops"], result["warnings"]) == ([], [])
@@ -181,11 +181,11 @@ def test_strumien_pokazuje_postep_szablonow_pracownikow_z_biezacym_wykonawca(tmp
 
     assert seen == [
         (None, 0, 3),
-        ("Adrian Maciejewski", 0, 3),
+        ("Adrian Testowy", 0, 3),
         (None, 1, 3),
-        ("Darek Nowak", 1, 3),
+        ("Darek Fikcyjny", 1, 3),
         (None, 2, 3),
-        ("Kamil Frontczak", 2, 3),
+        ("Kamil Syntetyczny", 2, 3),
         (None, 3, 3),
     ]
 
@@ -246,7 +246,7 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp
 def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_folderu_rozliczen_pracownikow(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
     centrum.worker_settlements.mkdir()
-    corrected = centrum.worker_settlements / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx"
+    corrected = centrum.worker_settlements / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx"
     corrected.write_bytes(b"reczne poprawki taty")
 
     view = run_to_end(centrum, dry_run=False)
