@@ -57,4 +57,4 @@ Preconditions:
 - `--powtorzenia 1` is for a quick look or a deliberately broken expectation; one sample is too noisy for a baseline.
 - The local server answers in milliseconds; Dad's OneDrive does not. The measurement covers the browser, not OneDrive; server times at Dad's come from the Centrum log.
 - The theme interaction switches to light and back; a fresh run root starts dark (no theme saved). Driving `drive_centrum.py --feature wydajnosc` by hand against a Centrum left in light fails to find `Włącz motyw jasny`.
-- Event stream: `GET /api/runs/events` stays open for the page's life and counts as one request of a cold start or reopened tab.
+- Event stream: `GET /api/runs/events` stays open while the tab is visible (headless Chromium reports every tab as visible) and counts as one request of a cold start or reopened tab.

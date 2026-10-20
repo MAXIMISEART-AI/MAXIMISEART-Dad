@@ -171,11 +171,11 @@ export function watchRunEvents(
   let source: EventSource | null = null
 
   const connect = () => {
-    const opened = new EventSource("/api/runs/events")
+    const stream = new EventSource("/api/runs/events")
 
-    opened.addEventListener("open", () => onConnection(true))
-    opened.addEventListener("error", () => onConnection(false))
-    opened.addEventListener("message", (message: MessageEvent<string>) => {
+    stream.addEventListener("open", () => onConnection(true))
+    stream.addEventListener("error", () => onConnection(false))
+    stream.addEventListener("message", (message: MessageEvent<string>) => {
       let data: unknown
 
       try {
@@ -191,15 +191,15 @@ export function watchRunEvents(
       }
     })
 
-    return opened
+    return stream
   }
 
   const followVisibility = () => {
-    if (document.hidden) {
+    if (document.visibilityState === "visible") {
+      source ??= connect()
+    } else {
       source?.close()
       source = null
-    } else {
-      source ??= connect()
     }
   }
 

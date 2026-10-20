@@ -12,7 +12,7 @@ import tomllib
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import Page, Request, expect
+from playwright.sync_api import Page, Request, Response, expect
 
 from drive.common import REPO_ROOT, Run
 
@@ -86,15 +86,15 @@ def _answers(url: str) -> bool:
         return False
 
 
-def _is_stream(request: Request) -> bool:
-    return urllib.parse.urlsplit(request.url).path == "/api/runs/events"
+def _is_stream(message: Request | Response) -> bool:
+    return urllib.parse.urlsplit(message.url).path == "/api/runs/events"
 
 
-def _expect_runs_shown(tab: Page, timeout_ms: float = 5_000) -> None:
+def _expect_runs_shown(tab: Page) -> None:
     """Uruchomienia leaves its skeleton only once the tab has the run setup (API) and the current Uruchomienie (stream)."""
 
-    expect(tab.get_by_role("heading", name="Uruchomienia", exact=True)).to_be_visible(timeout=timeout_ms)
-    expect(tab.get_by_label("Wczytywanie Uruchomień", exact=True)).to_have_count(0, timeout=timeout_ms)
+    expect(tab.get_by_role("heading", name="Uruchomienia", exact=True)).to_be_visible()
+    expect(tab.get_by_label("Wczytywanie Uruchomień", exact=True)).to_have_count(0)
 
 
 def drive_start_and_close(run: Run, page: Page) -> None:
@@ -149,10 +149,9 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     run.check(True, f"each of {_SHORTCUT_TABS} more tabs shows Uruchomienia from the API and the stream")
     run.capture(shortcut_tabs[-1], "90-start-i-zamykanie-karty-w-tle")
     shortcut_tabs[-1].evaluate(_TO_BACKGROUND)
-    with page.expect_request(_is_stream):
+    with page.expect_response(_is_stream) as reconnected:
         page.evaluate(_TO_FRONT)
-    _expect_runs_shown(page)
-    run.check(True, "back in front, the drive's tab connects to the stream again")
+    run.check(reconnected.value.status == 200, "back in front, the drive's tab connects to the stream again")
     for tab in shortcut_tabs:
         tab.close()
 
