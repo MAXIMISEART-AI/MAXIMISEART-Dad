@@ -33,7 +33,7 @@ def _copy_launcher_runtime(destination: Path, launcher_name: str = SETTLEMENT_LA
         destination / "src",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
-    shutil.copytree(REPOSITORY_ROOT / "config", destination / "config")
+    (destination / "config").mkdir()
     return destination / launcher_name
 
 
@@ -63,11 +63,11 @@ def test_cmd_launcher_runs_przebieg_rozliczen(tmp_path: Path) -> None:
     assert "Status końcowy: OK" in result.stdout
     assert {path.name for path in target_directory.glob("*.xlsx")} == {
         f"Rozliczenie {PERIOD} - {worker}.xlsx"
-        for worker in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+        for worker in ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
     }
-    assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx") == "POZNAŃ"
-    assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx") == "POZNAŃ"
-    assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx") is None
+    assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx") == "POZNAŃ"
+    assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx") == "POZNAŃ"
+    assert _input_value(target_directory / f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx") is None
 
 
 def _run_preparation_launcher(tmp_path: Path, fixture: PreparationFixture, answers: str) -> subprocess.CompletedProcess[str]:
@@ -143,9 +143,9 @@ def test_cmd_launchers_run_przygotowanie_then_przebieg_rozliczen_on_its_plik_zbi
     target_directory = fixture.period_directory / f"Rozliczenie pracowników {PREPARATION_PERIOD}"
     assert {path.name for path in target_directory.iterdir()} == {
         f"Rozliczenie {PREPARATION_PERIOD} - {worker}.xlsx"
-        for worker in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+        for worker in ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
     }
-    workbook = load_workbook(target_directory / f"Rozliczenie {PREPARATION_PERIOD} - Adrian Maciejewski.xlsx")
+    workbook = load_workbook(target_directory / f"Rozliczenie {PREPARATION_PERIOD} - Adrian Testowy.xlsx")
     try:
         assert active_worksheet(workbook)["F18"].value == "ZL-SYN-002"
     finally:

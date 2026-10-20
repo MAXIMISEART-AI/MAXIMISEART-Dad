@@ -98,17 +98,17 @@ def _collective_row(number: int, started: datetime, worker: str, successful: str
 
 # Period orders in Rejestr order: 2, 3 (NIE), 4, 7 (after the next-period order), and the late order 6.
 EXPECTED_INTERNAL_ROWS = (
-    _internal_row(2, datetime(2026, 9, 8, 0, 0), "adrian.maciejewski", "tak"),
-    _internal_row(3, datetime(2026, 9, 9, 10, 30), "dariusz.nowak2", "NIE"),
-    _internal_row(4, datetime(2026, 9, 12, 12, 0), "kamil.frontczak", " Tak "),
-    _internal_row(7, datetime(2026, 9, 13, 9, 0), "adrian.maciejewski", "tak"),
-    _internal_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.nowak2", "TAK"),
+    _internal_row(2, datetime(2026, 9, 8, 0, 0), "adrian.testowy", "tak"),
+    _internal_row(3, datetime(2026, 9, 9, 10, 30), "dariusz.fikcyjny2", "NIE"),
+    _internal_row(4, datetime(2026, 9, 12, 12, 0), "kamil.syntetyczny", " Tak "),
+    _internal_row(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),
+    _internal_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),
 )
 EXPECTED_COLLECTIVE_ROWS = (
-    _collective_row(2, datetime(2026, 9, 8, 0, 0), "adrian.maciejewski", "tak"),
-    _collective_row(4, datetime(2026, 9, 12, 12, 0), "kamil.frontczak", " Tak "),
-    _collective_row(7, datetime(2026, 9, 13, 9, 0), "adrian.maciejewski", "tak"),
-    _collective_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.nowak2", "TAK"),
+    _collective_row(2, datetime(2026, 9, 8, 0, 0), "adrian.testowy", "tak"),
+    _collective_row(4, datetime(2026, 9, 12, 12, 0), "kamil.syntetyczny", " Tak "),
+    _collective_row(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),
+    _collective_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),
 )
 EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
 EXPECTED_COLLECTIVE_ORDER_NUMBERS = tuple(row[5] for row in EXPECTED_COLLECTIVE_ROWS)

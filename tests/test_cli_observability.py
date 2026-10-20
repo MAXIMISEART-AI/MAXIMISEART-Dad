@@ -36,10 +36,10 @@ def assert_fixture_workbooks(target_directory: Path, *, dry_run: bool) -> None:
 
     expected_filenames = {
         f"Rozliczenie {PERIOD} - {worker_name}.xlsx"
-        for worker_name in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+        for worker_name in ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
     }
     assert {path.name for path in target_directory.glob("*.xlsx")} == expected_filenames
-    for worker_name in ("Adrian Maciejewski", "Darek Nowak"):
+    for worker_name in ("Adrian Testowy", "Darek Fikcyjny"):
         workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - {worker_name}.xlsx")
         try:
             sheet = active_worksheet(workbook)
@@ -48,7 +48,7 @@ def assert_fixture_workbooks(target_directory: Path, *, dry_run: bool) -> None:
         finally:
             workbook.close()
 
-    workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx")
+    workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx")
     try:
         sheet = active_worksheet(workbook)
         assert sheet["A18"].value is None
@@ -94,7 +94,7 @@ def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> N
     assert "Postęp szablonów: 1/3" in output
     assert "Postęp szablonów: 2/3" in output
     assert "Postęp szablonów: 3/3 (100%)" in output
-    assert "WYKONAWCA: Adrian Maciejewski" in output
+    assert "WYKONAWCA: Adrian Testowy" in output
     assert "Ostatnie operacje" in output
     assert "Wiersze danych: 3" in output
     assert "Liczniki:" in output
@@ -187,7 +187,7 @@ def test_cli_runs_without_rich(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "Etap: Sprawdzanie" in result.stdout
     assert "Postęp szablonów: 3/3 (100%)" in result.stdout
-    assert "WYKONAWCA: Adrian Maciejewski" in result.stdout
+    assert "WYKONAWCA: Adrian Testowy" in result.stdout
     assert "Status końcowy: OK" in result.stdout
     assert_fixture_workbooks(target_directory, dry_run=False)
 
@@ -225,7 +225,7 @@ def test_interactive_rich_cli_shows_szablony_pracownika(
     rendered = output.getvalue()
     assert f"Rozliczenia | {PERIOD} | {mode}" in rendered
     assert "Postęp szablonów: 3/3 (100%)" in rendered
-    assert "Bieżący WYKONAWCA: Adrian Maciejewski" in rendered
+    assert "Bieżący WYKONAWCA: Adrian Testowy" in rendered
     assert ("PLAN" if dry_run else "ZAPISANO") in rendered
     assert "syntetyczny adres" not in rendered
     assert "#1" not in rendered
@@ -262,14 +262,14 @@ def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path)
     assert f"Okres rozliczeniowy: {PERIOD}" in output
     assert f"Folder rozliczeń pracowników: {target_directory}" in output
     assert "Plan plików:" in output
-    assert f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx | Wiersze do uzupełnienia: 2" in output
-    assert f"Rozliczenie {PERIOD} - Darek Nowak.xlsx | Wiersze do uzupełnienia: 1" in output
+    assert f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx | Wiersze do uzupełnienia: 2" in output
+    assert f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx | Wiersze do uzupełnienia: 1" in output
     assert (
-        f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx | "
+        f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx | "
         "Wiersze do uzupełnienia: 0 | Pusty skoroszyt"
     ) in output
     assert "Nieznany identyfikator WYKONAWCA" in output
-    assert "andrzej.kulawski2" not in output
+    assert "andrzej.nieznany2" not in output
     assert "syntetyczny adres" not in output
     assert "#1" not in output
     assert "Planowane szablony: 2" in output
@@ -485,7 +485,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
     assert "folder wynikowy nie został opublikowany" in output
     assert "Postęp szablonów: 1/3 (33%)" in output
     assert (
-        "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak | "
+        "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Fikcyjny | "
         "Szablon pracownika: 2/3"
     ) in output
     record = json.loads(metrics_path.read_text(encoding="utf-8"))

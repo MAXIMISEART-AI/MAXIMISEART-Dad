@@ -120,7 +120,7 @@ def register_order(
     started: datetime,
     *,
     successful: str = "tak",
-    worker: str = "adrian.maciejewski",
+    worker: str = "adrian.testowy",
 ) -> dict[str, object]:
     """Syntetyczne zlecenie z unikalnymi znacznikami treści ``SYN-…``."""
 
@@ -146,16 +146,16 @@ def default_register_rows() -> list[RegisterRow]:
     return [
         register_order(1, datetime(2026, 9, 7, 15, 0)),  # poprzedni okres (poniedziałek)
         None,
-        register_order(2, datetime(2026, 9, 8, 0, 0), worker="adrian.maciejewski"),
+        register_order(2, datetime(2026, 9, 8, 0, 0), worker="adrian.testowy"),
         None,
-        register_order(3, datetime(2026, 9, 9, 10, 30), successful="NIE", worker="dariusz.nowak2"),
+        register_order(3, datetime(2026, 9, 9, 10, 30), successful="NIE", worker="dariusz.fikcyjny2"),
         None,
         None,
-        register_order(4, datetime(2026, 9, 12, 12, 0), successful=" Tak ", worker="kamil.frontczak"),
+        register_order(4, datetime(2026, 9, 12, 12, 0), successful=" Tak ", worker="kamil.syntetyczny"),
         None,
         register_order(5, datetime(2026, 9, 15, 0, 0)),  # następny okres (wtorek 00:00)
         None,
-        register_order(6, datetime(2026, 9, 14, 18, 30), successful="TAK", worker="dariusz.nowak2"),
+        register_order(6, datetime(2026, 9, 14, 18, 30), successful="TAK", worker="dariusz.fikcyjny2"),
     ]
 
 
@@ -179,7 +179,7 @@ def write_register(
     decoy = active_worksheet(workbook)
     decoy.title = "lista"
     decoy["A1"] = "WYKONAWCY"
-    decoy["A2"] = "adrian.maciejewski"
+    decoy["A2"] = "adrian.testowy"
     sheet = workbook.create_sheet("ZLECENIA")
     for column, header in enumerate(headers, start=1):
         sheet.cell(1, column).value = header

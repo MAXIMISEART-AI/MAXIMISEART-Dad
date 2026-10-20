@@ -107,10 +107,10 @@ def test_rozliczenie_wewnetrzne_contains_exactly_period_orders_in_register_order
     run_preparation(fixture)
 
     assert sheet_rows(fixture.internal_settlement_path, min_row=2, max_col=len(INTERNAL_TEMPLATE_HEADERS)) == [
-        internal_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.maciejewski"),
-        internal_row(3, datetime(2026, 9, 9, 10, 30), "NIE", "dariusz.nowak2"),
-        internal_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
-        internal_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
+        internal_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.testowy"),
+        internal_row(3, datetime(2026, 9, 9, 10, 30), "NIE", "dariusz.fikcyjny2"),
+        internal_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.syntetyczny"),
+        internal_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.fikcyjny2"),
     ]
 
 
@@ -120,9 +120,9 @@ def test_plik_zbiorczy_contains_exactly_zlecenia_skuteczne_from_row_18(tmp_path:
     run_preparation(fixture)
 
     assert cell_values(fixture.collective_file_path, min_row=18, max_row=24, min_col=1, max_col=11) == [
-        collective_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.maciejewski"),
-        collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
-        collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
+        collective_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.testowy"),
+        collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.syntetyczny"),
+        collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.fikcyjny2"),
         *[(None,) * 11] * 4,
     ]
 
@@ -143,15 +143,15 @@ def test_rejestr_with_numer_zl_and_numer_umowy_headers_fills_both_period_files(t
     run_preparation(fixture)
 
     assert sheet_rows(fixture.internal_settlement_path, min_row=2, max_col=len(INTERNAL_TEMPLATE_HEADERS)) == [
-        internal_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.maciejewski"),
-        internal_row(3, datetime(2026, 9, 9, 10, 30), "NIE", "dariusz.nowak2"),
-        internal_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
-        internal_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
+        internal_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.testowy"),
+        internal_row(3, datetime(2026, 9, 9, 10, 30), "NIE", "dariusz.fikcyjny2"),
+        internal_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.syntetyczny"),
+        internal_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.fikcyjny2"),
     ]
     assert cell_values(fixture.collective_file_path, min_row=18, max_row=20, min_col=1, max_col=11) == [
-        collective_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.maciejewski"),
-        collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
-        collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
+        collective_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.testowy"),
+        collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.syntetyczny"),
+        collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.fikcyjny2"),
     ]
 
 
@@ -769,7 +769,7 @@ def test_period_order_with_empty_or_unknown_skuteczne_stops_with_register_row_nu
 def test_zlecenie_skuteczne_with_worker_outside_worker_config_stops_with_identifier(tmp_path: Path) -> None:
     rows: list[RegisterRow] = [
         register_order(2, datetime(2026, 9, 8, 8, 0), worker="nowy.wykonawca"),
-        register_order(3, datetime(2026, 9, 9, 8, 0), worker=" Kamil.Frontczak "),
+        register_order(3, datetime(2026, 9, 9, 8, 0), worker=" Kamil.Syntetyczny "),
         register_order(4, datetime(2026, 9, 10, 8, 0), successful="TAK", worker="NOWY.wykonawca"),
         register_order(5, datetime(2026, 9, 11, 8, 0), successful="nie", worker="ktos.nieskuteczny"),
         register_order(6, datetime(2026, 9, 12, 8, 0), worker=""),

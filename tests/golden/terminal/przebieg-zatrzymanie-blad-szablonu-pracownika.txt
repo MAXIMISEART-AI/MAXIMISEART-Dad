@@ -6,12 +6,12 @@ Etap: Odczyt danych
 Etap: Planowanie
 Szablony pracownika: 0/3
 Etap: Zapisywanie
-WYKONAWCA: Adrian Maciejewski | etap: Zapisywanie
+WYKONAWCA: Adrian Testowy | etap: Zapisywanie
 Postęp szablonów: 1/3 (33%)
 Liczniki: zapisano: 1 | puste: 0 | planowane: 0
-Ostatnia operacja: Adrian Maciejewski | ZAPISANO | status: OK | wiersze: 2 | czas: <N> ms
-WYKONAWCA: Darek Nowak | etap: Zapisywanie
-Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak | Szablon pracownika: 2/3
+Ostatnia operacja: Adrian Testowy | ZAPISANO | status: OK | wiersze: 2 | czas: <N> ms
+WYKONAWCA: Darek Fikcyjny | etap: Zapisywanie
+Etap przerwany: Zapisywanie | WYKONAWCA: Darek Fikcyjny | Szablon pracownika: 2/3
 Status semantyczny: BŁĄD
-Nie wykonano: Nie udało się przygotować skoroszytu pracownika Darek Nowak; folder wynikowy nie został opublikowany.
+Nie wykonano: Nie udało się przygotować skoroszytu pracownika Darek Fikcyjny; folder wynikowy nie został opublikowany.
 Czas uruchomienia: <N> ms

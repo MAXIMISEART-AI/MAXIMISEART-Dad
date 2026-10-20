@@ -18,7 +18,8 @@ Narzędzie nie używa AI ani zewnętrznych API. Instrukcja dla taty jest w
 - Każdy skoroszyt pracownika powstaje z kopii wspólnego Wzorca rozliczenia pracownika.
 - Powstaje dokładnie jeden skoroszyt dla każdego pracownika z konfiguracji.
 - Wykonawca jest odczytywany z kolumny `H=WYKONAWCA`.
-- Identyfikatory wykonawców są mapowane jawnie w `config/worker_mapping.yaml`.
+- Identyfikatory wykonawców są mapowane jawnie w `config/worker_mapping.yaml`
+  (zob. [Konfiguracja wykonawców](#konfiguracja-wykonawców)).
 - Kopiowane są wartości `A:AT` od wiersza 18, zwarte od wiersza 18.
 - Arkusze, formuły, stawki i formatowanie Wzorca rozliczenia pracownika pozostają zachowane.
 - Pusty szablon pozostaje pusty.
@@ -63,6 +64,37 @@ W przekierowanym wyjściu lub terminalu bez kolorów używany jest zwykły tekst
 Historia czasów jest dopisywana lokalnie do `.rozliczenia-metrics.jsonl`; można
 wskazać inne miejsce parametrem `--metrics`. P50 i P95 pojawiają się po pięciu
 ukończonych obserwacjach tego samego trybu (`RUN` albo `DRY-RUN`).
+
+### Konfiguracja wykonawców
+
+Prawdziwa Konfiguracja wykonawców zawiera imiona i nazwiska pracowników taty,
+więc leży tylko na jego komputerze, tak jak Wzorce: `config/worker_mapping.yaml`
+jest w `.gitignore`. W repozytorium jest tylko
+`config/worker_mapping.example.yaml` z syntetycznymi Wykonawcami, który pokazuje
+format. Przy instalacji skopiuj na komputer taty jego prawdziwy plik jako
+`config\worker_mapping.yaml`; bez niego oba procesy zatrzymują się w Sprawdzaniu
+z komunikatem o Konfiguracji wykonawców. Testy i skrypty weryfikacyjne używają
+wyłącznie syntetycznych Wykonawców i nie czytają tego pliku.
+
+Plik był kiedyś śledzony w repozytorium. Commit, który przestał go śledzić,
+usuwa go przy `git pull` z kopii, w której jeszcze był śledzony. Pierwszą
+aktualizację po tej zmianie u taty zrób więc tak (`git checkout` cofa lokalną
+zmianę pliku, przez którą `git pull` by się zatrzymał; kopia ją zachowuje):
+
+```powershell
+Copy-Item config\worker_mapping.yaml "$env:TEMP\worker_mapping.yaml"
+git checkout -- config/worker_mapping.yaml
+git pull
+Copy-Item "$env:TEMP\worker_mapping.yaml" config\worker_mapping.yaml
+```
+
+Jeśli `git pull` przeszedł bez tego kroku, odzyskaj plik ze stanu sprzed
+aktualizacji i przestań go śledzić:
+
+```powershell
+git checkout ORIG_HEAD -- config/worker_mapping.yaml
+git rm --cached config/worker_mapping.yaml
+```
 
 ## Uruchomienie Przebiegu rozliczeń przez CMD
 
@@ -322,7 +354,7 @@ Jeśli wcześniejsze uruchomienie pokazało w Excelu komunikat o naprawie
 odwołania zewnętrznego, zamknij Excel i uruchom jednorazowo tryb kontrolny:
 
 ```powershell
-py -3 tools\repair_external_links.py --directory "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026" --reference "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026\Rozliczenie 08_14_09_2026 - Kamil Frontczak.xlsx"
+py -3 tools\repair_external_links.py --directory "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026" --reference "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026\Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx"
 ```
 
 Jeśli lista plików jest poprawna, dodaj `--apply`. Narzędzie zapisze kopie w
