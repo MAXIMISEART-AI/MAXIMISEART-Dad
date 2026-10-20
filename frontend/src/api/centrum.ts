@@ -157,35 +157,59 @@ export function reportRun(runId: string) {
 }
 
 /**
- * Strumień SSE Uruchomień procesu. Najpierw przychodzi bieżący widok, potem każda zmiana; po zerwaniu
- * przeglądarka sama łączy się ponownie i znowu dostaje bieżący widok. Każde zdarzenie jest parsowane
- * schematem z kontraktu; zdarzenie, którego nie da się sparsować, jest pomijane.
+ * Strumień SSE Uruchomień procesu, otwarty tylko w widocznej karcie. Przeglądarka trzyma najwyżej 6 połączeń
+ * z Centrum naraz, wspólnie dla wszystkich kart, a każde kliknięcie skrótu otwiera nową kartę: strumienie kart
+ * w tle zajęłyby wszystkie połączenia i każde zapytanie Centrum czekałoby bez końca. Karta w tle oddaje więc
+ * połączenie, a po powrocie łączy się od nowa. Po połączeniu najpierw przychodzi bieżący widok, potem każda
+ * zmiana; po zerwaniu przeglądarka sama łączy się ponownie i znowu dostaje bieżący widok. Każde zdarzenie jest
+ * parsowane schematem z kontraktu; zdarzenie, którego nie da się sparsować, jest pomijane.
  */
 export function watchRunEvents(
   onEvent: (event: RunEvent) => void,
   onConnection: (connected: boolean) => void
 ): () => void {
-  const source = new EventSource("/api/runs/events")
+  let source: EventSource | null = null
 
-  source.addEventListener("open", () => onConnection(true))
-  source.addEventListener("error", () => onConnection(false))
-  source.addEventListener("message", (message: MessageEvent<string>) => {
-    let data: unknown
+  const connect = () => {
+    const opened = new EventSource("/api/runs/events")
 
-    try {
-      data = JSON.parse(message.data)
-    } catch {
-      return
+    opened.addEventListener("open", () => onConnection(true))
+    opened.addEventListener("error", () => onConnection(false))
+    opened.addEventListener("message", (message: MessageEvent<string>) => {
+      let data: unknown
+
+      try {
+        data = JSON.parse(message.data)
+      } catch {
+        return
+      }
+
+      const parsed = zRunEvent.safeParse(data)
+
+      if (parsed.success) {
+        onEvent(parsed.data)
+      }
+    })
+
+    return opened
+  }
+
+  const followVisibility = () => {
+    if (document.hidden) {
+      source?.close()
+      source = null
+    } else {
+      source ??= connect()
     }
+  }
 
-    const parsed = zRunEvent.safeParse(data)
+  followVisibility()
+  document.addEventListener("visibilitychange", followVisibility)
 
-    if (parsed.success) {
-      onEvent(parsed.data)
-    }
-  })
-
-  return () => source.close()
+  return () => {
+    document.removeEventListener("visibilitychange", followVisibility)
+    source?.close()
+  }
 }
 
 /** Historia Uruchomień procesu z obu plików metryk, z P50/P95 i rozkładem wyników; serwer czyta pliki przy każdym odczycie. */

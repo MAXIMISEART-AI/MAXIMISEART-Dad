@@ -12,9 +12,24 @@ import tomllib
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, Request, expect
 
 from drive.common import REPO_ROOT, Run
+
+# Every click on the shortcut opens one more tab; the browser keeps at most 6 connections to Centrum for all tabs.
+_SHORTCUT_TABS = 7
+# Headless Chromium reports every tab as visible. A real browser hides the tab left behind when a new one comes
+# to the front (and every tab of a minimised window); the drive does that for it.
+_TO_BACKGROUND = """() => {
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" })
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => true })
+  document.dispatchEvent(new Event("visibilitychange"))
+}"""
+_TO_FRONT = """() => {
+  delete document.visibilityState
+  delete document.hidden
+  document.dispatchEvent(new Event("visibilitychange"))
+}"""
 
 
 def _copy_tool(run: Run) -> Path:
@@ -71,6 +86,16 @@ def _answers(url: str) -> bool:
         return False
 
 
+def _is_stream(request: Request) -> bool:
+    return urllib.parse.urlsplit(request.url).path == "/api/runs/events"
+
+
+def _run_setup(tab: Page) -> Locator:
+    """Shown only once the tab has both the run setup (API) and the current Uruchomienie (stream)."""
+
+    return tab.get_by_role("button", name="Podgląd bez zapisu", exact=True)
+
+
 def drive_start_and_close(run: Run, page: Page) -> None:
     feature = "start-i-zamykanie"
     port = int(urllib.parse.urlsplit(run.url).port or 0)
@@ -107,6 +132,29 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     run.check("zajmuje inny program" in refused.stdout and refused.stderr == "", "no exception text, only the message")
     run.check(_log_events(tool_log)[-1:] == ["blad-startu"], "the log records the start failure")
 
+    run.step(feature, "karty-w-tle")
+    page.goto(run.url + "#/uruchomienia")
+    expect(_run_setup(page)).to_be_visible()
+    with page.expect_event("requestfailed", predicate=_is_stream):
+        page.evaluate(_TO_BACKGROUND)
+    run.check(True, "in the background the drive's tab gives its stream back (tabs hidden by the harness)")
+    shortcut_tabs: list[Page] = []
+    for _ in range(_SHORTCUT_TABS):
+        if shortcut_tabs:
+            shortcut_tabs[-1].evaluate(_TO_BACKGROUND)
+        shortcut_tabs.append(tab := page.context.new_page())
+        tab.goto(run.url + "#/uruchomienia")
+        expect(_run_setup(tab)).to_be_visible(timeout=5_000)
+    run.check(True, f"each of {_SHORTCUT_TABS} more tabs shows Uruchomienia from the API and the stream")
+    run.capture(shortcut_tabs[-1], "90-start-i-zamykanie-karty-w-tle")
+    shortcut_tabs[-1].evaluate(_TO_BACKGROUND)
+    with page.expect_request(_is_stream):
+        page.evaluate(_TO_FRONT)
+    expect(_run_setup(page)).to_be_visible()
+    run.check(True, "back in front, the drive's tab connects to the stream again")
+    for tab in shortcut_tabs:
+        tab.close()
+
     run.step(feature, "zamykanie-karta")
     page.goto(run.url)
     other_tab = page.context.new_page()
@@ -121,7 +169,7 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     dialog = page.get_by_role("alertdialog", name="Zamknąć Centrum rozliczeń?")
     expect(dialog).to_be_visible()
     expect(dialog).to_contain_text("Wrócisz skrótem „Centrum rozliczeń” na pulpicie.")
-    run.capture(page, "90-start-i-zamykanie-potwierdzenie", full_page=False)
+    run.capture(page, "91-start-i-zamykanie-potwierdzenie", full_page=False)
     dialog.get_by_role("button", name="Anuluj", exact=True).click()
     expect(dialog).to_be_hidden()
     run.check(_answers(run.url) and "zamkniecie" not in _log_events(served_log), "Anuluj leaves Centrum running")
@@ -132,4 +180,4 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     expect(page.get_by_role("heading", name="Centrum rozliczeń jest zamknięte", exact=True)).to_be_visible()
     run.wait_for(lambda: not _answers(run.url), "the Centrum process stops serving")
     run.wait_for(lambda: _log_events(served_log)[-2:] == ["zamkniecie", "stop"], "the log ends with zamkniecie, stop")
-    run.capture(page, "91-start-i-zamykanie-zamkniete")
+    run.capture(page, "92-start-i-zamykanie-zamkniete")
