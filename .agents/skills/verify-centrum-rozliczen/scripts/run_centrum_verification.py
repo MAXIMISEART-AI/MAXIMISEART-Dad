@@ -112,6 +112,12 @@ REQUIRED_SCREENSHOTS = {
         "65-zgloszenie-po-odswiezeniu.png",
         "66-zgloszenie-kolejne-uruchomienie.png",
     ),
+    "powiadomienie-o-naprawie": (
+        "72-naprawa-czeka.png",
+        "73-naprawa-brak-sieci.png",
+        "74-naprawa-powiadomienie.png",
+        "75-naprawa-po-aktualizacji.png",
+    ),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",

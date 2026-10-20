@@ -29,6 +29,8 @@ directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
 drive may edit it to ``closed``, which Centrum reads as Maks closing the
 Zgłoszenie). The key is never written there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
+Each question about the state of sent Zgłoszenia appends its numbers to
+``<root>/skrzynka-zgloszen-zapytania.jsonl``.
 
 Centrum asks the skrzynka for the state of sent Zgłoszenia at most once per 10
 minutes of its monotonic clock; ``<root>/zegar/przesuniecie-min.txt`` moves that
@@ -131,6 +133,8 @@ class FileReportBox:
         return Sent(number)
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
+        with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:
+            asked.write(json.dumps({"numbers": list(numbers)}) + "\n")
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
         states: dict[int, IssueState] = {}
