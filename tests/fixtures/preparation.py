@@ -31,8 +31,28 @@ PERIOD = "08_14_09_2026"
 INTERNAL_SETTLEMENT_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_FILE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 
-# Kolejność kolumn Rejestru celowo różni się od wzorców; "STATUS APLIKACJI" nie jest przenoszony.
+# Układ nowego Rejestru taty: pusta kolumna A, AKCJE w B, ZWROT i UWAGI na końcu.
+# AKCJE, ZWROT i UWAGI nie są przenoszone; kolumny są przesunięte względem wzorców.
 REGISTER_HEADERS: tuple[str, ...] = (
+    "",
+    "AKCJE",
+    "DATA GODZ. POCZ.",
+    "MIASTO",
+    "ADRES",
+    "UMOWA",
+    "URZĄDZENIA",
+    "CZYNNOŚCI",
+    "NUMER ZL.",
+    "WYKONAWCA",
+    "NUMER UMOWY",
+    "SKUTECZNE",
+    "CZYNNOŚCI ZREALIZOWANE",
+    "ZWROT",
+    "UWAGI",
+)
+# Starsza kopia Rejestru: inna kolejność, stare zapisy nagłówków, bez AKCJE, ZWROT i UWAGI,
+# za to z kolumną "STATUS APLIKACJI", która nie jest przenoszona.
+OLD_REGISTER_HEADERS: tuple[str, ...] = (
     "nr zlecenia",
     "DATA GODZ. POCZ.",
     "WYKONAWCA",
@@ -46,6 +66,12 @@ REGISTER_HEADERS: tuple[str, ...] = (
     "CZYNNOŚCI ZREALIZOWANE",
     "NUMER UMOWY/ZLECENIA ORANGE",
 )
+# Nagłówki nowego Rejestru zapisane w starszej kopii inaczej.
+OLD_REGISTER_SPELLINGS = {"ADRES": "adres", "NUMER ZL.": "nr zlecenia", "NUMER UMOWY": "NUMER UMOWY/ZLECENIA ORANGE"}
+# Wartości kolumn, które ma tylko starsza kopia Rejestru.
+OLD_REGISTER_ONLY_VALUES: dict[str, object] = {"STATUS APLIKACJI": "zamknięte"}
+# Początki wartości kolumn nowego Rejestru, które nie trafiają do plików okresu.
+NOT_TRANSFERRED_PREFIXES: dict[str, str] = {"AKCJE": "akcja SYN-", "ZWROT": "zwrot SYN-", "UWAGI": "uwaga SYN-"}
 INTERNAL_TEMPLATE_HEADERS: tuple[str, ...] = (
     "DATA",
     "MIASTO",
@@ -95,6 +121,14 @@ TEMPLATE_FONT_SIZE = 10
 # a komórki danych nie mają własnego stylu. Excel daje wpisanemu tekstowi styl wiersza.
 TEMPLATE_COLUMN_FONT_SIZE = 11
 TEMPLATE_ROW_STYLED_ROWS = 40
+# Szerokości kolumn wzorców: różne, a C i E bardzo wąskie, jak kolumny, których tata nie musi oglądać.
+TEMPLATE_NARROW_COLUMN_WIDTHS = {3: 2.29, 5: 3.0}
+
+
+def template_column_width(column: int) -> float:
+    """Szerokość kolumny ``column`` (od 1) w obu syntetycznych Wzorcach."""
+
+    return TEMPLATE_NARROW_COLUMN_WIDTHS.get(column, 9 + column)
 
 
 @dataclass(frozen=True)
@@ -110,7 +144,8 @@ class Highlight:
 # Wyróżnienia domyślnego Rejestru po (wiersz Excela, nagłówek Rejestru).
 # Wiersz 4: zlecenie 2, wiersz 9: zlecenie 4 (oba skuteczne).
 DEFAULT_REGISTER_HIGHLIGHTS: dict[tuple[int, str], Highlight] = {
-    (4, "adres"): Highlight(fill="FFFFFF00", color="FFC00000", bold=True),
+    (4, "AKCJE"): Highlight(fill="FF00B050", bold=True),
+    (4, "ADRES"): Highlight(fill="FFFFFF00", color="FFC00000", bold=True),
     (9, "WYKONAWCA"): Highlight(italic=True),
 }
 
@@ -122,22 +157,39 @@ def register_order(
     successful: str = "tak",
     worker: str = "adrian.testowy",
 ) -> dict[str, object]:
-    """Syntetyczne zlecenie z unikalnymi znacznikami treści ``SYN-…``."""
+    """Syntetyczne zlecenie nowego Rejestru z unikalnymi znacznikami treści ``SYN-…``."""
 
     return {
-        "nr zlecenia": f"ZL-SYN-{number:03d}",
+        "AKCJE": f"{NOT_TRANSFERRED_PREFIXES['AKCJE']}{number:03d}",
         "DATA GODZ. POCZ.": started,
-        "WYKONAWCA": worker,
         "MIASTO": "POZNAŃ",
-        "adres": f"syntetyczny adres SYN-{number:03d}",
-        "STATUS APLIKACJI": "zamknięte",
+        "ADRES": f"syntetyczny adres SYN-{number:03d}",
         "UMOWA": f"UM-SYN-{number:03d}",
         "URZĄDZENIA": "dekoder",
         "CZYNNOŚCI": "instalacja",
+        "NUMER ZL.": f"ZL-SYN-{number:03d}",
+        "WYKONAWCA": worker,
+        "NUMER UMOWY": f"OR-SYN-{number:03d}",
         "SKUTECZNE": successful,
         "CZYNNOŚCI ZREALIZOWANE": "montaż",
-        "NUMER UMOWY/ZLECENIA ORANGE": f"OR-SYN-{number:03d}",
+        "ZWROT": f"{NOT_TRANSFERRED_PREFIXES['ZWROT']}{number:03d}",
+        "UWAGI": f"{NOT_TRANSFERRED_PREFIXES['UWAGI']}{number:03d}",
     }
+
+
+def in_old_layout(rows: list[RegisterRow]) -> list[RegisterRow]:
+    """Te same zlecenia w układzie starszej kopii Rejestru: każdy wiersz ma dokładnie ``OLD_REGISTER_HEADERS``.
+
+    Nagłówki dostają stary zapis, kolumn, których starsza kopia nie ma, w wierszu nie ma, a kolumny, które ma
+    tylko ona, dostają ``OLD_REGISTER_ONLY_VALUES``.
+    """
+
+    def old_row(row: Mapping[str, object]) -> dict[str, object]:
+        values = {OLD_REGISTER_SPELLINGS.get(header, header): value for header, value in row.items()}
+        values |= OLD_REGISTER_ONLY_VALUES
+        return {header: values[header] for header in OLD_REGISTER_HEADERS}
+
+    return [None if row is None else old_row(row) for row in rows]
 
 
 def default_register_rows() -> list[RegisterRow]:
@@ -166,9 +218,8 @@ def write_register(
     headers: tuple[str, ...] = REGISTER_HEADERS,
     highlights: Mapping[tuple[int, str], Highlight] | None = None,
 ) -> Path:
-    """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych z nagłówkami w wierszu 1.
+    """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych ``ZLECENIA`` (``write_register_sheet``).
 
-    Komórki danych mają czcionkę Rejestru, a ``DATA GODZ. POCZ.`` jego format daty.
     Bez jawnych ``rows`` stosowane są ``DEFAULT_REGISTER_HIGHLIGHTS``.
     """
 
@@ -180,16 +231,41 @@ def write_register(
     decoy.title = "lista"
     decoy["A1"] = "WYKONAWCY"
     decoy["A2"] = "adrian.testowy"
-    sheet = workbook.create_sheet("ZLECENIA")
-    for column, header in enumerate(headers, start=1):
+    write_register_sheet(
+        workbook.create_sheet("ZLECENIA"),
+        rows if rows is not None else default_register_rows(),
+        headers=headers,
+        highlights=highlights,
+    )
+    workbook.save(path)
+    return path
+
+
+def write_register_sheet(
+    sheet: Worksheet,
+    rows: list[RegisterRow],
+    *,
+    headers: tuple[str, ...] = REGISTER_HEADERS,
+    highlights: Mapping[tuple[int, str], Highlight] | None = None,
+) -> None:
+    """Zapisuje arkusz Rejestru: nagłówki w wierszu 1, zlecenia od wiersza 2 (``None`` to pusty wiersz).
+
+    Pusty nagłówek oznacza całkowicie pustą kolumnę. Komórki danych mają czcionkę Rejestru, a ``DATA GODZ. POCZ.``
+    jego format daty.
+    """
+
+    if highlights is None:
+        highlights = {}
+    columns = [(column, header) for column, header in enumerate(headers, start=1) if header]
+    for column, header in columns:
         sheet.cell(1, column).value = header
-    for row_number, row in enumerate(rows if rows is not None else default_register_rows(), start=2):
+    for row_number, row in enumerate(rows, start=2):
         if row is None:
             continue
-        for column, header in enumerate(headers, start=1):
+        for column, header in columns:
             if header in row:
                 cell = sheet.cell(row_number, column)
-                cell.value = row[header]
+                cell.value = row[header]  # type: ignore[assignment]  # syntetyczne zlecenia mają tekst i daty
                 highlight = highlights.get((row_number, header), Highlight())
                 cell.font = Font(
                     name=REGISTER_FONT_NAME,
@@ -202,8 +278,6 @@ def write_register(
                     cell.fill = PatternFill(fill_type="solid", fgColor=highlight.fill)
                 if header == "DATA GODZ. POCZ.":
                     cell.number_format = REGISTER_DATE_FORMAT
-    workbook.save(path)
-    return path
 
 
 def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, row_style: bool = False) -> None:
@@ -216,7 +290,7 @@ def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, r
     column_font_size = TEMPLATE_COLUMN_FONT_SIZE if row_style else TEMPLATE_FONT_SIZE
     for column in range(1, columns + 1):
         dimension = sheet.column_dimensions[get_column_letter(column)]
-        dimension.width = 9 + column
+        dimension.width = template_column_width(column)
         dimension.font = Font(name=TEMPLATE_FONT_NAME, size=column_font_size)
         sheet.cell(header_row, column).font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE, bold=True)
     sheet.row_dimensions[header_row].height = 30

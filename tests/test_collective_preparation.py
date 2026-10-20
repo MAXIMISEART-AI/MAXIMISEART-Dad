@@ -7,7 +7,6 @@ from pathlib import Path
 import time
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.utils import get_column_letter
 import pytest
 
 from rozliczenia.decision import Decision
@@ -30,20 +29,24 @@ from tests.fixtures.preparation import (
     COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
     INTERNAL_TEMPLATE_HEADERS,
+    NOT_TRANSFERRED_PREFIXES,
+    OLD_REGISTER_HEADERS,
     PERIOD,
-    REGISTER_HEADERS,
+    TEMPLATE_NARROW_COLUMN_WIDTHS,
     PreparationFixture,
     RegisterRow,
     default_register_rows,
+    in_old_layout,
     make_dad_layout_fixture,
     make_preparation_fixture,
     register_order,
+    template_column_width,
     write_collective_template,
     write_internal_template,
     write_register,
 )
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
-from tests.fixtures.workbooks import active_worksheet, external_link_parts
+from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import cell_values, collective_row, run_preparation
 
@@ -127,18 +130,29 @@ def test_plik_zbiorczy_contains_exactly_zlecenia_skuteczne_from_row_18(tmp_path:
     ]
 
 
-# Rejestr taty zapisuje dwa nagłówki inaczej niż starsza kopia Rejestru.
-TATA_REGISTER_HEADERS = {"nr zlecenia": "NUMER ZL.", "NUMER UMOWY/ZLECENIA ORANGE": "NUMER UMOWY"}
-
-
-def test_rejestr_with_numer_zl_and_numer_umowy_headers_fills_both_period_files(tmp_path: Path) -> None:
+def test_akcje_zwrot_and_uwagi_from_rejestr_stay_out_of_both_period_files(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    rows = [
-        None if row is None else {TATA_REGISTER_HEADERS.get(header, header): value for header, value in row.items()}
-        for row in default_register_rows()
-    ]
-    headers = tuple(TATA_REGISTER_HEADERS.get(header, header) for header in REGISTER_HEADERS)
-    write_register(fixture.register_path, rows, headers=headers)
+
+    run_preparation(fixture)
+
+    for path in (fixture.internal_settlement_path, fixture.collective_file_path):
+        workbook = load_workbook(path)
+        try:
+            texts = [
+                cell.value
+                for sheet in workbook.worksheets
+                for row in sheet.iter_rows()
+                for cell in row
+                if isinstance(cell.value, str)
+            ]
+        finally:
+            workbook.close()
+        assert [text for text in texts if any(prefix in text for prefix in NOT_TRANSFERRED_PREFIXES.values())] == []
+
+
+def test_rejestr_in_old_layout_still_fills_both_period_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    write_register(fixture.register_path, in_old_layout(default_register_rows()), headers=OLD_REGISTER_HEADERS)
 
     run_preparation(fixture)
 
@@ -577,21 +591,29 @@ def test_data_column_keeps_date_format_from_rejestr(tmp_path: Path) -> None:
         collective.close()
 
 
-def sheet_layout(path: Path, *, header_row: int, max_col: int) -> dict[str, object]:
+@dataclass(frozen=True)
+class SheetLayout:
     """Szerokości kolumn, wysokości wierszy, nagłówek z formatowaniem i blokada wierszy."""
 
+    widths: list[float | None]
+    heights: list[float | None]
+    header: list[tuple[object, ...]]
+    freeze_panes: str | None
+
+
+def sheet_layout(path: Path, *, header_row: int, max_col: int) -> SheetLayout:
     workbook = load_workbook(path)
     try:
         sheet = active_worksheet(workbook)
-        return {
-            "widths": [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, max_col + 1)],
-            "heights": [sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
-            "header": [
+        return SheetLayout(
+            widths=column_widths(sheet, max_col),
+            heights=[sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
+            header=[
                 (cell.value, cell.font.name, cell.font.sz, cell.font.b, cell.fill.fgColor.rgb)
                 for cell in sheet[header_row][:max_col]
             ],
-            "freeze_panes": sheet.freeze_panes,
-        }
+            freeze_panes=sheet.freeze_panes,
+        )
     finally:
         workbook.close()
 
@@ -607,7 +629,10 @@ def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind:
     else:
         template, created, header_row = fixture.collective_template_path, fixture.collective_file_path, 17
     expected = sheet_layout(template, header_row=header_row, max_col=47)
-    assert expected["freeze_panes"] == f"A{header_row + 1}"
+    assert expected.freeze_panes == f"A{header_row + 1}"
+    # Szerokości Wzorca, łącznie z jego bardzo wąskimi kolumnami.
+    leading = range(1, max(TEMPLATE_NARROW_COLUMN_WIDTHS) + 1)
+    assert expected.widths[: len(leading)] == [template_column_width(column) for column in leading]
     assert sheet_layout(created, header_row=header_row, max_col=47) == expected
 
 

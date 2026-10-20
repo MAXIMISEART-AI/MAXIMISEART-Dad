@@ -32,11 +32,20 @@ from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
     active_worksheet,
     add_external_link_fixture,
+    column_widths,
     cut_sheet_after_data_rows,
     external_link_parts,
     without_sheet,
 )
-from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, SOURCE_NAME, make_fixture, projected, write_source
+from tests.fixtures.settlement import (
+    NOT_A_PERIOD,
+    PERIOD,
+    SOURCE_NAME,
+    WORKER_TEMPLATE_COLUMN_WIDTHS,
+    make_fixture,
+    projected,
+    write_source,
+)
 
 
 UNREADABLE_SOURCE_MESSAGE = (
@@ -229,6 +238,25 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
         assert active_worksheet(empty_workbook)["K18"].value == "=N18+1"  # formuła Wzorca nie jest danymi
     finally:
         empty_workbook.close()
+
+
+def test_kazde_rozliczenie_pracownika_takze_puste_ma_szerokosci_kolumn_wzorca_rozliczenia_pracownika(
+    tmp_path: Path,
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.empty_count == 1
+    expected = [WORKER_TEMPLATE_COLUMN_WIDTHS.get(column) for column in range(1, 48)]
+    published = sorted(target_directory.glob("*.xlsx"))
+    assert len(published) == 3
+    for path in published:
+        workbook = load_workbook(path)
+        try:
+            assert column_widths(active_worksheet(workbook), 47) == expected, path.name
+        finally:
+            workbook.close()
 
 
 def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
