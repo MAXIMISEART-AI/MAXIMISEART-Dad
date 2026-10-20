@@ -1,4 +1,4 @@
-# ADR 0007: Zapis Rozliczenia pracownika przez podmianę wierszy danych w kopii Wzorca
+# ADR 0007: Zapis Rozliczenia pracownika przez podmianę Wierszy danych w kopii Wzorca
 
 ## Status
 
