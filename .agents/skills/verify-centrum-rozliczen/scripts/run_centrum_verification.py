@@ -87,6 +87,16 @@ REQUIRED_SCREENSHOTS = {
         "46-przebieg-nienadpisywanie.png",
         "47-przebieg-wymaga-sprawdzenia.png",
     ),
+    "diagnoza": (
+        "50-diagnoza-dla-taty.png",
+        "51-diagnoza-powtorka.png",
+        "52-diagnoza-wyjasnienie.png",
+        "53-diagnoza-sprawdzono.png",
+        "54-diagnoza-inny-komunikat.png",
+        "55-diagnoza-do-maksa.png",
+        "56-diagnoza-do-maksa-wyjasnienie.png",
+        "57-diagnoza-bez-przyczyny.png",
+    ),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",
