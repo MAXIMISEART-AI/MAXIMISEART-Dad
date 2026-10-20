@@ -28,7 +28,10 @@ procesie co silnik, bez okna konsoli. Nasłuchuje wyłącznie na `127.0.0.1`.
 Odrzuca każde żądanie z nagłówkiem `Host` spoza localhost, a akcje zmieniające
 stan przyjmuje tylko z `Origin` Centrum. Nie ma logowania, zdalnego dostępu ani
 własnej bazy danych: stan wylicza przy każdym odczycie z folderu okresów,
-plików metryk i konfiguracji. Własne pliki Centrum to tylko ustawienia taty i
+plików metryk i konfiguracji. Przeglądarka może pokazać ostatnią odczytaną
+kopię z pamięci karty, dopóki nie przyjdzie nowy odczyt; kopię czyści zmiana
+folderu okresów albo Rejestru zleceń i odświeżenie karty, a źródłem stanu
+zostaje serwer. Własne pliki Centrum to tylko ustawienia taty i
 dziennik pochodzenia Uruchomień (niżej); żaden z nich nie jest źródłem Statusu
 okresu, wyniku ani metryk. Pliki i foldery otwiera tylko wtedy, gdy sam
 wyliczył je z folderu okresów, nigdy dla ścieżki podanej w żądaniu.
