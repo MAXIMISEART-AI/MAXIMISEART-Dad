@@ -2,9 +2,11 @@
 
 Moduł jest szczegółem ``workbook_files.WorkerSettlementTemplate`` i nikt poza nim
 go nie używa. ``TemplateCopy.of`` czyta bajty Wzorca raz: rozpakowuje części zip,
-indeksuje wiersze XML aktywnego arkusza, liczy kontrole Szablonu pracownika
-(nagłówek, dane w Wierszach danych) i kompresuje arkusz raz, w kawałkach od
-granic wierszy. ``TemplateCopy.with_rows`` składa z tego jedną kopię:
+sprawdza, że każda część XML jest poprawnym XML-em, indeksuje wiersze XML
+aktywnego arkusza i liczy kontrole Szablonu pracownika (nagłówek, dane w
+Wierszach danych); na tym opiera się Sprawdzanie Wzorca. Arkusz jest kompresowany
+raz, w kawałkach od granic wierszy, przy pierwszej kopii. ``TemplateCopy.with_rows``
+składa z tego jedną kopię:
 
 - każda część zip poza arkuszem, ``xl/workbook.xml`` i (przy datach) ``xl/styles.xml``
   jest przepisana bajt w bajt razem ze skompresowaną treścią, w tym
@@ -14,14 +16,15 @@ granic wierszy. ``TemplateCopy.with_rows`` składa z tego jedną kopię:
   przez openpyxl (``TemplateSheet.write_data_rows``), a pozostałe komórki, w tym
   formuły, wspólne formuły i style, zostają bajt w bajt; kompresowany jest tylko
   początek arkusza do granicy kawałka za ostatnim wpisanym wierszem, reszta to
-  gotowe kawałki z wczytania;
+  gotowe kawałki z pierwszej kopii;
 - ``calcPr`` w ``xl/workbook.xml`` dostaje ``calcMode="auto"``, ``fullCalcOnLoad="1"``
   i ``forceFullCalc="1"``, jak przy zapisie przez openpyxl.
 
 Wzorzec, którego kształtu ten moduł nie obsługuje (np. formuła w kolumnach Wiersza
-danych, scalenie w Wierszach danych, XML z prefiksami albo bez atrybutów ``r``),
-zgłasza ``UnsupportedShape``; tak samo wartość, której typu moduł nie zapisuje.
-Wtedy ``workbook_files`` tworzy Rozliczenie pracownika dawną drogą przez openpyxl.
+danych, scalenie w Wierszach danych, XML z prefiksami albo bez atrybutów ``r``,
+uszkodzona część XML), zgłasza ``UnsupportedShape``; tak samo wartość, której typu
+moduł nie zapisuje. Wtedy ``workbook_files`` sprawdza Wzorzec i tworzy Rozliczenie
+pracownika dawną drogą przez openpyxl, z jej klasyfikacją uszkodzeń.
 Wartość, której nie da się zapisać w ogóle (znak niedozwolony w XML, data ze
 strefą czasową), to ``InvalidValue``.
 """
@@ -43,6 +46,7 @@ from decimal import Decimal
 from io import BytesIO
 from typing import IO, Final
 from xml.etree import ElementTree
+from xml.parsers import expat
 
 from openpyxl.cell.cell import ERROR_CODES, ILLEGAL_CHARACTERS_RE
 from openpyxl.styles.numbers import (
@@ -76,6 +80,7 @@ _READ_ERRORS: Final = (
     IndexError,
     ValueError,
     ElementTree.ParseError,
+    expat.ExpatError,
     zlib.error,
     struct.error,
     NotImplementedError,
@@ -215,6 +220,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     archive = zipfile.ZipFile(BytesIO(content))
     infos = archive.infolist()
     plain = {info.filename: archive.read(info) for info in infos}  # sprawdza CRC każdej części
+    _require_well_formed_xml(plain)
     workbook_name = _office_document(plain)
     workbook_rels = _relationships(plain, workbook_name)
     workbook_xml = plain[workbook_name]
@@ -244,7 +250,20 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         raise UnsupportedShape("sheet")
     sheet = _Sheet(infos[sheet_index], sheet_index, plain[sheet_name], layout, epoch=MAC_EPOCH if date1904 else WINDOWS_EPOCH)
     styles = _Styles(infos[styles_index], plain[styles_name], _unchanged_part(content, infos[styles_index], plain[styles_name]))
-    return TemplateCopy(parts, sheet, styles, sheet.header(shared_strings), sheet.has_input_data())
+    return TemplateCopy(parts, sheet, styles, sheet.header(shared_strings), sheet.has_input_data)
+
+
+def _require_well_formed_xml(plain: dict[str, bytes]) -> None:
+    """Każda część XML jest poprawnym XML-em; skoroszyt, którego nie przeczyta openpyxl, idzie dawną drogą.
+
+    Kopia czyta arkusz tylko w miejscach, które zmienia, więc np. arkusz urwany za
+    Wierszami danych przeszedłby niezauważony; dawna droga klasyfikuje go jak przy
+    każdym otwarciu skoroszytu.
+    """
+
+    for name, data in plain.items():
+        if name.endswith((".xml", ".rels")):
+            expat.ParserCreate().Parse(data, True)
 
 
 def _office_document(plain: dict[str, bytes]) -> str:
@@ -399,11 +418,12 @@ class _Sheet:
         self._data_start = self._rows[first].start if first < len(self._rows) else data_end
         self._first_data_index = first
         self._data_end = data_end
-        _require_writable_data_rows(xml, self._data_start, data_end, layout)
+        self.has_input_data = _writable_data_rows_have_input(xml, self._data_start, data_end, layout)
+        """Jak ``TemplateSheet.has_input_data``: niepusta wartość bez formuły w kolumnach danych wejściowych."""
         self._boundaries = [self._data_start] + [
             row.start for row in self._rows[first + _ROWS_PER_CHUNK :: _ROWS_PER_CHUNK]
         ]
-        self._chunks = _compressed_chunks(xml, self._boundaries)
+        self._chunks: list[bytes] | None = None  # dopiero przy pierwszej kopii: Sprawdzanie ich nie potrzebuje
         dimension = _DIMENSION.search(xml, 0, data_start)
         self._dimension = None if dimension is None else (dimension.start(1), dimension.end(1), range_boundaries(dimension.group(1).decode("ascii")))
 
@@ -418,17 +438,6 @@ class _Sheet:
             if column <= self._layout.input_columns:
                 values[column - 1] = _header_value(cell.group(3), cell.group(4), shared_strings)
         return values
-
-    def has_input_data(self) -> bool:
-        """Jak ``TemplateSheet.has_input_data``: niepusta wartość bez formuły w kolumnach danych wejściowych."""
-
-        for cell in _CELL_WITH_CONTENT.finditer(self._xml, self._data_start, self._data_end):
-            if _column(cell.group(1)) > self._layout.input_columns:
-                continue
-            content = cell.group(2)
-            if not _FORMULA.search(content) and (b"<is" in content or _NON_EMPTY_VALUE.search(content)):
-                return True
-        return False
 
     def with_rows(self, rows: Sequence[Sequence[object]], styles: _StyleAdditions) -> _Part:
         xml = self._xml
@@ -446,6 +455,8 @@ class _Sheet:
         head = b"".join([self._prefix(last_row if rows else None), *patched, xml[region_end:tail_start]])
         compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
         if chunk < len(self._boundaries):
+            if self._chunks is None:
+                self._chunks = _compressed_chunks(xml, self._boundaries)
             compressed = [compressor.compress(head) + compressor.flush(zlib.Z_SYNC_FLUSH), *self._chunks[chunk:]]
         else:
             compressed = [compressor.compress(head) + compressor.flush()]
@@ -527,20 +538,30 @@ def _index_rows(xml: bytes, start: int, end: int) -> list[_Row]:
     return rows
 
 
-def _require_writable_data_rows(xml: bytes, data_start: int, data_end: int, layout: SheetLayout) -> None:
-    """Kolumny Wiersza danych od pierwszego Wiersza danych nie mają formuł ani scaleń.
+def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, layout: SheetLayout) -> bool:
+    """Czy Wiersze danych mają już wartość w kolumnach danych wejściowych; jedno przejście po komórkach.
 
-    Wpisanie wartości w taką komórkę zmienia ``calcChain`` albo wspólną formułę
-    (formuła) lub nie jest możliwe (scalenie); to robi dawna droga przez openpyxl.
+    Kolumny Wiersza danych od pierwszego Wiersza danych nie mogą mieć formuł ani
+    scaleń: wpisanie wartości w taką komórkę zmienia ``calcChain`` albo wspólną
+    formułę (formuła) lub nie jest możliwe (scalenie); to robi dawna droga przez
+    openpyxl (``UnsupportedShape``). Formuły nie są danymi.
     """
 
+    has_input = False
     for cell in _CELL_WITH_CONTENT.finditer(xml, data_start, data_end):
-        if _column(cell.group(1)) <= layout.data_columns and _FORMULA.search(cell.group(2)):
+        column = _column(cell.group(1))
+        if column > layout.data_columns:
+            continue
+        content = cell.group(2)
+        if _FORMULA.search(content):
             raise UnsupportedShape("formula in data row")
+        if not has_input and column <= layout.input_columns:
+            has_input = b"<is" in content or _NON_EMPTY_VALUE.search(content) is not None
     for merged in _MERGE.finditer(xml, data_end):
         min_column, min_row, _max_column, max_row = range_boundaries(merged.group(1).decode("ascii"))
         if (min_column or 1) <= layout.data_columns and (max_row or min_row or 1) >= layout.first_data_row:
             raise UnsupportedShape("merged data rows")
+    return has_input
 
 
 def _compressed_chunks(xml: bytes, boundaries: list[int]) -> list[bytes]:

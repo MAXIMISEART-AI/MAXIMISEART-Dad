@@ -116,6 +116,17 @@ def cut_sheet_after_data_rows(path: Path, sheet_part: str = "xl/worksheets/sheet
             target.writestr(info, data)
 
 
+def cut_sheet_after_sheet_data(path: Path) -> None:
+    """Wszystkie Wiersze danych arkusza są całe, ale XML arkusza urywa się zaraz za ``</sheetData>``."""
+
+    rewrite_parts(
+        path,
+        lambda name, data: data[: data.index(b"</sheetData>") + len(b"</sheetData>")]
+        if name == "xl/worksheets/sheet1.xml"
+        else data,
+    )
+
+
 def rewrite_parts(path: Path, change: Callable[[str, bytes], bytes | None]) -> None:
     """Przepisuje części archiwum .xlsx; ``None`` usuwa część."""
 

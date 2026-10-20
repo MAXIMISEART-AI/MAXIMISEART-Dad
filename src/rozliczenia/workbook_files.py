@@ -4,8 +4,8 @@ Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
 zbiorczy (``read_data_rows``), Rejestr zleceń (``read_workbook``, z formatem
 komórek), Wzorce do Sprawdzania i dla Przygotowania pliku zbiorczego
 (``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
-pracownika, z którego Przebieg rozliczeń tworzy Rozliczenia pracowników
-(``WorkerSettlementTemplate``). Otwarcie
+pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
+pracowników (``WorkerSettlementTemplate``). Otwarcie
 sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
 ``WorkbookError`` z powodem. Moduł nie zna Komunikatów: proces tłumaczy powód
 na Komunikat ze swojego katalogu.
@@ -35,6 +35,7 @@ from typing import IO, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 
 from openpyxl import load_workbook
+from openpyxl.reader.excel import SUPPORTED_FORMATS
 from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.cell.rich_text import CellRichText
 from openpyxl.styles.fills import Fill
@@ -455,12 +456,14 @@ def file_from_template(template: Path, target: Path, layout: Layout, *, recalcul
 class WorkerSettlementTemplate:
     """Wzorzec rozliczenia pracownika wczytany raz na Przebieg rozliczeń.
 
-    Z niego powstaje każde Rozliczenie pracownika (``create_settlement``).
-    Plik Wzorca jest czytany przy pierwszym Rozliczeniu pracownika, kolejne
-    powstają z tej samej kopii w pamięci: kopia części zip Wzorca, w której
-    zmieniają się tylko Wiersze danych w XML arkusza (ADR 0007). Wzorzec,
-    którego kształtu kopia nie obsługuje, idzie dawną drogą przez openpyxl.
-    Wzorzec na dysku pozostaje niezmieniony.
+    Sprawdzanie (``check``) i każde Rozliczenie pracownika (``create_settlement``)
+    korzystają z tego samego Wzorca wczytanego do pamięci: kopii części zip
+    Wzorca, w której zmieniają się tylko Wiersze danych w XML arkusza (ADR 0007).
+    Przy pierwszym Rozliczeniu pracownika plik jest czytany ponownie tylko jako
+    bajty; Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu jest więc
+    traktowany tak, jakby był wczytany dopiero wtedy. Wzorzec, którego kształtu
+    kopia nie obsługuje, idzie dawną drogą przez openpyxl. Wzorzec na dysku
+    pozostaje niezmieniony.
     """
 
     def __init__(self, path: Path) -> None:
@@ -468,6 +471,23 @@ class WorkerSettlementTemplate:
         self._content: bytes | None = None
         self._copy: TemplateCopy | None = None
         self._copy_read = False
+        self._read_for_settlements = False
+
+    def check(self) -> None:
+        """Sprawdzanie Wzorca bez zapisu: ``WorkbookError``, gdy nie może posłużyć jako wzór.
+
+        Powód to brak pliku, otwarcie w Excelu, nieczytelny skoroszyt, brak
+        WYKONAWCA w H17 (zły układ) albo wartości w Wierszach danych (``HAS_DATA``).
+        """
+
+        self._read()
+        copy = self._template_copy()
+        if copy is not None:
+            _check_settlement_template(self._path, copy.header, copy.has_input_data)
+            return
+        with self._openpyxl_workbook() as workbook:
+            sheet = _template_sheet(self._path, workbook, Layout.COLLECTIVE)
+            _check_settlement_template(self._path, sheet.header(), sheet.has_input_data())
 
     def create_settlement(self, target: Path, rows: Sequence[ExcelRow]) -> None:
         """Tworzy atomowo pod ``target`` Rozliczenie pracownika z ``rows`` jako Wierszami danych.
@@ -483,11 +503,12 @@ class WorkerSettlementTemplate:
         przypadkach ``target`` nie powstaje.
         """
 
+        if not self._read_for_settlements:
+            self._read()
+            self._read_for_settlements = True
         copy = self._template_copy()
         if copy is not None:
-            _check_worker_header(self._path, copy.header)
-            if copy.has_input_data:
-                raise WorkbookError(self._path, Problem.HAS_DATA)
+            _check_settlement_template(self._path, copy.header, copy.has_input_data)
             try:
                 package = copy.with_rows(rows)
             except InvalidValue as exc:
@@ -499,39 +520,60 @@ class WorkerSettlementTemplate:
                 return
         self._create_with_openpyxl(target, rows)
 
+    def _read(self) -> None:
+        """Czyta bajty Wzorca; wczytany Wzorzec zostaje, jeśli plik się nie zmienił."""
+
+        ensure_available(self._path)
+        with _unreadable_as_error(self._path):
+            if self._path.suffix.lower() not in SUPPORTED_FORMATS:
+                raise InvalidFileException(self._path.suffix)  # jak przy otwieraniu ścieżki przez openpyxl
+            content = self._path.read_bytes()
+        if content != self._content:
+            self._content = content
+            self._copy = None
+            self._copy_read = False
+
     def _template_copy(self) -> TemplateCopy | None:
         """Wzorzec do kopii z podmienionymi Wierszami danych; ``None``, gdy jego kształt wymaga openpyxl (ADR 0007)."""
 
-        content = self._loaded()
         if not self._copy_read:
             self._copy_read = True
             try:
-                self._copy = TemplateCopy.of(content, _WORKER_SETTLEMENT_LAYOUT)
+                self._copy = TemplateCopy.of(self._loaded(), _WORKER_SETTLEMENT_LAYOUT)
             except UnsupportedShape:
                 self._copy = None
         return self._copy
 
-    def _create_with_openpyxl(self, target: Path, rows: Sequence[ExcelRow]) -> None:
-        content = self._loaded()
+    @contextmanager
+    def _openpyxl_workbook(self) -> Iterator[Workbook]:
+        """Dawna droga (ADR 0007): pełne wczytanie Wzorca przez openpyxl z jego klasyfikacją uszkodzeń."""
+
         with _unreadable_as_error(self._path):
-            workbook = load_workbook(BytesIO(content), read_only=False, data_only=False, keep_links=True)
+            workbook = load_workbook(BytesIO(self._loaded()), read_only=False, data_only=False, keep_links=True)
         try:
-            sheet = _template_sheet(self._path, workbook, Layout.COLLECTIVE)
-            sheet.check_worker_header()
-            if sheet.has_input_data():
-                raise WorkbookError(self._path, Problem.HAS_DATA)
-            sheet.write_data_rows(rows)
-            _request_full_recalculation(workbook)
-            _save_atomically(workbook, target, _read_external_link_parts(BytesIO(content), self._path.name))
+            yield workbook
         finally:
             workbook.close()
 
+    def _create_with_openpyxl(self, target: Path, rows: Sequence[ExcelRow]) -> None:
+        with self._openpyxl_workbook() as workbook:
+            sheet = _template_sheet(self._path, workbook, Layout.COLLECTIVE)
+            _check_settlement_template(self._path, sheet.header(), sheet.has_input_data())
+            sheet.write_data_rows(rows)
+            _request_full_recalculation(workbook)
+            _save_atomically(workbook, target, _read_external_link_parts(BytesIO(self._loaded()), self._path.name))
+
     def _loaded(self) -> bytes:
-        if self._content is None:
-            ensure_available(self._path)
-            with _unreadable_as_error(self._path):
-                self._content = self._path.read_bytes()
+        assert self._content is not None, "Wzorzec jest czytany przed użyciem"
         return self._content
+
+
+def _check_settlement_template(path: Path, header: Sequence[object], has_input_data: bool) -> None:
+    """Kontrole Szablonu pracownika na Wzorcu: WYKONAWCA w H17, potem brak wartości w Wierszach danych."""
+
+    _check_worker_header(path, header)
+    if has_input_data:
+        raise WorkbookError(path, Problem.HAS_DATA)
 
 
 def _write_atomically(target: Path, write: Callable[[IO[bytes]], None]) -> None:
