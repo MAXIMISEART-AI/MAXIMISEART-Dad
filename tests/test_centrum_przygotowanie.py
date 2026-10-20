@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from io import StringIO
 import itertools
 import json
@@ -11,76 +10,23 @@ from pathlib import Path
 import time
 from typing import Any, NoReturn
 
-from fastapi.testclient import TestClient
 import pytest
 
 from rozliczenia import collective_preparation, preparation_cli, preparation_process, preparation_register
 from rozliczenia.telemetry import MetricsStore, metric_record
 from rozliczenia.centrum import contract, run_view
-from rozliczenia.centrum.app import create_app
-from rozliczenia.centrum.configuration import ConfigurationFiles
-from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
-from rozliczenia.centrum.shutdown import Shutdown
 
 from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
-    PreparationFixture,
     RegisterRow,
-    make_preparation_fixture,
     register_order,
 )
-from tests.fixtures.centrum import CENTRUM, FakePlatform, centrum as bare_centrum
+from tests.fixtures.centrum import centrum as bare_centrum
+from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, preparing_centrum
 from tests.fixtures.centrum import finished_view, phase_states, run_events, views_until
-
-# Wtorek po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
-TODAY = date(2026, 9, 16)
-
-
-@dataclass
-class PreparingCentrum:
-    client: TestClient
-    fixture: PreparationFixture
-    metrics_path: Path
-    log_path: Path
-
-    def start(self, *, dry_run: bool, period: str = PERIOD) -> Any:
-        return self.client.post("/api/runs", json={"process": "preparation", "period": period, "dry_run": dry_run})
-
-    def metric_records(self) -> list[dict[str, Any]]:
-        text = self.metrics_path.read_text(encoding="utf-8")
-        return [json.loads(line) for line in text.splitlines()]
-
-
-def preparing_centrum(tmp_path: Path, rows: list[RegisterRow] | None = None) -> PreparingCentrum:
-    """Centrum z zapamiętanym syntetycznym Rejestrem zleceń i folderem okresów oraz własnymi wzorcami i metrykami."""
-
-    fixture = make_preparation_fixture(tmp_path, rows)
-    metrics_path = tmp_path / ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
-    platform = FakePlatform(chosen_files=[fixture.register_path], chosen_folders=[fixture.periods_directory])
-    log_path = tmp_path / "logs" / "centrum-rozliczen.log"
-    log = CentrumLog(log_path)
-    app = create_app(
-        settings_path=tmp_path / "config" / "centrum-ustawienia.yaml",
-        platform=platform,
-        log=log,
-        shutdown=Shutdown(log),
-        today=lambda: TODAY,
-        configuration_files=ConfigurationFiles(
-            worker_config=fixture.config_path,
-            internal_template=fixture.internal_template_path,
-            collective_template=fixture.collective_template_path,
-            worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
-        ),
-        metrics_files=MetricsFiles(preparation=metrics_path, settlement=tmp_path / ".rozliczenia-metrics.jsonl"),
-    )
-    client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    client.post("/api/settings/register/choose")
-    client.post("/api/settings/periods-directory/choose")
-    return PreparingCentrum(client, fixture, metrics_path, log_path)
-
 
 # Podsumowanie wyniku na domyślnym syntetycznym Rejestrze zleceń, takie samo w podglądzie i przy Uruchom.
 SUMMARY: dict[str, Any] = {
