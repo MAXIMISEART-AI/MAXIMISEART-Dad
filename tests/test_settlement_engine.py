@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import time
 from collections.abc import Callable, Iterable
@@ -281,6 +282,62 @@ def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publika
     assert raised.value.message.code == "BLAD_KOPII_WZORCA"
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
+@pytest.mark.parametrize(
+    ("damage", "code"),
+    [
+        (overwrite_with_non_workbook, "BLAD_KOPII_WZORCA"),
+        (set_cell("H17", "NIE WYKONAWCA"), "BLAD_SZABLONU_PRACOWNIKA"),
+        (set_cell("A18", "SENSITIVE-SYNTHETIC"), "BLAD_SZABLONU_PRACOWNIKA"),
+    ],
+    ids=["nie-skoroszyt", "bez-wykonawca-w-h17", "z-danymi"],
+)
+def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publikacje(
+    tmp_path: Path, damage: Callable[[Path], None], code: str
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    recorded: list[ProgressEvent] = []
+
+    def damage_in_saving(event: ProgressEvent) -> None:
+        recorded.append(event)
+        if isinstance(event, WorkerStarted) and event.template_index == 1:
+            damage(worker_template_path)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=damage_in_saving)
+
+    assert raised.value.message.code == code
+    assert "SENSITIVE-SYNTHETIC" not in raised.value.message.text
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+    failed = [event for event in recorded if isinstance(event, (WorkerEnded, WorkerFailed))]
+    assert [(type(event), event.template_index) for event in failed] == [(WorkerFailed, 1)]
+
+
+def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    worker_template_before = worker_template_path.read_bytes()
+    replace = os.replace
+
+    def fail_replacing_workbook(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).suffix == ".xlsx":
+            raise OSError("synthetic write failure")
+        replace(source, target)
+
+    monkeypatch.setattr(os, "replace", fail_replacing_workbook)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+    assert "Adrian Maciejewski" in terminal_text(raised.value)
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+    assert sorted(path.name for path in target_directory.parent.iterdir()) == [SOURCE_NAME]
+    assert worker_template_path.read_bytes() == worker_template_before
 
 
 def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(tmp_path: Path) -> None:
