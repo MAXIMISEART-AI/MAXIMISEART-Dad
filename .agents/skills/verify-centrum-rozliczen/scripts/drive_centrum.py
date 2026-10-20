@@ -10,11 +10,14 @@ to ``<evidence>/state``.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
+import functools
 from pathlib import Path
 import shutil
 import sys
 
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page
 from playwright.sync_api import sync_playwright
 
 from drive import (
@@ -29,6 +32,7 @@ from drive import (
     uklad_folderow_taty,
     ustawienia,
     powiadomienie_o_naprawie,
+    wydajnosc,
     zgloszenie,
 )
 from drive.common import DAD_TIME_ZONE, DriveFailure, Run
@@ -52,6 +56,8 @@ FEATURES = (
     "powiadomienie-o-naprawie",
     "start-i-zamykanie",
 )
+# Run only when named: the measurement takes minutes, needs a quiet CPU, and its own fixture variant.
+EXPLICIT_FEATURES = ("wydajnosc",)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -59,10 +65,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", required=True, help="Run root with fixture.json and a served Centrum.")
     parser.add_argument("--url", required=True, help="Centrum URL from <root>/server.json.")
     parser.add_argument("--evidence", required=True, help="Evidence directory that survives cleanup.")
-    parser.add_argument("--feature", choices=("all", *FEATURES), default="all")
+    parser.add_argument("--feature", choices=("all", *FEATURES, *EXPLICIT_FEATURES), default="all")
+    parser.add_argument(
+        "--baseline", type=Path, default=wydajnosc.BASELINE, help="wydajnosc: the baseline to compare with."
+    )
+    parser.add_argument("--powtorzenia", type=int, default=5, help="wydajnosc: repetitions per scenario and profile.")
     args = parser.parse_args(argv)
     run = Run(Path(args.root).resolve(), args.url, Path(args.evidence).resolve())
-    drives = {
+    drives: dict[str, Callable[[Run, Page], None]] = {
         "ustawienia": ustawienia.drive_settings,
         "tablica-okresow": tablica_okresow.drive_period_board,
         "uklad-folderow-taty": uklad_folderow_taty.drive_dad_layout,
@@ -75,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
         "zgloszenie": zgloszenie.drive_report,
         "powiadomienie-o-naprawie": powiadomienie_o_naprawie.drive_repair_notice,
         "start-i-zamykanie": start_i_zamykanie.drive_start_and_close,
+        "wydajnosc": functools.partial(
+            wydajnosc.drive_performance, baseline_path=args.baseline.resolve(), repeats=args.powtorzenia
+        ),
     }
     selected = FEATURES if args.feature == "all" else (args.feature,)
     try:

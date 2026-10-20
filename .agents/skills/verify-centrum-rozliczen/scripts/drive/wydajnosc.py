@@ -1,0 +1,521 @@
+"""Drive features/wydajnosc.md: measure Centrum on Dad's year of work in his computer's CPU profiles.
+
+Every scenario runs ``repeats`` times per CPU profile in a fresh browser context
+(no HTTP or V8 code cache, except for reopening the tab). The median of each
+scenario is compared with the baseline in ``wydajnosc-baseline.json`` and its
+budget; the API requests of every repetition must match the baseline's count
+exactly. The report goes to ``<evidence>/wydajnosc/``.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import date
+import json
+from pathlib import Path
+import statistics
+from typing import Any
+from urllib.parse import urlsplit
+
+from playwright.sync_api import Browser, BrowserContext, CDPSession, Page, Request, expect
+
+from drive.common import DAD_TIME_ZONE, DriveFailure, Run
+
+SKILL_ROOT = Path(__file__).resolve().parents[2]
+BASELINE = SKILL_ROOT / "wydajnosc-baseline.json"
+# docs/agents/komputer-taty.md: 4× is the reference profile of Dad's laptop, 6× the pessimistic one.
+PROFILES = (4, 6)
+PAGES = {"okresy": "Okresy", "uruchomienia": "Uruchomienia", "metryki": "Metryki", "konfiguracja": "Konfiguracja"}
+LAP = ("uruchomienia", "metryki", "konfiguracja", "okresy")
+REOPENED = ("okresy", "metryki")
+TRACED = ("okresy", "metryki")
+REOPEN_WARMUP = 2  # V8 caches the bundle's code only after a few visits
+SETTLE_MS = 400  # transitions of 150–200 ms finish and late requests arrive
+# Used when the baseline file is missing, so the first measurement can produce one.
+DEFAULT_MARGIN = {"wzgledny": 0.15, "minimalny_ms": 20, "bundle_wzgledny": 0.02}
+TRACE_CATEGORIES = [
+    "devtools.timeline",
+    "disabled-by-default-devtools.timeline",
+    "v8",
+    "v8.execute",
+    "blink.user_timing",
+    "loading",
+]
+TRACE_EVENTS = (
+    "EvaluateScript", "v8.compile", "v8.compileModule", "v8.evaluateModule", "FunctionCall", "RunMicrotasks",
+    "ParseHTML", "ParseAuthorStyleSheet", "UpdateLayoutTree", "Layout", "PrePaint", "Paint", "Layerize",
+    "MinorGC", "MajorGC",
+)
+
+# Recorded in the page from the first byte: when the view of a page becomes ready (its h1 without any
+# skeleton or aria-busy), when a skeleton appears and disappears, the last DOM change, FCP, long tasks,
+# and Event Timing of input (the browser's own input-to-next-paint).
+INIT = r"""
+(() => {
+  const P = (window.__wydajnosc = { views: [], skeleton: [], lastMutation: 0, fcp: null, longtasks: [], events: [] });
+  let view = null;
+  let skeleton = false;
+  const check = () => {
+    const now = performance.now();
+    P.lastMutation = now;
+    const busy = !!document.querySelector('[data-slot="skeleton"],[aria-busy="true"]');
+    if (busy !== skeleton) { P.skeleton.push([now, busy]); skeleton = busy; }
+    const heading = document.querySelector('[data-slot="sidebar-inset"] h1');
+    const ready = !busy && heading ? heading.textContent.trim() : null;
+    if (ready !== view) { P.views.push([now, ready]); view = ready; }
+  };
+  new MutationObserver(check).observe(document, {
+    subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["aria-busy", "data-slot"],
+  });
+  const observe = (type, take, options = {}) => {
+    try { new PerformanceObserver((list) => list.getEntries().forEach(take)).observe({ type, buffered: true, ...options }); } catch {}
+  };
+  observe("paint", (e) => { if (e.name === "first-contentful-paint") P.fcp = e.startTime; });
+  observe("longtask", (e) => P.longtasks.push(e.duration));
+  observe("event", (e) => P.events.push([e.startTime, e.duration]), { durationThreshold: 16 });
+})();
+"""
+
+
+@dataclass
+class Measured:
+    """Samples of every scenario: values in ms per CPU profile, API requests per repetition, details."""
+
+    values: dict[str, dict[int, list[float]]] = field(default_factory=dict)
+    requests: dict[str, list[dict[str, int]]] = field(default_factory=dict)
+    details: dict[str, dict[int, dict[str, list[float]]]] = field(default_factory=dict)
+    bundle: dict[str, int] = field(default_factory=dict)
+    traces: list[dict[str, Any]] = field(default_factory=list)
+
+    def add(self, scenario: str, cpu: int, value: float, requests: list[str] | None = None, **details: float) -> None:
+        self.values.setdefault(scenario, {}).setdefault(cpu, []).append(value)
+        if requests is not None:
+            self.requests.setdefault(scenario, []).append(dict(sorted(Counter(requests).items())))
+        for name, detail in details.items():
+            self.details.setdefault(scenario, {}).setdefault(cpu, {}).setdefault(name, []).append(detail)
+
+
+class Browsing:
+    """Fresh contexts at one CPU profile, with the API requests of each one recorded in order."""
+
+    def __init__(self, browser: Browser, url: str, cpu: int) -> None:
+        self.browser = browser
+        self.url = url
+        self.cpu = cpu
+
+    @contextmanager
+    def context(self) -> Iterator[tuple[BrowserContext, list[str]]]:
+        context = self.browser.new_context(
+            viewport={"width": 1440, "height": 1000}, locale="pl-PL", timezone_id=DAD_TIME_ZONE.key
+        )
+        context.add_init_script(INIT)
+        requests: list[str] = []
+
+        def record(request: Request) -> None:
+            path = urlsplit(request.url).path
+            if path.startswith("/api/"):
+                requests.append(f"{request.method} {path}")
+
+        context.on("request", record)
+        try:
+            yield context, requests
+        finally:
+            context.close()
+
+    def page(self, context: BrowserContext) -> tuple[Page, CDPSession]:
+        page = context.new_page()
+        page.set_default_timeout(20_000)
+        cdp = context.new_cdp_session(page)
+        cdp.send("Performance.enable")
+        cdp.send("Emulation.setCPUThrottlingRate", {"rate": self.cpu})
+        return page, cdp
+
+    def open(self, page: Page, page_id: str) -> float:
+        page.goto(f"{self.url}#/{page_id}", wait_until="commit")
+        return ready(page, PAGES[page_id])
+
+
+def now(page: Page) -> float:
+    value = page.evaluate("() => performance.now()")
+    assert isinstance(value, (int, float))
+    return float(value)
+
+
+def ready(page: Page, title: str) -> float:
+    """When the view of ``title`` became ready: its h1 shown with no skeleton and no aria-busy."""
+
+    page.wait_for_function(
+        "([title]) => { const v = window.__wydajnosc.views; return v.length > 0 && v[v.length - 1][1] === title }",
+        arg=[title],
+        polling="raf",
+    )
+    value = page.evaluate("() => { const v = window.__wydajnosc.views; return v[v.length - 1][0] }")
+    assert isinstance(value, (int, float))
+    return float(value)
+
+
+def skeleton_ms(page: Page, start: float, end: float) -> float:
+    """How long a skeleton or aria-busy was in the page between ``start`` and ``end``."""
+
+    changes: list[list[Any]] = page.evaluate("() => window.__wydajnosc.skeleton")
+    total, since = 0.0, None
+    for at, busy in changes:
+        if busy:
+            since = at
+        elif since is not None:
+            total += max(0.0, min(at, end) - max(since, start))
+            since = None
+    if since is not None:
+        total += max(0.0, end - max(since, start))
+    return total
+
+
+def script_ms(cdp: CDPSession) -> float:
+    metrics = {entry["name"]: entry["value"] for entry in cdp.send("Performance.getMetrics")["metrics"]}
+    return float(metrics.get("ScriptDuration", 0)) * 1000
+
+
+def _cold_starts(browsing: Browsing, measured: Measured) -> None:
+    for page_id in PAGES:
+        with browsing.context() as (context, requests):
+            page, cdp = browsing.page(context)
+            shown = browsing.open(page, page_id)
+            page.wait_for_timeout(SETTLE_MS)
+            perf = page.evaluate("() => window.__wydajnosc")
+            if not measured.bundle:
+                measured.bundle = page.evaluate(
+                    """() => {
+                      const size = (suffix) => performance.getEntriesByType("resource")
+                        .filter((r) => new URL(r.name).pathname.endsWith(suffix))
+                        .reduce((sum, r) => sum + r.decodedBodySize, 0);
+                      return { js: size(".js"), css: size(".css") };
+                    }"""
+                )
+            measured.add(
+                f"{page_id}/zimny-start", browsing.cpu, shown, requests,
+                fcp_ms=float(perf["fcp"] or 0), skrypt_ms=script_ms(cdp), dlugie_zadania_ms=sum(perf["longtasks"]),
+            )
+
+
+def _reopened_tabs(browsing: Browsing, measured: Measured, repeats: int) -> None:
+    for page_id in REOPENED:
+        with browsing.context() as (context, requests):
+            for visit in range(REOPEN_WARMUP + repeats):
+                mark = len(requests)
+                page, cdp = browsing.page(context)
+                shown = browsing.open(page, page_id)
+                page.wait_for_timeout(SETTLE_MS)
+                fcp = page.evaluate("() => window.__wydajnosc.fcp")
+                if visit >= REOPEN_WARMUP:
+                    measured.add(
+                        f"{page_id}/ponowne-otwarcie", browsing.cpu, shown, requests[mark:],
+                        fcp_ms=float(fcp or 0), skrypt_ms=script_ms(cdp),
+                    )
+                page.close()
+
+
+def _menu_laps(browsing: Browsing, measured: Measured) -> None:
+    with browsing.context() as (context, requests):
+        page, cdp = browsing.page(context)
+        browsing.open(page, "okresy")
+        page.wait_for_timeout(SETTLE_MS)
+        for lap in (1, 2):
+            for page_id in LAP:
+                mark, before = len(requests), script_ms(cdp)
+                start = now(page)
+                page.get_by_role("link", name=PAGES[page_id], exact=True).click()
+                shown = ready(page, PAGES[page_id])
+                page.wait_for_timeout(SETTLE_MS)
+                scenario = f"menu/{lap}/{page_id}"
+                measured.add(scenario, browsing.cpu, shown - start, requests[mark:], skrypt_ms=script_ms(cdp) - before)
+                measured.add(f"{scenario}/szkielet", browsing.cpu, skeleton_ms(page, start, shown))
+
+
+def _interactions(browsing: Browsing, measured: Measured) -> None:
+    """Input measured as the browser's Event Timing (≤ 16 ms shows as 16); a return to the tab, which
+    has no input, until its last API answer or DOM change."""
+
+    with browsing.context() as (context, requests):
+        page, _ = browsing.page(context)
+
+        def interaction(scenario: str, act: Callable[[], None]) -> None:
+            mark, start = len(requests), now(page)
+            act()
+            page.wait_for_timeout(SETTLE_MS)
+            events: list[list[float]] = page.evaluate("() => window.__wydajnosc.events")
+            durations = [duration for at, duration in events if at >= start]
+            if not durations:
+                durations = [16.0]  # below Event Timing's threshold
+            measured.add(scenario, browsing.cpu, max(durations), requests[mark:])
+
+        def return_to_tab(scenario: str) -> None:
+            mark, start = len(requests), now(page)
+            page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+            page.wait_for_timeout(SETTLE_MS)
+            settled = page.evaluate(
+                """([start]) => Math.max(window.__wydajnosc.lastMutation, ...performance.getEntriesByType("resource")
+                  .filter((r) => r.startTime >= start && new URL(r.name).pathname.startsWith("/api/"))
+                  .map((r) => r.responseEnd))""",
+                [start],
+            )
+            measured.add(scenario, browsing.cpu, max(0.0, float(settled) - start), requests[mark:])
+
+        def go(page_id: str) -> None:
+            page.get_by_role("link", name=PAGES[page_id], exact=True).click()
+            ready(page, PAGES[page_id])
+            page.wait_for_timeout(SETTLE_MS)
+
+        browsing.open(page, "okresy")
+        page.wait_for_timeout(SETTLE_MS)
+        interaction("okresy/motyw-jasny", page.get_by_role("button", name="Włącz motyw jasny", exact=True).click)
+        interaction("okresy/motyw-ciemny", page.get_by_role("button", name="Włącz motyw ciemny", exact=True).click)
+        return_to_tab("okresy/powrot-do-karty")
+        go("metryki")
+        for group, option, slug in (
+            ("Proces", "Przebieg", "proces-przebieg"),
+            ("Proces", "Przygotowanie", "proces-przygotowanie"),
+            ("Tryb", "DRY-RUN", "tryb-dry-run"),
+            ("Tryb", "RUN", "tryb-run"),
+        ):
+            button = page.get_by_role("group", name=group, exact=True).get_by_role("button", name=option, exact=True)
+            interaction(f"metryki/{slug}", button.click)
+        interaction("metryki/zakladka-tabela", page.get_by_role("tab", name="Tabela", exact=True).click)
+        interaction("metryki/zakladka-wykres", page.get_by_role("tab", name="Wykres", exact=True).click)
+        return_to_tab("metryki/powrot-do-karty")
+        go("uruchomienia")
+        interaction("uruchomienia/zakladka-historia", page.get_by_role("tab", name="Historia", exact=True).click)
+        interaction("uruchomienia/zakladka-uruchomienie", page.get_by_role("tab", name="Uruchomienie", exact=True).click)
+        toggle = page.get_by_role("button", name="Pokaż lub ukryj menu", exact=True)
+        interaction("menu-boczne/zwin", toggle.click)
+        interaction("menu-boczne/rozwin", toggle.click)
+
+
+def _trace(browsing: Browsing, page_id: str, path: Path) -> dict[str, Any]:
+    """A DevTools trace of one cold start; the main thread's time per event kind."""
+
+    with browsing.context() as (context, _):
+        page, _ = browsing.page(context)
+        browsing.browser.start_tracing(page=page, path=path, categories=TRACE_CATEGORIES)
+        browsing.open(page, page_id)
+        page.wait_for_timeout(SETTLE_MS)
+        browsing.browser.stop_tracing()
+    events = json.loads(path.read_text(encoding="utf-8"))["traceEvents"]
+    renderers = {
+        (event["pid"], event["tid"])
+        for event in events
+        if event.get("name") == "thread_name" and event.get("args", {}).get("name") == "CrRendererMain"
+    }
+    tasks = Counter(
+        (event.get("pid"), event.get("tid"))
+        for event in events
+        if event.get("name") == "RunTask" and (event.get("pid"), event.get("tid")) in renderers
+    )
+    main = tasks.most_common(1)[0][0]
+    spent: Counter[str] = Counter()
+    for event in events:
+        if (event.get("pid"), event.get("tid")) == main and event.get("ph") == "X" and event["name"] in TRACE_EVENTS:
+            spent[event["name"]] += event.get("dur", 0) / 1000
+    return {
+        "strona": page_id,
+        "profil": f"{browsing.cpu}x",
+        "plik": path.name,
+        "glowny_watek_ms": {name: round(ms, 1) for name, ms in spent.most_common()},
+    }
+
+
+def measure(browser: Browser, url: str, repeats: int, evidence: Path) -> Measured:
+    measured = Measured()
+    for cpu in PROFILES:
+        browsing = Browsing(browser, url, cpu)
+        for _ in range(repeats):
+            _cold_starts(browsing, measured)
+            _menu_laps(browsing, measured)
+            _interactions(browsing, measured)
+        _reopened_tabs(browsing, measured, repeats)
+        for page_id in TRACED:
+            path = evidence / f"slad-{page_id}-{cpu}x.json"
+            measured.traces.append(_trace(browsing, page_id, path))
+        print(f"  measured: CPU {cpu}× ({repeats} repetitions)", flush=True)
+    return measured
+
+
+def budget(baseline_ms: float, margin: dict[str, float]) -> float:
+    """Baseline plus the noise margin: relative, but never less than ``minimalny_ms``."""
+
+    return max(baseline_ms * (1 + margin["wzgledny"]), baseline_ms + margin["minimalny_ms"])
+
+
+def compare(measured: Measured, baseline: dict[str, Any]) -> dict[str, Any]:
+    """Each scenario's median against its baseline and budget, and its API requests against the expected ones."""
+
+    margin: dict[str, float] = baseline.get("margines", DEFAULT_MARGIN)
+    expected: dict[str, Any] = baseline.get("scenariusze", {})
+    rows: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for scenario, profiles in measured.values.items():
+        known = expected.get(scenario, {})
+        for cpu, values in profiles.items():
+            profile = f"{cpu}x"
+            median = statistics.median(values)
+            base = known.get("mediana_ms", {}).get(profile)
+            limit = None if base is None else budget(base, margin)
+            verdict = "brak w baseline" if limit is None else ("ok" if median <= limit else "ponad budżet")
+            if verdict != "ok":
+                failures.append(f"{scenario} {profile}: {verdict} (mediana {median:.0f} ms, budżet {limit})")
+            details = {
+                name: round(statistics.median(samples), 1)
+                for name, samples in measured.details.get(scenario, {}).get(cpu, {}).items()
+            }
+            rows.append({
+                "scenariusz": scenario, "profil": profile, "mediana_ms": round(median, 1),
+                "probki_ms": [round(value, 1) for value in values], "baseline_ms": base,
+                "budzet_ms": None if limit is None else round(limit, 1), "wynik": verdict, "szczegoly": details,
+            })
+    requests: list[dict[str, Any]] = []
+    for scenario, counts in measured.requests.items():
+        wanted = expected.get(scenario, {}).get("zapytania_api")
+        differing = [count for count in counts if count != wanted]
+        verdict = "ok" if not differing else ("brak w baseline" if wanted is None else "inna liczba")
+        if verdict != "ok":
+            failures.append(f"{scenario}: zapytania API {verdict} (oczekiwano {wanted}, zmierzono {differing[0]})")
+        requests.append({
+            "scenariusz": scenario, "oczekiwane": wanted, "zmierzone": differing[0] if differing else counts[0],
+            "powtorzenia_z_roznica": len(differing), "powtorzenia": len(counts), "wynik": verdict,
+        })
+    for scenario in sorted(set(expected) - set(measured.values)):
+        failures.append(f"{scenario}: scenariusz z baseline'u nie został zmierzony")
+    bundle: list[dict[str, Any]] = []
+    for kind, size in measured.bundle.items():
+        base = baseline.get("bundle_bajty", {}).get(kind)
+        limit = None if base is None else round(base * (1 + margin["bundle_wzgledny"]))
+        verdict = "brak w baseline" if limit is None else ("ok" if size <= limit else "ponad budżet")
+        if verdict != "ok":
+            failures.append(f"bundle {kind}: {verdict} ({size} B, budżet {limit} B)")
+        bundle.append({"rodzaj": kind, "bajty": size, "baseline_bajty": base, "budzet_bajty": limit, "wynik": verdict})
+    if not expected:
+        failures = ["baseline nie ma scenariuszy; zaakceptuj wydajnosc/baseline-kandydat.json (features/wydajnosc.md)"]
+    return {
+        "margines": margin, "scenariusze": rows, "zapytania_api": requests, "bundle": bundle,
+        "slady_cpu": measured.traces, "porazki": failures,
+    }
+
+
+def candidate(measured: Measured, margin: dict[str, float], repeats: int) -> dict[str, Any]:
+    """This measurement in the baseline's format: copy it over the baseline to accept it."""
+
+    return {
+        "zmierzono": {"data": date.today().isoformat(), "powtorzenia": repeats, "profile": [f"{cpu}x" for cpu in PROFILES]},
+        "margines": margin,
+        "bundle_bajty": measured.bundle,
+        "scenariusze": {
+            scenario: {
+                "mediana_ms": {f"{cpu}x": round(statistics.median(values)) for cpu, values in profiles.items()},
+                **({"zapytania_api": measured.requests[scenario][0]} if scenario in measured.requests else {}),
+            }
+            for scenario, profiles in measured.values.items()
+        },
+    }
+
+
+def text_report(report: dict[str, Any], baseline_path: Path, repeats: int) -> str:
+    def ms(value: float | None) -> str:
+        return "–" if value is None else f"{value:.0f} ms"
+
+    lines = [
+        f"WYDAJNOSC | powtórzenia={repeats} | profile={','.join(f'{cpu}×' for cpu in PROFILES)} | baseline={baseline_path}",
+        f"margines: +{report['margines']['wzgledny']:.0%}, co najmniej +{report['margines']['minimalny_ms']} ms; "
+        f"bundle +{report['margines']['bundle_wzgledny']:.0%}",
+        "",
+        f"{'scenariusz':44} {'profil':6} {'mediana':>9} {'baseline':>9} {'budżet':>9}  wynik",
+    ]
+    for row in report["scenariusze"]:
+        lines.append(
+            f"{row['scenariusz']:44} {row['profil']:6} {ms(row['mediana_ms']):>9} {ms(row['baseline_ms']):>9} "
+            f"{ms(row['budzet_ms']):>9}  {row['wynik']}"
+            + ("" if not row["szczegoly"] else "  (" + ", ".join(f"{k} {v:.0f}" for k, v in row["szczegoly"].items()) + ")")
+        )
+    lines += ["", "zapytania API (każde powtórzenie w obu profilach)"]
+    for entry in report["zapytania_api"]:
+        shown = ", ".join(f"{request} ×{count}" for request, count in entry["zmierzone"].items()) or "brak"
+        lines.append(f"{entry['scenariusz']:44} {entry['wynik']:16} {shown}")
+        if entry["wynik"] != "ok":
+            lines.append(f"{'':44} {'oczekiwano':16} {entry['oczekiwane']}")
+    lines += ["", "bundle (rozmiar po rozpakowaniu)"]
+    for entry in report["bundle"]:
+        lines.append(
+            f"{entry['rodzaj']:44} {entry['bajty']:>9} B  baseline {entry['baseline_bajty']} B  "
+            f"budżet {entry['budzet_bajty']} B  {entry['wynik']}"
+        )
+    lines += ["", "ślady CPU zimnego startu (główny wątek, ms)"]
+    for trace in report["slady_cpu"]:
+        top = ", ".join(f"{name} {value:.0f}" for name, value in list(trace["glowny_watek_ms"].items())[:8])
+        lines.append(f"{trace['strona']} {trace['profil']}: {top}  [{trace['plik']}]")
+    lines += ["", f"porażki: {len(report['porazki'])}", *(f"  {failure}" for failure in report["porazki"])]
+    return "\n".join(lines) + "\n"
+
+
+def _prepare_year_of_work(run: Run, page: Page) -> None:
+    """Points Centrum to Dad's year of work and the Rejestr zleceń through the UI, as Dad does."""
+
+    year = run.fixture["year_of_work"]
+    page.goto(run.url + "#/okresy")
+    run.answer_picker(year["periods_directory"])
+    page.get_by_role("button", name="Wskaż folder okresów", exact=True).click()
+    expect(page.get_by_role("table", name="Tablica okresów")).to_be_visible()
+    run.answer_picker(run.fixture["order_register"])
+    page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
+    run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
+    periods = run.api("/api/periods", "wydajnosc-tablica")["periods"]
+    assert isinstance(periods, list)
+    tokens = {period["token"] for period in periods}
+    ready_count = sum(period["status"] == "worker_settlements_ready" for period in periods)
+    run.check(
+        len(tokens) >= year["periods"] and ready_count == year["worker_settlements_ready"],
+        f"the Tablica okresów holds the year: {len(tokens)} periods, {ready_count} with Rozliczenia pracowników",
+    )
+    runs = run.api("/api/metrics", "wydajnosc-metryki")["runs"]
+    assert isinstance(runs, list)
+    run.check(len(runs) == run.fixture["metrics"]["runs"], f"Metryki read {len(runs)} records of the year")
+    expect(page.get_by_role("button", name="Włącz motyw jasny", exact=True)).to_be_visible()
+    for number, page_id in enumerate(PAGES, start=80):
+        page.get_by_role("link", name=PAGES[page_id], exact=True).click()
+        expect(page.get_by_role("heading", name=PAGES[page_id], exact=True)).to_be_visible()
+        expect(page.locator('[data-slot="skeleton"],[aria-busy="true"]')).to_have_count(0)
+        run.capture(page, f"{number}-wydajnosc-{page_id}")
+    # The drive's own tab would keep its event stream open while measuring.
+    page.goto("about:blank")
+
+
+def drive_performance(run: Run, page: Page, *, baseline_path: Path = BASELINE, repeats: int = 5) -> None:
+    feature = "wydajnosc"
+    out = run.evidence / "wydajnosc"
+    out.mkdir(exist_ok=True)
+
+    run.step(feature, "wydajnosc-rok-pracy")
+    _prepare_year_of_work(run, page)
+
+    run.step(feature, "wydajnosc-pomiar")
+    browser = page.context.browser
+    assert browser is not None
+    measured = measure(browser, run.url, repeats, out)
+
+    run.step(feature, "wydajnosc-porownanie")
+    baseline: dict[str, Any] = (
+        json.loads(baseline_path.read_text(encoding="utf-8")) if baseline_path.exists() else {}
+    )
+    report = compare(measured, baseline)
+    report["baseline"] = str(baseline_path)
+    report["powtorzenia"] = repeats
+    (out / "raport.json").write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    (out / "raport.txt").write_text(text_report(report, baseline_path, repeats), encoding="utf-8")
+    (out / "baseline-kandydat.json").write_text(
+        json.dumps(candidate(measured, report["margines"], repeats), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print((out / "raport.txt").read_text(encoding="utf-8"), flush=True)
+    if report["porazki"]:
+        raise DriveFailure(f"wydajnosc: {len(report['porazki'])} porażek, see wydajnosc/raport.txt")
+    run.check(True, "every scenario is within its budget and sends the expected API requests")
