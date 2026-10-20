@@ -16,12 +16,11 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from rozliczenia import preparation_messages, settlement_messages, workbook_files
+from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.version import tool_version
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import default_worker_template_path
-from rozliczenia.preparation_files import check_collective_template, check_internal_template
 from rozliczenia.message import Message, StopError
 from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
 from rozliczenia.worker_config import WorkerConfigError, default_config_path, load_worker_mapping
@@ -133,12 +132,13 @@ class _CheckedTemplates:
         return found
 
 
+# Przez moduł, jak proces: Konfiguracja i Diagnoza trafiają na to samo Sprawdzanie wzorców.
 def _internal_template_problem(path: Path) -> _Problem | None:
-    return _preparation_template_problem(check_internal_template, path)
+    return _preparation_template_problem(preparation_files.check_internal_template, path)
 
 
 def _collective_template_problem(path: Path) -> _Problem | None:
-    return _preparation_template_problem(check_collective_template, path)
+    return _preparation_template_problem(preparation_files.check_collective_template, path)
 
 
 def _preparation_template_problem(check: Callable[[Path], None], path: Path) -> _Problem | None:

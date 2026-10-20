@@ -263,17 +263,27 @@ def _register(computer: _Computer, label: str) -> list[CheckResult]:
 
 @_check("Wzorce")
 def _templates(computer: _Computer, label: str) -> list[CheckResult]:
-    """Każdy Wzorzec procesu pod własną etykietą; ``label`` nazywa sprawdzenie, tylko gdy samo się nie uda."""
+    """Każdy Wzorzec procesu jako osobne sprawdzenie pod jego etykietą.
 
-    results = []
-    for template in computer.templates:
+    Wyjątek przy jednym Wzorcu nie ukrywa wyniku drugiego. ``label`` nazywa całość, tylko gdy nie da się
+    nawet wyliczyć Wzorców procesu.
+    """
+
+    return [
+        result
+        for template in computer.templates
+        for result in _Check(template.label, _template_check(template)).results(computer)
+    ]
+
+
+def _template_check(template: Template) -> _CheckRun:
+    def check(computer: _Computer, label: str) -> list[CheckResult]:
         problem = template.problem()
-        results.append(
-            CheckResult.passed(template.label, f"{template.path.name} przechodzi Sprawdzanie.")
-            if problem is None
-            else CheckResult.failed(template.label, problem)
-        )
-    return results
+        if problem is None:
+            return [CheckResult.passed(label, f"{template.path.name} przechodzi Sprawdzanie.")]
+        return [CheckResult.failed(label, problem)]
+
+    return check
 
 
 @_check("Konfiguracja wykonawców")
