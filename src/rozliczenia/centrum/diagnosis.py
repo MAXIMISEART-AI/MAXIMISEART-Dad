@@ -43,7 +43,7 @@ from rozliczenia.settlement_period import SettlementPeriod, parse_period_token
 CheckState = Literal["passed", "failed", "not_checked"]
 
 _LOG_ENTRIES: Final = 20
-_UNEXPECTED_EVENTS: Final = frozenset({"nieoczekiwany-wyjatek"})
+_UNEXPECTED_EVENT: Final = "nieoczekiwany-wyjatek"
 
 
 @dataclass(frozen=True)
@@ -308,9 +308,9 @@ def _files_of_process(computer: _Computer) -> list[Path]:
 def _centrum_log(computer: _Computer) -> list[CheckResult]:
     label = "Dziennik Centrum rozliczeń"
     entries = computer.log_entries
-    if any(event_of(entry) in _UNEXPECTED_EVENTS for entry in entries):
-        return [CheckResult.failed(label, diagnosis_messages.unexpected_failure_logged())]
-    return [CheckResult.passed(label, f"Ostatnie wpisy od startu Centrum: {len(entries)}, bez nieoczekiwanego wyjątku.")]
+    # Dziennik tylko informuje: jego wpisy idą do Zgłoszenia, a wyjątek w nim nie jest przyczyną na komputerze taty.
+    unexpected = ", w tym nieoczekiwany wyjątek" if any(event_of(entry) == _UNEXPECTED_EVENT for entry in entries) else ""
+    return [CheckResult.passed(label, f"Ostatnie wpisy od startu Centrum: {len(entries)}{unexpected}.")]
 
 
 # Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.

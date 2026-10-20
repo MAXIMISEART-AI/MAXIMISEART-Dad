@@ -192,7 +192,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_rejestr_
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
         ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
-        ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2, bez nieoczekiwanego wyjątku."),
+        ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2."),
     ]
 
 
@@ -372,39 +372,48 @@ def test_rozliczenie_pracownika_otwarte_w_excelu_wyjasnia_jak_je_zamknac(
     assert check(diagnosis, "Pliki okresu w Excelu")[0] == "failed"
 
 
-def test_nieoczekiwany_wyjatek_w_dzienniku_od_startu_centrum_wyjasnia_ze_przyczyna_jest_w_narzedziu(
+UNEXPECTED_LOG_ENTRY = "2026-09-16T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n"
+
+
+def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_a_dziennik_tylko_go_wymienia(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+    stopped = run_to_end(centrum, dry_run=True)
+    monkeypatch.undo()
     with centrum.log_path.open("a", encoding="utf-8") as log:
-        log.write("2026-09-16T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n")
+        log.write(UNEXPECTED_LOG_ENTRY)
 
-    diagnosis = diagnose(centrum, run_id)
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
 
-    assert diagnosis["explanation"] == {
-        "what": "W dzienniku Centrum rozliczeń jest nieoczekiwany wyjątek narzędzia.",
-        "where": "dziennik Centrum rozliczeń",
-        "action": "Przekaż ten komunikat osobie utrzymującej narzędzie.",
-    }
-    assert diagnosis["next_action"] == "report"
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
+        "passed",
+        "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",
+    )
 
 
-def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_przyczyna(
+def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum, monkeypatch)
     previous = centrum.log_path.read_text(encoding="utf-8")
     centrum.log_path.write_text(
-        "2026-09-15T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n"
-        "2026-09-16T09:00:00+02:00 start port=47811 wersja=0.1.0 konsola=nie\n" + previous,
+        UNEXPECTED_LOG_ENTRY.replace("2026-09-16T10", "2026-09-15T10")
+        + "2026-09-16T09:00:00+02:00 start port=47811 wersja=0.1.0 konsola=nie\n"
+        + previous,
         encoding="utf-8",
     )
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert diagnosis["explanation"] == NOT_FOUND
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == ("passed", "Ostatnie wpisy od startu Centrum: 3.")
 
 
 def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(

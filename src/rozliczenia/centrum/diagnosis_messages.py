@@ -2,8 +2,8 @@
 
 Diagnoza wyjaśnia przyczynę Komunikatem z katalogu procesu, gdy proces ma
 własny (np. Rejestr zleceń otwarty w Excelu). Ten katalog ma tylko resztę:
-brak przyczyny, nowsza wersja narzędzia, plik okresu otwarty w Excelu, plik
-tylko w chmurze OneDrive i nieoczekiwany wyjątek w dzienniku Centrum. Instrukcja taty cytuje „Co się stało” każdego Komunikatu
+brak przyczyny, nowsza wersja narzędzia, plik okresu otwarty w Excelu i plik
+tylko w chmurze OneDrive. Instrukcja taty cytuje „Co się stało” każdego Komunikatu
 (``tests/test_instrukcja_taty.py``).
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rozliczenia.message import REPORT_TO_MAINTAINER, Message, file_label
+from rozliczenia.message import Message, file_label
 
 _DIAGNOSIS = "Diagnoza w Centrum rozliczeń"
 
@@ -63,15 +63,4 @@ def file_only_in_cloud(path: Path) -> Message:
             "W Eksploratorze plików kliknij ten plik prawym przyciskiem myszy, wybierz „Zawsze zachowuj na tym "
             "urządzeniu”, poczekaj, aż się pobierze, i uruchom ponownie."
         ),
-    )
-
-
-def unexpected_failure_logged() -> Message:
-    """Dziennik Centrum od jego startu ma wpis o nieoczekiwanym wyjątku narzędzia."""
-
-    return Message(
-        code="WYJATEK_W_DZIENNIKU",
-        what="W dzienniku Centrum rozliczeń jest nieoczekiwany wyjątek narzędzia.",
-        where="dziennik Centrum rozliczeń",
-        action=REPORT_TO_MAINTAINER,
     )
