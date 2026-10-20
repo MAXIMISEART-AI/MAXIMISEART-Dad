@@ -582,7 +582,8 @@ class RepairNotice(_Model):
 PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja"]
 # Zimny start strony (otwarcie albo odświeżenie karty) albo przejście w menu.
 ViewKind = Literal["cold_start", "navigation"]
-# Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu.
+# Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu. Trasy spoza
+# tej listy, każda z powodem, wymienia `OUTSIDE_TIMING` w tools/export_openapi.py, który pilnuje obu stron.
 ApiOperation = Literal[
     "getSettings",
     "chooseRegister",
@@ -592,7 +593,6 @@ ApiOperation = Literal[
     "openPeriodPath",
     "getRunSetup",
     "startRun",
-    "getCurrentRun",
     "decideRun",
     "diagnoseRun",
     "reportRun",
