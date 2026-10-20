@@ -23,15 +23,16 @@ __all__ = [
     "normalize_text",
 ]
 
-WorkerConfigProblem = Literal["unreadable", "not_yaml", "invalid"]
+WorkerConfigProblem = Literal["unreadable", "not_utf8", "not_yaml", "invalid"]
 
 
 class WorkerConfigError(Exception):
     """Konfiguracji wykonawców nie da się użyć.
 
-    ``reason``: plik nieczytelny (``unreadable``), zły YAML (``not_yaml``) albo
-    złamana reguła (``invalid``). ``detail`` to bezpieczne zdanie dla taty bez
-    ścieżki pliku.
+    ``reason``: plik nieczytelny (``unreadable``), zapisany w innym kodowaniu niż
+    UTF-8 (``not_utf8``, np. ANSI ze starego Notatnika albo UTF-16 z PowerShella
+    5.1), zły YAML (``not_yaml``) albo złamana reguła (``invalid``). ``detail`` to
+    bezpieczne zdanie dla taty bez ścieżki pliku.
     """
 
     def __init__(self, reason: WorkerConfigProblem, detail: str) -> None:
@@ -60,6 +61,8 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
         config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     except OSError as exc:
         raise WorkerConfigError("unreadable", "Nie można odczytać pliku konfiguracji.") from exc
+    except UnicodeDecodeError as exc:
+        raise WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.") from exc
     except yaml.YAMLError as exc:
         raise WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.") from exc
 

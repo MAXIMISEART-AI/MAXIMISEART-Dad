@@ -107,6 +107,8 @@ REQUIRED_SCREENSHOTS = {
         "55-diagnoza-do-maksa.png",
         "56-diagnoza-do-maksa-wyjasnienie.png",
         "57-diagnoza-bez-przyczyny.png",
+        "58-diagnoza-nieoczekiwany-wyjatek.png",
+        "59-diagnoza-nieoczekiwany-wyjatek-zgloszenie.png",
     ),
     "aktualnosc-i-onedrive": (
         "76-aktualnosc-nowsza-wersja.png",

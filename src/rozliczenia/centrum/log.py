@@ -79,6 +79,11 @@ class CentrumLog:
 
         self._write("zgloszenie-zapisane", proces=process, okres=period, kod=code)
 
+    def report_not_saved(self, *, process: str, period: str, cause: str) -> None:
+        """Zgłoszenia nie wysłano ani nie zapisano w pliku; ``cause`` to kod Komunikatu, dlaczego nie wysłano."""
+
+        self._write("zgloszenie-niezapisane", proces=process, okres=period, przyczyna=cause)
+
     def view_timed(
         self,
         *,

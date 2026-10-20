@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
@@ -132,6 +133,23 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|")
 
 
+def _replace_atomically(path: Path, text: str) -> None:
+    """Zapisuje ``text`` jako ``path`` przez plik tymczasowy w tym samym folderze.
+
+    Nieudany zapis (``OSError``) nie zostawia pustego ani urwanego pliku i nie niszczy poprzedniej treści.
+    """
+
+    temporary = path.with_name(path.name + ".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(path)
+    except OSError:
+        with suppress(OSError):
+            temporary.unlink(missing_ok=True)
+        raise
+
+
 @dataclass(frozen=True)
 class SentReport:
     """Wysłane Zgłoszenie w lokalnym stanie: odcisk problemu, numer issue i commit narzędzia przy wysyłce.
@@ -184,11 +202,8 @@ class SentReports:
         self._write([marked(sent) for sent in self.all()])
 
     def _write(self, reports: list[SentReport]) -> None:
-        temporary = self._path.with_name(self._path.name + ".tmp")
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            temporary.write_text(json.dumps([asdict(report) for report in reports], indent=2) + "\n", encoding="utf-8")
-            temporary.replace(self._path)
+            _replace_atomically(self._path, json.dumps([asdict(report) for report in reports], indent=2) + "\n")
         except OSError as failure:
             self._log.unexpected_failure(failure, where="stan wysłanych Zgłoszeń")
 
@@ -320,20 +335,28 @@ class Reports:
                 self._sent.add(SentReport(draft.report.fingerprint, outcome.number, self._commit()))
                 self._open[draft.report.fingerprint] = outcome.number
                 self._sent_runs.add(info.id)
-            saved.unlink(missing_ok=True)
             self._log.report_sent(process=info.process, period=info.period, number=outcome.number)
+            try:
+                saved.unlink(missing_ok=True)
+            except OSError as failure:  # np. plik otwarty w Windows: zostaje w folderze, Zgłoszenie i tak wysłane
+                self._log.unexpected_failure(failure, where="usunięcie niewysłanego Zgłoszenia")
             return contract.ReportSent(state="sent")
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        saved.write_text(f"# {draft.report.title}\n\n{draft.report.body}", encoding="utf-8")
-        message = (
+        unsent = (
             report_messages.key_missing(saved)
             if outcome is None
             else report_messages.key_refused(saved)
             if isinstance(outcome, Refused)
             else report_messages.box_unreachable(saved)
         )
-        self._log.report_saved(process=info.process, period=info.period, code=message.code)
-        return contract.ReportSaved(state="saved", message=contract.Message.of(message))
+        try:
+            _replace_atomically(saved, f"# {draft.report.title}\n\n{draft.report.body}")
+        except OSError as failure:  # np. folder Zgłoszeń niedostępny: treść zostaje tylko w podglądzie Diagnozy
+            self._log.unexpected_failure(failure, where="zapis niewysłanego Zgłoszenia")
+            self._log.report_not_saved(process=info.process, period=info.period, cause=unsent.code)
+            message = report_messages.not_saved(self._unsent)
+            return contract.ReportSaved(state="saved", message=contract.Message.of(message))
+        self._log.report_saved(process=info.process, period=info.period, code=unsent.code)
+        return contract.ReportSaved(state="saved", message=contract.Message.of(unsent))
 
     def repair_notice(self) -> contract.RepairNotice:
         """Czy Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal tu działa.

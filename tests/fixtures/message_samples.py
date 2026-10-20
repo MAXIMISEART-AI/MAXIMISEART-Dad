@@ -35,6 +35,7 @@ SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
 UNREADABLE_CONFIG = WorkerConfigError("unreadable", "Nie można odczytać pliku konfiguracji.")
+CONFIG_NOT_UTF8 = WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.")
 CONFIG_NOT_YAML = WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.")
 INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfiguracji.")
 # Foldery nad folderem config z próbek; żaden Komunikat ich nie pokazuje.
@@ -62,6 +63,7 @@ PREPARATION_SAMPLES: Samples = {
     "period_not_entered": [messages.period_not_entered],
     "worker_config_problem": [
         lambda: messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
+        lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_UTF8),
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
@@ -141,6 +143,7 @@ SETTLEMENT_SAMPLES: Samples = {
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
     "worker_config_problem": [
         lambda: settlement_messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
+        lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_UTF8),
         lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
@@ -189,4 +192,5 @@ REPORT_SAMPLES: Samples = {
     "key_missing": [lambda: report_messages.key_missing(UNSENT_REPORT)],
     "key_refused": [lambda: report_messages.key_refused(UNSENT_REPORT)],
     "box_unreachable": [lambda: report_messages.box_unreachable(UNSENT_REPORT)],
+    "not_saved": [lambda: report_messages.not_saved(UNSENT_REPORT.parent)],
 }

@@ -10,10 +10,14 @@ pierwszego sprawdzenia, które nie przeszło, a gdy przeszły wszystkie:
 „Nie znalazłem przyczyny na tym komputerze”. Rodzaj wyjaśnienia (tata usuwa
 przyczynę sam albo nie) liczy ta sama reguła co rodzaj Zatrzymania.
 
-Nowe sprawdzenie to funkcja ``(_Computer) -> list[CheckResult]`` dopisana do
-``_CHECKS`` procesu, w kolejności, w jakiej ma wyjaśniać. Diagnoza niczego nie
-zapisuje ani nie naprawia; jej wynik i ostatnie wpisy dziennika zostają
-w ``Diagnosis`` po stronie serwera, np. dla Zgłoszenia.
+Nowe sprawdzenie to funkcja ``(_Computer, label) -> list[CheckResult]`` z
+nazwą w ``@_check(label)``, dopisana do ``_CHECKS`` procesu w kolejności, w
+jakiej ma wyjaśniać. Sprawdzenie, które samo się nie uda (nieoczekiwany
+wyjątek), jest „nie sprawdzono” na swoim miejscu, a typ wyjątku trafia do
+dziennika Centrum, nigdy jego treść; reszta sprawdzeń idzie dalej, więc
+Diagnoza zawsze kończy się wyjaśnieniem i podglądem Zgłoszenia. Diagnoza
+niczego nie zapisuje ani nie naprawia; jej wynik i ostatnie wpisy dziennika
+zostają w ``Diagnosis`` po stronie serwera, np. dla Zgłoszenia.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from typing import Final, Literal
 
 from fastapi import APIRouter
 
-from rozliczenia import preparation_messages, settlement_messages, workbook_files
+from rozliczenia import preparation_messages, preparation_register, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
@@ -37,7 +41,6 @@ from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
-from rozliczenia.preparation_register import ensure_register_available, read_register
 from rozliczenia.settings import Settings, SettingsStore
 from rozliczenia.settlement_period import SettlementPeriod, parse_period_token
 
@@ -160,11 +163,42 @@ class _Computer:
         return tuple(template for template in self.configuration.templates() if template.used_by == self.process)
 
 
-_Check = Callable[[_Computer], list[CheckResult]]
+_CheckRun = Callable[[_Computer, str], list[CheckResult]]
+_NOT_CHECKED_UNEXPECTED: Final = "Nie udało się sprawdzić: nieoczekiwany błąd."
 
 
-def _tool_freshness(computer: _Computer) -> list[CheckResult]:
-    label = "Aktualność narzędzia"
+@dataclass(frozen=True)
+class _Check:
+    """Sprawdzenie pod stałą nazwą ``label``, którą ``run`` dostaje dla swoich wyników."""
+
+    label: str
+    run: _CheckRun
+
+    def results(self, computer: _Computer) -> list[CheckResult]:
+        """Wyniki sprawdzenia; gdy samo się nie uda, „nie sprawdzono” pod jego nazwą, bez treści wyjątku.
+
+        Typ wyjątku trafia do dziennika Centrum od razu, więc ostatnie wpisy dziennika w Diagnozie i
+        Zgłoszeniu już go mają.
+        """
+
+        try:
+            return self.run(computer, self.label)
+        except Exception as failure:  # noqa: BLE001 - granica sprawdzenia: typ wyjątku trafia do dziennika Centrum
+            computer.log.unexpected_failure(failure, where=f"Diagnoza: {self.label}")
+            return [CheckResult.not_checked(self.label, _NOT_CHECKED_UNEXPECTED)]
+
+
+def _check(label: str) -> Callable[[_CheckRun], _Check]:
+    """Funkcja sprawdzenia jako ``_Check`` pod nazwą ``label``."""
+
+    def named(run: _CheckRun) -> _Check:
+        return _Check(label, run)
+
+    return named
+
+
+@_check("Aktualność narzędzia")
+def _tool_freshness(computer: _Computer, label: str) -> list[CheckResult]:
     freshness = computer.surroundings.tool_freshness
     local = freshness.local()
     if local is None:
@@ -187,8 +221,8 @@ class _Setting:
     missing: Callable[[Path], Message]
 
 
-def _tata_settings(computer: _Computer) -> list[CheckResult]:
-    label = "Ustawienia taty"
+@_check("Ustawienia taty")
+def _tata_settings(computer: _Computer, label: str) -> list[CheckResult]:
     settings = computer.settings
     needed = [
         _Setting(
@@ -213,34 +247,49 @@ def _tata_settings(computer: _Computer) -> list[CheckResult]:
     return [CheckResult.passed(label, " i ".join(setting.name for setting in needed).capitalize() + " są na miejscu.")]
 
 
-def _register(computer: _Computer) -> list[CheckResult]:
-    label = "Rejestr zleceń"
+@_check("Rejestr zleceń")
+def _register(computer: _Computer, label: str) -> list[CheckResult]:
     register = computer.settings.existing_register
     if register is None:
         return [CheckResult.not_checked(label, "Rejestru zleceń nie ma na miejscu.")]
     try:
-        ensure_register_available(register)
-        read_register(register)
+        # Przez moduł, jak proces: Diagnoza trafia na ten sam odczyt, także podmieniony hakiem awarii weryfikacji.
+        preparation_register.ensure_register_available(register)
+        preparation_register.read_register(register)
     except StopError as stop:
         return [CheckResult.failed(label, stop.message)]
     return [CheckResult.passed(label, "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki.")]
 
 
-def _templates(computer: _Computer) -> list[CheckResult]:
-    results = []
-    for template in computer.templates:
+@_check("Wzorce")
+def _templates(computer: _Computer, label: str) -> list[CheckResult]:
+    """Każdy Wzorzec procesu jako osobne sprawdzenie pod jego etykietą.
+
+    Wyjątek przy jednym Wzorcu nie ukrywa wyniku drugiego. ``label`` nazywa całość, tylko gdy nie da się
+    nawet wyliczyć Wzorców procesu.
+    """
+
+    return [
+        result
+        for template in computer.templates
+        for result in _Check(template.label, _template_check(template)).results(computer)
+    ]
+
+
+def _template_check(template: Template) -> _CheckRun:
+    def check(computer: _Computer, label: str) -> list[CheckResult]:
         problem = template.problem()
-        results.append(
-            CheckResult.passed(template.label, f"{template.path.name} przechodzi Sprawdzanie.")
-            if problem is None
-            else CheckResult.failed(template.label, problem)
-        )
+        if problem is None:
+            return [CheckResult.passed(label, f"{template.path.name} przechodzi Sprawdzanie.")]
+        return [CheckResult.failed(label, problem)]
+
+    return check
+
+
+@_check("Konfiguracja wykonawców")
+def _worker_config(computer: _Computer, label: str) -> list[CheckResult]:
     problem = workers_problem(computer.configuration.worker_config)
-    label = "Konfiguracja wykonawców"
-    results.append(
-        CheckResult.passed(label, "Wczytuje się.") if problem is None else CheckResult.failed(label, problem)
-    )
-    return results
+    return [CheckResult.passed(label, "Wczytuje się.") if problem is None else CheckResult.failed(label, problem)]
 
 
 _PERIOD_FILE_LABELS: Final[Mapping[str, str]] = {
@@ -250,8 +299,8 @@ _PERIOD_FILE_LABELS: Final[Mapping[str, str]] = {
 }
 
 
-def _period_folder(computer: _Computer) -> list[CheckResult]:
-    label = "Folder okresu"
+@_check("Folder okresu")
+def _period_folder(computer: _Computer, label: str) -> list[CheckResult]:
     folder = computer.period_folder
     if folder is None:
         return [CheckResult.not_checked(label, "Folderu okresów nie ma na miejscu.")]
@@ -276,8 +325,8 @@ def _period_folder(computer: _Computer) -> list[CheckResult]:
     return [CheckResult.passed(label, f"Pliki okresu: {', '.join(present) if present else 'brak'}.")]
 
 
-def _period_files_in_excel(computer: _Computer) -> list[CheckResult]:
-    label = "Pliki okresu w Excelu"
+@_check("Pliki okresu w Excelu")
+def _period_files_in_excel(computer: _Computer, label: str) -> list[CheckResult]:
     folder = computer.period_folder
     if not isinstance(folder, PeriodFolder):
         return [CheckResult.not_checked(label, "Nie odszukano Folderu okresu.")]
@@ -287,8 +336,8 @@ def _period_files_in_excel(computer: _Computer) -> list[CheckResult]:
     return [CheckResult.passed(label, "Żaden plik okresu nie jest otwarty w Excelu.")]
 
 
-def _files_in_onedrive(computer: _Computer) -> list[CheckResult]:
-    label = "Pliki w OneDrive"
+@_check("Pliki w OneDrive")
+def _files_in_onedrive(computer: _Computer, label: str) -> list[CheckResult]:
     cloud = computer.surroundings.cloud_files
     if not cloud.checked:
         return [CheckResult.not_checked(label, "Nie sprawdzono: tylko w Windows.")]
@@ -310,8 +359,8 @@ def _files_of_process(computer: _Computer) -> list[Path]:
     return files + list(computer.period_files)
 
 
-def _centrum_log(computer: _Computer) -> list[CheckResult]:
-    label = "Dziennik Centrum rozliczeń"
+@_check("Dziennik Centrum rozliczeń")
+def _centrum_log(computer: _Computer, label: str) -> list[CheckResult]:
     entries = computer.log_entries
     # Dziennik tylko informuje: jego wpisy idą do Zgłoszenia, a wyjątek w nim nie jest przyczyną na komputerze taty.
     unexpected = ", w tym nieoczekiwany wyjątek" if any(event_of(entry) == _UNEXPECTED_EVENT for entry in entries) else ""
@@ -320,7 +369,8 @@ def _centrum_log(computer: _Computer) -> list[CheckResult]:
 
 # Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.
 # OneDrive idzie przed sprawdzeniami, które otwierają Rejestr zleceń, wzorce i pliki okresu: plik tylko w
-# chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik.
+# chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik. Dziennik idzie
+# ostatni, po wpisach o sprawdzeniach, które same się nie udały.
 _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
     "preparation": (
         _tool_freshness,
@@ -328,6 +378,7 @@ _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
         _files_in_onedrive,
         _register,
         _templates,
+        _worker_config,
         _period_folder,
         _period_files_in_excel,
         _centrum_log,
@@ -337,6 +388,7 @@ _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
         _tata_settings,
         _files_in_onedrive,
         _templates,
+        _worker_config,
         _period_folder,
         _period_files_in_excel,
         _centrum_log,
@@ -359,10 +411,8 @@ def diagnose(
     computer = _Computer(info.process, period, settings, configuration, log, surroundings)
     checks: list[CheckResult] = []
     for check in _CHECKS[info.process]:
-        checks.extend(check(computer))
+        checks.extend(check.results(computer))
     return Diagnosis(stopped, tuple(checks), computer.log_entries)
-
-
 
 
 def diagnosis_router(

@@ -10,7 +10,7 @@ from typing import Any, NoReturn
 
 import pytest
 
-from rozliczenia import preparation_register
+from rozliczenia import preparation_files, preparation_register
 
 from tests.fixtures.centrum import FakeGitHub, view_timing
 from tests.fixtures.centrum_processes import (
@@ -366,6 +366,51 @@ def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_
     assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
         "passed",
         "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",
+    )
+
+
+def test_nieoczekiwany_wyjatek_ktory_wraca_w_diagnozie_zostawia_sprawdzenie_niesprawdzone_a_zgloszenie_mozna_wyslac(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)  # wraca przy każdym odczycie
+    run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
+
+    diagnosis = diagnose(centrum, run_id)
+    report = centrum.client.post(f"/api/runs/{run_id}/report")
+
+    assert check(diagnosis, "Rejestr zleceń") == ("not_checked", "Nie udało się sprawdzić: nieoczekiwany błąd.")
+    assert check_states(diagnosis)["Dziennik Centrum rozliczeń"] == "passed"
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"' in diagnosis["report"]["body"]
+    assert (report.status_code, report.json()["state"]) == (200, "saved")
+
+
+def test_wyjatek_przy_sprawdzaniu_jednego_wzorca_nie_ukrywa_wyniku_drugiego(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_files, "check_internal_template", fail_unexpectedly)
+    centrum.fixture.collective_template_path.unlink()
+
+    diagnosis = diagnose(centrum, run_id)
+
+    states = check_states(diagnosis)
+    assert (states.get("Wzorzec rozliczenia wewnętrznego"), states.get("Wzorzec pliku zbiorczego")) == (
+        "not_checked",
+        "failed",
+    )
+    assert diagnosis["explanation"]["what"] == (
+        "Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku."
     )
 
 

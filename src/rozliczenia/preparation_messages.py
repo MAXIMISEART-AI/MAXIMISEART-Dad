@@ -96,7 +96,7 @@ def period_not_entered() -> Message:
 
 
 def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
-    """Konfiguracji wykonawców nie da się użyć; przy złym YAML albo złamanej regule ``error.detail`` mówi, co jest nie tak."""
+    """Konfiguracji wykonawców nie da się użyć; poza nieczytelnym plikiem ``error.detail`` mówi, co jest nie tak."""
 
     what = "Nie można odczytać konfiguracji wykonawców."
     if error.reason != "unreadable":

@@ -157,6 +157,7 @@ narzędzia, w `config\zgloszenia`, i pokaże komunikat z przyciskiem
 | „na tym komputerze nie ma klucza do Zgłoszeń” | Prześlij wskazany plik Maksowi mailem. Gdy Maks wpisze klucz, kliknij `Spróbuj ponownie`. |
 | „klucz do Zgłoszeń wygasł albo jest nieważny” | Prześlij wskazany plik Maksowi mailem i powiedz mu o kluczu. Gdy Maks go wymieni, kliknij `Spróbuj ponownie`. |
 | „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Spróbuj ponownie`. Jeśli to nie pomoże, prześlij wskazany plik Maksowi mailem. |
+| „nie udało się zapisać go w pliku” | Pliku nie ma. Rozwiń `Co zostanie wysłane`, skopiuj treść i wklej ją do maila do Maksa. Po odświeżeniu karty najpierw kliknij `Diagnoza`. |
 
 Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
 jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje

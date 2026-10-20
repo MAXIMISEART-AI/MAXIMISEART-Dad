@@ -45,8 +45,11 @@ during the Uruchomienie could not be observed. Results are unchanged.
 
 One harness-only fault hook: while ``<root>/awaria/odczyt-rejestru`` exists,
 reading the Rejestr zleceń raises an exception the process does not expect, so
-the drive can show Dad's path after a nieoczekiwany wyjątek. No synthetic file
-causes one, because every known problem has its own Komunikat.
+the drive can show Dad's path after a nieoczekiwany wyjątek. The Uruchomienie
+procesu and its Diagnoza both look the reader up as
+``preparation_register.read_register``, so the fault reaches the Diagnoza too,
+as a real one that does not go away would. No synthetic file causes one,
+because every known problem has its own Komunikat.
 
 Once the port is bound, ``<root>/server.json`` records this process and URL.
 The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
@@ -211,7 +214,11 @@ def _pace_worker_templates(root: Path) -> None:
 
 
 def _fail_register_reading(root: Path) -> None:
-    """Make reading the Rejestr zleceń raise while ``<root>/awaria/odczyt-rejestru`` exists (see the module doc)."""
+    """Make reading the Rejestr zleceń raise while ``<root>/awaria/odczyt-rejestru`` exists (see the module doc).
+
+    The one name every reader looks up is patched: the process and the Diagnoza call
+    ``preparation_register.read_register``, never a copy imported by name.
+    """
 
     read = preparation_register.read_register
 

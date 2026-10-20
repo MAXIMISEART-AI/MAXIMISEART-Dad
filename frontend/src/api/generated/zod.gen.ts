@@ -435,9 +435,10 @@ export const zReportReady = z.object({
 /**
  * ReportSaved
  *
- * Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.
+ * Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); zwykle czeka w pliku na tym komputerze.
  *
- * ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie.
+ * ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku
+ * się nie udał (pliku nie ma), że treść trzeba przesłać z podglądu.
  */
 export const zReportSaved = z.object({
     state: z.literal('saved'),
