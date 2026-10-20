@@ -24,24 +24,24 @@ def test_plik_zbiorczy_z_przygotowania_daje_rozliczenia_pracownikow_z_ich_zlecen
 
     assert settlement.issues == []
     assert [(result.worker_name, result.status, result.rows) for result in settlement.results] == [
-        ("Adrian Maciejewski", "ZAPISANO", 1),
-        ("Darek Nowak", "ZAPISANO", 1),
-        ("Kamil Frontczak", "ZAPISANO", 1),
+        ("Adrian Testowy", "ZAPISANO", 1),
+        ("Darek Fikcyjny", "ZAPISANO", 1),
+        ("Kamil Syntetyczny", "ZAPISANO", 1),
     ]
     target_directory = fixture.period_directory / f"Rozliczenie pracowników {PERIOD}"
     expected_rows = {
-        "Adrian Maciejewski": collective_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.maciejewski"),
-        "Darek Nowak": collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.nowak2"),
-        "Kamil Frontczak": collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.frontczak"),
+        "Adrian Testowy": collective_row(2, datetime(2026, 9, 8, 0, 0), "tak", "adrian.testowy"),
+        "Darek Fikcyjny": collective_row(6, datetime(2026, 9, 14, 18, 30), "TAK", "dariusz.fikcyjny2"),
+        "Kamil Syntetyczny": collective_row(4, datetime(2026, 9, 12, 12, 0), " Tak ", "kamil.syntetyczny"),
     }
     assert sorted(path.name for path in target_directory.iterdir()) == sorted(
         f"Rozliczenie {PERIOD} - {name}.xlsx" for name in expected_rows
     )
     collective_file_rows = cell_values(preparation.collective_file, min_row=18, max_row=20, min_col=1, max_col=46)
     collective_file_row_of = {  # Wiersze danych A:AT Pliku zbiorczego, w kolejności Rejestru zleceń
-        "Adrian Maciejewski": collective_file_rows[0],
-        "Kamil Frontczak": collective_file_rows[1],
-        "Darek Nowak": collective_file_rows[2],
+        "Adrian Testowy": collective_file_rows[0],
+        "Kamil Syntetyczny": collective_file_rows[1],
+        "Darek Fikcyjny": collective_file_rows[2],
     }
     for name, expected_row in expected_rows.items():
         settlement_file = target_directory / f"Rozliczenie {PERIOD} - {name}.xlsx"

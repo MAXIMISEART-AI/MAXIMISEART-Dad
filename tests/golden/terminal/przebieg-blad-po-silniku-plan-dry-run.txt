@@ -6,18 +6,18 @@ Etap: Odczyt danych
 Etap: Planowanie
 Szablony pracownika: 0/3
 Etap: Zapisywanie
-WYKONAWCA: Adrian Maciejewski | etap: Zapisywanie
+WYKONAWCA: Adrian Testowy | etap: Zapisywanie
 Postęp szablonów: 1/3 (33%)
 Liczniki: zapisano: 0 | puste: 0 | planowane: 1
-Ostatnia operacja: Adrian Maciejewski | PLAN | status: OK | wiersze: 2 | czas: <N> ms
-WYKONAWCA: Darek Nowak | etap: Zapisywanie
+Ostatnia operacja: Adrian Testowy | PLAN | status: OK | wiersze: 2 | czas: <N> ms
+WYKONAWCA: Darek Fikcyjny | etap: Zapisywanie
 Postęp szablonów: 2/3 (67%)
 Liczniki: zapisano: 0 | puste: 0 | planowane: 2
-Ostatnia operacja: Darek Nowak | PLAN | status: OK | wiersze: 1 | czas: <N> ms
-WYKONAWCA: Kamil Frontczak | etap: Zapisywanie
+Ostatnia operacja: Darek Fikcyjny | PLAN | status: OK | wiersze: 1 | czas: <N> ms
+WYKONAWCA: Kamil Syntetyczny | etap: Zapisywanie
 Postęp szablonów: 3/3 (100%)
 Liczniki: zapisano: 0 | puste: 1 | planowane: 2
-Ostatnia operacja: Kamil Frontczak | PUSTY_SZABLON | status: OK | wiersze: 0 | czas: <N> ms
+Ostatnia operacja: Kamil Syntetyczny | PUSTY_SZABLON | status: OK | wiersze: 0 | czas: <N> ms
 Status semantyczny: BŁĄD
 Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. Przekaż ten komunikat osobie utrzymującej narzędzie.
 Czas uruchomienia: <N> ms
