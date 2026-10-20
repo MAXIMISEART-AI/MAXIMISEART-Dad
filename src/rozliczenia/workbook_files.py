@@ -49,7 +49,7 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .input_rows import rows_with_input
-from .template_copy import InvalidValue, SheetLayout, TemplateCopy, UnsupportedShape
+from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
 
 
 _EXTERNAL_LINKS_PREFIX = "xl/externalLinks/"
@@ -530,7 +530,7 @@ class WorkerSettlementTemplate:
             except UnsupportedShape:
                 pass
             else:
-                _write_atomically(target, package.write)
+                _write_atomically(target, _package_writer(package, target))
                 return
         self._create_with_openpyxl(target, rows)
 
@@ -590,25 +590,40 @@ def _check_settlement_template(path: Path, header: Sequence[object], has_input_d
         raise WorkbookError(path, Problem.HAS_DATA)
 
 
-def _write_atomically(target: Path, write: Callable[[IO[bytes]], None]) -> None:
-    """Zapisuje skoroszyt do pliku tymczasowego obok ``target`` i dopiero wtedy podmienia ``target``."""
+def _write_atomically(target: Path, write: Callable[[Path], None]) -> None:
+    """``write`` zapisuje skoroszyt do pliku tymczasowego obok ``target``; dopiero potem ``target`` jest podmieniany.
+
+    Nieudany zapis to ``WorkbookSaveError`` (albo błąd zapisu zgłoszony przez ``write``); plik tymczasowy
+    nigdy nie zostaje, a ``target`` zmienia się tylko po udanym zapisie całości.
+    """
 
     try:
         file_descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{target.stem}.", suffix=".xlsx", dir=target.parent
         )
+        os.close(file_descriptor)
     except OSError as exc:
         raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
     temporary_path = Path(temporary_name)
     try:
+        write(temporary_path)
         try:
-            with os.fdopen(file_descriptor, "wb") as out:
-                write(out)
             os.replace(temporary_path, target)
         except OSError as exc:
             raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
     finally:
         temporary_path.unlink(missing_ok=True)
+
+
+def _package_writer(package: Package, target: Path) -> Callable[[Path], None]:
+    def write(path: Path) -> None:
+        try:
+            with path.open("wb") as out:
+                package.write(out)
+        except OSError as exc:
+            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+
+    return write
 
 
 def _template_sheet(path: Path, workbook: Workbook, layout: Layout) -> TemplateSheet:
@@ -653,33 +668,19 @@ def _read_external_link_parts(source: Path | IO[bytes], name: str) -> _ExternalL
 
 
 def _save_atomically(workbook: Workbook, target: Path, parts: _ExternalLinkParts) -> None:
-    """Zapisuje skoroszyt do pliku tymczasowego obok ``target``, przywraca ``parts`` i podmienia ``target``."""
+    """Atomowo zapisuje skoroszyt openpyxl pod ``target`` i przywraca w nim ``parts``."""
 
-    try:
-        file_descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{target.stem}.", suffix=".xlsx", dir=target.parent
-        )
-        os.close(file_descriptor)
-    except OSError as exc:
-        raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
-    temporary_path = Path(temporary_name)
-    try:
+    def write(path: Path) -> None:
         try:
-            workbook.save(temporary_path)
+            workbook.save(path)
         except _WORKBOOK_FILE_ERRORS as exc:
             raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
         try:
-            _restore_external_link_parts(temporary_path, parts)
+            _restore_external_link_parts(path, parts)
         except _WORKBOOK_FILE_ERRORS as exc:
-            raise ExternalLinksError(
-                f"Nie można przywrócić odwołań zewnętrznych: {target.name}"
-            ) from exc
-        try:
-            os.replace(temporary_path, target)
-        except OSError as exc:
-            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
-    finally:
-        temporary_path.unlink(missing_ok=True)
+            raise ExternalLinksError(f"Nie można przywrócić odwołań zewnętrznych: {target.name}") from exc
+
+    _write_atomically(target, write)
 
 
 def _external_link_parts(source: Path | IO[bytes]) -> _ExternalLinkParts:
