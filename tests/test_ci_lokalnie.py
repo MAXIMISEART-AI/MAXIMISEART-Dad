@@ -1,0 +1,62 @@
+"""``tools/ci_lokalnie.py`` odtwarza lokalnie te same polecenia co CI, więc nie może się z nim rozjechać.
+
+Każde polecenie z zadań CI, które narzędzie odtwarza, ma w nim swój krok, a każdy krok narzędzia ma
+swoje polecenie w CI. Zadanie CI, którego narzędzie nie odtwarza, ma wskazane miejsce, które je zastępuje.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOL = ROOT / "tools" / "ci_lokalnie.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+# Linie `run:`, które przygotowują runner, a nie sprawdzają kodu.
+RUNNER_SETUP = ("pip install", "py -3 -c", "Add-Content")
+
+
+def _tool_steps() -> dict[str, object]:
+    answered = subprocess.run(
+        [sys.executable, str(TOOL), "--kroki-ci"], capture_output=True, text=True, encoding="utf-8", check=True
+    )
+    steps: dict[str, object] = json.loads(answered.stdout)
+    return steps
+
+
+def _commands(job: dict[str, object]) -> list[str]:
+    """Polecenia sprawdzające z kroków `run:` zadania, z `py -3` zapisanym jak `python`."""
+
+    commands = []
+    for step in job.get("steps", []):  # type: ignore[attr-defined]
+        for line in str(step.get("run", "")).splitlines():
+            command = line.strip().replace("py -3 ", "python ")
+            if command.startswith(("python ", "npm ", 'stale="$(git')) and not any(
+                setup in command for setup in RUNNER_SETUP
+            ):
+                commands.append(command)
+    return commands
+
+
+def test_kazde_zadanie_ci_jest_odtworzone_albo_ma_wskazane_zastepstwo() -> None:
+    steps = _tool_steps()
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    assert set(jobs) == set(steps["lokalnie"]) | set(steps["gdzie_indziej"])  # type: ignore[call-overload]
+
+
+def test_kazde_polecenie_odtwarzanych_zadan_ma_krok_i_odwrotnie() -> None:
+    steps = _tool_steps()
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    fragments: list[str] = steps["fragmenty"]  # type: ignore[assignment]
+    commands = [command for job in steps["lokalnie"] for command in _commands(jobs[job])]  # type: ignore[attr-defined]
+
+    without_step = [command for command in commands if not any(fragment in command for fragment in fragments)]
+    without_command = [fragment for fragment in fragments if not any(fragment in command for command in commands)]
+
+    assert without_step == []
+    assert without_command == []
