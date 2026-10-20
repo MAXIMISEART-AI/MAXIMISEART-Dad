@@ -68,6 +68,8 @@ REQUIRED_SCREENSHOTS = {
         "25-metryki-historia-filtry.png",
         "26-metryki-nowy-rekord-z-cli.png",
         "27-metryki-pusty-stan.png",
+        "28-metryki-wykres-szczegoly-ciemny.png",
+        "29-metryki-wykres-szczegoly-jasny.png",
     ),
     "przygotowanie-pliku-zbiorczego": (
         "30-przygotowanie-nowe-uruchomienie.png",

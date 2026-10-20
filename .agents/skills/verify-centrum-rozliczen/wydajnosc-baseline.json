@@ -13,14 +13,14 @@
     "bundle_wzgledny": 0.02
   },
   "bundle_bajty": {
-    "js": 1019018,
-    "css": 107288
+    "js": 672576,
+    "css": 105057
   },
   "scenariusze": {
     "okresy/zimny-start": {
       "mediana_ms": {
-        "4x": 385,
-        "6x": 601
+        "4x": 366,
+        "6x": 578
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -33,20 +33,20 @@
     },
     "uruchomienia/zimny-start": {
       "mediana_ms": {
-        "4x": 296,
-        "6x": 440
+        "4x": 275,
+        "6x": 410
       },
       "zapytania_api": {
         "GET /api/runs/events": 1,
-        "GET /api/runs/setup": 1,
+        "GET /api/runs/setup": 2,
         "GET /api/settings": 1,
         "POST /api/view-timings": 1
       }
     },
     "metryki/zimny-start": {
       "mediana_ms": {
-        "4x": 409,
-        "6x": 662
+        "4x": 265,
+        "6x": 402
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -57,8 +57,8 @@
     },
     "konfiguracja/zimny-start": {
       "mediana_ms": {
-        "4x": 235,
-        "6x": 381
+        "4x": 217,
+        "6x": 333
       },
       "zapytania_api": {
         "GET /api/configuration": 1,
@@ -70,7 +70,7 @@
     "menu/1/uruchomienia": {
       "mediana_ms": {
         "4x": 145,
-        "6x": 199
+        "6x": 191
       },
       "zapytania_api": {
         "GET /api/runs/setup": 1,
@@ -79,14 +79,14 @@
     },
     "menu/1/uruchomienia/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 57,
+        "6x": 75
       }
     },
     "menu/1/metryki": {
       "mediana_ms": {
-        "4x": 186,
-        "6x": 276
+        "4x": 82,
+        "6x": 107
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -95,14 +95,14 @@
     },
     "menu/1/metryki/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 41,
+        "6x": 63
       }
     },
     "menu/1/konfiguracja": {
       "mediana_ms": {
-        "4x": 55,
-        "6x": 78
+        "4x": 44,
+        "6x": 60
       },
       "zapytania_api": {
         "GET /api/configuration": 1,
@@ -111,14 +111,14 @@
     },
     "menu/1/konfiguracja/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 7,
+        "6x": 10
       }
     },
     "menu/1/okresy": {
       "mediana_ms": {
-        "4x": 94,
-        "6x": 129
+        "4x": 142,
+        "6x": 220
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -129,14 +129,14 @@
     },
     "menu/1/okresy/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 113,
+        "6x": 180
       }
     },
     "menu/2/uruchomienia": {
       "mediana_ms": {
-        "4x": 64,
-        "6x": 90
+        "4x": 79,
+        "6x": 104
       },
       "zapytania_api": {
         "GET /api/runs/setup": 1,
@@ -145,14 +145,14 @@
     },
     "menu/2/uruchomienia/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 24,
+        "6x": 28
       }
     },
     "menu/2/metryki": {
       "mediana_ms": {
-        "4x": 112,
-        "6x": 168
+        "4x": 58,
+        "6x": 80
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -161,14 +161,14 @@
     },
     "menu/2/metryki/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 25,
+        "6x": 40
       }
     },
     "menu/2/konfiguracja": {
       "mediana_ms": {
-        "4x": 45,
-        "6x": 48
+        "4x": 38,
+        "6x": 56
       },
       "zapytania_api": {
         "GET /api/configuration": 1,
@@ -177,14 +177,14 @@
     },
     "menu/2/konfiguracja/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 5,
+        "6x": 8
       }
     },
     "menu/2/okresy": {
       "mediana_ms": {
-        "4x": 98,
-        "6x": 117
+        "4x": 135,
+        "6x": 193
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -195,14 +195,14 @@
     },
     "menu/2/okresy/szkielet": {
       "mediana_ms": {
-        "4x": 0,
-        "6x": 0
+        "4x": 104,
+        "6x": 151
       }
     },
     "okresy/motyw-jasny": {
       "mediana_ms": {
         "4x": 120,
-        "6x": 176
+        "6x": 168
       },
       "zapytania_api": {
         "PUT /api/settings/theme": 1
@@ -210,7 +210,7 @@
     },
     "okresy/motyw-ciemny": {
       "mediana_ms": {
-        "4x": 80,
+        "4x": 88,
         "6x": 128
       },
       "zapytania_api": {
@@ -231,50 +231,50 @@
     },
     "metryki/proces-przebieg": {
       "mediana_ms": {
-        "4x": 48,
-        "6x": 80
+        "4x": 24,
+        "6x": 32
       },
       "zapytania_api": {}
     },
     "metryki/proces-przygotowanie": {
       "mediana_ms": {
-        "4x": 40,
-        "6x": 72
+        "4x": 16,
+        "6x": 24
       },
       "zapytania_api": {}
     },
     "metryki/tryb-dry-run": {
       "mediana_ms": {
-        "4x": 64,
-        "6x": 96
+        "4x": 16,
+        "6x": 24
       },
       "zapytania_api": {}
     },
     "metryki/tryb-run": {
       "mediana_ms": {
-        "4x": 64,
-        "6x": 96
+        "4x": 16,
+        "6x": 24
       },
       "zapytania_api": {}
     },
     "metryki/zakladka-tabela": {
       "mediana_ms": {
         "4x": 24,
-        "6x": 48
+        "6x": 32
       },
       "zapytania_api": {}
     },
     "metryki/zakladka-wykres": {
       "mediana_ms": {
-        "4x": 80,
-        "6x": 128
+        "4x": 24,
+        "6x": 24
       },
       "zapytania_api": {}
     },
     "metryki/powrot-do-karty": {
       "mediana_ms": {
-        "4x": 41,
-        "6x": 61
+        "4x": 8,
+        "6x": 9
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -284,7 +284,7 @@
     "uruchomienia/zakladka-historia": {
       "mediana_ms": {
         "4x": 24,
-        "6x": 48
+        "6x": 24
       },
       "zapytania_api": {
         "GET /api/metrics": 1
@@ -292,8 +292,8 @@
     },
     "uruchomienia/zakladka-uruchomienie": {
       "mediana_ms": {
-        "4x": 24,
-        "6x": 40
+        "4x": 16,
+        "6x": 24
       },
       "zapytania_api": {
         "GET /api/runs/setup": 1
@@ -315,8 +315,8 @@
     },
     "okresy/ponowne-otwarcie": {
       "mediana_ms": {
-        "4x": 391,
-        "6x": 610
+        "4x": 369,
+        "6x": 574
       },
       "zapytania_api": {
         "GET /api/metrics": 1,
@@ -329,8 +329,8 @@
     },
     "metryki/ponowne-otwarcie": {
       "mediana_ms": {
-        "4x": 405,
-        "6x": 631
+        "4x": 259,
+        "6x": 395
       },
       "zapytania_api": {
         "GET /api/metrics": 1,

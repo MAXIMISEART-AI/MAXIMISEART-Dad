@@ -13,7 +13,8 @@ state, not an error.
 
 - `metryki-karty-okresow`: Okresy shows the last prepared period, the last Uruchomienie procesu with its result, and the results of the last 8 weeks, matching `/api/periods` and `/api/metrics`.
 - `metryki-p50-p95`: the `Statystyki` strip shows the server's P50/P95 and result counts for Przygotowanie RUN.
-- `metryki-wykres`: the stage-times chart stacks the four phases of each Przygotowanie RUN, with a legend.
+- `metryki-wykres`: the stage-times chart, drawn by Centrum (no chart library), has one bar per shown run of every Proces and Tryb, one segment per phase that lasted, `✕` at the date of a stop, and a legend of the measured phases.
+- `metryki-wykres-szczegoly`: a bar's details (date, period, `zatrzymano`, phase times) open on hover, on a finger tap, and on keyboard focus, and close when the mouse leaves, on a tap beside the chart, and on Escape, in both themes.
 - `metryki-tabela-etapow`: the `Tabela` tab lists each run's phase times with P50/P95 rows per phase.
 - `metryki-za-malo-obserwacji`: below five completed observations (Przygotowanie DRY-RUN), P50/P95 show `–` and `od 5 ukończonych (jest N)`.
 - `metryki-przerwane`: an interrupted run shows its phase times until the interruption.
@@ -37,14 +38,15 @@ Preconditions:
 
 - **Karty na Okresach.** Open `#/okresy`. `GET /api/metrics` (`api/metryki.json`) has `fixture.metrics.runs` runs of both processes. Group `Najważniejsze liczby` → group `Ostatni przygotowany okres` shows the newest token with `collective_file_exists` from `/api/periods`; group `Ostatnie uruchomienie` shows `OK` and `<process_label> · <date>` of `runs[0]`; group `Ostatnie 8 tygodni` shows `<ok> OK` and `<needs_review> do sprawdzenia · <critical> zatrzymane` from `recent`.
 - **P50/P95.** Click link `Metryki`. Group `Statystyki` → groups `P50`, `P95`, `Wyniki` show the server's `statistics` for (`preparation`, `RUN`), durations as tenths of a second rounded half up (`7250` → `7,3 s`).
-- **Wykres.** Figure `Wykres czasów etapów` has one `.recharts-bar-rectangle` per non-zero phase of each shown run (up to 12) and the legend `Sprawdzanie`, `Odczyt danych`, `Planowanie`, `Zapisywanie`.
+- **Wykres.** For each Proces (`Przebieg`, `Przygotowanie`) and Tryb (`DRY-RUN`, `RUN`) in the header groups, figure `Wykres czasów etapów` has one `button` per shown run (the newest 12 of that process and mode, oldest on the left), each named with its details (`06.10.2026, 08:21 · okres 29_05_10_2026. Sprawdzanie 0,3 s, Odczyt danych 7,1 s, …`, `· zatrzymano` after the period of a stop) and holding one `path` per phase that lasted; the dates of stops end in `✕`; the list `Etapy` names the phases that lasted in at least one shown run (a DRY-RUN has no `Zapisywanie`). The drive ends on Przygotowanie RUN.
+- **Szczegóły słupka.** The page is dark. Hover the stop's bar: `tooltip` shows the date, `okres <token> · zatrzymano`, and every measured phase with its time; moving the mouse away and Escape remove it. In a second context with `has_touch=True`, `tap()` the newest bar, then the stop's bar: the `tooltip` follows; tapping heading `Metryki` removes it. With the keyboard: click tab `Wykres`, press Tab until the newest bar is focused (its details show), ArrowLeft focuses the previous bar with its details, Escape closes them and keeps the focus. In the light theme the stop's bar shows the same details; the drive switches back to dark.
 - **Tabela.** Click tab `Tabela`. Table `Czasy etapów` has a header, one row per shown run, and rows `P50`/`P95` whose cells match `percentiles` and `percentiles.phases`.
 - **Za mało obserwacji.** In group `Tryb` click `DRY-RUN`. Group `P50` shows `od 5 ukończonych (jest 3)`; the API has `percentiles: null` and `completed_runs: 3`.
 - **Przerwane.** Region `Przerwane` contains the interrupted period and `Sprawdzanie 0,4 s · Odczyt danych 1,3 s` plus `do przerwania 1,7 s`.
 - **Historia.** Table `Historia Uruchomień procesu` shows 10 rows, newest first; the screen-reader text `DRY-RUN` appears once per DRY-RUN row and `.cmd` once per row. Click button `Czas`: the longest run is first and the column header has `aria-sort="descending"`. In group `Proces w historii` click `Przebieg`: only `Przebieg rozliczeń` rows. Click `Wszystkie`, then `Pokaż starsze`: up to 20 rows.
 - **Nowy rekord z CLI.** Run `run_preparation.py --register <root>/brak-rejestru.xlsx --periods-directory <INEA> --period 06_12_10_2026 --dry-run --metrics <fixture.metrics.preparation>`; it exits `1` (no Rejestr zleceń) after appending a `BLAD_KRYTYCZNY` record. `/api/metrics` (`api/metryki-po-cli.json`) has one more run; after a reload the first history row shows `06_12_10_2026`, `Zatrzymano` and `.cmd`.
 - **Pusty stan.** Rename both metrics files; `/api/metrics` returns `runs: []` (`api/metryki-brak-plikow.json`) and the page shows `Jeszcze nie ma metryk`. The drive renames them back.
-- **Proof.** Screenshots `20`–`27`, `api/metryki*.json`.
+- **Proof.** Screenshots `20`–`29` (`28`: details after a tap, dark; `29`: details on hover, light), `api/metryki*.json`.
 
 ## Gotchas
 
@@ -52,4 +54,6 @@ Preconditions:
 - The header filter (`Proces`, `Tryb`) drives the strip and the chart only; the history card has its own filters (`Proces w historii`, `Tryb w historii`). Filter and sort state is lost on reload.
 - Every fixture run is marked `.cmd`: the metrics schema has no origin field, so Centrum takes `origin` from its own `centrum-uruchomienia.jsonl`, and Metryki runs before any feature that starts an Uruchomienie procesu from Centrum. Runs Centrum started carry `origin: centrum` and no badge, so `--feature metryki` on a run root where they already ran fails the `.cmd` count.
 - The CLI step writes a record with the real current time, so it is the newest run; it uses the run-local metrics file, never the tool's.
-- Bars render without animation; a capture right after a filter click is still stable.
+- Bars and details render without animation; a capture right after a filter click is still stable.
+- `tap()` needs a context with `has_touch=True`; the drive's own context has none, so the tap runs in a second context on the same Centrum.
+- The details are one `tooltip` for the whole chart; every bar's accessible name already carries them, so a screen reader reads them on focus.
