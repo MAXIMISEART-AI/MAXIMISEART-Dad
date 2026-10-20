@@ -139,6 +139,37 @@ def rewrite_parts(path: Path, change: Callable[[str, bytes], bytes | None]) -> N
                 target.writestr(info, changed)
 
 
+def break_empty_data_row(path: Path, sheet_part: str = "xl/worksheets/sheet1.xml") -> None:
+    """XML arkusza jest zepsuty w środku: wiersz 18, bez danych w A:K, kończy się złym znacznikiem."""
+
+    def change(name: str, data: bytes) -> bytes:
+        if name != sheet_part:
+            return data
+        start = data.index(b'<row r="18"')
+        end = data.index(b"</row>", start)
+        return data[:end] + b"</wiersz>" + data[end + len(b"</row>") :]
+
+    rewrite_parts(path, change)
+
+
+def replace_cells(path: Path, cells: dict[str, str], sheet_part: str = "xl/worksheets/sheet1.xml") -> None:
+    """Podmienia istniejące komórki arkusza ``sheet_part`` na podany XML, np. jak zapisałby je Excel.
+
+    Klucz to adres komórki (``A18``), wartość to cały element ``<c>``; komórka musi już być w arkuszu.
+    """
+
+    def change(name: str, data: bytes) -> bytes:
+        if name != sheet_part:
+            return data
+        for reference, cell in cells.items():
+            pattern = rb'<c r="' + reference.encode("ascii") + rb'"(?:[^>]*?/>|[^>]*?>.*?</c>)'
+            data, count = re.subn(pattern, lambda _match: cell.encode("utf-8"), data, count=1, flags=re.S)
+            assert count == 1, reference
+        return data
+
+    rewrite_parts(path, change)
+
+
 def without_styles(path: Path) -> None:
     """Komórki zostają ze stylem, ale ``xl/styles.xml`` znika."""
 

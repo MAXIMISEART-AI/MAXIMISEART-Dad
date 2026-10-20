@@ -33,6 +33,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import IO, TypeVar, cast
 from xml.etree.ElementTree import ParseError
+from xml.parsers.expat import ExpatError
 
 from openpyxl import load_workbook
 from openpyxl.reader.excel import SUPPORTED_FORMATS
@@ -47,6 +48,7 @@ from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
+from .input_rows import rows_with_input
 from .template_copy import InvalidValue, SheetLayout, TemplateCopy, UnsupportedShape
 
 
@@ -56,7 +58,8 @@ _WORKBOOK_FILE_ERRORS = (OSError, InvalidFileException, ValueError, zipfile.BadZ
 
 # Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx: przy otwieraniu, a w trybie
 # tylko do odczytu także przy czytaniu wierszy, bo arkusz jest wtedy parsowany leniwie. ``IndexError``:
-# komórka ze stylem w skoroszycie bez ``xl/styles.xml``.
+# komórka ze stylem w skoroszycie bez ``xl/styles.xml``. ``ExpatError``: zepsuty XML arkusza przy odczycie
+# Wierszy danych (``input_rows``).
 _UNREADABLE_WORKBOOK_ERRORS = (
     OSError,
     InvalidFileException,
@@ -66,6 +69,7 @@ _UNREADABLE_WORKBOOK_ERRORS = (
     ValueError,
     zlib.error,
     ParseError,
+    ExpatError,
 )
 
 _HEADER_ROW = 17
@@ -226,11 +230,13 @@ def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
         yield item
 
 
-def _load(path: Path, *, read_only: bool) -> Workbook:
+def _load(path: Path, *, read_only: bool, content: bytes | None = None) -> Workbook:
+    """Skoroszyt ``path``; ``content`` to jego bajty do odczytu zamiast pliku (tylko do odczytu)."""
+
     ensure_available(path)
     with _unreadable_as_error(path):
         if read_only:
-            workbook = load_workbook(path, read_only=True, data_only=False)
+            workbook = load_workbook(path if content is None else BytesIO(content), read_only=True, data_only=False)
         else:
             workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
     if not isinstance(workbook.active, (Worksheet, ReadOnlyWorksheet)):
@@ -256,9 +262,17 @@ def read_data_rows(path: Path) -> list[DataRow]:
 
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
     nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem.
+
+    openpyxl czyta tylko wiersze, które mogą mieć wartości w A:K
+    (``input_rows``), a nie każdy z ~10 tys. sformatowanych wierszy Pliku
+    zbiorczego; wartości i klasyfikacja uszkodzeń są takie jak przy odczycie
+    całego arkusza.
     """
 
-    workbook = _load(path, read_only=True)
+    ensure_available(path)
+    with _unreadable_as_error(path):
+        content = rows_with_input(path.read_bytes(), _INPUT_COLUMNS[-1])
+    workbook = _load(path, read_only=True, content=content)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
         header = next(
