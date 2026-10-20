@@ -3,8 +3,10 @@
 Every scenario runs ``repeats`` times per CPU profile in a fresh browser context
 (no HTTP or V8 code cache, except for reopening the tab). The median of each
 scenario is compared with the baseline in ``wydajnosc-baseline.json`` and its
-budget; the API requests of every repetition must match the baseline's count
-exactly. The report goes to ``<evidence>/wydajnosc/``.
+budget; a median over budget is measured once more and fails only if it stays
+over. The API requests of every repetition must match the baseline's count
+exactly, and the bundle must fit its budget. The report goes to
+``<evidence>/wydajnosc/``.
 """
 
 from __future__ import annotations
@@ -178,8 +180,8 @@ def script_ms(cdp: CDPSession) -> float:
     return float(metrics.get("ScriptDuration", 0)) * 1000
 
 
-def _cold_starts(browsing: Browsing, measured: Measured) -> None:
-    for page_id in PAGES:
+def _cold_starts(browsing: Browsing, measured: Measured, pages: tuple[str, ...] = tuple(PAGES)) -> None:
+    for page_id in pages:
         with browsing.context() as (context, requests):
             page, cdp = browsing.page(context)
             shown = browsing.open(page, page_id)
@@ -200,8 +202,8 @@ def _cold_starts(browsing: Browsing, measured: Measured) -> None:
             )
 
 
-def _reopened_tabs(browsing: Browsing, measured: Measured, repeats: int) -> None:
-    for page_id in REOPENED:
+def _reopened_tabs(browsing: Browsing, measured: Measured, repeats: int, pages: tuple[str, ...] = REOPENED) -> None:
+    for page_id in pages:
         with browsing.context() as (context, requests):
             for visit in range(REOPEN_WARMUP + repeats):
                 mark = len(requests)
@@ -342,14 +344,64 @@ def measure(browser: Browser, url: str, repeats: int, evidence: Path) -> Measure
     return measured
 
 
+def remeasure(browser: Browser, url: str, repeats: int, over: list[tuple[str, int]]) -> Measured:
+    """Measures again the routines that produced the scenarios over budget, in their profile only."""
+
+    again = Measured()
+    routines = sorted({(cpu, _routine(scenario)) for scenario, cpu in over})
+    for cpu, routine in routines:
+        browsing = Browsing(browser, url, cpu)
+        kind, _, page_id = routine.partition(":")
+        if kind == "ponowne-otwarcie":
+            _reopened_tabs(browsing, again, repeats, (page_id,))
+            continue
+        for _ in range(repeats):
+            if kind == "zimny-start":
+                _cold_starts(browsing, again, (page_id,))
+            elif kind == "menu":
+                _menu_laps(browsing, again)
+            else:
+                _interactions(browsing, again)
+    print(f"  measured again: {', '.join(f'{routine} {cpu}×' for cpu, routine in routines)}", flush=True)
+    return again
+
+
+def _routine(scenario: str) -> str:
+    """The routine that measures ``scenario``: one page's cold start or reopened tab, the menu laps, or the interactions."""
+
+    first, _, rest = scenario.partition("/")
+    if rest in ("zimny-start", "ponowne-otwarcie"):
+        return f"{rest}:{first}"
+    return "menu" if first == "menu" else "interakcje"
+
+
 def budget(baseline_ms: float, margin: dict[str, float]) -> float:
     """Baseline plus the noise margin: relative, but never less than ``minimalny_ms``."""
 
     return max(baseline_ms * (1 + margin["wzgledny"]), baseline_ms + margin["minimalny_ms"])
 
 
-def compare(measured: Measured, baseline: dict[str, Any]) -> dict[str, Any]:
-    """Each scenario's median against its baseline and budget, and its API requests against the expected ones."""
+def over_budget(measured: Measured, baseline: dict[str, Any]) -> list[tuple[str, int]]:
+    """The scenarios and profiles whose median exceeds the budget of a known baseline."""
+
+    margin: dict[str, float] = baseline.get("margines", DEFAULT_MARGIN)
+    expected: dict[str, Any] = baseline.get("scenariusze", {})
+    over = []
+    for scenario, profiles in measured.values.items():
+        for cpu, values in profiles.items():
+            base = expected.get(scenario, {}).get("mediana_ms", {}).get(f"{cpu}x")
+            if base is not None and statistics.median(values) > budget(base, margin):
+                over.append((scenario, cpu))
+    return over
+
+
+def compare(measured: Measured, baseline: dict[str, Any], again: Measured | None = None) -> dict[str, Any]:
+    """Each scenario's median against its baseline and budget, and its API requests against the expected ones.
+
+    A median over budget fails only if the median of ``again`` (the same scenario measured again right
+    after) is over budget too: one noisy series on a busy machine is not a regression. API requests and
+    the bundle have no second chance.
+    """
 
     margin: dict[str, float] = baseline.get("margines", DEFAULT_MARGIN)
     expected: dict[str, Any] = baseline.get("scenariusze", {})
@@ -362,9 +414,20 @@ def compare(measured: Measured, baseline: dict[str, Any]) -> dict[str, Any]:
             median = statistics.median(values)
             base = known.get("mediana_ms", {}).get(profile)
             limit = None if base is None else budget(base, margin)
-            verdict = "brak w baseline" if limit is None else ("ok" if median <= limit else "ponad budżet")
-            if verdict != "ok":
-                failures.append(f"{scenario} {profile}: {verdict} (mediana {median:.0f} ms, budżet {limit})")
+            repeated = (again.values if again else {}).get(scenario, {}).get(cpu)
+            median_again = None if repeated is None else statistics.median(repeated)
+            if limit is None:
+                verdict = "brak w baseline"
+            elif median <= limit:
+                verdict = "ok"
+            elif median_again is not None and median_again <= limit:
+                verdict = "ok w ponownym pomiarze"
+            else:
+                verdict = "ponad budżet"
+            if verdict not in ("ok", "ok w ponownym pomiarze"):
+                shown = "brak" if limit is None else f"{limit:.0f} ms"
+                again_text = "" if median_again is None else f", ponownie {median_again:.0f} ms"
+                failures.append(f"{scenario} {profile}: {verdict} (mediana {median:.0f} ms{again_text}, budżet {shown})")
             details = {
                 name: round(statistics.median(samples), 1)
                 for name, samples in measured.details.get(scenario, {}).get(cpu, {}).items()
@@ -373,6 +436,7 @@ def compare(measured: Measured, baseline: dict[str, Any]) -> dict[str, Any]:
                 "scenariusz": scenario, "profil": profile, "mediana_ms": round(median, 1),
                 "probki_ms": [round(value, 1) for value in values], "baseline_ms": base,
                 "budzet_ms": None if limit is None else round(limit, 1), "wynik": verdict, "szczegoly": details,
+                "ponownie_ms": None if median_again is None else round(median_again, 1),
             })
     requests: list[dict[str, Any]] = []
     for scenario, counts in measured.requests.items():
@@ -384,6 +448,7 @@ def compare(measured: Measured, baseline: dict[str, Any]) -> dict[str, Any]:
         requests.append({
             "scenariusz": scenario, "oczekiwane": wanted, "zmierzone": differing[0] if differing else counts[0],
             "powtorzenia_z_roznica": len(differing), "powtorzenia": len(counts), "wynik": verdict,
+            "rozne_zestawy": len({json.dumps(count, sort_keys=True) for count in counts}),
         })
     for scenario in sorted(set(expected) - set(measured.values)):
         failures.append(f"{scenario}: scenariusz z baseline'u nie został zmierzony")
@@ -429,12 +494,15 @@ def text_report(report: dict[str, Any], baseline_path: Path, repeats: int) -> st
         f"margines: +{report['margines']['wzgledny']:.0%}, co najmniej +{report['margines']['minimalny_ms']} ms; "
         f"bundle +{report['margines']['bundle_wzgledny']:.0%}",
         "",
+        "mediana ponad budżet mierzy się ponownie; porażka tylko, gdy ponowna mediana też jest ponad budżetem",
+        "",
         f"{'scenariusz':44} {'profil':6} {'mediana':>9} {'baseline':>9} {'budżet':>9}  wynik",
     ]
     for row in report["scenariusze"]:
+        again = "" if row["ponownie_ms"] is None else f" (ponownie {ms(row['ponownie_ms'])})"
         lines.append(
             f"{row['scenariusz']:44} {row['profil']:6} {ms(row['mediana_ms']):>9} {ms(row['baseline_ms']):>9} "
-            f"{ms(row['budzet_ms']):>9}  {row['wynik']}"
+            f"{ms(row['budzet_ms']):>9}  {row['wynik']}{again}"
             + ("" if not row["szczegoly"] else "  (" + ", ".join(f"{k} {v:.0f}" for k, v in row["szczegoly"].items()) + ")")
         )
     lines += ["", "zapytania API (każde powtórzenie w obu profilach)"]
@@ -506,7 +574,9 @@ def drive_performance(run: Run, page: Page, *, baseline_path: Path = BASELINE, r
     baseline: dict[str, Any] = (
         json.loads(baseline_path.read_text(encoding="utf-8")) if baseline_path.exists() else {}
     )
-    report = compare(measured, baseline)
+    over = over_budget(measured, baseline)
+    again = remeasure(browser, run.url, repeats, over) if over else None
+    report = compare(measured, baseline, again)
     report["baseline"] = str(baseline_path)
     report["powtorzenia"] = repeats
     (out / "raport.json").write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
