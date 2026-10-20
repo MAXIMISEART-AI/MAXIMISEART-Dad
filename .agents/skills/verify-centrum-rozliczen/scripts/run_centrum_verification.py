@@ -111,6 +111,10 @@ REQUIRED_SCREENSHOTS = {
         "64-zgloszenie-wyslane.png",
         "65-zgloszenie-po-odswiezeniu.png",
         "66-zgloszenie-kolejne-uruchomienie.png",
+        "68-zgloszenie-zamkniete-przed-diagnoza.png",
+        "69-zgloszenie-zamkniete-po-diagnozie.png",
+        "70-zgloszenie-nowe-z-odnosnikiem.png",
+        "71-zgloszenie-inny-problem.png",
     ),
     "powiadomienie-o-naprawie": (
         "72-naprawa-czeka.png",

@@ -418,10 +418,19 @@ export const zReportSaved = z.object({
 /**
  * ReportSent
  *
- * Zgłoszenie tego problemu jest wysłane z tego komputera i czeka na naprawę.
+ * Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę.
  */
 export const zReportSent = z.object({
     state: z.literal('sent')
+});
+
+/**
+ * ReportWaiting
+ *
+ * Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje.
+ */
+export const zReportWaiting = z.object({
+    state: z.literal('waiting')
 });
 
 /**
@@ -673,6 +682,7 @@ export const zRunOutcome = z.object({
     report: z.discriminatedUnion('state', [
         zReportReady,
         zReportSent,
+        zReportWaiting,
         zReportSaved
     ]).nullable(),
     stops: z.array(zMessage),
@@ -864,6 +874,7 @@ export const zReportRunPath = z.object({
 export const zReportRunResponse = z.discriminatedUnion('state', [
     zReportReady,
     zReportSent,
+    zReportWaiting,
     zReportSaved
 ]);
 

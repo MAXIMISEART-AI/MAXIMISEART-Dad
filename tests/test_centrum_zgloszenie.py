@@ -248,7 +248,9 @@ def test_wyslanie_jest_raz_na_zatrzymanie_a_wynik_uruchomienia_pokazuje_potwierd
     assert current_report(centrum) == {"state": "sent"}
 
 
-def test_potwierdzenie_wyslania_przetrwa_restart_centrum(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wyslane_zgloszenie_czeka_na_naprawe_takze_po_restarcie_centrum(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     run_id = stopped_for_maks(centrum, monkeypatch)
@@ -258,9 +260,9 @@ def test_potwierdzenie_wyslania_przetrwa_restart_centrum(tmp_path: Path, monkeyp
     centrum.restart()
     again = stopped_for_maks(centrum, monkeypatch)
 
-    assert current_report(centrum) == {"state": "sent"}
+    assert current_report(centrum) == {"state": "waiting"}
     diagnose(centrum, again)
-    assert send(centrum, again) == {"state": "sent"}
+    assert send(centrum, again) == {"state": "waiting"}
     assert len(centrum.surroundings.report_box.keys) == 1
     sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
     [fingerprint] = [line.removeprefix("- Odcisk problemu: ") for line in body.splitlines() if "Odcisk problemu" in line]
@@ -300,3 +302,146 @@ def test_konfiguracja_pokazuje_stan_klucza_do_zgloszen_bez_jego_wartosci(tmp_pat
 
     assert (missing["reports"], ready.json()["reports"]) == ("missing_key", "ready")
     assert KEY not in ready.text
+
+
+WAITING = {"state": "waiting"}
+
+
+def test_kolejne_uruchomienie_z_otwartym_zgloszeniem_tego_problemu_czeka_na_naprawe_bez_drugiej_wysylki(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    first = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, first)
+    send(centrum, first)
+
+    again = stopped_for_maks(centrum, monkeypatch)
+
+    assert current_report(centrum) == WAITING
+    diagnose(centrum, again)
+    assert (current_report(centrum), send(centrum, again)) == (WAITING, WAITING)
+    assert len(centrum.surroundings.report_box.sent) == 1
+
+
+def test_otwarte_zgloszenie_wyslane_spoza_tego_komputera_tez_czeka_na_naprawe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    first = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, first)
+    send(centrum, first)
+    (tmp_path / "config" / "zgloszenia-wyslane.json").unlink()
+    centrum.restart()
+
+    again = stopped_for_maks(centrum, monkeypatch)
+    assert current_report(centrum) == {"state": "ready"}
+    diagnose(centrum, again)
+
+    assert current_report(centrum) == WAITING
+    assert send(centrum, again) == WAITING
+    assert len(centrum.surroundings.report_box.sent) == 1
+    assert "zgloszenie-czeka proces=preparation" in centrum.log_path.read_text(encoding="utf-8")
+
+
+def test_inny_komunikat_wysyla_sie_osobno_obok_otwartego_zgloszenia(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    first = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, first)
+    send(centrum, first)
+    monkeypatch.undo()
+    centrum.fixture.collective_template_path.unlink()
+
+    other = run_to_end(centrum, dry_run=True)["run"]["id"]
+
+    assert current_report(centrum) == {"state": "ready"}
+    diagnose(centrum, other)
+    assert send(centrum, other) == {"state": "sent"}
+    sent_codes = [report.title.split(":")[0] for report in centrum.surroundings.report_box.sent]
+    assert sent_codes == ["BLAD_PLANU", "BRAK_WZORCA"]
+
+
+def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_do_poprzedniego(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    first = stopped_for_maks(centrum, monkeypatch)
+    first_body = diagnose(centrum, first)["report"]["body"]
+    send(centrum, first)
+    box.close(1)
+
+    again = stopped_for_maks(centrum, monkeypatch)
+    preview = diagnose(centrum, again)["report"]
+
+    assert current_report(centrum) == {"state": "ready"}
+    assert "- Poprzednie Zgłoszenie: #1" in preview["body"].splitlines()
+    assert "Poprzednie Zgłoszenie" not in first_body
+    assert send(centrum, again) == {"state": "sent"}
+    assert [report.body for report in box.sent] == [first_body, preview["body"]]
+    sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    assert [entry["number"] for entry in sent] == [1, 2]
+
+
+def test_zgloszenie_zamkniete_wedlug_powiadomienia_o_naprawie_nie_czeka_juz_po_restarcie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    first = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, first)
+    send(centrum, first)
+    box.close(1)
+    assert centrum.client.get("/api/reports/repair").json() == {"repaired": True}
+    centrum.restart()
+
+    again = stopped_for_maks(centrum, monkeypatch)
+
+    assert current_report(centrum) == {"state": "ready"}
+    preview = diagnose(centrum, again)["report"]
+    assert "- Poprzednie Zgłoszenie: #1" in preview["body"].splitlines()
+    assert send(centrum, again) == {"state": "sent"}
+    sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    assert [(entry["number"], entry["state"]) for entry in sent] == [(1, "closed"), (2, "open")]
+    assert centrum.client.get("/api/reports/repair").json() == {"repaired": True}
+
+
+def test_bez_odpowiedzi_skrzynki_wyslany_problem_dalej_czeka_na_naprawe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    first = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, first)
+    send(centrum, first)
+    box.close(1)
+    box.search_failure = Unreachable()
+
+    again = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, again)
+
+    assert current_report(centrum) == WAITING
+    assert len(box.sent) == 1
+
+
+def test_gdy_skrzynka_nie_odpowiada_na_pytanie_o_otwarte_zgloszenie_zgloszenie_zostaje_w_pliku(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    centrum.surroundings.report_box.search_failure = Unreachable()
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    preview = diagnose(centrum, run_id)["report"]
+
+    saved = send(centrum, run_id)
+
+    assert (saved["state"], saved["message"]["what"]) == ("saved", "Nie wysłano Zgłoszenia: brak połączenia z GitHubem.")
+    assert list(unsent_files(centrum).values()) == [f"# {preview['title']}\n\n{preview['body']}"]
+    assert centrum.surroundings.report_box.keys == []

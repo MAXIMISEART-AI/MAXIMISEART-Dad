@@ -386,9 +386,15 @@ class ReportReady(_Model):
 
 
 class ReportSent(_Model):
-    """Zgłoszenie tego problemu jest wysłane z tego komputera i czeka na naprawę."""
+    """Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę."""
 
     state: Literal["sent"]
+
+
+class ReportWaiting(_Model):
+    """Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje."""
+
+    state: Literal["waiting"]
 
 
 class ReportSaved(_Model):
@@ -401,7 +407,7 @@ class ReportSaved(_Model):
     message: Message
 
 
-ReportState = Annotated[ReportReady | ReportSent | ReportSaved, Field(discriminator="state")]
+ReportState = Annotated[ReportReady | ReportSent | ReportWaiting | ReportSaved, Field(discriminator="state")]
 
 
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat

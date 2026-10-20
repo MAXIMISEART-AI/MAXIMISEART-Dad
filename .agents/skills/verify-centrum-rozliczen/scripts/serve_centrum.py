@@ -27,7 +27,8 @@ The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
 ``<number>.json`` with its title, body, label, and ``state`` (``open``; the
 drive may edit it to ``closed``, which Centrum reads as Maks closing the
-Zgłoszenie). The key is never written there. While
+Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file whose body
+has its fingerprint line. The key is never written there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 Each question about the state of sent Zgłoszenia appends its numbers to
 ``<root>/skrzynka-zgloszen-zapytania.jsonl``.
@@ -70,12 +71,14 @@ from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
     LABEL,
+    FindOutcome,
     IssueState,
     Report,
     SendOutcome,
     Sent,
     StatesOutcome,
     Unreachable,
+    fingerprint_line,
 )
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
@@ -131,6 +134,15 @@ class FileReportBox:
                 json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
         return Sent(number)
+
+    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        if (self._directory / "brak-sieci").exists():
+            return Unreachable()
+        line = fingerprint_line(fingerprint)
+        with self._lock:
+            issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
+        found = [issue["number"] for issue in issues if issue["state"] == "open" and line in issue["body"].splitlines()]
+        return min(found, default=None)
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
         with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:

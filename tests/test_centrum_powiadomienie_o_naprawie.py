@@ -39,7 +39,7 @@ def test_zamkniete_zgloszenie_z_biezacej_wersji_daje_powiadomienie_a_otwarte_nie
 
     assert repaired(centrum) is False
 
-    box.closed.add(1)
+    box.close(1)
     centrum.surroundings.clock.advance(minutes=10)
 
     assert repaired(centrum) is True
@@ -78,7 +78,7 @@ def test_zamkniete_zgloszenie_nie_jest_pytane_ponownie_a_powiadomienie_zostaje_p
     centrum = preparing_centrum(tmp_path)
     sent_report(centrum, monkeypatch)
     box = centrum.surroundings.report_box
-    box.closed.add(1)
+    box.close(1)
     assert repaired(centrum) is True
 
     centrum.restart()
@@ -91,7 +91,7 @@ def test_zamkniete_zgloszenie_nie_jest_pytane_ponownie_a_powiadomienie_zostaje_p
 def test_po_aktualizacji_narzedzia_powiadomienie_znika(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     centrum = preparing_centrum(tmp_path)
     sent_report(centrum, monkeypatch)
-    centrum.surroundings.report_box.closed.add(1)
+    centrum.surroundings.report_box.close(1)
     assert repaired(centrum) is True
 
     centrum.surroundings.github.tool_commit = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
@@ -107,7 +107,7 @@ def test_porazka_zapytania_przechodzi_po_cichu_z_ostatnim_znanym_stanem(
     centrum = preparing_centrum(tmp_path)
     sent_report(centrum, monkeypatch)
     box = centrum.surroundings.report_box
-    box.closed.add(1)
+    box.close(1)
     box.states_failure = failure
     log_before = centrum.log_path.read_text(encoding="utf-8")
 

@@ -19,7 +19,8 @@ To pierwsze połączenie narzędzia z internetem z własnej inicjatywy taty i
 pierwszy sekret na jego komputerze:
 
 - Centrum łączy się wyłącznie z API GitHuba: przy wysyłce Zgłoszenia, przy
-  sprawdzaniu stanu wysłanych Zgłoszeń i przy sprawdzeniu aktualności
+  sprawdzaniu stanu wysłanych Zgłoszeń (także przy pytaniu w Diagnozie, czy
+  problem ma już otwarte Zgłoszenie) i przy sprawdzeniu aktualności
   narzędzia w Diagnozie. Brak sieci nie daje Komunikatu, dopóki tata niczego
   nie wysyła.
 - Klucz to token fine-grained, który Maks tworzy ręcznie: tylko repozytorium
@@ -33,8 +34,12 @@ pierwszy sekret na jego komputerze:
   zostaje jako plik Markdown w `config/zgloszenia/` poza Gitem, tata dostaje
   Komunikat i może przesłać plik mailem albo spróbować ponownie.
 - Wysłane Zgłoszenia (odcisk problemu, numer issue, commit narzędzia) Centrum
-  pamięta w `config/zgloszenia-wyslane.json` poza Gitem, więc jeden problem
-  wysyła się raz, także po restarcie Centrum.
+  pamięta w `config/zgloszenia-wyslane.json` poza Gitem. Jeden problem ma jedno
+  otwarte Zgłoszenie: przed wysłaniem Centrum szuka w skrzynce otwartego
+  Zgłoszenia z tym samym odciskiem (wiersz `Odcisk problemu` w treści). Gdy
+  Maks je zamknął, a problem wraca, nowe Zgłoszenie ma odnośnik do
+  poprzedniego. Bez odpowiedzi skrzynki problem wysłany z tego komputera
+  czeka na naprawę, także po restarcie Centrum.
 
 Rewizja reguły prywatności: Zgłoszenie opuszcza komputer taty, ale niesie tylko
 to, co reguła ADR 0004 już dopuszcza w Centrum (Komunikat w trzech częściach,

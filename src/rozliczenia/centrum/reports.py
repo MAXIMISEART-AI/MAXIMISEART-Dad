@@ -26,7 +26,16 @@ from fastapi import APIRouter
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.report_box import IssueState, Refused, Report, ReportBox, Sent, Unreachable
+from rozliczenia.centrum.report_box import (
+    IssueState,
+    Refused,
+    Report,
+    ReportBox,
+    SendOutcome,
+    Sent,
+    Unreachable,
+    fingerprint_line,
+)
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import CommitSource
@@ -45,8 +54,11 @@ _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
 
 
-def report_of(diagnosis: Diagnosis, *, commit: str | None) -> Report:
-    """Zgłoszenie Zatrzymania z wynikiem Diagnozy; tytuł to kod Komunikatu i „Co się stało”."""
+def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None = None) -> Report:
+    """Zgłoszenie Zatrzymania z wynikiem Diagnozy; tytuł to kod Komunikatu i „Co się stało”.
+
+    ``previous`` to numer wcześniejszego Zgłoszenia tego samego problemu, które Maks już zamknął.
+    """
 
     stopped = diagnosis.stopped
     info, message = stopped.info, stopped.stop.message
@@ -73,7 +85,8 @@ def report_of(diagnosis: Diagnosis, *, commit: str | None) -> Report:
         "",
         f"- Wersja: {tool_version()}",
         f"- Commit: {commit or 'nieznany'}",
-        f"- Odcisk problemu: {fingerprint}",
+        fingerprint_line(fingerprint),
+        *([] if previous is None else [f"- Poprzednie Zgłoszenie: #{previous}"]),
         "",
         "## Diagnoza",
         "",
@@ -145,11 +158,13 @@ class SentReports:
 
     def all(self) -> list[SentReport]:
         stored = self._read()
-        known = {sent.fingerprint for sent in stored}
-        return stored + [sent for sent in self._remembered if sent.fingerprint not in known]
+        known = {sent.number for sent in stored}
+        return stored + [sent for sent in self._remembered if sent.number not in known]
 
     def find(self, fingerprint: str) -> SentReport | None:
-        return next((sent for sent in self.all() if sent.fingerprint == fingerprint), None)
+        """Ostatnio wysłane Zgłoszenie problemu ``fingerprint``."""
+
+        return next((sent for sent in reversed(self.all()) if sent.fingerprint == fingerprint), None)
 
     def add(self, sent: SentReport) -> None:
         reports = [*self.all(), sent]
@@ -192,7 +207,6 @@ class SentReports:
         ]
 
 
-
 @dataclass(frozen=True)
 class _Draft:
     """Zgłoszenie z ostatniej Diagnozy, jego Uruchomienie i nazwa pliku na wypadek nieudanej wysyłki."""
@@ -206,8 +220,10 @@ class Reports:
     """Zgłoszenia z tego komputera: podgląd z ostatniej Diagnozy, jego wysyłka i stan wysłanych.
 
     Klucz, stan wysłanych i niewysłane Zgłoszenia leżą w katalogu konfiguracji
-    obok Ustawień taty, poza Gitem. Jeden problem wysyła się raz: Zgłoszenie z
-    odciskiem, który jest już w stanie wysłanych, nie trafia drugi raz do skrzynki.
+    obok Ustawień taty, poza Gitem. Jeden problem ma jedno otwarte Zgłoszenie:
+    Diagnoza i wysyłka pytają skrzynkę o otwarte Zgłoszenie z tym samym odciskiem,
+    a gdy jest, nowe nie powstaje. Bez odpowiedzi skrzynki (brak klucza albo
+    sieci) problem wysłany z tego komputera czeka na naprawę.
     """
 
     def __init__(
@@ -229,39 +245,60 @@ class Reports:
         self._log = log
         self._lock = threading.Lock()
         self._draft: _Draft | None = None
+        self._sent_runs: set[str] = set()
+        # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
+        self._open: dict[str, int | None] = {}
 
     def state(self, fingerprint: ProblemFingerprint) -> contract.ReportState:
-        """Stan Zgłoszenia problemu przy wyniku Uruchomienia: wysłane z tego komputera albo gotowe do wysłania."""
+        """Stan Zgłoszenia problemu przy wyniku Uruchomienia: czeka na naprawę albo gotowe do wysłania."""
 
-        if self._sent.find(fingerprint.digest) is not None:
-            return contract.ReportSent(state="sent")
-        return contract.ReportReady(state="ready")
+        return self._state_of(fingerprint.digest)
 
-    def draft(self, diagnosis: Diagnosis) -> contract.ReportDraft:
-        """Zapamiętuje Zgłoszenie z Diagnozy jako to, które wyśle „Wyślij do Maksa” w tym Uruchomieniu."""
+    def draft(self, diagnosis: Diagnosis) -> tuple[contract.ReportDraft, contract.ReportState]:
+        """Zgłoszenie z Diagnozy, które wyśle „Wyślij do Maksa” w tym Uruchomieniu, i stan po pytaniu skrzynki.
 
-        report = report_of(diagnosis, commit=self._commit())
-        info = diagnosis.stopped.info
-        file_name = f"Zgłoszenie {diagnosis.stopped.stop.message.code} {info.period}.md"
+        Gdy ten problem był już zgłoszony z tego komputera, Zgłoszenie ma odnośnik do ostatniego z nich.
+        """
+
+        stopped = diagnosis.stopped
+        info = stopped.info
+        fingerprint = ProblemFingerprint.of(info.process, stopped.stop.message).digest
+        self._ask_box(fingerprint)
+        previous = self._sent.find(fingerprint)
+        report = report_of(diagnosis, commit=self._commit(), previous=previous.number if previous else None)
+        file_name = f"Zgłoszenie {stopped.stop.message.code} {info.period}.md"
         with self._lock:
             self._draft = _Draft(info.id, report, file_name)
-        return contract.ReportDraft(title=report.title, body=report.body)
+            state = contract.ReportSent(state="sent") if info.id in self._sent_runs else self._state_of(fingerprint)
+        return contract.ReportDraft(title=report.title, body=report.body), state
 
     def send(self, stopped: StoppedRun) -> contract.ReportState:
-        """Wysyła podgląd z Diagnozy ``stopped``; gdy się nie uda, zapisuje go w pliku i mówi, co dalej."""
+        """Wysyła podgląd z Diagnozy ``stopped``, chyba że skrzynka ma już otwarte Zgłoszenie tego problemu.
+
+        Gdy się nie uda, zapisuje Zgłoszenie w pliku i mówi, co dalej.
+        """
 
         info = stopped.info
         with self._lock:
             draft = self._draft
             if draft is None or draft.run_id != info.id:
                 raise contract.Refusal(409, "Zgłoszenie powstaje z Diagnozy. Najpierw kliknij „Diagnoza”.")
-            if self._sent.find(draft.report.fingerprint) is not None:
+            if info.id in self._sent_runs:
                 return contract.ReportSent(state="sent")
             key = self._key()
-            outcome = self._box.send(draft.report, key=key) if key is not None else None
+            outcome: SendOutcome | None = None
+            if key is not None:
+                found = self._box.find_open(draft.report.fingerprint, key=key)
+                if isinstance(found, int):
+                    self._open[draft.report.fingerprint] = found
+                    self._log.report_waiting(process=info.process, period=info.period, number=found)
+                    return contract.ReportWaiting(state="waiting")
+                outcome = self._box.send(draft.report, key=key) if found is None else found
             saved = self._unsent / draft.file_name
             if isinstance(outcome, Sent):
                 self._sent.add(SentReport(draft.report.fingerprint, outcome.number, self._commit()))
+                self._open[draft.report.fingerprint] = outcome.number
+                self._sent_runs.add(info.id)
                 saved.unlink(missing_ok=True)
                 self._log.report_sent(process=info.process, period=info.period, number=outcome.number)
                 return contract.ReportSent(state="sent")
@@ -301,6 +338,30 @@ class Reports:
                     self._sent.mark(states)
             repaired = any(sent.commit == commit and sent.state == "closed" for sent in self._sent.all())
         return contract.RepairNotice(repaired=repaired)
+
+    def _ask_box(self, fingerprint: str) -> None:
+        """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo."""
+
+        key = self._key()
+        if key is None:
+            return
+        found = self._box.find_open(fingerprint, key=key)
+        if found is None or isinstance(found, int):
+            with self._lock:
+                self._open[fingerprint] = found
+
+    def _state_of(self, fingerprint: str) -> contract.ReportState:
+        """Odpowiedź skrzynki z tej pracy Centrum, a bez niej ostatni znany stan wysłanego Zgłoszenia.
+
+        Zgłoszenie, o którym wiadomo, że Maks je zamknął, nie czeka na naprawę.
+        """
+
+        if fingerprint in self._open:
+            waiting = self._open[fingerprint] is not None
+        else:
+            sent = self._sent.find(fingerprint)
+            waiting = sent is not None and sent.state == "open"
+        return contract.ReportWaiting(state="waiting") if waiting else contract.ReportReady(state="ready")
 
     def key_state(self) -> contract.ReportKeyState:
         return "ready" if self._key() is not None else "missing_key"
