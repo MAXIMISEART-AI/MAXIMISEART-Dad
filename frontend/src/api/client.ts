@@ -1,7 +1,7 @@
 import type * as z from "zod"
 
 import type { ApiTiming } from "@/api/generated"
-import { zProblem } from "@/api/generated/zod.gen"
+import { zProblem, zViewTiming } from "@/api/generated/zod.gen"
 
 /** Odmowa albo awaria z komunikatem, który można pokazać tacie (bez treści błędu technicznego). */
 class CentrumError extends Error {}
@@ -21,17 +21,24 @@ type Operation = ApiTiming["operation"]
 /** Zakończone zapytanie API z czasami do pomiaru widoku (`performance.now()` w milisekundach). */
 type TimedRequest = ApiTiming & { started: number; ended: number }
 
-// Zapytania od początku bieżącego widoku; pomiar widoku bierze te, które skończyły się przed gotową treścią.
+// Zakończone zapytania, których pomiar widoku jeszcze nie zabrał, od najstarszego.
 let timedRequests: TimedRequest[] = []
 
-// Odświeżanie po powrocie do karty dopisuje zapytania bez nowego widoku, więc pamięć ma górną granicę.
-const REMEMBERED_REQUESTS = 50
+// Pamięć mieści tyle zapytań, ile kontrakt przyjmuje w jednym pomiarze widoku (`ViewTiming.requests`), i ani
+// jednego więcej: nowe zapytanie wypycha najstarsze. Widok z większą liczbą zapytań (np. odświeżanie po
+// powrocie do karty w trakcie odczytu) trafia więc do dziennika z najnowszymi, a nie przepada w walidacji.
+const REMEMBERED_REQUESTS = zViewTiming.shape.requests.toJSONSchema().maxItems ?? 0
 
-/** Zapytania zakończone w `[from, to]` i zapomina wcześniejsze niż `from` (początek nowego widoku). */
-export function requestsBetween(from: number, to: number): TimedRequest[] {
-  timedRequests = timedRequests.filter((request) => request.started >= from)
+/**
+ * Zabiera zapytania widoku, rozpoczęte od `start` i zakończone do `ready`, i zapomina wszystkie rozpoczęte
+ * przed `start`: należały do poprzedniego widoku albo do powrotu do karty bez nowego widoku.
+ */
+export function takeRequestsSince(start: number, ready: number): TimedRequest[] {
+  const current = timedRequests.filter((request) => request.started >= start)
 
-  return timedRequests.filter((request) => request.ended <= to)
+  timedRequests = current.filter((request) => request.ended > ready)
+
+  return current.filter((request) => request.ended <= ready)
 }
 
 /** Czas serwera z nagłówka `Server-Timing` (`centrum;dur=12.3`); `null`, gdy go brak. */

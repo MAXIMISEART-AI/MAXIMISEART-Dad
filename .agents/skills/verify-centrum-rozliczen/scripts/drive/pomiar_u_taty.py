@@ -9,7 +9,7 @@ import urllib.request
 
 from playwright.sync_api import Page, Response, Route, expect
 
-from drive.common import Run, ensure_files_set
+from drive.common import REPO_ROOT, Run, ensure_files_set
 
 FEATURE = "pomiar-u-taty"
 # Pages of the sidebar menu: contract id and the heading Dad reads.
@@ -22,6 +22,10 @@ CACHED_IN_ROUTE = "konfiguracja"
 # A skeleton shows only once a read takes about 120 ms (index.css); a read held this long shows it for the rest.
 SLOW_READ_S = 0.6
 SKELETON_DELAY_MS = 120
+# How many API requests one measurement of a view carries at most: the contract's `ViewTiming.requests`.
+MAX_TIMED_REQUESTS = json.loads((REPO_ROOT / "frontend" / "src" / "api" / "openapi.json").read_text(encoding="utf-8"))[
+    "components"
+]["schemas"]["ViewTiming"]["properties"]["requests"]["maxItems"]
 
 
 def _log_lines(run: Run) -> list[str]:
@@ -139,6 +143,45 @@ def drive_measurement(run: Run, page: Page) -> None:
         ready_ms >= SLOW_READ_S * 1000 and 0 < skeleton <= ready_ms - SKELETON_DELAY_MS + 20,
         f"a read held {SLOW_READ_S * 1000:.0f} ms (harness) shows the skeleton only after about {SKELETON_DELAY_MS} ms: "
         f"szkielet_ms={skeleton} of gotowe_ms={ready_ms}",
+    )
+
+    run.step(FEATURE, "pomiar-wiele-zapytan")
+    page.goto("about:blank")
+    page.goto(f"{run.url}#/okresy")
+    expect(page.get_by_role("heading", name="Okresy", level=1)).to_be_visible()
+    page.wait_for_timeout(300)
+    held: list[str] = []
+
+    def hold_first(route: Route) -> None:
+        if not held:
+            held.append(route.request.url)
+            time.sleep(SLOW_READ_S)
+        route.continue_()
+
+    page.route("**/api/configuration", hold_first)
+    since = len(_log_lines(run))
+    try:
+        # Dad returns to the tab again and again while Konfiguracja is still reading: every return reads the
+        # settings and the configuration again, so the view ends with more requests than one measurement takes.
+        page.evaluate(
+            """([returns]) => {
+              window.addEventListener("hashchange", () => setTimeout(() => {
+                for (let i = 0; i < returns; i++) window.dispatchEvent(new Event("focus"));
+              }, 50), { once: true });
+              document.querySelector('a[href="#/konfiguracja"]').click();
+            }""",
+            [MAX_TIMED_REQUESTS + 5],
+        )
+        expect(page.get_by_role("heading", name="Konfiguracja", level=1)).to_be_visible()
+        expect(page.get_by_role("list", name="Wykonawcy")).to_be_visible()
+        [timing] = _wait_for_timings(run, since, 1, "the menu click with more requests than one measurement is logged")
+    finally:
+        page.unroute("**/api/configuration", hold_first)
+    requests = timing.get("zapytania", "").split(",")
+    run.check(
+        len(requests) == MAX_TIMED_REQUESTS and requests[-1].startswith("getConfiguration:"),
+        f"a view with more API requests than the contract's {MAX_TIMED_REQUESTS} is logged with its newest "
+        f"{len(requests)}, ending with the read that made it ready ({requests[-1]})",
     )
 
     run.step(FEATURE, "pomiar-bez-sladu")
