@@ -13,6 +13,7 @@ FEATURE = "aktualnosc-i-onedrive"
 PERIOD = "08_14_09_2026"
 TEMPLATE_MISSING = "Nie znaleziono wzorca, z którego powstają pliki okresu."
 NEWER = "Jest nowsza wersja narzędzia."
+PROPOSAL = "Jest też nowsza wersja narzędzia."
 NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 ONLY_IN_CLOUD = "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze."
 KEEP_ON_DEVICE = "„Zawsze zachowuj na tym urządzeniu”"
@@ -60,6 +61,10 @@ def _diagnose(page: Page) -> Locator:
     return explanation
 
 
+def _proposal(page: Page) -> Locator:
+    return page.get_by_role("region", name="Diagnoza").get_by_role("note", name="Propozycja aktualizacji")
+
+
 def _state(answer: dict[str, object], label: str) -> tuple[str, str]:
     checks = answer["checks"]
     assert isinstance(checks, list)
@@ -91,10 +96,13 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
     explanation = _diagnose(page)
     expect(explanation).to_contain_text(NEWER)
     expect(explanation.get_by_role("button", name="Uruchom ponownie", exact=True)).to_be_visible()
+    expect(_proposal(page)).to_have_count(0)
     answer = diagnosis_answer(run, run_id, "aktualnosc-nowsza-wersja")
     run.check(
-        _state(answer, FRESHNESS) == ("failed", NEWER) and answer["next_action"] == "rerun",
-        "a newer `main` on GitHub explains the stop, and Dad updates the tool himself",
+        _state(answer, FRESHNESS) == ("failed", NEWER)
+        and answer["next_action"] == "rerun"
+        and answer["update_proposal"] is False,
+        "with no other cause a newer `main` on GitHub explains the stop, and Dad updates the tool himself",
     )
     run.capture(page, "76-aktualnosc-nowsza-wersja")
 
@@ -130,7 +138,25 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
     run.check((register.read_bytes(), register.stat().st_mtime_ns) == before, "the Diagnoza left the Rejestr zleceń as it was")
     run.capture(page, "78-onedrive-tylko-w-chmurze")
 
+    run.step(FEATURE, "aktualnosc-propozycja")
+    main_commit.write_text(OTHER_MAIN, encoding="utf-8")
+    explanation = _diagnose(page)
+    expect(explanation).to_contain_text(ONLY_IN_CLOUD)
+    expect(explanation.get_by_role("button", name="Uruchom ponownie", exact=True)).to_be_visible()
+    expect(_proposal(page)).to_have_text(PROPOSAL)
+    answer = diagnosis_answer(run, run_id, "aktualnosc-propozycja")
+    shown_explanation = answer["explanation"]
+    assert isinstance(shown_explanation, dict)
+    run.check(
+        shown_explanation["what"] == ONLY_IN_CLOUD
+        and _state(answer, FRESHNESS) == ("failed", NEWER)
+        and (answer["next_action"], answer["update_proposal"]) == ("rerun", True),
+        "a newer `main` does not cover the Rejestr zleceń only in the cloud: it is only proposed under the explanation",
+    )
+    run.capture(page, "81-aktualnosc-propozycja")
+
     run.step(FEATURE, "aktualnosc-i-onedrive-przeszly")
+    main_commit.unlink()
     only_in_cloud.unlink()
     explanation = _diagnose(page)
     expect(explanation).to_contain_text(NOT_FOUND)

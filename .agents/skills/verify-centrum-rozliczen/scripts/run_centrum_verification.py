@@ -117,6 +117,7 @@ REQUIRED_SCREENSHOTS = {
         "76-aktualnosc-nowsza-wersja.png",
         "77-aktualnosc-brak-sieci.png",
         "78-onedrive-tylko-w-chmurze.png",
+        "81-aktualnosc-propozycja.png",
         "79-aktualnosc-i-onedrive-przeszly.png",
     ),
     "zgloszenie": (

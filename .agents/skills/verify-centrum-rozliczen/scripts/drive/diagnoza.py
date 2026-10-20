@@ -22,8 +22,9 @@ NOT_CHECKED_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 UNEXPECTED_IN_DIAGNOSIS = 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"'
 UNEXPECTED_CODE = "BLAD_NIEOCZEKIWANY"
 NO_KEY = "Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń."
+PROPOSAL = "Jest też nowsza wersja narzędzia."
+OTHER_MAIN = "e" * 40
 CHECKS = (
-    "Aktualność narzędzia",
     "Ustawienia taty",
     "Pliki w OneDrive",
     "Rejestr zleceń",
@@ -32,6 +33,7 @@ CHECKS = (
     "Konfiguracja wykonawców",
     "Folder okresu",
     "Pliki okresu w Excelu",
+    "Aktualność narzędzia",
     "Dziennik Centrum rozliczeń",
 )
 
@@ -49,6 +51,8 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     before = _snapshot(untouched)
     lock = register.with_name(f"~${register.name}")
     diagnosis = page.get_by_role("region", name="Diagnoza")
+    proposal = diagnosis.get_by_role("note", name="Propozycja aktualizacji")
+    main_commit = run.root / "github" / "main-commit.txt"
 
     run.step(FEATURE, "diagnoza-dla-taty")
     page.goto(run.url)
@@ -90,13 +94,14 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     expect(diagnosis).to_contain_text(CONFIRMS)
     expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_have_count(0)
     expect(stop_banner(page).get_by_role("button", name="Uruchom ponownie", exact=True)).to_be_visible()
+    expect(proposal).to_have_count(0)
     run.check(True, "the Diagnoza confirms the stop without repeating it and puts Uruchom ponownie on the banner")
     answer = diagnosis_answer(run, str(run_info["id"]), "diagnoza-wyjasnienie")
     explanation = answer["explanation"]
     assert isinstance(explanation, dict)
     run.check(
-        explanation["what"] == REGISTER_OPEN and answer["next_action"] == "rerun",
-        "the Diagnoza explains the cause Dad removes himself and offers Uruchom ponownie first",
+        explanation["what"] == REGISTER_OPEN and answer["next_action"] == "rerun" and answer["update_proposal"] is False,
+        "the Diagnoza explains the cause Dad removes himself and offers Uruchom ponownie first; the tool is up to date",
     )
     run.capture(page, "52-diagnoza-wyjasnienie")
 
@@ -108,14 +113,11 @@ def drive_diagnosis(run: Run, page: Page) -> None:
         expect(checks.nth(index)).to_contain_text(label)
     shown = answer["checks"]
     assert isinstance(shown, list)
+    states = {check["label"]: check["state"] for check in shown}
     run.check(
-        [(check["label"], check["state"]) for check in shown][:4]
-        == [
-            ("Aktualność narzędzia", "passed"),
-            ("Ustawienia taty", "passed"),
-            ("Pliki w OneDrive", "passed"),
-            ("Rejestr zleceń", "failed"),
-        ],
+        [check["label"] for check in shown] == list(CHECKS)
+        and (states["Pliki w OneDrive"], states["Rejestr zleceń"], states["Aktualność narzędzia"])
+        == ("passed", "failed", "passed"),
         "every check is listed in order; the Rejestr zleceń failed",
     )
     run.check(lock.exists() and _snapshot(untouched) == before, "the Diagnoza changed no file and kept the lock file")
@@ -140,11 +142,28 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     run.check(result["stop_kind"] == "for_maks", "a stop that tells Dad to pass it on is „do Maksa”")
     expect(stop_banner(page).get_by_role("button", name="Diagnoza", exact=True)).to_be_visible()
     run.capture(page, "55-diagnoza-do-maksa")
-    stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
-    expect(diagnosis).to_contain_text(CONFIRMS)
-    expect(page.get_by_role("button", name="Uruchom ponownie", exact=True)).to_have_count(0)
-    run.check(True, "a cause only Maks removes has no Uruchom ponownie")
-    run.capture(page, "56-diagnoza-do-maksa-wyjasnienie")
+    main_commit.parent.mkdir(exist_ok=True)
+    main_commit.write_text(OTHER_MAIN, encoding="utf-8")  # `main` moved on, as it does several times a day
+    try:
+        stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
+        expect(diagnosis).to_contain_text(CONFIRMS)
+        expect(proposal).to_have_text(PROPOSAL)
+        expect(page.get_by_role("button", name="Uruchom ponownie", exact=True)).to_have_count(0)
+        run.check(True, "a cause only Maks removes has no Uruchom ponownie; the newer version is only a quiet proposal")
+        current = run.api("/api/runs/current", "diagnoza-do-maksa")
+        run_info = current["run"]
+        assert isinstance(run_info, dict)
+        answer = diagnosis_answer(run, str(run_info["id"]), "diagnoza-do-maksa-wyjasnienie")
+        explanation = answer["explanation"]
+        assert isinstance(explanation, dict)
+        run.check(
+            explanation["what"].startswith(TEMPLATE_MISSING)
+            and (answer["confirms_stop"], answer["next_action"], answer["update_proposal"]) == (True, "report", True),
+            "a newer version does not cover the missing Wzorzec: the Diagnoza explains it and proposes the update",
+        )
+        run.capture(page, "56-diagnoza-do-maksa-wyjasnienie")
+    finally:
+        main_commit.unlink()
 
     run.step(FEATURE, "diagnoza-bez-przyczyny")
     aside.rename(internal_template)
