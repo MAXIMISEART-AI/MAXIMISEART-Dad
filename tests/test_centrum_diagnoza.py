@@ -369,6 +369,27 @@ def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_
     )
 
 
+def test_nieoczekiwany_wyjatek_ktory_wraca_w_diagnozie_zostawia_sprawdzenie_niesprawdzone_a_zgloszenie_mozna_wyslac(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)  # wraca przy każdym odczycie
+    run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
+
+    diagnosis = diagnose(centrum, run_id)
+    report = centrum.client.post(f"/api/runs/{run_id}/report")
+
+    assert check(diagnosis, "Rejestr zleceń") == ("not_checked", "Nie udało się sprawdzić: nieoczekiwany błąd.")
+    assert check_states(diagnosis)["Dziennik Centrum rozliczeń"] == "passed"
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"' in diagnosis["report"]["body"]
+    assert (report.status_code, report.json()["state"]) == (200, "saved")
+
+
 def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_wypieraja_go_z_dziennika_w_diagnozie(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

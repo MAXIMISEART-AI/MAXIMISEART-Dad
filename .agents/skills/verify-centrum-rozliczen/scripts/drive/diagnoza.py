@@ -6,7 +6,7 @@ from pathlib import Path
 
 from playwright.sync_api import Page, expect
 
-from drive.common import Run, current_run, diagnosis_answer, ensure_files_set, finished_result, stop_banner
+from drive.common import ROW_MARKER, Run, current_run, diagnosis_answer, ensure_files_set, finished_result, stop_banner
 
 FEATURE = "diagnoza"
 # A period without a Folder okresu that no feature prepares; the Rejestr zleceń has no orders in it, so no
@@ -17,6 +17,11 @@ NO_ORDERS = "W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu."
 TEMPLATE_MISSING = "Nie znaleziono wzorca, z którego powstają pliki okresu."
 NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 CONFIRMS = "Diagnoza potwierdza ten komunikat."
+NOT_CHECKED_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
+# The Centrum log entry of a check that failed itself: the exception type and the check, never its text.
+UNEXPECTED_IN_DIAGNOSIS = 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"'
+UNEXPECTED_CODE = "BLAD_NIEOCZEKIWANY"
+NO_KEY = "Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń."
 CHECKS = (
     "Aktualność narzędzia",
     "Ustawienia taty",
@@ -175,18 +180,55 @@ def drive_diagnosis(run: Run, page: Page) -> None:
         page.get_by_role("combobox", name="Okres").click()
         page.get_by_role("option", name=f"{PERIOD} · Brak plików okresu", exact=True).click()
         page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        # The automatic Diagnoza runs while the fault is still there, so reading the Rejestr zleceń fails in it too.
         expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_contain_text(NOT_FOUND)
+        result = finished_result(run, "diagnoza-nieoczekiwany-wyjatek")
+        run.check(
+            (result["ending"], result["diagnosis"]) == ("unexpected", "automatic"),
+            "a nieoczekiwany wyjątek is „do Maksa” and its Diagnoza starts by itself",
+        )
+        expect(diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_be_visible()
+        expect(diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True)).to_be_visible()
+        expect(stop_banner(page).get_by_role("button", name="Diagnoza", exact=True)).to_have_count(0)
+        run.check(True, "without a click Dad sees the Diagnoza, Wyślij do Maksa and the preview of the Zgłoszenie")
+        diagnosis.get_by_role("button", name=f"Sprawdzono ({len(CHECKS)})", exact=True).click()
+        checks = diagnosis.get_by_role("list", name="Sprawdzono").get_by_role("listitem")
+        expect(checks).to_have_count(len(CHECKS))
+        register_check = checks.nth(CHECKS.index("Rejestr zleceń"))
+        expect(register_check).to_contain_text(f"Rejestr zleceń · {NOT_CHECKED_UNEXPECTED}")
+        expect(register_check.get_by_label("nie sprawdzono")).to_be_visible()
+        run.check(True, "the same failure in the Diagnoza leaves only the Rejestr zleceń unchecked; every check is listed")
+        log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
+        run.check(
+            UNEXPECTED_IN_DIAGNOSIS in log and "synthetic unexpected failure" not in log,
+            "the Centrum log names the exception type and the check, never the text of the exception",
+        )
+        diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True).click()
+        shown = page.get_by_role("figure", name="Treść Zgłoszenia")
+        title, body = shown.locator("figcaption").inner_text(), shown.locator("pre").inner_text()
+        run.check(
+            title.startswith(f"{UNEXPECTED_CODE}: ")
+            and UNEXPECTED_IN_DIAGNOSIS in body
+            and "synthetic unexpected failure" not in body
+            and ROW_MARKER not in body,
+            "the Zgłoszenie carries that log entry for Maks, without the exception text or a workbook row",
+        )
+        run.capture(page, "58-diagnoza-nieoczekiwany-wyjatek")
     finally:
         fault.unlink()
-    result = finished_result(run, "diagnoza-nieoczekiwany-wyjatek")
+
+    run.step(FEATURE, "diagnoza-nieoczekiwany-wyjatek-zgloszenie")
+    config = Path(run.fixture["settings"]).parent
+    (config / "zgloszenia-klucz.txt").unlink(missing_ok=True)  # never there before features/zgloszenie.md
+    unsent = config / "zgloszenia" / f"Zgłoszenie {UNEXPECTED_CODE} {PERIOD}.md"
+    diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True).click()
+    saved = diagnosis.get_by_label("Ostrzeżenie")
+    expect(saved).to_contain_text(NO_KEY)
+    expect(saved.get_by_role("button", name="Spróbuj ponownie", exact=True)).to_be_visible()
     run.check(
-        (result["ending"], result["diagnosis"]) == ("unexpected", "automatic"),
-        "a nieoczekiwany wyjątek is „do Maksa” and its Diagnoza starts by itself",
+        unsent.read_text(encoding="utf-8") == f"# {title}\n\n{body}",
+        "Wyślij do Maksa works after the nieoczekiwany wyjątek: without a key the preview waits in a file",
     )
-    expect(diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_be_visible()
-    expect(diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True)).to_be_visible()
-    expect(stop_banner(page).get_by_role("button", name="Diagnoza", exact=True)).to_have_count(0)
-    run.check(True, "without a click Dad sees the Diagnoza, Wyślij do Maksa and the preview of the Zgłoszenie")
-    log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
-    run.check("synthetic unexpected failure" not in log, "the text of the exception is not in the Centrum log")
-    run.capture(page, "58-diagnoza-nieoczekiwany-wyjatek")
+    report = finished_result(run, "diagnoza-nieoczekiwany-wyjatek-zgloszenie")["report"]
+    run.check(isinstance(report, dict) and report["state"] == "saved", "the server keeps the saved Zgłoszenie in the result")
+    run.capture(page, "59-diagnoza-nieoczekiwany-wyjatek-zgloszenie")
