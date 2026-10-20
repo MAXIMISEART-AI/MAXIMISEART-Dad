@@ -21,6 +21,8 @@ from playwright.sync_api import Page
 from playwright.sync_api import sync_playwright
 
 from drive import (
+    DEFAULT_REPEATS,
+    EXPLICIT_FEATURES,
     aktualnosc_i_onedrive,
     diagnoza,
     konfiguracja,
@@ -59,8 +61,6 @@ FEATURES = (
     "pomiar-u-taty",
     "start-i-zamykanie",
 )
-# Run only when named: the measurement takes minutes, needs a quiet CPU, and its own fixture variant.
-EXPLICIT_FEATURES = ("wydajnosc",)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,7 +72,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--baseline", type=Path, default=wydajnosc.BASELINE, help="wydajnosc: the baseline to compare with."
     )
-    parser.add_argument("--powtorzenia", type=int, default=5, help="wydajnosc: repetitions per scenario and profile.")
+    parser.add_argument(
+        "--powtorzenia", type=int, default=DEFAULT_REPEATS, help="wydajnosc: repetitions per scenario and profile."
+    )
     args = parser.parse_args(argv)
     run = Run(Path(args.root).resolve(), args.url, Path(args.evidence).resolve())
     drives: dict[str, Callable[[Run, Page], None]] = {

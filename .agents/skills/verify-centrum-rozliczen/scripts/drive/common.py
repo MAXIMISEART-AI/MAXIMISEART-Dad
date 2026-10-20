@@ -14,6 +14,8 @@ from playwright.sync_api import Locator, Page, expect
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
+# Pages of the sidebar menu in its order: contract id (`#/<id>`, `PageId`) and the heading Dad reads.
+PAGES = {"okresy": "Okresy", "uruchomienia": "Uruchomienia", "metryki": "Metryki", "konfiguracja": "Konfiguracja"}
 # Dad's computer runs on Polish time; dates in Centrum are shown in the browser's time zone.
 DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
 # The period the CLI step names: the fixture's last complete period, without a Folder okresu.

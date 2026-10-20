@@ -9,11 +9,9 @@ import urllib.request
 
 from playwright.sync_api import Page, Response, Route, expect
 
-from drive.common import REPO_ROOT, Run, ensure_files_set
+from drive.common import PAGES, REPO_ROOT, Run, ensure_files_set
 
 FEATURE = "pomiar-u-taty"
-# Pages of the sidebar menu: contract id and the heading Dad reads.
-PAGES = (("okresy", "Okresy"), ("uruchomienia", "Uruchomienia"), ("metryki", "Metryki"), ("konfiguracja", "Konfiguracja"))
 SERVER_TIMING = re.compile(r"centrum;dur=\d+(\.\d+)?")
 TIMED_REQUEST = re.compile(r"[a-zA-Z]+:\d+/\d+")
 PERIOD_TOKEN = re.compile(r"\d{2}_\d{2}_\d{2}_\d{4}")
@@ -69,7 +67,7 @@ def drive_measurement(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "pomiar-zimny-start")
     page.on("response", remember)
-    for page_id, title in PAGES:
+    for page_id, title in PAGES.items():
         since = len(_log_lines(run))
         page.goto("about:blank")
         page.goto(f"{run.url}#/{page_id}")
@@ -98,7 +96,8 @@ def drive_measurement(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "pomiar-przejscia-w-menu")
     since = len(_log_lines(run))
-    route = [*PAGES[1:], PAGES[0]]
+    first, *rest = PAGES.items()
+    route = [*rest, first]
     for _, title in route:
         page.get_by_role("link", name=title, exact=True).click()
         expect(page.get_by_role("heading", name=title, level=1)).to_be_visible()
