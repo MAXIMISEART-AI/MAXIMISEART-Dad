@@ -2,19 +2,31 @@
 
 from __future__ import annotations
 
+import re
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 from openpyxl import load_workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Font
+from openpyxl.styles.numbers import is_date_format
+from openpyxl.utils import get_column_letter
 
 from rozliczenia import workbook_files
 from rozliczenia.workbook_files import (
+    ExcelRow,
     ExternalLinksError,
     Layout,
     Problem,
     WorkbookError,
+    WorkbookSaveError,
+    WorkerSettlementTemplate,
     file_from_template,
     open_template,
     read_data_rows,
@@ -22,7 +34,20 @@ from rozliczenia.workbook_files import (
     save_workbook,
 )
 
-from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture, cut_sheet_after_data_rows, external_link_parts, without_sheet, without_styles
+from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, WORKER_TEMPLATE, write_synthetic_templates, zip_part
+from tests.fixtures.porownanie import compare_worker_settlements
+from tests.fixtures.workbooks import (
+    active_worksheet,
+    add_external_link_fixture,
+    break_empty_data_row,
+    cut_sheet_after_data_rows,
+    cut_sheet_after_sheet_data,
+    external_link_parts,
+    replace_cells,
+    rewrite_parts,
+    without_sheet,
+    without_styles,
+)
 from tests.fixtures.settlement import write_source, write_template
 
 
@@ -64,17 +89,33 @@ def _file_from_template(path: Path) -> None:
         assert not target.exists()
 
 
+def _check_worker_settlement_template(path: Path) -> None:
+    WorkerSettlementTemplate(path).check()
+
+
+def _worker_settlement(path: Path) -> None:
+    target = path.with_name("Rozliczenie - Wykonawca.xlsx")
+    try:
+        WorkerSettlementTemplate(path).create_settlement(target, [("syntetyczne miasto",) + (None,) * 45])
+    finally:
+        assert not target.exists()
+
+
 OPENINGS: dict[str, Callable[[Path], object]] = {
     "odczyt": read_data_rows,
     "odczyt-z-formatem": _read_with_format,
     "wzorzec": _check_template,
     "plik-z-wzorca": _file_from_template,
+    "sprawdzanie-wzorca-rozliczenia-pracownika": _check_worker_settlement_template,
+    "rozliczenie-pracownika": _worker_settlement,
 }
 
 
 DAMAGES: dict[str, Callable[[Path], None]] = {
     "nie-zip": not_a_zip,
     "uciety-xml-arkusza": cut_sheet_after_data_rows,
+    "xml-arkusza-uciety-za-wierszami-danych": cut_sheet_after_sheet_data,
+    "zepsuty-pusty-wiersz-danych": break_empty_data_row,
     "bez-styles-xml": without_styles,
     "bez-arkusza": without_sheet,
 }
@@ -159,6 +200,7 @@ def _check_worker_header(path: Path) -> None:
 HEADER_CHECKS: dict[str, Callable[[Path], object]] = {
     "odczyt-wierszy-danych": read_data_rows,
     "wzorzec": _check_worker_header,
+    "sprawdzanie-wzorca-rozliczenia-pracownika": _check_worker_settlement_template,
 }
 
 
@@ -213,6 +255,96 @@ def test_wiersze_danych_pliku_zbiorczego_w_kolejnosci_z_wykonawca_i_wartosciami_
     assert path.read_bytes() == before
 
 
+def _inline(reference: str, text: str) -> str:
+    return f'<c r="{reference}" s="13" t="inlineStr"><is><t>{text}</t></is></c>'
+
+
+def excel_collective_file(directory: Path) -> Path:
+    """Plik zbiorczy w kształcie z Excela: tekst wspólny i wbudowany, wspólne formuły, sformatowane puste wiersze.
+
+    Wiersze danych 18, 100 i 150 przedzielają dziesiątki sformatowanych pustych
+    wierszy; wspólna formuła w Q100 ma formułę główną w wierszu 30 bez danych w A:K.
+    """
+
+    path = write_synthetic_templates(directory) / COLLECTIVE_TEMPLATE
+    replace_cells(
+        path,
+        {
+            "A18": '<c r="A18" s="13" t="s"><v>4</v></c>',  # sharedStrings[4] == "Instalacje"
+            "B18": _inline("B18", "syntetyczny adres 1"),
+            "F18": '<c r="F18" s="15"><v>1001</v></c>',
+            "G18": '<c r="G18" s="16"><v>46301.375</v></c>',  # format daty 14
+            "H18": _inline("H18", "adrian.testowy"),
+            "J18": '<c r="J18" s="15" t="b"><v>1</v></c>',
+            "K18": '<c r="K18" s="15" t="str"><v>wynik formuły</v></c>',
+            "N18": '<c r="N18" s="26"><v>2</v></c>',
+            "O18": '<c r="O18" s="26"><v>2.5</v></c>',
+            "P18": '<c r="P18" s="26"><f>N18*2</f><v>4</v></c>',
+            "AT18": '<c r="AT18" s="31" t="s"><v>0</v></c>',  # sharedStrings[0] == "Suma"
+            "Q30": '<c r="Q30" s="26"><f t="shared" ref="Q30:Q140" si="90">N30+1</f><v>1</v></c>',
+            "L60": _inline("L60", "poza A:K"),
+            "C100": _inline("C100", "tylko C"),
+            "H100": _inline("H100", "beata.fikcyjna"),
+            "I100": '<c r="I100" s="13" t="e"><v>#N/A</v></c>',
+            "Q100": '<c r="Q100" s="28"><f t="shared" si="90"/><v>1</v></c>',
+            "E150": '<c r="E150" s="24"><v>3</v></c>',
+        },
+    )
+    return path
+
+
+def _values_by_column(values: tuple[object, ...]) -> dict[str, object]:
+    return {get_column_letter(column): value for column, value in enumerate(values, start=1) if value is not None}
+
+
+def without_cell_references_in_row_100(path: Path) -> None:
+    """Komórki A:P wiersza 100 bez adresu ``r``; openpyxl liczy wtedy kolumny po kolei, jak pozwala format."""
+
+    def change(name: str, data: bytes) -> bytes:
+        if name != "xl/worksheets/sheet1.xml":
+            return data
+        start = data.index(b'<row r="100"')
+        end = data.index(b"</row>", start)
+        return data[:start] + re.sub(rb'<c r="[A-P]100"', b"<c", data[start:end]) + data[end:]
+
+    rewrite_parts(path, change)
+
+
+SHEET_SHAPES: dict[str, Callable[[Path], None]] = {
+    "jak-z-excela": lambda path: None,
+    "komorki-bez-adresu": without_cell_references_in_row_100,
+}
+
+
+@pytest.mark.parametrize("shape", SHEET_SHAPES)
+def test_wiersze_danych_po_pustych_wierszach_maja_wartosci_jak_w_excelu(tmp_path: Path, shape: str) -> None:
+    path = excel_collective_file(tmp_path / "wzorce")
+    SHEET_SHAPES[shape](path)
+    zeros = {letter: 0 for letter in ("Q", "R", "S", "T", "U", "V", "X")}
+
+    rows = read_data_rows(path)
+
+    assert [(row.number, row.worker) for row in rows] == [(18, "adrian.testowy"), (100, "beata.fikcyjna"), (150, None)]
+    assert all(len(row.values) == 46 for row in rows)
+    assert _values_by_column(rows[0].values) == {
+        "A": "Instalacje",
+        "B": "syntetyczny adres 1",
+        "F": 1001,
+        "G": datetime(2026, 10, 6, 9, 0),
+        "H": "adrian.testowy",
+        "J": True,
+        "K": "wynik formuły",
+        "N": 2,
+        "O": 2.5,
+        "P": "=N18*2",
+        **zeros,
+        "AT": "Suma",
+    }
+    assert [type(rows[0].values[column]) for column in (5, 13, 14)] == [int, int, float]
+    assert _values_by_column(rows[1].values) == {"C": "tylko C", "H": "beata.fikcyjna", "I": "#N/A", "Q": "=N100+1"}
+    assert _values_by_column(rows[2].values) == {"E": 3}
+
+
 def linked_template(path: Path) -> Path:
     write_template(path)
     add_external_link_fixture(path)
@@ -254,6 +386,163 @@ def test_plik_z_wzorca_ma_wiersze_danych_formuly_formatowanie_i_kazdy_link_zewne
     assert template_path.read_bytes() == template_before
 
 
+def shared_formula_masters(path: Path) -> list[str]:
+    """Wzory wspólnych formuł arkusza ``Sheet1`` (zakres, numer i treść) w kolejności z pliku."""
+
+    return re.findall(r'<f t="shared" ref="[^"]+" si="\d+">[^<]*</f>', zip_part(path, "xl/worksheets/sheet1.xml"))
+
+
+def calculation_flags(path: Path) -> dict[str, str | None]:
+    calculation = ET.fromstring(zip_part(path, "xl/workbook.xml")).find(
+        "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr"
+    )
+    assert calculation is not None
+    return {name: calculation.get(name) for name in ("calcMode", "fullCalcOnLoad", "forceFullCalc")}
+
+
+def test_rozliczenie_pracownika_z_wzorca_zachowuje_wspolne_formuly_calcchain_i_flagi_przeliczania(tmp_path: Path) -> None:
+    template_path = write_synthetic_templates(tmp_path / "wzorce") / WORKER_TEMPLATE
+    template_before = template_path.read_bytes()
+    output_directory = tmp_path / "okres"
+    output_directory.mkdir()
+    target_path = output_directory / "Rozliczenie - Wykonawca.xlsx"
+    rows: list[ExcelRow] = [
+        ("syntetyczne miasto 1",) + (None,) * 12 + (2,) + (None,) * 31 + ("uwagi 1",),
+        ("syntetyczne miasto 2",) + (None,) * 45,
+    ]
+
+    WorkerSettlementTemplate(template_path).create_settlement(target_path, rows)
+
+    assert shared_formula_masters(target_path) == shared_formula_masters(template_path)
+    assert len(shared_formula_masters(template_path)) > 4
+    assert zip_part(target_path, "xl/calcChain.xml") == zip_part(template_path, "xl/calcChain.xml")
+    assert calculation_flags(target_path) == {"calcMode": "auto", "fullCalcOnLoad": "1", "forceFullCalc": "1"}
+    assert external_link_parts(target_path) == external_link_parts(template_path)
+    saved = load_workbook(target_path)
+    try:
+        written = active_worksheet(saved)
+        assert [
+            next(written.iter_rows(min_row=row, max_row=row, max_col=46, values_only=True)) for row in (18, 19)
+        ] == rows
+        assert written["N20"].value == 0
+        assert str(written["AU19"].value).startswith("=N19*")
+        assert written["H17"].value == "WYKONAWCA"
+    finally:
+        saved.close()
+    assert sorted(path.name for path in output_directory.iterdir()) == [target_path.name]
+    assert template_path.read_bytes() == template_before
+
+
+def _settlement_folders(tmp_path: Path, template_path: Path, rows: list[ExcelRow]) -> tuple[Path, Path]:
+    """Rozliczenie pracownika z ``WorkerSettlementTemplate`` i plik z Wzorca zapisany przez openpyxl, każdy w swoim folderze."""
+
+    created = tmp_path / "rozliczenie"
+    expected = tmp_path / "przez-openpyxl"
+    created.mkdir()
+    expected.mkdir()
+    name = "Rozliczenie - Wykonawca.xlsx"
+    WorkerSettlementTemplate(template_path).create_settlement(created / name, rows)
+    with file_from_template(template_path, expected / name, Layout.COLLECTIVE, recalculate=True) as sheet:
+        sheet.write_data_rows(rows)
+    return created, expected
+
+
+def _row(**columns: Any) -> ExcelRow:
+    values: list[Any] = [None] * 46
+    for letter, value in columns.items():
+        values[_column_index(letter) - 1] = value
+    return tuple(values)
+
+
+def _column_index(letter: str) -> int:
+    index = 0
+    for character in letter:
+        index = index * 26 + ord(character) - 64
+    return index
+
+
+VALUE_ROWS: list[ExcelRow] = [
+    _row(
+        A='<b>Miasto & "Wieś"</b> \'1\' ]]>',
+        B=" spacje na brzegach ",
+        C="=N18*2",
+        D="=",
+        E="#N/A",
+        F="",
+        G=date(2026, 9, 8),
+        H="adrian.testowy",
+        I=12345678901234567,
+        J=True,
+        K=datetime(2026, 9, 8, 7, 30, 15),
+        N=None,
+        O=1.25,
+        P=Decimal("2.5"),
+        Q=time(13, 45),
+        R=False,
+        AT="zażółć gęślą jaźń\nnowa linia",
+    ),
+    _row(A="tylko miasto"),
+    _row(A="wiersz poza Wzorcem", N=3),
+]
+
+
+@pytest.mark.parametrize("template", ["maly", "syntetyczny"])
+def test_rozliczenie_pracownika_ma_wartosci_kazdego_typu_jak_plik_z_wzorca(tmp_path: Path, template: str) -> None:
+    if template == "maly":
+        template_path = linked_template(tmp_path / "Wzorzec.xlsx")
+    else:
+        template_path = write_synthetic_templates(tmp_path / "wzorce") / WORKER_TEMPLATE
+
+    created, expected = _settlement_folders(tmp_path, template_path, VALUE_ROWS)
+
+    assert set(compare_worker_settlements(expected, created).values()) == {0}
+    saved = load_workbook(created / "Rozliczenie - Wykonawca.xlsx")
+    try:
+        written = active_worksheet(saved)
+        assert written["A18"].value == '<b>Miasto & "Wieś"</b> \'1\' ]]>'
+        assert written["B18"].value == " spacje na brzegach "
+        assert written["C18"].value == "=N18*2"
+        assert (written["D18"].value, written["E18"].value, written["F18"].value) == ("=", "#N/A", None)
+        assert written["G18"].value == datetime(2026, 9, 8)
+        assert is_date_format(written["G18"].number_format)
+        assert written["K18"].value == datetime(2026, 9, 8, 7, 30, 15)
+        assert is_date_format(written["K18"].number_format)
+        assert written["Q18"].value == time(13, 45)
+        assert (written["I18"].value, written["J18"].value, written["R18"].value) == (1.234567890123457e16, True, False)
+        assert (written["O18"].value, written["P18"].value) == (1.25, 2.5)
+        assert written["AT18"].value == "zażółć gęślą jaźń\nnowa linia"
+        assert (written["N18"].value, written["N19"].value, written["N20"].value) == (None, None, 3)
+        assert written["A20"].value == "wiersz poza Wzorcem"
+    finally:
+        saved.close()
+
+
+RICH_TEXT_ROWS: list[ExcelRow] = [_row(A=CellRichText("zwykły ", TextBlock(InlineFont(b=True), "pogrubiony")), N=1)]
+
+
+def test_rozliczenie_pracownika_z_tekstem_sformatowanym_jest_jak_plik_z_wzorca(tmp_path: Path) -> None:
+    """Tekst sformatowany nie przychodzi z Pliku zbiorczego (odczyt daje zwykły tekst), więc ``run_settlements()`` go nie sięga."""
+
+    template_path = linked_template(tmp_path / "Wzorzec.xlsx")
+
+    created, expected = _settlement_folders(tmp_path, template_path, RICH_TEXT_ROWS)
+
+    assert set(compare_worker_settlements(expected, created).values()) == {0}
+
+
+def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_pracownika_bez_pliku(tmp_path: Path) -> None:
+    template_path = linked_template(tmp_path / "Wzorzec.xlsx")
+    output_directory = tmp_path / "okres"
+    output_directory.mkdir()
+
+    with pytest.raises(WorkbookSaveError):
+        WorkerSettlementTemplate(template_path).create_settlement(
+            output_directory / "Rozliczenie.xlsx", [_row(A="syntetyczny\x01znak")]
+        )
+
+    assert list(output_directory.iterdir()) == []
+
+
 def test_wyjatek_w_bloku_pliku_z_wzorca_nie_zostawia_pliku(tmp_path: Path) -> None:
     template_path = linked_template(tmp_path / "Wzorzec.xlsx")
     template_before = template_path.read_bytes()
@@ -280,21 +569,6 @@ def test_nieudany_zapis_pliku_z_wzorca_nie_zostawia_pliku(tmp_path: Path) -> Non
             pass
 
     assert not missing_directory.exists()
-
-
-def test_wzorzec_z_wartoscia_w_wierszu_danych_ma_dane_a_formula_nie(tmp_path: Path) -> None:
-    template_path = styled_template(tmp_path / "Wzorzec.xlsx")
-    with open_template(template_path, Layout.COLLECTIVE) as sheet:
-        assert not sheet.has_input_data()
-
-    workbook = load_workbook(template_path)
-    try:
-        active_worksheet(workbook)["K25"] = "wcześniejsza wartość"
-        workbook.save(template_path)
-    finally:
-        workbook.close()
-    with open_template(template_path, Layout.COLLECTIVE) as sheet:
-        assert sheet.has_input_data()
 
 
 def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp_path: Path) -> None:

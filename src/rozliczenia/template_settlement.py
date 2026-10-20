@@ -5,9 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Literal
 
-from . import workbook_files
 from .domain import WorkerResult
-from .workbook_files import WORKER_HEADER, ExcelRow, Layout, Problem, WorkbookError
+from .workbook_files import (
+    WORKER_HEADER,
+    ExcelRow,
+    Problem,
+    WorkbookError,
+    WorkbookSaveError,
+    WorkerSettlementTemplate,
+)
 
 
 class TemplateWriteError(Exception):
@@ -19,6 +25,13 @@ _LEGACY_WORKER_TEMPLATE_NAME = "placeholder.xlsx"
 
 
 WorkerTemplateProblem = Literal["missing", "open_in_excel", "unreadable"]
+
+# Wzorzec rozliczenia pracownika, który da się otworzyć, ale nie może posłużyć jako wzór: co jest z nim nie tak.
+# Sprawdzanie zgłasza to jako zły Wzorzec, a Zapisywanie (Wzorzec zmieniony po Sprawdzaniu) jako błąd Szablonu.
+_UNUSABLE_TEMPLATE: dict[Problem, str] = {
+    Problem.LAYOUT: f"nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}",
+    Problem.HAS_DATA: "zawiera dane i nie może być użyty jako wzór",
+}
 
 
 class WorkerTemplateValidationError(Exception):
@@ -34,18 +47,19 @@ class WorkerTemplateValidationError(Exception):
         self.problem: WorkerTemplateProblem = problem
 
 
-def validate_worker_template(path: Path) -> None:
-    """Sprawdza Wzorzec rozliczenia pracownika bez modyfikowania jego zawartości."""
+def validate_worker_template(path: Path) -> WorkerSettlementTemplate:
+    """Sprawdza Wzorzec rozliczenia pracownika bez modyfikowania jego zawartości.
 
+    Zwraca Wzorzec wczytany przy Sprawdzaniu; Przebieg rozliczeń tworzy z niego
+    Rozliczenia pracowników bez ponownego wczytywania.
+    """
+
+    template = WorkerSettlementTemplate(path)
     try:
-        with workbook_files.open_template(path, Layout.COLLECTIVE) as sheet:
-            sheet.check_worker_header()
-            if sheet.has_input_data():
-                raise WorkerTemplateValidationError(
-                    "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór."
-                )
+        template.check()
     except WorkbookError as error:
         raise _validation_error(path, error) from error
+    return template
 
 
 def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidationError:
@@ -56,16 +70,14 @@ def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidat
         return WorkerTemplateValidationError(message, "missing")
     if error.problem is Problem.OPEN_IN_EXCEL:
         return WorkerTemplateValidationError("Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.", "open_in_excel")
-    if error.problem is Problem.LAYOUT:
-        return WorkerTemplateValidationError(
-            f"Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}."
-        )
+    if error.problem in _UNUSABLE_TEMPLATE:
+        return WorkerTemplateValidationError(f"Wzorzec rozliczenia pracownika {_UNUSABLE_TEMPLATE[error.problem]}.")
     return WorkerTemplateValidationError("Nie można odczytać Wzorca rozliczenia pracownika.")
 
 
 def process_template(
     worker_name: str,
-    template_path: Path,
+    template: WorkerSettlementTemplate,
     target_path: Path,
     rows: Iterable[ExcelRow],
 ) -> WorkerResult:
@@ -78,19 +90,12 @@ def process_template(
 
     rows = list(rows)
     try:
-        with workbook_files.file_from_template(template_path, target_path, Layout.COLLECTIVE, recalculate=True) as sheet:
-            try:
-                sheet.check_worker_header()
-            except WorkbookError as error:
-                if error.problem is not Problem.LAYOUT:
-                    raise
-                raise TemplateWriteError(
-                    f"Szablon nie ma WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}: {target_path.name}."
-                ) from error
-            if sheet.has_input_data():
-                raise TemplateWriteError(f"Szablon zawiera już dane: {target_path.name}.")
-            sheet.write_data_rows(rows)
-    except workbook_files.WorkbookSaveError as exc:
+        template.create_settlement(target_path, rows)
+    except WorkbookError as error:
+        if error.problem in _UNUSABLE_TEMPLATE:
+            raise TemplateWriteError(f"Szablon {_UNUSABLE_TEMPLATE[error.problem]}: {target_path.name}.") from error
+        raise
+    except WorkbookSaveError as exc:
         raise TemplateWriteError(f"Nie można zapisać szablonu: {target_path.name}") from exc
     if not rows:
         return WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
