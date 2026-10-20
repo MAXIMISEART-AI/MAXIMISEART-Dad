@@ -31,11 +31,9 @@ from xml.parsers import expat
 
 from openpyxl.utils import get_column_letter
 
+from .sheet_data import IrregularSheetData, sheet_data_bounds, sheet_rows
+
 _WORKSHEET: Final = re.compile(rb"\s*(?:<\?xml[^>]*\?>\s*)?<worksheet[\s>]")
-_SHEET_DATA: Final = b"<sheetData>"
-_SHEET_DATA_END: Final = b"</sheetData>"
-_ROW_START: Final = re.compile(rb'<row r="(\d+)"')
-_WITHOUT_LEADING_R: Final = re.compile(rb'<(?:c|row)(?=[\s>/])(?! r=")')
 _SHARED_FORMULA_MASTER: Final = re.compile(rb'<f\b[^>]*\bt="shared"[^>]*(?<!/)>')
 
 
@@ -61,21 +59,11 @@ def rows_with_input(content: bytes, input_columns: int) -> bytes:
 def _sheet_rows_with_input(xml: bytes, with_input: re.Pattern[bytes]) -> bytes:
     """XML arkusza tylko z wierszami, w których ``with_input`` znajduje komórkę z treścią, i z formułami głównymi."""
 
-    start = xml.find(_SHEET_DATA)
-    end = xml.rfind(_SHEET_DATA_END)
-    if start < 0 or end < start:
+    try:
+        body_start, end = sheet_data_bounds(xml)
+        starts = [row.start for row in sheet_rows(xml, body_start, end)]
+    except IrregularSheetData:
         return xml
-    body_start = start + len(_SHEET_DATA)
-    if xml.find(b"<!", body_start, end) >= 0 or _WITHOUT_LEADING_R.search(xml, body_start, end):
-        return xml  # komentarz albo CDATA w danych arkusza, wiersz albo komórka bez ``r`` na początku
-    starts: list[int] = []
-    previous = 0
-    for row in _ROW_START.finditer(xml, body_start, end):
-        number = int(row.group(1))
-        if number <= previous:
-            return xml
-        starts.append(row.start())
-        previous = number
     kept = {
         bisect_right(starts, found.start()) - 1
         for pattern in (with_input, _SHARED_FORMULA_MASTER)

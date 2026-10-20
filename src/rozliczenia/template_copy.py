@@ -61,6 +61,8 @@ from openpyxl.styles.numbers import (
 from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
 from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, to_excel
 
+from .sheet_data import IrregularSheetData, SheetRow, sheet_data_bounds, sheet_rows
+
 
 class UnsupportedShape(Exception):
     """Wzorca albo wartości nie da się zapisać podmianą wierszy; zapis idzie dawną drogą."""
@@ -95,7 +97,6 @@ _ROWS_PER_CHUNK: Final = 64
 _COMPRESSION_LEVEL: Final = 6
 _MAX_TEXT: Final = 32767  # openpyxl przycina tekst komórki do tej długości
 
-_ROW_START = re.compile(rb'<row r="(\d+)"')
 _CELL = re.compile(rb'<c r="([A-Z]{1,3})(\d+)"([^>]*?)(?:/>|>(.*?)</c>)', re.S)
 _CELL_WITH_CONTENT = re.compile(rb'<c r="([A-Z]{1,3})\d+"[^>]*(?<!/)>(.*?)</c>', re.S)  # komórka z treścią
 _STYLE = re.compile(rb'\ss="(\d+)"')
@@ -112,13 +113,6 @@ _XF = re.compile(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", re.S)
 _NUM_FMT = re.compile(rb"<numFmt\b([^>]*?)/?>")
 _NUM_FMT_ID = re.compile(rb'numFmtId="(\d+)"')
 _CALC_FLAGS: Final = ((b"calcMode", b"auto"), (b"fullCalcOnLoad", b"1"), (b"forceFullCalc", b"1"))
-
-
-@dataclass(frozen=True)
-class _Row:
-    number: int
-    start: int
-    end: int
 
 
 @dataclass(frozen=True)
@@ -407,12 +401,11 @@ class _Sheet:
         self._layout = layout
         self._epoch = epoch
         self._letters = [get_column_letter(column).encode("ascii") for column in range(1, layout.data_columns + 1)]
-        data_start = xml.find(b"<sheetData>")
-        data_end = xml.find(b"</sheetData>")
-        if data_start < 0 or data_end < data_start or xml.count(b"<sheetData") != 1:
-            raise UnsupportedShape("sheetData")
-        _require_r_attributes(xml, data_start, data_end)
-        self._rows = _index_rows(xml, data_start, data_end)
+        try:
+            data_start, data_end = sheet_data_bounds(xml)
+            self._rows = sheet_rows(xml, data_start, data_end)
+        except IrregularSheetData as exc:
+            raise UnsupportedShape(str(exc)) from exc
         self._numbers = [row.number for row in self._rows]
         first = bisect_left(self._numbers, layout.first_data_row)
         self._data_start = self._rows[first].start if first < len(self._rows) else data_end
@@ -484,7 +477,7 @@ class _Sheet:
         reference = f"{get_column_letter(covering[0])}{covering[1]}:{get_column_letter(covering[2])}{covering[3]}"
         return prefix[:start] + reference.encode("ascii") + prefix[end:]
 
-    def _patched_row(self, row: _Row | None, number: int, values: Sequence[object], styles: _StyleAdditions) -> bytes:
+    def _patched_row(self, row: SheetRow | None, number: int, values: Sequence[object], styles: _StyleAdditions) -> bytes:
         cells: dict[int, bytes] = {}
         if row is None:
             start_tag = b'<row r="%d">' % number
@@ -515,27 +508,6 @@ class _Sheet:
             return _cell_xml(reference, style, b"n", b"<v>" + _number(serial) + b"</v>")
         kind, content = _value_xml(value)
         return _cell_xml(reference, style, kind, content)
-
-
-def _require_r_attributes(xml: bytes, start: int, end: int) -> None:
-    """Każdy wiersz i każda komórka mają ``r`` jako pierwszy atrybut, jak w plikach Excela i openpyxl."""
-
-    for tag, with_reference in ((b"<row", b'<row r="'), (b"<c", b'<c r="')):
-        tags = sum(xml.count(tag + following, start, end) for following in (b" ", b">", b"/", b"\n", b"\r", b"\t"))
-        if tags != xml.count(with_reference, start, end):
-            raise UnsupportedShape("r")
-
-
-def _index_rows(xml: bytes, start: int, end: int) -> list[_Row]:
-    rows: list[_Row] = []
-    for match in _ROW_START.finditer(xml, start, end):
-        number = int(match.group(1))
-        if rows and number <= rows[-1].number:
-            raise UnsupportedShape("row order")
-        tag_end = xml.index(b">", match.end())
-        row_end = tag_end + 1 if xml[tag_end - 1 : tag_end] == b"/" else xml.index(b"</row>", tag_end) + len(b"</row>")
-        rows.append(_Row(number, match.start(), row_end))
-    return rows
 
 
 def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, layout: SheetLayout) -> bool:
