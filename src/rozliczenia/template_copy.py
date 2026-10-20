@@ -75,6 +75,9 @@ class InvalidValue(Exception):
 _OFFICE_REL: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_REL: Final = "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
 _MAIN: Final = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+# Błędy odczytu bajtów Wzorca, które znaczą kształt spoza kopii albo uszkodzenie: Wzorzec idzie wtedy dawną
+# drogą przez openpyxl, z jej klasyfikacją. Kopia czyta tylko bajty w pamięci, więc błąd wejścia-wyjścia
+# (``OSError``) ani inny nieoczekiwany wyjątek nie jest tu kształtem i nie jest maskowany.
 _READ_ERRORS: Final = (
     zipfile.BadZipFile,
     zipfile.LargeZipFile,
@@ -85,10 +88,7 @@ _READ_ERRORS: Final = (
     expat.ExpatError,
     zlib.error,
     struct.error,
-    NotImplementedError,
-    RuntimeError,
     EOFError,
-    OSError,
 )
 
 # Wiersze arkusza w jednym kawałku kompresji. Mniejszy kawałek: mniej kompresji przy każdej kopii,
@@ -213,6 +213,11 @@ class TemplateCopy:
 def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     archive = zipfile.ZipFile(BytesIO(content))
     infos = archive.infolist()
+    for info in infos:
+        if info.flag_bits & 0x1:
+            raise UnsupportedShape("encrypted")
+        if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise UnsupportedShape("compression")
     plain = {info.filename: archive.read(info) for info in infos}  # sprawdza CRC każdej części
     _require_well_formed_xml(plain)
     workbook_name = _office_document(plain)
@@ -228,8 +233,6 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     sheet_index = styles_index = -1
     parts: list[_Part | None] = []
     for index, info in enumerate(infos):
-        if info.flag_bits & 0x1:
-            raise UnsupportedShape("encrypted")
         if info.filename == sheet_name:
             sheet_index = index
             parts.append(None)
@@ -239,11 +242,11 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         elif info.filename == workbook_name:
             parts.append(_compressed_part(info, _with_full_recalculation(workbook_xml)))
         else:
-            parts.append(_unchanged_part(content, info, plain[info.filename]))
+            parts.append(_raw_part(content, info))
     if sheet_index < 0:
         raise UnsupportedShape("sheet")
     sheet = _Sheet(infos[sheet_index], sheet_index, plain[sheet_name], layout, epoch=MAC_EPOCH if date1904 else WINDOWS_EPOCH)
-    styles = _Styles(infos[styles_index], plain[styles_name], _unchanged_part(content, infos[styles_index], plain[styles_name]))
+    styles = _Styles(infos[styles_index], plain[styles_name], _raw_part(content, infos[styles_index]))
     return TemplateCopy(parts, sheet, styles, sheet.header(shared_strings), sheet.has_input_data)
 
 
@@ -347,14 +350,6 @@ def _encoded_name(name: str) -> tuple[bytes, int]:
         return name.encode("ascii"), 0
     except UnicodeEncodeError:
         return name.encode("utf-8"), 0x800
-
-
-def _unchanged_part(content: bytes, info: zipfile.ZipInfo, data: bytes) -> _Part:
-    """Część bez zmian: skompresowana treść z zip Wzorca, a w nieobsługiwanej metodzie kompresji skompresowana na nowo."""
-
-    if info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
-        return _raw_part(content, info)
-    return _compressed_part(info, data)
 
 
 def _raw_part(content: bytes, info: zipfile.ZipInfo) -> _Part:

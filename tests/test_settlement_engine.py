@@ -362,6 +362,39 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
     assert [(type(event), event.template_index) for event in failed] == [(WorkerFailed, 1)]
 
 
+@pytest.mark.parametrize(
+    ("failing_phase", "code"),
+    [(ProgressPhase.CHECKING, "ZLY_WZORZEC_PRACOWNIKA"), (ProgressPhase.SAVING, "BLAD_KOPII_WZORCA")],
+    ids=["w-sprawdzaniu", "w-zapisywaniu"],
+)
+def test_blad_odczytu_wzorca_rozliczenia_pracownika_z_dysku_wstrzymuje_publikacje(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing_phase: ProgressPhase, code: str
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    read_bytes = Path.read_bytes
+    phase: list[ProgressPhase] = []
+
+    def fail_reading_template(path: Path) -> bytes:
+        if path == worker_template_path and phase == [failing_phase]:
+            raise PermissionError("synthetic read failure")
+        return read_bytes(path)
+
+    def follow_phase(event: ProgressEvent) -> None:
+        if isinstance(event, PhaseStarted):
+            phase[:] = [event.phase]
+
+    monkeypatch.setattr(Path, "read_bytes", fail_reading_template)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=follow_phase)
+
+    assert raised.value.message.code == code
+    if failing_phase is ProgressPhase.CHECKING:
+        assert terminal_text(raised.value) == "Nie można odczytać Wzorca rozliczenia pracownika."
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
 def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
