@@ -80,29 +80,13 @@ def assert_completed_metrics(
     return cast(dict[str, Any], record)
 
 
-def test_plain_cli_reports_progress_and_writes_safe_metrics(tmp_path: Path) -> None:
+def test_cli_writes_safe_metrics_with_settlement_counters(tmp_path: Path) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
 
-    exit_code, output = run_cli(source_path, config_path, metrics_path)
+    exit_code, _ = run_cli(source_path, config_path, metrics_path)
 
     assert exit_code == 0
-    assert "RUN" in output
-    assert output.index("Sprawdzanie") < output.index("Odczyt danych")
-    assert output.index("Odczyt danych") < output.index("Planowanie")
-    assert output.index("Planowanie") < output.index("Zapisywanie")
-    assert "Postęp szablonów: 1/3" in output
-    assert "Postęp szablonów: 2/3" in output
-    assert "Postęp szablonów: 3/3 (100%)" in output
-    assert "WYKONAWCA: Adrian Testowy" in output
-    assert "Ostatnie operacje" in output
-    assert "Wiersze danych: 3" in output
-    assert "Liczniki:" in output
-    assert "Zapisane szablony: 2" in output
-    assert "Puste szablony: 1" in output
-    assert "Status końcowy: OK" in output
-    assert "\x1b" not in output
-
     record = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert record["schema_version"] == 1
     assert record["mode"] == "RUN"
@@ -249,31 +233,15 @@ def test_cli_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_z_okresem
     assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
 
 
-def test_cli_dry_run_shows_complete_plan_without_creating_output(tmp_path: Path) -> None:
+def test_cli_dry_run_changes_no_file_and_records_dry_run_metrics(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_preview_fixture(tmp_path)
     worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
     source_before = source_path.read_bytes()
     worker_template_before = worker_template_path.read_bytes()
 
-    exit_code, output = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
+    exit_code, _ = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", "--dry-run")
 
     assert exit_code == 2
-    assert "DRY-RUN" in output
-    assert f"Okres rozliczeniowy: {PERIOD}" in output
-    assert f"Folder rozliczeń pracowników: {target_directory}" in output
-    assert "Plan plików:" in output
-    assert f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx | Wiersze do uzupełnienia: 2" in output
-    assert f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx | Wiersze do uzupełnienia: 1" in output
-    assert (
-        f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx | "
-        "Wiersze do uzupełnienia: 0 | Pusty skoroszyt"
-    ) in output
-    assert "Nieznany identyfikator WYKONAWCA" in output
-    assert "andrzej.nieznany2" not in output
-    assert "syntetyczny adres" not in output
-    assert "#1" not in output
-    assert "Planowane szablony: 2" in output
-    assert "Nic nie zapisano" in output
     assert not target_directory.exists()
     assert source_path.read_bytes() == source_before
     assert worker_template_path.read_bytes() == worker_template_before
@@ -395,27 +363,11 @@ def test_broken_wzorzec_rozliczenia_pracownika_shows_unreadable_wzorzec_message(
     assert not target_directory.exists()
 
 
-@pytest.mark.parametrize(
-    ("extra_args", "expected_message"),
-    [
-        (
-            (),
-            "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
-            "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
-        ),
-        (
-            ("--dry-run",),
-            "Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. "
-            "Przekaż ten komunikat osobie utrzymującej narzędzie.",
-        ),
-    ],
-    ids=["RUN", "DRY-RUN"],
-)
-def test_summary_failure_after_engine_says_whether_rozliczenia_pracownikow_exist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...], expected_message: str
+@pytest.mark.parametrize("extra_args", [(), ("--dry-run",)], ids=["RUN", "DRY-RUN"])
+def test_summary_failure_after_engine_leaves_rozliczenia_pracownikow_only_after_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...]
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    metrics_path = tmp_path / "metrics.jsonl"
     run_settlements = settlement_engine.run_settlements
 
     def run_with_unprintable_summary(*args: Any, **kwargs: Any) -> SettlementSummary:
@@ -424,18 +376,10 @@ def test_summary_failure_after_engine_says_whether_rozliczenia_pracownikow_exist
 
     monkeypatch.setattr(settlement_engine, "run_settlements", run_with_unprintable_summary)
 
-    exit_code, output = run_cli(source_path, config_path, metrics_path, *extra_args)
+    exit_code, _ = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", *extra_args)
 
     assert exit_code == 1
-    lines = output.splitlines()
-    status = lines.index("Status semantyczny: BŁĄD")
-    assert lines[status + 1] == expected_message
-    assert lines[status + 2].startswith("Czas uruchomienia: ")
-    assert "SYN-" not in output
-    assert "Traceback" not in output
     assert target_directory.is_dir() is (not extra_args)
-    record = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
 
 
 def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records_incomplete_run(

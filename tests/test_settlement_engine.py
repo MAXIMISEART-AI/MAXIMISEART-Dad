@@ -308,6 +308,22 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
+def test_plik_zbiorczy_otwarty_w_excelu_zatrzymuje_przebieg_rozliczen_i_zostawia_plik_blokady(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    lock_file = source_path.with_name(f"~${source_path.name}")
+    lock_file.write_bytes(b"blokada Excela")
+    source_before = source_path.read_bytes()
+
+    with pytest.raises(StopError) as stop:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert stop.value.message.code == "PLIK_ZBIORCZY_OTWARTY"
+    assert terminal_text(stop.value) == f"Plik jest otwarty lub zablokowany: {source_path.name}"
+    assert lock_file.read_bytes() == b"blokada Excela"
+    assert source_path.read_bytes() == source_before
+    assert not target_directory.exists()
+
+
 def test_plik_zbiorczy_bez_wykonawca_w_h17_zatrzymuje_przebieg_rozliczen(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     workbook = load_workbook(source_path)

@@ -121,8 +121,7 @@ def urllib_transport(request: HttpRequest) -> HttpResponse:
 class GitHubReportBox:
     """Prywatne repozytorium Zgłoszeń na GitHubie przez REST API, z kluczem taty (token fine-grained Maksa)."""
 
-    def __init__(self, repository: str = REPOSITORY, transport: Transport | None = None) -> None:
-        self._repository = repository
+    def __init__(self, transport: Transport | None = None) -> None:
         self._transport = transport
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
@@ -130,7 +129,7 @@ class GitHubReportBox:
         answer = self._exchange(
             HttpRequest(
                 method="POST",
-                url=f"{_API}/repos/{self._repository}/issues",
+                url=f"{_API}/repos/{REPOSITORY}/issues",
                 headers={**_headers(key), "Content-Type": "application/json"},
                 body=json.dumps(payload).encode("utf-8"),
             )
@@ -145,7 +144,7 @@ class GitHubReportBox:
 
         line = fingerprint_line(fingerprint)
         for page in range(1, _MAX_PAGES + 1):
-            url = f"{_API}/repos/{self._repository}/issues?state=open&labels={LABEL}&per_page={_PAGE_SIZE}&page={page}"
+            url = f"{_API}/repos/{REPOSITORY}/issues?state=open&labels={LABEL}&per_page={_PAGE_SIZE}&page={page}"
             answer = self._exchange(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
             if not isinstance(answer, HttpResponse):
                 return answer
@@ -163,7 +162,7 @@ class GitHubReportBox:
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
         states: dict[int, IssueState] = {}
         for number in numbers:
-            url = f"{_API}/repos/{self._repository}/issues/{number}"
+            url = f"{_API}/repos/{REPOSITORY}/issues/{number}"
             answer = self._exchange(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
             if not isinstance(answer, HttpResponse):
                 return answer
