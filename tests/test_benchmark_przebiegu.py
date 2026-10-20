@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 
 from rozliczenia.worker_config import load_worker_mapping
 from tests.fixtures.benchmark import (
@@ -16,6 +18,7 @@ from tests.fixtures.benchmark import (
     protected_repository_files,
     run_benchmark,
     start_benchmark,
+    WORKER_TEMPLATE,
     write_templates,
 )
 from tests.fixtures.settlement import write_mapping
@@ -134,6 +137,17 @@ def test_benchmark_mierzy_przebieg_rozliczen_na_lustrze_i_opisuje_pomiar_bez_dan
     assert len(secrets) == 4 * 6
     secrets |= {*load_worker_mapping(config), *load_worker_mapping(config).values()}
     assert {secret for secret in secrets if secret in published} == set()
+
+
+def change_rate(worker_template: Path) -> None:
+    """Inny, nadal poprawny Wzorzec rozliczenia pracownika: zmieniona stawka w arkuszu ``Rates``."""
+
+    workbook = load_workbook(worker_template)
+    try:
+        workbook["Rates"]["B1"] = 99.5
+        workbook.save(worker_template)
+    finally:
+        workbook.close()
 
 
 def spread(median: int, low: int, high: int) -> dict[str, int]:
@@ -362,3 +376,38 @@ def test_komentarz_pokazuje_start_procesu_takze_obok_pomiaru_sprzed_jego_mierzen
         "| Czas uruchomienia [ms]",
         "| Zakończenie procesu [ms]",
     ]
+
+
+def test_pomiar_z_innym_wzorcem_rozliczenia_pracownika_nie_ma_pasujacego_wyniku_referencyjnego(tmp_path: Path) -> None:
+    config = write_mapping(tmp_path / "worker_mapping.yaml")
+    journal = tmp_path / "dziennik.jsonl"
+    references = tmp_path / "referencje"
+    templates = write_templates(tmp_path / "wzorce")
+    other_templates = tmp_path / "inne-wzorce"
+    shutil.copytree(templates, other_templates)
+    change_rate(other_templates / WORKER_TEMPLATE)
+    common = [
+        "--scenario",
+        "maly-tydzien",
+        "--config",
+        str(config),
+        "--mirror-dir",
+        str(tmp_path / "lustro"),
+        "--reference-dir",
+        str(references),
+    ]
+    frozen = run_benchmark("freeze", *common, "--templates-dir", str(templates), "--commit", "HEAD")
+    assert frozen.returncode == 0, frozen.stdout + frozen.stderr
+    commit = frozen_reference(references).parent.name
+    measure = ["measure", *common, "--templates-dir", str(other_templates), "--journal", str(journal), "--machine", "test"]
+
+    named = run_benchmark(*measure, "--reference", commit[:7])
+    unnamed = run_benchmark(*measure)
+
+    assert named.returncode == 1
+    assert "nie ma wyniku referencyjnego" in named.stderr
+    assert "Wzorc" in named.stderr
+    assert unnamed.returncode == 0, unnamed.stderr
+    assert "Brak wyniku referencyjnego" in unnamed.stdout
+    (record,) = (json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines())
+    assert record["oracle"] is None

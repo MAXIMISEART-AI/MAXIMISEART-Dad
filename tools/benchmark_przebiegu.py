@@ -29,7 +29,10 @@ pomiar czeka i mówi o tym na stderr.
 ``freeze`` zamraża wynik referencyjny scenariusza z dowolnego commita: buduje ten
 commit w tymczasowym worktree gita poza repozytorium, uruchamia jego Przebieg
 rozliczeń raz na tym samym lustrze i zapisuje Folder rozliczeń pracowników, liczniki i
-wyjście terminala w ``.benchmark/reference/<lustro>/<commit>/``. Bramka poprawności w
+wyjście terminala w ``.benchmark/reference/<lustro>-wzorzec-<odcisk>/<commit>/``, gdzie
+odcisk to skrót Wzorca rozliczenia pracownika: lustro od niego nie zależy, a wynik
+zamrożony z jednym Wzorcem nie może być porównany z pomiarem na innym (pomiar z
+``--reference`` bez pasującego wyniku kończy się błędem). Bramka poprawności w
 ``measure`` porównuje z nim Folder rozliczeń pracowników ostatniego uruchomienia
 (``tools/porownanie_rozliczen.py``), liczniki i Komunikaty. Kody Komunikatów nie
 wychodzą poza proces (nie pokazuje ich ani terminal, ani rekord metryk), więc
@@ -83,7 +86,7 @@ from benchmark.dziennik import (
 )
 from benchmark.lustro import SCENARIOS, default_templates_directory, default_worker_config, ensure_mirror, template_paths
 from benchmark.pomiar import RUNS, exclusive_measurement, measure, measurement_lock
-from benchmark.referencja import find_reference, freeze_reference
+from benchmark.referencja import find_reference, freeze_reference, reference_folder
 from syntetyczne_wzorce import WORKER_TEMPLATE
 
 
@@ -146,9 +149,13 @@ def _measure_or_freeze(args: argparse.Namespace, references: Path) -> dict[str, 
         frozen = freeze_reference(references, mirror, args.commit, config, templates[WORKER_TEMPLATE])
         print(f"Wynik referencyjny {args.scenario} z commita {frozen.name[:7]}: {frozen}")
         return None
-    reference = find_reference(references, mirror, args.reference)
+    reference = find_reference(references, mirror, templates[WORKER_TEMPLATE], args.reference)
     if reference is None:
-        print(f"Brak wyniku referencyjnego w {references / mirror.name}; bramka poprawności nie sprawdzona.")
+        folder = reference_folder(references, mirror, templates[WORKER_TEMPLATE])
+        print(
+            f"Brak wyniku referencyjnego dla tego lustra i Wzorca rozliczenia pracownika w {folder}; "
+            "bramka poprawności nie sprawdzona."
+        )
     record = measure(mirror, args.scenario, config, templates[WORKER_TEMPLATE], args.machine, reference)
     append_record(args.journal, record)
     return record

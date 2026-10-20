@@ -10,6 +10,7 @@ nawet ostrzejsze niż porównanie kodów.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import shutil
 import tempfile
@@ -29,6 +30,18 @@ ORACLE_CATEGORIES = (*CATEGORIES, "liczniki", "komunikaty")
 REFERENCE_RESULT = "wynik.json"
 
 
+def reference_folder(references: Path, mirror: Path, worker_template: Path) -> Path:
+    """Wyniki referencyjne lustra zamrożone z tym Wzorcem rozliczenia pracownika.
+
+    Lustro nie zależy od Wzorca rozliczenia pracownika (używa go dopiero Przebieg
+    rozliczeń), więc klucz wyniku referencyjnego to lustro i odcisk tego Wzorca:
+    wynik zamrożony z jednym Wzorcem nigdy nie jest porównywany z pomiarem na innym.
+    """
+
+    fingerprint = hashlib.sha256(worker_template.read_bytes()).hexdigest()[:12]
+    return references / f"{mirror.name}-wzorzec-{fingerprint}"
+
+
 def freeze_reference(
     references: Path, mirror: Path, commit: str, config: Path, worker_template: Path
 ) -> Path:
@@ -38,9 +51,9 @@ def freeze_reference(
     if resolved is None:
         raise BenchmarkError(f"Nie ma commita {commit}.")
     sha = resolved.strip()
-    target = references / mirror.name / sha
+    target = reference_folder(references, mirror, worker_template) / sha
     if target.exists():
-        raise BenchmarkError(f"Wynik referencyjny {sha[:7]} dla {mirror.name} już jest: {target}.")
+        raise BenchmarkError(f"Wynik referencyjny {sha[:7]} dla {target.parent.name} już jest: {target}.")
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="benchmark-referencja-") as scratch_name:
         scratch = Path(scratch_name)
@@ -64,21 +77,23 @@ def freeze_reference(
     return target
 
 
-def find_reference(references: Path, mirror: Path, commit: str | None) -> Path | None:
-    """Zamrożony wynik referencyjny lustra: wskazany prefiksem commita albo jedyny, jaki jest."""
+def find_reference(references: Path, mirror: Path, worker_template: Path, commit: str | None) -> Path | None:
+    """Wynik referencyjny lustra i Wzorca rozliczenia pracownika: wskazany prefiksem commita albo jedyny, jaki jest."""
 
+    folder = reference_folder(references, mirror, worker_template)
     frozen = sorted(
-        path
-        for path in (references / mirror.name).glob("*")
-        if not path.name.startswith(".") and (path / REFERENCE_RESULT).is_file()
+        path for path in folder.glob("*") if not path.name.startswith(".") and (path / REFERENCE_RESULT).is_file()
     )
     if commit is not None:
         matching = [path for path in frozen if path.name.startswith(commit)]
         if len(matching) != 1:
-            raise BenchmarkError(f"Dla {mirror.name} nie ma jednego wyniku referencyjnego z commita {commit}.")
+            raise BenchmarkError(
+                f"Dla {mirror.name} nie ma wyniku referencyjnego z commita {commit} zamrożonego z tym Wzorcem "
+                f"rozliczenia pracownika ({folder.name}); zamroź go przez freeze z tymi samymi Wzorcami."
+            )
         return matching[0]
     if len(frozen) > 1:
-        raise BenchmarkError(f"Dla {mirror.name} jest kilka wyników referencyjnych; wskaż jeden przez --reference.")
+        raise BenchmarkError(f"Dla {folder.name} jest kilka wyników referencyjnych; wskaż jeden przez --reference.")
     return frozen[0] if frozen else None
 
 
