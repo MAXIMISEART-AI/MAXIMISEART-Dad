@@ -33,6 +33,7 @@ from rozliczenia.centrum.configuration import ConfigurationFiles, Template, work
 from rozliczenia.centrum.log import CentrumLog, event_of
 from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost, StoppedRun
+from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
@@ -92,8 +93,12 @@ class Diagnosis:
     def view(self, report: contract.ReportDraft) -> contract.Diagnosis:
         """Widok Diagnozy z podglądem Zgłoszenia ``report``, które wyśle „Wyślij do Maksa”."""
 
+        process, explanation = self.stopped.info.process, self.explanation
+        # Ten sam Komunikat co Zatrzymanie to ten sam odcisk problemu: kod i trzy części.
+        same = ProblemFingerprint.of(process, explanation) == ProblemFingerprint.of(process, self.stopped.stop.message)
         return contract.Diagnosis(
-            explanation=contract.Message.of(self.explanation),
+            explanation=contract.Message.of(explanation),
+            confirms_stop=same,
             next_action="rerun" if self.fixable_by_tata else "report",
             checks=[contract.DiagnosisCheck(label=check.label, state=check.state, detail=check.detail) for check in self.checks],
             report=report,

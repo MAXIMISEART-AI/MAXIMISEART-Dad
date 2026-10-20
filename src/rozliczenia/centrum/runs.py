@@ -33,7 +33,7 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.centrum.run_view import ProcessView
-from rozliczenia.centrum.stops import ProblemFingerprint, StopMemory
+from rozliczenia.centrum.stops import ProblemFingerprint, StopMemory, diagnosis_offer
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.decision import Decision
 from rozliczenia.message import Message
@@ -106,12 +106,20 @@ class _SummaryView:
 
 
 @dataclass(frozen=True)
+class _StopView:
+    """Zatrzymanie w wyniku Uruchomienia: rodzaj, proponowana Diagnoza i stan Zgłoszenia (``None`` bez nich)."""
+
+    kind: contract.StopKind | None
+    diagnosis: contract.DiagnosisOffer | None
+    report: contract.ReportState | None
+
+
+@dataclass(frozen=True)
 class StoppedRun:
     """Zakończone Uruchomienie procesu z Zatrzymaniem, dla którego Centrum proponuje Diagnozę."""
 
     info: contract.RunInfo
     stop: Stop
-    kind: contract.StopKind
 
 
 class RunHost:
@@ -196,12 +204,12 @@ class RunHost:
             run = self._run
             if run is None or run.info.id != run_id:
                 raise contract.Refusal(404, "Nie ma takiego Uruchomienia procesu.")
-            stop, kind = run.stop, run.stop_kind
-        if not run.ended or stop is None or kind is None or kind == "for_tata":
+            stop, offer = run.stop, run.diagnosis
+        if not run.ended or stop is None or offer is None:
             raise contract.Refusal(
                 409, "Diagnoza jest przy Zatrzymaniu do Maksa albo przy powtórce tego samego Komunikatu."
             )
-        return StoppedRun(run.info, stop, kind)
+        return StoppedRun(run.info, stop)
 
     def remember(self, prepared: PreparedRun[Any, Any], since: datetime) -> None:
         """Zapamiętuje rekord metryk, który dopisało to Uruchomienie, jako Uruchomienie z Centrum."""
@@ -214,17 +222,17 @@ class RunHost:
 
         self._log.unexpected_failure(failure, where="wynik Uruchomienia procesu")
 
-    def stop_kind(self, run: _Run, stop: Stop | None) -> contract.StopKind | None:
-        return self._stops.kind(run.info.process, stop)
+    def stop_view(self, run: _Run, stop: Stop | None) -> _StopView:
+        """Rodzaj Zatrzymania ``stop``, Diagnoza, którą Centrum z niego proponuje, i stan Zgłoszenia problemu."""
 
-    def report_state(
-        self, run: _Run, stop: Stop | None, kind: contract.StopKind | None
-    ) -> contract.ReportState | None:
-        """Stan Zgłoszenia problemu ``stop``; ``None``, gdy Centrum nie proponuje Diagnozy."""
-
-        if stop is None or kind is None or kind == "for_tata":
-            return None
-        return self._report_state(ProblemFingerprint.of(run.info.process, stop.message))
+        kind = self._stops.kind(run.info.process, stop)
+        offer = diagnosis_offer(stop, kind)
+        report = (
+            None
+            if stop is None or offer is None
+            else self._report_state(ProblemFingerprint.of(run.info.process, stop.message))
+        )
+        return _StopView(kind, offer, report)
 
     def show_report(self, run_id: str, state: contract.ReportState) -> None:
         """Nowy stan Zgłoszenia w wyniku zakończonego Uruchomienia ``run_id`` dla każdej karty Centrum."""
@@ -282,7 +290,7 @@ class _Run:
         self.awaiting_decision = False
         self.ended = False
         self.stop: Stop | None = None
-        self.stop_kind: contract.StopKind | None = None
+        self.diagnosis: contract.DiagnosisOffer | None = None
 
     def running_view(self) -> contract.RunRunning:
         return contract.RunRunning(
@@ -302,15 +310,13 @@ class _Run:
             )
             self._host.remember(prepared, since)
             stop = None if isinstance(outcome.ending, Finished) else outcome.ending
-            kind = self._host.stop_kind(self, stop)
-            result = _run_result(outcome, prepared, kind, self._host.report_state(self, stop, kind))
+            result = _run_result(outcome, prepared, self._host.stop_view(self, stop))
         except Exception as failure:  # noqa: BLE001 - granica wątku Uruchomienia: typ wyjątku trafia do dziennika Centrum
             self._host.failed(failure)
             stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
-            kind = self._host.stop_kind(self, stop)
-            result = _unexpected_result(prepared.dry_run, kind, self._host.report_state(self, stop, kind))
+            result = _unexpected_result(prepared.dry_run, self._host.stop_view(self, stop))
         self.stop = stop
-        self.stop_kind = result.stop_kind
+        self.diagnosis = result.diagnosis
         self._host.finished(self, result, stop)
         self.ended = True
         self._host.publish(
@@ -388,8 +394,7 @@ def _decision_view(decision: Decision) -> contract.Decision:
 def _run_result(
     outcome: Outcome[_SummaryView],
     prepared: PreparedRun[Any, Any],
-    stop_kind: contract.StopKind | None,
-    report: contract.ReportState | None,
+    stopped: _StopView,
 ) -> contract.RunOutcome:
     """Wynik dla przeglądarki z ``Outcome`` rdzenia.
 
@@ -422,8 +427,9 @@ def _run_result(
         headline=headline,
         ending=kind,
         next_action=next_action,
-        stop_kind=stop_kind,
-        report=report,
+        stop_kind=stopped.kind,
+        diagnosis=stopped.diagnosis,
+        report=stopped.report,
         stops=stops,
         warnings=[] if shown is None else shown.warnings,
         notices=list(outcome.notices),
@@ -431,9 +437,7 @@ def _run_result(
     )
 
 
-def _unexpected_result(
-    dry_run: bool, stop_kind: contract.StopKind | None, report: contract.ReportState | None
-) -> contract.RunOutcome:
+def _unexpected_result(dry_run: bool, stopped: _StopView) -> contract.RunOutcome:
     """Ostatnia siatka: błąd samego adaptera po zakończeniu rdzenia (np. kontraktu wyniku); rdzeń zapisał już metryki."""
 
     return contract.RunOutcome(
@@ -441,8 +445,9 @@ def _unexpected_result(
         headline="Błąd",
         ending="after_engine",
         next_action="rerun" if dry_run else "open_period_folder",
-        stop_kind=stop_kind,
-        report=report,
+        stop_kind=stopped.kind,
+        diagnosis=stopped.diagnosis,
+        report=stopped.report,
         stops=[contract.Message.of(_RESULT_NOT_SHOWN)],
         warnings=[],
         notices=[],

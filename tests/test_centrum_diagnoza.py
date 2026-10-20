@@ -51,7 +51,7 @@ def test_zatrzymanie_dla_taty_proponuje_uruchom_ponownie(tmp_path: Path) -> None
 
     result = stop_of(centrum)
 
-    assert (result["stop_kind"], result["next_action"]) == ("for_tata", "rerun")
+    assert (result["stop_kind"], result["next_action"], result["diagnosis"]) == ("for_tata", "rerun", None)
 
 
 def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path) -> None:
@@ -60,7 +60,7 @@ def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path
 
     result = stop_of(centrum)
 
-    assert result["stop_kind"] == "for_maks"
+    assert (result["stop_kind"], result["diagnosis"]) == ("for_maks", "on_request")
 
 
 def test_nieoczekiwany_blad_jest_do_maksa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,7 +73,7 @@ def test_nieoczekiwany_blad_jest_do_maksa(tmp_path: Path, monkeypatch: pytest.Mo
 
     result = stop_of(centrum)
 
-    assert (result["ending"], result["stop_kind"]) == ("unexpected", "for_maks")
+    assert (result["ending"], result["stop_kind"], result["diagnosis"]) == ("unexpected", "for_maks", "automatic")
 
 
 def test_identyczny_komunikat_przy_ponownym_uruchomieniu_to_powtorka(tmp_path: Path) -> None:
@@ -83,7 +83,7 @@ def test_identyczny_komunikat_przy_ponownym_uruchomieniu_to_powtorka(tmp_path: P
 
     again = stop_of(centrum)
 
-    assert again["stop_kind"] == "repeated"
+    assert (again["stop_kind"], again["diagnosis"]) == ("repeated", "on_request")
 
 
 def test_inny_komunikat_przy_ponownym_uruchomieniu_nie_jest_powtorka(tmp_path: Path) -> None:
@@ -149,7 +149,7 @@ def test_diagnoza_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa(
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert (diagnosis["explanation"], diagnosis["next_action"], diagnosis["confirms_stop"]) == (NOT_FOUND, "report", False)
     assert set(check_states(diagnosis).values()) == {"passed"}
 
 
@@ -205,7 +205,7 @@ def test_powtorka_zatrzymania_dla_taty_wyjasnia_przyczyne_i_proponuje_uruchom_po
 
     diagnosis = diagnose(centrum, repeated["run"]["id"])
 
-    assert diagnosis["next_action"] == "rerun"
+    assert (diagnosis["next_action"], diagnosis["confirms_stop"]) == ("rerun", True)
     assert diagnosis["explanation"] == repeated["result"]["stops"][0]
     assert diagnosis["explanation"]["what"] == "Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku."
     assert check_states(diagnosis)["Rejestr zleceń"] == "failed"
