@@ -647,6 +647,27 @@
         }
       }
     },
+    "/api/reports/repair": {
+      "get": {
+        "tags": [
+          "zgloszenia"
+        ],
+        "summary": "Repair Notice",
+        "operationId": "getRepairNotice",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepairNotice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/metrics": {
       "get": {
         "tags": [
@@ -1894,6 +1915,21 @@
         ],
         "title": "RecentResults",
         "description": "Wyniki Uruchomień procesu obu procesów z ostatnich ``weeks`` tygodni."
+      },
+      "RepairNotice": {
+        "properties": {
+          "repaired": {
+            "type": "boolean",
+            "title": "Repaired"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "repaired"
+        ],
+        "title": "RepairNotice",
+        "description": "Powiadomienie o naprawie na stronie Okresy.\n\n``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal\ndziała na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”)."
       },
       "ReportDraft": {
         "properties": {

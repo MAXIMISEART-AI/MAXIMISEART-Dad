@@ -16,7 +16,7 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
-from rozliczenia.centrum.report_box import Report, SendOutcome, Sent
+from rozliczenia.centrum.report_box import Refused, Report, SendOutcome, Sent, StatesOutcome, Unreachable
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 
@@ -60,11 +60,16 @@ class FakeReportBox:
     """Skrzynka Zgłoszeń zastąpiona zapisem wysłanych Zgłoszeń i przygotowanymi wynikami wysyłki.
 
     Bez przygotowanego wyniku każde Zgłoszenie dostaje kolejny numer issue.
+    Wysłane Zgłoszenia są otwarte, dopóki Maks nie zamknie ich numeru (``closed``);
+    ``states_failure`` to porażka każdego zapytania o stan, a ``asked`` to numery z każdego zapytania.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
     sent: list[Report] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
+    closed: set[int] = field(default_factory=set)
+    states_failure: Refused | Unreachable | None = None
+    asked: list[list[int]] = field(default_factory=list)
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
         self.keys.append(key)
@@ -72,6 +77,26 @@ class FakeReportBox:
         if isinstance(outcome, Sent):
             self.sent.append(report)
         return outcome
+
+    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
+        assert key, "skrzynka pytana bez klucza"
+        self.asked.append(list(numbers))
+        if self.states_failure is not None:
+            return self.states_failure
+        return {number: "closed" if number in self.closed else "open" for number in numbers}
+
+
+@dataclass
+class FakeClock:
+    """Zegar monotoniczny Centrum w sekundach, przesuwany przez test."""
+
+    seconds: float = 0.0
+
+    def __call__(self) -> float:
+        return self.seconds
+
+    def advance(self, *, minutes: float) -> None:
+        self.seconds += minutes * 60
 
 
 @dataclass

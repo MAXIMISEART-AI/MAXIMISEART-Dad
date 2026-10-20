@@ -18,15 +18,21 @@ verification never reaches GitHub and checks OneDrive on every system:
 - the commit of `main` on GitHub is the tool's own commit (up to date) unless
   ``<root>/github/main-commit.txt`` names another one; while
   ``<root>/github/brak-sieci`` exists there is no network. The tool's own
-  commit is the real one (``tool_commit``) from this checkout;
+  commit is the real one (``tool_commit``) from this checkout unless
+  ``<root>/github/tool-commit.txt`` names another one (Dad updated the tool);
 - a file whose full path is a line of ``<root>/onedrive/tylko-w-chmurze.txt``
   has the Windows attribute of a OneDrive file „tylko online”.
 
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
 ``<number>.json`` with its title, body, label, and ``state`` (``open``; the
-drive may edit it). The key is never written there. While
+drive may edit it to ``closed``, which Centrum reads as Maks closing the
+Zgłoszenie). The key is never written there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
+
+Centrum asks the skrzynka for the state of sent Zgłoszenia at most once per 10
+minutes of its monotonic clock; ``<root>/zegar/przesuniecie-min.txt`` moves that
+clock forward by the given minutes, so the drive need not wait.
 
 One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
 each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
@@ -42,7 +48,7 @@ The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date
 import json
 import os
@@ -60,7 +66,15 @@ from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
-from rozliczenia.centrum.report_box import LABEL, Report, SendOutcome, Sent, Unreachable  # noqa: E402
+from rozliczenia.centrum.report_box import (  # noqa: E402
+    LABEL,
+    IssueState,
+    Report,
+    SendOutcome,
+    Sent,
+    StatesOutcome,
+    Unreachable,
+)
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
@@ -116,15 +130,37 @@ class FileReportBox:
             )
         return Sent(number)
 
+    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
+        if (self._directory / "brak-sieci").exists():
+            return Unreachable()
+        states: dict[int, IssueState] = {}
+        with self._lock:
+            for number in numbers:
+                issue = json.loads((self._directory / f"{number}.json").read_text(encoding="utf-8"))
+                states[number] = "closed" if issue["state"] == "closed" else "open"
+        return states
+
 
 def _scripted_github(root: Path) -> ToolFreshness:
+    def local_commit() -> str | None:
+        chosen = root / "github" / "tool-commit.txt"
+        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit()
+
     def main_commit() -> str | None:
         if (root / "github" / "brak-sieci").exists():
             return None
         chosen = root / "github" / "main-commit.txt"
         return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit()
 
-    return ToolFreshness(local=tool_commit, main=main_commit)
+    return ToolFreshness(local=local_commit, main=main_commit)
+
+
+def _scripted_clock(root: Path) -> Callable[[], float]:
+    def clock() -> float:
+        moved = root / "zegar" / "przesuniecie-min.txt"
+        return time.monotonic() + (float(moved.read_text(encoding="utf-8")) * 60 if moved.exists() else 0.0)
+
+    return clock
 
 
 def _scripted_onedrive(root: Path) -> CloudFiles:
@@ -178,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         tool_freshness=_scripted_github(root),
         cloud_files=_scripted_onedrive(root),
         report_box=FileReportBox(root / "skrzynka-zgloszen"),
+        clock=_scripted_clock(root),
     )
 
     def record_bound_server(url: str) -> None:

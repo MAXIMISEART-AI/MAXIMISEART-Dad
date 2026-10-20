@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import json
 import threading
-from dataclasses import asdict, dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -23,7 +24,7 @@ from fastapi import APIRouter
 
 from rozliczenia.centrum import contract, report_messages
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.report_box import Refused, Report, ReportBox, Sent
+from rozliczenia.centrum.report_box import IssueState, Refused, Report, ReportBox, Sent, Unreachable
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import CommitSource
@@ -35,6 +36,8 @@ if TYPE_CHECKING:
 REPORT_KEY_FILE: Final = "zgloszenia-klucz.txt"
 UNSENT_DIRECTORY: Final = "zgloszenia"
 SENT_REPORTS_FILE: Final = "zgloszenia-wyslane.json"
+# Skrzynkę Zgłoszeń o stan wysłanych Zgłoszeń Centrum pyta najwyżej raz na 10 minut.
+STATES_INTERVAL_S: Final = 10 * 60
 
 _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
@@ -95,11 +98,15 @@ def _cell(text: str) -> str:
 
 @dataclass(frozen=True)
 class SentReport:
-    """Wysłane Zgłoszenie w lokalnym stanie: odcisk problemu, numer issue i commit narzędzia przy wysyłce."""
+    """Wysłane Zgłoszenie w lokalnym stanie: odcisk problemu, numer issue i commit narzędzia przy wysyłce.
+
+    ``state`` to ostatni znany stan issue w skrzynce Zgłoszeń; dopóki skrzynka nie powie inaczej, ``open``.
+    """
 
     fingerprint: str
     number: int
     commit: str | None
+    state: IssueState = "open"
 
 
 class SentReports:
@@ -127,6 +134,18 @@ class SentReports:
     def add(self, sent: SentReport) -> None:
         reports = [*self.all(), sent]
         self._remembered.append(sent)
+        self._write(reports)
+
+    def mark(self, states: Mapping[int, IssueState]) -> None:
+        """Zapamiętuje stan issue ze skrzynki Zgłoszeń przy wysłanych Zgłoszeniach o tych numerach."""
+
+        def marked(sent: SentReport) -> SentReport:
+            return replace(sent, state=states.get(sent.number, sent.state))
+
+        self._remembered = [marked(sent) for sent in self._remembered]
+        self._write([marked(sent) for sent in self.all()])
+
+    def _write(self, reports: list[SentReport]) -> None:
         temporary = self._path.with_name(self._path.name + ".tmp")
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,12 +162,13 @@ class SentReports:
         if not isinstance(entries, list):
             return []
         return [
-            SentReport(entry["fingerprint"], entry["number"], entry.get("commit"))
+            SentReport(entry["fingerprint"], entry["number"], entry.get("commit"), entry.get("state", "open"))
             for entry in entries
             if isinstance(entry, dict)
             and isinstance(entry.get("fingerprint"), str)
             and isinstance(entry.get("number"), int)
             and isinstance(entry.get("commit"), str | None)
+            and entry.get("state", "open") in ("open", "closed")
         ]
 
 
@@ -170,8 +190,18 @@ class Reports:
     odciskiem, który jest już w stanie wysłanych, nie trafia drugi raz do skrzynki.
     """
 
-    def __init__(self, config_directory: Path, box: ReportBox, log: CentrumLog, commit: CommitSource) -> None:
+    def __init__(
+        self,
+        config_directory: Path,
+        box: ReportBox,
+        log: CentrumLog,
+        commit: CommitSource,
+        *,
+        clock: Callable[[], float],
+    ) -> None:
         self._commit = commit
+        self._clock = clock
+        self._states_asked_at: float | None = None  # od startu Centrum skrzynka nie była jeszcze pytana
         self._key_file = config_directory / REPORT_KEY_FILE
         self._unsent = config_directory / UNSENT_DIRECTORY
         self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
@@ -227,6 +257,31 @@ class Reports:
         self._log.report_saved(process=info.process, period=info.period, code=message.code)
         return contract.ReportSaved(state="saved", message=contract.Message.of(message))
 
+    def repair_notice(self) -> contract.RepairNotice:
+        """Czy Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal tu działa.
+
+        Gdy od startu Centrum skrzynki nie pytano albo minęło ``STATES_INTERVAL_S``,
+        Centrum pyta ją o stan otwartych Zgłoszeń z tej wersji; porażka zapytania
+        przechodzi po cichu i zostaje ostatni znany stan. Po aktualizacji narzędzia
+        commit jest inny, więc powiadomienie znika samo.
+        """
+
+        commit = self._commit()
+        if commit is None:
+            return contract.RepairNotice(repaired=False)
+        with self._lock:
+            waiting = [sent.number for sent in self._sent.all() if sent.commit == commit and sent.state == "open"]
+            key = self._key()
+            now = self._clock()
+            due = self._states_asked_at is None or now - self._states_asked_at >= STATES_INTERVAL_S
+            if waiting and key is not None and due:
+                self._states_asked_at = now
+                states = self._box.states(waiting, key=key)
+                if not isinstance(states, Refused | Unreachable):
+                    self._sent.mark(states)
+            repaired = any(sent.commit == commit and sent.state == "closed" for sent in self._sent.all())
+        return contract.RepairNotice(repaired=repaired)
+
     def key_state(self) -> contract.ReportKeyState:
         return "ready" if self._key() is not None else "missing_key"
 
@@ -251,5 +306,15 @@ def reports_router(host: RunHost, reports: Reports) -> APIRouter:
         state = reports.send(host.stopped(run_id))
         host.show_report(run_id, state)
         return state
+
+    return router
+
+
+def repair_router(reports: Reports) -> APIRouter:
+    router = APIRouter(prefix="/api/reports", tags=["zgloszenia"])
+
+    @router.get("/repair", operation_id="getRepairNotice")
+    def repair_notice() -> contract.RepairNotice:
+        return reports.repair_notice()
 
     return router

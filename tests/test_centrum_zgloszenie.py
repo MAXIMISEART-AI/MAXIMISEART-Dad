@@ -202,7 +202,7 @@ def test_potwierdzenie_wyslania_przetrwa_restart_centrum(tmp_path: Path, monkeyp
     assert len(centrum.surroundings.report_box.keys) == 1
     sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
     [fingerprint] = [line.removeprefix("- Odcisk problemu: ") for line in body.splitlines() if "Odcisk problemu" in line]
-    assert sent == [{"fingerprint": fingerprint, "number": 1, "commit": TOOL_COMMIT}]
+    assert sent == [{"fingerprint": fingerprint, "number": 1, "commit": TOOL_COMMIT, "state": "open"}]
 
 
 def test_zatrzymanie_dla_taty_nie_proponuje_zgloszenia(tmp_path: Path) -> None:

@@ -23,7 +23,15 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, FakeReportBox, finished_view
+from tests.fixtures.centrum import (
+    CENTRUM,
+    FakeClock,
+    FakeGitHub,
+    FakeOneDrive,
+    FakePlatform,
+    FakeReportBox,
+    finished_view,
+)
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
 
@@ -34,7 +42,7 @@ WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
 
 @dataclass
 class Surroundings:
-    """GitHub, OneDrive i skrzynka Zgłoszeń widziane z komputera taty.
+    """GitHub, OneDrive, skrzynka Zgłoszeń i zegar widziane z komputera taty.
 
     ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu.
     """
@@ -42,6 +50,7 @@ class Surroundings:
     github: FakeGitHub = field(default_factory=FakeGitHub)
     onedrive: FakeOneDrive | None = field(default_factory=FakeOneDrive)
     report_box: FakeReportBox = field(default_factory=FakeReportBox)
+    clock: FakeClock = field(default_factory=FakeClock)
 
 
 def _client(
@@ -64,6 +73,7 @@ def _client(
         tool_freshness=surroundings.github.freshness(),
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
+        clock=surroundings.clock,
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
 

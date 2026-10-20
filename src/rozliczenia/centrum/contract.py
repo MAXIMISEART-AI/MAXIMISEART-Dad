@@ -549,3 +549,13 @@ class Configuration(_Model):
     templates: list[TemplateStatus]
     workers: Workers
     reports: ReportKeyState
+
+
+class RepairNotice(_Model):
+    """Powiadomienie o naprawie na stronie Okresy.
+
+    ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
+    działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+    """
+
+    repaired: bool
