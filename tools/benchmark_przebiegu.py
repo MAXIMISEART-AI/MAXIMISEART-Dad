@@ -50,6 +50,14 @@ Tak samo domyślna Konfiguracja wykonawców (``--config``): prawdziwy
 ``worker_mapping.example.yaml``), więc benchmark szuka go w tym checkoucie, a potem w
 głównym.
 
+Czas ściany każdego uruchomienia dzieli się na trzy części: start procesu (od uruchomienia
+procesu Pythona do startu silnika: interpreter, importy, argumenty, ustalenie wejścia;
+koniec to ``started_at`` rekordu metryk procesu), ``Czas uruchomienia`` (silnik, z rekordu
+metryk) i zakończenie procesu (reszta: podsumowanie, rekord metryk, P50/P95, wyjście z
+interpretera). Proces nie mierzy niczego dodatkowo, więc tata widzi to samo co dotąd.
+Rekordy dziennika sprzed tego podziału nie mają pól startu i zakończenia; komentarz
+pokazuje dla nich „—”.
+
 Benchmark nie czyta ani nie zmienia Ustawień taty i nie dopisuje rekordów do historii
 metryk w repozytorium. Na wyjście, do dziennika i do komentarza trafiają tylko liczby,
 nazwy scenariuszy, commit i maszyna: nigdy Wykonawcy, adresy, numery zleceń ani wiersze.
@@ -133,6 +141,13 @@ REFERENCE_RESULT = "wynik.json"
 HARD_GOAL_MS = 18_000
 AMBITIOUS_GOAL_MS = 6_000
 TO_FILL = "_Do uzupełnienia._"
+# Czas ściany i jego części w kolejności; rekordy sprzed podziału nie mają startu ani zakończenia procesu.
+WALL_PARTS = (
+    ("Czas ściany", "wall_ms"),
+    ("Start procesu", "start_procesu_ms"),
+    ("Czas uruchomienia", "czas_uruchomienia_ms"),
+    ("Zakończenie procesu", "zakonczenie_procesu_ms"),
+)
 
 
 class BenchmarkError(Exception):
@@ -313,6 +328,7 @@ def _fill_entries(collective_file: Path) -> None:
 @dataclass(frozen=True)
 class _ChildRun:
     exit_code: int
+    spawned_at: datetime
     wall_ms: int
     output: bytes
 
@@ -323,6 +339,7 @@ def _run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRu
     Wyjście procesu zawiera nazwy Wykonawców, więc nie trafia na ekran, tylko do lokalnego logu przy błędzie.
     """
 
+    spawned_at = datetime.now(UTC)
     started = time.perf_counter()
     completed = subprocess.run(
         [sys.executable, *map(str, arguments)],
@@ -335,7 +352,7 @@ def _run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRu
     if completed.returncode != 0:
         failure_log.parent.mkdir(parents=True, exist_ok=True)
         failure_log.write_bytes(completed.stdout)
-    return _ChildRun(completed.returncode, wall_ms, completed.stdout)
+    return _ChildRun(completed.returncode, spawned_at, wall_ms, completed.stdout)
 
 
 def ensure_mirror(
@@ -482,11 +499,21 @@ def _terminal_lines(output: bytes) -> list[str]:
 
 @dataclass(frozen=True)
 class _Przebieg:
-    """Jedno uruchomienie Przebiegu rozliczeń na lustrze: czas ściany, rekord metryk procesu i linie terminala."""
+    """Jedno uruchomienie Przebiegu rozliczeń na lustrze: czas ściany, rekord metryk procesu i linie terminala.
+
+    ``start_ms``: od uruchomienia procesu do startu silnika (``started_at`` rekordu metryk).
+    """
 
     wall_ms: int
+    start_ms: int
     metrics: dict[str, Any]
     terminal: list[str]
+
+    @property
+    def finish_ms(self) -> int:
+        """Zakończenie procesu: czas ściany po starcie procesu i po ``Czas uruchomienia``."""
+
+        return self.wall_ms - self.start_ms - int(self.metrics["total_duration_ms"])
 
 
 def _run_przebieg(checkout: Path, mirror: Path, config: Path, worker_template: Path, scratch: Path) -> _Przebieg:
@@ -512,7 +539,10 @@ def _run_przebieg(checkout: Path, mirror: Path, config: Path, worker_template: P
     )
     if run.exit_code != 0:
         raise BenchmarkError(f"Przebieg rozliczeń zakończył się kodem {run.exit_code}; wyjście w {failure_log}.")
-    return _Przebieg(run.wall_ms, _process_metrics(metrics_path), _terminal_lines(run.output))
+    metrics = _process_metrics(metrics_path)
+    engine_started = datetime.fromisoformat(metrics["started_at"])
+    start_ms = max(0, round((engine_started - run.spawned_at).total_seconds() * 1000))
+    return _Przebieg(run.wall_ms, start_ms, metrics, _terminal_lines(run.output))
 
 
 def _worker_settlements(mirror: Path) -> Path:
@@ -636,7 +666,9 @@ def measure(
         "scenario": scenario_name,
         "runs": RUNS,
         "wall_ms": _spread([przebieg.wall_ms for przebieg in runs]),
+        "start_procesu_ms": _spread([przebieg.start_ms for przebieg in runs]),
         "czas_uruchomienia_ms": _spread([record["total_duration_ms"] for record in metrics]),
+        "zakonczenie_procesu_ms": _spread([przebieg.finish_ms for przebieg in runs]),
         "phase_durations_ms": {
             phase: _spread([record["phase_durations_ms"][phase] for record in metrics]) for phase in phases
         },
@@ -762,8 +794,10 @@ def _measurement_table(before: Mapping[str, Any] | None, after: Mapping[str, Any
         row("Niezacommitowane zmiany", lambda record: {True: "tak", False: "nie"}.get(record.get("dirty"), "?")),
         row("Maszyna", text("machine")),
         row("Uruchomienia", text("runs")),
-        row("Czas ściany [ms]", lambda record: _spread_text(record["wall_ms"])),
-        row("Czas uruchomienia [ms]", lambda record: _spread_text(record["czas_uruchomienia_ms"])),
+        *(
+            row(f"{label} [ms]", lambda record, key=key: _spread_text(record.get(key)))
+            for label, key in WALL_PARTS
+        ),
     ]
     phases = dict.fromkeys([*(before or {}).get("phase_durations_ms", {}), *after["phase_durations_ms"]])
     for phase in phases:
@@ -829,8 +863,7 @@ def guard_summary(record: Mapping[str, Any], budget_ms: int) -> tuple[str, bool]
         "",
         "| | mediana (min–max) [ms] |",
         "|---|---:|",
-        f"| Czas ściany | {_spread_text(record['wall_ms'])} |",
-        f"| Czas uruchomienia | {_spread_text(record['czas_uruchomienia_ms'])} |",
+        *(f"| {label} | {_spread_text(record[key])} |" for label, key in WALL_PARTS if key in record),
         *(f"| {phase} | {_spread_text(spread)} |" for phase, spread in record["phase_durations_ms"].items()),
         "",
         f"{_commit_text(record)}, maszyna `{record['machine']}`, uruchomienia: {record['runs']}.",
@@ -927,11 +960,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if record is None:
         return 0
-    wall, startup = record["wall_ms"], record["czas_uruchomienia_ms"]
+    parts = ", ".join(f"{label} {_spread_text(record[key])} ms" for label, key in WALL_PARTS)
     print(
-        f"{args.scenario}: czas ściany {_spread_text(wall)} ms, Czas uruchomienia {_spread_text(startup)} ms "
-        f"(mediana (min–max) z {RUNS} uruchomień), bramka poprawności: {_oracle_text(record['oracle'])}. "
-        f"Rekord w {args.journal}."
+        f"{args.scenario}: {parts} (mediana (min–max) z {RUNS} uruchomień), "
+        f"bramka poprawności: {_oracle_text(record['oracle'])}. Rekord w {args.journal}."
     )
     return 0
 
