@@ -152,8 +152,16 @@ def current_run(run: Run, name: str) -> dict[str, object]:
 
 
 def finished_result(run: Run, name: str) -> dict[str, object]:
-    run.wait_for(lambda: current_run(run, name)["state"] == "finished", "the Uruchomienie procesu finished")
-    result = current_run(run, name)["result"]
+    # One answer for both the state and the result: a second read could already see the next Uruchomienie.
+    seen: dict[str, object] = {}
+
+    def finished() -> bool:
+        seen.clear()
+        seen.update(current_run(run, name))
+        return seen["state"] == "finished"
+
+    run.wait_for(finished, "the Uruchomienie procesu finished")
+    result = seen["result"]
     assert isinstance(result, dict)
     return result
 
