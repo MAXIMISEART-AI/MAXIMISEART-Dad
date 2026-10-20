@@ -37,20 +37,24 @@ WORKERS = {
     "dariusz.fikcyjny2": "Darek Fikcyjny",
     "kamil.syntetyczny": "Kamil Syntetyczny",
 }
-# Register column order deliberately differs from both Wzorce; STATUS APLIKACJI is not carried over.
+# Layout of Dad's new Rejestr: empty column A, AKCJE in B, ZWROT and UWAGI at the end. The columns are
+# shifted against both Wzorce; AKCJE, ZWROT and UWAGI are not carried over.
 REGISTER_HEADERS = (
-    "nr zlecenia",
+    "",
+    "AKCJE",
     "DATA GODZ. POCZ.",
-    "WYKONAWCA",
     "MIASTO",
-    "adres",
-    "STATUS APLIKACJI",
+    "ADRES",
     "UMOWA",
     "URZĄDZENIA",
     "CZYNNOŚCI",
+    "NUMER ZL.",
+    "WYKONAWCA",
+    "NUMER UMOWY",
     "SKUTECZNE",
     "CZYNNOŚCI ZREALIZOWANE",
-    "NUMER UMOWY/ZLECENIA ORANGE",
+    "ZWROT",
+    "UWAGI",
 )
 INTERNAL_TEMPLATE_HEADERS = (
     "DATA",
@@ -117,18 +121,20 @@ def _order(number: int, started: datetime, worker: str, successful: str) -> dict
     """One synthetic order; every free-text value carries the unique ``PREP-SYN-`` marker."""
 
     return {
-        "nr zlecenia": f"PREP-SYN-ZL-{number}",
+        "AKCJE": f"PREP-SYN-AKCJA-{number}",
         "DATA GODZ. POCZ.": started,
-        "WYKONAWCA": worker,
         "MIASTO": "PREP-SYN-MIASTO",
-        "adres": f"PREP-SYN-ADRES-{number}",
-        "STATUS APLIKACJI": "zamknięte",
+        "ADRES": f"PREP-SYN-ADRES-{number}",
         "UMOWA": f"PREP-SYN-UM-{number}",
         "URZĄDZENIA": "dekoder",
         "CZYNNOŚCI": "instalacja",
+        "NUMER ZL.": f"PREP-SYN-ZL-{number}",
+        "WYKONAWCA": worker,
+        "NUMER UMOWY": f"PREP-SYN-OR-{number}",
         "SKUTECZNE": successful,
         "CZYNNOŚCI ZREALIZOWANE": "montaż",
-        "NUMER UMOWY/ZLECENIA ORANGE": f"PREP-SYN-OR-{number}",
+        "ZWROT": f"PREP-SYN-ZWROT-{number}",
+        "UWAGI": f"PREP-SYN-UWAGA-{number}",
     }
 
 
@@ -152,17 +158,19 @@ def _write_register(path: Path) -> None:
     archive = workbook.create_sheet("ARCHIWUM")
     archive.sheet_state = "hidden"
     sheet = workbook.create_sheet("ZLECENIA")
+    # Column A has no header and stays completely empty.
+    columns = [(column, header) for column, header in enumerate(REGISTER_HEADERS, start=1) if header]
     for target, rows in ((archive, {2: _order(90, datetime(2025, 9, 9, 9, 0), "kamil.syntetyczny", "tak")}), (sheet, REGISTER_ROWS)):
-        for column, header in enumerate(REGISTER_HEADERS, start=1):
+        for column, header in columns:
             target.cell(1, column).value = header
         for row_number, order in rows.items():
-            for column, header in enumerate(REGISTER_HEADERS, start=1):
+            for column, header in columns:
                 cell = target.cell(row_number, column)
                 cell.value = order[header]
                 cell.font = Font(name="Arial", size=8)
                 if header == "DATA GODZ. POCZ.":
                     cell.number_format = REGISTER_DATE_FORMAT
-    adres_column = REGISTER_HEADERS.index("adres") + 1
+    adres_column = REGISTER_HEADERS.index("ADRES") + 1
     highlighted = sheet.cell(4, adres_column)
     highlighted.font = Font(name="Arial", size=8, color=HIGHLIGHT_COLOR, bold=True)
     highlighted.fill = PatternFill(fill_type="solid", fgColor=HIGHLIGHT_FILL)

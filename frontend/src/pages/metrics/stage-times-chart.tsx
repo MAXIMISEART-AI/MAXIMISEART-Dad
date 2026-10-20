@@ -2,7 +2,7 @@ import * as React from "react"
 
 import type { ProcessRun } from "@/api/centrum"
 import { dateTime, dayMonth, seconds } from "@/lib/format"
-import { phaseDuration } from "@/pages/metrics/process-runs"
+import { isStopped, phaseDuration } from "@/pages/metrics/process-runs"
 
 // Cztery sloty palety wykresu sprawdzone w prototypie (#95), po jednym na etap.
 const PHASE_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"]
@@ -19,9 +19,19 @@ const DATE_GAP = 8
 
 const CHART_HEIGHT = PLOT_BOTTOM + 30
 
+// Słupek ma najwyżej 28 px, a gdy miejsca brak, 80% swojej części szerokości (jak `maxBarSize`), więc słupki
+// nigdy na siebie nie nachodzą. Szerokość liczy CSS (`cqw` pola słupków), także w SVG, bez mierzenia w skrypcie.
 const BAR_WIDTH = 28
 
+const BAR_SHARE_PERCENT = 80
+
 const BAR_RADIUS = 4
+
+const BAR: React.CSSProperties = { x: "calc(var(--bar-width) / -2)", width: "var(--bar-width)" }
+
+const TOP_SEGMENT: React.CSSProperties = { ...BAR, clipPath: `inset(0 round ${BAR_RADIUS}px ${BAR_RADIUS}px 0 0)` }
+
+const FOCUS_RING: React.CSSProperties = { x: "calc(var(--bar-width) / -2 - 3px)", width: "calc(var(--bar-width) + 6px)" }
 
 // Podziałki osi czasu: najmniejszy krok z tych (×10ⁿ, od 0,1 s), przy którym wystarczą cztery przedziały.
 const STEP_FACTORS = [1, 2, 2.5, 3, 5]
@@ -89,8 +99,11 @@ export function StageTimesChart({
     <figure aria-label="Wykres czasów etapów" className="flex flex-col text-xs">
       <div
         ref={bars}
-        className="relative ml-14 mr-2"
-        style={{ height: CHART_HEIGHT }}
+        className="@container relative ml-14 mr-2"
+        style={{
+          height: CHART_HEIGHT,
+          "--bar-width": `min(${BAR_WIDTH}px, ${BAR_SHARE_PERCENT / runs.length}cqw)`,
+        }}
         onPointerLeave={(event) => {
           if (event.pointerType === "mouse") {
             setActive(null)
@@ -141,18 +154,20 @@ export function StageTimesChart({
                   fill="transparent"
                 />
                 {segmentsOf(run, shown, yOf).map((segment) => (
-                  <path
+                  <rect
                     key={segment.phase}
-                    d={segmentPath(segment.top, segment.bottom, segment.rounded)}
+                    data-phase={segment.phase}
+                    style={segment.rounded ? TOP_SEGMENT : BAR}
+                    y={segment.top}
+                    height={segment.bottom - segment.top}
                     fill={colorOf(segment.phase)}
                     strokeWidth={2}
                     className="stroke-card"
                   />
                 ))}
                 <rect
-                  x={-BAR_WIDTH / 2 - 3}
+                  style={FOCUS_RING}
                   y={yOf(totalOf(run, shown)) - 3}
-                  width={BAR_WIDTH + 6}
                   height={PLOT_BOTTOM - yOf(totalOf(run, shown)) + 6}
                   rx={BAR_RADIUS + 2}
                   fill="none"
@@ -179,7 +194,7 @@ export function StageTimesChart({
   )
 }
 
-/** Szczegóły słupka obok niego: po prawej, a w prawej połowie wykresu po lewej. */
+/** Szczegóły słupka obok niego: po prawej, a w prawej połowie wykresu po lewej (`--bar-width` z pola słupków). */
 function BarDetails({
   run,
   shown,
@@ -189,7 +204,7 @@ function BarDetails({
   shown: ReadonlyArray<string>
   center: number
 }) {
-  const offset = `${BAR_WIDTH / 2 + 8}px`
+  const offset = "calc(var(--bar-width) / 2 + 8px)"
 
   return (
     <div
@@ -216,7 +231,7 @@ function BarDetails({
 
 type Segment = { phase: string; top: number; bottom: number; rounded: boolean }
 
-/** Odcinki słupka od dołu, tylko etapy, które trwały; górny ma zaokrąglone rogi. */
+/** Odcinki słupka od dołu, tylko etapy, które trwały; górny ma zaokrąglone górne rogi. */
 function segmentsOf(run: ProcessRun, shown: ReadonlyArray<string>, yOf: (durationMs: number) => number): Segment[] {
   const lasting = shown.filter((phase) => phaseDuration(run, phase) > 0)
   let below = 0
@@ -228,26 +243,6 @@ function segmentsOf(run: ProcessRun, shown: ReadonlyArray<string>, yOf: (duratio
 
     return { phase, top: yOf(below), bottom, rounded: index === lasting.length - 1 }
   })
-}
-
-function segmentPath(top: number, bottom: number, rounded: boolean): string {
-  const left = -BAR_WIDTH / 2
-  const right = BAR_WIDTH / 2
-
-  if (!rounded) {
-    return `M${left},${bottom}V${top}H${right}V${bottom}Z`
-  }
-
-  const radius = Math.min(BAR_RADIUS, bottom - top)
-
-  return [
-    `M${left},${bottom}`,
-    `V${top + radius}`,
-    `A${radius},${radius} 0 0 1 ${left + radius},${top}`,
-    `H${right - radius}`,
-    `A${radius},${radius} 0 0 1 ${right},${top + radius}`,
-    `V${bottom}Z`,
-  ].join("")
 }
 
 function axisTicks(maxMs: number): number[] {
@@ -285,16 +280,12 @@ function totalOf(run: ProcessRun, shown: ReadonlyArray<string>): number {
   return shown.reduce((sum, phase) => sum + phaseDuration(run, phase), 0)
 }
 
-function stopped(run: ProcessRun): boolean {
-  return run.result === "BLAD_KRYTYCZNY"
-}
-
 function dateLabel(run: ProcessRun): string {
-  return `${dayMonth(run.started_at)}${stopped(run) ? " ✕" : ""}`
+  return `${dayMonth(run.started_at)}${isStopped(run) ? " ✕" : ""}`
 }
 
 function barTitle(run: ProcessRun): string {
-  return `${dateTime(run.started_at)} · okres ${run.period}${stopped(run) ? " · zatrzymano" : ""}`
+  return `${dateTime(run.started_at)} · okres ${run.period}${isStopped(run) ? " · zatrzymano" : ""}`
 }
 
 function barName(run: ProcessRun, shown: ReadonlyArray<string>): string {

@@ -44,11 +44,16 @@ function applyTheme(theme: Theme) {
   requestAnimationFrame(() => requestAnimationFrame(() => freeze.remove()))
 }
 
-/** Pliki taty, z których serwer czyta strony: folder okresów i Rejestr zleceń (bez motywu). */
+/**
+ * Tożsamość plików taty, z których serwer czyta strony: folder okresów i Rejestr zleceń, bez motywu.
+ * Inna tożsamość to nowy odczyt stron (klucz ich treści); zmiana motywu niczego nie czyta ponownie.
+ */
+export function filesIdentity(settings: Settings): string {
+  return JSON.stringify([settings.periods_directory, settings.order_register])
+}
+
 function files(settings: Resource<Settings>): string | null {
-  return settings.state === "ready"
-    ? JSON.stringify([settings.data.periods_directory, settings.data.order_register])
-    : null
+  return settings.state === "ready" ? filesIdentity(settings.data) : null
 }
 
 function showFailure(failure: Error) {

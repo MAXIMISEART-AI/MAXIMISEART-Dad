@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, expect
 
 from drive.common import Run, choose_periods_directory
 
@@ -64,6 +65,30 @@ def drive_settings(run: Run, page: Page) -> None:
         "the Rejestr zleceń pointed on Okresy is no longer missing on Uruchomienia: its start is read again",
     )
     run.capture(page, "18-ustawienia-braki-do-startu")
+
+    run.step(feature, "ustawienia-motyw-bez-odczytu")
+    setup_reads: list[str] = []
+
+    def count_setup(request: Request) -> None:
+        if urlsplit(request.url).path == "/api/runs/setup":
+            setup_reads.append(request.method)
+
+    page.on("request", count_setup)
+    try:
+        for click, then, theme in (
+            ("Włącz motyw jasny", "Włącz motyw ciemny", "light"),
+            ("Włącz motyw ciemny", "Włącz motyw jasny", "dark"),
+        ):
+            page.get_by_role("button", name=click, exact=True).click()
+            expect(page.get_by_role("button", name=then, exact=True)).to_be_visible()
+            run.wait_for(lambda: run.remembered("motyw") == theme, f"the settings file remembers {theme}")
+        page.wait_for_timeout(400)  # a remount after the server's answer would read the start again by now
+    finally:
+        page.remove_listener("request", count_setup)
+    expect(page.get_by_role("button", name="Podgląd bez zapisu", exact=True)).to_be_enabled()
+    run.check(
+        setup_reads == [], f"switching the theme on Uruchomienia does not read the start again ({len(setup_reads)} reads)"
+    )
     page.get_by_role("link", name="Okresy", exact=True).click()
 
     run.step(feature, "ustawienia-anulowanie")

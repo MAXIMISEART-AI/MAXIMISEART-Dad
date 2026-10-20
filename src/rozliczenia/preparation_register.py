@@ -28,8 +28,10 @@ class Column:
     """Kolumna przenoszona z Rejestru zleceń; nagłówek docelowy jest szukany we wzorcach.
 
     Pary różniące się zapisem są jawne; nagłówek Rejestru nigdy nie zastępuje
-    nagłówka docelowego. Kolumna może mieć w Rejestrze drugi przyjmowany zapis;
-    ``register_header`` to zapis z Rejestru taty.
+    nagłówka docelowego. ``register_header`` to zapis z nowego Rejestru taty;
+    kolumna może mieć w Rejestrze drugi przyjmowany zapis ze starszej kopii.
+    Nagłówki są porównywane bez względu na wielkość liter, więc zapis różniący
+    się tylko nią (``adres``) nie jest osobną alternatywą.
     """
 
     register_header: str
@@ -53,7 +55,7 @@ SUCCESSFUL = Column("SKUTECZNE", "SKUTECZNE")
 COLUMNS: tuple[Column, ...] = (
     DATE,
     Column("MIASTO", "MIASTO"),
-    Column("adres", "ADRES"),
+    Column("ADRES", "ADRES"),
     Column("UMOWA", "UMOWA"),
     Column("URZĄDZENIA", "URZĄDZENIA"),
     Column("CZYNNOŚCI", "CZYNNOŚCI"),

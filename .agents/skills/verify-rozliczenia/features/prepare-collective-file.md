@@ -8,7 +8,7 @@ okresu, both together or neither. Dad starts it with
 ## Sub-features
 
 - `preparation-plan` dry-run reports the period, order counts, skipped empty rows, orders per day, warnings, and both file names, then `DRY-RUN: Nic nie zapisano`; it creates neither file nor the Folder okresu.
-- `preparation-internal` writes every period order (successful or not) in Rejestr order to the Rozliczenie wewnętrzne, with `zwrot`/`UWAGI` empty.
+- `preparation-internal` writes every period order (successful or not) in Rejestr order to the Rozliczenie wewnętrzne, with `zwrot`/`UWAGI` empty; the Rejestr columns AKCJE, ZWROT and UWAGI reach neither period file.
 - `preparation-collective` writes every Zlecenie skuteczne to `A:K` from row 18 of the Plik zbiorczy, leaving rates, sums, `N:AP` zeros, formulas, and sheets from the Wzorzec.
 - `preparation-formatting` carries fill, font colour, bold, italic, and number format (dates included) from the Rejestr; widths and frozen header from the Wzorzec; font face/size from the Wzorzec cell, else its row style, else its column style; autofilter covers header plus data rows.
 - `preparation-links` keeps every `xl/externalLinks/*` part of the Wzorzec pliku zbiorczego byte-identical.
@@ -25,7 +25,7 @@ okresu, both together or neither. Dad starts it with
 
 Preconditions:
 
-- The orchestrator builds the synthetic Rejestr (decoy `lista` sheet, hidden `ARCHIWUM` sheet with an older order, empty export rows, orders outside the period, a late Monday order, highlights), both Wzorce (the Wzorzec pliku zbiorczego with an external link), and a three-worker mapping under a fresh run root.
+- The orchestrator builds the synthetic Rejestr in the layout of Dad's new Rejestr (empty column A, AKCJE in B, headers `ADRES`, `NUMER ZL.`, `NUMER UMOWY`, ZWROT and UWAGI at the end; decoy `lista` sheet, hidden `ARCHIWUM` sheet with an older order, empty export rows, orders outside the period, a late Monday order, highlights), both Wzorce (the Wzorzec pliku zbiorczego with an external link), and a three-worker mapping under a fresh run root.
 
 - **Run the proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant preparation`. It runs `create_preparation_fixture.py`, `preparation_doctor.py`, the dry-run, `assert_preparation.py --expect dry-run`, the real run, `assert_preparation.py --expect run`, cleanup, and the self-test. Success prints `VERIFY OK | variant=preparation`.
 - **Read the counts.** The fixture yields 5 period orders, 4 Zlecenia skuteczne, 4 skipped empty rows (every fully empty row from the first to the last period order, including the one before the next-period order), orders on Tue, Wed, Sat, Sun, and Mon, and 0 warnings. Adrian's Sunday order sits after the next-period order, so his two Zlecenia skuteczne are split by Kamil's in the Plik zbiorczy. Both runs exit `0`.

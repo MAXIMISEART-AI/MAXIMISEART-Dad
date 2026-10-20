@@ -9,18 +9,50 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import get_args
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+FRONTEND_SOURCE = ROOT / "frontend" / "src"
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.contract import ApiOperation  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.platform import FileTypes  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
+
+
+# Trasy, których przeglądarka nie mierzy przez `call` (frontend/src/api/client.ts), każda z powodem. Każda inna
+# trasa jest w ApiOperation, a każda operacja z ApiOperation ma trasę i przeglądarka woła ją przez `call`.
+OUTSIDE_TIMING = {
+    "getHealth": "tożsamość Centrum dla launchera (launcher.py); przeglądarka jej nie czyta",
+    "streamRunEvents": "strumień SSE (EventSource) otwarty przez całe życie karty, nie zapytanie z odpowiedzią",
+    "recordViewTiming": "sam pomiar widoku, wysyłany po pomiarze; odpowiedź 204 bez treści",
+    "getCurrentRun": "przeglądarka bierze bieżące Uruchomienie ze strumienia; trasę czytają testy i weryfikacja",
+}
+# `call(zSchemat, "operacja", …)` w kodzie przeglądarki.
+BROWSER_CALL = re.compile(r"\bcall\(\s*\w+,\s*\"(\w+)\"")
+
+
+def _timing_problems(operations: set[str]) -> list[str]:
+    """Różnice między ApiOperation, trasami kontraktu i operacjami, które przeglądarka woła przez `call`."""
+
+    listed = set(get_args(ApiOperation))
+    sources = [path for path in FRONTEND_SOURCE.rglob("*.ts*") if "generated" not in path.parts]
+    called = {name for path in sources for name in BROWSER_CALL.findall(path.read_text(encoding="utf-8"))}
+    problems = {
+        "nazywa operacje bez trasy API": listed - operations,
+        "pomija trasy (dopisz je albo dodaj do OUTSIDE_TIMING z powodem)": operations - listed - OUTSIDE_TIMING.keys(),
+        "ma operacje, których przeglądarka nie woła przez call": listed - called,
+        "pomija operacje, które przeglądarka woła przez call": called - listed,
+        "ma operacje z OUTSIDE_TIMING": listed & OUTSIDE_TIMING.keys(),
+    }
+    stale = OUTSIDE_TIMING.keys() - operations
+    lines = [f"ApiOperation w kontrakcie {what}: {', '.join(sorted(names))}" for what, names in problems.items() if names]
+    return lines + ([f"OUTSIDE_TIMING nazywa operacje bez trasy API: {', '.join(sorted(stale))}"] if stale else [])
 
 
 class _NoPlatform:
@@ -49,9 +81,9 @@ def main() -> int:
     )
     contract = app.openapi()
     operations = {operation["operationId"] for path in contract["paths"].values() for operation in path.values()}
-    unknown = set(get_args(ApiOperation)) - operations
-    if unknown:
-        print(f"ApiOperation w kontrakcie nazywa operacje bez trasy API: {', '.join(sorted(unknown))}", file=sys.stderr)
+    problems = _timing_problems(operations)
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
         return 1
     document = json.dumps(contract, ensure_ascii=False, indent=2) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)

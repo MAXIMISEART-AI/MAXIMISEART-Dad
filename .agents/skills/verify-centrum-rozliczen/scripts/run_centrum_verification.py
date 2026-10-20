@@ -19,6 +19,8 @@ import time
 import urllib.request
 import uuid
 
+from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
+
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
 STEP_TIMEOUT_SECONDS = 300
@@ -62,6 +64,7 @@ REQUIRED_SCREENSHOTS = {
     "metryki": (
         "20-metryki-karty-okresow.png",
         "21-metryki-wykres.png",
+        "2a-metryki-wykres-waski.png",
         "22-metryki-tabela-etapow.png",
         "23-metryki-za-malo-obserwacji.png",
         "24-metryki-historia.png",
@@ -142,8 +145,6 @@ REQUIRED_SCREENSHOTS = {
         "87-wydajnosc-konfiguracja.png",
     ),
 }
-# Never part of `all`: the measurement takes minutes, needs a quiet CPU, and its own fixture variant.
-EXPLICIT_FEATURES = ("wydajnosc",)
 REQUIRED_FEATURE_EVIDENCE = {
     "wydajnosc": (
         "wydajnosc/raport.json",
@@ -295,7 +296,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--feature", choices=("all", *REQUIRED_SCREENSHOTS), default="all")
     parser.add_argument("--baseline", help="wydajnosc: compare with this baseline instead of the skill's.")
-    parser.add_argument("--powtorzenia", type=int, help="wydajnosc: repetitions per scenario and profile (default 5).")
+    parser.add_argument(
+        "--powtorzenia", type=int, help=f"wydajnosc: repetitions per scenario and profile (default {DEFAULT_REPEATS})."
+    )
     args = parser.parse_args(argv)
     performance = [] if args.baseline is None else ["--baseline", str(Path(args.baseline).resolve())]
     performance += [] if args.powtorzenia is None else ["--powtorzenia", str(args.powtorzenia)]

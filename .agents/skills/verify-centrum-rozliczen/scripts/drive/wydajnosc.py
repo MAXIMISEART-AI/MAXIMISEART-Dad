@@ -24,13 +24,13 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, BrowserContext, CDPSession, Page, Request, expect
 
-from drive.common import DAD_TIME_ZONE, DriveFailure, Run
+from drive import DEFAULT_REPEATS
+from drive.common import DAD_TIME_ZONE, PAGES, DriveFailure, Run
 
 SKILL_ROOT = Path(__file__).resolve().parents[2]
 BASELINE = SKILL_ROOT / "wydajnosc-baseline.json"
 # docs/agents/komputer-taty.md: 4× is the reference profile of Dad's laptop, 6× the pessimistic one.
 PROFILES = (4, 6)
-PAGES = {"okresy": "Okresy", "uruchomienia": "Uruchomienia", "metryki": "Metryki", "konfiguracja": "Konfiguracja"}
 LAP = ("uruchomienia", "metryki", "konfiguracja", "okresy")
 REOPENED = ("okresy", "metryki")
 TRACED = ("okresy", "metryki")
@@ -576,7 +576,7 @@ def _prepare_year_of_work(run: Run, page: Page) -> None:
     page.goto("about:blank")
 
 
-def drive_performance(run: Run, page: Page, *, baseline_path: Path = BASELINE, repeats: int = 5) -> None:
+def drive_performance(run: Run, page: Page, *, baseline_path: Path = BASELINE, repeats: int = DEFAULT_REPEATS) -> None:
     feature = "wydajnosc"
     out = run.evidence / "wydajnosc"
     out.mkdir(exist_ok=True)

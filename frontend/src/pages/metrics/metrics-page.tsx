@@ -17,7 +17,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useAppearance } from "@/lib/appearance"
+import { useContentEntrance } from "@/lib/content-entrance"
 import { seconds } from "@/lib/format"
 import { useResource } from "@/lib/use-resource"
 import { InterruptedRunsCard } from "@/pages/metrics/interrupted-runs-card"
@@ -30,7 +30,7 @@ export function MetricsPage() {
   const [process, setProcess] = React.useState<Process>("preparation")
   const [mode, setMode] = React.useState<Mode>("RUN")
   const hasRuns = metrics.state === "ready" && metrics.data.runs.length > 0
-  const appearance = useAppearance(metrics.state === "loading")
+  const entrance = useContentEntrance(metrics.state === "loading")
 
   // Jeden filtr w nagłówku steruje statystykami i wykresem; historia ma własne filtry.
   const filters = hasRuns ? (
@@ -52,7 +52,7 @@ export function MetricsPage() {
       ) : null}
       {metrics.state === "ready" && !hasRuns ? <NoMetrics /> : null}
       {metrics.state === "ready" && hasRuns ? (
-        <MetricsContent metrics={metrics.data} process={process} mode={mode} className={appearance} />
+        <MetricsContent metrics={metrics.data} process={process} mode={mode} className={entrance} />
       ) : null}
     </>
   )

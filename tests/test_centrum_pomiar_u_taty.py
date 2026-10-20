@@ -59,6 +59,19 @@ def test_pomiary_widokow_z_przegladarki_trafiaja_do_dziennika_centrum(tmp_path: 
     ]
 
 
+def test_dziennik_przyjmuje_najwyzej_200_pomiarow_na_jedno_uruchomienie_centrum(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+
+    responses = [app.client.post("/api/view-timings", json=view_timing()) for _ in range(201)]
+    after_restart = centrum(tmp_path).client.post("/api/view-timings", json=view_timing(page="okresy"))
+
+    assert {response.status_code for response in responses} == {204}
+    assert after_restart.status_code == 204
+    entries = [entry for entry in log_entries(app) if entry.startswith("pomiar ")]
+    assert len(entries) == 201
+    assert entries[-1].startswith("pomiar widok=zimny-start strona=okresy ")
+
+
 def test_pomiar_spoza_karty_centrum_jest_odrzucony_i_nic_nie_zapisuje(tmp_path: Path) -> None:
     app = centrum(tmp_path)
 

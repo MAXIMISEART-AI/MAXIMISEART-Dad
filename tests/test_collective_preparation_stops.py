@@ -28,6 +28,7 @@ from tests.fixtures.preparation import (
     month_periods_folder,
     register_order,
     write_register,
+    write_register_sheet,
 )
 from tests.fixtures.workbooks import cut_sheet_after_data_rows, without_sheet, without_styles
 
@@ -96,21 +97,29 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
     assert lock_file.exists()
 
 
-def test_rejestr_without_required_header_stops_with_header_name(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("removed", "label"),
+    [
+        ("SKUTECZNE", "SKUTECZNE"),
+        ("ADRES", "ADRES"),
+        ("NUMER UMOWY", "NUMER UMOWY albo NUMER UMOWY/ZLECENIA ORANGE"),
+    ],
+)
+def test_rejestr_without_required_header_stops_with_header_name(tmp_path: Path, removed: str, label: str) -> None:
     fixture = make_preparation_fixture(tmp_path)
     write_register(
         fixture.register_path,
-        headers=tuple(header for header in REGISTER_HEADERS if header != "SKUTECZNE"),
+        headers=tuple(header for header in REGISTER_HEADERS if header != removed),
     )
 
     error = stop_preparation(fixture)
 
     assert error.message.code == "BRAK_NAGLOWKA_REJESTRU"
     assert error.message.text == (
-        "Co się stało: W Rejestrze zleceń brakuje wymaganego nagłówka SKUTECZNE. "
+        f"Co się stało: W Rejestrze zleceń brakuje wymaganego nagłówka {label}. "
         "Nie utworzono żadnego pliku.\n"
         "Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 1\n"
-        "Co zrobić: Dopisz albo popraw nagłówek SKUTECZNE w pierwszym wierszu arkusza ze zleceniami, "
+        f"Co zrobić: Dopisz albo popraw nagłówek {label} w pierwszym wierszu arkusza ze zleceniami, "
         "zapisz i zamknij Rejestr zleceń i uruchom ponownie."
     )
 
@@ -133,7 +142,7 @@ def test_rejestr_with_duplicated_required_header_stops_with_header_name(tmp_path
 
 def test_rejestr_with_both_spellings_of_one_header_stops_as_duplicated(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    write_register(fixture.register_path, headers=(*REGISTER_HEADERS, "NUMER ZL."))
+    write_register(fixture.register_path, headers=(*REGISTER_HEADERS, "nr zlecenia"))
 
     error = stop_preparation(fixture)
 
@@ -141,6 +150,16 @@ def test_rejestr_with_both_spellings_of_one_header_stops_as_duplicated(tmp_path:
     assert error.message.what.startswith(
         "W Rejestrze zleceń nagłówek NUMER ZL. albo nr zlecenia występuje więcej niż raz"
     )
+
+
+def test_rejestr_with_header_repeated_in_other_letter_case_names_it_once(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    write_register(fixture.register_path, headers=(*REGISTER_HEADERS, "adres"))
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "POWTORZONY_NAGLOWEK_REJESTRU"
+    assert error.message.what.startswith("W Rejestrze zleceń nagłówek ADRES występuje więcej niż raz")
 
 
 def test_rejestr_without_sheet_with_required_headers_stops(tmp_path: Path) -> None:
@@ -155,7 +174,7 @@ def test_rejestr_without_sheet_with_required_headers_stops(tmp_path: Path) -> No
         "z wymaganymi nagłówkami w pierwszym wierszu. Nie utworzono żadnego pliku.\n"
         "Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx\n"
         "Co zrobić: Sprawdź, czy wybrano właściwy plik Rejestru zleceń. Pierwszy wiersz arkusza "
-        "ze zleceniami musi zawierać nagłówki: DATA GODZ. POCZ., MIASTO, adres, UMOWA, URZĄDZENIA, "
+        "ze zleceniami musi zawierać nagłówki: DATA GODZ. POCZ., MIASTO, ADRES, UMOWA, URZĄDZENIA, "
         "CZYNNOŚCI, NUMER ZL. albo nr zlecenia, WYKONAWCA, NUMER UMOWY albo NUMER UMOWY/ZLECENIA ORANGE, "
         "SKUTECZNE, "
         "CZYNNOŚCI ZREALIZOWANE."
@@ -175,12 +194,7 @@ def add_register_sheet(
 
     workbook = load_workbook(register_path)
     sheet = workbook.create_sheet(title, 0 if first else None)
-    for column, header in enumerate(headers, start=1):
-        sheet.cell(1, column).value = header
-    for row_number, row in enumerate(rows, start=2):
-        for column, header in enumerate(headers, start=1):
-            if row is not None and header in row:
-                sheet.cell(row_number, column).value = row[header]
+    write_register_sheet(sheet, rows, headers=headers)
     if hidden:
         sheet.sheet_state = "hidden"
     workbook.save(register_path)

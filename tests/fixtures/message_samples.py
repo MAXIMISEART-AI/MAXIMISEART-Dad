@@ -79,8 +79,8 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE", "WYKONAWCA"]),
     ],
     "register_with_duplicated_headers": [
-        lambda: messages.register_with_duplicated_headers(REGISTER, SHEET, ["adres"]),
-        lambda: messages.register_with_duplicated_headers(REGISTER, SHEET, ["adres", "UMOWA"]),
+        lambda: messages.register_with_duplicated_headers(REGISTER, SHEET, ["ADRES"]),
+        lambda: messages.register_with_duplicated_headers(REGISTER, SHEET, ["ADRES", "UMOWA"]),
     ],
     "register_without_data_sheet": [lambda: messages.register_without_data_sheet(REGISTER, ["DATA GODZ. POCZ."])],
     "period_orders_in_many_sheets": [

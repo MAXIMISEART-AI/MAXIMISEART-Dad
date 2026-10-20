@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { dateTime, seconds } from "@/lib/format"
-import { measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
+import { isStopped, measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
 import { StageTimesChart } from "@/pages/metrics/stage-times-chart"
 
 // Ostatnie Uruchomienia procesu na wykresie; starsze są w historii.
@@ -101,7 +101,7 @@ function StageTimesTable({
           <TableRow key={run.started_at}>
             <TableCell className="tabular-nums">
               {dateTime(run.started_at)}
-              {run.result === "BLAD_KRYTYCZNY" ? <span className="text-destructive"> ✕ zatrzymano</span> : null}
+              {isStopped(run) ? <span className="text-destructive"> ✕ zatrzymano</span> : null}
             </TableCell>
             <TableCell className="tabular-nums">{run.period}</TableCell>
             {phases.map((phase) => (

@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { requestsBetween } from "@/api/client"
+import { takeRequestsSince } from "@/api/client"
 import { recordViewTiming } from "@/api/centrum"
 import type { ViewTiming } from "@/api/generated"
 import { zViewTiming } from "@/api/generated/zod.gen"
@@ -114,7 +114,7 @@ export function useViewTiming(page: Page) {
 
       const skeletonMs = skeleton.ms(now)
 
-      const requests = requestsBetween(start.at, now)
+      const requests = takeRequestsSince(start.at, now)
       const fcp = start.kind === "cold_start" ? firstContentfulPaint() : Promise.resolve(null)
 
       void fcp.then((fcpMs) => {

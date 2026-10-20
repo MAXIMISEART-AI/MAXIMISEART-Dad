@@ -17,7 +17,6 @@ export const zApiTiming = z.object({
         'openPeriodPath',
         'getRunSetup',
         'startRun',
-        'getCurrentRun',
         'decideRun',
         'diagnoseRun',
         'reportRun',
