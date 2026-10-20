@@ -331,17 +331,25 @@ def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publika
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
+TEMPLATE_NOT_COPIED = (
+    "Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika; folder wynikowy nie został opublikowany."
+)
+FIRST_WORKER_FILE_FAILED = (
+    "Nie udało się przygotować skoroszytu pracownika Adrian Testowy; folder wynikowy nie został opublikowany."
+)
+
+
 @pytest.mark.parametrize(
-    ("damage", "code"),
+    ("damage", "code", "komunikat"),
     [
-        (overwrite_with_non_workbook, "BLAD_KOPII_WZORCA"),
-        (set_cell("H17", "NIE WYKONAWCA"), "BLAD_SZABLONU_PRACOWNIKA"),
-        (set_cell("A18", "SENSITIVE-SYNTHETIC"), "BLAD_SZABLONU_PRACOWNIKA"),
+        (overwrite_with_non_workbook, "BLAD_KOPII_WZORCA", TEMPLATE_NOT_COPIED),
+        (set_cell("H17", "NIE WYKONAWCA"), "BLAD_SZABLONU_PRACOWNIKA", FIRST_WORKER_FILE_FAILED),
+        (set_cell("A18", "SENSITIVE-SYNTHETIC"), "BLAD_SZABLONU_PRACOWNIKA", FIRST_WORKER_FILE_FAILED),
     ],
     ids=["nie-skoroszyt", "bez-wykonawca-w-h17", "z-danymi"],
 )
 def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publikacje(
-    tmp_path: Path, damage: Callable[[Path], None], code: str
+    tmp_path: Path, damage: Callable[[Path], None], code: str, komunikat: str
 ) -> None:
     source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
@@ -355,6 +363,7 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
         run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=damage_in_saving)
 
     assert raised.value.message.code == code
+    assert terminal_text(raised.value) == komunikat
     assert "SENSITIVE-SYNTHETIC" not in raised.value.message.text
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
