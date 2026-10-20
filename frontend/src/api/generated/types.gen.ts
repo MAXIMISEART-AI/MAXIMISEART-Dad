@@ -201,10 +201,15 @@ export type DecisionAnswer = {
  * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
  * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
  * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
- * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk).
+ * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
+ * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
  */
 export type Diagnosis = {
     explanation: Message;
+    /**
+     * Confirms Stop
+     */
+    confirms_stop: boolean;
     /**
      * Next Action
      */
@@ -979,8 +984,9 @@ export type RunInfo = {
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
  * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
- * Zatrzymania (``None`` bez Zatrzymania), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``,
- * gdy Centrum go nie proponuje, czyli bez Zatrzymania i przy Zatrzymaniu „dla taty”).
+ * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
+ * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
  */
 export type RunOutcome = {
     /**
@@ -1003,6 +1009,10 @@ export type RunOutcome = {
      * Stop Kind
      */
     stop_kind: 'for_tata' | 'for_maks' | 'repeated' | null;
+    /**
+     * Diagnosis
+     */
+    diagnosis: 'on_request' | 'automatic' | null;
     /**
      * Report
      */

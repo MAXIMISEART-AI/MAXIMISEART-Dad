@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -445,3 +448,75 @@ def test_gdy_skrzynka_nie_odpowiada_na_pytanie_o_otwarte_zgloszenie_zgloszenie_z
     assert (saved["state"], saved["message"]["what"]) == ("saved", "Nie wysłano Zgłoszenia: brak połączenia z GitHubem.")
     assert list(unsent_files(centrum).values()) == [f"# {preview['title']}\n\n{preview['body']}"]
     assert centrum.surroundings.report_box.keys == []
+
+
+def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_w_kilka_sekund_a_wysylka_i_tak_pyta_skrzynke(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    box.search_hold = threading.Event()
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    release = threading.Timer(8, box.search_hold.set)  # bez limitu Diagnoza czekałaby na skrzynkę
+    release.start()
+    started = time.monotonic()
+
+    try:
+        diagnose(centrum, run_id)
+        took = time.monotonic() - started
+    finally:
+        box.search_hold.set()
+        release.cancel()
+
+    assert took < 5
+    assert current_report(centrum) == {"state": "ready"}
+    assert box.keys == []
+    assert send(centrum, run_id) == {"state": "sent"}
+    assert len(box.sent) == 1
+
+
+def test_spozniona_odpowiedz_skrzynki_w_diagnozie_to_brak_odpowiedzi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    first = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, first)
+    send(centrum, first)
+    box.close(1)
+    box.search_hold = threading.Event()
+    again = stopped_for_maks(centrum, monkeypatch)
+
+    try:
+        diagnose(centrum, again)
+    finally:
+        box.search_hold.set()
+
+    assert current_report(centrum) == WAITING
+
+
+def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowiada_dalej(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, run_id)
+    box.search_hold = threading.Event()
+    box.searching.clear()
+
+    with ThreadPoolExecutor(3) as pool:
+        try:
+            clicks = [pool.submit(send, centrum, run_id) for _ in range(2)]
+            assert box.searching.wait(5)
+            during_send = pool.submit(centrum.client.get, "/api/reports/repair").result(timeout=2)
+        finally:
+            box.search_hold.set()
+        answers = [click.result(timeout=10) for click in clicks]
+
+    assert during_send.json() == {"repaired": False}
+    assert answers == [{"state": "sent"}, {"state": "sent"}]
+    assert len(box.sent) == 1

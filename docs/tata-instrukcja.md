@@ -44,6 +44,12 @@ pracownika bez nazwy wykonawcy (u Ciebie `Rozliczenie {okres} -.xlsx`); z niego
 powstają pliki pracowników.
 Nie zmieniaj ich i nie podmieniaj plikami z poprzedniego tygodnia.
 
+W tym samym folderze `config` osoba utrzymująca narzędzie umieszcza też
+konfigurację wykonawców `worker_mapping.yaml`, czyli listę Twoich pracowników.
+Ten plik jest tylko na Twoim komputerze, nie w internecie. Plik
+`worker_mapping.example.yaml` obok to przykład z wymyślonymi nazwiskami;
+narzędzie z niego nie korzysta.
+
 ### Foldery tygodni
 
 Tygodnie leżą w OneDrive w `Załączniki\Rozliczenia {rok}\{miesiąc}\INEA`, np.
@@ -97,10 +103,11 @@ częściach i podpowie, co dalej:
 - `Uruchom ponownie`: przyczynę usuniesz sam według części `Co zrobić`. Po
   poprawce kliknij przycisk; ten sam proces ruszy dla tego samego okresu i w tym
   samym trybie.
-- `Diagnoza`: komunikat każe przekazać go osobie utrzymującej narzędzie, wystąpił
-  nieoczekiwany błąd albo po ponownym uruchomieniu wrócił ten sam komunikat.
-  Kliknij `Diagnoza`. Centrum sprawdzi Twój komputer tylko do odczytu i wyjaśni
-  przyczynę w trzech częściach. Niczego nie zmienia w Twoich plikach.
+- `Diagnoza`: komunikat każe przekazać go osobie utrzymującej narzędzie albo po
+  ponownym uruchomieniu wrócił ten sam komunikat. Kliknij `Diagnoza`. Centrum
+  sprawdzi Twój komputer tylko do odczytu i wyjaśni przyczynę w trzech
+  częściach. Niczego nie zmienia w Twoich plikach. Przy nieoczekiwanym błędzie
+  narzędzia Diagnoza zaczyna się sama, bez klikania.
 
 Gdy przyczyną jest sam komunikat zatrzymania, Centrum pisze tylko `Diagnoza
 potwierdza ten komunikat.` Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij
@@ -117,7 +124,6 @@ otwarty w Excelu) albo jednym z tych:
 | „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie. Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
 | „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
 | „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
-| „jest nieoczekiwany wyjątek narzędzia” | Przekaż komunikat osobie utrzymującej narzędzie. |
 
 ### Zgłoszenie do Maksa
 

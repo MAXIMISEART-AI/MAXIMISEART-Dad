@@ -11,18 +11,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import re
-import threading
 from typing import Final
 import urllib.request
 
-from rozliczenia.centrum.version import tool_commit
+from rozliczenia.centrum.deadline import within
+from rozliczenia.centrum.version import is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
 
 MAIN_COMMIT_URL: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad/commits/main"
 _TIMEOUT_S: Final = 3.0
-_COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
 @dataclass(frozen=True)
@@ -46,14 +44,11 @@ def github_main_commit() -> str | None:
 def main_commit_from(url: str, *, timeout_s: float) -> str | None:
     """Commit z odpowiedzi ``url`` API GitHuba w postaci samego SHA, najpóźniej po ``timeout_s`` sekundach.
 
-    Limit gniazda nie obejmuje rozwiązywania nazwy, więc zapytanie biegnie w
-    osobnym wątku, a Diagnoza czeka na nie najwyżej ``timeout_s``. Połączenie
-    idzie wprost, bez serwera proxy z ustawień systemu.
+    Diagnoza czeka na odpowiedź najwyżej ``timeout_s`` (``deadline.within``).
+    Połączenie idzie wprost, bez serwera proxy z ustawień systemu.
     """
 
-    answer: list[str | None] = [None]
-
-    def fetch() -> None:
+    def fetch() -> str | None:
         request = urllib.request.Request(
             url, headers={"Accept": "application/vnd.github.sha", "User-Agent": "centrum-rozliczen"}
         )
@@ -62,10 +57,7 @@ def main_commit_from(url: str, *, timeout_s: float) -> str | None:
             with direct.open(request, timeout=timeout_s) as response:
                 body = response.read(100).decode("ascii", errors="replace").strip()
         except (OSError, ValueError):  # brak sieci, odmowa GitHuba (HTTPError) albo zerwane połączenie
-            return
-        answer[0] = body if _COMMIT.fullmatch(body) else None
+            return None
+        return body if is_commit(body) else None
 
-    worker = threading.Thread(target=fetch, name="github-main", daemon=True)
-    worker.start()
-    worker.join(timeout_s)
-    return None if worker.is_alive() else answer[0]
+    return within(timeout_s, fetch, name="github-main")

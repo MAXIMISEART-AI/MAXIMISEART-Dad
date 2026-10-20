@@ -19,7 +19,7 @@ import json
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, Literal, Protocol
 
 
@@ -77,7 +77,7 @@ class ReportBox(Protocol):
 class HttpRequest:
     method: str
     url: str
-    headers: Mapping[str, str]
+    headers: Mapping[str, str] = field(repr=False)  # nagłówki niosą klucz taty
     body: bytes | None
 
 
@@ -127,37 +127,29 @@ class GitHubReportBox:
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
         payload = {"title": report.title, "body": report.body, "labels": [LABEL]}
-        transport = self._transport or urllib_transport  # odczyt przy wysyłce: testy blokują go w conftest
-        try:
-            response = transport(
-                HttpRequest(
-                    method="POST",
-                    url=f"{_API}/repos/{self._repository}/issues",
-                    headers={**_headers(key), "Content-Type": "application/json"},
-                    body=json.dumps(payload).encode("utf-8"),
-                )
+        answer = self._exchange(
+            HttpRequest(
+                method="POST",
+                url=f"{_API}/repos/{self._repository}/issues",
+                headers={**_headers(key), "Content-Type": "application/json"},
+                body=json.dumps(payload).encode("utf-8"),
             )
-        except OSError:
-            return Unreachable()
-        if response.status in _REFUSALS:
-            return Refused()
-        number = _json_field(response.body, "number") if response.status == 201 else None
+        )
+        if not isinstance(answer, HttpResponse):
+            return answer
+        number = _json_field(answer.body, "number") if answer.status == 201 else None
         return Sent(number) if isinstance(number, int) else Unreachable()
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         """Przegląda otwarte issue z etykietą Zgłoszeń strona po stronie i szuka wiersza z odciskiem problemu."""
 
         line = fingerprint_line(fingerprint)
-        transport = self._transport or urllib_transport  # odczyt przy szukaniu: testy blokują go w conftest
         for page in range(1, _MAX_PAGES + 1):
             url = f"{_API}/repos/{self._repository}/issues?state=open&labels={LABEL}&per_page={_PAGE_SIZE}&page={page}"
-            try:
-                response = transport(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
-            except OSError:
-                return Unreachable()
-            if response.status in _REFUSALS:
-                return Refused()
-            issues = _json(response.body) if response.status == 200 else None
+            answer = self._exchange(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
+            if not isinstance(answer, HttpResponse):
+                return answer
+            issues = _json(answer.body) if answer.status == 200 else None
             if not isinstance(issues, list):
                 return Unreachable()
             for issue in issues:
@@ -169,21 +161,27 @@ class GitHubReportBox:
         return None
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
-        transport = self._transport or urllib_transport  # odczyt przy zapytaniu: testy blokują go w conftest
         states: dict[int, IssueState] = {}
         for number in numbers:
             url = f"{_API}/repos/{self._repository}/issues/{number}"
-            try:
-                response = transport(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
-            except OSError:
-                return Unreachable()
-            if response.status in _REFUSALS:
-                return Refused()
-            state = _json_field(response.body, "state") if response.status == 200 else None
+            answer = self._exchange(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
+            if not isinstance(answer, HttpResponse):
+                return answer
+            state = _json_field(answer.body, "state") if answer.status == 200 else None
             if state not in ("open", "closed"):
                 return Unreachable()
             states[number] = "open" if state == "open" else "closed"
         return states
+
+    def _exchange(self, request: HttpRequest) -> HttpResponse | Refused | Unreachable:
+        """Odpowiedź skrzynki na ``request``; brak sieci to ``Unreachable``, odmowa autoryzacji ``Refused``."""
+
+        transport = self._transport or urllib_transport  # odczyt przy każdym żądaniu: testy blokują go w conftest
+        try:
+            response = transport(request)
+        except OSError:
+            return Unreachable()
+        return Refused() if response.status in _REFUSALS else response
 
 
 def _headers(key: str) -> dict[str, str]:

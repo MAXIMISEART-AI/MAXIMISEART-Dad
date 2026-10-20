@@ -324,7 +324,7 @@ def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_pliku_okresu(tmp_pat
     assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
 
 
-def test_nieoczekiwany_blad_pokazuje_trzy_czesci_bez_tekstu_wyjatku_i_danych_klientow(
+def test_nieoczekiwany_wyjatek_pokazuje_trzy_czesci_bez_tekstu_wyjatku_i_danych_klientow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)

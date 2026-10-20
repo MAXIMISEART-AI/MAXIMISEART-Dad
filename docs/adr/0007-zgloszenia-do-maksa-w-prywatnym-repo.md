@@ -2,8 +2,17 @@
 
 ## Status
 
-Zaakceptowana. Rewiduje regułę prywatności z
-[ADR 0004](0004-centrum-rozliczen-adapter.md) dla jednej treści: Zgłoszenia.
+Zaakceptowana. Zmienia trzy zdania
+[ADR 0004](0004-centrum-rozliczen-adapter.md):
+
+- regułę prywatności, dla jednej treści: Zgłoszenia;
+- „Własne pliki Centrum to tylko ustawienia taty i dziennik pochodzenia
+  Uruchomień”: dochodzą klucz do Zgłoszeń, stan wysłanych Zgłoszeń i katalog
+  niewysłanych Zgłoszeń, wszystkie w `config/` poza Gitem;
+- „Nie ma … zdalnego dostępu”: Centrum nadal nie przyjmuje połączeń spoza
+  komputera taty, ale samo łączy się z API GitHuba w przypadkach wymienionych
+  niżej.
+
 Pozostałe zasady ADR 0004 (tylko `127.0.0.1`, kontrola `Host` i `Origin`,
 pliki wyłącznie z wyliczonych ścieżek) zostają bez zmian.
 
@@ -50,6 +59,12 @@ nieoczekiwanym błędzie dochodzi typ wyjątku i ślad wywołań w kodzie narzę
 tylko przy tym Zatrzymaniu, poza dziennikiem, metrykami i innymi odpowiedziami.
 Bez treści wierszy, adresów, numerów zleceń, stawek, treści wyjątków i pełnych
 ścieżek.
+
+Diagnoza, z której powstaje Zgłoszenie, sprawdza pliki w OneDrive zaraz po
+Ustawieniach taty, przed odczytem Rejestru zleceń, wzorców i plików okresu
+(specyfikacja #153 wymienia OneDrive jako siódme sprawdzenie). Plik tylko w
+chmurze może się nie otworzyć, a wtedy wyjaśnieniem ma być rada o OneDrive, nie
+Komunikat o uszkodzonym pliku.
 
 Naprawa odbywa się w publicznym repozytorium narzędzia. PR odwołuje się do
 Zgłoszenia samym numerem, a przypadek testowy powstaje na danych syntetycznych;
