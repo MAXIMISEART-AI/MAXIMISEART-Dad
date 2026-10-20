@@ -364,6 +364,17 @@ class Reports:
             repaired = any(sent.commit == commit and sent.state == "closed" for sent in self._sent.all())
         return contract.RepairNotice(repaired=repaired)
 
+    def check_repairs_in_background(self) -> None:
+        """Przy starcie Centrum pierwsze pytanie o stan wysłanych Zgłoszeń, w tle, żeby start nie czekał na sieć."""
+
+        threading.Thread(target=self._check_repairs, name="zgloszenia-przy-starcie", daemon=True).start()
+
+    def _check_repairs(self) -> None:
+        try:
+            self.repair_notice()
+        except Exception as failure:  # noqa: BLE001 - granica wątku startu: typ wyjątku trafia do dziennika Centrum
+            self._log.unexpected_failure(failure, where="stan Zgłoszeń przy starcie")
+
     def _ask_box(self, fingerprint: str) -> None:
         """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo.
 
