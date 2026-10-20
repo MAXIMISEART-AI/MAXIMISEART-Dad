@@ -1,5 +1,6 @@
 # Agent Router
 
+- Praca w git worktree: zanim uruchomisz Pythona, utwórz własne `.venv` przez `python3 tools/setup_worktree.py` (Windows: `py -3`); `.venv` głównego checkoutu sprawdza kod `main`.
 - Model domeny i reguły procesu: przeczytaj [`GLOSSARY.md`](GLOSSARY.md) oraz właściwe ADR-y w [`docs/adr/`](docs/adr/).
 - Implementacja i review: przeczytaj [`CODING_STANDARDS.md`](CODING_STANDARDS.md).
 - Weryfikacja end-to-end: przy zmianach w `run.py`, `src/`, obsłudze skoroszytów, regułach bezpieczeństwa, metrykach albo launcherach CMD załaduj [`verify-rozliczenia`](.agents/skills/verify-rozliczenia/SKILL.md) i wykonaj opisany tam workflow.
