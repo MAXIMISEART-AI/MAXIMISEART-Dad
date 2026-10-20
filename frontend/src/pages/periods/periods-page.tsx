@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppearance } from "@/lib/appearance"
-import { useSettings } from "@/lib/settings"
+import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
 import { FileSettingsCard } from "@/pages/periods/file-settings-card"
 import { NextStepCard } from "@/pages/periods/next-step-card"
@@ -36,8 +36,8 @@ export function PeriodsPage() {
       {settings.state === "failed" ? <Failure message={settings.message} /> : null}
       {settings.state === "ready" ? (
         <div className={cn(appearance, "flex flex-col gap-6")}>
-          {/* Nowy folder okresów to nowy odczyt Tablicy okresów. */}
-          <PeriodBoardSection key={JSON.stringify(settings.data.periods_directory)} />
+          {/* Nowe pliki taty to nowy odczyt Tablicy okresów; zmiana motywu nim nie jest. */}
+          <PeriodBoardSection key={filesIdentity(settings.data)} />
           <FileSettingsCard settings={settings.data} />
         </div>
       ) : null}

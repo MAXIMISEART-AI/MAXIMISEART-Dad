@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAppearance } from "@/lib/appearance"
 import { isActive, useRuns } from "@/lib/runs"
-import { useSettings } from "@/lib/settings"
+import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
 import { RunHistoryCard } from "@/pages/metrics/run-history-card"
 import { RunCard } from "@/pages/runs/run-card"
@@ -43,12 +43,12 @@ export function RunsPage() {
         }
       />
       <TabsContent value="uruchomienie">
-        {/* Treść montuje się raz, przy gotowych Ustawieniach taty, więc start czyta raz. Ich zmiana
-            (np. wskazany Rejestr zleceń) to nowy odczyt tego, czego brakuje do startu. */}
+        {/* Treść montuje się raz, przy gotowych Ustawieniach taty, więc start czyta raz. Nowe pliki taty
+            (np. wskazany Rejestr zleceń) to nowy odczyt tego, czego brakuje do startu; zmiana motywu nim nie jest. */}
         {settings.state === "loading" ? (
           <RunsSkeleton />
         ) : (
-          <RunsContent key={settings.state === "ready" ? JSON.stringify(settings.data) : settings.state} />
+          <RunsContent key={settings.state === "ready" ? filesIdentity(settings.data) : settings.state} />
         )}
       </TabsContent>
       <TabsContent value="historia">
