@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import threading
 from typing import Final
 import urllib.request
 
+from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.version import is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
@@ -44,14 +44,11 @@ def github_main_commit() -> str | None:
 def main_commit_from(url: str, *, timeout_s: float) -> str | None:
     """Commit z odpowiedzi ``url`` API GitHuba w postaci samego SHA, najpóźniej po ``timeout_s`` sekundach.
 
-    Limit gniazda nie obejmuje rozwiązywania nazwy, więc zapytanie biegnie w
-    osobnym wątku, a Diagnoza czeka na nie najwyżej ``timeout_s``. Połączenie
-    idzie wprost, bez serwera proxy z ustawień systemu.
+    Diagnoza czeka na odpowiedź najwyżej ``timeout_s`` (``deadline.within``).
+    Połączenie idzie wprost, bez serwera proxy z ustawień systemu.
     """
 
-    answer: list[str | None] = [None]
-
-    def fetch() -> None:
+    def fetch() -> str | None:
         request = urllib.request.Request(
             url, headers={"Accept": "application/vnd.github.sha", "User-Agent": "centrum-rozliczen"}
         )
@@ -60,10 +57,7 @@ def main_commit_from(url: str, *, timeout_s: float) -> str | None:
             with direct.open(request, timeout=timeout_s) as response:
                 body = response.read(100).decode("ascii", errors="replace").strip()
         except (OSError, ValueError):  # brak sieci, odmowa GitHuba (HTTPError) albo zerwane połączenie
-            return
-        answer[0] = body if is_commit(body) else None
+            return None
+        return body if is_commit(body) else None
 
-    worker = threading.Thread(target=fetch, name="github-main", daemon=True)
-    worker.start()
-    worker.join(timeout_s)
-    return None if worker.is_alive() else answer[0]
+    return within(timeout_s, fetch, name="github-main")

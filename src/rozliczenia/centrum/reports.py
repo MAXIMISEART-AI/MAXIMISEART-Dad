@@ -25,6 +25,7 @@ from fastapi import APIRouter
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
+from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
     IssueState,
@@ -49,6 +50,8 @@ UNSENT_DIRECTORY: Final = "zgloszenia"
 SENT_REPORTS_FILE: Final = "zgloszenia-wyslane.json"
 # Skrzynkę Zgłoszeń o stan wysłanych Zgłoszeń Centrum pyta najwyżej raz na 10 minut.
 STATES_INTERVAL_S: Final = 10 * 60
+# Diagnoza czeka na odpowiedź skrzynki o otwarte Zgłoszenie najwyżej tyle, co na commit `main`.
+SEARCH_DEADLINE_S: Final = 3.0
 
 _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
@@ -340,12 +343,20 @@ class Reports:
         return contract.RepairNotice(repaired=repaired)
 
     def _ask_box(self, fingerprint: str) -> None:
-        """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo."""
+        """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo.
+
+        Brak odpowiedzi w ``SEARCH_DEADLINE_S`` to brak odpowiedzi: Diagnoza zostaje krótka bez sieci, a
+        wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
+        """
 
         key = self._key()
         if key is None:
             return
-        found = self._box.find_open(fingerprint, key=key)
+        box = self._box
+        answer = within(SEARCH_DEADLINE_S, lambda: (box.find_open(fingerprint, key=key),), name="skrzynka-szukaj")
+        if answer is None:
+            return
+        [found] = answer
         if found is None or isinstance(found, int):
             with self._lock:
                 self._open[fingerprint] = found
