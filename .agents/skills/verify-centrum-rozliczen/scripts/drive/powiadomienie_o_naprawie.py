@@ -8,12 +8,15 @@ from pathlib import Path
 from playwright.sync_api import Locator, Page, expect
 
 from drive import zgloszenie
-from drive.common import Run
+from drive.common import Run, stop_banner
 
 FEATURE = "powiadomienie-o-naprawie"
 REPAIRED = "Maks naprawił zgłoszony problem. Zaktualizuj narzędzie."
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
 KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
+# The tool Dad runs when he sends the Zgłoszenie of this feature: newer than the one of features/zgloszenie.md,
+# whose closed Zgłoszenie 1 would otherwise give the notice from the start.
+SENDING_COMMIT = "d" * 40
 # The tool after Dad's update: another commit than the one the Zgłoszenie was sent from.
 UPDATED_COMMIT = "e" * 40
 
@@ -55,6 +58,33 @@ def _repaired(run: Run, name: str) -> object:
     return run.api("/api/reports/repair", name)["repaired"]
 
 
+def _update_tool(run: Run, commit: str) -> None:
+    """Dad updates the tool to the newest ``main``: both the local commit and ``main`` become ``commit``."""
+
+    github = run.root / "github"
+    github.mkdir(exist_ok=True)
+    (github / "tool-commit.txt").write_text(commit, encoding="utf-8")
+    (github / "main-commit.txt").write_text(commit, encoding="utf-8")
+
+
+def _send_from_updated_tool(run: Run, page: Page, box: Path) -> int:
+    """After features/zgloszenie.md Dad updates the tool and sends the Zgłoszenie of the other problem from it."""
+
+    print("  harness: Dad updates the tool, then the other problem stops again", flush=True)
+    _update_tool(run, SENDING_COMMIT)
+    zgloszenie._stop_for_maks(run, page, "naprawa-wysylka", missing="collective_template")
+    stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
+    page.get_by_role("region", name="Diagnoza").get_by_role("button", name="Wyślij do Maksa", exact=True).click()
+    expect(page.get_by_role("status").filter(has_text=zgloszenie.SENT)).to_be_visible()
+    issues = sorted(box.glob("*.json"), key=lambda path: int(path.stem))
+    number = int(issues[-1].stem)
+    run.check(
+        json.loads(issues[-1].read_text(encoding="utf-8"))["state"] == "open",
+        "the Zgłoszenie from the updated tool is open in the skrzynka",
+    )
+    return number
+
+
 def drive_repair_notice(run: Run, page: Page) -> None:
     config = Path(run.fixture["settings"]).parent
     key_file = config / "zgloszenia-klucz.txt"
@@ -62,11 +92,12 @@ def drive_repair_notice(run: Run, page: Page) -> None:
     if not _sent(config):
         print("  harness: no Zgłoszenie sent yet, so zgloszenie runs first", flush=True)
         zgloszenie.drive_report(run, page)
-    number = _sent(config)[-1]["number"]
-    issue_file = box / f"{number}.json"
     key_file.write_text(KEY + "\n", encoding="utf-8")
 
     run.step(FEATURE, "naprawa-czeka")
+    number = _send_from_updated_tool(run, page, box)
+    run.check(_sent(config)[-1]["number"] == number, "the local sent state has the new Zgłoszenie last")
+    issue_file = box / f"{number}.json"
     _advance_clock(run, 10)
     asked = _asked(run)
     notice = _enter_periods(page, run)
@@ -106,8 +137,7 @@ def drive_repair_notice(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "naprawa-po-aktualizacji")
     print("  harness: Dad updates the tool, so it runs another commit", flush=True)
-    (run.root / "github" / "tool-commit.txt").parent.mkdir(exist_ok=True)
-    (run.root / "github" / "tool-commit.txt").write_text(UPDATED_COMMIT, encoding="utf-8")
+    _update_tool(run, UPDATED_COMMIT)
     asked = _asked(run)
     notice = _enter_periods(page, run)
     expect(notice).to_have_count(0)
