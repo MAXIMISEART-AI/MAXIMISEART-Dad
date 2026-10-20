@@ -291,6 +291,19 @@ def test_wzorzec_rozliczenia_pracownika_ktorego_nie_mozna_uzyc_zatrzymuje_sprawd
     assert not target_directory.exists()
 
 
+def test_wzorzec_rozliczenia_pracownika_spoza_formatow_skoroszytu_jest_nieczytelny_w_sprawdzaniu(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xls"
+    (tmp_path / "Wzorzec rozliczenia pracownika.xlsx").rename(worker_template_path)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert raised.value.message.code == "ZLY_WZORZEC_PRACOWNIKA"
+    assert terminal_text(raised.value) == "Nie można odczytać Wzorca rozliczenia pracownika."
+    assert not target_directory.exists()
+
+
 def test_niepoprawna_konfiguracja_wykonawcow_zatrzymuje_sprawdzanie(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     config_path.write_text("workers: [", encoding="utf-8")

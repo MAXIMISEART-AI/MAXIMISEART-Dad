@@ -36,7 +36,6 @@ from xml.etree.ElementTree import ParseError
 from xml.parsers.expat import ExpatError
 
 from openpyxl import load_workbook
-from openpyxl.reader.excel import SUPPORTED_FORMATS
 from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.cell.rich_text import CellRichText
 from openpyxl.styles.fills import Fill
@@ -53,6 +52,8 @@ from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, Uns
 
 
 _EXTERNAL_LINKS_PREFIX = "xl/externalLinks/"
+# Rozszerzenia skoroszytów, które otwiera openpyxl; inny plik jest nieczytelny jak przy otwieraniu przez openpyxl.
+_WORKBOOK_SUFFIXES = (".xlsx", ".xlsm", ".xltx", ".xltm")
 _ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 _WORKBOOK_FILE_ERRORS = (OSError, InvalidFileException, ValueError, zipfile.BadZipFile)
 
@@ -230,15 +231,21 @@ def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
         yield item
 
 
-def _load(path: Path, *, read_only: bool, content: bytes | None = None) -> Workbook:
-    """Skoroszyt ``path``; ``content`` to jego bajty do odczytu zamiast pliku (tylko do odczytu)."""
+def _load(path: Path, *, read_only: bool) -> Workbook:
+    """Skoroszyt ``path`` dostępny na dysku, otwarty przez openpyxl."""
 
     ensure_available(path)
+    return _open(path, path, read_only=read_only)
+
+
+def _open(path: Path, source: Path | IO[bytes], *, read_only: bool) -> Workbook:
+    """Skoroszyt ``path`` otwarty przez openpyxl z ``source`` (plik albo jego bajty) z klasyfikacją uszkodzeń."""
+
     with _unreadable_as_error(path):
         if read_only:
-            workbook = load_workbook(path if content is None else BytesIO(content), read_only=True, data_only=False)
+            workbook = load_workbook(source, read_only=True, data_only=False)
         else:
-            workbook = load_workbook(path, read_only=False, data_only=False, keep_links=True)
+            workbook = load_workbook(source, read_only=False, data_only=False, keep_links=True)
     if not isinstance(workbook.active, (Worksheet, ReadOnlyWorksheet)):
         workbook.close()
         raise WorkbookError(path, Problem.UNREADABLE)
@@ -272,7 +279,7 @@ def read_data_rows(path: Path) -> list[DataRow]:
     ensure_available(path)
     with _unreadable_as_error(path):
         content = rows_with_input(path.read_bytes(), _INPUT_COLUMNS[-1])
-    workbook = _load(path, read_only=True, content=content)
+    workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
         header = next(
@@ -538,9 +545,9 @@ class WorkerSettlementTemplate:
         """Czyta bajty Wzorca; wczytany Wzorzec zostaje, jeśli plik się nie zmienił."""
 
         ensure_available(self._path)
+        if self._path.suffix.lower() not in _WORKBOOK_SUFFIXES:
+            raise WorkbookError(self._path, Problem.UNREADABLE)
         with _unreadable_as_error(self._path):
-            if self._path.suffix.lower() not in SUPPORTED_FORMATS:
-                raise InvalidFileException(self._path.suffix)  # jak przy otwieraniu ścieżki przez openpyxl
             content = self._path.read_bytes()
         if content != self._content:
             self._content = content
@@ -562,8 +569,7 @@ class WorkerSettlementTemplate:
     def _openpyxl_workbook(self) -> Iterator[Workbook]:
         """Dawna droga (ADR 0007): pełne wczytanie Wzorca przez openpyxl z jego klasyfikacją uszkodzeń."""
 
-        with _unreadable_as_error(self._path):
-            workbook = load_workbook(BytesIO(self._loaded()), read_only=False, data_only=False, keep_links=True)
+        workbook = _open(self._path, BytesIO(self._loaded()), read_only=False)
         try:
             yield workbook
         finally:
