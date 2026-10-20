@@ -228,10 +228,12 @@ def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komun
         "state": "saved",
         "message": {
             "what": "Nie wysłano Zgłoszenia i nie udało się zapisać go w pliku na tym komputerze.",
-            "where": f"plik Zgłoszenie BLAD_PLANU {PERIOD}.md, folder zgloszenia",
+            "where": "folder zgloszenia",
             "action": "Rozwiń „Co zostanie wysłane”, skopiuj treść i prześlij ją Maksowi mailem.",
         },
     }
+    log = centrum.log_path.read_text(encoding="utf-8")
+    assert f"zgloszenie-niezapisane proces=preparation okres={PERIOD} przyczyna=ZGLOSZENIE_BEZ_KLUCZA" in log
 
 
 @pytest.mark.parametrize(

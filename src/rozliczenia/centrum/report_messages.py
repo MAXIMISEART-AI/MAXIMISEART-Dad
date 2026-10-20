@@ -1,9 +1,10 @@
-"""Katalog Komunikatów Zgłoszenia: Zgłoszenie do Maksa nie wyszło i czeka w pliku na tym komputerze.
+"""Katalog Komunikatów Zgłoszenia: Zgłoszenie do Maksa nie wyszło.
 
-Każdy Komunikat wskazuje zapisany plik Zgłoszenia, który tata może przesłać
-Maksowi mailem, i mówi, kiedy kliknąć „Spróbuj ponownie”; gdy i zapis pliku się
-nie udał, każe przesłać treść z podglądu. Instrukcja taty cytuje „Co się stało”
-każdego Komunikatu (``tests/test_instrukcja_taty.py``).
+Zwykle czeka w pliku na tym komputerze: Komunikat wskazuje ten plik, który
+tata może przesłać Maksowi mailem, i mówi, kiedy kliknąć „Spróbuj ponownie”.
+Gdy i zapis pliku się nie udał, Komunikat wskazuje folder Zgłoszeń i każe
+przesłać treść z podglądu. Instrukcja taty cytuje „Co się stało” każdego
+Komunikatu (``tests/test_instrukcja_taty.py``).
 """
 
 from __future__ import annotations
@@ -47,12 +48,12 @@ def box_unreachable(saved: Path) -> Message:
     )
 
 
-def not_saved(saved: Path) -> Message:
-    """Zgłoszenia nie wysłano, a zapis w pliku ``saved`` też się nie udał (np. folder Zgłoszeń niedostępny)."""
+def not_saved(unsent: Path) -> Message:
+    """Zgłoszenia nie wysłano, a zapis w folderze Zgłoszeń ``unsent`` też się nie udał, więc pliku nie ma."""
 
     return Message(
         code="ZGLOSZENIE_NIEZAPISANE",
         what="Nie wysłano Zgłoszenia i nie udało się zapisać go w pliku na tym komputerze.",
-        where=file_label(saved),
+        where=f"folder {unsent.name}",
         action="Rozwiń „Co zostanie wysłane”, skopiuj treść i prześlij ją Maksowi mailem.",
     )
