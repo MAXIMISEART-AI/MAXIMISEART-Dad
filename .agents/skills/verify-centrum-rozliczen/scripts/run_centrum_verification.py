@@ -97,6 +97,12 @@ REQUIRED_SCREENSHOTS = {
         "56-diagnoza-do-maksa-wyjasnienie.png",
         "57-diagnoza-bez-przyczyny.png",
     ),
+    "aktualnosc-i-onedrive": (
+        "76-aktualnosc-nowsza-wersja.png",
+        "77-aktualnosc-brak-sieci.png",
+        "78-onedrive-tylko-w-chmurze.png",
+        "79-aktualnosc-i-onedrive-przeszly.png",
+    ),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",

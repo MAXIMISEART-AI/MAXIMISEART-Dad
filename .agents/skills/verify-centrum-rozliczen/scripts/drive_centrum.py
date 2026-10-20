@@ -18,6 +18,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from drive import (
+    aktualnosc_i_onedrive,
     diagnoza,
     konfiguracja,
     metryki,
@@ -32,7 +33,8 @@ from drive.common import DAD_TIME_ZONE, DriveFailure, Run
 
 # Przygotowanie pliku zbiorczego appends to the metrics files that Metryki counts, so it runs after
 # Metryki; Przebieg rozliczeń continues Dad's path from its Plik zbiorczy; Diagnoza stops Uruchomienia
-# of an empty Folder okresu after Dad's week; start-i-zamykanie closes Centrum, so it stays last.
+# of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
+# scripted GitHub and OneDrive; start-i-zamykanie closes Centrum, so it stays last.
 FEATURES = (
     "ustawienia",
     "tablica-okresow",
@@ -42,6 +44,7 @@ FEATURES = (
     "przygotowanie-pliku-zbiorczego",
     "przebieg-rozliczen",
     "diagnoza",
+    "aktualnosc-i-onedrive",
     "start-i-zamykanie",
 )
 
@@ -63,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         "przygotowanie-pliku-zbiorczego": przygotowanie_pliku_zbiorczego.drive_preparation,
         "przebieg-rozliczen": przebieg_rozliczen.drive_settlement,
         "diagnoza": diagnoza.drive_diagnosis,
+        "aktualnosc-i-onedrive": aktualnosc_i_onedrive.drive_freshness_and_onedrive,
         "start-i-zamykanie": start_i_zamykanie.drive_start_and_close,
     }
     selected = FEATURES if args.feature == "all" else (args.feature,)
