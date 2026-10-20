@@ -14,7 +14,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 
 PERIOD = "08_14_09_2026"
-WORKERS = ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+WORKERS = ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
 
 
 class WorkbookSnapshot(NamedTuple):
@@ -145,9 +145,9 @@ def _assert_dry_run(root: Path, transcript: Path | None) -> int:
             f"Okres rozliczeniowy: {PERIOD}",
             f"Folder rozliczeń pracowników: {target_directory.resolve()}",
             "Plan plików:",
-            f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx | Wiersze do uzupełnienia: 2",
-            f"Rozliczenie {PERIOD} - Darek Nowak.xlsx | Wiersze do uzupełnienia: 1",
-            f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx | "
+            f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx | Wiersze do uzupełnienia: 2",
+            f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx | Wiersze do uzupełnienia: 1",
+            f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx | "
             "Wiersze do uzupełnienia: 0 | Pusty skoroszyt",
             f"Problemy: {1 if manifest.get('include_unmapped') else 0}",
             "Nic nie zapisano",
@@ -196,9 +196,9 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
             ):
                 errors.append(f"worker template structure or formatting changed for {name}")
         if (
-            _read_input_row(adrian_file, 18) != _expected_source_row("adrian.maciejewski", "SYNTHETIC-1", 1)
-            or _read_input_row(adrian_file, 19) != _expected_source_row("adrian.maciejewski", "SYNTHETIC-3", 3)
-            or _read_input_row(darek_file, 18) != _expected_source_row("dariusz.nowak2", "SYNTHETIC-2", 2)
+            _read_input_row(adrian_file, 18) != _expected_source_row("adrian.testowy", "SYNTHETIC-1", 1)
+            or _read_input_row(adrian_file, 19) != _expected_source_row("adrian.testowy", "SYNTHETIC-3", 3)
+            or _read_input_row(darek_file, 18) != _expected_source_row("dariusz.fikcyjny2", "SYNTHETIC-2", 2)
             or _read_input_row(kamil_file, 18) != (None,) * 13 + (0,) + (None,) * 32
         ):
             errors.append("worker rows were not routed or the empty workbook was changed")

@@ -44,6 +44,12 @@ pracownika bez nazwy wykonawcy (u Ciebie `Rozliczenie {okres} -.xlsx`); z niego
 powstają pliki pracowników.
 Nie zmieniaj ich i nie podmieniaj plikami z poprzedniego tygodnia.
 
+W tym samym folderze `config` osoba utrzymująca narzędzie umieszcza też
+konfigurację wykonawców `worker_mapping.yaml`, czyli listę Twoich pracowników.
+Ten plik jest tylko na Twoim komputerze, nie w internecie. Plik
+`worker_mapping.example.yaml` obok to przykład z wymyślonymi nazwiskami;
+narzędzie z niego nie korzysta.
+
 ### Foldery tygodni
 
 Tygodnie leżą w OneDrive w `Załączniki\Rozliczenia {rok}\{miesiąc}\INEA`, np.
