@@ -1,7 +1,8 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``runs_router``, ``metrics_router``, ``configuration_router``, ``shutdown_router``);
+``runs_router``, ``diagnosis_router``, ``reports_router``, ``metrics_router``, ``configuration_router``,
+``shutdown_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a
 nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku.
@@ -9,9 +10,11 @@ nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyj�
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, MutableMapping
+from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -19,12 +22,16 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
+from rozliczenia.centrum.diagnosis import Surroundings, diagnosis_router
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
+from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
+from rozliczenia.centrum.reports import Reports, repair_router, reports_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
@@ -32,6 +39,7 @@ from rozliczenia.centrum.settings import settings_router
 from rozliczenia.settings import SettingsStore
 from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
+from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.version import SERVICE, tool_version
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
@@ -48,9 +56,26 @@ def create_app(
     today: Callable[[], date] = date.today,
     metrics_files: MetricsFiles | None = None,
     configuration_files: ConfigurationFiles | None = None,
+    tool_freshness: ToolFreshness | None = None,
+    cloud_files: CloudFiles | None = None,
+    report_box: ReportBox | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Powiadomienie o naprawie: pierwsze pytanie skrzynki przy starcie, nie dopiero przy wejściu na Okresy.
+        reports.check_repairs_in_background()
+        yield
+
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
-    app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(
+        title="Centrum rozliczeń",
+        version="kontrakt",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
 
     @app.middleware("http")
     async def only_local_browser(
@@ -89,14 +114,23 @@ def create_app(
     configuration = configuration_files or ConfigurationFiles.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
+    # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
+    surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
+    # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
+    reports = Reports(
+        settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock
+    )
     # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
-    runs = RunHost(log, centrum_runs)
+    runs = RunHost(log, centrum_runs, reports.state)
     shutdown.refuse_while(runs.shutdown_refusal)
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
+    app.include_router(diagnosis_router(runs, store, configuration, log, surroundings, reports))
+    app.include_router(reports_router(runs, reports))
+    app.include_router(repair_router(reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
-    app.include_router(configuration_router(configuration))
+    app.include_router(configuration_router(configuration, reports.key_state))
     app.include_router(shutdown_router(shutdown))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")

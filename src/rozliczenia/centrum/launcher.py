@@ -13,10 +13,10 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 import json
-from pathlib import Path
 import urllib.request
 import webbrowser
 
+from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import has_console, show_start_problem
@@ -24,7 +24,7 @@ from rozliczenia.centrum.version import SERVICE
 from rozliczenia.message import Message
 
 DEFAULT_PORT = 47811
-LOG_PATH = Path(__file__).resolve().parents[3] / "logs" / "centrum-rozliczen.log"
+LOG_PATH = TOOL_ROOT / "logs" / "centrum-rozliczen.log"
 _HEALTH_TIMEOUT_S = 5  # drugie kliknięcie skrótu może trafić na Centrum, które jeszcze startuje
 
 

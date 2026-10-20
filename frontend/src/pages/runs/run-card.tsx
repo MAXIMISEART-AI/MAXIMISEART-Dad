@@ -1,6 +1,5 @@
 import * as React from "react"
 import {
-  ChevronDownIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleXIcon,
@@ -30,16 +29,17 @@ import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Disclosure } from "@/components/disclosure"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
+import { useStopDiagnosis } from "@/pages/runs/diagnosis"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
 
 type ShownRun = Exclude<RunView, { state: "idle" }>
@@ -158,7 +158,9 @@ export function RunCard({
             Czeka na Twoją decyzję.
           </p>
         ) : null}
-        {view.state === "finished" ? <RunOutcomeSection run={run} result={view.result} reminder={reminder} /> : null}
+        {view.state === "finished" ? (
+          <RunOutcomeSection key={run.id} run={run} result={view.result} reminder={reminder} />
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -169,8 +171,11 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
   const [confirming, setConfirming] = React.useState(false)
   const openFolder = () => openAndConfirm(run.period, "period_folder", () => undefined)
   const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
+  // Czy i jak proponować Diagnozę, mówi serwer: przy niej przycisk „Diagnoza” zastępuje następną akcję.
+  const offersDiagnosis = result.diagnosis !== null
+  const diagnosis = useStopDiagnosis(run.id, result.diagnosis, result.report, () => again(run.dry_run))
 
-  const action = (
+  const nextAction = (
     <NextActionButton
       action={result.next_action}
       onRun={() => setConfirming(true)}
@@ -178,6 +183,8 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
       onOpenFolder={openFolder}
     />
   )
+
+  const action = offersDiagnosis ? diagnosis.action : nextAction
 
   return (
     <>
@@ -197,6 +204,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
           <ThreePartMessage key={stop.what} message={stop} kind="stop" action={index === 0 ? action : undefined} />
         ))
       )}
+      {offersDiagnosis ? diagnosis.result : null}
       {result.warnings.map((warning) => (
         <ThreePartMessage key={warning.what} message={warning} kind="warning" />
       ))}
@@ -317,29 +325,20 @@ function PeriodFiles({ files }: { files: ReadonlyArray<PeriodFile> }) {
 /** Plan plików: nazwa pliku każdego Wykonawcy i liczba wierszy; po podglądzie rozwinięty od razu. */
 function FilePlan({ files, defaultOpen }: { files: ReadonlyArray<WorkerFile>; defaultOpen: boolean }) {
   return (
-    <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="group -ml-2" />}>
-        Plan plików ({files.length})
-        <ChevronDownIcon
-          data-icon="inline-end"
-          className="transition-[rotate] duration-200 ease-out group-data-[panel-open]:rotate-180"
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="transition-opacity duration-150 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
-        <Table aria-label="Plan plików">
-          <TableBody>
-            {files.map((file) => (
-              <TableRow key={file.file}>
-                <TableCell>{file.file}</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {file.rows === 0 ? <Badge variant="outline">Pusty skoroszyt</Badge> : `${file.rows} ${rowsWord(file.rows)}`}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CollapsibleContent>
-    </Collapsible>
+    <Disclosure label={`Plan plików (${files.length})`} defaultOpen={defaultOpen}>
+      <Table aria-label="Plan plików">
+        <TableBody>
+          {files.map((file) => (
+            <TableRow key={file.file}>
+              <TableCell>{file.file}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {file.rows === 0 ? <Badge variant="outline">Pusty skoroszyt</Badge> : `${file.rows} ${rowsWord(file.rows)}`}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Disclosure>
   )
 }
 

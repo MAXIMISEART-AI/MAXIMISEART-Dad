@@ -18,8 +18,9 @@ from pathlib import Path
 import subprocess
 import sys
 
+from rozliczenia import TOOL_ROOT
+
 SHORTCUT_NAME = "Centrum rozliczeń"
-TOOL_ROOT = Path(__file__).resolve().parents[3]
 ICON = Path(__file__).resolve().parent / "centrum-rozliczen.ico"
 
 _SCRIPT = r"""

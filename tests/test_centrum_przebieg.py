@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
 from io import StringIO
 import json
 from pathlib import Path
@@ -15,85 +13,13 @@ import pytest
 
 from rozliczenia import cli, engine, settlement_process, template_settlement
 from rozliczenia.centrum import run_view
-from rozliczenia.centrum.app import create_app
-from rozliczenia.centrum.configuration import ConfigurationFiles
-from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
-from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.centrum import finished_view, phase_states, run_events
-from tests.fixtures.centrum import CENTRUM, FakePlatform, centrum as bare_centrum
-from tests.fixtures.settlement import PERIOD, SOURCE_NAME, write_mapping, write_source, write_template
-
-# Środa po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
-TODAY = date(2026, 9, 16)
-WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
-
-
-@dataclass
-class SettlingCentrum:
-    client: TestClient
-    periods_directory: Path
-    metrics_path: Path
-    log_path: Path
-    period_parent: Path
-
-    @property
-    def period_directory(self) -> Path:
-        return self.period_parent / PERIOD
-
-    @property
-    def worker_settlements(self) -> Path:
-        return self.period_directory / WORKER_SETTLEMENTS
-
-    def start(self, *, dry_run: bool, period: str = PERIOD) -> Any:
-        return self.client.post("/api/runs", json={"process": "settlement", "period": period, "dry_run": dry_run})
-
-    def metric_records(self) -> list[dict[str, Any]]:
-        text = self.metrics_path.read_text(encoding="utf-8")
-        return [json.loads(line) for line in text.splitlines()]
-
-
-def settling_centrum(
-    tmp_path: Path, *, include_unmapped: bool = False, dad_layout: bool = False
-) -> SettlingCentrum:
-    """Centrum z zapamiętanym folderem okresów, w którym okres ma tylko syntetyczny Plik zbiorczy.
-
-    ``dad_layout`` kładzie Folder okresu w ``Załączniki\\Rozliczenia 2026\\09_Wrzesień_2026\\INEA``.
-    """
-
-    periods_directory = tmp_path / ("Załączniki" if dad_layout else "INEA")
-    parent = periods_directory / "Rozliczenia 2026" / "09_Wrzesień_2026" / "INEA" if dad_layout else periods_directory
-    (parent / PERIOD).mkdir(parents=True)
-    write_source(parent / PERIOD / SOURCE_NAME, include_unmapped=include_unmapped)
-    config = tmp_path / "config"
-    config.mkdir()
-    worker_template = config / "Wzorzec rozliczenia pracownika.xlsx"
-    write_template(worker_template)
-    metrics_path = tmp_path / ".rozliczenia-metrics.jsonl"
-    log_path = tmp_path / "logs" / "centrum-rozliczen.log"
-    log = CentrumLog(log_path)
-    app = create_app(
-        settings_path=config / "centrum-ustawienia.yaml",
-        platform=FakePlatform(chosen_folders=[periods_directory]),
-        log=log,
-        shutdown=Shutdown(log),
-        today=lambda: TODAY,
-        configuration_files=ConfigurationFiles(
-            worker_config=write_mapping(config / "worker_mapping.yaml"),
-            internal_template=config / "Wzorzec rozliczenia wewnętrznego.xlsx",
-            collective_template=config / "Wzorzec pliku zbiorczego.xlsx",
-            worker_template=worker_template,
-        ),
-        metrics_files=MetricsFiles(
-            preparation=tmp_path / ".przygotowanie-pliku-zbiorczego-metrics.jsonl", settlement=metrics_path
-        ),
-    )
-    client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    client.post("/api/settings/periods-directory/choose")
-    return SettlingCentrum(client, periods_directory, metrics_path, log_path, parent)
-
+from tests.fixtures.centrum import centrum as bare_centrum
+from tests.fixtures.centrum_processes import TODAY, WORKER_SETTLEMENTS, run_to_end, settling_centrum
+from tests.fixtures.settlement import PERIOD, SOURCE_NAME
 
 def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozliczen_pracownikow(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
@@ -128,12 +54,6 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
     phases = finished["progress"]["phases"]
     assert [phase["phase"] for phase in phases] == ["Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"]
     assert {phase["phase"]: phase["duration_ms"] for phase in phases} == record["phase_durations_ms"]
-
-
-def run_to_end(centrum: SettlingCentrum, *, dry_run: bool) -> dict[str, Any]:
-    started = centrum.start(dry_run=dry_run)
-    assert started.status_code == 200, started.json()
-    return finished_view(centrum.client)
 
 
 def test_uruchom_publikuje_folder_rozliczen_pracownikow_i_zmienia_status_okresu(tmp_path: Path) -> None:
@@ -185,7 +105,7 @@ def test_w_ukladzie_folderow_taty_okres_bez_folderu_okresu_jest_odrzucony(tmp_pa
     )
 
 
-def test_nieoczekiwany_blad_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(
+def test_nieoczekiwany_wyjatek_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = settling_centrum(tmp_path)

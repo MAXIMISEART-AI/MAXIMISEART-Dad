@@ -20,9 +20,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Final
 
 REPORT_TO_MAINTAINER: Final = "Przekaż ten komunikat osobie utrzymującej narzędzie."
+_SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+")
+_CONDITIONS: Final = ("jeśli", "w innym wypadku")
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,16 @@ class Message:
         return f"Co się stało: {self.what}\nGdzie: {self.where}\nCo zrobić: {self.action}"
 
     @property
+    def reports_to_maintainer(self) -> bool:
+        """„Co zrobić” bezwarunkowo każe przekazać Komunikat osobie utrzymującej narzędzie.
+
+        Zdanie warunkowe („Jeśli błąd wraca, przekaż…”, „W innym wypadku przekaż…”)
+        nie liczy się: najpierw tata ponawia albo poprawia sam.
+        """
+
+        return any(_unconditional_referral(sentence) for sentence in _SENTENCE_END.split(self.action))
+
+    @property
     def terminal_lines(self) -> list[str]:
         """Linie terminala: ``terminal_line``, jeśli jest, a w przeciwnym razie trzy części."""
 
@@ -62,6 +75,12 @@ class StopError(Exception):
     def __init__(self, message: Message) -> None:
         super().__init__(message.code)
         self.message = message
+
+
+def _unconditional_referral(sentence: str) -> bool:
+    lowered = sentence.lower()
+    refers = "przekaż" in lowered and "osobie utrzymującej narzędzie" in lowered
+    return refers and not any(condition in lowered for condition in _CONDITIONS)
 
 
 def file_label(path: Path) -> str:

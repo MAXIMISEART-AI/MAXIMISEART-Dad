@@ -52,6 +52,38 @@ class CentrumLog:
 
         self._write("nieoczekiwany-wyjatek", typ=type(failure).__name__, miejsce=where)
 
+    def diagnosed(self, *, process: str, period: str, cause: str) -> None:
+        """Diagnoza Zatrzymania: klucz procesu, token okresu i kod Komunikatu wyjaśnienia."""
+
+        self._write("diagnoza", proces=process, okres=period, przyczyna=cause)
+
+    def report_sent(self, *, process: str, period: str, number: int) -> None:
+        """Zgłoszenie do Maksa przyjęte przez skrzynkę Zgłoszeń jako issue ``number``; bez treści i klucza."""
+
+        self._write("zgloszenie-wyslane", proces=process, okres=period, numer=number)
+
+    def report_waiting(self, *, process: str, period: str, number: int) -> None:
+        """Zgłoszenia nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego samego problemu."""
+
+        self._write("zgloszenie-czeka", proces=process, okres=period, numer=number)
+
+    def report_saved(self, *, process: str, period: str, code: str) -> None:
+        """Zgłoszenia nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
+
+        self._write("zgloszenie-zapisane", proces=process, okres=period, kod=code)
+
+    def recent(self, limit: int) -> list[str]:
+        """Najwyżej ``limit`` ostatnich wpisów od ostatniego startu Centrum; brak dziennika to brak wpisów."""
+
+        try:
+            with self._lock:
+                lines = self._path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        starts = [index for index, line in enumerate(lines) if event_of(line) == "start"]
+        session = lines[starts[-1] :] if starts else lines
+        return session[-limit:]
+
     def _write(self, event: str, **facts: str | int) -> None:
         moment = datetime.now().astimezone().isoformat(timespec="seconds")
         line = " ".join([moment, event, *(f"{key}={_quoted(value)}" for key, value in facts.items())])
@@ -62,6 +94,13 @@ class CentrumLog:
                     log.write(line + "\n")
         except OSError:
             pass  # dziennik pomaga przy wsparciu; jego brak nie może zatrzymać Centrum
+
+
+def event_of(line: str) -> str:
+    """Nazwa zdarzenia wpisu dziennika (drugie pole po czasie)."""
+
+    fields = line.split(" ", 2)
+    return fields[1] if len(fields) > 1 else ""
 
 
 def _quoted(value: str | int) -> str:

@@ -95,6 +95,88 @@ Gdy trwa Uruchomienie procesu (także gdy czeka na Twoją decyzję), Centrum si�
 nie zamknie: pokaże, że trwa Uruchomienie procesu. Poczekaj na wynik na stronie
 `Uruchomienia` i zamknij Centrum potem.
 
+### Zatrzymanie i Diagnoza
+
+Gdy Uruchomienie procesu się zatrzyma, Centrum pokaże komunikat w trzech
+częściach i podpowie, co dalej:
+
+- `Uruchom ponownie`: przyczynę usuniesz sam według części `Co zrobić`. Po
+  poprawce kliknij przycisk; ten sam proces ruszy dla tego samego okresu i w tym
+  samym trybie.
+- `Diagnoza`: komunikat każe przekazać go osobie utrzymującej narzędzie albo po
+  ponownym uruchomieniu wrócił ten sam komunikat. Kliknij `Diagnoza`. Centrum
+  sprawdzi Twój komputer tylko do odczytu i wyjaśni przyczynę w trzech
+  częściach. Niczego nie zmienia w Twoich plikach. Przy nieoczekiwanym błędzie
+  narzędzia Diagnoza zaczyna się sama, bez klikania.
+
+Gdy przyczyną jest sam komunikat zatrzymania, Centrum pisze tylko `Diagnoza
+potwierdza ten komunikat.` Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij
+`Uruchom ponownie`. Lista `Sprawdzono` pokazuje każde sprawdzenie Diagnozy.
+
+### Wyjaśnienie Diagnozy → co zrobić
+
+Diagnoza wyjaśnia przyczynę komunikatem z tabel procesów (np. Rejestr zleceń
+otwarty w Excelu) albo jednym z tych:
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Kliknij `Wyślij do Maksa`. |
+| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie. Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
+| „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
+| „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
+
+### Zgłoszenie do Maksa
+
+Pod wyjaśnieniem Diagnozy jest przycisk `Wyślij do Maksa`. Gdy wyjaśnienie
+mówi, co poprawić, pierwszy jest `Uruchom ponownie`, a `Wyślij do Maksa` drugi.
+
+1. Rozwiń `Co zostanie wysłane`, jeśli chcesz zobaczyć dokładną treść
+   Zgłoszenia: komunikat, proces, okres, wersję narzędzia, wynik każdego
+   sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum. Nie ma w niej
+   adresów, numerów zleceń ani treści wierszy.
+2. Kliknij `Wyślij do Maksa`. Nie ma dodatkowego pytania „Na pewno?”.
+3. W miejscu przycisku pojawi się `Zgłoszenie wysłane do Maksa. Poczekaj na
+   naprawę.` Potwierdzenie zostaje po odświeżeniu karty.
+
+Gdy ten sam problem wróci przy kolejnym Uruchomieniu, a Maks jeszcze go nie
+naprawił, zamiast przycisku zobaczysz `Zgłoszenie tego problemu już jest
+wysłane i czeka na naprawę.` Drugie Zgłoszenie nie powstaje. Gdy Maks zamknie
+Zgłoszenie, a problem wróci, po Diagnozie znowu będzie `Wyślij do Maksa`.
+
+Zgłoszenie trafia do prywatnego repozytorium Zgłoszeń Maksa na GitHubie.
+Brak internetu niczego nie psuje, dopóki niczego nie wysyłasz.
+
+### Zgłoszenie → co zrobić
+
+Gdy wysłanie się nie uda, Centrum zapisze Zgłoszenie w pliku w folderze
+narzędzia, w `config\zgloszenia`, i pokaże komunikat z przyciskiem
+`Spróbuj ponownie`. Plik możesz przesłać Maksowi mailem jako załącznik.
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „na tym komputerze nie ma klucza do Zgłoszeń” | Prześlij wskazany plik Maksowi mailem. Gdy Maks wpisze klucz, kliknij `Spróbuj ponownie`. |
+| „klucz do Zgłoszeń wygasł albo jest nieważny” | Prześlij wskazany plik Maksowi mailem i powiedz mu o kluczu. Gdy Maks go wymieni, kliknij `Spróbuj ponownie`. |
+| „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Spróbuj ponownie`. Jeśli to nie pomoże, prześlij wskazany plik Maksowi mailem. |
+
+Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
+jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
+Maks; Ty niczego tam nie wpisujesz.
+
+### Powiadomienie o naprawie
+
+Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`
+pod tytułem pojawi się `Maks naprawił zgłoszony problem. Zaktualizuj
+narzędzie.`
+
+1. Zaktualizuj narzędzie.
+2. W karcie Centrum kliknij `Zamknij Centrum rozliczeń` i otwórz Centrum
+   skrótem.
+
+Po aktualizacji powiadomienie zniknie samo; niczego nie zamykasz. Centrum
+sprawdza to przy otwarciu i przy wejściu na `Okresy`, najwyżej raz na 10 minut.
+Bez internetu nic się nie pokazuje i nic się nie psuje; Centrum sprawdzi
+ponownie później.
+
 ### Komunikaty startu Centrum rozliczeń
 
 Gdy Centrum nie może wystartować, zamiast karty pojawi się okienko z trzema

@@ -61,6 +61,21 @@ export const zDecisionAnswer = z.object({
 });
 
 /**
+ * DiagnosisCheck
+ *
+ * Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek.
+ */
+export const zDiagnosisCheck = z.object({
+    label: z.string(),
+    state: z.enum([
+        'passed',
+        'failed',
+        'not_checked'
+    ]),
+    detail: z.string()
+});
+
+/**
  * Figure
  *
  * Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach.
@@ -341,6 +356,86 @@ export const zReadyPath = z.object({
 });
 
 /**
+ * RepairNotice
+ *
+ * Powiadomienie o naprawie na stronie Okresy.
+ *
+ * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
+ * działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+ */
+export const zRepairNotice = z.object({
+    repaired: z.boolean()
+});
+
+/**
+ * ReportDraft
+ *
+ * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
+ */
+export const zReportDraft = z.object({
+    title: z.string(),
+    body: z.string()
+});
+
+/**
+ * Diagnosis
+ *
+ * Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+ *
+ * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+ * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+ * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+ * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
+ * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+ */
+export const zDiagnosis = z.object({
+    explanation: zMessage,
+    confirms_stop: z.boolean(),
+    next_action: z.enum(['rerun', 'report']),
+    checks: z.array(zDiagnosisCheck),
+    report: zReportDraft
+});
+
+/**
+ * ReportReady
+ *
+ * Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy.
+ */
+export const zReportReady = z.object({
+    state: z.literal('ready')
+});
+
+/**
+ * ReportSaved
+ *
+ * Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.
+ *
+ * ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie.
+ */
+export const zReportSaved = z.object({
+    state: z.literal('saved'),
+    message: zMessage
+});
+
+/**
+ * ReportSent
+ *
+ * Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę.
+ */
+export const zReportSent = z.object({
+    state: z.literal('sent')
+});
+
+/**
+ * ReportWaiting
+ *
+ * Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje.
+ */
+export const zReportWaiting = z.object({
+    state: z.literal('waiting')
+});
+
+/**
  * ResultCounts
  */
 export const zResultCounts = z.object({
@@ -558,8 +653,11 @@ export const zRunSummary = z.object({
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
- * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+ * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
+ * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -579,6 +677,18 @@ export const zRunOutcome = z.object({
         'rerun',
         'open_period_folder'
     ]),
+    stop_kind: z.enum([
+        'for_tata',
+        'for_maks',
+        'repeated'
+    ]).nullable(),
+    diagnosis: z.enum(['on_request', 'automatic']).nullable(),
+    report: z.discriminatedUnion('state', [
+        zReportReady,
+        zReportSent,
+        zReportWaiting,
+        zReportSaved
+    ]).nullable(),
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
     notices: z.array(z.string()),
@@ -640,7 +750,8 @@ export const zConfiguration = z.object({
     workers: z.discriminatedUnion('state', [
         zWorkersReady,
         zWorkersUnreadable
-    ])
+    ]),
+    reports: z.enum(['ready', 'missing_key'])
 });
 
 /**
@@ -745,6 +856,36 @@ export const zDecideRunResponse = z.discriminatedUnion('state', [
  * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
  */
 export const zStreamRunEventsResponse = zRunEvent;
+
+export const zDiagnoseRunPath = z.object({
+    run_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zDiagnoseRunResponse = zDiagnosis;
+
+export const zReportRunPath = z.object({
+    run_id: z.string()
+});
+
+/**
+ * Response Reportrun
+ *
+ * Successful Response
+ */
+export const zReportRunResponse = z.discriminatedUnion('state', [
+    zReportReady,
+    zReportSent,
+    zReportWaiting,
+    zReportSaved
+]);
+
+/**
+ * Successful Response
+ */
+export const zGetRepairNoticeResponse = zRepairNotice;
 
 /**
  * Successful Response

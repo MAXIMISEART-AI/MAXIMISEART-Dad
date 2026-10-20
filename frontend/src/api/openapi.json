@@ -504,6 +504,174 @@
         }
       }
     },
+    "/api/runs/{run_id}/diagnosis": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Run Diagnosis",
+        "operationId": "diagnoseRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Diagnosis"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/report": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Send Report",
+        "operationId": "reportRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReportReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportSent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportWaiting"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportSaved"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "ready": "#/components/schemas/ReportReady",
+                      "sent": "#/components/schemas/ReportSent",
+                      "waiting": "#/components/schemas/ReportWaiting",
+                      "saved": "#/components/schemas/ReportSaved"
+                    }
+                  },
+                  "title": "Response Reportrun"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/repair": {
+      "get": {
+        "tags": [
+          "zgloszenia"
+        ],
+        "summary": "Repair Notice",
+        "operationId": "getRepairNotice",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepairNotice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/metrics": {
       "get": {
         "tags": [
@@ -761,6 +929,14 @@
                 "unreadable": "#/components/schemas/WorkersUnreadable"
               }
             }
+          },
+          "reports": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "missing_key"
+            ],
+            "title": "Reports"
           }
         },
         "additionalProperties": false,
@@ -768,7 +944,8 @@
         "required": [
           "version",
           "templates",
-          "workers"
+          "workers",
+          "reports"
         ],
         "title": "Configuration",
         "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."
@@ -859,6 +1036,76 @@
           "answer"
         ],
         "title": "DecisionAnswer"
+      },
+      "Diagnosis": {
+        "properties": {
+          "explanation": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "confirms_stop": {
+            "type": "boolean",
+            "title": "Confirms Stop"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "rerun",
+              "report"
+            ],
+            "title": "Next Action"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisCheck"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReportDraft"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "explanation",
+          "confirms_stop",
+          "next_action",
+          "checks",
+          "report"
+        ],
+        "title": "Diagnosis",
+        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle\n„Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam\nKomunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza."
+      },
+      "DiagnosisCheck": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "not_checked"
+            ],
+            "title": "State"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "state",
+          "detail"
+        ],
+        "title": "DiagnosisCheck",
+        "description": "Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek."
       },
       "Figure": {
         "properties": {
@@ -1678,6 +1925,109 @@
         "title": "RecentResults",
         "description": "Wyniki Uruchomień procesu obu procesów z ostatnich ``weeks`` tygodni."
       },
+      "RepairNotice": {
+        "properties": {
+          "repaired": {
+            "type": "boolean",
+            "title": "Repaired"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "repaired"
+        ],
+        "title": "RepairNotice",
+        "description": "Powiadomienie o naprawie na stronie Okresy.\n\n``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal\ndziała na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”)."
+      },
+      "ReportDraft": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "title": "ReportDraft",
+        "description": "Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown."
+      },
+      "ReportReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ReportReady",
+        "description": "Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy."
+      },
+      "ReportSaved": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "saved",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "ReportSaved",
+        "description": "Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.\n\n``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie."
+      },
+      "ReportSent": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "sent",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ReportSent",
+        "description": "Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę."
+      },
+      "ReportWaiting": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "waiting",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ReportWaiting",
+        "description": "Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje."
+      },
       "ResultCounts": {
         "properties": {
           "ok": {
@@ -1898,6 +2248,70 @@
             ],
             "title": "Next Action"
           },
+          "stop_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "for_tata",
+                  "for_maks",
+                  "repeated"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Kind"
+          },
+          "diagnosis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "on_request",
+                  "automatic"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnosis"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ReportReady"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReportSent"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReportWaiting"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReportSaved"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "state",
+                  "mapping": {
+                    "ready": "#/components/schemas/ReportReady",
+                    "saved": "#/components/schemas/ReportSaved",
+                    "sent": "#/components/schemas/ReportSent",
+                    "waiting": "#/components/schemas/ReportWaiting"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report"
+          },
           "stops": {
             "items": {
               "$ref": "#/components/schemas/Message"
@@ -1937,13 +2351,16 @@
           "headline",
           "ending",
           "next_action",
+          "stop_kind",
+          "diagnosis",
+          "report",
           "stops",
           "warnings",
           "notices",
           "summary"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna\nakcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku."
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje\n(``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego\nproblemu (``None``, gdy Centrum nie proponuje Diagnozy)."
       },
       "RunRequest": {
         "properties": {

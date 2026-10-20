@@ -34,6 +34,10 @@ class Refusal(Exception):
         self.message = message
 
 
+# Odmowy akcji na zasobie w OpenAPI: brak zasobu (404) albo zły stan (409), obie jako ``Problem``.
+NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, object]] = {404: {"model": Problem}, 409: {"model": Problem}}
+
+
 class Health(_Model):
     service: Literal["centrum-rozliczen"]
     version: str
@@ -372,18 +376,71 @@ class RunSummary(_Model):
     file_plan: list[WorkerFile] | None
 
 
+class ReportDraft(_Model):
+    """Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown."""
+
+    title: str
+    body: str
+
+
+class ReportReady(_Model):
+    """Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy."""
+
+    state: Literal["ready"]
+
+
+class ReportSent(_Model):
+    """Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę."""
+
+    state: Literal["sent"]
+
+
+class ReportWaiting(_Model):
+    """Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje."""
+
+    state: Literal["waiting"]
+
+
+class ReportSaved(_Model):
+    """Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.
+
+    ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie.
+    """
+
+    state: Literal["saved"]
+    message: Message
+
+
+ReportState = Annotated[ReportReady | ReportSent | ReportWaiting | ReportSaved, Field(discriminator="state")]
+
+
+# Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
+# osobie utrzymującej narzędzie (także nieoczekiwany wyjątek), ``repeated`` to ten sam Komunikat „dla taty”
+# drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
+StopKind = Literal["for_tata", "for_maks", "repeated"]
+# Diagnoza przy Zatrzymaniu: ``on_request`` to przycisk „Diagnoza” zamiast następnej akcji, ``automatic`` to
+# nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
+DiagnosisOffer = Literal["on_request", "automatic"]
+
+
 class RunOutcome(_Model):
     """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
-    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
-    akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+    którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+    Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
+    (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
+    problemu (``None``, gdy Centrum nie proponuje Diagnozy).
     """
 
     result: RunResult
     headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
+    stop_kind: StopKind | None
+    diagnosis: DiagnosisOffer | None
+    report: ReportState | None
     stops: list[Message]
     warnings: list[Message]
     notices: list[str]
@@ -434,6 +491,31 @@ class DecisionAnswer(_Model):
     answer: Literal["continue", "abort"]
 
 
+class DiagnosisCheck(_Model):
+    """Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek."""
+
+    label: str
+    state: Literal["passed", "failed", "not_checked"]
+    detail: str
+
+
+class Diagnosis(_Model):
+    """Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+
+    ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+    przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+    ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+    „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
+    Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+    """
+
+    explanation: Message
+    confirms_stop: bool
+    next_action: Literal["rerun", "report"]
+    checks: list[DiagnosisCheck]
+    report: ReportDraft
+
+
 class TemplateReady(_Model):
     """Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie."""
 
@@ -473,9 +555,24 @@ class WorkersUnreadable(_Model):
 Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
 
 
+# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”) albo ``missing_key``; nigdy jego wartość.
+ReportKeyState = Literal["ready", "missing_key"]
+
+
 class Configuration(_Model):
     """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."""
 
     version: str
     templates: list[TemplateStatus]
     workers: Workers
+    reports: ReportKeyState
+
+
+class RepairNotice(_Model):
+    """Powiadomienie o naprawie na stronie Okresy.
+
+    ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
+    działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+    """
+
+    repaired: bool

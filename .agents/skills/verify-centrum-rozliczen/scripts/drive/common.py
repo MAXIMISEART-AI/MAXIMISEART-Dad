@@ -113,6 +113,18 @@ def choose_periods_directory(run: Run, page: Page) -> None:
     expect(page.get_by_role("table", name="Tablica okresów")).to_be_visible()
 
 
+def ensure_files_set(run: Run, page: Page) -> None:
+    """Points Centrum to the fixture's folder okresów and Rejestr zleceń unless a feature before did."""
+
+    settings = run.api("/api/settings", "ustawienia-przed-uruchomieniem")
+    if settings["periods_directory"] == {"state": "not_set"}:
+        choose_periods_directory(run, page)
+    if settings["order_register"] == {"state": "not_set"}:
+        run.answer_picker(run.fixture["order_register"])
+        page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
+        run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
+
+
 def period_row(page: Page, token: str) -> Locator:
     return page.get_by_role("table", name="Tablica okresów").get_by_role("row").filter(has_text=token)
 
@@ -153,3 +165,25 @@ def figure(shown: object, label: str) -> int:
     [value] = [entry["value"] for entry in shown["figures"] if entry["label"] == label]
     assert isinstance(value, int)
     return value
+
+
+def stop_banner(page: Page) -> Locator:
+    """The three-part stop banner of the Uruchomienie procesu shown on Uruchomienia."""
+
+    return page.get_by_role("region", name="Podgląd na żywo").get_by_label("Zatrzymanie")
+
+
+def diagnosis_answer(run: Run, run_id: str, name: str) -> dict[str, object]:
+    """The server's Diagnoza for ``run_id`` as the browser gets it, kept in ``api/``."""
+
+    request = urllib.request.Request(
+        run.url.rstrip("/") + f"/api/runs/{run_id}/diagnosis",
+        data=b"",
+        method="POST",
+        headers={"Origin": run.url.rstrip("/")},
+    )
+    run.check(run.refused(request, name) == 200, "the server answers the Diagnoza")
+    record = json.loads((run.evidence / "api" / f"{name}.json").read_text(encoding="utf-8"))
+    body = record["body"]
+    assert isinstance(body, dict)
+    return body

@@ -12,8 +12,8 @@ from drive.common import (
     LAST_COMPLETE_FOR_CLI,
     ROW_MARKER,
     Run,
-    choose_periods_directory,
     current_run,
+    ensure_files_set,
     figure,
     finished_result,
     history_rows,
@@ -35,16 +35,6 @@ def _preparation_records(run: Run, name: str) -> list[dict[str, object]]:
     return [entry for entry in runs if entry["process"] == "preparation"]
 
 
-def _ensure_files_set(run: Run, page: Page) -> None:
-    settings = run.api("/api/settings", "przygotowanie-ustawienia")
-    if settings["periods_directory"] == {"state": "not_set"}:
-        choose_periods_directory(run, page)
-    if settings["order_register"] == {"state": "not_set"}:
-        run.answer_picker(run.fixture["order_register"])
-        page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
-        run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
-
-
 def drive_preparation(run: Run, page: Page) -> None:
     feature = PREPARATION
     expected = run.fixture["preparation"]
@@ -54,7 +44,7 @@ def drive_preparation(run: Run, page: Page) -> None:
 
     run.step(feature, "przygotowanie-wybor-okresu")
     page.goto(run.url)
-    _ensure_files_set(run, page)
+    ensure_files_set(run, page)
     page.reload()
     page.get_by_role("button", name=f"Przygotuj plik zbiorczy, okres {LAST_COMPLETE_FOR_CLI}", exact=True).click()
     expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()

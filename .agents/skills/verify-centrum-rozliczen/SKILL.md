@@ -21,7 +21,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
-`--feature przebieg-rozliczen`, or `--feature start-i-zamykanie` drives one
+`--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature powiadomienie-o-naprawie`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and
@@ -53,7 +53,15 @@ Explorer appends the path to `<root>/opened.jsonl` instead of launching an
 application. While `<root>/pacing/szablony-ms.txt` exists, each Szablon
 pracownika of a Przebieg rozliczeń RUN waits that many milliseconds, so the
 live progress and the refused closing can be observed; the drive turns it on
-for one RUN only. The adapter is the production boundary for those actions; the real
+for one RUN only. The Diagnoza never reaches GitHub: the commit of `main` is the
+tool's own unless `<root>/github/main-commit.txt` names another, `<root>/github/brak-sieci`
+means no network, and a full path listed in `<root>/onedrive/tylko-w-chmurze.txt` is a
+OneDrive file „tylko online” on every system. Zgłoszenia never reach GitHub
+either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.json`
+per Zgłoszenie (never the key, `state` editable to `closed`), unreachable while
+`<root>/skrzynka-zgloszen/brak-sieci` exists; `<root>/github/tool-commit.txt` stands for
+the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum's clock
+forward past the 10-minute limit on asking the skrzynka. The adapter is the production boundary for those actions; the real
 Windows and macOS adapters are covered by `tests/test_centrum_launcher.py` (real
 process, real browser opening) and by hand.
 
@@ -109,7 +117,8 @@ Proof standards:
 - Drive Dad's path through the UI. A screen state alone is not proof: pair it
   with the API answer and the side effect (settings file, picker log, opened
   path).
-- Treat the scripted platform adapter as the only stand-in for Dad's computer.
+- Treat the scripted platform adapter, GitHub, and OneDrive as the only
+  stand-ins for Dad's computer.
   Two harness steps are labelled in `drive.txt`: Gotowość, where the drive
   edits the Plik zbiorczy instead of Excel, and the Szablony pacing.
 - Look at the screenshots after a UI change; a passing run does not judge
