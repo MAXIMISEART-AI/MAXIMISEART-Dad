@@ -16,6 +16,7 @@ from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Font
 from openpyxl.styles.numbers import is_date_format
+from openpyxl.utils import get_column_letter
 
 from rozliczenia import workbook_files
 from rozliczenia.workbook_files import (
@@ -33,14 +34,17 @@ from rozliczenia.workbook_files import (
     save_workbook,
 )
 
-from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates, zip_part
+from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, WORKER_TEMPLATE, write_synthetic_templates, zip_part
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
     active_worksheet,
     add_external_link_fixture,
+    break_empty_data_row,
     cut_sheet_after_data_rows,
     cut_sheet_after_sheet_data,
     external_link_parts,
+    replace_cells,
+    rewrite_parts,
     without_sheet,
     without_styles,
 )
@@ -111,6 +115,7 @@ DAMAGES: dict[str, Callable[[Path], None]] = {
     "nie-zip": not_a_zip,
     "uciety-xml-arkusza": cut_sheet_after_data_rows,
     "xml-arkusza-uciety-za-wierszami-danych": cut_sheet_after_sheet_data,
+    "zepsuty-pusty-wiersz-danych": break_empty_data_row,
     "bez-styles-xml": without_styles,
     "bez-arkusza": without_sheet,
 }
@@ -248,6 +253,96 @@ def test_wiersze_danych_pliku_zbiorczego_w_kolejnosci_z_wykonawca_i_wartosciami_
     assert rows[0].values[:2] == ("POZNAŃ", "syntetyczny adres 1")
     assert rows[0].values[45] == "uwagi"
     assert path.read_bytes() == before
+
+
+def _inline(reference: str, text: str) -> str:
+    return f'<c r="{reference}" s="13" t="inlineStr"><is><t>{text}</t></is></c>'
+
+
+def excel_collective_file(directory: Path) -> Path:
+    """Plik zbiorczy w kształcie z Excela: tekst wspólny i wbudowany, wspólne formuły, sformatowane puste wiersze.
+
+    Wiersze danych 18, 100 i 150 przedzielają dziesiątki sformatowanych pustych
+    wierszy; wspólna formuła w Q100 ma formułę główną w wierszu 30 bez danych w A:K.
+    """
+
+    path = write_synthetic_templates(directory) / COLLECTIVE_TEMPLATE
+    replace_cells(
+        path,
+        {
+            "A18": '<c r="A18" s="13" t="s"><v>4</v></c>',  # sharedStrings[4] == "Instalacje"
+            "B18": _inline("B18", "syntetyczny adres 1"),
+            "F18": '<c r="F18" s="15"><v>1001</v></c>',
+            "G18": '<c r="G18" s="16"><v>46301.375</v></c>',  # format daty 14
+            "H18": _inline("H18", "adrian.testowy"),
+            "J18": '<c r="J18" s="15" t="b"><v>1</v></c>',
+            "K18": '<c r="K18" s="15" t="str"><v>wynik formuły</v></c>',
+            "N18": '<c r="N18" s="26"><v>2</v></c>',
+            "O18": '<c r="O18" s="26"><v>2.5</v></c>',
+            "P18": '<c r="P18" s="26"><f>N18*2</f><v>4</v></c>',
+            "AT18": '<c r="AT18" s="31" t="s"><v>0</v></c>',  # sharedStrings[0] == "Suma"
+            "Q30": '<c r="Q30" s="26"><f t="shared" ref="Q30:Q140" si="90">N30+1</f><v>1</v></c>',
+            "L60": _inline("L60", "poza A:K"),
+            "C100": _inline("C100", "tylko C"),
+            "H100": _inline("H100", "beata.fikcyjna"),
+            "I100": '<c r="I100" s="13" t="e"><v>#N/A</v></c>',
+            "Q100": '<c r="Q100" s="28"><f t="shared" si="90"/><v>1</v></c>',
+            "E150": '<c r="E150" s="24"><v>3</v></c>',
+        },
+    )
+    return path
+
+
+def _values_by_column(values: tuple[object, ...]) -> dict[str, object]:
+    return {get_column_letter(column): value for column, value in enumerate(values, start=1) if value is not None}
+
+
+def without_cell_references_in_row_100(path: Path) -> None:
+    """Komórki A:P wiersza 100 bez adresu ``r``; openpyxl liczy wtedy kolumny po kolei, jak pozwala format."""
+
+    def change(name: str, data: bytes) -> bytes:
+        if name != "xl/worksheets/sheet1.xml":
+            return data
+        start = data.index(b'<row r="100"')
+        end = data.index(b"</row>", start)
+        return data[:start] + re.sub(rb'<c r="[A-P]100"', b"<c", data[start:end]) + data[end:]
+
+    rewrite_parts(path, change)
+
+
+SHEET_SHAPES: dict[str, Callable[[Path], None]] = {
+    "jak-z-excela": lambda path: None,
+    "komorki-bez-adresu": without_cell_references_in_row_100,
+}
+
+
+@pytest.mark.parametrize("shape", SHEET_SHAPES)
+def test_wiersze_danych_po_pustych_wierszach_maja_wartosci_jak_w_excelu(tmp_path: Path, shape: str) -> None:
+    path = excel_collective_file(tmp_path / "wzorce")
+    SHEET_SHAPES[shape](path)
+    zeros = {letter: 0 for letter in ("Q", "R", "S", "T", "U", "V", "X")}
+
+    rows = read_data_rows(path)
+
+    assert [(row.number, row.worker) for row in rows] == [(18, "adrian.testowy"), (100, "beata.fikcyjna"), (150, None)]
+    assert all(len(row.values) == 46 for row in rows)
+    assert _values_by_column(rows[0].values) == {
+        "A": "Instalacje",
+        "B": "syntetyczny adres 1",
+        "F": 1001,
+        "G": datetime(2026, 10, 6, 9, 0),
+        "H": "adrian.testowy",
+        "J": True,
+        "K": "wynik formuły",
+        "N": 2,
+        "O": 2.5,
+        "P": "=N18*2",
+        **zeros,
+        "AT": "Suma",
+    }
+    assert [type(rows[0].values[column]) for column in (5, 13, 14)] == [int, int, float]
+    assert _values_by_column(rows[1].values) == {"C": "tylko C", "H": "beata.fikcyjna", "I": "#N/A", "Q": "=N100+1"}
+    assert _values_by_column(rows[2].values) == {"E": 3}
 
 
 def linked_template(path: Path) -> Path:
