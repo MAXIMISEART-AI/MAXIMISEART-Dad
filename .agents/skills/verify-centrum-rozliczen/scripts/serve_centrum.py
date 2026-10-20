@@ -22,6 +22,12 @@ verification never reaches GitHub and checks OneDrive on every system:
 - a file whose full path is a line of ``<root>/onedrive/tylko-w-chmurze.txt``
   has the Windows attribute of a OneDrive file „tylko online”.
 
+The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
+directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
+``<number>.json`` with its title, body, label, and ``state`` (``open``; the
+drive may edit it). The key is never written there. While
+``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
+
 One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
 each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
 milliseconds before it is written. The synthetic Szablony take milliseconds,
@@ -54,6 +60,7 @@ from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
+from rozliczenia.centrum.report_box import LABEL, Report, SendOutcome, Sent, Unreachable  # noqa: E402
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
@@ -88,6 +95,26 @@ class ScriptedPlatform:
 
     def choose_folder(self, title: str) -> Path | None:
         return self._answer(title)
+
+
+class FileReportBox:
+    """The skrzynka Zgłoszeń as a directory of ``<number>.json`` files (see the module doc)."""
+
+    def __init__(self, directory: Path) -> None:
+        self._directory = directory
+        self._lock = threading.Lock()
+
+    def send(self, report: Report, *, key: str) -> SendOutcome:
+        if (self._directory / "brak-sieci").exists():
+            return Unreachable()
+        with self._lock:
+            self._directory.mkdir(parents=True, exist_ok=True)
+            number = len(list(self._directory.glob("*.json"))) + 1
+            issue = {"number": number, "title": report.title, "body": report.body, "labels": [LABEL], "state": "open"}
+            (self._directory / f"{number}.json").write_text(
+                json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+        return Sent(number)
 
 
 def _scripted_github(root: Path) -> ToolFreshness:
@@ -150,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         configuration_files=ConfigurationFiles(**configuration),
         tool_freshness=_scripted_github(root),
         cloud_files=_scripted_onedrive(root),
+        report_box=FileReportBox(root / "skrzynka-zgloszen"),
     )
 
     def record_bound_server(url: str) -> None:

@@ -103,6 +103,15 @@ REQUIRED_SCREENSHOTS = {
         "78-onedrive-tylko-w-chmurze.png",
         "79-aktualnosc-i-onedrive-przeszly.png",
     ),
+    "zgloszenie": (
+        "60-zgloszenie-podglad.png",
+        "61-zgloszenie-bez-klucza.png",
+        "62-zgloszenie-konfiguracja-brak-klucza.png",
+        "63-zgloszenie-konfiguracja-gotowe.png",
+        "64-zgloszenie-wyslane.png",
+        "65-zgloszenie-po-odswiezeniu.png",
+        "66-zgloszenie-kolejne-uruchomienie.png",
+    ),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",

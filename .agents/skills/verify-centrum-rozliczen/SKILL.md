@@ -21,7 +21,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
-`--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, or `--feature start-i-zamykanie` drives one
+`--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and
@@ -56,7 +56,10 @@ live progress and the refused closing can be observed; the drive turns it on
 for one RUN only. The Diagnoza never reaches GitHub: the commit of `main` is the
 tool's own unless `<root>/github/main-commit.txt` names another, `<root>/github/brak-sieci`
 means no network, and a full path listed in `<root>/onedrive/tylko-w-chmurze.txt` is a
-OneDrive file „tylko online” on every system. The adapter is the production boundary for those actions; the real
+OneDrive file „tylko online” on every system. Zgłoszenia never reach GitHub
+either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.json`
+per Zgłoszenie (never the key), unreachable while `<root>/skrzynka-zgloszen/brak-sieci`
+exists. The adapter is the production boundary for those actions; the real
 Windows and macOS adapters are covered by `tests/test_centrum_launcher.py` (real
 process, real browser opening) and by hand.
 
