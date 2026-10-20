@@ -61,6 +61,8 @@ from openpyxl.styles.numbers import (
 from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
 from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, to_excel
 
+from .sheet_data import IrregularSheetData, SheetRow, sheet_data_bounds, sheet_rows
+
 
 class UnsupportedShape(Exception):
     """Wzorca albo wartości nie da się zapisać podmianą wierszy; zapis idzie dawną drogą."""
@@ -73,6 +75,9 @@ class InvalidValue(Exception):
 _OFFICE_REL: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_REL: Final = "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
 _MAIN: Final = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+# Błędy odczytu bajtów Wzorca, które znaczą kształt spoza kopii albo uszkodzenie: Wzorzec idzie wtedy dawną
+# drogą przez openpyxl, z jej klasyfikacją. Kopia czyta tylko bajty w pamięci, więc błąd wejścia-wyjścia
+# (``OSError``) ani inny nieoczekiwany wyjątek nie jest tu kształtem i nie jest maskowany.
 _READ_ERRORS: Final = (
     zipfile.BadZipFile,
     zipfile.LargeZipFile,
@@ -83,10 +88,7 @@ _READ_ERRORS: Final = (
     expat.ExpatError,
     zlib.error,
     struct.error,
-    NotImplementedError,
-    RuntimeError,
     EOFError,
-    OSError,
 )
 
 # Wiersze arkusza w jednym kawałku kompresji. Mniejszy kawałek: mniej kompresji przy każdej kopii,
@@ -95,7 +97,6 @@ _ROWS_PER_CHUNK: Final = 64
 _COMPRESSION_LEVEL: Final = 6
 _MAX_TEXT: Final = 32767  # openpyxl przycina tekst komórki do tej długości
 
-_ROW_START = re.compile(rb'<row r="(\d+)"')
 _CELL = re.compile(rb'<c r="([A-Z]{1,3})(\d+)"([^>]*?)(?:/>|>(.*?)</c>)', re.S)
 _CELL_WITH_CONTENT = re.compile(rb'<c r="([A-Z]{1,3})\d+"[^>]*(?<!/)>(.*?)</c>', re.S)  # komórka z treścią
 _STYLE = re.compile(rb'\ss="(\d+)"')
@@ -112,13 +113,6 @@ _XF = re.compile(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", re.S)
 _NUM_FMT = re.compile(rb"<numFmt\b([^>]*?)/?>")
 _NUM_FMT_ID = re.compile(rb'numFmtId="(\d+)"')
 _CALC_FLAGS: Final = ((b"calcMode", b"auto"), (b"fullCalcOnLoad", b"1"), (b"forceFullCalc", b"1"))
-
-
-@dataclass(frozen=True)
-class _Row:
-    number: int
-    start: int
-    end: int
 
 
 @dataclass(frozen=True)
@@ -219,6 +213,11 @@ class TemplateCopy:
 def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     archive = zipfile.ZipFile(BytesIO(content))
     infos = archive.infolist()
+    for info in infos:
+        if info.flag_bits & 0x1:
+            raise UnsupportedShape("encrypted")
+        if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise UnsupportedShape("compression")
     plain = {info.filename: archive.read(info) for info in infos}  # sprawdza CRC każdej części
     _require_well_formed_xml(plain)
     workbook_name = _office_document(plain)
@@ -234,8 +233,6 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     sheet_index = styles_index = -1
     parts: list[_Part | None] = []
     for index, info in enumerate(infos):
-        if info.flag_bits & 0x1:
-            raise UnsupportedShape("encrypted")
         if info.filename == sheet_name:
             sheet_index = index
             parts.append(None)
@@ -245,11 +242,11 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         elif info.filename == workbook_name:
             parts.append(_compressed_part(info, _with_full_recalculation(workbook_xml)))
         else:
-            parts.append(_unchanged_part(content, info, plain[info.filename]))
+            parts.append(_raw_part(content, info))
     if sheet_index < 0:
         raise UnsupportedShape("sheet")
     sheet = _Sheet(infos[sheet_index], sheet_index, plain[sheet_name], layout, epoch=MAC_EPOCH if date1904 else WINDOWS_EPOCH)
-    styles = _Styles(infos[styles_index], plain[styles_name], _unchanged_part(content, infos[styles_index], plain[styles_name]))
+    styles = _Styles(infos[styles_index], plain[styles_name], _raw_part(content, infos[styles_index]))
     return TemplateCopy(parts, sheet, styles, sheet.header(shared_strings), sheet.has_input_data)
 
 
@@ -355,14 +352,6 @@ def _encoded_name(name: str) -> tuple[bytes, int]:
         return name.encode("utf-8"), 0x800
 
 
-def _unchanged_part(content: bytes, info: zipfile.ZipInfo, data: bytes) -> _Part:
-    """Część bez zmian: skompresowana treść z zip Wzorca, a w nieobsługiwanej metodzie kompresji skompresowana na nowo."""
-
-    if info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
-        return _raw_part(content, info)
-    return _compressed_part(info, data)
-
-
 def _raw_part(content: bytes, info: zipfile.ZipInfo) -> _Part:
     """Część przepisana razem ze skompresowaną treścią z zip Wzorca."""
 
@@ -407,12 +396,11 @@ class _Sheet:
         self._layout = layout
         self._epoch = epoch
         self._letters = [get_column_letter(column).encode("ascii") for column in range(1, layout.data_columns + 1)]
-        data_start = xml.find(b"<sheetData>")
-        data_end = xml.find(b"</sheetData>")
-        if data_start < 0 or data_end < data_start or xml.count(b"<sheetData") != 1:
-            raise UnsupportedShape("sheetData")
-        _require_r_attributes(xml, data_start, data_end)
-        self._rows = _index_rows(xml, data_start, data_end)
+        try:
+            data_start, data_end = sheet_data_bounds(xml)
+            self._rows = sheet_rows(xml, data_start, data_end)
+        except IrregularSheetData as exc:
+            raise UnsupportedShape(str(exc)) from exc
         self._numbers = [row.number for row in self._rows]
         first = bisect_left(self._numbers, layout.first_data_row)
         self._data_start = self._rows[first].start if first < len(self._rows) else data_end
@@ -484,7 +472,7 @@ class _Sheet:
         reference = f"{get_column_letter(covering[0])}{covering[1]}:{get_column_letter(covering[2])}{covering[3]}"
         return prefix[:start] + reference.encode("ascii") + prefix[end:]
 
-    def _patched_row(self, row: _Row | None, number: int, values: Sequence[object], styles: _StyleAdditions) -> bytes:
+    def _patched_row(self, row: SheetRow | None, number: int, values: Sequence[object], styles: _StyleAdditions) -> bytes:
         cells: dict[int, bytes] = {}
         if row is None:
             start_tag = b'<row r="%d">' % number
@@ -515,27 +503,6 @@ class _Sheet:
             return _cell_xml(reference, style, b"n", b"<v>" + _number(serial) + b"</v>")
         kind, content = _value_xml(value)
         return _cell_xml(reference, style, kind, content)
-
-
-def _require_r_attributes(xml: bytes, start: int, end: int) -> None:
-    """Każdy wiersz i każda komórka mają ``r`` jako pierwszy atrybut, jak w plikach Excela i openpyxl."""
-
-    for tag, with_reference in ((b"<row", b'<row r="'), (b"<c", b'<c r="')):
-        tags = sum(xml.count(tag + following, start, end) for following in (b" ", b">", b"/", b"\n", b"\r", b"\t"))
-        if tags != xml.count(with_reference, start, end):
-            raise UnsupportedShape("r")
-
-
-def _index_rows(xml: bytes, start: int, end: int) -> list[_Row]:
-    rows: list[_Row] = []
-    for match in _ROW_START.finditer(xml, start, end):
-        number = int(match.group(1))
-        if rows and number <= rows[-1].number:
-            raise UnsupportedShape("row order")
-        tag_end = xml.index(b">", match.end())
-        row_end = tag_end + 1 if xml[tag_end - 1 : tag_end] == b"/" else xml.index(b"</row>", tag_end) + len(b"</row>")
-        rows.append(_Row(number, match.start(), row_end))
-    return rows
 
 
 def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, layout: SheetLayout) -> bool:

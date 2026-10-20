@@ -25,6 +25,7 @@ te same bajty, więc lustro benchmarku zbudowane z nich ma stały odcisk.
 from __future__ import annotations
 
 import argparse
+import sys
 import zipfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -34,10 +35,22 @@ from xml.sax.saxutils import escape
 import yaml
 from openpyxl.utils import get_column_letter
 
-WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
-COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
-INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
-WORKER_CONFIG = "worker_mapping.yaml"
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from rozliczenia.collective_preparation import (  # noqa: E402
+    default_collective_template_path,
+    default_internal_template_path,
+)
+from rozliczenia.engine import default_worker_template_path  # noqa: E402
+from rozliczenia.workbook_files import DATA_ROW_COLUMNS, FIRST_DATA_ROW, HEADER_ROW, QUANTITY_COLUMNS  # noqa: E402
+from rozliczenia.worker_config import default_config_path  # noqa: E402
+
+# Nazwy, pod którymi Wzorce i Konfiguracja wykonawców leżą w ``config``: te same, których szukają procesy.
+WORKER_TEMPLATE = default_worker_template_path().name
+COLLECTIVE_TEMPLATE = default_collective_template_path().name
+INTERNAL_TEMPLATE = default_internal_template_path().name
+WORKER_CONFIG = default_config_path().name
 # Zmiana kształtu albo treści wygenerowanych plików podnosi wersję (benchmark trzyma je pod nią).
 GENERATOR_VERSION = 1
 
@@ -45,8 +58,8 @@ GENERATOR_VERSION = 1
 FULL_DATA_ROWS = 10_076
 WORKERS = 20
 
-_HEADER_ROW = 17
-_FIRST_DATA_ROW = 18
+_HEADER_ROW = HEADER_ROW
+_FIRST_DATA_ROW = FIRST_DATA_ROW
 # Wzorzec taty: stałe 0 w N:V i X w wierszach 18..500.
 _ZERO_ROWS = 483
 # Excel zapisuje wzór wspólnej formuły kolumny co 64 wiersze.
@@ -61,7 +74,9 @@ _PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
 
 _COLUMN = {index: get_column_letter(index) for index in range(1, 54)}
-_N, _V, _W, _X, _AP, _AT, _AU, _AY, _BA = 14, 22, 23, 24, 42, 46, 47, 51, 53
+# Ilości N:AP i koniec Wiersza danych AT z układu procesu; pozostałe kolumny to szczegóły Wzorca taty.
+_N, _AP, _AT = QUANTITY_COLUMNS[0], QUANTITY_COLUMNS[-1], DATA_ROW_COLUMNS[-1]
+_V, _W, _X, _AU, _AY, _BA = 22, 23, 24, 47, 51, 53
 
 _INPUT_HEADERS = (
     "ADRES",
