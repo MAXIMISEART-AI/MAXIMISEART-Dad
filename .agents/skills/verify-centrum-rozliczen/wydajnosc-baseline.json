@@ -1,0 +1,343 @@
+{
+  "zmierzono": {
+    "data": "2026-10-20",
+    "powtorzenia": 5,
+    "profile": [
+      "4x",
+      "6x"
+    ]
+  },
+  "margines": {
+    "wzgledny": 0.15,
+    "minimalny_ms": 20,
+    "bundle_wzgledny": 0.02
+  },
+  "bundle_bajty": {
+    "js": 1017910,
+    "css": 107027
+  },
+  "scenariusze": {
+    "okresy/zimny-start": {
+      "mediana_ms": {
+        "4x": 385,
+        "6x": 605
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/periods": 1,
+        "GET /api/reports/repair": 1,
+        "GET /api/runs/events": 1,
+        "GET /api/settings": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "uruchomienia/zimny-start": {
+      "mediana_ms": {
+        "4x": 290,
+        "6x": 442
+      },
+      "zapytania_api": {
+        "GET /api/runs/events": 1,
+        "GET /api/runs/setup": 2,
+        "GET /api/settings": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "metryki/zimny-start": {
+      "mediana_ms": {
+        "4x": 405,
+        "6x": 624
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/runs/events": 1,
+        "GET /api/settings": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "konfiguracja/zimny-start": {
+      "mediana_ms": {
+        "4x": 233,
+        "6x": 365
+      },
+      "zapytania_api": {
+        "GET /api/configuration": 1,
+        "GET /api/runs/events": 1,
+        "GET /api/settings": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/1/uruchomienia": {
+      "mediana_ms": {
+        "4x": 134,
+        "6x": 195
+      },
+      "zapytania_api": {
+        "GET /api/runs/setup": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/1/uruchomienia/szkielet": {
+      "mediana_ms": {
+        "4x": 52,
+        "6x": 70
+      }
+    },
+    "menu/1/metryki": {
+      "mediana_ms": {
+        "4x": 189,
+        "6x": 282
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/1/metryki/szkielet": {
+      "mediana_ms": {
+        "4x": 154,
+        "6x": 236
+      }
+    },
+    "menu/1/konfiguracja": {
+      "mediana_ms": {
+        "4x": 57,
+        "6x": 71
+      },
+      "zapytania_api": {
+        "GET /api/configuration": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/1/konfiguracja/szkielet": {
+      "mediana_ms": {
+        "4x": 13,
+        "6x": 16
+      }
+    },
+    "menu/1/okresy": {
+      "mediana_ms": {
+        "4x": 152,
+        "6x": 208
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/periods": 1,
+        "GET /api/reports/repair": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/1/okresy/szkielet": {
+      "mediana_ms": {
+        "4x": 119,
+        "6x": 165
+      }
+    },
+    "menu/2/uruchomienia": {
+      "mediana_ms": {
+        "4x": 82,
+        "6x": 107
+      },
+      "zapytania_api": {
+        "GET /api/runs/setup": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/2/uruchomienia/szkielet": {
+      "mediana_ms": {
+        "4x": 27,
+        "6x": 32
+      }
+    },
+    "menu/2/metryki": {
+      "mediana_ms": {
+        "4x": 124,
+        "6x": 184
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/2/metryki/szkielet": {
+      "mediana_ms": {
+        "4x": 90,
+        "6x": 148
+      }
+    },
+    "menu/2/konfiguracja": {
+      "mediana_ms": {
+        "4x": 42,
+        "6x": 60
+      },
+      "zapytania_api": {
+        "GET /api/configuration": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/2/konfiguracja/szkielet": {
+      "mediana_ms": {
+        "4x": 5,
+        "6x": 13
+      }
+    },
+    "menu/2/okresy": {
+      "mediana_ms": {
+        "4x": 142,
+        "6x": 209
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/periods": 1,
+        "GET /api/reports/repair": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "menu/2/okresy/szkielet": {
+      "mediana_ms": {
+        "4x": 106,
+        "6x": 161
+      }
+    },
+    "okresy/motyw-jasny": {
+      "mediana_ms": {
+        "4x": 112,
+        "6x": 160
+      },
+      "zapytania_api": {
+        "PUT /api/settings/theme": 1
+      }
+    },
+    "okresy/motyw-ciemny": {
+      "mediana_ms": {
+        "4x": 80,
+        "6x": 120
+      },
+      "zapytania_api": {
+        "PUT /api/settings/theme": 1
+      }
+    },
+    "okresy/powrot-do-karty": {
+      "mediana_ms": {
+        "4x": 18,
+        "6x": 18
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/periods": 1,
+        "GET /api/reports/repair": 1,
+        "GET /api/settings": 1
+      }
+    },
+    "metryki/proces-przebieg": {
+      "mediana_ms": {
+        "4x": 56,
+        "6x": 80
+      },
+      "zapytania_api": {}
+    },
+    "metryki/proces-przygotowanie": {
+      "mediana_ms": {
+        "4x": 48,
+        "6x": 72
+      },
+      "zapytania_api": {}
+    },
+    "metryki/tryb-dry-run": {
+      "mediana_ms": {
+        "4x": 56,
+        "6x": 88
+      },
+      "zapytania_api": {}
+    },
+    "metryki/tryb-run": {
+      "mediana_ms": {
+        "4x": 64,
+        "6x": 88
+      },
+      "zapytania_api": {}
+    },
+    "metryki/zakladka-tabela": {
+      "mediana_ms": {
+        "4x": 32,
+        "6x": 40
+      },
+      "zapytania_api": {}
+    },
+    "metryki/zakladka-wykres": {
+      "mediana_ms": {
+        "4x": 80,
+        "6x": 128
+      },
+      "zapytania_api": {}
+    },
+    "metryki/powrot-do-karty": {
+      "mediana_ms": {
+        "4x": 41,
+        "6x": 60
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/settings": 1
+      }
+    },
+    "uruchomienia/zakladka-historia": {
+      "mediana_ms": {
+        "4x": 16,
+        "6x": 24
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1
+      }
+    },
+    "uruchomienia/zakladka-uruchomienie": {
+      "mediana_ms": {
+        "4x": 24,
+        "6x": 24
+      },
+      "zapytania_api": {
+        "GET /api/runs/setup": 1
+      }
+    },
+    "menu-boczne/zwin": {
+      "mediana_ms": {
+        "4x": 16,
+        "6x": 16
+      },
+      "zapytania_api": {}
+    },
+    "menu-boczne/rozwin": {
+      "mediana_ms": {
+        "4x": 16,
+        "6x": 16
+      },
+      "zapytania_api": {}
+    },
+    "okresy/ponowne-otwarcie": {
+      "mediana_ms": {
+        "4x": 383,
+        "6x": 594
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/periods": 1,
+        "GET /api/reports/repair": 1,
+        "GET /api/runs/events": 1,
+        "GET /api/settings": 1,
+        "POST /api/view-timings": 1
+      }
+    },
+    "metryki/ponowne-otwarcie": {
+      "mediana_ms": {
+        "4x": 402,
+        "6x": 615
+      },
+      "zapytania_api": {
+        "GET /api/metrics": 1,
+        "GET /api/runs/events": 1,
+        "GET /api/settings": 1,
+        "POST /api/view-timings": 1
+      }
+    }
+  }
+}
