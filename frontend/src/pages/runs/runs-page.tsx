@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useAppearance } from "@/lib/appearance"
+import { useContentEntrance } from "@/lib/content-entrance"
 import { isActive, useRuns } from "@/lib/runs"
 import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
@@ -61,7 +61,7 @@ export function RunsPage() {
 
 function RunHistory() {
   const { resource: metrics } = useResource(getMetrics)
-  const appearance = useAppearance(metrics.state === "loading")
+  const entrance = useContentEntrance(metrics.state === "loading")
 
   switch (metrics.state) {
     case "loading":
@@ -75,7 +75,7 @@ function RunHistory() {
       )
     case "ready":
       return (
-        <div className={appearance}>
+        <div className={entrance}>
           <RunHistoryCard runs={metrics.data.runs} />
         </div>
       )
@@ -91,7 +91,7 @@ function RunsContent() {
   const { resource: setup, reload } = useResource(getRunSetup)
   const { view, dismissed, draft, decide, newRun } = useRuns()
   const finishedRun = view?.state === "finished" ? view.run.id : null
-  const appearance = useAppearance(view === null || setup.state === "loading")
+  const entrance = useContentEntrance(view === null || setup.state === "loading")
   // Uruchomienie zakończone przed wejściem na stronę zna już odczyt przy montowaniu.
   const readAfter = React.useRef(finishedRun)
 
@@ -123,7 +123,7 @@ function RunsContent() {
 
   if (setupInstead) {
     return (
-      <div className={appearance}>
+      <div className={entrance}>
         <RunSetupCard processes={processes} />
       </div>
     )
@@ -132,7 +132,7 @@ function RunsContent() {
   const reminder = processes.find((process) => process.process === view.run.process)?.reminder ?? ""
 
   return (
-    <div className={appearance}>
+    <div className={entrance}>
       <RunCard view={view} reminder={reminder} onNewRun={() => newRun(view.run.id)} />
       {view.state === "awaiting_decision" ? (
         <DecisionDialog decision={view.decision} onDecide={(answer) => decide(view.run.id, answer)} />

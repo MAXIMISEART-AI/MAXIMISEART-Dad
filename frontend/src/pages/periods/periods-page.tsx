@@ -15,7 +15,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useAppearance } from "@/lib/appearance"
+import { useContentEntrance } from "@/lib/content-entrance"
 import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
 import { FileSettingsCard } from "@/pages/periods/file-settings-card"
@@ -26,7 +26,7 @@ import { RepairNotice } from "@/pages/periods/repair-notice"
 
 export function PeriodsPage() {
   const { settings } = useSettings()
-  const appearance = useAppearance(settings.state === "loading")
+  const entrance = useContentEntrance(settings.state === "loading")
 
   return (
     <>
@@ -35,7 +35,7 @@ export function PeriodsPage() {
       {settings.state === "loading" ? <PeriodsSkeleton /> : null}
       {settings.state === "failed" ? <Failure message={settings.message} /> : null}
       {settings.state === "ready" ? (
-        <div className={cn(appearance, "flex flex-col gap-6")}>
+        <div className={cn(entrance, "flex flex-col gap-6")}>
           {/* Nowe pliki taty to nowy odczyt Tablicy okresów; zmiana motywu nim nie jest. */}
           <PeriodBoardSection key={filesIdentity(settings.data)} />
           <FileSettingsCard settings={settings.data} />

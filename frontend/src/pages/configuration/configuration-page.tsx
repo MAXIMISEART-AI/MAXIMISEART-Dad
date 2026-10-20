@@ -16,13 +16,13 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Item, ItemActions, ItemContent, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useAppearance } from "@/lib/appearance"
+import { useContentEntrance } from "@/lib/content-entrance"
 import { useResource } from "@/lib/use-resource"
 
 /** Konfiguracja tylko do odczytu: czy Wzorce są gotowe, kto jest Wykonawcą i jaka jest wersja narzędzia. */
 export function ConfigurationPage() {
   const { resource: configuration } = useResource(getConfiguration)
-  const appearance = useAppearance(configuration.state === "loading")
+  const entrance = useContentEntrance(configuration.state === "loading")
 
   return (
     <>
@@ -47,7 +47,7 @@ export function ConfigurationPage() {
         </Alert>
       ) : null}
       {configuration.state === "ready" ? (
-        <div className={cn(appearance, "grid grid-cols-1 items-start gap-6 @4xl/main:grid-cols-2")}>
+        <div className={cn(entrance, "grid grid-cols-1 items-start gap-6 @4xl/main:grid-cols-2")}>
           <TemplatesCard templates={configuration.data.templates} />
           <WorkersCard workers={configuration.data.workers} />
         </div>
