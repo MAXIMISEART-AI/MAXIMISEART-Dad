@@ -16,6 +16,7 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.report_box import Report, SendOutcome, Sent
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 
@@ -55,6 +56,25 @@ class FakePlatform:
 
 
 @dataclass
+class FakeReportBox:
+    """Skrzynka Zgłoszeń zastąpiona zapisem wysłanych Zgłoszeń i przygotowanymi wynikami wysyłki.
+
+    Bez przygotowanego wyniku każde Zgłoszenie dostaje kolejny numer issue.
+    """
+
+    outcomes: list[SendOutcome] = field(default_factory=list)
+    sent: list[Report] = field(default_factory=list)
+    keys: list[str] = field(default_factory=list)
+
+    def send(self, report: Report, *, key: str) -> SendOutcome:
+        self.keys.append(key)
+        outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.sent) + 1)
+        if isinstance(outcome, Sent):
+            self.sent.append(report)
+        return outcome
+
+
+@dataclass
 class FakeGitHub:
     """Commit narzędzia u taty i commit `main` na GitHubie; ``main=None`` to brak sieci."""
 
@@ -85,10 +105,12 @@ class Centrum:
     settings_path: Path
     metrics: MetricsFiles
     log_path: Path
+    report_box: FakeReportBox
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     platform = FakePlatform()
+    report_box = FakeReportBox()
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
     # Pliki metryk obu procesów w katalogu testu, nigdy historia z katalogu narzędzia.
     metrics = MetricsFiles(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
@@ -103,9 +125,10 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         metrics_files=metrics,
         tool_freshness=FakeGitHub().freshness(),
         cloud_files=FakeOneDrive().cloud_files(),
+        report_box=report_box,
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path, metrics, log_path)
+    return Centrum(client, platform, settings_path, metrics, log_path, report_box)
 
 
 def project_version() -> str:

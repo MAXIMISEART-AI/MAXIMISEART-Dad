@@ -10,17 +10,20 @@ from dataclasses import dataclass, field
 from datetime import date
 import json
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
+
+import pytest
 
 from fastapi.testclient import TestClient
 
+from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, finished_view
+from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, FakeReportBox, finished_view
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
 
@@ -31,10 +34,14 @@ WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
 
 @dataclass
 class Surroundings:
-    """GitHub i OneDrive widziane z komputera taty; ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu."""
+    """GitHub, OneDrive i skrzynka Zgłoszeń widziane z komputera taty.
+
+    ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu.
+    """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
     onedrive: FakeOneDrive | None = field(default_factory=FakeOneDrive)
+    report_box: FakeReportBox = field(default_factory=FakeReportBox)
 
 
 def _client(
@@ -56,6 +63,7 @@ def _client(
         metrics_files=metrics,
         tool_freshness=surroundings.github.freshness(),
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
+        report_box=surroundings.report_box,
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
 
@@ -206,3 +214,15 @@ def run_to_end(centrum: _Starting, *, dry_run: bool) -> dict[str, Any]:
     started = centrum.start(dry_run=dry_run)
     assert started.status_code == 200, started.json()
     return finished_view(centrum.client)
+
+
+def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Zatrzymanie „do Maksa” bez zmiany plików: podgląd, którego planu nie da się pokazać; zwraca id Uruchomienia."""
+
+    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
+        raise ValueError("synthetic summary failure SYN-001")
+
+    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
+    view = run_to_end(centrum, dry_run=True)
+    assert view["result"]["stop_kind"] == "for_maks"
+    return str(view["run"]["id"])

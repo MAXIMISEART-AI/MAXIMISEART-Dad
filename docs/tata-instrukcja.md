@@ -113,11 +113,44 @@ otwarty w Excelu) albo jednym z tych:
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
-| „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Kliknij `Wyślij do Maksa`. |
 | „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie. Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
 | „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
 | „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
 | „jest nieoczekiwany wyjątek narzędzia” | Przekaż komunikat osobie utrzymującej narzędzie. |
+
+### Zgłoszenie do Maksa
+
+Pod wyjaśnieniem Diagnozy jest przycisk `Wyślij do Maksa`. Gdy wyjaśnienie
+mówi, co poprawić, pierwszy jest `Uruchom ponownie`, a `Wyślij do Maksa` drugi.
+
+1. Rozwiń `Co zostanie wysłane`, jeśli chcesz zobaczyć dokładną treść
+   Zgłoszenia: komunikat, proces, okres, wersję narzędzia, wynik każdego
+   sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum. Nie ma w niej
+   adresów, numerów zleceń ani treści wierszy.
+2. Kliknij `Wyślij do Maksa`. Nie ma dodatkowego pytania „Na pewno?”.
+3. W miejscu przycisku pojawi się `Zgłoszenie wysłane do Maksa. Poczekaj na
+   naprawę.` Potwierdzenie zostaje po odświeżeniu karty i po ponownym otwarciu
+   Centrum, więc tego samego problemu nie wyślesz drugi raz.
+
+Zgłoszenie trafia do prywatnego repozytorium Zgłoszeń Maksa na GitHubie.
+Brak internetu niczego nie psuje, dopóki niczego nie wysyłasz.
+
+### Zgłoszenie → co zrobić
+
+Gdy wysłanie się nie uda, Centrum zapisze Zgłoszenie w pliku w folderze
+narzędzia, w `config\zgloszenia`, i pokaże komunikat z przyciskiem
+`Spróbuj ponownie`. Plik możesz przesłać Maksowi mailem jako załącznik.
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „na tym komputerze nie ma klucza do Zgłoszeń” | Prześlij wskazany plik Maksowi mailem. Gdy Maks wpisze klucz, kliknij `Spróbuj ponownie`. |
+| „klucz do Zgłoszeń wygasł albo jest nieważny” | Prześlij wskazany plik Maksowi mailem i powiedz mu o kluczu. Gdy Maks go wymieni, kliknij `Spróbuj ponownie`. |
+| „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Spróbuj ponownie`. Jeśli to nie pomoże, prześlij wskazany plik Maksowi mailem. |
+
+Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
+jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
+Maks; Ty niczego tam nie wpisujesz.
 
 ### Komunikaty startu Centrum rozliczeń
 

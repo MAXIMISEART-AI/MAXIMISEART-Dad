@@ -81,7 +81,9 @@ _PROBLEM_CODES: dict[str, contract.TemplateProblemKind] = {
 }
 
 
-def configuration_router(files: ConfigurationFiles) -> APIRouter:
+def configuration_router(files: ConfigurationFiles, report_key: Callable[[], contract.ReportKeyState]) -> APIRouter:
+    """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości)."""
+
     router = APIRouter(prefix="/api/configuration", tags=["konfiguracja"])
     checked = _CheckedTemplates()
 
@@ -91,6 +93,7 @@ def configuration_router(files: ConfigurationFiles) -> APIRouter:
             version=tool_version(),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
+            reports=report_key(),
         )
 
     return router

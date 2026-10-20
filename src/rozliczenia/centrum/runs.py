@@ -33,7 +33,7 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.centrum.run_view import ProcessView
-from rozliczenia.centrum.stops import StopMemory
+from rozliczenia.centrum.stops import ProblemFingerprint, StopMemory
 from rozliczenia.decision import Decision
 from rozliczenia.message import Message
 from rozliczenia.process_run import (
@@ -120,12 +120,19 @@ class RunHost:
     (także gdy czeka na decyzję taty). Początek i koniec każdego Uruchomienia
     trafiają do dziennika Centrum jako bezpieczne fakty, a rekord metryk każdego
     Uruchomienia z Centrum do ``CentrumRuns``. Ostatnie Zatrzymanie każdego procesu
-    zostaje w pamięci (``StopMemory``), żeby rozpoznać powtórkę.
+    zostaje w pamięci (``StopMemory``), żeby rozpoznać powtórkę. Przy Zatrzymaniu
+    z Diagnozą wynik pokazuje stan Zgłoszenia tego problemu (``report_state``).
     """
 
-    def __init__(self, log: CentrumLog, centrum_runs: CentrumRuns) -> None:
+    def __init__(
+        self,
+        log: CentrumLog,
+        centrum_runs: CentrumRuns,
+        report_state: Callable[[ProblemFingerprint], contract.ReportState],
+    ) -> None:
         self._log = log
         self._centrum_runs = centrum_runs
+        self._report_state = report_state
         self._stops = StopMemory()
         self._lock = threading.Lock()
         self._sequence = 0
@@ -209,6 +216,24 @@ class RunHost:
     def stop_kind(self, run: _Run, stop: Stop | None) -> contract.StopKind | None:
         return self._stops.kind(run.info.process, stop)
 
+    def report_state(
+        self, run: _Run, stop: Stop | None, kind: contract.StopKind | None
+    ) -> contract.ReportState | None:
+        """Stan Zgłoszenia problemu ``stop``; ``None``, gdy Centrum nie proponuje Diagnozy."""
+
+        if stop is None or kind is None or kind == "for_tata":
+            return None
+        return self._report_state(ProblemFingerprint.of(run.info.process, stop.message))
+
+    def show_report(self, run_id: str, state: contract.ReportState) -> None:
+        """Nowy stan Zgłoszenia w wyniku zakończonego Uruchomienia ``run_id`` dla każdej karty Centrum."""
+
+        with self._lock:
+            view = self._events[-1].view
+            if isinstance(view, contract.RunFinished) and view.run.id == run_id:
+                result = view.result.model_copy(update={"report": state})
+                self._publish_locked(view.model_copy(update={"result": result}))
+
     def finished(self, run: _Run, result: contract.RunOutcome, stop: Stop | None) -> None:
         info = run.info
         self._stops.remember(info.process, stop)
@@ -276,11 +301,13 @@ class _Run:
             )
             self._host.remember(prepared, since)
             stop = None if isinstance(outcome.ending, Finished) else outcome.ending
-            result = _run_result(outcome, prepared, self._host.stop_kind(self, stop))
+            kind = self._host.stop_kind(self, stop)
+            result = _run_result(outcome, prepared, kind, self._host.report_state(self, stop, kind))
         except Exception as failure:  # noqa: BLE001 - granica wątku Uruchomienia: typ wyjątku trafia do dziennika Centrum
             self._host.failed(failure)
             stop = Stop("after_engine", _RESULT_NOT_SHOWN)
-            result = _unexpected_result(prepared.dry_run, self._host.stop_kind(self, stop))
+            kind = self._host.stop_kind(self, stop)
+            result = _unexpected_result(prepared.dry_run, kind, self._host.report_state(self, stop, kind))
         self.stop = stop
         self.stop_kind = result.stop_kind
         self._host.finished(self, result, stop)
@@ -358,7 +385,10 @@ def _decision_view(decision: Decision) -> contract.Decision:
 
 
 def _run_result(
-    outcome: Outcome[_SummaryView], prepared: PreparedRun[Any, Any], stop_kind: contract.StopKind | None
+    outcome: Outcome[_SummaryView],
+    prepared: PreparedRun[Any, Any],
+    stop_kind: contract.StopKind | None,
+    report: contract.ReportState | None,
 ) -> contract.RunOutcome:
     """Wynik dla przeglądarki z ``Outcome`` rdzenia.
 
@@ -392,6 +422,7 @@ def _run_result(
         ending=kind,
         next_action=next_action,
         stop_kind=stop_kind,
+        report=report,
         stops=stops,
         warnings=[] if shown is None else shown.warnings,
         notices=list(outcome.notices),
@@ -399,7 +430,9 @@ def _run_result(
     )
 
 
-def _unexpected_result(dry_run: bool, stop_kind: contract.StopKind | None) -> contract.RunOutcome:
+def _unexpected_result(
+    dry_run: bool, stop_kind: contract.StopKind | None, report: contract.ReportState | None
+) -> contract.RunOutcome:
     """Ostatnia siatka: błąd samego adaptera po zakończeniu rdzenia (np. kontraktu wyniku); rdzeń zapisał już metryki."""
 
     return contract.RunOutcome(
@@ -408,6 +441,7 @@ def _unexpected_result(dry_run: bool, stop_kind: contract.StopKind | None) -> co
         ending="after_engine",
         next_action="rerun" if dry_run else "open_period_folder",
         stop_kind=stop_kind,
+        report=report,
         stops=[contract.Message.of(_RESULT_NOT_SHOWN)],
         warnings=[],
         notices=[],

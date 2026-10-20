@@ -11,7 +11,6 @@ from typing import Any, NoReturn
 import pytest
 
 from rozliczenia import preparation_register
-from rozliczenia.centrum import run_view
 
 from tests.fixtures.centrum import FakeGitHub
 from tests.fixtures.centrum_processes import (
@@ -21,6 +20,7 @@ from tests.fixtures.centrum_processes import (
     preparing_centrum,
     run_to_end,
     settling_centrum,
+    stopped_for_maks,
 )
 from tests.fixtures.preparation import (
     INTERNAL_SETTLEMENT_NAME,
@@ -127,18 +127,6 @@ NOT_FOUND = {
     "where": "Diagnoza w Centrum rozliczeń",
     "action": "Wyślij do Maksa.",
 }
-
-
-def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum, monkeypatch: pytest.MonkeyPatch) -> str:
-    """Zatrzymanie „do Maksa” bez zmiany plików: podgląd, którego planu nie da się pokazać."""
-
-    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
-        raise ValueError("synthetic summary failure SYN-001")
-
-    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
-    view = run_to_end(centrum, dry_run=True)
-    assert view["result"]["stop_kind"] == "for_maks"
-    return str(view["run"]["id"])
 
 
 def diagnose(centrum: PreparingCentrum | SettlingCentrum, run_id: str) -> dict[str, Any]:

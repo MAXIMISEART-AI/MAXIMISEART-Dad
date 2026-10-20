@@ -118,21 +118,6 @@ export const zDecision = z.object({
 });
 
 /**
- * Diagnosis
- *
- * Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
- *
- * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
- * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
- * ponownie; ``report``: przyczynę usuwa Maks.
- */
-export const zDiagnosis = z.object({
-    explanation: zMessage,
-    next_action: z.enum(['rerun', 'report']),
-    checks: z.array(zDiagnosisCheck)
-});
-
-/**
  * MissingPath
  *
  * Zapamiętana ścieżka, pod którą nie ma już pliku albo folderu.
@@ -371,6 +356,63 @@ export const zReadyPath = z.object({
 });
 
 /**
+ * ReportDraft
+ *
+ * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
+ */
+export const zReportDraft = z.object({
+    title: z.string(),
+    body: z.string()
+});
+
+/**
+ * Diagnosis
+ *
+ * Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+ *
+ * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+ * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+ * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+ * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk).
+ */
+export const zDiagnosis = z.object({
+    explanation: zMessage,
+    next_action: z.enum(['rerun', 'report']),
+    checks: z.array(zDiagnosisCheck),
+    report: zReportDraft
+});
+
+/**
+ * ReportReady
+ *
+ * Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy.
+ */
+export const zReportReady = z.object({
+    state: z.literal('ready')
+});
+
+/**
+ * ReportSaved
+ *
+ * Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.
+ *
+ * ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie.
+ */
+export const zReportSaved = z.object({
+    state: z.literal('saved'),
+    message: zMessage
+});
+
+/**
+ * ReportSent
+ *
+ * Zgłoszenie tego problemu jest wysłane z tego komputera i czeka na naprawę.
+ */
+export const zReportSent = z.object({
+    state: z.literal('sent')
+});
+
+/**
  * ResultCounts
  */
 export const zResultCounts = z.object({
@@ -590,7 +632,8 @@ export const zRunSummary = z.object({
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
  * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
- * Zatrzymania (``None`` bez Zatrzymania).
+ * Zatrzymania (``None`` bez Zatrzymania), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``,
+ * gdy Centrum go nie proponuje, czyli bez Zatrzymania i przy Zatrzymaniu „dla taty”).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -614,6 +657,11 @@ export const zRunOutcome = z.object({
         'for_tata',
         'for_maks',
         'repeated'
+    ]).nullable(),
+    report: z.discriminatedUnion('state', [
+        zReportReady,
+        zReportSent,
+        zReportSaved
     ]).nullable(),
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
@@ -676,7 +724,8 @@ export const zConfiguration = z.object({
     workers: z.discriminatedUnion('state', [
         zWorkersReady,
         zWorkersUnreadable
-    ])
+    ]),
+    reports: z.enum(['ready', 'missing_key'])
 });
 
 /**
@@ -790,6 +839,21 @@ export const zDiagnoseRunPath = z.object({
  * Successful Response
  */
 export const zDiagnoseRunResponse = zDiagnosis;
+
+export const zReportRunPath = z.object({
+    run_id: z.string()
+});
+
+/**
+ * Response Reportrun
+ *
+ * Successful Response
+ */
+export const zReportRunResponse = z.discriminatedUnion('state', [
+    zReportReady,
+    zReportSent,
+    zReportSaved
+]);
 
 /**
  * Successful Response

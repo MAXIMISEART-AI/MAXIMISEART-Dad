@@ -9,25 +9,32 @@ import {
 } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
-import { diagnoseRun, type Diagnosis, type DiagnosisCheck, type Message } from "@/api/centrum"
+import { diagnoseRun, type Diagnosis, type DiagnosisCheck, type Message, type RunOutcome } from "@/api/centrum"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { toast } from "@/components/ui/toast"
+import { ReportToMaks } from "@/pages/runs/report"
 
 type StopDiagnosis = {
   /** Akcja przy banerze Zatrzymania: „Diagnoza”, a po niej „Uruchom ponownie”, gdy Diagnoza potwierdza Komunikat. */
   action: React.ReactNode
-  /** Wynik Diagnozy pod banerem; `null` przed Diagnozą. */
+  /** Wynik Diagnozy i Zgłoszenie do Maksa pod banerem. */
   result: React.ReactNode
 }
 
 /**
  * Diagnoza Zatrzymania Uruchomienia `runId` na żądanie taty; wynik i rodzaj przyczyny liczy serwer.
- * Gdy wyjaśnienie to ten sam Komunikat co Zatrzymanie, nie powtarza go drugi raz.
+ * Gdy wyjaśnienie to ten sam Komunikat co Zatrzymanie, nie powtarza go drugi raz. Pod wynikiem jest
+ * Zgłoszenie do Maksa (`report`): przed Diagnozą tylko jego potwierdzenie albo zapisany plik.
  */
-export function useStopDiagnosis(runId: string, stop: Message | undefined, onRerun: () => void): StopDiagnosis {
+export function useStopDiagnosis(
+  runId: string,
+  stop: Message | undefined,
+  report: RunOutcome["report"],
+  onRerun: () => void
+): StopDiagnosis {
   const [checking, setChecking] = React.useState(false)
   const [diagnosis, setDiagnosis] = React.useState<Diagnosis | null>(null)
 
@@ -42,7 +49,11 @@ export function useStopDiagnosis(runId: string, stop: Message | undefined, onRer
   }
 
   if (diagnosis === null) {
-    return { action: <DiagnoseButton checking={checking} onDiagnose={diagnose} />, result: null }
+    return {
+      action: <DiagnoseButton checking={checking} onDiagnose={diagnose} />,
+      result:
+        report === null ? null : <ReportToMaks runId={runId} report={report} draft={null} primary={false} />,
+    }
   }
 
   const rerun =
@@ -68,6 +79,14 @@ export function useStopDiagnosis(runId: string, stop: Message | undefined, onRer
           <ThreePartMessage message={diagnosis.explanation} kind="diagnosis" action={rerun} />
         )}
         <Checks checks={diagnosis.checks} />
+        {report === null ? null : (
+          <ReportToMaks
+            runId={runId}
+            report={report}
+            draft={diagnosis.report}
+            primary={diagnosis.next_action === "report"}
+          />
+        )}
       </section>
     ),
   }

@@ -57,6 +57,16 @@ class CentrumLog:
 
         self._write("diagnoza", proces=process, okres=period, przyczyna=cause)
 
+    def report_sent(self, *, process: str, period: str, number: int) -> None:
+        """Zgłoszenie do Maksa przyjęte przez skrzynkę Zgłoszeń jako issue ``number``; bez treści i klucza."""
+
+        self._write("zgloszenie-wyslane", proces=process, okres=period, numer=number)
+
+    def report_saved(self, *, process: str, period: str, code: str) -> None:
+        """Zgłoszenia nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
+
+        self._write("zgloszenie-zapisane", proces=process, okres=period, kod=code)
+
     def recent(self, limit: int) -> list[str]:
         """Najwyżej ``limit`` ostatnich wpisów od ostatniego startu Centrum; brak dziennika to brak wpisów."""
 

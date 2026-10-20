@@ -172,7 +172,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
   const [confirming, setConfirming] = React.useState(false)
   const openFolder = () => openAndConfirm(run.period, "period_folder", () => undefined)
   const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
-  const diagnosis = useStopDiagnosis(run.id, result.stops[0], () => again(run.dry_run))
+  const diagnosis = useStopDiagnosis(run.id, result.stops[0], result.report, () => again(run.dry_run))
 
   // Rodzaj Zatrzymania wylicza serwer: „do Maksa” i powtórka dostają Diagnozę zamiast następnej akcji.
   const offersDiagnosis = result.stop_kind === "for_maks" || result.stop_kind === "repeated"
