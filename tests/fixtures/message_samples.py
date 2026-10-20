@@ -35,9 +35,7 @@ SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
 UNREADABLE_CONFIG = WorkerConfigError("unreadable", "Nie można odczytać pliku konfiguracji.")
-CONFIG_NOT_UTF8 = WorkerConfigError(
-    "not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8; zapisz go ponownie jako UTF-8."
-)
+CONFIG_NOT_UTF8 = WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.")
 CONFIG_NOT_YAML = WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.")
 INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfiguracji.")
 # Foldery nad folderem config z próbek; żaden Komunikat ich nie pokazuje.

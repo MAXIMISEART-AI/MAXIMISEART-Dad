@@ -62,9 +62,7 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
     except OSError as exc:
         raise WorkerConfigError("unreadable", "Nie można odczytać pliku konfiguracji.") from exc
     except UnicodeDecodeError as exc:
-        raise WorkerConfigError(
-            "not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8; zapisz go ponownie jako UTF-8."
-        ) from exc
+        raise WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.") from exc
     except yaml.YAMLError as exc:
         raise WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.") from exc
 
