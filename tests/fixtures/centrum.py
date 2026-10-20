@@ -74,7 +74,8 @@ class FakeReportBox:
     każdym pytaniu o otwarte Zgłoszenie, ``states_failure`` to porażka każdego
     zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
     ``search_hold`` to skrzynka, która na pytanie o otwarte Zgłoszenie odpowiada
-    dopiero, gdy test ją puści (``set``), jak GitHub bez sieci.
+    dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
+    mówi, że takie pytanie już trwa.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
@@ -86,6 +87,7 @@ class FakeReportBox:
     states_failure: Refused | Unreachable | None = None
     asked: list[list[int]] = field(default_factory=list)
     search_hold: threading.Event | None = None
+    searching: threading.Event = field(default_factory=threading.Event)
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
         self.keys.append(key)
@@ -96,6 +98,7 @@ class FakeReportBox:
         return outcome
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        self.searching.set()
         if self.search_hold is not None:
             self.search_hold.wait()
         if self.search_failure is not None:

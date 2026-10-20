@@ -246,9 +246,12 @@ class Reports:
         self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
         self._box = box
         self._log = log
+        # Blokada chroni tylko stan w pamięci i pliki stanu; pytania do skrzynki idą bez niej.
         self._lock = threading.Lock()
+        self._changed = threading.Condition(self._lock)
         self._draft: _Draft | None = None
         self._sent_runs: set[str] = set()
+        self._sending: set[str] = set()  # Uruchomienia, których Zgłoszenie właśnie idzie do skrzynki
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
         self._open: dict[str, int | None] = {}
 
@@ -282,31 +285,46 @@ class Reports:
         """
 
         info = stopped.info
-        with self._lock:
+        with self._changed:
+            while info.id in self._sending:  # drugie kliknięcie czeka na wynik pierwszego
+                self._changed.wait()
             draft = self._draft
             if draft is None or draft.run_id != info.id:
                 raise contract.Refusal(409, "Zgłoszenie powstaje z Diagnozy. Najpierw kliknij „Diagnoza”.")
             if info.id in self._sent_runs:
                 return contract.ReportSent(state="sent")
-            key = self._key()
-            outcome: SendOutcome | None = None
-            if key is not None:
-                found = self._box.find_open(draft.report.fingerprint, key=key)
-                if isinstance(found, int):
+            self._sending.add(info.id)
+        try:
+            return self._deliver(info, draft)
+        finally:
+            with self._changed:
+                self._sending.discard(info.id)
+                self._changed.notify_all()
+
+    def _deliver(self, info: contract.RunInfo, draft: _Draft) -> contract.ReportState:
+        """Wysyła ``draft``, gdy skrzynka nie ma otwartego Zgłoszenia tego problemu; inaczej zapisuje plik."""
+
+        key = self._key()
+        outcome: SendOutcome | None = None
+        if key is not None:
+            found = self._box.find_open(draft.report.fingerprint, key=key)
+            if isinstance(found, int):
+                with self._lock:
                     self._open[draft.report.fingerprint] = found
-                    self._log.report_waiting(process=info.process, period=info.period, number=found)
-                    return contract.ReportWaiting(state="waiting")
-                outcome = self._box.send(draft.report, key=key) if found is None else found
-            saved = self._unsent / draft.file_name
-            if isinstance(outcome, Sent):
+                self._log.report_waiting(process=info.process, period=info.period, number=found)
+                return contract.ReportWaiting(state="waiting")
+            outcome = self._box.send(draft.report, key=key) if found is None else found
+        saved = self._unsent / draft.file_name
+        if isinstance(outcome, Sent):
+            with self._lock:
                 self._sent.add(SentReport(draft.report.fingerprint, outcome.number, self._commit()))
                 self._open[draft.report.fingerprint] = outcome.number
                 self._sent_runs.add(info.id)
-                saved.unlink(missing_ok=True)
-                self._log.report_sent(process=info.process, period=info.period, number=outcome.number)
-                return contract.ReportSent(state="sent")
-            saved.parent.mkdir(parents=True, exist_ok=True)
-            saved.write_text(f"# {draft.report.title}\n\n{draft.report.body}", encoding="utf-8")
+            saved.unlink(missing_ok=True)
+            self._log.report_sent(process=info.process, period=info.period, number=outcome.number)
+            return contract.ReportSent(state="sent")
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(f"# {draft.report.title}\n\n{draft.report.body}", encoding="utf-8")
         message = (
             report_messages.key_missing(saved)
             if outcome is None
@@ -329,16 +347,20 @@ class Reports:
         commit = self._commit()
         if commit is None:
             return contract.RepairNotice(repaired=False)
+        key = self._key()
         with self._lock:
             waiting = [sent.number for sent in self._sent.all() if sent.commit == commit and sent.state == "open"]
-            key = self._key()
             now = self._clock()
             due = self._states_asked_at is None or now - self._states_asked_at >= STATES_INTERVAL_S
-            if waiting and key is not None and due:
-                self._states_asked_at = now
-                states = self._box.states(waiting, key=key)
-                if not isinstance(states, Refused | Unreachable):
+            ask = bool(waiting) and key is not None and due
+            if ask:
+                self._states_asked_at = now  # rezerwuje pytanie: równoległy odczyt nie pyta drugi raz
+        if ask and key is not None:
+            states = self._box.states(waiting, key=key)
+            if not isinstance(states, Refused | Unreachable):
+                with self._lock:
                     self._sent.mark(states)
+        with self._lock:
             repaired = any(sent.commit == commit and sent.state == "closed" for sent in self._sent.all())
         return contract.RepairNotice(repaired=repaired)
 

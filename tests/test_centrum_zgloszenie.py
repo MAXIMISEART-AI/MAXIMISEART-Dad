@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import re
 import threading
@@ -494,3 +495,28 @@ def test_spozniona_odpowiedz_skrzynki_w_diagnozie_to_brak_odpowiedzi(
         box.search_hold.set()
 
     assert current_report(centrum) == WAITING
+
+
+def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowiada_dalej(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, run_id)
+    box.search_hold = threading.Event()
+    box.searching.clear()
+
+    with ThreadPoolExecutor(3) as pool:
+        try:
+            clicks = [pool.submit(send, centrum, run_id) for _ in range(2)]
+            assert box.searching.wait(5)
+            during_send = pool.submit(centrum.client.get, "/api/reports/repair").result(timeout=2)
+        finally:
+            box.search_hold.set()
+        answers = [click.result(timeout=10) for click in clicks]
+
+    assert during_send.json() == {"repaired": False}
+    assert answers == [{"state": "sent"}, {"state": "sent"}]
+    assert len(box.sent) == 1
