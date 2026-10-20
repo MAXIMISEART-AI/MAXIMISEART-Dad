@@ -6,7 +6,7 @@ taty, jak po zamknięciu i ponownym otwarciu Centrum na komputerze taty.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 import json
 from pathlib import Path
@@ -20,7 +20,7 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import CENTRUM, FakePlatform, finished_view
+from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, finished_view
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
 
@@ -29,10 +29,23 @@ TODAY = date(2026, 9, 16)
 WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
 
 
+@dataclass
+class Surroundings:
+    """GitHub i OneDrive widziane z komputera taty; ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu."""
+
+    github: FakeGitHub = field(default_factory=FakeGitHub)
+    onedrive: FakeOneDrive | None = field(default_factory=FakeOneDrive)
+
+
 def _client(
-    tmp_path: Path, platform: FakePlatform, configuration: ConfigurationFiles, metrics: MetricsFiles
+    tmp_path: Path,
+    platform: FakePlatform,
+    configuration: ConfigurationFiles,
+    metrics: MetricsFiles,
+    surroundings: Surroundings,
 ) -> TestClient:
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
+    onedrive = surroundings.onedrive
     app = create_app(
         settings_path=tmp_path / "config" / "centrum-ustawienia.yaml",
         platform=platform,
@@ -41,6 +54,8 @@ def _client(
         today=lambda: TODAY,
         configuration_files=configuration,
         metrics_files=metrics,
+        tool_freshness=surroundings.github.freshness(),
+        cloud_files=None if onedrive is None else onedrive.cloud_files(),
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
 
@@ -52,6 +67,7 @@ class PreparingCentrum:
     metrics_path: Path
     log_path: Path
     tmp_path: Path
+    surroundings: Surroundings
 
     def start(self, *, dry_run: bool, period: str = PERIOD) -> Any:
         return self.client.post("/api/runs", json={"process": "preparation", "period": period, "dry_run": dry_run})
@@ -63,17 +79,19 @@ class PreparingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform())
+        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform(), self.surroundings)
 
 
-def _preparation_client(tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform) -> TestClient:
+def _preparation_client(
+    tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform, surroundings: Surroundings
+) -> TestClient:
     configuration = ConfigurationFiles(
         worker_config=fixture.config_path,
         internal_template=fixture.internal_template_path,
         collective_template=fixture.collective_template_path,
         worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
     )
-    return _client(tmp_path, platform, configuration, _metrics(tmp_path))
+    return _client(tmp_path, platform, configuration, _metrics(tmp_path), surroundings)
 
 
 def _metrics(tmp_path: Path) -> MetricsFiles:
@@ -83,16 +101,27 @@ def _metrics(tmp_path: Path) -> MetricsFiles:
     )
 
 
-def preparing_centrum(tmp_path: Path, rows: list[RegisterRow] | None = None) -> PreparingCentrum:
-    """Centrum z zapamiętanym syntetycznym Rejestrem zleceń i folderem okresów oraz własnymi wzorcami i metrykami."""
+def preparing_centrum(
+    tmp_path: Path, rows: list[RegisterRow] | None = None, *, surroundings: Surroundings | None = None
+) -> PreparingCentrum:
+    """Centrum z zapamiętanym syntetycznym Rejestrem zleceń i folderem okresów oraz własnymi wzorcami i metrykami.
+
+    Bez ``surroundings`` narzędzie jest aktualne, a każdy plik ma kopię na tym komputerze.
+    """
 
     fixture = make_preparation_fixture(tmp_path, rows)
     platform = FakePlatform(chosen_files=[fixture.register_path], chosen_folders=[fixture.periods_directory])
-    client = _preparation_client(tmp_path, fixture, platform)
+    surroundings = surroundings or Surroundings()
+    client = _preparation_client(tmp_path, fixture, platform, surroundings)
     client.post("/api/settings/register/choose")
     client.post("/api/settings/periods-directory/choose")
     return PreparingCentrum(
-        client, fixture, _metrics(tmp_path).preparation, tmp_path / "logs" / "centrum-rozliczen.log", tmp_path
+        client,
+        fixture,
+        _metrics(tmp_path).preparation,
+        tmp_path / "logs" / "centrum-rozliczen.log",
+        tmp_path,
+        surroundings,
     )
 
 
@@ -105,6 +134,7 @@ class SettlingCentrum:
     period_parent: Path
     configuration: ConfigurationFiles
     tmp_path: Path
+    surroundings: Surroundings
 
     @property
     def period_directory(self) -> Path:
@@ -128,7 +158,9 @@ class SettlingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _client(self.tmp_path, FakePlatform(), self.configuration, _metrics(self.tmp_path))
+        self.client = _client(
+            self.tmp_path, FakePlatform(), self.configuration, _metrics(self.tmp_path), self.surroundings
+        )
 
 
 def settling_centrum(
@@ -154,10 +186,13 @@ def settling_centrum(
         worker_template=worker_template,
     )
     metrics = _metrics(tmp_path)
-    client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, metrics)
+    surroundings = Surroundings()
+    client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, metrics, surroundings)
     client.post("/api/settings/periods-directory/choose")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
-    return SettlingCentrum(client, periods_directory, metrics.settlement, log_path, parent, configuration, tmp_path)
+    return SettlingCentrum(
+        client, periods_directory, metrics.settlement, log_path, parent, configuration, tmp_path, surroundings
+    )
 
 
 class _Starting(Protocol):

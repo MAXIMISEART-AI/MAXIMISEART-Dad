@@ -165,3 +165,25 @@ def figure(shown: object, label: str) -> int:
     [value] = [entry["value"] for entry in shown["figures"] if entry["label"] == label]
     assert isinstance(value, int)
     return value
+
+
+def stop_banner(page: Page) -> Locator:
+    """The three-part stop banner of the Uruchomienie procesu shown on Uruchomienia."""
+
+    return page.get_by_role("region", name="Podgląd na żywo").get_by_label("Zatrzymanie")
+
+
+def diagnosis_answer(run: Run, run_id: str, name: str) -> dict[str, object]:
+    """The server's Diagnoza for ``run_id`` as the browser gets it, kept in ``api/``."""
+
+    request = urllib.request.Request(
+        run.url.rstrip("/") + f"/api/runs/{run_id}/diagnosis",
+        data=b"",
+        method="POST",
+        headers={"Origin": run.url.rstrip("/")},
+    )
+    run.check(run.refused(request, name) == 200, "the server answers the Diagnoza")
+    record = json.loads((run.evidence / "api" / f"{name}.json").read_text(encoding="utf-8"))
+    body = record["body"]
+    assert isinstance(body, dict)
+    return body

@@ -12,6 +12,16 @@ the production boundary for Dad's computer, is scripted:
 - opening a file in Excel or a folder in Explorer appends the path to
   ``<root>/opened.jsonl`` instead of launching an application.
 
+The Diagnoza's two boundaries beyond Dad's files are scripted too, so the
+verification never reaches GitHub and checks OneDrive on every system:
+
+- the commit of `main` on GitHub is the tool's own commit (up to date) unless
+  ``<root>/github/main-commit.txt`` names another one; while
+  ``<root>/github/brak-sieci`` exists there is no network. The tool's own
+  commit is the real one (``tool_commit``) from this checkout;
+- a file whose full path is a line of ``<root>/onedrive/tylko-w-chmurze.txt``
+  has the Windows attribute of a OneDrive file „tylko online”.
+
 One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
 each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
 milliseconds before it is written. The synthetic Szablony take milliseconds,
@@ -40,11 +50,14 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rozliczenia import template_settlement  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
+from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
+from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
+from rozliczenia.centrum.version import tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
 from rozliczenia.workbook_files import ExcelRow  # noqa: E402
 
@@ -75,6 +88,27 @@ class ScriptedPlatform:
 
     def choose_folder(self, title: str) -> Path | None:
         return self._answer(title)
+
+
+def _scripted_github(root: Path) -> ToolFreshness:
+    def main_commit() -> str | None:
+        if (root / "github" / "brak-sieci").exists():
+            return None
+        chosen = root / "github" / "main-commit.txt"
+        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit()
+
+    return ToolFreshness(local=tool_commit, main=main_commit)
+
+
+def _scripted_onedrive(root: Path) -> CloudFiles:
+    normal, online_only = 0x80, 0x400000  # FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+
+    def attributes(path: Path) -> int:
+        listed = root / "onedrive" / "tylko-w-chmurze.txt"
+        lines = listed.read_text(encoding="utf-8").splitlines() if listed.exists() else []
+        return online_only if str(path) in lines else normal
+
+    return CloudFiles(read_attributes=attributes)
 
 
 def _pace_worker_templates(root: Path) -> None:
@@ -114,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
         today=lambda: today,
         metrics_files=metrics,
         configuration_files=ConfigurationFiles(**configuration),
+        tool_freshness=_scripted_github(root),
+        cloud_files=_scripted_onedrive(root),
     )
 
     def record_bound_server(url: str) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import json
 from pathlib import Path
+import sys
 from typing import Any, NoReturn
 
 import pytest
@@ -12,9 +13,11 @@ import pytest
 from rozliczenia import preparation_register
 from rozliczenia.centrum import run_view
 
+from tests.fixtures.centrum import FakeGitHub
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
+    Surroundings,
     preparing_centrum,
     run_to_end,
     settling_centrum,
@@ -183,7 +186,7 @@ def test_diagnoza_nieznanego_uruchomienia_jest_odrzucona(tmp_path: Path) -> None
     assert (refused.status_code, refused.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
 
 
-def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_rejestr_wzorce_folder_okresu_i_dziennik(
+def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_rejestr_wzorce_folder_okresu_onedrive_i_dziennik(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
@@ -192,6 +195,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_rejestr_wzorce_fold
     checks = diagnose(centrum, run_id)["checks"]
 
     assert [(check["label"], check["detail"]) for check in checks] == [
+        ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
         ("Ustawienia taty", "Rejestr zleceń i folder okresów są na miejscu."),
         ("Rejestr zleceń", "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki."),
         ("Wzorzec rozliczenia wewnętrznego", "Wzorzec rozliczenia wewnętrznego.xlsx przechodzi Sprawdzanie."),
@@ -199,6 +203,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_rejestr_wzorce_fold
         ("Konfiguracja wykonawców", "Wczytuje się."),
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
+        ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
         ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2, bez nieoczekiwanego wyjątku."),
     ]
 
@@ -406,14 +411,16 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
     missing = diagnose(centrum, run_id)
 
     assert [(check["label"], check["state"]) for check in passing["checks"]] == [
+        ("Aktualność narzędzia", "passed"),
         ("Ustawienia taty", "passed"),
         ("Wzorzec rozliczenia pracownika", "passed"),
         ("Konfiguracja wykonawców", "passed"),
         ("Folder okresu", "passed"),
         ("Pliki okresu w Excelu", "passed"),
+        ("Pliki w OneDrive", "passed"),
         ("Dziennik Centrum rozliczeń", "passed"),
     ]
-    assert passing["checks"][3]["detail"] == "Pliki okresu: Plik zbiorczy."
+    assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
     assert (passing["explanation"], missing["next_action"]) == (NOT_FOUND, "rerun")
     assert missing["explanation"]["what"] == "Nie znaleziono Pliku zbiorczego tego okresu. Nie utworzono żadnego pliku pracownika."
 
@@ -452,3 +459,132 @@ def files_of(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*"))
         if path.is_file() and "logs" not in path.relative_to(root).parts
     }
+
+
+def check(diagnosis: dict[str, Any], label: str) -> tuple[str, str]:
+    found = next(check for check in diagnosis["checks"] if check["label"] == label)
+    return found["state"], found["detail"]
+
+
+def test_aktualne_narzedzie_przechodzi_sprawdzenie_aktualnosci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Aktualność narzędzia") == ("passed", "Najnowsza wersja z GitHuba, commit 3c1d0a9.")
+    assert diagnosis["explanation"] == NOT_FOUND
+
+
+def test_nowsza_wersja_na_githubie_wyjasnia_ze_trzeba_zaktualizowac_narzedzie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    surroundings = Surroundings(github=FakeGitHub(main="9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"))
+    centrum = preparing_centrum(tmp_path, surroundings=surroundings)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    lock(centrum.fixture.register_path)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Jest nowsza wersja narzędzia.",
+        "where": "narzędzie na tym komputerze",
+        "action": "Zaktualizuj narzędzie, zamknij Centrum rozliczeń i otwórz je ponownie skrótem, potem uruchom ponownie.",
+    }
+    assert diagnosis["next_action"] == "rerun"
+    assert check(diagnosis, "Aktualność narzędzia") == ("failed", "Jest nowsza wersja narzędzia.")
+
+
+@pytest.mark.parametrize(
+    ("github", "detail"),
+    [
+        (FakeGitHub(main=None), "Nie sprawdzono: brak połączenia z GitHubem."),
+        (FakeGitHub(tool_commit=None), "Nie sprawdzono: narzędzie na tym komputerze nie ma commitu Gita."),
+    ],
+    ids=["brak-sieci", "bez-gita"],
+)
+def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyczyna(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github: FakeGitHub, detail: str
+) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=github))
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Aktualność narzędzia") == ("not_checked", detail)
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+ONLY_IN_CLOUD_ACTION = (
+    "W Eksploratorze plików kliknij ten plik prawym przyciskiem myszy, wybierz „Zawsze zachowuj na tym urządzeniu”, "
+    "poczekaj, aż się pobierze, i uruchom ponownie."
+)
+
+
+def online_only(centrum: PreparingCentrum | SettlingCentrum, path: Path) -> None:
+    """OneDrive trzyma ``path`` tylko w chmurze, bez kopii na komputerze taty."""
+
+    onedrive = centrum.surroundings.onedrive
+    assert onedrive is not None
+    onedrive.online_only.add(path)
+
+
+def test_rejestr_tylko_w_chmurze_wyjasnia_jak_zachowac_go_na_komputerze(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    online_only(centrum, centrum.fixture.register_path)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.",
+        "where": f"plik {centrum.fixture.register_path.name}, folder {tmp_path.name}",
+        "action": ONLY_IN_CLOUD_ACTION,
+    }
+    assert diagnosis["next_action"] == "rerun"
+    assert check(diagnosis, "Pliki w OneDrive")[0] == "failed"
+
+
+def test_wzorzec_tylko_w_chmurze_jest_przyczyna(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    online_only(centrum, centrum.fixture.collective_template_path)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"]["where"] == "plik Wzorzec pliku zbiorczego.xlsx, folder config"
+    assert check(diagnosis, "Pliki w OneDrive")[0] == "failed"
+
+
+def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    passing = diagnose(centrum, run_id)
+    online_only(centrum, centrum.collective_file)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(passing, "Pliki w OneDrive") == ("passed", "Sprawdzone pliki są na tym komputerze: 2.")
+    assert diagnosis["explanation"]["what"] == "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze."
+    assert diagnosis["explanation"]["where"] == f"plik Rozliczenie {PERIOD} - zbiorcze.xlsx, folder {PERIOD}"
+
+
+def test_pliki_tylko_w_chmurze_sprawdza_tylko_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(onedrive=None))
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    expected = (
+        ("passed", "Sprawdzone pliki są na tym komputerze: 3.")
+        if sys.platform == "win32"
+        else ("not_checked", "Nie sprawdzono: tylko w Windows.")
+    )
+    assert check(diagnosis, "Pliki w OneDrive") == expected
+    assert diagnosis["explanation"] == NOT_FOUND
