@@ -102,8 +102,9 @@ częściach i podpowie, co dalej:
   Kliknij `Diagnoza`. Centrum sprawdzi Twój komputer tylko do odczytu i wyjaśni
   przyczynę w trzech częściach. Niczego nie zmienia w Twoich plikach.
 
-Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij `Uruchom ponownie`. Lista
-`Sprawdzono` pokazuje każde sprawdzenie Diagnozy.
+Gdy przyczyną jest sam komunikat zatrzymania, Centrum pisze tylko `Diagnoza
+potwierdza ten komunikat.` Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij
+`Uruchom ponownie`. Lista `Sprawdzono` pokazuje każde sprawdzenie Diagnozy.
 
 ### Wyjaśnienie Diagnozy → co zrobić
 
