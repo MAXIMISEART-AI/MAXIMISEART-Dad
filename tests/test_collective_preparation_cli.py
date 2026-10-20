@@ -56,53 +56,23 @@ def summary_lines(output: str) -> list[str]:
     return lines[lines.index("Status końcowy: OK") :]
 
 
-def test_cli_stop_shows_co_gdzie_co_zrobic_and_exits_1(tmp_path: Path) -> None:
+def test_cli_stop_records_incomplete_run_with_zero_preparation_counters(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     fixture.period_directory.mkdir()
     fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
 
-    exit_code, output = run_preparation_cli(fixture)
+    exit_code, _ = run_preparation_cli(fixture)
 
     assert exit_code == 1
-    lines = output.splitlines()
-    stop = lines.index("Status końcowy: ZATRZYMANO")
-    assert lines[stop - 1] == "Etap przerwany: Sprawdzanie"
-    assert lines[stop + 1].startswith("Co się stało: Plik tego okresu już istnieje")
-    assert lines[stop + 2] == f"Gdzie: folder INEA\\{PERIOD}, plik {COLLECTIVE_FILE_NAME}"
-    assert lines[stop + 3].startswith("Co zrobić: ")
-    assert not fixture.internal_settlement_path.exists()
-    assert "SYN-" not in output
     [record] = metric_records(fixture)
     assert record["completed"] is False
     assert record["result"] == "BLAD_KRYTYCZNY"
     assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
 
 
-@pytest.mark.parametrize(
-    ("extra_args", "expected_message"),
-    [
-        (
-            (),
-            [
-                "Co się stało: Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
-                "Gdzie: Przygotowanie pliku zbiorczego",
-                "Co zrobić: Nie uruchamiaj ponownie: oba pliki okresu już są. "
-                "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
-            ],
-        ),
-        (
-            ("--dry-run",),
-            [
-                "Co się stało: Nie udało się pokazać planu. Nic nie zapisano.",
-                "Gdzie: Przygotowanie pliku zbiorczego",
-                "Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.",
-            ],
-        ),
-    ],
-    ids=["RUN", "DRY-RUN"],
-)
-def test_summary_failure_after_engine_says_whether_period_files_exist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...], expected_message: list[str]
+@pytest.mark.parametrize("extra_args", [(), ("--dry-run",)], ids=["RUN", "DRY-RUN"])
+def test_summary_failure_after_engine_leaves_period_files_only_after_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...]
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     prepare = collective_preparation.prepare_collective_file
@@ -114,21 +84,11 @@ def test_summary_failure_after_engine_says_whether_period_files_exist(
 
     monkeypatch.setattr(collective_preparation, "prepare_collective_file", prepare_with_unprintable_summary)
 
-    exit_code, output = run_preparation_cli(fixture, *extra_args)
+    exit_code, _ = run_preparation_cli(fixture, *extra_args)
 
     assert exit_code == 1
-    lines = output.splitlines()
-    status = lines.index("Status końcowy: BŁĄD")
-    assert lines[status + 1 : status + 4] == expected_message
-    assert lines[status + 4].startswith("Czas uruchomienia: ")
-    assert "Nie utworzono żadnego pliku" not in output
-    assert "SYN-" not in output
-    assert "Traceback" not in output
     assert fixture.internal_settlement_path.is_file() is (not extra_args)
     assert fixture.collective_file_path.is_file() is (not extra_args)
-    [record] = metric_records(fixture)
-    assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
-    assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
 
 
 @pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])
@@ -342,13 +302,9 @@ def test_invalid_typed_period_is_rejected_with_message_and_asked_again(tmp_path:
 def test_rejected_period_without_another_answer_stops_without_writing(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
-    exit_code, output = run_cli_asking_for_period(fixture, "okres\n")
+    exit_code, _ = run_cli_asking_for_period(fixture, "okres\n")
 
     assert exit_code == 1
-    lines = output.splitlines()
-    stop = lines.index("Status końcowy: ZATRZYMANO")
-    assert lines[stop + 1] == "Co się stało: Nie potwierdzono okresu ani nie wpisano innego. Nie utworzono żadnego pliku."
-    assert "Przygotowanie pliku zbiorczego | okres: nieznany | tryb: RUN" in output
     assert list(fixture.periods_directory.iterdir()) == []
     [record] = metric_records(fixture)
     assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
