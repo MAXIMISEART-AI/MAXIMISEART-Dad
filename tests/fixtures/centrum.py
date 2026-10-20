@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import tomllib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
@@ -72,6 +73,9 @@ class FakeReportBox:
     numeru (``close``). ``search_failure`` to odmowa albo brak połączenia przy
     każdym pytaniu o otwarte Zgłoszenie, ``states_failure`` to porażka każdego
     zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
+    ``search_hold`` to skrzynka, która na pytanie o otwarte Zgłoszenie odpowiada
+    dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
+    mówi, że takie pytanie już trwa.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
@@ -82,6 +86,8 @@ class FakeReportBox:
     search_failure: Refused | Unreachable | None = None
     states_failure: Refused | Unreachable | None = None
     asked: list[list[int]] = field(default_factory=list)
+    search_hold: threading.Event | None = None
+    searching: threading.Event = field(default_factory=threading.Event)
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
         self.keys.append(key)
@@ -92,6 +98,9 @@ class FakeReportBox:
         return outcome
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        self.searching.set()
+        if self.search_hold is not None:
+            self.search_hold.wait()
         if self.search_failure is not None:
             return self.search_failure
         number = self.open.get(fingerprint)

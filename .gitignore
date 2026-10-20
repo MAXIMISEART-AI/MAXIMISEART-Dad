@@ -15,6 +15,7 @@ logs/
 .verification/
 .przygotowanie-pliku-zbiorczego-metrics.jsonl
 .DS_Store
+config/worker_mapping.yaml
 config/centrum-ustawienia.yaml
 config/centrum-uruchomienia.jsonl
 config/zgloszenia-klucz.txt

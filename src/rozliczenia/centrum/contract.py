@@ -34,6 +34,10 @@ class Refusal(Exception):
         self.message = message
 
 
+# Odmowy akcji na zasobie w OpenAPI: brak zasobu (404) albo zły stan (409), obie jako ``Problem``.
+NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, object]] = {404: {"model": Problem}, 409: {"model": Problem}}
+
+
 class Health(_Model):
     service: Literal["centrum-rozliczen"]
     version: str
@@ -411,9 +415,12 @@ ReportState = Annotated[ReportReady | ReportSent | ReportWaiting | ReportSaved, 
 
 
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
-# osobie utrzymującej narzędzie (także nieoczekiwany błąd), ``repeated`` to ten sam Komunikat „dla taty”
+# osobie utrzymującej narzędzie (także nieoczekiwany wyjątek), ``repeated`` to ten sam Komunikat „dla taty”
 # drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
 StopKind = Literal["for_tata", "for_maks", "repeated"]
+# Diagnoza przy Zatrzymaniu: ``on_request`` to przycisk „Diagnoza” zamiast następnej akcji, ``automatic`` to
+# nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
+DiagnosisOffer = Literal["on_request", "automatic"]
 
 
 class RunOutcome(_Model):
@@ -422,8 +429,9 @@ class RunOutcome(_Model):
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
     błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
     którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
-    Zatrzymania (``None`` bez Zatrzymania), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``,
-    gdy Centrum go nie proponuje, czyli bez Zatrzymania i przy Zatrzymaniu „dla taty”).
+    Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
+    (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
+    problemu (``None``, gdy Centrum nie proponuje Diagnozy).
     """
 
     result: RunResult
@@ -431,6 +439,7 @@ class RunOutcome(_Model):
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
     stop_kind: StopKind | None
+    diagnosis: DiagnosisOffer | None
     report: ReportState | None
     stops: list[Message]
     warnings: list[Message]
@@ -496,10 +505,12 @@ class Diagnosis(_Model):
     ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
     przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
     ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
-    „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk).
+    „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
+    Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
     """
 
     explanation: Message
+    confirms_stop: bool
     next_action: Literal["rerun", "report"]
     checks: list[DiagnosisCheck]
     report: ReportDraft

@@ -51,7 +51,7 @@ def test_zatrzymanie_dla_taty_proponuje_uruchom_ponownie(tmp_path: Path) -> None
 
     result = stop_of(centrum)
 
-    assert (result["stop_kind"], result["next_action"]) == ("for_tata", "rerun")
+    assert (result["stop_kind"], result["next_action"], result["diagnosis"]) == ("for_tata", "rerun", None)
 
 
 def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path) -> None:
@@ -60,10 +60,10 @@ def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path
 
     result = stop_of(centrum)
 
-    assert result["stop_kind"] == "for_maks"
+    assert (result["stop_kind"], result["diagnosis"]) == ("for_maks", "on_request")
 
 
-def test_nieoczekiwany_blad_jest_do_maksa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nieoczekiwany_wyjatek_jest_do_maksa_a_diagnoza_zaczyna_sie_sama(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     centrum = preparing_centrum(tmp_path)
 
     def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
@@ -73,7 +73,7 @@ def test_nieoczekiwany_blad_jest_do_maksa(tmp_path: Path, monkeypatch: pytest.Mo
 
     result = stop_of(centrum)
 
-    assert (result["ending"], result["stop_kind"]) == ("unexpected", "for_maks")
+    assert (result["ending"], result["stop_kind"], result["diagnosis"]) == ("unexpected", "for_maks", "automatic")
 
 
 def test_identyczny_komunikat_przy_ponownym_uruchomieniu_to_powtorka(tmp_path: Path) -> None:
@@ -83,7 +83,7 @@ def test_identyczny_komunikat_przy_ponownym_uruchomieniu_to_powtorka(tmp_path: P
 
     again = stop_of(centrum)
 
-    assert again["stop_kind"] == "repeated"
+    assert (again["stop_kind"], again["diagnosis"]) == ("repeated", "on_request")
 
 
 def test_inny_komunikat_przy_ponownym_uruchomieniu_nie_jest_powtorka(tmp_path: Path) -> None:
@@ -149,7 +149,7 @@ def test_diagnoza_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa(
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert (diagnosis["explanation"], diagnosis["next_action"], diagnosis["confirms_stop"]) == (NOT_FOUND, "report", False)
     assert set(check_states(diagnosis).values()) == {"passed"}
 
 
@@ -174,7 +174,7 @@ def test_diagnoza_nieznanego_uruchomienia_jest_odrzucona(tmp_path: Path) -> None
     assert (refused.status_code, refused.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
 
 
-def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_rejestr_wzorce_folder_okresu_onedrive_i_dziennik(
+def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_onedrive_rejestr_wzorce_folder_okresu_i_dziennik(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
@@ -185,14 +185,14 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_rejestr_
     assert [(check["label"], check["detail"]) for check in checks] == [
         ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
         ("Ustawienia taty", "Rejestr zleceń i folder okresów są na miejscu."),
+        ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
         ("Rejestr zleceń", "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki."),
         ("Wzorzec rozliczenia wewnętrznego", "Wzorzec rozliczenia wewnętrznego.xlsx przechodzi Sprawdzanie."),
         ("Wzorzec pliku zbiorczego", "Wzorzec pliku zbiorczego.xlsx przechodzi Sprawdzanie."),
         ("Konfiguracja wykonawców", "Wczytuje się."),
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
-        ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
-        ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2, bez nieoczekiwanego wyjątku."),
+        ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2."),
     ]
 
 
@@ -205,7 +205,7 @@ def test_powtorka_zatrzymania_dla_taty_wyjasnia_przyczyne_i_proponuje_uruchom_po
 
     diagnosis = diagnose(centrum, repeated["run"]["id"])
 
-    assert diagnosis["next_action"] == "rerun"
+    assert (diagnosis["next_action"], diagnosis["confirms_stop"]) == ("rerun", True)
     assert diagnosis["explanation"] == repeated["result"]["stops"][0]
     assert diagnosis["explanation"]["what"] == "Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku."
     assert check_states(diagnosis)["Rejestr zleceń"] == "failed"
@@ -223,21 +223,6 @@ def test_zatrzymanie_do_maksa_bez_wzorca_wyjasnia_brak_wzorca(tmp_path: Path) ->
     assert diagnosis["next_action"] == "report"
     assert check_states(diagnosis)["Wzorzec rozliczenia wewnętrznego"] == "passed"
     assert check_states(diagnosis)["Wzorzec pliku zbiorczego"] == "failed"
-
-
-def test_nieoczekiwany_blad_daje_diagnoze(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    centrum = preparing_centrum(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
-        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
-
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
-    stopped = run_to_end(centrum, dry_run=True)
-    monkeypatch.undo()
-
-    diagnosis = diagnose(centrum, stopped["run"]["id"])
-
-    assert diagnosis["explanation"] == NOT_FOUND
 
 
 @pytest.mark.parametrize(
@@ -353,39 +338,67 @@ def test_plik_okresu_otwarty_w_excelu_wyjasnia_jak_go_zamknac(tmp_path: Path, mo
     )
 
 
-def test_nieoczekiwany_wyjatek_w_dzienniku_od_startu_centrum_wyjasnia_ze_przyczyna_jest_w_narzedziu(
+def test_rozliczenie_pracownika_otwarte_w_excelu_wyjasnia_jak_je_zamknac(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    centrum = preparing_centrum(tmp_path)
+    centrum = settling_centrum(tmp_path)
     run_id = stopped_for_maks(centrum, monkeypatch)
-    with centrum.log_path.open("a", encoding="utf-8") as log:
-        log.write("2026-09-16T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n")
+    centrum.worker_settlements.mkdir()
+    worker_file = centrum.worker_settlements / "Rozliczenie Wykonawca Testowy A.xlsx"
+    worker_file.touch()
+    lock(worker_file)
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert diagnosis["explanation"] == {
-        "what": "W dzienniku Centrum rozliczeń jest nieoczekiwany wyjątek narzędzia.",
-        "where": "dziennik Centrum rozliczeń",
-        "action": "Przekaż ten komunikat osobie utrzymującej narzędzie.",
-    }
-    assert diagnosis["next_action"] == "report"
+    assert (diagnosis["explanation"]["what"], diagnosis["explanation"]["where"]) == (
+        "Plik okresu jest otwarty w Excelu.",
+        f"plik {worker_file.name}, folder {centrum.worker_settlements.name}",
+    )
+    assert check(diagnosis, "Pliki okresu w Excelu")[0] == "failed"
 
 
-def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_przyczyna(
+UNEXPECTED_LOG_ENTRY = "2026-09-16T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n"
+
+
+def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_a_dziennik_tylko_go_wymienia(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+    stopped = run_to_end(centrum, dry_run=True)
+    monkeypatch.undo()
+    with centrum.log_path.open("a", encoding="utf-8") as log:
+        log.write(UNEXPECTED_LOG_ENTRY)
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
+        "passed",
+        "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",
+    )
+
+
+def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum, monkeypatch)
     previous = centrum.log_path.read_text(encoding="utf-8")
     centrum.log_path.write_text(
-        "2026-09-15T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n"
-        "2026-09-16T09:00:00+02:00 start port=47811 wersja=0.1.0 konsola=nie\n" + previous,
+        UNEXPECTED_LOG_ENTRY.replace("2026-09-16T10", "2026-09-15T10")
+        + "2026-09-16T09:00:00+02:00 start port=47811 wersja=0.1.0 konsola=nie\n"
+        + previous,
         encoding="utf-8",
     )
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert diagnosis["explanation"] == NOT_FOUND
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == ("passed", "Ostatnie wpisy od startu Centrum: 3.")
 
 
 def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
@@ -401,11 +414,11 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
     assert [(check["label"], check["state"]) for check in passing["checks"]] == [
         ("Aktualność narzędzia", "passed"),
         ("Ustawienia taty", "passed"),
+        ("Pliki w OneDrive", "passed"),
         ("Wzorzec rozliczenia pracownika", "passed"),
         ("Konfiguracja wykonawców", "passed"),
         ("Folder okresu", "passed"),
         ("Pliki okresu w Excelu", "passed"),
-        ("Pliki w OneDrive", "passed"),
         ("Dziennik Centrum rozliczeń", "passed"),
     ]
     assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
@@ -535,6 +548,32 @@ def test_rejestr_tylko_w_chmurze_wyjasnia_jak_zachowac_go_na_komputerze(
     }
     assert diagnosis["next_action"] == "rerun"
     assert check(diagnosis, "Pliki w OneDrive")[0] == "failed"
+
+
+@pytest.mark.parametrize(
+    "cloud_file",
+    [
+        lambda centrum: centrum.fixture.register_path,
+        lambda centrum: centrum.fixture.collective_template_path,
+    ],
+    ids=["rejestr", "wzorzec"],
+)
+def test_plik_tylko_w_chmurze_ktorego_nie_da_sie_otworzyc_wyjasnia_onedrive_a_nie_odczyt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cloud_file: Callable[[PreparingCentrum], Path]
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    path = cloud_file(centrum)
+    online_only(centrum, path)
+    path.write_bytes(b"bez kopii na komputerze OneDrive nie oddaje skoroszytu")
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.",
+        "where": f"plik {path.name}, folder {path.parent.name}",
+        "action": ONLY_IN_CLOUD_ACTION,
+    }
 
 
 def test_wzorzec_tylko_w_chmurze_jest_przyczyna(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

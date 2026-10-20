@@ -73,14 +73,14 @@ def test_projection_reduces_failed_przetworzenie_szablonu_pracownika_without_cou
     projection = project(
         [
             *until_saving(2),
-            WorkerStarted("Adrian Maciejewski", template_index=1, template_total=2, elapsed_ms=10),
-            ended("Adrian Maciejewski", 1, 2, rows=2),
-            WorkerStarted("Darek Nowak", template_index=2, template_total=2, elapsed_ms=12),
+            WorkerStarted("Adrian Testowy", template_index=1, template_total=2, elapsed_ms=10),
+            ended("Adrian Testowy", 1, 2, rows=2),
+            WorkerStarted("Darek Fikcyjny", template_index=2, template_total=2, elapsed_ms=12),
         ]
     )
 
     failed = WorkerFailed(
-        "Darek Nowak", template_index=2, template_total=2, elapsed_ms=25, phase_elapsed_ms=5, worker_elapsed_ms=3
+        "Darek Fikcyjny", template_index=2, template_total=2, elapsed_ms=25, phase_elapsed_ms=5, worker_elapsed_ms=3
     )
     update = projection.update(failed)
 
@@ -88,7 +88,7 @@ def test_projection_reduces_failed_przetworzenie_szablonu_pracownika_without_cou
     assert update.event is failed
     assert snapshot.phase_states[ProgressPhase.SAVING] is PhaseState.FAILED
     assert snapshot.phase_durations_ms[ProgressPhase.SAVING] == 5
-    assert snapshot.current_worker == "Darek Nowak"
+    assert snapshot.current_worker == "Darek Fikcyjny"
     assert snapshot.templates_completed == 1
     assert snapshot.rows == 2
     assert snapshot.operation_counts["ZAPISANO"] == 1
@@ -100,9 +100,9 @@ def test_projection_reduces_complete_przebieg_rozliczen_to_one_snapshot() -> Non
     projection = project(
         [
             *until_saving(2, issue_count=1),
-            WorkerStarted("Adrian Maciejewski", template_index=1, template_total=2, elapsed_ms=9),
+            WorkerStarted("Adrian Testowy", template_index=1, template_total=2, elapsed_ms=9),
             WorkerEnded(
-                "Adrian Maciejewski",
+                "Adrian Testowy",
                 template_index=1,
                 template_total=2,
                 status="ZAPISANO",
@@ -111,9 +111,9 @@ def test_projection_reduces_complete_przebieg_rozliczen_to_one_snapshot() -> Non
                 worker_elapsed_ms=3,
                 issue_count=1,
             ),
-            WorkerStarted("Darek Nowak", template_index=2, template_total=2, elapsed_ms=13),
+            WorkerStarted("Darek Fikcyjny", template_index=2, template_total=2, elapsed_ms=13),
             WorkerEnded(
-                "Darek Nowak",
+                "Darek Fikcyjny",
                 template_index=2,
                 template_total=2,
                 status="PUSTY_SZABLON",
@@ -135,7 +135,7 @@ def test_projection_reduces_complete_przebieg_rozliczen_to_one_snapshot() -> Non
     assert snapshot.operation_counts == {"ZAPISANO": 1, "PUSTY_SZABLON": 1}
     assert snapshot.current_worker is None
     assert snapshot.current_phase is None
-    assert snapshot.recent_operations[-1].worker_name == "Darek Nowak"
+    assert snapshot.recent_operations[-1].worker_name == "Darek Fikcyjny"
     assert snapshot.phase_durations_ms[ProgressPhase.SAVING] == 7
     assert snapshot.total_elapsed_ms == 16
     assert snapshot.issue_count == 1
@@ -161,34 +161,34 @@ def test_projection_marks_failed_faza_przebiegu() -> None:
 
 
 def test_plain_and_rich_adapters_render_the_same_immutable_snapshot() -> None:
-    projection = project([*until_saving(1), WorkerStarted("Darek Nowak", template_index=1, template_total=1, elapsed_ms=10)])
-    update = projection.update(ended("Darek Nowak", 1, 1))
+    projection = project([*until_saving(1), WorkerStarted("Darek Fikcyjny", template_index=1, template_total=1, elapsed_ms=10)])
+    update = projection.update(ended("Darek Fikcyjny", 1, 1))
 
     plain_lines: list[str] = []
     PlainProgressAdapter(plain_lines.append).update(update.snapshot, update.event)
     rich_output = render_with_rich(update.snapshot, update.event)
 
     assert "Postęp szablonów: 1/1 (100%)" in plain_lines
-    assert any("Darek Nowak | ZAPISANO" in line for line in plain_lines)
-    assert "Darek Nowak" in rich_output
+    assert any("Darek Fikcyjny | ZAPISANO" in line for line in plain_lines)
+    assert "Darek Fikcyjny" in rich_output
     assert "OK: ZAPISANO" in rich_output
 
     failure_projection = project(
-        [*until_saving(1), WorkerStarted("Darek Nowak", template_index=1, template_total=1, elapsed_ms=10)]
+        [*until_saving(1), WorkerStarted("Darek Fikcyjny", template_index=1, template_total=1, elapsed_ms=10)]
     )
     failure_update = failure_projection.update(
-        WorkerFailed("Darek Nowak", template_index=1, template_total=1, elapsed_ms=11, phase_elapsed_ms=1, worker_elapsed_ms=1)
+        WorkerFailed("Darek Fikcyjny", template_index=1, template_total=1, elapsed_ms=11, phase_elapsed_ms=1, worker_elapsed_ms=1)
     )
     failure_lines: list[str] = []
     PlainProgressAdapter(failure_lines.append).update(failure_update.snapshot, failure_update.event)
     failure_output = render_with_rich(failure_update.snapshot, failure_update.event)
 
     assert (
-        "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Nowak | Szablon pracownika: 1/1"
+        "Etap przerwany: Zapisywanie | WYKONAWCA: Darek Fikcyjny | Szablon pracownika: 1/1"
         in failure_lines
     )
     assert "przerwany" in failure_output
-    assert "Darek Nowak" in failure_output
+    assert "Darek Fikcyjny" in failure_output
     assert "Przerwano przy szablonie pracownika: 1/1" in failure_output
 
 
@@ -216,14 +216,14 @@ def test_rich_adapter_renders_a_progress_snapshot_without_projection_state() -> 
         templates_completed=1,
         rows=3,
         operation_counts=MappingProxyType({"ZAPISANO": 1}),
-        current_worker="Darek Nowak",
+        current_worker="Darek Fikcyjny",
         current_phase=ProgressPhase.SAVING,
-        recent_operations=(OperationSnapshot("Adrian Maciejewski", "ZAPISANO", 3, 4),),
+        recent_operations=(OperationSnapshot("Adrian Testowy", "ZAPISANO", 3, 4),),
         total_elapsed_ms=12,
         issue_count=1,
     )
     event = WorkerEnded(
-        "Adrian Maciejewski",
+        "Adrian Testowy",
         template_index=1,
         template_total=2,
         status="ZAPISANO",
@@ -240,7 +240,7 @@ def test_rich_adapter_renders_a_progress_snapshot_without_projection_state() -> 
     assert "3 ms" in rendered
     assert "Postęp szablonów: 1/2 (50%)" in rendered
     assert "Liczniki: zapisano: 1 | puste: 0 | planowane: 0" in rendered
-    assert "Bieżący WYKONAWCA: Darek Nowak" in rendered
-    assert "Adrian Maciejewski" in rendered
+    assert "Bieżący WYKONAWCA: Darek Fikcyjny" in rendered
+    assert "Adrian Testowy" in rendered
     assert "3 wierszy, czas: 4 ms" in rendered
     assert "Wiersze danych: 3 | Czas: 12 ms" in rendered

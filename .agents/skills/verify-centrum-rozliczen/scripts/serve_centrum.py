@@ -43,6 +43,11 @@ milliseconds before it is written. The synthetic Szablony take milliseconds,
 so without it the live Szablony pracowników progress and the refused closing
 during the Uruchomienie could not be observed. Results are unchanged.
 
+One harness-only fault hook: while ``<root>/awaria/odczyt-rejestru`` exists,
+reading the Rejestr zleceń raises an exception the process does not expect, so
+the drive can show Dad's path after a nieoczekiwany wyjątek. No synthetic file
+causes one, because every known problem has its own Komunikat.
+
 Once the port is bound, ``<root>/server.json`` records this process and URL.
 The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
 „Zamknij Centrum rozliczeń” stops this process the way it stops Dad's.
@@ -59,11 +64,12 @@ from pathlib import Path
 import sys
 import threading
 import time
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from rozliczenia import template_settlement  # noqa: E402
+from rozliczenia import preparation_register, template_settlement  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
@@ -204,6 +210,19 @@ def _pace_worker_templates(root: Path) -> None:
     template_settlement.process_template = paced
 
 
+def _fail_register_reading(root: Path) -> None:
+    """Make reading the Rejestr zleceń raise while ``<root>/awaria/odczyt-rejestru`` exists (see the module doc)."""
+
+    read = preparation_register.read_register
+
+    def failing(*args: Any, **kwargs: Any) -> Any:
+        if (root / "awaria" / "odczyt-rejestru").exists():
+            raise RuntimeError("synthetic unexpected failure")
+        return read(*args, **kwargs)
+
+    preparation_register.read_register = failing
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="Run root created by create_centrum_fixture.py.")
@@ -219,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
     _pace_worker_templates(root)
+    _fail_register_reading(root)
     app = create_app(
         settings_path=Path(fixture["settings"]),
         platform=ScriptedPlatform(root),

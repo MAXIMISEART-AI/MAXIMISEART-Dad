@@ -1,10 +1,10 @@
 import * as React from "react"
-import { ChevronDownIcon, CircleCheckIcon, ClockIcon, RotateCcwIcon, SendIcon } from "lucide-react"
+import { CircleCheckIcon, ClockIcon, RotateCcwIcon, SendIcon } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
 import { reportRun, type ReportDraft, type RunOutcome } from "@/api/centrum"
+import { Disclosure } from "@/components/disclosure"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { toast } from "@/components/ui/toast"
@@ -97,22 +97,11 @@ export function ReportToMaks({
 /** Dokładna treść Zgłoszenia, zwinięta: tata widzi przed wysłaniem, co dostanie Maks. */
 function Preview({ draft }: { draft: ReportDraft }) {
   return (
-    <Collapsible className="w-full">
-      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="group -ml-2" />}>
-        Co zostanie wysłane
-        <ChevronDownIcon
-          data-icon="inline-end"
-          className="transition-[rotate] duration-200 ease-out group-data-[panel-open]:rotate-180"
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="transition-opacity duration-150 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
-        <figure aria-label="Treść Zgłoszenia" className="mt-1 rounded-md border bg-muted/40 p-3 text-xs">
-          <figcaption className="mb-2 font-medium">{draft.title}</figcaption>
-          <pre className="max-h-80 overflow-auto font-mono whitespace-pre-wrap text-muted-foreground">
-            {draft.body}
-          </pre>
-        </figure>
-      </CollapsibleContent>
-    </Collapsible>
+    <Disclosure label="Co zostanie wysłane" className="w-full">
+      <figure aria-label="Treść Zgłoszenia" className="mt-1 rounded-md border bg-muted/40 p-3 text-xs">
+        <figcaption className="mb-2 font-medium">{draft.title}</figcaption>
+        <pre className="max-h-80 overflow-auto font-mono whitespace-pre-wrap text-muted-foreground">{draft.body}</pre>
+      </figure>
+    </Disclosure>
   )
 }

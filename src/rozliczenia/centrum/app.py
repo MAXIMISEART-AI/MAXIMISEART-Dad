@@ -10,7 +10,8 @@ nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyj�
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, MutableMapping
+from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 import time
@@ -60,8 +61,21 @@ def create_app(
     report_box: ReportBox | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Powiadomienie o naprawie: pierwsze pytanie skrzynki przy starcie, nie dopiero przy wejściu na Okresy.
+        reports.check_repairs_in_background()
+        yield
+
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
-    app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(
+        title="Centrum rozliczeń",
+        version="kontrakt",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
 
     @app.middleware("http")
     async def only_local_browser(

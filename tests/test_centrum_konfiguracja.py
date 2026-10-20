@@ -252,7 +252,7 @@ def test_wykonawcy_sa_wypisani_w_kolejnosci_z_konfiguracji_wykonawcow(tmp_path: 
 
     assert configuration["workers"] == {
         "state": "ready",
-        "names": ["Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak"],
+        "names": ["Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny"],
     }
 
 

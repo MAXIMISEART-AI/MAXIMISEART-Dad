@@ -82,7 +82,7 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
 
     expected_files = {
         f"Rozliczenie {PERIOD} - {name}.xlsx"
-        for name in ("Adrian Maciejewski", "Darek Nowak", "Kamil Frontczak")
+        for name in ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
     }
     assert {path.name for path in target_directory.glob("*.xlsx")} == expected_files
     assert summary.written_count == 2
@@ -92,35 +92,35 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
     assert worker_template_path.read_bytes() == worker_template_before
 
     adrian_workbook = load_workbook(
-        target_directory / f"Rozliczenie {PERIOD} - Adrian Maciejewski.xlsx",
+        target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx",
         data_only=False,
     )
     try:
         adrian = active_worksheet(adrian_workbook)
         assert adrian_workbook.sheetnames == ["Sheet1", "Rates"]
         assert worksheet_input_row(adrian, 18) == expected_source_row(
-            "syntetyczny adres 1", "#1", "adrian.maciejewski", 1
+            "syntetyczny adres 1", "#1", "adrian.testowy", 1
         )
         assert worksheet_input_row(adrian, 19) == expected_source_row(
-            "syntetyczny adres 3", "#3", "adrian.maciejewski", 3
+            "syntetyczny adres 3", "#3", "adrian.testowy", 3
         )
     finally:
         adrian_workbook.close()
 
     darek_workbook = load_workbook(
-        target_directory / f"Rozliczenie {PERIOD} - Darek Nowak.xlsx",
+        target_directory / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx",
         data_only=False,
     )
     try:
         darek = active_worksheet(darek_workbook)
         assert worksheet_input_row(darek, 18) == expected_source_row(
-            "syntetyczny adres 2", "#2", "dariusz.nowak2", 2
+            "syntetyczny adres 2", "#2", "dariusz.fikcyjny2", 2
         )
     finally:
         darek_workbook.close()
 
     empty_workbook = load_workbook(
-        target_directory / f"Rozliczenie {PERIOD} - Kamil Frontczak.xlsx",
+        target_directory / f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx",
         data_only=False,
     )
     try:
@@ -416,11 +416,11 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     failed = [event for event in recorded if isinstance(event, (PhaseFailed, WorkerFailed))]
     assert len(failed) == 1
     assert isinstance(failed[0], WorkerFailed)
-    assert failed[0].worker_name == "Darek Nowak"
+    assert failed[0].worker_name == "Darek Fikcyjny"
     assert failed[0].template_index == 2
     assert all("syntetyczny" not in repr(event) and "#1" not in repr(event) for event in failed)
     assert not any(
-        isinstance(event, WorkerEnded) and event.worker_name == "Darek Nowak" for event in recorded
+        isinstance(event, WorkerEnded) and event.worker_name == "Darek Fikcyjny" for event in recorded
     )
     assert not any(isinstance(event, PhaseEnded) and event.phase is ProgressPhase.SAVING for event in recorded)
 
@@ -502,5 +502,5 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
         ProgressPhase.SAVING: PhaseState.FAILED,
     }
     assert snapshot.template_total == 3
-    assert snapshot.current_worker == "Adrian Maciejewski"
+    assert snapshot.current_worker == "Adrian Testowy"
     assert snapshot.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000

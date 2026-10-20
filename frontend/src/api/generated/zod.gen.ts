@@ -385,10 +385,12 @@ export const zReportDraft = z.object({
  * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
  * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
  * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
- * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk).
+ * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
+ * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
  */
 export const zDiagnosis = z.object({
     explanation: zMessage,
+    confirms_stop: z.boolean(),
     next_action: z.enum(['rerun', 'report']),
     checks: z.array(zDiagnosisCheck),
     report: zReportDraft
@@ -653,8 +655,9 @@ export const zRunSummary = z.object({
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
  * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
- * Zatrzymania (``None`` bez Zatrzymania), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``,
- * gdy Centrum go nie proponuje, czyli bez Zatrzymania i przy Zatrzymaniu „dla taty”).
+ * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
+ * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -679,6 +682,7 @@ export const zRunOutcome = z.object({
         'for_maks',
         'repeated'
     ]).nullable(),
+    diagnosis: z.enum(['on_request', 'automatic']).nullable(),
     report: z.discriminatedUnion('state', [
         zReportReady,
         zReportSent,
