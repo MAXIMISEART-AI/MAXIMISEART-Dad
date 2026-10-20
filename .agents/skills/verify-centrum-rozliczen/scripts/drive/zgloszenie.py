@@ -17,17 +17,21 @@ NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 TITLE = f"BRAK_WZORCA: {TEMPLATE_MISSING} Nie utworzono żadnego pliku."
 NO_KEY = "Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń."
 SENT = "Zgłoszenie wysłane do Maksa. Poczekaj na naprawę."
+WAITING = "Zgłoszenie tego problemu już jest wysłane i czeka na naprawę."
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
 KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
 UNSENT = f"Zgłoszenie BRAK_WZORCA {PERIOD}.md"
 
 
-def _stop_for_maks(run: Run, page: Page, name: str) -> str:
-    """A stop „do Maksa” whose cause is gone again: the Wzorzec rozliczenia wewnętrznego was missing during the run."""
+def _stop_for_maks(run: Run, page: Page, name: str, missing: str = "internal_template") -> str:
+    """A stop „do Maksa” whose cause is gone again: the Wzorzec ``missing`` was missing during the run.
+
+    Another Wzorzec gives the same code with other three parts, so another problem.
+    """
 
     configuration = run.fixture["configuration"]
     assert isinstance(configuration, dict)
-    template = Path(configuration["internal_template"])
+    template = Path(configuration[missing])
     aside = template.with_name(f"{template.name}.odlozony")
     page.goto(run.url + "#/uruchomienia")
     page.reload()
@@ -159,14 +163,70 @@ def drive_report(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "zgloszenie-kolejne-uruchomienie")
     _stop_for_maks(run, page, "zgloszenie-kolejne-uruchomienie")
-    expect(page.get_by_role("status").filter(has_text=SENT)).to_be_visible()
+    expect(page.get_by_role("status").filter(has_text=WAITING)).to_be_visible()
     run.check(
-        _report_state(run, "zgloszenie-kolejne-uruchomienie") == {"state": "sent"},
-        "the same problem in a new Uruchomienie shows it is already sent",
+        _report_state(run, "zgloszenie-kolejne-uruchomienie") == {"state": "waiting"},
+        "the same problem in a new Uruchomienie shows it is already sent and waits for the fix",
     )
     stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
     expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_contain_text(NOT_FOUND)
+    expect(diagnosis.get_by_role("status").filter(has_text=WAITING)).to_be_visible()
     expect(page.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_have_count(0)
     run.check(len(_issues(box)) == 1, "no second Zgłoszenie of the same problem")
     run.capture(page, "66-zgloszenie-kolejne-uruchomienie")
+    _one_open_report(run, page, box, config)
     key_file.unlink()
+
+
+def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
+    """Maks closes the Zgłoszenie, the problem returns: a new Zgłoszenie links the previous one."""
+
+    diagnosis = page.get_by_role("region", name="Diagnoza")
+
+    run.step(FEATURE, "zgloszenie-zamkniete")
+    print("  harness: Maks closes Zgłoszenie 1 in the skrzynka Zgłoszeń", flush=True)
+    closed = box / "1.json"
+    closed.write_text(json.dumps({**json.loads(closed.read_text(encoding="utf-8")), "state": "closed"}), encoding="utf-8")
+    _stop_for_maks(run, page, "zgloszenie-zamkniete")
+    expect(page.get_by_role("status").filter(has_text=WAITING)).to_be_visible()
+    run.capture(page, "68-zgloszenie-zamkniete-przed-diagnoza")
+    stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
+    send = diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)
+    expect(send).to_be_visible()
+    expect(page.get_by_role("status").filter(has_text=WAITING)).to_have_count(0)
+    run.check(
+        _report_state(run, "zgloszenie-zamkniete") == {"state": "ready"},
+        "after the Diagnoza asked the skrzynka, the closed Zgłoszenie lets Dad send again",
+    )
+    diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True).click()
+    title, body = _shown_report(page)
+    run.check("- Poprzednie Zgłoszenie: #1" in body.splitlines(), "the new Zgłoszenie links the previous one")
+    run.capture(page, "69-zgloszenie-zamkniete-po-diagnozie")
+
+    run.step(FEATURE, "zgloszenie-nowe-z-odnosnikiem")
+    send.click()
+    expect(page.get_by_role("status").filter(has_text=SENT)).to_be_visible()
+    issues = _issues(box)
+    (run.evidence / "api" / "zgloszenie-skrzynka-nowe.json").write_text(
+        json.dumps(issues, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    run.check(
+        [(issue["number"], issue["state"]) for issue in issues] == [(1, "closed"), (2, "open")]
+        and (issues[1]["title"], issues[1]["body"]) == (title, body),
+        "the skrzynka got exactly the new preview as Zgłoszenie 2 next to the closed one",
+    )
+    sent = json.loads((config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    run.check([entry["number"] for entry in sent] == [1, 2], "the local sent state keeps both Zgłoszenia")
+    run.capture(page, "70-zgloszenie-nowe-z-odnosnikiem")
+
+    run.step(FEATURE, "zgloszenie-inny-problem")
+    _stop_for_maks(run, page, "zgloszenie-inny-problem", missing="collective_template")
+    run.check(
+        _report_state(run, "zgloszenie-inny-problem") == {"state": "ready"},
+        "another problem (other three parts) is not waiting for the open Zgłoszenie",
+    )
+    page.reload()
+    stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
+    expect(diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_be_visible()
+    run.check(len(_issues(box)) == 2, "asking the skrzynka sends nothing")
+    run.capture(page, "71-zgloszenie-inny-problem")
