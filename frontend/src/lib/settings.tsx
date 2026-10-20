@@ -7,6 +7,7 @@ import {
   choosePeriodsDirectory,
   getSettings,
   type Choice,
+  type PathSetting,
   type Settings,
   type Theme,
 } from "@/api/centrum"
@@ -16,12 +17,21 @@ import { forgetLastReads, useResource, type Resource } from "@/lib/use-resource"
 // Kopia motywu w przeglądarce tylko na pierwsze malowanie (index.html); źródłem prawdy są ustawienia na serwerze.
 const THEME_KEY = "centrum-rozliczen-motyw"
 
+/** Plik taty wskazywany natywnym oknem wyboru: pole Ustawień taty, które jest ścieżką. */
+export type PickedPath = { [Key in keyof Settings]: Settings[Key] extends PathSetting ? Key : never }[keyof Settings]
+
 type SettingsContextValue = {
   settings: Resource<Settings>
   theme: Theme
-  chooseOrderRegister: () => Promise<void>
-  choosePeriodsDirectory: () => Promise<void>
+  /** Plik, którego okno wyboru jest teraz otwarte; dopóki jest, żaden przycisk nie otwiera drugiego. */
+  picker: PickedPath | null
+  choose: (path: PickedPath) => void
   toggleTheme: () => void
+}
+
+const PICKERS: Record<PickedPath, () => Promise<Choice>> = {
+  order_register: chooseOrderRegister,
+  periods_directory: choosePeriodsDirectory,
 }
 
 const SettingsContext = React.createContext<SettingsContextValue | null>(null)
@@ -73,6 +83,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [theme])
 
+  // Jedno okno wyboru naraz, wspólne dla wszystkich stron: tata klika dwa razy z przyzwyczajenia, a okno Windows
+  // pojawia się po chwili, więc drugie kliknięcie (albo „Zmień” przy drugim pliku) otworzyłoby drugie okno.
+  const openPicker = React.useRef<PickedPath | null>(null)
+  const [picker, setPicker] = React.useState<PickedPath | null>(null)
+
   const remember = React.useCallback(
     (choice: Choice) => {
       const chosen: Resource<Settings> = { state: "ready", data: choice.settings }
@@ -91,8 +106,21 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     () => ({
       settings,
       theme,
-      chooseOrderRegister: () => chooseOrderRegister().then(remember, showFailure),
-      choosePeriodsDirectory: () => choosePeriodsDirectory().then(remember, showFailure),
+      picker,
+      choose: (path) => {
+        if (openPicker.current !== null) {
+          return
+        }
+
+        openPicker.current = path
+        setPicker(path)
+        PICKERS[path]()
+          .then(remember, showFailure)
+          .finally(() => {
+            openPicker.current = null
+            setPicker(null)
+          })
+      },
       toggleTheme: () => {
         const next = theme === "dark" ? "light" : "dark"
 
@@ -100,7 +128,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         changeTheme(next).then((saved) => replace({ state: "ready", data: saved }), showFailure)
       },
     }),
-    [settings, theme, remember, replace]
+    [settings, theme, picker, remember, replace]
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

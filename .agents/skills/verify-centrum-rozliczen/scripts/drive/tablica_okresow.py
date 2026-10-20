@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 from pathlib import Path
 import urllib.request
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
-from drive.common import Run, choose_periods_directory, last_opened_is, period_row
+from drive.common import (
+    Run,
+    choose_periods_directory,
+    error_toasts,
+    last_opened_is,
+    period_row,
+    sent_requests,
+    settle,
+)
 
 
 def drive_period_board(run: Run, page: Page) -> None:
@@ -71,6 +80,29 @@ def drive_period_board(run: Run, page: Page) -> None:
     run.capture(page, "07-tablica-otwieranie", full_page=False)
     expect(page.get_by_role("button", name="Plik zbiorczy, okres 15_21_09_2026", exact=True)).to_be_disabled()
     run.check(True, "a period file that does not exist cannot be opened")
+
+    run.step(feature, "tablica-podwojne-klikniecie")
+    closed = periods / "22_28_09_2026"
+    notifications = page.get_by_role("region", name="Notifications")
+    repeated_clicks: list[tuple[str, Path, str, Callable[[Locator], None]]] = [
+        ("Folder okresu, okres 22_28_09_2026", closed, "a double click", lambda button: button.dblclick()),
+        ("Plik zbiorczy, okres 22_28_09_2026", closed / "Rozliczenie 22_28_09_2026 - zbiorcze.xlsx",
+         "a fast triple click", lambda button: button.click(click_count=3)),
+    ]
+    for name, path, how, click in repeated_clicks:
+        opened_before = len(run.lines("opened.jsonl"))
+        with sent_requests(page, "POST", "/api/periods/22_28_09_2026/open") as sent:
+            click(page.get_by_role("button", name=name, exact=True))
+            settle(page, sent)
+        run.check(len(sent) == 1, f"{how} on {name} asks the server once ({len(sent)} requests)")
+        run.check(run.lines("opened.jsonl")[opened_before:] == [{"path": str(path)}], f"{how} opens {path.name} once")
+        confirmations = notifications.get_by_role("dialog", name="Otwieram").filter(
+            has=page.get_by_text(path.name, exact=True)
+        )
+        expect(confirmations.first).to_be_visible()
+        run.check(confirmations.count() == 1, f"{how} shows one Otwieram for {path.name} ({confirmations.count()})")
+    run.check(error_toasts(page).count() == 0, "no error toast after the repeated clicks")
+    run.capture(page, "1a-tablica-podwojne-klikniecie", full_page=False)
 
     run.step(feature, "tablica-zmiana-na-dysku")
     changed = periods / "15_21_09_2026"

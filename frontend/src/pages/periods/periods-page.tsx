@@ -15,6 +15,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
@@ -64,8 +65,6 @@ function PeriodBoardSection() {
 }
 
 function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => void }) {
-  const { choosePeriodsDirectory } = useSettings()
-
   switch (board.state) {
     case "not_set":
       return (
@@ -78,7 +77,7 @@ function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => voi
             <EmptyDescription>Centrum znajdzie w nim Foldery okresu.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <Button onClick={choosePeriodsDirectory}>Wskaż folder okresów</Button>
+            <ChoosePeriodsDirectory />
           </EmptyContent>
         </Empty>
       )
@@ -93,7 +92,7 @@ function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => voi
             <EmptyDescription>Mógł zostać przeniesiony albo przemianowany.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <Button onClick={choosePeriodsDirectory}>Wskaż folder okresów</Button>
+            <ChoosePeriodsDirectory />
           </EmptyContent>
         </Empty>
       )
@@ -115,6 +114,18 @@ function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => voi
       return unhandled
     }
   }
+}
+
+/** Wskazanie folderu okresów z pustego stanu; czeka na okno wyboru jak „Zmień” w Ustawieniach. */
+function ChoosePeriodsDirectory() {
+  const { picker, choose } = useSettings()
+
+  return (
+    <Button disabled={picker !== null} aria-label="Wskaż folder okresów" onClick={() => choose("periods_directory")}>
+      {picker === "periods_directory" ? <Spinner data-icon="inline-start" /> : null}
+      {picker === "periods_directory" ? "Czekam na wybór…" : "Wskaż folder okresów"}
+    </Button>
+  )
 }
 
 function Failure({ message }: { message: string }) {

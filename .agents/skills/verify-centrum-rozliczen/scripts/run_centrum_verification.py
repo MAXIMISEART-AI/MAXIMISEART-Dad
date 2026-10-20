@@ -38,6 +38,7 @@ REQUIRED_EVIDENCE = (
 REQUIRED_SCREENSHOTS = {
     "ustawienia": (
         "01-ustawienia-pusty-stan.png",
+        "19-ustawienia-jedno-okno-wyboru.png",
         "02-ustawienia-folder-okresow.png",
         "03-ustawienia-rejestr-zlecen.png",
         "18-ustawienia-braki-do-startu.png",
@@ -47,6 +48,7 @@ REQUIRED_SCREENSHOTS = {
     "tablica-okresow": (
         "06-tablica-okresow.png",
         "07-tablica-otwieranie.png",
+        "1a-tablica-podwojne-klikniecie.png",
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
         "17-tablica-odczyt-nieudany.png",
@@ -82,6 +84,7 @@ REQUIRED_SCREENSHOTS = {
         "39-przygotowanie-bez-podgladu.png",
         "33-przygotowanie-decyzja.png",
         "34-przygotowanie-zatrzymanie.png",
+        "3a-przygotowanie-podwojne-klikniecie.png",
         "35-przygotowanie-zapisane.png",
         "36-przygotowanie-status-okresu.png",
         "37-przygotowanie-nienadpisywanie.png",

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import urllib.request
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, expect
 
 from drive.common import (
     LAST_COMPLETE_FOR_CLI,
@@ -14,17 +14,33 @@ from drive.common import (
     Run,
     current_run,
     ensure_files_set,
+    error_toasts,
     figure,
     finished_result,
     history_rows,
     period_files,
     period_row,
+    sent_requests,
+    settle,
 )
 
 # An older period with no successful DRY-RUN in the fixture's metrics; its confirmation keeps the no-preview warning.
 NOT_PREVIEWED = "08_14_09_2026"
 PREPARATION = "przygotowanie-pliku-zbiorczego"
 INCOMPLETE_PERIOD_WHAT = "Ostatnie zlecenie okresu jest z soboty 10.10.2026"
+# Harness: the page reports itself hidden, so the Uruchomienia stream pauses and its next view arrives late.
+HIDE_TAB = (
+    "Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'hidden'});"
+    "document.dispatchEvent(new Event('visibilitychange'))"
+)
+SHOW_TAB = "delete document.visibilityState; document.dispatchEvent(new Event('visibilitychange'))"
+
+
+def _started_once(run: Run, page: Page, sent: list[Request], what: str) -> None:
+    """One ``POST /api/runs`` for Dad's repeated click on ``what`` and no error toast next to the Uruchomienie."""
+
+    run.check(len(sent) == 1, f"a double click on {what} starts one Uruchomienie procesu ({len(sent)} requests)")
+    run.check(error_toasts(page).count() == 0, f"no error toast after the double click on {what}")
 
 
 def _preparation_records(run: Run, name: str) -> list[dict[str, object]]:
@@ -62,9 +78,12 @@ def drive_preparation(run: Run, page: Page) -> None:
 
     run.step(feature, "przygotowanie-podglad")
     page.goto(run.url)
-    page.get_by_role("region", name="Następny krok").get_by_role("button", name="Podgląd bez zapisu").click()
-    live = page.get_by_role("region", name="Podgląd na żywo")
-    expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
+    with sent_requests(page, "POST", "/api/runs") as sent:
+        page.get_by_role("region", name="Następny krok").get_by_role("button", name="Podgląd bez zapisu").dblclick()
+        live = page.get_by_role("region", name="Podgląd na żywo")
+        expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
+        settle(page, sent)
+    _started_once(run, page, sent, "Podgląd bez zapisu on Następny krok")
     result = finished_result(run, "przygotowanie-podglad")
     summary = result["summary"]
     assert isinstance(summary, dict)
@@ -125,10 +144,15 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(no_preview).to_have_count(0)
     run.check(True, "Uruchom asks to confirm the write and reminds to close the Rejestr zleceń")
     run.capture(page, "32-przygotowanie-potwierdzenie")
-    confirm.get_by_role("button", name="Uruchom", exact=True).click()
+    decision = page.get_by_role("alertdialog", name="Kontynuować mimo niepełnego okresu?")
+    with sent_requests(page, "POST", "/api/runs") as sent:
+        # The second click lands on the confirmation's „Uruchom” while the dialog is closing.
+        confirm.get_by_role("button", name="Uruchom", exact=True).dblclick()
+        expect(decision).to_be_visible()
+        settle(page, sent)
+    _started_once(run, page, sent, "the confirmation's Uruchom")
 
     run.step(feature, "przygotowanie-decyzja")
-    decision = page.get_by_role("alertdialog", name="Kontynuować mimo niepełnego okresu?")
     expect(decision).to_contain_text(INCOMPLETE_PERIOD_WHAT)
     expect(decision.get_by_role("listitem", name="pon 12.10.2026: 0", exact=True)).to_be_visible()
     expect(decision.get_by_role("button", name="Przerwij bez zapisu")).to_be_focused()
@@ -176,10 +200,43 @@ def drive_preparation(run: Run, page: Page) -> None:
     run.check(not period_folder.exists(), "Przerwij bez zapisu wrote nothing")
     run.capture(page, "34-przygotowanie-zatrzymanie")
 
-    run.step(feature, "przygotowanie-kontynuuj")
-    stop.get_by_role("button", name="Uruchom ponownie").click()
-    decision.get_by_role("button", name="Kontynuuj").click()
+    run.step(feature, "przygotowanie-podwojne-klikniecie")
+    with sent_requests(page, "POST", "/api/runs") as sent:
+        stop.get_by_role("button", name="Uruchom ponownie").dblclick()
+        expect(decision).to_be_visible()
+        settle(page, sent)
+    _started_once(run, page, sent, "Uruchom ponownie")
+    page.evaluate(HIDE_TAB)
+    run.check(True, "harness: the stream's next view arrives late (the page reports itself hidden), as at CPU 6×")
+    try:
+        with sent_requests(page, "POST", "/api/runs/*/decision") as decided:
+            decision.get_by_role("button", name="Kontynuuj").click()
+            settle(page, decided)
+            # Dad's next clicks come after the decision's answer, while the dialog still waits for the stream.
+            decision.get_by_role("button", name="Kontynuuj").click(click_count=2, force=True)
+            settle(page, decided)
+        run.check(len(decided) == 1, f"Kontynuuj clicked three times sends one decision ({len(decided)} requests)")
+        run.check(error_toasts(page).count() == 0, "no error toast after Kontynuuj clicked three times")
+        run.check(
+            all(decision.get_by_role("button", name=name).is_disabled() for name in ("Kontynuuj", "Przerwij bez zapisu")),
+            "the decision's buttons wait until the stream shows that the Uruchomienie no longer waits",
+        )
+        run.capture(page, "3a-przygotowanie-podwojne-klikniecie")
+    finally:
+        page.evaluate(SHOW_TAB)
+    expect(decision).to_have_count(0)
     expect(page.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany")
+    run.check(True, "with the stream back, the dialog closes on the result")
+    opened_before = len(run.lines("opened.jsonl"))
+    with sent_requests(page, "POST", f"/api/periods/{LAST_COMPLETE_FOR_CLI}/open") as sent:
+        page.get_by_label("Wynik").get_by_role("button", name="Folder okresu").dblclick()
+        settle(page, sent)
+    run.check(
+        len(sent) == 1 and run.lines("opened.jsonl")[opened_before:] == [{"path": str(period_folder)}],
+        f"a double click on the result's Folder okresu opens it once ({len(sent)} requests)",
+    )
+
+    run.step(feature, "przygotowanie-kontynuuj")
     result = finished_result(run, "przygotowanie-kontynuuj")
     run.check(result["result"] == "OK", "the RUN finished OK")
     run.check(all(path.is_file() for path in period_files(run)), "both period files are in the Folder okresu")

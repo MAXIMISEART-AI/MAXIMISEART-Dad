@@ -15,12 +15,10 @@ import {
 } from "@/components/ui/item"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useSettings } from "@/lib/settings"
+import { useSettings, type PickedPath } from "@/lib/settings"
 
 /** Rejestr zleceń i folder okresów wskazane raz; „Zmień” otwiera okno wyboru Windows na komputerze taty. */
 export function FileSettingsCard({ settings }: { settings: Settings }) {
-  const { chooseOrderRegister, choosePeriodsDirectory } = useSettings()
-
   return (
     <Card>
       <CardHeader>
@@ -31,14 +29,14 @@ export function FileSettingsCard({ settings }: { settings: Settings }) {
           <PathItem
             label="Rejestr zleceń"
             icon={<FileSpreadsheetIcon />}
+            path="order_register"
             setting={settings.order_register}
-            onChoose={chooseOrderRegister}
           />
           <PathItem
             label="Folder okresów"
             icon={<FolderIcon />}
+            path="periods_directory"
             setting={settings.periods_directory}
-            onChoose={choosePeriodsDirectory}
           />
         </ItemGroup>
       </CardContent>
@@ -49,21 +47,17 @@ export function FileSettingsCard({ settings }: { settings: Settings }) {
 function PathItem({
   label,
   icon,
+  path,
   setting,
-  onChoose,
 }: {
   label: string
   icon: React.ReactNode
+  path: PickedPath
   setting: PathSetting
-  onChoose: () => Promise<void>
 }) {
-  const [choosing, setChoosing] = React.useState(false)
+  const { picker, choose } = useSettings()
+  const choosing = picker === path
   const verb = setting.state === "not_set" ? "Wskaż" : "Zmień"
-
-  const choose = () => {
-    setChoosing(true)
-    onChoose().finally(() => setChoosing(false))
-  }
 
   return (
     <Item size="sm" role="group" aria-label={label}>
@@ -80,9 +74,9 @@ function PathItem({
         <Button
           variant="outline"
           size="sm"
-          disabled={choosing}
+          disabled={picker !== null}
           aria-label={`${verb} ${label}`}
-          onClick={choose}
+          onClick={() => choose(path)}
         >
           {choosing ? <Spinner data-icon="inline-start" /> : null}
           {choosing ? "Czekam na wybór…" : verb}

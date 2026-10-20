@@ -38,10 +38,9 @@ const PROCESS_ICONS: Record<Process, React.ReactNode> = {
  * Przebieg rozliczeń nie ma wyboru pliku: Plik zbiorczy wynika z okresu.
  */
 export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSetup> }) {
-  const { draft, setDraft, start } = useRuns()
-  const { settings, chooseOrderRegister, choosePeriodsDirectory } = useSettings()
+  const { draft, setDraft, starting, start } = useRuns()
+  const { settings, picker, choose } = useSettings()
   const [confirming, setConfirming] = React.useState(false)
-  const [starting, setStarting] = React.useState(false)
   const chosen = processes.find((setup) => setup.process === draft?.process) ?? processes[0]
 
   if (chosen === undefined) {
@@ -62,10 +61,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
     label: `${choice.token} · ${choice.last_complete ? "ostatni pełny" : choice.status_label}`,
   }))
 
-  const run = (dryRun: boolean) => {
-    setStarting(true)
-    start({ ...selection, dry_run: dryRun }).finally(() => setStarting(false))
-  }
+  const run = (dryRun: boolean) => start({ ...selection, dry_run: dryRun })
 
   return (
     <Card>
@@ -141,14 +137,16 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
                       label="Rejestr zleceń"
                       icon={<FileSpreadsheetIcon />}
                       setting={settings.data.order_register}
-                      onChoose={chooseOrderRegister}
+                      disabled={picker !== null}
+                      onChoose={() => choose("order_register")}
                     />
                   )}
                   <SettingPath
                     label="Folder okresów"
                     icon={<FolderIcon />}
                     setting={settings.data.periods_directory}
-                    onChoose={choosePeriodsDirectory}
+                    disabled={picker !== null}
+                    onChoose={() => choose("periods_directory")}
                   />
                 </div>
               ) : null}
@@ -222,12 +220,15 @@ function SettingPath({
   label,
   icon,
   setting,
+  disabled,
   onChoose,
 }: {
   label: string
   icon: React.ReactNode
   setting: PathSetting
-  onChoose: () => Promise<void>
+  /** Okno wyboru jest już otwarte; drugie by się tylko na nie nałożyło. */
+  disabled: boolean
+  onChoose: () => void
 }) {
   const verb = setting.state === "not_set" ? "Wskaż" : "Zmień"
 
@@ -255,7 +256,14 @@ function SettingPath({
           </TooltipContent>
         </Tooltip>
       )}
-      <Button variant="link" size="sm" className="ml-auto h-auto px-0" aria-label={`${verb} ${label}`} onClick={onChoose}>
+      <Button
+        variant="link"
+        size="sm"
+        className="ml-auto h-auto px-0"
+        disabled={disabled}
+        aria-label={`${verb} ${label}`}
+        onClick={onChoose}
+      >
         {verb}
       </Button>
     </div>

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from fnmatch import fnmatchcase
 import json
 from pathlib import Path
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import Locator, Page, Request, expect
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -22,6 +25,9 @@ DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
 LAST_COMPLETE_FOR_CLI = "06_12_10_2026"
 # The fixture puts this marker in every synthetic workbook row; it must never reach the Centrum log.
 ROW_MARKER = "CENTRUM-SYN-ROW"
+# Dad double-clicks out of habit and double-taps the touch screen: the second click comes within milliseconds,
+# so a repeated request is sent well within this, and an answer reaches the screen (a refusal as a toast) too.
+REPEAT_SETTLE_MS = 300
 
 
 class DriveFailure(Exception):
@@ -197,3 +203,36 @@ def diagnosis_answer(run: Run, run_id: str, name: str) -> dict[str, object]:
     body = record["body"]
     assert isinstance(body, dict)
     return body
+
+
+@contextmanager
+def sent_requests(page: Page, method: str, path: str) -> Iterator[list[Request]]:
+    """Requests the page sends with ``method`` to ``path`` (a glob such as ``/api/runs/*/decision``) in the block."""
+
+    sent: list[Request] = []
+
+    def record(request: Request) -> None:
+        if request.method == method and fnmatchcase(urlsplit(request.url).path, path):
+            sent.append(request)
+
+    page.on("request", record)
+    try:
+        yield sent
+    finally:
+        page.remove_listener("request", record)
+
+
+def settle(page: Page, sent: list[Request]) -> int:
+    """Waits until a repeated click would have sent its request and every answer reached the screen; the count."""
+
+    page.wait_for_timeout(REPEAT_SETTLE_MS)
+    for request in list(sent):
+        request.response()
+    page.wait_for_timeout(REPEAT_SETTLE_MS)
+    return len(sent)
+
+
+def error_toasts(page: Page) -> Locator:
+    """Error notifications („Nie udało się …”), also those stacked behind the newest one."""
+
+    return page.get_by_role("region", name="Notifications").get_by_role("dialog", name="Nie udało się")

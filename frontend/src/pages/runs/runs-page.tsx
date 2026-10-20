@@ -89,7 +89,7 @@ function RunHistory() {
 
 function RunsContent() {
   const { resource: setup, reload } = useResource(getRunSetup)
-  const { view, dismissed, draft, decide, newRun } = useRuns()
+  const { view, dismissed, draft, deciding, decide, newRun } = useRuns()
   const finishedRun = view?.state === "finished" ? view.run.id : null
   const entrance = useContentEntrance(view === null || setup.state === "loading")
   // Uruchomienie zakończone przed wejściem na stronę zna już odczyt przy montowaniu.
@@ -135,7 +135,11 @@ function RunsContent() {
     <div className={entrance}>
       <RunCard view={view} reminder={reminder} onNewRun={() => newRun(view.run.id)} />
       {view.state === "awaiting_decision" ? (
-        <DecisionDialog decision={view.decision} onDecide={(answer) => decide(view.run.id, answer)} />
+        <DecisionDialog
+          decision={view.decision}
+          deciding={deciding === view.run.id}
+          onDecide={(answer) => decide(view.run.id, answer)}
+        />
       ) : null}
     </div>
   )
