@@ -170,6 +170,47 @@ export type DecisionAnswer = {
 };
 
 /**
+ * Diagnosis
+ *
+ * Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+ *
+ * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+ * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+ * ponownie; ``report``: przyczynę usuwa Maks.
+ */
+export type Diagnosis = {
+    explanation: Message;
+    /**
+     * Next Action
+     */
+    next_action: 'rerun' | 'report';
+    /**
+     * Checks
+     */
+    checks: Array<DiagnosisCheck>;
+};
+
+/**
+ * DiagnosisCheck
+ *
+ * Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek.
+ */
+export type DiagnosisCheck = {
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * State
+     */
+    state: 'passed' | 'failed' | 'not_checked';
+    /**
+     * Detail
+     */
+    detail: string;
+};
+
+/**
  * Figure
  *
  * Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach.
@@ -828,8 +869,9 @@ export type RunInfo = {
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
- * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+ * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * Zatrzymania (``None`` bez Zatrzymania).
  */
 export type RunOutcome = {
     /**
@@ -848,6 +890,10 @@ export type RunOutcome = {
      * Next Action
      */
     next_action: 'run' | 'rerun' | 'open_period_folder';
+    /**
+     * Stop Kind
+     */
+    stop_kind: 'for_tata' | 'for_maks' | 'repeated' | null;
     /**
      * Stops
      */
@@ -1388,6 +1434,44 @@ export type StreamRunEventsResponses = {
 };
 
 export type StreamRunEventsResponse = StreamRunEventsResponses[keyof StreamRunEventsResponses];
+
+export type DiagnoseRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/runs/{run_id}/diagnosis';
+};
+
+export type DiagnoseRunErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DiagnoseRunError = DiagnoseRunErrors[keyof DiagnoseRunErrors];
+
+export type DiagnoseRunResponses = {
+    /**
+     * Successful Response
+     */
+    200: Diagnosis;
+};
+
+export type DiagnoseRunResponse = DiagnoseRunResponses[keyof DiagnoseRunResponses];
 
 export type GetMetricsData = {
     body?: never;

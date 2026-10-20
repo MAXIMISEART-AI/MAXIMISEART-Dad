@@ -372,18 +372,26 @@ class RunSummary(_Model):
     file_plan: list[WorkerFile] | None
 
 
+# Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
+# osobie utrzymującej narzędzie (także nieoczekiwany błąd), ``repeated`` to ten sam Komunikat „dla taty”
+# drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
+StopKind = Literal["for_tata", "for_maks", "repeated"]
+
+
 class RunOutcome(_Model):
     """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
-    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
-    akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+    którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+    Zatrzymania (``None`` bez Zatrzymania).
     """
 
     result: RunResult
     headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
+    stop_kind: StopKind | None
     stops: list[Message]
     warnings: list[Message]
     notices: list[str]
@@ -432,6 +440,27 @@ class RunEvent(_Model):
 
 class DecisionAnswer(_Model):
     answer: Literal["continue", "abort"]
+
+
+class DiagnosisCheck(_Model):
+    """Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek."""
+
+    label: str
+    state: Literal["passed", "failed", "not_checked"]
+    detail: str
+
+
+class Diagnosis(_Model):
+    """Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+
+    ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+    przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+    ponownie; ``report``: przyczynę usuwa Maks.
+    """
+
+    explanation: Message
+    next_action: Literal["rerun", "report"]
+    checks: list[DiagnosisCheck]
 
 
 class TemplateReady(_Model):

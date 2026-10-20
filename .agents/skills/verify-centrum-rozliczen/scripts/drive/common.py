@@ -113,6 +113,18 @@ def choose_periods_directory(run: Run, page: Page) -> None:
     expect(page.get_by_role("table", name="Tablica okresów")).to_be_visible()
 
 
+def ensure_files_set(run: Run, page: Page) -> None:
+    """Points Centrum to the fixture's folder okresów and Rejestr zleceń unless a feature before did."""
+
+    settings = run.api("/api/settings", "ustawienia-przed-uruchomieniem")
+    if settings["periods_directory"] == {"state": "not_set"}:
+        choose_periods_directory(run, page)
+    if settings["order_register"] == {"state": "not_set"}:
+        run.answer_picker(run.fixture["order_register"])
+        page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
+        run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
+
+
 def period_row(page: Page, token: str) -> Locator:
     return page.get_by_role("table", name="Tablica okresów").get_by_role("row").filter(has_text=token)
 

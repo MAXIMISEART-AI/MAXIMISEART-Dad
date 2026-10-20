@@ -504,6 +504,68 @@
         }
       }
     },
+    "/api/runs/{run_id}/diagnosis": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Run Diagnosis",
+        "operationId": "diagnoseRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Diagnosis"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/metrics": {
       "get": {
         "tags": [
@@ -859,6 +921,67 @@
           "answer"
         ],
         "title": "DecisionAnswer"
+      },
+      "Diagnosis": {
+        "properties": {
+          "explanation": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "rerun",
+              "report"
+            ],
+            "title": "Next Action"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisCheck"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "explanation",
+          "next_action",
+          "checks"
+        ],
+        "title": "Diagnosis",
+        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``report``: przyczynę usuwa Maks."
+      },
+      "DiagnosisCheck": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "not_checked"
+            ],
+            "title": "State"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "state",
+          "detail"
+        ],
+        "title": "DiagnosisCheck",
+        "description": "Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek."
       },
       "Figure": {
         "properties": {
@@ -1898,6 +2021,22 @@
             ],
             "title": "Next Action"
           },
+          "stop_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "for_tata",
+                  "for_maks",
+                  "repeated"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Kind"
+          },
           "stops": {
             "items": {
               "$ref": "#/components/schemas/Message"
@@ -1937,13 +2076,14 @@
           "headline",
           "ending",
           "next_action",
+          "stop_kind",
           "stops",
           "warnings",
           "notices",
           "summary"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna\nakcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku."
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania)."
       },
       "RunRequest": {
         "properties": {

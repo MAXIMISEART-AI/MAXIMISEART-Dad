@@ -61,6 +61,21 @@ export const zDecisionAnswer = z.object({
 });
 
 /**
+ * DiagnosisCheck
+ *
+ * Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek.
+ */
+export const zDiagnosisCheck = z.object({
+    label: z.string(),
+    state: z.enum([
+        'passed',
+        'failed',
+        'not_checked'
+    ]),
+    detail: z.string()
+});
+
+/**
  * Figure
  *
  * Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach.
@@ -100,6 +115,21 @@ export const zDecision = z.object({
     title: z.string(),
     message: zMessage,
     counts: zCountGroup
+});
+
+/**
+ * Diagnosis
+ *
+ * Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+ *
+ * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+ * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+ * ponownie; ``report``: przyczynę usuwa Maks.
+ */
+export const zDiagnosis = z.object({
+    explanation: zMessage,
+    next_action: z.enum(['rerun', 'report']),
+    checks: z.array(zDiagnosisCheck)
 });
 
 /**
@@ -558,8 +588,9 @@ export const zRunSummary = z.object({
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
- * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+ * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * Zatrzymania (``None`` bez Zatrzymania).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -579,6 +610,11 @@ export const zRunOutcome = z.object({
         'rerun',
         'open_period_folder'
     ]),
+    stop_kind: z.enum([
+        'for_tata',
+        'for_maks',
+        'repeated'
+    ]).nullable(),
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
     notices: z.array(z.string()),
@@ -745,6 +781,15 @@ export const zDecideRunResponse = z.discriminatedUnion('state', [
  * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
  */
 export const zStreamRunEventsResponse = zRunEvent;
+
+export const zDiagnoseRunPath = z.object({
+    run_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zDiagnoseRunResponse = zDiagnosis;
 
 /**
  * Successful Response

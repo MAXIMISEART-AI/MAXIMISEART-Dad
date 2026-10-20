@@ -21,7 +21,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
-`--feature przebieg-rozliczen`, or `--feature start-i-zamykanie` drives one
+`--feature przebieg-rozliczen`, `--feature diagnoza`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and

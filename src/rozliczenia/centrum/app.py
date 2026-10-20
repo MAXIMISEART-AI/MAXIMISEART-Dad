@@ -1,7 +1,8 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``runs_router``, ``metrics_router``, ``configuration_router``, ``shutdown_router``);
+``runs_router``, ``diagnosis_router``, ``metrics_router``, ``configuration_router``,
+``shutdown_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a
 nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku.
@@ -21,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
+from rozliczenia.centrum.diagnosis import diagnosis_router
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
@@ -95,6 +97,7 @@ def create_app(
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
+    app.include_router(diagnosis_router(runs, store, configuration, log))
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration))
     app.include_router(shutdown_router(shutdown))
