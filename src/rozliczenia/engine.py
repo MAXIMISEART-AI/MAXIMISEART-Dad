@@ -144,6 +144,7 @@ def run_settlements(
     summary.issues.extend(plan_issues)
 
     def save_templates(directory: Path) -> list[WorkerResult]:
+        worker_template = workbook_files.WorkerSettlementTemplate(worker_template_path)
         results: list[WorkerResult] = []
         for template_index, worker_name in enumerate(worker_names, start=1):
             target_path = directory / folder.worker_settlement(worker_name).name
@@ -168,7 +169,7 @@ def run_settlements(
                 else:
                     result = template_settlement.process_template(
                         worker_name,
-                        worker_template_path,
+                        worker_template,
                         target_path,
                         rows,
                     )

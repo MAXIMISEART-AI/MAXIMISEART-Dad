@@ -7,7 +7,15 @@ from typing import Iterable, Literal
 
 from . import workbook_files
 from .domain import WorkerResult
-from .workbook_files import WORKER_HEADER, ExcelRow, Layout, Problem, WorkbookError
+from .workbook_files import (
+    WORKER_HEADER,
+    ExcelRow,
+    Layout,
+    Problem,
+    WorkbookError,
+    WorkbookSaveError,
+    WorkerSettlementTemplate,
+)
 
 
 class TemplateWriteError(Exception):
@@ -65,7 +73,7 @@ def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidat
 
 def process_template(
     worker_name: str,
-    template_path: Path,
+    template: WorkerSettlementTemplate,
     target_path: Path,
     rows: Iterable[ExcelRow],
 ) -> WorkerResult:
@@ -78,19 +86,16 @@ def process_template(
 
     rows = list(rows)
     try:
-        with workbook_files.file_from_template(template_path, target_path, Layout.COLLECTIVE, recalculate=True) as sheet:
-            try:
-                sheet.check_worker_header()
-            except WorkbookError as error:
-                if error.problem is not Problem.LAYOUT:
-                    raise
-                raise TemplateWriteError(
-                    f"Szablon nie ma WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}: {target_path.name}."
-                ) from error
-            if sheet.has_input_data():
-                raise TemplateWriteError(f"Szablon zawiera już dane: {target_path.name}.")
-            sheet.write_data_rows(rows)
-    except workbook_files.WorkbookSaveError as exc:
+        template.create_settlement(target_path, rows)
+    except WorkbookError as error:
+        if error.problem is Problem.LAYOUT:
+            raise TemplateWriteError(
+                f"Szablon nie ma WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}: {target_path.name}."
+            ) from error
+        if error.problem is Problem.HAS_DATA:
+            raise TemplateWriteError(f"Szablon zawiera już dane: {target_path.name}.") from error
+        raise
+    except WorkbookSaveError as exc:
         raise TemplateWriteError(f"Nie można zapisać szablonu: {target_path.name}") from exc
     if not rows:
         return WorkerResult(worker_name, target_path, 0, "PUSTY_SZABLON")
