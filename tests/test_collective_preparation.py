@@ -29,9 +29,10 @@ from tests.fixtures.preparation import (
     COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
     INTERNAL_TEMPLATE_HEADERS,
-    NOT_TRANSFERRED_MARKERS,
+    NOT_TRANSFERRED_PREFIXES,
     OLD_REGISTER_HEADERS,
     PERIOD,
+    TEMPLATE_NARROW_COLUMN_WIDTHS,
     PreparationFixture,
     RegisterRow,
     default_register_rows,
@@ -39,6 +40,7 @@ from tests.fixtures.preparation import (
     make_dad_layout_fixture,
     make_preparation_fixture,
     register_order,
+    template_column_width,
     write_collective_template,
     write_internal_template,
     write_register,
@@ -144,7 +146,7 @@ def test_akcje_zwrot_and_uwagi_from_rejestr_stay_out_of_both_period_files(tmp_pa
             ]
         finally:
             workbook.close()
-        assert [text for text in texts if any(marker in text for marker in NOT_TRANSFERRED_MARKERS)] == []
+        assert [text for text in texts if any(prefix in text for prefix in NOT_TRANSFERRED_PREFIXES.values())] == []
 
 
 def test_rejestr_in_old_layout_still_fills_both_period_files(tmp_path: Path) -> None:
@@ -554,21 +556,29 @@ def test_data_column_keeps_date_format_from_rejestr(tmp_path: Path) -> None:
         collective.close()
 
 
-def sheet_layout(path: Path, *, header_row: int, max_col: int) -> dict[str, object]:
+@dataclass(frozen=True)
+class SheetLayout:
     """Szerokości kolumn, wysokości wierszy, nagłówek z formatowaniem i blokada wierszy."""
 
+    widths: list[float | None]
+    heights: list[float | None]
+    header: list[tuple[object, ...]]
+    freeze_panes: str | None
+
+
+def sheet_layout(path: Path, *, header_row: int, max_col: int) -> SheetLayout:
     workbook = load_workbook(path)
     try:
         sheet = active_worksheet(workbook)
-        return {
-            "widths": column_widths(sheet, max_col),
-            "heights": [sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
-            "header": [
+        return SheetLayout(
+            widths=column_widths(sheet, max_col),
+            heights=[sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
+            header=[
                 (cell.value, cell.font.name, cell.font.sz, cell.font.b, cell.fill.fgColor.rgb)
                 for cell in sheet[header_row][:max_col]
             ],
-            "freeze_panes": sheet.freeze_panes,
-        }
+            freeze_panes=sheet.freeze_panes,
+        )
     finally:
         workbook.close()
 
@@ -584,10 +594,10 @@ def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind:
     else:
         template, created, header_row = fixture.collective_template_path, fixture.collective_file_path, 17
     expected = sheet_layout(template, header_row=header_row, max_col=47)
-    assert expected["freeze_panes"] == f"A{header_row + 1}"
-    widths = expected["widths"]
-    assert isinstance(widths, list)
-    assert widths[:5] == [10, 11, 2.29, 13, 3]  # bardzo wąskie kolumny C i E, którymi tata zwęża Wzorce
+    assert expected.freeze_panes == f"A{header_row + 1}"
+    # Szerokości Wzorca, łącznie z jego bardzo wąskimi kolumnami.
+    leading = range(1, max(TEMPLATE_NARROW_COLUMN_WIDTHS) + 1)
+    assert expected.widths[: len(leading)] == [template_column_width(column) for column in leading]
     assert sheet_layout(created, header_row=header_row, max_col=47) == expected
 
 

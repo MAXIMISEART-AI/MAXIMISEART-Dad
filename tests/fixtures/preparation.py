@@ -50,8 +50,8 @@ REGISTER_HEADERS: tuple[str, ...] = (
     "ZWROT",
     "UWAGI",
 )
-# Starsza kopia Rejestru: inna kolejność, stare zapisy nagłówków, bez AKCJE;
-# "STATUS APLIKACJI" nie jest przenoszony.
+# Starsza kopia Rejestru: inna kolejność, stare zapisy nagłówków, bez AKCJE, ZWROT i UWAGI,
+# za to z kolumną "STATUS APLIKACJI", która nie jest przenoszona.
 OLD_REGISTER_HEADERS: tuple[str, ...] = (
     "nr zlecenia",
     "DATA GODZ. POCZ.",
@@ -68,8 +68,10 @@ OLD_REGISTER_HEADERS: tuple[str, ...] = (
 )
 # Nagłówki nowego Rejestru zapisane w starszej kopii inaczej.
 OLD_REGISTER_SPELLINGS = {"ADRES": "adres", "NUMER ZL.": "nr zlecenia", "NUMER UMOWY": "NUMER UMOWY/ZLECENIA ORANGE"}
-# Znaczniki wartości kolumn Rejestru, które nie trafiają do plików okresu.
-NOT_TRANSFERRED_MARKERS: tuple[str, ...] = ("akcja SYN-", "zwrot SYN-", "uwaga SYN-")
+# Wartości kolumn, które ma tylko starsza kopia Rejestru.
+OLD_REGISTER_ONLY_VALUES: dict[str, object] = {"STATUS APLIKACJI": "zamknięte"}
+# Początki wartości kolumn nowego Rejestru, które nie trafiają do plików okresu.
+NOT_TRANSFERRED_PREFIXES: dict[str, str] = {"AKCJE": "akcja SYN-", "ZWROT": "zwrot SYN-", "UWAGI": "uwaga SYN-"}
 INTERNAL_TEMPLATE_HEADERS: tuple[str, ...] = (
     "DATA",
     "MIASTO",
@@ -123,6 +125,12 @@ TEMPLATE_ROW_STYLED_ROWS = 40
 TEMPLATE_NARROW_COLUMN_WIDTHS = {3: 2.29, 5: 3.0}
 
 
+def template_column_width(column: int) -> float:
+    """Szerokość kolumny ``column`` (od 1) w obu syntetycznych Wzorcach."""
+
+    return TEMPLATE_NARROW_COLUMN_WIDTHS.get(column, 9 + column)
+
+
 @dataclass(frozen=True)
 class Highlight:
     """Wyróżnienie komórki Rejestru, które ma przejść do obu plików okresu."""
@@ -152,7 +160,7 @@ def register_order(
     """Syntetyczne zlecenie nowego Rejestru z unikalnymi znacznikami treści ``SYN-…``."""
 
     return {
-        "AKCJE": f"akcja SYN-{number:03d}",
+        "AKCJE": f"{NOT_TRANSFERRED_PREFIXES['AKCJE']}{number:03d}",
         "DATA GODZ. POCZ.": started,
         "MIASTO": "POZNAŃ",
         "ADRES": f"syntetyczny adres SYN-{number:03d}",
@@ -164,21 +172,24 @@ def register_order(
         "NUMER UMOWY": f"OR-SYN-{number:03d}",
         "SKUTECZNE": successful,
         "CZYNNOŚCI ZREALIZOWANE": "montaż",
-        "ZWROT": f"zwrot SYN-{number:03d}",
-        "UWAGI": f"uwaga SYN-{number:03d}",
+        "ZWROT": f"{NOT_TRANSFERRED_PREFIXES['ZWROT']}{number:03d}",
+        "UWAGI": f"{NOT_TRANSFERRED_PREFIXES['UWAGI']}{number:03d}",
     }
 
 
 def in_old_layout(rows: list[RegisterRow]) -> list[RegisterRow]:
-    """Te same zlecenia zapisane pod nagłówkami starszej kopii Rejestru (``OLD_REGISTER_HEADERS``)."""
+    """Te same zlecenia w układzie starszej kopii Rejestru: każdy wiersz ma dokładnie ``OLD_REGISTER_HEADERS``.
 
-    return [
-        None
-        if row is None
-        else {OLD_REGISTER_SPELLINGS.get(header, header): value for header, value in row.items()}
-        | {"STATUS APLIKACJI": "zamknięte"}
-        for row in rows
-    ]
+    Nagłówki dostają stary zapis, kolumn, których starsza kopia nie ma, w wierszu nie ma, a kolumny, które ma
+    tylko ona, dostają ``OLD_REGISTER_ONLY_VALUES``.
+    """
+
+    def old_row(row: Mapping[str, object]) -> dict[str, object]:
+        values = {OLD_REGISTER_SPELLINGS.get(header, header): value for header, value in row.items()}
+        values |= OLD_REGISTER_ONLY_VALUES
+        return {header: values[header] for header in OLD_REGISTER_HEADERS}
+
+    return [None if row is None else old_row(row) for row in rows]
 
 
 def default_register_rows() -> list[RegisterRow]:
@@ -279,7 +290,7 @@ def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, r
     column_font_size = TEMPLATE_COLUMN_FONT_SIZE if row_style else TEMPLATE_FONT_SIZE
     for column in range(1, columns + 1):
         dimension = sheet.column_dimensions[get_column_letter(column)]
-        dimension.width = TEMPLATE_NARROW_COLUMN_WIDTHS.get(column, 9 + column)
+        dimension.width = template_column_width(column)
         dimension.font = Font(name=TEMPLATE_FONT_NAME, size=column_font_size)
         sheet.cell(header_row, column).font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE, bold=True)
     sheet.row_dimensions[header_row].height = 30
