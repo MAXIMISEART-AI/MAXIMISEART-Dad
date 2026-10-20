@@ -25,14 +25,29 @@ type RunsContextValue = {
   /** Zakończone Uruchomienie, którego wynik tata odłożył przyciskiem „Nowe Uruchomienie procesu”. */
   dismissed: string | null
   newRun: (finishedRunId: string) => void
+  /** Start wysłany, a strumień nie pokazał jeszcze nowego Uruchomienia; do tej pory kolejny start nic nie wysyła. */
+  starting: boolean
   start: (request: RunRequest) => Promise<boolean>
-  decide: (runId: string, answer: DecisionAnswer["answer"]) => Promise<void>
+  /** Uruchomienie, którego decyzja jest wysłana, a strumień nadal pokazuje, że na nią czeka. */
+  deciding: string | null
+  decide: (runId: string, answer: DecisionAnswer["answer"]) => void
 }
 
 const RunsContext = React.createContext<RunsContextValue | null>(null)
 
 function showFailure(failure: Error) {
   toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
+}
+
+/** Start czekający na strumień: Uruchomienie widoczne przed startem i to, które serwer przyjął (`undefined` przed odpowiedzią). */
+type PendingStart = { before: string | null; accepted?: string | null }
+
+function shownRun(view: RunView | null): string | null {
+  return view === null || view.state === "idle" ? null : view.run.id
+}
+
+function awaitsDecision(view: RunView | null, runId: string): boolean {
+  return view?.state === "awaiting_decision" && view.run.id === runId
 }
 
 /** Powiadomienie tylko po zakończonym zapisie (RUN), widzianym na żywo; podgląd i zatrzymanie mają baner. */
@@ -68,6 +83,24 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
   const [draft, setDraft] = React.useState<RunDraft | null>(null)
   const [dismissed, setDismissed] = React.useState<string | null>(null)
   const latest = React.useRef<RunView | null>(null)
+  // Tata klika dwa razy z przyzwyczajenia i stuka dwa razy w ekran dotykowy, a przycisk startu i okno decyzji
+  // znikają dopiero, gdy strumień pokaże zmianę. Do tej pory powtórne kliknięcie niczego nie wysyła: drugi start
+  // albo druga decyzja dostałyby odmowę serwera obok udanej pierwszej, a drugi podgląd bez zapisu mógłby się
+  // nawet wykonać. Odmowa pierwszego kliknięcia (np. Uruchomienie z innej karty) pokazuje się jak dotąd.
+  const pendingStart = React.useRef<PendingStart | null>(null)
+  const pendingDecision = React.useRef<string | null>(null)
+  const [starting, setStarting] = React.useState(false)
+  const [deciding, setDeciding] = React.useState<string | null>(null)
+
+  const settleStart = React.useCallback(() => {
+    pendingStart.current = null
+    setStarting(false)
+  }, [])
+
+  const settleDecision = React.useCallback(() => {
+    pendingDecision.current = null
+    setDeciding(null)
+  }, [])
 
   React.useEffect(
     () =>
@@ -76,10 +109,23 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
           announce(event, latest.current)
           latest.current = event.view
           setView(event.view)
+
+          // Po przyjęciu startu każde Uruchomienie inne niż sprzed startu to już nowe (albo jeszcze późniejsze).
+          const start = pendingStart.current
+
+          if (start !== null && start.accepted !== undefined && shownRun(event.view) !== start.before) {
+            settleStart()
+          }
+
+          const decision = pendingDecision.current
+
+          if (decision !== null && !awaitsDecision(event.view, decision)) {
+            settleDecision()
+          }
         },
         (connected) => setDisconnected(!connected)
       ),
-    []
+    [settleStart, settleDecision]
   )
 
   const value = React.useMemo<RunsContextValue>(
@@ -90,22 +136,59 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
       setDraft,
       dismissed,
       newRun: setDismissed,
-      start: (request) =>
-        startRun(request).then(
-          () => {
+      starting,
+      start: (request) => {
+        if (pendingStart.current !== null) {
+          return Promise.resolve(false)
+        }
+
+        const pending: PendingStart = { before: shownRun(latest.current) }
+
+        pendingStart.current = pending
+        setStarting(true)
+
+        return startRun(request).then(
+          (started) => {
+            pending.accepted = shownRun(started)
+
+            if (pending.accepted === null || shownRun(latest.current) === pending.accepted) {
+              settleStart()
+            }
+
             setDraft(null)
 
             return true
           },
           (failure: Error) => {
+            settleStart()
             showFailure(failure)
 
             return false
           }
-        ),
-      decide: (runId, answer) => decideRun(runId, answer).then(() => undefined, showFailure),
+        )
+      },
+      deciding,
+      decide: (runId, answer) => {
+        if (pendingDecision.current !== null) {
+          return
+        }
+
+        pendingDecision.current = runId
+        setDeciding(runId)
+        decideRun(runId, answer).then(
+          () => {
+            if (!awaitsDecision(latest.current, runId)) {
+              settleDecision()
+            }
+          },
+          (failure: Error) => {
+            settleDecision()
+            showFailure(failure)
+          }
+        )
+      },
     }),
-    [view, disconnected, draft, dismissed]
+    [view, disconnected, draft, dismissed, starting, deciding, settleStart, settleDecision]
   )
 
   return <RunsContext.Provider value={value}>{children}</RunsContext.Provider>

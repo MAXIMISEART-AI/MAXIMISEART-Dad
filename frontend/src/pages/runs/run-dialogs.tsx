@@ -98,22 +98,19 @@ export function ConfirmRunDialog({
 /**
  * Decyzja taty, na którą czeka Uruchomienie procesu (np. niepełny okres). Okno trwa tak długo, jak
  * serwer czeka, więc wraca po odświeżeniu karty. Fokus startuje na bezpiecznej opcji „Przerwij bez zapisu”.
+ * Po wysłanej decyzji przyciski czekają, aż okno zniknie (`deciding`).
  */
 export function DecisionDialog({
   decision,
+  deciding,
   onDecide,
 }: {
   decision: Decision
-  onDecide: (answer: DecisionAnswer["answer"]) => Promise<void>
+  deciding: boolean
+  onDecide: (answer: DecisionAnswer["answer"]) => void
 }) {
   const abort = React.useRef<HTMLButtonElement>(null)
-  const [sending, setSending] = React.useState(false)
   const message = decision.message
-
-  const decide = (answer: DecisionAnswer["answer"]) => {
-    setSending(true)
-    onDecide(answer).finally(() => setSending(false))
-  }
 
   return (
     <AlertDialog open>
@@ -146,10 +143,10 @@ export function DecisionDialog({
           </CollapsibleContent>
         </Collapsible>
         <AlertDialogFooter>
-          <AlertDialogCancel ref={abort} disabled={sending} onClick={() => decide("abort")}>
+          <AlertDialogCancel ref={abort} disabled={deciding} onClick={() => onDecide("abort")}>
             Przerwij bez zapisu
           </AlertDialogCancel>
-          <AlertDialogAction disabled={sending} onClick={() => decide("continue")}>
+          <AlertDialogAction disabled={deciding} onClick={() => onDecide("continue")}>
             Kontynuuj
           </AlertDialogAction>
         </AlertDialogFooter>
