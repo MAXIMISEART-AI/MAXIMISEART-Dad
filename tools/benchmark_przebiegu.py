@@ -4,11 +4,20 @@ Użycie (z katalogu repozytorium):
 
     python tools/benchmark_przebiegu.py measure --scenario typowy-tydzien --machine mac-m4max
     python tools/benchmark_przebiegu.py comment [--before SHA] [--after SHA]
+    python tools/benchmark_przebiegu.py guard --budget-ms MS [--summary PLIK]
+
+Z syntetycznymi Wzorcami (bez Wzorców taty, jak w CI):
+
+    python tools/syntetyczne_wzorce.py .benchmark/syntetyczne-wzorce
+    python tools/benchmark_przebiegu.py measure --templates-dir .benchmark/syntetyczne-wzorce \\
+        --config .benchmark/syntetyczne-wzorce/worker_mapping.yaml --machine mac-m4max-syntetyczne
 
 ``measure`` buduje lustro folderów taty (albo używa istniejącego), uruchamia na nim
 Przebieg rozliczeń 3 razy jako osobny proces Pythona (``run.py --source``) i dopisuje
 rekord pomiaru do dziennika JSONL w ``.benchmark/`` (poza gitem). ``comment`` drukuje
-z dziennika komentarz Markdown do issue-dziennika wspinaczki (spec #141).
+z dziennika komentarz Markdown do issue-dziennika wspinaczki (spec #141). ``guard`` to straż
+czasu w CI: opisuje ostatni pomiar dziennika w Markdown i kończy się kodem 1 tylko wtedy, gdy
+mediana czasu ściany przekracza budżet.
 
 Lustro to ``Załączniki/Rozliczenia 2026/10_Październik_2026/INEA/06_12_10_2026`` z
 Plikiem zbiorczym, który Przygotowanie pliku zbiorczego (``run_preparation.py``)
@@ -505,6 +514,32 @@ def render_comment(records: Sequence[Mapping[str, Any]], before: str | None = No
     return "\n".join(lines)
 
 
+# --- straż czasu w CI -------------------------------------------------------------------------
+
+
+def guard_summary(record: Mapping[str, Any], budget_ms: int) -> tuple[str, bool]:
+    """Podsumowanie ostatniego pomiaru do joba CI i to, czy mediana czasu ściany mieści się w budżecie."""
+
+    median = record["wall_ms"]["mediana"]
+    within = median <= budget_ms
+    verdict = "w budżecie" if within else f"ponad budżetem o {median - budget_ms} ms"
+    lines = [
+        f"### Czas Przebiegu rozliczeń: {record['scenario']}",
+        "",
+        "| | mediana (min–max) [ms] |",
+        "|---|---:|",
+        f"| Czas ściany | {_spread_text(record['wall_ms'])} |",
+        f"| Czas uruchomienia | {_spread_text(record['czas_uruchomienia_ms'])} |",
+        *(f"| {phase} | {_spread_text(spread)} |" for phase, spread in record["phase_durations_ms"].items()),
+        "",
+        f"{_commit_text(record)}, maszyna `{record['machine']}`, uruchomienia: {record['runs']}.",
+        "",
+        f"Budżet mediany czasu ściany: {budget_ms} ms. Wynik: **{verdict}**.",
+        "",
+    ]
+    return "\n".join(lines), within
+
+
 # --- CLI --------------------------------------------------------------------------------------
 
 
@@ -526,7 +561,25 @@ def _parser() -> argparse.ArgumentParser:
     comment_parser.add_argument("--journal", type=Path, default=DEFAULT_DIRECTORY / "przebieg.jsonl")
     comment_parser.add_argument("--before", help="Commit (prefiks) pomiaru „przed”; domyślnie poprzedni rekord.")
     comment_parser.add_argument("--after", help="Commit (prefiks) pomiaru „po”; domyślnie ostatni rekord.")
+    guard_parser = commands.add_parser(
+        "guard", help="Opisz ostatni pomiar dziennika i zakończ kodem 1, gdy mediana czasu ściany przekracza budżet."
+    )
+    guard_parser.add_argument("--journal", type=Path, default=DEFAULT_DIRECTORY / "przebieg.jsonl")
+    guard_parser.add_argument("--budget-ms", type=int, required=True)
+    guard_parser.add_argument("--summary", type=Path, help="Plik, do którego dopisać podsumowanie (np. job CI).")
     return parser
+
+
+def _guard(journal: Path, budget_ms: int, summary_path: Path | None) -> int:
+    records = _read_journal(journal)
+    if not records:
+        raise BenchmarkError(f"Dziennik {journal} jest pusty; najpierw uruchom measure.")
+    summary, within = guard_summary(records[-1], budget_ms)
+    print(summary, end="")
+    if summary_path is not None:
+        with summary_path.open("a", encoding="utf-8") as stream:
+            stream.write(summary)
+    return 0 if within else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -535,6 +588,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "comment":
             print(render_comment(_read_journal(args.journal), args.before, args.after), end="")
             return 0
+        if args.command == "guard":
+            return _guard(args.journal, args.budget_ms, args.summary)
         templates = _templates((args.templates_dir or default_templates_directory()).expanduser().resolve())
         config = args.config.expanduser().resolve()
         mirror, built = ensure_mirror(args.mirror_dir.expanduser().resolve(), args.scenario, config, templates)
