@@ -356,6 +356,18 @@ export const zReadyPath = z.object({
 });
 
 /**
+ * RepairNotice
+ *
+ * Powiadomienie o naprawie na stronie Okresy.
+ *
+ * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
+ * działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+ */
+export const zRepairNotice = z.object({
+    repaired: z.boolean()
+});
+
+/**
  * ReportDraft
  *
  * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
@@ -854,6 +866,11 @@ export const zReportRunResponse = z.discriminatedUnion('state', [
     zReportSent,
     zReportSaved
 ]);
+
+/**
+ * Successful Response
+ */
+export const zGetRepairNoticeResponse = zRepairNotice;
 
 /**
  * Successful Response

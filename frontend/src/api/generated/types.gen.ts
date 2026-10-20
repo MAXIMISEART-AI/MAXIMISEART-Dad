@@ -752,6 +752,21 @@ export type RecentResults = {
 };
 
 /**
+ * RepairNotice
+ *
+ * Powiadomienie o naprawie na stronie Okresy.
+ *
+ * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
+ * działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+ */
+export type RepairNotice = {
+    /**
+     * Repaired
+     */
+    repaired: boolean;
+};
+
+/**
  * ReportDraft
  *
  * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
@@ -1590,6 +1605,22 @@ export type ReportRunResponses = {
 };
 
 export type ReportRunResponse = ReportRunResponses[keyof ReportRunResponses];
+
+export type GetRepairNoticeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/reports/repair';
+};
+
+export type GetRepairNoticeResponses = {
+    /**
+     * Successful Response
+     */
+    200: RepairNotice;
+};
+
+export type GetRepairNoticeResponse = GetRepairNoticeResponses[keyof GetRepairNoticeResponses];
 
 export type GetMetricsData = {
     body?: never;

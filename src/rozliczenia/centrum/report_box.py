@@ -18,9 +18,9 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol
 
 
 @dataclass(frozen=True)
@@ -51,10 +51,19 @@ class Unreachable:
 
 SendOutcome = Sent | Refused | Unreachable
 
+# Stan Zgłoszenia w skrzynce: ``open`` czeka na naprawę, ``closed`` Maks zamknął po naprawie.
+IssueState = Literal["open", "closed"]
+# Stan każdego z pytanych numerów albo porażka całego zapytania.
+StatesOutcome = Mapping[int, IssueState] | Refused | Unreachable
+
 
 class ReportBox(Protocol):
     def send(self, report: Report, *, key: str) -> SendOutcome:
         """Zakłada Zgłoszenie w skrzynce z kluczem taty; nigdy nie rzuca wyjątku sieci."""
+        ...
+
+    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
+        """Stan wysłanych Zgłoszeń o numerach ``numbers``; nigdy nie rzuca wyjątku sieci."""
         ...
 
 
@@ -119,6 +128,23 @@ class GitHubReportBox:
             return Refused()
         number = _json_field(response.body, "number") if response.status == 201 else None
         return Sent(number) if isinstance(number, int) else Unreachable()
+
+    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
+        transport = self._transport or urllib_transport  # odczyt przy zapytaniu: testy blokują go w conftest
+        states: dict[int, IssueState] = {}
+        for number in numbers:
+            url = f"{_API}/repos/{self._repository}/issues/{number}"
+            try:
+                response = transport(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
+            except OSError:
+                return Unreachable()
+            if response.status in _REFUSALS:
+                return Refused()
+            state = _json_field(response.body, "state") if response.status == 200 else None
+            if state not in ("open", "closed"):
+                return Unreachable()
+            states[number] = "open" if state == "open" else "closed"
+        return states
 
 
 def _headers(key: str) -> dict[str, str]:

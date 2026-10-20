@@ -152,6 +152,21 @@ Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
 jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
 Maks; Ty niczego tam nie wpisujesz.
 
+### Powiadomienie o naprawie
+
+Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`
+pod tytułem pojawi się `Maks naprawił zgłoszony problem. Zaktualizuj
+narzędzie.`
+
+1. Zaktualizuj narzędzie.
+2. W karcie Centrum kliknij `Zamknij Centrum rozliczeń` i otwórz Centrum
+   skrótem.
+
+Po aktualizacji powiadomienie zniknie samo; niczego nie zamykasz. Centrum
+sprawdza to przy otwarciu i przy wejściu na `Okresy`, najwyżej raz na 10 minut.
+Bez internetu nic się nie pokazuje i nic się nie psuje; Centrum sprawdzi
+ponownie później.
+
 ### Komunikaty startu Centrum rozliczeń
 
 Gdy Centrum nie może wystartować, zamiast karty pojawi się okienko z trzema

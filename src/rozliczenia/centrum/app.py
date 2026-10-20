@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, MutableMapping
 from datetime import date
 from pathlib import Path
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -29,7 +30,7 @@ from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.reports import Reports, reports_router
+from rozliczenia.centrum.reports import Reports, repair_router, reports_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
@@ -57,6 +58,7 @@ def create_app(
     tool_freshness: ToolFreshness | None = None,
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -101,7 +103,9 @@ def create_app(
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
-    reports = Reports(settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local)
+    reports = Reports(
+        settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock
+    )
     # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
     runs = RunHost(log, centrum_runs, reports.state)
     shutdown.refuse_while(runs.shutdown_refusal)
@@ -110,6 +114,7 @@ def create_app(
     app.include_router(runs_router(runs, [preparation, settlement]))
     app.include_router(diagnosis_router(runs, store, configuration, log, surroundings, reports))
     app.include_router(reports_router(runs, reports))
+    app.include_router(repair_router(reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration, reports.key_state))
     app.include_router(shutdown_router(shutdown))
