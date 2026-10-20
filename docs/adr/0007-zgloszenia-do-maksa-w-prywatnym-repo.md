@@ -44,8 +44,12 @@ pierwszy sekret na jego komputerze:
 Rewizja reguły prywatności: Zgłoszenie opuszcza komputer taty, ale niesie tylko
 to, co reguła ADR 0004 już dopuszcza w Centrum (Komunikat w trzech częściach,
 ze skróconymi ścieżkami, wynik sprawdzeń Diagnozy, bezpieczne wpisy dziennika
-Centrum) oraz proces, okres, tryb, wersję i commit narzędzia. Bez treści
-wierszy, adresów, numerów zleceń, stawek, treści wyjątków i pełnych ścieżek.
+Centrum) oraz proces, okres, tryb, wersję i commit narzędzia. Przy
+nieoczekiwanym błędzie dochodzi typ wyjątku i ślad wywołań w kodzie narzędzia
+(plik względem katalogu narzędzia, linia, funkcja); Centrum trzyma go w pamięci
+tylko przy tym Zatrzymaniu, poza dziennikiem, metrykami i innymi odpowiedziami.
+Bez treści wierszy, adresów, numerów zleceń, stawek, treści wyjątków i pełnych
+ścieżek.
 
 Naprawa odbywa się w publicznym repozytorium narzędzia. PR odwołuje się do
 Zgłoszenia samym numerem, a przypadek testowy powstaje na danych syntetycznych;

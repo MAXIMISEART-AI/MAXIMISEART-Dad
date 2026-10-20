@@ -3,8 +3,9 @@
 Treść Zgłoszenia powstaje tylko tutaj (``report_of``), z tych samych
 bezpiecznych faktów co Komunikat i Diagnoza: Komunikat z kodem i trzema
 częściami, proces, okres i tryb, wersja i commit narzędzia, wynik każdego
-sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum. Ścieżki są już
-skrócone w Komunikatach i szczegółach sprawdzeń; treści wierszy, treści
+sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum, a przy nieoczekiwanym
+wyjątku jego typ i ślad wywołań w kodzie narzędzia. Ścieżki są już skrócone w
+Komunikatach, szczegółach sprawdzeń i ramkach śladu; treści wierszy, treści
 wyjątków ani klucza Zgłoszenie nie ma (ADR 0007).
 
 Diagnoza zostawia treść Zgłoszenia jako podgląd dla swojego Uruchomienia
@@ -21,6 +22,7 @@ from typing import TYPE_CHECKING, Final
 
 from fastapi import APIRouter
 
+from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import Refused, Report, ReportBox, SendOutcome, Sent, fingerprint_line
@@ -66,6 +68,7 @@ def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None 
         f"- Okres: {info.period}",
         f"- Tryb: {_MODES[info.dry_run]}",
         "",
+        *_trace_lines(stopped.stop.trace),
         "## Narzędzie",
         "",
         f"- Wersja: {tool_version()}",
@@ -91,6 +94,23 @@ def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None 
         "```",
     ]
     return Report(title=f"{message.code}: {message.what}", body="\n".join(lines) + "\n", fingerprint=fingerprint)
+
+
+def _trace_lines(trace: CallTrace | None) -> list[str]:
+    """Sekcja śladu wywołań nieoczekiwanego wyjątku: typ i ramki kodu narzędzia, bez treści wyjątku."""
+
+    if trace is None:
+        return []
+    return [
+        "## Ślad wywołań",
+        "",
+        f"- Wyjątek: {trace.exception_type}",
+        "",
+        "```text",
+        *(f"{frame.file}:{frame.line} w {frame.function}" for frame in trace.frames),
+        "```",
+        "",
+    ]
 
 
 def _cell(text: str) -> str:
