@@ -2,8 +2,8 @@
 
 Diagnoza wyjaśnia przyczynę Komunikatem z katalogu procesu, gdy proces ma
 własny (np. Rejestr zleceń otwarty w Excelu). Ten katalog ma tylko resztę:
-brak przyczyny, plik okresu otwarty w Excelu i nieoczekiwany wyjątek w
-dzienniku Centrum. Instrukcja taty cytuje „Co się stało” każdego Komunikatu
+brak przyczyny, nowsza wersja narzędzia, plik okresu otwarty w Excelu, plik
+tylko w chmurze OneDrive i nieoczekiwany wyjątek w dzienniku Centrum. Instrukcja taty cytuje „Co się stało” każdego Komunikatu
 (``tests/test_instrukcja_taty.py``).
 """
 
@@ -27,6 +27,17 @@ def cause_not_found() -> Message:
     )
 
 
+def newer_tool_version() -> Message:
+    """Commit narzędzia u taty różni się od `main` na GitHubie: poprawka mogła już trafić do narzędzia."""
+
+    return Message(
+        code="NOWSZA_WERSJA_NARZEDZIA",
+        what="Jest nowsza wersja narzędzia.",
+        where="narzędzie na tym komputerze",
+        action="Zaktualizuj narzędzie, zamknij Centrum rozliczeń i otwórz je ponownie skrótem, potem uruchom ponownie.",
+    )
+
+
 def period_file_open(path: Path) -> Message:
     """Plik okresu ma obok plik blokady Excela ``~$…``; narzędzie go nie usuwa."""
 
@@ -37,6 +48,20 @@ def period_file_open(path: Path) -> Message:
         action=(
             "Zapisz i zamknij plik w Excelu, potem uruchom ponownie. Jeśli Excel jest zamknięty, "
             f"usuń z tego samego folderu pozostawiony plik ~${path.name} i uruchom ponownie."
+        ),
+    )
+
+
+def file_only_in_cloud(path: Path) -> Message:
+    """Plik, który czyta proces, OneDrive trzyma tylko w chmurze (atrybut „tylko online”), bez kopii lokalnej."""
+
+    return Message(
+        code="PLIK_TYLKO_W_CHMURZE",
+        what="Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.",
+        where=file_label(path),
+        action=(
+            "W Eksploratorze plików kliknij ten plik prawym przyciskiem myszy, wybierz „Zawsze zachowuj na tym "
+            "urządzeniu”, poczekaj, aż się pobierze, i uruchom ponownie."
         ),
     )
 

@@ -178,6 +178,8 @@ START_SAMPLES: Samples = {
 
 DIAGNOSIS_SAMPLES: Samples = {
     "cause_not_found": [diagnosis_messages.cause_not_found],
+    "newer_tool_version": [diagnosis_messages.newer_tool_version],
+    "file_only_in_cloud": [lambda: diagnosis_messages.file_only_in_cloud(SOURCE)],
     "period_file_open": [lambda: diagnosis_messages.period_file_open(PERIOD_DIRECTORY / f"Rozliczenie wew. {PERIOD}.xlsx")],
     "unexpected_failure_logged": [diagnosis_messages.unexpected_failure_logged],
 }
