@@ -14,6 +14,15 @@ from drive.common import DAD_TIME_ZONE, LAST_COMPLETE_FOR_CLI, REPO_ROOT, Run, c
 
 # The chart shows the newest Uruchomienia procesu of the chosen process and mode; older ones are in the history.
 CHART_RUNS = 12
+# A bar is at most this wide, and narrower when its share of the chart is smaller (like recharts' `maxBarSize`).
+MAX_BAR_PX = 28
+# The smallest phone window: the seven bars of Przygotowanie RUN do not fit side by side at the widest size there.
+NARROW_VIEWPORT = {"width": 320, "height": 640}
+# Left and right edge of every bar's segments, oldest bar first.
+BAR_EDGES = """(figure) => [...figure.querySelectorAll("[role=button]")].map((bar) => {
+  const boxes = [...bar.querySelectorAll("[data-phase]")].map((segment) => segment.getBoundingClientRect());
+  return [Math.min(...boxes.map((box) => box.left)), Math.max(...boxes.map((box) => box.right))];
+})"""
 
 
 def _seconds(duration_ms: int) -> str:
@@ -94,7 +103,11 @@ def drive_metrics(run: Run, page: Page) -> None:
             _check_chart(run, chart, phases, _chart_runs(runs, process, mode), f"{process_name} {mode}")
     shown_runs = _chart_runs(runs, "preparation", "RUN")
     run.check(True, "the stage-times chart stacks the measured phases of each shown run for every Proces and Tryb")
+    _check_bar_widths(run, chart, "1440 px", narrow=False)
     run.capture(page, "21-metryki-wykres")
+
+    run.step(feature, "metryki-wykres-waski")
+    _drive_narrow_chart(run, page)
 
     run.step(feature, "metryki-wykres-szczegoly")
     _drive_bar_details(run, page, chart, phases, shown_runs)
@@ -229,13 +242,50 @@ def _check_chart(run: Run, chart: Locator, phases: list[str], shown: list[dict],
     for index, entry in enumerate(reversed(shown)):
         expect(bars.nth(index)).to_have_accessible_name(_bar_name(entry, measured))
         segments = sum(1 for phase in measured if _phase_ms(entry, phase) > 0)
-        expect(bars.nth(index).locator("path")).to_have_count(segments)
+        expect(bars.nth(index).locator("[data-phase]")).to_have_count(segments)
     stopped = sum(1 for entry in shown if entry["result"] == "BLAD_KRYTYCZNY")
     expect(chart.get_by_text(re.compile(r"^\d\d\.\d\d ✕$"))).to_have_count(stopped)
     expect(chart.get_by_role("list", name="Etapy").get_by_role("listitem")).to_have_text(measured)
     run.check(
         True, f"{label}: {len(shown)} bars oldest first, a segment per lasting phase, {stopped} marked ✕, legend {measured}"
     )
+
+
+def _check_bar_widths(run: Run, chart: Locator, label: str, *, narrow: bool) -> None:
+    edges: list[list[float]] = chart.evaluate(BAR_EDGES)
+    widths = [right - left for left, right in edges]
+    gaps = [later[0] - earlier[1] for earlier, later in zip(edges, edges[1:])]
+    run.check(
+        len(edges) > 1
+        and min(gaps) > 0
+        and max(widths) <= MAX_BAR_PX + 0.5
+        and (max(widths) < MAX_BAR_PX if narrow else min(widths) >= MAX_BAR_PX - 0.5),
+        f"{label}: {len(edges)} bars {min(widths):.1f}–{max(widths):.1f} px wide (at most {MAX_BAR_PX}), "
+        f"the smallest gap between them {min(gaps):.1f} px",
+    )
+
+
+def _drive_narrow_chart(run: Run, page: Page) -> None:
+    """In a phone-sized window the bars of the busiest Proces and Tryb get narrower instead of overlapping."""
+
+    browser = page.context.browser
+    assert browser is not None
+    context = browser.new_context(viewport=NARROW_VIEWPORT, locale="pl-PL", timezone_id=DAD_TIME_ZONE.key)
+    try:
+        narrow = context.new_page()
+        narrow.set_default_timeout(10_000)
+        narrow.goto(run.url + "#/metryki")
+        chart = narrow.get_by_role("figure", name="Wykres czasów etapów")
+        expect(chart).to_be_visible()
+        narrow.get_by_role("group", name="Proces", exact=True).get_by_role(
+            "button", name="Przygotowanie", exact=True
+        ).click()
+        narrow.get_by_role("group", name="Tryb", exact=True).get_by_role("button", name="RUN", exact=True).click()
+        _check_bar_widths(run, chart, f"{NARROW_VIEWPORT['width']} px, Przygotowanie RUN", narrow=True)
+        chart.scroll_into_view_if_needed()
+        run.capture(narrow, "2a-metryki-wykres-waski")
+    finally:
+        context.close()
 
 
 def _expect_details(details: Locator, entry: dict, measured: list[str]) -> None:

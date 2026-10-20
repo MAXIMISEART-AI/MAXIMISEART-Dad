@@ -62,6 +62,7 @@ REQUIRED_SCREENSHOTS = {
     "metryki": (
         "20-metryki-karty-okresow.png",
         "21-metryki-wykres.png",
+        "2a-metryki-wykres-waski.png",
         "22-metryki-tabela-etapow.png",
         "23-metryki-za-malo-obserwacji.png",
         "24-metryki-historia.png",
