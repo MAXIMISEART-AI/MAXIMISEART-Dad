@@ -169,6 +169,7 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
 
     terminal_lines = {
         "unreadable": f"Nie można odczytać konfiguracji: {config_path}",
+        "not_utf8": f"Konfiguracja nie jest zapisana w UTF-8: {config_path}",
         "not_yaml": f"Niepoprawny YAML konfiguracji: {config_path}",
         "invalid": error.detail,
     }

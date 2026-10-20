@@ -276,6 +276,25 @@ def test_zla_konfiguracja_wykonawcow_jest_komunikatem_w_trzech_czesciach(tmp_pat
     assert [template["state"] for template in templates_by_file(configuration).values()] == ["ready"] * 3
 
 
+def test_konfiguracja_wykonawcow_zapisana_w_ansi_jest_komunikatem_a_nie_bledem_strony(tmp_path: Path) -> None:
+    app = configured(tmp_path)
+    app.files.worker_config.write_text("schema_version: 1\nworkers:\n  łukasz: Łukasz Testowy\n", encoding="cp1250")
+
+    configuration = read_configuration(app)
+
+    assert configuration["workers"] == {
+        "state": "unreadable",
+        "message": {
+            "what": (
+                "Konfiguracja wykonawców jest niepoprawna. "
+                "Plik nie jest zapisany w kodowaniu UTF-8; zapisz go ponownie jako UTF-8."
+            ),
+            "where": "plik worker_mapping.yaml, folder config",
+            "action": REPORT_TO_MAINTAINER,
+        },
+    }
+
+
 def test_nowy_wykonawca_dopisany_do_konfiguracji_jest_widoczny_bez_restartu(tmp_path: Path) -> None:
     app = configured(tmp_path)
     read_configuration(app)

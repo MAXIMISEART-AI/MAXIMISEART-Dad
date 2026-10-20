@@ -50,6 +50,20 @@ def test_nieczytelny_plik_konfiguracji_wykonawcow(tmp_path: Path) -> None:
     assert (raised.value.reason, raised.value.detail) == ("unreadable", "Nie można odczytać pliku konfiguracji.")
 
 
+@pytest.mark.parametrize("encoding", ["cp1250", "utf-16"], ids=["ansi-notatnik", "powershell-5"])
+def test_konfiguracja_wykonawcow_zapisana_poza_utf8_mowi_jak_ja_zapisac(tmp_path: Path, encoding: str) -> None:
+    config_path = tmp_path / "worker_mapping.yaml"
+    config_path.write_text("schema_version: 1\nworkers:\n  łukasz: Łukasz Testowy\n", encoding=encoding)
+
+    with pytest.raises(WorkerConfigError) as raised:
+        load_worker_mapping(config_path)
+
+    assert (raised.value.reason, raised.value.detail) == (
+        "not_utf8",
+        "Plik nie jest zapisany w kodowaniu UTF-8; zapisz go ponownie jako UTF-8.",
+    )
+
+
 def test_konfiguracja_wykonawcow_ktora_nie_jest_yaml(tmp_path: Path) -> None:
     with pytest.raises(WorkerConfigError) as raised:
         load_worker_mapping(write_config(tmp_path, "workers: [niedomknięta lista\n"))
