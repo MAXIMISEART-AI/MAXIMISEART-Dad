@@ -206,6 +206,18 @@ podsumowania albo problem startu Centrum rozliczeń. Jego kod jest unikalny w
 obrębie procesu.
 _Avoid_: błąd, wiadomość
 
+## Diagnoza
+
+Sprawdzenie tylko do odczytu, które tata uruchamia w Centrum rozliczeń przy
+Zatrzymaniu. Ustala przyczynę na komputerze taty i wyjaśnia ją w trzech
+częściach, jak Komunikat. Niczego nie zmienia ani nie naprawia.
+
+## Zgłoszenie
+
+Komunikat Zatrzymania razem z wynikiem Diagnozy, wysłany z Centrum rozliczeń
+do Maksa. Jeden problem ma jedno otwarte Zgłoszenie: ten sam Komunikat, dopóki
+Zgłoszenie czeka na naprawę, nie tworzy drugiego.
+
 ## Nienadpisywanie
 
 Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje
