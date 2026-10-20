@@ -34,6 +34,7 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.centrum.run_view import ProcessView
 from rozliczenia.centrum.stops import ProblemFingerprint, StopMemory
+from rozliczenia.call_trace import CallTrace
 from rozliczenia.decision import Decision
 from rozliczenia.message import Message
 from rozliczenia.process_run import (
@@ -305,7 +306,7 @@ class _Run:
             result = _run_result(outcome, prepared, kind, self._host.report_state(self, stop, kind))
         except Exception as failure:  # noqa: BLE001 - granica wątku Uruchomienia: typ wyjątku trafia do dziennika Centrum
             self._host.failed(failure)
-            stop = Stop("after_engine", _RESULT_NOT_SHOWN)
+            stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
             kind = self._host.stop_kind(self, stop)
             result = _unexpected_result(prepared.dry_run, kind, self._host.report_state(self, stop, kind))
         self.stop = stop

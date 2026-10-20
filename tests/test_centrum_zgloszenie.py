@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -103,6 +104,67 @@ def test_zgloszenie_nie_ma_tresci_wierszy_wyjatku_pelnych_sciezek_ani_klucza(
     for forbidden in ("SYN-", "nieprzewidziany błąd", KEY, str(tmp_path), tmp_path.as_posix(), "Traceback"):
         assert forbidden not in text
     assert KEY not in centrum.log_path.read_text(encoding="utf-8")
+
+
+MARKER = "SYN-SLAD-158 treść wyjątku z Rejestru zleceń"
+
+
+def raise_with_marker(*args: object, **kwargs: object) -> NoReturn:
+    raise KeyError(MARKER)
+
+
+def trace_section(body: str) -> list[str]:
+    """Linie sekcji śladu wywołań w treści Zgłoszenia; pusta lista, gdy jej nie ma."""
+
+    lines = body.splitlines()
+    if "## Ślad wywołań" not in lines:
+        return []
+    section = lines[lines.index("## Ślad wywołań") + 1 :]
+    return section[: next((i for i, line in enumerate(section) if line.startswith("## ")), len(section))]
+
+
+def test_nieoczekiwany_wyjatek_daje_w_zgloszeniu_typ_i_ramki_kodu_narzedzia_bez_tresci_wyjatku(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    monkeypatch.setattr(preparation_register, "read_register", raise_with_marker)
+    stopped = run_to_end(centrum, dry_run=True)
+    monkeypatch.undo()
+    run_id = stopped["run"]["id"]
+
+    preview = diagnose(centrum, run_id)["report"]
+    send(centrum, run_id)
+
+    assert stopped["result"]["ending"] == "unexpected"
+    section = trace_section(preview["body"])
+    assert "- Wyjątek: KeyError" in section
+    frames = section[section.index("```text") + 1 : section.index("```")]
+    assert all(re.fullmatch(r"(src|tests)/[\w/]+\.py:\d+ w \S+", frame) for frame in frames), frames
+    assert re.fullmatch(r"src/rozliczenia/process_run\.py:\d+ w _run_engine", frames[0])
+    assert any(re.fullmatch(r"src/rozliczenia/collective_preparation\.py:\d+ w <lambda>", frame) for frame in frames)
+    raising_line = raise_with_marker.__code__.co_firstlineno + 1
+    assert frames[-1] == f"tests/test_centrum_zgloszenie.py:{raising_line} w raise_with_marker"
+    [report] = centrum.surroundings.report_box.sent
+    assert report.body == preview["body"]
+    for text in (
+        preview["title"] + preview["body"],
+        centrum.log_path.read_text(encoding="utf-8"),
+        centrum.metrics_path.read_text(encoding="utf-8"),
+        centrum.client.get("/api/runs/current").text,
+    ):
+        assert "SYN-SLAD" not in text
+        assert str(Path.home()) not in text
+
+
+def test_zatrzymanie_z_komunikatem_procesu_nie_ma_sladu_wywolan(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    centrum.fixture.collective_template_path.unlink()
+    stopped = run_to_end(centrum, dry_run=True)
+
+    report = diagnose(centrum, stopped["run"]["id"])["report"]
+
+    assert trace_section(report["body"]) == []
 
 
 def unsent_files(centrum: PreparingCentrum) -> dict[str, str]:
