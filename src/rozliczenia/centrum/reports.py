@@ -414,7 +414,7 @@ class Reports:
         """Klucz do Zgłoszeń z lokalnego pliku; ``None``, gdy pliku nie ma albo jest pusty."""
 
         try:
-            key = self._key_file.read_text(encoding="utf-8").strip()
+            key = self._key_file.read_text(encoding="utf-8-sig").strip()  # Notatnik i PowerShell 5.1 dopisują BOM
         except (OSError, UnicodeError):
             return None
         return key or None

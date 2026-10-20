@@ -388,6 +388,24 @@ def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_wypieraja_go_z_dziennika_
     )
 
 
+def test_urwany_znak_w_dzienniku_nie_blokuje_diagnozy_a_nieoczekiwany_wyjatek_jest_wymieniony(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    with centrum.log_path.open("ab") as log:  # zapis „ł” urwany po pierwszym bajcie, np. przy utracie zasilania
+        log.write("2026-09-16T09:59:00+02:00 przebieg-start proces=przygotowanie ".encode() + "ł".encode()[:1] + b"\n")
+        log.write(UNEXPECTED_LOG_ENTRY.encode())
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["next_action"] == "report"
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
+        "passed",
+        "Ostatnie wpisy od startu Centrum: 4, w tym nieoczekiwany wyjątek.",
+    )
+
+
 def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

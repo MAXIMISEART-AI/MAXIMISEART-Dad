@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -49,6 +50,10 @@ def no_network() -> HttpResponse:
     raise OSError("brak sieci")
 
 
+def cut_off() -> HttpResponse:
+    raise http.client.IncompleteRead(b"{")
+
+
 def test_utworzone_issue_to_wyslane_zgloszenie_z_numerem() -> None:
     outcome, transport = send_with(lambda: HttpResponse(201, json.dumps({"number": 42, "title": "x"}).encode()))
 
@@ -75,10 +80,11 @@ def test_odmowa_autoryzacji_to_odmowa_skrzynki(status: int) -> None:
     "answer",
     [
         no_network,
+        cut_off,
         lambda: HttpResponse(502, b"<html>Bad gateway</html>"),
         lambda: HttpResponse(201, b"to nie jest JSON"),
     ],
-    ids=["brak-sieci", "awaria-githuba", "nieczytelna-odpowiedz"],
+    ids=["brak-sieci", "urwana-odpowiedz", "awaria-githuba", "nieczytelna-odpowiedz"],
 )
 def test_brak_sieci_albo_niezwykla_odpowiedz_to_skrzynka_nieosiagalna(answer: Callable[[], HttpResponse]) -> None:
     outcome, _ = send_with(answer)
@@ -203,3 +209,20 @@ def test_brak_sieci_albo_niezwykla_odpowiedz_przy_stanie_to_skrzynka_nieosiagaln
     outcome, _ = states_with(lambda: issue_in("closed"), answer)
 
     assert outcome == Unreachable()
+
+
+OPERATIONS: dict[str, Callable[[GitHubReportBox, str], object]] = {
+    "send": lambda box, key: box.send(REPORT, key=key),
+    "find_open": lambda box, key: box.find_open(REPORT.fingerprint, key=key),
+    "states": lambda box, key: box.states([7], key=key),
+}
+
+
+@pytest.mark.parametrize("key", ["\ufeffgithub_pat_SYNTETYCZNY", "github_pat_SYNTETYCZNY\nX-Inny: 1", "kluczóś"])
+@pytest.mark.parametrize("operation", OPERATIONS)
+def test_klucz_ktorego_nie_da_sie_wyslac_w_naglowku_to_odmowa_skrzynki_bez_zapytania(key: str, operation: str) -> None:
+    transport = ScriptedTransport(lambda: HttpResponse(201, json.dumps({"number": 42}).encode()))
+
+    outcome = OPERATIONS[operation](GitHubReportBox(transport=transport), key)
+
+    assert (outcome, transport.requests) == (Refused(), [])

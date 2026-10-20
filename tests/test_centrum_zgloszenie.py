@@ -58,6 +58,16 @@ def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path, 
     assert centrum.surroundings.report_box.keys == [KEY]
 
 
+def test_klucz_zapisany_z_bom_wysyla_zgloszenie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum).write_text(KEY + "\r\n", encoding="utf-8-sig")  # PowerShell 5.1: Set-Content -Encoding UTF8
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, run_id)
+
+    assert send(centrum, run_id) == {"state": "sent"}
+    assert centrum.surroundings.report_box.keys == [KEY]
+
+
 def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     centrum.fixture.collective_template_path.unlink()

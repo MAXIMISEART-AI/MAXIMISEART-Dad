@@ -120,7 +120,8 @@ class CentrumLog:
 
         try:
             with self._lock:
-                lines = self._path.read_text(encoding="utf-8").splitlines()
+                # urwany zapis (np. przy utracie zasilania) psuje jeden wpis, nie odczyt całego dziennika
+                lines = self._path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             return []
         starts = [index for index, line in enumerate(lines) if event_of(line) == "start"]
