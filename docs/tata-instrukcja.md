@@ -186,8 +186,8 @@ zbiorczego możesz zawsze uruchomić launcherami `.cmd`.
 | „nie wystartowało z nieoczekiwanego powodu” | Kliknij skrót ponownie. Jeśli komunikat wraca, przekaż osobie utrzymującej narzędzie plik `logs\centrum-rozliczen.log` z folderu narzędzia. |
 
 Plik `logs\centrum-rozliczen.log` to dziennik Centrum: zapisuje tylko start,
-zamknięcie, port i rodzaj błędu, bez danych z Twoich plików. Możesz go
-bezpiecznie przekazać do diagnozy.
+zamknięcie, port, rodzaj błędu i czas otwierania stron, bez danych z Twoich
+plików. Możesz go bezpiecznie przekazać do diagnozy.
 
 ## Przygotowanie pliku zbiorczego
 

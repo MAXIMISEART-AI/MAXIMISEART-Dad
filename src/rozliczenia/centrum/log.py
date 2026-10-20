@@ -10,9 +10,12 @@ brakuje zależności.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 import threading
+
+VIEW_TIMING_EVENT = "pomiar"
 
 
 class CentrumLog:
@@ -72,8 +75,39 @@ class CentrumLog:
 
         self._write("zgloszenie-zapisane", proces=process, okres=period, kod=code)
 
+    def view_timed(
+        self,
+        *,
+        view: str,
+        page: str,
+        ready_ms: int,
+        fcp_ms: int | None,
+        skeleton_ms: int,
+        requests: Sequence[tuple[str, int, int | None]],
+    ) -> None:
+        """Pomiar gotowego widoku z przeglądarki; ``fcp_ms`` tylko przy zimnym starcie.
+
+        Każde zapytanie API to ``operacja:przeglądarka/serwer`` w milisekundach,
+        a ``-`` zamiast czasu serwera, gdy odpowiedź nie miała ``Server-Timing``.
+        """
+
+        facts: dict[str, str | int] = {"widok": view, "strona": page, "gotowe_ms": ready_ms}
+        if fcp_ms is not None:
+            facts["fcp_ms"] = fcp_ms
+        facts["szkielet_ms"] = skeleton_ms
+        if requests:
+            facts["zapytania"] = ",".join(
+                f"{operation}:{browser_ms}/{'-' if server_ms is None else server_ms}"
+                for operation, browser_ms, server_ms in requests
+            )
+        self._write(VIEW_TIMING_EVENT, **facts)
+
     def recent(self, limit: int) -> list[str]:
-        """Najwyżej ``limit`` ostatnich wpisów od ostatniego startu Centrum; brak dziennika to brak wpisów."""
+        """Najwyżej ``limit`` ostatnich wpisów od ostatniego startu Centrum; brak dziennika to brak wpisów.
+
+        Pomiary widoków są pominięte: po każdym przejściu w menu jest nowy, więc
+        wyparłyby wpisy o pracy serwera, a pomiary zostają na komputerze taty.
+        """
 
         try:
             with self._lock:
@@ -82,7 +116,7 @@ class CentrumLog:
             return []
         starts = [index for index, line in enumerate(lines) if event_of(line) == "start"]
         session = lines[starts[-1] :] if starts else lines
-        return session[-limit:]
+        return [line for line in session if event_of(line) != VIEW_TIMING_EVENT][-limit:]
 
     def _write(self, event: str, **facts: str | int) -> None:
         moment = datetime.now().astimezone().isoformat(timespec="seconds")

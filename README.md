@@ -288,7 +288,12 @@ wystarczają zależności z `requirements.txt`, bez Node.
   go nie wyłącza.
 - Dziennik Centrum `logs/centrum-rozliczen.log` (poza gitem) ma jedną linię na
   fakt: `start`, `juz-dziala`, `blad-startu`, `zamkniecie`, `stop`,
-  `nieoczekiwany-wyjatek` (tylko typ i trasa, bez tekstu wyjątku).
+  `nieoczekiwany-wyjatek` (tylko typ i trasa, bez tekstu wyjątku) oraz
+  `pomiar` po każdym gotowym widoku karty (zimny start strony, przejście w
+  menu): strona z menu, czasy w ms i dla każdego zapytania API
+  `operacja:przeglądarka/serwer`. Czas serwera każdej odpowiedzi API jest też
+  w nagłówku `Server-Timing`; wpisy `pomiar` oddzielają wolny odczyt plików z
+  OneDrive od wolnej przeglądarki.
 - Ustawienia Centrum (Rejestr zleceń, folder okresów, motyw) są w
   `config/centrum-ustawienia.yaml`, poza gitem.
 - Metryki czytają przy każdym odczycie oba pliki metryk CLI

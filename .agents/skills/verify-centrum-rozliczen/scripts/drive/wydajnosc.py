@@ -480,7 +480,7 @@ def _prepare_year_of_work(run: Run, page: Page) -> None:
     assert isinstance(runs, list)
     run.check(len(runs) == run.fixture["metrics"]["runs"], f"Metryki read {len(runs)} records of the year")
     expect(page.get_by_role("button", name="Włącz motyw jasny", exact=True)).to_be_visible()
-    for number, page_id in enumerate(PAGES, start=80):
+    for number, page_id in enumerate(PAGES, start=84):
         page.get_by_role("link", name=PAGES[page_id], exact=True).click()
         expect(page.get_by_role("heading", name=PAGES[page_id], exact=True)).to_be_visible()
         expect(page.locator('[data-slot="skeleton"],[aria-busy="true"]')).to_have_count(0)

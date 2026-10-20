@@ -11,11 +11,13 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import get_args
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
+from rozliczenia.centrum.contract import ApiOperation  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.platform import FileTypes  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
@@ -45,7 +47,13 @@ def main() -> int:
         log=log,
         shutdown=Shutdown(log),
     )
-    document = json.dumps(app.openapi(), ensure_ascii=False, indent=2) + "\n"
+    contract = app.openapi()
+    operations = {operation["operationId"] for path in contract["paths"].values() for operation in path.values()}
+    unknown = set(get_args(ApiOperation)) - operations
+    if unknown:
+        print(f"ApiOperation w kontrakcie nazywa operacje bez trasy API: {', '.join(sorted(unknown))}", file=sys.stderr)
+        return 1
+    document = json.dumps(contract, ensure_ascii=False, indent=2) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(document.encode("utf-8"))
     return 0

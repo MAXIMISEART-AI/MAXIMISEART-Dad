@@ -1,6 +1,7 @@
 import * as React from "react"
 import { CalendarRangeIcon, ChartColumnIcon, PlayIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react"
 
+import type { ViewTiming } from "@/api/generated"
 import { ConfigurationPage } from "@/pages/configuration/configuration-page"
 import { MetricsPage } from "@/pages/metrics/metrics-page"
 import { PeriodsPage } from "@/pages/periods/periods-page"
@@ -16,7 +17,8 @@ export const PAGES = [
   { id: "metryki", title: "Metryki", icon: ChartColumnIcon, Content: MetricsPage },
   { id: "konfiguracja", title: "Konfiguracja", icon: SlidersHorizontalIcon, Content: ConfigurationPage },
 ] as const satisfies ReadonlyArray<{
-  id: string
+  // Identyfikator strony z kontraktu: pod nim pomiar widoku trafia do dziennika Centrum.
+  id: ViewTiming["page"]
   title: string
   icon: LucideIcon
   Content: React.ComponentType
