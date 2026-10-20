@@ -1,9 +1,10 @@
 """Check the verify-centrum-rozliczen skill package and the hygiene of one run's evidence.
 
 Checks the frontmatter, the feature-map headings, that every helper named in
-SKILL.md exists and answers ``--help``, that evidence text is strict UTF-8 and
-screenshots are PNG files, and that no workbook content (the fixture's row
-marker) reached the evidence.
+SKILL.md exists and answers ``--help``, the gate of ``wydajnosc`` on made-up
+numbers (no browser), that evidence text is strict UTF-8 and screenshots are PNG
+files, and that no workbook content (the fixture's row marker) reached the
+evidence.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import Any
 
 SCRIPT = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT.parents[1]
@@ -71,6 +73,47 @@ def _check_feature_map(errors: list[str]) -> None:
             errors.append(f"{name} must have exactly the H2s {REQUIRED_FEATURE_HEADINGS}, in order")
 
 
+def _check_performance_gate(errors: list[str]) -> None:
+    """The ``wydajnosc`` gate decides on made-up medians and API requests the way features/wydajnosc.md says."""
+
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+    from drive.wydajnosc import Measured, compare, over_budget
+
+    scenario, requests = "okresy/zimny-start", ["GET /api/settings", "GET /api/periods"]
+    # Budget: max(200 ms × 1.15, 200 ms + 20 ms) = 230 ms.
+    baseline: dict[str, Any] = {
+        "margines": {"wzgledny": 0.15, "minimalny_ms": 20, "bundle_wzgledny": 0.02},
+        "bundle_bajty": {"js": 1000},
+        "scenariusze": {scenario: {"mediana_ms": {"4x": 200}, "zapytania_api": {request: 1 for request in requests}}},
+    }
+
+    def measured(median_ms: float, sent: list[str] = requests) -> Measured:
+        result = Measured(bundle={"js": 1000})
+        for offset in (-5, 0, 5):
+            result.add(scenario, 4, median_ms + offset, sent)
+        return result
+
+    def failures(first: Measured, again: Measured | None = None) -> list[str]:
+        report = compare(first, baseline, again)
+        return [str(failure) for failure in report["porazki"]]
+
+    slow = measured(260)
+    cases = {
+        "a median within its budget passes": failures(measured(225)) == [],
+        "a median over budget is measured again": over_budget(slow, baseline) == [(scenario, 4)],
+        "a median over budget that is within it when measured again passes": failures(slow, measured(225)) == [],
+        "a median over budget also when measured again fails": [
+            failure for failure in failures(slow, measured(250)) if "ponad budżet" in failure
+        ] != [],
+        "another number of API requests fails": [
+            failure for failure in failures(measured(225, [*requests, requests[0]])) if "inna liczba" in failure
+        ] != [],
+    }
+    for case, held in cases.items():
+        if not held:
+            errors.append(f"wydajnosc gate: {case} does not hold")
+
+
 def _check_evidence(root: Path, errors: list[str]) -> None:
     if not root.is_dir():
         errors.append(f"evidence directory is missing: {root}")
@@ -99,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     errors: list[str] = []
     _check_skill(errors)
     _check_feature_map(errors)
+    _check_performance_gate(errors)
     if args.evidence_root:
         _check_evidence(Path(args.evidence_root), errors)
     if errors:

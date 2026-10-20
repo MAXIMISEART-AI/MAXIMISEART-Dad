@@ -165,7 +165,7 @@ Then confirm the evidence directory still exists.
   the Playwright drive.
 - `scripts/centrum_cleanup.py --root "$runRoot"`: stop and remove one run.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
-  and evidence hygiene check.
+  check (with the `wydajnosc` gate on made-up numbers) and evidence hygiene check.
 
 Read `features/README.md` before choosing a feature. Each Centrum slice adds
 its feature file and drive steps in the same PR as the feature; keep the map
