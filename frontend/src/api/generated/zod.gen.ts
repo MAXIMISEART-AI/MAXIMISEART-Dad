@@ -3,6 +3,34 @@
 import * as z from 'zod';
 
 /**
+ * ApiTiming
+ *
+ * Jedno zapytanie API widoku: czas w przeglądarce i czas serwera z ``Server-Timing`` (``None``: brak nagłówka).
+ */
+export const zApiTiming = z.object({
+    operation: z.enum([
+        'getSettings',
+        'chooseRegister',
+        'choosePeriodsDirectory',
+        'changeTheme',
+        'getPeriodBoard',
+        'openPeriodPath',
+        'getRunSetup',
+        'startRun',
+        'getCurrentRun',
+        'decideRun',
+        'diagnoseRun',
+        'reportRun',
+        'getRepairNotice',
+        'getMetrics',
+        'getConfiguration',
+        'closeCentrum'
+    ]),
+    browser_ms: z.int().gte(0).lte(600000),
+    server_ms: z.int().gte(0).lte(600000).nullable()
+});
+
+/**
  * BoardMissing
  */
 export const zBoardMissing = z.object({
@@ -621,6 +649,28 @@ export const zHttpValidationError = z.object({
 });
 
 /**
+ * ViewTiming
+ *
+ * Pomiar gotowego widoku z przeglądarki: same liczby i nazwy z kontraktu, bez adresów i treści.
+ *
+ * ``ready_ms`` to czas do gotowej treści, ``fcp_ms`` pierwsze malowanie treści
+ * (tylko przy zimnym starcie), ``skeleton_ms`` czas widocznego szkieletu.
+ */
+export const zViewTiming = z.object({
+    kind: z.enum(['cold_start', 'navigation']),
+    page: z.enum([
+        'okresy',
+        'uruchomienia',
+        'metryki',
+        'konfiguracja'
+    ]),
+    ready_ms: z.int().gte(0).lte(600000),
+    fcp_ms: z.int().gte(0).lte(600000).nullable(),
+    skeleton_ms: z.int().gte(0).lte(600000),
+    requests: z.array(zApiTiming).max(20)
+});
+
+/**
  * WorkerFile
  *
  * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
@@ -897,3 +947,10 @@ export const zGetConfigurationResponse = zConfiguration;
  * Successful Response
  */
 export const zCloseCentrumResponse = zClosing;
+
+export const zRecordViewTimingBody = zViewTiming;
+
+/**
+ * Successful Response
+ */
+export const zRecordViewTimingResponse = z.void();

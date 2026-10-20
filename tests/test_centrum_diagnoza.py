@@ -12,7 +12,7 @@ import pytest
 
 from rozliczenia import preparation_register
 
-from tests.fixtures.centrum import FakeGitHub
+from tests.fixtures.centrum import FakeGitHub, view_timing
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -369,6 +369,22 @@ def test_nieoczekiwany_wyjatek_w_dzienniku_od_startu_centrum_wyjasnia_ze_przyczy
         "action": "Przekaż ten komunikat osobie utrzymującej narzędzie.",
     }
     assert diagnosis["next_action"] == "report"
+
+
+def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_ukrywaja_go_przed_diagnoza(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    with centrum.log_path.open("a", encoding="utf-8") as log:
+        log.write("2026-09-16T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n")
+    for _ in range(30):  # tata przeklikuje strony: każdy gotowy widok to wpis pomiaru
+        assert centrum.client.post("/api/view-timings", json=view_timing()).status_code == 204
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["next_action"] == "report"
+    assert check_states(diagnosis)["Dziennik Centrum rozliczeń"] == "failed"
 
 
 def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_przyczyna(

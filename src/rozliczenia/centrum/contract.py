@@ -565,3 +565,54 @@ class RepairNotice(_Model):
     """
 
     repaired: bool
+
+
+# Strony z bocznego menu (`frontend/src/pages.tsx`): identyfikator to adres `#/<id>` strony.
+PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja"]
+# Zimny start strony (otwarcie albo odświeżenie karty) albo przejście w menu.
+ViewKind = Literal["cold_start", "navigation"]
+# Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu.
+ApiOperation = Literal[
+    "getSettings",
+    "chooseRegister",
+    "choosePeriodsDirectory",
+    "changeTheme",
+    "getPeriodBoard",
+    "openPeriodPath",
+    "getRunSetup",
+    "startRun",
+    "getCurrentRun",
+    "decideRun",
+    "diagnoseRun",
+    "reportRun",
+    "getRepairNotice",
+    "getMetrics",
+    "getConfiguration",
+    "closeCentrum",
+]
+# Do 10 minut: dłuższy czas to uśpiona karta, nie pomiar.
+Milliseconds = Annotated[int, Field(ge=0, le=600_000)]
+MAX_TIMED_REQUESTS = 20
+
+
+class ApiTiming(_Model):
+    """Jedno zapytanie API widoku: czas w przeglądarce i czas serwera z ``Server-Timing`` (``None``: brak nagłówka)."""
+
+    operation: ApiOperation
+    browser_ms: Milliseconds
+    server_ms: Milliseconds | None
+
+
+class ViewTiming(_Model):
+    """Pomiar gotowego widoku z przeglądarki: same liczby i nazwy z kontraktu, bez adresów i treści.
+
+    ``ready_ms`` to czas do gotowej treści, ``fcp_ms`` pierwsze malowanie treści
+    (tylko przy zimnym starcie), ``skeleton_ms`` czas widocznego szkieletu.
+    """
+
+    kind: ViewKind
+    page: PageId
+    ready_ms: Milliseconds
+    fcp_ms: Milliseconds | None
+    skeleton_ms: Milliseconds
+    requests: Annotated[list[ApiTiming], Field(max_length=MAX_TIMED_REQUESTS)]
