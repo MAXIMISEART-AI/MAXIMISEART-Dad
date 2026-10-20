@@ -26,6 +26,13 @@ _LEGACY_WORKER_TEMPLATE_NAME = "placeholder.xlsx"
 
 WorkerTemplateProblem = Literal["missing", "open_in_excel", "unreadable"]
 
+# Wzorzec rozliczenia pracownika, który da się otworzyć, ale nie może posłużyć jako wzór: co jest z nim nie tak.
+# Sprawdzanie zgłasza to jako zły Wzorzec, a Zapisywanie (Wzorzec zmieniony po Sprawdzaniu) jako błąd Szablonu.
+_UNUSABLE_TEMPLATE: dict[Problem, str] = {
+    Problem.LAYOUT: f"nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}",
+    Problem.HAS_DATA: "zawiera dane i nie może być użyty jako wzór",
+}
+
 
 class WorkerTemplateValidationError(Exception):
     """Wzorzec rozliczenia pracownika nie może bezpiecznie posłużyć jako wzór nowych skoroszytów.
@@ -63,12 +70,8 @@ def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidat
         return WorkerTemplateValidationError(message, "missing")
     if error.problem is Problem.OPEN_IN_EXCEL:
         return WorkerTemplateValidationError("Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.", "open_in_excel")
-    if error.problem is Problem.HAS_DATA:
-        return WorkerTemplateValidationError("Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.")
-    if error.problem is Problem.LAYOUT:
-        return WorkerTemplateValidationError(
-            f"Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}."
-        )
+    if error.problem in _UNUSABLE_TEMPLATE:
+        return WorkerTemplateValidationError(f"Wzorzec rozliczenia pracownika {_UNUSABLE_TEMPLATE[error.problem]}.")
     return WorkerTemplateValidationError("Nie można odczytać Wzorca rozliczenia pracownika.")
 
 
@@ -89,12 +92,8 @@ def process_template(
     try:
         template.create_settlement(target_path, rows)
     except WorkbookError as error:
-        if error.problem is Problem.LAYOUT:
-            raise TemplateWriteError(
-                f"Szablon nie ma WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}: {target_path.name}."
-            ) from error
-        if error.problem is Problem.HAS_DATA:
-            raise TemplateWriteError(f"Szablon zawiera już dane: {target_path.name}.") from error
+        if error.problem in _UNUSABLE_TEMPLATE:
+            raise TemplateWriteError(f"Szablon {_UNUSABLE_TEMPLATE[error.problem]}: {target_path.name}.") from error
         raise
     except WorkbookSaveError as exc:
         raise TemplateWriteError(f"Nie można zapisać szablonu: {target_path.name}") from exc
