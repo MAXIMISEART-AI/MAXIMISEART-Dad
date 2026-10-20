@@ -9,6 +9,7 @@ import type {
   RunRequest,
   Settings,
   ThemeChange,
+  ViewTiming,
 } from "@/api/generated"
 import {
   zChangeThemeResponse,
@@ -79,7 +80,7 @@ export type RunView = GetCurrentRunResponse
 
 function send(
   method: "POST" | "PUT",
-  body?: OpenRequest | ThemeChange | RunRequest | DecisionAnswer
+  body?: OpenRequest | ThemeChange | RunRequest | DecisionAnswer | ViewTiming
 ): RequestInit {
   return {
     method,
@@ -89,35 +90,37 @@ function send(
 }
 
 export function getSettings() {
-  return call(zGetSettingsResponse, "/api/settings")
+  return call(zGetSettingsResponse, "getSettings", "/api/settings")
 }
 
 /** Otwiera natywne okno wyboru na komputerze taty i zapamiętuje wybrany Rejestr zleceń. */
 export function chooseOrderRegister() {
-  return call(zChooseRegisterResponse, "/api/settings/register/choose", send("POST"))
+  return call(zChooseRegisterResponse, "chooseRegister", "/api/settings/register/choose", send("POST"))
 }
 
 /** Otwiera natywne okno wyboru folderu i zapamiętuje folder okresów. */
 export function choosePeriodsDirectory() {
   return call(
     zChoosePeriodsDirectoryResponse,
+    "choosePeriodsDirectory",
     "/api/settings/periods-directory/choose",
     send("POST")
   )
 }
 
 export function changeTheme(theme: Theme) {
-  return call(zChangeThemeResponse, "/api/settings/theme", send("PUT", { theme }))
+  return call(zChangeThemeResponse, "changeTheme", "/api/settings/theme", send("PUT", { theme }))
 }
 
 export function getPeriodBoard() {
-  return call(zGetPeriodBoardResponse, "/api/periods")
+  return call(zGetPeriodBoardResponse, "getPeriodBoard", "/api/periods")
 }
 
 /** Serwer sam wylicza ścieżkę z folderu okresów; przeglądarka podaje tylko okres i rodzaj pliku. */
 export function openPeriodPath(token: string, target: OpenTarget) {
   return call(
     zOpenPeriodPathResponse,
+    "openPeriodPath",
     `/api/periods/${encodeURIComponent(token)}/open`,
     send("POST", { target })
   )
@@ -125,18 +128,19 @@ export function openPeriodPath(token: string, target: OpenTarget) {
 
 /** Co tata wybiera przed Uruchomieniem procesu: procesy, okresy z preselekcją, przypomnienie, brakujące ustawienia. */
 export function getRunSetup() {
-  return call(zGetRunSetupResponse, "/api/runs/setup")
+  return call(zGetRunSetupResponse, "getRunSetup", "/api/runs/setup")
 }
 
 /** Start Uruchomienia procesu; gdy trwa już inne, serwer odmawia z bezpiecznym komunikatem. */
 export function startRun(request: RunRequest) {
-  return call(zStartRunResponse, "/api/runs", send("POST", request))
+  return call(zStartRunResponse, "startRun", "/api/runs", send("POST", request))
 }
 
 /** Decyzja taty o niepełnym okresie dla Uruchomienia `runId`. */
 export function decideRun(runId: string, answer: DecisionAnswer["answer"]) {
   return call(
     zDecideRunResponse,
+    "decideRun",
     `/api/runs/${encodeURIComponent(runId)}/decision`,
     send("POST", { answer })
   )
@@ -144,12 +148,12 @@ export function decideRun(runId: string, answer: DecisionAnswer["answer"]) {
 
 /** Diagnoza Zatrzymania Uruchomienia `runId`: wyjaśnienie i sprawdzenia; serwer tylko czyta pliki taty. */
 export function diagnoseRun(runId: string) {
-  return call(zDiagnoseRunResponse, `/api/runs/${encodeURIComponent(runId)}/diagnosis`, send("POST"))
+  return call(zDiagnoseRunResponse, "diagnoseRun", `/api/runs/${encodeURIComponent(runId)}/diagnosis`, send("POST"))
 }
 
 /** „Wyślij do Maksa”: serwer wysyła podgląd Zgłoszenia z ostatniej Diagnozy Uruchomienia `runId`. */
 export function reportRun(runId: string) {
-  return call(zReportRunResponse, `/api/runs/${encodeURIComponent(runId)}/report`, send("POST"))
+  return call(zReportRunResponse, "reportRun", `/api/runs/${encodeURIComponent(runId)}/report`, send("POST"))
 }
 
 /**
@@ -186,20 +190,28 @@ export function watchRunEvents(
 
 /** Historia Uruchomień procesu z obu plików metryk, z P50/P95 i rozkładem wyników; serwer czyta pliki przy każdym odczycie. */
 export function getMetrics() {
-  return call(zGetMetricsResponse, "/api/metrics")
+  return call(zGetMetricsResponse, "getMetrics", "/api/metrics")
 }
 
 /** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
 export function getConfiguration() {
-  return call(zGetConfigurationResponse, "/api/configuration")
+  return call(zGetConfigurationResponse, "getConfiguration", "/api/configuration")
 }
 
 /** Czy Maks naprawił zgłoszony problem; serwer pyta skrzynkę Zgłoszeń najwyżej raz na 10 minut, bez sieci po cichu. */
 export function getRepairNotice() {
-  return call(zGetRepairNoticeResponse, "/api/reports/repair")
+  return call(zGetRepairNoticeResponse, "getRepairNotice", "/api/reports/repair")
 }
 
 /** Serwer kończy pracę po odpowiedzi; odmawia (`CentrumError`), gdy zamknięcie jest teraz zablokowane. */
 export function closeCentrum() {
-  return call(zCloseCentrumResponse, "/api/shutdown", send("POST"))
+  return call(zCloseCentrumResponse, "closeCentrum", "/api/shutdown", send("POST"))
+}
+
+/**
+ * Pomiar gotowego widoku do dziennika Centrum. Odpowiedź nie ma treści do pokazania, a porażka
+ * wysyłki (także odmowa serwera) przechodzi po cichu: pomiar nigdy nie zmienia UI.
+ */
+export function recordViewTiming(timing: ViewTiming) {
+  fetch("/api/view-timings", { ...send("POST", timing), keepalive: true }).catch(() => undefined)
 }

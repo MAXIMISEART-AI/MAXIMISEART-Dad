@@ -122,6 +122,7 @@ REQUIRED_SCREENSHOTS = {
         "74-naprawa-powiadomienie.png",
         "75-naprawa-po-aktualizacji.png",
     ),
+    "pomiar-u-taty": ("80-pomiar-bez-sladu.png",),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",

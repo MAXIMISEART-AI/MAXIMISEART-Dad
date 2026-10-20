@@ -754,10 +754,98 @@
           }
         }
       }
+    },
+    "/api/view-timings": {
+      "post": {
+        "tags": [
+          "centrum"
+        ],
+        "summary": "Record",
+        "operationId": "recordViewTiming",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewTiming"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ApiTiming": {
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "getSettings",
+              "chooseRegister",
+              "choosePeriodsDirectory",
+              "changeTheme",
+              "getPeriodBoard",
+              "openPeriodPath",
+              "getRunSetup",
+              "startRun",
+              "getCurrentRun",
+              "decideRun",
+              "diagnoseRun",
+              "reportRun",
+              "getRepairNotice",
+              "getMetrics",
+              "getConfiguration",
+              "closeCentrum"
+            ],
+            "title": "Operation"
+          },
+          "browser_ms": {
+            "type": "integer",
+            "maximum": 600000.0,
+            "minimum": 0.0,
+            "title": "Browser Ms"
+          },
+          "server_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 600000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operation",
+          "browser_ms",
+          "server_ms"
+        ],
+        "title": "ApiTiming",
+        "description": "Jedno zapytanie API widoku: czas w przeglądarce i czas serwera z ``Server-Timing`` (``None``: brak nagłówka)."
+      },
       "BoardMissing": {
         "properties": {
           "state": {
@@ -2654,6 +2742,73 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ViewTiming": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cold_start",
+              "navigation"
+            ],
+            "title": "Kind"
+          },
+          "page": {
+            "type": "string",
+            "enum": [
+              "okresy",
+              "uruchomienia",
+              "metryki",
+              "konfiguracja"
+            ],
+            "title": "Page"
+          },
+          "ready_ms": {
+            "type": "integer",
+            "maximum": 600000.0,
+            "minimum": 0.0,
+            "title": "Ready Ms"
+          },
+          "fcp_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 600000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fcp Ms"
+          },
+          "skeleton_ms": {
+            "type": "integer",
+            "maximum": 600000.0,
+            "minimum": 0.0,
+            "title": "Skeleton Ms"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/ApiTiming"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Requests"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "page",
+          "ready_ms",
+          "fcp_ms",
+          "skeleton_ms",
+          "requests"
+        ],
+        "title": "ViewTiming",
+        "description": "Pomiar gotowego widoku z przeglądarki: same liczby i nazwy z kontraktu, bez adresów i treści.\n\n``ready_ms`` to czas do gotowej treści, ``fcp_ms`` pierwsze malowanie treści\n(tylko przy zimnym starcie), ``skeleton_ms`` czas widocznego szkieletu."
       },
       "WorkerFile": {
         "properties": {

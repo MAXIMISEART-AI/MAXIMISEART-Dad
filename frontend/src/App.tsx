@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { RunsProvider } from "@/lib/runs"
 import { SettingsProvider } from "@/lib/settings"
+import { useViewTiming } from "@/lib/view-timing"
 import { useCurrentPage } from "@/pages"
 
 const LAYOUT = {
@@ -18,6 +19,8 @@ const LAYOUT = {
 export function App() {
   const page = useCurrentPage()
   const [closed, setClosed] = React.useState(false)
+
+  useViewTiming(page)
 
   if (closed) {
     return <CentrumClosed />
