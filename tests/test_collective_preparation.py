@@ -7,7 +7,6 @@ from pathlib import Path
 import time
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.utils import get_column_letter
 import pytest
 
 from rozliczenia.decision import Decision
@@ -44,7 +43,7 @@ from tests.fixtures.preparation import (
     write_internal_template,
     write_register,
 )
-from tests.fixtures.workbooks import active_worksheet
+from tests.fixtures.workbooks import active_worksheet, column_widths
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import cell_values, collective_row, run_preparation
 
@@ -562,7 +561,7 @@ def sheet_layout(path: Path, *, header_row: int, max_col: int) -> dict[str, obje
     try:
         sheet = active_worksheet(workbook)
         return {
-            "widths": [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, max_col + 1)],
+            "widths": column_widths(sheet, max_col),
             "heights": [sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
             "header": [
                 (cell.value, cell.font.name, cell.font.sz, cell.font.b, cell.fill.fgColor.rgb)
@@ -586,6 +585,7 @@ def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind:
         template, created, header_row = fixture.collective_template_path, fixture.collective_file_path, 17
     expected = sheet_layout(template, header_row=header_row, max_col=47)
     assert expected["freeze_panes"] == f"A{header_row + 1}"
+    assert expected["widths"][:5] == [10, 11, 2.29, 13, 3]  # bardzo wąskie kolumny C i E, którymi tata zwęża Wzorce
     assert sheet_layout(created, header_row=header_row, max_col=47) == expected
 
 

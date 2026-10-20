@@ -20,6 +20,21 @@ def active_worksheet(workbook: Workbook) -> Worksheet:
     return sheet
 
 
+def column_widths(sheet: Worksheet, max_col: int) -> list[float | None]:
+    """Szerokość kolumn A..``max_col`` tak, jak widzi ją Excel; ``None`` dla kolumny bez własnej szerokości.
+
+    Excel zapisuje sąsiednie kolumny o tej samej szerokości jednym zakresem, więc zakresy są rozwijane.
+    """
+
+    widths: list[float | None] = [None] * max_col
+    for dimension in sheet.column_dimensions.values():
+        if dimension.min is None or dimension.max is None or not dimension.customWidth:
+            continue
+        for column in range(dimension.min, min(dimension.max, max_col) + 1):
+            widths[column - 1] = dimension.width
+    return widths
+
+
 def add_external_link_fixture(path: Path) -> None:
     """Dodaje minimalny, prawidłowy link zewnętrzny do syntetycznego XLSX."""
 

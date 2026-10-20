@@ -119,6 +119,8 @@ TEMPLATE_FONT_SIZE = 10
 # a komórki danych nie mają własnego stylu. Excel daje wpisanemu tekstowi styl wiersza.
 TEMPLATE_COLUMN_FONT_SIZE = 11
 TEMPLATE_ROW_STYLED_ROWS = 40
+# Szerokości kolumn wzorców: różne, a C i E bardzo wąskie, jak kolumny, których tata nie musi oglądać.
+TEMPLATE_NARROW_COLUMN_WIDTHS = {3: 2.29, 5: 3.0}
 
 
 @dataclass(frozen=True)
@@ -256,7 +258,7 @@ def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, r
     column_font_size = TEMPLATE_COLUMN_FONT_SIZE if row_style else TEMPLATE_FONT_SIZE
     for column in range(1, columns + 1):
         dimension = sheet.column_dimensions[get_column_letter(column)]
-        dimension.width = 9 + column
+        dimension.width = TEMPLATE_NARROW_COLUMN_WIDTHS.get(column, 9 + column)
         dimension.font = Font(name=TEMPLATE_FONT_NAME, size=column_font_size)
         sheet.cell(header_row, column).font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE, bold=True)
     sheet.row_dimensions[header_row].height = 30
