@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from playwright.sync_api import Page, Request, expect
+from playwright.sync_api import Page, Request, Route, expect
 
-from drive.common import Run, choose_periods_directory
+from drive.common import REPEAT_SETTLE_MS, Run, choose_periods_directory
 
 
 def drive_settings(run: Run, page: Page) -> None:
@@ -23,6 +23,43 @@ def drive_settings(run: Run, page: Page) -> None:
         "no settings file means nothing is set",
     )
     run.capture(page, "01-ustawienia-pusty-stan")
+
+    run.step(feature, "ustawienia-jedno-okno-wyboru")
+    dialogs = len(run.lines("dialogs.jsonl"))
+    before = run.settings_text()
+    pickers = ("Wskaż Rejestr zleceń", "Wskaż Folder okresów")
+    empty_state = page.get_by_role("button", name="Wskaż folder okresów", exact=True)
+    held: list[Route] = []
+    # Harness: each picker request is held, as Dad's native window stays open until he picks or closes it.
+    page.route("**/api/settings/*/choose", lambda route: held.append(route))
+    try:
+        empty_state.dblclick()
+        page.wait_for_timeout(REPEAT_SETTLE_MS)
+        run.check(len(held) == 1, f"a double click on Wskaż folder okresów opens one picker ({len(held)} requests)")
+        expect(empty_state).to_be_disabled()
+        expect(empty_state).to_contain_text("Czekam na wybór…")
+        for name in pickers:
+            expect(page.get_by_role("button", name=name, exact=True)).to_be_disabled()
+        run.check(True, "while the picker is open (held, harness), every picker button on Okresy waits for it")
+        run.capture(page, "19-ustawienia-jedno-okno-wyboru", live=True)  # the waiting spinner turns forever
+        page.get_by_role("link", name="Uruchomienia", exact=True).click()
+        for name in pickers:
+            expect(page.get_by_role("button", name=name, exact=True)).to_be_disabled()
+        page.get_by_role("link", name="Okresy", exact=True).click()
+        expect(empty_state).to_be_disabled()
+        for name in pickers:
+            expect(page.get_by_role("button", name=name, exact=True)).to_be_disabled()
+        run.check(True, "on Uruchomienia and back on Okresy the picker buttons still wait for the open picker")
+        run.check(len(held) == 1, f"no button opened a second picker ({len(held)} requests)")
+    finally:
+        for route in held:
+            route.continue_()
+        page.unroute("**/api/settings/*/choose")
+    run.wait_for(lambda: len(run.lines("dialogs.jsonl")) == dialogs + 1, "Dad closed the one picker (cancel)")
+    expect(empty_state).to_be_enabled()
+    for name in pickers:
+        expect(page.get_by_role("button", name=name, exact=True)).to_be_enabled()
+    run.check(run.settings_text() == before, "after the cancelled picker every picker button works again, nothing set")
 
     run.step(feature, "ustawienia-folder-okresow")
     choose_periods_directory(run, page)

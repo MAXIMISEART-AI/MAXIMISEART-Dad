@@ -128,8 +128,10 @@ Proof standards:
   path).
 - Treat the scripted platform adapter, GitHub, and OneDrive as the only
   stand-ins for Dad's computer.
-  Two harness steps are labelled in `drive.txt`: Gotowość, where the drive
-  edits the Plik zbiorczy instead of Excel, and the Szablony pacing.
+  Harness steps are labelled in `drive.txt`: Gotowość, where the drive
+  edits the Plik zbiorczy instead of Excel, the Szablony pacing, a server
+  unreachable for one read, a picker held open like Dad's native window,
+  and a stream that delivers late.
 - Look at the screenshots after a UI change; a passing run does not judge
   visual quality.
 - Evidence holds synthetic paths only. The self-test fails if the fixture's
