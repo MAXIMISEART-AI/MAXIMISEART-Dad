@@ -91,7 +91,7 @@ from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
 from rozliczenia.centrum.version import tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
-from rozliczenia.workbook_files import ExcelRow  # noqa: E402
+from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate  # noqa: E402
 
 
 class ScriptedPlatform:
@@ -201,11 +201,11 @@ def _pace_worker_templates(root: Path) -> None:
 
     write = template_settlement.process_template
 
-    def paced(worker_name: str, template_path: Path, target_path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+    def paced(worker_name: str, template: WorkerSettlementTemplate, target_path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
         pacing = root / "pacing" / "szablony-ms.txt"
         if pacing.exists():
             time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
-        return write(worker_name, template_path, target_path, rows)
+        return write(worker_name, template, target_path, rows)
 
     template_settlement.process_template = paced
 

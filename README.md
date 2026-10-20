@@ -291,6 +291,12 @@ W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
 (macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
 checkoutu importuje `src` głównego checkoutu.
 
+Czas Przebiegu rozliczeń mierzy `tools/benchmark_przebiegu.py measure
+--scenario typowy-tydzien` (albo `ciezki-tydzien`) na syntetycznym lustrze
+folderów taty; `tools/benchmark_przebiegu.py comment` drukuje z dziennika
+`.benchmark/przebieg.jsonl` komentarz Markdown do issue-dziennika wspinaczki.
+Szczegóły i argumenty są w opisie narzędzia (`--help`).
+
 Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd`,
 `Przygotuj plik zbiorczy.cmd` i `Centrum rozliczeń (konsola).cmd` przez
 `cmd.exe`, tworzą skrót przez `Zainstaluj skrót Centrum rozliczeń.cmd` i
