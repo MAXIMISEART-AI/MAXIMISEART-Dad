@@ -11,18 +11,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import re
 import threading
 from typing import Final
 import urllib.request
 
-from rozliczenia.centrum.version import tool_commit
+from rozliczenia.centrum.version import is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
 
 MAIN_COMMIT_URL: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad/commits/main"
 _TIMEOUT_S: Final = 3.0
-_COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
 @dataclass(frozen=True)
@@ -63,7 +61,7 @@ def main_commit_from(url: str, *, timeout_s: float) -> str | None:
                 body = response.read(100).decode("ascii", errors="replace").strip()
         except (OSError, ValueError):  # brak sieci, odmowa GitHuba (HTTPError) albo zerwane połączenie
             return
-        answer[0] = body if _COMMIT.fullmatch(body) else None
+        answer[0] = body if is_commit(body) else None
 
     worker = threading.Thread(target=fetch, name="github-main", daemon=True)
     worker.start()

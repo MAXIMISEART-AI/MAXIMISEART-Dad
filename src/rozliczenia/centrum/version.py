@@ -15,8 +15,9 @@ import tomllib
 from pathlib import Path
 from typing import Final
 
+from rozliczenia import TOOL_ROOT
+
 SERVICE: Final = "centrum-rozliczen"
-TOOL_ROOT: Final = Path(__file__).resolve().parents[3]
 _PYPROJECT = TOOL_ROOT / "pyproject.toml"
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -27,6 +28,12 @@ def tool_version() -> str:
     if not isinstance(version, str):
         raise ValueError("pyproject.toml nie podaje wersji narzędzia.")
     return version
+
+
+def is_commit(text: str) -> bool:
+    """Czy ``text`` to pełny commit Gita (40 znaków szesnastkowych)."""
+
+    return _COMMIT.fullmatch(text) is not None
 
 
 def tool_commit(root: Path = TOOL_ROOT) -> str | None:
@@ -42,7 +49,7 @@ def tool_commit(root: Path = TOOL_ROOT) -> str | None:
             return None
         head = (git_directory / "HEAD").read_text(encoding="utf-8").strip()
         if not head.startswith("ref: "):
-            return head if _COMMIT.fullmatch(head) else None
+            return head if is_commit(head) else None
         return _resolved(head.removeprefix("ref: "), git_directory)
     except (OSError, UnicodeDecodeError):
         return None
@@ -68,11 +75,11 @@ def _resolved(ref: str, git_directory: Path) -> str | None:
         loose = directory / ref
         if loose.is_file():
             commit = loose.read_text(encoding="utf-8").strip()
-            return commit if _COMMIT.fullmatch(commit) else None
+            return commit if is_commit(commit) else None
     packed = common / "packed-refs"
     if packed.is_file():
         for line in packed.read_text(encoding="utf-8").splitlines():
             commit, _, name = line.partition(" ")
-            if name == ref and _COMMIT.fullmatch(commit):
+            if name == ref and is_commit(commit):
                 return commit
     return None

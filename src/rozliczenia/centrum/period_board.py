@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter
 
@@ -133,7 +132,6 @@ _TARGET_LABELS: dict[contract.OpenTarget, str] = {
     "period_folder": "Folder okresu",
     "worker_settlements_folder": "Folder rozliczeń pracowników",
 }
-_PROBLEMS: dict[int | str, dict[str, Any]] = {404: {"model": contract.Problem}, 409: {"model": contract.Problem}}
 
 
 def periods_router(store: SettingsStore, platform: Platform, today: Callable[[], date]) -> APIRouter:
@@ -143,7 +141,7 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
     def board() -> contract.PeriodBoard:
         return read_board(store.load().periods_directory, today())
 
-    @router.post("/{token}/open", operation_id="openPeriodPath", responses=_PROBLEMS)
+    @router.post("/{token}/open", operation_id="openPeriodPath", responses=contract.NOT_FOUND_OR_CONFLICT)
     def open_period_path(token: str, request: contract.OpenRequest) -> contract.Opened:
         periods_directory = store.load().periods_directory
         if periods_directory is None or not periods_directory.is_dir():

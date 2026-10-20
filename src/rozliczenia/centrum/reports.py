@@ -376,13 +376,12 @@ class Reports:
         return key or None
 
 
-_PROBLEMS: dict[int | str, dict[str, object]] = {404: {"model": contract.Problem}, 409: {"model": contract.Problem}}
 
 
 def reports_router(host: RunHost, reports: Reports) -> APIRouter:
     router = APIRouter(prefix="/api/runs", tags=["uruchomienia"])
 
-    @router.post("/{run_id}/report", operation_id="reportRun", responses=_PROBLEMS)
+    @router.post("/{run_id}/report", operation_id="reportRun", responses=contract.NOT_FOUND_OR_CONFLICT)
     def send_report(run_id: str) -> contract.ReportState:
         state = reports.send(host.stopped(run_id))
         host.show_report(run_id, state)

@@ -471,10 +471,6 @@ async def _event_stream(host: RunHost) -> AsyncIterator[str]:
             yield ": trwa\n\n"
 
 
-_PROBLEMS: dict[int | str, dict[str, Any]] = {
-    404: {"model": contract.Problem},
-    409: {"model": contract.Problem},
-}
 _STREAM_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {"description": "Strumień SSE; każde pole `data` to `RunEvent` (JSON).", "model": contract.RunEvent},
 }
@@ -501,7 +497,7 @@ def runs_router(host: RunHost, entries: Sequence[ProcessEntry]) -> APIRouter:
     def setup() -> contract.RunSetup:
         return contract.RunSetup(processes=[entry.setup() for entry in entries])
 
-    @router.post("", operation_id="startRun", responses=_PROBLEMS)
+    @router.post("", operation_id="startRun", responses=contract.NOT_FOUND_OR_CONFLICT)
     def start(request: contract.RunRequest) -> contract.RunView:
         return host.start(by_key[request.process].prepare(request))
 
@@ -509,7 +505,7 @@ def runs_router(host: RunHost, entries: Sequence[ProcessEntry]) -> APIRouter:
     def current() -> contract.RunView:
         return host.current().view
 
-    @router.post("/{run_id}/decision", operation_id="decideRun", responses=_PROBLEMS)
+    @router.post("/{run_id}/decision", operation_id="decideRun", responses=contract.NOT_FOUND_OR_CONFLICT)
     def decide(run_id: str, answer: contract.DecisionAnswer) -> contract.RunView:
         return host.decide(run_id, answer)
 

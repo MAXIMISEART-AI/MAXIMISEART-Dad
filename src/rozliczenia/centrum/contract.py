@@ -34,6 +34,10 @@ class Refusal(Exception):
         self.message = message
 
 
+# Odmowy akcji na zasobie w OpenAPI: brak zasobu (404) albo zły stan (409), obie jako ``Problem``.
+NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, object]] = {404: {"model": Problem}, 409: {"model": Problem}}
+
+
 class Health(_Model):
     service: Literal["centrum-rozliczen"]
     version: str
