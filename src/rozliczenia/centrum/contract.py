@@ -442,6 +442,27 @@ class DecisionAnswer(_Model):
     answer: Literal["continue", "abort"]
 
 
+class DiagnosisCheck(_Model):
+    """Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek."""
+
+    label: str
+    state: Literal["passed", "failed", "not_checked"]
+    detail: str
+
+
+class Diagnosis(_Model):
+    """Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+
+    ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+    przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+    ponownie; ``report``: przyczynę usuwa Maks.
+    """
+
+    explanation: Message
+    next_action: Literal["rerun", "report"]
+    checks: list[DiagnosisCheck]
+
+
 class TemplateReady(_Model):
     """Wzorzec jest na miejscu, nie jest otwarty i przechodzi Sprawdzanie."""
 

@@ -104,6 +104,15 @@ class _SummaryView:
     warnings: list[contract.Message]
 
 
+@dataclass(frozen=True)
+class StoppedRun:
+    """Zakończone Uruchomienie procesu z Zatrzymaniem, dla którego Centrum proponuje Diagnozę."""
+
+    info: contract.RunInfo
+    stop: Stop
+    kind: contract.StopKind
+
+
 class RunHost:
     """Jedno Uruchomienie procesu naraz w obrębie serwera i jego widoki dla przeglądarki.
 
@@ -172,6 +181,20 @@ class RunHost:
             self._publish_locked(run.running_view())
             return self._events[-1].view
 
+    def stopped(self, run_id: str) -> StoppedRun:
+        """Bieżące Uruchomienie ``run_id`` z Zatrzymaniem „do Maksa” albo powtórką; inaczej ``contract.Refusal``."""
+
+        with self._lock:
+            run = self._run
+            if run is None or run.info.id != run_id:
+                raise contract.Refusal(404, "Nie ma takiego Uruchomienia procesu.")
+            stop, kind = run.stop, run.stop_kind
+        if not run.ended or stop is None or kind is None or kind == "for_tata":
+            raise contract.Refusal(
+                409, "Diagnoza jest przy Zatrzymaniu do Maksa albo przy powtórce tego samego Komunikatu."
+            )
+        return StoppedRun(run.info, stop, kind)
+
     def remember(self, prepared: PreparedRun[Any, Any], since: datetime) -> None:
         """Zapamiętuje rekord metryk, który dopisało to Uruchomienie, jako Uruchomienie z Centrum."""
 
@@ -233,6 +256,7 @@ class _Run:
         self.awaiting_decision = False
         self.ended = False
         self.stop: Stop | None = None
+        self.stop_kind: contract.StopKind | None = None
 
     def running_view(self) -> contract.RunRunning:
         return contract.RunRunning(
@@ -258,6 +282,7 @@ class _Run:
             stop = Stop("after_engine", _RESULT_NOT_SHOWN)
             result = _unexpected_result(prepared.dry_run, self._host.stop_kind(self, stop))
         self.stop = stop
+        self.stop_kind = result.stop_kind
         self._host.finished(self, result, stop)
         self.ended = True
         self._host.publish(

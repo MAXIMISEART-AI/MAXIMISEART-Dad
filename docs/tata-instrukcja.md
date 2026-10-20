@@ -89,6 +89,33 @@ Gdy trwa Uruchomienie procesu (także gdy czeka na Twoją decyzję), Centrum si�
 nie zamknie: pokaże, że trwa Uruchomienie procesu. Poczekaj na wynik na stronie
 `Uruchomienia` i zamknij Centrum potem.
 
+### Zatrzymanie i Diagnoza
+
+Gdy Uruchomienie procesu się zatrzyma, Centrum pokaże komunikat w trzech
+częściach i podpowie, co dalej:
+
+- `Uruchom ponownie`: przyczynę usuniesz sam według części `Co zrobić`. Po
+  poprawce kliknij przycisk; ten sam proces ruszy dla tego samego okresu i w tym
+  samym trybie.
+- `Diagnoza`: komunikat każe przekazać go osobie utrzymującej narzędzie, wystąpił
+  nieoczekiwany błąd albo po ponownym uruchomieniu wrócił ten sam komunikat.
+  Kliknij `Diagnoza`. Centrum sprawdzi Twój komputer tylko do odczytu i wyjaśni
+  przyczynę w trzech częściach. Niczego nie zmienia w Twoich plikach.
+
+Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij `Uruchom ponownie`. Lista
+`Sprawdzono` pokazuje każde sprawdzenie Diagnozy.
+
+### Wyjaśnienie Diagnozy → co zrobić
+
+Diagnoza wyjaśnia przyczynę komunikatem z tabel procesów (np. Rejestr zleceń
+otwarty w Excelu) albo jednym z tych:
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Przekaż komunikat osobie utrzymującej narzędzie. |
+| „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
+| „jest nieoczekiwany wyjątek narzędzia” | Przekaż komunikat osobie utrzymującej narzędzie. |
+
 ### Komunikaty startu Centrum rozliczeń
 
 Gdy Centrum nie może wystartować, zamiast karty pojawi się okienko z trzema

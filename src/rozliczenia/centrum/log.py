@@ -52,6 +52,23 @@ class CentrumLog:
 
         self._write("nieoczekiwany-wyjatek", typ=type(failure).__name__, miejsce=where)
 
+    def diagnosed(self, *, process: str, period: str, cause: str) -> None:
+        """Diagnoza Zatrzymania: klucz procesu, token okresu i kod Komunikatu wyjaśnienia."""
+
+        self._write("diagnoza", proces=process, okres=period, przyczyna=cause)
+
+    def recent(self, limit: int) -> list[str]:
+        """Najwyżej ``limit`` ostatnich wpisów od ostatniego startu Centrum; brak dziennika to brak wpisów."""
+
+        try:
+            with self._lock:
+                lines = self._path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        starts = [index for index, line in enumerate(lines) if event_of(line) == "start"]
+        session = lines[starts[-1] :] if starts else lines
+        return session[-limit:]
+
     def _write(self, event: str, **facts: str | int) -> None:
         moment = datetime.now().astimezone().isoformat(timespec="seconds")
         line = " ".join([moment, event, *(f"{key}={_quoted(value)}" for key, value in facts.items())])
@@ -62,6 +79,13 @@ class CentrumLog:
                     log.write(line + "\n")
         except OSError:
             pass  # dziennik pomaga przy wsparciu; jego brak nie może zatrzymać Centrum
+
+
+def event_of(line: str) -> str:
+    """Nazwa zdarzenia wpisu dziennika (drugie pole po czasie)."""
+
+    fields = line.split(" ", 2)
+    return fields[1] if len(fields) > 1 else ""
 
 
 def _quoted(value: str | int) -> str:

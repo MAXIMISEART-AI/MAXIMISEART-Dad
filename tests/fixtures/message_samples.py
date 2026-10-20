@@ -12,7 +12,7 @@ from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import start_problems
+from rozliczenia.centrum import diagnosis_messages, start_problems
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
@@ -174,4 +174,10 @@ START_SAMPLES: Samples = {
     "other_version_running": [lambda: start_problems.other_version_running(47811, "0.0.9")],
     "missing_library": [lambda: start_problems.missing_library("fastapi")],
     "unexpected_start_failure": [start_problems.unexpected_start_failure],
+}
+
+DIAGNOSIS_SAMPLES: Samples = {
+    "cause_not_found": [diagnosis_messages.cause_not_found],
+    "period_file_open": [lambda: diagnosis_messages.period_file_open(PERIOD_DIRECTORY / f"Rozliczenie wew. {PERIOD}.xlsx")],
+    "unexpected_failure_logged": [diagnosis_messages.unexpected_failure_logged],
 }

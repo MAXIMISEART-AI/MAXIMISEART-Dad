@@ -1,7 +1,7 @@
 """Instrukcja dla taty a katalogi Komunikatów.
 
 Każdy katalog (Przygotowanie pliku zbiorczego, Przebieg rozliczeń, start
-Centrum rozliczeń) ma w ``docs/tata-instrukcja.md`` swoją sekcję z tabelą,
+Centrum rozliczeń, Diagnoza) ma w ``docs/tata-instrukcja.md`` swoją sekcję z tabelą,
 której wiersze cytują faktyczną treść „Co się stało”. Jeden zestaw sprawdzeń
 obejmuje każdy katalog: nowy katalog dostaje wszystkie sprawdzenia, gdy tylko
 trafi do ``CATALOGS``. Zmiana treści Komunikatu bez poprawki instrukcji psuje
@@ -21,11 +21,12 @@ import pytest
 
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import start_problems
+from rozliczenia.centrum import diagnosis_messages, start_problems
 from rozliczenia.message import Message
 
 from tests.fixtures.message_samples import (
     ABOVE_CONFIG,
+    DIAGNOSIS_SAMPLES,
     PREPARATION_SAMPLES,
     SETTLEMENT_SAMPLES,
     START_SAMPLES,
@@ -81,6 +82,13 @@ CATALOGS = {
         hidden_folders=ABOVE_CONFIG | {"Dane", "INEA"},
     ),
     "start-centrum-rozliczen": Catalog(start_problems, "### Komunikaty startu Centrum rozliczeń", START_SAMPLES),
+    # Diagnoza wskazuje najwyżej Folder okresu, więc folderów nad nim nie widać.
+    "diagnoza": Catalog(
+        diagnosis_messages,
+        "### Wyjaśnienie Diagnozy → co zrobić",
+        DIAGNOSIS_SAMPLES,
+        hidden_folders=ABOVE_CONFIG | {"Dane", "INEA"},
+    ),
 }
 
 each_catalog = pytest.mark.parametrize("catalog", CATALOGS.values(), ids=CATALOGS.keys())
