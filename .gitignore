@@ -22,3 +22,4 @@ config/zgloszenia-klucz.txt
 config/zgloszenia-wyslane.json*
 config/zgloszenia/
 node_modules/
+.benchmark/
