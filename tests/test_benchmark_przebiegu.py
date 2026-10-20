@@ -12,8 +12,10 @@ from tests.fixtures.benchmark import (
     data_row_entries,
     frozen_reference,
     identifying_values,
+    measurement_in_progress,
     protected_repository_files,
     run_benchmark,
+    start_benchmark,
     write_templates,
 )
 from tests.fixtures.settlement import write_mapping
@@ -228,3 +230,98 @@ def test_benchmark_porownuje_pomiar_z_wynikiem_referencyjnym_zamrozonym_z_commit
     published = "".join(result.stdout + result.stderr for result in (frozen, consistent, inconsistent, comment))
     secrets = {*load_worker_mapping(config), *load_worker_mapping(config).values()}
     assert {secret for secret in secrets if secret in published} == set()
+
+
+@pytest.mark.parametrize(
+    "command", [["measure", "--machine", "test"], ["freeze", "--commit", "HEAD"]], ids=["measure", "freeze"]
+)
+def test_pomiar_czeka_az_skonczy_sie_inny_pomiar_z_tymi_samymi_wynikami_referencyjnymi(
+    tmp_path: Path, command: list[str]
+) -> None:
+    config = write_mapping(tmp_path / "worker_mapping.yaml")
+    references = tmp_path / "referencje"
+    mirror = tmp_path / "lustro"
+    arguments = [
+        *command,
+        "--scenario",
+        "maly-tydzien",
+        "--templates-dir",
+        str(write_templates(tmp_path / "wzorce")),
+        "--config",
+        str(config),
+        "--mirror-dir",
+        str(mirror),
+        "--reference-dir",
+        str(references),
+        *(["--journal", str(tmp_path / "dziennik.jsonl")] if command[0] == "measure" else []),
+    ]
+
+    with measurement_in_progress(tmp_path / "referencje.lock"):
+        waiting = start_benchmark(*arguments)
+        assert waiting.stderr is not None
+        notice = waiting.stderr.readline()
+        still_waiting = waiting.poll() is None
+        mirror_during_wait = mirror.exists()
+    stdout, stderr = waiting.communicate(timeout=100)
+
+    assert waiting.returncode == 0, stdout + stderr
+    assert "czeka" in notice
+    assert still_waiting
+    assert not mirror_during_wait  # nic ciężkiego nie rusza, dopóki trwa inny pomiar
+    assert mirror.is_dir()
+    secrets = {*load_worker_mapping(config), *load_worker_mapping(config).values()}
+    assert {secret for secret in secrets if secret in notice} == set()
+
+
+def journal_record(sha: str, machine: str, started_at: str, wall: dict[str, int]) -> dict[str, object]:
+    return {
+        "started_at": started_at,
+        "git_sha": sha * 40,
+        "dirty": False,
+        "machine": machine,
+        "scenario": "typowy-tydzien",
+        "runs": 3,
+        "wall_ms": wall,
+        "czas_uruchomienia_ms": wall,
+        "phase_durations_ms": {"Zapisywanie": wall},
+        "counters": {"templates_total": 20},
+        "oracle": None,
+    }
+
+
+def measurement_sections(comment: str) -> dict[str, str]:
+    """Sekcje ``### ...`` części Pomiar komentarza, kluczem jest nagłówek."""
+
+    measurement = comment.split("## Pomiar", 1)[1].split("## Bramka poprawności", 1)[0]
+    return {section.splitlines()[0].strip(): section for section in measurement.split("### ")[1:]}
+
+
+@pytest.mark.parametrize("selection", [[], ["--before", "aaaa", "--after", "bbbb"]])
+def test_komentarz_porownuje_pomiary_tego_samego_scenariusza_na_tej_samej_maszynie(
+    tmp_path: Path, selection: list[str]
+) -> None:
+    journal = tmp_path / "dziennik.jsonl"
+    records = [
+        journal_record("a", "mac-m4max", "2026-10-01T08:00:00+00:00", spread(70_000, 69_000, 71_000)),
+        journal_record("a", "tata-i7", "2026-10-02T08:00:00+00:00", spread(236_000, 234_000, 240_000)),
+        journal_record("b", "mac-m4max", "2026-10-03T08:00:00+00:00", spread(10_000, 9_000, 11_000)),
+    ]
+    journal.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+
+    comment = run_benchmark("comment", "--journal", str(journal), *selection)
+
+    assert comment.returncode == 0, comment.stderr
+    sections = measurement_sections(comment.stdout)
+    mac = sections["typowy-tydzien (mac-m4max)"]
+    assert "2026-10-01T08:00:00+00:00" in mac
+    assert "2026-10-03T08:00:00+00:00" in mac
+    assert "2026-10-02T08:00:00+00:00" not in mac
+    assert "mediana krótsza o 60000 ms" in mac
+    if selection:  # „po” wskazane commitem: pomiar taty z innego commita nie trafia do komentarza
+        assert set(sections) == {"typowy-tydzien (mac-m4max)"}
+    else:
+        assert set(sections) == {"typowy-tydzien (mac-m4max)", "typowy-tydzien (tata-i7)"}
+        tata = sections["typowy-tydzien (tata-i7)"]
+        assert "2026-10-02T08:00:00+00:00" in tata
+        assert "2026-10-01T08:00:00+00:00" not in tata
+        assert "Poprawa czasu ściany" not in tata

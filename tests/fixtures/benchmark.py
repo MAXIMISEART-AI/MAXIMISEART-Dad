@@ -10,6 +10,8 @@ import os
 import subprocess
 import sys
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -74,6 +76,37 @@ def zip_part_names(path: Path) -> set[str]:
 
 def run_benchmark(*arguments: str) -> subprocess.CompletedProcess[str]:
     return _run_tool(BENCHMARK, *arguments)
+
+
+def start_benchmark(*arguments: str) -> subprocess.Popen[str]:
+    """CLI benchmarku uruchomione w tle; test czyta jego wyjście w trakcie pracy."""
+
+    return subprocess.Popen(
+        [sys.executable, str(BENCHMARK), *arguments],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+
+
+@contextmanager
+def measurement_in_progress(lock: Path) -> Iterator[None]:
+    """Inny pomiar trwa: trzyma wyłączną blokadę pliku ``lock`` tak jak benchmark (flock, na Windows msvcrt)."""
+
+    with lock.open("a+b") as handle:
+        handle.seek(0)
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
 
 
 def _run_tool(tool: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
