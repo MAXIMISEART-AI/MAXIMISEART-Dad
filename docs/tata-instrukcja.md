@@ -130,8 +130,12 @@ mówi, co poprawić, pierwszy jest `Uruchom ponownie`, a `Wyślij do Maksa` drug
    adresów, numerów zleceń ani treści wierszy.
 2. Kliknij `Wyślij do Maksa`. Nie ma dodatkowego pytania „Na pewno?”.
 3. W miejscu przycisku pojawi się `Zgłoszenie wysłane do Maksa. Poczekaj na
-   naprawę.` Potwierdzenie zostaje po odświeżeniu karty i po ponownym otwarciu
-   Centrum, więc tego samego problemu nie wyślesz drugi raz.
+   naprawę.` Potwierdzenie zostaje po odświeżeniu karty.
+
+Gdy ten sam problem wróci przy kolejnym Uruchomieniu, a Maks jeszcze go nie
+naprawił, zamiast przycisku zobaczysz `Zgłoszenie tego problemu już jest
+wysłane i czeka na naprawę.` Drugie Zgłoszenie nie powstaje. Gdy Maks zamknie
+Zgłoszenie, a problem wróci, po Diagnozie znowu będzie `Wyślij do Maksa`.
 
 Zgłoszenie trafia do prywatnego repozytorium Zgłoszeń Maksa na GitHubie.
 Brak internetu niczego nie psuje, dopóki niczego nie wysyłasz.
