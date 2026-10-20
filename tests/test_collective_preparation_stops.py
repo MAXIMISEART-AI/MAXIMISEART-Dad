@@ -28,6 +28,7 @@ from tests.fixtures.preparation import (
     month_periods_folder,
     register_order,
     write_register,
+    write_register_sheet,
 )
 from tests.fixtures.workbooks import cut_sheet_after_data_rows, without_sheet, without_styles
 
@@ -193,13 +194,7 @@ def add_register_sheet(
 
     workbook = load_workbook(register_path)
     sheet = workbook.create_sheet(title, 0 if first else None)
-    for column, header in enumerate(headers, start=1):
-        if header:
-            sheet.cell(1, column).value = header
-    for row_number, row in enumerate(rows, start=2):
-        for column, header in enumerate(headers, start=1):
-            if row is not None and header in row:
-                sheet.cell(row_number, column).value = row[header]
+    write_register_sheet(sheet, rows, headers=headers)
     if hidden:
         sheet.sheet_state = "hidden"
     workbook.save(register_path)

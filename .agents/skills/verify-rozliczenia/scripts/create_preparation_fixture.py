@@ -158,14 +158,13 @@ def _write_register(path: Path) -> None:
     archive = workbook.create_sheet("ARCHIWUM")
     archive.sheet_state = "hidden"
     sheet = workbook.create_sheet("ZLECENIA")
+    # Column A has no header and stays completely empty.
+    columns = [(column, header) for column, header in enumerate(REGISTER_HEADERS, start=1) if header]
     for target, rows in ((archive, {2: _order(90, datetime(2025, 9, 9, 9, 0), "kamil.syntetyczny", "tak")}), (sheet, REGISTER_ROWS)):
-        for column, header in enumerate(REGISTER_HEADERS, start=1):
-            if header:  # column A stays completely empty
-                target.cell(1, column).value = header
+        for column, header in columns:
+            target.cell(1, column).value = header
         for row_number, order in rows.items():
-            for column, header in enumerate(REGISTER_HEADERS, start=1):
-                if not header:
-                    continue
+            for column, header in columns:
                 cell = target.cell(row_number, column)
                 cell.value = order[header]
                 cell.font = Font(name="Arial", size=8)

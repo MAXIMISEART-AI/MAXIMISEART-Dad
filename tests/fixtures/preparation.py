@@ -207,9 +207,8 @@ def write_register(
     headers: tuple[str, ...] = REGISTER_HEADERS,
     highlights: Mapping[tuple[int, str], Highlight] | None = None,
 ) -> Path:
-    """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych z nagłówkami w wierszu 1.
+    """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych ``ZLECENIA`` (``write_register_sheet``).
 
-    Pusty nagłówek oznacza całkowicie pustą kolumnę. Komórki danych mają czcionkę Rejestru, a ``DATA GODZ. POCZ.`` jego format daty.
     Bez jawnych ``rows`` stosowane są ``DEFAULT_REGISTER_HIGHLIGHTS``.
     """
 
@@ -221,17 +220,41 @@ def write_register(
     decoy.title = "lista"
     decoy["A1"] = "WYKONAWCY"
     decoy["A2"] = "adrian.testowy"
-    sheet = workbook.create_sheet("ZLECENIA")
-    for column, header in enumerate(headers, start=1):
-        if header:
-            sheet.cell(1, column).value = header
-    for row_number, row in enumerate(rows if rows is not None else default_register_rows(), start=2):
+    write_register_sheet(
+        workbook.create_sheet("ZLECENIA"),
+        rows if rows is not None else default_register_rows(),
+        headers=headers,
+        highlights=highlights,
+    )
+    workbook.save(path)
+    return path
+
+
+def write_register_sheet(
+    sheet: Worksheet,
+    rows: list[RegisterRow],
+    *,
+    headers: tuple[str, ...] = REGISTER_HEADERS,
+    highlights: Mapping[tuple[int, str], Highlight] | None = None,
+) -> None:
+    """Zapisuje arkusz Rejestru: nagłówki w wierszu 1, zlecenia od wiersza 2 (``None`` to pusty wiersz).
+
+    Pusty nagłówek oznacza całkowicie pustą kolumnę. Komórki danych mają czcionkę Rejestru, a ``DATA GODZ. POCZ.``
+    jego format daty.
+    """
+
+    if highlights is None:
+        highlights = {}
+    columns = [(column, header) for column, header in enumerate(headers, start=1) if header]
+    for column, header in columns:
+        sheet.cell(1, column).value = header
+    for row_number, row in enumerate(rows, start=2):
         if row is None:
             continue
-        for column, header in enumerate(headers, start=1):
+        for column, header in columns:
             if header in row:
                 cell = sheet.cell(row_number, column)
-                cell.value = row[header]
+                cell.value = row[header]  # type: ignore[assignment]  # syntetyczne zlecenia mają tekst i daty
                 highlight = highlights.get((row_number, header), Highlight())
                 cell.font = Font(
                     name=REGISTER_FONT_NAME,
@@ -244,8 +267,6 @@ def write_register(
                     cell.fill = PatternFill(fill_type="solid", fgColor=highlight.fill)
                 if header == "DATA GODZ. POCZ.":
                     cell.number_format = REGISTER_DATE_FORMAT
-    workbook.save(path)
-    return path
 
 
 def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, row_style: bool = False) -> None:
