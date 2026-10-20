@@ -24,8 +24,16 @@ from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.workbook_files import ExcelRow
-from tests.fixtures.workbooks import active_worksheet, cut_sheet_after_data_rows, without_sheet
-from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, SOURCE_NAME, make_fixture, projected, write_source
+from tests.fixtures.workbooks import active_worksheet, column_widths, cut_sheet_after_data_rows, without_sheet
+from tests.fixtures.settlement import (
+    NOT_A_PERIOD,
+    PERIOD,
+    SOURCE_NAME,
+    WORKER_TEMPLATE_COLUMN_WIDTHS,
+    make_fixture,
+    projected,
+    write_source,
+)
 
 
 UNREADABLE_SOURCE_MESSAGE = (
@@ -128,6 +136,25 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
         assert worksheet_input_row(empty, 18) == (None,) * 13 + (0,) + (None,) * 32
     finally:
         empty_workbook.close()
+
+
+def test_kazde_rozliczenie_pracownika_takze_puste_ma_szerokosci_kolumn_wzorca_rozliczenia_pracownika(
+    tmp_path: Path,
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.empty_count == 1
+    expected = [WORKER_TEMPLATE_COLUMN_WIDTHS.get(column) for column in range(1, 48)]
+    published = sorted(target_directory.glob("*.xlsx"))
+    assert len(published) == 3
+    for path in published:
+        workbook = load_workbook(path)
+        try:
+            assert column_widths(active_worksheet(workbook), 47) == expected, path.name
+        finally:
+            workbook.close()
 
 
 def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
