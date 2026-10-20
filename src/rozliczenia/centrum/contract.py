@@ -372,18 +372,26 @@ class RunSummary(_Model):
     file_plan: list[WorkerFile] | None
 
 
+# Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
+# osobie utrzymującej narzędzie (także nieoczekiwany błąd), ``repeated`` to ten sam Komunikat „dla taty”
+# drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
+StopKind = Literal["for_tata", "for_maks", "repeated"]
+
+
 class RunOutcome(_Model):
     """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
-    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
-    akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+    którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+    Zatrzymania (``None`` bez Zatrzymania).
     """
 
     result: RunResult
     headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
+    stop_kind: StopKind | None
     stops: list[Message]
     warnings: list[Message]
     notices: list[str]

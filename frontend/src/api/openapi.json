@@ -1898,6 +1898,22 @@
             ],
             "title": "Next Action"
           },
+          "stop_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "for_tata",
+                  "for_maks",
+                  "repeated"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Kind"
+          },
           "stops": {
             "items": {
               "$ref": "#/components/schemas/Message"
@@ -1937,13 +1953,14 @@
           "headline",
           "ending",
           "next_action",
+          "stop_kind",
           "stops",
           "warnings",
           "notices",
           "summary"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna\nakcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku."
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania)."
       },
       "RunRequest": {
         "properties": {

@@ -558,8 +558,9 @@ export const zRunSummary = z.object({
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
- * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+ * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * Zatrzymania (``None`` bez Zatrzymania).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -579,6 +580,11 @@ export const zRunOutcome = z.object({
         'rerun',
         'open_period_folder'
     ]),
+    stop_kind: z.enum([
+        'for_tata',
+        'for_maks',
+        'repeated'
+    ]).nullable(),
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
     notices: z.array(z.string()),

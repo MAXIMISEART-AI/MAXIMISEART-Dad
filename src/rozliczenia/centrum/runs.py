@@ -33,6 +33,7 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.centrum.run_view import ProcessView
+from rozliczenia.centrum.stops import StopMemory
 from rozliczenia.decision import Decision
 from rozliczenia.message import Message
 from rozliczenia.process_run import (
@@ -40,6 +41,7 @@ from rozliczenia.process_run import (
     Outcome,
     Process,
     ProcessInputs,
+    Stop,
     run_process,
 )
 from rozliczenia.domain import ProgressEvent
@@ -50,6 +52,13 @@ _STREAM_POLL_SECONDS: Final = 0.05
 _KEEPALIVE_SECONDS: Final = 15.0
 _RECONNECT_MS: Final = 1000
 _CONTINUE_HINT: Final = "przy decyzji wybierz „Kontynuuj”"
+# Ostatnia siatka adaptera: wyniku nie dało się pokazać, choć rdzeń zapisał już metryki.
+_RESULT_NOT_SHOWN: Final = Message(
+    code="BLAD_WYNIKU",
+    what="Nie udało się pokazać wyniku Uruchomienia procesu.",
+    where="Centrum rozliczeń",
+    action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
+)
 
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT")
@@ -101,12 +110,14 @@ class RunHost:
     ``shutdown_refusal()`` odmawia zamknięcia serwera, gdy Uruchomienie trwa
     (także gdy czeka na decyzję taty). Początek i koniec każdego Uruchomienia
     trafiają do dziennika Centrum jako bezpieczne fakty, a rekord metryk każdego
-    Uruchomienia z Centrum do ``CentrumRuns``.
+    Uruchomienia z Centrum do ``CentrumRuns``. Ostatnie Zatrzymanie każdego procesu
+    zostaje w pamięci (``StopMemory``), żeby rozpoznać powtórkę.
     """
 
     def __init__(self, log: CentrumLog, centrum_runs: CentrumRuns) -> None:
         self._log = log
         self._centrum_runs = centrum_runs
+        self._stops = StopMemory()
         self._lock = threading.Lock()
         self._sequence = 0
         self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=contract.RunIdle(state="idle"))]
@@ -172,8 +183,12 @@ class RunHost:
 
         self._log.unexpected_failure(failure, where="wynik Uruchomienia procesu")
 
-    def finished(self, run: _Run, result: contract.RunOutcome) -> None:
+    def stop_kind(self, run: _Run, stop: Stop | None) -> contract.StopKind | None:
+        return self._stops.kind(run.info.process, stop)
+
+    def finished(self, run: _Run, result: contract.RunOutcome, stop: Stop | None) -> None:
         info = run.info
+        self._stops.remember(info.process, stop)
         self._log.run_finished(
             process=info.process,
             mode=_mode(info.dry_run),
@@ -217,6 +232,7 @@ class _Run:
         self._consent = False
         self.awaiting_decision = False
         self.ended = False
+        self.stop: Stop | None = None
 
     def running_view(self) -> contract.RunRunning:
         return contract.RunRunning(
@@ -228,17 +244,21 @@ class _Run:
 
     def work(self) -> None:
         prepared = self._prepared
+        stop: Stop | None
         try:
             since = datetime.now(timezone.utc)
             outcome = run_process(
                 prepared.process, prepared.inputs, self, view=prepared.summary_view, metrics_path=prepared.metrics_path
             )
             self._host.remember(prepared, since)
-            result = _run_result(outcome, prepared)
+            stop = None if isinstance(outcome.ending, Finished) else outcome.ending
+            result = _run_result(outcome, prepared, self._host.stop_kind(self, stop))
         except Exception as failure:  # noqa: BLE001 - granica wątku Uruchomienia: typ wyjątku trafia do dziennika Centrum
             self._host.failed(failure)
-            result = _unexpected_result(prepared.dry_run)
-        self._host.finished(self, result)
+            stop = Stop("after_engine", _RESULT_NOT_SHOWN)
+            result = _unexpected_result(prepared.dry_run, self._host.stop_kind(self, stop))
+        self.stop = stop
+        self._host.finished(self, result, stop)
         self.ended = True
         self._host.publish(
             self,
@@ -312,7 +332,9 @@ def _decision_view(decision: Decision) -> contract.Decision:
     )
 
 
-def _run_result(outcome: Outcome[_SummaryView], prepared: PreparedRun[Any, Any]) -> contract.RunOutcome:
+def _run_result(
+    outcome: Outcome[_SummaryView], prepared: PreparedRun[Any, Any], stop_kind: contract.StopKind | None
+) -> contract.RunOutcome:
     """Wynik dla przeglądarki z ``Outcome`` rdzenia.
 
     Wynik „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje
@@ -344,6 +366,7 @@ def _run_result(outcome: Outcome[_SummaryView], prepared: PreparedRun[Any, Any])
         headline=headline,
         ending=kind,
         next_action=next_action,
+        stop_kind=stop_kind,
         stops=stops,
         warnings=[] if shown is None else shown.warnings,
         notices=list(outcome.notices),
@@ -351,7 +374,7 @@ def _run_result(outcome: Outcome[_SummaryView], prepared: PreparedRun[Any, Any])
     )
 
 
-def _unexpected_result(dry_run: bool) -> contract.RunOutcome:
+def _unexpected_result(dry_run: bool, stop_kind: contract.StopKind | None) -> contract.RunOutcome:
     """Ostatnia siatka: błąd samego adaptera po zakończeniu rdzenia (np. kontraktu wyniku); rdzeń zapisał już metryki."""
 
     return contract.RunOutcome(
@@ -359,13 +382,8 @@ def _unexpected_result(dry_run: bool) -> contract.RunOutcome:
         headline="Błąd",
         ending="after_engine",
         next_action="rerun" if dry_run else "open_period_folder",
-        stops=[
-            contract.Message(
-                what="Nie udało się pokazać wyniku Uruchomienia procesu.",
-                where="Centrum rozliczeń",
-                action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
-            )
-        ],
+        stop_kind=stop_kind,
+        stops=[contract.Message.of(_RESULT_NOT_SHOWN)],
         warnings=[],
         notices=[],
         summary=None,
