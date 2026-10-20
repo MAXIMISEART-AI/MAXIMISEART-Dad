@@ -9,7 +9,7 @@ API requests of each scenario, the bundle size, and CPU traces of the cold start
 of Okresy and Metryki. It is the hill-climbing loop for frontend changes: every
 change that makes Centrum faster or slower updates the baseline in its own PR.
 It runs only when named (`--feature wydajnosc`), never in `all`: it takes a few
-minutes and needs a quiet CPU.
+minutes and holds the machine alone.
 
 ## Sub-features
 
@@ -29,7 +29,7 @@ Preconditions:
 
 - The runner creates the fixture with `--wariant rok-pracy`: on top of the usual fixture, `<root>/Rok pracy/Załączniki` holds 52 periods up to `06_12_10_2026` in `Rozliczenia {rok}\{miesiąc}\INEA`, and both metrics files hold 258 more records (Przygotowanie: preview and two RUNs per week; Przebieg rozliczeń: preview and RUN per week before the last). `fixture.json` → `year_of_work` names them.
 - The built frontend in `src/rozliczenia/centrum/static/` is the one under test: run `npm run build` in `frontend/` after a frontend change, or the measurement proves the old build.
-- Quiet CPU: no other verification, test run, benchmark or browser load on the machine (`pgrep -fl "serve_centrum|chrome-headless|pytest"` shows only this run). A busy machine makes every median slower and the run fails for the wrong reason.
+- Quiet CPU, held by the runner: it takes the machine's measurement lock and waits until no other Centrum verification run is registered and, on macOS and Linux, no pytest, benchmark, other verification or Playwright browser runs; other Centrum runs wait while it measures. It prints `MASZYNA ZAJĘTA | …` every minute and `MASZYNA WOLNA | czekano N s` when it starts, and fails after 45 minutes with what kept the machine busy. Load that starts during the measurement (a test run, editors, browsers) is not stopped and still adds noise.
 - Profiles follow `docs/agents/komputer-taty.md`: `Emulation.setCPUThrottlingRate` 4× and 6× on a Mac with M4 Max. On another developer computer the multipliers and the baseline do not apply.
 
 - **Rok pracy.** On the drive's tab, answer the picker with `year_of_work.periods_directory` and click `Wskaż folder okresów`, then `Wskaż Rejestr zleceń` with the fixture's register. `/api/periods` (`api/wydajnosc-tablica.json`) holds at least 52 periods, 51 `worker_settlements_ready`; `/api/metrics` (`api/wydajnosc-metryki.json`) has `fixture.metrics.runs` runs. Screenshots `84`–`87` show the four pages on the year. The tab then goes to `about:blank`, so its event stream does not run during the measurement.

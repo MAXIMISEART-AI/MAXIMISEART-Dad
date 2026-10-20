@@ -114,6 +114,49 @@ def _check_performance_gate(errors: list[str]) -> None:
             errors.append(f"wydajnosc gate: {case} does not hold")
 
 
+def _check_machine_lock(errors: list[str]) -> None:
+    """One measurement at a time on the machine, as SKILL.md says: checked in a scratch lock directory."""
+
+    import tempfile
+
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+    from quiet_machine import MachineBusy, QuietMachine
+
+    def held(attempt: Any) -> bool:
+        try:
+            with attempt:
+                return True
+        except MachineBusy:
+            return False
+
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = Path(scratch)
+
+        def machine(busy: list[str] | None = None) -> QuietMachine:
+            return QuietMachine(
+                directory, timeout_s=0.3, poll_s=0.05, busy_processes=lambda: busy or [], report_every_s=None
+            )
+
+        dead_pid = 2**22 + 12345  # far above any live pid on the test machine
+        cases: dict[str, bool] = {}
+        cases["a measurement on a quiet machine starts"] = held(machine().measurement())
+        cases["a run on a quiet machine starts"] = held(machine().run())
+        with machine().run():
+            cases["a measurement waits for a run in progress"] = not held(machine().measurement())
+        with machine().measurement():
+            cases["a run waits for a measurement in progress"] = not held(machine().run())
+            cases["a second measurement waits for the first"] = not held(machine().measurement())
+        cases["a measurement waits for pytest or a benchmark"] = not held(machine(["pytest"]).measurement())
+        cases["a run does not wait for pytest"] = held(machine(["pytest"]).run())
+        (directory / "pomiar.lock").write_text(str(dead_pid), encoding="utf-8")
+        (directory / f"run-{dead_pid}.pid").write_text(str(dead_pid), encoding="utf-8")
+        cases["locks of a process that died are taken over"] = held(machine().measurement())
+        cases["the lock directory is empty after every attempt"] = list(directory.iterdir()) == []
+    for case, holds in cases.items():
+        if not holds:
+            errors.append(f"quiet_machine: {case} does not hold")
+
+
 def _check_evidence(root: Path, errors: list[str]) -> None:
     if not root.is_dir():
         errors.append(f"evidence directory is missing: {root}")
@@ -143,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     _check_skill(errors)
     _check_feature_map(errors)
     _check_performance_gate(errors)
+    _check_machine_lock(errors)
     if args.evidence_root:
         _check_evidence(Path(args.evidence_root), errors)
     if errors:
