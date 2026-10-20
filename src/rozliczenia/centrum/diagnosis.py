@@ -314,24 +314,26 @@ def _centrum_log(computer: _Computer) -> list[CheckResult]:
 
 
 # Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.
+# OneDrive idzie przed sprawdzeniami, które otwierają Rejestr zleceń, wzorce i pliki okresu: plik tylko w
+# chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik.
 _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
     "preparation": (
         _tool_freshness,
         _tata_settings,
+        _files_in_onedrive,
         _register,
         _templates,
         _period_folder,
         _period_files_in_excel,
-        _files_in_onedrive,
         _centrum_log,
     ),
     "settlement": (
         _tool_freshness,
         _tata_settings,
+        _files_in_onedrive,
         _templates,
         _period_folder,
         _period_files_in_excel,
-        _files_in_onedrive,
         _centrum_log,
     ),
 }

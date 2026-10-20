@@ -20,13 +20,13 @@ CONFIRMS = "Diagnoza potwierdza ten komunikat."
 CHECKS = (
     "Aktualność narzędzia",
     "Ustawienia taty",
+    "Pliki w OneDrive",
     "Rejestr zleceń",
     "Wzorzec rozliczenia wewnętrznego",
     "Wzorzec pliku zbiorczego",
     "Konfiguracja wykonawców",
     "Folder okresu",
     "Pliki okresu w Excelu",
-    "Pliki w OneDrive",
     "Dziennik Centrum rozliczeń",
 )
 

@@ -51,6 +51,12 @@ tylko przy tym Zatrzymaniu, poza dziennikiem, metrykami i innymi odpowiedziami.
 Bez treści wierszy, adresów, numerów zleceń, stawek, treści wyjątków i pełnych
 ścieżek.
 
+Diagnoza, z której powstaje Zgłoszenie, sprawdza pliki w OneDrive zaraz po
+Ustawieniach taty, przed odczytem Rejestru zleceń, wzorców i plików okresu
+(specyfikacja #153 wymienia OneDrive jako siódme sprawdzenie). Plik tylko w
+chmurze może się nie otworzyć, a wtedy wyjaśnieniem ma być rada o OneDrive, nie
+Komunikat o uszkodzonym pliku.
+
 Naprawa odbywa się w publicznym repozytorium narzędzia. PR odwołuje się do
 Zgłoszenia samym numerem, a przypadek testowy powstaje na danych syntetycznych;
 treść Zgłoszenia nie trafia do publicznych PR-ów, commitów ani issue.

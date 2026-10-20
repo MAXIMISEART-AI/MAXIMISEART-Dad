@@ -174,7 +174,7 @@ def test_diagnoza_nieznanego_uruchomienia_jest_odrzucona(tmp_path: Path) -> None
     assert (refused.status_code, refused.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
 
 
-def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_rejestr_wzorce_folder_okresu_onedrive_i_dziennik(
+def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_onedrive_rejestr_wzorce_folder_okresu_i_dziennik(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
@@ -185,13 +185,13 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_rejestr_
     assert [(check["label"], check["detail"]) for check in checks] == [
         ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
         ("Ustawienia taty", "Rejestr zleceń i folder okresów są na miejscu."),
+        ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
         ("Rejestr zleceń", "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki."),
         ("Wzorzec rozliczenia wewnętrznego", "Wzorzec rozliczenia wewnętrznego.xlsx przechodzi Sprawdzanie."),
         ("Wzorzec pliku zbiorczego", "Wzorzec pliku zbiorczego.xlsx przechodzi Sprawdzanie."),
         ("Konfiguracja wykonawców", "Wczytuje się."),
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
-        ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
         ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2."),
     ]
 
@@ -429,11 +429,11 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
     assert [(check["label"], check["state"]) for check in passing["checks"]] == [
         ("Aktualność narzędzia", "passed"),
         ("Ustawienia taty", "passed"),
+        ("Pliki w OneDrive", "passed"),
         ("Wzorzec rozliczenia pracownika", "passed"),
         ("Konfiguracja wykonawców", "passed"),
         ("Folder okresu", "passed"),
         ("Pliki okresu w Excelu", "passed"),
-        ("Pliki w OneDrive", "passed"),
         ("Dziennik Centrum rozliczeń", "passed"),
     ]
     assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
@@ -563,6 +563,32 @@ def test_rejestr_tylko_w_chmurze_wyjasnia_jak_zachowac_go_na_komputerze(
     }
     assert diagnosis["next_action"] == "rerun"
     assert check(diagnosis, "Pliki w OneDrive")[0] == "failed"
+
+
+@pytest.mark.parametrize(
+    "cloud_file",
+    [
+        lambda centrum: centrum.fixture.register_path,
+        lambda centrum: centrum.fixture.collective_template_path,
+    ],
+    ids=["rejestr", "wzorzec"],
+)
+def test_plik_tylko_w_chmurze_ktorego_nie_da_sie_otworzyc_wyjasnia_onedrive_a_nie_odczyt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cloud_file: Callable[[PreparingCentrum], Path]
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    path = cloud_file(centrum)
+    online_only(centrum, path)
+    path.write_bytes(b"bez kopii na komputerze OneDrive nie oddaje skoroszytu")
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.",
+        "where": f"plik {path.name}, folder {path.parent.name}",
+        "action": ONLY_IN_CLOUD_ACTION,
+    }
 
 
 def test_wzorzec_tylko_w_chmurze_jest_przyczyna(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
