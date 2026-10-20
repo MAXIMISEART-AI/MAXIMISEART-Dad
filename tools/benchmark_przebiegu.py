@@ -39,6 +39,10 @@ Wiersz danych Pliku zbiorczego syntetyczne ilości w ``N:AP``, a w część z ni
 obciążenia i uwagi w ``AQ:AT``, tak jak tata przed Przebiegiem. Wzorce są brane z folderu
 ``--templates-dir`` pod nazwami, pod którymi leżą w ``config``; domyślnie z ``config``
 tego checkoutu, a gdy ich tam nie ma (świeży worktree), z ``config`` głównego checkoutu.
+Tak samo domyślna Konfiguracja wykonawców (``--config``): prawdziwy
+``config/worker_mapping.yaml`` jest poza gitem (w repozytorium jest tylko
+``worker_mapping.example.yaml``), więc benchmark szuka go w tym checkoucie, a potem w
+głównym.
 
 Benchmark nie czyta ani nie zmienia Ustawień taty i nie dopisuje rekordów do historii
 metryk w repozytorium. Na wyjście, do dziennika i do komentarza trafiają tylko liczby,
@@ -85,6 +89,7 @@ WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
 INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
 TEMPLATE_NAMES = (WORKER_TEMPLATE, INTERNAL_TEMPLATE, COLLECTIVE_TEMPLATE)
+WORKER_CONFIG = "worker_mapping.yaml"
 
 PERIOD = parse_period_token("06_12_10_2026")
 MONTH_FOLDER = "10_Październik_2026"
@@ -159,14 +164,26 @@ def _main_checkout_config() -> Path | None:
     return (ROOT / common).resolve().parent / "config"
 
 
+def _config_with(name: str) -> Path:
+    """``config/`` tego checkoutu, gdy ma plik ``name``, inaczej ``config/`` głównego checkoutu (jeśli go ma)."""
+
+    local = ROOT / "config"
+    if (local / name).is_file():
+        return local
+    main_config = _main_checkout_config()
+    return main_config if main_config is not None and (main_config / name).is_file() else local
+
+
 def default_templates_directory() -> Path:
     """``config/`` tego checkoutu, gdy ma Wzorce, inaczej ``config/`` głównego checkoutu."""
 
-    local = ROOT / "config"
-    if (local / WORKER_TEMPLATE).is_file():
-        return local
-    main_config = _main_checkout_config()
-    return main_config if main_config is not None and (main_config / WORKER_TEMPLATE).is_file() else local
+    return _config_with(WORKER_TEMPLATE)
+
+
+def default_worker_config() -> Path:
+    """Prawdziwa Konfiguracja wykonawców spoza gita: z ``config/`` tego checkoutu albo głównego checkoutu."""
+
+    return _config_with(WORKER_CONFIG) / WORKER_CONFIG
 
 
 def _templates(directory: Path) -> dict[str, Path]:
@@ -178,6 +195,11 @@ def _templates(directory: Path) -> dict[str, Path]:
 
 
 def _worker_ids(config: Path) -> list[str]:
+    if not config.is_file():
+        raise BenchmarkError(
+            f"Brak Konfiguracji wykonawców {config}. Wskaż plik przez --config "
+            "(np. syntetyczny z tools/syntetyczne_wzorce.py)."
+        )
     try:
         return list(load_worker_mapping(config))
     except WorkerConfigError as error:
@@ -761,7 +783,9 @@ def _parser() -> argparse.ArgumentParser:
     for mirror_parser in (measure_parser, freeze_parser):
         mirror_parser.add_argument("--scenario", choices=list(SCENARIOS), default="typowy-tydzien")
         mirror_parser.add_argument("--templates-dir", type=Path, help="Folder z trzema Wzorcami (nazwy jak w config).")
-        mirror_parser.add_argument("--config", type=Path, default=ROOT / "config" / "worker_mapping.yaml")
+        mirror_parser.add_argument(
+            "--config", type=Path, help="Konfiguracja wykonawców; domyślnie config/worker_mapping.yaml jak Wzorce."
+        )
         mirror_parser.add_argument("--mirror-dir", type=Path, default=DEFAULT_DIRECTORY / "lustro")
         mirror_parser.add_argument("--reference-dir", type=Path, default=DEFAULT_DIRECTORY / "reference")
     freeze_parser.add_argument("--commit", required=True, help="Commit, z którego powstaje wynik referencyjny.")
@@ -804,7 +828,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "guard":
             return _guard(args.journal, args.budget_ms, args.summary)
         templates = _templates((args.templates_dir or default_templates_directory()).expanduser().resolve())
-        config = args.config.expanduser().resolve()
+        config = (args.config or default_worker_config()).expanduser().resolve()
         mirror, built = ensure_mirror(args.mirror_dir.expanduser().resolve(), args.scenario, config, templates)
         print(f"Lustro {'zbudowane' if built else 'istniejące'}: {mirror}", flush=True)
         references = args.reference_dir.expanduser().resolve()

@@ -38,7 +38,7 @@ __all__ = [
     "write_settlement",
 ]
 
-SETTLEMENT_NAME = "Rozliczenie 08_14_09_2026 - Adrian Maciejewski.xlsx"
+SETTLEMENT_NAME = "Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx"
 # Treść wierszy danych, która nie może wyjść poza skoroszyt: adres i numer zlecenia.
 SECRET_VALUES = ("ul. Tajna 7", "ZL-SEKRET-123")
 
@@ -61,7 +61,7 @@ def write_settlement(path: Path, change: Change | None = None) -> Path:
     for row, (address, order) in enumerate([SECRET_VALUES, ("ul. Syntetyczna 2", "ZL-2")], start=18):
         sheet.cell(row, 2).value = address
         sheet.cell(row, 6).value = order
-        sheet.cell(row, 8).value = "adrian.maciejewski"
+        sheet.cell(row, 8).value = "adrian.testowy"
         sheet.cell(row, 14).value = 3
         sheet.cell(row, 15).value = 1.5
         sheet.cell(row, 14).number_format = "0"

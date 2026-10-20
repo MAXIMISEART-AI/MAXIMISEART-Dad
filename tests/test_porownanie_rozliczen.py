@@ -122,8 +122,8 @@ def test_bramka_wykrywa_zmienione_bajty_odwolania_zewnetrznego(tmp_path: Path) -
 
 def test_bramka_wykrywa_brakujacy_nadmiarowy_i_nieczytelny_plik(tmp_path: Path) -> None:
     reference, candidate = settlement_folders(tmp_path)
-    write_settlement(reference / "Rozliczenie 08_14_09_2026 - Darek Nowak.xlsx")
-    shutil.copy2(candidate / SETTLEMENT_NAME, candidate / "Rozliczenie 08_14_09_2026 - Kamil Frontczak.xlsx")
+    write_settlement(reference / "Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx")
+    shutil.copy2(candidate / SETTLEMENT_NAME, candidate / "Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx")
     write_settlement(reference / "Rozliczenie 08_14_09_2026 - Tomasz Lis.xlsx")
     (candidate / "Rozliczenie 08_14_09_2026 - Tomasz Lis.xlsx").write_bytes(b"to nie jest skoroszyt")
 

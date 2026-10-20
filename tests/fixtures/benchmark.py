@@ -31,6 +31,7 @@ SMALL_DATA_ROWS = 150
 # Pliki repozytorium, których benchmark nie może zmienić: Ustawienia taty i historie metryk procesów.
 PROTECTED_REPOSITORY_FILES = (
     ROOT / "config" / "centrum-ustawienia.yaml",
+    ROOT / "config" / "worker_mapping.yaml",
     ROOT / ".rozliczenia-metrics.jsonl",
     ROOT / ".przygotowanie-pliku-zbiorczego-metrics.jsonl",
 )
