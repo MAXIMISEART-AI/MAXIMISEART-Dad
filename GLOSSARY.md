@@ -267,6 +267,13 @@ Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
 narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
 Znika samo po aktualizacji i ponownym otwarciu Centrum.
 
+## Aktualizacja narzędzia
+
+Przejście narzędzia na komputerze taty na jego najnowszą wersję, które
+tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
+zostawia poprzednią wersję; pliki taty pozostają nietknięte.
+_Avoid_: upgrade, git pull, instalacja
+
 ## Nienadpisywanie
 
 Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje
