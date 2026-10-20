@@ -12,7 +12,7 @@ import tomllib
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import Locator, Page, Request, expect
+from playwright.sync_api import Page, Request, expect
 
 from drive.common import REPO_ROOT, Run
 
@@ -90,10 +90,11 @@ def _is_stream(request: Request) -> bool:
     return urllib.parse.urlsplit(request.url).path == "/api/runs/events"
 
 
-def _run_setup(tab: Page) -> Locator:
-    """Shown only once the tab has both the run setup (API) and the current Uruchomienie (stream)."""
+def _expect_runs_shown(tab: Page, timeout_ms: float = 5_000) -> None:
+    """Uruchomienia leaves its skeleton only once the tab has the run setup (API) and the current Uruchomienie (stream)."""
 
-    return tab.get_by_role("button", name="Podgląd bez zapisu", exact=True)
+    expect(tab.get_by_role("heading", name="Uruchomienia", exact=True)).to_be_visible(timeout=timeout_ms)
+    expect(tab.get_by_label("Wczytywanie Uruchomień", exact=True)).to_have_count(0, timeout=timeout_ms)
 
 
 def drive_start_and_close(run: Run, page: Page) -> None:
@@ -134,7 +135,7 @@ def drive_start_and_close(run: Run, page: Page) -> None:
 
     run.step(feature, "karty-w-tle")
     page.goto(run.url + "#/uruchomienia")
-    expect(_run_setup(page)).to_be_visible()
+    _expect_runs_shown(page)
     with page.expect_event("requestfailed", predicate=_is_stream):
         page.evaluate(_TO_BACKGROUND)
     run.check(True, "in the background the drive's tab gives its stream back (tabs hidden by the harness)")
@@ -144,13 +145,13 @@ def drive_start_and_close(run: Run, page: Page) -> None:
             shortcut_tabs[-1].evaluate(_TO_BACKGROUND)
         shortcut_tabs.append(tab := page.context.new_page())
         tab.goto(run.url + "#/uruchomienia")
-        expect(_run_setup(tab)).to_be_visible(timeout=5_000)
+        _expect_runs_shown(tab)
     run.check(True, f"each of {_SHORTCUT_TABS} more tabs shows Uruchomienia from the API and the stream")
     run.capture(shortcut_tabs[-1], "90-start-i-zamykanie-karty-w-tle")
     shortcut_tabs[-1].evaluate(_TO_BACKGROUND)
     with page.expect_request(_is_stream):
         page.evaluate(_TO_FRONT)
-    expect(_run_setup(page)).to_be_visible()
+    _expect_runs_shown(page)
     run.check(True, "back in front, the drive's tab connects to the stream again")
     for tab in shortcut_tabs:
         tab.close()
