@@ -29,7 +29,7 @@ from fastapi import APIRouter
 from rozliczenia import preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
 from rozliczenia.centrum.cloud_files import CloudFiles
-from rozliczenia.centrum.configuration import ConfigurationFiles, workers_problem
+from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
 from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost, StoppedRun
@@ -135,6 +135,12 @@ class _Computer:
     def log_entries(self) -> tuple[str, ...]:
         return tuple(self.log.recent(_LOG_ENTRIES))
 
+    @cached_property
+    def templates(self) -> tuple[Template, ...]:
+        """Wzorce, które czyta proces Zatrzymania."""
+
+        return tuple(template for template in self.configuration.templates() if template.used_by == self.process)
+
 
 _Check = Callable[[_Computer], list[CheckResult]]
 
@@ -153,23 +159,40 @@ def _tool_freshness(computer: _Computer) -> list[CheckResult]:
     return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {local[:7]}.")]
 
 
+@dataclass(frozen=True)
+class _Setting:
+    """Ścieżka z Ustawień taty: wskazana (``chosen``), istniejąca (``existing``) i Komunikat procesu o jej braku."""
+
+    name: str
+    chosen: Path | None
+    existing: Path | None
+    missing: Callable[[Path], Message]
+
+
 def _tata_settings(computer: _Computer) -> list[CheckResult]:
     label = "Ustawienia taty"
     settings = computer.settings
-    needed = [("folder okresów", settings.periods_directory, settings.existing_periods_directory)]
+    needed = [
+        _Setting(
+            "folder okresów",
+            settings.periods_directory,
+            settings.existing_periods_directory,
+            preparation_messages.periods_directory_missing,
+        )
+    ]
     if computer.process == "preparation":
-        needed.insert(0, ("Rejestr zleceń", settings.register, settings.existing_register))
-    for name, chosen, existing in needed:
-        if chosen is None:
-            return [CheckResult.not_checked(label, f"Nie wskazano: {name}.")]
-        if existing is None:
-            missing = (
-                preparation_messages.register_missing(chosen)
-                if name == "Rejestr zleceń"
-                else preparation_messages.periods_directory_missing(chosen)
-            )
-            return [CheckResult.failed(label, missing)]
-    return [CheckResult.passed(label, " i ".join(name for name, _, _ in needed).capitalize() + " są na miejscu.")]
+        needed.insert(
+            0,
+            _Setting(
+                "Rejestr zleceń", settings.register, settings.existing_register, preparation_messages.register_missing
+            ),
+        )
+    for setting in needed:
+        if setting.chosen is None:
+            return [CheckResult.not_checked(label, f"Nie wskazano: {setting.name}.")]
+        if setting.existing is None:
+            return [CheckResult.failed(label, setting.missing(setting.chosen))]
+    return [CheckResult.passed(label, " i ".join(setting.name for setting in needed).capitalize() + " są na miejscu.")]
 
 
 def _register(computer: _Computer) -> list[CheckResult]:
@@ -187,9 +210,7 @@ def _register(computer: _Computer) -> list[CheckResult]:
 
 def _templates(computer: _Computer) -> list[CheckResult]:
     results = []
-    for template in computer.configuration.templates():
-        if template.used_by != computer.process:
-            continue
+    for template in computer.templates:
         problem = template.problem()
         results.append(
             CheckResult.passed(template.label, f"{template.path.name} przechodzi Sprawdzanie.")
@@ -267,7 +288,7 @@ def _files_of_process(computer: _Computer) -> list[Path]:
     register = computer.settings.existing_register
     if computer.process == "preparation" and register is not None:
         files.append(register)
-    files += [template.path for template in computer.configuration.templates() if template.used_by == computer.process]
+    files += [template.path for template in computer.templates]
     folder = computer.period_folder
     if isinstance(folder, PeriodFolder):
         files += [folder.internal_settlement, folder.collective_file]
@@ -327,7 +348,6 @@ def diagnose(
     return Diagnosis(stopped, tuple(checks), computer.log_entries)
 
 
-_PROBLEMS: dict[int | str, dict[str, object]] = {404: {"model": contract.Problem}, 409: {"model": contract.Problem}}
 
 
 def diagnosis_router(
@@ -340,7 +360,7 @@ def diagnosis_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/runs", tags=["uruchomienia"])
 
-    @router.post("/{run_id}/diagnosis", operation_id="diagnoseRun", responses=_PROBLEMS)
+    @router.post("/{run_id}/diagnosis", operation_id="diagnoseRun", responses=contract.NOT_FOUND_OR_CONFLICT)
     def run_diagnosis(run_id: str) -> contract.Diagnosis:
         stopped = host.stopped(run_id)
         diagnosis = diagnose(
