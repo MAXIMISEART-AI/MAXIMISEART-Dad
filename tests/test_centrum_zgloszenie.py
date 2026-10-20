@@ -214,6 +214,26 @@ def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysy
     assert unsent_files(centrum) == {}
 
 
+def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komunikat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, run_id)
+    (tmp_path / "config" / "zgloszenia").write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
+
+    state = send(centrum, run_id)
+
+    assert state == {
+        "state": "saved",
+        "message": {
+            "what": "Nie wysłano Zgłoszenia i nie udało się zapisać go w pliku na tym komputerze.",
+            "where": f"plik Zgłoszenie BLAD_PLANU {PERIOD}.md, folder zgloszenia",
+            "action": "Rozwiń „Co zostanie wysłane”, skopiuj treść i prześlij ją Maksowi mailem.",
+        },
+    }
+
+
 @pytest.mark.parametrize(
     ("failure", "what"),
     [
@@ -238,6 +258,22 @@ def test_nieudana_wysylka_zapisuje_zgloszenie_w_pliku_a_ponowna_proba_je_wysyla(
 
     assert send(centrum, run_id) == {"state": "sent"}
     assert (len(centrum.surroundings.report_box.keys), len(centrum.surroundings.report_box.sent), unsent_files(centrum)) == (2, 1, {})
+
+
+def test_plik_niewyslanego_zgloszenia_ktorego_nie_da_sie_usunac_nie_cofa_wyslania(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, run_id)
+    # Na miejscu pliku niewysłanego Zgłoszenia coś, czego nie da się usunąć jak pliku (w Windows: plik otwarty).
+    (tmp_path / "config" / "zgloszenia" / f"Zgłoszenie BLAD_PLANU {PERIOD}.md").mkdir(parents=True)
+
+    state = send(centrum, run_id)
+
+    assert (state, current_report(centrum), send(centrum, run_id)) == ({"state": "sent"},) * 3
+    assert len(centrum.surroundings.report_box.sent) == 1
 
 
 def current_report(centrum: PreparingCentrum) -> object:

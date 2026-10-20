@@ -404,7 +404,8 @@ class ReportWaiting(_Model):
 class ReportSaved(_Model):
     """Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.
 
-    ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie.
+    ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku
+    się nie udał, że treść trzeba przesłać z podglądu.
     """
 
     state: Literal["saved"]

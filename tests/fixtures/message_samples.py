@@ -194,4 +194,5 @@ REPORT_SAMPLES: Samples = {
     "key_missing": [lambda: report_messages.key_missing(UNSENT_REPORT)],
     "key_refused": [lambda: report_messages.key_refused(UNSENT_REPORT)],
     "box_unreachable": [lambda: report_messages.box_unreachable(UNSENT_REPORT)],
+    "not_saved": [lambda: report_messages.not_saved(UNSENT_REPORT)],
 }

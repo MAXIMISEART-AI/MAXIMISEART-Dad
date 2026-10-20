@@ -1,8 +1,9 @@
 """Katalog Komunikatów Zgłoszenia: Zgłoszenie do Maksa nie wyszło i czeka w pliku na tym komputerze.
 
 Każdy Komunikat wskazuje zapisany plik Zgłoszenia, który tata może przesłać
-Maksowi mailem, i mówi, kiedy kliknąć „Spróbuj ponownie”. Instrukcja taty
-cytuje „Co się stało” każdego Komunikatu (``tests/test_instrukcja_taty.py``).
+Maksowi mailem, i mówi, kiedy kliknąć „Spróbuj ponownie”; gdy i zapis pliku się
+nie udał, każe przesłać treść z podglądu. Instrukcja taty cytuje „Co się stało”
+każdego Komunikatu (``tests/test_instrukcja_taty.py``).
 """
 
 from __future__ import annotations
@@ -43,4 +44,15 @@ def box_unreachable(saved: Path) -> Message:
         what="Nie wysłano Zgłoszenia: brak połączenia z GitHubem.",
         where=file_label(saved),
         action="Sprawdź internet i kliknij „Spróbuj ponownie”. Jeśli to nie pomoże, prześlij ten plik Maksowi mailem.",
+    )
+
+
+def not_saved(saved: Path) -> Message:
+    """Zgłoszenia nie wysłano, a zapis w pliku ``saved`` też się nie udał (np. folder Zgłoszeń niedostępny)."""
+
+    return Message(
+        code="ZGLOSZENIE_NIEZAPISANE",
+        what="Nie wysłano Zgłoszenia i nie udało się zapisać go w pliku na tym komputerze.",
+        where=file_label(saved),
+        action="Rozwiń „Co zostanie wysłane”, skopiuj treść i prześlij ją Maksowi mailem.",
     )

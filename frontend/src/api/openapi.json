@@ -2081,7 +2081,7 @@
           "message"
         ],
         "title": "ReportSaved",
-        "description": "Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.\n\n``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie."
+        "description": "Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.\n\n``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku\nsię nie udał, że treść trzeba przesłać z podglądu."
       },
       "ReportSent": {
         "properties": {

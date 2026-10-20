@@ -320,11 +320,18 @@ class Reports:
                 self._sent.add(SentReport(draft.report.fingerprint, outcome.number, self._commit()))
                 self._open[draft.report.fingerprint] = outcome.number
                 self._sent_runs.add(info.id)
-            saved.unlink(missing_ok=True)
             self._log.report_sent(process=info.process, period=info.period, number=outcome.number)
+            try:
+                saved.unlink(missing_ok=True)
+            except OSError as failure:  # np. plik otwarty w Windows: zostaje w folderze, Zgłoszenie i tak wysłane
+                self._log.unexpected_failure(failure, where="usunięcie niewysłanego Zgłoszenia")
             return contract.ReportSent(state="sent")
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        saved.write_text(f"# {draft.report.title}\n\n{draft.report.body}", encoding="utf-8")
+        try:
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            saved.write_text(f"# {draft.report.title}\n\n{draft.report.body}", encoding="utf-8")
+        except OSError as failure:  # np. folder Zgłoszeń niedostępny: treść zostaje tylko w podglądzie Diagnozy
+            self._log.unexpected_failure(failure, where="zapis niewysłanego Zgłoszenia")
+            return contract.ReportSaved(state="saved", message=contract.Message.of(report_messages.not_saved(saved)))
         message = (
             report_messages.key_missing(saved)
             if outcome is None
