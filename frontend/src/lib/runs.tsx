@@ -59,8 +59,8 @@ function announce(event: RunEvent, before: RunView | null) {
 }
 
 /**
- * Jedno połączenie SSE na całe Centrum: każda strona widzi to samo bieżące Uruchomienie procesu,
- * a zamknięcie karty nie przerywa pracy na serwerze.
+ * Jeden strumień Uruchomień na kartę, póki jest widoczna: każda strona widzi to samo bieżące Uruchomienie
+ * procesu, a zamknięcie karty albo przejście do innej nie przerywa pracy na serwerze.
  */
 export function RunsProvider({ children }: { children: React.ReactNode }) {
   const [view, setView] = React.useState<RunView | null>(null)

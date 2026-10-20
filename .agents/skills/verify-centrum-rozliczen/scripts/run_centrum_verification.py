@@ -136,8 +136,9 @@ REQUIRED_SCREENSHOTS = {
     "pomiar-u-taty": ("80-pomiar-bez-sladu.png",),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
-        "90-start-i-zamykanie-potwierdzenie.png",
-        "91-start-i-zamykanie-zamkniete.png",
+        "90-start-i-zamykanie-karty-w-tle.png",
+        "91-start-i-zamykanie-potwierdzenie.png",
+        "92-start-i-zamykanie-zamkniete.png",
     ),
     "wydajnosc": (
         "84-wydajnosc-okresy.png",
