@@ -2,7 +2,7 @@ import * as React from "react"
 
 import type { ProcessRun } from "@/api/centrum"
 import { dateTime, dayMonth, seconds } from "@/lib/format"
-import { phaseDuration } from "@/pages/metrics/process-runs"
+import { isStopped, phaseDuration } from "@/pages/metrics/process-runs"
 
 // Cztery sloty palety wykresu sprawdzone w prototypie (#95), po jednym na etap.
 const PHASE_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"]
@@ -285,16 +285,12 @@ function totalOf(run: ProcessRun, shown: ReadonlyArray<string>): number {
   return shown.reduce((sum, phase) => sum + phaseDuration(run, phase), 0)
 }
 
-function stopped(run: ProcessRun): boolean {
-  return run.result === "BLAD_KRYTYCZNY"
-}
-
 function dateLabel(run: ProcessRun): string {
-  return `${dayMonth(run.started_at)}${stopped(run) ? " ✕" : ""}`
+  return `${dayMonth(run.started_at)}${isStopped(run) ? " ✕" : ""}`
 }
 
 function barTitle(run: ProcessRun): string {
-  return `${dateTime(run.started_at)} · okres ${run.period}${stopped(run) ? " · zatrzymano" : ""}`
+  return `${dateTime(run.started_at)} · okres ${run.period}${isStopped(run) ? " · zatrzymano" : ""}`
 }
 
 function barName(run: ProcessRun, shown: ReadonlyArray<string>): string {
