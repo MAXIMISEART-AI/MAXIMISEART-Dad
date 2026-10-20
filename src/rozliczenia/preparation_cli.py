@@ -150,12 +150,11 @@ def main(
     *,
     output: TextIO | None = None,
     input_stream: TextIO | None = None,
-    metrics_path: Path | None = None,
     today: date | None = None,
 ) -> int:
     """Uruchamia Przygotowanie pliku zbiorczego; ``0`` sukces, ``1`` zatrzymanie, błąd albo odmowa."""
 
-    return run(PROCESS, _entry(today), argv, output=output, input_stream=input_stream, metrics_path=metrics_path)
+    return run(PROCESS, _entry(today), argv, output=output, input_stream=input_stream)
 
 
 if __name__ == "__main__":

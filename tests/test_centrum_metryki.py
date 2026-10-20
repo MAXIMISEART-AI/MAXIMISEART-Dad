@@ -277,9 +277,8 @@ def test_rekord_zapisany_przez_cli_pojawia_sie_bez_restartu_centrum(tmp_path: Pa
 
     exit_code = preparation_cli.main(
         ["--register", str(missing_register), "--periods-directory", str(tmp_path), "--period", "08_14_09_2026",
-         "--dry-run"],
+         "--dry-run", "--metrics", str(app.metrics.preparation)],
         output=StringIO(),
-        metrics_path=app.metrics.preparation,
     )
 
     assert exit_code == 1

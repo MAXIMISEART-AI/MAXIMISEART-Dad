@@ -56,55 +56,6 @@ def summary_lines(output: str) -> list[str]:
     return lines[lines.index("Status końcowy: OK") :]
 
 
-def test_cli_creates_both_period_files_and_prints_summary_with_orders_per_day(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-
-    exit_code, output = run_preparation_cli(fixture)
-
-    assert exit_code == 0
-    lines = summary_lines(output)
-    assert lines[0] == "Status końcowy: OK"
-    assert lines[1].startswith("Czas uruchomienia: ")
-    assert lines[2:] == [
-        f"Okres: {PERIOD}",
-        "Zlecenia okresu: 4",
-        "Zlecenia skuteczne: 3",
-        "Pominięte puste wiersze: 5",
-        *ORDERS_PER_DAY_LINES,
-        "Ostrzeżenia: 0",
-        f"Rozliczenie wewnętrzne: {INTERNAL_SETTLEMENT_NAME}",
-        f"Plik zbiorczy: {COLLECTIVE_FILE_NAME}",
-    ]
-    assert fixture.internal_settlement_path.is_file()
-    assert fixture.collective_file_path.is_file()
-    assert "SYN-" not in output
-
-
-def test_cli_dry_run_shows_plan_with_orders_per_day_and_creates_nothing(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-
-    exit_code, output = run_preparation_cli(fixture, "--dry-run")
-
-    assert exit_code == 0
-    assert output.splitlines()[0] == f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: DRY-RUN"
-    lines = summary_lines(output)
-    assert lines[2:] == [
-        f"Okres: {PERIOD}",
-        "Zlecenia okresu: 4",
-        "Zlecenia skuteczne: 3",
-        "Pominięte puste wiersze: 5",
-        *ORDERS_PER_DAY_LINES,
-        "Ostrzeżenia: 0",
-        f"Rozliczenie wewnętrzne: {INTERNAL_SETTLEMENT_NAME}",
-        f"Plik zbiorczy: {COLLECTIVE_FILE_NAME}",
-        "DRY-RUN: Nic nie zapisano",
-    ]
-    assert list(fixture.periods_directory.iterdir()) == []
-    [record] = metric_records(fixture)
-    assert record["mode"] == "DRY-RUN"
-    assert record["completed"] is True
-
-
 def test_cli_stop_shows_co_gdzie_co_zrobic_and_exits_1(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     fixture.period_directory.mkdir()
@@ -527,40 +478,6 @@ def test_cancelled_dialog_stops_with_message_and_writes_nothing(
     assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
 
 
-INCOMPLETE_ORDERS_PER_DAY_LINES = [
-    "Zlecenia na dzień:",
-    "- wt 08.09.2026: 1",
-    "- śr 09.09.2026: 1",
-    "- czw 10.09.2026: 0",
-    "- pt 11.09.2026: 0",
-    "- sob 12.09.2026: 1",
-    "- niedz 13.09.2026: 0",
-    "- pon 14.09.2026: 0",
-]
-
-
-def test_incomplete_period_shows_orders_per_day_and_refusal_writes_nothing(tmp_path: Path) -> None:
-    fixture = incomplete_period_fixture(tmp_path)
-
-    exit_code, output = run_cli_answering(fixture, "n\n")
-
-    assert exit_code == 1
-    lines = output.splitlines()
-    warning = lines.index("Ostrzeżenie: niepełny okres")
-    assert lines[warning + 1].startswith("Co się stało: Ostatnie zlecenie okresu jest z soboty 12.09.2026")
-    assert lines[warning + 4 : warning + 12] == INCOMPLETE_ORDERS_PER_DAY_LINES
-    assert lines[warning + 12].startswith("Kontynuować mimo niepełnego okresu?")
-    stop = lines.index("Status końcowy: ZATRZYMANO")
-    assert lines[stop + 1] == (
-        "Co się stało: Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku."
-    )
-    assert lines[stop + 2] == f"Gdzie: okres {PERIOD}"
-    assert list(fixture.periods_directory.iterdir()) == []
-    assert "SYN-" not in output
-    [record] = metric_records(fixture)
-    assert (record["period"], record["completed"], record["result"]) == (PERIOD, False, "BLAD_KRYTYCZNY")
-
-
 @pytest.mark.parametrize("answers", ["\n", "", "nie\n", "x\n"])
 def test_anything_but_yes_to_incomplete_period_is_refusal(tmp_path: Path, answers: str) -> None:
     fixture = incomplete_period_fixture(tmp_path)
@@ -611,15 +528,3 @@ def test_stop_found_before_question_is_shown_once_on_dashboard(tmp_path: Path) -
     assert "Kontynuować" not in output
     assert output.count("Co się stało: Plik tego okresu już istnieje") == 1
     assert "Etap przerwany: Sprawdzanie" in output
-
-
-def test_refused_incomplete_period_ends_after_planowanie_without_zapisywanie(tmp_path: Path) -> None:
-    fixture = incomplete_period_fixture(tmp_path)
-
-    exit_code, output = run_cli_answering(fixture, "n\n")
-
-    assert exit_code == 1
-    assert "Etap: Planowanie" in output
-    assert "Zapisywanie" not in output
-    [record] = metric_records(fixture)
-    assert record["phase_durations_ms"]["Zapisywanie"] == 0

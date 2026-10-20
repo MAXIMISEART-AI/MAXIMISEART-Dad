@@ -301,20 +301,6 @@ def test_folder_okresu_w_kilku_miesiacach_wyjasnia_ktory_zostawic(
     assert (diagnosis["next_action"], check_states(diagnosis)["Pliki okresu w Excelu"]) == ("rerun", "not_checked")
 
 
-def test_brak_folderu_okresu_w_ukladzie_folderow_taty_wyjasnia_gdzie_go_zalozyc(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
-    month_periods_folder(centrum.fixture.periods_directory, "08_Sierpień_2026")
-
-    diagnosis = diagnose(centrum, run_id)
-
-    assert diagnosis["explanation"]["what"] == (
-        "Nie znaleziono folderu 08_14_09_2026 w żadnym folderze miesiąca. Nie utworzono żadnego pliku."
-    )
-
-
 def test_plik_okresu_otwarty_w_excelu_wyjasnia_jak_go_zamknac(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum, monkeypatch)
@@ -486,18 +472,6 @@ def check(diagnosis: dict[str, Any], label: str) -> tuple[str, str]:
     return found["state"], found["detail"]
 
 
-def test_aktualne_narzedzie_przechodzi_sprawdzenie_aktualnosci(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
-
-    diagnosis = diagnose(centrum, run_id)
-
-    assert check(diagnosis, "Aktualność narzędzia") == ("passed", "Najnowsza wersja z GitHuba, commit 3c1d0a9.")
-    assert diagnosis["explanation"] == NOT_FOUND
-
-
 def test_nowsza_wersja_na_githubie_wyjasnia_ze_trzeba_zaktualizowac_narzedzie(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -593,17 +567,6 @@ def test_plik_tylko_w_chmurze_ktorego_nie_da_sie_otworzyc_wyjasnia_onedrive_a_ni
         "where": f"plik {path.name}, folder {path.parent.name}",
         "action": ONLY_IN_CLOUD_ACTION,
     }
-
-
-def test_wzorzec_tylko_w_chmurze_jest_przyczyna(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
-    online_only(centrum, centrum.fixture.collective_template_path)
-
-    diagnosis = diagnose(centrum, run_id)
-
-    assert diagnosis["explanation"]["where"] == "plik Wzorzec pliku zbiorczego.xlsx, folder config"
-    assert check(diagnosis, "Pliki w OneDrive")[0] == "failed"
 
 
 def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(

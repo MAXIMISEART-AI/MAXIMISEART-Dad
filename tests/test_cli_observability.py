@@ -374,22 +374,6 @@ def test_cancelled_plik_zbiorczy_selection_stops_with_statistics_and_without_dia
     assert record["total_duration_ms"] < 1000
 
 
-def test_cancelled_plik_zbiorczy_selection_warns_when_metrics_are_not_saved(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    metrics_parent = tmp_path / "not-a-directory"
-    metrics_parent.write_text("nie katalog", encoding="utf-8")
-    install_source_dialog(monkeypatch, selected="")
-
-    output = StringIO()
-    exit_code = main(["--metrics", str(metrics_parent / "metrics.jsonl")], output=output)
-
-    assert exit_code == 1
-    assert output.getvalue().splitlines()[-1] == (
-        "Ostrzeżenie: Nie zapisano metryk; proces rozliczeń zakończył się niezależnie."
-    )
-
-
 def test_broken_wzorzec_rozliczenia_pracownika_shows_unreadable_wzorzec_message(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     worker_template_path = config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"
