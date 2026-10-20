@@ -2,7 +2,8 @@
 
 Użycie (z katalogu repozytorium):
 
-    python tools/benchmark_przebiegu.py measure --scenario typowy-tydzien --machine mac-m4max
+    python tools/benchmark_przebiegu.py freeze --scenario typowy-tydzien --commit SHA
+    python tools/benchmark_przebiegu.py measure --scenario typowy-tydzien --machine mac-m4max [--reference SHA]
     python tools/benchmark_przebiegu.py comment [--before SHA] [--after SHA]
     python tools/benchmark_przebiegu.py guard --budget-ms MS [--summary PLIK]
 
@@ -13,16 +14,29 @@ Z syntetycznymi Wzorcami (bez Wzorców taty, jak w CI):
         --config .benchmark/syntetyczne-wzorce/worker_mapping.yaml --machine mac-m4max-syntetyczne
 
 ``measure`` buduje lustro folderów taty (albo używa istniejącego), uruchamia na nim
-Przebieg rozliczeń 3 razy jako osobny proces Pythona (``run.py --source``) i dopisuje
-rekord pomiaru do dziennika JSONL w ``.benchmark/`` (poza gitem). ``comment`` drukuje
-z dziennika komentarz Markdown do issue-dziennika wspinaczki (spec #141). ``guard`` to straż
-czasu w CI: opisuje ostatni pomiar dziennika w Markdown i kończy się kodem 1 tylko wtedy, gdy
-mediana czasu ściany przekracza budżet.
+Przebieg rozliczeń 3 razy jako osobny proces Pythona (``run.py --source``), sprawdza
+bramkę poprawności i dopisuje rekord pomiaru do dziennika JSONL w ``.benchmark/``
+(poza gitem). ``comment`` drukuje z dziennika komentarz Markdown do issue-dziennika
+wspinaczki (spec #141). ``guard`` to straż czasu w CI: opisuje ostatni pomiar dziennika
+w Markdown i kończy się kodem 1 tylko wtedy, gdy mediana czasu ściany przekracza budżet.
+
+``freeze`` zamraża wynik referencyjny scenariusza z dowolnego commita: buduje ten
+commit w tymczasowym worktree gita poza repozytorium, uruchamia jego Przebieg
+rozliczeń raz na tym samym lustrze i zapisuje Folder rozliczeń pracowników, liczniki i
+wyjście terminala w ``.benchmark/reference/<lustro>/<commit>/``. Bramka poprawności w
+``measure`` porównuje z nim Folder rozliczeń pracowników ostatniego uruchomienia
+(``tools/porownanie_rozliczen.py``), liczniki i Komunikaty. Kody Komunikatów nie
+wychodzą poza proces (nie pokazuje ich ani terminal, ani rekord metryk), więc
+Komunikaty są porównywane jako linie terminala (Komunikaty, podsumowanie i postęp, z
+czasami zastąpionymi przez ``<N> ms``): treść Komunikatu wyznacza jego kod, więc ta
+sama linia to ten sam kod. Rekord i komentarz mają tylko liczbę różnic w kategorii.
 
 Lustro to ``Załączniki/Rozliczenia 2026/10_Październik_2026/INEA/06_12_10_2026`` z
 Plikiem zbiorczym, który Przygotowanie pliku zbiorczego (``run_preparation.py``)
 tworzy z deterministycznego, syntetycznego Rejestru zleceń. Wykonawcy pochodzą z
-Konfiguracji wykonawców; adresy i numery są fikcyjne. Wzorce są brane z folderu
+Konfiguracji wykonawców; adresy i numery są fikcyjne. Potem benchmark wpisuje w każdy
+Wiersz danych Pliku zbiorczego syntetyczne ilości w ``N:AP``, a w część z nich
+obciążenia i uwagi w ``AQ:AT``, tak jak tata przed Przebiegiem. Wzorce są brane z folderu
 ``--templates-dir`` pod nazwami, pod którymi leżą w ``config``; domyślnie z ``config``
 tego checkoutu, a gdy ich tam nie ma (świeży worktree), z ``config`` głównego checkoutu.
 
@@ -34,10 +48,13 @@ nazwy scenariuszy, commit i maszyna: nigdy Wykonawcy, adresy, numery zleceń ani
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
+import locale
 import platform
 import random
+import re
 import shutil
 import statistics
 import subprocess
@@ -50,13 +67,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
+from porownanie_rozliczen import CATEGORIES, compare_worker_settlements
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from rozliczenia.period_folder import PeriodFolder, collective_file_name  # noqa: E402
 from rozliczenia.settlement_period import parse_period_token  # noqa: E402
+from rozliczenia.workbook_files import save_workbook  # noqa: E402
 from rozliczenia.worker_config import WorkerConfigError, load_worker_mapping  # noqa: E402
 
 RUNS = 3
@@ -70,7 +90,7 @@ PERIOD = parse_period_token("06_12_10_2026")
 MONTH_FOLDER = "10_Październik_2026"
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
 # Zmiana sposobu generowania lustra zmienia jego odcisk, więc stare lustro nie zostanie użyte.
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 SEED = 141
 REGISTER_HEADERS = (
     "DATA GODZ. POCZ.",
@@ -88,6 +108,13 @@ REGISTER_HEADERS = (
 CITIES = ("Miasto Syntetyczne", "Wieś Syntetyczna", "Osada Syntetyczna")
 DEVICES = ("dekoder", "router", "terminal ONT")
 ACTIVITIES = ("instalacja", "serwis", "demontaż")
+# Wpisy taty w Wierszach danych Pliku zbiorczego: ilości N:AP, obciążenie AQ:AR, uwagi AS:AT.
+FIRST_DATA_ROW = 18
+QUANTITY_COLUMNS = range(14, 43)
+CHARGE_DESCRIPTION, CHARGE_AMOUNT, REMARKS_AMOUNT, REMARKS = 43, 44, 45, 46
+ENTRY_COLUMNS = 46
+ORACLE_CATEGORIES = (*CATEGORIES, "liczniki", "komunikaty")
+REFERENCE_RESULT = "wynik.json"
 
 # Cele wspinaczki na Macu (spec #141): mediana czasu ściany typowego tygodnia.
 HARD_GOAL_MS = 18_000
@@ -216,12 +243,57 @@ def _write_register(path: Path, rows: Iterable[Mapping[str, object]]) -> None:
     workbook.save(path)
 
 
-def _run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> int:
-    """Uruchamia skrypt tego checkoutu bez stdin.
+def _entries(rng: random.Random, number: int) -> dict[int, int | float | str]:
+    """Wpisy taty w jednym Wierszu danych: 1–3 ilości w ``N:AP``, czasem obciążenie i uwagi w ``AQ:AT``."""
+
+    entries: dict[int, int | float | str] = {
+        column: rng.randint(1, 4) for column in rng.sample(QUANTITY_COLUMNS, rng.randint(1, 3))
+    }
+    if rng.random() < 0.1:
+        entries[CHARGE_DESCRIPTION] = f"BENCH-OBC-{number:05d}"
+        entries[CHARGE_AMOUNT] = round(rng.uniform(10, 200), 2)
+    if rng.random() < 0.05:
+        entries[REMARKS_AMOUNT] = rng.randint(5, 50)
+        entries[REMARKS] = f"BENCH-UWAGI-{number:05d}"
+    return entries
+
+
+def _fill_entries(collective_file: Path) -> None:
+    """Gotowość lustra: tata wpisuje ilości i obciążenia w ``N:AT`` każdego Wiersza danych Pliku zbiorczego."""
+
+    rng = random.Random(SEED)
+    workbook = load_workbook(collective_file)
+    try:
+        sheet = workbook.active
+        if not isinstance(sheet, Worksheet):
+            raise BenchmarkError("Plik zbiorczy lustra nie ma aktywnego arkusza.")
+        rows = sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=ENTRY_COLUMNS)
+        data_rows = [row for row in rows if any(cell.value is not None for cell in row[:11])]
+        for number, row in enumerate(data_rows, start=1):
+            for column, value in _entries(rng, number).items():
+                cell = row[column - 1]
+                if cell.data_type == "f":
+                    raise BenchmarkError("Plik zbiorczy lustra ma formułę w kolumnach N:AT Wiersza danych.")
+                cell.value = value
+        save_workbook(workbook, collective_file)
+    finally:
+        workbook.close()
+
+
+@dataclass(frozen=True)
+class _ChildRun:
+    exit_code: int
+    wall_ms: int
+    output: bytes
+
+
+def _run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRun:
+    """Uruchamia skrypt Pythona bez stdin i mierzy czas ściany procesu.
 
     Wyjście procesu zawiera nazwy Wykonawców, więc nie trafia na ekran, tylko do lokalnego logu przy błędzie.
     """
 
+    started = time.perf_counter()
     completed = subprocess.run(
         [sys.executable, *map(str, arguments)],
         stdin=subprocess.DEVNULL,
@@ -229,10 +301,11 @@ def _run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> int:
         stderr=subprocess.STDOUT,
         check=False,
     )
+    wall_ms = round((time.perf_counter() - started) * 1000)
     if completed.returncode != 0:
         failure_log.parent.mkdir(parents=True, exist_ok=True)
         failure_log.write_bytes(completed.stdout)
-    return completed.returncode
+    return _ChildRun(completed.returncode, wall_ms, completed.stdout)
 
 
 def ensure_mirror(
@@ -250,7 +323,7 @@ def ensure_mirror(
         register = staging / REGISTER_NAME
         _write_register(register, _register_rows(SCENARIOS[scenario_name], _worker_ids(config)))
         with tempfile.TemporaryDirectory(prefix="benchmark-przygotowanie-") as scratch:
-            exit_code = _run_quietly(
+            preparation = _run_quietly(
                 [
                     ROOT / "run_preparation.py",
                     "--register",
@@ -270,11 +343,12 @@ def ensure_mirror(
                 ],
                 mirrors / "ostatni-blad-przygotowania.txt",
             )
-        if exit_code != 0:
+        if preparation.exit_code != 0:
             raise BenchmarkError(
-                f"Przygotowanie pliku zbiorczego lustra zakończyło się kodem {exit_code}; "
+                f"Przygotowanie pliku zbiorczego lustra zakończyło się kodem {preparation.exit_code}; "
                 f"wyjście w {mirrors / 'ostatni-blad-przygotowania.txt'}."
             )
+        _fill_entries(_period_directory(staging) / collective_file_name(PERIOD))
         staging.rename(mirror)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -315,44 +389,157 @@ def _git(*arguments: str) -> str | None:
         return None
 
 
-def measure(mirror: Path, scenario_name: str, config: Path, worker_template: Path, machine: str) -> dict[str, Any]:
-    """Rekord dziennika z ``RUNS`` uruchomień Przebiegu rozliczeń na lustrze."""
+def _terminal_lines(output: bytes) -> list[str]:
+    """Wyjście terminala Przebiegu bez czasów, które różnią się między uruchomieniami."""
+
+    text = output.decode(locale.getpreferredencoding(False), errors="replace")
+    return [re.sub(r"\d+ ms\b", "<N> ms", line.rstrip()) for line in text.splitlines()]
+
+
+@dataclass(frozen=True)
+class _Przebieg:
+    """Jedno uruchomienie Przebiegu rozliczeń na lustrze: czas ściany, rekord metryk procesu i linie terminala."""
+
+    wall_ms: int
+    metrics: dict[str, Any]
+    terminal: list[str]
+
+
+def _run_przebieg(checkout: Path, mirror: Path, config: Path, worker_template: Path, scratch: Path) -> _Przebieg:
+    """Przebieg rozliczeń checkoutu ``checkout`` na lustrze, tą samą ścieżką co launcher (``run.py --source``)."""
+
+    source = _period_directory(mirror) / collective_file_name(PERIOD)
+    _remove_worker_settlements(PeriodFolder.from_collective_file(source).worker_settlements)
+    metrics_path = Path(tempfile.mkdtemp(prefix="uruchomienie-", dir=scratch)) / "metrics.jsonl"
+    failure_log = mirror.parent / "ostatni-blad-przebiegu.txt"
+    run = _run_quietly(
+        [
+            checkout / "run.py",
+            "--source",
+            source,
+            "--config",
+            config,
+            "--worker-template",
+            worker_template,
+            "--metrics",
+            metrics_path,
+        ],
+        failure_log,
+    )
+    if run.exit_code != 0:
+        raise BenchmarkError(f"Przebieg rozliczeń zakończył się kodem {run.exit_code}; wyjście w {failure_log}.")
+    return _Przebieg(run.wall_ms, _process_metrics(metrics_path), _terminal_lines(run.output))
+
+
+def _worker_settlements(mirror: Path) -> Path:
+    return PeriodFolder.from_collective_file(_period_directory(mirror) / collective_file_name(PERIOD)).worker_settlements
+
+
+# --- wynik referencyjny i bramka poprawności ---------------------------------------------------
+
+
+def freeze_reference(
+    references: Path, mirror: Path, commit: str, config: Path, worker_template: Path
+) -> Path:
+    """Wynik referencyjny lustra z commita ``commit``: jego Przebieg rozliczeń w tymczasowym worktree gita."""
+
+    resolved = _git("rev-parse", "--verify", f"{commit}^{{commit}}")
+    if resolved is None:
+        raise BenchmarkError(f"Nie ma commita {commit}.")
+    sha = resolved.strip()
+    target = references / mirror.name / sha
+    if target.exists():
+        raise BenchmarkError(f"Wynik referencyjny {sha[:7]} dla {mirror.name} już jest: {target}.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="benchmark-referencja-") as scratch_name:
+        scratch = Path(scratch_name)
+        checkout = scratch / "checkout"
+        if _git("worktree", "add", "--detach", str(checkout), sha) is None:
+            raise BenchmarkError(f"Nie udało się zbudować commita {sha[:7]} w tymczasowym worktree gita.")
+        try:
+            przebieg = _run_przebieg(checkout, mirror, config, worker_template, scratch)
+        finally:
+            _git("worktree", "remove", "--force", str(checkout))
+        staging = Path(tempfile.mkdtemp(prefix=f".{sha}.staging-", dir=target.parent))
+        try:
+            worker_settlements = _worker_settlements(mirror)
+            shutil.copytree(worker_settlements, staging / worker_settlements.name)
+            result = {"git_sha": sha, "counters": przebieg.metrics["counters"], "terminal": przebieg.terminal}
+            (staging / REFERENCE_RESULT).write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+            staging.rename(target)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+            _remove_worker_settlements(_worker_settlements(mirror))
+    return target
+
+
+def find_reference(references: Path, mirror: Path, commit: str | None) -> Path | None:
+    """Zamrożony wynik referencyjny lustra: wskazany prefiksem commita albo jedyny, jaki jest."""
+
+    frozen = sorted(
+        path
+        for path in (references / mirror.name).glob("*")
+        if not path.name.startswith(".") and (path / REFERENCE_RESULT).is_file()
+    )
+    if commit is not None:
+        matching = [path for path in frozen if path.name.startswith(commit)]
+        if len(matching) != 1:
+            raise BenchmarkError(f"Dla {mirror.name} nie ma jednego wyniku referencyjnego z commita {commit}.")
+        return matching[0]
+    if len(frozen) > 1:
+        raise BenchmarkError(f"Dla {mirror.name} jest kilka wyników referencyjnych; wskaż jeden przez --reference.")
+    return frozen[0] if frozen else None
+
+
+def _line_differences(reference: Sequence[str], candidate: Sequence[str]) -> int:
+    matcher = difflib.SequenceMatcher(a=reference, b=candidate, autojunk=False)
+    return sum(
+        max(end_a - start_a, end_b - start_b)
+        for tag, start_a, end_a, start_b, end_b in matcher.get_opcodes()
+        if tag != "equal"
+    )
+
+
+def check_oracle(reference: Path, mirror: Path, przebieg: _Przebieg) -> dict[str, Any]:
+    """Bramka poprawności: liczba różnic w każdej kategorii względem wyniku referencyjnego, bez treści."""
+
+    frozen = json.loads((reference / REFERENCE_RESULT).read_text(encoding="utf-8"))
+    worker_settlements = _worker_settlements(mirror)
+    differences = compare_worker_settlements(reference / worker_settlements.name, worker_settlements)
+    counters, frozen_counters = przebieg.metrics["counters"], frozen["counters"]
+    differences["liczniki"] = sum(
+        counters.get(name) != frozen_counters.get(name) for name in {*counters, *frozen_counters}
+    )
+    differences["komunikaty"] = _line_differences(frozen["terminal"], przebieg.terminal)
+    return {
+        "wynik": "niezgodny" if any(differences.values()) else "zgodny",
+        "referencja": reference.name,
+        "roznice": {category: differences[category] for category in ORACLE_CATEGORIES},
+    }
+
+
+# --- pomiar -----------------------------------------------------------------------------------
+
+
+def measure(
+    mirror: Path,
+    scenario_name: str,
+    config: Path,
+    worker_template: Path,
+    machine: str,
+    reference: Path | None = None,
+) -> dict[str, Any]:
+    """Rekord dziennika z ``RUNS`` uruchomień Przebiegu rozliczeń na lustrze i bramki poprawności ostatniego z nich."""
 
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
     sha = _git("rev-parse", "HEAD")
     status = _git("status", "--porcelain")
-    source = _period_directory(mirror) / collective_file_name(PERIOD)
-    worker_settlements = PeriodFolder.from_collective_file(source).worker_settlements
-    walls: list[int] = []
-    metrics: list[dict[str, Any]] = []
+    runs: list[_Przebieg] = []
     with tempfile.TemporaryDirectory(prefix="benchmark-przebiegu-") as scratch:
         for run in range(1, RUNS + 1):
-            _remove_worker_settlements(worker_settlements)
-            metrics_path = Path(scratch) / f"uruchomienie-{run}.jsonl"
-            failure_log = mirror.parent / "ostatni-blad-przebiegu.txt"
-            started = time.perf_counter()
-            exit_code = _run_quietly(
-                [
-                    ROOT / "run.py",
-                    "--source",
-                    source,
-                    "--config",
-                    config,
-                    "--worker-template",
-                    worker_template,
-                    "--metrics",
-                    metrics_path,
-                ],
-                failure_log,
-            )
-            wall_ms = round((time.perf_counter() - started) * 1000)
-            if exit_code != 0:
-                raise BenchmarkError(
-                    f"Przebieg rozliczeń {run}/{RUNS} zakończył się kodem {exit_code}; wyjście w {failure_log}."
-                )
-            walls.append(wall_ms)
-            metrics.append(_process_metrics(metrics_path))
-            print(f"Uruchomienie {run}/{RUNS}: {wall_ms} ms", flush=True)
+            runs.append(_run_przebieg(ROOT, mirror, config, worker_template, Path(scratch)))
+            print(f"Uruchomienie {run}/{RUNS}: {runs[-1].wall_ms} ms", flush=True)
+    metrics = [przebieg.metrics for przebieg in runs]
     counters = metrics[0]["counters"]
     if any(record["counters"] != counters for record in metrics):
         raise BenchmarkError("Liczniki Przebiegu rozliczeń różnią się między uruchomieniami tego samego lustra.")
@@ -364,14 +551,13 @@ def measure(mirror: Path, scenario_name: str, config: Path, worker_template: Pat
         "machine": machine,
         "scenario": scenario_name,
         "runs": RUNS,
-        "wall_ms": _spread(walls),
+        "wall_ms": _spread([przebieg.wall_ms for przebieg in runs]),
         "czas_uruchomienia_ms": _spread([record["total_duration_ms"] for record in metrics]),
         "phase_durations_ms": {
             phase: _spread([record["phase_durations_ms"][phase] for record in metrics]) for phase in phases
         },
         "counters": counters,
-        # Bramka poprawności (#144) jeszcze nie istnieje.
-        "oracle": None,
+        "oracle": None if reference is None else check_oracle(reference, mirror, runs[-1]),
     }
 
 
@@ -430,11 +616,30 @@ def _commit_text(record: Mapping[str, Any] | None) -> str:
 
 
 def _oracle_text(oracle: object) -> str:
-    if oracle is None or oracle == "nie sprawdzono":
+    """Wynik bramki w jednej komórce tabeli: werdykt i łączna liczba różnic."""
+
+    if not isinstance(oracle, Mapping):
         return "nie sprawdzono"
-    if isinstance(oracle, Mapping):
-        return ", ".join(f"{key}: {value}" for key, value in oracle.items())
-    return str(oracle)
+    total = sum(oracle["roznice"].values())
+    return f"{oracle['wynik']} ({total} różnic)" if total else str(oracle["wynik"])
+
+
+def _oracle_section(record: Mapping[str, Any]) -> list[str]:
+    """Bramka poprawności scenariusza: werdykt, wynik referencyjny i liczba różnic w każdej kategorii."""
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, Mapping):
+        return [f"### {record['scenario']}", "", "Nie sprawdzono: brak zamrożonego wyniku referencyjnego.", ""]
+    return [
+        f"### {record['scenario']}",
+        "",
+        f"**{oracle['wynik']}** z wynikiem referencyjnym `{str(oracle['referencja'])[:7]}`.",
+        "",
+        "| Kategoria | Różnice |",
+        "|---|---:|",
+        *(f"| {category} | {count} |" for category, count in oracle["roznice"].items()),
+        "",
+    ]
 
 
 def _improvement(before: Mapping[str, Any], after: Mapping[str, Any]) -> str:
@@ -509,8 +714,9 @@ def render_comment(records: Sequence[Mapping[str, Any]], before: str | None = No
         if earlier is not None:
             lines += [_improvement(earlier, later), ""]
     lines += ["## Bramka poprawności", ""]
-    lines += [f"- {after['scenario']}: {_oracle_text(after.get('oracle'))}" for _, after in pairs]
-    lines += ["", "## Decyzja", "", TO_FILL, "", "## Następny krok", "", _next_step(pairs), ""]
+    for _, later in pairs:
+        lines += _oracle_section(later)
+    lines += ["## Decyzja", "", TO_FILL, "", "## Następny krok", "", _next_step(pairs), ""]
     return "\n".join(lines)
 
 
@@ -551,12 +757,19 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
     measure_parser = commands.add_parser("measure", help="Zbuduj lustro (jeśli go brak) i zmierz scenariusz.")
-    measure_parser.add_argument("--scenario", choices=list(SCENARIOS), default="typowy-tydzien")
-    measure_parser.add_argument("--templates-dir", type=Path, help="Folder z trzema Wzorcami (nazwy jak w config).")
-    measure_parser.add_argument("--config", type=Path, default=ROOT / "config" / "worker_mapping.yaml")
-    measure_parser.add_argument("--mirror-dir", type=Path, default=DEFAULT_DIRECTORY / "lustro")
+    freeze_parser = commands.add_parser("freeze", help="Zamroź wynik referencyjny scenariusza z commita.")
+    for mirror_parser in (measure_parser, freeze_parser):
+        mirror_parser.add_argument("--scenario", choices=list(SCENARIOS), default="typowy-tydzien")
+        mirror_parser.add_argument("--templates-dir", type=Path, help="Folder z trzema Wzorcami (nazwy jak w config).")
+        mirror_parser.add_argument("--config", type=Path, default=ROOT / "config" / "worker_mapping.yaml")
+        mirror_parser.add_argument("--mirror-dir", type=Path, default=DEFAULT_DIRECTORY / "lustro")
+        mirror_parser.add_argument("--reference-dir", type=Path, default=DEFAULT_DIRECTORY / "reference")
+    freeze_parser.add_argument("--commit", required=True, help="Commit, z którego powstaje wynik referencyjny.")
     measure_parser.add_argument("--journal", type=Path, default=DEFAULT_DIRECTORY / "przebieg.jsonl")
     measure_parser.add_argument("--machine", default=_default_machine(), help="Np. mac-m4max albo tata-i7.")
+    measure_parser.add_argument(
+        "--reference", help="Commit (prefiks) wyniku referencyjnego; domyślnie jedyny zamrożony dla lustra."
+    )
     comment_parser = commands.add_parser("comment", help="Wydrukuj komentarz Markdown z dziennika.")
     comment_parser.add_argument("--journal", type=Path, default=DEFAULT_DIRECTORY / "przebieg.jsonl")
     comment_parser.add_argument("--before", help="Commit (prefiks) pomiaru „przed”; domyślnie poprzedni rekord.")
@@ -594,7 +807,15 @@ def main(argv: list[str] | None = None) -> int:
         config = args.config.expanduser().resolve()
         mirror, built = ensure_mirror(args.mirror_dir.expanduser().resolve(), args.scenario, config, templates)
         print(f"Lustro {'zbudowane' if built else 'istniejące'}: {mirror}", flush=True)
-        record = measure(mirror, args.scenario, config, templates[WORKER_TEMPLATE], args.machine)
+        references = args.reference_dir.expanduser().resolve()
+        if args.command == "freeze":
+            frozen = freeze_reference(references, mirror, args.commit, config, templates[WORKER_TEMPLATE])
+            print(f"Wynik referencyjny {args.scenario} z commita {frozen.name[:7]}: {frozen}")
+            return 0
+        reference = find_reference(references, mirror, args.reference)
+        if reference is None:
+            print(f"Brak wyniku referencyjnego w {references / mirror.name}; bramka poprawności nie sprawdzona.")
+        record = measure(mirror, args.scenario, config, templates[WORKER_TEMPLATE], args.machine, reference)
         append_record(args.journal, record)
     except BenchmarkError as error:
         print(f"Benchmark przerwany: {error}", file=sys.stderr)
@@ -602,7 +823,8 @@ def main(argv: list[str] | None = None) -> int:
     wall, startup = record["wall_ms"], record["czas_uruchomienia_ms"]
     print(
         f"{args.scenario}: czas ściany {_spread_text(wall)} ms, Czas uruchomienia {_spread_text(startup)} ms "
-        f"(mediana (min–max) z {RUNS} uruchomień). Rekord w {args.journal}."
+        f"(mediana (min–max) z {RUNS} uruchomień), bramka poprawności: {_oracle_text(record['oracle'])}. "
+        f"Rekord w {args.journal}."
     )
     return 0
 

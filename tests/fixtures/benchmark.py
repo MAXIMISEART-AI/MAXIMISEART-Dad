@@ -106,3 +106,25 @@ def identifying_values(collective_file: Path) -> set[str]:
         }
     finally:
         workbook.close()
+
+
+def data_row_entries(collective_file: Path) -> list[tuple[object, ...]]:
+    """Wpisy taty w każdym Wierszu danych Pliku zbiorczego lustra: ilości ``N:AP`` i obciążenia z uwagami ``AQ:AT``."""
+
+    workbook = load_workbook(collective_file)
+    try:
+        sheet = active_worksheet(workbook)
+        return [
+            row[13:46]
+            for row in sheet.iter_rows(min_row=18, max_col=46, values_only=True)
+            if any(value is not None for value in row[:11])
+        ]
+    finally:
+        workbook.close()
+
+
+def frozen_reference(reference_directory: Path) -> Path:
+    """Jedyny zamrożony Folder rozliczeń pracowników pod ``reference_directory``."""
+
+    (folder,) = (path for path in reference_directory.rglob("Rozliczenie pracowników *") if path.is_dir())
+    return folder
