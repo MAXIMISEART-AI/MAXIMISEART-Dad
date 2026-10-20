@@ -8,13 +8,16 @@ wynik bez wyjątków. Klucz nie trafia do wyniku, dziennika ani Zgłoszenia.
 
 Każda operacja zwraca jeden z wyników: ``Sent`` (numer issue), ``Refused``
 (skrzynka odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable``
-(brak sieci albo skrzynka nie odpowiedziała jak zwykle). Znalezienie otwartego
+(brak sieci albo skrzynka nie odpowiedziała jak zwykle). Klucz, którego nie da
+się wysłać w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused``
+bez zapytania: taki klucz nie może być ważny. Znalezienie otwartego
 Zgłoszenia po odcisku problemu (``find_open``) daje numer issue albo ``None``
 z tymi samymi porażkami; kolejne operacje dostają ten sam kształt.
 """
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -87,7 +90,7 @@ class HttpResponse:
     body: bytes
 
 
-# Transport HTTP skrzynki GitHuba; brak sieci to ``OSError``. Testy podstawiają własny, bez prawdziwego GitHuba.
+# Transport HTTP skrzynki GitHuba; brak sieci to ``OSError``, urwana albo nieczytelna odpowiedź ``HTTPException``. Testy podstawiają własny, bez prawdziwego GitHuba.
 Transport = Callable[[HttpRequest], HttpResponse]
 
 REPOSITORY: Final = "MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia"
@@ -125,6 +128,8 @@ class GitHubReportBox:
         self._transport = transport
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
+        if not _sendable(key):
+            return Refused()
         payload = {"title": report.title, "body": report.body, "labels": [LABEL]}
         answer = self._exchange(
             HttpRequest(
@@ -142,6 +147,8 @@ class GitHubReportBox:
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         """Przegląda otwarte issue z etykietą Zgłoszeń strona po stronie i szuka wiersza z odciskiem problemu."""
 
+        if not _sendable(key):
+            return Refused()
         line = fingerprint_line(fingerprint)
         for page in range(1, _MAX_PAGES + 1):
             url = f"{_API}/repos/{REPOSITORY}/issues?state=open&labels={LABEL}&per_page={_PAGE_SIZE}&page={page}"
@@ -160,6 +167,8 @@ class GitHubReportBox:
         return None
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
+        if not _sendable(key):
+            return Refused()
         states: dict[int, IssueState] = {}
         for number in numbers:
             url = f"{_API}/repos/{REPOSITORY}/issues/{number}"
@@ -178,9 +187,15 @@ class GitHubReportBox:
         transport = self._transport or urllib_transport  # odczyt przy każdym żądaniu: testy blokują go w conftest
         try:
             response = transport(request)
-        except OSError:
+        except (OSError, http.client.HTTPException):
             return Unreachable()
         return Refused() if response.status in _REFUSALS else response
+
+
+def _sendable(key: str) -> bool:
+    """Klucz da się wysłać w nagłówku ``Authorization``: widoczne znaki ASCII bez spacji, jak każdy token GitHuba."""
+
+    return key.isascii() and key.isprintable() and " " not in key
 
 
 def _headers(key: str) -> dict[str, str]:

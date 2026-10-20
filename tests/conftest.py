@@ -78,7 +78,7 @@ def regula_prywatnosci_centrum_rozliczen(
         f"dziennik Centrum: {line}"
         for log_path in log_paths
         if log_path.exists()
-        for line in log_path.read_text(encoding="utf-8").splitlines()
+        for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         if _leaks_in_text(line, roots)
     ]
     assert leaks == [], "Reguła prywatności Centrum (ADR 0004) złamana:\n" + "\n".join(leaks)
