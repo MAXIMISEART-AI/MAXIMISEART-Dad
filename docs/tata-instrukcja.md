@@ -103,10 +103,11 @@ częściach i podpowie, co dalej:
 - `Uruchom ponownie`: przyczynę usuniesz sam według części `Co zrobić`. Po
   poprawce kliknij przycisk; ten sam proces ruszy dla tego samego okresu i w tym
   samym trybie.
-- `Diagnoza`: komunikat każe przekazać go osobie utrzymującej narzędzie, wystąpił
-  nieoczekiwany błąd albo po ponownym uruchomieniu wrócił ten sam komunikat.
-  Kliknij `Diagnoza`. Centrum sprawdzi Twój komputer tylko do odczytu i wyjaśni
-  przyczynę w trzech częściach. Niczego nie zmienia w Twoich plikach.
+- `Diagnoza`: komunikat każe przekazać go osobie utrzymującej narzędzie albo po
+  ponownym uruchomieniu wrócił ten sam komunikat. Kliknij `Diagnoza`. Centrum
+  sprawdzi Twój komputer tylko do odczytu i wyjaśni przyczynę w trzech
+  częściach. Niczego nie zmienia w Twoich plikach. Przy nieoczekiwanym błędzie
+  narzędzia Diagnoza zaczyna się sama, bez klikania.
 
 Gdy przyczyną jest sam komunikat zatrzymania, Centrum pisze tylko `Diagnoza
 potwierdza ten komunikat.` Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij

@@ -415,11 +415,11 @@ ReportState = Annotated[ReportReady | ReportSent | ReportWaiting | ReportSaved, 
 
 
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
-# osobie utrzymującej narzędzie (także nieoczekiwany błąd), ``repeated`` to ten sam Komunikat „dla taty”
+# osobie utrzymującej narzędzie (także nieoczekiwany wyjątek), ``repeated`` to ten sam Komunikat „dla taty”
 # drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
 StopKind = Literal["for_tata", "for_maks", "repeated"]
 # Diagnoza przy Zatrzymaniu: ``on_request`` to przycisk „Diagnoza” zamiast następnej akcji, ``automatic`` to
-# nieoczekiwany błąd narzędzia, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
+# nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
 DiagnosisOffer = Literal["on_request", "automatic"]
 
 

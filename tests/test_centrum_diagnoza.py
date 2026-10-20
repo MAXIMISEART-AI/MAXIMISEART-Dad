@@ -63,7 +63,7 @@ def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path
     assert (result["stop_kind"], result["diagnosis"]) == ("for_maks", "on_request")
 
 
-def test_nieoczekiwany_blad_jest_do_maksa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nieoczekiwany_wyjatek_jest_do_maksa_a_diagnoza_zaczyna_sie_sama(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     centrum = preparing_centrum(tmp_path)
 
     def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
@@ -223,21 +223,6 @@ def test_zatrzymanie_do_maksa_bez_wzorca_wyjasnia_brak_wzorca(tmp_path: Path) ->
     assert diagnosis["next_action"] == "report"
     assert check_states(diagnosis)["Wzorzec rozliczenia wewnętrznego"] == "passed"
     assert check_states(diagnosis)["Wzorzec pliku zbiorczego"] == "failed"
-
-
-def test_nieoczekiwany_blad_daje_diagnoze(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    centrum = preparing_centrum(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
-        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
-
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
-    stopped = run_to_end(centrum, dry_run=True)
-    monkeypatch.undo()
-
-    diagnosis = diagnose(centrum, stopped["run"]["id"])
-
-    assert diagnosis["explanation"] == NOT_FOUND
 
 
 @pytest.mark.parametrize(

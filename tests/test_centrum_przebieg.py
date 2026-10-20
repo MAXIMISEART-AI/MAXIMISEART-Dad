@@ -105,7 +105,7 @@ def test_w_ukladzie_folderow_taty_okres_bez_folderu_okresu_jest_odrzucony(tmp_pa
     )
 
 
-def test_nieoczekiwany_blad_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(
+def test_nieoczekiwany_wyjatek_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = settling_centrum(tmp_path)
