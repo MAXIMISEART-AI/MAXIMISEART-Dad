@@ -1,4 +1,4 @@
-"""Kopia skoroszytu Wzorca z podmienionymi Wierszami danych, bez wczytywania przez openpyxl (ADR 0007).
+"""Kopia skoroszytu Wzorca z podmienionymi Wierszami danych, bez wczytywania przez openpyxl (ADR 0008).
 
 Moduł jest szczegółem ``workbook_files.WorkerSettlementTemplate`` i nikt poza nim
 go nie używa. ``TemplateCopy.of`` czyta bajty Wzorca raz: rozpakowuje części zip,

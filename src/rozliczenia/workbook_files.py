@@ -483,7 +483,7 @@ class WorkerSettlementTemplate:
 
     Sprawdzanie (``check``) i każde Rozliczenie pracownika (``create_settlement``)
     korzystają z tego samego Wzorca wczytanego do pamięci: kopii części zip
-    Wzorca, w której zmieniają się tylko Wiersze danych w XML arkusza (ADR 0007).
+    Wzorca, w której zmieniają się tylko Wiersze danych w XML arkusza (ADR 0008).
     Przy pierwszym Rozliczeniu pracownika plik jest czytany ponownie tylko jako
     bajty; Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu jest więc
     traktowany tak, jakby był wczytany dopiero wtedy. Wzorzec, którego kształtu
@@ -559,7 +559,7 @@ class WorkerSettlementTemplate:
             self._copy_read = False
 
     def _template_copy(self) -> TemplateCopy | None:
-        """Wzorzec do kopii z podmienionymi Wierszami danych; ``None``, gdy jego kształt wymaga openpyxl (ADR 0007)."""
+        """Wzorzec do kopii z podmienionymi Wierszami danych; ``None``, gdy jego kształt wymaga openpyxl (ADR 0008)."""
 
         if not self._copy_read:
             self._copy_read = True
@@ -571,7 +571,7 @@ class WorkerSettlementTemplate:
 
     @contextmanager
     def _openpyxl_workbook(self) -> Iterator[Workbook]:
-        """Dawna droga (ADR 0007): pełne wczytanie Wzorca przez openpyxl z jego klasyfikacją uszkodzeń."""
+        """Dawna droga (ADR 0008): pełne wczytanie Wzorca przez openpyxl z jego klasyfikacją uszkodzeń."""
 
         workbook = _open(self._path, BytesIO(self._loaded()), read_only=False)
         try:

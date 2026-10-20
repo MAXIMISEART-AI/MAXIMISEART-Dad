@@ -149,7 +149,7 @@ jobs:
       # Docelowo 3 × cel twardy po przeliczeniu na runner: 3 × 18 s (Mac M4 Max) × ~3,3 ≈ 180 000 ms.
       # Przelicznik 3,3 to Mac → komputer taty (i7-10875H); windows-latest ma podobną wydajność
       # jednego rdzenia. Sprawdź go w podsumowaniach pierwszych jobów (Sprawdzanie runnera / Maca).
-      # Po #147 (ADR 0007) Przebieg trwa ~3 s na Macu, czyli ~10 s na runnerze: budżet przepuszcza
+      # Po #147 (ADR 0008) Przebieg trwa ~3 s na Macu, czyli ~10 s na runnerze: budżet przepuszcza
       # szum współdzielonych runnerów, a łapie powrót do pełnego zapisu przez openpyxl (~240 s).
       # To jedyne miejsce budżetu.
       PRZEBIEG_BUDGET_MS: '180000'
