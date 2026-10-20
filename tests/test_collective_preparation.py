@@ -585,7 +585,9 @@ def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind:
         template, created, header_row = fixture.collective_template_path, fixture.collective_file_path, 17
     expected = sheet_layout(template, header_row=header_row, max_col=47)
     assert expected["freeze_panes"] == f"A{header_row + 1}"
-    assert expected["widths"][:5] == [10, 11, 2.29, 13, 3]  # bardzo wąskie kolumny C i E, którymi tata zwęża Wzorce
+    widths = expected["widths"]
+    assert isinstance(widths, list)
+    assert widths[:5] == [10, 11, 2.29, 13, 3]  # bardzo wąskie kolumny C i E, którymi tata zwęża Wzorce
     assert sheet_layout(created, header_row=header_row, max_col=47) == expected
 
 
