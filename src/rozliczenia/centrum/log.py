@@ -62,6 +62,11 @@ class CentrumLog:
 
         self._write("zgloszenie-wyslane", proces=process, okres=period, numer=number)
 
+    def report_waiting(self, *, process: str, period: str, number: int) -> None:
+        """Zgłoszenia nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego samego problemu."""
+
+        self._write("zgloszenie-czeka", proces=process, okres=period, numer=number)
+
     def report_saved(self, *, process: str, period: str, code: str) -> None:
         """Zgłoszenia nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
 

@@ -598,6 +598,9 @@
                       "$ref": "#/components/schemas/ReportSent"
                     },
                     {
+                      "$ref": "#/components/schemas/ReportWaiting"
+                    },
+                    {
                       "$ref": "#/components/schemas/ReportSaved"
                     }
                   ],
@@ -606,6 +609,7 @@
                     "mapping": {
                       "ready": "#/components/schemas/ReportReady",
                       "sent": "#/components/schemas/ReportSent",
+                      "waiting": "#/components/schemas/ReportWaiting",
                       "saved": "#/components/schemas/ReportSaved"
                     }
                   },
@@ -1965,7 +1969,23 @@
           "state"
         ],
         "title": "ReportSent",
-        "description": "Zgłoszenie tego problemu jest wysłane z tego komputera i czeka na naprawę."
+        "description": "Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę."
+      },
+      "ReportWaiting": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "waiting",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ReportWaiting",
+        "description": "Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje."
       },
       "ResultCounts": {
         "properties": {
@@ -2214,6 +2234,9 @@
                     "$ref": "#/components/schemas/ReportSent"
                   },
                   {
+                    "$ref": "#/components/schemas/ReportWaiting"
+                  },
+                  {
                     "$ref": "#/components/schemas/ReportSaved"
                   }
                 ],
@@ -2222,7 +2245,8 @@
                   "mapping": {
                     "ready": "#/components/schemas/ReportReady",
                     "saved": "#/components/schemas/ReportSaved",
-                    "sent": "#/components/schemas/ReportSent"
+                    "sent": "#/components/schemas/ReportSent",
+                    "waiting": "#/components/schemas/ReportWaiting"
                   }
                 }
               },

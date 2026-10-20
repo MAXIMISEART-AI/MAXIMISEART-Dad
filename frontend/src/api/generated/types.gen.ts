@@ -797,13 +797,25 @@ export type ReportSaved = {
 /**
  * ReportSent
  *
- * Zgłoszenie tego problemu jest wysłane z tego komputera i czeka na naprawę.
+ * Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę.
  */
 export type ReportSent = {
     /**
      * State
      */
     state: 'sent';
+};
+
+/**
+ * ReportWaiting
+ *
+ * Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje.
+ */
+export type ReportWaiting = {
+    /**
+     * State
+     */
+    state: 'waiting';
 };
 
 /**
@@ -964,6 +976,8 @@ export type RunOutcome = {
     } & ReportReady) | ({
         state: 'sent';
     } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
         state: 'saved';
     } & ReportSaved) | null;
     /**
@@ -1585,6 +1599,8 @@ export type ReportRunResponses = {
     } & ReportReady) | ({
         state: 'sent';
     } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
         state: 'saved';
     } & ReportSaved);
 };

@@ -16,7 +16,7 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
-from rozliczenia.centrum.report_box import Report, SendOutcome, Sent
+from rozliczenia.centrum.report_box import FindOutcome, Refused, Report, SendOutcome, Sent, Unreachable
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 
@@ -59,19 +59,31 @@ class FakePlatform:
 class FakeReportBox:
     """Skrzynka Zgłoszeń zastąpiona zapisem wysłanych Zgłoszeń i przygotowanymi wynikami wysyłki.
 
-    Bez przygotowanego wyniku każde Zgłoszenie dostaje kolejny numer issue.
+    Bez przygotowanego wyniku każde Zgłoszenie dostaje kolejny numer issue i jest
+    otwarte (``open``: odcisk problemu → numer), dopóki Maks go nie zamknie
+    (``close``). ``search_failure`` to odmowa albo brak połączenia przy każdym
+    pytaniu o otwarte Zgłoszenie.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
     sent: list[Report] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
+    open: dict[str, int] = field(default_factory=dict)
+    search_failure: Refused | Unreachable | None = None
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
         self.keys.append(key)
         outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.sent) + 1)
         if isinstance(outcome, Sent):
             self.sent.append(report)
+            self.open[report.fingerprint] = outcome.number
         return outcome
+
+    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        return self.search_failure or self.open.get(fingerprint)
+
+    def close(self, number: int) -> None:
+        self.open = {fingerprint: open_number for fingerprint, open_number in self.open.items() if open_number != number}
 
 
 @dataclass

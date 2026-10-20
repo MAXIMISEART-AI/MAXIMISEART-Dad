@@ -347,6 +347,8 @@ def diagnosis_router(
             stopped, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
         )
         log.diagnosed(process=stopped.info.process, period=stopped.info.period, cause=diagnosis.explanation.code)
-        return diagnosis.view(reports.draft(diagnosis))
+        draft, state = reports.draft(diagnosis)
+        host.show_report(run_id, state)
+        return diagnosis.view(draft)
 
     return router

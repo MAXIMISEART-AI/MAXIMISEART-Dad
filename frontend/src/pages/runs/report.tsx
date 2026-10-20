@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ChevronDownIcon, CircleCheckIcon, RotateCcwIcon, SendIcon } from "lucide-react"
+import { ChevronDownIcon, CircleCheckIcon, ClockIcon, RotateCcwIcon, SendIcon } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
 import { reportRun, type ReportDraft, type RunOutcome } from "@/api/centrum"
@@ -13,7 +13,8 @@ type ReportState = NonNullable<RunOutcome["report"]>
 
 /**
  * Zgłoszenie do Maksa przy Zatrzymaniu: podgląd z Diagnozy i „Wyślij do Maksa”, potwierdzenie po wysłaniu
- * albo Komunikat z „Spróbuj ponownie”, gdy Zgłoszenie czeka w pliku. Stan liczy serwer; `draft` jest dopiero
+ * albo Komunikat z „Spróbuj ponownie”, gdy Zgłoszenie czeka w pliku. Gdy ten problem ma już otwarte Zgłoszenie,
+ * zamiast przycisku jest „już wysłane i czeka na naprawę”. Stan liczy serwer; `draft` jest dopiero
  * po Diagnozie, więc przed nią widać tylko potwierdzenie albo zapisane Zgłoszenie.
  */
 export function ReportToMaks({
@@ -47,6 +48,15 @@ export function ReportToMaks({
       <p role="status" className="wejscie flex items-center gap-2 text-sm">
         <CircleCheckIcon className="size-4 text-success" aria-hidden />
         Zgłoszenie wysłane do Maksa. Poczekaj na naprawę.
+      </p>
+    )
+  }
+
+  if (state.state === "waiting") {
+    return (
+      <p role="status" className="wejscie flex items-center gap-2 text-sm">
+        <ClockIcon className="size-4 text-muted-foreground" aria-hidden />
+        Zgłoszenie tego problemu już jest wysłane i czeka na naprawę.
       </p>
     )
   }
