@@ -133,7 +133,7 @@ def test_rejestr_with_duplicated_required_header_stops_with_header_name(tmp_path
 
 def test_rejestr_with_both_spellings_of_one_header_stops_as_duplicated(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    write_register(fixture.register_path, headers=(*REGISTER_HEADERS, "NUMER ZL."))
+    write_register(fixture.register_path, headers=(*REGISTER_HEADERS, "nr zlecenia"))
 
     error = stop_preparation(fixture)
 
@@ -176,7 +176,8 @@ def add_register_sheet(
     workbook = load_workbook(register_path)
     sheet = workbook.create_sheet(title, 0 if first else None)
     for column, header in enumerate(headers, start=1):
-        sheet.cell(1, column).value = header
+        if header:
+            sheet.cell(1, column).value = header
     for row_number, row in enumerate(rows, start=2):
         for column, header in enumerate(headers, start=1):
             if row is not None and header in row:

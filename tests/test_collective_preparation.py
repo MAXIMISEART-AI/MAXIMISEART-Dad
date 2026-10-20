@@ -30,11 +30,13 @@ from tests.fixtures.preparation import (
     COLLECTIVE_TEMPLATE_ZERO_ROWS,
     INTERNAL_SETTLEMENT_NAME,
     INTERNAL_TEMPLATE_HEADERS,
+    NOT_TRANSFERRED_MARKERS,
+    OLD_REGISTER_HEADERS,
     PERIOD,
-    REGISTER_HEADERS,
     PreparationFixture,
     RegisterRow,
     default_register_rows,
+    in_old_layout,
     make_dad_layout_fixture,
     make_preparation_fixture,
     register_order,
@@ -126,18 +128,29 @@ def test_plik_zbiorczy_contains_exactly_zlecenia_skuteczne_from_row_18(tmp_path:
     ]
 
 
-# Rejestr taty zapisuje dwa nagłówki inaczej niż starsza kopia Rejestru.
-TATA_REGISTER_HEADERS = {"nr zlecenia": "NUMER ZL.", "NUMER UMOWY/ZLECENIA ORANGE": "NUMER UMOWY"}
-
-
-def test_rejestr_with_numer_zl_and_numer_umowy_headers_fills_both_period_files(tmp_path: Path) -> None:
+def test_akcje_zwrot_and_uwagi_from_rejestr_stay_out_of_both_period_files(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    rows = [
-        None if row is None else {TATA_REGISTER_HEADERS.get(header, header): value for header, value in row.items()}
-        for row in default_register_rows()
-    ]
-    headers = tuple(TATA_REGISTER_HEADERS.get(header, header) for header in REGISTER_HEADERS)
-    write_register(fixture.register_path, rows, headers=headers)
+
+    run_preparation(fixture)
+
+    for path in (fixture.internal_settlement_path, fixture.collective_file_path):
+        workbook = load_workbook(path)
+        try:
+            texts = [
+                cell.value
+                for sheet in workbook.worksheets
+                for row in sheet.iter_rows()
+                for cell in row
+                if isinstance(cell.value, str)
+            ]
+        finally:
+            workbook.close()
+        assert [text for text in texts if any(marker in text for marker in NOT_TRANSFERRED_MARKERS)] == []
+
+
+def test_rejestr_in_old_layout_still_fills_both_period_files(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    write_register(fixture.register_path, in_old_layout(default_register_rows()), headers=OLD_REGISTER_HEADERS)
 
     run_preparation(fixture)
 

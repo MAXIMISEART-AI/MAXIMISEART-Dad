@@ -31,8 +31,28 @@ PERIOD = "08_14_09_2026"
 INTERNAL_SETTLEMENT_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_FILE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 
-# Kolejność kolumn Rejestru celowo różni się od wzorców; "STATUS APLIKACJI" nie jest przenoszony.
+# Układ nowego Rejestru taty: pusta kolumna A, AKCJE w B, ZWROT i UWAGI na końcu.
+# AKCJE, ZWROT i UWAGI nie są przenoszone; kolumny są przesunięte względem wzorców.
 REGISTER_HEADERS: tuple[str, ...] = (
+    "",
+    "AKCJE",
+    "DATA GODZ. POCZ.",
+    "MIASTO",
+    "ADRES",
+    "UMOWA",
+    "URZĄDZENIA",
+    "CZYNNOŚCI",
+    "NUMER ZL.",
+    "WYKONAWCA",
+    "NUMER UMOWY",
+    "SKUTECZNE",
+    "CZYNNOŚCI ZREALIZOWANE",
+    "ZWROT",
+    "UWAGI",
+)
+# Starsza kopia Rejestru: inna kolejność, stare zapisy nagłówków, bez AKCJE;
+# "STATUS APLIKACJI" nie jest przenoszony.
+OLD_REGISTER_HEADERS: tuple[str, ...] = (
     "nr zlecenia",
     "DATA GODZ. POCZ.",
     "WYKONAWCA",
@@ -46,6 +66,10 @@ REGISTER_HEADERS: tuple[str, ...] = (
     "CZYNNOŚCI ZREALIZOWANE",
     "NUMER UMOWY/ZLECENIA ORANGE",
 )
+# Nagłówki nowego Rejestru zapisane w starszej kopii inaczej.
+OLD_REGISTER_SPELLINGS = {"ADRES": "adres", "NUMER ZL.": "nr zlecenia", "NUMER UMOWY": "NUMER UMOWY/ZLECENIA ORANGE"}
+# Znaczniki wartości kolumn Rejestru, które nie trafiają do plików okresu.
+NOT_TRANSFERRED_MARKERS: tuple[str, ...] = ("akcja SYN-", "zwrot SYN-", "uwaga SYN-")
 INTERNAL_TEMPLATE_HEADERS: tuple[str, ...] = (
     "DATA",
     "MIASTO",
@@ -110,7 +134,8 @@ class Highlight:
 # Wyróżnienia domyślnego Rejestru po (wiersz Excela, nagłówek Rejestru).
 # Wiersz 4: zlecenie 2, wiersz 9: zlecenie 4 (oba skuteczne).
 DEFAULT_REGISTER_HIGHLIGHTS: dict[tuple[int, str], Highlight] = {
-    (4, "adres"): Highlight(fill="FFFFFF00", color="FFC00000", bold=True),
+    (4, "AKCJE"): Highlight(fill="FF00B050", bold=True),
+    (4, "ADRES"): Highlight(fill="FFFFFF00", color="FFC00000", bold=True),
     (9, "WYKONAWCA"): Highlight(italic=True),
 }
 
@@ -122,22 +147,36 @@ def register_order(
     successful: str = "tak",
     worker: str = "adrian.testowy",
 ) -> dict[str, object]:
-    """Syntetyczne zlecenie z unikalnymi znacznikami treści ``SYN-…``."""
+    """Syntetyczne zlecenie nowego Rejestru z unikalnymi znacznikami treści ``SYN-…``."""
 
     return {
-        "nr zlecenia": f"ZL-SYN-{number:03d}",
+        "AKCJE": f"akcja SYN-{number:03d}",
         "DATA GODZ. POCZ.": started,
-        "WYKONAWCA": worker,
         "MIASTO": "POZNAŃ",
-        "adres": f"syntetyczny adres SYN-{number:03d}",
-        "STATUS APLIKACJI": "zamknięte",
+        "ADRES": f"syntetyczny adres SYN-{number:03d}",
         "UMOWA": f"UM-SYN-{number:03d}",
         "URZĄDZENIA": "dekoder",
         "CZYNNOŚCI": "instalacja",
+        "NUMER ZL.": f"ZL-SYN-{number:03d}",
+        "WYKONAWCA": worker,
+        "NUMER UMOWY": f"OR-SYN-{number:03d}",
         "SKUTECZNE": successful,
         "CZYNNOŚCI ZREALIZOWANE": "montaż",
-        "NUMER UMOWY/ZLECENIA ORANGE": f"OR-SYN-{number:03d}",
+        "ZWROT": f"zwrot SYN-{number:03d}",
+        "UWAGI": f"uwaga SYN-{number:03d}",
     }
+
+
+def in_old_layout(rows: list[RegisterRow]) -> list[RegisterRow]:
+    """Te same zlecenia zapisane pod nagłówkami starszej kopii Rejestru (``OLD_REGISTER_HEADERS``)."""
+
+    return [
+        None
+        if row is None
+        else {OLD_REGISTER_SPELLINGS.get(header, header): value for header, value in row.items()}
+        | {"STATUS APLIKACJI": "zamknięte"}
+        for row in rows
+    ]
 
 
 def default_register_rows() -> list[RegisterRow]:
@@ -168,7 +207,7 @@ def write_register(
 ) -> Path:
     """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych z nagłówkami w wierszu 1.
 
-    Komórki danych mają czcionkę Rejestru, a ``DATA GODZ. POCZ.`` jego format daty.
+    Pusty nagłówek oznacza całkowicie pustą kolumnę. Komórki danych mają czcionkę Rejestru, a ``DATA GODZ. POCZ.`` jego format daty.
     Bez jawnych ``rows`` stosowane są ``DEFAULT_REGISTER_HIGHLIGHTS``.
     """
 
@@ -182,7 +221,8 @@ def write_register(
     decoy["A2"] = "adrian.testowy"
     sheet = workbook.create_sheet("ZLECENIA")
     for column, header in enumerate(headers, start=1):
-        sheet.cell(1, column).value = header
+        if header:
+            sheet.cell(1, column).value = header
     for row_number, row in enumerate(rows if rows is not None else default_register_rows(), start=2):
         if row is None:
             continue
