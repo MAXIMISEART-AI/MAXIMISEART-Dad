@@ -35,23 +35,24 @@ tata jest przyzwyczajony.
 ## Wzorzec rozliczenia wewnętrznego
 
 Wspólny skoroszyt bazowy, z którego powstaje Rozliczenie wewnętrzne nowego
-okresu. Ustala szerokości kolumn Rozliczenia wewnętrznego; inne szerokości
-tata dostaje przez zmianę Wzorca, nie przez poprzedni okres. Nie zawiera
-zleceń i pozostaje niezmieniony.
+okresu. Jest jedynym źródłem szerokości kolumn Rozliczenia wewnętrznego, nie
+poprzedni okres. Nie zawiera zleceń i pozostaje niezmieniony.
 
 ## Wzorzec pliku zbiorczego
 
 Wspólny skoroszyt bazowy, z którego powstaje Plik zbiorczy nowego okresu.
-Zachowuje stawki, sumy, formuły, formatowanie i szerokości kolumn; nie zawiera
-zleceń i pozostaje niezmieniony.
+Zachowuje stawki, sumy, formuły i formatowanie. Jest jedynym źródłem szerokości
+kolumn Pliku zbiorczego, nie poprzedni okres. Nie zawiera zleceń i pozostaje
+niezmieniony.
 
 ## Wzorzec rozliczenia pracownika
 
 Wspólny skoroszyt bazowy bez nazwy wykonawcy, z którego powstają Szablony
-pracowników. Ma ten sam układ i te same szerokości kolumn co Wzorzec pliku
-zbiorczego, ale własne stawki pracownika. U taty to pusty plik `Rozliczenie {okres} -.xlsx` w Folderze
-rozliczeń pracowników. Nie jest rozliczeniem konkretnej osoby i pozostaje
-niezmieniony.
+pracowników. Ma ten sam układ kolumn co Plik zbiorczy, ale własne stawki
+pracownika. Jest jedynym źródłem szerokości kolumn Rozliczeń pracowników, nie
+poprzedni okres; ma te same szerokości co Wzorzec pliku zbiorczego. U taty to
+pusty plik `Rozliczenie {okres} -.xlsx` w Folderze rozliczeń pracowników. Nie
+jest rozliczeniem konkretnej osoby i pozostaje niezmieniony.
 _Avoid_: Placeholder
 
 ## Przygotowanie pliku zbiorczego

@@ -153,8 +153,8 @@ powstają razem albo żaden.
   znaczenia (`adres` to `ADRES`). Dwa nagłówki Rejestru mają po dwa przyjmowane
   zapisy: `NUMER ZL.` albo `nr zlecenia` oraz `NUMER UMOWY` albo
   `NUMER UMOWY/ZLECENIA ORANGE`; pierwszy to zapis nowego Rejestru taty, drugi
-  starszej kopii. Oba zapisy jednej kolumny naraz to powtórzony nagłówek. Wzorzec z nagłówkiem w zapisie Rejestru zamiast własnego oznacza
-  zatrzymanie.
+  starszej kopii. Oba zapisy jednej kolumny naraz to powtórzony nagłówek.
+  Wzorzec z nagłówkiem w zapisie Rejestru zamiast własnego oznacza zatrzymanie.
 - Plik zbiorczy (`Rozliczenie {okres} - zbiorcze.xlsx`) zawiera każde Zlecenie
   skuteczne w `A:K` od wiersza 18, bez przerw. Wiersze 1–17, kolumny ilości
   `N:AP`, formuły i odwołania zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
