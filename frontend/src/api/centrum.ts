@@ -16,6 +16,7 @@ import {
   zChoosePeriodsDirectoryResponse,
   zChooseRegisterResponse,
   zDecideRunResponse,
+  zDiagnoseRunResponse,
   zGetConfigurationResponse,
   zGetMetricsResponse,
   zGetPeriodBoardResponse,
@@ -32,6 +33,8 @@ export type {
   Count,
   Decision,
   DecisionAnswer,
+  Diagnosis,
+  DiagnosisCheck,
   Figure,
   Message,
   Metrics,
@@ -134,6 +137,11 @@ export function decideRun(runId: string, answer: DecisionAnswer["answer"]) {
     `/api/runs/${encodeURIComponent(runId)}/decision`,
     send("POST", { answer })
   )
+}
+
+/** Diagnoza Zatrzymania Uruchomienia `runId`: wyjaśnienie i sprawdzenia; serwer tylko czyta pliki taty. */
+export function diagnoseRun(runId: string) {
+  return call(zDiagnoseRunResponse, `/api/runs/${encodeURIComponent(runId)}/diagnosis`, send("POST"))
 }
 
 /**

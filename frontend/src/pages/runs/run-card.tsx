@@ -40,6 +40,7 @@ import { seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
+import { useStopDiagnosis } from "@/pages/runs/diagnosis"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
 
 type ShownRun = Exclude<RunView, { state: "idle" }>
@@ -158,7 +159,9 @@ export function RunCard({
             Czeka na Twoją decyzję.
           </p>
         ) : null}
-        {view.state === "finished" ? <RunOutcomeSection run={run} result={view.result} reminder={reminder} /> : null}
+        {view.state === "finished" ? (
+          <RunOutcomeSection key={run.id} run={run} result={view.result} reminder={reminder} />
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -169,8 +172,12 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
   const [confirming, setConfirming] = React.useState(false)
   const openFolder = () => openAndConfirm(run.period, "period_folder", () => undefined)
   const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
+  const diagnosis = useStopDiagnosis(run.id, result.stops[0], () => again(run.dry_run))
 
-  const action = (
+  // Rodzaj Zatrzymania wylicza serwer: „do Maksa” i powtórka dostają Diagnozę zamiast następnej akcji.
+  const offersDiagnosis = result.stop_kind === "for_maks" || result.stop_kind === "repeated"
+
+  const nextAction = (
     <NextActionButton
       action={result.next_action}
       onRun={() => setConfirming(true)}
@@ -178,6 +185,8 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
       onOpenFolder={openFolder}
     />
   )
+
+  const action = offersDiagnosis ? diagnosis.action : nextAction
 
   return (
     <>
@@ -197,6 +206,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
           <ThreePartMessage key={stop.what} message={stop} kind="stop" action={index === 0 ? action : undefined} />
         ))
       )}
+      {offersDiagnosis ? diagnosis.result : null}
       {result.warnings.map((warning) => (
         <ThreePartMessage key={warning.what} message={warning} kind="warning" />
       ))}
