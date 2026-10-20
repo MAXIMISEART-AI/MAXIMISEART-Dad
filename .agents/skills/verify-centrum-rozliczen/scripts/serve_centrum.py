@@ -25,7 +25,9 @@ verification never reaches GitHub and checks OneDrive on every system:
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
 ``<number>.json`` with its title, body, label, and ``state`` (``open``; the
-drive may edit it). The key is never written there. While
+drive may edit it to ``closed``, which is Maks closing it). The open
+Zgłoszenie of a problem is the ``open`` file whose body has its fingerprint
+line. The key is never written there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 
 One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
@@ -60,7 +62,15 @@ from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
-from rozliczenia.centrum.report_box import LABEL, Report, SendOutcome, Sent, Unreachable  # noqa: E402
+from rozliczenia.centrum.report_box import (  # noqa: E402
+    LABEL,
+    FindOutcome,
+    Report,
+    SendOutcome,
+    Sent,
+    Unreachable,
+    fingerprint_line,
+)
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
@@ -115,6 +125,15 @@ class FileReportBox:
                 json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
         return Sent(number)
+
+    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        if (self._directory / "brak-sieci").exists():
+            return Unreachable()
+        line = fingerprint_line(fingerprint)
+        with self._lock:
+            issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
+        found = [issue["number"] for issue in issues if issue["state"] == "open" and line in issue["body"].splitlines()]
+        return min(found, default=None)
 
 
 def _scripted_github(root: Path) -> ToolFreshness:

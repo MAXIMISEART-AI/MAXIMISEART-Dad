@@ -8,9 +8,9 @@ wynik bez wyjątków. Klucz nie trafia do wyniku, dziennika ani Zgłoszenia.
 
 Każda operacja zwraca jeden z wyników: ``Sent`` (numer issue), ``Refused``
 (skrzynka odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable``
-(brak sieci albo skrzynka nie odpowiedziała jak zwykle). Kolejne operacje
-(znajdź otwarte Zgłoszenie po odcisku problemu, stan wysłanych Zgłoszeń)
-dostają ten sam kształt: metoda z kluczem i wynik z tych samych porażek.
+(brak sieci albo skrzynka nie odpowiedziała jak zwykle). Znalezienie otwartego
+Zgłoszenia po odcisku problemu (``find_open``) daje numer issue albo ``None``
+z tymi samymi porażkami; kolejne operacje dostają ten sam kształt.
 """
 
 from __future__ import annotations
@@ -50,11 +50,17 @@ class Unreachable:
 
 
 SendOutcome = Sent | Refused | Unreachable
+# Numer otwartego Zgłoszenia problemu albo ``None``, gdy otwartego nie ma (nigdy nie było albo Maks je zamknął).
+FindOutcome = int | None | Refused | Unreachable
 
 
 class ReportBox(Protocol):
     def send(self, report: Report, *, key: str) -> SendOutcome:
         """Zakłada Zgłoszenie w skrzynce z kluczem taty; nigdy nie rzuca wyjątku sieci."""
+        ...
+
+    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        """Otwarte Zgłoszenie z odciskiem problemu ``fingerprint``; nigdy nie rzuca wyjątku sieci."""
         ...
 
 
@@ -80,6 +86,15 @@ LABEL: Final = "zgloszenie"
 _API: Final = "https://api.github.com"
 _TIMEOUT_S: Final = 15.0
 _REFUSALS: Final = frozenset({401, 403, 404})
+# Otwarte Zgłoszenia przegląda się stronami po 100; dziesięć stron to więcej, niż Maks kiedykolwiek będzie miał otwartych.
+_PAGE_SIZE: Final = 100
+_MAX_PAGES: Final = 10
+
+
+def fingerprint_line(fingerprint: str) -> str:
+    """Wiersz treści Zgłoszenia z odciskiem problemu, po którym skrzynka znajduje otwarte Zgłoszenie."""
+
+    return f"- Odcisk problemu: {fingerprint}"
 
 
 def urllib_transport(request: HttpRequest) -> HttpResponse:
@@ -120,6 +135,30 @@ class GitHubReportBox:
         number = _json_field(response.body, "number") if response.status == 201 else None
         return Sent(number) if isinstance(number, int) else Unreachable()
 
+    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        """Przegląda otwarte issue z etykietą Zgłoszeń strona po stronie i szuka wiersza z odciskiem problemu."""
+
+        line = fingerprint_line(fingerprint)
+        transport = self._transport or urllib_transport  # odczyt przy szukaniu: testy blokują go w conftest
+        for page in range(1, _MAX_PAGES + 1):
+            url = f"{_API}/repos/{self._repository}/issues?state=open&labels={LABEL}&per_page={_PAGE_SIZE}&page={page}"
+            try:
+                response = transport(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
+            except OSError:
+                return Unreachable()
+            if response.status in _REFUSALS:
+                return Refused()
+            issues = _json(response.body) if response.status == 200 else None
+            if not isinstance(issues, list):
+                return Unreachable()
+            for issue in issues:
+                body = issue.get("body") if isinstance(issue, dict) else None
+                if isinstance(body, str) and line in body.splitlines() and isinstance(issue.get("number"), int):
+                    return int(issue["number"])
+            if len(issues) < _PAGE_SIZE:
+                break
+        return None
+
 
 def _headers(key: str) -> dict[str, str]:
     return {
@@ -131,8 +170,12 @@ def _headers(key: str) -> dict[str, str]:
 
 
 def _json_field(body: bytes, name: str) -> object:
+    document = _json(body)
+    return document.get(name) if isinstance(document, dict) else None
+
+
+def _json(body: bytes) -> object:
     try:
-        document = json.loads(body)
+        return json.loads(body)
     except ValueError:
         return None
-    return document.get(name) if isinstance(document, dict) else None

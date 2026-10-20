@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
 import pytest
 
 from rozliczenia.centrum.report_box import (
+    FindOutcome,
     GitHubReportBox,
     HttpRequest,
     HttpResponse,
@@ -79,5 +80,77 @@ def test_odmowa_autoryzacji_to_odmowa_skrzynki(status: int) -> None:
 )
 def test_brak_sieci_albo_niezwykla_odpowiedz_to_skrzynka_nieosiagalna(answer: Callable[[], HttpResponse]) -> None:
     outcome, _ = send_with(answer)
+
+    assert outcome == Unreachable()
+
+
+ISSUES = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues"
+OTHER_FINGERPRINT = "fedcba9876543210"
+
+
+def issue(number: int, fingerprint: str) -> dict[str, object]:
+    return {"number": number, "body": f"## Narzędzie\n\n- Odcisk problemu: {fingerprint}\n- Commit: abc\n"}
+
+
+def pages(*answers: list[dict[str, object]]) -> Callable[[], HttpResponse]:
+    remaining: Iterator[list[dict[str, object]]] = iter(answers)
+    return lambda: HttpResponse(200, json.dumps(next(remaining)).encode())
+
+
+def find_with(answer: Callable[[], HttpResponse]) -> tuple[FindOutcome, ScriptedTransport]:
+    transport = ScriptedTransport(answer)
+    return GitHubReportBox(transport=transport).find_open(REPORT.fingerprint, key=KEY), transport
+
+
+def test_otwarte_issue_z_odciskiem_problemu_to_znalezione_zgloszenie() -> None:
+    outcome, transport = find_with(
+        pages([issue(3, OTHER_FINGERPRINT), issue(7, REPORT.fingerprint), {"number": 8, "body": None}])
+    )
+
+    assert outcome == 7
+    [request] = transport.requests
+    assert (request.method, request.url, request.body) == (
+        "GET",
+        f"{ISSUES}?state=open&labels=zgloszenie&per_page=100&page=1",
+        None,
+    )
+    assert request.headers["Authorization"] == f"Bearer {KEY}"
+
+
+def test_bez_otwartego_issue_z_odciskiem_nie_ma_zgloszenia_takze_po_przejrzeniu_kolejnych_stron() -> None:
+    full_page = [issue(number, OTHER_FINGERPRINT) for number in range(100, 200)]
+    outcome, transport = find_with(pages(full_page, [issue(5, OTHER_FINGERPRINT)]))
+
+    assert outcome is None
+    assert [request.url.rsplit("=", 1)[1] for request in transport.requests] == ["1", "2"]
+
+
+def test_otwarte_issue_z_odciskiem_na_drugiej_stronie_to_znalezione_zgloszenie() -> None:
+    full_page = [issue(number, OTHER_FINGERPRINT) for number in range(100, 200)]
+    outcome, _ = find_with(pages(full_page, [issue(42, REPORT.fingerprint)]))
+
+    assert outcome == 42
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_odmowa_autoryzacji_przy_szukaniu_to_odmowa_skrzynki(status: int) -> None:
+    outcome, _ = find_with(lambda: HttpResponse(status, b'{"message": "Bad credentials"}'))
+
+    assert outcome == Refused()
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        no_network,
+        lambda: HttpResponse(502, b"<html>Bad gateway</html>"),
+        lambda: HttpResponse(200, b'{"message": "to nie jest lista"}'),
+    ],
+    ids=["brak-sieci", "awaria-githuba", "nieczytelna-odpowiedz"],
+)
+def test_brak_sieci_albo_niezwykla_odpowiedz_przy_szukaniu_to_skrzynka_nieosiagalna(
+    answer: Callable[[], HttpResponse],
+) -> None:
+    outcome, _ = find_with(answer)
 
     assert outcome == Unreachable()
