@@ -23,7 +23,7 @@ import os
 import tempfile
 import zipfile
 import zlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -45,6 +45,8 @@ from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
+
+from .template_copy import InvalidValue, SheetLayout, TemplateCopy, UnsupportedShape
 
 
 _EXTERNAL_LINKS_PREFIX = "xl/externalLinks/"
@@ -71,6 +73,12 @@ _WORKER_COLUMN = 8  # H
 _INPUT_COLUMNS = range(1, 12)  # A:K: nagłówki w wierszu 17 i dane wejściowe Wiersza danych
 _QUANTITY_COLUMNS = range(14, 43)  # N:AP
 _DATA_ROW_COLUMNS = range(1, 47)  # A:AT: kopiowane z Pliku zbiorczego do Szablonu pracownika
+_WORKER_SETTLEMENT_LAYOUT = SheetLayout(
+    header_row=_HEADER_ROW,
+    first_data_row=_FIRST_DATA_ROW,
+    input_columns=_INPUT_COLUMNS[-1],
+    data_columns=_DATA_ROW_COLUMNS[-1],
+)
 
 
 _ExcelCellValue = (
@@ -449,20 +457,25 @@ class WorkerSettlementTemplate:
 
     Z niego powstaje każde Rozliczenie pracownika (``create_settlement``).
     Plik Wzorca jest czytany przy pierwszym Rozliczeniu pracownika, kolejne
-    powstają z tej samej kopii w pamięci. Wzorzec na dysku pozostaje
-    niezmieniony.
+    powstają z tej samej kopii w pamięci: kopia części zip Wzorca, w której
+    zmieniają się tylko Wiersze danych w XML arkusza (ADR 0007). Wzorzec,
+    którego kształtu kopia nie obsługuje, idzie dawną drogą przez openpyxl.
+    Wzorzec na dysku pozostaje niezmieniony.
     """
 
     def __init__(self, path: Path) -> None:
         self._path = path
         self._content: bytes | None = None
+        self._copy: TemplateCopy | None = None
+        self._copy_read = False
 
     def create_settlement(self, target: Path, rows: Sequence[ExcelRow]) -> None:
         """Tworzy atomowo pod ``target`` Rozliczenie pracownika z ``rows`` jako Wierszami danych.
 
         Wiersze danych są wpisywane po pozycji kolumn A:AT od wiersza 18;
-        formuły, formatowanie i ``xl/externalLinks/*`` zostają z Wzorca, a
-        Excel przeliczy formuły przy otwarciu.
+        formuły (także wspólne), ``calcChain``, formatowanie i
+        ``xl/externalLinks/*`` zostają z Wzorca, a Excel przeliczy formuły przy
+        otwarciu.
 
         Wzorca, którego nie da się użyć, nie maskuje wynik: ``WorkbookError``
         (brak, otwarty w Excelu, nieczytelny, bez WYKONAWCA w H17 albo z danymi
@@ -470,6 +483,35 @@ class WorkerSettlementTemplate:
         przypadkach ``target`` nie powstaje.
         """
 
+        copy = self._template_copy()
+        if copy is not None:
+            _check_worker_header(self._path, copy.header)
+            if copy.has_input_data:
+                raise WorkbookError(self._path, Problem.HAS_DATA)
+            try:
+                package = copy.with_rows(rows)
+            except InvalidValue as exc:
+                raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+            except UnsupportedShape:
+                pass
+            else:
+                _write_atomically(target, package.write)
+                return
+        self._create_with_openpyxl(target, rows)
+
+    def _template_copy(self) -> TemplateCopy | None:
+        """Wzorzec do kopii z podmienionymi Wierszami danych; ``None``, gdy jego kształt wymaga openpyxl (ADR 0007)."""
+
+        content = self._loaded()
+        if not self._copy_read:
+            self._copy_read = True
+            try:
+                self._copy = TemplateCopy.of(content, _WORKER_SETTLEMENT_LAYOUT)
+            except UnsupportedShape:
+                self._copy = None
+        return self._copy
+
+    def _create_with_openpyxl(self, target: Path, rows: Sequence[ExcelRow]) -> None:
         content = self._loaded()
         with _unreadable_as_error(self._path):
             workbook = load_workbook(BytesIO(content), read_only=False, data_only=False, keep_links=True)
@@ -490,6 +532,27 @@ class WorkerSettlementTemplate:
             with _unreadable_as_error(self._path):
                 self._content = self._path.read_bytes()
         return self._content
+
+
+def _write_atomically(target: Path, write: Callable[[IO[bytes]], None]) -> None:
+    """Zapisuje skoroszyt do pliku tymczasowego obok ``target`` i dopiero wtedy podmienia ``target``."""
+
+    try:
+        file_descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.stem}.", suffix=".xlsx", dir=target.parent
+        )
+    except OSError as exc:
+        raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+    temporary_path = Path(temporary_name)
+    try:
+        try:
+            with os.fdopen(file_descriptor, "wb") as out:
+                write(out)
+            os.replace(temporary_path, target)
+        except OSError as exc:
+            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _template_sheet(path: Path, workbook: Workbook, layout: Layout) -> TemplateSheet:

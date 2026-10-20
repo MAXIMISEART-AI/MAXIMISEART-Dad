@@ -146,6 +146,16 @@ def test_wspolna_i_rozpisana_formula_o_tej_samej_tresci_sa_zgodne(tmp_path: Path
     assert compare_worker_settlements(reference, candidate) == _only("formuly")
 
 
+def test_nazwa_arkusza_w_apostrofach_i_bez_w_nazwie_zdefiniowanej_sa_zgodne(tmp_path: Path) -> None:
+    reference, candidate = settlement_folders(tmp_path)
+    rewrite_parts(
+        candidate / SETTLEMENT_NAME,
+        lambda name, data: data.replace(b">Sheet1!", b">'Sheet1'!") if name == "xl/workbook.xml" else data,
+    )
+
+    assert compare_worker_settlements(reference, candidate) == NO_DIFFERENCES
+
+
 def test_bramka_nie_porownuje_calc_chain(tmp_path: Path) -> None:
     reference, candidate = settlement_folders(tmp_path)
     add_calc_chain(candidate / SETTLEMENT_NAME)
