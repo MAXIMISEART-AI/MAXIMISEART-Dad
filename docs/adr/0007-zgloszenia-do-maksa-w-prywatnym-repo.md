@@ -2,8 +2,17 @@
 
 ## Status
 
-Zaakceptowana. Rewiduje regułę prywatności z
-[ADR 0004](0004-centrum-rozliczen-adapter.md) dla jednej treści: Zgłoszenia.
+Zaakceptowana. Zmienia trzy zdania
+[ADR 0004](0004-centrum-rozliczen-adapter.md):
+
+- regułę prywatności, dla jednej treści: Zgłoszenia;
+- „Własne pliki Centrum to tylko ustawienia taty i dziennik pochodzenia
+  Uruchomień”: dochodzą klucz do Zgłoszeń, stan wysłanych Zgłoszeń i katalog
+  niewysłanych Zgłoszeń, wszystkie w `config/` poza Gitem;
+- „Nie ma … zdalnego dostępu”: Centrum nadal nie przyjmuje połączeń spoza
+  komputera taty, ale samo łączy się z API GitHuba w przypadkach wymienionych
+  niżej.
+
 Pozostałe zasady ADR 0004 (tylko `127.0.0.1`, kontrola `Host` i `Origin`,
 pliki wyłącznie z wyliczonych ścieżek) zostają bez zmian.
 
