@@ -24,7 +24,7 @@ from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import ExcelRow
+from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
 from tests.fixtures.workbooks import active_worksheet, cut_sheet_after_data_rows, without_sheet
 from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, SOURCE_NAME, make_fixture, projected, write_source
 
@@ -446,7 +446,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     def fail_on_second_save(
         worker_name: str,
-        template_path: Path,
+        template: WorkerSettlementTemplate,
         path: Path,
         rows: Iterable[ExcelRow],
     ) -> WorkerResult:
@@ -454,7 +454,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         calls += 1
         if calls == 2:
             raise template_settlement.TemplateWriteError("synthetic failure")
-        return original_process_template(worker_name, template_path, path, rows)
+        return original_process_template(worker_name, template, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
@@ -537,7 +537,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     projection = ProgressProjection("RUN", PERIOD)
     save_s = 0.05
 
-    def fail_save(worker_name: str, template_path: Path, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
         time.sleep(save_s)
         raise template_settlement.TemplateWriteError("synthetic failure")
 
