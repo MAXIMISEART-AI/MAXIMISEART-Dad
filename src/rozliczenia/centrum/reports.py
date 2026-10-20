@@ -26,7 +26,8 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import Refused, Report, ReportBox, Sent
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
-from rozliczenia.centrum.version import tool_commit, tool_version
+from rozliczenia.centrum.tool_freshness import CommitSource
+from rozliczenia.centrum.version import tool_version
 
 if TYPE_CHECKING:
     from rozliczenia.centrum.diagnosis import Diagnosis
@@ -39,7 +40,7 @@ _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
 
 
-def report_of(diagnosis: Diagnosis) -> Report:
+def report_of(diagnosis: Diagnosis, *, commit: str | None) -> Report:
     """Zgłoszenie Zatrzymania z wynikiem Diagnozy; tytuł to kod Komunikatu i „Co się stało”."""
 
     stopped = diagnosis.stopped
@@ -65,7 +66,7 @@ def report_of(diagnosis: Diagnosis) -> Report:
         "## Narzędzie",
         "",
         f"- Wersja: {tool_version()}",
-        f"- Commit: {tool_commit() or 'nieznany'}",
+        f"- Commit: {commit or 'nieznany'}",
         f"- Odcisk problemu: {fingerprint}",
         "",
         "## Diagnoza",
@@ -169,7 +170,8 @@ class Reports:
     odciskiem, który jest już w stanie wysłanych, nie trafia drugi raz do skrzynki.
     """
 
-    def __init__(self, config_directory: Path, box: ReportBox, log: CentrumLog) -> None:
+    def __init__(self, config_directory: Path, box: ReportBox, log: CentrumLog, commit: CommitSource) -> None:
+        self._commit = commit
         self._key_file = config_directory / REPORT_KEY_FILE
         self._unsent = config_directory / UNSENT_DIRECTORY
         self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
@@ -188,7 +190,7 @@ class Reports:
     def draft(self, diagnosis: Diagnosis) -> contract.ReportDraft:
         """Zapamiętuje Zgłoszenie z Diagnozy jako to, które wyśle „Wyślij do Maksa” w tym Uruchomieniu."""
 
-        report = report_of(diagnosis)
+        report = report_of(diagnosis, commit=self._commit())
         info = diagnosis.stopped.info
         file_name = f"Zgłoszenie {diagnosis.stopped.stop.message.code} {info.period}.md"
         with self._lock:
@@ -209,7 +211,7 @@ class Reports:
             outcome = self._box.send(draft.report, key=key) if key is not None else None
             saved = self._unsent / draft.file_name
             if isinstance(outcome, Sent):
-                self._sent.add(SentReport(draft.report.fingerprint, outcome.number, tool_commit()))
+                self._sent.add(SentReport(draft.report.fingerprint, outcome.number, self._commit()))
                 saved.unlink(missing_ok=True)
                 self._log.report_sent(process=info.process, period=info.period, number=outcome.number)
                 return contract.ReportSent(state="sent")

@@ -1,10 +1,11 @@
 """Tożsamość Centrum w ``health``: nazwa usługi, wersja i commit narzędzia.
 
 Wersja pochodzi z ``pyproject.toml``: u taty pakiet nie jest instalowany, więc
-nie ma metadanych pakietu. Commit to ``HEAD`` klonu Gita narzędzia, czytany z
-plików katalogu Gita bez uruchamiania programu ``git`` (Centrum działa bez
-konsoli). Moduł używa tylko biblioteki standardowej, bo launcher rozpoznaje po
-nich działające Centrum, zanim wczyta FastAPI.
+nie ma metadanych pakietu. Commit to ``HEAD`` klonu Gita, w którym leży
+narzędzie, odczytany z plików ``.git`` bez uruchamiania ``git`` (Centrum działa
+bez konsoli, a ``git`` nie musi być w ``PATH``). Moduł używa tylko biblioteki
+standardowej, bo launcher rozpoznaje po nich działające Centrum, zanim wczyta
+FastAPI.
 """
 
 from __future__ import annotations
@@ -15,8 +16,8 @@ from pathlib import Path
 from typing import Final
 
 SERVICE: Final = "centrum-rozliczen"
-_TOOL_ROOT = Path(__file__).resolve().parents[3]
-_PYPROJECT = _TOOL_ROOT / "pyproject.toml"
+TOOL_ROOT: Final = Path(__file__).resolve().parents[3]
+_PYPROJECT = TOOL_ROOT / "pyproject.toml"
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
@@ -28,30 +29,50 @@ def tool_version() -> str:
     return version
 
 
-def tool_commit(root: Path = _TOOL_ROOT) -> str | None:
-    """Commit ``HEAD`` klonu narzędzia; ``None``, gdy narzędzie nie jest klonem albo pliki są nieczytelne."""
+def tool_commit(root: Path = TOOL_ROOT) -> str | None:
+    """Pełny commit ``HEAD`` narzędzia w ``root``; ``None``, gdy narzędzie nie leży w klonie Gita.
+
+    Obsługuje zwykły klon, katalog roboczy ``git worktree`` (plik ``.git``),
+    odłączony ``HEAD`` i gałąź spakowaną w ``packed-refs``.
+    """
 
     try:
-        repository = root / ".git"
-        if repository.is_file():  # osobny katalog roboczy: „gitdir: …” wskazuje jego katalog
-            pointer = repository.read_text(encoding="utf-8").removeprefix("gitdir:").strip()
-            repository = (root / pointer).resolve()
-        common_file = repository / "commondir"
-        common = (repository / common_file.read_text(encoding="utf-8").strip()) if common_file.is_file() else repository
-        head = (repository / "HEAD").read_text(encoding="utf-8").strip()
-        if not head.startswith("ref:"):
+        git_directory = _git_directory(root)
+        if git_directory is None:
+            return None
+        head = (git_directory / "HEAD").read_text(encoding="utf-8").strip()
+        if not head.startswith("ref: "):
             return head if _COMMIT.fullmatch(head) else None
-        ref = head.removeprefix("ref:").strip()
-        for directory in (repository, common):
-            if (directory / ref).is_file():
-                commit = (directory / ref).read_text(encoding="utf-8").strip()
-                return commit if _COMMIT.fullmatch(commit) else None
-        packed_file = common / "packed-refs"
-        packed = packed_file.read_text(encoding="utf-8") if packed_file.is_file() else ""
-    except (OSError, UnicodeError):
+        return _resolved(head.removeprefix("ref: "), git_directory)
+    except (OSError, UnicodeDecodeError):
         return None
-    for line in packed.splitlines():
-        commit, _, name = line.partition(" ")
-        if name == ref and _COMMIT.fullmatch(commit):
-            return commit
+
+
+def _git_directory(root: Path) -> Path | None:
+    dot_git = root / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    if dot_git.is_file():  # katalog roboczy git worktree: „gitdir: <ścieżka>”
+        pointer = dot_git.read_text(encoding="utf-8").strip()
+        if pointer.startswith("gitdir: "):
+            return (root / pointer.removeprefix("gitdir: ")).resolve()
+    return None
+
+
+def _resolved(ref: str, git_directory: Path) -> str | None:
+    common = git_directory
+    commondir = git_directory / "commondir"
+    if commondir.is_file():  # gałęzie katalogu roboczego leżą we wspólnym katalogu Gita
+        common = (git_directory / commondir.read_text(encoding="utf-8").strip()).resolve()
+    for directory in dict.fromkeys((git_directory, common)):
+        loose = directory / ref
+        if loose.is_file():
+            commit = loose.read_text(encoding="utf-8").strip()
+            return commit if _COMMIT.fullmatch(commit) else None
+    packed = common / "packed-refs"
+    if packed.is_file():
+        for line in packed.read_text(encoding="utf-8").splitlines():
+            commit, _, name = line.partition(" ")
+            if name == ref and _COMMIT.fullmatch(commit):
+                return commit
     return None

@@ -114,7 +114,9 @@ otwarty w Excelu) albo jednym z tych:
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Kliknij `Wyślij do Maksa`. |
+| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie. Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
 | „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
+| „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
 | „jest nieoczekiwany wyjątek narzędzia” | Przekaż komunikat osobie utrzymującej narzędzie. |
 
 ### Zgłoszenie do Maksa
@@ -131,9 +133,8 @@ mówi, co poprawić, pierwszy jest `Uruchom ponownie`, a `Wyślij do Maksa` drug
    naprawę.` Potwierdzenie zostaje po odświeżeniu karty i po ponownym otwarciu
    Centrum, więc tego samego problemu nie wyślesz drugi raz.
 
-Zgłoszenie trafia do prywatnego repozytorium Zgłoszeń Maksa na GitHubie. Centrum
-łączy się z internetem tylko wtedy, gdy wysyłasz Zgłoszenie; brak internetu
-niczego nie psuje, dopóki niczego nie wysyłasz.
+Zgłoszenie trafia do prywatnego repozytorium Zgłoszeń Maksa na GitHubie.
+Brak internetu niczego nie psuje, dopóki niczego nie wysyłasz.
 
 ### Zgłoszenie → co zrobić
 

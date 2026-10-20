@@ -20,9 +20,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.diagnosis import diagnosis_router
+from rozliczenia.centrum.diagnosis import Surroundings, diagnosis_router
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
@@ -36,6 +37,7 @@ from rozliczenia.centrum.settings import settings_router
 from rozliczenia.settings import SettingsStore
 from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
+from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.version import SERVICE, tool_version
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
@@ -52,6 +54,8 @@ def create_app(
     today: Callable[[], date] = date.today,
     metrics_files: MetricsFiles | None = None,
     configuration_files: ConfigurationFiles | None = None,
+    tool_freshness: ToolFreshness | None = None,
+    cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
 ) -> FastAPI:
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
@@ -94,15 +98,17 @@ def create_app(
     configuration = configuration_files or ConfigurationFiles.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
-    # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
+    # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
+    surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
-    reports = Reports(settings_path.parent, report_box or GitHubReportBox(), log)
+    reports = Reports(settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local)
+    # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
     runs = RunHost(log, centrum_runs, reports.state)
     shutdown.refuse_while(runs.shutdown_refusal)
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
-    app.include_router(diagnosis_router(runs, store, configuration, log, reports))
+    app.include_router(diagnosis_router(runs, store, configuration, log, surroundings, reports))
     app.include_router(reports_router(runs, reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration, reports.key_state))

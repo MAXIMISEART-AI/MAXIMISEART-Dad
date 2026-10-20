@@ -21,16 +21,19 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
+from pathlib import Path
 from typing import Final, Literal
 
 from fastapi import APIRouter
 
 from rozliczenia import preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
+from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
 from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost, StoppedRun
+from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
 from rozliczenia.preparation_register import ensure_register_available, read_register
@@ -98,6 +101,14 @@ class Diagnosis:
 
 
 @dataclass(frozen=True)
+class Surroundings:
+    """Granice komputera taty poza jego plikami: commit `main` na GitHubie i atrybuty plików OneDrive."""
+
+    tool_freshness: ToolFreshness
+    cloud_files: CloudFiles
+
+
+@dataclass(frozen=True)
 class _Computer:
     """Komputer taty w chwili Diagnozy: Ustawienia taty, Konfiguracja, dziennik i okres Zatrzymania."""
 
@@ -106,6 +117,7 @@ class _Computer:
     settings: Settings
     configuration: ConfigurationFiles
     log: CentrumLog
+    surroundings: Surroundings
 
     @cached_property
     def period_folder(self) -> PeriodFolder | PeriodFolderLookupError | None:
@@ -125,6 +137,20 @@ class _Computer:
 
 
 _Check = Callable[[_Computer], list[CheckResult]]
+
+
+def _tool_freshness(computer: _Computer) -> list[CheckResult]:
+    label = "Aktualność narzędzia"
+    freshness = computer.surroundings.tool_freshness
+    local = freshness.local()
+    if local is None:
+        return [CheckResult.not_checked(label, "Nie sprawdzono: narzędzie na tym komputerze nie ma commitu Gita.")]
+    main = freshness.main()
+    if main is None:
+        return [CheckResult.not_checked(label, "Nie sprawdzono: brak połączenia z GitHubem.")]
+    if main != local:
+        return [CheckResult.failed(label, diagnosis_messages.newer_tool_version())]
+    return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {local[:7]}.")]
 
 
 def _tata_settings(computer: _Computer) -> list[CheckResult]:
@@ -222,6 +248,34 @@ def _period_files_in_excel(computer: _Computer) -> list[CheckResult]:
     return [CheckResult.passed(label, "Żaden plik okresu nie jest otwarty w Excelu.")]
 
 
+def _files_in_onedrive(computer: _Computer) -> list[CheckResult]:
+    label = "Pliki w OneDrive"
+    cloud = computer.surroundings.cloud_files
+    if not cloud.checked:
+        return [CheckResult.not_checked(label, "Nie sprawdzono: tylko w Windows.")]
+    files = [path for path in _files_of_process(computer) if path.is_file()]
+    for path in files:
+        if cloud.online_only(path):
+            return [CheckResult.failed(label, diagnosis_messages.file_only_in_cloud(path))]
+    return [CheckResult.passed(label, f"Sprawdzone pliki są na tym komputerze: {len(files)}.")]
+
+
+def _files_of_process(computer: _Computer) -> list[Path]:
+    """Rejestr zleceń, wzorce i pliki Folderu okresu, które czyta proces Zatrzymania."""
+
+    files = []
+    register = computer.settings.existing_register
+    if computer.process == "preparation" and register is not None:
+        files.append(register)
+    files += [template.path for template in computer.configuration.templates() if template.used_by == computer.process]
+    folder = computer.period_folder
+    if isinstance(folder, PeriodFolder):
+        files += [folder.internal_settlement, folder.collective_file]
+        if folder.worker_settlements.is_dir():
+            files += sorted(folder.worker_settlements.iterdir())
+    return files
+
+
 def _centrum_log(computer: _Computer) -> list[CheckResult]:
     label = "Dziennik Centrum rozliczeń"
     entries = computer.log_entries
@@ -232,18 +286,41 @@ def _centrum_log(computer: _Computer) -> list[CheckResult]:
 
 # Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.
 _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
-    "preparation": (_tata_settings, _register, _templates, _period_folder, _period_files_in_excel, _centrum_log),
-    "settlement": (_tata_settings, _templates, _period_folder, _period_files_in_excel, _centrum_log),
+    "preparation": (
+        _tool_freshness,
+        _tata_settings,
+        _register,
+        _templates,
+        _period_folder,
+        _period_files_in_excel,
+        _files_in_onedrive,
+        _centrum_log,
+    ),
+    "settlement": (
+        _tool_freshness,
+        _tata_settings,
+        _templates,
+        _period_folder,
+        _period_files_in_excel,
+        _files_in_onedrive,
+        _centrum_log,
+    ),
 }
 
 
 def diagnose(
-    stopped: StoppedRun, *, settings: Settings, configuration: ConfigurationFiles, log: CentrumLog
+    stopped: StoppedRun,
+    *,
+    settings: Settings,
+    configuration: ConfigurationFiles,
+    log: CentrumLog,
+    surroundings: Surroundings,
 ) -> Diagnosis:
     """Wszystkie sprawdzenia procesu Zatrzymania, tylko do odczytu."""
 
     info = stopped.info
-    computer = _Computer(info.process, parse_period_token(info.period), settings, configuration, log)
+    period = parse_period_token(info.period)
+    computer = _Computer(info.process, period, settings, configuration, log, surroundings)
     checks: list[CheckResult] = []
     for check in _CHECKS[info.process]:
         checks.extend(check(computer))
@@ -254,14 +331,21 @@ _PROBLEMS: dict[int | str, dict[str, object]] = {404: {"model": contract.Problem
 
 
 def diagnosis_router(
-    host: RunHost, store: SettingsStore, configuration: ConfigurationFiles, log: CentrumLog, reports: Reports
+    host: RunHost,
+    store: SettingsStore,
+    configuration: ConfigurationFiles,
+    log: CentrumLog,
+    surroundings: Surroundings,
+    reports: Reports,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/runs", tags=["uruchomienia"])
 
     @router.post("/{run_id}/diagnosis", operation_id="diagnoseRun", responses=_PROBLEMS)
     def run_diagnosis(run_id: str) -> contract.Diagnosis:
         stopped = host.stopped(run_id)
-        diagnosis = diagnose(stopped, settings=store.load(), configuration=configuration, log=log)
+        diagnosis = diagnose(
+            stopped, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
+        )
         log.diagnosed(process=stopped.info.process, period=stopped.info.period, cause=diagnosis.explanation.code)
         return diagnosis.view(reports.draft(diagnosis))
 

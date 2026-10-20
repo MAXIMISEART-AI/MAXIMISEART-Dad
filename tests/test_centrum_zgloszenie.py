@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -12,7 +11,7 @@ import pytest
 from rozliczenia import preparation_register
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 
-from tests.fixtures.centrum import ROOT, project_version
+from tests.fixtures.centrum import TOOL_COMMIT, project_version
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, run_to_end, stopped_for_maks
 from tests.fixtures.preparation import PERIOD
 
@@ -50,9 +49,9 @@ def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path, 
     state = send(centrum, run_id)
 
     assert state == {"state": "sent"}
-    [report] = centrum.report_box.sent
+    [report] = centrum.surroundings.report_box.sent
     assert {"title": report.title, "body": report.body} == preview
-    assert centrum.report_box.keys == [KEY]
+    assert centrum.surroundings.report_box.keys == [KEY]
 
 
 def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_path: Path) -> None:
@@ -74,7 +73,7 @@ def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_
         f"- Okres: {PERIOD}",
         "- Tryb: DRY-RUN",
         f"- Wersja: {project_version()}",
-        f"- Commit: {tool_head()}",
+        f"- Commit: {TOOL_COMMIT}",
         "| Wzorzec rozliczenia wewnętrznego | przeszło | Wzorzec rozliczenia wewnętrznego.xlsx przechodzi Sprawdzanie. |",
         f"| Wzorzec pliku zbiorczego | nie przeszło | {stop['what']} |",
         "| Folder okresu | przeszło | Folderu 08_14_09_2026 jeszcze nie ma. |",
@@ -99,7 +98,7 @@ def test_zgloszenie_nie_ma_tresci_wierszy_wyjatku_pelnych_sciezek_ani_klucza(
     diagnose(centrum, run_id)
     send(centrum, run_id)
 
-    [report] = centrum.report_box.sent
+    [report] = centrum.surroundings.report_box.sent
     text = report.title + report.body
     for forbidden in ("SYN-", "nieprzewidziany błąd", KEY, str(tmp_path), tmp_path.as_posix(), "Traceback"):
         assert forbidden not in text
@@ -130,13 +129,13 @@ def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysy
         },
     }
     assert unsent_files(centrum) == {name: f"# {preview['title']}\n\n{preview['body']}"}
-    assert centrum.report_box.sent == []
+    assert centrum.surroundings.report_box.sent == []
 
     with_key(centrum)
     again = send(centrum, run_id)
 
     assert again == {"state": "sent"}
-    assert [report.body for report in centrum.report_box.sent] == [preview["body"]]
+    assert [report.body for report in centrum.surroundings.report_box.sent] == [preview["body"]]
     assert unsent_files(centrum) == {}
 
 
@@ -153,7 +152,7 @@ def test_nieudana_wysylka_zapisuje_zgloszenie_w_pliku_a_ponowna_proba_je_wysyla(
 ) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    centrum.report_box.outcomes.append(failure)
+    centrum.surroundings.report_box.outcomes.append(failure)
     run_id = stopped_for_maks(centrum, monkeypatch)
     preview = diagnose(centrum, run_id)["report"]
 
@@ -163,7 +162,7 @@ def test_nieudana_wysylka_zapisuje_zgloszenie_w_pliku_a_ponowna_proba_je_wysyla(
     assert list(unsent_files(centrum).values()) == [f"# {preview['title']}\n\n{preview['body']}"]
 
     assert send(centrum, run_id) == {"state": "sent"}
-    assert (len(centrum.report_box.keys), len(centrum.report_box.sent), unsent_files(centrum)) == (2, 1, {})
+    assert (len(centrum.surroundings.report_box.keys), len(centrum.surroundings.report_box.sent), unsent_files(centrum)) == (2, 1, {})
 
 
 def current_report(centrum: PreparingCentrum) -> object:
@@ -183,7 +182,7 @@ def test_wyslanie_jest_raz_na_zatrzymanie_a_wynik_uruchomienia_pokazuje_potwierd
     first, second = send(centrum, run_id), send(centrum, run_id)
 
     assert first == second == {"state": "sent"}
-    assert len(centrum.report_box.keys) == 1
+    assert len(centrum.surroundings.report_box.keys) == 1
     assert current_report(centrum) == {"state": "sent"}
 
 
@@ -200,10 +199,10 @@ def test_potwierdzenie_wyslania_przetrwa_restart_centrum(tmp_path: Path, monkeyp
     assert current_report(centrum) == {"state": "sent"}
     diagnose(centrum, again)
     assert send(centrum, again) == {"state": "sent"}
-    assert len(centrum.report_box.keys) == 1
+    assert len(centrum.surroundings.report_box.keys) == 1
     sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
     [fingerprint] = [line.removeprefix("- Odcisk problemu: ") for line in body.splitlines() if "Odcisk problemu" in line]
-    assert sent == [{"fingerprint": fingerprint, "number": 1, "commit": tool_head()}]
+    assert sent == [{"fingerprint": fingerprint, "number": 1, "commit": TOOL_COMMIT}]
 
 
 def test_zatrzymanie_dla_taty_nie_proponuje_zgloszenia(tmp_path: Path) -> None:
@@ -227,7 +226,7 @@ def test_wyslanie_bez_diagnozy_jest_odrzucone(tmp_path: Path, monkeypatch: pytes
         409,
         {"message": "Zgłoszenie powstaje z Diagnozy. Najpierw kliknij „Diagnoza”."},
     )
-    assert centrum.report_box.keys == []
+    assert centrum.surroundings.report_box.keys == []
 
 
 def test_konfiguracja_pokazuje_stan_klucza_do_zgloszen_bez_jego_wartosci(tmp_path: Path) -> None:
@@ -239,10 +238,3 @@ def test_konfiguracja_pokazuje_stan_klucza_do_zgloszen_bez_jego_wartosci(tmp_pat
 
     assert (missing["reports"], ready.json()["reports"]) == ("missing_key", "ready")
     assert KEY not in ready.text
-
-
-def tool_head() -> str:
-    """Commit narzędzia według samego Gita, niezależnie od tego, jak czyta go Centrum."""
-
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True)
-    return head.stdout.strip()

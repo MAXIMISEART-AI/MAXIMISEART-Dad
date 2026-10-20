@@ -13,15 +13,22 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.report_box import Report, SendOutcome, Sent
 from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.centrum.tool_freshness import ToolFreshness
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 CENTRUM = "http://127.0.0.1:47811"
+# Syntetyczny commit narzędzia; testy nigdy nie czytają prawdziwego `main` z GitHuba.
+TOOL_COMMIT = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
+# Atrybuty plików Windows: zwykły plik i plik OneDrive „tylko online” (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS).
+NORMAL_FILE = 0x80
+ONLINE_ONLY_FILE = 0x400000
 
 
 @dataclass
@@ -68,6 +75,30 @@ class FakeReportBox:
 
 
 @dataclass
+class FakeGitHub:
+    """Commit narzędzia u taty i commit `main` na GitHubie; ``main=None`` to brak sieci."""
+
+    tool_commit: str | None = TOOL_COMMIT
+    main: str | None = TOOL_COMMIT
+
+    def freshness(self) -> ToolFreshness:
+        return ToolFreshness(local=lambda: self.tool_commit, main=lambda: self.main)
+
+
+@dataclass
+class FakeOneDrive:
+    """Atrybuty plików jak w Windows: pliki z ``online_only`` są tylko w OneDrive w chmurze."""
+
+    online_only: set[Path] = field(default_factory=set)
+
+    def attributes(self, path: Path) -> int:
+        return ONLINE_ONLY_FILE if path in self.online_only else NORMAL_FILE
+
+    def cloud_files(self) -> CloudFiles:
+        return CloudFiles(read_attributes=self.attributes)
+
+
+@dataclass
 class Centrum:
     client: TestClient
     platform: FakePlatform
@@ -92,6 +123,8 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         shutdown=Shutdown(log),
         today=lambda: today,
         metrics_files=metrics,
+        tool_freshness=FakeGitHub().freshness(),
+        cloud_files=FakeOneDrive().cloud_files(),
         report_box=report_box,
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
