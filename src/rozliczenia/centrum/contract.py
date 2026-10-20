@@ -508,11 +508,14 @@ class Diagnosis(_Model):
     ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
     „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
     Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+    ``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc
+    Diagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem.
     """
 
     explanation: Message
     confirms_stop: bool
     next_action: Literal["rerun", "report"]
+    update_proposal: bool
     checks: list[DiagnosisCheck]
     report: ReportDraft
 

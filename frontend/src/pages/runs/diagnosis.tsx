@@ -1,5 +1,6 @@
 import * as React from "react"
 import {
+  CircleArrowUpIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleXIcon,
@@ -27,6 +28,7 @@ type StopDiagnosis = {
  * Diagnoza Zatrzymania Uruchomienia `runId`; wynik i rodzaj przyczyny liczy serwer. Przy `offer`
  * `automatic` (nieoczekiwany błąd) zaczyna się sama po pokazaniu wyniku, inaczej na żądanie taty.
  * Gdy wyjaśnienie to ten sam Komunikat co Zatrzymanie (`confirms_stop`), nie powtarza go drugi raz.
+ * Nowsza wersja narzędzia obok innej przyczyny (`update_proposal`) to jedno ciche zdanie pod wyjaśnieniem.
  * Pod wynikiem jest Zgłoszenie do Maksa (`report`): przed Diagnozą tylko jego potwierdzenie albo zapisany plik.
  */
 export function useStopDiagnosis(
@@ -84,6 +86,7 @@ export function useStopDiagnosis(
         ) : (
           <ThreePartMessage message={diagnosis.explanation} kind="diagnosis" action={rerun} />
         )}
+        {diagnosis.update_proposal ? <UpdateProposal /> : null}
         <Checks checks={diagnosis.checks} />
         {report === null ? null : (
           <ReportToMaks
@@ -96,6 +99,16 @@ export function useStopDiagnosis(
       </section>
     ),
   }
+}
+
+/** Propozycja Aktualizacji narzędzia: ciszej niż wyjaśnienie, bo przyczyną Zatrzymania jest co innego. */
+function UpdateProposal() {
+  return (
+    <p role="note" aria-label="Propozycja aktualizacji" className="flex items-center gap-2 text-sm text-muted-foreground">
+      <CircleArrowUpIcon className="size-4" aria-hidden />
+      Jest też nowsza wersja narzędzia.
+    </p>
+  )
 }
 
 /** Przycisk „Diagnoza” przy Zatrzymaniu; w trakcie sprawdzania pokazuje, że trwa. */
