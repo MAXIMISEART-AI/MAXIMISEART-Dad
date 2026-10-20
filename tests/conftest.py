@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 
@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient  # noqa: E402  (po ścieżce do src)
 from starlette.types import ASGIApp, Message, Receive, Scope, Send  # noqa: E402
 
 from rozliczenia import settings as settings_file  # noqa: E402
-from rozliczenia.centrum import tool_freshness  # noqa: E402
+from rozliczenia.centrum import report_box, tool_freshness  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 
 _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
@@ -36,6 +36,16 @@ def bez_githuba(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("Test Centrum sięga do GitHuba; podstaw tool_freshness w create_app.")
 
     monkeypatch.setattr(tool_freshness, "github_main_commit", github_in_test)
+
+
+@pytest.fixture(autouse=True)
+def bez_skrzynki_zgloszen_na_githubie(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Żaden test nie wysyła Zgłoszenia na GitHub: Centrum bez podstawionej skrzynki kończy wysyłkę odpowiedzią 500."""
+
+    def github_in_test(request: object) -> NoReturn:
+        raise AssertionError("Test Centrum wysyła Zgłoszenie na GitHub; podstaw report_box w create_app.")
+
+    monkeypatch.setattr(report_box, "urllib_transport", github_in_test)
 
 
 @pytest.fixture(autouse=True)

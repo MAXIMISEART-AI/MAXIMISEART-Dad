@@ -97,14 +97,15 @@ def urllib_transport(request: HttpRequest) -> HttpResponse:
 class GitHubReportBox:
     """Prywatne repozytorium Zgłoszeń na GitHubie przez REST API, z kluczem taty (token fine-grained Maksa)."""
 
-    def __init__(self, repository: str = REPOSITORY, transport: Transport = urllib_transport) -> None:
+    def __init__(self, repository: str = REPOSITORY, transport: Transport | None = None) -> None:
         self._repository = repository
         self._transport = transport
 
     def send(self, report: Report, *, key: str) -> SendOutcome:
         payload = {"title": report.title, "body": report.body, "labels": [LABEL]}
+        transport = self._transport or urllib_transport  # odczyt przy wysyłce: testy blokują go w conftest
         try:
-            response = self._transport(
+            response = transport(
                 HttpRequest(
                     method="POST",
                     url=f"{_API}/repos/{self._repository}/issues",
