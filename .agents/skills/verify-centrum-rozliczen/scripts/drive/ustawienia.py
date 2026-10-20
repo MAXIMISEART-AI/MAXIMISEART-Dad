@@ -81,7 +81,7 @@ def drive_settings(run: Run, page: Page) -> None:
         ):
             page.get_by_role("button", name=click, exact=True).click()
             expect(page.get_by_role("button", name=then, exact=True)).to_be_visible()
-            run.wait_for(lambda theme=theme: run.remembered("motyw") == theme, f"the settings file remembers {theme}")
+            run.wait_for(lambda: run.remembered("motyw") == theme, f"the settings file remembers {theme}")
         page.wait_for_timeout(400)  # a remount after the server's answer would read the start again by now
     finally:
         page.remove_listener("request", count_setup)

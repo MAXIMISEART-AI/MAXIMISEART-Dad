@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 
-from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import Locator, Page, ViewportSize, expect
 
 from drive.common import DAD_TIME_ZONE, LAST_COMPLETE_FOR_CLI, REPO_ROOT, Run, choose_periods_directory, history_rows
 
@@ -17,7 +17,7 @@ CHART_RUNS = 12
 # A bar is at most this wide, and narrower when its share of the chart is smaller (like recharts' `maxBarSize`).
 MAX_BAR_PX = 28
 # The smallest phone window: the seven bars of Przygotowanie RUN do not fit side by side at the widest size there.
-NARROW_VIEWPORT = {"width": 320, "height": 640}
+NARROW_VIEWPORT: ViewportSize = {"width": 320, "height": 640}
 # Left and right edge of every bar's segments, oldest bar first.
 BAR_EDGES = """(figure) => [...figure.querySelectorAll("[role=button]")].map((bar) => {
   const boxes = [...bar.querySelectorAll("[data-phase]")].map((segment) => segment.getBoundingClientRect());
