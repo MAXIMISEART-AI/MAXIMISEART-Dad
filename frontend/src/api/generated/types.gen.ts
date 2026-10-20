@@ -111,6 +111,10 @@ export type Configuration = {
     } & WorkersReady) | ({
         state: 'unreadable';
     } & WorkersUnreadable);
+    /**
+     * Reports
+     */
+    reports: 'ready' | 'missing_key';
 };
 
 /**
@@ -167,6 +171,54 @@ export type DecisionAnswer = {
      * Answer
      */
     answer: 'continue' | 'abort';
+};
+
+/**
+ * Diagnosis
+ *
+ * Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
+ *
+ * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
+ * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
+ * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+ * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
+ * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+ */
+export type Diagnosis = {
+    explanation: Message;
+    /**
+     * Confirms Stop
+     */
+    confirms_stop: boolean;
+    /**
+     * Next Action
+     */
+    next_action: 'rerun' | 'report';
+    /**
+     * Checks
+     */
+    checks: Array<DiagnosisCheck>;
+    report: ReportDraft;
+};
+
+/**
+ * DiagnosisCheck
+ *
+ * Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek.
+ */
+export type DiagnosisCheck = {
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * State
+     */
+    state: 'passed' | 'failed' | 'not_checked';
+    /**
+     * Detail
+     */
+    detail: string;
 };
 
 /**
@@ -705,6 +757,88 @@ export type RecentResults = {
 };
 
 /**
+ * RepairNotice
+ *
+ * Powiadomienie o naprawie na stronie Okresy.
+ *
+ * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
+ * działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+ */
+export type RepairNotice = {
+    /**
+     * Repaired
+     */
+    repaired: boolean;
+};
+
+/**
+ * ReportDraft
+ *
+ * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
+ */
+export type ReportDraft = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Body
+     */
+    body: string;
+};
+
+/**
+ * ReportReady
+ *
+ * Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy.
+ */
+export type ReportReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+};
+
+/**
+ * ReportSaved
+ *
+ * Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.
+ *
+ * ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie.
+ */
+export type ReportSaved = {
+    /**
+     * State
+     */
+    state: 'saved';
+    message: Message;
+};
+
+/**
+ * ReportSent
+ *
+ * Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę.
+ */
+export type ReportSent = {
+    /**
+     * State
+     */
+    state: 'sent';
+};
+
+/**
+ * ReportWaiting
+ *
+ * Zgłoszenie tego problemu wysłano wcześniej i jest otwarte: czeka na naprawę, drugie nie powstaje.
+ */
+export type ReportWaiting = {
+    /**
+     * State
+     */
+    state: 'waiting';
+};
+
+/**
  * ResultCounts
  */
 export type ResultCounts = {
@@ -828,8 +962,11 @@ export type RunInfo = {
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to jedyna
- * akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku.
+ * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+ * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
+ * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
  */
 export type RunOutcome = {
     /**
@@ -848,6 +985,26 @@ export type RunOutcome = {
      * Next Action
      */
     next_action: 'run' | 'rerun' | 'open_period_folder';
+    /**
+     * Stop Kind
+     */
+    stop_kind: 'for_tata' | 'for_maks' | 'repeated' | null;
+    /**
+     * Diagnosis
+     */
+    diagnosis: 'on_request' | 'automatic' | null;
+    /**
+     * Report
+     */
+    report: ({
+        state: 'ready';
+    } & ReportReady) | ({
+        state: 'sent';
+    } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
+        state: 'saved';
+    } & ReportSaved) | null;
     /**
      * Stops
      */
@@ -1388,6 +1545,108 @@ export type StreamRunEventsResponses = {
 };
 
 export type StreamRunEventsResponse = StreamRunEventsResponses[keyof StreamRunEventsResponses];
+
+export type DiagnoseRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/runs/{run_id}/diagnosis';
+};
+
+export type DiagnoseRunErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DiagnoseRunError = DiagnoseRunErrors[keyof DiagnoseRunErrors];
+
+export type DiagnoseRunResponses = {
+    /**
+     * Successful Response
+     */
+    200: Diagnosis;
+};
+
+export type DiagnoseRunResponse = DiagnoseRunResponses[keyof DiagnoseRunResponses];
+
+export type ReportRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/runs/{run_id}/report';
+};
+
+export type ReportRunErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ReportRunError = ReportRunErrors[keyof ReportRunErrors];
+
+export type ReportRunResponses = {
+    /**
+     * Response Reportrun
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'ready';
+    } & ReportReady) | ({
+        state: 'sent';
+    } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
+        state: 'saved';
+    } & ReportSaved);
+};
+
+export type ReportRunResponse = ReportRunResponses[keyof ReportRunResponses];
+
+export type GetRepairNoticeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/reports/repair';
+};
+
+export type GetRepairNoticeResponses = {
+    /**
+     * Successful Response
+     */
+    200: RepairNotice;
+};
+
+export type GetRepairNoticeResponse = GetRepairNoticeResponses[keyof GetRepairNoticeResponses];
 
 export type GetMetricsData = {
     body?: never;

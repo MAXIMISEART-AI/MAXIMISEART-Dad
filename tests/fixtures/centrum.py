@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import tomllib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
@@ -13,14 +14,30 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.report_box import (
+    FindOutcome,
+    Refused,
+    Report,
+    SendOutcome,
+    Sent,
+    StatesOutcome,
+    Unreachable,
+)
 from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.centrum.tool_freshness import ToolFreshness
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 CENTRUM = "http://127.0.0.1:47811"
+# Syntetyczny commit narzędzia; testy nigdy nie czytają prawdziwego `main` z GitHuba.
+TOOL_COMMIT = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
+# Atrybuty plików Windows: zwykły plik i plik OneDrive „tylko online” (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS).
+NORMAL_FILE = 0x80
+ONLINE_ONLY_FILE = 0x400000
 
 
 @dataclass
@@ -48,16 +65,108 @@ class FakePlatform:
 
 
 @dataclass
+class FakeReportBox:
+    """Skrzynka Zgłoszeń zastąpiona zapisem wysłanych Zgłoszeń i przygotowanymi wynikami wysyłki.
+
+    Bez przygotowanego wyniku każde Zgłoszenie dostaje kolejny numer issue i jest
+    otwarte (``open``: odcisk problemu → numer), dopóki Maks nie zamknie jego
+    numeru (``close``). ``search_failure`` to odmowa albo brak połączenia przy
+    każdym pytaniu o otwarte Zgłoszenie, ``states_failure`` to porażka każdego
+    zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
+    ``search_hold`` to skrzynka, która na pytanie o otwarte Zgłoszenie odpowiada
+    dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
+    mówi, że takie pytanie już trwa.
+    """
+
+    outcomes: list[SendOutcome] = field(default_factory=list)
+    sent: list[Report] = field(default_factory=list)
+    keys: list[str] = field(default_factory=list)
+    open: dict[str, int] = field(default_factory=dict)
+    closed: set[int] = field(default_factory=set)
+    search_failure: Refused | Unreachable | None = None
+    states_failure: Refused | Unreachable | None = None
+    asked: list[list[int]] = field(default_factory=list)
+    search_hold: threading.Event | None = None
+    searching: threading.Event = field(default_factory=threading.Event)
+
+    def send(self, report: Report, *, key: str) -> SendOutcome:
+        self.keys.append(key)
+        outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.sent) + 1)
+        if isinstance(outcome, Sent):
+            self.sent.append(report)
+            self.open[report.fingerprint] = outcome.number
+        return outcome
+
+    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+        self.searching.set()
+        if self.search_hold is not None:
+            self.search_hold.wait()
+        if self.search_failure is not None:
+            return self.search_failure
+        number = self.open.get(fingerprint)
+        return None if number is None or number in self.closed else number
+
+    def close(self, number: int) -> None:
+        self.closed.add(number)
+
+    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
+        assert key, "skrzynka pytana bez klucza"
+        self.asked.append(list(numbers))
+        if self.states_failure is not None:
+            return self.states_failure
+        return {number: "closed" if number in self.closed else "open" for number in numbers}
+
+
+@dataclass
+class FakeClock:
+    """Zegar monotoniczny Centrum w sekundach, przesuwany przez test."""
+
+    seconds: float = 0.0
+
+    def __call__(self) -> float:
+        return self.seconds
+
+    def advance(self, *, minutes: float) -> None:
+        self.seconds += minutes * 60
+
+
+@dataclass
+class FakeGitHub:
+    """Commit narzędzia u taty i commit `main` na GitHubie; ``main=None`` to brak sieci."""
+
+    tool_commit: str | None = TOOL_COMMIT
+    main: str | None = TOOL_COMMIT
+
+    def freshness(self) -> ToolFreshness:
+        return ToolFreshness(local=lambda: self.tool_commit, main=lambda: self.main)
+
+
+@dataclass
+class FakeOneDrive:
+    """Atrybuty plików jak w Windows: pliki z ``online_only`` są tylko w OneDrive w chmurze."""
+
+    online_only: set[Path] = field(default_factory=set)
+
+    def attributes(self, path: Path) -> int:
+        return ONLINE_ONLY_FILE if path in self.online_only else NORMAL_FILE
+
+    def cloud_files(self) -> CloudFiles:
+        return CloudFiles(read_attributes=self.attributes)
+
+
+@dataclass
 class Centrum:
     client: TestClient
     platform: FakePlatform
     settings_path: Path
     metrics: MetricsFiles
     log_path: Path
+    report_box: FakeReportBox
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     platform = FakePlatform()
+    report_box = FakeReportBox()
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
     # Pliki metryk obu procesów w katalogu testu, nigdy historia z katalogu narzędzia.
     metrics = MetricsFiles(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
@@ -70,9 +179,12 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         shutdown=Shutdown(log),
         today=lambda: today,
         metrics_files=metrics,
+        tool_freshness=FakeGitHub().freshness(),
+        cloud_files=FakeOneDrive().cloud_files(),
+        report_box=report_box,
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path, metrics, log_path)
+    return Centrum(client, platform, settings_path, metrics, log_path, report_box)
 
 
 def project_version() -> str:

@@ -20,6 +20,7 @@ import { FileSettingsCard } from "@/pages/periods/file-settings-card"
 import { NextStepCard } from "@/pages/periods/next-step-card"
 import { PeriodBoardTable } from "@/pages/periods/period-board-table"
 import { PeriodStats } from "@/pages/periods/period-stats"
+import { RepairNotice } from "@/pages/periods/repair-notice"
 
 export function PeriodsPage() {
   const { settings } = useSettings()
@@ -27,6 +28,7 @@ export function PeriodsPage() {
   return (
     <>
       <PageHeader title="Okresy" />
+      <RepairNotice />
       {settings.state === "loading" ? <PeriodsSkeleton /> : null}
       {settings.state === "failed" ? <Failure message={settings.message} /> : null}
       {settings.state === "ready" ? (

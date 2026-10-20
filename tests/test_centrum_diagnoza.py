@@ -1,0 +1,617 @@
+"""Rodzaj Zatrzymania, powtórka i Diagnoza w Centrum rozliczeń przez HTTP API, jak widzi je przeglądarka."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+import json
+from pathlib import Path
+import sys
+from typing import Any, NoReturn
+
+import pytest
+
+from rozliczenia import preparation_register
+
+from tests.fixtures.centrum import FakeGitHub
+from tests.fixtures.centrum_processes import (
+    PreparingCentrum,
+    SettlingCentrum,
+    Surroundings,
+    preparing_centrum,
+    run_to_end,
+    settling_centrum,
+    stopped_for_maks,
+)
+from tests.fixtures.preparation import (
+    INTERNAL_SETTLEMENT_NAME,
+    PERIOD,
+    REGISTER_HEADERS,
+    month_periods_folder,
+    write_register,
+)
+
+
+def lock(path: Path) -> Path:
+    """Plik blokady Excela obok skoroszytu, jak przy otwartym albo źle zamkniętym Excelu."""
+
+    lock_file = path.with_name(f"~${path.name}")
+    lock_file.touch()
+    return lock_file
+
+
+def stop_of(centrum: PreparingCentrum, *, dry_run: bool = True) -> dict[str, object]:
+    result = run_to_end(centrum, dry_run=dry_run)["result"]
+    assert result["ending"] != "finished", result
+    return dict(result)
+
+
+def test_zatrzymanie_dla_taty_proponuje_uruchom_ponownie(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    lock(centrum.fixture.register_path)
+
+    result = stop_of(centrum)
+
+    assert (result["stop_kind"], result["next_action"], result["diagnosis"]) == ("for_tata", "rerun", None)
+
+
+def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    centrum.fixture.internal_template_path.unlink()
+
+    result = stop_of(centrum)
+
+    assert (result["stop_kind"], result["diagnosis"]) == ("for_maks", "on_request")
+
+
+def test_nieoczekiwany_wyjatek_jest_do_maksa_a_diagnoza_zaczyna_sie_sama(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+
+    result = stop_of(centrum)
+
+    assert (result["ending"], result["stop_kind"], result["diagnosis"]) == ("unexpected", "for_maks", "automatic")
+
+
+def test_identyczny_komunikat_przy_ponownym_uruchomieniu_to_powtorka(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    lock(centrum.fixture.register_path)
+    stop_of(centrum)
+
+    again = stop_of(centrum)
+
+    assert (again["stop_kind"], again["diagnosis"]) == ("repeated", "on_request")
+
+
+def test_inny_komunikat_przy_ponownym_uruchomieniu_nie_jest_powtorka(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    register_lock = lock(centrum.fixture.register_path)
+    stop_of(centrum)
+    register_lock.unlink()
+    lock(centrum.fixture.internal_template_path)
+
+    again = stop_of(centrum)
+
+    assert again["stop_kind"] == "for_tata"
+
+
+def test_uruchomienie_bez_zatrzymania_przerywa_powtorke(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    register_lock = lock(centrum.fixture.register_path)
+    stop_of(centrum)
+    register_lock.unlink()
+    assert run_to_end(centrum, dry_run=True)["result"]["stop_kind"] is None
+    lock(centrum.fixture.register_path)
+
+    again = stop_of(centrum)
+
+    assert again["stop_kind"] == "for_tata"
+
+
+def test_restart_centrum_zeruje_pamiec_powtorki(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    lock(centrum.fixture.register_path)
+    stop_of(centrum)
+
+    centrum.restart()
+    again = stop_of(centrum)
+
+    assert again["stop_kind"] == "for_tata"
+
+
+NOT_FOUND = {
+    "what": "Nie znalazłem przyczyny na tym komputerze.",
+    "where": "Diagnoza w Centrum rozliczeń",
+    "action": "Wyślij do Maksa.",
+}
+
+
+def diagnose(centrum: PreparingCentrum | SettlingCentrum, run_id: str) -> dict[str, Any]:
+    response = centrum.client.post(f"/api/runs/{run_id}/diagnosis")
+    assert response.status_code == 200, response.json()
+    diagnosis: dict[str, Any] = response.json()
+    assert "SYN-" not in json.dumps(diagnosis, ensure_ascii=False)
+    return diagnosis
+
+
+def check_states(diagnosis: dict[str, Any]) -> dict[str, str]:
+    return {check["label"]: check["state"] for check in diagnosis["checks"]}
+
+
+def test_diagnoza_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert (diagnosis["explanation"], diagnosis["next_action"], diagnosis["confirms_stop"]) == (NOT_FOUND, "report", False)
+    assert set(check_states(diagnosis).values()) == {"passed"}
+
+
+def test_diagnoza_dla_zatrzymania_dla_taty_jest_odrzucona(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    lock(centrum.fixture.register_path)
+    run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
+
+    refused = centrum.client.post(f"/api/runs/{run_id}/diagnosis")
+
+    assert (refused.status_code, refused.json()) == (
+        409,
+        {"message": "Diagnoza jest przy Zatrzymaniu do Maksa albo przy powtórce tego samego Komunikatu."},
+    )
+
+
+def test_diagnoza_nieznanego_uruchomienia_jest_odrzucona(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    refused = centrum.client.post("/api/runs/nieznane/diagnosis")
+
+    assert (refused.status_code, refused.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
+
+
+def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_onedrive_rejestr_wzorce_folder_okresu_i_dziennik(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    checks = diagnose(centrum, run_id)["checks"]
+
+    assert [(check["label"], check["detail"]) for check in checks] == [
+        ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
+        ("Ustawienia taty", "Rejestr zleceń i folder okresów są na miejscu."),
+        ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
+        ("Rejestr zleceń", "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki."),
+        ("Wzorzec rozliczenia wewnętrznego", "Wzorzec rozliczenia wewnętrznego.xlsx przechodzi Sprawdzanie."),
+        ("Wzorzec pliku zbiorczego", "Wzorzec pliku zbiorczego.xlsx przechodzi Sprawdzanie."),
+        ("Konfiguracja wykonawców", "Wczytuje się."),
+        ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
+        ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
+        ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2."),
+    ]
+
+
+def test_powtorka_zatrzymania_dla_taty_wyjasnia_przyczyne_i_proponuje_uruchom_ponownie(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    lock(centrum.fixture.register_path)
+    stop_of(centrum)
+    repeated = run_to_end(centrum, dry_run=True)
+    assert repeated["result"]["stop_kind"] == "repeated"
+
+    diagnosis = diagnose(centrum, repeated["run"]["id"])
+
+    assert (diagnosis["next_action"], diagnosis["confirms_stop"]) == ("rerun", True)
+    assert diagnosis["explanation"] == repeated["result"]["stops"][0]
+    assert diagnosis["explanation"]["what"] == "Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku."
+    assert check_states(diagnosis)["Rejestr zleceń"] == "failed"
+
+
+def test_zatrzymanie_do_maksa_bez_wzorca_wyjasnia_brak_wzorca(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    centrum.fixture.collective_template_path.unlink()
+    stopped = run_to_end(centrum, dry_run=True)
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert diagnosis["explanation"] == stopped["result"]["stops"][0]
+    assert diagnosis["explanation"]["where"] == "plik Wzorzec pliku zbiorczego.xlsx, folder config"
+    assert diagnosis["next_action"] == "report"
+    assert check_states(diagnosis)["Wzorzec rozliczenia wewnętrznego"] == "passed"
+    assert check_states(diagnosis)["Wzorzec pliku zbiorczego"] == "failed"
+
+
+@pytest.mark.parametrize(
+    ("break_computer", "label", "what"),
+    [
+        (
+            lambda centrum: centrum.fixture.register_path.unlink(),
+            "Ustawienia taty",
+            "Nie znaleziono Rejestru zleceń. Nie utworzono żadnego pliku.",
+        ),
+        (
+            lambda centrum: centrum.fixture.periods_directory.rename(centrum.tmp_path / "INEA stary"),
+            "Ustawienia taty",
+            "Nie znaleziono folderu okresów. Nie utworzono żadnego pliku.",
+        ),
+        (
+            lambda centrum: centrum.fixture.register_path.write_bytes(b"to nie jest skoroszyt"),
+            "Rejestr zleceń",
+            "Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. "
+            "Nie utworzono żadnego pliku.",
+        ),
+        (
+            lambda centrum: write_register(
+                centrum.fixture.register_path,
+                headers=tuple(header for header in REGISTER_HEADERS if header != "SKUTECZNE"),
+            ),
+            "Rejestr zleceń",
+            "W Rejestrze zleceń brakuje wymaganego nagłówka SKUTECZNE. Nie utworzono żadnego pliku.",
+        ),
+        (
+            lambda centrum: centrum.fixture.config_path.write_text("workers: [", encoding="utf-8"),
+            "Konfiguracja wykonawców",
+            "Konfiguracja wykonawców jest niepoprawna. Plik nie jest poprawnym YAML.",
+        ),
+        (
+            lambda centrum: (month_periods_folder(centrum.fixture.periods_directory, "09_Wrzesień_2026") / PERIOD).mkdir(),
+            "Folder okresu",
+            None,
+        ),
+    ],
+    ids=["brak-rejestru", "brak-folderu-okresow", "uszkodzony-rejestr", "brak-naglowka", "zla-konfiguracja", "folder-okresu-w-miesiacu"],
+)
+def test_diagnoza_wyjasnia_pierwszym_sprawdzeniem_ktore_nie_przeszlo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    break_computer: Callable[[PreparingCentrum], object],
+    label: str,
+    what: str | None,
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    break_computer(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    if what is None:
+        assert (diagnosis["explanation"], check_states(diagnosis)[label]) == (NOT_FOUND, "passed")
+    else:
+        assert (diagnosis["explanation"]["what"], check_states(diagnosis)[label]) == (what, "failed")
+        assert next(check["detail"] for check in diagnosis["checks"] if check["label"] == label) == what
+
+
+def test_folder_okresu_w_kilku_miesiacach_wyjasnia_ktory_zostawic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    for month in ("08_Sierpień_2026", "09_Wrzesień_2026"):
+        (month_periods_folder(centrum.fixture.periods_directory, month) / PERIOD).mkdir()
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"]["where"] == (
+        "Rozliczenia 2026\\08_Sierpień_2026\\INEA, Rozliczenia 2026\\09_Wrzesień_2026\\INEA"
+    )
+    assert (diagnosis["next_action"], check_states(diagnosis)["Pliki okresu w Excelu"]) == ("rerun", "not_checked")
+
+
+def test_brak_folderu_okresu_w_ukladzie_folderow_taty_wyjasnia_gdzie_go_zalozyc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    month_periods_folder(centrum.fixture.periods_directory, "08_Sierpień_2026")
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"]["what"] == (
+        "Nie znaleziono folderu 08_14_09_2026 w żadnym folderze miesiąca. Nie utworzono żadnego pliku."
+    )
+
+
+def test_plik_okresu_otwarty_w_excelu_wyjasnia_jak_go_zamknac(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    centrum.fixture.period_directory.mkdir()
+    centrum.fixture.internal_settlement_path.touch()
+    lock(centrum.fixture.internal_settlement_path)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Plik okresu jest otwarty w Excelu.",
+        "where": f"plik {INTERNAL_SETTLEMENT_NAME}, folder {PERIOD}",
+        "action": (
+            "Zapisz i zamknij plik w Excelu, potem uruchom ponownie. Jeśli Excel jest zamknięty, "
+            f"usuń z tego samego folderu pozostawiony plik ~${INTERNAL_SETTLEMENT_NAME} i uruchom ponownie."
+        ),
+    }
+    assert diagnosis["next_action"] == "rerun"
+    assert next(check for check in diagnosis["checks"] if check["label"] == "Folder okresu")["detail"] == (
+        "Pliki okresu: Rozliczenie wewnętrzne."
+    )
+
+
+def test_rozliczenie_pracownika_otwarte_w_excelu_wyjasnia_jak_je_zamknac(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    centrum.worker_settlements.mkdir()
+    worker_file = centrum.worker_settlements / "Rozliczenie Wykonawca Testowy A.xlsx"
+    worker_file.touch()
+    lock(worker_file)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert (diagnosis["explanation"]["what"], diagnosis["explanation"]["where"]) == (
+        "Plik okresu jest otwarty w Excelu.",
+        f"plik {worker_file.name}, folder {centrum.worker_settlements.name}",
+    )
+    assert check(diagnosis, "Pliki okresu w Excelu")[0] == "failed"
+
+
+UNEXPECTED_LOG_ENTRY = "2026-09-16T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyError miejsce=\"GET /api/periods\"\n"
+
+
+def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_a_dziennik_tylko_go_wymienia(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+
+    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+
+    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+    stopped = run_to_end(centrum, dry_run=True)
+    monkeypatch.undo()
+    with centrum.log_path.open("a", encoding="utf-8") as log:
+        log.write(UNEXPECTED_LOG_ENTRY)
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
+        "passed",
+        "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",
+    )
+
+
+def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    previous = centrum.log_path.read_text(encoding="utf-8")
+    centrum.log_path.write_text(
+        UNEXPECTED_LOG_ENTRY.replace("2026-09-16T10", "2026-09-15T10")
+        + "2026-09-16T09:00:00+02:00 start port=47811 wersja=0.1.0 konsola=nie\n"
+        + previous,
+        encoding="utf-8",
+    )
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == ("passed", "Ostatnie wpisy od startu Centrum: 3.")
+
+
+def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    passing = diagnose(centrum, run_id)
+    centrum.collective_file.unlink()
+    missing = diagnose(centrum, run_id)
+
+    assert [(check["label"], check["state"]) for check in passing["checks"]] == [
+        ("Aktualność narzędzia", "passed"),
+        ("Ustawienia taty", "passed"),
+        ("Pliki w OneDrive", "passed"),
+        ("Wzorzec rozliczenia pracownika", "passed"),
+        ("Konfiguracja wykonawców", "passed"),
+        ("Folder okresu", "passed"),
+        ("Pliki okresu w Excelu", "passed"),
+        ("Dziennik Centrum rozliczeń", "passed"),
+    ]
+    assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
+    assert (passing["explanation"], missing["next_action"]) == (NOT_FOUND, "rerun")
+    assert missing["explanation"]["what"] == "Nie znaleziono Pliku zbiorczego tego okresu. Nie utworzono żadnego pliku pracownika."
+
+
+def test_diagnoza_przebiegu_wyjasnia_zly_wzorzec_rozliczenia_pracownika(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    centrum.configuration.worker_template.write_bytes(b"to nie jest skoroszyt")
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check_states(diagnosis)["Wzorzec rozliczenia pracownika"] == "failed"
+    assert diagnosis["explanation"]["where"] == "plik Wzorzec rozliczenia pracownika.xlsx, folder config"
+
+
+def test_diagnoza_niczego_nie_zmienia_w_plikach_taty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    centrum.fixture.period_directory.mkdir()
+    centrum.fixture.internal_settlement_path.write_bytes(b"syntetyczny plik okresu")
+    lock(centrum.fixture.register_path)
+    before = files_of(tmp_path)
+
+    diagnose(centrum, run_id)
+
+    assert files_of(tmp_path) == before
+
+
+def files_of(root: Path) -> dict[str, bytes]:
+    """Każdy plik pod ``root`` z treścią, bez dziennika Centrum, który Diagnoza uzupełnia o swój wpis."""
+
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and "logs" not in path.relative_to(root).parts
+    }
+
+
+def check(diagnosis: dict[str, Any], label: str) -> tuple[str, str]:
+    found = next(check for check in diagnosis["checks"] if check["label"] == label)
+    return found["state"], found["detail"]
+
+
+def test_aktualne_narzedzie_przechodzi_sprawdzenie_aktualnosci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Aktualność narzędzia") == ("passed", "Najnowsza wersja z GitHuba, commit 3c1d0a9.")
+    assert diagnosis["explanation"] == NOT_FOUND
+
+
+def test_nowsza_wersja_na_githubie_wyjasnia_ze_trzeba_zaktualizowac_narzedzie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    surroundings = Surroundings(github=FakeGitHub(main="9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"))
+    centrum = preparing_centrum(tmp_path, surroundings=surroundings)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    lock(centrum.fixture.register_path)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Jest nowsza wersja narzędzia.",
+        "where": "narzędzie na tym komputerze",
+        "action": "Zaktualizuj narzędzie, zamknij Centrum rozliczeń i otwórz je ponownie skrótem, potem uruchom ponownie.",
+    }
+    assert diagnosis["next_action"] == "rerun"
+    assert check(diagnosis, "Aktualność narzędzia") == ("failed", "Jest nowsza wersja narzędzia.")
+
+
+@pytest.mark.parametrize(
+    ("github", "detail"),
+    [
+        (FakeGitHub(main=None), "Nie sprawdzono: brak połączenia z GitHubem."),
+        (FakeGitHub(tool_commit=None), "Nie sprawdzono: narzędzie na tym komputerze nie ma commitu Gita."),
+    ],
+    ids=["brak-sieci", "bez-gita"],
+)
+def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyczyna(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github: FakeGitHub, detail: str
+) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=github))
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Aktualność narzędzia") == ("not_checked", detail)
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+ONLY_IN_CLOUD_ACTION = (
+    "W Eksploratorze plików kliknij ten plik prawym przyciskiem myszy, wybierz „Zawsze zachowuj na tym urządzeniu”, "
+    "poczekaj, aż się pobierze, i uruchom ponownie."
+)
+
+
+def online_only(centrum: PreparingCentrum | SettlingCentrum, path: Path) -> None:
+    """OneDrive trzyma ``path`` tylko w chmurze, bez kopii na komputerze taty."""
+
+    onedrive = centrum.surroundings.onedrive
+    assert onedrive is not None
+    onedrive.online_only.add(path)
+
+
+def test_rejestr_tylko_w_chmurze_wyjasnia_jak_zachowac_go_na_komputerze(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    online_only(centrum, centrum.fixture.register_path)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.",
+        "where": f"plik {centrum.fixture.register_path.name}, folder {tmp_path.name}",
+        "action": ONLY_IN_CLOUD_ACTION,
+    }
+    assert diagnosis["next_action"] == "rerun"
+    assert check(diagnosis, "Pliki w OneDrive")[0] == "failed"
+
+
+@pytest.mark.parametrize(
+    "cloud_file",
+    [
+        lambda centrum: centrum.fixture.register_path,
+        lambda centrum: centrum.fixture.collective_template_path,
+    ],
+    ids=["rejestr", "wzorzec"],
+)
+def test_plik_tylko_w_chmurze_ktorego_nie_da_sie_otworzyc_wyjasnia_onedrive_a_nie_odczyt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cloud_file: Callable[[PreparingCentrum], Path]
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    path = cloud_file(centrum)
+    online_only(centrum, path)
+    path.write_bytes(b"bez kopii na komputerze OneDrive nie oddaje skoroszytu")
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"] == {
+        "what": "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.",
+        "where": f"plik {path.name}, folder {path.parent.name}",
+        "action": ONLY_IN_CLOUD_ACTION,
+    }
+
+
+def test_wzorzec_tylko_w_chmurze_jest_przyczyna(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    online_only(centrum, centrum.fixture.collective_template_path)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["explanation"]["where"] == "plik Wzorzec pliku zbiorczego.xlsx, folder config"
+    assert check(diagnosis, "Pliki w OneDrive")[0] == "failed"
+
+
+def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    passing = diagnose(centrum, run_id)
+    online_only(centrum, centrum.collective_file)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(passing, "Pliki w OneDrive") == ("passed", "Sprawdzone pliki są na tym komputerze: 2.")
+    assert diagnosis["explanation"]["what"] == "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze."
+    assert diagnosis["explanation"]["where"] == f"plik Rozliczenie {PERIOD} - zbiorcze.xlsx, folder {PERIOD}"
+
+
+def test_pliki_tylko_w_chmurze_sprawdza_tylko_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(onedrive=None))
+    run_id = stopped_for_maks(centrum, monkeypatch)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    expected = (
+        ("passed", "Sprawdzone pliki są na tym komputerze: 3.")
+        if sys.platform == "win32"
+        else ("not_checked", "Nie sprawdzono: tylko w Windows.")
+    )
+    assert check(diagnosis, "Pliki w OneDrive") == expected
+    assert diagnosis["explanation"] == NOT_FOUND

@@ -7,7 +7,10 @@ Lokalne narzędzie z dwoma procesami uruchamianymi co tydzień, w tej kolejnośc
 2. Przebieg rozliczeń rozdziela dane z Pliku zbiorczego na osobne szablony
    pracowników.
 
-Narzędzie nie używa AI ani zewnętrznych API. Instrukcja dla taty jest w
+Narzędzie nie używa AI. Łączy się tylko z API GitHuba: przy Zgłoszeniach do
+Maksa i sprawdzaniu ich stanu oraz przy sprawdzeniu aktualności narzędzia w
+Diagnozie ([ADR 0007](docs/adr/0007-zgloszenia-do-maksa-w-prywatnym-repo.md)).
+Instrukcja dla taty jest w
 [`docs/tata-instrukcja.md`](docs/tata-instrukcja.md).
 
 ## Reguły Przebiegu rozliczeń
@@ -37,6 +40,14 @@ py -3 -m pip install -r requirements.txt
 Potem jednorazowo dwukrotne kliknięcie `Zainstaluj skrót Centrum rozliczeń.cmd`
 tworzy na pulpicie skrót „Centrum rozliczeń” (zob.
 [Centrum rozliczeń](#centrum-rozliczeń-rozwój)).
+
+Żeby „Wyślij do Maksa” zakładało Zgłoszenia, Maks tworzy w ustawieniach
+GitHuba token fine-grained (tylko repozytorium
+`MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia`, uprawnienie Issues: odczyt i
+zapis, ważność do roku) i wpisuje go jako jedyną linię do
+`config\zgloszenia-klucz.txt` na komputerze taty. Plik jest poza Gitem. Bez
+niego Centrum zapisuje Zgłoszenia w `config\zgloszenia\`, a Konfiguracja
+pokazuje „Zgłoszenia: brak klucza”.
 
 Instalacja obejmuje `rich`, używany przez kolorowy dashboard CLI. Jeśli terminal
 nie obsługuje kolorów albo pakiet jest chwilowo niedostępny, narzędzie używa
