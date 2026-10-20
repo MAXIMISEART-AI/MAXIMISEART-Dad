@@ -18,3 +18,4 @@ logs/
 config/centrum-ustawienia.yaml
 config/centrum-uruchomienia.jsonl
 node_modules/
+.benchmark/
