@@ -5,12 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Literal
 
-from . import workbook_files
 from .domain import WorkerResult
 from .workbook_files import (
     WORKER_HEADER,
     ExcelRow,
-    Layout,
     Problem,
     WorkbookError,
     WorkbookSaveError,
@@ -42,18 +40,19 @@ class WorkerTemplateValidationError(Exception):
         self.problem: WorkerTemplateProblem = problem
 
 
-def validate_worker_template(path: Path) -> None:
-    """Sprawdza Wzorzec rozliczenia pracownika bez modyfikowania jego zawartości."""
+def validate_worker_template(path: Path) -> WorkerSettlementTemplate:
+    """Sprawdza Wzorzec rozliczenia pracownika bez modyfikowania jego zawartości.
 
+    Zwraca Wzorzec wczytany przy Sprawdzaniu; Przebieg rozliczeń tworzy z niego
+    Rozliczenia pracowników bez ponownego wczytywania.
+    """
+
+    template = WorkerSettlementTemplate(path)
     try:
-        with workbook_files.open_template(path, Layout.COLLECTIVE) as sheet:
-            sheet.check_worker_header()
-            if sheet.has_input_data():
-                raise WorkerTemplateValidationError(
-                    "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór."
-                )
+        template.check()
     except WorkbookError as error:
         raise _validation_error(path, error) from error
+    return template
 
 
 def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidationError:
@@ -64,6 +63,8 @@ def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidat
         return WorkerTemplateValidationError(message, "missing")
     if error.problem is Problem.OPEN_IN_EXCEL:
         return WorkerTemplateValidationError("Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.", "open_in_excel")
+    if error.problem is Problem.HAS_DATA:
+        return WorkerTemplateValidationError("Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.")
     if error.problem is Problem.LAYOUT:
         return WorkerTemplateValidationError(
             f"Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}."

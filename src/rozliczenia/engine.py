@@ -21,7 +21,7 @@ from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import ExcelRow, Problem, WorkbookError
+from .workbook_files import ExcelRow, Problem, WorkbookError, WorkerSettlementTemplate
 from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
 
 
@@ -108,7 +108,7 @@ def run_settlements(
     worker_template_path = (worker_template_path or default_worker_template_path()).expanduser().resolve()
     notify = phases.notify
 
-    def check_inputs() -> tuple[PeriodFolder, dict[str, str]]:
+    def check_inputs() -> tuple[PeriodFolder, dict[str, str], WorkerSettlementTemplate]:
         try:
             workbook_files.ensure_available(source_path)
         except WorkbookError as error:
@@ -123,12 +123,12 @@ def run_settlements(
         except WorkerConfigError as exc:
             raise StopError(settlement_messages.worker_config_problem(config_path, exc)) from exc
         try:
-            validate_worker_template(worker_template_path)
+            worker_template = validate_worker_template(worker_template_path)
         except WorkerTemplateValidationError as exc:
             raise StopError(settlement_messages.worker_template_invalid(worker_template_path, exc.message)) from exc
-        return folder, mapping
+        return folder, mapping, worker_template
 
-    folder, mapping = phases.check(check_inputs)
+    folder, mapping, worker_template = phases.check(check_inputs)
     target_directory = folder.worker_settlements
     worker_names = list(mapping.values())
     rows_by_worker, source_issues = phases.read(
@@ -144,7 +144,6 @@ def run_settlements(
     summary.issues.extend(plan_issues)
 
     def save_templates(directory: Path) -> list[WorkerResult]:
-        worker_template = workbook_files.WorkerSettlementTemplate(worker_template_path)
         results: list[WorkerResult] = []
         for template_index, worker_name in enumerate(worker_names, start=1):
             target_path = directory / folder.worker_settlement(worker_name).name

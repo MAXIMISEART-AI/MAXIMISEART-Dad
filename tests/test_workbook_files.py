@@ -35,7 +35,15 @@ from rozliczenia.workbook_files import (
 
 from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates, zip_part
 from tests.fixtures.porownanie import compare_worker_settlements
-from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture, cut_sheet_after_data_rows, external_link_parts, without_sheet, without_styles
+from tests.fixtures.workbooks import (
+    active_worksheet,
+    add_external_link_fixture,
+    cut_sheet_after_data_rows,
+    cut_sheet_after_sheet_data,
+    external_link_parts,
+    without_sheet,
+    without_styles,
+)
 from tests.fixtures.settlement import write_source, write_template
 
 
@@ -77,17 +85,32 @@ def _file_from_template(path: Path) -> None:
         assert not target.exists()
 
 
+def _check_worker_settlement_template(path: Path) -> None:
+    WorkerSettlementTemplate(path).check()
+
+
+def _worker_settlement(path: Path) -> None:
+    target = path.with_name("Rozliczenie - Wykonawca.xlsx")
+    try:
+        WorkerSettlementTemplate(path).create_settlement(target, [("syntetyczne miasto",) + (None,) * 45])
+    finally:
+        assert not target.exists()
+
+
 OPENINGS: dict[str, Callable[[Path], object]] = {
     "odczyt": read_data_rows,
     "odczyt-z-formatem": _read_with_format,
     "wzorzec": _check_template,
     "plik-z-wzorca": _file_from_template,
+    "sprawdzanie-wzorca-rozliczenia-pracownika": _check_worker_settlement_template,
+    "rozliczenie-pracownika": _worker_settlement,
 }
 
 
 DAMAGES: dict[str, Callable[[Path], None]] = {
     "nie-zip": not_a_zip,
     "uciety-xml-arkusza": cut_sheet_after_data_rows,
+    "xml-arkusza-uciety-za-wierszami-danych": cut_sheet_after_sheet_data,
     "bez-styles-xml": without_styles,
     "bez-arkusza": without_sheet,
 }
@@ -172,6 +195,7 @@ def _check_worker_header(path: Path) -> None:
 HEADER_CHECKS: dict[str, Callable[[Path], object]] = {
     "odczyt-wierszy-danych": read_data_rows,
     "wzorzec": _check_worker_header,
+    "sprawdzanie-wzorca-rozliczenia-pracownika": _check_worker_settlement_template,
 }
 
 
@@ -473,6 +497,7 @@ def test_wzorzec_z_wartoscia_w_wierszu_danych_ma_dane_a_formula_nie(tmp_path: Pa
     template_path = styled_template(tmp_path / "Wzorzec.xlsx")
     with open_template(template_path, Layout.COLLECTIVE) as sheet:
         assert not sheet.has_input_data()
+    WorkerSettlementTemplate(template_path).check()
 
     workbook = load_workbook(template_path)
     try:
@@ -482,6 +507,9 @@ def test_wzorzec_z_wartoscia_w_wierszu_danych_ma_dane_a_formula_nie(tmp_path: Pa
         workbook.close()
     with open_template(template_path, Layout.COLLECTIVE) as sheet:
         assert sheet.has_input_data()
+    with pytest.raises(WorkbookError) as raised:
+        WorkerSettlementTemplate(template_path).check()
+    assert raised.value.problem is Problem.HAS_DATA
 
 
 def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp_path: Path) -> None:
