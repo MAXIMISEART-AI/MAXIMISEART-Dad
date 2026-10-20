@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.request
 
-from playwright.sync_api import Page, Response, expect
+from playwright.sync_api import Page, Response, Route, expect
 
 from drive.common import Run, ensure_files_set
 
@@ -16,6 +17,11 @@ PAGES = (("okresy", "Okresy"), ("uruchomienia", "Uruchomienia"), ("metryki", "Me
 SERVER_TIMING = re.compile(r"centrum;dur=\d+(\.\d+)?")
 TIMED_REQUEST = re.compile(r"[a-zA-Z]+:\d+/\d+")
 PERIOD_TOKEN = re.compile(r"\d{2}_\d{2}_\d{2}_\d{4}")
+# The cold start before the menu clicks is Konfiguracja, so its data is in the tab's cache when Dad comes back.
+CACHED_IN_ROUTE = "konfiguracja"
+# A skeleton shows only once a read takes about 120 ms (index.css); a read held this long shows it for the rest.
+SLOW_READ_S = 0.6
+SKELETON_DELAY_MS = 120
 
 
 def _log_lines(run: Run) -> list[str]:
@@ -100,7 +106,40 @@ def drive_measurement(run: Run, page: Page) -> None:
     )
     run.check(all("fcp_ms" not in timing for timing in timings), "menu clicks carry no FCP")
     for timing in timings:
-        _check_requests(run, timing, f"menu click to {timing['strona']}")
+        if timing["strona"] != CACHED_IN_ROUTE:
+            _check_requests(run, timing, f"menu click to {timing['strona']}")
+    [cached] = [timing for timing in timings if timing["strona"] == CACHED_IN_ROUTE]
+    run.check(
+        "zapytania" not in cached and cached["szkielet_ms"] == "0",
+        f"back on {CACHED_IN_ROUTE}, the last data shows at once: no skeleton and no request before the content "
+        f"(the read in the background ends later; gotowe_ms={cached['gotowe_ms']})",
+    )
+
+    run.step(FEATURE, "pomiar-szkielet-widoczny")
+    page.goto("about:blank")
+    page.goto(f"{run.url}#/okresy")
+    expect(page.get_by_role("heading", name="Okresy", level=1)).to_be_visible()
+    page.wait_for_timeout(300)
+
+    def slow(route: Route) -> None:
+        time.sleep(SLOW_READ_S)
+        route.continue_()
+
+    page.route("**/api/configuration", slow)
+    since = len(_log_lines(run))
+    try:
+        page.get_by_role("link", name="Konfiguracja", exact=True).click()
+        expect(page.get_by_role("heading", name="Konfiguracja", level=1)).to_be_visible()
+        expect(page.get_by_role("list", name="Wykonawcy")).to_be_visible()
+        [timing] = _wait_for_timings(run, since, 1, "the menu click with a slow read is in the Centrum log")
+    finally:
+        page.unroute("**/api/configuration", slow)
+    ready_ms, skeleton = int(timing["gotowe_ms"]), int(timing["szkielet_ms"])
+    run.check(
+        ready_ms >= SLOW_READ_S * 1000 and 0 < skeleton <= ready_ms - SKELETON_DELAY_MS + 20,
+        f"a read held {SLOW_READ_S * 1000:.0f} ms (harness) shows the skeleton only after about {SKELETON_DELAY_MS} ms: "
+        f"szkielet_ms={skeleton} of gotowe_ms={ready_ms}",
+    )
 
     run.step(FEATURE, "pomiar-bez-sladu")
     expect(page.get_by_role("alert")).to_have_count(0)

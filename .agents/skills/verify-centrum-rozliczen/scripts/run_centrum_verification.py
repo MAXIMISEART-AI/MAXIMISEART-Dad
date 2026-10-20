@@ -37,6 +37,7 @@ REQUIRED_SCREENSHOTS = {
         "01-ustawienia-pusty-stan.png",
         "02-ustawienia-folder-okresow.png",
         "03-ustawienia-rejestr-zlecen.png",
+        "18-ustawienia-braki-do-startu.png",
         "04-ustawienia-brak-rejestru.png",
         "05-ustawienia-motyw-jasny.png",
     ),
@@ -45,6 +46,7 @@ REQUIRED_SCREENSHOTS = {
         "07-tablica-otwieranie.png",
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
+        "17-tablica-odczyt-nieudany.png",
     ),
     "uklad-folderow-taty": (
         "15-uklad-taty-tablica.png",
@@ -90,6 +92,7 @@ REQUIRED_SCREENSHOTS = {
         "45-przebieg-status-okresu.png",
         "46-przebieg-nienadpisywanie.png",
         "47-przebieg-wymaga-sprawdzenia.png",
+        "48-przebieg-odczyt-po-uruchomieniu.png",
     ),
     "diagnoza": (
         "50-diagnoza-dla-taty.png",

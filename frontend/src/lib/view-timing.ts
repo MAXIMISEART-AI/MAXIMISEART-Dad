@@ -18,6 +18,49 @@ window.addEventListener("hashchange", () => {
 // Gotowa treść: nagłówek bieżącej strony, a nigdzie szkieletu ani odczytu w toku.
 const LOADING = "[data-slot=skeleton], [aria-busy=true]"
 
+/**
+ * Czas, przez który szkielet był widoczny. Szkielet jest w DOM od pierwszego renderu, ale pokazuje się
+ * dopiero, gdy zaczyna się jego animacja (index.css opóźnia ją o ok. 120 ms), więc widoczny jest od
+ * pierwszego `animationstart` elementu odczytu do chwili, gdy żadnego takiego elementu już nie ma.
+ */
+function visibleSkeleton() {
+  const shown = new Set<Element>()
+  let since: number | null = null
+  let total = 0
+
+  const track = (now: number) => {
+    for (const element of shown) {
+      if (!element.isConnected || !element.matches(LOADING)) {
+        shown.delete(element)
+      }
+    }
+
+    if (shown.size > 0 && since === null) {
+      since = now
+    } else if (shown.size === 0 && since !== null) {
+      total += now - since
+      since = null
+    }
+  }
+
+  const reveal = (event: AnimationEvent) => {
+    if (event.target instanceof Element && event.target.matches(LOADING)) {
+      shown.add(event.target)
+      track(performance.now())
+    }
+  }
+
+  document.addEventListener("animationstart", reveal, true)
+
+  return {
+    /** Po zmianie DOM: szkielet, którego już nie ma, przestaje być widoczny. */
+    track,
+    /** Milisekundy widocznego szkieletu do `now`. */
+    ms: (now: number) => Math.round(total + (since === null ? 0 : now - since)),
+    stop: () => document.removeEventListener("animationstart", reveal, true),
+  }
+}
+
 function isReady(page: Page): boolean {
   return document.querySelector("h1")?.textContent === page.title && document.querySelector(LOADING) === null
 }
@@ -47,21 +90,19 @@ function firstContentfulPaint(): Promise<number | null> {
 
 /**
  * Po cichu mierzy każdy gotowy widok (zimny start strony, przejście w menu) i wysyła pomiar do
- * dziennika Centrum: czas do gotowej treści, FCP przy zimnym starcie, czas szkieletu i zapytania API
+ * dziennika Centrum: czas do gotowej treści, FCP przy zimnym starcie, czas widocznego szkieletu i zapytania API
  * z czasem serwera. Pomiar niczego nie pokazuje tacie; pomiar, którego kontrakt nie przyjmie, przepada.
  */
 export function useViewTiming(page: Page) {
   React.useEffect(() => {
     const start = viewStart
-    let skeletonSince: number | null = null
+    const skeleton = visibleSkeleton()
     let sent = false
 
     const measure = () => {
       const now = performance.now()
 
-      if (skeletonSince === null && document.querySelector("[data-slot=skeleton]") !== null) {
-        skeletonSince = now
-      }
+      skeleton.track(now)
 
       if (sent || !isReady(page)) {
         return
@@ -69,6 +110,9 @@ export function useViewTiming(page: Page) {
 
       sent = true
       observer.disconnect()
+      skeleton.stop()
+
+      const skeletonMs = skeleton.ms(now)
 
       const requests = requestsBetween(start.at, now)
       const fcp = start.kind === "cold_start" ? firstContentfulPaint() : Promise.resolve(null)
@@ -79,7 +123,7 @@ export function useViewTiming(page: Page) {
           page: page.id,
           ready_ms: Math.round(now - start.at),
           fcp_ms: fcpMs,
-          skeleton_ms: skeletonSince === null ? 0 : Math.round(now - skeletonSince),
+          skeleton_ms: skeletonMs,
           requests: requests.map(({ operation, browser_ms, server_ms }) => ({ operation, browser_ms, server_ms })),
         })
 
@@ -99,6 +143,9 @@ export function useViewTiming(page: Page) {
     })
     measure()
 
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      skeleton.stop()
+    }
   }, [page])
 }

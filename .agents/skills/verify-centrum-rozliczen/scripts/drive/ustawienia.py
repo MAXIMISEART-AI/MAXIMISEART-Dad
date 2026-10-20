@@ -36,6 +36,11 @@ def drive_settings(run: Run, page: Page) -> None:
     run.capture(page, "02-ustawienia-folder-okresow")
 
     run.step(feature, "ustawienia-rejestr-zlecen")
+    missing_register = page.get_by_role("alert").filter(has_text="Najpierw wskaż Rejestr zleceń.")
+    page.get_by_role("link", name="Uruchomienia", exact=True).click()
+    expect(missing_register).to_be_visible()
+    run.check(True, "before the Rejestr zleceń is set, Uruchomienia says it is missing for the start")
+    page.get_by_role("link", name="Okresy", exact=True).click()
     run.answer_picker(run.fixture["order_register"])
     page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
     register = page.get_by_role("group", name="Rejestr zleceń")
@@ -46,6 +51,20 @@ def drive_settings(run: Run, page: Page) -> None:
         "the settings file remembers the Rejestr zleceń",
     )
     run.capture(page, "03-ustawienia-rejestr-zlecen")
+
+    run.step(feature, "ustawienia-braki-do-startu")
+    page.get_by_role("link", name="Uruchomienia", exact=True).click()
+    expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
+    expect(missing_register).to_have_count(0)
+    expect(page.get_by_role("button", name="Podgląd bez zapisu", exact=True)).to_be_enabled()
+    processes = run.api("/api/runs/setup", "ustawienia-braki-do-startu")["processes"]
+    assert isinstance(processes, list)
+    run.check(
+        [process["blocker"] for process in processes if process["process"] == "preparation"] == [None],
+        "the Rejestr zleceń pointed on Okresy is no longer missing on Uruchomienia: its start is read again",
+    )
+    run.capture(page, "18-ustawienia-braki-do-startu")
+    page.get_by_role("link", name="Okresy", exact=True).click()
 
     run.step(feature, "ustawienia-anulowanie")
     before = run.settings_text()

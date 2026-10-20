@@ -7,6 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useAppearance } from "@/lib/appearance"
 import { isActive, useRuns } from "@/lib/runs"
 import { useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
@@ -42,8 +43,13 @@ export function RunsPage() {
         }
       />
       <TabsContent value="uruchomienie">
-        {/* Zmiana ustawień (np. wskazany Rejestr zleceń) to nowy odczyt tego, czego brakuje do startu. */}
-        <RunsContent key={settings.state === "ready" ? JSON.stringify(settings.data) : settings.state} />
+        {/* Treść montuje się raz, przy gotowych Ustawieniach taty, więc start czyta raz. Ich zmiana
+            (np. wskazany Rejestr zleceń) to nowy odczyt tego, czego brakuje do startu. */}
+        {settings.state === "loading" ? (
+          <RunsSkeleton />
+        ) : (
+          <RunsContent key={settings.state === "ready" ? JSON.stringify(settings.data) : settings.state} />
+        )}
       </TabsContent>
       <TabsContent value="historia">
         {/* Każde zakończone Uruchomienie to nowy odczyt historii z plików metryk. */}
@@ -55,6 +61,7 @@ export function RunsPage() {
 
 function RunHistory() {
   const { resource: metrics } = useResource(getMetrics)
+  const appearance = useAppearance(metrics.state === "loading")
 
   switch (metrics.state) {
     case "loading":
@@ -68,7 +75,7 @@ function RunHistory() {
       )
     case "ready":
       return (
-        <div className="pojawienie">
+        <div className={appearance}>
           <RunHistoryCard runs={metrics.data.runs} />
         </div>
       )
@@ -84,10 +91,14 @@ function RunsContent() {
   const { resource: setup, reload } = useResource(getRunSetup)
   const { view, dismissed, draft, decide, newRun } = useRuns()
   const finishedRun = view?.state === "finished" ? view.run.id : null
+  const appearance = useAppearance(view === null || setup.state === "loading")
+  // Uruchomienie zakończone przed wejściem na stronę zna już odczyt przy montowaniu.
+  const readAfter = React.useRef(finishedRun)
 
   // Zakończone Uruchomienie zmienia Status okresu i historię podglądów, więc wybór okresu czytamy od nowa.
   React.useEffect(() => {
-    if (finishedRun !== null) {
+    if (finishedRun !== null && finishedRun !== readAfter.current) {
+      readAfter.current = finishedRun
       reload()
     }
   }, [finishedRun, reload])
@@ -112,7 +123,7 @@ function RunsContent() {
 
   if (setupInstead) {
     return (
-      <div className="pojawienie">
+      <div className={appearance}>
         <RunSetupCard processes={processes} />
       </div>
     )
@@ -121,7 +132,7 @@ function RunsContent() {
   const reminder = processes.find((process) => process.process === view.run.process)?.reminder ?? ""
 
   return (
-    <div className="pojawienie">
+    <div className={appearance}>
       <RunCard view={view} reminder={reminder} onNewRun={() => newRun(view.run.id)} />
       {view.state === "awaiting_decision" ? (
         <DecisionDialog decision={view.decision} onDecide={(answer) => decide(view.run.id, answer)} />

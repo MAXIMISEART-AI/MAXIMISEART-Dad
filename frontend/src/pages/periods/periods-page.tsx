@@ -1,3 +1,4 @@
+import { cn } from "cn"
 import { FolderSearchIcon, FolderXIcon } from "lucide-react"
 
 import { getPeriodBoard, type PeriodBoard } from "@/api/centrum"
@@ -14,6 +15,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useAppearance } from "@/lib/appearance"
 import { useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
 import { FileSettingsCard } from "@/pages/periods/file-settings-card"
@@ -24,6 +26,7 @@ import { RepairNotice } from "@/pages/periods/repair-notice"
 
 export function PeriodsPage() {
   const { settings } = useSettings()
+  const appearance = useAppearance(settings.state === "loading")
 
   return (
     <>
@@ -32,7 +35,7 @@ export function PeriodsPage() {
       {settings.state === "loading" ? <PeriodsSkeleton /> : null}
       {settings.state === "failed" ? <Failure message={settings.message} /> : null}
       {settings.state === "ready" ? (
-        <div className="pojawienie flex flex-col gap-6">
+        <div className={cn(appearance, "flex flex-col gap-6")}>
           {/* Nowy folder okresów to nowy odczyt Tablicy okresów. */}
           <PeriodBoardSection key={JSON.stringify(settings.data.periods_directory)} />
           <FileSettingsCard settings={settings.data} />

@@ -176,6 +176,28 @@
   .pojawienie {
     transition: opacity 150ms var(--ease-out);
   }
+  /* Szkielet pokazuje się dopiero, gdy odczyt trwa ok. 120 ms, więc szybki odczyt niczym nie błyska:
+     do tej chwili jest przezroczysty, potem wchodzi w 150 ms i pulsuje. W DOM i w drzewie dostępności
+     (aria-busy, nazwy) jest od pierwszego renderu. Kontener szkieletu (aria-busy) ukrywa ramki kart,
+     więc szkielety w nim tylko pulsują. Animacje nie nakładają się w czasie, choć obie zmieniają przezroczystość. */
+  [aria-busy="true"],
+  .szkielet {
+    animation: szkielet-odsloniecie 150ms var(--ease-out) 120ms backwards;
+  }
+  .szkielet {
+    animation:
+      szkielet-odsloniecie 150ms var(--ease-out) 120ms backwards,
+      var(--animate-pulse) 270ms;
+  }
+  [aria-busy="true"] .szkielet {
+    animation: var(--animate-pulse) 270ms;
+  }
+}
+
+@keyframes szkielet-odsloniecie {
+  from {
+    opacity: 0;
+  }
 }
 
 @starting-style {

@@ -36,6 +36,8 @@ REOPENED = ("okresy", "metryki")
 TRACED = ("okresy", "metryki")
 REOPEN_WARMUP = 2  # V8 caches the bundle's code only after a few visits
 SETTLE_MS = 400  # transitions of 150–200 ms finish and late requests arrive
+# From this lap on, every page shows its last data at once: a visible skeleton there fails without a second chance.
+SKELETON_FREE_LAP = 2
 # Used when the baseline file is missing, so the first measurement can produce one.
 DEFAULT_MARGIN = {"wzgledny": 0.15, "minimalny_ms": 20, "bundle_wzgledny": 0.02}
 TRACE_CATEGORIES = [
@@ -53,18 +55,29 @@ TRACE_EVENTS = (
 )
 
 # Recorded in the page from the first byte: when the view of a page becomes ready (its h1 without any
-# skeleton or aria-busy), when a skeleton appears and disappears, the last DOM change, FCP, long tasks,
-# and Event Timing of input (the browser's own input-to-next-paint).
+# skeleton or aria-busy in the DOM), when a skeleton becomes visible and stops being visible, the last DOM
+# change, FCP, long tasks, and Event Timing of input (the browser's own input-to-next-paint). A skeleton is in
+# the DOM from the first render but shows only once its animation starts (index.css delays it by about 120 ms),
+# so it is visible from the first `animationstart` of a loading element until no such element is left.
 INIT = r"""
 (() => {
   const P = (window.__wydajnosc = { views: [], skeleton: [], lastMutation: 0, fcp: null, longtasks: [], events: [] });
+  const LOADING = '[data-slot="skeleton"],[aria-busy="true"]';
+  const shown = new Set();
   let view = null;
-  let skeleton = false;
+  let visible = false;
+  const track = (now) => {
+    for (const element of shown) { if (!element.isConnected || !element.matches(LOADING)) shown.delete(element); }
+    if ((shown.size > 0) !== visible) { visible = shown.size > 0; P.skeleton.push([now, visible]); }
+  };
+  document.addEventListener("animationstart", (e) => {
+    if (e.target instanceof Element && e.target.matches(LOADING)) { shown.add(e.target); track(performance.now()); }
+  }, true);
   const check = () => {
     const now = performance.now();
     P.lastMutation = now;
-    const busy = !!document.querySelector('[data-slot="skeleton"],[aria-busy="true"]');
-    if (busy !== skeleton) { P.skeleton.push([now, busy]); skeleton = busy; }
+    track(now);
+    const busy = !!document.querySelector(LOADING);
     const heading = document.querySelector('[data-slot="sidebar-inset"] h1');
     const ready = !busy && heading ? heading.textContent.trim() : null;
     if (ready !== view) { P.views.push([now, ready]); view = ready; }
@@ -160,12 +173,12 @@ def ready(page: Page, title: str) -> float:
 
 
 def skeleton_ms(page: Page, start: float, end: float) -> float:
-    """How long a skeleton or aria-busy was in the page between ``start`` and ``end``."""
+    """How long a skeleton was visible between ``start`` and ``end``."""
 
     changes: list[list[Any]] = page.evaluate("() => window.__wydajnosc.skeleton")
     total, since = 0.0, None
-    for at, busy in changes:
-        if busy:
+    for at, visible in changes:
+        if visible:
             since = at
         elif since is not None:
             total += max(0.0, min(at, end) - max(since, start))
@@ -438,6 +451,12 @@ def compare(measured: Measured, baseline: dict[str, Any], again: Measured | None
                 "budzet_ms": None if limit is None else round(limit, 1), "wynik": verdict, "szczegoly": details,
                 "ponownie_ms": None if median_again is None else round(median_again, 1),
             })
+    for scenario, profiles in measured.values.items():
+        if scenario.startswith(f"menu/{SKELETON_FREE_LAP}/") and scenario.endswith("/szkielet"):
+            for cpu, values in profiles.items():
+                if any(value > 0 for value in values):
+                    shown = ", ".join(f"{value:.0f}" for value in values)
+                    failures.append(f"{scenario} {cpu}x: szkielet widoczny przy powrocie na stronę ({shown} ms)")
     requests: list[dict[str, Any]] = []
     for scenario, counts in measured.requests.items():
         wanted = expected.get(scenario, {}).get("zapytania_api")
