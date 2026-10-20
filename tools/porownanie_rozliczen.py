@@ -18,7 +18,7 @@ same liczby: bez treści komórek, adresów komórek, nazw plików i numerów zl
   format liczb, ochrona), nie numer stylu; komórka nieobecna w XML ma styl wiersza,
   a bez niego styl kolumny, tak jak w Excelu;
 - ``scalenia``, ``wymiary`` (wysokość, ukrycie i poziom konspektu wierszy i kolumn),
-  ``nazwy_zdefiniowane``, ``external_links`` (bajty każdej części ``xl/externalLinks/*``)
+  ``nazwy_zdefiniowane`` (nazwa arkusza w apostrofach i bez nich to to samo), ``external_links`` (bajty każdej części ``xl/externalLinks/*``)
   i ``flagi_przeliczania`` (``calcMode``, ``fullCalcOnLoad``, ``forceFullCalc``).
 
 ``xl/calcChain.xml`` nie jest porównywany.
@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import zipfile
 from collections import Counter
 from collections.abc import Hashable, Iterator, Mapping, Sequence
@@ -63,6 +64,8 @@ _EXTERNAL_LINKS: Final = "xl/externalLinks/"
 _CALC_FLAGS: Final[dict[str, str | bool]] = {"calcMode": "auto", "fullCalcOnLoad": False, "forceFullCalc": False}
 
 _StyleSource = Cell | MergedCell | Dimension
+# Nazwa arkusza w apostrofach w odwołaniu (``'Sheet1'!$A$1``); openpyxl dodaje je przy zapisie, Excel nie.
+_QUOTED_SHEET: Final = re.compile(r"'((?:[^']|'')+)'!")
 
 
 def compare_worker_settlements(reference: Path, candidate: Path) -> dict[str, int]:
@@ -145,9 +148,15 @@ def _defined_names(parts: dict[str, bytes]) -> dict[tuple[str | None, str | None
     """Nazwa zdefiniowana w swoim zakresie (skoroszyt albo arkusz) z ukryciem i definicją."""
 
     return {
-        (element.get("name"), element.get("localSheetId")): (_flag(element.get("hidden"), False), element.text or "")
+        (element.get("name"), element.get("localSheetId")): (_flag(element.get("hidden"), False), _definition(element.text))
         for element in _workbook_element(parts, "definedName")
     }
+
+
+def _definition(text: str | None) -> str:
+    """Definicja nazwy znaczeniowo: ``'Sheet1'!$A$1`` i ``Sheet1!$A$1`` to to samo odwołanie."""
+
+    return _QUOTED_SHEET.sub(lambda match: match.group(1).replace("''", "'") + "!", text or "")
 
 
 def _calc_flags(parts: dict[str, bytes]) -> dict[str, str | bool]:
