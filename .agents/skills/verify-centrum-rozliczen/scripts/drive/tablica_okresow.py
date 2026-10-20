@@ -87,6 +87,36 @@ def drive_period_board(run: Run, page: Page) -> None:
     run.check(True, "a (simulated) return to the tab shows a Folder rozliczeń pracowników added outside Centrum")
     run.capture(page, "08-tablica-po-zmianie-na-dysku")
 
+    run.step(feature, "tablica-powrot-z-menu")
+    added = changed / "Rozliczenie pracowników 15_21_09_2026" / "Rozliczenie 15_21_09_2026 - Wykonawca.xlsx"
+    page.get_by_role("link", name="Metryki", exact=True).click()
+    expect(page.get_by_role("heading", name="Metryki", level=1)).to_be_visible()
+    added.write_bytes(b"")
+    try:
+        page.get_by_role("link", name="Okresy", exact=True).click()
+        expect(page.get_by_role("button", name="Rozliczenia pracowników: 1, okres 15_21_09_2026", exact=True)).to_be_visible()
+        run.check(True, "back on Okresy from the menu, the board is read again: a Rozliczenie pracownika added meanwhile counts")
+    finally:
+        added.unlink()
+
+    run.step(feature, "tablica-odczyt-w-tle-nieudany")
+    page.get_by_role("link", name="Metryki", exact=True).click()
+    expect(page.get_by_role("heading", name="Metryki", level=1)).to_be_visible()
+    # Harness: the server stops answering /api/periods (the request fails like an unreachable Centrum).
+    page.route("**/api/periods", lambda route: route.abort())
+    try:
+        page.get_by_role("link", name="Okresy", exact=True).click()
+        failure = page.get_by_role("alert").filter(has_text="Nie udało się odczytać okresów")
+        expect(failure).to_contain_text("Centrum rozliczeń nie odpowiada.")
+        expect(page.get_by_role("table", name="Tablica okresów")).to_have_count(0)
+        run.check(True, "a failed read behind the last board (unreachable server, harness) shows the Komunikat, not the old board")
+        run.capture(page, "17-tablica-odczyt-nieudany")
+    finally:
+        page.unroute("**/api/periods")
+    page.evaluate("window.dispatchEvent(new FocusEvent('focus'))")
+    expect(period_row(page, "15_21_09_2026")).to_contain_text("Rozliczenia pracowników gotowe")
+    run.check(True, "once the server answers, a (simulated) return to the tab shows the board again")
+
     run.step(feature, "tablica-podpowiedz")
     period_row(page, "29_05_10_2026").get_by_text("Utwórz rozliczenia pracowników").hover()
     expect(page.get_by_text("Najpierw uzupełnij Plik zbiorczy w Excelu, zapisz go i zamknij.")).to_be_visible()

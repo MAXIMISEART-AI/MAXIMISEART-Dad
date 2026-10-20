@@ -38,7 +38,7 @@
       },
       "zapytania_api": {
         "GET /api/runs/events": 1,
-        "GET /api/runs/setup": 2,
+        "GET /api/runs/setup": 1,
         "GET /api/settings": 1,
         "POST /api/view-timings": 1
       }
