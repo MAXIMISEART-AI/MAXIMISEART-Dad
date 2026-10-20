@@ -17,6 +17,7 @@ from drive.common import (
     current_run,
     figure,
     finished_result,
+    history_rows,
     last_opened_is,
     period_files,
     period_row,
@@ -211,6 +212,28 @@ def drive_settlement(run: Run, page: Page) -> None:
     outcome.get_by_role("button", name="Folder okresu").click()
     run.wait_for(last_opened_is(run, period_folder), "Folder okresu opens in Explorer")
     run.capture(page, "44-przebieg-zapisane")
+
+    run.step(feature, "przebieg-odczyt-po-uruchomieniu")
+    # Same tab, no reload: the history and the period choice Centrum showed before the RUN are read again.
+    page.get_by_role("tab", name="Historia", exact=True).click()
+    newest, previous = history_rows(page).nth(1), history_rows(page).nth(2)
+    expect(newest).to_contain_text("Przebieg rozliczeń")
+    expect(newest).not_to_contain_text("DRY-RUN")
+    expect(previous).to_contain_text("Przebieg rozliczeń")
+    expect(previous).to_contain_text("DRY-RUN")
+    run.check(True, "the Historia tab shows the finished RUN and its preview at the top")
+    page.get_by_role("tab", name="Uruchomienie", exact=True).click()
+    page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
+    page.get_by_role("radio", name="Przebieg rozliczeń").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(needs_check)
+    processes = run.api("/api/runs/setup", "przebieg-odczyt-po-uruchomieniu")["processes"]
+    assert isinstance(processes, list)
+    [setup] = [process for process in processes if process["process"] == "settlement"]
+    run.check(
+        [choice["token"] for choice in setup["periods"]] == [needs_check],
+        "the period choice is read again: the closed period is no longer offered",
+    )
+    run.capture(page, "48-przebieg-odczyt-po-uruchomieniu")
 
     run.step(feature, "przebieg-status-okresu")
     page.goto(run.url)

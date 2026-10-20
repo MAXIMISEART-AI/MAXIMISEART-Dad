@@ -4,12 +4,26 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 import subprocess
 import sys
+from typing import Any
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, ViewportSize, expect
 
 from drive.common import DAD_TIME_ZONE, LAST_COMPLETE_FOR_CLI, REPO_ROOT, Run, choose_periods_directory, history_rows
+
+# The chart shows the newest Uruchomienia procesu of the chosen process and mode; older ones are in the history.
+CHART_RUNS = 12
+# A bar is at most this wide, and narrower when its share of the chart is smaller (like recharts' `maxBarSize`).
+MAX_BAR_PX = 28
+# The smallest phone window: the seven bars of Przygotowanie RUN do not fit side by side at the widest size there.
+NARROW_VIEWPORT: ViewportSize = {"width": 320, "height": 640}
+# Left and right edge of every bar's segments, oldest bar first.
+BAR_EDGES = """(figure) => [...figure.querySelectorAll("[role=button]")].map((bar) => {
+  const boxes = [...bar.querySelectorAll("[data-phase]")].map((segment) => segment.getBoundingClientRect());
+  return [Math.min(...boxes.map((box) => box.left)), Math.max(...boxes.map((box) => box.right))];
+})"""
 
 
 def _seconds(duration_ms: int) -> str:
@@ -81,15 +95,23 @@ def drive_metrics(run: Run, page: Page) -> None:
     run.step(feature, "metryki-wykres")
     chart = page.get_by_role("figure", name="Wykres czasów etapów")
     expect(chart).to_be_visible()
-    shown_runs = [entry for entry in runs if (entry["process"], entry["mode"]) == ("preparation", "RUN")][:12]
-    bars = chart.locator(".recharts-bar-rectangle")
-    expect(bars).to_have_count(len(shown_runs) * 4 - sum(
-        1 for entry in shown_runs for phase in entry["phase_durations"] if phase["duration_ms"] == 0
-    ))
-    for phase in ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"):
-        expect(chart.get_by_text(phase, exact=True)).to_be_visible()
-    run.check(True, "the stage-times chart stacks the four phases of each Przygotowanie RUN")
+    phases = metrics["phases"]
+    assert isinstance(phases, list)
+    for process, process_name in (("settlement", "Przebieg"), ("preparation", "Przygotowanie")):
+        page.get_by_role("group", name="Proces", exact=True).get_by_role("button", name=process_name, exact=True).click()
+        for mode in ("DRY-RUN", "RUN"):
+            page.get_by_role("group", name="Tryb", exact=True).get_by_role("button", name=mode, exact=True).click()
+            _check_chart(run, chart, phases, _chart_runs(runs, process, mode), f"{process_name} {mode}")
+    shown_runs = _chart_runs(runs, "preparation", "RUN")
+    run.check(True, "the stage-times chart stacks the measured phases of each shown run for every Proces and Tryb")
+    _check_bar_widths(run, chart, "1440 px", narrow=False)
     run.capture(page, "21-metryki-wykres")
+
+    run.step(feature, "metryki-wykres-waski")
+    _drive_narrow_chart(run, page)
+
+    run.step(feature, "metryki-wykres-szczegoly")
+    _drive_bar_details(run, page, chart, phases, shown_runs)
 
     run.step(feature, "metryki-tabela-etapow")
     page.get_by_role("tab", name="Tabela", exact=True).click()
@@ -184,3 +206,161 @@ def drive_metrics(run: Run, page: Page) -> None:
     finally:
         for path in moved:
             path.with_name(path.name + ".odlozony").rename(path)
+
+
+def _chart_runs(runs: list[dict[str, Any]], process: str, mode: str) -> list[dict[str, Any]]:
+    """The runs on the chart, newest first as the API lists them; the chart shows them oldest on the left."""
+
+    return [entry for entry in runs if (entry["process"], entry["mode"]) == (process, mode)][:CHART_RUNS]
+
+
+def _phase_ms(entry: dict[str, Any], phase: str) -> int:
+    return next((item["duration_ms"] for item in entry["phase_durations"] if item["phase"] == phase), 0)
+
+
+def _measured(phases: list[str], shown: list[dict[str, Any]]) -> list[str]:
+    """Phases that lasted in at least one shown run (a DRY-RUN has no Zapisywanie)."""
+
+    return [phase for phase in phases if any(_phase_ms(entry, phase) > 0 for entry in shown)]
+
+
+def _bar_title(entry: dict[str, Any]) -> str:
+    stopped = " · zatrzymano" if entry["result"] == "BLAD_KRYTYCZNY" else ""
+    return f"{_local(entry['started_at'])} · okres {entry['period']}{stopped}"
+
+
+def _bar_name(entry: dict[str, Any], measured: list[str]) -> str:
+    """The bar's accessible name: its details, as a screen reader reads them."""
+
+    times = ", ".join(f"{phase} {_seconds(_phase_ms(entry, phase))}" for phase in measured)
+    return f"{_bar_title(entry)}. {times}"
+
+
+def _check_chart(run: Run, chart: Locator, phases: list[str], shown: list[dict[str, Any]], label: str) -> None:
+    measured = _measured(phases, shown)
+    bars = chart.get_by_role("button")
+    expect(bars).to_have_count(len(shown))
+    for index, entry in enumerate(reversed(shown)):
+        expect(bars.nth(index)).to_have_accessible_name(_bar_name(entry, measured))
+        segments = sum(1 for phase in measured if _phase_ms(entry, phase) > 0)
+        expect(bars.nth(index).locator("[data-phase]")).to_have_count(segments)
+    stopped = sum(1 for entry in shown if entry["result"] == "BLAD_KRYTYCZNY")
+    expect(chart.get_by_text(re.compile(r"^\d\d\.\d\d ✕$"))).to_have_count(stopped)
+    expect(chart.get_by_role("list", name="Etapy").get_by_role("listitem")).to_have_text(measured)
+    run.check(
+        True, f"{label}: {len(shown)} bars oldest first, a segment per lasting phase, {stopped} marked ✕, legend {measured}"
+    )
+
+
+def _check_bar_widths(run: Run, chart: Locator, label: str, *, narrow: bool) -> None:
+    edges: list[list[float]] = chart.evaluate(BAR_EDGES)
+    widths = [right - left for left, right in edges]
+    gaps = [later[0] - earlier[1] for earlier, later in zip(edges, edges[1:])]
+    run.check(
+        len(edges) > 1
+        and min(gaps) > 0
+        and max(widths) <= MAX_BAR_PX + 0.5
+        and (max(widths) < MAX_BAR_PX if narrow else min(widths) >= MAX_BAR_PX - 0.5),
+        f"{label}: {len(edges)} bars {min(widths):.1f}–{max(widths):.1f} px wide (at most {MAX_BAR_PX}), "
+        f"the smallest gap between them {min(gaps):.1f} px",
+    )
+
+
+def _drive_narrow_chart(run: Run, page: Page) -> None:
+    """In a phone-sized window the bars of the busiest Proces and Tryb get narrower instead of overlapping."""
+
+    browser = page.context.browser
+    assert browser is not None
+    context = browser.new_context(viewport=NARROW_VIEWPORT, locale="pl-PL", timezone_id=DAD_TIME_ZONE.key)
+    try:
+        narrow = context.new_page()
+        narrow.set_default_timeout(10_000)
+        narrow.goto(run.url + "#/metryki")
+        chart = narrow.get_by_role("figure", name="Wykres czasów etapów")
+        expect(chart).to_be_visible()
+        narrow.get_by_role("group", name="Proces", exact=True).get_by_role(
+            "button", name="Przygotowanie", exact=True
+        ).click()
+        narrow.get_by_role("group", name="Tryb", exact=True).get_by_role("button", name="RUN", exact=True).click()
+        _check_bar_widths(run, chart, f"{NARROW_VIEWPORT['width']} px, Przygotowanie RUN", narrow=True)
+        chart.scroll_into_view_if_needed()
+        run.capture(narrow, "2a-metryki-wykres-waski")
+    finally:
+        context.close()
+
+
+def _expect_details(details: Locator, entry: dict[str, Any], measured: list[str]) -> None:
+    """The bar's details: date, period, „zatrzymano” for a stop, then every measured phase with its time."""
+
+    parts = [_bar_title(entry)] + [text for phase in measured for text in (phase, _seconds(_phase_ms(entry, phase)))]
+    expect(details).to_be_visible()
+    expect(details).to_have_text(re.compile(r"^\s*" + r"\s*".join(re.escape(part) for part in parts) + r"\s*$"))
+
+
+def _drive_bar_details(run: Run, page: Page, chart: Locator, phases: list[str], shown: list[dict[str, Any]]) -> None:
+    measured = _measured(phases, shown)
+    stopped = next(entry for entry in shown if entry["result"] == "BLAD_KRYTYCZNY")
+    newest, previous = shown[0], shown[1]
+    details = page.get_by_role("tooltip")
+    expect(page.get_by_role("button", name="Włącz motyw jasny", exact=True)).to_be_visible()
+
+    stopped_bar = chart.get_by_role("button", name=_bar_name(stopped, measured), exact=True)
+    stopped_bar.hover()
+    _expect_details(details, stopped, measured)
+    page.mouse.move(4, 4)
+    expect(details).to_have_count(0)
+    stopped_bar.hover()
+    expect(details).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(details).to_have_count(0)
+    page.mouse.move(4, 4)
+    run.check(True, "hovering a bar opens its details with „zatrzymano”; leaving the chart and Escape close them")
+
+    browser = page.context.browser
+    assert browser is not None
+    touch_context = browser.new_context(
+        viewport={"width": 1440, "height": 1000}, locale="pl-PL", timezone_id=DAD_TIME_ZONE.key, has_touch=True
+    )
+    try:
+        touch = touch_context.new_page()
+        touch.set_default_timeout(10_000)
+        touch.goto(run.url + "#/metryki")
+        touch_chart = touch.get_by_role("figure", name="Wykres czasów etapów")
+        touch_details = touch.get_by_role("tooltip")
+        touch_chart.get_by_role("button", name=_bar_name(newest, measured), exact=True).tap()
+        _expect_details(touch_details, newest, measured)
+        touch_chart.get_by_role("button", name=_bar_name(stopped, measured), exact=True).tap()
+        _expect_details(touch_details, stopped, measured)
+        run.capture(touch, "28-metryki-wykres-szczegoly-ciemny")
+        touch.get_by_role("heading", name="Metryki", exact=True).tap()
+        expect(touch_details).to_have_count(0)
+        run.check(True, "tapping a bar with a finger opens its details, tapping another switches, tapping beside closes")
+    finally:
+        touch_context.close()
+
+    page.get_by_role("tab", name="Wykres", exact=True).click()
+    newest_bar = chart.get_by_role("button", name=_bar_name(newest, measured), exact=True)
+    for _ in range(3):
+        page.keyboard.press("Tab")
+        if newest_bar.evaluate("(bar) => bar === document.activeElement"):
+            break
+    expect(newest_bar).to_be_focused()
+    _expect_details(details, newest, measured)
+    page.keyboard.press("ArrowLeft")
+    previous_bar = chart.get_by_role("button", name=_bar_name(previous, measured), exact=True)
+    expect(previous_bar).to_be_focused()
+    _expect_details(details, previous, measured)
+    page.keyboard.press("Escape")
+    expect(details).to_have_count(0)
+    expect(previous_bar).to_be_focused()
+    run.check(True, "Tab reaches the newest bar with its details, arrows move between bars, Escape closes them")
+
+    page.get_by_role("button", name="Włącz motyw jasny", exact=True).click()
+    expect(page.get_by_role("button", name="Włącz motyw ciemny", exact=True)).to_be_visible()
+    stopped_bar.hover()
+    _expect_details(details, stopped, measured)
+    run.capture(page, "29-metryki-wykres-szczegoly-jasny")
+    page.mouse.move(4, 4)
+    page.get_by_role("button", name="Włącz motyw ciemny", exact=True).click()
+    expect(page.get_by_role("button", name="Włącz motyw jasny", exact=True)).to_be_visible()
+    run.check(True, "the bar details read the same in the light theme")

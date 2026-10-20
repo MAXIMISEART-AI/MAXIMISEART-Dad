@@ -13,7 +13,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { dateTime, seconds } from "@/lib/format"
-import { measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
+import { isStopped, measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
 
 /** Przerwane Uruchomienia procesu obu procesów z czasami etapów zmierzonymi do przerwania. */
 export function InterruptedRunsCard({
@@ -23,7 +23,7 @@ export function InterruptedRunsCard({
   phases: ReadonlyArray<string>
   runs: ReadonlyArray<ProcessRun>
 }) {
-  const interrupted = runs.filter((run) => run.result === "BLAD_KRYTYCZNY")
+  const interrupted = runs.filter(isStopped)
 
   if (interrupted.length === 0) {
     return null

@@ -2,10 +2,11 @@
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
 ``runs_router``, ``diagnosis_router``, ``reports_router``, ``metrics_router``, ``configuration_router``,
-``shutdown_router``);
+``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
-zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a
-nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku.
+zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``,
+nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku,
+a każdej odpowiedzi API dodaje czas obsługi w ``Server-Timing`` (``timing``).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from rozliczenia.centrum.settings import settings_router
 from rozliczenia.settings import SettingsStore
 from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
+from rozliczenia.centrum.timing import server_timing, timing_router
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.version import SERVICE, tool_version
 
@@ -99,6 +101,9 @@ def create_app(
             log.unexpected_failure(failure, where=f"{request.method} {getattr(route, 'path', 'poza API')}")
             return _problem(500, "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie.")
 
+    # Ostatni dodany middleware jest zewnętrzny: czas obejmuje też odmowy Host/Origin i nieoczekiwane wyjątki.
+    app.middleware("http")(server_timing)
+
     @app.exception_handler(Refusal)
     async def refused(request: Request, refusal: Refusal) -> Response:
         return _problem(refusal.status_code, refusal.message)
@@ -132,6 +137,7 @@ def create_app(
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration, reports.key_state))
     app.include_router(shutdown_router(shutdown))
+    app.include_router(timing_router(log))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")
     return app

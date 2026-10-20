@@ -11,14 +11,21 @@ asks Dad's decision about the incomplete period. Its order cells carry
 ``ROW_MARKER``. The Plik zbiorczy of ``29_05_10_2026`` has a Wiersz danych of a
 Wykonawca missing from the konfiguracja wykonawców, so a Podgląd bez zapisu of
 Przebieg rozliczeń for that period needs checking.
+
+``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
+``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
+Dad's layout, each before it with a Folder rozliczeń pracowników of 14
+Wykonawcy, and 260 more synthetic records in both metrics files.
 """
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
+import random
+import shutil
 import sys
 
 from openpyxl import Workbook
@@ -83,6 +90,15 @@ INTERNAL_HEADERS = (
 COLLECTIVE_HEADERS = (
     "MIASTO", "ADRES", "UMOWA", "URZĄDZENIA", "CZYNNOŚCI", "NUMER ZL.", "DATA", "WYKONAWCA",
     "NUMER UMOWY/ZLECENIA ORANGE", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE",
+)
+
+
+YEAR_OF_WORK = "rok-pracy"
+YEAR_PERIODS = 52
+YEAR_WORKERS = tuple(f"Wykonawca Testowy {chr(ord('A') + number)}" for number in range(14))
+MONTHS = (
+    "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+    "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
 )
 
 
@@ -261,7 +277,79 @@ def _dad_layout(root: Path) -> dict[str, object]:
     }
 
 
-def create(root: Path) -> dict[str, object]:
+def _year_metric_runs(rnd: random.Random, token: str, monday: date) -> tuple[list[MetricRun], list[MetricRun]]:
+    """One week's history as Dad works: Przygotowanie on Tuesday (preview, RUN, a repeated RUN), Przebieg on Friday."""
+
+    def started(day: date, hour: int) -> str:
+        return f"{day.isoformat()}T{hour:02d}:{rnd.randint(10, 59)}:00+00:00"
+
+    preparation: list[MetricRun] = []
+    for mode in ("DRY-RUN", "RUN", "RUN"):
+        writing = 0 if mode == "DRY-RUN" else rnd.randint(2000, 4000)
+        phases = (rnd.randint(200, 600), rnd.randint(5000, 9000), rnd.randint(600, 1200), writing)
+        preparation.append((started(monday + timedelta(days=1), 6), mode, token, "OK", phases))
+    settlement: list[MetricRun] = []
+    for mode in ("DRY-RUN", "RUN"):
+        writing = 0 if mode == "DRY-RUN" else rnd.randint(6000, 12000)
+        phases = (rnd.randint(300, 700), rnd.randint(2500, 4000), rnd.randint(500, 900), writing)
+        result = rnd.choice(("OK", "OK", "OK", "WYMAGA_SPRAWDZENIA"))
+        settlement.append((started(monday + timedelta(days=4), 15), mode, token, result, phases))
+    return preparation, settlement
+
+
+def _year_of_work(root: Path, metrics: dict[str, object]) -> dict[str, object]:
+    """A year of Dad's work: 52 periods up to LAST_COMPLETE in Dad's layout and their metrics records.
+
+    Every period before LAST_COMPLETE has its Rozliczenia pracowników of ``YEAR_WORKERS``; LAST_COMPLETE
+    has only its two period files, as on Monday before Przebieg rozliczeń. The records go before the
+    existing ones, so each file still ends with the record the CLI's reader skips.
+    """
+
+    attachments = root / "Rok pracy" / "Załączniki"
+    sample = root / "Rok pracy" / "wzor.xlsx"
+    sample.parent.mkdir()
+    _workbook(sample)
+    rnd = random.Random(165)
+    last_tuesday = date(2026, 10, 6)  # LAST_COMPLETE
+    preparation: list[MetricRun] = []
+    settlement: list[MetricRun] = []
+    for weeks_back in range(YEAR_PERIODS - 1, -1, -1):
+        tuesday = last_tuesday - timedelta(weeks=weeks_back)
+        monday = tuesday + timedelta(days=6)
+        token = f"{tuesday.day:02d}_{monday.day:02d}_{monday.month:02d}_{monday.year}"
+        month = f"{monday.month:02d}_{MONTHS[monday.month - 1]}_{monday.year}"
+        folder = attachments / f"Rozliczenia {monday.year}" / month / "INEA" / token
+        folder.mkdir(parents=True)
+        shutil.copyfile(sample, folder / f"Rozliczenie wew. {token}.xlsx")
+        shutil.copyfile(sample, folder / f"Rozliczenie {token} - zbiorcze.xlsx")
+        if weeks_back > 0:
+            workers = folder / f"Rozliczenie pracowników {token}"
+            workers.mkdir()
+            for worker in YEAR_WORKERS:
+                shutil.copyfile(sample, workers / f"Rozliczenie {token} - {worker}.xlsx")
+        week_preparation, week_settlement = _year_metric_runs(rnd, token, monday)
+        preparation += week_preparation
+        settlement += week_settlement if weeks_back > 0 else []
+    sample.unlink()
+    year_settlement = {**SETTLEMENT_COUNTERS, "templates_total": len(YEAR_WORKERS), "templates_completed": len(YEAR_WORKERS)}
+    for name, runs, counters in (
+        ("preparation", preparation, PREPARATION_COUNTERS),
+        ("settlement", settlement, year_settlement),
+    ):
+        path = Path(str(metrics[name]))
+        lines = "".join(json.dumps(_metric_record(run, counters)) + "\n" for run in runs)
+        path.write_text(lines + path.read_text(encoding="utf-8"), encoding="utf-8")
+    return {
+        "periods_directory": str(attachments),
+        "periods": YEAR_PERIODS,
+        "worker_settlements_ready": YEAR_PERIODS - 1,
+        "workers": len(YEAR_WORKERS),
+        "metrics_runs": len(preparation) + len(settlement),
+        "oldest": min(run[0] for run in (*preparation, *settlement)),
+    }
+
+
+def create(root: Path, variant: str | None = None) -> dict[str, object]:
     root.mkdir(parents=True)
     (root / "config").mkdir()
     configuration = _configuration(root / "config")
@@ -306,6 +394,14 @@ def create(root: Path) -> dict[str, object]:
             ["15_21_09_2026", "no_period_files", 0, False],
         ],
     }
+    if variant == YEAR_OF_WORK:
+        metrics = fixture["metrics"]
+        assert isinstance(metrics, dict)
+        year = _year_of_work(root, metrics)
+        metrics["runs"] = len(PREPARATION_RUNS) + len(SETTLEMENT_RUNS) + int(str(year["metrics_runs"]))
+        metrics["oldest"] = year["oldest"]
+        # Dad's year for wydajnosc: its folder okresów replaces the flat INEA in the measured Centrum
+        fixture["year_of_work"] = year
     (root / "fixture.json").write_text(json.dumps(fixture, ensure_ascii=False, indent=2), encoding="utf-8")
     return fixture
 
@@ -313,13 +409,16 @@ def create(root: Path) -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, help="Run root below .verification/runs; must not exist yet.")
+    parser.add_argument(
+        "--wariant", choices=(YEAR_OF_WORK,), help="rok-pracy: add a year of Dad's work for wydajnosc (see above)."
+    )
     args = parser.parse_args(argv)
     try:
-        fixture = create(Path(args.root))
+        fixture = create(Path(args.root), args.wariant)
     except OSError as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
-    print(f"FIXTURE OK | root={args.root} | today={fixture['today']}")
+    print(f"FIXTURE OK | root={args.root} | today={fixture['today']} | variant={args.wariant or 'podstawowy'}")
     return 0
 
 

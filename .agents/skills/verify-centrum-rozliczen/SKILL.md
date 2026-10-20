@@ -21,12 +21,16 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
-`--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature powiadomienie-o-naprawie`, or `--feature start-i-zamykanie` drives one
+`--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature powiadomienie-o-naprawie`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and
 Przebieg rozliczeń up to the Status okresu `Rozliczenia pracowników gotowe`;
-`przebieg-rozliczen` alone drives Przygotowanie first. Success prints
+`przebieg-rozliczen` alone drives Przygotowanie first. `--feature wydajnosc`
+measures how fast Centrum is in Dad's CPU profiles against the baseline in
+`wydajnosc-baseline.json`; it is never part of `all`, takes minutes, and needs a
+quiet CPU (`--baseline` and `--powtorzenia` apply to it only; see
+`features/wydajnosc.md`). Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 
@@ -109,6 +113,8 @@ Evidence lives in `.verification/evidence/centrum-<id>/` and survives cleanup:
 - `api/*.json` with the server's answers, including the refused foreign
   `Origin` and `Host` requests, and `api/start-*.txt` with the real launcher's
   console output;
+- `wydajnosc/` for `wydajnosc`: `raport.txt`, `raport.json`,
+  `baseline-kandydat.json`, and the CPU traces `slad-<strona>-<n>x.json`;
 - `state/` with `opened.jsonl`, `dialogs.jsonl`, the settings file, and the
   Centrum log (`centrum-rozliczen.log`) as the run left them.
 
@@ -149,7 +155,9 @@ Then confirm the evidence directory still exists.
   synthetic Rejestr zleceń, a `config/` with a synthetic konfiguracja
   wykonawców and the three Wzorce, both metrics files with a synthetic history,
   `fixture.json` with "today" `2026-10-19`, the expected Tablica okresów, the
-  expected Wykonawcy, and the metrics facts the drive checks.
+  expected Wykonawcy, and the metrics facts the drive checks. `--wariant
+  rok-pracy` adds Dad's year of work for `wydajnosc` (52 periods in his layout,
+  about 260 more metrics records).
 - `scripts/serve_centrum.py --root "$runRoot" --port 47900`: serves Centrum for
   the run.
 - `scripts/centrum_doctor.py --root "$runRoot"`: the read-only doctor.
@@ -157,7 +165,7 @@ Then confirm the evidence directory still exists.
   the Playwright drive.
 - `scripts/centrum_cleanup.py --root "$runRoot"`: stop and remove one run.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
-  and evidence hygiene check.
+  check (with the `wydajnosc` gate on made-up numbers) and evidence hygiene check.
 
 Read `features/README.md` before choosing a feature. Each Centrum slice adds
 its feature file and drive steps in the same PR as the feature; keep the map

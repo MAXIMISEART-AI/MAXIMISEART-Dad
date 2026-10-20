@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, expect
 
 from drive.common import Run, choose_periods_directory
 
@@ -36,6 +37,11 @@ def drive_settings(run: Run, page: Page) -> None:
     run.capture(page, "02-ustawienia-folder-okresow")
 
     run.step(feature, "ustawienia-rejestr-zlecen")
+    missing_register = page.get_by_role("alert").filter(has_text="Najpierw wskaż Rejestr zleceń.")
+    page.get_by_role("link", name="Uruchomienia", exact=True).click()
+    expect(missing_register).to_be_visible()
+    run.check(True, "before the Rejestr zleceń is set, Uruchomienia says it is missing for the start")
+    page.get_by_role("link", name="Okresy", exact=True).click()
     run.answer_picker(run.fixture["order_register"])
     page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
     register = page.get_by_role("group", name="Rejestr zleceń")
@@ -46,6 +52,44 @@ def drive_settings(run: Run, page: Page) -> None:
         "the settings file remembers the Rejestr zleceń",
     )
     run.capture(page, "03-ustawienia-rejestr-zlecen")
+
+    run.step(feature, "ustawienia-braki-do-startu")
+    page.get_by_role("link", name="Uruchomienia", exact=True).click()
+    expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
+    expect(missing_register).to_have_count(0)
+    expect(page.get_by_role("button", name="Podgląd bez zapisu", exact=True)).to_be_enabled()
+    processes = run.api("/api/runs/setup", "ustawienia-braki-do-startu")["processes"]
+    assert isinstance(processes, list)
+    run.check(
+        [process["blocker"] for process in processes if process["process"] == "preparation"] == [None],
+        "the Rejestr zleceń pointed on Okresy is no longer missing on Uruchomienia: its start is read again",
+    )
+    run.capture(page, "18-ustawienia-braki-do-startu")
+
+    run.step(feature, "ustawienia-motyw-bez-odczytu")
+    setup_reads: list[str] = []
+
+    def count_setup(request: Request) -> None:
+        if urlsplit(request.url).path == "/api/runs/setup":
+            setup_reads.append(request.method)
+
+    page.on("request", count_setup)
+    try:
+        for click, then, theme in (
+            ("Włącz motyw jasny", "Włącz motyw ciemny", "light"),
+            ("Włącz motyw ciemny", "Włącz motyw jasny", "dark"),
+        ):
+            page.get_by_role("button", name=click, exact=True).click()
+            expect(page.get_by_role("button", name=then, exact=True)).to_be_visible()
+            run.wait_for(lambda: run.remembered("motyw") == theme, f"the settings file remembers {theme}")
+        page.wait_for_timeout(400)  # a remount after the server's answer would read the start again by now
+    finally:
+        page.remove_listener("request", count_setup)
+    expect(page.get_by_role("button", name="Podgląd bez zapisu", exact=True)).to_be_enabled()
+    run.check(
+        setup_reads == [], f"switching the theme on Uruchomienia does not read the start again ({len(setup_reads)} reads)"
+    )
+    page.get_by_role("link", name="Okresy", exact=True).click()
 
     run.step(feature, "ustawienia-anulowanie")
     before = run.settings_text()

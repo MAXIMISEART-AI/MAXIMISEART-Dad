@@ -14,6 +14,8 @@ from playwright.sync_api import Locator, Page, expect
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
+# Pages of the sidebar menu in its order: contract id (`#/<id>`, `PageId`) and the heading Dad reads.
+PAGES = {"okresy": "Okresy", "uruchomienia": "Uruchomienia", "metryki": "Metryki", "konfiguracja": "Konfiguracja"}
 # Dad's computer runs on Polish time; dates in Centrum are shown in the browser's time zone.
 DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
 # The period the CLI step names: the fixture's last complete period, without a Folder okresu.
@@ -152,8 +154,16 @@ def current_run(run: Run, name: str) -> dict[str, object]:
 
 
 def finished_result(run: Run, name: str) -> dict[str, object]:
-    run.wait_for(lambda: current_run(run, name)["state"] == "finished", "the Uruchomienie procesu finished")
-    result = current_run(run, name)["result"]
+    # One answer for both the state and the result: a second read could already see the next Uruchomienie.
+    seen: dict[str, object] = {}
+
+    def finished() -> bool:
+        seen.clear()
+        seen.update(current_run(run, name))
+        return seen["state"] == "finished"
+
+    run.wait_for(finished, "the Uruchomienie procesu finished")
+    result = seen["result"]
     assert isinstance(result, dict)
     return result
 

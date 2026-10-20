@@ -187,6 +187,23 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     return Centrum(client, platform, settings_path, metrics, log_path, report_box)
 
 
+def view_timing(**changes: object) -> dict[str, object]:
+    """Pomiar zimnego startu Metryk, jaki przeglądarka wysyła po gotowym widoku; ``changes`` podmienia pola."""
+
+    timing: dict[str, object] = {
+        "kind": "cold_start",
+        "page": "metryki",
+        "ready_ms": 415,
+        "fcp_ms": 210,
+        "skeleton_ms": 120,
+        "requests": [
+            {"operation": "getSettings", "browser_ms": 12, "server_ms": 3},
+            {"operation": "getMetrics", "browser_ms": 48, "server_ms": None},
+        ],
+    }
+    return timing | changes
+
+
 def project_version() -> str:
     with (ROOT / "pyproject.toml").open("rb") as file:
         version = tomllib.load(file)["project"]["version"]

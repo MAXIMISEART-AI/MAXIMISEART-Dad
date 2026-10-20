@@ -19,9 +19,13 @@ import time
 import urllib.request
 import uuid
 
+from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
+
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
 STEP_TIMEOUT_SECONDS = 300
+# wydajnosc repeats every scenario in two CPU profiles, so its drive takes minutes.
+PERFORMANCE_TIMEOUT_SECONDS = 1800
 REQUIRED_EVIDENCE = (
     "fixture.txt",
     "server.txt",
@@ -35,6 +39,7 @@ REQUIRED_SCREENSHOTS = {
         "01-ustawienia-pusty-stan.png",
         "02-ustawienia-folder-okresow.png",
         "03-ustawienia-rejestr-zlecen.png",
+        "18-ustawienia-braki-do-startu.png",
         "04-ustawienia-brak-rejestru.png",
         "05-ustawienia-motyw-jasny.png",
     ),
@@ -43,6 +48,7 @@ REQUIRED_SCREENSHOTS = {
         "07-tablica-otwieranie.png",
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
+        "17-tablica-odczyt-nieudany.png",
     ),
     "uklad-folderow-taty": (
         "15-uklad-taty-tablica.png",
@@ -58,12 +64,15 @@ REQUIRED_SCREENSHOTS = {
     "metryki": (
         "20-metryki-karty-okresow.png",
         "21-metryki-wykres.png",
+        "2a-metryki-wykres-waski.png",
         "22-metryki-tabela-etapow.png",
         "23-metryki-za-malo-obserwacji.png",
         "24-metryki-historia.png",
         "25-metryki-historia-filtry.png",
         "26-metryki-nowy-rekord-z-cli.png",
         "27-metryki-pusty-stan.png",
+        "28-metryki-wykres-szczegoly-ciemny.png",
+        "29-metryki-wykres-szczegoly-jasny.png",
     ),
     "przygotowanie-pliku-zbiorczego": (
         "30-przygotowanie-nowe-uruchomienie.png",
@@ -86,6 +95,7 @@ REQUIRED_SCREENSHOTS = {
         "45-przebieg-status-okresu.png",
         "46-przebieg-nienadpisywanie.png",
         "47-przebieg-wymaga-sprawdzenia.png",
+        "48-przebieg-odczyt-po-uruchomieniu.png",
     ),
     "diagnoza": (
         "50-diagnoza-dla-taty.png",
@@ -122,10 +132,28 @@ REQUIRED_SCREENSHOTS = {
         "74-naprawa-powiadomienie.png",
         "75-naprawa-po-aktualizacji.png",
     ),
+    "pomiar-u-taty": ("80-pomiar-bez-sladu.png",),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (
         "90-start-i-zamykanie-potwierdzenie.png",
         "91-start-i-zamykanie-zamkniete.png",
+    ),
+    "wydajnosc": (
+        "84-wydajnosc-okresy.png",
+        "85-wydajnosc-uruchomienia.png",
+        "86-wydajnosc-metryki.png",
+        "87-wydajnosc-konfiguracja.png",
+    ),
+}
+REQUIRED_FEATURE_EVIDENCE = {
+    "wydajnosc": (
+        "wydajnosc/raport.json",
+        "wydajnosc/raport.txt",
+        "wydajnosc/baseline-kandydat.json",
+        "wydajnosc/slad-okresy-4x.json",
+        "wydajnosc/slad-okresy-6x.json",
+        "wydajnosc/slad-metryki-4x.json",
+        "wydajnosc/slad-metryki-6x.json",
     ),
 }
 
@@ -142,7 +170,7 @@ def _environment() -> dict[str, str]:
     return environment
 
 
-def _run_step(name: str, arguments: list[str], evidence: Path) -> None:
+def _run_step(name: str, arguments: list[str], evidence: Path, timeout: int = STEP_TIMEOUT_SECONDS) -> None:
     command = [sys.executable, *arguments]
     try:
         completed = subprocess.run(
@@ -154,7 +182,7 @@ def _run_step(name: str, arguments: list[str], evidence: Path) -> None:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=STEP_TIMEOUT_SECONDS,
+            timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -225,7 +253,7 @@ def _preflight() -> None:
         )
 
 
-def _verify(feature: str) -> Path:
+def _verify(feature: str, performance: list[str]) -> Path:
     run_root = REPO_ROOT / ".verification" / "runs" / f"centrum-{uuid.uuid4().hex}"
     evidence = REPO_ROOT / ".verification" / "evidence" / run_root.name
     evidence.mkdir(parents=True)
@@ -233,14 +261,16 @@ def _verify(feature: str) -> Path:
     process: subprocess.Popen[bytes] | None = None
     try:
         _preflight()
-        _run_step("fixture", [str(SCRIPTS / "create_centrum_fixture.py"), "--root", str(run_root)], evidence)
+        variant = ["--wariant", "rok-pracy"] if feature == "wydajnosc" else []
+        _run_step("fixture", [str(SCRIPTS / "create_centrum_fixture.py"), "--root", str(run_root), *variant], evidence)
         process, url = _launch(run_root, evidence)
         _run_step("doctor", [str(SCRIPTS / "centrum_doctor.py"), "--root", str(run_root)], evidence)
         _run_step(
             "drive",
             [str(SCRIPTS / "drive_centrum.py"), "--root", str(run_root), "--url", url,
-             "--evidence", str(evidence), "--feature", feature],
+             "--evidence", str(evidence), "--feature", feature, *performance],
             evidence,
+            PERFORMANCE_TIMEOUT_SECONDS if feature == "wydajnosc" else STEP_TIMEOUT_SECONDS,
         )
     finally:
         if process is not None:
@@ -248,9 +278,14 @@ def _verify(feature: str) -> Path:
         _run_step("cleanup", [str(SCRIPTS / "centrum_cleanup.py"), "--root", str(run_root)], evidence)
     if run_root.exists():
         raise VerificationFailure(f"scratch was not removed: {run_root}")
-    features = REQUIRED_SCREENSHOTS if feature == "all" else {feature: REQUIRED_SCREENSHOTS[feature]}
+    features = (
+        {name: shots for name, shots in REQUIRED_SCREENSHOTS.items() if name not in EXPLICIT_FEATURES}
+        if feature == "all"
+        else {feature: REQUIRED_SCREENSHOTS[feature]}
+    )
     missing = [name for name in REQUIRED_EVIDENCE[:-1] if not (evidence / name).exists()]
     missing += [shot for shots in features.values() for shot in shots if not (evidence / "screenshots" / shot).exists()]
+    missing += [name for name in REQUIRED_FEATURE_EVIDENCE.get(feature, ()) if not (evidence / name).exists()]
     if missing:
         raise VerificationFailure(f"evidence is missing: {', '.join(missing)}")
     _run_step("self-test", [str(SCRIPTS / "centrum_self_test.py"), "--evidence-root", str(evidence)], evidence)
@@ -260,9 +295,15 @@ def _verify(feature: str) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--feature", choices=("all", *REQUIRED_SCREENSHOTS), default="all")
+    parser.add_argument("--baseline", help="wydajnosc: compare with this baseline instead of the skill's.")
+    parser.add_argument(
+        "--powtorzenia", type=int, help=f"wydajnosc: repetitions per scenario and profile (default {DEFAULT_REPEATS})."
+    )
     args = parser.parse_args(argv)
+    performance = [] if args.baseline is None else ["--baseline", str(Path(args.baseline).resolve())]
+    performance += [] if args.powtorzenia is None else ["--powtorzenia", str(args.powtorzenia)]
     try:
-        evidence = _verify(args.feature)
+        evidence = _verify(args.feature, performance)
     except VerificationFailure as exc:
         print(f"VERIFY FAIL | features={args.feature} | {exc}", file=sys.stderr)
         return 1

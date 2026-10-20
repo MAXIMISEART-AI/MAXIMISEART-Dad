@@ -5,6 +5,26 @@ export type ClientOptions = {
 };
 
 /**
+ * ApiTiming
+ *
+ * Jedno zapytanie API widoku: czas w przeglądarce i czas serwera z ``Server-Timing`` (``None``: brak nagłówka).
+ */
+export type ApiTiming = {
+    /**
+     * Operation
+     */
+    operation: 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'closeCentrum';
+    /**
+     * Browser Ms
+     */
+    browser_ms: number;
+    /**
+     * Server Ms
+     */
+    server_ms: number | null;
+};
+
+/**
  * BoardMissing
  */
 export type BoardMissing = {
@@ -1204,6 +1224,41 @@ export type ValidationError = {
 };
 
 /**
+ * ViewTiming
+ *
+ * Pomiar gotowego widoku z przeglądarki: same liczby i nazwy z kontraktu, bez adresów i treści.
+ *
+ * ``ready_ms`` to czas do gotowej treści, ``fcp_ms`` pierwsze malowanie treści
+ * (tylko przy zimnym starcie), ``skeleton_ms`` czas widocznego szkieletu.
+ */
+export type ViewTiming = {
+    /**
+     * Kind
+     */
+    kind: 'cold_start' | 'navigation';
+    /**
+     * Page
+     */
+    page: 'okresy' | 'uruchomienia' | 'metryki' | 'konfiguracja';
+    /**
+     * Ready Ms
+     */
+    ready_ms: number;
+    /**
+     * Fcp Ms
+     */
+    fcp_ms: number | null;
+    /**
+     * Skeleton Ms
+     */
+    skeleton_ms: number;
+    /**
+     * Requests
+     */
+    requests: Array<ApiTiming>;
+};
+
+/**
  * WorkerFile
  *
  * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
@@ -1713,3 +1768,28 @@ export type CloseCentrumResponses = {
 };
 
 export type CloseCentrumResponse = CloseCentrumResponses[keyof CloseCentrumResponses];
+
+export type RecordViewTimingData = {
+    body: ViewTiming;
+    path?: never;
+    query?: never;
+    url: '/api/view-timings';
+};
+
+export type RecordViewTimingErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RecordViewTimingError = RecordViewTimingErrors[keyof RecordViewTimingErrors];
+
+export type RecordViewTimingResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type RecordViewTimingResponse = RecordViewTimingResponses[keyof RecordViewTimingResponses];

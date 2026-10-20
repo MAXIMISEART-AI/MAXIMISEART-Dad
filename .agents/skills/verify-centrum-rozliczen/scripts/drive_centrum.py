@@ -10,18 +10,24 @@ to ``<evidence>/state``.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
+import functools
 from pathlib import Path
 import shutil
 import sys
 
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page
 from playwright.sync_api import sync_playwright
 
 from drive import (
+    DEFAULT_REPEATS,
+    EXPLICIT_FEATURES,
     aktualnosc_i_onedrive,
     diagnoza,
     konfiguracja,
     metryki,
+    pomiar_u_taty,
     przebieg_rozliczen,
     przygotowanie_pliku_zbiorczego,
     start_i_zamykanie,
@@ -29,6 +35,7 @@ from drive import (
     uklad_folderow_taty,
     ustawienia,
     powiadomienie_o_naprawie,
+    wydajnosc,
     zgloszenie,
 )
 from drive.common import DAD_TIME_ZONE, DriveFailure, Run
@@ -37,7 +44,8 @@ from drive.common import DAD_TIME_ZONE, DriveFailure, Run
 # Metryki; Przebieg rozliczeń continues Dad's path from its Plik zbiorczy; Diagnoza stops Uruchomienia
 # of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
 # scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
-# powiadomienie-o-naprawie closes that Zgłoszenie there; start-i-zamykanie closes Centrum, so it stays last.
+# powiadomienie-o-naprawie closes that Zgłoszenie there; pomiar-u-taty clicks through the pages with the files
+# of Dad's whole week; start-i-zamykanie closes Centrum, so it stays last.
 FEATURES = (
     "ustawienia",
     "tablica-okresow",
@@ -50,6 +58,7 @@ FEATURES = (
     "aktualnosc-i-onedrive",
     "zgloszenie",
     "powiadomienie-o-naprawie",
+    "pomiar-u-taty",
     "start-i-zamykanie",
 )
 
@@ -59,10 +68,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", required=True, help="Run root with fixture.json and a served Centrum.")
     parser.add_argument("--url", required=True, help="Centrum URL from <root>/server.json.")
     parser.add_argument("--evidence", required=True, help="Evidence directory that survives cleanup.")
-    parser.add_argument("--feature", choices=("all", *FEATURES), default="all")
+    parser.add_argument("--feature", choices=("all", *FEATURES, *EXPLICIT_FEATURES), default="all")
+    parser.add_argument(
+        "--baseline", type=Path, default=wydajnosc.BASELINE, help="wydajnosc: the baseline to compare with."
+    )
+    parser.add_argument(
+        "--powtorzenia", type=int, default=DEFAULT_REPEATS, help="wydajnosc: repetitions per scenario and profile."
+    )
     args = parser.parse_args(argv)
     run = Run(Path(args.root).resolve(), args.url, Path(args.evidence).resolve())
-    drives = {
+    drives: dict[str, Callable[[Run, Page], None]] = {
         "ustawienia": ustawienia.drive_settings,
         "tablica-okresow": tablica_okresow.drive_period_board,
         "uklad-folderow-taty": uklad_folderow_taty.drive_dad_layout,
@@ -74,7 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         "aktualnosc-i-onedrive": aktualnosc_i_onedrive.drive_freshness_and_onedrive,
         "zgloszenie": zgloszenie.drive_report,
         "powiadomienie-o-naprawie": powiadomienie_o_naprawie.drive_repair_notice,
+        "pomiar-u-taty": pomiar_u_taty.drive_measurement,
         "start-i-zamykanie": start_i_zamykanie.drive_start_and_close,
+        "wydajnosc": functools.partial(
+            wydajnosc.drive_performance, baseline_path=args.baseline.resolve(), repeats=args.powtorzenia
+        ),
     }
     selected = FEATURES if args.feature == "all" else (args.feature,)
     try:

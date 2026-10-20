@@ -328,7 +328,12 @@ wystarczają zależności z `requirements.txt`, bez Node.
   go nie wyłącza.
 - Dziennik Centrum `logs/centrum-rozliczen.log` (poza gitem) ma jedną linię na
   fakt: `start`, `juz-dziala`, `blad-startu`, `zamkniecie`, `stop`,
-  `nieoczekiwany-wyjatek` (tylko typ i trasa, bez tekstu wyjątku).
+  `nieoczekiwany-wyjatek` (tylko typ i trasa, bez tekstu wyjątku) oraz
+  `pomiar` po każdym gotowym widoku karty (zimny start strony, przejście w
+  menu): strona z menu, czasy w ms i dla każdego zapytania API
+  `operacja:przeglądarka/serwer`. Czas serwera każdej odpowiedzi API jest też
+  w nagłówku `Server-Timing`; wpisy `pomiar` oddzielają wolny odczyt plików z
+  OneDrive od wolnej przeglądarki.
 - Ustawienia Centrum (Rejestr zleceń, folder okresów, motyw) są w
   `config/centrum-ustawienia.yaml`, poza gitem.
 - Metryki czytają przy każdym odczycie oba pliki metryk CLI
@@ -360,6 +365,10 @@ npm run build      # build do src/rozliczenia/centrum/static/
 Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
 i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill
 [`verify-centrum-rozliczen`](.agents/skills/verify-centrum-rozliczen/SKILL.md).
+Zmianę, która może zmienić szybkość frontendu, mierzy przed i po funkcja
+`--feature wydajnosc` tego skilla (profile CPU komputera taty, porównanie z
+baseline'em; poza `all`, kilka minut na spokojnym CPU, opis w
+[`features/wydajnosc.md`](.agents/skills/verify-centrum-rozliczen/features/wydajnosc.md)).
 
 ## Naprawa plików zapisanych starą wersją
 

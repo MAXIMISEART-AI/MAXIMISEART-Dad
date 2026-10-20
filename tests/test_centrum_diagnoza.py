@@ -12,7 +12,7 @@ import pytest
 
 from rozliczenia import preparation_register
 
-from tests.fixtures.centrum import FakeGitHub
+from tests.fixtures.centrum import FakeGitHub, view_timing
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -377,6 +377,25 @@ def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_
     diagnosis = diagnose(centrum, stopped["run"]["id"])
 
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
+        "passed",
+        "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",
+    )
+
+
+def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_wypieraja_go_z_dziennika_w_diagnozie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    with centrum.log_path.open("a", encoding="utf-8") as log:
+        log.write(UNEXPECTED_LOG_ENTRY)
+    for _ in range(30):  # tata przeklikuje strony: każdy gotowy widok to wpis pomiaru
+        assert centrum.client.post("/api/view-timings", json=view_timing()).status_code == 204
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert diagnosis["next_action"] == "report"
     assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
         "passed",
         "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",

@@ -1,3 +1,4 @@
+import { cn } from "cn"
 import { FolderSearchIcon, FolderXIcon } from "lucide-react"
 
 import { getPeriodBoard, type PeriodBoard } from "@/api/centrum"
@@ -14,7 +15,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useSettings } from "@/lib/settings"
+import { useContentEntrance } from "@/lib/content-entrance"
+import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
 import { FileSettingsCard } from "@/pages/periods/file-settings-card"
 import { NextStepCard } from "@/pages/periods/next-step-card"
@@ -24,6 +26,7 @@ import { RepairNotice } from "@/pages/periods/repair-notice"
 
 export function PeriodsPage() {
   const { settings } = useSettings()
+  const entrance = useContentEntrance(settings.state === "loading")
 
   return (
     <>
@@ -32,9 +35,9 @@ export function PeriodsPage() {
       {settings.state === "loading" ? <PeriodsSkeleton /> : null}
       {settings.state === "failed" ? <Failure message={settings.message} /> : null}
       {settings.state === "ready" ? (
-        <div className="pojawienie flex flex-col gap-6">
-          {/* Nowy folder okresów to nowy odczyt Tablicy okresów. */}
-          <PeriodBoardSection key={JSON.stringify(settings.data.periods_directory)} />
+        <div className={cn(entrance, "flex flex-col gap-6")}>
+          {/* Nowe pliki taty to nowy odczyt Tablicy okresów; zmiana motywu nim nie jest. */}
+          <PeriodBoardSection key={filesIdentity(settings.data)} />
           <FileSettingsCard settings={settings.data} />
         </div>
       ) : null}

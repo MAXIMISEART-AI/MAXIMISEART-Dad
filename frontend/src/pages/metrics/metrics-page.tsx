@@ -1,4 +1,5 @@
 import * as React from "react"
+import { cn } from "cn"
 import { ChartColumnIcon, GaugeIcon, ListChecksIcon, TimerIcon } from "lucide-react"
 
 import { getMetrics, type Metrics, type Process } from "@/api/centrum"
@@ -16,6 +17,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useContentEntrance } from "@/lib/content-entrance"
 import { seconds } from "@/lib/format"
 import { useResource } from "@/lib/use-resource"
 import { InterruptedRunsCard } from "@/pages/metrics/interrupted-runs-card"
@@ -28,6 +30,7 @@ export function MetricsPage() {
   const [process, setProcess] = React.useState<Process>("preparation")
   const [mode, setMode] = React.useState<Mode>("RUN")
   const hasRuns = metrics.state === "ready" && metrics.data.runs.length > 0
+  const entrance = useContentEntrance(metrics.state === "loading")
 
   // Jeden filtr w nagłówku steruje statystykami i wykresem; historia ma własne filtry.
   const filters = hasRuns ? (
@@ -49,20 +52,30 @@ export function MetricsPage() {
       ) : null}
       {metrics.state === "ready" && !hasRuns ? <NoMetrics /> : null}
       {metrics.state === "ready" && hasRuns ? (
-        <MetricsContent metrics={metrics.data} process={process} mode={mode} />
+        <MetricsContent metrics={metrics.data} process={process} mode={mode} className={entrance} />
       ) : null}
     </>
   )
 }
 
-function MetricsContent({ metrics, process, mode }: { metrics: Metrics; process: Process; mode: Mode }) {
+function MetricsContent({
+  metrics,
+  process,
+  mode,
+  className,
+}: {
+  metrics: Metrics
+  process: Process
+  mode: Mode
+  className: string | undefined
+}) {
   const runs = metrics.runs.filter((run) => run.process === process && run.mode === mode)
   const statistics = metrics.statistics.find((entry) => entry.process === process && entry.mode === mode)
   const percentiles = statistics?.percentiles ?? undefined
   const tooFew = `od ${metrics.minimum_completed_runs} ukończonych (jest ${statistics?.completed_runs ?? 0})`
 
   return (
-    <div className="pojawienie flex flex-col gap-6">
+    <div className={cn(className, "flex flex-col gap-6")}>
       <StatStrip
         label="Statystyki"
         stats={[
