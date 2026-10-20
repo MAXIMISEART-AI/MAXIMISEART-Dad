@@ -365,6 +365,10 @@ npm run build      # build do src/rozliczenia/centrum/static/
 Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
 i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill
 [`verify-centrum-rozliczen`](.agents/skills/verify-centrum-rozliczen/SKILL.md).
+Zmianę, która może zmienić szybkość frontendu, mierzy przed i po funkcja
+`--feature wydajnosc` tego skilla (profile CPU komputera taty, porównanie z
+baseline'em; poza `all`, kilka minut na spokojnym CPU, opis w
+[`features/wydajnosc.md`](.agents/skills/verify-centrum-rozliczen/features/wydajnosc.md)).
 
 ## Naprawa plików zapisanych starą wersją
 
