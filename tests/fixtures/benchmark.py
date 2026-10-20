@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -19,6 +20,13 @@ from tests.fixtures.workbooks import active_worksheet
 
 ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK = ROOT / "tools" / "benchmark_przebiegu.py"
+SYNTHETIC_TEMPLATES = ROOT / "tools" / "syntetyczne_wzorce.py"
+
+WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
+COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
+INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
+# Mała odmiana syntetycznych Wzorców: kilka grup wspólnych formuł (co 64 wiersze), szybka w pytest.
+SMALL_DATA_ROWS = 150
 
 # Pliki repozytorium, których benchmark nie może zmienić: Ustawienia taty i historie metryk procesów.
 PROTECTED_REPOSITORY_FILES = (
@@ -41,9 +49,35 @@ def write_templates(directory: Path) -> Path:
     return directory
 
 
+def write_synthetic_templates(directory: Path, data_rows: int | None = SMALL_DATA_ROWS) -> Path:
+    """Folder z syntetycznymi Wzorcami kształtu Wzorców taty, z generatora w ``tools/``.
+
+    ``data_rows=None`` to pełny rozmiar, jak u taty (domyślny w generatorze).
+    """
+
+    size = [] if data_rows is None else ["--data-rows", str(data_rows)]
+    generated = _run_tool(SYNTHETIC_TEMPLATES, str(directory), *size)
+    assert generated.returncode == 0, generated.stdout + generated.stderr
+    return directory
+
+
+def zip_part(path: Path, name: str) -> str:
+    with zipfile.ZipFile(path) as archive:
+        return archive.read(name).decode("utf-8")
+
+
+def zip_part_names(path: Path) -> set[str]:
+    with zipfile.ZipFile(path) as archive:
+        return set(archive.namelist())
+
+
 def run_benchmark(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return _run_tool(BENCHMARK, *arguments)
+
+
+def _run_tool(tool: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(BENCHMARK), *arguments],
+        [sys.executable, str(tool), *arguments],
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,

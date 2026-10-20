@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from rozliczenia.worker_config import load_worker_mapping
 from tests.fixtures.benchmark import identifying_values, protected_repository_files, run_benchmark, write_templates
 from tests.fixtures.settlement import write_mapping
@@ -96,3 +98,56 @@ def test_benchmark_mierzy_przebieg_rozliczen_na_lustrze_i_opisuje_pomiar_bez_dan
     assert len(secrets) == 4 * 6
     secrets |= {*load_worker_mapping(config), *load_worker_mapping(config).values()}
     assert {secret for secret in secrets if secret in published} == set()
+
+
+def spread(median: int, low: int, high: int) -> dict[str, int]:
+    return {"mediana": median, "min": low, "max": high}
+
+
+@pytest.mark.parametrize(
+    ("budget_ms", "exit_code", "verdict"),
+    [(250_000, 0, "w budżecie"), (240_000, 1, "ponad budżetem o 1000 ms")],
+)
+def test_straz_czasu_opisuje_ostatni_pomiar_i_pada_tylko_powyzej_budzetu(
+    tmp_path: Path, budget_ms: int, exit_code: int, verdict: str
+) -> None:
+    journal = tmp_path / "dziennik.jsonl"
+    older = {"scenario": "typowy-tydzien", "wall_ms": spread(999_999, 999_999, 999_999)}
+    latest = {
+        "started_at": "2026-10-20T08:00:00+00:00",
+        "git_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dirty": False,
+        "machine": "github-windows-latest",
+        "scenario": "typowy-tydzien",
+        "runs": 3,
+        "wall_ms": spread(241_000, 238_500, 247_250),
+        "czas_uruchomienia_ms": spread(236_000, 234_000, 240_000),
+        "phase_durations_ms": {"Sprawdzanie": spread(5_100, 5_000, 5_300), "Zapisywanie": spread(228_000, 226_000, 233_000)},
+        "counters": {"templates_total": 20},
+        "oracle": None,
+    }
+    journal.write_text("\n".join(json.dumps(record) for record in (older, latest)) + "\n", encoding="utf-8")
+    summary = tmp_path / "podsumowanie.md"
+    summary.write_text("Wcześniejszy krok\n", encoding="utf-8")
+
+    guard = run_benchmark(
+        "guard", "--journal", str(journal), "--budget-ms", str(budget_ms), "--summary", str(summary)
+    )
+
+    assert guard.returncode == exit_code, guard.stderr
+    text = summary.read_text(encoding="utf-8")
+    assert text.startswith("Wcześniejszy krok\n")
+    for expected in (
+        "typowy-tydzien",
+        "241000 (238500–247250)",
+        "236000 (234000–240000)",
+        "| Sprawdzanie | 5100 (5000–5300) |",
+        "228000 (226000–233000)",
+        "`0123456`",
+        "github-windows-latest",
+        f"{budget_ms} ms",
+        verdict,
+    ):
+        assert expected in text
+    assert "999999" not in text
+    assert verdict in guard.stdout + guard.stderr
