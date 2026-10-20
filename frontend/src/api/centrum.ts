@@ -20,6 +20,7 @@ import {
   zGetConfigurationResponse,
   zGetMetricsResponse,
   zGetPeriodBoardResponse,
+  zGetRepairNoticeResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zOpenPeriodPathResponse,
@@ -191,6 +192,11 @@ export function getMetrics() {
 /** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
 export function getConfiguration() {
   return call(zGetConfigurationResponse, "/api/configuration")
+}
+
+/** Czy Maks naprawił zgłoszony problem; serwer pyta skrzynkę Zgłoszeń najwyżej raz na 10 minut, bez sieci po cichu. */
+export function getRepairNotice() {
+  return call(zGetRepairNoticeResponse, "/api/reports/repair")
 }
 
 /** Serwer kończy pracę po odpowiedzi; odmawia (`CentrumError`), gdy zamknięcie jest teraz zablokowane. */
