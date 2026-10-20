@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from openpyxl import load_workbook
@@ -411,3 +413,50 @@ def test_pomiar_z_innym_wzorcem_rozliczenia_pracownika_nie_ma_pasujacego_wyniku_
     assert "Brak wyniku referencyjnego" in unnamed.stdout
     (record,) = (json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines())
     assert record["oracle"] is None
+
+
+def changed_counter(result: dict[str, Any]) -> None:
+    result["counters"]["rows"] += 1
+
+
+def changed_terminal_line(result: dict[str, Any]) -> None:
+    result["terminal"][-1] += " (inna linia)"
+
+
+@pytest.mark.parametrize(
+    ("change", "category"),
+    [(changed_counter, "liczniki"), (changed_terminal_line, "komunikaty")],
+    ids=["inne-liczniki", "inna-linia-terminala"],
+)
+def test_bramka_poprawnosci_jest_niezgodna_przy_innych_licznikach_albo_komunikatach(
+    tmp_path: Path, change: Callable[[dict[str, Any]], None], category: str
+) -> None:
+    config = write_mapping(tmp_path / "worker_mapping.yaml")
+    journal = tmp_path / "dziennik.jsonl"
+    references = tmp_path / "referencje"
+    common = [
+        "--scenario",
+        "maly-tydzien",
+        "--templates-dir",
+        str(write_templates(tmp_path / "wzorce")),
+        "--config",
+        str(config),
+        "--mirror-dir",
+        str(tmp_path / "lustro"),
+        "--reference-dir",
+        str(references),
+    ]
+    frozen = run_benchmark("freeze", *common, "--commit", "HEAD")
+    assert frozen.returncode == 0, frozen.stdout + frozen.stderr
+    result_path = frozen_reference(references).parent / "wynik.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    change(result)
+    result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+
+    measured = run_benchmark("measure", *common, "--journal", str(journal), "--machine", "test")
+
+    assert measured.returncode == 0, measured.stderr
+    (record,) = (json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines())
+    assert record["oracle"]["wynik"] == "niezgodny"
+    assert record["oracle"]["roznice"] == dict.fromkeys(ORACLE_CATEGORIES, 0) | {category: 1}
+    assert "niezgodny" in measured.stdout
