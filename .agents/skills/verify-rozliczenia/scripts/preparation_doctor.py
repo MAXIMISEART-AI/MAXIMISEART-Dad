@@ -33,13 +33,13 @@ REQUIRED_REGISTER_HEADERS = frozenset(
     {
         "DATA GODZ. POCZ.",
         "MIASTO",
-        "adres",
+        "ADRES",
         "UMOWA",
         "URZĄDZENIA",
         "CZYNNOŚCI",
-        "nr zlecenia",
+        "NUMER ZL.",
         "WYKONAWCA",
-        "NUMER UMOWY/ZLECENIA ORANGE",
+        "NUMER UMOWY",
         "SKUTECZNE",
         "CZYNNOŚCI ZREALIZOWANE",
     }

@@ -16,6 +16,7 @@ import pytest
 import yaml
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
+from openpyxl.utils import get_column_letter
 
 from rozliczenia.cli import main
 from rozliczenia.domain import ProgressEvent, ProgressObserver
@@ -51,10 +52,31 @@ def write_mapping(path: Path) -> Path:
     return path
 
 
+# Szerokości kolumn Wzorca rozliczenia pracownika: różne, z bardzo wąskimi C, E, L i M.
+WORKER_TEMPLATE_COLUMN_WIDTHS: dict[int, float] = {
+    1: 12.0,
+    2: 30.5,
+    3: 2.29,
+    4: 14.0,
+    5: 3.0,
+    6: 20.33,
+    7: 16.66,
+    8: 18.0,
+    9: 23.33,
+    10: 11.0,
+    11: 15.5,
+    12: 2.0,
+    13: 2.0,
+    14: 6.5,
+}
+
+
 def write_template(path: Path) -> None:
     workbook = Workbook()
     sheet = active_worksheet(workbook)
     sheet.title = "Sheet1"
+    for column, width in WORKER_TEMPLATE_COLUMN_WIDTHS.items():
+        sheet.column_dimensions[get_column_letter(column)].width = width
     sheet.cell(17, 8).value = "WYKONAWCA"
     sheet["A17"].fill = PatternFill(fill_type="solid", fgColor="00AA55")
     sheet.cell(18, 47).value = "=N18"
