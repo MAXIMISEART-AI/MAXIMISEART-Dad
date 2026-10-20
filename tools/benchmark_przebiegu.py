@@ -17,8 +17,14 @@ Z syntetycznymi Wzorcami (bez Wzorców taty, jak w CI):
 Przebieg rozliczeń 3 razy jako osobny proces Pythona (``run.py --source``), sprawdza
 bramkę poprawności i dopisuje rekord pomiaru do dziennika JSONL w ``.benchmark/``
 (poza gitem). ``comment`` drukuje z dziennika komentarz Markdown do issue-dziennika
-wspinaczki (spec #141). ``guard`` to straż czasu w CI: opisuje ostatni pomiar dziennika
-w Markdown i kończy się kodem 1 tylko wtedy, gdy mediana czasu ściany przekracza budżet.
+wspinaczki (spec #141); „przed” i „po” to zawsze ten sam scenariusz na tej samej maszynie.
+``guard`` to straż czasu w CI: opisuje ostatni pomiar dziennika w Markdown i kończy się
+kodem 1 tylko wtedy, gdy mediana czasu ściany przekracza budżet.
+
+``measure`` i ``freeze`` trzymają wyłączną blokadę pliku obok folderu wyników
+referencyjnych (``--reference-dir`` ``reference`` → ``reference.lock``): pomiary ze
+wspólnym folderem, np. oficjalne pomiary z kilku worktree, nigdy nie biegną naraz. Drugi
+pomiar czeka i mówi o tym na stderr.
 
 ``freeze`` zamraża wynik referencyjny scenariusza z dowolnego commita: buduje ten
 commit w tymczasowym worktree gita poza repozytorium, uruchamia jego Przebieg
@@ -65,11 +71,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -84,6 +91,7 @@ from rozliczenia.workbook_files import save_workbook  # noqa: E402
 from rozliczenia.worker_config import WorkerConfigError, load_worker_mapping  # noqa: E402
 
 RUNS = 3
+LOCK_POLL_SECONDS = 0.5
 DEFAULT_DIRECTORY = ROOT / ".benchmark"
 WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
 INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
@@ -402,6 +410,60 @@ def _process_metrics(path: Path) -> dict[str, Any]:
     return record
 
 
+def _try_lock(handle: BinaryIO) -> bool:
+    handle.seek(0)
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock(handle: BinaryIO) -> None:
+    handle.seek(0)
+    if sys.platform == "win32":
+        import msvcrt
+
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def measurement_lock(references: Path) -> Path:
+    """Plik blokady pomiarów obok folderu wyników referencyjnych (``reference`` → ``reference.lock``)."""
+
+    return references.with_name(f"{references.name}.lock")
+
+
+@contextmanager
+def exclusive_measurement(lock: Path) -> Iterator[None]:
+    """Jeden pomiar naraz: dwa pomiary dzielą procesor i zawyżają sobie czasy.
+
+    Pomiary ze wspólnym folderem wyników referencyjnych (oficjalne pomiary ze wszystkich worktree) czekają na
+    siebie. Blokadę zwalnia system także wtedy, gdy proces pomiaru zginie.
+    """
+
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("a+b") as handle:
+        if not _try_lock(handle):
+            print(f"Inny pomiar benchmarku trwa (blokada {lock}); ten czeka na jego koniec.", file=sys.stderr, flush=True)
+            while not _try_lock(handle):
+                time.sleep(LOCK_POLL_SECONDS)
+        try:
+            yield
+        finally:
+            _unlock(handle)
+
+
 def _git(*arguments: str) -> str | None:
     try:
         return subprocess.run(
@@ -605,12 +667,19 @@ def _matches(record: Mapping[str, Any], reference: str | None) -> bool:
 def _pairs(
     records: Sequence[Mapping[str, Any]], before: str | None, after: str | None
 ) -> list[tuple[Mapping[str, Any] | None, Mapping[str, Any]]]:
-    """Dla każdego scenariusza: ostatni rekord ``after`` i rekord przed nim (albo ostatni ``before``)."""
+    """Dla każdego scenariusza na każdej maszynie: ostatni rekord ``after`` i rekord przed nim (albo ostatni ``before``).
 
-    names = [*SCENARIOS, *(record["scenario"] for record in records)]
+    Czasy z różnych maszyn nie są porównywalne, więc „przed” pochodzi zawsze z tej samej maszyny co „po”.
+    """
+
+    order = {name: index for index, name in enumerate(dict.fromkeys([*SCENARIOS, *(r["scenario"] for r in records)]))}
+    groups = sorted(
+        dict.fromkeys((record["scenario"], record.get("machine")) for record in records),
+        key=lambda group: order[group[0]],
+    )
     pairs: list[tuple[Mapping[str, Any] | None, Mapping[str, Any]]] = []
-    for name in dict.fromkeys(names):
-        history = [record for record in records if record["scenario"] == name]
+    for scenario, machine in groups:
+        history = [record for record in records if (record["scenario"], record.get("machine")) == (scenario, machine)]
         after_indices = [index for index, record in enumerate(history) if _matches(record, after)]
         if not after_indices:
             continue
@@ -624,6 +693,10 @@ def _pairs(
             earlier = candidates[-1] if candidates else None
         pairs.append((earlier, history[after_index]))
     return pairs
+
+
+def _heading(record: Mapping[str, Any]) -> str:
+    return f"{record['scenario']} ({record.get('machine')})"
 
 
 def _spread_text(spread: Mapping[str, int] | None) -> str:
@@ -651,9 +724,9 @@ def _oracle_section(record: Mapping[str, Any]) -> list[str]:
 
     oracle = record.get("oracle")
     if not isinstance(oracle, Mapping):
-        return [f"### {record['scenario']}", "", "Nie sprawdzono: brak zamrożonego wyniku referencyjnego.", ""]
+        return [f"### {_heading(record)}", "", "Nie sprawdzono: brak zamrożonego wyniku referencyjnego.", ""]
     return [
-        f"### {record['scenario']}",
+        f"### {_heading(record)}",
         "",
         f"**{oracle['wynik']}** z wynikiem referencyjnym `{str(oracle['referencja'])[:7]}`.",
         "",
@@ -729,10 +802,10 @@ def render_comment(records: Sequence[Mapping[str, Any]], before: str | None = No
     if not pairs:
         raise BenchmarkError("W dzienniku nie ma rekordu pasującego do --after.")
     lines = ["## Hipoteza", "", TO_FILL, "", "## Zmiana", ""]
-    lines += [f"- {after['scenario']}: {_commit_text(before)} → {_commit_text(after)}" for before, after in pairs]
+    lines += [f"- {_heading(after)}: {_commit_text(before)} → {_commit_text(after)}" for before, after in pairs]
     lines += ["", "## Pomiar", ""]
     for earlier, later in pairs:
-        lines += [f"### {later['scenario']}", "", *_measurement_table(earlier, later), ""]
+        lines += [f"### {_heading(later)}", "", *_measurement_table(earlier, later), ""]
         if earlier is not None:
             lines += [_improvement(earlier, later), ""]
     lines += ["## Bramka poprawności", ""]
@@ -819,6 +892,25 @@ def _guard(journal: Path, budget_ms: int, summary_path: Path | None) -> int:
     return 0 if within else 1
 
 
+def _measure_or_freeze(args: argparse.Namespace, references: Path) -> dict[str, Any] | None:
+    """Lustro scenariusza, a na nim zamrożenie wyniku referencyjnego albo pomiar dopisany do dziennika."""
+
+    templates = _templates((args.templates_dir or default_templates_directory()).expanduser().resolve())
+    config = (args.config or default_worker_config()).expanduser().resolve()
+    mirror, built = ensure_mirror(args.mirror_dir.expanduser().resolve(), args.scenario, config, templates)
+    print(f"Lustro {'zbudowane' if built else 'istniejące'}: {mirror}", flush=True)
+    if args.command == "freeze":
+        frozen = freeze_reference(references, mirror, args.commit, config, templates[WORKER_TEMPLATE])
+        print(f"Wynik referencyjny {args.scenario} z commita {frozen.name[:7]}: {frozen}")
+        return None
+    reference = find_reference(references, mirror, args.reference)
+    if reference is None:
+        print(f"Brak wyniku referencyjnego w {references / mirror.name}; bramka poprawności nie sprawdzona.")
+    record = measure(mirror, args.scenario, config, templates[WORKER_TEMPLATE], args.machine, reference)
+    append_record(args.journal, record)
+    return record
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -827,23 +919,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "guard":
             return _guard(args.journal, args.budget_ms, args.summary)
-        templates = _templates((args.templates_dir or default_templates_directory()).expanduser().resolve())
-        config = (args.config or default_worker_config()).expanduser().resolve()
-        mirror, built = ensure_mirror(args.mirror_dir.expanduser().resolve(), args.scenario, config, templates)
-        print(f"Lustro {'zbudowane' if built else 'istniejące'}: {mirror}", flush=True)
         references = args.reference_dir.expanduser().resolve()
-        if args.command == "freeze":
-            frozen = freeze_reference(references, mirror, args.commit, config, templates[WORKER_TEMPLATE])
-            print(f"Wynik referencyjny {args.scenario} z commita {frozen.name[:7]}: {frozen}")
-            return 0
-        reference = find_reference(references, mirror, args.reference)
-        if reference is None:
-            print(f"Brak wyniku referencyjnego w {references / mirror.name}; bramka poprawności nie sprawdzona.")
-        record = measure(mirror, args.scenario, config, templates[WORKER_TEMPLATE], args.machine, reference)
-        append_record(args.journal, record)
+        with exclusive_measurement(measurement_lock(references)):
+            record = _measure_or_freeze(args, references)
     except BenchmarkError as error:
         print(f"Benchmark przerwany: {error}", file=sys.stderr)
         return 1
+    if record is None:
+        return 0
     wall, startup = record["wall_ms"], record["czas_uruchomienia_ms"]
     print(
         f"{args.scenario}: czas ściany {_spread_text(wall)} ms, Czas uruchomienia {_spread_text(startup)} ms "
