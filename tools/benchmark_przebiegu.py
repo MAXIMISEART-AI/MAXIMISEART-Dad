@@ -95,17 +95,14 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from rozliczenia.period_folder import PeriodFolder, collective_file_name  # noqa: E402
 from rozliczenia.settlement_period import parse_period_token  # noqa: E402
-from rozliczenia.workbook_files import save_workbook  # noqa: E402
+from rozliczenia.workbook_files import DATA_ROW_COLUMNS, QUANTITY_COLUMNS, read_data_rows, save_workbook  # noqa: E402
 from rozliczenia.worker_config import WorkerConfigError, load_worker_mapping  # noqa: E402
+from syntetyczne_wzorce import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, WORKER_CONFIG, WORKER_TEMPLATE  # noqa: E402
 
 RUNS = 3
 LOCK_POLL_SECONDS = 0.5
 DEFAULT_DIRECTORY = ROOT / ".benchmark"
-WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
-INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
-COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
 TEMPLATE_NAMES = (WORKER_TEMPLATE, INTERNAL_TEMPLATE, COLLECTIVE_TEMPLATE)
-WORKER_CONFIG = "worker_mapping.yaml"
 
 PERIOD = parse_period_token("06_12_10_2026")
 MONTH_FOLDER = "10_Październik_2026"
@@ -129,11 +126,9 @@ REGISTER_HEADERS = (
 CITIES = ("Miasto Syntetyczne", "Wieś Syntetyczna", "Osada Syntetyczna")
 DEVICES = ("dekoder", "router", "terminal ONT")
 ACTIVITIES = ("instalacja", "serwis", "demontaż")
-# Wpisy taty w Wierszach danych Pliku zbiorczego: ilości N:AP, obciążenie AQ:AR, uwagi AS:AT.
-FIRST_DATA_ROW = 18
-QUANTITY_COLUMNS = range(14, 43)
-CHARGE_DESCRIPTION, CHARGE_AMOUNT, REMARKS_AMOUNT, REMARKS = 43, 44, 45, 46
-ENTRY_COLUMNS = 46
+# Wpisy taty w Wierszach danych Pliku zbiorczego: ilości N:AP, obciążenie AQ:AR, uwagi AS:AT (za ilościami
+# do końca Wiersza danych).
+CHARGE_DESCRIPTION, CHARGE_AMOUNT, REMARKS_AMOUNT, REMARKS = range(QUANTITY_COLUMNS[-1] + 1, DATA_ROW_COLUMNS[-1] + 1)
 ORACLE_CATEGORIES = (*CATEGORIES, "liczniki", "komunikaty")
 REFERENCE_RESULT = "wynik.json"
 
@@ -307,16 +302,15 @@ def _fill_entries(collective_file: Path) -> None:
     """Gotowość lustra: tata wpisuje ilości i obciążenia w ``N:AT`` każdego Wiersza danych Pliku zbiorczego."""
 
     rng = random.Random(SEED)
+    data_rows = [row.number for row in read_data_rows(collective_file)]
     workbook = load_workbook(collective_file)
     try:
         sheet = workbook.active
         if not isinstance(sheet, Worksheet):
             raise BenchmarkError("Plik zbiorczy lustra nie ma aktywnego arkusza.")
-        rows = sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=ENTRY_COLUMNS)
-        data_rows = [row for row in rows if any(cell.value is not None for cell in row[:11])]
         for number, row in enumerate(data_rows, start=1):
             for column, value in _entries(rng, number).items():
-                cell = row[column - 1]
+                cell = sheet.cell(row, column)
                 if cell.data_type == "f":
                     raise BenchmarkError("Plik zbiorczy lustra ma formułę w kolumnach N:AT Wiersza danych.")
                 cell.value = value

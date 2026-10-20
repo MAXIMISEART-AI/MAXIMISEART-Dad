@@ -16,6 +16,9 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
+from rozliczenia.engine import default_worker_template_path
+from rozliczenia.workbook_files import DATA_ROW_COLUMNS, FIRST_DATA_ROW, QUANTITY_COLUMNS
 from tests.fixtures.preparation import write_collective_template, write_internal_template
 from tests.fixtures.settlement import write_template
 from tests.fixtures.workbooks import active_worksheet
@@ -24,9 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK = ROOT / "tools" / "benchmark_przebiegu.py"
 SYNTHETIC_TEMPLATES = ROOT / "tools" / "syntetyczne_wzorce.py"
 
-WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
-COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
-INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
+# Nazwy, pod którymi Wzorce leżą w ``config``: te same, których szukają procesy.
+WORKER_TEMPLATE = default_worker_template_path().name
+COLLECTIVE_TEMPLATE = default_collective_template_path().name
+INTERNAL_TEMPLATE = default_internal_template_path().name
 # Mała odmiana syntetycznych Wzorców: kilka grup wspólnych formuł (co 64 wiersze), szybka w pytest.
 SMALL_DATA_ROWS = 150
 
@@ -46,9 +50,9 @@ def write_templates(directory: Path) -> Path:
     """Folder z trzema syntetycznymi Wzorcami pod nazwami, pod którymi leżą w ``config``."""
 
     directory.mkdir(parents=True)
-    write_template(directory / "Wzorzec rozliczenia pracownika.xlsx")
-    write_internal_template(directory / "Wzorzec rozliczenia wewnętrznego.xlsx")
-    write_collective_template(directory / "Wzorzec pliku zbiorczego.xlsx")
+    write_template(directory / WORKER_TEMPLATE)
+    write_internal_template(directory / INTERNAL_TEMPLATE)
+    write_collective_template(directory / COLLECTIVE_TEMPLATE)
     return directory
 
 
@@ -134,7 +138,7 @@ def identifying_values(collective_file: Path) -> set[str]:
         sheet = active_worksheet(workbook)
         return {
             str(row[column - 1])
-            for row in sheet.iter_rows(min_row=18, max_col=11, values_only=True)
+            for row in sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=11, values_only=True)
             for column in _IDENTIFYING_COLUMNS
             if row[column - 1] is not None
         }
@@ -149,8 +153,8 @@ def data_row_entries(collective_file: Path) -> list[tuple[object, ...]]:
     try:
         sheet = active_worksheet(workbook)
         return [
-            row[13:46]
-            for row in sheet.iter_rows(min_row=18, max_col=46, values_only=True)
+            row[QUANTITY_COLUMNS[0] - 1 :]
+            for row in sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=DATA_ROW_COLUMNS[-1], values_only=True)
             if any(value is not None for value in row[:11])
         ]
     finally:

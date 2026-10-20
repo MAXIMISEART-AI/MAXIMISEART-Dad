@@ -13,8 +13,10 @@ na Komunikat ze swojego katalogu.
 Moduł jest właścicielem układu arkusza Pliku zbiorczego, wspólnego dla Wzorca
 pliku zbiorczego, Wzorca rozliczenia pracownika i Szablonów pracowników:
 nagłówek w wierszu 17 z WYKONAWCA w H, Wiersze danych od 18, dane wejściowe
-A:K, ilości N:AP i kolumny Wiersza danych A:AT. Publiczna jest tylko etykieta
-komórki nagłówka ``WORKER_HEADER`` do treści Komunikatów.
+A:K, ilości N:AP i kolumny Wiersza danych A:AT. Publiczne są etykieta komórki
+nagłówka ``WORKER_HEADER`` do treści Komunikatów oraz wiersze i kolumny układu
+(``HEADER_ROW``, ``FIRST_DATA_ROW``, ``QUANTITY_COLUMNS``, ``DATA_ROW_COLUMNS``) dla
+narzędzi benchmarku w ``tools/``, żeby nie powtarzały układu.
 """
 
 from __future__ import annotations
@@ -73,17 +75,19 @@ _UNREADABLE_WORKBOOK_ERRORS = (
     ExpatError,
 )
 
-_HEADER_ROW = 17
-_FIRST_DATA_ROW = 18
+# Układ arkusza Pliku zbiorczego i Wzorców tej rodziny. Publiczne są tylko liczby, których potrzebują narzędzia
+# spoza pakietu (benchmark wpisuje ilości jak tata, generator składa syntetyczne Wzorce kształtu Wzorców taty).
+HEADER_ROW = 17
+FIRST_DATA_ROW = 18
 _WORKER_COLUMN = 8  # H
 _INPUT_COLUMNS = range(1, 12)  # A:K: nagłówki w wierszu 17 i dane wejściowe Wiersza danych
-_QUANTITY_COLUMNS = range(14, 43)  # N:AP
-_DATA_ROW_COLUMNS = range(1, 47)  # A:AT: kopiowane z Pliku zbiorczego do Szablonu pracownika
+QUANTITY_COLUMNS = range(14, 43)  # N:AP
+DATA_ROW_COLUMNS = range(1, 47)  # A:AT: kopiowane z Pliku zbiorczego do Szablonu pracownika
 _WORKER_SETTLEMENT_LAYOUT = SheetLayout(
-    header_row=_HEADER_ROW,
-    first_data_row=_FIRST_DATA_ROW,
+    header_row=HEADER_ROW,
+    first_data_row=FIRST_DATA_ROW,
     input_columns=_INPUT_COLUMNS[-1],
-    data_columns=_DATA_ROW_COLUMNS[-1],
+    data_columns=DATA_ROW_COLUMNS[-1],
 )
 
 
@@ -150,7 +154,7 @@ class HeaderCell:
         return f"{self.column}{self.row}"
 
 
-WORKER_HEADER = HeaderCell(get_column_letter(_WORKER_COLUMN), _HEADER_ROW)
+WORKER_HEADER = HeaderCell(get_column_letter(_WORKER_COLUMN), HEADER_ROW)
 
 
 @dataclass(frozen=True)
@@ -163,7 +167,7 @@ class _Rows:
 class Layout(Enum):
     """Układ arkusza Wzorca: gdzie jest nagłówek i od którego wiersza są Wiersze danych."""
 
-    COLLECTIVE = _Rows(_HEADER_ROW, _FIRST_DATA_ROW, _INPUT_COLUMNS[-1])
+    COLLECTIVE = _Rows(HEADER_ROW, FIRST_DATA_ROW, _INPUT_COLUMNS[-1])
     """Plik zbiorczy, Wzorzec pliku zbiorczego i Wzorzec rozliczenia pracownika."""
     INTERNAL = _Rows(header_row=1, first_data_row=2, last_header_column=None)
     """Rozliczenie wewnętrzne i jego Wzorzec."""
@@ -285,21 +289,21 @@ def read_data_rows(path: Path) -> list[DataRow]:
         header = next(
             _classified(
                 path,
-                sheet.iter_rows(min_row=_HEADER_ROW, max_row=_HEADER_ROW, max_col=_INPUT_COLUMNS[-1], values_only=True),
+                sheet.iter_rows(min_row=HEADER_ROW, max_row=HEADER_ROW, max_col=_INPUT_COLUMNS[-1], values_only=True),
             ),
             (),
         )
         _check_worker_header(path, header)
         with _unreadable_as_error(path):
-            max_column = max(_DATA_ROW_COLUMNS[-1], sheet.max_column)
-        sheet_rows = list(_classified(path, sheet.iter_rows(min_row=_FIRST_DATA_ROW, max_col=max_column, values_only=True)))
+            max_column = max(DATA_ROW_COLUMNS[-1], sheet.max_column)
+        sheet_rows = list(_classified(path, sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=max_column, values_only=True)))
     finally:
         workbook.close()
 
-    last_column = _DATA_ROW_COLUMNS[-1]
+    last_column = DATA_ROW_COLUMNS[-1]
     return [
         DataRow(number, values[_WORKER_COLUMN - 1], tuple(values[:last_column]))
-        for number, values in enumerate(sheet_rows, start=_FIRST_DATA_ROW)
+        for number, values in enumerate(sheet_rows, start=FIRST_DATA_ROW)
         if any(value is not None for value in values[: _INPUT_COLUMNS[-1]])
     ]
 
@@ -418,8 +422,8 @@ class TemplateSheet:
         count = 0
         for values in self.worksheet.iter_rows(
             min_row=self._rows.first_data_row,
-            min_col=_QUANTITY_COLUMNS[0],
-            max_col=_QUANTITY_COLUMNS[-1],
+            min_col=QUANTITY_COLUMNS[0],
+            max_col=QUANTITY_COLUMNS[-1],
             values_only=True,
         ):
             if not any(_is_zero(value) for value in values):
@@ -431,7 +435,7 @@ class TemplateSheet:
         """Wpisuje Wiersze danych po pozycji kolumn A:AT od pierwszego Wiersza danych."""
 
         for index, values in enumerate(rows):
-            for column, value in zip(_DATA_ROW_COLUMNS, values):
+            for column, value in zip(DATA_ROW_COLUMNS, values):
                 self.worksheet.cell(self.data_row(index), column).value = value
 
 
