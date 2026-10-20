@@ -445,14 +445,12 @@ def run(
     *,
     output: TextIO | None = None,
     input_stream: TextIO | None = None,
-    metrics_path: Path | None = None,
 ) -> int:
     """Wejście CLI: Uruchomienie procesu w terminalu; ``0`` OK, ``2`` Wymaga sprawdzenia, ``1`` zatrzymanie."""
 
     terminal = TerminalConversation(output or sys.stdout, input_stream or sys.stdin)
     args = entry.parser().parse_args(argv)
     gathered = _gather(process, entry, args, terminal)
-    metrics = metrics_path or args.metrics
-    outcome = _conduct(process, gathered, terminal, entry.summary, metrics, dry_run=args.dry_run)
-    terminal.print_lines(_final_lines(process, entry, outcome, metrics))
+    outcome = _conduct(process, gathered, terminal, entry.summary, args.metrics, dry_run=args.dry_run)
+    terminal.print_lines(_final_lines(process, entry, outcome, args.metrics))
     return _EXIT_CODES[outcome.result]

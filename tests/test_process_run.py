@@ -147,7 +147,7 @@ def run_fake(
 ) -> tuple[int, str]:
     output = output or StringIO()
     exit_code = run(
-        process, terminal, list(args), output=output, input_stream=input_stream, metrics_path=metrics_path
+        process, terminal, ["--metrics", str(metrics_path), *args], output=output, input_stream=input_stream
     )
     return exit_code, output.getvalue() if isinstance(output, StringIO) else ""
 
@@ -476,7 +476,7 @@ def test_interrupt_by_tata_stops_live_view_and_passes_through(tmp_path: Path, mo
         raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        run(fake_process(execute=interrupted), TERMINAL, [], output=TtyOutput(), metrics_path=tmp_path / "metrics.jsonl")
+        run(fake_process(execute=interrupted), TERMINAL, ["--metrics", str(tmp_path / "metrics.jsonl")], output=TtyOutput())
 
     assert live_log[-1] == "stop"
 
@@ -603,7 +603,7 @@ def test_rich_failure_falls_back_to_plain_lines_without_changing_the_result(
     output = TtyOutput()
     metrics_path = tmp_path / "metrics.jsonl"
 
-    exit_code = run(fake_process(), TERMINAL, [], output=output, metrics_path=metrics_path)
+    exit_code = run(fake_process(), TERMINAL, ["--metrics", str(metrics_path)], output=output)
 
     assert exit_code == 0
     lines = output.getvalue().splitlines()

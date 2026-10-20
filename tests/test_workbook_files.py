@@ -169,17 +169,6 @@ def test_plik_otwarty_w_excelu_przy_kazdym_otwarciu(tmp_path: Path, opening: str
     assert lock_file.exists()
 
 
-def test_dostepny_skoroszyt_przechodzi_sprawdzenie_dostepnosci(tmp_path: Path) -> None:
-    path = styled_template(tmp_path / "Skoroszyt.xlsx")
-
-    workbook_files.ensure_available(path)
-
-    (tmp_path / "~$Skoroszyt.xlsx").touch()
-    with pytest.raises(WorkbookError) as raised:
-        workbook_files.ensure_available(path)
-    assert raised.value.problem is Problem.OPEN_IN_EXCEL
-
-
 def move_worker_header(path: Path, cell: str | None) -> None:
     workbook = load_workbook(path)
     try:

@@ -11,7 +11,6 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 import pytest
 
-from rozliczenia.collective_preparation import PreparationSummary, prepare_collective_file
 from rozliczenia.message import StopError
 from rozliczenia.workbook_files import ExternalLinksError, WorkbookSaveError
 import rozliczenia.workbook_files as workbook_files
@@ -27,22 +26,11 @@ from tests.fixtures.preparation import (
     make_preparation_fixture,
     month_periods_folder,
     register_order,
+    run_preparation,
     write_register,
     write_register_sheet,
 )
 from tests.fixtures.workbooks import cut_sheet_after_data_rows, without_sheet, without_styles
-
-
-def run_preparation(fixture: PreparationFixture, *, dry_run: bool = False) -> PreparationSummary:
-    return prepare_collective_file(
-        fixture.register_path,
-        fixture.periods_directory,
-        PERIOD,
-        fixture.config_path,
-        internal_template_path=fixture.internal_template_path,
-        collective_template_path=fixture.collective_template_path,
-        dry_run=dry_run,
-    )
 
 
 def input_snapshot(fixture: PreparationFixture) -> dict[Path, bytes]:

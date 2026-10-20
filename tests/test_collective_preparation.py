@@ -48,7 +48,7 @@ from tests.fixtures.preparation import (
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
 from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts
 from tests.fixtures.settlement import projected
-from tests.fixtures.preparation import cell_values, collective_row, run_preparation
+from tests.fixtures.preparation import cell_values, collective_row, incomplete_period_fixture, run_preparation
 
 
 @dataclass
@@ -64,17 +64,6 @@ class Tata:
         self.decisions.append(decision)
         self.before_answer()
         return self.consent
-
-
-def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
-    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
-
-    rows: list[RegisterRow] = [
-        register_order(1, datetime(2026, 9, 8, 8, 0)),
-        register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
-        register_order(3, datetime(2026, 9, 12, 12, 0)),
-    ]
-    return make_preparation_fixture(tmp_path, rows)
 
 
 def sheet_rows(path: Path, *, min_row: int, max_col: int) -> list[tuple[object, ...]]:
