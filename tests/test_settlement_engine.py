@@ -60,6 +60,25 @@ def make_complete_run_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     return source_path, target_directory, config_path, tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
 
 
+@pytest.fixture(scope="session")
+def synthetic_worker_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Mała odmiana syntetycznego Wzorca rozliczenia pracownika kształtu Wzorca taty (``tools/syntetyczne_wzorce.py``)."""
+
+    return write_synthetic_templates(tmp_path_factory.mktemp("syntetyczne-wzorce") / "wzorce") / WORKER_TEMPLATE
+
+
+@pytest.fixture(params=["maly-wzorzec", "syntetyczny-wzorzec"])
+def complete_run(
+    request: pytest.FixtureRequest, tmp_path: Path, synthetic_worker_template: Path
+) -> tuple[Path, Path, Path, Path]:
+    """Pełne wejście Przebiegu rozliczeń z małym Wzorcem z fixture albo z małym syntetycznym Wzorcem (#145)."""
+
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    if request.param == "syntetyczny-wzorzec":
+        shutil.copyfile(synthetic_worker_template, worker_template_path)
+    return source_path, target_directory, config_path, worker_template_path
+
+
 def expected_source_row(address: str, order_number: str, worker_id: str, quantity: int) -> tuple[object, ...]:
     return (
         "POZNAŃ",
@@ -84,10 +103,16 @@ def worksheet_input_row(sheet: Worksheet, row_number: int) -> tuple[object, ...]
 
 
 def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracownikow(
-    tmp_path: Path,
+    complete_run: tuple[Path, Path, Path, Path],
 ) -> None:
-    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    source_path, target_directory, config_path, worker_template_path = complete_run
     worker_template_before = worker_template_path.read_bytes()
+    template_workbook = load_workbook(worker_template_path)
+    try:
+        template_sheetnames = template_workbook.sheetnames
+        template_rows = [worksheet_input_row(active_worksheet(template_workbook), row) for row in (18, 19)]
+    finally:
+        template_workbook.close()
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
@@ -108,7 +133,7 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
     )
     try:
         adrian = active_worksheet(adrian_workbook)
-        assert adrian_workbook.sheetnames == ["Sheet1", "Rates"]
+        assert adrian_workbook.sheetnames == template_sheetnames
         assert worksheet_input_row(adrian, 18) == expected_source_row(
             "syntetyczny adres 1", "#1", "adrian.testowy", 1
         )
@@ -136,7 +161,7 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
     )
     try:
         empty = active_worksheet(empty_workbook)
-        assert worksheet_input_row(empty, 18) == (None,) * 13 + (0,) + (None,) * 32
+        assert [worksheet_input_row(empty, row) for row in (18, 19)] == template_rows  # pusty Szablon to Wzorzec
     finally:
         empty_workbook.close()
 
@@ -273,14 +298,14 @@ def test_plik_zbiorczy_bez_wykonawca_w_h17_zatrzymuje_przebieg_rozliczen(tmp_pat
     assert not target_directory.exists()
 
 
-def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(tmp_path: Path) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
+def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(complete_run: tuple[Path, Path, Path, Path]) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
     target_directory.mkdir()
     sentinel = target_directory / "existing.txt"
     sentinel.write_text("zachowaj", encoding="utf-8")
 
     with pytest.raises(StopError) as raised:
-        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     assert "Folder docelowy już istnieje" in terminal_text(raised.value)
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
@@ -340,10 +365,9 @@ def changes(*steps: Callable[[Path], None]) -> Callable[[Path], None]:
     ],
 )
 def test_wzorzec_rozliczenia_pracownika_ktorego_nie_mozna_uzyc_zatrzymuje_sprawdzanie(
-    tmp_path: Path, damage: Callable[[Path], None], detail: str, dry_run: bool
+    complete_run: tuple[Path, Path, Path, Path], damage: Callable[[Path], None], detail: str, dry_run: bool
 ) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    source_path, target_directory, config_path, worker_template_path = complete_run
     damage(worker_template_path)
 
     with pytest.raises(StopError) as raised:
@@ -379,8 +403,8 @@ def test_niepoprawna_konfiguracja_wykonawcow_zatrzymuje_sprawdzanie(tmp_path: Pa
     assert not target_directory.exists()
 
 
-def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publikacje(tmp_path: Path) -> None:
-    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publikacje(complete_run: tuple[Path, Path, Path, Path]) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
     lock_file = worker_template_path.with_name(f"~${worker_template_path.name}")
 
     def lock_in_saving(event: ProgressEvent) -> None:
@@ -413,9 +437,9 @@ FIRST_WORKER_FILE_FAILED = (
     ids=["nie-skoroszyt", "bez-wykonawca-w-h17", "z-danymi"],
 )
 def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publikacje(
-    tmp_path: Path, damage: Callable[[Path], None], code: str, komunikat: str
+    complete_run: tuple[Path, Path, Path, Path], damage: Callable[[Path], None], code: str, komunikat: str
 ) -> None:
-    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    source_path, target_directory, config_path, worker_template_path = complete_run
     recorded: list[ProgressEvent] = []
 
     def damage_in_saving(event: ProgressEvent) -> None:
@@ -441,9 +465,9 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
     ids=["w-sprawdzaniu", "w-zapisywaniu"],
 )
 def test_blad_odczytu_wzorca_rozliczenia_pracownika_z_dysku_wstrzymuje_publikacje(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing_phase: ProgressPhase, code: str
+    complete_run: tuple[Path, Path, Path, Path], monkeypatch: pytest.MonkeyPatch, failing_phase: ProgressPhase, code: str
 ) -> None:
-    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    source_path, target_directory, config_path, worker_template_path = complete_run
     read_bytes = Path.read_bytes
     phase: list[ProgressPhase] = []
 
@@ -469,9 +493,9 @@ def test_blad_odczytu_wzorca_rozliczenia_pracownika_z_dysku_wstrzymuje_publikacj
 
 
 def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    complete_run: tuple[Path, Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    source_path, target_directory, config_path, worker_template_path = complete_run
     worker_template_before = worker_template_path.read_bytes()
     replace = os.replace
 
@@ -493,8 +517,8 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     assert worker_template_path.read_bytes() == worker_template_before
 
 
-def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(tmp_path: Path) -> None:
-    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(complete_run: tuple[Path, Path, Path, Path]) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
     sentinel = target_directory / "existing.txt"
 
     def create_folder_in_saving(event: ProgressEvent) -> None:
