@@ -61,8 +61,9 @@ their contents.
   `tests/golden/terminal/`. A change to terminal text is a deliberate change
   to its golden file in the same commit (`UPDATE_GOLDEN=1`, then review the
   diff).
-- After changes, run the repository test command from `README.md`; before real
-  files are used, run `--dry-run`.
+- Before reporting work done, run `tools/ci_lokalnie.py` with the checkout's
+  own `.venv`: the CI jobs ruff, mypy, pytest and frontend, ending with
+  `CI LOKALNIE OK`. Before real files are used, run `--dry-run`.
 
 ## Frontend
 
@@ -77,6 +78,9 @@ their contents.
   tokens. Write all UI text in Polish, in the vocabulary of `GLOSSARY.md` and
   the user guide.
 - Display every contract field the UI receives, or remove it from the contract.
+- Take limits and value sets shared with the server from the generated schemas,
+  never from a repeated literal. Key a cache or a remount by exactly the fields
+  whose change requires a new read (tata's files, not the theme).
 - Build new UI to the accepted [v3 brief](https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad/issues/90#issuecomment-6257321289) with the `emil-design-eng` skill.
 
 ## Review Context
