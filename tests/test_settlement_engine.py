@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 import time
 from collections.abc import Callable, Iterable
+from typing import cast
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -24,9 +26,16 @@ from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
+from rozliczenia.workbook_files import ExcelRow, Layout, WorkerSettlementTemplate, file_from_template
 from tests.fixtures.benchmark import SMALL_DATA_ROWS, WORKER_TEMPLATE, write_synthetic_templates
-from tests.fixtures.workbooks import active_worksheet, cut_sheet_after_data_rows, external_link_parts, without_sheet
+from tests.fixtures.porownanie import compare_worker_settlements
+from tests.fixtures.workbooks import (
+    active_worksheet,
+    add_external_link_fixture,
+    cut_sheet_after_data_rows,
+    external_link_parts,
+    without_sheet,
+)
 from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, SOURCE_NAME, make_fixture, projected, write_source
 
 
@@ -165,6 +174,38 @@ def test_przebieg_rozliczen_na_syntetycznym_wzorcu_ksztaltu_taty_zapisuje_wiersz
         written_workbook.close()
 
 
+def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_openpyxl(tmp_path: Path) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    set_cell("K18", "=N18+1")(worker_template_path)
+    add_external_link_fixture(worker_template_path)
+    worker_template_before = worker_template_path.read_bytes()
+    expected_directory = tmp_path / "przez-openpyxl"
+    expected_directory.mkdir()
+    adrian = f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
+    source_workbook = load_workbook(source_path)
+    try:
+        # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
+        adrian_rows = [cast(ExcelRow, worksheet_input_row(active_worksheet(source_workbook), row)) for row in (18, 20)]
+    finally:
+        source_workbook.close()
+    with file_from_template(worker_template_path, expected_directory / adrian, Layout.COLLECTIVE, recalculate=True) as sheet:
+        sheet.write_data_rows(adrian_rows)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    assert worker_template_path.read_bytes() == worker_template_before
+    written_directory = tmp_path / "przebieg"
+    written_directory.mkdir()
+    shutil.copy2(target_directory / adrian, written_directory / adrian)
+    assert set(compare_worker_settlements(expected_directory, written_directory).values()) == {0}
+    empty_workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx")
+    try:
+        assert active_worksheet(empty_workbook)["K18"].value == "=N18+1"  # formuła Wzorca nie jest danymi
+    finally:
+        empty_workbook.close()
+
+
 def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
     tmp_path: Path,
 ) -> None:
@@ -261,6 +302,14 @@ def set_cell(cell: str, value: str) -> Callable[[Path], None]:
     return change
 
 
+def changes(*steps: Callable[[Path], None]) -> Callable[[Path], None]:
+    def change(path: Path) -> None:
+        for step in steps:
+            step(path)
+
+    return change
+
+
 @pytest.mark.parametrize("dry_run", [False, True], ids=["RUN", "DRY-RUN"])
 @pytest.mark.parametrize(
     ("damage", "detail"),
@@ -272,8 +321,23 @@ def set_cell(cell: str, value: str) -> Callable[[Path], None]:
             set_cell("A18", "SENSITIVE-SYNTHETIC"),
             "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.",
         ),
+        (
+            set_cell("K25", "SENSITIVE-SYNTHETIC"),
+            "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.",
+        ),
+        (
+            changes(set_cell("K18", "=N18+1"), set_cell("K25", "SENSITIVE-SYNTHETIC")),
+            "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.",
+        ),
     ],
-    ids=["otwarty-w-excelu", "nie-skoroszyt", "bez-wykonawca-w-h17", "z-danymi"],
+    ids=[
+        "otwarty-w-excelu",
+        "nie-skoroszyt",
+        "bez-wykonawca-w-h17",
+        "z-danymi",
+        "z-danymi-dalej",
+        "z-formula-w-wierszu-danych-i-danymi",
+    ],
 )
 def test_wzorzec_rozliczenia_pracownika_ktorego_nie_mozna_uzyc_zatrzymuje_sprawdzanie(
     tmp_path: Path, damage: Callable[[Path], None], detail: str, dry_run: bool

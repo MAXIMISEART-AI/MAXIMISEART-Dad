@@ -517,32 +517,15 @@ def test_rozliczenie_pracownika_ma_wartosci_kazdego_typu_jak_plik_z_wzorca(tmp_p
         saved.close()
 
 
-def formula_in_data_row(path: Path) -> Path:
-    write_template(path)
-    workbook = load_workbook(path)
-    try:
-        active_worksheet(workbook)["K18"] = "=N18+1"
-        workbook.save(path)
-    finally:
-        workbook.close()
-    add_external_link_fixture(path)
-    return path
-
-
 RICH_TEXT_ROWS: list[ExcelRow] = [_row(A=CellRichText("zwykły ", TextBlock(InlineFont(b=True), "pogrubiony")), N=1)]
 
 
-@pytest.mark.parametrize(
-    ("make_template", "rows"),
-    [(formula_in_data_row, VALUE_ROWS), (linked_template, RICH_TEXT_ROWS)],
-    ids=["formula-w-wierszu-danych-wzorca", "tekst-sformatowany"],
-)
-def test_rozliczenie_pracownika_spoza_ksztaltu_excela_jest_jak_plik_z_wzorca(
-    tmp_path: Path, make_template: Callable[[Path], Path], rows: list[ExcelRow]
-) -> None:
-    template_path = make_template(tmp_path / "Wzorzec.xlsx")
+def test_rozliczenie_pracownika_z_tekstem_sformatowanym_jest_jak_plik_z_wzorca(tmp_path: Path) -> None:
+    """Tekst sformatowany nie przychodzi z Pliku zbiorczego (odczyt daje zwykły tekst), więc ``run_settlements()`` go nie sięga."""
 
-    created, expected = _settlement_folders(tmp_path, template_path, rows)
+    template_path = linked_template(tmp_path / "Wzorzec.xlsx")
+
+    created, expected = _settlement_folders(tmp_path, template_path, RICH_TEXT_ROWS)
 
     assert set(compare_worker_settlements(expected, created).values()) == {0}
 
@@ -586,25 +569,6 @@ def test_nieudany_zapis_pliku_z_wzorca_nie_zostawia_pliku(tmp_path: Path) -> Non
             pass
 
     assert not missing_directory.exists()
-
-
-def test_wzorzec_z_wartoscia_w_wierszu_danych_ma_dane_a_formula_nie(tmp_path: Path) -> None:
-    template_path = styled_template(tmp_path / "Wzorzec.xlsx")
-    with open_template(template_path, Layout.COLLECTIVE) as sheet:
-        assert not sheet.has_input_data()
-    WorkerSettlementTemplate(template_path).check()
-
-    workbook = load_workbook(template_path)
-    try:
-        active_worksheet(workbook)["K25"] = "wcześniejsza wartość"
-        workbook.save(template_path)
-    finally:
-        workbook.close()
-    with open_template(template_path, Layout.COLLECTIVE) as sheet:
-        assert sheet.has_input_data()
-    with pytest.raises(WorkbookError) as raised:
-        WorkerSettlementTemplate(template_path).check()
-    assert raised.value.problem is Problem.HAS_DATA
 
 
 def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp_path: Path) -> None:
