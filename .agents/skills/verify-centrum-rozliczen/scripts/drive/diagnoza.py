@@ -104,8 +104,13 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     shown = answer["checks"]
     assert isinstance(shown, list)
     run.check(
-        [(check["label"], check["state"]) for check in shown][:3]
-        == [("Aktualność narzędzia", "passed"), ("Ustawienia taty", "passed"), ("Rejestr zleceń", "failed")],
+        [(check["label"], check["state"]) for check in shown][:4]
+        == [
+            ("Aktualność narzędzia", "passed"),
+            ("Ustawienia taty", "passed"),
+            ("Pliki w OneDrive", "passed"),
+            ("Rejestr zleceń", "failed"),
+        ],
         "every check is listed in order; the Rejestr zleceń failed",
     )
     run.check(lock.exists() and _snapshot(untouched) == before, "the Diagnoza changed no file and kept the lock file")
@@ -159,3 +164,29 @@ def drive_diagnosis(run: Run, page: Page) -> None:
         "the Centrum log records each Diagnoza with its cause code only",
     )
     run.capture(page, "57-diagnoza-bez-przyczyny")
+
+    run.step(FEATURE, "diagnoza-nieoczekiwany-wyjatek")
+    fault = run.root / "awaria" / "odczyt-rejestru"
+    fault.parent.mkdir(exist_ok=True)
+    fault.touch()
+    try:
+        page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
+        page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
+        page.get_by_role("combobox", name="Okres").click()
+        page.get_by_role("option", name=f"{PERIOD} · Brak plików okresu", exact=True).click()
+        page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_contain_text(NOT_FOUND)
+    finally:
+        fault.unlink()
+    result = finished_result(run, "diagnoza-nieoczekiwany-wyjatek")
+    run.check(
+        (result["ending"], result["diagnosis"]) == ("unexpected", "automatic"),
+        "a nieoczekiwany wyjątek is „do Maksa” and its Diagnoza starts by itself",
+    )
+    expect(diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_be_visible()
+    expect(diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True)).to_be_visible()
+    expect(stop_banner(page).get_by_role("button", name="Diagnoza", exact=True)).to_have_count(0)
+    run.check(True, "without a click Dad sees the Diagnoza, Wyślij do Maksa and the preview of the Zgłoszenie")
+    log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
+    run.check("synthetic unexpected failure" not in log, "the text of the exception is not in the Centrum log")
+    run.capture(page, "58-diagnoza-nieoczekiwany-wyjatek")
