@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import Any
 
 from playwright.sync_api import Locator, Page, ViewportSize, expect
 
@@ -207,35 +208,35 @@ def drive_metrics(run: Run, page: Page) -> None:
             path.with_name(path.name + ".odlozony").rename(path)
 
 
-def _chart_runs(runs: list[dict], process: str, mode: str) -> list[dict]:
+def _chart_runs(runs: list[dict[str, Any]], process: str, mode: str) -> list[dict[str, Any]]:
     """The runs on the chart, newest first as the API lists them; the chart shows them oldest on the left."""
 
     return [entry for entry in runs if (entry["process"], entry["mode"]) == (process, mode)][:CHART_RUNS]
 
 
-def _phase_ms(entry: dict, phase: str) -> int:
+def _phase_ms(entry: dict[str, Any], phase: str) -> int:
     return next((item["duration_ms"] for item in entry["phase_durations"] if item["phase"] == phase), 0)
 
 
-def _measured(phases: list[str], shown: list[dict]) -> list[str]:
+def _measured(phases: list[str], shown: list[dict[str, Any]]) -> list[str]:
     """Phases that lasted in at least one shown run (a DRY-RUN has no Zapisywanie)."""
 
     return [phase for phase in phases if any(_phase_ms(entry, phase) > 0 for entry in shown)]
 
 
-def _bar_title(entry: dict) -> str:
+def _bar_title(entry: dict[str, Any]) -> str:
     stopped = " · zatrzymano" if entry["result"] == "BLAD_KRYTYCZNY" else ""
     return f"{_local(entry['started_at'])} · okres {entry['period']}{stopped}"
 
 
-def _bar_name(entry: dict, measured: list[str]) -> str:
+def _bar_name(entry: dict[str, Any], measured: list[str]) -> str:
     """The bar's accessible name: its details, as a screen reader reads them."""
 
     times = ", ".join(f"{phase} {_seconds(_phase_ms(entry, phase))}" for phase in measured)
     return f"{_bar_title(entry)}. {times}"
 
 
-def _check_chart(run: Run, chart: Locator, phases: list[str], shown: list[dict], label: str) -> None:
+def _check_chart(run: Run, chart: Locator, phases: list[str], shown: list[dict[str, Any]], label: str) -> None:
     measured = _measured(phases, shown)
     bars = chart.get_by_role("button")
     expect(bars).to_have_count(len(shown))
@@ -288,7 +289,7 @@ def _drive_narrow_chart(run: Run, page: Page) -> None:
         context.close()
 
 
-def _expect_details(details: Locator, entry: dict, measured: list[str]) -> None:
+def _expect_details(details: Locator, entry: dict[str, Any], measured: list[str]) -> None:
     """The bar's details: date, period, „zatrzymano” for a stop, then every measured phase with its time."""
 
     parts = [_bar_title(entry)] + [text for phase in measured for text in (phase, _seconds(_phase_ms(entry, phase)))]
@@ -296,7 +297,7 @@ def _expect_details(details: Locator, entry: dict, measured: list[str]) -> None:
     expect(details).to_have_text(re.compile(r"^\s*" + r"\s*".join(re.escape(part) for part in parts) + r"\s*$"))
 
 
-def _drive_bar_details(run: Run, page: Page, chart: Locator, phases: list[str], shown: list[dict]) -> None:
+def _drive_bar_details(run: Run, page: Page, chart: Locator, phases: list[str], shown: list[dict[str, Any]]) -> None:
     measured = _measured(phases, shown)
     stopped = next(entry for entry in shown if entry["result"] == "BLAD_KRYTYCZNY")
     newest, previous = shown[0], shown[1]
