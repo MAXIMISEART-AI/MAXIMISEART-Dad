@@ -136,6 +136,19 @@ class _Computer:
         return tuple(self.log.recent(_LOG_ENTRIES))
 
     @cached_property
+    def period_files(self) -> tuple[Path, ...]:
+        """Pliki okresu w odszukanym Folderze okresu: oba pliki okresu i rozliczenia pracowników, bez plików blokady."""
+
+        folder = self.period_folder
+        if not isinstance(folder, PeriodFolder):
+            return ()
+        workers = folder.worker_settlements
+        worker_files = sorted(
+            path for path in (workers.iterdir() if workers.is_dir() else ()) if not path.name.startswith("~$")
+        )
+        return (folder.internal_settlement, folder.collective_file, *worker_files)
+
+    @cached_property
     def templates(self) -> tuple[Template, ...]:
         """Wzorce, które czyta proces Zatrzymania."""
 
@@ -263,7 +276,7 @@ def _period_files_in_excel(computer: _Computer) -> list[CheckResult]:
     folder = computer.period_folder
     if not isinstance(folder, PeriodFolder):
         return [CheckResult.not_checked(label, "Nie odszukano Folderu okresu.")]
-    for path in (folder.internal_settlement, folder.collective_file):
+    for path in computer.period_files:
         if workbook_files.is_open_in_excel(path):
             return [CheckResult.failed(label, diagnosis_messages.period_file_open(path))]
     return [CheckResult.passed(label, "Żaden plik okresu nie jest otwarty w Excelu.")]
@@ -289,12 +302,7 @@ def _files_of_process(computer: _Computer) -> list[Path]:
     if computer.process == "preparation" and register is not None:
         files.append(register)
     files += [template.path for template in computer.templates]
-    folder = computer.period_folder
-    if isinstance(folder, PeriodFolder):
-        files += [folder.internal_settlement, folder.collective_file]
-        if folder.worker_settlements.is_dir():
-            files += sorted(folder.worker_settlements.iterdir())
-    return files
+    return files + list(computer.period_files)
 
 
 def _centrum_log(computer: _Computer) -> list[CheckResult]:

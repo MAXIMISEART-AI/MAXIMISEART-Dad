@@ -353,6 +353,25 @@ def test_plik_okresu_otwarty_w_excelu_wyjasnia_jak_go_zamknac(tmp_path: Path, mo
     )
 
 
+def test_rozliczenie_pracownika_otwarte_w_excelu_wyjasnia_jak_je_zamknac(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    centrum.worker_settlements.mkdir()
+    worker_file = centrum.worker_settlements / "Rozliczenie Wykonawca Testowy A.xlsx"
+    worker_file.touch()
+    lock(worker_file)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert (diagnosis["explanation"]["what"], diagnosis["explanation"]["where"]) == (
+        "Plik okresu jest otwarty w Excelu.",
+        f"plik {worker_file.name}, folder {centrum.worker_settlements.name}",
+    )
+    assert check(diagnosis, "Pliki okresu w Excelu")[0] == "failed"
+
+
 def test_nieoczekiwany_wyjatek_w_dzienniku_od_startu_centrum_wyjasnia_ze_przyczyna_jest_w_narzedziu(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
