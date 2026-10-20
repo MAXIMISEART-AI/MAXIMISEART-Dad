@@ -45,7 +45,15 @@ Przebieg rozliczeń, za interfejsem `workbook_files.WorkerSettlementTemplate`
   a reszta to gotowe kawałki.
 - Kontrole Szablonu pracownika (WYKONAWCA w H17, dane w Wierszach danych) są
   liczone raz na Wzorcu; wyniki, Komunikaty, liczniki i zdarzenia postępu są
-  takie same jak wcześniej. Zapis jest atomowy jak wcześniej (plik tymczasowy
+  takie same jak wcześniej.
+- Sprawdzanie Wzorca rozliczenia pracownika (#149) używa tego samego Wzorca
+  wczytanego raz: `validate_worker_template` zwraca Wzorzec, z którego etap
+  Zapisywanie tworzy Rozliczenia pracowników. Kopia przyjmuje Wzorzec tylko
+  wtedy, gdy każda część XML jest poprawnym XML-em; inaczej Sprawdzanie idzie
+  przez openpyxl z dotychczasową klasyfikacją (brak, otwarty w Excelu,
+  nieczytelny). Przy pierwszym Rozliczeniu pracownika bajty Wzorca są czytane
+  ponownie: Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu zatrzymuje
+  Zapisywanie tak jak wcześniej. Zapis jest atomowy jak wcześniej (plik tymczasowy
   obok celu, `os.replace`).
 - Wzorzec spoza kształtu, który zapisuje Excel (np. formuła albo scalenie w
   kolumnach A:AT Wierszy danych, XML z prefiksami przestrzeni nazw, komórki bez
@@ -81,7 +89,11 @@ Odrzucone kierunki:
   porównuje wynik z plikiem z Wzorca zapisanym przez openpyxl modułem bramki
   poprawności, oraz bramka benchmarku przy każdym eksperymencie.
 - openpyxl zostaje do odczytu Pliku zbiorczego i Rejestru zleceń, do
-  Sprawdzania Wzorców i do drogi zapasowej. Przygotowanie pliku zbiorczego
+  Sprawdzania Wzorców Przygotowania pliku zbiorczego i do drogi zapasowej.
+  Wzorzec rozliczenia pracownika przechodzi Sprawdzanie bez openpyxl (#149):
+  Wzorzec poprawny jako XML, ale semantycznie odrzucany przez openpyxl, nie
+  jest już zatrzymywany w Sprawdzaniu. Do decyzji trzeba wrócić, jeśli taki
+  Wzorzec się pojawi. Przygotowanie pliku zbiorczego
   nadal zapisuje oba pliki okresu przez openpyxl; jego wspinaczka to osobna
   decyzja.
 - Bramka poprawności traktuje nazwę arkusza w apostrofach i bez nich w nazwie
