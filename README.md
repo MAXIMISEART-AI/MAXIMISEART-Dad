@@ -133,7 +133,9 @@ powstają razem albo żaden.
   poniedziałku, np. `08_14_09_2026`, a na przełomie miesięcy `27_02_11_2026`
   (27.10–02.11.2026) i lat `29_04_01_2027` (29.12.2026–04.01.2027).
 - Arkusz ze zleceniami jest wybierany po wymaganych nagłówkach w pierwszym
-  wierszu, nie po nazwie. Inne arkusze są ignorowane.
+  wierszu, nie po nazwie. Inne arkusze są ignorowane. Kolumny Rejestru są
+  rozpoznawane po nagłówkach, nie po literach, więc ich kolejność i dodatkowe
+  kolumny (np. `AKCJE`, `ZWROT`, `UWAGI`) nie zmieniają plików okresu.
 - Zlecenie należy do okresu po dacie w `DATA GODZ. POCZ.`, niezależnie od
   miejsca w arkuszu. Kolejność z Rejestru jest zachowana, a całkowicie puste
   wiersze są pomijane.
@@ -146,12 +148,12 @@ powstają razem albo żaden.
   zlecenia okresu, skuteczne i nieskuteczne, w kolumnach dopasowanych po
   nagłówkach. `zwrot` i `UWAGI` zostają puste.
 - Kolumny docelowe są ustalane wyłącznie po nagłówkach wzorca. Pary o innym
-  zapisie są jawne w mapowaniu: `DATA GODZ. POCZ.` → `DATA`, `adres` →
-  `ADRES`, `nr zlecenia` → `NUMER ZL.`, `NUMER UMOWY` →
-  `NUMER UMOWY/ZLECENIA ORANGE`. Dwa nagłówki Rejestru mają po dwa przyjmowane
+  zapisie są jawne w mapowaniu: `DATA GODZ. POCZ.` → `DATA`, `NUMER UMOWY` →
+  `NUMER UMOWY/ZLECENIA ORANGE`. Wielkość liter i spacje w nagłówkach nie mają
+  znaczenia (`adres` to `ADRES`). Dwa nagłówki Rejestru mają po dwa przyjmowane
   zapisy: `NUMER ZL.` albo `nr zlecenia` oraz `NUMER UMOWY` albo
-  `NUMER UMOWY/ZLECENIA ORANGE`; oba zapisy jednej kolumny naraz to powtórzony
-  nagłówek. Wzorzec z nagłówkiem w zapisie Rejestru zamiast własnego oznacza
+  `NUMER UMOWY/ZLECENIA ORANGE`; pierwszy to zapis nowego Rejestru taty, drugi
+  starszej kopii. Oba zapisy jednej kolumny naraz to powtórzony nagłówek. Wzorzec z nagłówkiem w zapisie Rejestru zamiast własnego oznacza
   zatrzymanie.
 - Plik zbiorczy (`Rozliczenie {okres} - zbiorcze.xlsx`) zawiera każde Zlecenie
   skuteczne w `A:K` od wiersza 18, bez przerw. Wiersze 1–17, kolumny ilości
