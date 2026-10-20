@@ -45,7 +45,9 @@ Plikiem zbiorczym, który Przygotowanie pliku zbiorczego (``run_preparation.py``
 tworzy z deterministycznego, syntetycznego Rejestru zleceń. Wykonawcy pochodzą z
 Konfiguracji wykonawców; adresy i numery są fikcyjne. Potem benchmark wpisuje w każdy
 Wiersz danych Pliku zbiorczego syntetyczne ilości w ``N:AP``, a w część z nich
-obciążenia i uwagi w ``AQ:AT``, tak jak tata przed Przebiegiem. Wzorce są brane z folderu
+obciążenia i uwagi w ``AQ:AT``, tak jak tata przed Przebiegiem. Plik zbiorczy lustra to
+więc wynik Przygotowania pliku zbiorczego (dane wejściowe ``A:K``) plus syntetyczne wpisy
+w ``N:AT``, które tata uzupełnia w Excelu między oboma procesami. Wzorce są brane z folderu
 ``--templates-dir`` pod nazwami, pod którymi leżą w ``config``; domyślnie z ``config``
 tego checkoutu, a gdy ich tam nie ma (świeży worktree), z ``config`` głównego checkoutu.
 Tak samo domyślna Konfiguracja wykonawców (``--config``): prawdziwy
