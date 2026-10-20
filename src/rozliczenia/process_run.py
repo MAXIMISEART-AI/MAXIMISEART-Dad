@@ -31,6 +31,7 @@ import sys
 import time
 from typing import Any, Generic, Literal, Protocol, TextIO, TypeVar
 
+from .call_trace import CallTrace
 from .decision import Conversation, Decision
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase
 from .message import Message, StopError
@@ -94,10 +95,15 @@ class Stop:
     ``Process.unexpected_failure``. ``after_engine``: silnik skończył, ale nie
     dało się zbudować podsumowania, z Komunikatem ``Process.plan_not_shown``
     (DRY-RUN) albo ``Process.summary_not_shown`` (RUN).
+
+    ``trace``: ślad wywołań nieoczekiwanego wyjątku (``unexpected``,
+    ``after_engine``) dla Zgłoszenia do Maksa; nie należy do tożsamości
+    Zatrzymania i nie trafia do terminala, dziennika ani metryk.
     """
 
     kind: Literal["stop", "unexpected", "after_engine"]
     message: Message
+    trace: CallTrace | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -260,7 +266,7 @@ def _stop_from(error: Exception, process: Process[Any, Any]) -> Stop:
 
     if isinstance(error, StopError):
         return Stop("stop", error.message)
-    return Stop("unexpected", process.unexpected_failure)
+    return Stop("unexpected", process.unexpected_failure, CallTrace.of(error))
 
 
 def _gather(
@@ -308,8 +314,8 @@ def _build_summary(
         return engine_outcome, None
     try:
         return engine_outcome()
-    except Exception:  # noqa: BLE001 - granica procesu: kończy jako zatrzymanie "after_engine" w wyniku i metrykach
-        return Stop("after_engine", not_shown), None
+    except Exception as error:  # noqa: BLE001 - granica procesu: kończy jako zatrzymanie "after_engine" w wyniku i metrykach
+        return Stop("after_engine", not_shown, CallTrace.of(error)), None
 
 
 def _metrics_warning(process: Process[Any, Any]) -> str:
