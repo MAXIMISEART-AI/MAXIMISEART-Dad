@@ -7,6 +7,7 @@ import {
   choosePeriodsDirectory,
   getSettings,
   type Choice,
+  type PathSetting,
   type Settings,
   type Theme,
 } from "@/api/centrum"
@@ -16,8 +17,8 @@ import { forgetLastReads, useResource, type Resource } from "@/lib/use-resource"
 // Kopia motywu w przeglądarce tylko na pierwsze malowanie (index.html); źródłem prawdy są ustawienia na serwerze.
 const THEME_KEY = "centrum-rozliczen-motyw"
 
-/** Plik taty wskazywany natywnym oknem wyboru. */
-export type PickedPath = "order_register" | "periods_directory"
+/** Plik taty wskazywany natywnym oknem wyboru: pole Ustawień taty, które jest ścieżką. */
+export type PickedPath = { [Key in keyof Settings]: Settings[Key] extends PathSetting ? Key : never }[keyof Settings]
 
 type SettingsContextValue = {
   settings: Resource<Settings>

@@ -111,9 +111,14 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
           setView(event.view)
 
           // Po przyjęciu startu każde Uruchomienie inne niż sprzed startu to już nowe (albo jeszcze późniejsze).
+          // `idle` znaczy wtedy, że serwer zgubił Uruchomienie (Centrum uruchomione ponownie, gdy karta była w tle):
+          // serwer publikuje widok startu przed odpowiedzią i w jednym procesie nie wraca do `idle`.
           const start = pendingStart.current
 
-          if (start !== null && start.accepted !== undefined && shownRun(event.view) !== start.before) {
+          if (
+            start?.accepted !== undefined &&
+            (shownRun(event.view) !== start.before || event.view.state === "idle")
+          ) {
             settleStart()
           }
 
@@ -151,6 +156,8 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
           (started) => {
             pending.accepted = shownRun(started)
 
+            // Ostatni widok strumienia przyszedł przed tą odpowiedzią: `idle` to w nim zwykły stan świeżo
+            // uruchomionego Centrum, a nie zgubione Uruchomienie, więc liczy się tylko przyjęte Uruchomienie.
             if (pending.accepted === null || shownRun(latest.current) === pending.accepted) {
               settleStart()
             }
