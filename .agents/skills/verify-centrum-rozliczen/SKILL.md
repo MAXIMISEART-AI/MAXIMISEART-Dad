@@ -28,9 +28,12 @@ Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and
 Przebieg rozliczeń up to the Status okresu `Rozliczenia pracowników gotowe`;
 `przebieg-rozliczen` alone drives Przygotowanie first. `--feature wydajnosc`
 measures how fast Centrum is in Dad's CPU profiles against the baseline in
-`wydajnosc-baseline.json`; it is never part of `all`, takes minutes, and needs a
-quiet CPU (`--baseline` and `--powtorzenia` apply to it only; see
-`features/wydajnosc.md`). Success prints
+`wydajnosc-baseline.json`; it is never part of `all` and takes minutes
+(`--baseline` and `--powtorzenia` apply to it only; see
+`features/wydajnosc.md`). The runner holds the machine for it: a measurement
+waits for a quiet CPU, every other run waits for a measurement in progress
+(`scripts/quiet_machine.py`), and `MASZYNA ZAJĘTA | …` lines say what it waits
+for. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 
@@ -165,7 +168,10 @@ Then confirm the evidence directory still exists.
   the Playwright drive.
 - `scripts/centrum_cleanup.py --root "$runRoot"`: stop and remove one run.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
-  check (with the `wydajnosc` gate on made-up numbers) and evidence hygiene check.
+  check (with the `wydajnosc` gate on made-up numbers and the machine lock in a
+  scratch directory) and evidence hygiene check.
+- `scripts/quiet_machine.py --status`: what holds the machine now (a
+  measurement, other verification runs, test runs or benchmarks).
 
 Read `features/README.md` before choosing a feature. Each Centrum slice adds
 its feature file and drive steps in the same PR as the feature; keep the map

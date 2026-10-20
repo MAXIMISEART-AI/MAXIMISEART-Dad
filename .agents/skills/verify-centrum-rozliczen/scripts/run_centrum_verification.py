@@ -20,6 +20,7 @@ import urllib.request
 import uuid
 
 from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
+from quiet_machine import MachineBusy, QuietMachine
 
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
@@ -302,9 +303,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     performance = [] if args.baseline is None else ["--baseline", str(Path(args.baseline).resolve())]
     performance += [] if args.powtorzenia is None else ["--powtorzenia", str(args.powtorzenia)]
+    machine = QuietMachine()
+    # wydajnosc holds the machine alone; every other run waits only for a measurement in progress.
+    hold = machine.measurement() if args.feature == "wydajnosc" else machine.run()
     try:
-        evidence = _verify(args.feature, performance)
-    except VerificationFailure as exc:
+        with hold as waited:
+            if waited >= 1:
+                print(f"MASZYNA WOLNA | czekano {waited:.0f} s", flush=True)
+            evidence = _verify(args.feature, performance)
+    except (VerificationFailure, MachineBusy) as exc:
         print(f"VERIFY FAIL | features={args.feature} | {exc}", file=sys.stderr)
         return 1
     print(f"VERIFY OK | features={args.feature} | evidence={evidence} | scratch_removed=true")
