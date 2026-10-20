@@ -28,7 +28,9 @@ RECORD_FIELDS = {
     "scenario",
     "runs",
     "wall_ms",
+    "start_procesu_ms",
     "czas_uruchomienia_ms",
+    "zakonczenie_procesu_ms",
     "phase_durations_ms",
     "counters",
     "oracle",
@@ -98,11 +100,16 @@ def test_benchmark_mierzy_przebieg_rozliczen_na_lustrze_i_opisuje_pomiar_bez_dan
         assert record["oracle"] is None  # bez zamrożonego wyniku referencyjnego bramka nie jest sprawdzana
         assert len(record["git_sha"]) == 40
         assert isinstance(record["dirty"], bool)
-        for spread in (record["wall_ms"], record["czas_uruchomienia_ms"], *record["phase_durations_ms"].values()):
+        parts = [record[name] for name in ("start_procesu_ms", "czas_uruchomienia_ms", "zakonczenie_procesu_ms")]
+        for spread in (record["wall_ms"], *parts, *record["phase_durations_ms"].values()):
             assert set(spread) == SPREAD
             assert spread["min"] <= spread["mediana"] <= spread["max"]
         assert set(record["phase_durations_ms"]) == PHASES
-        assert record["czas_uruchomienia_ms"]["max"] <= record["wall_ms"]["max"]
+        # Czas ściany każdego uruchomienia to start procesu + Czas uruchomienia + zakończenie procesu
+        # (z dokładnością do zaokrągleń), więc sumy skrajnych wartości obejmują skrajne czasy ściany.
+        assert sum(part["min"] for part in parts) <= record["wall_ms"]["max"] + 2
+        assert sum(part["max"] for part in parts) >= record["wall_ms"]["min"] - 2
+        assert record["start_procesu_ms"]["min"] > 0  # interpreter i importy przed silnikiem zawsze coś kosztują
         assert record["counters"] | {"templates_total": 3, "empty": 1, "rows": 6, "issues": 0} == record["counters"]
 
     comment = run_benchmark("comment", "--journal", str(journal))
@@ -111,8 +118,10 @@ def test_benchmark_mierzy_przebieg_rozliczen_na_lustrze_i_opisuje_pomiar_bez_dan
     assert headings == [f"## {heading}" for heading in COMMENT_SECTIONS]
     assert "### maly-tydzien" in comment.stdout
     for record in records:
-        wall = record["wall_ms"]
+        wall, start = record["wall_ms"], record["start_procesu_ms"]
         assert f"{wall['mediana']} ({wall['min']}–{wall['max']})" in comment.stdout
+        assert "| Start procesu [ms] |" in comment.stdout
+        assert f"{start['mediana']} ({start['min']}–{start['max']}) |" in comment.stdout
         assert record["started_at"] in comment.stdout
 
     published = "".join(
@@ -148,7 +157,9 @@ def test_straz_czasu_opisuje_ostatni_pomiar_i_pada_tylko_powyzej_budzetu(
         "scenario": "typowy-tydzien",
         "runs": 3,
         "wall_ms": spread(241_000, 238_500, 247_250),
+        "start_procesu_ms": spread(4_100, 3_900, 6_200),
         "czas_uruchomienia_ms": spread(236_000, 234_000, 240_000),
+        "zakonczenie_procesu_ms": spread(900, 850, 1_050),
         "phase_durations_ms": {"Sprawdzanie": spread(5_100, 5_000, 5_300), "Zapisywanie": spread(228_000, 226_000, 233_000)},
         "counters": {"templates_total": 20},
         "oracle": None,
@@ -168,6 +179,8 @@ def test_straz_czasu_opisuje_ostatni_pomiar_i_pada_tylko_powyzej_budzetu(
         "typowy-tydzien",
         "241000 (238500–247250)",
         "236000 (234000–240000)",
+        "| Start procesu | 4100 (3900–6200) |",
+        "| Zakończenie procesu | 900 (850–1050) |",
         "| Sprawdzanie | 5100 (5000–5300) |",
         "228000 (226000–233000)",
         "`0123456`",
@@ -325,3 +338,27 @@ def test_komentarz_porownuje_pomiary_tego_samego_scenariusza_na_tej_samej_maszyn
         assert "2026-10-02T08:00:00+00:00" in tata
         assert "2026-10-01T08:00:00+00:00" not in tata
         assert "Poprawa czasu ściany" not in tata
+
+
+def test_komentarz_pokazuje_start_procesu_takze_obok_pomiaru_sprzed_jego_mierzenia(tmp_path: Path) -> None:
+    journal = tmp_path / "dziennik.jsonl"
+    older = journal_record("a", "mac-m4max", "2026-10-01T08:00:00+00:00", spread(2_834, 2_820, 2_839))
+    newer = journal_record("b", "mac-m4max", "2026-10-02T08:00:00+00:00", spread(2_800, 2_790, 2_810)) | {
+        "start_procesu_ms": spread(70, 68, 75),
+        "zakonczenie_procesu_ms": spread(14, 13, 16),
+    }
+    journal.write_text("".join(json.dumps(record) + "\n" for record in (older, newer)), encoding="utf-8")
+
+    comment = run_benchmark("comment", "--journal", str(journal))
+
+    assert comment.returncode == 0, comment.stderr
+    mac = measurement_sections(comment.stdout)["typowy-tydzien (mac-m4max)"]
+    assert "| Start procesu [ms] | — | 70 (68–75) |" in mac
+    assert "| Zakończenie procesu [ms] | — | 14 (13–16) |" in mac
+    rows = [line.split(" |", 1)[0] for line in mac.splitlines() if line.startswith("| ")]
+    wall = rows.index("| Czas ściany [ms]")
+    assert rows[wall + 1 : wall + 4] == [
+        "| Start procesu [ms]",
+        "| Czas uruchomienia [ms]",
+        "| Zakończenie procesu [ms]",
+    ]
