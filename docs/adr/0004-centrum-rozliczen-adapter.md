@@ -7,6 +7,8 @@ której procesy są uruchamiane wyłącznie przez CLI i launchery `.cmd`.
 Rezygnacja z adaptera VBA z ADR 0003 pozostaje w mocy.
 [ADR 0006](0006-uklad-folderow-taty-i-wspolne-ustawienia.md) zmienia zdanie o
 launcherach: czytają one Ustawienia taty z Centrum rozliczeń.
+[ADR 0007](0007-zgloszenia-do-maksa-w-prywatnym-repo.md) rewiduje regułę
+prywatności dla treści Zgłoszenia wysyłanego do Maksa.
 
 ## Decyzja
 
