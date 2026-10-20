@@ -2,7 +2,10 @@
 
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
 zbiorczy (``read_data_rows``), Rejestr zleceń (``read_workbook``, z formatem
-komórek) i Wzorce (``open_template``, ``file_from_template``). Otwarcie
+komórek), Wzorce do Sprawdzania i dla Przygotowania pliku zbiorczego
+(``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
+pracownika, z którego Przebieg rozliczeń tworzy Rozliczenia pracowników
+(``WorkerSettlementTemplate``). Otwarcie
 sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
 ``WorkbookError`` z powodem. Moduł nie zna Komunikatów: proces tłumaczy powód
 na Komunikat ze swojego katalogu.
@@ -26,8 +29,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import IO, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 
 from openpyxl import load_workbook
@@ -95,6 +99,8 @@ class Problem(Enum):
     OPEN_IN_EXCEL = "otwarty w Excelu"
     UNREADABLE = "nieczytelny"
     LAYOUT = "zły układ"
+    HAS_DATA = "zawiera dane"
+    """Wzorzec ma już wartości w Wierszach danych; zgłasza tylko ``WorkerSettlementTemplate``."""
 
 
 class WorkbookError(Exception):
@@ -438,6 +444,54 @@ def file_from_template(template: Path, target: Path, layout: Layout, *, recalcul
         workbook.close()
 
 
+class WorkerSettlementTemplate:
+    """Wzorzec rozliczenia pracownika wczytany raz na Przebieg rozliczeń.
+
+    Z niego powstaje każde Rozliczenie pracownika (``create_settlement``).
+    Plik Wzorca jest czytany przy pierwszym Rozliczeniu pracownika, kolejne
+    powstają z tej samej kopii w pamięci. Wzorzec na dysku pozostaje
+    niezmieniony.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._content: bytes | None = None
+
+    def create_settlement(self, target: Path, rows: Sequence[ExcelRow]) -> None:
+        """Tworzy atomowo pod ``target`` Rozliczenie pracownika z ``rows`` jako Wierszami danych.
+
+        Wiersze danych są wpisywane po pozycji kolumn A:AT od wiersza 18;
+        formuły, formatowanie i ``xl/externalLinks/*`` zostają z Wzorca, a
+        Excel przeliczy formuły przy otwarciu.
+
+        Wzorca, którego nie da się użyć, nie maskuje wynik: ``WorkbookError``
+        (brak, otwarty w Excelu, nieczytelny, bez WYKONAWCA w H17 albo z danymi
+        w Wierszach danych). Nieudany zapis to ``WorkbookSaveError``. W obu
+        przypadkach ``target`` nie powstaje.
+        """
+
+        content = self._loaded()
+        with _unreadable_as_error(self._path):
+            workbook = load_workbook(BytesIO(content), read_only=False, data_only=False, keep_links=True)
+        try:
+            sheet = _template_sheet(self._path, workbook, Layout.COLLECTIVE)
+            sheet.check_worker_header()
+            if sheet.has_input_data():
+                raise WorkbookError(self._path, Problem.HAS_DATA)
+            sheet.write_data_rows(rows)
+            _request_full_recalculation(workbook)
+            _save_atomically(workbook, target, _read_external_link_parts(BytesIO(content), self._path.name))
+        finally:
+            workbook.close()
+
+    def _loaded(self) -> bytes:
+        if self._content is None:
+            ensure_available(self._path)
+            with _unreadable_as_error(self._path):
+                self._content = self._path.read_bytes()
+        return self._content
+
+
 def _template_sheet(path: Path, workbook: Workbook, layout: Layout) -> TemplateSheet:
     worksheet = workbook.active
     if not isinstance(worksheet, Worksheet):
@@ -469,12 +523,18 @@ def save_workbook(
     """
 
     links_source = external_links_from if external_links_from is not None else target
+    _save_atomically(workbook, target, _read_external_link_parts(links_source, links_source.name))
+
+
+def _read_external_link_parts(source: Path | IO[bytes], name: str) -> _ExternalLinkParts:
     try:
-        parts = _external_link_parts(links_source)
+        return _external_link_parts(source)
     except _WORKBOOK_FILE_ERRORS as exc:
-        raise ExternalLinksError(
-            f"Nie można odczytać odwołań zewnętrznych: {links_source.name}"
-        ) from exc
+        raise ExternalLinksError(f"Nie można odczytać odwołań zewnętrznych: {name}") from exc
+
+
+def _save_atomically(workbook: Workbook, target: Path, parts: _ExternalLinkParts) -> None:
+    """Zapisuje skoroszyt do pliku tymczasowego obok ``target``, przywraca ``parts`` i podmienia ``target``."""
 
     try:
         file_descriptor, temporary_name = tempfile.mkstemp(
@@ -503,10 +563,10 @@ def save_workbook(
         temporary_path.unlink(missing_ok=True)
 
 
-def _external_link_parts(path: Path) -> _ExternalLinkParts:
+def _external_link_parts(source: Path | IO[bytes]) -> _ExternalLinkParts:
     """Pobiera oryginalne relacje zewnętrzne, których openpyxl nie zapisuje 1:1."""
 
-    with zipfile.ZipFile(path, "r") as archive:
+    with zipfile.ZipFile(source, "r") as archive:
         return {
             info.filename: (info, archive.read(info.filename))
             for info in archive.infolist()

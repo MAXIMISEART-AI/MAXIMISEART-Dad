@@ -21,7 +21,7 @@ from rozliczenia.domain import Issue, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
-from rozliczenia.workbook_files import ExcelRow
+from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
 
 from tests.fixtures.terminal import TtyOutput, install_fake_rich
 from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, make_fixture
@@ -465,7 +465,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
 
     def fail_on_second_save(
         worker_name: str,
-        template_path: Path,
+        template: WorkerSettlementTemplate,
         path: Path,
         rows: Iterable[ExcelRow],
     ) -> WorkerResult:
@@ -473,7 +473,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
         save_calls += 1
         if save_calls == 2:
             raise template_settlement.TemplateWriteError("synthetic write failure")
-        return original_process_template(worker_name, template_path, path, rows)
+        return original_process_template(worker_name, template, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
 
