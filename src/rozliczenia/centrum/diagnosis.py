@@ -29,6 +29,7 @@ from rozliczenia import preparation_messages, settlement_messages, workbook_file
 from rozliczenia.centrum import contract, diagnosis_messages
 from rozliczenia.centrum.configuration import ConfigurationFiles, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
+from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
@@ -85,11 +86,14 @@ class Diagnosis:
         cause = self.cause
         return cause is not None and not cause.reports_to_maintainer
 
-    def view(self) -> contract.Diagnosis:
+    def view(self, report: contract.ReportDraft) -> contract.Diagnosis:
+        """Widok Diagnozy z podglądem Zgłoszenia ``report``, które wyśle „Wyślij do Maksa”."""
+
         return contract.Diagnosis(
             explanation=contract.Message.of(self.explanation),
             next_action="rerun" if self.fixable_by_tata else "report",
             checks=[contract.DiagnosisCheck(label=check.label, state=check.state, detail=check.detail) for check in self.checks],
+            report=report,
         )
 
 
@@ -250,7 +254,7 @@ _PROBLEMS: dict[int | str, dict[str, object]] = {404: {"model": contract.Problem
 
 
 def diagnosis_router(
-    host: RunHost, store: SettingsStore, configuration: ConfigurationFiles, log: CentrumLog
+    host: RunHost, store: SettingsStore, configuration: ConfigurationFiles, log: CentrumLog, reports: Reports
 ) -> APIRouter:
     router = APIRouter(prefix="/api/runs", tags=["uruchomienia"])
 
@@ -259,6 +263,6 @@ def diagnosis_router(
         stopped = host.stopped(run_id)
         diagnosis = diagnose(stopped, settings=store.load(), configuration=configuration, log=log)
         log.diagnosed(process=stopped.info.process, period=stopped.info.period, cause=diagnosis.explanation.code)
-        return diagnosis.view()
+        return diagnosis.view(reports.draft(diagnosis))
 
     return router

@@ -13,7 +13,8 @@ więc restart Centrum ją zeruje.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import astuple, dataclass
+import hashlib
 import threading
 
 from rozliczenia.centrum import contract
@@ -37,6 +38,12 @@ class ProblemFingerprint:
     @classmethod
     def of(cls, process: contract.ProcessKey, message: Message) -> ProblemFingerprint:
         return cls(process, message.code, message.what, message.where, message.action)
+
+    @property
+    def digest(self) -> str:
+        """Stały skrót odcisku do Zgłoszenia i lokalnego stanu wysłanych; bez treści Komunikatu."""
+
+        return hashlib.sha256("\x1f".join(astuple(self)).encode("utf-8")).hexdigest()[:16]
 
 
 class StopMemory:

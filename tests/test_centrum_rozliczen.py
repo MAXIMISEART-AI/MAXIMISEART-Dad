@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from rozliczenia.centrum.launcher import LOG_PATH
+from rozliczenia.centrum.reports import REPORT_KEY_FILE, SENT_REPORTS_FILE, UNSENT_DIRECTORY
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.settings import default_settings_path
 from tests.fixtures.centrum import CENTRUM, Centrum, ROOT, centrum, project_version
@@ -120,8 +121,22 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
 
 @pytest.mark.parametrize(
     "local_file",
-    [default_settings_path(), LOG_PATH, default_settings_path().parent / CENTRUM_RUNS_FILE],
-    ids=["ustawienia-taty", "dziennik-centrum", "dziennik-uruchomien-z-centrum"],
+    [
+        default_settings_path(),
+        LOG_PATH,
+        default_settings_path().parent / CENTRUM_RUNS_FILE,
+        default_settings_path().parent / REPORT_KEY_FILE,
+        default_settings_path().parent / SENT_REPORTS_FILE,
+        default_settings_path().parent / UNSENT_DIRECTORY / "Zgłoszenie BLAD_PLANU 08_14_09_2026.md",
+    ],
+    ids=[
+        "ustawienia-taty",
+        "dziennik-centrum",
+        "dziennik-uruchomien-z-centrum",
+        "klucz-do-zgloszen",
+        "wyslane-zgloszenia",
+        "niewyslane-zgloszenie",
+    ],
 )
 def test_lokalne_pliki_taty_sa_poza_gitem(local_file: Path) -> None:
     ignored = subprocess.run(

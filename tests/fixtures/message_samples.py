@@ -12,7 +12,7 @@ from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import diagnosis_messages, start_problems
+from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
@@ -180,4 +180,12 @@ DIAGNOSIS_SAMPLES: Samples = {
     "cause_not_found": [diagnosis_messages.cause_not_found],
     "period_file_open": [lambda: diagnosis_messages.period_file_open(PERIOD_DIRECTORY / f"Rozliczenie wew. {PERIOD}.xlsx")],
     "unexpected_failure_logged": [diagnosis_messages.unexpected_failure_logged],
+}
+
+UNSENT_REPORT = Path("C:/Narzedzie/config/zgloszenia") / f"Zgłoszenie BLAD_PLANU {PERIOD}.md"
+
+REPORT_SAMPLES: Samples = {
+    "key_missing": [lambda: report_messages.key_missing(UNSENT_REPORT)],
+    "key_refused": [lambda: report_messages.key_refused(UNSENT_REPORT)],
+    "box_unreachable": [lambda: report_messages.box_unreachable(UNSENT_REPORT)],
 }

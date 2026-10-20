@@ -1,7 +1,7 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``runs_router``, ``diagnosis_router``, ``metrics_router``, ``configuration_router``,
+``runs_router``, ``diagnosis_router``, ``reports_router``, ``metrics_router``, ``configuration_router``,
 ``shutdown_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``, a
@@ -27,6 +27,8 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
+from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
+from rozliczenia.centrum.reports import Reports, reports_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
@@ -50,6 +52,7 @@ def create_app(
     today: Callable[[], date] = date.today,
     metrics_files: MetricsFiles | None = None,
     configuration_files: ConfigurationFiles | None = None,
+    report_box: ReportBox | None = None,
 ) -> FastAPI:
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(title="Centrum rozliczeń", version="kontrakt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -92,14 +95,17 @@ def create_app(
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
     # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
-    runs = RunHost(log, centrum_runs)
+    # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
+    reports = Reports(settings_path.parent, report_box or GitHubReportBox(), log)
+    runs = RunHost(log, centrum_runs, reports.state)
     shutdown.refuse_while(runs.shutdown_refusal)
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
-    app.include_router(diagnosis_router(runs, store, configuration, log))
+    app.include_router(diagnosis_router(runs, store, configuration, log, reports))
+    app.include_router(reports_router(runs, reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
-    app.include_router(configuration_router(configuration))
+    app.include_router(configuration_router(configuration, reports.key_state))
     app.include_router(shutdown_router(shutdown))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
         app.mount("/", _Frontend(directory=STATIC_DIRECTORY, html=True), name="frontend")

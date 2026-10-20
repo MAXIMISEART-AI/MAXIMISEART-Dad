@@ -372,6 +372,38 @@ class RunSummary(_Model):
     file_plan: list[WorkerFile] | None
 
 
+class ReportDraft(_Model):
+    """Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown."""
+
+    title: str
+    body: str
+
+
+class ReportReady(_Model):
+    """Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy."""
+
+    state: Literal["ready"]
+
+
+class ReportSent(_Model):
+    """Zgłoszenie tego problemu jest wysłane z tego komputera i czeka na naprawę."""
+
+    state: Literal["sent"]
+
+
+class ReportSaved(_Model):
+    """Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); czeka w pliku na tym komputerze.
+
+    ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie.
+    """
+
+    state: Literal["saved"]
+    message: Message
+
+
+ReportState = Annotated[ReportReady | ReportSent | ReportSaved, Field(discriminator="state")]
+
+
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
 # osobie utrzymującej narzędzie (także nieoczekiwany błąd), ``repeated`` to ten sam Komunikat „dla taty”
 # drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
@@ -384,7 +416,8 @@ class RunOutcome(_Model):
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
     błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
     którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
-    Zatrzymania (``None`` bez Zatrzymania).
+    Zatrzymania (``None`` bez Zatrzymania), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``,
+    gdy Centrum go nie proponuje, czyli bez Zatrzymania i przy Zatrzymaniu „dla taty”).
     """
 
     result: RunResult
@@ -392,6 +425,7 @@ class RunOutcome(_Model):
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
     stop_kind: StopKind | None
+    report: ReportState | None
     stops: list[Message]
     warnings: list[Message]
     notices: list[str]
@@ -455,12 +489,14 @@ class Diagnosis(_Model):
 
     ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
     przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
-    ponownie; ``report``: przyczynę usuwa Maks.
+    ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+    „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk).
     """
 
     explanation: Message
     next_action: Literal["rerun", "report"]
     checks: list[DiagnosisCheck]
+    report: ReportDraft
 
 
 class TemplateReady(_Model):
@@ -502,9 +538,14 @@ class WorkersUnreadable(_Model):
 Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
 
 
+# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”) albo ``missing_key``; nigdy jego wartość.
+ReportKeyState = Literal["ready", "missing_key"]
+
+
 class Configuration(_Model):
     """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."""
 
     version: str
     templates: list[TemplateStatus]
     workers: Workers
+    reports: ReportKeyState

@@ -10,17 +10,20 @@ from dataclasses import dataclass
 from datetime import date
 import json
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
+
+import pytest
 
 from fastapi.testclient import TestClient
 
+from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import CENTRUM, FakePlatform, finished_view
+from tests.fixtures.centrum import CENTRUM, FakePlatform, FakeReportBox, finished_view
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
 
@@ -30,7 +33,11 @@ WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
 
 
 def _client(
-    tmp_path: Path, platform: FakePlatform, configuration: ConfigurationFiles, metrics: MetricsFiles
+    tmp_path: Path,
+    platform: FakePlatform,
+    configuration: ConfigurationFiles,
+    metrics: MetricsFiles,
+    report_box: FakeReportBox,
 ) -> TestClient:
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
     app = create_app(
@@ -41,6 +48,7 @@ def _client(
         today=lambda: TODAY,
         configuration_files=configuration,
         metrics_files=metrics,
+        report_box=report_box,
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
 
@@ -52,6 +60,7 @@ class PreparingCentrum:
     metrics_path: Path
     log_path: Path
     tmp_path: Path
+    report_box: FakeReportBox
 
     def start(self, *, dry_run: bool, period: str = PERIOD) -> Any:
         return self.client.post("/api/runs", json={"process": "preparation", "period": period, "dry_run": dry_run})
@@ -63,17 +72,19 @@ class PreparingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform())
+        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform(), self.report_box)
 
 
-def _preparation_client(tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform) -> TestClient:
+def _preparation_client(
+    tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform, report_box: FakeReportBox
+) -> TestClient:
     configuration = ConfigurationFiles(
         worker_config=fixture.config_path,
         internal_template=fixture.internal_template_path,
         collective_template=fixture.collective_template_path,
         worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
     )
-    return _client(tmp_path, platform, configuration, _metrics(tmp_path))
+    return _client(tmp_path, platform, configuration, _metrics(tmp_path), report_box)
 
 
 def _metrics(tmp_path: Path) -> MetricsFiles:
@@ -88,11 +99,17 @@ def preparing_centrum(tmp_path: Path, rows: list[RegisterRow] | None = None) -> 
 
     fixture = make_preparation_fixture(tmp_path, rows)
     platform = FakePlatform(chosen_files=[fixture.register_path], chosen_folders=[fixture.periods_directory])
-    client = _preparation_client(tmp_path, fixture, platform)
+    report_box = FakeReportBox()
+    client = _preparation_client(tmp_path, fixture, platform, report_box)
     client.post("/api/settings/register/choose")
     client.post("/api/settings/periods-directory/choose")
     return PreparingCentrum(
-        client, fixture, _metrics(tmp_path).preparation, tmp_path / "logs" / "centrum-rozliczen.log", tmp_path
+        client,
+        fixture,
+        _metrics(tmp_path).preparation,
+        tmp_path / "logs" / "centrum-rozliczen.log",
+        tmp_path,
+        report_box,
     )
 
 
@@ -105,6 +122,7 @@ class SettlingCentrum:
     period_parent: Path
     configuration: ConfigurationFiles
     tmp_path: Path
+    report_box: FakeReportBox
 
     @property
     def period_directory(self) -> Path:
@@ -128,7 +146,9 @@ class SettlingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _client(self.tmp_path, FakePlatform(), self.configuration, _metrics(self.tmp_path))
+        self.client = _client(
+            self.tmp_path, FakePlatform(), self.configuration, _metrics(self.tmp_path), self.report_box
+        )
 
 
 def settling_centrum(
@@ -154,10 +174,13 @@ def settling_centrum(
         worker_template=worker_template,
     )
     metrics = _metrics(tmp_path)
-    client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, metrics)
+    report_box = FakeReportBox()
+    client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, metrics, report_box)
     client.post("/api/settings/periods-directory/choose")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
-    return SettlingCentrum(client, periods_directory, metrics.settlement, log_path, parent, configuration, tmp_path)
+    return SettlingCentrum(
+        client, periods_directory, metrics.settlement, log_path, parent, configuration, tmp_path, report_box
+    )
 
 
 class _Starting(Protocol):
@@ -171,3 +194,15 @@ def run_to_end(centrum: _Starting, *, dry_run: bool) -> dict[str, Any]:
     started = centrum.start(dry_run=dry_run)
     assert started.status_code == 200, started.json()
     return finished_view(centrum.client)
+
+
+def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Zatrzymanie „do Maksa” bez zmiany plików: podgląd, którego planu nie da się pokazać; zwraca id Uruchomienia."""
+
+    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
+        raise ValueError("synthetic summary failure SYN-001")
+
+    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
+    view = run_to_end(centrum, dry_run=True)
+    assert view["result"]["stop_kind"] == "for_maks"
+    return str(view["run"]["id"])
