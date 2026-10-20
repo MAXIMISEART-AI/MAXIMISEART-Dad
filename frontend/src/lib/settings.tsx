@@ -11,7 +11,7 @@ import {
   type Theme,
 } from "@/api/centrum"
 import { toast } from "@/components/ui/toast"
-import { useResource, type Resource } from "@/lib/use-resource"
+import { forgetLastReads, useResource, type Resource } from "@/lib/use-resource"
 
 // Kopia motywu w przeglądarce tylko na pierwsze malowanie (index.html); źródłem prawdy są ustawienia na serwerze.
 const THEME_KEY = "centrum-rozliczen-motyw"
@@ -44,6 +44,13 @@ function applyTheme(theme: Theme) {
   requestAnimationFrame(() => requestAnimationFrame(() => freeze.remove()))
 }
 
+/** Pliki taty, z których serwer czyta strony: folder okresów i Rejestr zleceń (bez motywu). */
+function files(settings: Resource<Settings>): string | null {
+  return settings.state === "ready"
+    ? JSON.stringify([settings.data.periods_directory, settings.data.order_register])
+    : null
+}
+
 function showFailure(failure: Error) {
   toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
 }
@@ -62,8 +69,17 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, [theme])
 
   const remember = React.useCallback(
-    (choice: Choice) => replace({ state: "ready", data: choice.settings }),
-    [replace]
+    (choice: Choice) => {
+      const chosen: Resource<Settings> = { state: "ready", data: choice.settings }
+
+      // Ostatnie dane stron pochodzą z poprzednich plików, więc nie mogą się pokazać jako bieżące.
+      if (files(chosen) !== files(settings)) {
+        forgetLastReads()
+      }
+
+      replace(chosen)
+    },
+    [replace, settings]
   )
 
   const value = React.useMemo<SettingsContextValue>(
