@@ -16,12 +16,16 @@ from pathlib import Path
 import threading
 
 VIEW_TIMING_EVENT = "pomiar"
+# Pomiar przychodzi po każdym widoku, więc na jedno uruchomienie Centrum dziennik przyjmuje ich najwyżej
+# tyle (spec #164, US29); kolejne przepadają po cichu, a wpisy o pracy serwera są zapisywane dalej.
+MAX_VIEW_TIMINGS = 200
 
 
 class CentrumLog:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._lock = threading.Lock()
+        self._view_timings = 0
 
     def started(self, *, port: int, version: str, console: bool) -> None:
         self._write("start", port=port, wersja=version, konsola="tak" if console else "nie")
@@ -89,8 +93,13 @@ class CentrumLog:
 
         Każde zapytanie API to ``operacja:przeglądarka/serwer`` w milisekundach,
         a ``-`` zamiast czasu serwera, gdy odpowiedź nie miała ``Server-Timing``.
+        Ponad ``MAX_VIEW_TIMINGS`` pomiarów tego dziennika nic nie zapisuje.
         """
 
+        with self._lock:
+            if self._view_timings >= MAX_VIEW_TIMINGS:
+                return
+            self._view_timings += 1
         facts: dict[str, str | int] = {"widok": view, "strona": page, "gotowe_ms": ready_ms}
         if fcp_ms is not None:
             facts["fcp_ms"] = fcp_ms
