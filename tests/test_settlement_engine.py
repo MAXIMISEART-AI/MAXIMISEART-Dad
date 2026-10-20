@@ -25,7 +25,8 @@ from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
-from tests.fixtures.workbooks import active_worksheet, cut_sheet_after_data_rows, without_sheet
+from tests.fixtures.benchmark import SMALL_DATA_ROWS, WORKER_TEMPLATE, write_synthetic_templates
+from tests.fixtures.workbooks import active_worksheet, cut_sheet_after_data_rows, external_link_parts, without_sheet
 from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, SOURCE_NAME, make_fixture, projected, write_source
 
 
@@ -129,6 +130,39 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
         assert worksheet_input_row(empty, 18) == (None,) * 13 + (0,) + (None,) * 32
     finally:
         empty_workbook.close()
+
+
+def test_przebieg_rozliczen_na_syntetycznym_wzorcu_ksztaltu_taty_zapisuje_wiersze_danych_i_zachowuje_formuly(
+    tmp_path: Path,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    worker_template_path = write_synthetic_templates(tmp_path / "syntetyczne") / WORKER_TEMPLATE
+    worker_template_before = worker_template_path.read_bytes()
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    assert worker_template_path.read_bytes() == worker_template_before
+    two_rows = next(result for result in summary.results if result.rows == 2)
+    assert external_link_parts(two_rows.output_file) == external_link_parts(worker_template_path)
+    source_workbook = load_workbook(source_path)
+    written_workbook = load_workbook(two_rows.output_file)
+    try:
+        source = active_worksheet(source_workbook)
+        written = active_worksheet(written_workbook)
+        # Szablon pracownika z dwoma wierszami dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
+        assert [worksheet_input_row(written, row) for row in (18, 19)] == [
+            worksheet_input_row(source, row) for row in (18, 20)
+        ]
+        assert (written["H17"].value, written["N20"].value, written["N21"].value) == ("WYKONAWCA", 0, 0)
+        assert str(written["AU19"].value).startswith("=N19*")
+        assert str(written["AU150"].value).startswith("=N150*")
+        assert str(written["AV150"].value).startswith("=IFERROR(SUMPRODUCT(N150:V150")
+        assert "[1]Słownik" in str(written["AY18"].value)
+        assert written.max_row == 17 + SMALL_DATA_ROWS
+    finally:
+        source_workbook.close()
+        written_workbook.close()
 
 
 def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(

@@ -42,7 +42,8 @@ from tests.fixtures.preparation import (
     write_internal_template,
     write_register,
 )
-from tests.fixtures.workbooks import active_worksheet
+from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
+from tests.fixtures.workbooks import active_worksheet, external_link_parts
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import cell_values, collective_row, run_preparation
 
@@ -173,6 +174,40 @@ def test_plik_zbiorczy_keeps_wzorzec_rows_1_to_17_quantities_and_formulas(tmp_pa
         assert workbook["Rates"]["B1"].value == 17.5
     finally:
         workbook.close()
+
+
+def test_przygotowanie_na_syntetycznych_wzorcach_ksztaltu_taty_wypelnia_pliki_okresu_jak_na_testowych(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "testowe").mkdir()
+    (tmp_path / "syntetyczne").mkdir()
+    reference = make_preparation_fixture(tmp_path / "testowe")
+    templates = write_synthetic_templates(tmp_path / "wzorce")
+    fixture = replace(
+        make_preparation_fixture(tmp_path / "syntetyczne"),
+        internal_template_path=templates / INTERNAL_TEMPLATE,
+        collective_template_path=templates / COLLECTIVE_TEMPLATE,
+    )
+
+    run_preparation(reference)
+    summary = run_preparation(fixture)
+
+    assert summary.warnings == []
+    created, template = fixture.collective_file_path, fixture.collective_template_path
+    assert cell_values(created, min_row=18, max_row=21, min_col=1, max_col=11) == cell_values(
+        reference.collective_file_path, min_row=18, max_row=21, min_col=1, max_col=11
+    )
+    assert cell_values(created, min_row=1, max_row=17, min_col=1, max_col=51) == cell_values(
+        template, min_row=1, max_row=17, min_col=1, max_col=51
+    )
+    assert cell_values(created, min_row=18, max_row=21, min_col=14, max_col=51) == cell_values(
+        template, min_row=18, max_row=21, min_col=14, max_col=51
+    )
+    assert external_link_parts(created) == external_link_parts(template)
+    def filled_rows(path: Path) -> int:
+        return sum(any(value is not None for value in row) for row in sheet_rows(path, min_row=2, max_col=13))
+
+    assert filled_rows(fixture.internal_settlement_path) == filled_rows(reference.internal_settlement_path) == 4
 
 
 def test_przygotowanie_leaves_rejestr_and_wzorce_byte_identical(tmp_path: Path) -> None:
