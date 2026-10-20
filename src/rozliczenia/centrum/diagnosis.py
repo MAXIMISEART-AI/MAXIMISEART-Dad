@@ -29,10 +29,11 @@ from fastapi import APIRouter
 from rozliczenia import preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
 from rozliczenia.centrum.cloud_files import CloudFiles
-from rozliczenia.centrum.configuration import ConfigurationFiles, workers_problem
+from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
 from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost, StoppedRun
+from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
@@ -43,7 +44,7 @@ from rozliczenia.settlement_period import SettlementPeriod, parse_period_token
 CheckState = Literal["passed", "failed", "not_checked"]
 
 _LOG_ENTRIES: Final = 20
-_UNEXPECTED_EVENTS: Final = frozenset({"nieoczekiwany-wyjatek"})
+_UNEXPECTED_EVENT: Final = "nieoczekiwany-wyjatek"
 
 
 @dataclass(frozen=True)
@@ -92,8 +93,12 @@ class Diagnosis:
     def view(self, report: contract.ReportDraft) -> contract.Diagnosis:
         """Widok Diagnozy z podglądem Zgłoszenia ``report``, które wyśle „Wyślij do Maksa”."""
 
+        process, explanation = self.stopped.info.process, self.explanation
+        # Ten sam Komunikat co Zatrzymanie to ten sam odcisk problemu: kod i trzy części.
+        same = ProblemFingerprint.of(process, explanation) == ProblemFingerprint.of(process, self.stopped.stop.message)
         return contract.Diagnosis(
-            explanation=contract.Message.of(self.explanation),
+            explanation=contract.Message.of(explanation),
+            confirms_stop=same,
             next_action="rerun" if self.fixable_by_tata else "report",
             checks=[contract.DiagnosisCheck(label=check.label, state=check.state, detail=check.detail) for check in self.checks],
             report=report,
@@ -135,6 +140,25 @@ class _Computer:
     def log_entries(self) -> tuple[str, ...]:
         return tuple(self.log.recent(_LOG_ENTRIES))
 
+    @cached_property
+    def period_files(self) -> tuple[Path, ...]:
+        """Pliki okresu w odszukanym Folderze okresu: oba pliki okresu i rozliczenia pracowników, bez plików blokady."""
+
+        folder = self.period_folder
+        if not isinstance(folder, PeriodFolder):
+            return ()
+        workers = folder.worker_settlements
+        worker_files = sorted(
+            path for path in (workers.iterdir() if workers.is_dir() else ()) if not path.name.startswith("~$")
+        )
+        return (folder.internal_settlement, folder.collective_file, *worker_files)
+
+    @cached_property
+    def templates(self) -> tuple[Template, ...]:
+        """Wzorce, które czyta proces Zatrzymania."""
+
+        return tuple(template for template in self.configuration.templates() if template.used_by == self.process)
+
 
 _Check = Callable[[_Computer], list[CheckResult]]
 
@@ -153,23 +177,40 @@ def _tool_freshness(computer: _Computer) -> list[CheckResult]:
     return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {local[:7]}.")]
 
 
+@dataclass(frozen=True)
+class _Setting:
+    """Ścieżka z Ustawień taty: wskazana (``chosen``), istniejąca (``existing``) i Komunikat procesu o jej braku."""
+
+    name: str
+    chosen: Path | None
+    existing: Path | None
+    missing: Callable[[Path], Message]
+
+
 def _tata_settings(computer: _Computer) -> list[CheckResult]:
     label = "Ustawienia taty"
     settings = computer.settings
-    needed = [("folder okresów", settings.periods_directory, settings.existing_periods_directory)]
+    needed = [
+        _Setting(
+            "folder okresów",
+            settings.periods_directory,
+            settings.existing_periods_directory,
+            preparation_messages.periods_directory_missing,
+        )
+    ]
     if computer.process == "preparation":
-        needed.insert(0, ("Rejestr zleceń", settings.register, settings.existing_register))
-    for name, chosen, existing in needed:
-        if chosen is None:
-            return [CheckResult.not_checked(label, f"Nie wskazano: {name}.")]
-        if existing is None:
-            missing = (
-                preparation_messages.register_missing(chosen)
-                if name == "Rejestr zleceń"
-                else preparation_messages.periods_directory_missing(chosen)
-            )
-            return [CheckResult.failed(label, missing)]
-    return [CheckResult.passed(label, " i ".join(name for name, _, _ in needed).capitalize() + " są na miejscu.")]
+        needed.insert(
+            0,
+            _Setting(
+                "Rejestr zleceń", settings.register, settings.existing_register, preparation_messages.register_missing
+            ),
+        )
+    for setting in needed:
+        if setting.chosen is None:
+            return [CheckResult.not_checked(label, f"Nie wskazano: {setting.name}.")]
+        if setting.existing is None:
+            return [CheckResult.failed(label, setting.missing(setting.chosen))]
+    return [CheckResult.passed(label, " i ".join(setting.name for setting in needed).capitalize() + " są na miejscu.")]
 
 
 def _register(computer: _Computer) -> list[CheckResult]:
@@ -187,9 +228,7 @@ def _register(computer: _Computer) -> list[CheckResult]:
 
 def _templates(computer: _Computer) -> list[CheckResult]:
     results = []
-    for template in computer.configuration.templates():
-        if template.used_by != computer.process:
-            continue
+    for template in computer.templates:
         problem = template.problem()
         results.append(
             CheckResult.passed(template.label, f"{template.path.name} przechodzi Sprawdzanie.")
@@ -242,7 +281,7 @@ def _period_files_in_excel(computer: _Computer) -> list[CheckResult]:
     folder = computer.period_folder
     if not isinstance(folder, PeriodFolder):
         return [CheckResult.not_checked(label, "Nie odszukano Folderu okresu.")]
-    for path in (folder.internal_settlement, folder.collective_file):
+    for path in computer.period_files:
         if workbook_files.is_open_in_excel(path):
             return [CheckResult.failed(label, diagnosis_messages.period_file_open(path))]
     return [CheckResult.passed(label, "Żaden plik okresu nie jest otwarty w Excelu.")]
@@ -267,42 +306,39 @@ def _files_of_process(computer: _Computer) -> list[Path]:
     register = computer.settings.existing_register
     if computer.process == "preparation" and register is not None:
         files.append(register)
-    files += [template.path for template in computer.configuration.templates() if template.used_by == computer.process]
-    folder = computer.period_folder
-    if isinstance(folder, PeriodFolder):
-        files += [folder.internal_settlement, folder.collective_file]
-        if folder.worker_settlements.is_dir():
-            files += sorted(folder.worker_settlements.iterdir())
-    return files
+    files += [template.path for template in computer.templates]
+    return files + list(computer.period_files)
 
 
 def _centrum_log(computer: _Computer) -> list[CheckResult]:
     label = "Dziennik Centrum rozliczeń"
     entries = computer.log_entries
-    if any(event_of(entry) in _UNEXPECTED_EVENTS for entry in entries):
-        return [CheckResult.failed(label, diagnosis_messages.unexpected_failure_logged())]
-    return [CheckResult.passed(label, f"Ostatnie wpisy od startu Centrum: {len(entries)}, bez nieoczekiwanego wyjątku.")]
+    # Dziennik tylko informuje: jego wpisy idą do Zgłoszenia, a wyjątek w nim nie jest przyczyną na komputerze taty.
+    unexpected = ", w tym nieoczekiwany wyjątek" if any(event_of(entry) == _UNEXPECTED_EVENT for entry in entries) else ""
+    return [CheckResult.passed(label, f"Ostatnie wpisy od startu Centrum: {len(entries)}{unexpected}.")]
 
 
 # Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.
+# OneDrive idzie przed sprawdzeniami, które otwierają Rejestr zleceń, wzorce i pliki okresu: plik tylko w
+# chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik.
 _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
     "preparation": (
         _tool_freshness,
         _tata_settings,
+        _files_in_onedrive,
         _register,
         _templates,
         _period_folder,
         _period_files_in_excel,
-        _files_in_onedrive,
         _centrum_log,
     ),
     "settlement": (
         _tool_freshness,
         _tata_settings,
+        _files_in_onedrive,
         _templates,
         _period_folder,
         _period_files_in_excel,
-        _files_in_onedrive,
         _centrum_log,
     ),
 }
@@ -327,7 +363,6 @@ def diagnose(
     return Diagnosis(stopped, tuple(checks), computer.log_entries)
 
 
-_PROBLEMS: dict[int | str, dict[str, object]] = {404: {"model": contract.Problem}, 409: {"model": contract.Problem}}
 
 
 def diagnosis_router(
@@ -340,7 +375,7 @@ def diagnosis_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/runs", tags=["uruchomienia"])
 
-    @router.post("/{run_id}/diagnosis", operation_id="diagnoseRun", responses=_PROBLEMS)
+    @router.post("/{run_id}/diagnosis", operation_id="diagnoseRun", responses=contract.NOT_FOUND_OR_CONFLICT)
     def run_diagnosis(run_id: str) -> contract.Diagnosis:
         stopped = host.stopped(run_id)
         diagnosis = diagnose(

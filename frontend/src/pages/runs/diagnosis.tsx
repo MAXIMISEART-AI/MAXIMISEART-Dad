@@ -1,6 +1,5 @@
 import * as React from "react"
 import {
-  ChevronDownIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleXIcon,
@@ -9,9 +8,9 @@ import {
 } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
-import { diagnoseRun, type Diagnosis, type DiagnosisCheck, type Message, type RunOutcome } from "@/api/centrum"
+import { diagnoseRun, type Diagnosis, type DiagnosisCheck, type RunOutcome } from "@/api/centrum"
+import { Disclosure } from "@/components/disclosure"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { toast } from "@/components/ui/toast"
@@ -25,20 +24,23 @@ type StopDiagnosis = {
 }
 
 /**
- * Diagnoza Zatrzymania Uruchomienia `runId` na żądanie taty; wynik i rodzaj przyczyny liczy serwer.
- * Gdy wyjaśnienie to ten sam Komunikat co Zatrzymanie, nie powtarza go drugi raz. Pod wynikiem jest
- * Zgłoszenie do Maksa (`report`): przed Diagnozą tylko jego potwierdzenie albo zapisany plik.
+ * Diagnoza Zatrzymania Uruchomienia `runId`; wynik i rodzaj przyczyny liczy serwer. Przy `offer`
+ * `automatic` (nieoczekiwany błąd) zaczyna się sama po pokazaniu wyniku, inaczej na żądanie taty.
+ * Gdy wyjaśnienie to ten sam Komunikat co Zatrzymanie (`confirms_stop`), nie powtarza go drugi raz.
+ * Pod wynikiem jest Zgłoszenie do Maksa (`report`): przed Diagnozą tylko jego potwierdzenie albo zapisany plik.
  */
 export function useStopDiagnosis(
   runId: string,
-  stop: Message | undefined,
+  offer: RunOutcome["diagnosis"],
   report: RunOutcome["report"],
   onRerun: () => void
 ): StopDiagnosis {
   const [checking, setChecking] = React.useState(false)
   const [diagnosis, setDiagnosis] = React.useState<Diagnosis | null>(null)
+  const started = React.useRef(false)
 
-  const diagnose = () => {
+  const diagnose = React.useCallback(() => {
+    started.current = true
     setChecking(true)
 
     diagnoseRun(runId)
@@ -46,7 +48,13 @@ export function useStopDiagnosis(
         toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
       })
       .finally(() => setChecking(false))
-  }
+  }, [runId])
+
+  React.useEffect(() => {
+    if (offer === "automatic" && !started.current) {
+      diagnose()
+    }
+  }, [offer, diagnose])
 
   if (diagnosis === null) {
     return {
@@ -64,13 +72,11 @@ export function useStopDiagnosis(
       </Button>
     ) : undefined
 
-  const confirmsStop = stop !== undefined && sameMessage(stop, diagnosis.explanation)
-
   return {
-    action: confirmsStop ? rerun : undefined,
+    action: diagnosis.confirms_stop ? rerun : undefined,
     result: (
       <section aria-label="Diagnoza" className="wejscie flex flex-col gap-2">
-        {confirmsStop ? (
+        {diagnosis.confirms_stop ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <StethoscopeIcon className="size-4" aria-hidden />
             Diagnoza potwierdza ten komunikat.
@@ -92,10 +98,6 @@ export function useStopDiagnosis(
   }
 }
 
-function sameMessage(left: Message, right: Message): boolean {
-  return left.what === right.what && left.where === right.where && left.action === right.action
-}
-
 /** Przycisk „Diagnoza” przy Zatrzymaniu; w trakcie sprawdzania pokazuje, że trwa. */
 function DiagnoseButton({ checking, onDiagnose }: { checking: boolean; onDiagnose: () => void }) {
   return (
@@ -115,27 +117,18 @@ const CHECK_ICONS: Record<DiagnosisCheck["state"], React.ReactNode> = {
 /** Sprawdzenia Diagnozy po kolei, zwinięte: kto chce, zobaczy, co sprawdzono i z jakim wynikiem. */
 function Checks({ checks }: { checks: ReadonlyArray<DiagnosisCheck> }) {
   return (
-    <Collapsible>
-      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="group -ml-2" />}>
-        Sprawdzono ({checks.length})
-        <ChevronDownIcon
-          data-icon="inline-end"
-          className="transition-[rotate] duration-200 ease-out group-data-[panel-open]:rotate-180"
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="transition-opacity duration-150 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
-        <ul className="flex flex-col gap-2 pt-1 text-sm" aria-label="Sprawdzono">
-          {checks.map((check) => (
-            <li key={check.label} className="flex gap-2 [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0">
-              {CHECK_ICONS[check.state]}
-              <span>
-                <span className="font-medium">{check.label}</span>
-                <span className="text-muted-foreground"> · {check.detail}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </CollapsibleContent>
-    </Collapsible>
+    <Disclosure label={`Sprawdzono (${checks.length})`}>
+      <ul className="flex flex-col gap-2 pt-1 text-sm" aria-label="Sprawdzono">
+        {checks.map((check) => (
+          <li key={check.label} className="flex gap-2 [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0">
+            {CHECK_ICONS[check.state]}
+            <span>
+              <span className="font-medium">{check.label}</span>
+              <span className="text-muted-foreground"> · {check.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Disclosure>
   )
 }

@@ -22,7 +22,7 @@ workbook, and leaves a worker with no rows empty.
 Preconditions:
 
 - Run the one-command orchestrator from the repository root.
-- Its default fixture contains mapped rows for Adrian Maciejewski and Darek Nowak and no rows for Kamil Frontczak. The output folder is absent before the run.
+- Its default fixture contains mapped rows for Adrian Testowy and Darek Fikcyjny and no rows for Kamil Syntetyczny. The output folder is absent before the run.
 
 - **Run the direct CLI proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The application dry-run and write both return `0` for the default fixture.
 - **Observe progress.** `assert-run.txt` reports `progress_reported=true`: `run.txt` reaches `Postęp szablonów: 3/3 (100%)`, reports two `ZAPISANO` results and one `PUSTY_SZABLON`, and includes `Zapisane szablony: 2` in the final summary.

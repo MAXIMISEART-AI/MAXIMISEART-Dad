@@ -61,6 +61,7 @@ def test_utworzone_issue_to_wyslane_zgloszenie_z_numerem() -> None:
     assert request.headers["Authorization"] == f"Bearer {KEY}"
     assert request.body is not None
     assert json.loads(request.body) == {"title": REPORT.title, "body": REPORT.body, "labels": ["zgloszenie"]}
+    assert KEY not in repr(request)
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])

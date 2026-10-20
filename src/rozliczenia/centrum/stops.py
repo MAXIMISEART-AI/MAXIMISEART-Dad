@@ -3,9 +3,11 @@
 Rodzaj Zatrzymania wynika z treści Komunikatu z katalogu procesu, bez osobnej
 listy (``Message.reports_to_maintainer``): Komunikat, który bezwarunkowo każe
 przekazać go osobie utrzymującej narzędzie, jest „do Maksa”, tak jak każde
-zakończenie inne niż własne zatrzymanie procesu (nieoczekiwany błąd, błąd po
+zakończenie inne niż własne zatrzymanie procesu (nieoczekiwany wyjątek, błąd po
 silniku). Każdy inny jest „dla taty”, aż wróci identyczny: ten sam odcisk
-problemu w następnym Uruchomieniu tego samego procesu to powtórka.
+problemu w następnym Uruchomieniu tego samego procesu to powtórka. Przy
+Zatrzymaniu „do Maksa” i powtórce Centrum proponuje Diagnozę
+(``diagnosis_offer``); przy nieoczekiwanym wyjątku zaczyna ją od razu.
 
 Pamięć ostatniego Zatrzymania każdego procesu jest tylko w pamięci serwera,
 więc restart Centrum ją zeruje.
@@ -44,6 +46,14 @@ class ProblemFingerprint:
         """Stały skrót odcisku do Zgłoszenia i lokalnego stanu wysłanych; bez treści Komunikatu."""
 
         return hashlib.sha256("\x1f".join(astuple(self)).encode("utf-8")).hexdigest()[:16]
+
+
+def diagnosis_offer(stop: Stop | None, kind: contract.StopKind | None) -> contract.DiagnosisOffer | None:
+    """Diagnoza przy Zatrzymaniu „do Maksa” i powtórce; przy nieoczekiwanym wyjątku zaczyna się sama."""
+
+    if stop is None or kind is None or kind == "for_tata":
+        return None
+    return "on_request" if stop.kind == "stop" else "automatic"
 
 
 class StopMemory:

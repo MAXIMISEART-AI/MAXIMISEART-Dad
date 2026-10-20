@@ -203,9 +203,9 @@ def test_wiersze_danych_pliku_zbiorczego_w_kolejnosci_z_wykonawca_i_wartosciami_
     rows = read_data_rows(path)
 
     assert [(row.number, row.worker) for row in rows] == [
-        (18, "adrian.maciejewski"),
-        (20, "dariusz.nowak2"),
-        (21, "adrian.maciejewski"),
+        (18, "adrian.testowy"),
+        (20, "dariusz.fikcyjny2"),
+        (21, "adrian.testowy"),
     ]
     assert all(len(row.values) == 46 for row in rows)
     assert rows[0].values[:2] == ("POZNAŃ", "syntetyczny adres 1")

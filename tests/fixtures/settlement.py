@@ -38,9 +38,9 @@ def write_mapping(path: Path) -> Path:
             {
                 "schema_version": 1,
                 "workers": {
-                    "adrian.maciejewski": "Adrian Maciejewski",
-                    "dariusz.nowak2": "Darek Nowak",
-                    "kamil.frontczak": "Kamil Frontczak",
+                    "adrian.testowy": "Adrian Testowy",
+                    "dariusz.fikcyjny2": "Darek Fikcyjny",
+                    "kamil.syntetyczny": "Kamil Syntetyczny",
                 },
             },
             allow_unicode=True,
@@ -73,12 +73,12 @@ def write_source(path: Path, *, include_unmapped: bool = True) -> None:
     sheet.title = "Sheet1"
     sheet.cell(17, 8).value = "WYKONAWCA"
     rows = [
-        ("POZNAŃ", "syntetyczny adres 1", "adrian.maciejewski", "#1"),
-        ("POZNAŃ", "syntetyczny adres 2", "dariusz.nowak2", "#2"),
-        ("POZNAŃ", "syntetyczny adres 3", "adrian.maciejewski", "#3"),
+        ("POZNAŃ", "syntetyczny adres 1", "adrian.testowy", "#1"),
+        ("POZNAŃ", "syntetyczny adres 2", "dariusz.fikcyjny2", "#2"),
+        ("POZNAŃ", "syntetyczny adres 3", "adrian.testowy", "#3"),
     ]
     if include_unmapped:
-        rows.append(("POZNAŃ", "syntetyczny adres 4", "andrzej.kulawski2", "#4"))
+        rows.append(("POZNAŃ", "syntetyczny adres 4", "andrzej.nieznany2", "#4"))
     for row_number, (city, address, worker, order_number) in enumerate(rows, start=18):
         sheet.cell(row_number, 1).value = city
         sheet.cell(row_number, 2).value = address

@@ -34,9 +34,9 @@ TARGET_DIRECTORY_NAME = f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("config") / "Wzorzec rozliczenia pracownika.xlsx"
 # Zlecenia skuteczne of every Wykonawca in Rejestr order; Adrian's two are split by Kamil's.
 EXPECTED_WORKER_ORDERS = {
-    "Adrian Maciejewski": ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7"),
-    "Darek Nowak": ("PREP-SYN-ZL-6",),
-    "Kamil Frontczak": ("PREP-SYN-ZL-4",),
+    "Adrian Testowy": ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7"),
+    "Darek Fikcyjny": ("PREP-SYN-ZL-6",),
+    "Kamil Syntetyczny": ("PREP-SYN-ZL-4",),
 }
 EXPECTED_ROWS = sum(len(orders) for orders in EXPECTED_WORKER_ORDERS.values())
 UNSUCCESSFUL_ORDER = "PREP-SYN-ZL-3"  # Darek's NIE order, present only in the Rozliczenie wewnętrzne

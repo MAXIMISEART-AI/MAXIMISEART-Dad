@@ -6,18 +6,18 @@ Etap: Odczyt danych
 Etap: Planowanie
 Szablony pracownika: 0/3
 Etap: Zapisywanie
-WYKONAWCA: Adrian Maciejewski | etap: Zapisywanie
+WYKONAWCA: Adrian Testowy | etap: Zapisywanie
 Postęp szablonów: 1/3 (33%)
 Liczniki: zapisano: 0 | puste: 0 | planowane: 1
-Ostatnia operacja: Adrian Maciejewski | PLAN | status: OK | wiersze: 2 | czas: <N> ms
-WYKONAWCA: Darek Nowak | etap: Zapisywanie
+Ostatnia operacja: Adrian Testowy | PLAN | status: OK | wiersze: 2 | czas: <N> ms
+WYKONAWCA: Darek Fikcyjny | etap: Zapisywanie
 Postęp szablonów: 2/3 (67%)
 Liczniki: zapisano: 0 | puste: 0 | planowane: 2
-Ostatnia operacja: Darek Nowak | PLAN | status: OK | wiersze: 1 | czas: <N> ms
-WYKONAWCA: Kamil Frontczak | etap: Zapisywanie
+Ostatnia operacja: Darek Fikcyjny | PLAN | status: OK | wiersze: 1 | czas: <N> ms
+WYKONAWCA: Kamil Syntetyczny | etap: Zapisywanie
 Postęp szablonów: 3/3 (100%)
 Liczniki: zapisano: 0 | puste: 1 | planowane: 2
-Ostatnia operacja: Kamil Frontczak | PUSTY_SZABLON | status: OK | wiersze: 0 | czas: <N> ms
+Ostatnia operacja: Kamil Syntetyczny | PUSTY_SZABLON | status: OK | wiersze: 0 | czas: <N> ms
 Status semantyczny: OSTRZEŻENIE
 Status końcowy: Wymaga sprawdzenia
 Czas uruchomienia: <N> ms
@@ -29,9 +29,9 @@ Planowane szablony: 2
 Okres rozliczeniowy: 08_14_09_2026
 Folder rozliczeń pracowników: <TMP>/08_14_09_2026/Rozliczenie pracowników 08_14_09_2026
 Plan plików:
-- Rozliczenie 08_14_09_2026 - Adrian Maciejewski.xlsx | Wiersze do uzupełnienia: 2
-- Rozliczenie 08_14_09_2026 - Darek Nowak.xlsx | Wiersze do uzupełnienia: 1
-- Rozliczenie 08_14_09_2026 - Kamil Frontczak.xlsx | Wiersze do uzupełnienia: 0 | Pusty skoroszyt
+- Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | Wiersze do uzupełnienia: 2
+- Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | Wiersze do uzupełnienia: 1
+- Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | Wiersze do uzupełnienia: 0 | Pusty skoroszyt
 DRY-RUN: Nic nie zapisano
 Problemy: 1
 - Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.

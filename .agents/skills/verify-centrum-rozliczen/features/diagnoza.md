@@ -4,10 +4,12 @@ When an Uruchomienie procesu stops, Centrum tells Dad what kind of stop it is.
 A stop Dad fixes himself („dla taty”) offers `Uruchom ponownie`, which starts
 the same process for the same period in the same mode. A stop „do Maksa” (the
 Komunikat tells him to pass it on, or an unexpected error) and the same
-Komunikat coming back after `Uruchom ponownie` offer `Diagnoza` instead. The
-Diagnoza checks Dad's computer read-only and explains the cause in three parts;
-when Dad removes the cause himself, `Uruchom ponownie` comes first. The server
-computes the kind of stop and the Diagnoza; the browser only shows them.
+Komunikat coming back after `Uruchom ponownie` offer `Diagnoza` instead; after
+an unexpected error the Diagnoza starts by itself. The Diagnoza checks Dad's
+computer read-only and explains the cause in three parts; when Dad removes the
+cause himself, `Uruchom ponownie` comes first. The server computes the kind of
+stop, whether and how to offer the Diagnoza (`diagnosis`: `on_request` or
+`automatic`), and the Diagnoza; the browser only shows them.
 
 ## Sub-features
 
@@ -18,6 +20,7 @@ computes the kind of stop and the Diagnoza; the browser only shows them.
 - `diagnoza-inny-komunikat`: after removing the lock, `Uruchom ponownie` ends with a different Komunikat (no orders in the period), which is `for_tata` again.
 - `diagnoza-do-maksa`: a missing Wzorzec rozliczenia wewnętrznego is `for_maks` and offers `Diagnoza` at once; the Diagnoza confirms it and offers no `Uruchom ponownie`.
 - `diagnoza-bez-przyczyny`: with the Wzorzec back, a reload and `Diagnoza` find no cause: the explanation banner `Wyjaśnienie Diagnozy` reads „Nie znalazłem przyczyny na tym komputerze. Wyślij do Maksa.”; the Centrum log records each Diagnoza with its cause code.
+- `diagnoza-nieoczekiwany-wyjatek`: a nieoczekiwany wyjątek while reading the Rejestr zleceń (`diagnosis` `automatic`) shows the Diagnoza, `Wyślij do Maksa` and `Co zostanie wysłane` without a click on `Diagnoza`.
 
 ## How to get to it (user POV)
 
@@ -33,11 +36,12 @@ Preconditions:
 - **Dla taty.** Create `~$<Rejestr zleceń name>` next to the Rejestr zleceń. On `#/uruchomienia` (after `Nowe Uruchomienie procesu` when a result is shown) choose radio `Przygotowanie pliku zbiorczego` and option `08_14_09_2026 · Brak plików okresu` in combobox `Okres`, click `Podgląd bez zapisu` (exact). The `Zatrzymanie` banner in region `Podgląd na żywo` reads `Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku.` and holds button `Uruchom ponownie`; there is no `Diagnoza`. `GET /api/runs/current` has `stop_kind` `for_tata`.
 - **Powtórka.** Click `Uruchom ponownie` in the banner. The server's view gets `stop_kind` `repeated` with the same period and `dry_run`; the banner now holds `Diagnoza` and no `Uruchom ponownie`.
 - **Wyjaśnienie.** Click `Diagnoza` (it reads `Sprawdzam…` while the server checks). The explanation is the stop's own Komunikat, so region `Diagnoza` reads `Diagnoza potwierdza ten komunikat.` without a second banner, and the `Zatrzymanie` banner now holds `Uruchom ponownie`. The drive repeats `POST /api/runs/{id}/diagnosis` with Centrum's `Origin` (`api/diagnoza-wyjasnienie.json`): `next_action` `rerun`.
-- **Sprawdzono.** Click `Sprawdzono (10)`. List `Sprawdzono` holds `Aktualność narzędzia`, `Ustawienia taty`, `Rejestr zleceń`, the two Wzorce of Przygotowanie, `Konfiguracja wykonawców`, `Folder okresu`, `Pliki okresu w Excelu`, `Pliki w OneDrive`, `Dziennik Centrum rozliczeń`, in order (the scripted GitHub and OneDrive of `serve_centrum.py` make the first and the ninth pass). The Rejestr zleceń, the Wzorce, and the konfiguracja wykonawców keep their bytes and `st_mtime_ns`, and the lock file still exists.
+- **Sprawdzono.** Click `Sprawdzono (10)`. List `Sprawdzono` holds `Aktualność narzędzia`, `Ustawienia taty`, `Pliki w OneDrive`, `Rejestr zleceń`, the two Wzorce of Przygotowanie, `Konfiguracja wykonawców`, `Folder okresu`, `Pliki okresu w Excelu`, `Dziennik Centrum rozliczeń`, in order (the scripted GitHub and OneDrive of `serve_centrum.py` make the first and the third pass). The Rejestr zleceń, the Wzorce, and the konfiguracja wykonawców keep their bytes and `st_mtime_ns`, and the lock file still exists.
 - **Inny Komunikat.** Delete the lock file, click `Uruchom ponownie` on the banner. The banner reads `W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu.` with `Uruchom ponownie`; `stop_kind` is `for_tata`; region `Diagnoza` is gone.
 - **Do Maksa.** Rename `config/Wzorzec rozliczenia wewnętrznego.xlsx` aside, click `Uruchom ponownie`. The banner reads `Nie znaleziono wzorca, z którego powstają pliki okresu.` with `Diagnoza` at once (`stop_kind` `for_maks`). Click it: region `Diagnoza` confirms the Komunikat and no `Uruchom ponownie` is shown.
 - **Bez przyczyny.** Rename the Wzorzec back, reload, click `Diagnoza`. The banner `Wyjaśnienie Diagnozy` in region `Diagnoza` reads `Nie znalazłem przyczyny na tym komputerze.` and `Wyślij do Maksa.`; the server's answer has every check `passed` and `next_action` `report`. The Centrum log has `diagnoza proces=preparation okres=08_14_09_2026 przyczyna=NIE_ZNALEZIONO_PRZYCZYNY`.
-- **Proof.** Screenshots `50`–`57`, `api/diagnoza-*.json`, and the checks in `drive.txt`.
+- **Nieoczekiwany wyjątek.** Create `<root>/awaria/odczyt-rejestru` (the fault hook of `serve_centrum.py`), click `Nowe Uruchomienie procesu` and start the same Podgląd bez zapisu. Without any click, region `Diagnoza` shows `Wyjaśnienie Diagnozy` with `Nie znalazłem przyczyny na tym komputerze.`, button `Wyślij do Maksa` and the collapsed `Co zostanie wysłane`; the banner has no `Diagnoza` button. The server's result has `ending` `unexpected` and `diagnosis` `automatic`; the exception text is not in the Centrum log. Delete the hook file.
+- **Proof.** Screenshots `50`–`58`, `api/diagnoza-*.json`, and the checks in `drive.txt`.
 
 ## Gotchas
 

@@ -57,7 +57,7 @@ _Avoid_: Placeholder
 Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
 wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy. Oba pliki
 powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym zapisie nie da
-się usunąć pliku, który już trafił do Folderu okresu, zatrzymanie wskazuje ten
+się usunąć pliku, który już trafił do Folderu okresu, Zatrzymanie wskazuje ten
 plik. Uruchamiany osobno od Przebiegu rozliczeń.
 
 ## Plik zbiorczy
@@ -164,8 +164,8 @@ Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
 launchera albo z Centrum rozliczeń, od ustalenia plików i okresu do wyniku
 końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na to,
 skąd wystartowało; nie jest z definicji pytaniem w terminalu.
-Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo zatrzymaniem z
-bezpiecznym komunikatem zrozumiałym dla taty, nigdy z treścią błędu
+Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo Zatrzymaniem z
+bezpiecznym Komunikatem zrozumiałym dla taty, nigdy z treścią błędu
 technicznego.
 _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
 
@@ -199,24 +199,70 @@ Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
 Bezpieczny tekst dla taty w trzech częściach: Co się stało, Gdzie, Co zrobić.
 Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów ani treści
 wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
-Wykonawcę. Wyjątkiem jest wyłącznie terminalowa dawna jedna linia zatrzymania
+Wykonawcę. Wyjątkiem jest wyłącznie terminalowa dawna jedna linia Zatrzymania
 Przebiegu rozliczeń (ADR 0004): może mieć pełną ścieżkę i nie trafia do
-Centrum rozliczeń. Komunikat niesie zatrzymanie, ostrzeżenie, problem z
+Centrum rozliczeń. Komunikat niesie Zatrzymanie, ostrzeżenie, problem z
 podsumowania albo problem startu Centrum rozliczeń. Jego kod jest unikalny w
 obrębie procesu.
 _Avoid_: błąd, wiadomość
 
+## Zatrzymanie
+
+Zakończenie Uruchomienia procesu bez wyniku, z jednym Komunikatem: własne
+zatrzymanie procesu (np. Nienadpisywanie) albo nieoczekiwany wyjątek, także po
+zakończeniu zapisu.
+_Avoid_: przerwanie, awaria, błąd
+
+## Nieoczekiwany wyjątek
+
+Zatrzymanie, którego przyczyną jest wyjątek w kodzie narzędzia, a nie reguła
+procesu. Tata dostaje ogólny Komunikat; typ wyjątku i ślad wywołań trafiają
+tylko do Zgłoszenia.
+_Avoid_: nieoczekiwany błąd, crash
+
+## Rodzaj Zatrzymania
+
+Kto usuwa przyczynę Zatrzymania: „dla taty”, gdy Komunikat mówi, co zrobić,
+albo „do Maksa”, gdy bezwarunkowo każe przekazać go osobie utrzymującej
+narzędzie. Nieoczekiwany wyjątek jest zawsze „do Maksa”. Powtórka zmienia
+Zatrzymanie „dla taty” w takie, przy którym Centrum proponuje Diagnozę.
+
+## Powtórka
+
+Następne Uruchomienie procesu tego samego procesu, które kończy się
+Zatrzymaniem o tym samym odcisku problemu co poprzednie. Centrum pamięta
+poprzednie Zatrzymanie tylko do swojego zamknięcia.
+
+## Odcisk problemu
+
+Tożsamość problemu: proces, kod Komunikatu i jego trzy części. Proces należy
+do odcisku, bo kody Komunikatów są unikalne tylko w obrębie procesu.
+
 ## Diagnoza
 
 Sprawdzenie tylko do odczytu, które tata uruchamia w Centrum rozliczeń przy
-Zatrzymaniu. Ustala przyczynę na komputerze taty i wyjaśnia ją w trzech
-częściach, jak Komunikat. Niczego nie zmienia ani nie naprawia.
+Zatrzymaniu „do Maksa” albo Powtórce; przy nieoczekiwanym wyjątku zaczyna się
+sama. Ustala przyczynę na komputerze taty i wyjaśnia ją w trzech częściach, jak
+Komunikat. Niczego nie zmienia ani nie naprawia.
 
 ## Zgłoszenie
 
 Komunikat Zatrzymania razem z wynikiem Diagnozy, wysłany z Centrum rozliczeń
-do Maksa. Jeden problem ma jedno otwarte Zgłoszenie: ten sam Komunikat, dopóki
-Zgłoszenie czeka na naprawę, nie tworzy drugiego.
+do Maksa. Jeden odcisk problemu ma najwyżej jedno otwarte Zgłoszenie; gdy Maks
+je zamknie, a problem wraca, powstaje nowe z odnośnikiem do poprzedniego.
+
+## Skrzynka Zgłoszeń
+
+Miejsce, do którego trafiają Zgłoszenia i w którym Maks je zamyka: prywatne
+repozytorium Zgłoszeń. Centrum pyta ją o otwarte Zgłoszenie odcisku problemu i
+o stan wysłanych Zgłoszeń.
+_Avoid_: issue tracker, publiczne issue
+
+## Powiadomienie o naprawie
+
+Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
+narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
+Znika samo po aktualizacji i ponownym otwarciu Centrum.
 
 ## Nienadpisywanie
 

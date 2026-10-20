@@ -1130,6 +1130,10 @@
           "explanation": {
             "$ref": "#/components/schemas/Message"
           },
+          "confirms_stop": {
+            "type": "boolean",
+            "title": "Confirms Stop"
+          },
           "next_action": {
             "type": "string",
             "enum": [
@@ -1153,12 +1157,13 @@
         "type": "object",
         "required": [
           "explanation",
+          "confirms_stop",
           "next_action",
           "checks",
           "report"
         ],
         "title": "Diagnosis",
-        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle\n„Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk)."
+        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle\n„Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam\nKomunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza."
       },
       "DiagnosisCheck": {
         "properties": {
@@ -2347,6 +2352,21 @@
             ],
             "title": "Stop Kind"
           },
+          "diagnosis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "on_request",
+                  "automatic"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnosis"
+          },
           "report": {
             "anyOf": [
               {
@@ -2420,6 +2440,7 @@
           "ending",
           "next_action",
           "stop_kind",
+          "diagnosis",
           "report",
           "stops",
           "warnings",
@@ -2427,7 +2448,7 @@
           "summary"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``,\ngdy Centrum go nie proponuje, czyli bez Zatrzymania i przy Zatrzymaniu „dla taty”)."
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje\n(``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego\nproblemu (``None``, gdy Centrum nie proponuje Diagnozy)."
       },
       "RunRequest": {
         "properties": {

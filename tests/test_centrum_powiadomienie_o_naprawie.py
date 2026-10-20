@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import pytest
 
@@ -130,3 +131,24 @@ def test_bez_wyslanych_zgloszen_albo_klucza_skrzynka_nie_jest_pytana(
 
     assert repaired(centrum) is False
     assert box.asked == []
+
+
+def test_przy_starcie_centrum_skrzynka_jest_pytana_w_tle_przed_wejsciem_na_okresy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    sent_report(centrum, monkeypatch)
+    box = centrum.surroundings.report_box
+    box.close(1)
+    centrum.restart()
+
+    with centrum.client:  # start Centrum, jak po kliknięciu skrótu
+        deadline = time.monotonic() + 5
+        while not box.asked and time.monotonic() < deadline:
+            time.sleep(0.01)
+        asked_at_start = list(box.asked)
+
+        assert repaired(centrum) is True
+
+    assert asked_at_start == [[1]]
+    assert box.asked == [[1]]

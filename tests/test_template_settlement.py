@@ -12,7 +12,7 @@ from rozliczenia.template_settlement import TemplateWriteError, process_template
 from tests.fixtures.settlement import PERIOD, write_template
 from tests.fixtures.workbooks import active_worksheet
 
-WORKER = "Adrian Maciejewski"
+WORKER = "Adrian Testowy"
 
 
 def make_template_fixture(tmp_path: Path) -> tuple[Path, Path]:
