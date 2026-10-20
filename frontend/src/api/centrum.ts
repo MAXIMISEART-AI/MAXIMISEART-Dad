@@ -23,6 +23,7 @@ import {
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zOpenPeriodPathResponse,
+  zReportRunResponse,
   zRunEvent,
   zStartRunResponse,
 } from "@/api/generated/zod.gen"
@@ -47,6 +48,7 @@ export type {
   ProcessStep,
   ProcessSetup,
   Progress,
+  ReportDraft,
   ResultCounts,
   RunEvent,
   RunInfo,
@@ -142,6 +144,11 @@ export function decideRun(runId: string, answer: DecisionAnswer["answer"]) {
 /** Diagnoza Zatrzymania Uruchomienia `runId`: wyjaśnienie i sprawdzenia; serwer tylko czyta pliki taty. */
 export function diagnoseRun(runId: string) {
   return call(zDiagnoseRunResponse, `/api/runs/${encodeURIComponent(runId)}/diagnosis`, send("POST"))
+}
+
+/** „Wyślij do Maksa”: serwer wysyła podgląd Zgłoszenia z ostatniej Diagnozy Uruchomienia `runId`. */
+export function reportRun(runId: string) {
+  return call(zReportRunResponse, `/api/runs/${encodeURIComponent(runId)}/report`, send("POST"))
 }
 
 /**

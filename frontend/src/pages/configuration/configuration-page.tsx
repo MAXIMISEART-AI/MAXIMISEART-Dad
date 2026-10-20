@@ -28,8 +28,10 @@ export function ConfigurationPage() {
         badge={<ReadOnlyBadge />}
         action={
           configuration.state === "ready" ? (
-            <span className="text-sm text-muted-foreground tabular-nums">
-              Wersja {configuration.data.version}
+            <span className="flex gap-2 text-sm text-muted-foreground tabular-nums">
+              <span>Wersja {configuration.data.version}</span>
+              <span aria-hidden>·</span>
+              <span>{REPORT_KEY_LABELS[configuration.data.reports]}</span>
             </span>
           ) : undefined
         }
@@ -49,6 +51,12 @@ export function ConfigurationPage() {
       ) : null}
     </>
   )
+}
+
+/** Czy na tym komputerze jest klucz do Zgłoszeń; wartości klucza serwer nigdy nie wysyła. */
+const REPORT_KEY_LABELS: Record<Configuration["reports"], string> = {
+  ready: "Zgłoszenia: gotowe",
+  missing_key: "Zgłoszenia: brak klucza",
 }
 
 function ReadOnlyBadge() {
