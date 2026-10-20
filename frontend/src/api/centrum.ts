@@ -209,7 +209,7 @@ export function closeCentrum() {
 }
 
 /**
- * Pomiar gotowego widoku do dziennika Centrum. Odpowiedź nie ma treści do pokazania, a porażka
+ * Pomiar gotowego widoku do dziennika Centrum, jawny wyjątek od `call` (opisany przy `call`). Porażka
  * wysyłki (także odmowa serwera) przechodzi po cichu: pomiar nigdy nie zmienia UI.
  */
 export function recordViewTiming(timing: ViewTiming) {

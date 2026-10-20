@@ -49,9 +49,14 @@ function serverMs(response: Response): number | null {
 }
 
 /**
- * Jedyna droga do serwera: każda odpowiedź jest parsowana schematem wygenerowanym z kontraktu,
- * zanim trafi do UI. Odmowa serwera (`Problem`) staje się `CentrumError` z jego komunikatem.
+ * Droga do serwera każdego zapytania, którego odpowiedź trafia do UI: odpowiedź jest parsowana schematem
+ * wygenerowanym z kontraktu. Odmowa serwera (`Problem`) staje się `CentrumError` z jego komunikatem.
  * Czas każdego zapytania trafia do pomiaru widoku pod nazwą `operation` z kontraktu, nie pod adresem.
+ *
+ * Poza `call` idą tylko dwa wyjątki z `@/api/centrum`: strumień Uruchomień (`watchRunEvents`, EventSource,
+ * każde zdarzenie parsowane schematem) i sam pomiar widoku (`recordViewTiming`: odpowiedź 204 bez treści,
+ * więc nie ma czego parsować, a wysyłka po pomiarze nie wlicza się do żadnego widoku). Trasy poza pomiarem
+ * wymienia z powodem `OUTSIDE_TIMING` w `tools/export_openapi.py`.
  */
 export async function call<T>(
   schema: z.ZodType<T>,
