@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import time
@@ -9,7 +8,6 @@ import time
 from openpyxl import Workbook, load_workbook
 import pytest
 
-from rozliczenia.decision import Decision
 from rozliczenia.domain import (
     IssueCountReady,
     PhaseEnded,
@@ -49,21 +47,7 @@ from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, wri
 from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import cell_values, collective_row, incomplete_period_fixture, run_preparation
-
-
-@dataclass
-class Tata:
-    """Rozmówca w teście: zapisuje każdą Decyzję, robi ``before_answer`` i odpowiada ``consent``."""
-
-    consent: bool = True
-    continue_hint: str = "przy pytaniu wpisz t"
-    before_answer: Callable[[], None] = lambda: None
-    decisions: list[Decision] = field(default_factory=list)
-
-    def confirm(self, decision: Decision) -> bool:
-        self.decisions.append(decision)
-        self.before_answer()
-        return self.consent
+from tests.fixtures.interlocutor import Tata
 
 
 def sheet_rows(path: Path, *, min_row: int, max_col: int) -> list[tuple[object, ...]]:
