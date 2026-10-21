@@ -53,24 +53,7 @@ def _steps() -> list[Step]:
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check")),
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy")),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto")),
-        Step(
-            "mutacje publikacji",
-            "mutations",
-            "check_mutations.py",
-            (python, ".agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py"),
-        ),
-        Step(
-            "mutacje jednego Uruchomienia naraz",
-            "mutations",
-            "check_runs_mutations.py",
-            (python, ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py"),
-        ),
-        Step(
-            "mutacje kopii Wzorca",
-            "mutations",
-            "verify-kopia-wzorca/scripts/check_copy_mutations.py",
-            (python, ".agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py"),
-        ),
+        Step("mutacje skilli", "mutations", "tools/mutacje.py", (python, "tools/mutacje.py")),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), FRONTEND),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), FRONTEND)

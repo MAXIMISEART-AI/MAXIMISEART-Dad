@@ -96,28 +96,12 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Prove the publication check fails on broken variants
+      - name: Prove every skill's mutation check fails on broken variants
         shell: pwsh
         run: |
-          python .agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py
+          python tools/mutacje.py
           if ($LASTEXITCODE -ne 0) {
-            throw "Mutation check failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: Prove the one-run-at-a-time check fails on broken variants
-        shell: pwsh
-        run: |
-          python .agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py
-          if ($LASTEXITCODE -ne 0) {
-            throw "Mutation check failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: Prove the template copy check fails on broken variants
-        shell: pwsh
-        run: |
-          python .agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py
-          if ($LASTEXITCODE -ne 0) {
-            throw "Template copy mutation check failed (exit code $LASTEXITCODE)"
+            throw "Mutation checks failed (exit code $LASTEXITCODE)"
           }
 
   e2e:
