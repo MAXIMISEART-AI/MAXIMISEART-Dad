@@ -1,8 +1,8 @@
 """Przebieg rozliczeń dla Uruchomienia procesu: wejście procesu, wywołanie silnika i fakty zakończenia.
 
-Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy: CLI (``cli``)
-i Centrum rozliczeń podają gotowe ``SettlementInputs`` do ``run_process``,
-więc liczby, Komunikaty i rekord metryk są te same.
+Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy: Centrum
+rozliczeń i skrypt dla maszyn podają gotowe ``SettlementInputs`` do
+``run_process``, więc liczby, Komunikaty i rekord metryk są te same.
 """
 
 from __future__ import annotations

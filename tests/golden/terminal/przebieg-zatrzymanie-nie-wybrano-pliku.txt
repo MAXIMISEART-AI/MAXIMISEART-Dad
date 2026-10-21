@@ -1,6 +1,0 @@
-Rozliczenia | okres: nieznany | tryb: RUN
-Status: uruchomiono
-Ostatnie operacje:
-Status semantyczny: BŁĄD
-Nie wykonano: Nie wybrano pliku zbiorczego.
-Czas uruchomienia: <N> ms

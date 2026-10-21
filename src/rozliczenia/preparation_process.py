@@ -1,8 +1,8 @@
 """Przygotowanie pliku zbiorczego dla Uruchomienia procesu: wejście procesu, wywołanie silnika i fakty zakończenia.
 
-Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy: CLI
-(``preparation_cli``) i Centrum rozliczeń podają gotowe ``PreparationInputs``
-do ``run_process``, więc liczby, ostrzeżenia, Komunikaty i rekord metryk są te
+Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy: Centrum
+rozliczeń i skrypt dla maszyn podają gotowe ``PreparationInputs`` do
+``run_process``, więc liczby, ostrzeżenia, Komunikaty i rekord metryk są te
 same.
 """
 
