@@ -132,13 +132,21 @@ class FakeClock:
 
 @dataclass
 class FakeGitHub:
-    """Commit narzędzia u taty i commit `main` na GitHubie; ``main=None`` to brak sieci."""
+    """Commit narzędzia u taty i commit `main` na GitHubie; ``main=None`` to brak sieci.
+
+    ``asked`` liczy pytania o `main`.
+    """
 
     tool_commit: str | None = TOOL_COMMIT
     main: str | None = TOOL_COMMIT
+    asked: int = 0
 
     def freshness(self) -> ToolFreshness:
-        return ToolFreshness(local=lambda: self.tool_commit, main=lambda: self.main)
+        return ToolFreshness(local=lambda: self.tool_commit, main=self._main)
+
+    def _main(self) -> str | None:
+        self.asked += 1
+        return self.main
 
 
 @dataclass

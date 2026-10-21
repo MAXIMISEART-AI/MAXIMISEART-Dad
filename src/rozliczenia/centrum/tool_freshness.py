@@ -1,17 +1,20 @@
 """Aktualność narzędzia: commit narzędzia u taty względem `main` na publicznym GitHubie.
 
-Diagnoza porównuje dwa źródła z ``ToolFreshness``: commit klonu narzędzia
-(``version.tool_commit``) i commit `main` publicznego repozytorium narzędzia.
-Oba są wstrzykiwane do aplikacji Centrum, więc testy i weryfikacja w
-przeglądarce nigdy nie łączą się z GitHubem. Brak sieci to ``None`` w krótkim
-limicie czasu, nigdy wyjątek ani Komunikat.
+Diagnoza i Konfiguracja porównują dwa źródła z ``ToolFreshness``: commit
+klonu narzędzia (``version.tool_commit``) i commit `main` publicznego
+repozytorium narzędzia. Oba są wstrzykiwane do aplikacji Centrum, więc testy i
+weryfikacja w przeglądarce nigdy nie łączą się z GitHubem. Brak sieci to
+``None`` w krótkim limicie czasu, nigdy wyjątek ani Komunikat. Diagnoza pyta
+GitHuba przy każdym sprawdzeniu; Konfiguracja, odczytywana przy każdym wejściu
+na stronę, pamięta jego odpowiedź (``RememberedMain``).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Final, Literal
+import threading
+from typing import Final
 import urllib.request
 
 from rozliczenia.centrum.deadline import within
@@ -34,14 +37,34 @@ class ToolFreshness:
     def of_system(cls) -> ToolFreshness:
         return cls(local=tool_commit, main=github_main_commit)
 
-    def state(self) -> Literal["current", "newer", "not_checked"]:
-        """Czy commit narzędzia to `main`; ``not_checked`` bez commitu Gita albo bez odpowiedzi GitHuba."""
 
-        local = self.local()
-        main = None if local is None else self.main()
-        if local is None or main is None:
-            return "not_checked"
-        return "current" if main == local else "newer"
+
+# API GitHuba bez logowania odpowiada na 60 pytań na godzinę z jednego adresu, a bez sieci każde pytanie czeka do
+# 3 s: Konfiguracja pamięta odpowiedź przez 10 minut, a brak odpowiedzi przez minutę (internet może zaraz wrócić).
+MAIN_KEPT_S: Final = 10 * 60
+NO_ANSWER_KEPT_S: Final = 60
+
+
+class RememberedMain:
+    """Commit `main` z ``main``, pamiętany przez ``MAIN_KEPT_S`` na zegarze ``clock``; brak odpowiedzi krócej."""
+
+    def __init__(self, main: CommitSource, *, clock: Callable[[], float]) -> None:
+        self._main = main
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._answer: str | None = None
+        self._asked_at: float | None = None
+
+    def __call__(self) -> str | None:
+        with self._lock:
+            if self._asked_at is not None:
+                kept = MAIN_KEPT_S if self._answer is not None else NO_ANSWER_KEPT_S
+                if self._clock() - self._asked_at < kept:
+                    return self._answer
+        answer = self._main()
+        with self._lock:
+            self._answer, self._asked_at = answer, self._clock()
+        return answer
 
 
 def github_main_commit() -> str | None:

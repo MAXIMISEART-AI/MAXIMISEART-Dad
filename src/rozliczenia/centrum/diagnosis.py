@@ -42,6 +42,7 @@ from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
 from rozliczenia.settings import Settings, SettingsStore
@@ -223,7 +224,7 @@ def _tool_freshness(computer: _Computer, label: str) -> list[CheckResult]:
         return [CheckResult.not_checked(label, "Nie sprawdzono: brak połączenia z GitHubem.")]
     if main != local:
         return [CheckResult.failed(label, diagnosis_messages.newer_tool_version())]
-    return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {local[:7]}.")]
+    return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {short_commit(local)}.")]
 
 
 @dataclass(frozen=True)

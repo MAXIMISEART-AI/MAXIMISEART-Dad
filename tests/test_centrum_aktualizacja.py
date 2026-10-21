@@ -182,6 +182,38 @@ def test_brak_sieci_przy_sprawdzaniu_aktualnosci_to_nie_sprawdzono(tmp_path: Pat
     assert tool_on_configuration(centrum)["freshness"] == "not_checked"
 
 
+NEWER_MAIN = "f" * 40
+
+
+def test_konfiguracja_pyta_githuba_o_main_najwyzej_raz_na_10_minut(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    github, clock = centrum.surroundings.github, centrum.surroundings.clock
+    first = tool_on_configuration(centrum)["freshness"]
+    github.main = NEWER_MAIN
+
+    within_ten_minutes = [tool_on_configuration(centrum)["freshness"] for _ in range(3)]
+    clock.advance(minutes=10)
+    after_ten_minutes = tool_on_configuration(centrum)["freshness"]
+
+    assert (first, within_ten_minutes, after_ten_minutes) == ("current", ["current"] * 3, "newer")
+    assert github.asked == 2
+
+
+def test_bez_odpowiedzi_githuba_konfiguracja_pyta_znowu_po_minucie(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    github, clock = centrum.surroundings.github, centrum.surroundings.clock
+    github.main = None
+    offline = tool_on_configuration(centrum)["freshness"]
+    github.main = NEWER_MAIN
+
+    still_offline = tool_on_configuration(centrum)["freshness"]
+    clock.advance(minutes=1)
+    back_online = tool_on_configuration(centrum)["freshness"]
+
+    assert (offline, still_offline, back_online) == ("not_checked", "not_checked", "newer")
+    assert github.asked == 2
+
+
 @pytest.mark.parametrize(
     "headers",
     [{"Origin": "http://obca-strona.example"}, {"Host": "obca-strona.example"}],

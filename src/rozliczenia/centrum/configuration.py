@@ -18,8 +18,8 @@ from fastapi import APIRouter
 
 from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.tool_freshness import ToolFreshness
-from rozliczenia.centrum.version import tool_version
+from rozliczenia.centrum.tool_freshness import RememberedMain, ToolFreshness
+from rozliczenia.centrum.version import short_commit, tool_version
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import default_worker_template_path
 from rozliczenia.message import Message, StopError
@@ -82,26 +82,44 @@ _PROBLEM_CODES: dict[str, contract.TemplateProblemKind] = {
 
 
 def configuration_router(
-    files: ConfigurationFiles, freshness: ToolFreshness, report_key: Callable[[], contract.ReportKeyState]
+    files: ConfigurationFiles,
+    freshness: ToolFreshness,
+    report_key: Callable[[], contract.ReportKeyState],
+    *,
+    clock: Callable[[], float],
 ) -> APIRouter:
-    """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości)."""
+    """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości).
+
+    Aktualność narzędzia porównuje commit narzędzia z `main` na GitHubie, którego odpowiedź Konfiguracja pamięta
+    (``RememberedMain`` na zegarze ``clock``).
+    """
 
     router = APIRouter(prefix="/api/configuration", tags=["konfiguracja"])
     checked = _CheckedTemplates()
+    main = RememberedMain(freshness.main, clock=clock)
 
     @router.get("", operation_id="getConfiguration")
     def configuration() -> contract.Configuration:
         commit = freshness.local()
         return contract.Configuration(
             version=tool_version(),
-            commit=None if commit is None else commit[:7],
-            freshness=freshness.state(),
+            commit=None if commit is None else short_commit(commit),
+            freshness=_freshness(commit, main),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
             reports=report_key(),
         )
 
     return router
+
+
+def _freshness(commit: str | None, main: Callable[[], str | None]) -> contract.ToolFreshnessState:
+    """Czy commit narzędzia to `main`; ``not_checked`` bez commitu Gita albo bez odpowiedzi GitHuba."""
+
+    newest = None if commit is None else main()
+    if commit is None or newest is None:
+        return "not_checked"
+    return "current" if newest == commit else "newer"
 
 
 class _CheckedTemplates:

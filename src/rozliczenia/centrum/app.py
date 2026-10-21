@@ -158,7 +158,7 @@ def create_app(
     app.include_router(reports_router(runs, reports))
     app.include_router(repair_router(reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
-    app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state))
+    app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))
