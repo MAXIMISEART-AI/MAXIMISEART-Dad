@@ -7,8 +7,9 @@ aktualizację w osobnym wątku, a karta odczytuje krok i wynik. Dziennik Centrum
 dostaje start i koniec z commitem przed i po, bez ścieżek i bez wyjścia Gita.
 Po udanej aktualizacji Centrum zamyka się, a opiekun ponownego startu
 (``restart_guardian``) uruchamia nową wersję; koniec aktualizacji zapisuje
-wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Każdą porażkę,
-której ``tool_update`` nie przewidział, karta widzi jako Komunikat
+wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Gdy opiekun nie
+wystartuje, klon wraca do wersji sprzed kliknięcia, a Centrum działa dalej.
+Każdą porażkę, której ``tool_update`` nie przewidział, karta widzi jako Komunikat
 nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku. Przy każdej
 porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika.
 """

@@ -70,11 +70,10 @@ export function ToolCard({
           <ToolUpdateButton primary={freshness === "newer"} />
         </CardAction>
       </CardHeader>
-      {update === null || update.state === "idle" || update.state === "updated" ? null : (
-        <CardContent>
-          <ToolUpdateStatus />
-        </CardContent>
-      )}
+      {/* Bez stanu aktualizacji (np. przed kliknięciem) karta nie ma treści pod nagłówkiem. */}
+      <CardContent className="empty:hidden">
+        <ToolUpdateStatus />
+      </CardContent>
     </Card>
   )
 }

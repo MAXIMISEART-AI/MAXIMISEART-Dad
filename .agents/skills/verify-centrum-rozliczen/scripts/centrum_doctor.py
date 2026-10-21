@@ -40,7 +40,7 @@ def check(root: Path, expected_version: str) -> list[str]:
         _, health_body = _get(url + "api/health")
         health = json.loads(health_body)
         fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
-        identity = {"service": "centrum-rozliczen", "version": expected_version, "commit": fixture["tool"]["first"]}
+        identity = {"service": "centrum-rozliczen", "version": expected_version, "commit": fixture["tool"]["first"][:7]}
         if {key: health.get(key) for key in identity} != identity or not health.get("instance"):
             problems.append(f"unexpected health answer: {health}")
         _, page = _get(url)

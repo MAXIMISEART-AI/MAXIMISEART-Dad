@@ -1462,7 +1462,7 @@
           "instance"
         ],
         "title": "Health",
-        "description": "Tożsamość działającego Centrum.\n\n``commit`` to pełny commit narzędzia (``None`` poza klonem Gita), ``instance`` losowy identyfikator tego\nstartu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił."
+        "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, jak na Konfiguracji (``None`` poza klonem Gita); po nim opiekun\nponownego startu rozpoznaje nową wersję, a karta pokazuje go w „Zaktualizowano”. ``instance`` to losowy\nidentyfikator tego startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił."
       },
       "Message": {
         "properties": {
@@ -3054,20 +3054,15 @@
             "type": "string",
             "const": "updated",
             "title": "State"
-          },
-          "commit": {
-            "type": "string",
-            "title": "Commit"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "state",
-          "commit"
+          "state"
         ],
         "title": "ToolUpdateUpdated",
-        "description": "Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); to Centrum wystartowało już w niej."
+        "description": "Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (wersja i commit są w ``Health``)."
       },
       "ValidationError": {
         "properties": {

@@ -224,7 +224,7 @@ przed wysłaniem.
 | „zmiany zrobione na tym komputerze” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
-| „Nowa wersja narzędzia nie wystartowała” | Niczego nie zamykasz: Centrum samo wróciło do poprzedniej wersji, a karta odświeżyła się na niej. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „Nowa wersja narzędzia nie wystartowała” | Niczego nie zamykasz: Centrum samo wróciło do poprzedniej wersji, a karta odświeżyła się na niej z tym komunikatem pod tytułem strony. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „nie dało się przywrócić poprzedniej wersji” | Nie klikaj `Zaktualizuj narzędzie` ponownie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. Do czasu naprawy używaj launcherów `.cmd`. |
 
 Bez internetu `Wyślij do Maksa` zapisze Zgłoszenie w pliku: postępuj wtedy

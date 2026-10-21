@@ -32,7 +32,7 @@ class ProblemFingerprint:
     Kody są unikalne tylko w katalogu procesu, więc odcisk zawiera proces.
     """
 
-    process: contract.ProcessKey | Literal["tool_update"]  # albo Aktualizacja narzędzia
+    process: contract.ProcessKey | Literal["tool_update"]
     code: str
     what: str
     where: str

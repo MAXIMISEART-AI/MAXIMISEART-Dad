@@ -1,3 +1,4 @@
+import * as React from "react"
 import { CircleCheckIcon, RefreshCwIcon } from "lucide-react"
 
 import { reportToolUpdate, type ToolUpdate } from "@/api/centrum"
@@ -23,12 +24,12 @@ const STEPS: Record<Step, string> = {
  */
 export function ToolUpdateButton({ primary, size }: { primary: boolean; size?: "sm" }) {
   const { update, busy, start } = useToolUpdate()
-  const next = update?.state === "failed" ? update.next_action === "retry" : primary
+  const mainAction = update?.state === "failed" ? update.next_action === "retry" : primary
 
   return (
     // Wyłączony, ale dalej pod kursorem: drugie kliknięcie tylko trafia w przycisk, nie zaznacza tekstu strony.
     <Button
-      variant={next ? "default" : "outline"}
+      variant={mainAction ? "default" : "outline"}
       size={size}
       disabled={busy}
       focusableWhenDisabled
@@ -43,27 +44,21 @@ export function ToolUpdateButton({ primary, size }: { primary: boolean; size?: "
 
 /**
  * Stan Aktualizacji narzędzia przy przycisku: krok w trakcie, Komunikat porażki z „Wyślij do Maksa” albo „Masz
- * najnowszą wersję.”. Udana aktualizacja kończy się przeładowaniem karty i powiadomieniem, więc tu jej nie ma.
+ * najnowszą wersję.”. Każde miejsce z przyciskiem ma ten stan, więc to on odczytuje aktualizację przy wejściu na
+ * stronę. Udana aktualizacja kończy się przeładowaniem karty i powiadomieniem, a porażka ponownego startu
+ * Komunikatem pod tytułem strony (`ToolUpdateAfterRestart`), więc tu ich nie ma.
  */
 export function ToolUpdateStatus() {
-  const { update } = useToolUpdate()
+  const { update, restarted, read } = useToolUpdate()
+
+  React.useEffect(read, [read])
 
   if (update === null || update.state === "idle" || update.state === "updated") {
     return null
   }
 
   if (update.state === "failed") {
-    return (
-      <div className="flex flex-col gap-3">
-        <ThreePartMessage message={update.message} kind="warning" />
-        <ReportToMaks
-          send={reportToolUpdate}
-          report={update.report}
-          draft={update.draft}
-          primary={update.next_action === "report"}
-        />
-      </div>
-    )
+    return restarted ? null : <ToolUpdateFailure update={update} />
   }
 
   return (
@@ -80,5 +75,33 @@ export function ToolUpdateStatus() {
         </>
       )}
     </p>
+  )
+}
+
+/**
+ * Komunikat porażki z ponownego startu (np. nowa wersja nie wystartowała i wróciła poprzednia) pod tytułem każdej
+ * strony, na której karta wylądowała po przeładowaniu, aż tata znów kliknie `Zaktualizuj narzędzie`.
+ */
+export function ToolUpdateAfterRestart() {
+  const { update, restarted } = useToolUpdate()
+
+  if (!restarted || update?.state !== "failed") {
+    return null
+  }
+
+  return <ToolUpdateFailure update={update} />
+}
+
+function ToolUpdateFailure({ update }: { update: Extract<ToolUpdate, { state: "failed" }> }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <ThreePartMessage message={update.message} kind="warning" />
+      <ReportToMaks
+        send={reportToolUpdate}
+        report={update.report}
+        draft={update.draft}
+        primary={update.next_action === "report"}
+      />
+    </div>
   )
 }

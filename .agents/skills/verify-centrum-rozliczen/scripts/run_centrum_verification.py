@@ -79,6 +79,7 @@ REQUIRED_SCREENSHOTS = {
         "131-aktualizacja-instalacja-nieudana.png",
         "135-aktualizacja-nie-wystartowala-ponowny-start.png",
         "136-aktualizacja-nie-wystartowala.png",
+        "137-aktualizacja-nie-wystartowala-konfiguracja.png",
     ),
     "metryki": (
         "20-metryki-karty-okresow.png",

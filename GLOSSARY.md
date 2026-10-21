@@ -274,6 +274,23 @@ tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
 zostawia poprzednią wersję; pliki taty pozostają nietknięte.
 _Avoid_: upgrade, git pull, instalacja
 
+## Aktualność narzędzia
+
+Czy narzędzie na komputerze taty jest w najnowszej wersji, czyli czy jego
+commit to `main` publicznego repozytorium: `Aktualna`, `Jest nowsza wersja`
+albo `Nie sprawdzono` (bez internetu). Pokazuje ją Konfiguracja i sprawdza
+Diagnoza; nowsza wersja jest przyczyną Zatrzymania tylko wtedy, gdy Diagnoza
+nie znalazła innej.
+_Avoid_: świeżość, freshness
+
+## Ponowny start Centrum
+
+Koniec udanej Aktualizacji narzędzia: Centrum rozliczeń samo się zamyka i
+startuje w nowej wersji na tym samym adresie, a otwarta karta przeglądarki
+sama się odświeża. Gdy nowa wersja nie wystartuje, wraca poprzednia, a karta
+pokazuje Komunikat.
+_Avoid_: restart, reboot
+
 ## Nienadpisywanie
 
 Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje

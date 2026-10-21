@@ -36,11 +36,24 @@ UPDATE_PACING_MS = 8000
 RESTART_PACING_MS = 3000
 # The restart guardian waits up to 60 s for the new Centrum; the tab reloads when it answers.
 RESTART_TIMEOUT_MS = 60_000
+# Konfiguracja keeps GitHub's answer about `main` for 10 minutes of Centrum's clock.
+MAIN_KEPT_MIN = 10
 
 
 def _git(clone: Path, *args: str) -> str:
     result = subprocess.run(["git", "-C", str(clone), *args], capture_output=True, text=True, check=True)
     return result.stdout.strip()
+
+
+def _github_main(run: Run, commit: str) -> None:
+    """`main` on the scripted GitHub is ``commit``; Centrum's clock moves past the time Konfiguracja keeps the old answer."""
+
+    (run.root / "github" / "main-commit.txt").write_text(commit, encoding="utf-8")
+    moved = run.root / "zegar" / "przesuniecie-min.txt"
+    moved.parent.mkdir(exist_ok=True)
+    before = float(moved.read_text(encoding="utf-8")) if moved.exists() else 0.0
+    moved.write_text(str(before + MAIN_KEPT_MIN), encoding="utf-8")
+    print(f"  harness: Centrum's clock moves {MAIN_KEPT_MIN} minutes on, so Konfiguracja asks GitHub again", flush=True)
 
 
 def _head(clone: Path) -> str:
@@ -231,7 +244,7 @@ def _drive_update(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "aktualizacja-jest-nowsza")
     print("  harness: `main` on the scripted GitHub is the local origin's newest commit", flush=True)
-    main_commit.write_text(newest, encoding="utf-8")
+    _github_main(run, newest)
     try:
         run.check(_head(clone) == first, "the run's tool clone stands on the first commit")
         run.check(
@@ -321,6 +334,7 @@ def _drive_update(run: Run, page: Page) -> None:
         toast = page.get_by_role("region", name="Notifications").get_by_role("dialog", name=UPDATED)
         expect(toast).to_be_visible(timeout=RESTART_TIMEOUT_MS)
         expect(toast).to_contain_text(newest[:7])
+        expect(toast).to_contain_text(f"Centrum działa w wersji {before_health['version']} ({newest[:7]}).")
         run.check(page.evaluate("window.przedPonownymStartem === undefined"), "the tab reloaded by itself")
         expect(page.get_by_role("heading", name="Okresy", exact=True)).to_be_visible()
         page.wait_for_load_state("networkidle")
@@ -337,11 +351,11 @@ def _drive_update(run: Run, page: Page) -> None:
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
         health = run.api("/api/health", "aktualizacja-health-po")
         run.check(
-            health["commit"] == newest and health["instance"] != before_health["instance"],
+            health["commit"] == newest[:7] and health["instance"] != before_health["instance"],
             "a new Centrum answers on the same address, in the new commit",
         )
         view = run.api("/api/tool-update", "aktualizacja-zaktualizowano")
-        run.check(view == {"state": "updated", "commit": newest[:7]}, "the new Centrum reports the update's result")
+        run.check(view == {"state": "updated"}, "the new Centrum reports the update's result")
         run.check(_head(clone) == newest, "the clone moved forward to the origin's newest commit")
         _dad_files_kept(run, clone, dad_files, run_configuration)
         configuration = run.api("/api/configuration", "aktualizacja-konfiguracja-po")
@@ -389,7 +403,7 @@ def _drive_update(run: Run, page: Page) -> None:
         # `main` leaves this Centrum with `Masz najnowszą wersję.` instead of the failed installation.
         print("  harness: `main` in the local origin is the newest commit again", flush=True)
         _git(origin, "update-ref", "refs/heads/main", newest)
-        main_commit.write_text(newest, encoding="utf-8")
+        _github_main(run, newest)
         card = _tool_card(page)
         card.get_by_role("button", name=BUTTON, exact=True).click()
         expect(card.get_by_role("status").filter(has_text=UP_TO_DATE)).to_be_visible(timeout=20_000)
@@ -414,7 +428,7 @@ def _drive_failed_installation(
     run.step(FEATURE, "aktualizacja-instalowanie")
     print("  harness: `main` in the local origin and on the scripted GitHub needs a library pip cannot install offline", flush=True)
     _git(origin, "update-ref", "refs/heads/main", libraries)
-    (run.root / "github" / "main-commit.txt").write_text(libraries, encoding="utf-8")
+    _github_main(run, libraries)
     print(f"  harness: each installation of libraries waits {PACING_MS} ms before pip starts", flush=True)
     (run.root / "pacing" / "instalacja-ms.txt").write_text(str(PACING_MS), encoding="utf-8")
     page.reload()
@@ -472,38 +486,42 @@ def _drive_new_version_not_starting(
     run.step(FEATURE, "aktualizacja-nie-wystartowala-ponowny-start")
     print("  harness: `main` in the local origin and on the scripted GitHub is a version whose Centrum does not start", flush=True)
     _git(origin, "update-ref", "refs/heads/main", not_starting)
-    (run.root / "github" / "main-commit.txt").write_text(not_starting, encoding="utf-8")
+    _github_main(run, not_starting)
     print(f"  harness: the old version, started again, waits {RESTART_PACING_MS} ms before it starts", flush=True)
     (run.root / "pacing" / "ponowny-start-ms.txt").write_text(str(RESTART_PACING_MS), encoding="utf-8")
-    page.reload()
-    card = _tool_card(page)
-    expect(card).to_contain_text("Jest nowsza wersja")
-    before_health = run.api("/api/health", "aktualizacja-nie-wystartowala-health-przed")
-    page.evaluate("window.przedPonownymStartem = true")
-    card.get_by_role("button", name=BUTTON, exact=True).click()
-    expect(card.get_by_role("status").filter(has_text=RESTARTING)).to_be_visible(timeout=20_000)
-    expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
-    run.check(not _answers(run), "the old Centrum has closed, and no Centrum answers yet")
-    run.capture(page, "135-aktualizacja-nie-wystartowala-ponowny-start", live=True)
+    with _repaired_in_this_version(run, newest):
+        page.get_by_role("link", name="Okresy", exact=True).click()
+        notice = _repair_notice(page)
+        expect(notice).to_be_visible()
+        before_health = run.api("/api/health", "aktualizacja-nie-wystartowala-health-przed")
+        page.evaluate("window.przedPonownymStartem = true")
+        notice.get_by_role("button", name=BUTTON, exact=True).click()
+        expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
+        expect(notice.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
+        run.check(not _answers(run), "the old Centrum has closed, and no Centrum answers yet")
+        _entered(_status(page, RESTARTING))
+        run.capture(page, "135-aktualizacja-nie-wystartowala-ponowny-start", live=True)
+        print("  Dad goes to Uruchomienia while Centrum restarts", flush=True)
+        page.get_by_role("link", name="Uruchomienia", exact=True).click()
+        expect(page.get_by_role("heading", name="Uruchomienia", exact=True)).to_be_visible()
     (run.root / "pacing" / "ponowny-start-ms.txt").unlink()
 
     run.step(FEATURE, "aktualizacja-nie-wystartowala")
-    message = card.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)
+    message = page.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)
     expect(message).to_be_visible(timeout=RESTART_TIMEOUT_MS)
     run.check(page.evaluate("window.przedPonownymStartem === undefined"), "the tab reloaded by itself")
-    card = _tool_card(page)
-    message = card.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)
+    expect(page.get_by_role("heading", name="Uruchomienia", exact=True)).to_be_visible()
+    run.check(True, "the tab reloaded on Uruchomienia, a page with no button of its own, and shows the Komunikat there")
+    message = page.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)
     expect(message).to_contain_text("narzędzie na tym komputerze")
     expect(message).to_contain_text(TO_MAKS)
-    expect(card).to_contain_text(newest[:7])
-    expect(card).to_contain_text("Jest nowsza wersja")
-    report = card.get_by_role("button", name=REPORT_BUTTON, exact=True)
+    report = page.get_by_role("button", name=REPORT_BUTTON, exact=True)
     expect(report).to_be_visible()
     run.check("bg-primary" in (report.get_attribute("class") or ""), "`Wyślij do Maksa` is the main action")
     expect(page.get_by_role("region", name="Notifications").get_by_role("dialog", name=UPDATED)).to_have_count(0)
     health = run.api("/api/health", "aktualizacja-nie-wystartowala-health-po")
     run.check(
-        health["commit"] == newest and health["instance"] != before_health["instance"],
+        health["commit"] == newest[:7] and health["instance"] != before_health["instance"],
         "a new Centrum answers on the same address, in the old version",
     )
     view = run.api("/api/tool-update", "aktualizacja-nie-wystartowala")
@@ -531,3 +549,12 @@ def _drive_new_version_not_starting(
         "only the old version started again; the new one never logged a start",
     )
     run.capture(page, "136-aktualizacja-nie-wystartowala")
+
+    page.get_by_role("link", name="Konfiguracja", exact=True).click()
+    card = _tool_card(page)
+    expect(card).to_contain_text(newest[:7])
+    expect(card).to_contain_text("Jest nowsza wersja")
+    expect(page.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)).to_have_count(1)
+    expect(card.get_by_role("alert")).to_have_count(0)
+    run.check(True, "on Konfiguracja the same Komunikat stands once, under the title, and the card shows the old version")
+    run.capture(page, "137-aktualizacja-nie-wystartowala-konfiguracja")

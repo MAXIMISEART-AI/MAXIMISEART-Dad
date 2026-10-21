@@ -122,8 +122,9 @@ export const zFigure = z.object({
  *
  * Tożsamość działającego Centrum.
  *
- * ``commit`` to pełny commit narzędzia (``None`` poza klonem Gita), ``instance`` losowy identyfikator tego
- * startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
+ * ``commit`` to skrócony commit narzędzia, jak na Konfiguracji (``None`` poza klonem Gita); po nim opiekun
+ * ponownego startu rozpoznaje nową wersję, a karta pokazuje go w „Zaktualizowano”. ``instance`` to losowy
+ * identyfikator tego startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
  */
 export const zHealth = z.object({
     service: z.literal('centrum-rozliczen'),
@@ -706,11 +707,10 @@ export const zToolUpdateUpToDate = z.object({
 /**
  * ToolUpdateUpdated
  *
- * Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); to Centrum wystartowało już w niej.
+ * Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (wersja i commit są w ``Health``).
  */
 export const zToolUpdateUpdated = z.object({
-    state: z.literal('updated'),
-    commit: z.string()
+    state: z.literal('updated')
 });
 
 /**

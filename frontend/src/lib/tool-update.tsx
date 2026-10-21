@@ -11,10 +11,15 @@ const POLL_MS = 500
 const RELOADED_AFTER_UPDATE = "centrum-po-aktualizacji"
 
 type ToolUpdateContextValue = {
-  /** Aktualizacja narzędzia według serwera; `null`, dopóki żadna strona jej nie odczytała. */
+  /** Aktualizacja narzędzia według serwera; `null`, dopóki nikt jej nie odczytał. */
   update: ToolUpdate | null
   /** Start wysłany albo aktualizacja trwa: każdy przycisk aktualizacji jest wtedy wyłączony. */
   busy: boolean
+  /**
+   * Tę stronę przeładowała sama karta po ponownym starcie Centrum, a tata od tego czasu nie kliknął aktualizacji.
+   * Komunikat porażki z ponownego startu jest wtedy pod tytułem każdej strony, nie przy przycisku.
+   */
+  restarted: boolean
   start: () => void
   read: () => void
 }
@@ -25,31 +30,21 @@ const ToolUpdateContext = React.createContext<ToolUpdateContextValue | null>(nul
  * Jedna Aktualizacja narzędzia na Centrum, wspólna dla każdego miejsca z przyciskiem `Zaktualizuj narzędzie`.
  * Serwer odpowiada od razu pierwszym krokiem i aktualizuje w tle, a karta odczytuje krok, aż przyjdzie wynik.
  * Po udanej aktualizacji Centrum startuje od nowa: karta czeka, aż odpowie Centrum o innym identyfikatorze
- * startu niż przed kliknięciem, przeładowuje stronę i krótko pokazuje „Zaktualizowano”.
+ * startu niż przed kliknięciem, przeładowuje stronę i krótko pokazuje „Zaktualizowano” z wersją i commitem,
+ * w których działa nowe Centrum.
  */
 export function ToolUpdateProvider({ children }: { children: React.ReactNode }) {
   const [update, setUpdate] = React.useState<ToolUpdate | null>(null)
   const [starting, setStarting] = React.useState(false)
+  const [restarted, setRestarted] = React.useState(() => sessionStorage.getItem(RELOADED_AFTER_UPDATE) !== null)
   // Tata klika dwa razy z przyzwyczajenia: drugie kliknięcie przed odpowiedzią serwera nic nie wysyła.
   const sent = React.useRef(false)
   // Identyfikator startu Centrum sprzed kliknięcia (`health`); inny znaczy, że działa już nowe Centrum.
   const instance = React.useRef<string | null>(null)
   const running = update?.state === "running"
 
-  // Przycisk i stan aktualizacji w jednym miejscu odczytują ją razem przy wejściu: jedno pytanie zamiast kilku.
-  const reading = React.useRef(false)
-
   const read = React.useCallback(() => {
-    if (reading.current) {
-      return
-    }
-
-    reading.current = true
-    getToolUpdate()
-      .then(setUpdate, () => undefined)
-      .finally(() => {
-        reading.current = false
-      })
+    getToolUpdate().then(setUpdate, () => undefined)
   }, [])
 
   React.useEffect(() => {
@@ -58,11 +53,12 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
     }
 
     sessionStorage.removeItem(RELOADED_AFTER_UPDATE)
-    getToolUpdate().then((result) => {
+    Promise.all([getToolUpdate(), getHealth()]).then(([result, health]) => {
       setUpdate(result)
 
       if (result.state === "updated") {
-        toast.add({ title: "Zaktualizowano", description: `Centrum działa w nowej wersji (${result.commit}).` })
+        const commit = health.commit === null ? "" : ` (${health.commit})`
+        toast.add({ title: "Zaktualizowano", description: `Centrum działa w wersji ${health.version}${commit}.` })
       }
     }, () => undefined)
   }, [])
@@ -101,6 +97,7 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
 
     sent.current = true
     setStarting(true)
+    setRestarted(false)
     getHealth()
       .then((health) => {
         instance.current = health.instance
@@ -117,24 +114,20 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
   }, [])
 
   const value = React.useMemo<ToolUpdateContextValue>(
-    () => ({ update, busy: starting || running, start, read }),
-    [update, starting, running, start, read]
+    () => ({ update, busy: starting || running, restarted, start, read }),
+    [update, starting, running, restarted, start, read]
   )
 
   return <ToolUpdateContext.Provider value={value}>{children}</ToolUpdateContext.Provider>
 }
 
-/** Aktualizacja narzędzia dla miejsca z przyciskiem; miejsce odczytuje jej stan przy każdym wejściu. */
+/** Aktualizacja narzędzia wspólna dla całego Centrum; odczytuje ją przy wejściu miejsce, które pokazuje jej stan. */
 export function useToolUpdate() {
   const context = React.useContext(ToolUpdateContext)
 
   if (context === null) {
     throw new Error("useToolUpdate działa tylko wewnątrz ToolUpdateProvider.")
   }
-
-  const { read } = context
-
-  React.useEffect(read, [read])
 
   return context
 }
