@@ -21,5 +21,6 @@ config/centrum-uruchomienia.jsonl
 config/zgloszenia-klucz.txt
 config/zgloszenia-wyslane.json*
 config/zgloszenia/
+config/centrum-aktualizacja.json*
 node_modules/
 .benchmark/

@@ -3,7 +3,8 @@
 Zamknięcie karty przeglądarki nie wyłącza serwera; robi to tylko ta prośba
 (albo wylogowanie z Windows). ``serve`` czeka na prośbę i kończy pracę po
 wysłaniu odpowiedzi. Trwające Uruchomienie procesu odmawia zamknięcia przez
-``refuse_while``.
+``refuse_while``. Po udanej Aktualizacji narzędzia Centrum zamyka się samo
+(``close_for_update``), a nową wersję startuje opiekun ponownego startu.
 """
 
 from __future__ import annotations
@@ -36,6 +37,12 @@ class Shutdown:
         if message is not None:
             raise contract.Refusal(409, message)
         self._log.shutdown_requested()
+        self._requested.set()
+
+    def close_for_update(self) -> None:
+        """Zamknięcie po udanej Aktualizacji narzędzia, bez warunku odmowy: miejsce „jedno naraz” trzyma ona sama."""
+
+        self._log.shutdown_requested(by="aktualizacja")
         self._requested.set()
 
     def wait(self) -> None:

@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -290,6 +290,11 @@ export type HttpValidationError = {
 
 /**
  * Health
+ *
+ * Tożsamość działającego Centrum.
+ *
+ * ``commit`` to pełny commit narzędzia (``None`` poza klonem Gita), ``instance`` losowy identyfikator tego
+ * startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
  */
 export type Health = {
     /**
@@ -300,6 +305,14 @@ export type Health = {
      * Version
      */
     version: string;
+    /**
+     * Commit
+     */
+    commit: string | null;
+    /**
+     * Instance
+     */
+    instance: string;
 };
 
 /**

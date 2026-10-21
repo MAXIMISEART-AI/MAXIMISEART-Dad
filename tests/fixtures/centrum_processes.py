@@ -23,6 +23,7 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.tool_update import ToolClone
@@ -54,7 +55,9 @@ class Surroundings:
     narzędzie jako prawdziwy klon z lokalnym „origin” zamiast GitHuba: wtedy
     commit narzędzia i `main` pochodzą z tych repozytoriów, a Aktualizacja
     narzędzia przesuwa ten klon. ``update_hold`` zatrzymuje każdą Aktualizację
-    narzędzia na jej początku, dopóki test jej nie puści (``set``).
+    narzędzia na jej początku, dopóki test jej nie puści (``set``). Opiekun
+    ponownego startu po udanej aktualizacji tylko zapisuje prośbę w ``restarts``
+    (i usuwa katalog tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji).
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -63,6 +66,7 @@ class Surroundings:
     clock: FakeClock = field(default_factory=FakeClock)
     tool: ToolRepository | None = None
     update_hold: threading.Event | None = None
+    restarts: list[Restart] = field(default_factory=list)
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -82,6 +86,11 @@ class Surroundings:
             return None if found is None else Path(found)
 
         return ToolClone(tool.clone, origin=str(tool.origin), find_git=held_git)
+
+    def guardian(self, copy: Path, restart: Restart) -> None:
+        assert (copy / "rozliczenia" / "centrum" / "restart_guardian.py").is_file()
+        self.restarts.append(restart)
+        shutil.rmtree(restart.work)
 
 
 def _client(
@@ -106,6 +115,7 @@ def _client(
         report_box=surroundings.report_box,
         clock=surroundings.clock,
         tool_update=surroundings.tool_update(),
+        guardian=surroundings.guardian,
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
 

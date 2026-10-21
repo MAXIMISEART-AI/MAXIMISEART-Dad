@@ -39,8 +39,16 @@ NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, object]] = {404: {"model": Prob
 
 
 class Health(_Model):
+    """Tożsamość działającego Centrum.
+
+    ``commit`` to pełny commit narzędzia (``None`` poza klonem Gita), ``instance`` losowy identyfikator tego
+    startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
+    """
+
     service: Literal["centrum-rozliczen"]
     version: str
+    commit: str | None
+    instance: str
 
 
 class Closing(_Model):
@@ -641,6 +649,7 @@ ViewKind = Literal["cold_start", "navigation"]
 # Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu. Trasy spoza
 # tej listy, każda z powodem, wymienia `OUTSIDE_TIMING` w tools/export_openapi.py, który pilnuje obu stron.
 ApiOperation = Literal[
+    "getHealth",
     "getSettings",
     "chooseRegister",
     "choosePeriodsDirectory",

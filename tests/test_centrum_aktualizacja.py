@@ -15,6 +15,8 @@ from typing import Any
 
 import pytest
 
+from rozliczenia.centrum.tool_update import RESULT_FILE, UPDATED, UpdateResult, write_result
+
 from tests.fixtures.centrum import views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
@@ -37,13 +39,15 @@ def updating_centrum(
 
 
 def update_until_done(centrum: PreparingCentrum) -> dict[str, Any]:
+    """Klika „Zaktualizuj narzędzie” i czeka na wynik albo na ponowny start Centrum."""
+
     started = centrum.client.post("/api/tool-update")
     assert started.status_code == 202, started.json()
     assert started.json() == {"state": "running", "step": "fetching"}
     deadline = time.monotonic() + 30
     while True:
         view = centrum.client.get("/api/tool-update").json()
-        if view["state"] != "running":
+        if view["state"] != "running" or view["step"] == "restarting":
             return dict(view)
         assert time.monotonic() < deadline, "Aktualizacja narzędzia nie skończyła się."
         time.sleep(0.02)
@@ -63,27 +67,58 @@ def log_entries(centrum: PreparingCentrum, event: str) -> list[str]:
     return [line.split(" ", 2)[2] for line in lines if line.split(" ", 2)[1] == event]
 
 
-def test_aktualizacja_z_konfiguracji_przesuwa_klon_a_konfiguracja_pokazuje_nowy_commit_aktualna(
-    tmp_path: Path,
-) -> None:
+def test_po_aktualizacji_centrum_zamyka_sie_i_prosi_opiekuna_o_start_nowej_wersji(tmp_path: Path) -> None:
     centrum, repository = updating_centrum(tmp_path)
     before = repository.head()
     newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
     outdated = tool_on_configuration(centrum)
 
     view = update_until_done(centrum)
+    run = centrum.start(dry_run=True)
 
     assert outdated["commit"] == before[:7]
     assert outdated["freshness"] == "newer"
-    assert view == {"state": "updated", "commit": newest[:7]}
+    assert view == {"state": "running", "step": "restarting"}
     assert repository.head() == newest
+    [restart] = centrum.surroundings.restarts
+    assert (restart.port, restart.before, restart.after, restart.installed) == (47811, before, newest, False)
+    assert (restart.root, restart.result) == (repository.clone, tmp_path / "config" / RESULT_FILE)
+    assert log_entries(centrum, "aktualizacja-start") == [f"przed={before}"]
+    assert log_entries(centrum, "zamkniecie") == ["z=aktualizacja"]
+    assert "aktualizacja-koniec" not in log_events(centrum)
+    assert (run.status_code, run.json()) == (
+        409,
+        {"message": "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem uruchom proces."},
+    )
+
+
+def test_nowe_centrum_po_aktualizacji_zapisuje_wynik_od_opiekuna_w_dzienniku_i_pokazuje_go_karcie(
+    tmp_path: Path,
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    old_health = centrum.client.get("/api/health").json()
+    update_until_done(centrum)
+    [restart] = centrum.surroundings.restarts
+    write_result(restart.result, UpdateResult(UPDATED, restart.before, restart.after, restart.installed))
+
+    centrum.restart()
+    new_health = centrum.client.get("/api/health").json()
+    view = centrum.client.get("/api/tool-update").json()
+    centrum.restart()
+
+    assert (old_health["commit"], new_health["commit"]) == (before, newest)
+    assert new_health["instance"] != old_health["instance"]
+    assert view == {"state": "updated", "commit": newest[:7]}
     assert tool_on_configuration(centrum) | {"version": None} == {
         "version": None,
         "commit": newest[:7],
         "freshness": "current",
     }
-    assert log_entries(centrum, "aktualizacja-start") == [f"przed={before}"]
     assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
+    assert not restart.result.exists()
+    assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
 
 
 def test_najnowsza_wersja_zostaje_bez_zmian(tmp_path: Path) -> None:
@@ -155,7 +190,7 @@ def test_aktualizacja_w_trakcie_uruchomienia_procesu_jest_odrzucona(tmp_path: Pa
 def test_w_trakcie_aktualizacji_uruchomienie_druga_aktualizacja_i_zamkniecie_sa_odrzucone(tmp_path: Path) -> None:
     hold = threading.Event()
     centrum, repository = updating_centrum(tmp_path, hold=hold)
-    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    current = repository.head()
     assert centrum.client.post("/api/tool-update").status_code == 202
 
     run = centrum.start(dry_run=True)
@@ -180,7 +215,7 @@ def test_w_trakcie_aktualizacji_uruchomienie_druga_aktualizacja_i_zamkniecie_sa_
         409,
         {"message": "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem zamknij Centrum rozliczeń."},
     )
-    assert repository.head() == newest
+    assert repository.head() == current
     assert run_after.status_code == 200
     assert log_events(centrum).count("aktualizacja-start") == 1
 

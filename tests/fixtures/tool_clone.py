@@ -14,7 +14,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import shutil
 import subprocess
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+CENTRUM_LAUNCHER = "Centrum rozliczeń (konsola).cmd"
+SHORTCUT_INSTALLER = "Zainstaluj skrót Centrum rozliczeń.cmd"
 
 # Pliki pierwszej wersji narzędzia: śledzona konfiguracja wykonawców sprzed #161 i biblioteki.
 FIRST_VERSION: Mapping[str, str] = {
@@ -88,13 +93,43 @@ class ToolRepository:
         return (self.clone / name).read_text(encoding="utf-8")
 
 
+def copy_centrum_runtime(destination: Path) -> Path:
+    """Kopia narzędzia z launcherem Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
+
+    destination.mkdir(parents=True)
+    for name in (
+        CENTRUM_LAUNCHER,
+        SHORTCUT_INSTALLER,
+        "run_centrum.py",
+        "install_centrum_shortcut.py",
+        "pyproject.toml",
+        ".gitignore",
+    ):
+        shutil.copy2(REPOSITORY_ROOT / name, destination)
+    shutil.copytree(REPOSITORY_ROOT / "src", destination / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(
+        REPOSITORY_ROOT / "config", destination / "config", ignore=shutil.ignore_patterns("centrum-ustawienia.yaml")
+    )
+    return destination
+
+
 def tool_repository(directory: Path, files: Mapping[str, str] = FIRST_VERSION) -> ToolRepository:
     """Wydawca z pierwszą wersją ``files``, „origin” bez katalogu roboczego i klon taty na tym samym commicie."""
 
     publisher = directory / "wydawca"
     publisher.mkdir(parents=True)
-    git(publisher, "init", "--quiet", "--initial-branch", "main")
     _write(publisher, files)
+    return _published(directory, publisher)
+
+
+def centrum_tool_repository(directory: Path) -> ToolRepository:
+    """Jak ``tool_repository``, ale pierwsza wersja to prawdziwe Centrum rozliczeń (``copy_centrum_runtime``)."""
+
+    return _published(directory, copy_centrum_runtime(directory / "wydawca"))
+
+
+def _published(directory: Path, publisher: Path) -> ToolRepository:
+    git(publisher, "init", "--quiet", "--initial-branch", "main")
     git(publisher, "add", "--all")
     git(publisher, "commit", "--quiet", "--message", "Pierwsza wersja narzędzia")
     origin = directory / "origin.git"

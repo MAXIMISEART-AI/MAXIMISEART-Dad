@@ -4,14 +4,17 @@ Jedno Centrum na komputerze: gdy port jest zajęty, ``health`` rozstrzyga, czy
 to własne Centrum tej samej wersji (wtedy tylko otwiera kartę), Centrum innej
 wersji, czy inny program. Każdy błąd startu kończy się komunikatem w trzech
 częściach: bez konsoli w natywnym okienku, z konsolą w konsoli, a fakt trafia
-do dziennika Centrum. Przy imporcie moduł używa tylko biblioteki
+do dziennika Centrum. Ponowny start po Aktualizacji narzędzia (``--bez-okienek``)
+nie pokazuje okienka, tylko zapisuje fakt w dzienniku: tata widzi wtedy jeden
+Komunikat, w karcie. Przy imporcie moduł używa tylko biblioteki
 standardowej, więc brak FastAPI albo uvicorn też staje się takim komunikatem.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+import functools
 import json
 import urllib.request
 import webbrowser
@@ -32,16 +35,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Uruchamia Centrum rozliczeń w przeglądarce.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port na 127.0.0.1.")
     parser.add_argument("--no-browser", action="store_true", help="Nie otwieraj karty w przeglądarce.")
+    parser.add_argument(
+        "--bez-okienek",
+        action="store_true",
+        help="Błąd startu tylko do dziennika Centrum, bez natywnego okienka (ponowny start po aktualizacji).",
+    )
     args = parser.parse_args(argv)
     log = CentrumLog(LOG_PATH)
+    refuse = functools.partial(_refuse, port=args.port, log=log, dialog=not args.bez_okienek)
     try:
-        return _start(args.port, log, browser=not args.no_browser)
+        return _start(args.port, log, refuse, browser=not args.no_browser)
     except Exception as failure:  # noqa: BLE001 - granica startu: typ wyjątku trafia do dziennika Centrum
         log.unexpected_failure(failure, where="start")
-        return _refuse(start_problems.unexpected_start_failure(), args.port, log)
+        return refuse(start_problems.unexpected_start_failure())
 
 
-def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
+def _start(port: int, log: CentrumLog, refuse: Callable[[Message], int], *, browser: bool) -> int:
     def open_tab(url: str) -> None:
         if browser:
             webbrowser.open(url)
@@ -54,7 +63,7 @@ def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
         from rozliczenia.centrum.shutdown import Shutdown
         from rozliczenia.centrum.version import tool_version
     except ModuleNotFoundError as missing:
-        return _refuse(start_problems.missing_library(missing.name or "?"), port, log)
+        return refuse(start_problems.missing_library(missing.name or "?"))
 
     url = f"http://127.0.0.1:{port}/"
     try:
@@ -67,9 +76,9 @@ def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
             open_tab(url)
             return 0
         if running is None:
-            return _refuse(start_problems.port_taken(port), port, log)
+            return refuse(start_problems.port_taken(port))
         open_tab(url)  # tata widzi starą kartę z przyciskiem „Zamknij Centrum rozliczeń”
-        return _refuse(start_problems.other_version_running(port, running), port, log)
+        return refuse(start_problems.other_version_running(port, running))
 
     def announce(address: str) -> None:
         _say(f"Centrum rozliczeń działa: {address}")
@@ -95,11 +104,13 @@ def _running_centrum_version(url: str) -> str | None:
     return version if isinstance(version, str) else None
 
 
-def _refuse(problem: Message, port: int, log: CentrumLog) -> int:
+def _refuse(problem: Message, *, port: int, log: CentrumLog, dialog: bool) -> int:
+    """Komunikat startu w konsoli albo, bez konsoli, w natywnym okienku (``dialog``); fakt zawsze w dzienniku."""
+
     log.start_failed(problem.code, port=port)
     if has_console():
         print(problem.text, flush=True)
-    else:
+    elif dialog:
         show_start_problem(start_problems.TITLE, problem.text)
     return 1
 

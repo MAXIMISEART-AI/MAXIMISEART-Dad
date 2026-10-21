@@ -67,7 +67,8 @@ REQUIRED_SCREENSHOTS = {
     "aktualizacja": (
         "93-aktualizacja-jest-nowsza.png",
         "94-aktualizacja-postep.png",
-        "95-aktualizacja-zaktualizowano.png",
+        "100-aktualizacja-ponowny-start.png",
+        "101-aktualizacja-zaktualizowano.png",
         "96-aktualizacja-najnowsza.png",
     ),
     "metryki": (

@@ -107,7 +107,20 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     health = run.api("/api/health", "start-health")
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         version = str(tomllib.load(stream)["project"]["version"])
-    run.check(health == {"service": "centrum-rozliczen", "version": version}, "health names Centrum rozliczeń and its version")
+    # The tool's commit as Centrum sees it: the clone's HEAD, unless powiadomienie-o-naprawie pinned another one.
+    pinned = run.root / "github" / "tool-commit.txt"
+    clone = run.fixture["tool"]["clone"]
+    commit = (
+        pinned.read_text(encoding="utf-8").strip()
+        if pinned.exists()
+        else subprocess.run(["git", "-C", clone, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    )
+    run.check(
+        {key: health.get(key) for key in ("service", "version", "commit")}
+        == {"service": "centrum-rozliczen", "version": version, "commit": commit}
+        and bool(health.get("instance")),
+        "health names Centrum rozliczeń, its version, the tool's commit, and this start",
+    )
     run.check(_log_events(served_log)[:1] == ["start"], "the Centrum log starts with a start entry")
     run.check(f"port={port}" in served_log.read_text(encoding="utf-8"), "the start entry names the port")
 
@@ -164,6 +177,8 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     run.check(_answers(run.url), "closing a tab leaves Centrum running")
 
     run.step(feature, "zamykanie-potwierdzenie")
+    # In `all`, Centrum already closed once for aktualizacja (`zamkniecie z=aktualizacja`) and was restarted.
+    closings = _log_events(served_log).count("zamkniecie")
     close_button = page.get_by_role("button", name="Zamknij Centrum rozliczeń", exact=True)
     close_button.click()
     dialog = page.get_by_role("alertdialog", name="Zamknąć Centrum rozliczeń?")
@@ -172,7 +187,9 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     run.capture(page, "91-start-i-zamykanie-potwierdzenie", full_page=False)
     dialog.get_by_role("button", name="Anuluj", exact=True).click()
     expect(dialog).to_be_hidden()
-    run.check(_answers(run.url) and "zamkniecie" not in _log_events(served_log), "Anuluj leaves Centrum running")
+    run.check(
+        _answers(run.url) and _log_events(served_log).count("zamkniecie") == closings, "Anuluj leaves Centrum running"
+    )
 
     run.step(feature, "zamykanie")
     close_button.click()

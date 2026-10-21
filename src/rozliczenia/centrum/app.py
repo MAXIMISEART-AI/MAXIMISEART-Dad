@@ -17,6 +17,7 @@ from datetime import date
 from pathlib import Path
 import time
 from typing import Any
+import uuid
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response
@@ -42,8 +43,9 @@ from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.timing import server_timing, timing_router
 from rozliczenia.centrum.tool_freshness import ToolFreshness
-from rozliczenia.centrum.tool_update import ToolClone
-from rozliczenia.centrum.tool_updates import ToolUpdates, tool_update_router
+from rozliczenia.centrum import restart_guardian
+from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
+from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
 from rozliczenia.centrum.version import SERVICE, tool_version
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
@@ -65,6 +67,7 @@ def create_app(
     report_box: ReportBox | None = None,
     clock: Callable[[], float] = time.monotonic,
     tool_update: ToolClone | None = None,
+    guardian: GuardianLauncher | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -111,9 +114,14 @@ def create_app(
     async def refused(request: Request, refusal: Refusal) -> Response:
         return _problem(refusal.status_code, refusal.message)
 
+    # Każdy start Centrum ma własny identyfikator: karta po aktualizacji rozpozna po nim nowe Centrum.
+    instance = uuid.uuid4().hex
+
     @app.get("/api/health", operation_id="getHealth")
     def health() -> Health:
-        return Health(service=SERVICE, version=tool_version())
+        return Health(
+            service=SERVICE, version=tool_version(), commit=surroundings.tool_freshness.local(), instance=instance
+        )
 
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
@@ -131,9 +139,16 @@ def create_app(
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     runs = RunHost(log, centrum_runs, reports.state)
     shutdown.refuse_while(runs.shutdown_refusal)
-    # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”.
+    # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie
+    # opiekun ponownego startu zostawia wynik obok Ustawień taty, a to Centrum odczytuje go teraz, raz.
     updates = ToolUpdates(
-        lambda: tool_update or ToolClone.of_system(), runs, log, surroundings.tool_freshness.local
+        lambda: tool_update or ToolClone.of_system(),
+        runs,
+        log,
+        surroundings.tool_freshness.local,
+        shutdown=shutdown,
+        guardian=guardian or (lambda copy, restart: restart_guardian.launch(copy, restart)),
+        result_file=settings_path.parent / RESULT_FILE,
     )
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)

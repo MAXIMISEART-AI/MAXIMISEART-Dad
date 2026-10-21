@@ -20,6 +20,7 @@ import {
   zDecideRunResponse,
   zDiagnoseRunResponse,
   zGetConfigurationResponse,
+  zGetHealthResponse,
   zGetMetricsResponse,
   zGetPeriodBoardResponse,
   zGetRepairNoticeResponse,
@@ -231,6 +232,11 @@ export function getConfiguration() {
 /** Aktualizacja narzędzia: serwer odpowiada od razu pierwszym krokiem i aktualizuje w tle; odmawia, gdy coś trwa. */
 export function startToolUpdate() {
   return call(zStartToolUpdateResponse, "startToolUpdate", "/api/tool-update", send("POST"))
+}
+
+/** Tożsamość Centrum; `instance` jest inny po każdym starcie, więc karta rozpozna po nim Centrum po aktualizacji. */
+export function getHealth() {
+  return call(zGetHealthResponse, "getHealth", "/api/health")
 }
 
 /** Krok trwającej Aktualizacji narzędzia albo jej wynik od startu Centrum. */

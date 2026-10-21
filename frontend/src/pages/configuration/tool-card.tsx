@@ -31,7 +31,8 @@ const STEPS: Record<Step, string> = {
 
 /**
  * Wersja narzędzia z Aktualnością i przyciskiem `Zaktualizuj narzędzie`. Po aktualizacji strona czyta
- * Konfigurację od nowa (`onFinished`), więc commit i Aktualność pochodzą z serwera, nie z wyniku.
+ * Konfigurację od nowa (`onFinished`), więc commit i Aktualność pochodzą z serwera, nie z wyniku. Udana
+ * aktualizacja kończy się ponownym startem Centrum i przeładowaniem karty: nową wersję widać w commicie.
  */
 export function ToolCard({
   version,
@@ -45,7 +46,6 @@ export function ToolCard({
   onFinished: () => void
 }) {
   const { update, busy, start } = useToolUpdate()
-  const shownCommit = update?.state === "updated" ? update.commit : commit
   const watched = React.useRef(false)
 
   React.useEffect(() => {
@@ -63,11 +63,11 @@ export function ToolCard({
         <CardTitle id="narzedzie">Narzędzie</CardTitle>
         <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
           <span>Wersja {version}</span>
-          {shownCommit === null ? null : (
+          {commit === null ? null : (
             <>
               <span aria-hidden>·</span>
               <span className="font-mono text-xs" aria-label="Commit">
-                {shownCommit}
+                {commit}
               </span>
             </>
           )}
@@ -90,7 +90,7 @@ export function ToolCard({
           </Button>
         </CardAction>
       </CardHeader>
-      {update === null || update.state === "idle" ? null : (
+      {update === null || update.state === "idle" || update.state === "updated" ? null : (
         <CardContent>
           <UpdateStatus update={update} />
         </CardContent>
@@ -99,7 +99,7 @@ export function ToolCard({
   )
 }
 
-function UpdateStatus({ update }: { update: Exclude<ToolUpdate, { state: "idle" }> }) {
+function UpdateStatus({ update }: { update: Exclude<ToolUpdate, { state: "idle" | "updated" }> }) {
   if (update.state === "failed") {
     return <ThreePartMessage message={update.message} kind="warning" />
   }
@@ -114,9 +114,7 @@ function UpdateStatus({ update }: { update: Exclude<ToolUpdate, { state: "idle" 
       ) : (
         <>
           <CircleCheckIcon className="size-4 text-success" aria-hidden />
-          {update.state === "updated"
-            ? "Zaktualizowano. Zamknij Centrum rozliczeń i kliknij skrót."
-            : "Masz najnowszą wersję."}
+          Masz najnowszą wersję.
         </>
       )}
     </p>

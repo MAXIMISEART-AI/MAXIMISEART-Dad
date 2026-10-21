@@ -21,12 +21,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Final, Literal
+from typing import Final, Literal, TypeGuard
 
 GITHUB_REPOSITORY: Final = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git"
 BRANCH: Final = "main"
@@ -37,6 +38,10 @@ UP_TO_DATE: Final = "AKTUALNA"
 UNEXPECTED: Final = "NIEOCZEKIWANY_BLAD"
 
 Step = Literal["fetching", "installing"]
+
+# Wynik aktualizacji po ponownym starcie Centrum: plik obok Ustawień taty, który zapisuje opiekun ponownego startu,
+# a Centrum, które potem wystartuje, odczytuje raz i usuwa.
+RESULT_FILE: Final = "centrum-aktualizacja.json"
 
 _FETCHED: Final = f"refs/remotes/origin/{BRANCH}"
 _FETCH_TIMEOUT_S: Final = 120.0
@@ -63,6 +68,35 @@ class UpdateResult:
     before: str | None
     after: str | None
     installed: bool = False
+
+
+def write_result(path: Path, result: UpdateResult) -> None:
+    """Zapisuje wynik aktualizacji w całości albo wcale (plik tymczasowy obok, potem podmiana)."""
+
+    record = {"wynik": result.code, "przed": result.before, "po": result.after, "biblioteki": result.installed}
+    temporary = path.with_name(path.name + ".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def read_result(path: Path) -> UpdateResult | None:
+    """Wynik aktualizacji z pliku ``write_result``; ``None``, gdy pliku nie ma albo jest nieczytelny."""
+
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    code, before, after = record.get("wynik"), record.get("przed"), record.get("po")
+    if not isinstance(code, str) or not _commit_or_none(before) or not _commit_or_none(after):
+        return None
+    return UpdateResult(code, before, after, record.get("biblioteki") is True)
+
+
+def _commit_or_none(value: object) -> TypeGuard[str | None]:
+    return value is None or isinstance(value, str)
 
 
 def find_git(

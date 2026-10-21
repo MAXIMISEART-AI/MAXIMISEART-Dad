@@ -2,8 +2,8 @@
 
 ``DOCTOR OK`` means: this run's ``server.json`` exists (written by
 ``serve_centrum.py`` only after it bound the port), the URL is on
-``127.0.0.1``, ``/api/health`` answers with Centrum's identity and the version
-from ``pyproject.toml``, the page at ``/`` is the built Centrum frontend, and the
+``127.0.0.1``, ``/api/health`` answers with Centrum's identity, the version
+from ``pyproject.toml``, the commit of this run's tool clone, and an identifier of this start, the page at ``/`` is the built Centrum frontend, and the
 settings the server reads are this run's (the folder okresów is not set yet,
 or points inside the run root), and so are the metrics (the oldest Uruchomienie
 procesu is the fixture's, not one from Dad's history).
@@ -39,7 +39,9 @@ def check(root: Path, expected_version: str) -> list[str]:
     try:
         _, health_body = _get(url + "api/health")
         health = json.loads(health_body)
-        if health != {"service": "centrum-rozliczen", "version": expected_version}:
+        fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
+        identity = {"service": "centrum-rozliczen", "version": expected_version, "commit": fixture["tool"]["first"]}
+        if {key: health.get(key) for key in identity} != identity or not health.get("instance"):
             problems.append(f"unexpected health answer: {health}")
         _, page = _get(url)
         if "<title>Centrum rozliczeń</title>".encode() not in page:
@@ -50,7 +52,6 @@ def check(root: Path, expected_version: str) -> list[str]:
             problems.append("the server reads settings that are not this run's")
         _, metrics_body = _get(url + "api/metrics")
         runs = json.loads(metrics_body)["runs"]
-        fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
         oldest = datetime.fromisoformat(fixture["metrics"]["oldest"])
         if not runs or datetime.fromisoformat(runs[-1]["started_at"]) != oldest:
             problems.append("the server reads metrics files that are not this run's")

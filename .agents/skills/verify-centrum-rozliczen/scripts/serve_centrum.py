@@ -26,7 +26,11 @@ verification never reaches GitHub and checks OneDrive on every system:
 
 Aktualizacja narzędzia moves that clone with real Git, fetching from the
 run's local "origin" ``<root>/aktualizacja/origin.git`` instead of GitHub, so no
-Centrum of a verification run ever updates the checkout it runs from.
+Centrum of a verification run ever updates the checkout it runs from. After a
+successful update this Centrum closes itself and the real restart guardian runs
+the clone's ``run_centrum.py``, a fixture shim that runs this script again with
+the same run root and port: the restarted Centrum keeps every scripted boundary
+and rewrites ``server.json`` with its own pid.
 
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes

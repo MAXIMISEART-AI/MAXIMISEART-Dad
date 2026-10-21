@@ -901,6 +901,7 @@
           "operation": {
             "type": "string",
             "enum": [
+              "getHealth",
               "getSettings",
               "chooseRegister",
               "choosePeriodsDirectory",
@@ -1379,15 +1380,33 @@
           "version": {
             "type": "string",
             "title": "Version"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "instance": {
+            "type": "string",
+            "title": "Instance"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "service",
-          "version"
+          "version",
+          "commit",
+          "instance"
         ],
-        "title": "Health"
+        "title": "Health",
+        "description": "Tożsamość działającego Centrum.\n\n``commit`` to pełny commit narzędzia (``None`` poza klonem Gita), ``instance`` losowy identyfikator tego\nstartu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił."
       },
       "Message": {
         "properties": {

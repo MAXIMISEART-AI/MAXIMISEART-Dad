@@ -1,11 +1,14 @@
 import * as React from "react"
 
 import { failureMessage } from "@/api/client"
-import { getToolUpdate, startToolUpdate, type ToolUpdate } from "@/api/centrum"
+import { getHealth, getToolUpdate, startToolUpdate, type ToolUpdate } from "@/api/centrum"
 import { toast } from "@/components/ui/toast"
 
 // Krok trwającej aktualizacji karta czyta co pół sekundy; poza aktualizacją nie pyta wcale.
 const POLL_MS = 500
+
+// Znacznik w karcie przeglądarki: tę stronę przeładowała sama karta, bo wystartowało nowe Centrum.
+const RELOADED_AFTER_UPDATE = "centrum-po-aktualizacji"
 
 type ToolUpdateContextValue = {
   /** Aktualizacja narzędzia według serwera; `null`, dopóki żadna strona jej nie odczytała. */
@@ -21,28 +24,63 @@ const ToolUpdateContext = React.createContext<ToolUpdateContextValue | null>(nul
 /**
  * Jedna Aktualizacja narzędzia na Centrum, wspólna dla każdego miejsca z przyciskiem `Zaktualizuj narzędzie`.
  * Serwer odpowiada od razu pierwszym krokiem i aktualizuje w tle, a karta odczytuje krok, aż przyjdzie wynik.
+ * Po udanej aktualizacji Centrum startuje od nowa: karta czeka, aż odpowie Centrum o innym identyfikatorze
+ * startu niż przed kliknięciem, przeładowuje stronę i krótko pokazuje „Zaktualizowano”.
  */
 export function ToolUpdateProvider({ children }: { children: React.ReactNode }) {
   const [update, setUpdate] = React.useState<ToolUpdate | null>(null)
   const [starting, setStarting] = React.useState(false)
   // Tata klika dwa razy z przyzwyczajenia: drugie kliknięcie przed odpowiedzią serwera nic nie wysyła.
   const sent = React.useRef(false)
+  // Identyfikator startu Centrum sprzed kliknięcia (`health`); inny znaczy, że działa już nowe Centrum.
+  const instance = React.useRef<string | null>(null)
   const running = update?.state === "running"
 
   const read = React.useCallback(() => {
     getToolUpdate().then(setUpdate, () => undefined)
   }, [])
 
-  // Każda odpowiedź w trakcie aktualizacji to nowy obiekt `update`, więc po niej idzie kolejne pytanie.
+  React.useEffect(() => {
+    if (sessionStorage.getItem(RELOADED_AFTER_UPDATE) === null) {
+      return
+    }
+
+    sessionStorage.removeItem(RELOADED_AFTER_UPDATE)
+    getToolUpdate().then((result) => {
+      setUpdate(result)
+
+      if (result.state === "updated") {
+        toast.add({ title: "Zaktualizowano", description: `Centrum działa w nowej wersji (${result.commit}).` })
+      }
+    }, () => undefined)
+  }, [])
+
+  // Każda odpowiedź w trakcie aktualizacji to nowy obiekt `update`, więc po niej idzie kolejne pytanie. Centrum nie
+  // odpowiada w trakcie aktualizacji tylko wtedy, gdy zamknęło się przed ponownym startem: karta pokazuje ten krok.
   React.useEffect(() => {
     if (update?.state !== "running") {
       return
     }
 
-    const timer = window.setTimeout(read, POLL_MS)
+    const timer = window.setTimeout(() => {
+      getHealth()
+        .then((health) => {
+          instance.current ??= health.instance
+
+          if (health.instance !== instance.current) {
+            sessionStorage.setItem(RELOADED_AFTER_UPDATE, "1")
+            window.location.reload()
+
+            return
+          }
+
+          return getToolUpdate().then(setUpdate)
+        })
+        .catch(() => setUpdate({ state: "running", step: "restarting" }))
+    }, POLL_MS)
 
     return () => window.clearTimeout(timer)
-  }, [update, read])
+  }, [update])
 
   const start = React.useCallback(() => {
     if (sent.current) {
@@ -51,7 +89,12 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
 
     sent.current = true
     setStarting(true)
-    startToolUpdate()
+    getHealth()
+      .then((health) => {
+        instance.current = health.instance
+
+        return startToolUpdate()
+      })
       .then(setUpdate, (failure: Error) =>
         toast.add({ title: "Nie zaktualizowano narzędzia", description: failureMessage(failure), type: "error" })
       )

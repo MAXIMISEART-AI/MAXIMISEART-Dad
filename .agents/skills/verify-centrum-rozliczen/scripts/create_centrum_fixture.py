@@ -15,7 +15,11 @@ Przebieg rozliczeń for that period needs checking.
 The tool itself is a synthetic Git clone in ``<root>/aktualizacja/klon`` whose
 "origin" is a local bare repository, ``<root>/aktualizacja/origin.git``, one commit
 ahead of the clone: Aktualizacja narzędzia in this run moves that clone, never
-the checkout the verification runs from, and never reaches GitHub.
+the checkout the verification runs from, and never reaches GitHub. The clone's
+``run_centrum.py``, which the restart guardian starts after an update, is a shim
+that serves this run's scripted Centrum (``serve_centrum.py`` with this run root)
+on the port it is given; while ``<root>/pacing/ponowny-start-ms.txt`` exists, it
+waits that many milliseconds first.
 
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
@@ -382,6 +386,27 @@ def _publish(publisher: Path, version: int, message: str) -> str:
     return _git(publisher, "rev-parse", "HEAD")
 
 
+# The synthetic tool's Centrum: the run's scripted Centrum, so a restarted Centrum keeps the run-local boundaries.
+_CENTRUM_SHIM = """\
+\"\"\"Centrum of the run's synthetic tool: the run's scripted Centrum on the port the restart guardian gives.\"\"\"
+
+from pathlib import Path
+import runpy
+import sys
+import time
+
+SERVE = {serve!r}
+ROOT = Path({root!r})
+
+pacing = ROOT / "pacing" / "ponowny-start-ms.txt"
+if pacing.exists():
+    time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
+port = sys.argv[sys.argv.index("--port") + 1]
+sys.argv = [SERVE, "--root", str(ROOT), "--port", port]
+runpy.run_path(SERVE, run_name="__main__")
+"""
+
+
 def _tool_clone(root: Path) -> dict[str, str]:
     """The run's tool: a clone on the first version and a local "origin" whose `main` is one version ahead."""
 
@@ -389,6 +414,8 @@ def _tool_clone(root: Path) -> dict[str, str]:
     publisher, origin, clone = tool / "wydawca", tool / "origin.git", tool / "klon"
     publisher.mkdir(parents=True)
     _git(publisher, "init", "--quiet", "--initial-branch", "main")
+    shim = _CENTRUM_SHIM.format(serve=str(Path(__file__).resolve().with_name("serve_centrum.py")), root=str(root))
+    (publisher / "run_centrum.py").write_text(shim, encoding="utf-8")
     first = _publish(publisher, 1, "Pierwsza wersja narzędzia")
     _git(tool, "clone", "--quiet", "--bare", str(publisher), str(origin))
     _git(tool, "clone", "--quiet", str(origin), str(clone))

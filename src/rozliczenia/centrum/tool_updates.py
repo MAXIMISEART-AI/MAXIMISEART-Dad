@@ -5,7 +5,9 @@ w Centrum. Zajmuje miejsce „jedno naraz” w ``RunHost`` (odmowy 409 w trakcie
 Uruchomienia procesu albo innej aktualizacji), odpowiada od razu i prowadzi
 aktualizację w osobnym wątku, a karta odczytuje krok i wynik. Dziennik Centrum
 dostaje start i koniec z commitem przed i po, bez ścieżek i bez wyjścia Gita.
-Każdą porażkę, której ``tool_update`` nie przewidział, karta widzi jako
+Po udanej aktualizacji Centrum zamyka się, a opiekun ponownego startu
+(``restart_guardian``) uruchamia nową wersję; koniec aktualizacji zapisuje
+wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Każdą porażkę, której ``tool_update`` nie przewidział, karta widzi jako
 Komunikat nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku.
 """
 
@@ -17,13 +19,27 @@ import shutil
 import tempfile
 import threading
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
-from rozliczenia.centrum import contract, update_messages
+from rozliczenia.centrum import contract, restart_guardian, update_messages
 from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.runs import RunHost
+from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import CommitSource
-from rozliczenia.centrum.tool_update import UNEXPECTED, UP_TO_DATE, UPDATED, Step, ToolClone, UpdateResult
+from rozliczenia.centrum.tool_update import (
+    UNEXPECTED,
+    UP_TO_DATE,
+    UPDATED,
+    Step,
+    ToolClone,
+    UpdateResult,
+    read_result,
+)
+
+
+GuardianLauncher = Callable[[Path, Restart], object]
+"""Uruchamia opiekuna ponownego startu z kopii (``restart_guardian.launch``); w testach podstawiany."""
 
 
 class ToolUpdates:
@@ -32,22 +48,44 @@ class ToolUpdates:
     ``clone`` daje klon narzędzia przy każdym kliknięciu, nie przy starcie
     Centrum (test bez podstawionego klonu kończy się dopiero na akcji), a
     ``commit`` to commit narzędzia przed aktualizacją, tak jak widzi go Diagnoza.
+
+    Po udanej aktualizacji Centrum uruchamia opiekuna ponownego startu
+    (``guardian``) i zamyka się (``shutdown``); miejsca „jedno naraz” już nie
+    zwalnia. Opiekun zostawia wynik w ``result_file``, a nowe Centrum odczytuje
+    go raz przy starcie: zapisuje koniec aktualizacji w dzienniku, usuwa plik i
+    pokazuje wynik karcie.
     """
 
-    def __init__(self, clone: Callable[[], ToolClone], runs: RunHost, log: CentrumLog, commit: CommitSource) -> None:
+    def __init__(
+        self,
+        clone: Callable[[], ToolClone],
+        runs: RunHost,
+        log: CentrumLog,
+        commit: CommitSource,
+        *,
+        shutdown: Shutdown,
+        guardian: GuardianLauncher,
+        result_file: Path,
+    ) -> None:
         self._clone = clone
         self._runs = runs
         self._log = log
         self._commit = commit
+        self._shutdown = shutdown
+        self._guardian = guardian
+        self._result_file = result_file
         self._lock = threading.Lock()
-        self._view: contract.ToolUpdate = contract.ToolUpdateIdle(state="idle")
+        self._view: contract.ToolUpdate = self._after_restart()
 
     def current(self) -> contract.ToolUpdate:
         with self._lock:
             return self._view
 
-    def start(self) -> contract.ToolUpdate:
-        """Zaczyna aktualizację w tle i od razu zwraca jej pierwszy krok; ``contract.Refusal``, gdy coś trwa."""
+    def start(self, port: int) -> contract.ToolUpdate:
+        """Zaczyna aktualizację w tle i od razu zwraca jej pierwszy krok; ``contract.Refusal``, gdy coś trwa.
+
+        ``port`` to port tego Centrum: na nim opiekun startuje nową wersję.
+        """
 
         clone = self._clone()
         self._runs.begin_update()
@@ -56,30 +94,69 @@ class ToolUpdates:
         first = contract.ToolUpdateRunning(state="running", step="fetching")
         with self._lock:
             self._view = first
-        threading.Thread(target=self._update, args=(clone, before), name="aktualizacja-narzedzia", daemon=True).start()
+        threading.Thread(
+            target=self._update, args=(clone, before, port), name="aktualizacja-narzedzia", daemon=True
+        ).start()
         return first
 
-    def _update(self, clone: ToolClone, before: str | None) -> None:
+    def _after_restart(self) -> contract.ToolUpdate:
+        result = read_result(self._result_file)
+        if result is None:
+            return contract.ToolUpdateIdle(state="idle")
+        self._finished(result)
         try:
-            result = self._result(clone, before)
-            self._log.update_finished(
-                result=result.code, before=result.before, after=result.after, installed=result.installed
-            )
-            with self._lock:
-                self._view = _view_of(result)
-        finally:
-            self._runs.end_update()
+            self._result_file.unlink(missing_ok=True)
+        except OSError:
+            pass  # wynik i tak jest już w dzienniku; plik zostaje do następnego startu
+        return _view_of(result)
 
-    def _result(self, clone: ToolClone, before: str | None) -> UpdateResult:
+    def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
+        work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
+        restarting = False
         try:
-            backup = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
-            try:
-                return clone.update(backup, self._show_step)
-            finally:
-                shutil.rmtree(backup, ignore_errors=True)
+            result, guardian = self._result(clone, before, work)
+            if result.code == UPDATED and result.after is not None and guardian is not None:
+                restart = Restart(
+                    port, result.before, result.after, clone.root, self._result_file, result.installed, work
+                )
+                restarting = self._restart(restart, guardian)
+            if not restarting:
+                self._finished(result)
+                with self._lock:
+                    self._view = _view_of(result)
+        finally:
+            if not restarting:
+                shutil.rmtree(work, ignore_errors=True)
+                self._runs.end_update()
+
+    def _result(self, clone: ToolClone, before: str | None, work: Path) -> tuple[UpdateResult, Path | None]:
+        try:
+            # Opiekun działa z kopii sprzed aktualizacji, więc kopia powstaje, zanim klon się zmieni.
+            guardian = restart_guardian.prepare(work)
+            backup = work / "pliki-taty"
+            backup.mkdir()
+            return clone.update(backup, self._show_step), guardian
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="aktualizacja narzędzia")
-            return UpdateResult(UNEXPECTED, before, None)
+            return UpdateResult(UNEXPECTED, before, None), None
+
+    def _restart(self, restart: Restart, guardian: Path) -> bool:
+        """Uruchamia opiekuna i zamyka Centrum; ``False``, gdy opiekun nie wystartował (Centrum działa dalej)."""
+
+        with self._lock:
+            self._view = contract.ToolUpdateRunning(state="running", step="restarting")
+        try:
+            self._guardian(guardian, restart)
+        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+            self._log.unexpected_failure(failure, where="ponowny start po aktualizacji")
+            return False
+        self._shutdown.close_for_update()
+        return True
+
+    def _finished(self, result: UpdateResult) -> None:
+        self._log.update_finished(
+            result=result.code, before=result.before, after=result.after, installed=result.installed
+        )
 
     def _show_step(self, step: Step) -> None:
         with self._lock:
@@ -99,8 +176,9 @@ def tool_update_router(updates: ToolUpdates) -> APIRouter:
     router = APIRouter(prefix="/api/tool-update", tags=["aktualizacja"])
 
     @router.post("", operation_id="startToolUpdate", status_code=202, responses={409: {"model": contract.Problem}})
-    def start() -> contract.ToolUpdate:
-        return updates.start()
+    def start(request: Request) -> contract.ToolUpdate:
+        server = request.scope.get("server")
+        return updates.start(int(server[1]) if server else 0)
 
     @router.get("", operation_id="getToolUpdate")
     def current() -> contract.ToolUpdate:

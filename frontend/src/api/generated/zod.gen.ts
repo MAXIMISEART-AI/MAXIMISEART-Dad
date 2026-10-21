@@ -9,6 +9,7 @@ import * as z from 'zod';
  */
 export const zApiTiming = z.object({
     operation: z.enum([
+        'getHealth',
         'getSettings',
         'chooseRegister',
         'choosePeriodsDirectory',
@@ -117,10 +118,17 @@ export const zFigure = z.object({
 
 /**
  * Health
+ *
+ * Tożsamość działającego Centrum.
+ *
+ * ``commit`` to pełny commit narzędzia (``None`` poza klonem Gita), ``instance`` losowy identyfikator tego
+ * startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
  */
 export const zHealth = z.object({
     service: z.literal('centrum-rozliczen'),
-    version: z.string()
+    version: z.string(),
+    commit: z.string().nullable(),
+    instance: z.string()
 });
 
 /**

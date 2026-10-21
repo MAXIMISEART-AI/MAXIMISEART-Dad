@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient  # noqa: E402  (po ścieżce do src)
 from starlette.types import ASGIApp, Message, Receive, Scope, Send  # noqa: E402
 
 from rozliczenia import settings as settings_file  # noqa: E402
-from rozliczenia.centrum import report_box, tool_freshness  # noqa: E402
+from rozliczenia.centrum import report_box, restart_guardian, tool_freshness  # noqa: E402
 from rozliczenia.centrum.tool_update import ToolClone  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 
@@ -47,6 +47,16 @@ def bez_aktualizacji_katalogu_narzedzia(monkeypatch: pytest.MonkeyPatch) -> None
         raise AssertionError("Test Centrum aktualizuje katalog narzędzia; podstaw tool_update w create_app.")
 
     monkeypatch.setattr(ToolClone, "of_system", tool_in_test)
+
+
+@pytest.fixture(autouse=True)
+def bez_opiekuna_ponownego_startu_w_tescie_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Centrum testu API bez podstawionego ``guardian`` nie uruchamia prawdziwego opiekuna ponownego startu."""
+
+    def guardian_in_test(*args: object) -> NoReturn:
+        raise AssertionError("Test Centrum uruchamia opiekuna ponownego startu; podstaw guardian w create_app.")
+
+    monkeypatch.setattr(restart_guardian, "launch", guardian_in_test)
 
 
 @pytest.fixture(autouse=True)

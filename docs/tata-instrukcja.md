@@ -127,7 +127,7 @@ otwarty w Excelu) albo jednym z tych:
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Kliknij `Wyślij do Maksa`. |
-| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”). Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
+| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”). Gdy karta Centrum sama się odświeży, uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
 | „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
 | „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
 
@@ -175,11 +175,8 @@ Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`
 pod tytułem pojawi się `Maks naprawił zgłoszony problem. Zaktualizuj
 narzędzie.`
 
-1. Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”).
-2. W karcie Centrum kliknij `Zamknij Centrum rozliczeń` i otwórz Centrum
-   skrótem.
-
-Po aktualizacji powiadomienie zniknie samo; niczego nie zamykasz. Centrum
+Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”). Po aktualizacji
+powiadomienie zniknie samo; niczego nie zamykasz. Centrum
 sprawdza to przy otwarciu i przy wejściu na `Okresy`, najwyżej raz na 10 minut.
 Bez internetu nic się nie pokazuje i nic się nie psuje; Centrum sprawdzi
 ponownie później.
@@ -191,12 +188,12 @@ jest najnowsza: `Aktualna`, `Jest nowsza wersja` albo `Nie sprawdzono` (bez
 internetu).
 
 1. Na stronie `Konfiguracja` kliknij `Zaktualizuj narzędzie`.
-2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a przycisk jest
-   wtedy wyłączony.
-3. Na końcu karta pokaże jedno z dwóch:
-   - `Zaktualizowano. Zamknij Centrum rozliczeń i kliknij skrót.` W menu po
-     lewej kliknij `Zamknij Centrum rozliczeń`, potem otwórz Centrum skrótem.
-     Dopiero wtedy działa nowa wersja.
+2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a potem `Ponowne
+   uruchamianie Centrum…`. Przycisk jest wtedy wyłączony. Nie zamykaj karty
+   i nie klikaj skrótu: Centrum samo uruchamia się w nowej wersji.
+3. Na końcu zobaczysz jedno z dwóch:
+   - Karta sama się odświeży i na chwilę pokaże `Zaktualizowano`. Działa już
+     nowa wersja; niczego nie zamykasz.
    - `Masz najnowszą wersję.` Niczego więcej nie robisz.
 
 Gdy trwa Uruchomienie procesu, Centrum nie zaktualizuje narzędzia: poczekaj
@@ -222,7 +219,7 @@ zbiorczego możesz zawsze uruchomić launcherami `.cmd`.
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „zajmuje inny program” | Uruchom ponownie komputer i kliknij skrót. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
-| „Działa już Centrum rozliczeń w innej wersji” | Zdarza się po aktualizacji narzędzia. W otwartej karcie Centrum kliknij `Zamknij Centrum rozliczeń`, potem kliknij skrót ponownie. |
+| „Działa już Centrum rozliczeń w innej wersji” | Zdarza się po aktualizacji narzędzia bez przycisku w Centrum. W otwartej karcie Centrum kliknij `Zamknij Centrum rozliczeń`, potem kliknij skrót ponownie. |
 | „Brakuje biblioteki potrzebnej Centrum rozliczeń” | W folderze narzędzia uruchom `py -3 -m pip install -r requirements.txt` i kliknij skrót ponownie. |
 | „nie wystartowało z nieoczekiwanego powodu” | Kliknij skrót ponownie. Jeśli komunikat wraca, przekaż osobie utrzymującej narzędzie plik `logs\centrum-rozliczen.log` z folderu narzędzia. |
 

@@ -38,8 +38,10 @@ class CentrumLog:
     def start_failed(self, code: str, *, port: int, **facts: str) -> None:
         self._write("blad-startu", kod=code, port=port, **facts)
 
-    def shutdown_requested(self) -> None:
-        self._write("zamkniecie", z="karta Centrum")
+    def shutdown_requested(self, *, by: str = "karta Centrum") -> None:
+        """Prośba o zamknięcie z karty Centrum albo (``by="aktualizacja"``) po udanej Aktualizacji narzędzia."""
+
+        self._write("zamkniecie", z=by)
 
     def stopped(self, *, port: int) -> None:
         self._write("stop", port=port)
