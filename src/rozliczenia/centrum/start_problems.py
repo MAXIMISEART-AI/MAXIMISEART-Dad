@@ -70,3 +70,14 @@ def unexpected_start_failure() -> Message:
             f"utrzymującej narzędzie. {_FALLBACK}"
         ),
     )
+
+
+def not_started_after_update() -> Message:
+    """Po Aktualizacji narzędzia nie wystartowała ani nowa wersja, ani stara, do której opiekun cofnął klon."""
+
+    return Message(
+        code="NIE_WYSTARTOWALO_PO_AKTUALIZACJI",
+        what="Centrum rozliczeń nie wystartowało po aktualizacji narzędzia.",
+        where="narzędzie na tym komputerze",
+        action=f"Przekaż ten komunikat Maksowi. {_FALLBACK}",
+    )

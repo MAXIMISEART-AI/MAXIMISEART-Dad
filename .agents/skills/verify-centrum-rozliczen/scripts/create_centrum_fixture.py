@@ -21,7 +21,8 @@ wykonawców, which the newest commit stops tracking. Its
 ``run_centrum.py``, which the restart guardian starts after an update, is a shim
 that serves this run's scripted Centrum (``serve_centrum.py`` with this run root)
 on the port it is given; while ``<root>/pacing/ponowny-start-ms.txt`` exists, it
-waits that many milliseconds first.
+waits that many milliseconds first. One version on the origin's branch
+``nie-startuje`` has a ``run_centrum.py`` that fails at once with an import error.
 
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
@@ -411,6 +412,14 @@ runpy.run_path(SERVE, run_name="__main__")
 """
 
 
+# A version whose Centrum does not start: an import error, as when a new version needs a library this Python lacks.
+_NOT_STARTING_CENTRUM = """\
+\"\"\"Centrum of a version that does not start: it needs a library no Python on this computer has.\"\"\"
+
+import biblioteka_ktorej_nie_ma  # noqa: F401
+"""
+
+
 # The tool's konfiguracja wykonawców: tracked in the first version with an example, untracked by the newest (#161).
 WORKER_MAPPING = "config/worker_mapping.yaml"
 # A library no index has: with pip offline (PIP_NO_INDEX in serve_centrum.py) its installation always fails.
@@ -430,7 +439,8 @@ def _tool_clone(root: Path) -> dict[str, object]:
 
     The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
     update after #161 on Dad's computer. One version later (``libraries``, on the origin's branch
-    ``biblioteki`` until the drive makes it `main`) needs a library whose installation fails.
+    ``biblioteki`` until the drive makes it `main`) needs a library whose installation fails. Another
+    one after the newest (``not_starting``, on the branch ``nie-startuje``) has a Centrum that does not start.
     """
 
     tool = root / "aktualizacja"
@@ -451,12 +461,17 @@ def _tool_clone(root: Path) -> dict[str, object]:
     (publisher / "requirements.txt").write_text(UNINSTALLABLE_REQUIREMENTS, encoding="utf-8")
     libraries = _publish(publisher, 3, "Wersja z nową biblioteką")
     _git(publisher, "push", "--quiet", str(origin), "main:biblioteki")
+    _git(publisher, "checkout", "--quiet", "-b", "nie-startuje", newest)
+    (publisher / "run_centrum.py").write_text(_NOT_STARTING_CENTRUM, encoding="utf-8")
+    not_starting = _publish(publisher, 4, "Wersja, która nie wystartuje")
+    _git(publisher, "push", "--quiet", str(origin), "nie-startuje")
     return {
         "clone": str(clone),
         "origin": str(origin),
         "first": first,
         "newest": newest,
         "libraries": libraries,
+        "not_starting": not_starting,
         "dad_files": DAD_FILES,
     }
 

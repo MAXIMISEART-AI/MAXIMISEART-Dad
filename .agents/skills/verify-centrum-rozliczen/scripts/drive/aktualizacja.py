@@ -25,6 +25,8 @@ REPORT_BUTTON = "Wyślij do Maksa"
 INSTALLING = "Instalowanie bibliotek…"
 LIBRARIES_FAILED = "Nie udało się zainstalować bibliotek nowej wersji narzędzia."
 REPAIRED = "Maks naprawił zgłoszony problem."
+NEW_VERSION_FAILED = "Nowa wersja narzędzia nie wystartowała."
+TO_MAKS = "Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
 # Long enough to see the installation start; installing from no index fails in about a second.
 PACING_MS = 4000
 # Long enough to see the progress on Okresy, send the refused requests and see Konfiguracja during the same update;
@@ -379,6 +381,10 @@ def _drive_update(run: Run, page: Page) -> None:
         run.capture(page, "96-aktualizacja-najnowsza")
 
         _drive_failed_installation(run, page, clone, origin, newest, libraries, dad_files, run_configuration)
+        try:
+            _drive_new_version_not_starting(run, page, origin, tool["not_starting"], run_configuration)
+        finally:
+            restart_pacing.unlink(missing_ok=True)
         # Later features (pomiar-u-taty) expect Konfiguracja without an alert: one more click on the restored
         # `main` leaves this Centrum with `Masz najnowszą wersję.` instead of the failed installation.
         print("  harness: `main` in the local origin is the newest commit again", flush=True)
@@ -456,3 +462,72 @@ def _drive_failed_installation(
         "the Centrum log has the failed installation with both commits, and no path or pip output",
     )
     run.capture(page, "131-aktualizacja-instalacja-nieudana")
+
+
+def _drive_new_version_not_starting(
+    run: Run, page: Page, origin: Path, not_starting: str, run_configuration: dict[str, bytes]
+) -> None:
+    tool = run.fixture["tool"]
+    clone, newest, dad_files = Path(tool["clone"]), tool["newest"], tool["dad_files"]
+    run.step(FEATURE, "aktualizacja-nie-wystartowala-ponowny-start")
+    print("  harness: `main` in the local origin and on the scripted GitHub is a version whose Centrum does not start", flush=True)
+    _git(origin, "update-ref", "refs/heads/main", not_starting)
+    (run.root / "github" / "main-commit.txt").write_text(not_starting, encoding="utf-8")
+    print(f"  harness: the old version, started again, waits {RESTART_PACING_MS} ms before it starts", flush=True)
+    (run.root / "pacing" / "ponowny-start-ms.txt").write_text(str(RESTART_PACING_MS), encoding="utf-8")
+    page.reload()
+    card = _tool_card(page)
+    expect(card).to_contain_text("Jest nowsza wersja")
+    before_health = run.api("/api/health", "aktualizacja-nie-wystartowala-health-przed")
+    page.evaluate("window.przedPonownymStartem = true")
+    card.get_by_role("button", name=BUTTON, exact=True).click()
+    expect(card.get_by_role("status").filter(has_text=RESTARTING)).to_be_visible(timeout=20_000)
+    expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
+    run.check(not _answers(run), "the old Centrum has closed, and no Centrum answers yet")
+    run.capture(page, "135-aktualizacja-nie-wystartowala-ponowny-start", live=True)
+    (run.root / "pacing" / "ponowny-start-ms.txt").unlink()
+
+    run.step(FEATURE, "aktualizacja-nie-wystartowala")
+    message = card.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)
+    expect(message).to_be_visible(timeout=RESTART_TIMEOUT_MS)
+    run.check(page.evaluate("window.przedPonownymStartem === undefined"), "the tab reloaded by itself")
+    card = _tool_card(page)
+    message = card.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)
+    expect(message).to_contain_text("narzędzie na tym komputerze")
+    expect(message).to_contain_text(TO_MAKS)
+    expect(card).to_contain_text(newest[:7])
+    expect(card).to_contain_text("Jest nowsza wersja")
+    report = card.get_by_role("button", name=REPORT_BUTTON, exact=True)
+    expect(report).to_be_visible()
+    run.check("bg-primary" in (report.get_attribute("class") or ""), "`Wyślij do Maksa` is the main action")
+    expect(page.get_by_role("region", name="Notifications").get_by_role("dialog", name=UPDATED)).to_have_count(0)
+    health = run.api("/api/health", "aktualizacja-nie-wystartowala-health-po")
+    run.check(
+        health["commit"] == newest and health["instance"] != before_health["instance"],
+        "a new Centrum answers on the same address, in the old version",
+    )
+    view = run.api("/api/tool-update", "aktualizacja-nie-wystartowala")
+    run.check(
+        (view["state"], view["message"], view["next_action"])
+        == ("failed", {"what": NEW_VERSION_FAILED, "where": "narzędzie na tym komputerze", "action": TO_MAKS}, "report"),
+        "the old version reports the Komunikat in three parts and a Zgłoszenie to Maks",
+    )
+    run.check(_head(clone) == newest, "the guardian moved the clone back to the commit before the click")
+    run.check(_git(clone, "status", "--porcelain", "--untracked-files=no") == "", "the clone has no changes left")
+    _dad_files_kept(run, clone, dad_files, run_configuration)
+    run.check(not (run.root / "config" / "centrum-aktualizacja.json").exists(), "the old version read the result once")
+    run.check(
+        _update_entries(run)[-2:]
+        == [
+            f"aktualizacja-start przed={newest}",
+            f"aktualizacja-koniec wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={newest} po={not_starting} biblioteki=nie",
+        ],
+        "the Centrum log has the update and its end in the old version, with both commits and no path",
+    )
+    run.wait_for(lambda: "stop" in _since_update(run), "the Centrum before the click stopped")
+    run.check(
+        [event for event in _since_update(run) if event != "stop"] == ["zamkniecie", "aktualizacja-koniec", "start"]
+        and _since_update(run).count("stop") == 1,
+        "only the old version started again; the new one never logged a start",
+    )
+    run.capture(page, "136-aktualizacja-nie-wystartowala")

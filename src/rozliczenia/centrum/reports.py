@@ -349,13 +349,13 @@ class Reports:
         return contract.ReportDraft(title=report.title, body=report.body), state
 
     def draft_update(self, result: UpdateResult, message: Message) -> tuple[contract.ReportDraft, contract.ReportState]:
-        """Zgłoszenie nieudanej Aktualizacji narzędzia, które wyśle „Wyślij do Maksa”, i stan po pytaniu skrzynki.
+        """Zgłoszenie nieudanej Aktualizacji narzędzia, które wyśle „Wyślij do Maksa”, i ostatni znany stan.
 
+        Skrzynki nie pyta (start Centrum po cofnięciu nie czeka na sieć); pyta ją ``update_report_state``.
         Wpis ``aktualizacja-koniec`` jest już w dzienniku, więc Zgłoszenie ma go wśród ostatnich wpisów.
         """
 
         fingerprint = ProblemFingerprint.of("tool_update", message).digest
-        self._ask_box(fingerprint)
         previous = self._sent.find(fingerprint)
         report = update_report_of(
             result,
@@ -370,6 +370,19 @@ class Reports:
             self._sent_drafts.discard(_UPDATE_KEY)  # nowa porażka: jej Zgłoszenie jeszcze nie wyszło
             state = self._state_of(fingerprint)
         return contract.ReportDraft(title=report.title, body=report.body), state
+
+    def update_report_state(self) -> contract.ReportState:
+        """Stan Zgłoszenia ostatniej nieudanej Aktualizacji narzędzia po pytaniu skrzynki (``_ask_box``)."""
+
+        with self._lock:
+            draft = self._update_draft
+        if draft is None:
+            return contract.ReportReady(state="ready")
+        self._ask_box(draft.report.fingerprint)
+        with self._lock:
+            if _UPDATE_KEY in self._sent_drafts:
+                return contract.ReportSent(state="sent")
+            return self._state_of(draft.report.fingerprint)
 
     def send(self, stopped: StoppedRun) -> contract.ReportState:
         """Wysyła podgląd z Diagnozy ``stopped``, chyba że skrzynka ma już otwarte Zgłoszenie tego problemu.

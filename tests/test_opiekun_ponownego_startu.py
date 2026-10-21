@@ -13,16 +13,24 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
 import pytest
 
 # Prawdziwy ``launch`` z importu: strażnik z conftest podmienia go tylko dla Centrum w testach API.
-from rozliczenia.centrum.restart_guardian import Restart, launch, prepare
-from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone, UPDATED
+from rozliczenia.centrum.restart_guardian import Restart, launch, main, prepare
+from rozliczenia.centrum.tool_update import (
+    NEW_VERSION_FAILED,
+    RESULT_FILE,
+    UPDATED,
+    ToolClone,
+    UpdateResult,
+    read_result,
+)
 
-from tests.fixtures.tool_clone import centrum_tool_repository
+from tests.fixtures.tool_clone import FIRST_VERSION, ToolRepository, centrum_tool_repository, tool_repository
 
 
 @pytest.fixture(autouse=True)
@@ -148,3 +156,139 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
     assert f"aktualizacja-koniec wynik=ok przed={before} po={newest} biblioteki=nie" in [
         line.split(" ", 1)[1] for line in _log_lines(clone)
     ]
+
+
+def _guardian_in_background(restart: Restart, dialogs: list[tuple[str, str]]) -> tuple[threading.Thread, list[int]]:
+    """Opiekun w wątku testu (prawdziwe procesy Centrum), z okienkiem podstawionym zapisem jego treści."""
+
+    exits: list[int] = []
+
+    def record(title: str, text: str) -> None:
+        dialogs.append((title, text))
+
+    def guard() -> None:
+        exits.append(main(restart.arguments(), show_problem=record))
+
+    thread = threading.Thread(target=guard, name="opiekun-w-tescie", daemon=True)
+    thread.start()
+    return thread, exits
+
+
+def _broken_version(repository: ToolRepository, dialogs: Path) -> dict[str, str]:
+    """Nowa wersja z błędem importu: brakuje jej biblioteki, a jak pod ``pythonw`` nie ma konsoli.
+
+    Okienko błędu startu tej wersji zapisuje swoją treść do ``dialogs`` zamiast pokazywać się na ekranie.
+    """
+
+    app = (repository.publisher / "src/rozliczenia/centrum/app.py").read_text(encoding="utf-8")
+    platform = (repository.publisher / "src/rozliczenia/centrum/platform.py").read_text(encoding="utf-8")
+    windowless = (
+        "\n\ndef has_console() -> bool:\n    return False\n\n\n"
+        "def show_start_problem(title: str, text: str) -> None:\n"
+        f"    with open({str(dialogs)!r}, 'a', encoding='utf-8') as shown:\n"
+        "        shown.write(text + '\\n')\n"
+    )
+    return {
+        "src/rozliczenia/centrum/app.py": app.replace(
+            "from __future__ import annotations\n",
+            "from __future__ import annotations\n\nimport biblioteka_ktorej_nie_ma  # noqa: F401\n",
+            1,
+        ),
+        "src/rozliczenia/centrum/platform.py": platform + windowless,
+    }
+
+
+def test_nowa_wersja_ktora_nie_wystartuje_wraca_do_starego_commitu_a_stara_startuje_z_komunikatem(
+    tmp_path: Path,
+) -> None:
+    repository = centrum_tool_repository(tmp_path / "repozytoria")
+    clone = repository.clone
+    before = repository.head()
+    port = _free_port()
+    new_version_dialogs = tmp_path / "okienka-nowej-wersji.txt"
+    dialogs: list[tuple[str, str]] = []
+    old = subprocess.Popen(
+        [sys.executable, str(clone / "run_centrum.py"), "--port", str(port), "--no-browser"],
+        cwd=clone,
+        env=os.environ | {"PYTHONUTF8": "1"},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        old_health = _health(port)
+        newest = repository.publish(_broken_version(repository, new_version_dialogs))
+        work = tmp_path / "praca"
+        (work / "pliki-taty").mkdir(parents=True)
+        assert ToolClone(clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+        restart = Restart(port, before, newest, clone, clone / "config" / RESULT_FILE, False, work)
+        guardian, exits = _guardian_in_background(restart, dialogs)
+        _close(port)
+        old.wait(timeout=30)
+        guardian.join(timeout=90)
+        back_health = _health(port, commit=before)
+        view = _get(port, "/api/tool-update")
+    finally:
+        _close_if_running(port)
+        old.kill()
+        old.wait()
+
+    assert exits == [0]
+    assert repository.head() == before
+    assert repository.in_clone("status", "--porcelain", "--untracked-files=no") == ""
+    assert back_health["instance"] != old_health["instance"]
+    assert dialogs == []
+    assert not new_version_dialogs.exists()
+    assert (view["state"], view["message"], view["next_action"]) == (
+        "failed",
+        {
+            "what": "Nowa wersja narzędzia nie wystartowała.",
+            "where": "narzędzie na tym komputerze",
+            "action": "Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”.",
+        },
+        "report",
+    )
+    assert not (clone / "config" / RESULT_FILE).exists()
+    assert not work.exists()
+    entries = [line.split(" ", 1)[1] for line in _log_lines(clone)]
+    assert any(entry.startswith("blad-startu kod=BRAK_BIBLIOTEKI ") for entry in entries)
+    assert [entry for entry in entries if entry.startswith("aktualizacja-koniec")] == [
+        f"aktualizacja-koniec wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie"
+    ]
+
+
+def test_gdy_nie_startuje_zadna_wersja_opiekun_pokazuje_jedno_okienko_a_klon_stoi_na_starym_commicie(
+    tmp_path: Path,
+) -> None:
+    not_starting = "raise SystemExit(1)\n"
+    repository = tool_repository(tmp_path / "repozytoria", {**FIRST_VERSION, "run_centrum.py": not_starting})
+    before = repository.head()
+    dad_mapping = "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n"
+    repository.write("config/worker_mapping.yaml", dad_mapping)
+    newest = repository.publish(
+        {".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",)
+    )
+    work = tmp_path / "praca"
+    (work / "pliki-taty").mkdir(parents=True)
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+    result = repository.clone / "config" / RESULT_FILE
+    dialogs: list[tuple[str, str]] = []
+
+    guardian, exits = _guardian_in_background(
+        Restart(_free_port(), before, newest, repository.clone, result, False, work), dialogs
+    )
+    guardian.join(timeout=90)
+
+    assert exits == [1]
+    assert dialogs == [
+        (
+            "Centrum rozliczeń",
+            "Co się stało: Centrum rozliczeń nie wystartowało po aktualizacji narzędzia.\n"
+            "Gdzie: narzędzie na tym komputerze\n"
+            "Co zrobić: Przekaż ten komunikat Maksowi. "
+            "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd.",
+        )
+    ]
+    assert repository.head() == before
+    assert repository.read("config/worker_mapping.yaml") == dad_mapping
+    assert repository.in_clone("status", "--porcelain", "--untracked-files=no") == "M config/worker_mapping.yaml"
+    assert read_result(result) == UpdateResult(NEW_VERSION_FAILED, before, newest, False)

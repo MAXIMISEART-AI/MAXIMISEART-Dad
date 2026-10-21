@@ -54,6 +54,8 @@ LOCAL_CHANGES: Final = "ZMIANY_NA_KOMPUTERZE"
 UNEXPECTED: Final = "NIEOCZEKIWANY_BLAD"
 # Kod Komunikatu: biblioteki nowej wersji się nie zainstalowały, a klon wrócił do commitu sprzed aktualizacji.
 LIBRARIES_FAILED: Final = "INSTALACJA_BIBLIOTEK"
+# Kod Komunikatu: nowa wersja nie odpowiedziała po ponownym starcie, więc opiekun cofnął klon i uruchomił starą.
+NEW_VERSION_FAILED: Final = "NOWA_WERSJA_NIE_WYSTARTOWALA"
 
 Step = Literal["fetching", "installing"]
 
