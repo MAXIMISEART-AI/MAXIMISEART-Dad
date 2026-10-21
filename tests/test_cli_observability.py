@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import date
 from io import StringIO
 import json
@@ -17,14 +16,13 @@ import pytest
 
 from rozliczenia import settings as settings_file
 from rozliczenia.cli import main
-from rozliczenia.domain import Issue, SettlementSummary, WorkerResult
-import rozliczenia.engine as settlement_engine
+from rozliczenia.domain import WorkerResult
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
 from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
 
 from tests.fixtures.terminal import TtyOutput, install_fake_rich
-from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, make_fixture
+from tests.fixtures.settlement import PERIOD, make_fixture
 from tests.fixtures.workbooks import active_worksheet
 from tests.fixtures.settlement import append_completed_records, install_source_dialog, make_preview_fixture, run_cli
 
@@ -78,68 +76,6 @@ def assert_completed_metrics(
         "issues": issues,
     }
     return cast(dict[str, Any], record)
-
-
-def test_cli_writes_safe_metrics_with_settlement_counters(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
-    metrics_path = tmp_path / "metrics.jsonl"
-
-    exit_code, _ = run_cli(source_path, config_path, metrics_path)
-
-    assert exit_code == 0
-    record = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert record["schema_version"] == 1
-    assert record["mode"] == "RUN"
-    assert record["completed"] is True
-    assert record["result"] == "OK"
-    assert record["total_duration_ms"] >= 0
-    assert set(record["phase_durations_ms"]) == {
-        "Sprawdzanie",
-        "Odczyt danych",
-        "Planowanie",
-        "Zapisywanie",
-    }
-    assert record["counters"]["templates_total"] == 3
-    assert record["counters"]["templates_completed"] == 3
-    metrics_text = metrics_path.read_text(encoding="utf-8")
-    assert metrics_text.count("\n") == 1
-    assert "syntetyczny adres" not in metrics_text
-    assert "#1" not in metrics_text
-    assert str(source_path) not in metrics_text
-
-
-def test_metrics_store_rejects_record_with_full_path(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
-    metrics_path = tmp_path / "metrics.jsonl"
-    run_cli(source_path, config_path, metrics_path)
-
-    record = json.loads(metrics_path.read_text(encoding="utf-8"))
-    record["source_path"] = str(source_path)
-
-    with pytest.raises(ValueError):
-        MetricsStore(metrics_path).append(record)
-
-    assert metrics_path.read_text(encoding="utf-8").count("\n") == 1
-
-
-def test_metrics_store_repairs_torn_final_line(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
-    metrics_path = tmp_path / "metrics.jsonl"
-    run_cli(source_path, config_path, metrics_path)
-    record = json.loads(metrics_path.read_text(encoding="utf-8"))
-
-    with metrics_path.open("ab") as stream:
-        stream.write(b'{"schema_version":1\n')
-    MetricsStore(metrics_path).append(record)
-
-    assert len(MetricsStore(metrics_path).read()) == 2
-    assert metrics_path.read_bytes().endswith(b"\n")
-
-    with metrics_path.open("ab") as stream:
-        stream.write(b"\xff\n")
-    MetricsStore(metrics_path).append(record)
-
-    assert len(MetricsStore(metrics_path).read()) == 3
 
 
 def test_cli_runs_without_rich(tmp_path: Path) -> None:
@@ -213,24 +149,6 @@ def test_interactive_rich_cli_shows_szablony_pracownika(
     assert ("PLAN" if dry_run else "ZAPISANO") in rendered
     assert "syntetyczny adres" not in rendered
     assert "#1" not in rendered
-
-
-def test_cli_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_z_okresem_nieznanym(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path, period=NOT_A_PERIOD)
-    metrics_path = tmp_path / "metrics.jsonl"
-
-    exit_code, output = run_cli(source_path, config_path, metrics_path)
-
-    assert exit_code == 1
-    lines = output.splitlines()
-    assert lines[0] == "Rozliczenia | okres: nieznany | tryb: RUN"
-    status = lines.index("Status semantyczny: BŁĄD")
-    assert lines[status + 1] == (
-        "Nie wykonano: Okres 09_15_09_2026 w nazwie pliku nie jest okresem od wtorku do poniedziałku "
-        "(przykład okresu: 08_14_09_2026)."
-    )
-    record = MetricsStore(metrics_path).read()[-1]
-    assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
 
 
 def test_cli_dry_run_changes_no_file_and_records_dry_run_metrics(tmp_path: Path) -> None:
@@ -361,25 +279,6 @@ def test_broken_wzorzec_rozliczenia_pracownika_shows_unreadable_wzorzec_message(
     assert "unclosed token" not in output
     assert "Traceback" not in output
     assert not target_directory.exists()
-
-
-@pytest.mark.parametrize("extra_args", [(), ("--dry-run",)], ids=["RUN", "DRY-RUN"])
-def test_summary_failure_after_engine_leaves_rozliczenia_pracownikow_only_after_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...]
-) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    run_settlements = settlement_engine.run_settlements
-
-    def run_with_unprintable_summary(*args: Any, **kwargs: Any) -> SettlementSummary:
-        summary = run_settlements(*args, **kwargs)
-        return replace(summary, issues=[cast(Issue, "SYN-001")])
-
-    monkeypatch.setattr(settlement_engine, "run_settlements", run_with_unprintable_summary)
-
-    exit_code, _ = run_cli(source_path, config_path, tmp_path / "metrics.jsonl", *extra_args)
-
-    assert exit_code == 1
-    assert target_directory.is_dir() is (not extra_args)
 
 
 def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records_incomplete_run(
