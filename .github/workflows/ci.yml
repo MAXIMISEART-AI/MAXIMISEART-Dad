@@ -107,7 +107,7 @@ jobs:
       - name: Prove the one-run-at-a-time check fails on broken variants
         shell: pwsh
         run: |
-          py -3 .agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py
+          python .agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py
           if ($LASTEXITCODE -ne 0) {
             throw "Mutation check failed (exit code $LASTEXITCODE)"
           }

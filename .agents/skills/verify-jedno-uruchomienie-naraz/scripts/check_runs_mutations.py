@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -114,8 +115,9 @@ def run_mutation(mutation: Mutation) -> tuple[bool, str]:
 
 def main() -> int:
     failures = 0
-    for mutation in MUTATIONS:
-        caught, last = run_mutation(mutation)
+    with ThreadPoolExecutor() as pool:
+        results = list(pool.map(run_mutation, MUTATIONS))
+    for mutation, (caught, last) in zip(MUTATIONS, results, strict=True):
         failures += not caught
         verdict = "WYKRYTA" if caught else "NIEWYKRYTA"
         print(f"{verdict}: {mutation.name} ({mutation.harm}) → {last}")

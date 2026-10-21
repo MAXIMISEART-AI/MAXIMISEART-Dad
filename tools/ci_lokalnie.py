@@ -61,7 +61,7 @@ def _steps() -> list[Step]:
         ),
         Step(
             "mutacje jednego Uruchomienia naraz",
-            "pytest",
+            "mutations",
             "check_runs_mutations.py",
             (python, ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py"),
         ),
