@@ -43,13 +43,15 @@ VARIABLES
     klikniecia,
     krok,          \* ostatni krok, słowami kodu: z nich składa się kontrprzykład
     slady,         \* awarie znanych znalezisk, które już się zdarzyły (ZnaneZnaleziska)
-    cofa           \* kto woła _roll_back: "centrum" (ToolClone.update) albo "opiekun" (restart_guardian._rolled_back)
+    cofa           \* kto woła _roll_back: "centrum" (ToolClone.update, ToolUpdates._moved_back), "opiekun"
+                   \* (restart_guardian._rolled_back po nowej wersji, która nie odpowiada) albo "opiekun_bez_portu"
+                   \* (restart_guardian._rolled_back, gdy port nie został zwolniony: potem nic nie startuje)
 
 dysk == <<head, plikTaty, kopia, biblioteki>>
 nowa == <<nowaUsuwaPlikTaty, nowaZmieniaWymagania, nowaStartuje>>
 vars == <<dysk, nowa, centrum, pc, klikniecia, krok, slady, cofa>>
 
-ZnaneZnaleziska == {"reset", "kopiowanie", "bez_opiekuna", "wylaczenie"}
+ZnaneZnaleziska == {"reset", "kopiowanie", "wylaczenie"}
 
 Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie",
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
@@ -67,7 +69,7 @@ TypeOK ==
     /\ pc \in Kroki
     /\ klikniecia \in 0..MaxKlikniec
     /\ slady \subseteq ZnaneZnaleziska
-    /\ cofa \in {"centrum", "opiekun"}
+    /\ cofa \in {"centrum", "opiekun", "opiekun_bez_portu"}
 
 \* Czy wersja wystartuje ze skrótu taty (run_centrum.py z klonu). Założenie: stara
 \* wersja startuje z każdymi bibliotekami, bo requirements.txt ma tylko dolne granice
@@ -176,25 +178,26 @@ Scalanie ==
                  "ToolClone.update: git merge --ff-only odmawia (ZMIANY_NA_KOMPUTERZE)")
     /\ UNCHANGED <<kopia, biblioteki, nowa, centrum, klikniecia>>
 
-\* _DadFiles.set_aside, finally, gdy klon się nie przesunął: copy2(backup / name, target).
+\* _DadFiles.set_aside, finally, gdy klon się nie przesunął: _put_back, czyli copy2(backup / name, target).
+\* OSError staje się _NotPutBack; ToolClone.update zwraca COFNIECIE_NIEUDANE, a Centrum zostawia kopię.
 PrzywroceniePoOdmowie ==
     /\ pc = "przywrocenie_po_odmowie"
     /\ \/ /\ plikTaty' = "taty"
           /\ Idz("spoczynek", "_DadFiles.set_aside (finally): plik taty wraca z kopii, klon bez zmian")
        \/ /\ AwariaKopiowania
           /\ plikTaty' = plikTaty
-          /\ Slad("spoczynek", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError (NIEOCZEKIWANY_BLAD)", "kopiowanie")
+          /\ Slad("spoczynek", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w pliki-taty)", "kopiowanie")
     /\ UNCHANGED <<head, kopia, biblioteki, nowa, centrum, klikniecia>>
 
-\* _DadFiles.set_aside, finally, po przesunięciu klonu. Wyjątek stąd wychodzi z
-\* update() przed try wokół _install_libraries, więc nic nie wywołuje _roll_back.
+\* _DadFiles.set_aside, finally, po przesunięciu klonu. OSError z _put_back staje się
+\* _NotPutBack, a ToolClone.update (except _NotPutBack, moved) woła _moved_back -> _roll_back.
 PrzywroceniePoScaleniu ==
     /\ pc = "przywrocenie_po_scaleniu"
     /\ \/ /\ plikTaty' = "taty"
           /\ Idz("instalacja", "_DadFiles.set_aside (finally): plik taty wraca z kopii")
        \/ /\ AwariaKopiowania
           /\ plikTaty' = plikTaty
-          /\ Slad("spoczynek", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError; update() konczy sie bez _roll_back (NIEOCZEKIWANY_BLAD)", "kopiowanie")
+          /\ Cofaj("centrum", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError; update() wola _roll_back")
     /\ UNCHANGED <<head, kopia, biblioteki, nowa, centrum, klikniecia>>
 
 \* ToolClone._install_libraries, w try: run.changed(...requirements.txt), potem self.install.
@@ -241,43 +244,49 @@ CofanieReset ==
           /\ Slad("cofanie_przywroc", "_roll_back: git reset --keep rzuca GitFailed, klon zostaje na nowym commicie", "reset")
     /\ UNCHANGED <<kopia, biblioteki, nowa, centrum, klikniecia>>
 
-\* finally: shutil.copy2(backup / name, target). Biblioteki zostają (docstring tool_update.py).
-\* Gdy reset się nie udał, po finally wychodzi GitFailed. Centrum zamienia każdy wyjątek
-\* na NIEOCZEKIWANY_BLAD; opiekun (_rolled_back zwraca False) pokazuje okienko i kończy się.
-\* Po udanym cofnięciu opiekun startuje starą wersję.
+\* finally: _put_back, czyli shutil.copy2(backup / name, target). Biblioteki zostają (docstring tool_update.py).
+\* Gdy reset się nie udał, po finally wychodzi GitFailed: w Centrum _moved_back zwraca False i wynikiem
+\* jest COFNIECIE_NIEUDANE (Komunikat bez „działa dalej w poprzedniej wersji”, kopia zostaje); opiekun
+\* (_rolled_back zwraca False) zapisuje COFNIECIE_NIEUDANE, pokazuje okienko i kończy się.
+\* Po udanym cofnięciu opiekun startuje starą wersję, chyba że wcześniej nie dostał portu.
 CofaniePrzywroc ==
     /\ pc = "cofanie_przywroc"
     /\ \/ /\ plikTaty' = IF kopia = "taty" THEN "taty" ELSE plikTaty
           /\ Idz(IF cofa = "opiekun" /\ head = "stara" THEN "opiekun_port_stara" ELSE "spoczynek",
-                 CASE cofa = "centrum" -> "_roll_back (finally): plik taty wraca z kopii; Centrum pokazuje Komunikat porazki"
-                   [] head = "stara" -> "_roll_back (finally): plik taty wraca z kopii; opiekun cofnal klon"
+                 CASE cofa = "centrum" /\ head = "stara" -> "_roll_back (finally): plik taty wraca z kopii; Centrum pokazuje Komunikat porazki"
+                   [] cofa = "centrum" -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, Centrum pokazuje COFNIECIE_NIEUDANE"
+                   [] cofa = "opiekun" /\ head = "stara" -> "_roll_back (finally): plik taty wraca z kopii; opiekun cofnal klon"
+                   [] head = "stara" -> "_roll_back (finally): plik taty wraca z kopii; opiekun cofnal klon bez portu, pokazuje okienko (return 1)"
                    [] OTHER -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, opiekun pokazuje okienko (return 1)")
        \/ /\ AwariaKopiowania
           /\ kopia = "taty"
           /\ plikTaty' = plikTaty
           /\ Slad("spoczynek",
                   IF cofa = "centrum"
-                  THEN "_roll_back (finally): copy2 z kopii rzuca OSError (NIEOCZEKIWANY_BLAD)"
+                  THEN "_roll_back (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w pliki-taty)"
                   ELSE "_roll_back (finally): copy2 z kopii rzuca OSError, opiekun pokazuje okienko (return 1)",
                   "kopiowanie")
     /\ UNCHANGED <<head, kopia, biblioteki, nowa, centrum, klikniecia>>
 
 \* --- ToolUpdates._restart, restart_guardian.main ------------------------------
 
+\* ToolUpdates._restart; gdy restart_guardian.launch rzuca, ToolUpdates._moved_back woła
+\* ToolClone.roll_back (-> _roll_back), a Centrum działa dalej w starej wersji.
 Restart ==
     /\ pc = "restart"
     /\ \/ /\ AwariaOpiekuna
           /\ UNCHANGED centrum
-          /\ Slad("spoczynek", "ToolUpdates._restart: restart_guardian.launch rzuca, Centrum dziala dalej", "bez_opiekuna")
+          /\ Cofaj("centrum", "ToolUpdates._restart: restart_guardian.launch rzuca; _moved_back cofa klon, Centrum dziala dalej")
        \/ /\ centrum' = "brak"
           /\ Idz("opiekun_port", "ToolUpdates._restart: opiekun startuje, Shutdown.close_for_update zamyka Centrum")
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
 
-\* write_result, potem _port_released.
+\* _port_released, potem write_result(ok). Bez portu main od razu woła _rolled_back
+\* (ToolClone.roll_back -> _roll_back), a po nim pokazuje okienko i niczego nie startuje.
 OpiekunPort ==
     /\ pc = "opiekun_port"
     /\ \/ /\ AwariaOpiekuna
-          /\ Slad("spoczynek", "restart_guardian.main: port nie zwolniony w PORT_TIMEOUT_S, opiekun konczy sie przed startem nowej wersji", "bez_opiekuna")
+          /\ Cofaj("opiekun_bez_portu", "restart_guardian.main: port nie zwolniony w PORT_TIMEOUT_S; _rolled_back bez startu nowej wersji")
        \/ Idz("opiekun_start", "restart_guardian.main: port zwolniony")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 

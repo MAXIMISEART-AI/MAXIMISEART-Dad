@@ -12,6 +12,7 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
+import tempfile
 import threading
 import time
 from typing import Any
@@ -512,7 +513,12 @@ def changes_new_version_file(repository: ToolRepository) -> None:
     repository.write("src/narzedzie.py", "WERSJA = 2  # zmienione, zanim opiekun miał wystartować\n")
 
 
-def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedniej_wersji(tmp_path: Path) -> None:
+def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedniej_wersji(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    temporary = tmp_path / "temp"
+    temporary.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temporary))
     centrum, repository = updating_centrum(tmp_path, guardian_failure=changes_new_version_file)
     before = repository.head()
     newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
@@ -535,3 +541,6 @@ def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedn
     assert log_entries(centrum, "aktualizacja-koniec") == [
         f"wynik=COFNIECIE_NIEUDANE przed={before} po={newest} biblioteki=nie"
     ]
+    # Kopia plików taty zostaje dla Maksa, tak jak u opiekuna po nieudanym cofnięciu.
+    [work] = temporary.glob("centrum-aktualizacja-*")
+    assert (work / "pliki-taty").is_dir()

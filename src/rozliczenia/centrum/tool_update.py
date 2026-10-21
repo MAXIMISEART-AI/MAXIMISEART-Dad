@@ -10,7 +10,9 @@ którym działa Centrum (``pip_install``); nieudana instalacja cofa klon do
 commitu sprzed aktualizacji (``ToolClone.roll_back``). Bibliotek się nie cofa:
 wymagania mają tylko dolne granice wersji, więc stara wersja dalej je spełnia.
 Gdy nie uda się samo cofnięcie, wynik mówi to wprost (``ROLLBACK_FAILED``).
-Wynik to kod (``UPDATED``, ``UP_TO_DATE`` albo kod Komunikatu porażki) z
+Gdy kopia pliku taty nie wróci do przesuniętego klonu, klon też się cofa; gdy
+nie wróci ostatecznie, wynikiem jest ``ROLLBACK_FAILED``, a treść taty zostaje
+w katalogu kopii. Wynik to kod (``UPDATED``, ``UP_TO_DATE`` albo kod Komunikatu porażki) z
 commitem przed i po; treść Komunikatów należy do Centrum
 (``update_messages``).
 
@@ -244,10 +246,18 @@ class ToolClone:
         dad_files = _DadFiles.leaving(run, _FETCHED)
         if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
             return UpdateResult(LOCAL_CHANGES, before, None)
-        with dad_files.set_aside(run, backup):
-            # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
-            if run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode != 0:
-                return UpdateResult(LOCAL_CHANGES, before, None)
+        moved = False
+        try:
+            with dad_files.set_aside(run, backup):
+                # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
+                if run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode != 0:
+                    return UpdateResult(LOCAL_CHANGES, before, None)
+                moved = True
+        except _NotPutBack:
+            # Wszystko albo nic: klon wraca sprzed kliknięcia, a cofnięcie jeszcze raz wgrywa pliki taty.
+            if moved and _moved_back(run, before, backup):
+                return UpdateResult(UNEXPECTED, before, after)
+            return UpdateResult(ROLLBACK_FAILED, before, after if moved else None)
         try:
             installed = self._install_libraries(run, before, after, on_step)
         except Exception:
@@ -328,6 +338,10 @@ def _changed_tracked_files(run: _Git, *, keep: frozenset[str]) -> bool:
     return any(entry[3:] not in keep for entry in entries)
 
 
+class _NotPutBack(Exception):
+    """Kopia pliku taty nie wróciła do klonu; jego treść jest tylko w katalogu kopii."""
+
+
 @dataclass(frozen=True)
 class _DadFiles:
     """Pliki taty w ``config/``, które przesunięcie klonu usunęłoby: nowa wersja je usuwa albo przestaje śledzić.
@@ -353,7 +367,10 @@ class _DadFiles:
 
     @contextmanager
     def set_aside(self, git: _Git, backup: Path) -> Iterator[None]:
-        """Kopiuje pliki do ``backup`` i przywraca im treść z ``HEAD``; po bloku (udanym albo nie) wgrywa kopie z powrotem."""
+        """Kopiuje pliki do ``backup`` i przywraca im treść z ``HEAD``; po bloku (udanym albo nie) wgrywa kopie z powrotem.
+
+        ``_NotPutBack``, gdy kopia nie wróci (np. plik zablokowany): treść taty jest wtedy tylko w ``backup``.
+        """
 
         for name in self.names:
             copy = backup / name
@@ -364,7 +381,10 @@ class _DadFiles:
                 git.check("checkout", "HEAD", "--", *(f":(literal){name}" for name in self.names))
             yield
         finally:
-            _put_back(git.root, backup, self.names)
+            try:
+                _put_back(git.root, backup, self.names)
+            except OSError as failure:
+                raise _NotPutBack from failure
 
 
 @dataclass(frozen=True)

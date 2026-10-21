@@ -5,17 +5,15 @@
   "git": {
     "wynik": "narusza",
     "wybacz": "reset",
-    "znalezisko": "git reset --keep w _roll_back (w Centrum albo u opiekuna) kończy się błędem: klon zostaje na nowej wersji, która nie wystartuje (bez bibliotek albo zepsuta). (#210)"
+    "znalezisko": "git reset --keep w _roll_back (w Centrum albo u opiekuna) kończy się błędem: klon zostaje na nowej wersji, która nie wystartuje (bez bibliotek albo zepsuta); tata dostaje COFNIECIE_NIEUDANE albo okienko. (#210)"
   },
   "kopiowanie": {
     "wynik": "narusza",
     "wybacz": "kopiowanie",
-    "znalezisko": "copy2 pliku taty z kopii rzuca OSError w finally (set_aside albo _roll_back): plik taty zostaje z treścią z repozytorium albo znika; po przesunięciu klonu nic nie woła _roll_back. (#211)"
+    "znalezisko": "copy2 pliku taty z kopii rzuca OSError przy ostatnim przywróceniu (po odmowie scalenia albo w _roll_back): plik taty zostaje z treścią z repozytorium albo znika, a jego treść jest tylko w pliki-taty; po przesunięciu klonu nieudane przywrócenie cofa klon. (#211)"
   },
   "nieudany-start": {
-    "wynik": "narusza",
-    "wybacz": "bez_opiekuna",
-    "znalezisko": "Opiekun się nie uruchomi albo stare Centrum nie zwolni portu: nikt nie sprawdza nowej wersji, więc ta, która nie wystartuje, zostaje w klonie. (#212)"
+    "wynik": "przechodzi"
   },
   "wylaczenie": {
     "wynik": "narusza",

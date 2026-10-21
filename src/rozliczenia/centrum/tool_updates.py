@@ -152,6 +152,8 @@ class ToolUpdates:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
         backup = work / restart_guardian.DAD_FILES
         restarting = False
+        # Po nieudanym cofnięciu treść taty może być już tylko w kopii: katalog zostaje dla Maksa.
+        kept = False
         try:
             result, guardian = self._result(clone, before, work, backup)
             if result.before is None:  # bez Gita commit zna tylko Centrum
@@ -164,6 +166,7 @@ class ToolUpdates:
                 if not restarting:
                     result = self._moved_back(clone, result, backup)
             if not restarting:
+                kept = result.code == ROLLBACK_FAILED
                 self._finished(result)
                 view = _view_of(result) or self._failed(result).model_copy(
                     update={"report": self._reports.update_report_state()}
@@ -172,7 +175,8 @@ class ToolUpdates:
                     self._view = view
         finally:
             if not restarting:
-                shutil.rmtree(work, ignore_errors=True)
+                if not kept:
+                    shutil.rmtree(work, ignore_errors=True)
                 self._runs.end_update()
 
     def _result(

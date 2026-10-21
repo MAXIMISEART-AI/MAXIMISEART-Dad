@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import os
 from pathlib import Path
+import shutil
 import sys
 import time
 
@@ -443,11 +444,17 @@ def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
         "print('main' if command == 'symbolic-ref' else COMMIT)\n",
         encoding="utf-8",
     )
+    return _executable(tmp_path, script)
+
+
+def _executable(directory: Path, script: Path) -> Path:
+    """Polecenie ``git`` w ``directory``, które uruchamia skrypt Pythona ``script`` z argumentami Gita."""
+
     if os.name == "nt":
-        git = tmp_path / "git.cmd"
+        git = directory / "git.cmd"
         git.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
     else:
-        git = tmp_path / "git"
+        git = directory / "git"
         git.write_text(f"#!{sys.executable}\nexec(open({str(script)!r}, encoding='utf-8').read())\n", encoding="utf-8")
         git.chmod(0o755)
     return git
@@ -490,3 +497,64 @@ def test_gdy_cofniecie_po_nieudanej_instalacji_sie_nie_uda_wynik_mowi_to_wprost(
 
     assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
     assert repository.head() == newest
+
+
+def test_gdy_plik_taty_nie_wroci_po_przesunieciu_klon_wraca_do_poprzedniej_wersji_z_plikiem_taty(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    newest = repository.publish({".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",))
+    # Folder config/ zablokowany, gdy kopia pliku taty ma do niego wrócić po przesunięciu klonu.
+    git = git_locking_after_merge(tmp_path, repository.clone / "config")
+    clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
+
+    result = clone.update(tmp_path / "kopia-plikow-taty")
+
+    assert result == UpdateResult("NIEOCZEKIWANY_BLAD", before=before, after=newest)
+    assert repository.head() == before
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+
+
+def git_locking_after_merge(tmp_path: Path, locked: Path) -> Path:
+    """Prawdziwy Git, po którego ``merge`` ``locked`` jest tylko do odczytu aż do następnego polecenia Gita.
+
+    Tak na chwilę blokuje plik albo folder antywirus czy OneDrive.
+    """
+
+    real = shutil.which("git")
+    assert real is not None
+    script = tmp_path / "git_blokujacy.py"
+    script.write_text(
+        "import os, stat, subprocess, sys\n"
+        f"locked = {str(locked)!r}\n"
+        "os.chmod(locked, stat.S_IRWXU)\n"
+        f"code = subprocess.call([{real!r}, *sys.argv[1:]])\n"
+        "if 'merge' in sys.argv:\n"
+        "    os.chmod(locked, stat.S_IREAD | stat.S_IEXEC)\n"
+        "sys.exit(code)\n",
+        encoding="utf-8",
+    )
+    return _executable(tmp_path, script)
+
+
+def test_gdy_plik_taty_nie_wroci_po_odmowie_przesuniecia_wynik_mowi_to_wprost_a_kopia_zostaje(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    (repository.clone / "config" / "rejestr.yaml").write_text("zachowany u taty\n", encoding="utf-8")
+    repository.publish(
+        {".gitignore": "config/worker_mapping.yaml\n", "config/rejestr.yaml": "z nowej wersji\n"},
+        untrack=("config/worker_mapping.yaml",),
+    )
+    backup = tmp_path / "kopia-plikow-taty"
+    # Plik taty zablokowany do zapisu (np. przez antywirusa), gdy kopia ma do niego wrócić.
+    git = git_locking_after_merge(tmp_path, repository.clone / "config" / "worker_mapping.yaml")
+    clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
+
+    result = clone.update(backup)
+
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=None)
+    assert repository.head() == before
+    assert (backup / "config" / "worker_mapping.yaml").read_text(encoding="utf-8") == REAL_NAMES
