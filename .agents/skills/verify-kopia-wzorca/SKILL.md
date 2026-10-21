@@ -168,8 +168,8 @@ Never loosen a rule or drop a value or Wzorzec to make a real counterexample dis
 
 ## After changing the checker or an intended change to the copy
 
-Prove the check can still fail. This applies broken variants to a temporary copy of `src`, never
-to the checkout:
+Prove the check can still fail. This applies broken variants to a temporary copy of the checkout
+(`tools/mutacje.py`), never to the checkout:
 
 ```powershell
 py -3 .agents\skills\verify-kopia-wzorca\scripts\check_copy_mutations.py
