@@ -107,7 +107,8 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     health = run.api("/api/health", "start-health")
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         version = str(tomllib.load(stream)["project"]["version"])
-    # The tool's commit as Centrum sees it: the clone's HEAD, unless powiadomienie-o-naprawie pinned another one.
+    # The tool's commit as Centrum sees it (shortened in health): the clone's HEAD, unless powiadomienie-o-naprawie
+    # pinned another one.
     pinned = run.root / "github" / "tool-commit.txt"
     clone = run.fixture["tool"]["clone"]
     commit = (
@@ -117,7 +118,7 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     )
     run.check(
         {key: health.get(key) for key in ("service", "version", "commit")}
-        == {"service": "centrum-rozliczen", "version": version, "commit": commit}
+        == {"service": "centrum-rozliczen", "version": version, "commit": commit[:7]}
         and bool(health.get("instance")),
         "health names Centrum rozliczeń, its version, the tool's commit, and this start",
     )
