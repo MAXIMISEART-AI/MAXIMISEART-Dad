@@ -10,6 +10,7 @@ FastAPI.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 import re
 import tomllib
 from pathlib import Path
@@ -20,6 +21,7 @@ from rozliczenia import TOOL_ROOT
 SERVICE: Final = "centrum-rozliczen"
 _PYPROJECT = TOOL_ROOT / "pyproject.toml"
 _COMMIT = re.compile(r"[0-9a-f]{40}")
+_SHORT_COMMIT = 7
 
 
 def tool_version() -> str:
@@ -52,6 +54,36 @@ def tool_commit(root: Path = TOOL_ROOT) -> str | None:
             return head if is_commit(head) else None
         return _resolved(head.removeprefix("ref: "), git_directory)
     except (OSError, UnicodeDecodeError):
+        return None
+
+
+def short_commit(commit: str) -> str:
+    """Skrót commitu, po którym Maks znajdzie go w historii repozytorium."""
+
+    return commit[:_SHORT_COMMIT]
+
+
+def commit_since(commit: str, root: Path = TOOL_ROOT) -> date | None:
+    """Dzień, od którego narzędzie w ``root`` jest na ``commit``: data ostatniego wpisu reflogu ``HEAD``.
+
+    ``None``, gdy reflogu nie ma, jest pusty albo jego ostatni wpis prowadzi do innego commitu.
+    """
+
+    try:
+        git_directory = _git_directory(root)
+        if git_directory is None:
+            return None
+        entries = (git_directory / "logs" / "HEAD").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not entries:
+        return None
+    fields = entries[-1].partition("\t")[0].split(" ")  # <stary> <nowy> <kto> <sekundy> <strefa>
+    if len(fields) < 5 or fields[1] != commit:
+        return None
+    try:
+        return datetime.fromtimestamp(int(fields[-2]), datetime.strptime(fields[-1], "%z").tzinfo).date()
+    except (ValueError, OverflowError):
         return None
 
 
