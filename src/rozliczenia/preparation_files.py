@@ -254,7 +254,10 @@ def _write_period_file(
     *,
     recalculate_on_open: bool = False,
 ) -> None:
-    """Plik z Wzorca ze zleceniami od pierwszego wiersza danych; odwołania zewnętrzne zostają 1:1."""
+    """Plik z Wzorca ze zleceniami od pierwszego wiersza danych; odwołania zewnętrzne zostają 1:1.
+
+    Zapisana komórka ma Hiperłącze komórki Rejestru albo żadne: hiperłącze komórki Wzorca nie zostaje.
+    """
 
     with _template(template_path, layout, target, recalculate_on_open=recalculate_on_open) as (sheet, positions):
         _ensure_rows_writable(template_path, sheet, positions, len(orders))
@@ -264,6 +267,9 @@ def _write_period_file(
                 if not isinstance(cell, Cell):  # scalona komórka; wykluczona przez _ensure_rows_writable
                     raise StopError(messages.template_with_merged_cells(template_path, sheet.title, cell.coordinate))
                 _apply_template_style(sheet.worksheet, cell)
+                link = register_cell.hyperlink
+                # Przed wartością: openpyxl wpisuje adres jako wartość pustej komórki.
+                cell.hyperlink = None if link is None else link.address
                 cell.value = register_cell.value  # type: ignore[assignment]
                 _apply_register_format(cell, register_cell.format)
         _set_autofilter(sheet.worksheet, sheet.header_row, len(orders))

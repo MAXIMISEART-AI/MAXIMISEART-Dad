@@ -164,8 +164,9 @@ _Avoid_: formatowanie (szersze: obejmuje też krój, obramowania i formaty liczb
 
 Adres poza skoroszytem, który komórka otwiera po kliknięciu, np. numer zlecenia
 w `NUMER ZL.` prowadzący do zlecenia w aplikacji firmowej. Przechodzi razem z
-wartością komórki z Pliku zbiorczego do Rozliczeń pracowników i zastępuje
-hiperłącze komórki wzorca: komórka bez Hiperłącza daje komórkę bez hiperłącza.
+wartością komórki z Rejestru zleceń do plików okresu, a z Pliku zbiorczego do
+Rozliczeń pracowników, i zastępuje hiperłącze komórki wzorca: komórka bez
+Hiperłącza daje komórkę bez hiperłącza.
 Komórka bez wartości nie niesie Hiperłącza. Odnośnik do miejsca w tym samym
 skoroszycie (np. do innego arkusza) nie jest Hiperłączem i nie przechodzi.
 Hiperłącze nie jest Wyróżnieniem i nie zmienia wyglądu komórki. Adres jest
