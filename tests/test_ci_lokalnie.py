@@ -6,11 +6,14 @@ swoje polecenie w CI. Zadanie CI, którego narzędzie nie odtwarza, ma wskazane 
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
+from types import ModuleType
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,3 +63,31 @@ def test_kazde_polecenie_odtwarzanych_zadan_ma_krok_i_odwrotnie() -> None:
 
     assert without_step == []
     assert without_command == []
+
+
+def _load_tool() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("ci_lokalnie", TOOL)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("fail_fast", [False, True])
+def test_do_pierwszego_bledu_pomija_kroki_po_pierwszym_nieudanym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], fail_fast: bool
+) -> None:
+    tool = _load_tool()
+    second_ran = tmp_path / "drugi-krok"
+    steps = [
+        tool.Step("pierwszy", "ruff", "", (sys.executable, "-c", "raise SystemExit(1)")),
+        tool.Step("drugi", "mypy", "", (sys.executable, "-c", f"open({str(second_ran)!r}, 'w')")),
+    ]
+    monkeypatch.setattr(tool, "_steps", lambda: steps)
+
+    returned = tool.main(["--do-pierwszego-bledu"] if fail_fast else [])
+
+    assert returned == 1
+    assert "CI LOKALNIE FAIL | pierwszy" in capsys.readouterr().out
+    assert second_ran.exists() != fail_fast

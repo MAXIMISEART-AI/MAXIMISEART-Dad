@@ -133,6 +133,11 @@ def _run(step: Step) -> tuple[bool, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--kroki-ci", action="store_true", help="Wypisz JSON: odtwarzane zadania CI i ich polecenia.")
+    parser.add_argument(
+        "--do-pierwszego-bledu",
+        action="store_true",
+        help="Zakończ po pierwszym nieudanym kroku (brama pre-push: nieudany push odpowiada szybko).",
+    )
     args = parser.parse_args(argv)
     steps = _steps()
     if args.kroki_ci:
@@ -140,8 +145,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"lokalnie": jobs, "gdzie_indziej": JOBS_ELSEWHERE, "fragmenty": [s.ci for s in steps]}))
         return 0
     tree = _clean_tree()
-    failed = []
+    failed: list[str] = []
     for step in steps:
+        if failed and args.do_pierwszego_bledu:
+            break
         if step.name == "npm ci" and _dependencies_fresh():
             print(f"POMINIĘTO {step.name} (node_modules z bieżącego package-lock.json)", flush=True)
             continue

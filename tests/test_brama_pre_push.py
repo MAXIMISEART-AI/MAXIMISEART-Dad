@@ -7,10 +7,13 @@ Push robi agent (``AI_AGENT``), chyba że test mówi inaczej.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import time
 
 import pytest
 
@@ -24,7 +27,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _git(cwd: Path, *args: str, agent: str | None = "claude-code") -> subprocess.CompletedProcess[str]:
+def _environment(agent: str | None) -> dict[str, str]:
     environment = {
         name: value
         for name, value in os.environ.items()
@@ -33,10 +36,14 @@ def _git(cwd: Path, *args: str, agent: str | None = "claude-code") -> subprocess
     environment |= {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
     if agent is not None:
         environment["AI_AGENT"] = agent
+    return environment
+
+
+def _git(cwd: Path, *args: str, agent: str | None = "claude-code") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args],
         cwd=cwd,
-        env=environment,
+        env=_environment(agent),
         capture_output=True,
         text=True,
         check=False,
@@ -58,12 +65,57 @@ def checkout(tmp_path: Path) -> Path:
     return checkout
 
 
-def _ci_lokalnie(checkout: Path, *, passes: bool) -> None:
+def _fake_python(checkout: Path, body: str) -> None:
     python = checkout / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True, exist_ok=True)
-    verdict = "CI LOKALNIE OK" if passes else "CI LOKALNIE FAIL | ruff"
-    python.write_text(f"#!/bin/sh\necho '{verdict}'\nexit {0 if passes else 1}\n", encoding="utf-8")
+    python.write_text(f"#!/bin/sh\necho \"$@\" > argumenty.txt\n{body}\n", encoding="utf-8")
     python.chmod(0o755)
+
+
+def _ci_lokalnie(checkout: Path, *, passes: bool) -> None:
+    verdict = "CI LOKALNIE OK" if passes else "CI LOKALNIE FAIL | ruff"
+    _fake_python(checkout, f"echo '{verdict}'\nexit {0 if passes else 1}")
+
+
+def _hanging_ci_lokalnie(checkout: Path) -> list[Path]:
+    """Atrapa, która wisi z procesem potomnym jak pytest pod ci_lokalnie; zwraca pliki z PID-ami obu."""
+
+    _fake_python(checkout, "sleep 120 &\necho $! > potomek.pid\necho $$ > ci.pid\nwait")
+    return [checkout / "ci.pid", checkout / "potomek.pid"]
+
+
+def _wait_for(condition: Callable[[], bool], seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _start_push(checkout: Path) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        ["git", "push", "origin", f"HEAD:{BRANCH}"],
+        cwd=checkout,
+        env=_environment("claude-code"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+
+
+def _started_ci(pid_files: list[Path]) -> list[int]:
+    assert _wait_for(lambda: all(path.exists() and path.read_text().strip() for path in pid_files), 15)
+    return [int(path.read_text()) for path in pid_files]
 
 
 def _stamp_head_tree(checkout: Path) -> None:
@@ -141,3 +193,61 @@ def test_push_czlowieka_przechodzi_bez_ci_lokalnie_i_bez_komunikatu(checkout: Pa
     assert pushed.returncode == 0, pushed.stderr
     assert "pre-push" not in pushed.stderr + pushed.stdout
     assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
+
+
+@pytest.mark.parametrize("detached", [False, True])
+def test_push_head_odlaczonego_albo_galezi_rozstrzyga_ci_lokalnie(checkout: Path, detached: bool) -> None:
+    _git(checkout, "checkout", "-q", "-b", "zmiana")
+    _git(checkout, "push", "-q", "origin", "zmiana", agent=None)
+    published = _git(checkout, "rev-parse", "HEAD").stdout.strip()
+    _git(checkout, "commit", "-q", "--allow-empty", "-m", "nowy commit")
+    if detached:
+        _git(checkout, "checkout", "-q", "--detach")
+    _ci_lokalnie(checkout, passes=False)
+
+    pushed = _git(checkout, "push", "origin", "HEAD:zmiana" if detached else "zmiana")
+
+    assert pushed.returncode != 0
+    assert "CI LOKALNIE FAIL" in pushed.stderr + pushed.stdout
+    assert _remote_branch(checkout) == published
+
+
+def test_brama_prosi_ci_lokalnie_o_przerwanie_na_pierwszym_bledzie(checkout: Path) -> None:
+    _ci_lokalnie(checkout, passes=False)
+
+    _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
+
+    assert (checkout / "argumenty.txt").read_text().split() == ["tools/ci_lokalnie.py", "--do-pierwszego-bledu"]
+
+
+@pytest.mark.parametrize("stop", ["zabity sam git push", "SIGTERM dla grupy pushu", "SIGINT dla grupy pushu"])
+def test_ci_lokalnie_nie_przezywa_przerwanego_pushu(checkout: Path, stop: str) -> None:
+    pid_files = _hanging_ci_lokalnie(checkout)
+    push = _start_push(checkout)
+    started = _started_ci(pid_files)
+
+    if stop == "zabity sam git push":
+        push.kill()
+    else:
+        os.kill(-push.pid, signal.SIGTERM if stop.startswith("SIGTERM") else signal.SIGINT)
+    push.wait(timeout=10)
+
+    assert _wait_for(lambda: not any(_alive(pid) for pid in started), 15), stop
+
+
+def test_drugi_push_z_tego_checkoutu_nie_uruchamia_drugiego_ci_lokalnie(checkout: Path) -> None:
+    pid_files = _hanging_ci_lokalnie(checkout)
+    first = _start_push(checkout)
+    try:
+        started = _started_ci(pid_files)
+        for path in pid_files:
+            path.unlink()
+
+        second = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
+
+        assert second.returncode != 0
+        assert not any(path.exists() for path in pid_files)
+        assert all(_alive(pid) for pid in started)
+    finally:
+        os.kill(-first.pid, signal.SIGTERM)
+        first.wait(timeout=10)
