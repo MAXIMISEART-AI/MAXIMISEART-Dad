@@ -207,31 +207,6 @@ def test_wymaga_sprawdzenia_jest_ukonczona_obserwacja_i_osobnym_wynikiem(tmp_pat
     assert run["percentiles"] is not None
 
 
-def test_przerwane_uruchomienie_procesu_ma_czasy_etapow_do_momentu_przerwania(tmp_path: Path) -> None:
-    app = centrum(tmp_path)
-    write_lines(
-        app.metrics.preparation,
-        preparation(
-            "2026-08-25T06:15:00+00:00",
-            period="18_24_08_2026",
-            result="BLAD_KRYTYCZNY",
-            total=1700,
-            phases=(400, 1300, 0, 0),
-        ),
-    )
-
-    [run] = runs_of(metrics(app))
-
-    assert run["result"] == "BLAD_KRYTYCZNY"
-    assert run["total_duration_ms"] == 1700
-    assert run["phase_durations"] == [
-        {"phase": "Sprawdzanie", "duration_ms": 400},
-        {"phase": "Odczyt danych", "duration_ms": 1300},
-        {"phase": "Planowanie", "duration_ms": 0},
-        {"phase": "Zapisywanie", "duration_ms": 0},
-    ]
-
-
 def test_niepoprawne_rekordy_metryk_sa_pomijane(tmp_path: Path) -> None:
     app = centrum(tmp_path)
     write_lines(

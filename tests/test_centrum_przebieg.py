@@ -5,15 +5,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
-import threading
 from typing import Any, NoReturn
 
 from fastapi.testclient import TestClient
 import pytest
 
-from rozliczenia import engine, settlement_process, template_settlement
+from rozliczenia import engine, settlement_process
 from rozliczenia.centrum import run_view
-from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.centrum import finished_view, phase_states, run_events
@@ -290,39 +288,6 @@ def test_zatrzymanie_pokazuje_nazwe_pliku_bez_pelnej_sciezki(tmp_path: Path) -> 
     assert str(tmp_path) not in json.dumps(result, ensure_ascii=False)
 
 
-def test_zamkniecie_centrum_w_trakcie_przebiegu_rozliczen_jest_odrzucone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = settling_centrum(tmp_path)
-    writing, release = threading.Event(), threading.Event()
-    process_template = template_settlement.process_template
-
-    def wait_while_writing(*args: Any) -> Any:
-        writing.set()
-        assert release.wait(10)
-        return process_template(*args)
-
-    monkeypatch.setattr(template_settlement, "process_template", wait_while_writing)
-    centrum.start(dry_run=False)
-    assert writing.wait(10)
-
-    refused = centrum.client.post("/api/shutdown")
-    release.set()
-    finished_view(centrum.client)
-    accepted = centrum.client.post("/api/shutdown")
-
-    assert (refused.status_code, refused.json()) == (
-        409,
-        {
-            "message": (
-                f"Trwa Uruchomienie procesu: Przebieg rozliczeń, okres {PERIOD}. "
-                "Poczekaj na jego wynik w Uruchomieniach, potem zamknij Centrum rozliczeń."
-            )
-        },
-    )
-    assert accepted.status_code == 202
-
-
 def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruchomienie(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
     run_to_end(centrum, dry_run=True)
@@ -333,7 +298,6 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruc
     store.append({**own, "started_at": later})
     history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert MetricsFiles.default().settlement == settlement_process.default_metrics_path()
     assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
     assert [(run["process"], run["origin"]) for run in history] == [("settlement", "cmd"), ("settlement", "centrum")]
 

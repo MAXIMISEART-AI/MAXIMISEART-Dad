@@ -306,10 +306,10 @@ wystarczają zależności z `requirements.txt`, bez Node.
   jednorazowo `py -3 install_centrum_shortcut.py`: wskazuje `pythonw.exe`
   tego samego Pythona co `py -3` i `run_centrum.py`, więc nie ma okna konsoli.
   Ponowne kliknięcie rozpoznaje działające Centrum po `/api/health` (tożsamość
-  i wersja) i tylko otwiera kartę. Błąd startu (port zajęty przez inny
-  program, inna wersja Centrum, brak biblioteki) bez konsoli pokazuje
-  natywne okienko, z konsolą trzy linie komunikatu
-  (`src/rozliczenia/centrum/start_problems.py`).
+  i commit narzędzia, z którego wystartowało) i tylko otwiera kartę. Błąd
+  startu (port zajęty przez inny program, Centrum z innego commitu, brak
+  biblioteki) bez konsoli pokazuje natywne okienko, z konsolą trzy linie
+  komunikatu (`src/rozliczenia/centrum/start_problems.py`).
 - `py -3 run_centrum.py` uruchamia Centrum z widoczną konsolą na `http://127.0.0.1:47811/` i otwiera kartę w
   przeglądarce. `--port` zmienia port, `--no-browser` nie otwiera karty.
 - Serwer działa do kliknięcia „Zamknij Centrum rozliczeń” w karcie

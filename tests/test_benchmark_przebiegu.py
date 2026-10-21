@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -58,6 +59,15 @@ ORACLE_CATEGORIES = (
     "komunikaty",
     "podsumowanie",
 )
+
+
+@pytest.fixture(autouse=True)
+def maszyna_pomiarow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Folder blokad maszyny tego testu: benchmark nie czeka na testy ani pomiary innych agentów na tym komputerze."""
+
+    directory = tmp_path / "maszyna"
+    monkeypatch.setenv("QUIET_MACHINE_SCRATCH", str(directory))
+    return directory
 
 
 def test_benchmark_mierzy_przebieg_rozliczen_na_lustrze_i_opisuje_pomiar_bez_danych_wykonawcow(
@@ -302,6 +312,49 @@ def test_pomiar_czeka_az_skonczy_sie_inny_pomiar_z_tymi_samymi_wynikami_referenc
     assert mirror.is_dir()
     secrets = {*load_worker_mapping(config), *load_worker_mapping(config).values()}
     assert {secret for secret in secrets if secret in notice} == set()
+
+
+@pytest.mark.parametrize(
+    "command", [["measure", "--machine", "test"], ["freeze", "--commit", "HEAD"]], ids=["measure", "freeze"]
+)
+def test_pomiar_czeka_az_inny_pomiar_zwolni_maszyne(tmp_path: Path, maszyna_pomiarow: Path, command: list[str]) -> None:
+    journal = tmp_path / "dziennik.jsonl"
+    references = tmp_path / "referencje"
+    mirror = tmp_path / "lustro"
+    arguments = [
+        *command,
+        "--scenario",
+        "maly-tydzien",
+        "--templates-dir",
+        str(write_templates(tmp_path / "wzorce")),
+        "--config",
+        str(write_mapping(tmp_path / "worker_mapping.yaml")),
+        "--mirror-dir",
+        str(mirror),
+        "--reference-dir",
+        str(references),
+        *(["--journal", str(journal)] if command[0] == "measure" else []),
+    ]
+    maszyna_pomiarow.mkdir()
+    other_measurement = maszyna_pomiarow / "pomiar.lock"
+    other_measurement.write_text(str(os.getpid()), encoding="utf-8")
+
+    waiting = start_benchmark(*arguments)
+    assert waiting.stdout is not None
+    notice = waiting.stdout.readline()
+    still_waiting = waiting.poll() is None
+    mirror_during_wait = mirror.exists()
+    other_measurement.unlink()
+    stdout, stderr = waiting.communicate(timeout=100)
+
+    assert waiting.returncode == 0, stdout + stderr
+    assert notice.startswith("MASZYNA ZAJĘTA"), notice
+    assert still_waiting
+    assert not mirror_during_wait  # nic ciężkiego nie rusza, dopóki inny pomiar trzyma maszynę
+    if command[0] == "measure":
+        assert len(journal.read_text(encoding="utf-8").splitlines()) == 1
+    else:
+        assert frozen_reference(references).is_dir()
 
 
 def journal_record(sha: str, machine: str, started_at: str, wall: dict[str, int]) -> dict[str, object]:
