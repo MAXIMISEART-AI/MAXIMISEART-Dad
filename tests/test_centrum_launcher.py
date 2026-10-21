@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -17,20 +16,7 @@ from pathlib import Path
 
 import pytest
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _copy_centrum_runtime(destination: Path) -> Path:
-    """Kopia narzędzia z Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
-
-    destination.mkdir()
-    for name in ("run_centrum.py", "install_centrum_shortcut.py", "pyproject.toml"):
-        shutil.copy2(REPOSITORY_ROOT / name, destination)
-    shutil.copytree(REPOSITORY_ROOT / "src", destination / "src", ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copytree(
-        REPOSITORY_ROOT / "config", destination / "config", ignore=shutil.ignore_patterns("centrum-ustawienia.yaml")
-    )
-    return destination
+from tests.fixtures.tool_clone import copy_centrum_runtime
 
 
 def _free_port() -> int:
@@ -114,7 +100,7 @@ def _environment(browser: Path) -> dict[str, str]:
 
 
 def test_centrum_z_konsola_pokazuje_adres_i_otwiera_przegladarke(tmp_path: Path) -> None:
-    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     browser, opened = _browser_recorder(tmp_path)
     port = _free_port()
     command_line = [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)]
@@ -154,7 +140,7 @@ def _opened_addresses(path: Path, count: int, *, timeout_s: float = 10) -> list[
 
 
 def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path: Path) -> None:
-    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     browser, opened = _browser_recorder(tmp_path)
     port = _free_port()
     environment = _environment(browser)
@@ -184,7 +170,7 @@ def _log_events(runtime: Path) -> list[str]:
 
 
 def test_obcy_program_na_porcie_daje_bezpieczny_komunikat_w_trzech_czesciach(tmp_path: Path) -> None:
-    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     browser, opened = _browser_recorder(tmp_path)
 
     with socket.socket() as foreign_program:
@@ -217,7 +203,7 @@ def _close(port: int) -> dict[str, object]:
 
 
 def test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku(tmp_path: Path) -> None:
-    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     browser, _ = _browser_recorder(tmp_path)
     port = _free_port()
     process = subprocess.Popen(
@@ -254,7 +240,7 @@ def _windowless(runtime: Path, port: int) -> list[str]:
 
 
 def test_centrum_bez_konsoli_startuje_rozpoznaje_sie_i_zamyka(tmp_path: Path) -> None:
-    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     browser, opened = _browser_recorder(tmp_path)
     port = _free_port()
     environment = _environment(browser)
@@ -299,7 +285,7 @@ def _read_shortcut(link: Path) -> dict[str, str]:
 
 @pytest.mark.skipif(os.name != "nt", reason="The desktop shortcut and pythonw.exe are Windows-only.")
 def test_krok_instalacji_tworzy_skrot_ktory_uruchamia_centrum_przez_pythonw(tmp_path: Path) -> None:
-    runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
+    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     desktop = tmp_path / "pulpit"
     desktop.mkdir()
     browser, opened = _browser_recorder(tmp_path)

@@ -1,24 +1,29 @@
 """Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu at a time and never closes during one.
 
 The checker runs the real ``RunHost`` (``runs.py``) and ``Shutdown`` (``shutdown.py``), wired as in
-``create_app``, in threads: browser tabs clicking „Uruchom” and „Zamknij Centrum rozliczeń”, Dad
-answering a Decyzja, the Uruchomienie thread that ``RunHost.start`` spawns, and the server thread
-``stop_when_asked``. Every lock entry, Event ``set``/``wait``/``clear``, thread start and Centrum log
+``create_app``, in threads: browser tabs clicking „Uruchom”, „Zaktualizuj narzędzie” and „Zamknij Centrum
+rozliczeń”, Dad answering a Decyzja, the Uruchomienie thread that ``RunHost.start`` spawns, the
+Aktualizacja narzędzia thread, and the server thread ``stop_when_asked``. Every lock entry, Event ``set``/``wait``/``clear``, thread start and Centrum log
 entry of the real code is one indivisible step. Before every step the checker may let any other
 thread go first. It tries every such schedule within the bounds of a scope, re-running the code once
 per schedule, and checks two rules:
 
-- JEDNO_NARAZ: at no moment are two Uruchomienia procesu in progress. An Uruchomienie is in progress
-  from the moment ``RunHost.start`` creates its ``_Run`` until ``RunHost.finished`` has written its end
-  to the Centrum log, after the engine and the metrics record. The checker tracks this itself, not
-  through the code's ``ended`` flag, so a flag set too early is caught.
+- JEDNO_NARAZ: at no moment are two Uruchomienia procesu in progress, or an Uruchomienie and an
+  Aktualizacja narzędzia, or two Aktualizacje. An Uruchomienie is in progress from the moment
+  ``RunHost.start`` creates its ``_Run`` until ``RunHost.finished`` has written its end to the Centrum
+  log, after the engine and the metrics record. The checker tracks this itself, not through the code's
+  ``ended`` flag, so a flag set too early is caught. An Aktualizacja is in progress from a successful
+  ``RunHost.begin_update`` until ``RunHost.end_update`` returns or the restart guardian has started.
 - BEZ_ZAMKNIECIA_W_TRAKCIE: when the server ends, no Uruchomienie procesu is in progress, including
-  one waiting for Dad's Decyzja. The Uruchomienie thread is a daemon, so the end of the Python
-  process kills it mid-work.
+  one waiting for Dad's Decyzja, and no Aktualizacja narzędzia before its restart guardian started.
+  Both threads are daemons, so the end of the Python process kills them mid-work.
 
 Replaced: ``threading`` inside ``runs.py`` and ``shutdown.py`` by model primitives that hand control to
 the checker; ``run_process`` by an engine with two steps and an optional Decyzja through the real
-``_Run.confirm``; ``CentrumLog`` and ``CentrumRuns`` by steps that write nothing. Modelled by hand:
+``_Run.confirm``; ``CentrumLog`` and ``CentrumRuns`` by steps that write nothing. ``ToolUpdates``
+(``tool_updates.py``) is modelled by hand around the real ``begin_update``, ``end_update`` and
+``Shutdown.close_for_update``: Git, pip and the restart guardian are one step that ends either without a
+new version (or with a failure) or with the guardian started. Modelled by hand:
 ``stop_when_asked`` in ``server.py`` and uvicorn's graceful shutdown. After ``Shutdown.wait`` returns,
 the server may end at any moment when no HTTP request is in flight; a request that arrived before
 that is served to the end. Any other ``threading`` use in the two files stops the check as LUKA MODELU.
@@ -58,7 +63,9 @@ VERIFIED_FILES = ("runs.py", "shutdown.py")
 STEP_TIMEOUT_SECONDS = 10.0
 CLOSE_LOG = "dziennik Centrum: shutdown_requested"
 REQUESTED_SET = "Shutdown._requested.set()"
+CLOSE_TAB = "karta Zamknij"
 WITH_DECISION = "z Decyzją taty"
+NEW_VERSION = "nowa wersja, opiekun ponownego startu wystartował"
 DECISION = Decision(
     title="Decyzja",
     message=Message(code="MODEL", what="Pytanie modelu.", where="silnik", action="Odpowiedz."),
@@ -339,17 +346,24 @@ class Scope:
     start_tabs: int
     close_clicks: int
     decisions: int
+    update_tabs: int = 0
 
     def describe(self) -> str:
+        updates = (
+            f"karty „Zaktualizuj narzędzie”: {self.update_tabs}, aktualizacja bez nowej wersji albo z ponownym startem, "
+            if self.update_tabs
+            else ""
+        )
         return (
-            f"karty „Uruchom”: {self.start_tabs}, kliknięcia „Zamknij Centrum rozliczeń”: ≤ {self.close_clicks}, "
-            f"Decyzje taty: ≤ {self.decisions}, silnik z Decyzją albo bez"
+            f"karty „Uruchom”: {self.start_tabs}, {updates}kliknięcia „Zamknij Centrum rozliczeń”: "
+            f"≤ {self.close_clicks}, Decyzje taty: ≤ {self.decisions}, silnik z Decyzją albo bez"
         )
 
 
 SCOPES = {
     "zamknij-w-trakcie": Scope("zamknij-w-trakcie", start_tabs=1, close_clicks=2, decisions=1),
     "dwie-karty": Scope("dwie-karty", start_tabs=2, close_clicks=1, decisions=2),
+    "aktualizacja": Scope("aktualizacja", start_tabs=1, close_clicks=1, decisions=1, update_tabs=2),
 }
 
 PREPARED: runs.PreparedRun[Any, Any] = runs.PreparedRun(
@@ -371,6 +385,17 @@ class Violation:
 
 
 @dataclass
+class Update:
+    """One Aktualizacja narzędzia that ``RunHost.begin_update`` let in."""
+
+    name: str
+    creator: str
+    window: str
+    done: bool = False
+    restarted: bool = False
+
+
+@dataclass
 class World:
     """One schedule: the real ``RunHost`` and ``Shutdown`` and everything the checker observes of them."""
 
@@ -380,13 +405,19 @@ class World:
     host: runs.RunHost
     shutdown: shutdown.Shutdown
     lock: ModelLock | None
+    log: Any = None
     exited: bool = False
     closes_refused: int = 0
     starts_refused: int = 0
+    updates_refused: int = 0
+    updates: list[Update] = field(default_factory=list)
     violations: list[Violation] = field(default_factory=list)
 
     def in_progress(self) -> list[Any]:
         return [run for run in self.created if not run.model_done]
+
+    def updating(self) -> list[Update]:
+        return [update for update in self.updates if not update.done]
 
     def requested(self) -> bool:
         return any(event.label == "Shutdown._requested" and event.flag for event in self.events)
@@ -397,7 +428,7 @@ class World:
         if self.requested():
             return "po przyjęciu prośby o zamknięcie"
         for actor in self.scheduler.actors:
-            if actor.pending is not None and actor.pending.call in (
+            if actor.name == CLOSE_TAB and actor.pending is not None and actor.pending.call in (
                 CLOSE_LOG,
                 REQUESTED_SET,
             ):
@@ -461,6 +492,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             host,
             stopper,
             lock if isinstance(lock, ModelLock) else None,
+            log=log,
         )
         world_box.append(world)
         yield world
@@ -501,6 +533,51 @@ def _close_tab(world: World, clicks: int) -> Callable[[], None]:
             scheduler.note("odpowiedź 202: Centrum się zamyka")
             _current_actor().in_flight = False
             return
+
+    return body
+
+
+def _update_tab(world: World, number: int) -> Callable[[], None]:
+    """``ToolUpdates.start`` behind POST /api/tool-update: the slot, the log entry, then its own thread."""
+
+    def body() -> None:
+        scheduler = world.scheduler
+        scheduler.step("żądanie POST /api/tool-update dociera do serwera")
+        _current_actor().in_flight = True
+        try:
+            world.host.begin_update()
+        except contract.Refusal as refusal:
+            world.updates_refused += 1
+            scheduler.note(f"odpowiedź {refusal.status_code}: {refusal.message}")
+            _current_actor().in_flight = False
+            return
+        update = Update(f"Aktualizacja {number}", _current_actor().name, world.close_window())
+        world.updates.append(update)
+        world.log.update_started()
+        scheduler.step("start wątku aktualizacji")
+        scheduler.spawn(f"wątek {update.name}", _update_thread(world, update))
+        scheduler.note("odpowiedź 202: aktualizacja trwa")
+        _current_actor().in_flight = False
+
+    return body
+
+
+def _update_thread(world: World, update: Update) -> Callable[[], None]:
+    """``ToolUpdates._update``: without a new version it frees the slot, with one it hands over and closes Centrum."""
+
+    def body() -> None:
+        variant = world.scheduler.step(
+            "aktualizacja: Git, pliki taty, biblioteki",
+            variants=("bez nowej wersji albo porażka", NEW_VERSION),
+        )
+        if variant == NEW_VERSION:
+            # From here the restart guardian owns the update; the end of this process is what it waits for.
+            update.done = update.restarted = True
+            world.shutdown.close_for_update()
+            return
+        world.log.update_finished()
+        world.host.end_update()
+        update.done = True
 
     return body
 
@@ -554,6 +631,15 @@ def _server(world: World) -> Callable[[], None]:
                     f"wystartowało {run.model_window}",
                 )
             )
+        for update in world.updating():
+            world.violations.append(
+                Violation(
+                    "BEZ_ZAMKNIECIA_W_TRAKCIE",
+                    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "aktualizacja", update.window),
+                    f"Centrum kończy pracę, a {update.name} (z: {update.creator}) trwa przed startem opiekuna; "
+                    f"zaczęła się {update.window}",
+                )
+            )
 
     return body
 
@@ -573,6 +659,8 @@ class Execution:
     close_refused: bool
     start_refused: bool
     run_ended: bool
+    update_refused: bool = False
+    update_restarted: bool = False
 
 
 def _state(world: World) -> object:
@@ -598,6 +686,7 @@ def _state(world: World) -> object:
             )
             for run in world.created
         ),
+        tuple((update.name, update.creator, update.window, update.done) for update in world.updates),
         world.lock.owner if world.lock is not None else None,
         tuple((event.label, event.flag) for event in world.events),
         world.exited,
@@ -645,6 +734,8 @@ def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execut
         close_refused=world.closes_refused > 0,
         start_refused=world.starts_refused > 0,
         run_ended=any(run.model_done for run in world.created),
+        update_refused=world.updates_refused > 0,
+        update_restarted=any(update.restarted for update in world.updates) and not world.violations,
     )
 
 
@@ -663,16 +754,25 @@ def _drive(
         scheduler.gaps.append("RunHost nie ma blokady _lock z threading.Lock()")
     for number in range(1, scope.start_tabs + 1):
         scheduler.spawn(f"karta Uruchom {number}", _start_tab(world, number))
-    scheduler.spawn("karta Zamknij", _close_tab(world, scope.close_clicks))
+    for number in range(1, scope.update_tabs + 1):
+        scheduler.spawn(f"karta Zaktualizuj {number}", _update_tab(world, number))
+    scheduler.spawn(CLOSE_TAB, _close_tab(world, scope.close_clicks))
     scheduler.spawn("tata", _decision_tab(world, scope.decisions))
     scheduler.spawn("serwer", _server(world))
     try:
         while not scheduler.gaps:
             scheduler.settle()
             running = world.in_progress()
-            if len(running) > 1 and not any(violation.rule == "JEDNO_NARAZ" for violation in world.violations):
-                names = ", ".join(f"{run.model_name} (z: {run.model_creator})" for run in running)
-                world.violations.append(Violation("JEDNO_NARAZ", ("JEDNO_NARAZ",), f"naraz trwają: {names}"))
+            updating = world.updating()
+            if len(running) + len(updating) > 1 and not any(
+                violation.rule == "JEDNO_NARAZ" for violation in world.violations
+            ):
+                names = ", ".join(
+                    [f"{run.model_name} (z: {run.model_creator})" for run in running]
+                    + [f"{update.name} (z: {update.creator})" for update in updating]
+                )
+                kind = "Uruchomienia" if not updating else "Aktualizacja" if not running else "Uruchomienie i Aktualizacja"
+                world.violations.append(Violation("JEDNO_NARAZ", ("JEDNO_NARAZ", kind), f"naraz trwają: {names}"))
             if world.exited:
                 return False
             options = [
@@ -714,6 +814,8 @@ class ScopeReport:
     closes_refused: int = 0
     starts_refused: int = 0
     runs_ended: int = 0
+    updates_refused: int = 0
+    updates_restarted: int = 0
     counterexamples: dict[tuple[object, ...], tuple[Violation, list[str]]] = field(default_factory=dict)
     gaps: dict[str, list[str]] = field(default_factory=dict)
 
@@ -729,6 +831,12 @@ class ScopeReport:
             missing.append("BRAK_WYNIKU: żadne Uruchomienie procesu nie doszło do wyniku.")
         if self.scope.start_tabs > 1 and not self.starts_refused:
             missing.append("BRAK_ODMOWY_STARTU: druga karta „Uruchom” ani razu nie dostała 409.")
+        if self.scope.update_tabs and not self.starts_refused:
+            missing.append("BRAK_ODMOWY_STARTU: „Uruchom” ani razu nie dostało 409 w trakcie aktualizacji.")
+        if self.scope.update_tabs and not self.updates_refused:
+            missing.append("BRAK_ODMOWY_AKTUALIZACJI: „Zaktualizuj narzędzie” ani razu nie dostało 409.")
+        if self.scope.update_tabs and not self.updates_restarted:
+            missing.append("BRAK_PONOWNEGO_STARTU: żadna aktualizacja nie zamknęła Centrum dla nowej wersji.")
         return missing
 
 
@@ -744,6 +852,8 @@ def explore(scope: Scope) -> ScopeReport:
         report.closes_refused += execution.close_refused
         report.starts_refused += execution.start_refused
         report.runs_ended += execution.run_ended
+        report.updates_refused += execution.update_refused
+        report.updates_restarted += execution.update_restarted
         for violation in execution.violations:
             # Keep the shortest counterexample.
             known = report.counterexamples.get(violation.signature)
@@ -762,18 +872,9 @@ def explore(scope: Scope) -> ScopeReport:
 
 # --- Report -------------------------------------------------------------------------------------------
 
-# Real defects in the current code, reported on every run until a code change fixes them.
-# Each entry names the window in which „Uruchom” started the Uruchomienie that the shutdown killed.
-KNOWN_FINDINGS: dict[tuple[object, ...], str] = {
-    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "między sprawdzeniem odmowy a przyjęciem prośby"): (
-        "Shutdown.request sprawdza odmowę pod blokadą RunHost, a _requested ustawia już bez niej; "
-        "„Uruchom” z drugiej karty startuje między tymi krokami i Centrum zamyka się w trakcie Uruchomienia."
-    ),
-    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "po przyjęciu prośby o zamknięcie"): (
-        "RunHost.start nie odmawia po przyjętej prośbie o zamknięcie; „Uruchom”, które dotrze, zanim uvicorn "
-        "przestanie przyjmować żądania, startuje Uruchomienie, a koniec procesu zabija jego wątek."
-    ),
-}
+# Real defects in the current code, reported on every run until a code change fixes them: signature → why.
+# Empty since „Zamknij” that is not refused closes RunHost to new Uruchomienia and Aktualizacje under its lock.
+KNOWN_FINDINGS: dict[tuple[object, ...], str] = {}
 
 
 @dataclass

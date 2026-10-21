@@ -13,8 +13,8 @@
     "bundle_wzgledny": 0.02
   },
   "bundle_bajty": {
-    "js": 673668,
-    "css": 105318
+    "js": 679252,
+    "css": 105558
   },
   "scenariusze": {
     "okresy/zimny-start": {
@@ -64,6 +64,7 @@
         "GET /api/configuration": 1,
         "GET /api/runs/events": 1,
         "GET /api/settings": 1,
+        "GET /api/tool-update": 1,
         "POST /api/view-timings": 1
       }
     },
@@ -106,6 +107,7 @@
       },
       "zapytania_api": {
         "GET /api/configuration": 1,
+        "GET /api/tool-update": 1,
         "POST /api/view-timings": 1
       }
     },
@@ -172,6 +174,7 @@
       },
       "zapytania_api": {
         "GET /api/configuration": 1,
+        "GET /api/tool-update": 1,
         "POST /api/view-timings": 1
       }
     },
