@@ -52,11 +52,7 @@ include = [
     "src/**/*.py",
     "tests/**/*.py",
     "tools/**/*.py",
-    ".agents/skills/verify-rozliczenia/scripts/*.py",
-    ".agents/skills/verify-publikacja-plikow-okresu/scripts/*.py",
-    ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/*.py",
-    ".agents/skills/verify-kopia-wzorca/scripts/*.py",
-    ".agents/skills/verify-centrum-rozliczen/scripts/**/*.py",
+    ".agents/skills/*/scripts/**/*.py",
 ]
 extend-exclude = [".claude"]
 
@@ -71,11 +67,7 @@ files = [
     "src",
     "tests",
     "tools",
-    ".agents/skills/verify-rozliczenia/scripts",
-    ".agents/skills/verify-publikacja-plikow-okresu/scripts",
-    ".agents/skills/verify-jedno-uruchomienie-naraz/scripts",
-    ".agents/skills/verify-kopia-wzorca/scripts",
-    ".agents/skills/verify-centrum-rozliczen/scripts",
+    ".agents/skills/*/scripts",
 ]
 mypy_path = "src"
 show_error_codes = true
