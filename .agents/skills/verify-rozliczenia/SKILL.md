@@ -82,7 +82,8 @@ quantities into `N:AP` and charges and remarks into `AQ:AT` of three Wiersze
 danych of the resulting Plik zbiorczy, then Przebieg rozliczeń on that file
 (dry-run, then write). It checks that every Rozliczenie pracownika holds only
 its Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, with `A:AT` equal to
-the Plik zbiorczy row, Gotowość entries included. `chain-real-templates` runs
+the Plik zbiorczy row, Gotowość entries included, and with the Wyróżnienia of
+the Plik zbiorczy cells. `chain-real-templates` runs
 the same path on byte copies of all three real Wzorce, including the Wzorzec
 rozliczenia pracownika; like `preparation-real-templates` it is local only,
 takes `--templates-dir`, and prints `VERIFY SKIP` without them. Route and
@@ -259,9 +260,10 @@ already performs both checks and prints `scratch_removed=true`.
   external links, and records the period files' hashes for `assert_chain.py`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\fill_readiness.py --root "$runRoot"`.
 - `scripts/assert_chain.py` checks the Przebieg rozliczeń of `chain` against
-  the Plik zbiorczy it read: worker routing and order, `A:AT` equality,
-  Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
-  pracownika, unchanged inputs and period files, transcript, and metrics.
+  the Plik zbiorczy it read: worker routing and order, `A:AT` equality of values
+  and Wyróżnienia, Gotowość entries, no Zlecenie nieskuteczne, the preserved
+  Wzorzec rozliczenia pracownika, unchanged inputs and period files, transcript,
+  and metrics.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_chain.py --root "$runRoot" --expect run --transcript "$evidenceRoot\settlement-run.txt"`.
 - `scripts/cleanup.py` removes only a run root below `.verification\runs\`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.

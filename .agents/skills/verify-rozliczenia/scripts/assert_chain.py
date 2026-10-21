@@ -1,9 +1,10 @@
 """Assert the Przebieg rozliczeń of a chain run on the Plik zbiorczy from Przygotowanie, without printing row contents.
 
 The Plik zbiorczy was written by Przygotowanie pliku zbiorczego and then filled by
-the Gotowość step, so its Wiersze danych carry values in all of ``A:AT``. The
-checks are generic over the Wzorce, so the same helper serves both the synthetic
-and the real Wzorce. Messages name workers, rows, and columns, never a cell value.
+the Gotowość step, so its Wiersze danych carry values in all of ``A:AT``, and the
+Wyróżnienia Przygotowanie carried over from the Rejestr. The checks are generic
+over the Wzorce, so the same helper serves both the synthetic and the real
+Wzorce. Messages name workers, rows, and columns, never a cell value.
 """
 
 from __future__ import annotations
@@ -65,6 +66,8 @@ INPUTS = (
 )
 
 Row = tuple[object, ...]
+Looks = tuple[tuple[object, ...], ...]
+PLAIN_LOOK = (None, None, None, False, False)
 
 
 def _sheet(workbook: Workbook) -> Worksheet:
@@ -180,6 +183,24 @@ def _data_rows(sheet: Worksheet) -> list[tuple[int, Row]]:
     ]
 
 
+def _looks(sheet: Worksheet, in_file: set[tuple[int, int]], number: int) -> Looks:
+    """Wyróżnienia of A:AT in row ``number``: fill, font color, bold, italic; a cell not ``in_file`` has none.
+
+    ``in_file`` is taken right after loading: reading a row through openpyxl adds its missing cells to the sheet.
+    """
+
+    looks = []
+    for column in range(1, COPIED_COLUMNS + 1):
+        if (number, column) not in in_file:
+            looks.append(PLAIN_LOOK)
+            continue
+        cell = sheet.cell(number, column)
+        fill_type = getattr(cell.fill, "fill_type", None)
+        fill = (fill_type, cell.fill.fgColor if fill_type else None)
+        looks.append((*fill, cell.font.color, bool(cell.font.b), bool(cell.font.i)))
+    return tuple(looks)
+
+
 def _cell_values(workbook: Workbook, skipped_rows: range) -> dict[tuple[str, int, int], object]:
     """Every stored value except the A:AT cells of ``skipped_rows`` on the active sheet."""
 
@@ -203,6 +224,7 @@ def _check_worker_file(
     name: str,
     path: Path,
     expected_rows: list[Row],
+    expected_looks: list[Looks],
     template: Workbook,
     template_links: dict[str, bytes],
     readiness_orders: set[object],
@@ -212,6 +234,7 @@ def _check_worker_file(
     workbook = load_workbook(path, data_only=False, keep_links=True)
     try:
         sheet = _sheet(workbook)
+        in_file = set(sheet._cells)
         data_rows = _data_rows(sheet)
         written = range(FIRST_DATA_ROW, FIRST_DATA_ROW + len(expected_rows))
         if [number for number, _ in data_rows] != list(written):
@@ -221,10 +244,15 @@ def _check_worker_file(
             errors.append(f"{name}: holds a Zlecenie nieskuteczne")
         if [values[order_index] for values in actual_rows] != [values[order_index] for values in expected_rows]:
             errors.append(f"{name}: orders differ from its Zlecenia skuteczne in Plik zbiorczy order")
-        for number, (actual, expected) in enumerate(zip(actual_rows, expected_rows), start=FIRST_DATA_ROW):
+        for number, (actual, expected, looks) in enumerate(
+            zip(actual_rows, expected_rows, expected_looks), start=FIRST_DATA_ROW
+        ):
             differing = [get_column_letter(index + 1) for index, value in enumerate(expected) if actual[index] != value]
             if differing:
                 errors.append(f"{name}: row {number} differs from the Plik zbiorczy in {', '.join(differing[:8])}")
+            unlike = [get_column_letter(index + 1) for index, look in enumerate(_looks(sheet, in_file, number)) if look != looks[index]]
+            if unlike:
+                errors.append(f"{name}: row {number} lacks the Wyróżnienia of the Plik zbiorczy in {', '.join(unlike[:8])}")
             elif expected[order_index] in readiness_orders and any(
                 actual[index] in (None, 0) for index in READINESS_COLUMNS
             ):
@@ -249,10 +277,16 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
     collective = load_workbook(period_directory / COLLECTIVE_NAME, data_only=False, keep_links=True)
     try:
         collective_sheet = _sheet(collective)
+        collective_in_file = set(collective_sheet._cells)
         order_index = _order_column(collective_sheet) - 1
-        collective_rows = [values for _, values in _data_rows(collective_sheet)]
+        numbered_rows = _data_rows(collective_sheet)
+        collective_rows = [values for _, values in numbered_rows]
+        collective_looks = [_looks(collective_sheet, collective_in_file, number) for number, _ in numbered_rows]
+        highlighted = sum(look != PLAIN_LOOK and look[0] is not None for looks in collective_looks for look in looks)
     finally:
         collective.close()
+    if not highlighted:
+        errors.append("Plik zbiorczy has no filled cell in its Wiersze danych, so the Wyróżnienia check proves nothing")
     if UNSUCCESSFUL_ORDER in {values[order_index] for values in collective_rows}:
         errors.append("Plik zbiorczy holds a Zlecenie nieskuteczne")
     filled = [values for values in collective_rows if values[order_index] in readiness_orders]
@@ -267,12 +301,16 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
     try:
         for name, orders in EXPECTED_WORKER_ORDERS.items():
             expected_rows = [values for values in collective_rows if values[order_index] in orders]
+            expected_looks = [
+                looks for values, looks in zip(collective_rows, collective_looks) if values[order_index] in orders
+            ]
             if tuple(values[order_index] for values in expected_rows) != orders:
                 errors.append(f"Plik zbiorczy does not hold the Zlecenia skuteczne of {name} in Rejestr order")
             _check_worker_file(
                 name,
                 target_directory / f"Rozliczenie {PERIOD} - {name}.xlsx",
                 expected_rows,
+                expected_looks,
                 template,
                 template_links,
                 readiness_orders,
@@ -313,7 +351,7 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
     return _finish(
         errors,
         f"ASSERT OK | process=przebieg | source=przygotowanie | mode=run | workbooks_checked={len(expected_files)} | "
-        "rows_equal_plik_zbiorczy=A:AT | readiness_carried=true | unsuccessful_absent=true | "
+        "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | readiness_carried=true | unsuccessful_absent=true | "
         "wzorzec_preserved=true | external_links_preserved=true | inputs_unchanged=true",
     )
 
