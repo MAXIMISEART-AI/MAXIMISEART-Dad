@@ -2,8 +2,8 @@
 
 Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co się
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
-Komunikaty są po polsku, bez żargonu i treści wyjątków oraz bez adresów,
-numerów zleceń i treści wierszy. Wskazują wyłącznie plik, arkusz, nagłówek,
+Komunikaty są po polsku, bez żargonu i treści wyjątków oraz bez adresów
+klientów, numerów zleceń i treści wierszy. Wskazują wyłącznie plik, arkusz, nagłówek,
 numer wiersza albo adres komórki. Jedynym wyjątkiem jest
 ``invalid_successful_values``, który pokazuje dokładną zawartość komórki
 ``SKUTECZNE`` innej niż ``tak`` i ``nie``. Obok fabryk katalog ma napisy
