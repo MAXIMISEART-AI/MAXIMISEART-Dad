@@ -171,6 +171,23 @@ def test_awaria_podgladu_postepu_odlacza_go_bez_tekstu_wyjatku_i_bez_zmiany_wyni
     assert (record["result"], result["metrics_saved"]) == ("OK", True)
 
 
+def test_nieudany_zapis_metryk_jest_ostrzezeniem_bez_zmiany_wyniku(tmp_path: Path) -> None:
+    source, target, config = make_fixture(tmp_path)
+    not_a_folder = tmp_path / "plik zamiast folderu"
+    not_a_folder.write_text("", encoding="utf-8")
+
+    exit_code, result = _settlement(tmp_path, source, config, "--metrics", str(not_a_folder / "metrics.jsonl"))
+
+    assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
+    assert result["metrics_saved"] is False
+    assert result["notices"] == ["Ostrzeżenie: Nie zapisano metryk; proces rozliczeń zakończył się niezależnie."]
+    assert [(figure["label"], figure["value"]) for figure in result["summary"]["figures"]] == [
+        ("Zapisane szablony", 2),
+        ("Puste szablony", 1),
+    ]
+    assert len(list(target.iterdir())) == 3
+
+
 def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_kodem_2_z_kodem_ostrzezenia(tmp_path: Path) -> None:
     source, _target, config = make_preview_fixture(tmp_path)
 
