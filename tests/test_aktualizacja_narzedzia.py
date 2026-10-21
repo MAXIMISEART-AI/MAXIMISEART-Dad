@@ -533,6 +533,63 @@ def test_gdy_cofniecie_po_nieudanej_instalacji_sie_nie_uda_wynik_mowi_to_wprost(
     assert repository.head() == newest
 
 
+def failed_rollback_with_index_locked(repository: ToolRepository) -> Path:
+    """Aktualizacja, której biblioteki się nie instalują, a cofnięcie zatrzymuje blokada indeksu Gita."""
+
+    lock = repository.clone / ".git" / "index.lock"
+
+    def install(requirements: Path) -> bool:
+        lock.touch()
+        return False
+
+    before = repository.head()
+    newest = moved_with_new_requirements(repository)
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=install).update()
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
+    assert repository.head() == newest
+    return lock
+
+
+def test_po_nieudanym_cofnieciu_kolejne_klikniecie_cofa_klon_i_instaluje_biblioteki_nowej_wersji(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository).unlink()
+    newest = repository.in_clone("rev-parse", "HEAD")
+    installer = FakeInstaller()
+
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=installer).update()
+
+    assert result == UpdateResult("ok", before=before, after=newest, installed=True)
+    assert [content for _, content in installer.installed] == [NEW_REQUIREMENTS]
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+
+
+def test_po_nieudanym_cofnieciu_kolejne_klikniecie_bez_internetu_zostawia_klon_sprzed_aktualizacji(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository).unlink()
+
+    result = ToolClone(repository.clone, origin=unreachable_origin()).update()
+
+    assert result == UpdateResult("BRAK_POLACZENIA", before=before, after=None)
+    assert_back_before_click(repository, before)
+
+
+def test_gdy_cofniecie_wciaz_sie_nie_udaje_kolejne_klikniecie_mowi_to_wprost(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository)
+    newest = repository.in_clone("rev-parse", "HEAD")
+
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller()).update()
+
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest)
+    assert repository.head() == newest
+
+
 def test_gdy_plik_taty_nie_wroci_po_przesunieciu_klon_wraca_do_poprzedniej_wersji_z_plikiem_taty(
     repository: ToolRepository, tmp_path: Path
 ) -> None:
