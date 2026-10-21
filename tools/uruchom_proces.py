@@ -24,8 +24,8 @@ Na stdout trafia jeden obiekt JSON (UTF-8, ``ProcessResult``):
   trzema częściami Komunikatu;
 - ``stop``: przy Zatrzymaniu jego rodzaj (``stop``, ``unexpected``,
   ``after_engine``) i Komunikat z kodem i trzema częściami, inaczej ``null``;
-- ``progress``: ostatni stan postępu w kształcie kontraktu (``contract.Progress``),
-  który widok zdołał zbudować; awaria widoku odłącza podgląd z ostrzeżeniem w ``notices``;
+- ``progress``: ostatni stan postępu w kształcie kontraktu (``contract.Progress``);
+  po awarii widoku ostatni zbudowany przed nią, a gdy żaden nie powstał, pusty (bez etapów);
 - ``total_duration_ms``: ``Czas uruchomienia``;
 - ``notices``: ostrzeżenia rdzenia (niezapisane metryki, odłączony podgląd);
 - ``metrics_saved``: rekord metryk trafił do pliku metryk.

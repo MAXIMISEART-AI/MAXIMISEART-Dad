@@ -70,8 +70,6 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     """Uruchomienie procesu gotowe do startu: ten sam opis procesu co w CLI i wejście procesu z ustawień.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
-    ``view`` (deklaracja procesu, liczby na żywo, wynik i ostrzeżenia) zamienia snapshot postępu i podsumowanie
-    silnika na widok dla przeglądarki; ``summary_view`` woła rdzeń.
     """
 
     key: contract.ProcessKey

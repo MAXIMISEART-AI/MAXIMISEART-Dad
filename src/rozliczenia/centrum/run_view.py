@@ -1,10 +1,8 @@
 """Widok Uruchomienia: to, co karta Uruchomienia pokazuje ze snapshotu postępu i z podsumowania procesu.
 
-Jedyne miejsce prezentacji procesów w Centrum rozliczeń: deklaracja procesu (przypomnienie przed
-uruchomieniem, Gotowość, podpowiedź podglądu), etykiety i kolejność liczb na żywo, liczb wyniku,
-szczegóły wyniku i ostrzeżenia zakończonego procesu. Projekcja postępu pozostaje jedynym interpretatorem Zdarzeń przebiegu
-(ADR 0002); widok tylko wybiera i nazywa jej fakty, a przeglądarka renderuje go bez rozróżniania
-procesów (ADR 0004). Kontrakt niesie wyłącznie to, co karta pokazuje.
+Jedyne miejsce prezentacji procesów w Centrum rozliczeń. Projekcja postępu pozostaje jedynym
+interpretatorem Zdarzeń przebiegu (ADR 0002); widok tylko wybiera i nazywa jej fakty, a przeglądarka
+renderuje go bez rozróżniania procesów (ADR 0004). Kontrakt niesie wyłącznie to, co karta pokazuje.
 """
 
 from __future__ import annotations
@@ -65,7 +63,7 @@ class ProcessView(Generic[InputsT, SummaryT]):
         return self._summary(summary, dry_run)
 
     def warnings(self, inputs: InputsT, summary: SummaryT) -> list[Message]:
-        """Ostrzeżenia zakończonego procesu z kodem i trzema częściami Komunikatu."""
+        """Ostrzeżenia zakończonego procesu."""
 
         return list(self._warnings(inputs, summary))
 
