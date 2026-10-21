@@ -5,7 +5,6 @@ import shutil
 from pathlib import Path
 import time
 from collections.abc import Callable, Iterable
-from typing import cast
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
@@ -28,7 +27,7 @@ from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import ExcelRow, Layout, WorkerSettlementTemplate, file_from_template
+from rozliczenia.workbook_files import DataRow, Layout, WorkerSettlementTemplate, file_from_template, read_data_rows
 from tests.fixtures.benchmark import SMALL_DATA_ROWS, WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
@@ -301,12 +300,8 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
     expected_directory = tmp_path / "przez-openpyxl"
     expected_directory.mkdir()
     adrian = f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
-    source_workbook = load_workbook(source_path)
-    try:
-        # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
-        adrian_rows = [cast(ExcelRow, worksheet_input_row(active_worksheet(source_workbook), row)) for row in (18, 20)]
-    finally:
-        source_workbook.close()
+    # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
+    adrian_rows = [row for row in read_data_rows(source_path) if row.number in (18, 20)]
     with file_from_template(worker_template_path, expected_directory / adrian, Layout.COLLECTIVE, recalculate=True) as sheet:
         sheet.write_data_rows(adrian_rows)
 
@@ -754,7 +749,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         worker_name: str,
         template: WorkerSettlementTemplate,
         path: Path,
-        rows: Iterable[ExcelRow],
+        rows: Iterable[DataRow],
     ) -> WorkerResult:
         nonlocal calls
         calls += 1
@@ -843,7 +838,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     projection = ProgressProjection("RUN", PERIOD)
     save_s = 0.05
 
-    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[DataRow]) -> WorkerResult:
         time.sleep(save_s)
         raise template_settlement.TemplateWriteError("synthetic failure")
 
