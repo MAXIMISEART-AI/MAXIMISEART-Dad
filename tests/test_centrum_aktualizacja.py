@@ -12,6 +12,7 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
+import shutil
 import threading
 import time
 from typing import Any
@@ -322,6 +323,28 @@ def test_nieprzewidziana_porazka_daje_komunikat_a_klon_zostaje_bez_zmian(tmp_pat
     assert log_entries(centrum, "aktualizacja-koniec") == ["wynik=NIEOCZEKIWANY_BLAD przed=- po=- biblioteki=nie"]
     assert centrum.client.post("/api/tool-update").status_code == 202
 
+
+
+def test_karta_widzi_porazke_dopiero_gdy_ponowne_klikniecie_jest_przyjete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    repository.in_clone("update-ref", "-d", "refs/heads/main")
+    remove_tree = shutil.rmtree
+
+    def slow_cleanup(path: Any, *args: Any, **kwargs: Any) -> None:
+        # Sprzątanie po aktualizacji bywa wolne (antywirus, OneDrive); tata może kliknąć w jego trakcie.
+        time.sleep(0.3)
+        remove_tree(path, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "rmtree", slow_cleanup)
+
+    failed = update_until_done(centrum)
+    again = centrum.client.post("/api/tool-update")
+    tool_update_until(centrum, lambda view: view["state"] != "running")
+
+    assert failed["state"] == "failed"
+    assert again.status_code == 202, again.json()
 
 STILL_WORKS = "Narzędzie działa dalej w poprzedniej wersji."
 TO_MAKS = f"{STILL_WORKS} Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
