@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-import json
 import os
 from pathlib import Path
 import shutil
@@ -30,12 +29,11 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.request
 from typing import Final
 
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.platform import show_start_problem
-from rozliczenia.centrum.version import short_commit
+from rozliczenia.centrum.version import running_centrum
 from rozliczenia.centrum.tool_update import (
     NEW_VERSION_FAILED,
     ROLLBACK_FAILED,
@@ -51,7 +49,6 @@ START_TIMEOUT_S: Final = 60.0
 _POLL_S: Final = 0.2
 _STOP_TIMEOUT_S: Final = 10.0
 _HOST: Final = "127.0.0.1"
-_SERVICE: Final = "centrum-rozliczen"
 _SOURCE: Final = Path(__file__).resolve().parents[2]
 # Pakiet-szkielet kopii: tylko moduły bez bibliotek narzędzia, które opiekun importuje.
 _COPIED: Final = (
@@ -255,18 +252,13 @@ def _port_released(port: int) -> bool:
 def _answers(centrum: subprocess.Popen[bytes], port: int, commit: str) -> bool:
     """Czy nowe Centrum odpowiada w ``START_TIMEOUT_S`` jako Centrum rozliczeń w commicie ``commit``.
 
-    ``health`` podaje commit skrócony, tak jak widzi go tata.
+    Tę samą wersję rozpoznaje tak samo jak launcher (``RunningCentrum.runs``).
     """
 
-    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # serwer proxy nie widzi 127.0.0.1 taty
     deadline = time.monotonic() + START_TIMEOUT_S
     while centrum.poll() is None and time.monotonic() < deadline:
-        try:
-            with direct.open(f"http://{_HOST}:{port}/api/health", timeout=2) as response:
-                health = json.load(response)
-        except (OSError, ValueError):
-            health = None
-        if isinstance(health, dict) and health.get("service") == _SERVICE and health.get("commit") == short_commit(commit):
+        running = running_centrum(port, timeout_s=2)
+        if running is not None and running.runs(commit):
             return True
         time.sleep(_POLL_S)
     return False

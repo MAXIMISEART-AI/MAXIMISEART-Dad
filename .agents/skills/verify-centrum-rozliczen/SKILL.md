@@ -92,7 +92,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\centrum_doctor.py --root "
 ```
 
 `DOCTOR OK` means `server.json` exists, the URL is on `127.0.0.1`, `/api/health`
-returns Centrum's identity and the `pyproject.toml` version, `/` serves the
+returns Centrum's identity, the commit of this run's tool clone, and an identifier of this start, `/` serves the
 built frontend, and the settings and metrics files belong to this run. The doctor only reads.
 
 ## Drive

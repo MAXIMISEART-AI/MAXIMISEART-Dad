@@ -15,7 +15,7 @@ import pytest
 from rozliczenia import preparation_register
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 
-from tests.fixtures.centrum import TOOL_COMMIT, project_version
+from tests.fixtures.centrum import TOOL_COMMIT
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, run_to_end, stopped_for_maks
 from tests.fixtures.preparation import PERIOD
 
@@ -86,7 +86,6 @@ def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_
         "- Proces: Przygotowanie pliku zbiorczego",
         f"- Okres: {PERIOD}",
         "- Tryb: DRY-RUN",
-        f"- Wersja: {project_version()}",
         f"- Commit: {TOOL_COMMIT}",
         "| Wzorzec rozliczenia wewnętrznego | przeszło | Wzorzec rozliczenia wewnętrznego.xlsx przechodzi Sprawdzanie. |",
         f"| Wzorzec pliku zbiorczego | nie przeszło | {stop['what']} |",

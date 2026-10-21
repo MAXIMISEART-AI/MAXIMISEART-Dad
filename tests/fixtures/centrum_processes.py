@@ -28,7 +28,6 @@ from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.tool_update import ToolClone
-from rozliczenia.centrum.version import tool_commit
 
 from tests.fixtures.centrum import (
     CENTRUM,
@@ -77,7 +76,7 @@ class Surroundings:
         tool = self.tool
         if tool is None:
             return self.github.freshness()
-        return ToolFreshness(local=lambda: tool_commit(tool.clone), main=lambda: git(tool.origin, "rev-parse", "main"))
+        return ToolFreshness.of_clone(tool.clone, lambda: git(tool.origin, "rev-parse", "main"))
 
     def tool_update(self) -> ToolClone | None:
         tool, hold = self.tool, self.update_hold

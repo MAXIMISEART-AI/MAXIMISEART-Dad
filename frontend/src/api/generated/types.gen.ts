@@ -114,18 +114,11 @@ export type Closing = {
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
  *
- * ``commit`` to pierwsze 7 znaków commitu narzędzia (``None`` poza klonem Gita), ``freshness`` jego
- * Aktualność względem `main` na GitHubie, sprawdzana jak w Diagnozie.
+ * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
+ * względem `main` na GitHubie, sprawdzana jak w Diagnozie.
  */
 export type Configuration = {
-    /**
-     * Version
-     */
-    version: string;
-    /**
-     * Commit
-     */
-    commit: string | null;
+    version: ToolVersion | null;
     /**
      * Freshness
      */
@@ -294,19 +287,16 @@ export type HttpValidationError = {
  *
  * Tożsamość działającego Centrum.
  *
- * ``commit`` to skrócony commit narzędzia, jak na Konfiguracji (``None`` poza klonem Gita); po nim opiekun
- * ponownego startu rozpoznaje nową wersję, a karta pokazuje go w „Zaktualizowano”. ``instance`` to losowy
- * identyfikator tego startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
+ * ``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza
+ * klonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta
+ * pokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie
+ * jest inny, także gdy commit się nie zmienił.
  */
 export type Health = {
     /**
      * Service
      */
     service: 'centrum-rozliczen';
-    /**
-     * Version
-     */
-    version: string;
     /**
      * Commit
      */
@@ -1304,13 +1294,29 @@ export type ToolUpdateUpToDate = {
 /**
  * ToolUpdateUpdated
  *
- * Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (wersja i commit są w ``Health``).
+ * Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (jej commit jest w ``Health``).
  */
 export type ToolUpdateUpdated = {
     /**
      * State
      */
     state: 'updated';
+};
+
+/**
+ * ToolVersion
+ *
+ * Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie.
+ */
+export type ToolVersion = {
+    /**
+     * Commit
+     */
+    commit: string;
+    /**
+     * Since
+     */
+    since: string | null;
 };
 
 /**

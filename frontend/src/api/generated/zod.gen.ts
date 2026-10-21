@@ -122,13 +122,13 @@ export const zFigure = z.object({
  *
  * Tożsamość działającego Centrum.
  *
- * ``commit`` to skrócony commit narzędzia, jak na Konfiguracji (``None`` poza klonem Gita); po nim opiekun
- * ponownego startu rozpoznaje nową wersję, a karta pokazuje go w „Zaktualizowano”. ``instance`` to losowy
- * identyfikator tego startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
+ * ``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza
+ * klonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta
+ * pokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie
+ * jest inny, także gdy commit się nie zmienił.
  */
 export const zHealth = z.object({
     service: z.literal('centrum-rozliczen'),
-    version: z.string(),
     commit: z.string().nullable(),
     instance: z.string()
 });
@@ -708,10 +708,20 @@ export const zToolUpdateUpToDate = z.object({
 /**
  * ToolUpdateUpdated
  *
- * Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (wersja i commit są w ``Health``).
+ * Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (jej commit jest w ``Health``).
  */
 export const zToolUpdateUpdated = z.object({
     state: z.literal('updated')
+});
+
+/**
+ * ToolVersion
+ *
+ * Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie.
+ */
+export const zToolVersion = z.object({
+    commit: z.string(),
+    since: z.iso.date().nullable()
 });
 
 /**
@@ -876,12 +886,11 @@ export const zWorkersUnreadable = z.object({
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
  *
- * ``commit`` to pierwsze 7 znaków commitu narzędzia (``None`` poza klonem Gita), ``freshness`` jego
- * Aktualność względem `main` na GitHubie, sprawdzana jak w Diagnozie.
+ * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
+ * względem `main` na GitHubie, sprawdzana jak w Diagnozie.
  */
 export const zConfiguration = z.object({
-    version: z.string(),
-    commit: z.string().nullable(),
+    version: zToolVersion.nullable(),
     freshness: z.enum([
         'current',
         'newer',

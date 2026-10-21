@@ -18,6 +18,16 @@ import pytest
 
 from tests.fixtures.tool_clone import copy_centrum_runtime
 
+COMMIT = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
+UPDATED_COMMIT = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
+
+
+def _check_out(runtime: Path, commit: str) -> None:
+    """Klon narzędzia na ``commit`` (odłączony ``HEAD``), jak po pobraniu albo aktualizacji narzędzia."""
+
+    (runtime / ".git").mkdir(exist_ok=True)
+    (runtime / ".git" / "HEAD").write_text(commit + "\n", encoding="utf-8")
+
 
 def _free_port() -> int:
     with socket.socket() as probe:
@@ -141,6 +151,7 @@ def _opened_addresses(path: Path, count: int, *, timeout_s: float = 10) -> list[
 
 def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path: Path) -> None:
     runtime = copy_centrum_runtime(tmp_path / "narzedzie")
+    _check_out(runtime, COMMIT)
     browser, opened = _browser_recorder(tmp_path)
     port = _free_port()
     environment = _environment(browser)
@@ -160,6 +171,29 @@ def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path:
     assert still_serving["service"] == "centrum-rozliczen"
     assert first.text.count("Centrum rozliczeń działa:") == 1
     assert not (runtime / "config" / "centrum-ustawienia.yaml").exists()
+
+
+def test_ponowne_uruchomienie_po_przesunieciu_klonu_rozpoznaje_centrum_innej_wersji(tmp_path: Path) -> None:
+    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
+    _check_out(runtime, COMMIT)
+    browser, opened = _browser_recorder(tmp_path)
+    port = _free_port()
+    environment = _environment(browser)
+
+    with _started(
+        [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)], runtime, environment
+    ):
+        health = _health(port)
+        _wait_for_line(opened)
+        _check_out(runtime, UPDATED_COMMIT)
+        again = _launch_again(runtime, port, environment)
+        still_serving = _health(port, timeout_s=2)
+
+    assert {key: health[key] for key in ("service", "commit")} == {"service": "centrum-rozliczen", "commit": COMMIT[:7]}
+    assert again.returncode == 1, again.stdout + again.stderr
+    assert again.stdout.splitlines()[0] == "Co się stało: Działa już Centrum rozliczeń w innej wersji (3c1d0a9)."
+    assert still_serving == health
+    assert "kod=INNA_WERSJA_CENTRUM" in (runtime / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
 
 
 def _log_events(runtime: Path) -> list[str]:

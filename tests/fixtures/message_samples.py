@@ -175,7 +175,7 @@ SETTLEMENT_SAMPLES: Samples = {
 
 START_SAMPLES: Samples = {
     "port_taken": [lambda: start_problems.port_taken(47811)],
-    "other_version_running": [lambda: start_problems.other_version_running(47811, "0.0.9")],
+    "other_version_running": [lambda: start_problems.other_version_running(47811, "3c1d0a9")],
     "missing_library": [lambda: start_problems.missing_library("fastapi")],
     "unexpected_start_failure": [start_problems.unexpected_start_failure],
     "not_started_after_update": [start_problems.not_started_after_update],

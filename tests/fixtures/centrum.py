@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import threading
-import tomllib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -132,17 +131,18 @@ class FakeClock:
 
 @dataclass
 class FakeGitHub:
-    """Commit narzędzia u taty i commit `main` na GitHubie; ``main=None`` to brak sieci.
+    """Commit narzędzia u taty, dzień, od którego narzędzie jest na nim, i commit `main` na GitHubie.
 
-    ``asked`` liczy pytania o `main`.
+    ``main=None`` to brak sieci; ``asked`` liczy pytania o `main`.
     """
 
     tool_commit: str | None = TOOL_COMMIT
+    since: date | None = None
     main: str | None = TOOL_COMMIT
     asked: int = 0
 
     def freshness(self) -> ToolFreshness:
-        return ToolFreshness(local=lambda: self.tool_commit, main=self._main)
+        return ToolFreshness(local=lambda: self.tool_commit, since=lambda: self.since, main=self._main)
 
     def _main(self) -> str | None:
         self.asked += 1
@@ -210,13 +210,6 @@ def view_timing(**changes: object) -> dict[str, object]:
         ],
     }
     return timing | changes
-
-
-def project_version() -> str:
-    with (ROOT / "pyproject.toml").open("rb") as file:
-        version = tomllib.load(file)["project"]["version"]
-    assert isinstance(version, str)
-    return version
 
 
 def run_events(client: TestClient) -> Iterator[dict[str, Any]]:

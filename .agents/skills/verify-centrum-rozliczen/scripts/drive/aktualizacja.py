@@ -11,7 +11,7 @@ import urllib.request
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import Run
+from drive.common import Run, served_version, version_line
 
 FEATURE = "aktualizacja"
 BUTTON = "Zaktualizuj narzędzie"
@@ -254,12 +254,14 @@ def _drive_update(run: Run, page: Page) -> None:
         page.goto(run.url + "#/konfiguracja")
         page.reload()
         card = _tool_card(page)
-        expect(card).to_contain_text(first[:7])
+        first_commit, first_since = served_version(run)
+        expect(card.get_by_text(version_line(first_commit, first_since), exact=True)).to_be_visible()
         expect(card).to_contain_text("Jest nowsza wersja")
         configuration = run.api("/api/configuration", "aktualizacja-jest-nowsza")
         run.check(
-            (configuration["commit"], configuration["freshness"]) == (first[:7], "newer"),
-            "the server reports the clone's commit and a newer version",
+            (first_commit, configuration["version"], configuration["freshness"])
+            == (first, {"commit": first[:7], "since": first_since}, "newer"),
+            "the server reports the clone's commit, the day the clone moved there, and a newer version",
         )
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
         run.check(
@@ -333,8 +335,7 @@ def _drive_update(run: Run, page: Page) -> None:
         run.step(FEATURE, "aktualizacja-zaktualizowano")
         toast = page.get_by_role("region", name="Notifications").get_by_role("dialog", name=UPDATED)
         expect(toast).to_be_visible(timeout=RESTART_TIMEOUT_MS)
-        expect(toast).to_contain_text(newest[:7])
-        expect(toast).to_contain_text(f"Centrum działa w wersji {before_health['version']} ({newest[:7]}).")
+        expect(toast).to_contain_text(f"Centrum działa w wersji {newest[:7]}.")
         run.check(page.evaluate("window.przedPonownymStartem === undefined"), "the tab reloaded by itself")
         expect(page.get_by_role("heading", name="Okresy", exact=True)).to_be_visible()
         page.wait_for_load_state("networkidle")
@@ -346,7 +347,8 @@ def _drive_update(run: Run, page: Page) -> None:
         run.capture(page, "143-aktualizacja-bez-powiadomienia")
         page.get_by_role("link", name="Konfiguracja", exact=True).click()
         card = _tool_card(page)
-        expect(card).to_contain_text(newest[:7])
+        updated_commit, since = served_version(run)
+        expect(card.get_by_text(version_line(updated_commit, since), exact=True)).to_be_visible()
         expect(card).to_contain_text("Aktualna")
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
         health = run.api("/api/health", "aktualizacja-health-po")
@@ -360,8 +362,9 @@ def _drive_update(run: Run, page: Page) -> None:
         _dad_files_kept(run, clone, dad_files, run_configuration)
         configuration = run.api("/api/configuration", "aktualizacja-konfiguracja-po")
         run.check(
-            (configuration["commit"], configuration["freshness"]) == (newest[:7], "current"),
-            "Konfiguracja reports the new commit as current",
+            (updated_commit, configuration["version"], configuration["freshness"])
+            == (newest, {"commit": newest[:7], "since": since}, "current"),
+            "Konfiguracja reports the new commit as current, since the day of the update",
         )
         run.check(
             not (run.root / "config" / "centrum-aktualizacja.json").exists(),

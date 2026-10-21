@@ -19,7 +19,7 @@ from fastapi import APIRouter
 from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.tool_freshness import RememberedMain, ToolFreshness
-from rozliczenia.centrum.version import short_commit, tool_version
+from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import default_worker_template_path
 from rozliczenia.message import Message, StopError
@@ -100,8 +100,7 @@ def configuration_router(
     def configuration() -> contract.Configuration:
         commit = freshness.local()
         return contract.Configuration(
-            version=tool_version(),
-            commit=None if commit is None else short_commit(commit),
+            version=None if commit is None else contract.ToolVersion(commit=short_commit(commit), since=freshness.since()),
             freshness=_freshness(commit, main),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),

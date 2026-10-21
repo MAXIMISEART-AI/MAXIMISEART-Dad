@@ -57,10 +57,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `b98f948` (2026-10-21: after a result without a restart,
-`ToolUpdates._update` frees the „jedno naraz” slot and shows the result together,
-which touches no step of the model). At this commit every row above was checked
-against the code.
+Sync commit: `e8fb049` (2026-10-21: the launcher on a taken port and the
+guardian's `_answers` read `health` through `version.running_centrum` and compare
+the commit with `RunningCentrum.runs`; same predicate as before, no step of the
+model changes). At this commit every row above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,

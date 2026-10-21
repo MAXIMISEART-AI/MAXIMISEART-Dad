@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
 from tests.fixtures.preparation import write_collective_template, write_internal_template
-from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakePlatform, project_version
+from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, FakeGitHub, FakePlatform
 from tests.fixtures.workbooks import cut_sheet_after_data_rows
 from tests.fixtures.settlement import write_mapping, write_template
 
@@ -38,7 +39,7 @@ class Configured:
     files: ConfigurationFiles
 
 
-def configured(tmp_path: Path) -> Configured:
+def configured(tmp_path: Path, github: FakeGitHub | None = None) -> Configured:
     """Centrum z syntetycznym katalogiem konfiguracji: wszystkie trzy Wzorce i konfiguracja wykonawców."""
 
     config = tmp_path / "config"
@@ -57,7 +58,7 @@ def configured(tmp_path: Path) -> Configured:
         log=log,
         shutdown=Shutdown(log),
         configuration_files=files,
-        tool_freshness=FakeGitHub().freshness(),
+        tool_freshness=(github or FakeGitHub()).freshness(),
     )
     return Configured(TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}), files)
 
@@ -288,7 +289,13 @@ def test_nowy_wykonawca_dopisany_do_konfiguracji_jest_widoczny_bez_restartu(tmp_
     assert workers["names"][-1] == "Nowy Wykonawca"
 
 
-def test_wersja_narzedzia_jest_wersja_projektu(tmp_path: Path) -> None:
-    configuration = read_configuration(configured(tmp_path))
+def test_wersja_narzedzia_to_skrot_commitu_i_dzien_przejscia_na_niego(tmp_path: Path) -> None:
+    configuration = read_configuration(configured(tmp_path, FakeGitHub(since=date(2026, 10, 20))))
 
-    assert configuration["version"] == project_version()
+    assert configuration["version"] == {"commit": TOOL_COMMIT[:7], "since": "2026-10-20"}
+
+
+def test_narzedzie_poza_klonem_gita_ma_nieznana_wersje(tmp_path: Path) -> None:
+    configuration = read_configuration(configured(tmp_path, FakeGitHub(tool_commit=None)))
+
+    assert (configuration["version"], configuration["freshness"]) == (None, "not_checked")

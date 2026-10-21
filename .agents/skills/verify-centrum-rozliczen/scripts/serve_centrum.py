@@ -20,7 +20,8 @@ verification never reaches GitHub and checks OneDrive on every system:
   ``<root>/github/brak-sieci`` exists there is no network. The tool is the
   run's synthetic clone ``<root>/aktualizacja/klon``: its own commit is the
   clone's ``HEAD`` (``tool_commit``) unless ``<root>/github/tool-commit.txt``
-  names another one (Dad updated the tool);
+  names another one (Dad updated the tool), and the day it is on that commit
+  comes from the clone's ``HEAD`` reflog (``commit_since``);
 - a file whose full path is a line of ``<root>/onedrive/tylko-w-chmurze.txt``
   has the Windows attribute of a OneDrive file „tylko online”.
 
@@ -116,7 +117,7 @@ from rozliczenia.centrum.server import serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
 from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
-from rozliczenia.centrum.version import tool_commit  # noqa: E402
+from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
 from rozliczenia.workbook_files import DataRow, WorkerSettlementTemplate  # noqa: E402
 
@@ -195,13 +196,17 @@ def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
         chosen = root / "github" / "tool-commit.txt"
         return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit(clone)
 
+    def since() -> date | None:
+        commit = local_commit()
+        return None if commit is None else commit_since(commit, clone)
+
     def main_commit() -> str | None:
         if (root / "github" / "brak-sieci").exists():
             return None
         chosen = root / "github" / "main-commit.txt"
         return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit()
 
-    return ToolFreshness(local=local_commit, main=main_commit)
+    return ToolFreshness(local=local_commit, since=since, main=main_commit)
 
 
 def _scripted_clock(root: Path) -> Callable[[], float]:
