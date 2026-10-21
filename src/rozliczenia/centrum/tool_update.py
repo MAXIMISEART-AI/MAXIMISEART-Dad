@@ -33,6 +33,15 @@ BRANCH: Final = "main"
 
 UPDATED: Final = "ok"
 UP_TO_DATE: Final = "AKTUALNA"
+# Kody Komunikatów porażek, przy których klon zostaje bez zmian.
+NO_GIT: Final = "BRAK_GITA"
+# Brak sieci albo GitHub nie odpowiedział w limicie czasu.
+NO_CONNECTION: Final = "BRAK_POLACZENIA"
+# GitHub prosi o logowanie; Git nie pyta i kończy od razu.
+LOGIN: Final = "LOGOWANIE"
+OTHER_BRANCH: Final = "INNA_GALAZ"
+# Lokalne commity, zmienione śledzone pliki albo nieśledzony plik, który nowa wersja by nadpisała.
+LOCAL_CHANGES: Final = "ZMIANY_NA_KOMPUTERZE"
 # Kod Komunikatu porażki, której nikt nie przewidział (``GitFailed`` albo inny wyjątek); zamienia go Centrum.
 UNEXPECTED: Final = "NIEOCZEKIWANY_BLAD"
 
@@ -132,16 +141,37 @@ class ToolClone:
 
         git = self.find_git()
         if git is None:
-            raise GitFailed("brak Gita")
+            return UpdateResult(NO_GIT, None, None)
         run = _Git(git, self.root)
         before = run.text("rev-parse", "HEAD")
+        if run.branch() != BRANCH:
+            return UpdateResult(OTHER_BRANCH, before, None)
         on_step("fetching")
-        run.fetch(self.origin)
+        fetch_failure = run.fetch(self.origin)
+        if fetch_failure is not None:
+            return UpdateResult(fetch_failure, before, None)
         after = run.text("rev-parse", _FETCHED)
         if after == before:
             return UpdateResult(UP_TO_DATE, before, after)
-        run.check("merge", "--ff-only", "--quiet", _FETCHED)
+        if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset()):
+            return UpdateResult(LOCAL_CHANGES, before, None)
+        # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
+        if run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode != 0:
+            return UpdateResult(LOCAL_CHANGES, before, None)
         return UpdateResult(UPDATED, before, after)
+
+
+def _has_local_commits(run: _Git) -> bool:
+    """Klon ma commity, których nie ma pobrany `main`: przesunięcie do przodu by je pominęło."""
+
+    return run.text("rev-list", "--count", f"{_FETCHED}..HEAD") != "0"
+
+
+def _changed_tracked_files(run: _Git, *, keep: frozenset[str]) -> bool:
+    """Śledzony plik klonu różni się od ``HEAD`` (w indeksie albo na dysku), poza plikami taty ``keep``."""
+
+    entries = run.entries("status", "--porcelain=v1", "-z", "--untracked-files=no", "--no-renames")
+    return any(entry[3:] not in keep for entry in entries)
 
 
 @dataclass(frozen=True)
@@ -182,25 +212,52 @@ class _Git:
             raise GitFailed(args[0])
 
     def text(self, *args: str) -> str:
+        return self._output(*args).strip()
+
+    def entries(self, *args: str) -> list[str]:
+        """Wpisy wyjścia rozdzielone znakiem NUL (``-z``), bez ostatniego pustego."""
+
+        return [entry for entry in self._output(*args).split("\0") if entry]
+
+    def branch(self) -> str | None:
+        """Gałąź, na której stoi klon; ``None``, gdy stoi na commicie bez gałęzi."""
+
+        result = self.run("symbolic-ref", "--quiet", "--short", "HEAD")
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def _output(self, *args: str) -> str:
         result = self.run(*args)
         if result.returncode != 0:
             raise GitFailed(args[0])
-        return result.stdout.strip()
+        return result.stdout
 
-    def fetch(self, origin: str) -> None:
-        result = self.run(
-            "-c",
-            "http.proxy=",
-            "fetch",
-            "--quiet",
-            "--no-tags",
-            origin,
-            f"+refs/heads/{BRANCH}:{_FETCHED}",
-            timeout_s=_FETCH_TIMEOUT_S,
-        )
-        if result.returncode != 0:
-            raise GitFailed("fetch")
+    def fetch(self, origin: str) -> str | None:
+        """Pobiera `main` z ``origin``; ``None``, gdy się udało, inaczej kod porażki (logowanie albo brak sieci).
 
+        Adres jest stały, więc każda inna porażka pobrania to brak połączenia z GitHubem.
+        """
+
+        try:
+            result = self.run(
+                "-c",
+                "http.proxy=",
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                origin,
+                f"+refs/heads/{BRANCH}:{_FETCHED}",
+                timeout_s=_FETCH_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            return NO_CONNECTION
+        if result.returncode == 0:
+            return None
+        asked_for_login = any(sign in result.stderr.lower() for sign in _LOGIN_SIGNS)
+        return LOGIN if asked_for_login else NO_CONNECTION
+
+
+# Git bez pytań kończy tak, gdy serwer prosi o logowanie (GitHub także przy repozytorium, którego nie widzi).
+_LOGIN_SIGNS: Final = ("terminal prompts disabled", "could not read username", "could not read password", "authentication failed")
 
 # Pod pythonw każde polecenie konsolowe otworzyłoby w Windows własne okno konsoli.
 _NO_WINDOW: Final = getattr(subprocess, "CREATE_NO_WINDOW", 0)
