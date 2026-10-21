@@ -299,7 +299,7 @@ def test_terminal_shows_each_part_of_decyzja_taty_komunikat_on_one_line_as_is() 
     output = StringIO()
     decision = Decision(
         title="Ostrzeżenie",
-        message=Message(code="KOD", what="coś się stało", where="okres\x0cX", action="zrób\x1cto"),
+        message=Message(code="KOD", what="coś\u2028się stało", where="okres\x0cX", action="zrób\x1cto"),
         counts_title="Liczby",
         counts=[("wt", 1)],
         question="Dalej?",
@@ -309,7 +309,7 @@ def test_terminal_shows_each_part_of_decyzja_taty_komunikat_on_one_line_as_is() 
 
     assert output.getvalue().split("\n")[:6] == [
         "Ostrzeżenie",
-        "Co się stało: coś się stało",
+        "Co się stało: coś\u2028się stało",
         "Gdzie: okres\x0cX",
         "Co zrobić: zrób\x1cto",
         "Liczby:",
