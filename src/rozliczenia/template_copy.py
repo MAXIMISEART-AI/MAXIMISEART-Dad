@@ -611,6 +611,8 @@ class _Sheet:
             style = styles.style(template_style, None, highlights)
             if style == template_style and existing is not None and existing.endswith(b"/>"):
                 return existing
+            if style is None and existing is None:
+                return b""  # openpyxl nie zapisuje pustej komórki bez stylu; Excel daje jej styl kolumny
             return _cell_xml(reference, style, None, b"")
         if isinstance(value, (datetime, date, time, timedelta)):
             if getattr(value, "tzinfo", None) is not None:

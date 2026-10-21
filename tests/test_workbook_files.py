@@ -38,7 +38,13 @@ from rozliczenia.workbook_files import (
     save_workbook,
 )
 
-from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, WORKER_TEMPLATE, write_synthetic_templates, zip_part
+from tests.fixtures.benchmark import (
+    COLLECTIVE_TEMPLATE,
+    SMALL_DATA_ROWS,
+    WORKER_TEMPLATE,
+    write_synthetic_templates,
+    zip_part,
+)
 from tests.fixtures.porownanie import compare_worker_settlements, renumber_cell_styles
 from tests.fixtures.workbooks import (
     active_worksheet,
@@ -581,6 +587,18 @@ def test_rozliczenie_pracownika_ma_wyroznienia_wierszy_danych_i_czcionke_wzorca_
     finally:
         saved.close()
         original.close()
+
+
+def test_pusta_komorka_bez_wlasnego_stylu_za_wierszami_wzorca_ma_styl_kolumny_jak_plik_z_wzorca(tmp_path: Path) -> None:
+    """Komórki C nie ma we Wzorcu za jego Wierszami danych; czarna czcionka to czcionka domyślna Wzorca."""
+
+    template_path = write_synthetic_templates(tmp_path / "wzorce") / WORKER_TEMPLATE
+    black = Highlights.of(Font(color=Color("FF000000")), None)
+    rows = [_data_row(_row(A="syntetyczne miasto"), C=black)] * (SMALL_DATA_ROWS + 5)
+
+    created, expected = _settlement_folders(tmp_path, template_path, rows)
+
+    assert set(compare_worker_settlements(expected, created).values()) == {0}
 
 
 @pytest.mark.parametrize("template", ["maly", "syntetyczny"])
