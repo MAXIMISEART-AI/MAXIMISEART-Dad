@@ -15,7 +15,9 @@ Przebieg rozliczeń for that period needs checking.
 The tool itself is a synthetic Git clone in ``<root>/aktualizacja/klon`` whose
 "origin" is a local bare repository, ``<root>/aktualizacja/origin.git``, one commit
 ahead of the clone: Aktualizacja narzędzia in this run moves that clone, never
-the checkout the verification runs from, and never reaches GitHub.
+the checkout the verification runs from, and never reaches GitHub. The clone's
+``config/`` holds Dad's files, among them his locally changed konfiguracja
+wykonawców, which the newest commit stops tracking.
 
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
@@ -373,28 +375,50 @@ def _git(directory: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def _publish(publisher: Path, version: int, message: str) -> str:
+def _publish(publisher: Path, version: int, message: str, *, untrack: tuple[str, ...] = ()) -> str:
     (publisher / "pyproject.toml").write_text(
         f'[project]\nname = "narzedzie-syntetyczne"\nversion = "0.0.{version}"\n', encoding="utf-8"
     )
+    if untrack:
+        _git(publisher, "rm", "--cached", "--quiet", *untrack)
     _git(publisher, "add", "--all")
     _git(publisher, "commit", "--quiet", "--message", message)
     return _git(publisher, "rev-parse", "HEAD")
 
 
-def _tool_clone(root: Path) -> dict[str, str]:
-    """The run's tool: a clone on the first version and a local "origin" whose `main` is one version ahead."""
+# The tool's konfiguracja wykonawców: tracked in the first version with an example, untracked by the newest (#161).
+WORKER_MAPPING = "config/worker_mapping.yaml"
+# Dad's files in the clone's config/ after the first version: his konfiguracja wykonawców with synthetic
+# "real" names (a local change) and files Git never tracks (Ustawienia taty, the key to Zgłoszenia, a Wzorzec).
+DAD_FILES = {
+    WORKER_MAPPING: "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n",
+    "config/centrum-ustawienia.yaml": "folder_okresow: INEA\n",
+    "config/zgloszenia-klucz.txt": "klucz-syntetyczny\n",
+    "config/Wzorzec rozliczenia pracownika.xlsx": "wzorzec syntetyczny\n",
+}
+
+
+def _tool_clone(root: Path) -> dict[str, object]:
+    """The run's tool: a clone on the first version with Dad's files, and a local "origin" one version ahead.
+
+    The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
+    update after #161 on Dad's computer.
+    """
 
     tool = root / "aktualizacja"
     publisher, origin, clone = tool / "wydawca", tool / "origin.git", tool / "klon"
-    publisher.mkdir(parents=True)
+    (publisher / "config").mkdir(parents=True)
     _git(publisher, "init", "--quiet", "--initial-branch", "main")
+    (publisher / WORKER_MAPPING).write_text("schema_version: 1\nworkers:\n  przyklad: Przykład\n", encoding="utf-8")
     first = _publish(publisher, 1, "Pierwsza wersja narzędzia")
     _git(tool, "clone", "--quiet", "--bare", str(publisher), str(origin))
     _git(tool, "clone", "--quiet", str(origin), str(clone))
-    newest = _publish(publisher, 2, "Nowa wersja narzędzia")
+    for name, content in DAD_FILES.items():
+        (clone / name).write_text(content, encoding="utf-8")
+    (publisher / ".gitignore").write_text(f"{WORKER_MAPPING}\n", encoding="utf-8")
+    newest = _publish(publisher, 2, "Nowa wersja narzędzia", untrack=(WORKER_MAPPING,))
     _git(publisher, "push", "--quiet", str(origin), "main")
-    return {"clone": str(clone), "origin": str(origin), "first": first, "newest": newest}
+    return {"clone": str(clone), "origin": str(origin), "first": first, "newest": newest, "dad_files": DAD_FILES}
 
 
 def create(root: Path, variant: str | None = None) -> dict[str, object]:
@@ -427,7 +451,7 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
         # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
         "configuration": configuration,
         "workers": list(WORKERS),
-        # Aktualizacja narzędzia: the run's tool clone, its local "origin", and both commits
+        # Aktualizacja narzędzia: the run's tool clone, its local "origin", both commits, and Dad's files in the clone
         "tool": _tool_clone(root),
         # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
         "preparation": EXPECTED_PREPARATION,
