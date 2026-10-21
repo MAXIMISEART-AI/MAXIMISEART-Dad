@@ -1269,6 +1269,10 @@
             ],
             "title": "Next Action"
           },
+          "update_proposal": {
+            "type": "boolean",
+            "title": "Update Proposal"
+          },
           "checks": {
             "items": {
               "$ref": "#/components/schemas/DiagnosisCheck"
@@ -1286,11 +1290,12 @@
           "explanation",
           "confirms_stop",
           "next_action",
+          "update_proposal",
           "checks",
           "report"
         ],
         "title": "Diagnosis",
-        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle\n„Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam\nKomunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza."
+        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle\n„Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam\nKomunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.\n``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc\nDiagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem."
       },
       "DiagnosisCheck": {
         "properties": {

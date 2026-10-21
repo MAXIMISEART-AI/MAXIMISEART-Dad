@@ -214,6 +214,8 @@ export type DecisionAnswer = {
  * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
  * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
  * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+ * ``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc
+ * Diagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem.
  */
 export type Diagnosis = {
     explanation: Message;
@@ -225,6 +227,10 @@ export type Diagnosis = {
      * Next Action
      */
     next_action: 'rerun' | 'report';
+    /**
+     * Update Proposal
+     */
+    update_proposal: boolean;
     /**
      * Checks
      */

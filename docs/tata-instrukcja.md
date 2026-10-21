@@ -114,6 +114,11 @@ Gdy przyczyną jest sam komunikat zatrzymania, Centrum pisze tylko `Diagnoza
 potwierdza ten komunikat.` Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij
 `Uruchom ponownie`. Lista `Sprawdzono` pokazuje każde sprawdzenie Diagnozy.
 
+Nowsza wersja narzędzia jest wyjaśnieniem tylko wtedy, gdy Diagnoza nie
+znalazła innej przyczyny. Gdy znalazła, pod wyjaśnieniem jest tylko krótkie
+zdanie `Jest też nowsza wersja narzędzia.` Najpierw usuń przyczynę według
+wyjaśnienia; aktualizacja może poczekać.
+
 ### Wyjaśnienie Diagnozy → co zrobić
 
 Diagnoza wyjaśnia przyczynę komunikatem z tabel procesów (np. Rejestr zleceń

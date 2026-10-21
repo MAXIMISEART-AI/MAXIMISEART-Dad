@@ -416,11 +416,14 @@ export const zReportDraft = z.object({
  * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
  * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
  * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+ * ``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc
+ * Diagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem.
  */
 export const zDiagnosis = z.object({
     explanation: zMessage,
     confirms_stop: z.boolean(),
     next_action: z.enum(['rerun', 'report']),
+    update_proposal: z.boolean(),
     checks: z.array(zDiagnosisCheck),
     report: zReportDraft
 });
