@@ -79,7 +79,6 @@ def checkouts(tmp_path: Path) -> dict[str, Path]:
 def test_raport_wymienia_inna_prace_w_toku_i_pliki_zmieniane_tez_tutaj(checkouts: dict[str, Path]) -> None:
     sandbox = checkouts["other"].parent / "piaskownica"
     _git(checkouts["other"], "worktree", "add", "--detach", str(sandbox), "fix/opiekun")
-    (sandbox / "szkic.py").write_text("c = 3\n", encoding="utf-8")
 
     report = _report(checkouts["current"])
     work, _, overlaps = report.partition("NAKŁADANIA")
@@ -87,7 +86,7 @@ def test_raport_wymienia_inna_prace_w_toku_i_pliki_zmieniane_tez_tutaj(checkouts
     assert "fix/opiekun" in work
     assert str(checkouts["other"].resolve()) in work
     assert "t3/bez-pracy" not in report
-    assert "piaskownica" not in report  # odłączona kopia commitów gałęzi fix/opiekun
+    assert "piaskownica" not in report  # czysta odłączona kopia commitów gałęzi fix/opiekun
     overlap = next(line for line in overlaps.splitlines() if "fix/opiekun" in line)
     assert "wspolny.py" in overlap  # zacommitowany tam, niewypchnięty, i tutaj
     assert "szkic.py" in overlap  # niezacommitowany po obu stronach
@@ -154,3 +153,15 @@ def test_zly_ksztalt_tresci_zgloszenia_to_raport_bez_githuba(checkouts: dict[str
 
     assert report.count("GITHUB POMINIĘTY") == 1
     assert "fix/opiekun" in report  # praca lokalna nadal w raporcie
+
+
+def test_odlaczony_head_z_samym_merge_liczy_sie_z_niezacommitowanymi_plikami(checkouts: dict[str, Path]) -> None:
+    owner = checkouts["other"].parent / "wlasciciel-po-scaleniu"
+    _git(checkouts["other"], "worktree", "add", "--detach", str(owner), "main")
+    _git(owner, "merge", "--no-ff", "--no-edit", "fix/opiekun")
+    (owner / "inny.py").write_text("b = 4\n", encoding="utf-8")
+
+    lines = _report(checkouts["current"], "--nakladania").splitlines()
+
+    # inny.py niezacommitowany po obu stronach, wspolny.py z commita fix/opiekun, który niesie merge
+    assert f"- odłączony HEAD {owner.resolve()}: inny.py, wspolny.py" in lines
