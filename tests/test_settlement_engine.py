@@ -5,9 +5,10 @@ import shutil
 from pathlib import Path
 import time
 from collections.abc import Callable, Iterable
-from typing import cast
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell
+from openpyxl.styles import Border, Color, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 
@@ -26,7 +27,7 @@ from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import ExcelRow, Layout, WorkerSettlementTemplate, file_from_template
+from rozliczenia.workbook_files import DataRow, Layout, WorkerSettlementTemplate, file_from_template, read_data_rows
 from tests.fixtures.benchmark import SMALL_DATA_ROWS, WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
@@ -58,10 +59,8 @@ def overwrite_with_non_workbook(path: Path) -> None:
     path.write_bytes(b"uszkodzony")
 
 
-def terminal_text(error: StopError) -> str:
-    """Tekst, który terminal pokazuje po „Nie wykonano: ” dla tego zatrzymania."""
-
-    return "\n".join(error.message.terminal_lines)
+UNFIT_COLLECTIVE_FILE_PREFIX = "Plik zbiorczy nie nadaje się do Przebiegu rozliczeń."
+UNUSABLE_WORKER_TEMPLATE_PREFIX = "Nie można użyć Wzorca rozliczenia pracownika."
 
 
 def make_complete_run_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -208,6 +207,89 @@ def test_przebieg_rozliczen_na_syntetycznym_wzorcu_ksztaltu_taty_zapisuje_wiersz
         written_workbook.close()
 
 
+def style_cells(cells: dict[str, tuple[Font, PatternFill]]) -> Callable[[Path], None]:
+    def change(path: Path) -> None:
+        workbook = load_workbook(path)
+        try:
+            sheet = active_worksheet(workbook)
+            for coordinate, (font, fill) in cells.items():
+                sheet[coordinate].font = font
+                sheet[coordinate].fill = fill
+            workbook.save(path)
+        finally:
+            workbook.close()
+
+    return change
+
+
+def highlights(cell: Cell) -> tuple[object, ...]:
+    """Wyróżnienia komórki tak, jak widzi je tata: wypełnienie, kolor czcionki, pogrubienie, kursywa."""
+
+    fill = cell.fill
+    return (fill.fill_type, fill.fgColor if fill.fill_type else None, cell.font.color, bool(cell.font.b), bool(cell.font.i))
+
+
+def template_look(cell: Cell) -> tuple[object, ...]:
+    """Wygląd komórki, który zostaje z Wzorca: krój i rozmiar czcionki, obramowanie, format liczby."""
+
+    return (cell.font.name, cell.font.sz, cell.border.left.style, cell.number_format)
+
+
+def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego_i_czcionke_wzorca(
+    complete_run: tuple[Path, Path, Path, Path],
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
+    style_cells(
+        {
+            "B18": (
+                Font(name="Arial", sz=8, color="FFFF0000", b=True, i=True),
+                PatternFill(fill_type="solid", fgColor="FFFFFF00"),
+            ),
+            "N18": (Font(name="Arial", sz=8), PatternFill(fill_type="solid", fgColor=Color(theme=5, tint=0.4))),
+        }
+    )(source_path)
+    template_cell = (
+        Font(name="Times New Roman", sz=9, color="FF00AA55", b=True, i=True),
+        PatternFill(fill_type="solid", fgColor="FF0000FF"),
+    )
+    style_cells({"B18": template_cell, "A19": template_cell, "C18": template_cell})(worker_template_path)
+    workbook = load_workbook(worker_template_path)
+    try:
+        active_worksheet(workbook)["B18"].border = Border(left=Side(style="thin"))
+        active_worksheet(workbook)["B18"].number_format = "@"
+        workbook.save(worker_template_path)
+    finally:
+        workbook.close()
+    template_workbook = load_workbook(worker_template_path)
+    source_workbook = load_workbook(source_path)
+    try:
+        template = active_worksheet(template_workbook)
+        source = active_worksheet(source_workbook)
+        expected_template_looks = {cell: template_look(template[cell]) for cell in ("A19", "B18", "C18", "N18")}
+        # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego: wiersze 18 i 20.
+        expected_highlights = {
+            written: highlights(source[read]) for written, read in (("A19", "A20"), ("B18", "B18"), ("N18", "N18"))
+        }
+    finally:
+        template_workbook.close()
+        source_workbook.close()
+    assert expected_highlights["B18"] == ("solid", Color("FFFFFF00"), Color("FFFF0000"), True, True)
+    assert expected_highlights["A19"][:2] == (None, None)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.written_count == 2
+    written_workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx")
+    try:
+        written = active_worksheet(written_workbook)
+        assert {cell: highlights(written[cell]) for cell in expected_highlights} == expected_highlights
+        # Komórki C18 nie ma w Pliku zbiorczym: bez Wyróżnień.
+        assert highlights(written["C18"]) == (None, None, None, False, False)
+        assert {cell: template_look(written[cell]) for cell in expected_template_looks} == expected_template_looks
+    finally:
+        written_workbook.close()
+
+
 def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_openpyxl(tmp_path: Path) -> None:
     source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
     set_cell("K18", "=N18+1")(worker_template_path)
@@ -216,12 +298,8 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
     expected_directory = tmp_path / "przez-openpyxl"
     expected_directory.mkdir()
     adrian = f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
-    source_workbook = load_workbook(source_path)
-    try:
-        # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
-        adrian_rows = [cast(ExcelRow, worksheet_input_row(active_worksheet(source_workbook), row)) for row in (18, 20)]
-    finally:
-        source_workbook.close()
+    # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
+    adrian_rows = [row for row in read_data_rows(source_path) if row.number in (18, 20)]
     with file_from_template(worker_template_path, expected_directory / adrian, Layout.COLLECTIVE, recalculate=True) as sheet:
         sheet.write_data_rows(adrian_rows)
 
@@ -268,7 +346,7 @@ def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracown
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert "WYKONAWCA bez mapowania" in terminal_text(raised.value)
+    assert raised.value.message.code == "NIEZNANY_WYKONAWCA"
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -303,7 +381,10 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     with pytest.raises(StopError) as stop:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert terminal_text(stop.value) == UNREADABLE_SOURCE_MESSAGE
+    assert (stop.value.message.code, stop.value.message.what) == (
+        "ZLY_PLIK_ZBIORCZY",
+        f"{UNFIT_COLLECTIVE_FILE_PREFIX} {UNREADABLE_SOURCE_MESSAGE}",
+    )
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -318,7 +399,7 @@ def test_plik_zbiorczy_otwarty_w_excelu_zatrzymuje_przebieg_rozliczen_i_zostawia
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert stop.value.message.code == "PLIK_ZBIORCZY_OTWARTY"
-    assert terminal_text(stop.value) == f"Plik jest otwarty lub zablokowany: {source_path.name}"
+    assert stop.value.message.where == f"plik {source_path.name}, folder {PERIOD}"
     assert lock_file.read_bytes() == b"blokada Excela"
     assert source_path.read_bytes() == source_before
     assert not target_directory.exists()
@@ -338,7 +419,7 @@ def test_plik_zbiorczy_bez_wykonawca_w_h17_zatrzymuje_przebieg_rozliczen(tmp_pat
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert stop.value.message.code == "ZLY_PLIK_ZBIORCZY"
-    assert terminal_text(stop.value) == "W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H."
+    assert stop.value.message.what == f"{UNFIT_COLLECTIVE_FILE_PREFIX} W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H."
     assert not target_directory.exists()
 
 
@@ -351,7 +432,7 @@ def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(complete_r
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert "Folder docelowy już istnieje" in terminal_text(raised.value)
+    assert raised.value.message.code == "FOLDER_ROZLICZEN_ISTNIEJE"
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
 
 
@@ -418,7 +499,7 @@ def test_wzorzec_rozliczenia_pracownika_ktorego_nie_mozna_uzyc_zatrzymuje_sprawd
         run_settlements(source_path, config_path, dry_run=dry_run, worker_template_path=worker_template_path)
 
     assert raised.value.message.code == "ZLY_WZORZEC_PRACOWNIKA"
-    assert terminal_text(raised.value) == detail
+    assert raised.value.message.what == f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} {detail}"
     assert "SENSITIVE-SYNTHETIC" not in raised.value.message.text
     assert not target_directory.exists()
 
@@ -432,7 +513,7 @@ def test_wzorzec_rozliczenia_pracownika_spoza_formatow_skoroszytu_jest_nieczytel
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     assert raised.value.message.code == "ZLY_WZORZEC_PRACOWNIKA"
-    assert terminal_text(raised.value) == "Nie można odczytać Wzorca rozliczenia pracownika."
+    assert raised.value.message.what == f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} Nie można odczytać Wzorca rozliczenia pracownika."
     assert not target_directory.exists()
 
 
@@ -464,10 +545,10 @@ def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publika
 
 
 TEMPLATE_NOT_COPIED = (
-    "Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika; folder wynikowy nie został opublikowany."
+    "Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. Nie utworzono żadnego pliku pracownika."
 )
 FIRST_WORKER_FILE_FAILED = (
-    "Nie udało się przygotować skoroszytu pracownika Adrian Testowy; folder wynikowy nie został opublikowany."
+    "Nie udało się przygotować skoroszytu pracownika Adrian Testowy. Nie utworzono żadnego pliku pracownika."
 )
 
 
@@ -495,7 +576,7 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
         run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=damage_in_saving)
 
     assert raised.value.message.code == code
-    assert terminal_text(raised.value) == komunikat
+    assert raised.value.message.what == komunikat
     assert "SENSITIVE-SYNTHETIC" not in raised.value.message.text
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
@@ -531,7 +612,7 @@ def test_blad_odczytu_wzorca_rozliczenia_pracownika_z_dysku_wstrzymuje_publikacj
 
     assert raised.value.message.code == code
     if failing_phase is ProgressPhase.CHECKING:
-        assert terminal_text(raised.value) == "Nie można odczytać Wzorca rozliczenia pracownika."
+        assert raised.value.message.what == f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} Nie można odczytać Wzorca rozliczenia pracownika."
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -554,7 +635,7 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
-    assert "Adrian Testowy" in terminal_text(raised.value)
+    assert "Adrian Testowy" in raised.value.message.what
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
     assert sorted(path.name for path in target_directory.parent.iterdir()) == [SOURCE_NAME]
@@ -591,7 +672,8 @@ def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_plik
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert terminal_text(raised.value) == (
+    assert raised.value.message.what == (
+        f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} "
         "Nie znaleziono Wzorca rozliczenia pracownika: Wzorzec rozliczenia pracownika.xlsx. "
         "Zmień nazwę pliku placeholder.xlsx w tym samym folderze na „Wzorzec rozliczenia pracownika.xlsx”."
     )
@@ -617,7 +699,7 @@ def test_rozliczenie_wewnetrzne_albo_plik_zbiorczy_poza_folderem_okresu_zatrzymu
         run_settlements(source_path, tmp_path / "missing.yaml")
 
     assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
-    assert terminal_text(raised.value) == detail
+    assert raised.value.message.what == f"{UNFIT_COLLECTIVE_FILE_PREFIX} {detail}"
 
 
 def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozliczen(tmp_path: Path) -> None:
@@ -657,8 +739,13 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
     assert "syntetyczny" not in repr(recorded[0])
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [template_settlement.TemplateWriteError("synthetic failure"), RuntimeError("synthetic failure")],
+    ids=["blad-zapisu", "nieoczekiwany-blad"],
+)
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     original_process_template = template_settlement.process_template
@@ -669,12 +756,12 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         worker_name: str,
         template: WorkerSettlementTemplate,
         path: Path,
-        rows: Iterable[ExcelRow],
+        rows: Iterable[DataRow],
     ) -> WorkerResult:
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise template_settlement.TemplateWriteError("synthetic failure")
+            raise failure
         return original_process_template(worker_name, template, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
@@ -687,7 +774,8 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
             observer=recorded.append,
         )
 
-    assert "folder wynikowy nie został opublikowany" in terminal_text(raised.value)
+    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+    assert "Darek Fikcyjny" in raised.value.message.what
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -696,7 +784,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     assert isinstance(failed[0], WorkerFailed)
     assert failed[0].worker_name == "Darek Fikcyjny"
     assert failed[0].template_index == 2
-    assert all("syntetyczny" not in repr(event) and "#1" not in repr(event) for event in failed)
+    assert all("synthetic failure" not in repr(event) and "#1" not in repr(event) for event in failed)
     assert not any(
         isinstance(event, WorkerEnded) and event.worker_name == "Darek Fikcyjny" for event in recorded
     )
@@ -715,10 +803,10 @@ def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(t
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)
 
-    assert "Nie znaleziono pliku" in terminal_text(raised.value)
+    assert raised.value.message.code == "BRAK_PLIKU_ZBIORCZEGO"
     assert [type(event) for event in recorded] == [PhaseStarted, PhaseFailed]
     assert recorded[-1].phase is ProgressPhase.CHECKING
-    assert "Nie znaleziono pliku" not in repr(recorded[-1])
+    assert raised.value.message.what not in repr(recorded[-1])
 
 
 @pytest.mark.parametrize(
@@ -731,7 +819,7 @@ def test_progress_projection_accepts_whole_przebieg_rozliczen(
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=include_unmapped)
-    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+    projection = ProgressProjection()
 
     summary = run_settlements(
         source_path,
@@ -755,10 +843,10 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
-    projection = ProgressProjection("RUN", PERIOD)
+    projection = ProgressProjection()
     save_s = 0.05
 
-    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[DataRow]) -> WorkerResult:
         time.sleep(save_s)
         raise template_settlement.TemplateWriteError("synthetic failure")
 

@@ -126,7 +126,7 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
-    metrics = metrics_files or MetricsFiles.of_cli()
+    metrics = metrics_files or MetricsFiles.default()
     configuration = configuration_files or ConfigurationFiles.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)

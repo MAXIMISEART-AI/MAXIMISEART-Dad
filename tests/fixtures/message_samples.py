@@ -57,6 +57,7 @@ def _missing_worker_template_detail() -> str:
 
 # Każda fabryka katalogu z przykładowymi argumentami; warianty liczby pojedynczej i mnogiej osobno.
 PREPARATION_SAMPLES: Samples = {
+    "invalid_period_token": [lambda: messages.invalid_period_token("08_14_9_2026")],
     "period_file_exists": [lambda: messages.period_file_exists(PERIOD_DIRECTORY, f"Rozliczenie wew. {PERIOD}.xlsx")],
     "worker_config_problem": [
         lambda: messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
@@ -97,8 +98,9 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.rows_without_date(REGISTER, SHEET, [7, 9]),
     ],
     "invalid_successful_values": [
-        lambda: messages.invalid_successful_values(REGISTER, SHEET, [4]),
-        lambda: messages.invalid_successful_values(REGISTER, SHEET, [4, 6]),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [4], []),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [4, 5, 9], [messages.CellContent(6, "???")]),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [], [messages.CellContent(n, "tsk") for n in range(2, 14)]),
     ],
     "unknown_workers": [
         lambda: messages.unknown_workers(REGISTER, SHEET, CONFIG, [("nowy.wykonawca", [4])]),
@@ -113,7 +115,9 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],
     "incomplete_period_refused": [
-        lambda: messages.incomplete_period_refused(PERIOD, "przy pytaniu wpisz t"),
+        lambda: messages.incomplete_period_refused(
+            PERIOD, "uruchom proces w Centrum rozliczeń i przy decyzji wybierz „Kontynuuj”"
+        ),
         lambda: messages.incomplete_period_refused(PERIOD, "przy decyzji wybierz „Kontynuuj”"),
     ],
     "write_failed": [lambda: messages.write_failed(PERIOD_DIRECTORY)],

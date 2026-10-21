@@ -181,7 +181,8 @@ class PhaseDuration(_Model):
 class ProcessRun(_Model):
     """Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
 
-    ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+    ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
+    rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
     """
 
     process: ProcessKey
@@ -254,7 +255,7 @@ class PeriodChoice(_Model):
     monday: date
     status_label: str
     last_complete: bool
-    # W historii metryk jest udany podgląd bez zapisu tego procesu i okresu (z Centrum albo z ``.cmd``).
+    # W historii metryk jest udany podgląd bez zapisu tego procesu i okresu.
     previewed: bool
     # Nazwa Pliku zbiorczego okresu, gdy proces go czyta (Przebieg rozliczeń); tata go nie wskazuje.
     collective_file: str | None
@@ -326,7 +327,7 @@ class RunInfo(_Model):
 
 
 class Message(_Model):
-    """Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."""
+    """Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu."""
 
     what: str
     where: str
@@ -334,8 +335,6 @@ class Message(_Model):
 
     @classmethod
     def of(cls, message: ProcessMessage) -> Message:
-        """Tylko trzy części Komunikatu; ``terminal_line`` nie trafia do Centrum, bo może mieć pełną ścieżkę."""
-
         return cls(what=message.what, where=message.where, action=message.action)
 
 

@@ -1487,7 +1487,7 @@
           "action"
         ],
         "title": "Message",
-        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."
+        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu."
       },
       "Metrics": {
         "properties": {
@@ -2023,7 +2023,7 @@
           "origin"
         ],
         "title": "ProcessRun",
-        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń."
+        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło\nrekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn."
       },
       "ProcessSetup": {
         "properties": {

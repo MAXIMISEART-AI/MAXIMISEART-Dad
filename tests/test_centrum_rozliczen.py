@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -384,6 +384,30 @@ def test_ostatni_pelny_okres_jest_wyrozniony_takze_bez_folderu_okresu(tmp_path: 
         },
     }
     assert [row["last_complete"] for row in rows] == [True, False]
+
+
+def _around_boundary(before: str, crossing: str, after: str, crossing_monday: date) -> list[tuple[date, str]]:
+    week = timedelta(days=7)
+    return [
+        (crossing_monday, before),
+        *[(crossing_monday + timedelta(days=offset), crossing) for offset in range(1, 8)],
+        (crossing_monday + week + timedelta(days=1), after),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("today", "token"),
+    [
+        *[(date(2026, 9, 15) + timedelta(days=offset), "08_14_09_2026") for offset in range(7)],
+        # Na przełomie miesięcy i lat token ma miesiąc i rok poniedziałku.
+        *_around_boundary("20_26_10_2026", "27_02_11_2026", "03_09_11_2026", date(2026, 11, 2)),
+        *_around_boundary("22_28_12_2026", "29_04_01_2027", "05_11_01_2027", date(2027, 1, 4)),
+    ],
+)
+def test_ostatni_pelny_okres_konczy_sie_przed_dzisiejszym_dniem(tmp_path: Path, today: date, token: str) -> None:
+    app, _periods = with_periods_directory(tmp_path, today=today)
+
+    assert [row["token"] for row in board_rows(app) if row["last_complete"]] == [token]
 
 
 def test_istniejacy_folder_ostatniego_pelnego_okresu_nie_jest_powtorzony(tmp_path: Path) -> None:

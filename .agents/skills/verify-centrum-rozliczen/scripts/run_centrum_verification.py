@@ -89,7 +89,7 @@ REQUIRED_SCREENSHOTS = {
         "23-metryki-za-malo-obserwacji.png",
         "24-metryki-historia.png",
         "25-metryki-historia-filtry.png",
-        "26-metryki-nowy-rekord-z-cli.png",
+        "26-metryki-nowy-rekord-spoza-centrum.png",
         "27-metryki-pusty-stan.png",
         "28-metryki-wykres-szczegoly-ciemny.png",
         "29-metryki-wykres-szczegoly-jasny.png",

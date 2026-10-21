@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import json
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from rozliczenia import preparation_cli
 from tests.fixtures.centrum import Centrum, centrum
 
 PREPARATION_COUNTERS = {"period_orders": 3, "successful_orders": 2, "skipped_empty_rows": 1, "warnings": 0}
@@ -33,8 +31,6 @@ def record(
     total: int = 1000,
     phases: tuple[int, int, int, int] = (100, 200, 300, 400),
 ) -> dict[str, object]:
-    """Rekord w schemacie plików metryk CLI (``schema_version`` 1)."""
-
     return {
         "schema_version": 1,
         "started_at": started_at,
@@ -270,18 +266,12 @@ def test_rozklad_wynikow_z_ostatnich_osmiu_tygodni_obejmuje_oba_procesy(tmp_path
     assert recent == {"weeks": 8, "results": {"ok": 1, "needs_review": 1, "critical": 1}}
 
 
-def test_rekord_zapisany_przez_cli_pojawia_sie_bez_restartu_centrum(tmp_path: Path) -> None:
+def test_rekord_zapisany_spoza_centrum_pojawia_sie_bez_restartu_centrum(tmp_path: Path) -> None:
     app = centrum(tmp_path)
     assert metrics(app)["runs"] == []
-    missing_register = tmp_path / "brak.xlsx"
 
-    exit_code = preparation_cli.main(
-        ["--register", str(missing_register), "--periods-directory", str(tmp_path), "--period", "08_14_09_2026",
-         "--dry-run", "--metrics", str(app.metrics.preparation)],
-        output=StringIO(),
-    )
+    write_lines(app.metrics.preparation, preparation("2026-09-15T08:00:00+00:00", mode="DRY-RUN", result="BLAD_KRYTYCZNY"))
 
-    assert exit_code == 1
     [run] = runs_of(metrics(app))
     assert (run["process"], run["mode"], run["period"], run["result"], run["origin"]) == (
         "preparation",

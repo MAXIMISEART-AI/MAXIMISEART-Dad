@@ -14,9 +14,9 @@ Z syntetycznymi Wzorcami (bez Wzorców taty, jak w CI):
         --config .benchmark/syntetyczne-wzorce/worker_mapping.yaml --machine mac-m4max-syntetyczne
 
 ``measure`` buduje lustro folderów taty (albo używa istniejącego), uruchamia na nim
-Przebieg rozliczeń 3 razy jako osobny proces Pythona (``run.py --source``), sprawdza
-bramkę poprawności i dopisuje rekord pomiaru do dziennika JSONL w ``.benchmark/``
-(poza gitem). ``comment`` drukuje z dziennika komentarz Markdown do issue-dziennika
+Przebieg rozliczeń 3 razy jako osobny proces Pythona przez skrypt dla maszyn
+(``tools/uruchom_proces.py settlement``), sprawdza bramkę poprawności i dopisuje rekord
+pomiaru do dziennika JSONL w ``.benchmark/`` (poza gitem). ``comment`` drukuje z dziennika komentarz Markdown do issue-dziennika
 wspinaczki (spec #141); „przed” i „po” to zawsze ten sam scenariusz na tej samej maszynie.
 ``guard`` to straż czasu w CI: opisuje ostatni pomiar dziennika w Markdown i kończy się
 kodem 1 tylko wtedy, gdy mediana czasu ściany przekracza budżet.
@@ -26,24 +26,24 @@ referencyjnych (``--reference-dir`` ``reference`` → ``reference.lock``): pomia
 wspólnym folderem, np. oficjalne pomiary z kilku worktree, nigdy nie biegną naraz. Drugi
 pomiar czeka i mówi o tym na stderr.
 
-``freeze`` zamraża wynik referencyjny scenariusza z dowolnego commita: buduje ten
-commit w tymczasowym worktree gita poza repozytorium, uruchamia jego Przebieg
+``freeze`` zamraża wynik referencyjny scenariusza z commita, który ma skrypt dla maszyn:
+buduje ten commit w tymczasowym worktree gita poza repozytorium, uruchamia jego Przebieg
 rozliczeń raz na tym samym lustrze i zapisuje Folder rozliczeń pracowników, liczniki i
-wyjście terminala w ``.benchmark/reference/<lustro>-wzorzec-<odcisk>/<commit>/``, gdzie
+wynik JSON skryptu w ``.benchmark/reference/<lustro>-wzorzec-<odcisk>/<commit>/``, gdzie
 odcisk to skrót Wzorca rozliczenia pracownika: lustro od niego nie zależy, a wynik
 zamrożony z jednym Wzorcem nie może być porównany z pomiarem na innym (pomiar z
 ``--reference`` bez pasującego wyniku kończy się błędem). Bramka poprawności w
 ``measure`` porównuje z nim Folder rozliczeń pracowników ostatniego uruchomienia
-(``tools/porownanie_rozliczen.py``), liczniki i Komunikaty. Kody Komunikatów nie
-wychodzą poza proces (nie pokazuje ich ani terminal, ani rekord metryk), więc
-Komunikaty są porównywane jako linie terminala (Komunikaty, podsumowanie i postęp, z
-czasami zastąpionymi przez ``<N> ms``): treść Komunikatu wyznacza jego kod, więc ta
-sama linia to ten sam kod. Rekord i komentarz mają tylko liczbę różnic w kategorii.
+(``tools/porownanie_rozliczen.py``), liczniki, kody Komunikatów (ostrzeżenia i
+Zatrzymanie) i podsumowanie z karty Uruchomienia z wyniku JSON. Rekord i komentarz mają
+tylko liczbę różnic w kategorii. Wyniki referencyjne sprzed przejścia benchmarku na
+skrypt mają linie terminala zamiast wyniku JSON: trzeba je zamrozić od nowa, a pomiar z
+takim wynikiem kończy się błędem z poleceniem ponownego zamrożenia.
 
 Lustro to ``Załączniki/Rozliczenia 2026/10_Październik_2026/INEA/06_12_10_2026`` z
-Plikiem zbiorczym, który Przygotowanie pliku zbiorczego (``run_preparation.py``)
-tworzy z deterministycznego, syntetycznego Rejestru zleceń. Wykonawcy pochodzą z
-Konfiguracji wykonawców; adresy i numery są fikcyjne. Potem benchmark wpisuje w każdy
+Plikiem zbiorczym, który Przygotowanie pliku zbiorczego (``tools/uruchom_proces.py
+preparation``) tworzy z deterministycznego, syntetycznego Rejestru zleceń. Wykonawcy
+pochodzą z Konfiguracji wykonawców; adresy i numery są fikcyjne. Potem benchmark wpisuje w każdy
 Wiersz danych Pliku zbiorczego syntetyczne ilości w ``N:AP``, a w część z nich
 obciążenia i uwagi w ``AQ:AT``, tak jak tata przed Przebiegiem. Plik zbiorczy lustra to
 więc wynik Przygotowania pliku zbiorczego (dane wejściowe ``A:K``) plus syntetyczne wpisy
@@ -56,10 +56,10 @@ Tak samo domyślna Konfiguracja wykonawców (``--config``): prawdziwy
 głównym.
 
 Czas ściany każdego uruchomienia dzieli się na trzy części: start procesu (od uruchomienia
-procesu Pythona do startu silnika: interpreter, importy, argumenty, ustalenie wejścia;
+procesu Pythona do startu silnika: interpreter, importy, argumenty, wejście procesu;
 koniec to ``started_at`` rekordu metryk procesu), ``Czas uruchomienia`` (silnik, z rekordu
-metryk) i zakończenie procesu (reszta: podsumowanie, rekord metryk, P50/P95, wyjście z
-interpretera). Proces nie mierzy niczego dodatkowo, więc tata widzi to samo co dotąd.
+metryk) i zakończenie procesu (reszta: rekord metryk, wynik JSON, wyjście z interpretera).
+Proces nie mierzy niczego dodatkowo.
 Rekordy dziennika sprzed tego podziału nie mają pól startu i zakończenia; komentarz
 pokazuje dla nich „—”.
 

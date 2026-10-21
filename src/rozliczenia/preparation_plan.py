@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import preparation_messages as messages
 from .message import Message, StopError
-from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterRow, RegisterSheet
+from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterRow, RegisterSheet, is_blank
 from .settlement_period import SettlementPeriod
 from .worker_config import normalize_text
 
@@ -85,13 +85,7 @@ def plan_period_orders(
     undated_between = [row for row in undated_rows if first_row < row < last_row]
     if undated_between:
         raise StopError(messages.rows_without_date(register_path, register.name, undated_between))
-    invalid_successful = [
-        order.row_number
-        for order in orders
-        if normalize_text(order.row.value(SUCCESSFUL)) not in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE)
-    ]
-    if invalid_successful:
-        raise StopError(messages.invalid_successful_values(register_path, register.name, invalid_successful))
+    _check_successful_values(register_path, register, orders)
     unknown_workers = _unknown_workers(orders, worker_mapping)
     if unknown_workers:
         raise StopError(messages.unknown_workers(register_path, register.name, config_path, unknown_workers))
@@ -120,6 +114,27 @@ def _order_date(value: object) -> datetime | None:
 def _in_period(row: RegisterRow, period: SettlementPeriod) -> bool:
     started = _order_date(row.value(DATE))
     return started is not None and period.start <= started < period.end
+
+
+def _check_successful_values(register_path: Path, register: RegisterSheet, orders: Sequence[PeriodOrder]) -> None:
+    """Zatrzymanie, gdy zlecenie okresu nie ma ``tak`` ani ``nie`` w ``SKUTECZNE``: puste komórki i inne wartości."""
+
+    empty_rows: list[int] = []
+    other_values: list[messages.CellContent] = []
+    for order in orders:
+        value = order.row.value(SUCCESSFUL)
+        if normalize_text(value) in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE):
+            continue
+        if is_blank(value):
+            empty_rows.append(order.row_number)
+        else:
+            other_values.append(messages.CellContent(order.row_number, value))
+    if empty_rows or other_values:
+        raise StopError(
+            messages.invalid_successful_values(
+                register_path, register.name, register.column_letter(SUCCESSFUL), empty_rows, other_values
+            )
+        )
 
 
 def _period_sheet(register_path: Path, sheets: Sequence[RegisterSheet], period: SettlementPeriod) -> RegisterSheet:

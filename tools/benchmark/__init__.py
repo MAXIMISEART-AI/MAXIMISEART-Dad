@@ -1,4 +1,4 @@
-"""Benchmark Przebiegu rozliczeń za CLI ``tools/benchmark_przebiegu.py``.
+"""Benchmark Przebiegu rozliczeń za poleceniem ``tools/benchmark_przebiegu.py``.
 
 - ``lustro``: lustro folderów taty dla scenariusza (Rejestr zleceń, Przygotowanie pliku
   zbiorczego, wpisy taty w ``N:AT``),
@@ -19,6 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DIRECTORY = ROOT / ".benchmark"
+SCRIPT = Path("tools", "uruchom_proces.py")
 sys.path.insert(0, str(ROOT / "src"))
 
 

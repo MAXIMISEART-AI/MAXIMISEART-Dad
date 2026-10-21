@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from io import StringIO
+from datetime import datetime, timedelta
 import itertools
 import json
 from pathlib import Path
@@ -11,7 +11,7 @@ from typing import Any, NoReturn
 
 import pytest
 
-from rozliczenia import collective_preparation, preparation_cli, preparation_process, preparation_register
+from rozliczenia import collective_preparation, preparation_process, preparation_register
 from rozliczenia.telemetry import MetricsStore, metric_record
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.metrics import MetricsFiles
@@ -177,7 +177,6 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
             ),
         }
     ]
-    assert "wpisz t" not in json.dumps(result, ensure_ascii=False)
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["result"], record["phase_durations_ms"]["Zapisywanie"]) == ("BLAD_KRYTYCZNY", 0)
@@ -499,34 +498,20 @@ def test_uruchomienie_z_obcej_strony_jest_odrzucone(tmp_path: Path) -> None:
     assert list(centrum.fixture.periods_directory.iterdir()) == []
 
 
-def test_centrum_dopisuje_rekord_do_pliku_metryk_cli_w_jego_schemacie_i_rozpoznaje_swoje_uruchomienia(tmp_path: Path) -> None:
+def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruchomienia(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     centrum.start(dry_run=True)
     finished_view(centrum.client)
-    fixture = centrum.fixture
+    store = MetricsStore(centrum.metrics_path, preparation_process.PROCESS.counter_names)
+    [own] = store.read()
+    later = (datetime.fromisoformat(own["started_at"]) + timedelta(seconds=1)).isoformat()
 
-    cli_exit_code = preparation_cli.main(
-        [
-            "--register", str(fixture.register_path),
-            "--periods-directory", str(fixture.periods_directory),
-            "--period", PERIOD,
-            "--config", str(fixture.config_path),
-            "--internal-template", str(fixture.internal_template_path),
-            "--collective-template", str(fixture.collective_template_path),
-            "--metrics", str(centrum.metrics_path),
-            "--dry-run",
-        ],
-        output=StringIO(),
-    )
-    records = MetricsStore(centrum.metrics_path, preparation_process.PROCESS.counter_names).read()
+    store.append({**own, "started_at": later})
     history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert MetricsFiles.of_cli().preparation == preparation_process.default_metrics_path()
-    assert cli_exit_code == 0
+    assert MetricsFiles.default().preparation == preparation_process.default_metrics_path()
+    assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
     assert [(run["origin"], run["mode"]) for run in history] == [("cmd", "DRY-RUN"), ("centrum", "DRY-RUN")]
-    assert [(record["mode"], record["result"]) for record in records] == [("DRY-RUN", "OK"), ("DRY-RUN", "OK")]
-    assert records[0].keys() == records[1].keys()
-    assert records[0]["counters"] == records[1]["counters"]
 
 
 def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(

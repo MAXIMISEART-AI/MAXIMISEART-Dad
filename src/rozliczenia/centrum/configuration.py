@@ -38,8 +38,6 @@ class ConfigurationFiles:
 
     @classmethod
     def default(cls) -> ConfigurationFiles:
-        """Te same pliki w katalogu konfiguracji, których domyślnie używa CLI."""
-
         return cls(
             worker_config=default_config_path(),
             internal_template=default_internal_template_path(),

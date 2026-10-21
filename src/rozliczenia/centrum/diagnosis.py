@@ -321,7 +321,7 @@ def _period_folder(computer: _Computer, label: str) -> list[CheckResult]:
     if folder is None:
         return [CheckResult.not_checked(label, "Folderu okresów nie ma na miejscu.")]
     if isinstance(folder, PeriodFolderLookupError):
-        # Komunikat Przebiegu rozliczeń o odszukaniu jest tylko terminalowy (w Centrum start wymaga Folderu okresu),
+        # Przebieg rozliczeń nie ma Komunikatu o odszukaniu (w Centrum start wymaga Folderu okresu),
         # więc oba procesy wyjaśniają Komunikatem Przygotowania: założyć albo zostawić jeden Folder okresu.
         return [CheckResult.failed(label, preparation_messages.period_folder_lookup_problem(folder))]
     if computer.process == "settlement" and not folder.collective_file.is_file():

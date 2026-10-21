@@ -6,7 +6,7 @@ której wiersze cytują faktyczną treść „Co się stało”. Jeden zestaw sp
 obejmuje każdy katalog: nowy katalog dostaje wszystkie sprawdzenia, gdy tylko
 trafi do ``CATALOGS``. Zmiana treści Komunikatu bez poprawki instrukcji psuje
 test. Cytaty z punktów sekcji „Gdy pojawi się problem” Przebiegu rozliczeń
-też muszą odpowiadać treści Komunikatu: „Co się stało” albo linii terminala.
+też muszą odpowiadać „Co się stało” Komunikatu.
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ FULL_PATH = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]|(?<![:\\/])(?:\\\\|//)[^\\/
 class Catalog:
     """Katalog Komunikatów, jego sekcja w instrukcji i próbki każdej fabryki.
 
-    ``terminal_only`` to fabryki, których Komunikatu tata nie widzi poza
-    terminalem, więc instrukcja ich nie cytuje. ``hidden_folders`` to foldery
+    ``outside_centrum`` to fabryki, których Komunikatu Centrum rozliczeń nigdy
+    nie pokazuje, więc instrukcja ich nie cytuje. ``hidden_folders`` to foldery
     ze ścieżek próbek leżące wyżej niż folder nadrzędny wskazywanego pliku albo
     folderu; trzy części Komunikatu ich nie pokazują.
     """
@@ -55,7 +55,7 @@ class Catalog:
     module: ModuleType
     section: str
     samples: Samples
-    terminal_only: frozenset[str] = frozenset()
+    outside_centrum: frozenset[str] = frozenset()
     hidden_folders: frozenset[str] = ABOVE_CONFIG
 
     def factories(self) -> set[str]:
@@ -68,6 +68,11 @@ class Catalog:
     def messages(self) -> list[Message]:
         return [sample() for samples in self.samples.values() for sample in samples]
 
+    def shown_messages(self) -> list[Message]:
+        return [
+            sample() for name, samples in self.samples.items() if name not in self.outside_centrum for sample in samples
+        ]
+
 
 CATALOGS = {
     # Folder Dane i folder okresów INEA legalnie widać jako folder nadrzędny Rejestru zleceń i folderu okresu.
@@ -75,19 +80,13 @@ CATALOGS = {
         messages,
         "### Komunikat → co zrobić",
         PREPARATION_SAMPLES,
-        # Tylko CLI: w Centrum Rejestr zleceń i folder okresów są w Ustawieniach, a okres wybiera się z listy.
-        terminal_only=frozenset(
-            {"register_not_selected", "periods_directory_not_selected", "period_not_entered", "invalid_period_token"}
-        ),
+        # Centrum przyjmuje tylko okres z kalendarza okresów; zły token zgłasza silnik tylko skryptowi dla maszyn.
+        outside_centrum=frozenset({"invalid_period_token"}),
     ),
     "przebieg-rozliczen": Catalog(
         settlement_messages,
         "### Komunikat w Centrum rozliczeń → co zrobić",
         SETTLEMENT_SAMPLES,
-        # Tylko terminal: w Centrum Plik zbiorczy wynika z okresu, więc okna wyboru pliku nie ma.
-        terminal_only=frozenset(
-            {"collective_file_not_selected", "period_not_entered", "invalid_period_token", "period_folder_lookup_problem"}
-        ),
         # Przebieg wskazuje najwyżej folder okresu, więc folderów nad nim nie widać.
         hidden_folders=ABOVE_CONFIG | {"Dane", "INEA"},
     ),
@@ -144,14 +143,14 @@ def _instruction_fragments(section: str) -> list[str]:
 
 @each_catalog
 def test_probki_pokrywaja_kazda_fabryke_katalogu(catalog: Catalog) -> None:
-    assert set(catalog.samples) | catalog.terminal_only == catalog.factories()
+    assert set(catalog.samples) == catalog.factories()
 
 
 @each_catalog
 def test_instrukcja_taty_objasnia_kazdy_komunikat_katalogu(catalog: Catalog) -> None:
     fragments = _instruction_fragments(catalog.section)
     unexplained = sorted(
-        {message.code for message in catalog.messages() if not any(f in message.what for f in fragments)}
+        {message.code for message in catalog.shown_messages() if not any(f in message.what for f in fragments)}
     )
 
     assert unexplained == []
@@ -160,7 +159,7 @@ def test_instrukcja_taty_objasnia_kazdy_komunikat_katalogu(catalog: Catalog) -> 
 @each_catalog
 def test_kazdy_cytat_instrukcji_wskazuje_dokladnie_jeden_kod(catalog: Catalog) -> None:
     codes_per_fragment = {
-        fragment: {message.code for message in catalog.messages() if fragment in message.what}
+        fragment: {message.code for message in catalog.shown_messages() if fragment in message.what}
         for fragment in _instruction_fragments(catalog.section)
     }
 
@@ -177,19 +176,14 @@ def test_kazdy_kod_katalogu_ma_dokladnie_jeden_cytat_instrukcji(catalog: Catalog
 
     fragments = _instruction_fragments(catalog.section)
     fragments_per_code: dict[str, set[str]] = {}
-    for message in catalog.messages():
+    for message in catalog.shown_messages():
         fragments_per_code.setdefault(message.code, set()).update(f for f in fragments if f in message.what)
 
     assert {code: found for code, found in fragments_per_code.items() if len(found) != 1} == {}
 
 
 def test_cytaty_sekcji_gdy_pojawi_sie_problem_odpowiadaja_komunikatom_przebiegu_rozliczen() -> None:
-    texts = [
-        text
-        for message in CATALOGS["przebieg-rozliczen"].messages()
-        for text in (message.what, message.terminal_line)
-        if text is not None
-    ]
+    texts = [message.what for message in CATALOGS["przebieg-rozliczen"].messages()]
     quotes = _settlement_problem_quotes()
 
     assert quotes

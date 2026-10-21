@@ -1,4 +1,4 @@
-"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest i frontend, przed zgłoszeniem gotowości.
+"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations i frontend, przed zgłoszeniem gotowości.
 
 Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: jego ``.venv``,
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
@@ -54,12 +54,24 @@ def _steps() -> list[Step]:
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy")),
         # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
         Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32")),
-        Step("pytest", "pytest", "-m pytest", (python, "-m", "pytest", "-q")),
+        Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto")),
         Step(
             "mutacje publikacji",
-            "pytest",
+            "mutations",
             "check_mutations.py",
             (python, ".agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py"),
+        ),
+        Step(
+            "mutacje jednego Uruchomienia naraz",
+            "mutations",
+            "check_runs_mutations.py",
+            (python, ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py"),
+        ),
+        Step(
+            "mutacje kopii Wzorca",
+            "mutations",
+            "verify-kopia-wzorca/scripts/check_copy_mutations.py",
+            (python, ".agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py"),
         ),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), FRONTEND),
         *(
