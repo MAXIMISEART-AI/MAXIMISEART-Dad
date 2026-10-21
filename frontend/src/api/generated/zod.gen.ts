@@ -399,7 +399,7 @@ export const zReadyPath = z.object({
  * Powiadomienie o naprawie na stronie Okresy.
  *
  * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
- * działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+ * działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
  */
 export const zRepairNotice = z.object({
     repaired: z.boolean()

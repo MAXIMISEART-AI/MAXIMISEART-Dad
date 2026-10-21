@@ -2233,7 +2233,7 @@
           "repaired"
         ],
         "title": "RepairNotice",
-        "description": "Powiadomienie o naprawie na stronie Okresy.\n\n``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal\ndziała na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”)."
+        "description": "Powiadomienie o naprawie na stronie Okresy.\n\n``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal\ndziała na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”)."
       },
       "ReportDraft": {
         "properties": {
