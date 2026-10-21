@@ -10,6 +10,7 @@ evidence.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -148,7 +149,7 @@ def _check_machine_lock(errors: list[str]) -> None:
         with machine().measurement():
             cases["a run waits for a measurement in progress"] = not held(machine().run())
             cases["a second measurement waits for the first"] = not held(machine().measurement())
-        cases["a measurement waits for pytest or a benchmark"] = not held(machine(["pytest"]).measurement())
+        cases["a measurement waits for pytest"] = not held(machine(["pytest"]).measurement())
         cases["a run does not wait for pytest"] = held(machine(["pytest"]).run())
         polled = threading.Event()
 
@@ -162,6 +163,17 @@ def _check_machine_lock(errors: list[str]) -> None:
         polled.wait(timeout=1)
         cases["a run does not wait for a measurement that waits for a quiet CPU"] = held(machine().run())
         measuring.join()
+        late_run = directory / "run-late.pid"
+
+        def run_registers_after_first_look() -> list[str]:
+            late_run.write_text(str(os.getpid()), encoding="utf-8")
+            return []
+
+        racing = QuietMachine(
+            directory, timeout_s=0.3, poll_s=0.05, busy_processes=run_registers_after_first_look, report_every_s=None
+        )
+        cases["a measurement backs off when a run registers as it takes the lock"] = not held(racing.measurement())
+        late_run.unlink()
         (directory / "pomiar.lock").write_text(str(dead_pid), encoding="utf-8")
         (directory / f"run-{dead_pid}.pid").write_text(str(dead_pid), encoding="utf-8")
         cases["locks of a process that died are taken over"] = held(machine().measurement())
