@@ -21,8 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 PAGES = {"okresy": "Okresy", "uruchomienia": "Uruchomienia", "metryki": "Metryki", "konfiguracja": "Konfiguracja"}
 # Dad's computer runs on Polish time; dates in Centrum are shown in the browser's time zone.
 DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
-# The period the CLI step names: the fixture's last complete period, without a Folder okresu.
-LAST_COMPLETE_FOR_CLI = "06_12_10_2026"
+# The fixture's last complete period, without a Folder okresu.
+LAST_COMPLETE = "06_12_10_2026"
 # The fixture puts this marker in every synthetic workbook row; it must never reach the Centrum log.
 ROW_MARKER = "CENTRUM-SYN-ROW"
 # Dad double-clicks out of habit and double-taps the touch screen: the second click comes within milliseconds,
@@ -146,10 +146,10 @@ def history_rows(page: Page) -> Locator:
 
 
 def period_files(run: Run) -> list[Path]:
-    folder = Path(run.fixture["periods_directory"]) / LAST_COMPLETE_FOR_CLI
+    folder = Path(run.fixture["periods_directory"]) / LAST_COMPLETE
     return [
-        folder / f"Rozliczenie wew. {LAST_COMPLETE_FOR_CLI}.xlsx",
-        folder / f"Rozliczenie {LAST_COMPLETE_FOR_CLI} - zbiorcze.xlsx",
+        folder / f"Rozliczenie wew. {LAST_COMPLETE}.xlsx",
+        folder / f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx",
     ]
 
 

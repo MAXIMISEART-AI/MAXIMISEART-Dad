@@ -60,6 +60,12 @@ def _steps() -> list[Step]:
             (python, ".agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py"),
         ),
         Step(
+            "mutacje jednego Uruchomienia naraz",
+            "mutations",
+            "check_runs_mutations.py",
+            (python, ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py"),
+        ),
+        Step(
             "mutacje kopii Wzorca",
             "mutations",
             "verify-kopia-wzorca/scripts/check_copy_mutations.py",

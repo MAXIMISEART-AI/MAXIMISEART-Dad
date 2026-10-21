@@ -40,7 +40,7 @@ Preconditions:
 
 ## Gotchas
 
-- A missing mapping is a dry-run warning, but the real run does not publish an incomplete roster. A data row with an empty `WYKONAWCA` blocks the real run the same way (`BRAK_WYKONAWCY`).
+- A missing mapping is a dry-run warning (`BRAK_MAPOWANIA`), but the real run stops with `NIEZNANY_WYKONAWCA` and does not publish an incomplete roster. A data row with an empty `WYKONAWCA` is the dry-run warning `BRAK_WYKONAWCY` and stops the real run the same way, with `WIERSZE_BEZ_WYKONAWCY`.
 - A lock is represented by the exact `~$` filename; do not kill Excel or delete a user-owned lock as cleanup.
 - Workbooks are always copied from the common Wzorzec rozliczenia pracownika, not reused from a previous period.
 - Safety variants are independent fixtures; do not stack them unless the expected result is explicitly recalculated.

@@ -31,8 +31,6 @@ def record(
     total: int = 1000,
     phases: tuple[int, int, int, int] = (100, 200, 300, 400),
 ) -> dict[str, object]:
-    """Rekord w schemacie plików metryk CLI (``schema_version`` 1)."""
-
     return {
         "schema_version": 1,
         "started_at": started_at,

@@ -394,7 +394,7 @@ def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
 ) -> None:
     fixture = make_preparation_fixture(tmp_path, [register_order(1, datetime(2026, 9, 13, 23, 59))])
     recorded: list[ProgressEvent] = []
-    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+    projection = ProgressProjection()
 
     def recording_observer(event: ProgressEvent) -> None:
         recorded.append(event)
@@ -414,7 +414,7 @@ def test_progress_projection_accepts_przygotowanie_pliku_zbiorczego_interrupted_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    projection = ProgressProjection("RUN", PERIOD)
+    projection = ProgressProjection()
     save_s = 0.05
 
     def fail_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
@@ -459,7 +459,7 @@ def test_failing_observer_is_detached_and_does_not_change_result_or_files(tmp_pa
     def failing_observer(event: ProgressEvent) -> None:
         nonlocal calls
         calls += 1
-        raise RuntimeError("awaria terminala")
+        raise RuntimeError("awaria podglądu")
 
     summary = run_preparation(fixture, observer=failing_observer)
 
@@ -873,6 +873,27 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
     created = cell_values(fixture.collective_file_path, min_row=18, max_row=26, min_col=1, max_col=14)
     assert [row[5] for row in created] == [f"ZL-SYN-{number:03d}" for number in range(1, 9)] + [None]
     assert [row[13] for row in created] == [0] * COLLECTIVE_TEMPLATE_ZERO_ROWS + [None] * 3
+
+
+def test_jedno_zlecenie_skuteczne_ponad_wiersze_z_zerami_ostrzega_o_jednym_wierszu(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 14, 8, number))
+        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture)
+
+    assert [(warning.code, warning.text) for warning in summary.warnings] == [
+        (
+            "MALO_WIERSZY_Z_ZERAMI",
+            "Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
+            "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
+            f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersz 24\n"
+            "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
+            "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.",
+        )
+    ]
 
 
 def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_path: Path) -> None:

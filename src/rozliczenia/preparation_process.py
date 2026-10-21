@@ -1,9 +1,7 @@
 """Przygotowanie pliku zbiorczego dla Uruchomienia procesu: wejście procesu, wywołanie silnika i fakty zakończenia.
 
-Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy: CLI
-(``preparation_cli``) i Centrum rozliczeń podają gotowe ``PreparationInputs``
-do ``run_process``, więc liczby, ostrzeżenia, Komunikaty i rekord metryk są te
-same.
+Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy, więc liczby,
+ostrzeżenia, Komunikaty i rekord metryk są te same.
 """
 
 from __future__ import annotations
@@ -36,10 +34,7 @@ def default_metrics_path() -> Path:
 
 @dataclass(frozen=True)
 class PreparationInputs:
-    """Wejście procesu Przygotowania pliku zbiorczego, niezależne od argumentów CLI.
-
-    Konfiguracja wykonawców i oba wzorce mają te same domyślne ścieżki co CLI.
-    """
+    """Wejście procesu Przygotowania pliku zbiorczego, gotowe przed startem silnika."""
 
     register_path: Path
     periods_directory: Path
@@ -79,8 +74,6 @@ def _finished(summary: PreparationSummary) -> Finished:
 
 PROCESS: Process[PreparationInputs, PreparationSummary] = Process(
     name="Przygotowanie pliku zbiorczego",
-    title="Przygotowanie pliku zbiorczego",
-    shows_templates=False,
     counter_names=_COUNTERS,
     metrics_path=default_metrics_path,
     metrics_failure_tail="Przygotowanie pliku zbiorczego zakończyło się niezależnie.",

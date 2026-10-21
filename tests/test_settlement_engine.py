@@ -739,8 +739,13 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
     assert "syntetyczny" not in repr(recorded[0])
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [template_settlement.TemplateWriteError("synthetic failure"), RuntimeError("synthetic failure")],
+    ids=["blad-zapisu", "nieoczekiwany-blad"],
+)
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     original_process_template = template_settlement.process_template
@@ -756,7 +761,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise template_settlement.TemplateWriteError("synthetic failure")
+            raise failure
         return original_process_template(worker_name, template, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
@@ -779,7 +784,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     assert isinstance(failed[0], WorkerFailed)
     assert failed[0].worker_name == "Darek Fikcyjny"
     assert failed[0].template_index == 2
-    assert all("syntetyczny" not in repr(event) and "#1" not in repr(event) for event in failed)
+    assert all("synthetic failure" not in repr(event) and "#1" not in repr(event) for event in failed)
     assert not any(
         isinstance(event, WorkerEnded) and event.worker_name == "Darek Fikcyjny" for event in recorded
     )
@@ -814,7 +819,7 @@ def test_progress_projection_accepts_whole_przebieg_rozliczen(
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=include_unmapped)
-    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+    projection = ProgressProjection()
 
     summary = run_settlements(
         source_path,
@@ -838,7 +843,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
-    projection = ProgressProjection("RUN", PERIOD)
+    projection = ProgressProjection()
     save_s = 0.05
 
     def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[DataRow]) -> WorkerResult:

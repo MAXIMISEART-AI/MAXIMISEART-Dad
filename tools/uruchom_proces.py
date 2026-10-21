@@ -30,7 +30,7 @@ Na stdout trafia jeden obiekt JSON (UTF-8, ``ProcessResult``):
 - ``notices``: ostrzeżenia rdzenia (niezapisane metryki, odłączony podgląd);
 - ``metrics_saved``: rekord metryk trafił do pliku metryk.
 
-JSON nie zawiera tekstu wyjątku, śladu wywołań ani linii terminala.
+JSON nie zawiera tekstu wyjątku ani śladu wywołań.
 
 Kod wyjścia to ``Outcome.exit_code``: 0 OK, 2 Wymaga sprawdzenia, 1 Zatrzymanie.
 Błędne argumenty też kończą się kodem 1, bez JSON, z opisem użycia na stderr,
@@ -55,7 +55,6 @@ from rozliczenia.centrum import contract, run_view  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.decision import Decision  # noqa: E402
-from rozliczenia.domain import ProgressEvent  # noqa: E402
 from rozliczenia.message import Message  # noqa: E402
 from rozliczenia.preparation_process import PreparationInputs  # noqa: E402
 from rozliczenia.process_run import Finished, Process, ProcessInputs, run_process  # noqa: E402
@@ -108,10 +107,10 @@ class _Unattended:
     def confirm(self, decision: Decision) -> bool:
         return False
 
-    def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
+    def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
-    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
     def stop_progress(self) -> None:
@@ -177,7 +176,7 @@ class _Parser(argparse.ArgumentParser):
 
 def _parser() -> argparse.ArgumentParser:
     files = ConfigurationFiles.default()
-    metrics = MetricsFiles.of_cli()
+    metrics = MetricsFiles.default()
     parser = _Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     processes = parser.add_subparsers(required=True, metavar="PROCES")
 

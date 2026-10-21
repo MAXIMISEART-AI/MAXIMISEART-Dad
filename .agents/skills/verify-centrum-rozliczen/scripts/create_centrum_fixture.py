@@ -3,7 +3,7 @@
 The configuration directory holds what Konfiguracja reads: a synthetic konfiguracja
 wykonawców and the three Wzorce, valid for the engine's Sprawdzanie. Centrum's
 settings file is written there too, as in Dad's ``config/``. The metrics files
-hold a synthetic history in the CLI's schema for Metryki.
+hold a synthetic history in the metrics schema for Metryki.
 
 The Rejestr zleceń holds orders of the last complete period ``06_12_10_2026``
 whose last order is on Saturday, so a RUN of Przygotowanie pliku zbiorczego
@@ -55,7 +55,7 @@ SETTLEMENT_COUNTERS = {
     "skipped": 0,
     "issues": 0,
 }
-# Synthetic history in the CLI's metrics schema (schema_version 1), as the CLI writes it:
+# Synthetic history in the metrics schema (schema_version 1), as the core writes it:
 # (started_at UTC, mode, period, result, phase times in ms; the total is their sum).
 MetricRun = tuple[str, str, str, str, tuple[int, int, int, int]]
 PREPARATION_RUNS: tuple[MetricRun, ...] = (
@@ -219,7 +219,7 @@ def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object
 
 
 def _metrics(root: Path) -> dict[str, object]:
-    """Both metrics files with a valid history and one record each that the CLI's reader skips."""
+    """Both metrics files with a valid history and one record each that the metrics reader skips."""
 
     metrics = root / "metrics"
     metrics.mkdir()
@@ -302,7 +302,7 @@ def _year_of_work(root: Path, metrics: dict[str, object]) -> dict[str, object]:
 
     Every period before LAST_COMPLETE has its Rozliczenia pracowników of ``YEAR_WORKERS``; LAST_COMPLETE
     has only its two period files, as on Monday before Przebieg rozliczeń. The records go before the
-    existing ones, so each file still ends with the record the CLI's reader skips.
+    existing ones, so each file still ends with the record the metrics reader skips.
     """
 
     attachments = root / "Rok pracy" / "Załączniki"

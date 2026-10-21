@@ -1,13 +1,13 @@
 """Uruchomienia procesu z Centrum rozliczeń: jedno naraz, w wątku roboczym, z podglądem przez SSE.
 
-Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i trzecim
-adapterem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
-procesu: proces podaje gotowe ``PreparedRun`` (opis procesu z CLI, wejście
+Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i
+podglądem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
+procesu: proces podaje gotowe ``PreparedRun`` (opis procesu, wejście
 procesu, plik metryk i widok Uruchomienia procesu z ``run_view``), a moduł
 prowadzi z nim rdzeń i publikuje widoki dla przeglądarki. Widok podsumowania robi rdzeń
 w swojej osłonie, więc jego awaria to błąd po silniku z Komunikatem z katalogu
 procesu, ten sam wynik co w metrykach. Zatrzymania, ostrzeżenia i decyzja taty
-przechodzą jako komunikaty w trzech częściach, bez linii terminala.
+przechodzą jako Komunikaty w trzech częściach.
 
 Każda zmiana stanu to nowy niemutowalny widok (``contract.RunView``) z kolejnym
 numerem. Strumień SSE wysyła najpierw bieżący widok, potem każdy kolejny, więc
@@ -45,7 +45,6 @@ from rozliczenia.process_run import (
     Stop,
     run_process,
 )
-from rozliczenia.domain import ProgressEvent
 from rozliczenia.progress import ProgressProjection, ProgressSnapshot
 from rozliczenia.telemetry import MetricsStore
 
@@ -67,7 +66,7 @@ SummaryT = TypeVar("SummaryT")
 
 @dataclass(frozen=True)
 class PreparedRun(Generic[InputsT, SummaryT]):
-    """Uruchomienie procesu gotowe do startu: ten sam opis procesu co w CLI i wejście procesu z ustawień.
+    """Uruchomienie procesu gotowe do startu.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
     """
@@ -280,7 +279,7 @@ class _Run:
             dry_run=prepared.dry_run,
             confirms_readiness=prepared.view.confirms_readiness,
         )
-        self._progress = prepared.progress_view(ProgressProjection(_mode(prepared.dry_run), prepared.period).snapshot)
+        self._progress = prepared.progress_view(ProgressProjection().snapshot)
         self._stale = False
         self._decided = threading.Event()
         self._consent = False
@@ -348,13 +347,13 @@ class _Run:
         self._decided.wait()
         return self._consent
 
-    # Podgląd postępu (trzeci adapter projekcji). Każde powiadomienie odświeża widok
+    # Podgląd postępu. Każde powiadomienie odświeża widok
     # na żywo; przeglądarka dostaje nowy widok tylko wtedy, gdy zmieniło się to, co pokazuje.
 
-    def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
+    def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
-    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
     def stop_progress(self) -> None:
