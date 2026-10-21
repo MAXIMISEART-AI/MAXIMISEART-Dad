@@ -3,6 +3,8 @@
 Jedna operacja, ``ToolClone.update``, robi to, co Maks zrobiłby ręcznie
 (ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` ze
 stałego adresu publicznego repozytorium i przesuwa klon tylko do przodu.
+Pliki taty w ``config/``, które nowa wersja usuwa albo przestaje śledzić,
+zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``).
 Wynik to kod (``UPDATED``, ``UP_TO_DATE`` albo kod Komunikatu porażki) z
 commitem przed i po; treść Komunikatów należy do Centrum
 (``update_messages``).
@@ -19,7 +21,8 @@ jego kopii sprzed aktualizacji, bez bibliotek narzędzia.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -153,11 +156,13 @@ class ToolClone:
         after = run.text("rev-parse", _FETCHED)
         if after == before:
             return UpdateResult(UP_TO_DATE, before, after)
-        if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset()):
+        dad_files = _DadFiles.leaving(run, _FETCHED)
+        if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
             return UpdateResult(LOCAL_CHANGES, before, None)
-        # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
-        if run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode != 0:
-            return UpdateResult(LOCAL_CHANGES, before, None)
+        with dad_files.set_aside(run, backup):
+            # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
+            if run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode != 0:
+                return UpdateResult(LOCAL_CHANGES, before, None)
         return UpdateResult(UPDATED, before, after)
 
 
@@ -172,6 +177,48 @@ def _changed_tracked_files(run: _Git, *, keep: frozenset[str]) -> bool:
 
     entries = run.entries("status", "--porcelain=v1", "-z", "--untracked-files=no", "--no-renames")
     return any(entry[3:] not in keep for entry in entries)
+
+
+@dataclass(frozen=True)
+class _DadFiles:
+    """Pliki taty w ``config/``, które przesunięcie klonu usunęłoby: nowa wersja je usuwa albo przestaje śledzić.
+
+    Tata może je mieć zmienione (Konfiguracja wykonawców z prawdziwymi
+    nazwiskami po #161); te zmiany nie zatrzymują Aktualizacji narzędzia.
+    Przed przesunięciem trafiają do kopii i wracają do stanu z ``HEAD``, żeby
+    Git nie odmówił; po przesunięciu (udanym albo nie) wraca ich kopia. Inne
+    pliki taty (Wzorce, Ustawienia taty, klucz do Zgłoszeń, dziennik, metryki)
+    Git zostawia sam, bo ich nie śledzi.
+    """
+
+    names: tuple[str, ...]
+
+    @classmethod
+    def leaving(cls, git: _Git, fetched: str) -> _DadFiles:
+        """Pliki ``config/`` śledzone w ``HEAD``, których nie ma w ``fetched``, a które tata ma u siebie."""
+
+        listed = git.output(
+            "diff", "--name-only", "-z", "--no-renames", "--diff-filter=D", "HEAD", fetched, "--", "config/"
+        )
+        return cls(tuple(name for name in listed.split("\0") if name and (git.root / name).is_file()))
+
+    @contextmanager
+    def set_aside(self, git: _Git, backup: Path) -> Iterator[None]:
+        """Kopiuje pliki do ``backup`` i przywraca im treść z ``HEAD``; po bloku (udanym albo nie) wgrywa kopie z powrotem."""
+
+        for name in self.names:
+            copy = backup / name
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(git.root / name, copy)
+        try:
+            if self.names:
+                git.check("checkout", "HEAD", "--", *(f":(literal){name}" for name in self.names))
+            yield
+        finally:
+            for name in self.names:
+                target = git.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(backup / name, target)
 
 
 @dataclass(frozen=True)
@@ -212,12 +259,12 @@ class _Git:
             raise GitFailed(args[0])
 
     def text(self, *args: str) -> str:
-        return self._output(*args).strip()
+        return self.output(*args).strip()
 
     def entries(self, *args: str) -> list[str]:
         """Wpisy wyjścia rozdzielone znakiem NUL (``-z``), bez ostatniego pustego."""
 
-        return [entry for entry in self._output(*args).split("\0") if entry]
+        return [entry for entry in self.output(*args).split("\0") if entry]
 
     def branch(self) -> str | None:
         """Gałąź, na której stoi klon; ``None``, gdy stoi na commicie bez gałęzi."""
@@ -225,7 +272,7 @@ class _Git:
         result = self.run("symbolic-ref", "--quiet", "--short", "HEAD")
         return result.stdout.strip() if result.returncode == 0 else None
 
-    def _output(self, *args: str) -> str:
+    def output(self, *args: str) -> str:
         result = self.run(*args)
         if result.returncode != 0:
             raise GitFailed(args[0])

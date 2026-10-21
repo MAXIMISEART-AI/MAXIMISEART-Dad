@@ -18,6 +18,7 @@ import pytest
 from rozliczenia.centrum.tool_update import ToolClone, UpdateResult, find_git
 
 from tests.fixtures.tool_clone import (
+    FIRST_VERSION,
     ToolRepository,
     origin_asking_for_login,
     tool_repository,
@@ -226,3 +227,96 @@ def test_wpis_w_rejestrze_bez_gita_na_dysku_to_brak_gita(tmp_path: Path) -> None
     )
 
     assert found is None
+
+
+REAL_NAMES = "schema_version: 1\nworkers:\n  jan: Jan Kowalski\n"
+RATES = "stawki:\n  przyklad: 10\n"
+
+
+def test_konfiguracja_wykonawcow_ktorej_nowa_wersja_nie_sledzi_zostaje_z_prawdziwymi_nazwiskami(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    newest = repository.publish({".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",))
+
+    result = update(repository, tmp_path)
+
+    assert (result.code, result.after) == ("ok", newest)
+    assert repository.head() == newest
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+
+
+@pytest.mark.parametrize(
+    "new_version",
+    [
+        {"config/stawki.yaml": None},
+        {"config/stawki.yaml": None, "config/stawki-wykonawcow.yaml": RATES},
+    ],
+    ids=["usuniety", "przeniesiony"],
+)
+def test_plik_konfiguracji_usuniety_w_nowej_wersji_zostaje_u_taty(
+    tmp_path: Path, new_version: dict[str, str | None]
+) -> None:
+    repository = tool_repository(tmp_path / "repozytoria", {**FIRST_VERSION, "config/stawki.yaml": RATES})
+    newest = repository.publish(new_version)
+
+    result = update(repository, tmp_path)
+
+    assert (result.code, repository.head()) == ("ok", newest)
+    assert repository.read("config/stawki.yaml") == RATES
+
+
+# Pliki taty, których Git nie śledzi: Wzorce, Ustawienia taty, klucz do Zgłoszeń, metryki i dziennik.
+UNTRACKED_DAD_FILES = {
+    "config/Wzorzec rozliczenia pracownika.xlsx": "wzorzec pracownika",
+    "config/Wzorzec pliku zbiorczego.xlsx": "wzorzec zbiorczy",
+    "config/Wzorzec rozliczenia wewnętrznego.xlsx": "wzorzec wewnętrzny",
+    "config/centrum-ustawienia.yaml": "folder_okresow: Załączniki\n",
+    "config/zgloszenia-klucz.txt": "klucz-syntetyczny\n",
+    ".rozliczenia-metrics.jsonl": '{"przebieg": 1}\n',
+    ".przygotowanie-pliku-zbiorczego-metrics.jsonl": '{"przygotowanie": 1}\n',
+    "logs/centrum-rozliczen.log": "2026-10-21T10:00:00 start\n",
+}
+
+
+def test_aktualizacja_nie_dotyka_wzorcow_ustawien_klucza_metryk_dziennika_ani_plikow_okresow(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    for name, content in UNTRACKED_DAD_FILES.items():
+        (repository.clone / name).parent.mkdir(parents=True, exist_ok=True)
+        (repository.clone / name).write_text(content, encoding="utf-8")
+    period_file = tmp_path / "Załączniki" / "06_12_10_2026" / "Plik zbiorczy.xlsx"
+    period_file.parent.mkdir(parents=True)
+    period_file.write_text("plik okresu", encoding="utf-8")
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    untouched = [period_file, *(repository.clone / name for name in UNTRACKED_DAD_FILES)]
+    modified = {path: path.stat().st_mtime_ns for path in untouched}
+    repository.publish({".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",))
+
+    assert update(repository, tmp_path).code == "ok"
+
+    assert {name: repository.read(name) for name in UNTRACKED_DAD_FILES} == UNTRACKED_DAD_FILES
+    assert period_file.read_text(encoding="utf-8") == "plik okresu"
+    assert {path: path.stat().st_mtime_ns for path in untouched} == modified
+
+
+def test_odmowa_przesuniecia_zostawia_pliki_taty_i_klon_bez_zmian(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    (repository.clone / "config" / "rejestr.yaml").write_text("zachowany u taty\n", encoding="utf-8")
+    repository.publish(
+        {".gitignore": "config/worker_mapping.yaml\n", "config/rejestr.yaml": "z nowej wersji\n"},
+        untrack=("config/worker_mapping.yaml",),
+    )
+
+    result = update(repository, tmp_path)
+
+    assert result == UpdateResult("ZMIANY_NA_KOMPUTERZE", before=before, after=None)
+    assert repository.head() == before
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+    assert repository.read("config/rejestr.yaml") == "zachowany u taty\n"
+    assert repository.in_clone("status", "--porcelain", "--branch").splitlines() == [
+        "## main...origin/main [behind 1]",
+        " M config/worker_mapping.yaml",
+        "?? config/rejestr.yaml",
+    ]
