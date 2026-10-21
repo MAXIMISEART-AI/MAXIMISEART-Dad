@@ -10,9 +10,11 @@ tylko w chmurze OneDrive. Instrukcja taty cytuje „Co się stało” każdego K
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 from rozliczenia.message import Message, file_label
 
+NEWER_TOOL_VERSION: Final = "NOWSZA_WERSJA_NARZEDZIA"
 _DIAGNOSIS = "Diagnoza w Centrum rozliczeń"
 
 
@@ -31,10 +33,10 @@ def newer_tool_version() -> Message:
     """Commit narzędzia u taty różni się od `main` na GitHubie: poprawka mogła już trafić do narzędzia."""
 
     return Message(
-        code="NOWSZA_WERSJA_NARZEDZIA",
+        code=NEWER_TOOL_VERSION,
         what="Jest nowsza wersja narzędzia.",
         where="narzędzie na tym komputerze",
-        action="Zaktualizuj narzędzie, zamknij Centrum rozliczeń i otwórz je ponownie skrótem, potem uruchom ponownie.",
+        action="Kliknij „Zaktualizuj narzędzie”. Gdy karta Centrum sama się odświeży, uruchom proces ponownie.",
     )
 
 
