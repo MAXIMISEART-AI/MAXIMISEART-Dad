@@ -37,7 +37,7 @@ from rozliczenia import preparation_cli
 from rozliczenia.domain import Issue, SettlementSummary, WorkerResult
 import rozliczenia.engine as settlement_engine
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
+from rozliczenia.workbook_files import DataRow, WorkerSettlementTemplate
 
 from tests.fixtures.preparation import incomplete_period_fixture, make_preparation_fixture
 from tests.fixtures.settlement import append_completed_records, make_fixture, make_preview_fixture
@@ -127,7 +127,7 @@ def _settlement_worker_file_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     calls = 0
 
     def fail_on_second_template(
-        worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[ExcelRow]
+        worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[DataRow]
     ) -> WorkerResult:
         nonlocal calls
         calls += 1

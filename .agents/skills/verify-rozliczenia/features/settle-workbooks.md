@@ -8,6 +8,7 @@ workbook, and leaves a worker with no rows empty.
 
 - `settle-map` maps each `WYKONAWCA` identifier, compared without case, extra spaces, or non-breaking spaces, to its configured worker name, which names the workbook.
 - `settle-copy` writes source values into `A:AT` starting at row 18.
+- `settle-highlights` gives every written `A:AT` cell the Wyróżnienia of its Plik zbiorczy cell (fill, font color, bold, italic); font face and size, number format, and borders stay from the Wzorzec rozliczenia pracownika. A source cell without Wyróżnienia clears them, as Przygotowanie does from the Rejestr.
 - `settle-preserve` keeps the template `AU` formulas and structure.
 - `settle-empty` leaves a mapped worker with no rows as `PUSTY_SZABLON`.
 - `settle-roster` creates exactly one workbook for every configured worker.
@@ -34,5 +35,6 @@ Preconditions:
 - The configured shared Wzorzec rozliczenia pracownika is copied into each new workbook and is
   never modified. The final output folder appears only after all files are ready.
 - The proof must inspect formulas with `data_only=False`; cached formula results are not the template-preservation proof.
+- The default fixture's Plik zbiorczy has no Wyróżnienia, so `settle-highlights` is proven by `chain` (`highlights_equal_plik_zbiorczy=A:AT`), whose Plik zbiorczy carries the Rejestr's highlighted cells and the Wzorzec pliku zbiorczego's fills. When comparing looks with openpyxl, take the set of cells in the file right after loading: `iter_rows` on a full workbook adds the missing cells, which then show the default font instead of no Wyróżnienia.
 - An unmapped WYKONAWCA stops the real run before creating the output folder;
   verify that path with `--variant unmapped` under the safety-gates feature.

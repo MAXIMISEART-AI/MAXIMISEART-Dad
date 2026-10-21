@@ -21,7 +21,7 @@ from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner, elapsed_ms_since
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import ExcelRow, Problem, WorkbookError, WorkerSettlementTemplate
+from .workbook_files import DataRow, Problem, WorkbookError, WorkerSettlementTemplate
 from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
 
 
@@ -43,30 +43,30 @@ def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
     return StopError(settlement_messages.collective_file_unreadable(source_path))
 
 
-def _read_source_rows(source_path: Path) -> tuple[dict[str, list[ExcelRow]], list[Issue]]:
-    """Czyta Wiersze danych Pliku zbiorczego i grupuje je po identyfikatorze WYKONAWCA."""
+def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Issue]]:
+    """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA."""
 
     try:
         data_rows, issues = collective_file.read_data_rows(source_path)
     except WorkbookError as error:
         raise _collective_file_stop(source_path, error) from error
-    rows_by_worker: defaultdict[str, list[ExcelRow]] = defaultdict(list)
+    rows_by_worker: defaultdict[str, list[DataRow]] = defaultdict(list)
     for row in data_rows:
-        rows_by_worker[normalize_text(row.worker)].append(row.values)
+        rows_by_worker[normalize_text(row.worker)].append(row)
     return dict(rows_by_worker), issues
 
 
 def _plan_rows(
     source_path: Path,
     mapping: dict[str, str],
-    rows_by_worker: dict[str, list[ExcelRow]],
+    rows_by_worker: dict[str, list[DataRow]],
     source_issues: list[Issue],
     *,
     dry_run: bool,
-) -> tuple[dict[str, list[ExcelRow]], list[Issue]]:
+) -> tuple[dict[str, list[DataRow]], list[Issue]]:
     """Przypisuje Wiersze danych do nazw z Konfiguracji wykonawców; przy zapisie każdy problem zatrzymuje."""
 
-    rows_by_target: defaultdict[str, list[ExcelRow]] = defaultdict(list)
+    rows_by_target: defaultdict[str, list[DataRow]] = defaultdict(list)
     issues: list[Issue] = []
     for source_worker, rows in rows_by_worker.items():
         target_name = mapping.get(source_worker)

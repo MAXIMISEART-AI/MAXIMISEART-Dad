@@ -8,7 +8,7 @@ from typing import Iterable, Literal
 from .domain import WorkerResult
 from .workbook_files import (
     WORKER_HEADER,
-    ExcelRow,
+    DataRow,
     Problem,
     WorkbookError,
     WorkbookSaveError,
@@ -79,7 +79,7 @@ def process_template(
     worker_name: str,
     template: WorkerSettlementTemplate,
     target_path: Path,
-    rows: Iterable[ExcelRow],
+    rows: Iterable[DataRow],
 ) -> WorkerResult:
     """Tworzy z Wzorca jeden Szablon pracownika z jego Wierszami danych i zwraca jego bezpieczny wynik.
 

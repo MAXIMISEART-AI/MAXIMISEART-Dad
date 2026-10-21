@@ -1,9 +1,9 @@
 """Skoroszyty na dysku: otwarcie z jedną klasyfikacją uszkodzeń, układ arkusza i plik z Wzorca.
 
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
-zbiorczy (``read_data_rows``), Rejestr zleceń (``read_workbook``, z formatem
-komórek), Wzorce do Sprawdzania i dla Przygotowania pliku zbiorczego
-(``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
+zbiorczy (``read_data_rows``, z Wyróżnieniami komórek), Rejestr zleceń
+(``read_workbook``, z formatem komórek), Wzorce do Sprawdzania i dla
+Przygotowania pliku zbiorczego (``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
 pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
 pracowników (``WorkerSettlementTemplate``). Otwarcie
 sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
@@ -27,6 +27,7 @@ import zipfile
 import zlib
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -49,6 +50,7 @@ from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
+from .highlights import Highlights
 from .input_rows import rows_with_input
 from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
 
@@ -175,11 +177,13 @@ class Layout(Enum):
 
 @dataclass(frozen=True)
 class DataRow:
-    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA i wartości A:AT."""
+    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA, wartości A:AT i ich Wyróżnienia."""
 
     number: int
     worker: _ExcelCellValue
     values: ExcelRow
+    highlights: tuple[Highlights, ...]
+    """Wyróżnienia komórek A:AT, po pozycji jak ``values``."""
 
 
 @dataclass(frozen=True)
@@ -269,7 +273,7 @@ def _check_worker_header(path: Path, header: Sequence[object]) -> None:
 
 
 def read_data_rows(path: Path) -> list[DataRow]:
-    """Wiersze danych Pliku zbiorczego w kolejności z pliku; plik jest tylko czytany.
+    """Wiersze danych Pliku zbiorczego z Wyróżnieniami komórek w kolejności z pliku; plik jest tylko czytany.
 
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
     nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem.
@@ -296,16 +300,36 @@ def read_data_rows(path: Path) -> list[DataRow]:
         _check_worker_header(path, header)
         with _unreadable_as_error(path):
             max_column = max(DATA_ROW_COLUMNS[-1], sheet.max_column)
-        sheet_rows = list(_classified(path, sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=max_column, values_only=True)))
+        rows: list[DataRow] = []
+        last_column = DATA_ROW_COLUMNS[-1]
+        highlights = _HighlightsReader()
+        for number, cells in enumerate(
+            _classified(path, sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=max_column)), start=FIRST_DATA_ROW
+        ):
+            values = tuple(cell.value for cell in cells[:last_column])
+            if all(value is None for value in values[: _INPUT_COLUMNS[-1]]):
+                continue
+            with _unreadable_as_error(path):
+                row_highlights = tuple(highlights.of(cell) for cell in cells[:last_column])
+            rows.append(DataRow(number, values[_WORKER_COLUMN - 1], values, row_highlights))
     finally:
         workbook.close()
+    return rows
 
-    last_column = DATA_ROW_COLUMNS[-1]
-    return [
-        DataRow(number, values[_WORKER_COLUMN - 1], tuple(values[:last_column]))
-        for number, values in enumerate(sheet_rows, start=FIRST_DATA_ROW)
-        if any(value is not None for value in values[: _INPUT_COLUMNS[-1]])
-    ]
+
+class _HighlightsReader:
+    """Wyróżnienia komórek jednego odczytu; komórki o tej samej czcionce i wypełnieniu dzielą jeden obiekt."""
+
+    def __init__(self) -> None:
+        self._known: dict[tuple[int, int], Highlights] = {}
+
+    def of(self, cell: object) -> Highlights:
+        font, fill = getattr(cell, "font", None), getattr(cell, "fill", None)
+        key = (id(font), id(fill))
+        found = self._known.get(key)
+        if found is None:
+            found = self._known[key] = Highlights.of(font, fill)
+        return found
 
 
 class ReadSheet:
@@ -431,12 +455,18 @@ class TemplateSheet:
             count += 1
         return count
 
-    def write_data_rows(self, rows: Sequence[ExcelRow]) -> None:
-        """Wpisuje Wiersze danych po pozycji kolumn A:AT od pierwszego Wiersza danych."""
+    def write_data_rows(self, rows: Sequence[DataRow]) -> None:
+        """Wpisuje Wiersze danych z ich Wyróżnieniami po pozycji kolumn A:AT od pierwszego Wiersza danych.
 
-        for index, values in enumerate(rows):
-            for column, value in zip(DATA_ROW_COLUMNS, values):
-                self.worksheet.cell(self.data_row(index), column).value = value
+        Krój i rozmiar czcionki, format liczby, obramowanie, wyrównanie i ochrona zostają z komórki Wzorca.
+        """
+
+        for index, row in enumerate(rows):
+            for column, value, highlights in zip(DATA_ROW_COLUMNS, row.values, row.highlights, strict=True):
+                cell = self.worksheet.cell(self.data_row(index), column)
+                cell.value = value
+                cell.font = highlights.font_over(cast(Font, copy(cell.font)))
+                cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
 
 
 def _is_value(cell: Cell | MergedCell) -> bool:
@@ -514,13 +544,13 @@ class WorkerSettlementTemplate:
             sheet = _template_sheet(self._path, workbook, Layout.COLLECTIVE)
             _check_settlement_template(self._path, sheet.header(), sheet.has_input_data())
 
-    def create_settlement(self, target: Path, rows: Sequence[ExcelRow]) -> None:
+    def create_settlement(self, target: Path, rows: Sequence[DataRow]) -> None:
         """Tworzy atomowo pod ``target`` Rozliczenie pracownika z ``rows`` jako Wierszami danych.
 
-        Wiersze danych są wpisywane po pozycji kolumn A:AT od wiersza 18;
-        formuły (także wspólne), ``calcChain``, formatowanie i
-        ``xl/externalLinks/*`` zostają z Wzorca, a Excel przeliczy formuły przy
-        otwarciu.
+        Wiersze danych są wpisywane z Wyróżnieniami po pozycji kolumn A:AT od
+        wiersza 18; formuły (także wspólne), ``calcChain``, pozostałe
+        formatowanie i ``xl/externalLinks/*`` zostają z Wzorca, a Excel
+        przeliczy formuły przy otwarciu.
 
         Wzorca, którego nie da się użyć, nie maskuje wynik: ``WorkbookError``
         (brak, otwarty w Excelu, nieczytelny, bez WYKONAWCA w H17 albo z danymi
@@ -579,7 +609,7 @@ class WorkerSettlementTemplate:
         finally:
             workbook.close()
 
-    def _create_with_openpyxl(self, target: Path, rows: Sequence[ExcelRow]) -> None:
+    def _create_with_openpyxl(self, target: Path, rows: Sequence[DataRow]) -> None:
         with self._openpyxl_workbook() as workbook:
             sheet = _template_sheet(self._path, workbook, Layout.COLLECTIVE)
             _check_settlement_template(self._path, sheet.header(), sheet.has_input_data())

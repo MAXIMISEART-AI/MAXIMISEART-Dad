@@ -5,9 +5,10 @@ import shutil
 from pathlib import Path
 import time
 from collections.abc import Callable, Iterable
-from typing import cast
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell
+from openpyxl.styles import Border, Color, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 
@@ -26,7 +27,7 @@ from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import ExcelRow, Layout, WorkerSettlementTemplate, file_from_template
+from rozliczenia.workbook_files import DataRow, Layout, WorkerSettlementTemplate, file_from_template, read_data_rows
 from tests.fixtures.benchmark import SMALL_DATA_ROWS, WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
@@ -206,6 +207,89 @@ def test_przebieg_rozliczen_na_syntetycznym_wzorcu_ksztaltu_taty_zapisuje_wiersz
         written_workbook.close()
 
 
+def style_cells(cells: dict[str, tuple[Font, PatternFill]]) -> Callable[[Path], None]:
+    def change(path: Path) -> None:
+        workbook = load_workbook(path)
+        try:
+            sheet = active_worksheet(workbook)
+            for coordinate, (font, fill) in cells.items():
+                sheet[coordinate].font = font
+                sheet[coordinate].fill = fill
+            workbook.save(path)
+        finally:
+            workbook.close()
+
+    return change
+
+
+def highlights(cell: Cell) -> tuple[object, ...]:
+    """Wyróżnienia komórki tak, jak widzi je tata: wypełnienie, kolor czcionki, pogrubienie, kursywa."""
+
+    fill = cell.fill
+    return (fill.fill_type, fill.fgColor if fill.fill_type else None, cell.font.color, bool(cell.font.b), bool(cell.font.i))
+
+
+def template_look(cell: Cell) -> tuple[object, ...]:
+    """Wygląd komórki, który zostaje z Wzorca: krój i rozmiar czcionki, obramowanie, format liczby."""
+
+    return (cell.font.name, cell.font.sz, cell.border.left.style, cell.number_format)
+
+
+def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego_i_czcionke_wzorca(
+    complete_run: tuple[Path, Path, Path, Path],
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
+    style_cells(
+        {
+            "B18": (
+                Font(name="Arial", sz=8, color="FFFF0000", b=True, i=True),
+                PatternFill(fill_type="solid", fgColor="FFFFFF00"),
+            ),
+            "N18": (Font(name="Arial", sz=8), PatternFill(fill_type="solid", fgColor=Color(theme=5, tint=0.4))),
+        }
+    )(source_path)
+    template_cell = (
+        Font(name="Times New Roman", sz=9, color="FF00AA55", b=True, i=True),
+        PatternFill(fill_type="solid", fgColor="FF0000FF"),
+    )
+    style_cells({"B18": template_cell, "A19": template_cell, "C18": template_cell})(worker_template_path)
+    workbook = load_workbook(worker_template_path)
+    try:
+        active_worksheet(workbook)["B18"].border = Border(left=Side(style="thin"))
+        active_worksheet(workbook)["B18"].number_format = "@"
+        workbook.save(worker_template_path)
+    finally:
+        workbook.close()
+    template_workbook = load_workbook(worker_template_path)
+    source_workbook = load_workbook(source_path)
+    try:
+        template = active_worksheet(template_workbook)
+        source = active_worksheet(source_workbook)
+        expected_template_looks = {cell: template_look(template[cell]) for cell in ("A19", "B18", "C18", "N18")}
+        # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego: wiersze 18 i 20.
+        expected_highlights = {
+            written: highlights(source[read]) for written, read in (("A19", "A20"), ("B18", "B18"), ("N18", "N18"))
+        }
+    finally:
+        template_workbook.close()
+        source_workbook.close()
+    assert expected_highlights["B18"] == ("solid", Color("FFFFFF00"), Color("FFFF0000"), True, True)
+    assert expected_highlights["A19"][:2] == (None, None)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.written_count == 2
+    written_workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx")
+    try:
+        written = active_worksheet(written_workbook)
+        assert {cell: highlights(written[cell]) for cell in expected_highlights} == expected_highlights
+        # Komórki C18 nie ma w Pliku zbiorczym: bez Wyróżnień.
+        assert highlights(written["C18"]) == (None, None, None, False, False)
+        assert {cell: template_look(written[cell]) for cell in expected_template_looks} == expected_template_looks
+    finally:
+        written_workbook.close()
+
+
 def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_openpyxl(tmp_path: Path) -> None:
     source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
     set_cell("K18", "=N18+1")(worker_template_path)
@@ -214,12 +298,8 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
     expected_directory = tmp_path / "przez-openpyxl"
     expected_directory.mkdir()
     adrian = f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
-    source_workbook = load_workbook(source_path)
-    try:
-        # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
-        adrian_rows = [cast(ExcelRow, worksheet_input_row(active_worksheet(source_workbook), row)) for row in (18, 20)]
-    finally:
-        source_workbook.close()
+    # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
+    adrian_rows = [row for row in read_data_rows(source_path) if row.number in (18, 20)]
     with file_from_template(worker_template_path, expected_directory / adrian, Layout.COLLECTIVE, recalculate=True) as sheet:
         sheet.write_data_rows(adrian_rows)
 
@@ -671,7 +751,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         worker_name: str,
         template: WorkerSettlementTemplate,
         path: Path,
-        rows: Iterable[ExcelRow],
+        rows: Iterable[DataRow],
     ) -> WorkerResult:
         nonlocal calls
         calls += 1
@@ -761,7 +841,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     projection = ProgressProjection("RUN", PERIOD)
     save_s = 0.05
 
-    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[DataRow]) -> WorkerResult:
         time.sleep(save_s)
         raise template_settlement.TemplateWriteError("synthetic failure")
 

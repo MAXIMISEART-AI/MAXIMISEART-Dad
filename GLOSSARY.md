@@ -92,8 +92,9 @@ dla Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
 
 Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca
 rozliczenia pracownika. Zachowuje jego strukturę, formuły, stawki i
-formatowanie; zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli
-wykonawca nie ma wierszy w Pliku zbiorczym.
+formatowanie; jedynie Wiersze danych mają Wyróżnienia z Pliku zbiorczego.
+Zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli wykonawca nie
+ma wierszy w Pliku zbiorczym.
 
 ## Folder okresu
 
@@ -147,6 +148,16 @@ Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
 
 Wiersz od 18. w dół zawierający dane wejściowe pracy. Formuły i techniczne
 wartości szablonu nie są same w sobie wierszami danych.
+
+## Wyróżnienie
+
+Wygląd komórki, którym tata zaznacza zlecenie: kolor wypełnienia, kolor
+czcionki, pogrubienie i kursywa. Przechodzi razem z wartością z Rejestru zleceń
+do plików okresu, a z Pliku zbiorczego do Rozliczeń pracowników. Wyróżnienia
+zastępują wygląd komórki wzorca w całości: komórka bez Wyróżnień daje komórkę
+bez wypełnienia, z kolorem automatycznym, bez pogrubienia i bez kursywy. Krój i
+rozmiar czcionki nie są Wyróżnieniem i zawsze pochodzą z wzorca.
+_Avoid_: formatowanie (szersze: obejmuje też krój, obramowania i formaty liczb)
 
 ## Gotowość
 

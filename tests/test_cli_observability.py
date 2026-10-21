@@ -19,7 +19,7 @@ from rozliczenia.cli import main
 from rozliczenia.domain import WorkerResult
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
-from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
+from rozliczenia.workbook_files import DataRow, WorkerSettlementTemplate
 
 from tests.fixtures.settlement import PERIOD, append_completed_records, make_fixture, make_preview_fixture
 from tests.fixtures.workbooks import active_worksheet
@@ -293,7 +293,7 @@ def test_critical_write_failure_shows_interrupted_szablon_pracownika_and_records
         worker_name: str,
         template: WorkerSettlementTemplate,
         path: Path,
-        rows: Iterable[ExcelRow],
+        rows: Iterable[DataRow],
     ) -> WorkerResult:
         nonlocal save_calls
         save_calls += 1
