@@ -60,7 +60,7 @@ their contents.
   `SKUTECZNE` (`ZLE_SKUTECZNE`, ADR 0004): its tests use synthetic
   `SKUTECZNE` values, because the Komunikat shows the exact cell content.
 - Before reporting work done, run `tools/ci_lokalnie.py` with the checkout's
-  own `.venv`: the CI jobs ruff, mypy, pytest and frontend, ending with
+  own `.venv`: the CI jobs ruff, mypy, pytest, mutations and frontend, ending with
   `CI LOKALNIE OK`. Before real files are used, run a preview without saving
   (`Podgląd bez zapisu`).
 

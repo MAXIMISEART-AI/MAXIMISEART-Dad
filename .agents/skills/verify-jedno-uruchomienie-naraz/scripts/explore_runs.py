@@ -1,0 +1,858 @@
+"""Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu at a time and never closes during one.
+
+The checker runs the real ``RunHost`` (``runs.py``) and ``Shutdown`` (``shutdown.py``), wired as in
+``create_app``, in threads: browser tabs clicking „Uruchom” and „Zamknij Centrum rozliczeń”, Dad
+answering a Decyzja, the Uruchomienie thread that ``RunHost.start`` spawns, and the server thread
+``stop_when_asked``. Every lock entry, Event ``set``/``wait``/``clear``, thread start and Centrum log
+entry of the real code is one indivisible step. Before every step the checker may let any other
+thread go first. It tries every such schedule within the bounds of a scope, re-running the code once
+per schedule, and checks two rules:
+
+- JEDNO_NARAZ: at no moment are two Uruchomienia procesu in progress. An Uruchomienie is in progress
+  from the moment ``RunHost.start`` creates its ``_Run`` until ``RunHost.finished`` has written its end
+  to the Centrum log, after the engine and the metrics record. The checker tracks this itself, not
+  through the code's ``ended`` flag, so a flag set too early is caught.
+- BEZ_ZAMKNIECIA_W_TRAKCIE: when the server ends, no Uruchomienie procesu is in progress, including
+  one waiting for Dad's Decyzja. The Uruchomienie thread is a daemon, so the end of the Python
+  process kills it mid-work.
+
+Replaced: ``threading`` inside ``runs.py`` and ``shutdown.py`` by model primitives that hand control to
+the checker; ``run_process`` by an engine with two steps and an optional Decyzja through the real
+``_Run.confirm``; ``CentrumLog`` and ``CentrumRuns`` by steps that write nothing. Modelled by hand:
+``stop_when_asked`` in ``server.py`` and uvicorn's graceful shutdown. After ``Shutdown.wait`` returns,
+the server may end at any moment when no HTTP request is in flight; a request that arrived before
+that is served to the end. Any other ``threading`` use in the two files stops the check as LUKA MODELU.
+
+Schedules that reach a state already explored are cut short: the code is deterministic, so a state
+(each thread's steps so far, every Uruchomienie's flags, the lock and the Events) has the same
+futures every time.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import threading
+import time
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Literal
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+# check_runs_mutations.py points this at a mutated copy of src; otherwise the checkout's own src is checked.
+SOURCE_ROOT = Path(os.environ.get("VERIFY_URUCHOMIENIA_SRC", REPO_ROOT / "src"))
+sys.path.insert(0, str(SOURCE_ROOT))
+
+from rozliczenia import process_run  # noqa: E402
+from rozliczenia.centrum import contract, runs, shutdown  # noqa: E402
+from rozliczenia.centrum.run_view import PREPARATION  # noqa: E402
+from rozliczenia.decision import Decision  # noqa: E402
+from rozliczenia.message import Message  # noqa: E402
+from rozliczenia.preparation_process import PROCESS  # noqa: E402
+
+VERIFIED_FILES = ("runs.py", "shutdown.py")
+STEP_TIMEOUT_SECONDS = 10.0
+CLOSE_LOG = "dziennik Centrum: shutdown_requested"
+REQUESTED_SET = "Shutdown._requested.set()"
+WITH_DECISION = "z Decyzją taty"
+DECISION = Decision(
+    title="Decyzja",
+    message=Message(code="MODEL", what="Pytanie modelu.", where="silnik", action="Odpowiedz."),
+    counts_title="Liczby",
+    counts=(("Wiersze danych", 1),),
+    question="Kontynuować?",
+)
+
+
+class Abort(BaseException):
+    """The server ended (the Python process ends) or the checker stops this schedule."""
+
+
+class ModelGap(BaseException):
+    """The real code used ``threading`` in a way the model primitives do not cover."""
+
+
+# --- Scheduler: one thread runs at a time, from one step to the next --------------------------------
+
+
+@dataclass
+class Pending:
+    call: str
+    where: str
+    enabled: Callable[[], bool]
+    variants: tuple[str, ...]
+
+
+@dataclass
+class Actor:
+    name: str
+    status: Literal["running", "parked", "done"] = "running"
+    pending: Pending | None = None
+    go: str | None = None
+    in_flight: bool = False
+    run: Any = None  # the _Run whose work() this thread runs
+    history: list[str] = field(default_factory=list)
+    thread: threading.Thread | None = None
+
+
+_ABORT = "\0abort"
+_CURRENT = threading.local()
+
+
+def _current_actor() -> Actor:
+    actor: Actor | None = getattr(_CURRENT, "actor", None)
+    if actor is None:
+        raise ModelGap("krok poza wątkiem modelu")
+    return actor
+
+
+def _code_location() -> str:
+    frame = sys._getframe(2)
+    while frame is not None:
+        name = Path(frame.f_code.co_filename).name
+        if name in VERIFIED_FILES and Path(frame.f_code.co_filename).parent.name == "centrum":
+            return f"{name}:{frame.f_lineno} {frame.f_code.co_name}"
+        frame = frame.f_back  # type: ignore[assignment]
+    return "model"
+
+
+class Scheduler:
+    def __init__(self, trace: list[str]) -> None:
+        self.condition = threading.Condition()
+        self.actors: list[Actor] = []
+        self.trace = trace
+        self.gaps: list[str] = []
+
+    def spawn(self, name: str, body: Callable[[], None], run: Any = None) -> Actor:
+        actor = Actor(name, run=run)
+
+        def main() -> None:
+            _CURRENT.actor = actor
+            try:
+                body()
+            except Abort:
+                pass
+            except ModelGap as gap:
+                self.gaps.append(f"{actor.name}: {gap}")
+            finally:
+                with self.condition:
+                    actor.status = "done"
+                    actor.pending = None
+                    self.condition.notify_all()
+
+        with self.condition:
+            self.actors.append(actor)
+        actor.thread = threading.Thread(target=main, name=f"model-{name}", daemon=True)
+        actor.thread.start()
+        return actor
+
+    def step(
+        self,
+        call: str,
+        *,
+        enabled: Callable[[], bool] = lambda: True,
+        variants: tuple[str, ...] = ("",),
+    ) -> str:
+        """Parks the calling thread until the checker picks this step; returns the picked variant."""
+
+        actor = _current_actor()
+        pending = Pending(call, _code_location(), enabled, variants)
+        with self.condition:
+            actor.pending = pending
+            actor.status = "parked"
+            self.condition.notify_all()
+            while actor.go is None:
+                self.condition.wait()
+            outcome, actor.go = actor.go, None
+            actor.status = "running"
+            actor.pending = None
+        if outcome == _ABORT:
+            raise Abort()
+        actor.history.append(f"{call} → {outcome}" if outcome else call)
+        return outcome
+
+    def note(self, text: str) -> None:
+        self.trace.append(f"{_current_actor().name}: {text}")
+
+    def settle(self) -> None:
+        deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
+        with self.condition:
+            while any(actor.status == "running" for actor in self.actors):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Wątek nie doszedł do kolejnego kroku na czas; sprawdź zawieszenie.")
+                self.condition.wait(remaining)
+
+    def release(self, actor: Actor, outcome: str) -> None:
+        with self.condition:
+            actor.status = "running"
+            actor.go = outcome
+            self.condition.notify_all()
+
+    def abort_all(self) -> None:
+        for actor in self.actors:
+            if actor.status == "parked":
+                self.release(actor, _ABORT)
+        self.settle()
+        for actor in self.actors:
+            assert actor.thread is not None
+            actor.thread.join(STEP_TIMEOUT_SECONDS)
+
+
+# --- Model primitives in place of ``threading`` inside runs.py and shutdown.py --------------------------
+
+
+class ModelLock:
+    """``RunHost._lock``: entering is one step, which can be taken only while the lock is free."""
+
+    def __init__(self, scheduler: Scheduler, label: str) -> None:
+        self._scheduler = scheduler
+        self.label = label
+        self.owner: str | None = None
+
+    def __enter__(self) -> bool:
+        self._scheduler.step(f"wejście w blokadę {self.label}", enabled=lambda: self.owner is None)
+        self.owner = _current_actor().name
+        return True
+
+    def __exit__(self, *_: object) -> None:
+        self.owner = None
+
+
+class ModelEvent:
+    """``threading.Event``: ``set``, ``clear`` and ``wait`` are steps; ``wait`` can be taken only once set."""
+
+    def __init__(self, scheduler: Scheduler, label: str) -> None:
+        self._scheduler = scheduler
+        self.label = label
+        self.flag = False
+
+    def set(self) -> None:
+        self._scheduler.step(f"{self.label}.set()")
+        self.flag = True
+
+    def clear(self) -> None:
+        self._scheduler.step(f"{self.label}.clear()")
+        self.flag = False
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if timeout is not None:
+            raise ModelGap(f"{self.label}.wait(timeout=...)")
+        self._scheduler.step(f"{self.label}.wait()", enabled=lambda: self.flag)
+        return True
+
+    def is_set(self) -> bool:
+        return self.flag
+
+
+class ModelThread:
+    """The Uruchomienie thread started by ``RunHost.start``: starting it is one step, then it runs as an actor."""
+
+    def __init__(
+        self,
+        scheduler: Scheduler,
+        *,
+        target: Callable[[], None],
+        name: str,
+        daemon: bool,
+    ) -> None:
+        if not daemon:
+            raise ModelGap("wątek Uruchomienia nie jest daemon: koniec procesu Pythona by na niego czekał")
+        self._scheduler = scheduler
+        self._target = target
+
+    def start(self) -> None:
+        self._scheduler.step("start wątku Uruchomienia")
+        run = getattr(self._target, "__self__", None)
+        name = getattr(run, "model_name", "Uruchomienie")
+        self._scheduler.spawn(f"wątek {name}", self._target, run)
+
+
+class ModelThreading:
+    """Stands in for the ``threading`` module inside one verified file."""
+
+    def __init__(
+        self,
+        scheduler: Scheduler,
+        module: str,
+        lock_label: str,
+        event_label: str,
+        events: list[ModelEvent],
+    ):
+        self._scheduler = scheduler
+        self._module = module
+        self._lock_label = lock_label
+        self._event_label = event_label
+        self._events = events
+
+    def Lock(self) -> ModelLock:  # noqa: N802 - same name as threading.Lock
+        return ModelLock(self._scheduler, self._lock_label)
+
+    def Event(self) -> ModelEvent:  # noqa: N802 - same name as threading.Event
+        event = ModelEvent(self._scheduler, self._event_label)
+        self._events.append(event)
+        return event
+
+    def Thread(self, *, target: Callable[[], None], name: str, daemon: bool = False) -> ModelThread:  # noqa: N802
+        return ModelThread(self._scheduler, target=target, name=name, daemon=daemon)
+
+    def __getattr__(self, name: str) -> Any:
+        raise ModelGap(f"threading.{name} w {self._module}")
+
+
+class LogSteps:
+    """``CentrumLog``: each entry is one step, like the file write in the real log; nothing is written."""
+
+    def __init__(self, scheduler: Scheduler) -> None:
+        self._scheduler = scheduler
+
+    def __getattr__(self, name: str) -> Callable[..., None]:
+        def entry(*_: object, **__: object) -> None:
+            self._scheduler.step(f"dziennik Centrum: {name}")
+            run = _current_actor().run
+            if name == "run_finished" and run is not None:
+                run.model_done = True
+
+        return entry
+
+
+class CentrumRunsSteps:
+    """``CentrumRuns``: remembering the metrics record of an Uruchomienie is one step; nothing is written."""
+
+    def __init__(self, scheduler: Scheduler) -> None:
+        self._scheduler = scheduler
+
+    def remember(self, *_: object) -> None:
+        self._scheduler.step("CentrumRuns.remember: rekord metryk Uruchomienia z Centrum")
+
+
+# --- Harness ------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Scope:
+    name: str
+    start_tabs: int
+    close_clicks: int
+    decisions: int
+
+    def describe(self) -> str:
+        return (
+            f"karty „Uruchom”: {self.start_tabs}, kliknięcia „Zamknij Centrum rozliczeń”: ≤ {self.close_clicks}, "
+            f"Decyzje taty: ≤ {self.decisions}, silnik z Decyzją albo bez"
+        )
+
+
+SCOPES = {
+    "zamknij-w-trakcie": Scope("zamknij-w-trakcie", start_tabs=1, close_clicks=2, decisions=1),
+    "dwie-karty": Scope("dwie-karty", start_tabs=2, close_clicks=1, decisions=2),
+}
+
+PREPARED: runs.PreparedRun[Any, Any] = runs.PreparedRun(
+    key="preparation",
+    period="08_14_09_2026",
+    process=PROCESS,
+    inputs=SimpleNamespace(dry_run=False),
+    metrics_path=Path("metryki-modelu.jsonl"),
+    done="Plik zbiorczy przygotowany",
+    view=PREPARATION,
+)
+
+
+@dataclass(frozen=True)
+class Violation:
+    rule: str
+    signature: tuple[object, ...]
+    text: str
+
+
+@dataclass
+class World:
+    """One schedule: the real ``RunHost`` and ``Shutdown`` and everything the checker observes of them."""
+
+    scheduler: Scheduler
+    events: list[ModelEvent]
+    created: list[Any]
+    host: runs.RunHost
+    shutdown: shutdown.Shutdown
+    lock: ModelLock | None
+    exited: bool = False
+    closes_refused: int = 0
+    starts_refused: int = 0
+    violations: list[Violation] = field(default_factory=list)
+
+    def in_progress(self) -> list[Any]:
+        return [run for run in self.created if not run.model_done]
+
+    def requested(self) -> bool:
+        return any(event.label == "Shutdown._requested" and event.flag for event in self.events)
+
+    def close_window(self) -> str:
+        """Where the Zamknij click stood when an Uruchomienie was created."""
+
+        if self.requested():
+            return "po przyjęciu prośby o zamknięcie"
+        for actor in self.scheduler.actors:
+            if actor.pending is not None and actor.pending.call in (
+                CLOSE_LOG,
+                REQUESTED_SET,
+            ):
+                return "między sprawdzeniem odmowy a przyjęciem prośby"
+        return "przed sprawdzeniem odmowy"
+
+
+@contextmanager
+def harness(scheduler: Scheduler) -> Iterator[World]:
+    events: list[ModelEvent] = []
+    created: list[Any] = []
+    world_box: list[World] = []
+
+    class TrackedRun(runs._Run):
+        def __init__(self, host: runs.RunHost, prepared: runs.PreparedRun[Any, Any]) -> None:
+            super().__init__(host, prepared)
+            self.model_name = f"Uruchomienie {len(created) + 1}"
+            self.model_creator = _current_actor().name
+            self.model_window = world_box[0].close_window()
+            self.model_done = False
+            created.append(self)
+
+    def engine(process: Any, inputs: Any, interlocutor: Any, *, view: Any, metrics_path: Path) -> Any:
+        variant = scheduler.step("silnik: Sprawdzanie … Zapisywanie", variants=("bez Decyzji", WITH_DECISION))
+        if variant == WITH_DECISION:
+            interlocutor.confirm(DECISION)
+        scheduler.step("silnik kończy i dopisuje rekord metryk")
+        ending = process_run.Finished("OK", {name: 0 for name in process.counter_names}, {})
+        return process_run.Outcome(
+            ending=ending,
+            view=None,
+            total_duration_ms=0,
+            notices=(),
+            metrics_saved=True,
+        )
+
+    def no_report_state(_: object) -> contract.ReportState:
+        raise ModelGap("report_state przy Zatrzymaniu; model kończy każde Uruchomienie sukcesem")
+
+    # Each verified file sees its own stand-ins; the originals come back after the schedule.
+    patches = [
+        (runs, "threading", ModelThreading(scheduler, "runs.py", "RunHost._lock", "_Run._decided", events)),
+        (shutdown, "threading", ModelThreading(scheduler, "shutdown.py", "Shutdown", "Shutdown._requested", events)),
+        (runs, "run_process", engine),
+        (runs, "_Run", TrackedRun),
+    ]
+    originals = [(module, name, getattr(module, name)) for module, name, _ in patches]
+    for module, name, value in patches:
+        setattr(module, name, value)
+    try:
+        log = LogSteps(scheduler)
+        # Wired as in create_app (app.py): RunHost, then Shutdown.refuse_while(runs.shutdown_refusal).
+        stopper = shutdown.Shutdown(log)  # type: ignore[arg-type]
+        host = runs.RunHost(log, CentrumRunsSteps(scheduler), no_report_state)  # type: ignore[arg-type]
+        stopper.refuse_while(host.shutdown_refusal)
+        lock = getattr(host, "_lock", None)
+        world = World(
+            scheduler,
+            events,
+            created,
+            host,
+            stopper,
+            lock if isinstance(lock, ModelLock) else None,
+        )
+        world_box.append(world)
+        yield world
+    finally:
+        for module, name, value in originals:
+            setattr(module, name, value)
+
+
+def _start_tab(world: World, number: int) -> Callable[[], None]:
+    def body() -> None:
+        scheduler = world.scheduler
+        scheduler.step("żądanie POST /api/runs dociera do serwera")
+        _current_actor().in_flight = True
+        try:
+            view = world.host.start(PREPARED)
+            scheduler.note(f"odpowiedź 200: {view.state}")
+        except contract.Refusal as refusal:
+            world.starts_refused += 1
+            scheduler.note(f"odpowiedź {refusal.status_code}: {refusal.message}")
+        _current_actor().in_flight = False
+
+    return body
+
+
+def _close_tab(world: World, clicks: int) -> Callable[[], None]:
+    def body() -> None:
+        scheduler = world.scheduler
+        for _ in range(clicks):
+            scheduler.step("żądanie POST /api/shutdown dociera do serwera")
+            _current_actor().in_flight = True
+            try:
+                world.shutdown.request()
+            except contract.Refusal as refusal:
+                world.closes_refused += 1
+                scheduler.note(f"odpowiedź {refusal.status_code}: {refusal.message}")
+                _current_actor().in_flight = False
+                continue
+            scheduler.note("odpowiedź 202: Centrum się zamyka")
+            _current_actor().in_flight = False
+            return
+
+    return body
+
+
+def _decision_tab(world: World, decisions: int) -> Callable[[], None]:
+    def awaiting() -> Any | None:
+        return next(
+            (run for run in world.created if run.awaiting_decision and not run.ended),
+            None,
+        )
+
+    def body() -> None:
+        scheduler = world.scheduler
+        for _ in range(decisions):
+            scheduler.step(
+                "tata odpowiada na Decyzję: POST /api/runs/{id}/decision",
+                enabled=lambda: awaiting() is not None,
+            )
+            _current_actor().in_flight = True
+            run = awaiting()
+            try:
+                world.host.decide(
+                    run.info.id if run is not None else "",
+                    contract.DecisionAnswer(answer="continue"),
+                )
+                scheduler.note("odpowiedź 200: Decyzja przyjęta")
+            except contract.Refusal as refusal:
+                scheduler.note(f"odpowiedź {refusal.status_code}: {refusal.message}")
+            _current_actor().in_flight = False
+
+    return body
+
+
+def _server(world: World) -> Callable[[], None]:
+    """``stop_when_asked`` in server.py, then uvicorn's graceful shutdown and the end of the process."""
+
+    def body() -> None:
+        world.shutdown.wait()
+        world.scheduler.step(
+            "serwer kończy pracę: uvicorn zamknięty, proces Pythona się kończy, wątki daemon giną",
+            enabled=lambda: not any(actor.in_flight for actor in world.scheduler.actors),
+        )
+        world.exited = True
+        for run in world.in_progress():
+            doing = "czeka na Decyzję taty" if run.awaiting_decision else "trwa"
+            world.violations.append(
+                Violation(
+                    "BEZ_ZAMKNIECIA_W_TRAKCIE",
+                    ("BEZ_ZAMKNIECIA_W_TRAKCIE", run.model_window),
+                    f"Centrum kończy pracę, a {run.model_name} (z: {run.model_creator}) {doing}; "
+                    f"wystartowało {run.model_window}",
+                )
+            )
+
+    return body
+
+
+# --- Exploration ------------------------------------------------------------------------------------
+
+
+@dataclass
+class Execution:
+    picks: list[int]
+    widths: list[int]
+    trace: list[str]
+    violations: list[Violation]
+    gaps: list[str]
+    cut: bool
+    clean_close: bool
+    close_refused: bool
+    start_refused: bool
+    run_ended: bool
+
+
+def _state(world: World) -> object:
+    return (
+        tuple(
+            (
+                actor.name,
+                actor.status,
+                tuple(actor.history),
+                actor.pending.call if actor.pending else None,
+                actor.in_flight,
+            )
+            for actor in world.scheduler.actors
+        ),
+        tuple(
+            (
+                run.model_name,
+                run.model_creator,
+                run.model_window,
+                run.model_done,
+                run.ended,
+                run.awaiting_decision,
+            )
+            for run in world.created
+        ),
+        world.lock.owner if world.lock is not None else None,
+        tuple((event.label, event.flag) for event in world.events),
+        world.exited,
+    )
+
+
+def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execution:
+    picks: list[int] = []
+    widths: list[int] = []
+    trace: list[str] = []
+
+    def choose(count: int) -> int:
+        index = prefix[len(picks)] if len(picks) < len(prefix) else 0
+        picks.append(index)
+        widths.append(count)
+        return index
+
+    scheduler = Scheduler(trace)
+    try:
+        with harness(scheduler) as world:
+            cut = _drive(world, scope, choose, picks, len(prefix), visited)
+    except ModelGap as gap:
+        return Execution(
+            picks,
+            widths,
+            trace,
+            [],
+            [f"wiązanie RunHost i Shutdown: {gap}"],
+            False,
+            False,
+            False,
+            False,
+            False,
+        )
+    if cut and not world.violations:
+        trace.append("dalej ten sam stan co w harmonogramie sprawdzonym wcześniej")
+    return Execution(
+        picks,
+        widths,
+        trace,
+        world.violations,
+        list(scheduler.gaps),
+        cut,
+        clean_close=world.exited and not world.violations,
+        close_refused=world.closes_refused > 0,
+        start_refused=world.starts_refused > 0,
+        run_ended=any(run.model_done for run in world.created),
+    )
+
+
+def _drive(
+    world: World,
+    scope: Scope,
+    choose: Callable[[int], int],
+    picks: list[int],
+    replay: int,
+    visited: set[object],
+) -> bool:
+    """Runs one schedule to its end; ``True`` when it was cut short at an already explored state."""
+
+    scheduler = world.scheduler
+    if world.lock is None:
+        scheduler.gaps.append("RunHost nie ma blokady _lock z threading.Lock()")
+    for number in range(1, scope.start_tabs + 1):
+        scheduler.spawn(f"karta Uruchom {number}", _start_tab(world, number))
+    scheduler.spawn("karta Zamknij", _close_tab(world, scope.close_clicks))
+    scheduler.spawn("tata", _decision_tab(world, scope.decisions))
+    scheduler.spawn("serwer", _server(world))
+    try:
+        while not scheduler.gaps:
+            scheduler.settle()
+            running = world.in_progress()
+            if len(running) > 1 and not any(violation.rule == "JEDNO_NARAZ" for violation in world.violations):
+                names = ", ".join(f"{run.model_name} (z: {run.model_creator})" for run in running)
+                world.violations.append(Violation("JEDNO_NARAZ", ("JEDNO_NARAZ",), f"naraz trwają: {names}"))
+            if world.exited:
+                return False
+            options = [
+                (actor, variant)
+                for actor in scheduler.actors
+                if actor.status == "parked" and actor.pending is not None and actor.pending.enabled()
+                for variant in actor.pending.variants
+            ]
+            if not options:
+                return False
+            state = _state(world)
+            if len(picks) >= replay and state in visited:
+                return True
+            visited.add(state)
+            actor, variant = options[choose(len(options))]
+            assert actor.pending is not None
+            detail = f" → {variant}" if variant else ""
+            scheduler.trace.append(f"{actor.name}: {actor.pending.call}{detail} [{actor.pending.where}]")
+            scheduler.release(actor, variant)
+        return False
+    finally:
+        scheduler.abort_all()
+
+
+def next_prefix(execution: Execution) -> list[int] | None:
+    for depth in range(len(execution.picks) - 1, -1, -1):
+        if execution.picks[depth] + 1 < execution.widths[depth]:
+            return execution.picks[:depth] + [execution.picks[depth] + 1]
+    return None
+
+
+@dataclass
+class ScopeReport:
+    scope: Scope
+    schedules: int = 0
+    states: int = 0
+    seconds: float = 0.0
+    clean_closes: int = 0
+    closes_refused: int = 0
+    starts_refused: int = 0
+    runs_ended: int = 0
+    counterexamples: dict[tuple[object, ...], tuple[Violation, list[str]]] = field(default_factory=dict)
+    gaps: dict[str, list[str]] = field(default_factory=dict)
+
+    def vacuous(self) -> list[str]:
+        """Behaviour every scope must reach, or the check could pass without testing anything."""
+
+        missing = []
+        if not self.clean_closes:
+            missing.append("BRAK_ZAMKNIECIA: Centrum ani razu nie zamknęło się bez trwającego Uruchomienia.")
+        if not self.closes_refused:
+            missing.append("BRAK_ODMOWY_ZAMKNIECIA: „Zamknij” ani razu nie dostało 409 w trakcie Uruchomienia.")
+        if not self.runs_ended:
+            missing.append("BRAK_WYNIKU: żadne Uruchomienie procesu nie doszło do wyniku.")
+        if self.scope.start_tabs > 1 and not self.starts_refused:
+            missing.append("BRAK_ODMOWY_STARTU: druga karta „Uruchom” ani razu nie dostała 409.")
+        return missing
+
+
+def explore(scope: Scope) -> ScopeReport:
+    report = ScopeReport(scope)
+    visited: set[object] = set()
+    started = time.perf_counter()
+    prefix: list[int] | None = []
+    while prefix is not None:
+        execution = execute(scope, prefix, visited)
+        report.schedules += 1
+        report.clean_closes += execution.clean_close
+        report.closes_refused += execution.close_refused
+        report.starts_refused += execution.start_refused
+        report.runs_ended += execution.run_ended
+        for violation in execution.violations:
+            # Keep the shortest counterexample.
+            known = report.counterexamples.get(violation.signature)
+            if known is None or len(execution.trace) < len(known[1]):
+                report.counterexamples[violation.signature] = (
+                    violation,
+                    execution.trace,
+                )
+        for gap in execution.gaps:
+            report.gaps.setdefault(gap, execution.trace)
+        prefix = next_prefix(execution)
+    report.states = len(visited)
+    report.seconds = time.perf_counter() - started
+    return report
+
+
+# --- Report -------------------------------------------------------------------------------------------
+
+# Real defects in the current code, reported on every run until a code change fixes them.
+# Each entry names the window in which „Uruchom” started the Uruchomienie that the shutdown killed.
+KNOWN_FINDINGS: dict[tuple[object, ...], str] = {
+    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "między sprawdzeniem odmowy a przyjęciem prośby"): (
+        "Shutdown.request sprawdza odmowę pod blokadą RunHost, a _requested ustawia już bez niej; "
+        "„Uruchom” z drugiej karty startuje między tymi krokami i Centrum zamyka się w trakcie Uruchomienia."
+    ),
+    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "po przyjęciu prośby o zamknięcie"): (
+        "RunHost.start nie odmawia po przyjętej prośbie o zamknięcie; „Uruchom”, które dotrze, zanim uvicorn "
+        "przestanie przyjmować żądania, startuje Uruchomienie, a koniec procesu zabija jego wątek."
+    ),
+}
+
+
+@dataclass
+class Outcome:
+    new_violations: int
+    known_findings: int
+    gaps: int
+    vacuous: int
+    lines: list[str]
+
+    @property
+    def exit_code(self) -> int:
+        if self.gaps:
+            return 2
+        return 1 if self.new_violations or self.vacuous else 0
+
+
+def summarize(reports: Sequence[ScopeReport], *, strict: bool = False) -> Outcome:
+    lines = [
+        "Jedno Uruchomienie naraz i brak zamknięcia Centrum w trakcie pracy: sprawdzenie wyczerpujące",
+        "",
+    ]
+    new = known = gaps = vacuous = 0
+    shown: dict[tuple[object, ...], str] = {}
+    for report in reports:
+        lines.append(f"zakres {report.scope.name}: {report.scope.describe()}")
+        lines.append(
+            f"  harmonogramy: {report.schedules}, różne stany: {report.states}, "
+            f"zamknięcia bez trwającego Uruchomienia: {report.clean_closes}, czas: {report.seconds:.1f} s"
+        )
+        for missing in report.vacuous():
+            vacuous += 1
+            lines.append(f"  {missing}")
+        for gap, trace in report.gaps.items():
+            gaps += 1
+            lines.append(f"  LUKA MODELU: {gap}")
+            lines.extend(f"    {number}. {step}" for number, step in enumerate(trace, start=1))
+        for signature, (violation, trace) in sorted(report.counterexamples.items(), key=lambda item: str(item[0])):
+            finding = KNOWN_FINDINGS.get(signature)
+            if finding is not None and not strict:
+                known += signature not in shown
+                lines.append(f"  ZNANE USTALENIE ({violation.rule}): {finding}")
+            else:
+                new += signature not in shown
+                lines.append(f"  NARUSZENIE {violation.rule}: {violation.text}")
+            if signature in shown:
+                lines.append(f"    kontrprzykład jak w zakresie {shown[signature]}")
+                continue
+            shown[signature] = report.scope.name
+            lines.extend(f"    {number}. {step}" for number, step in enumerate(trace, start=1))
+        lines.append("")
+    if gaps:
+        lines.append(f"URUCHOMIENIA: LUKA MODELU ({gaps}): kod używa threading w sposób, którego model nie obejmuje.")
+    elif new or vacuous:
+        lines.append(f"URUCHOMIENIA: NOWE NARUSZENIE ({new + vacuous})")
+    elif known:
+        lines.append(f"URUCHOMIENIA OK, ZNANE USTALENIA: {known}")
+    else:
+        lines.append("URUCHOMIENIA OK")
+    return Outcome(new, known, gaps, vacuous, lines)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Exhaustive check of one Uruchomienie at a time and no shutdown during one."
+    )
+    parser.add_argument(
+        "--scope",
+        choices=sorted(SCOPES),
+        action="append",
+        help="one scope; default: all",
+    )
+    parser.add_argument("--strict", action="store_true", help="report known findings as violations too")
+    arguments = parser.parse_args(argv)
+    reports = [explore(SCOPES[name]) for name in (arguments.scope or SCOPES)]
+    outcome = summarize(reports, strict=arguments.strict)
+    print("\n".join(outcome.lines))
+    return outcome.exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

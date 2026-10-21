@@ -4,4 +4,6 @@ fastapi>=0.146
 uvicorn>=0.54
 pytest>=8.0
 pytest-timeout>=2.4
+pytest-xdist>=3.8
 httpx2>=2.14
+hypothesis>=6.170
