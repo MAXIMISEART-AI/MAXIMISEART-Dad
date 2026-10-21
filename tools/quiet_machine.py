@@ -8,7 +8,7 @@ is running (on macOS and Linux, read from ``ps``). Every other run registers a
 the lock. Locks and registrations of a process that died are taken over. Each
 side waits at most ``timeout_s`` and then fails with what kept the machine busy.
 
-    python quiet_machine.py --status   # who holds the machine now
+    python tools/quiet_machine.py --status   # who holds the machine now
 """
 
 from __future__ import annotations

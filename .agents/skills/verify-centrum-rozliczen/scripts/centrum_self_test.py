@@ -20,6 +20,7 @@ SCRIPT = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT.parents[1]
 FEATURES_ROOT = SKILL_ROOT / "features"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
+TOOLS_ROOT = SKILL_ROOT.parents[2] / "tools"
 HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
 REQUIRED_MAP_HEADINGS = (
     "# Centrum rozliczeń verification map",
@@ -119,7 +120,7 @@ def _check_machine_lock(errors: list[str]) -> None:
 
     import tempfile
 
-    sys.path.insert(0, str(SCRIPTS_ROOT))
+    sys.path.insert(0, str(TOOLS_ROOT))
     from quiet_machine import MachineBusy, QuietMachine
 
     def held(attempt: Any) -> bool:
