@@ -185,10 +185,10 @@ class ToolUpdates:
     def _restart(self, clone: ToolClone, restart: Restart, guardian: Path) -> bool:
         """Uruchamia opiekuna i zamyka Centrum; ``False``, gdy opiekun nie wystartował (Centrum działa dalej)."""
 
-        with self._lock:
-            self._view = contract.ToolUpdateRunning(state="running", step="restarting")
         try:
             clone.lease_to_guardian()
+            with self._lock:
+                self._view = contract.ToolUpdateRunning(state="running", step="restarting")
             self._guardian(guardian, restart)
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="ponowny start po aktualizacji")
