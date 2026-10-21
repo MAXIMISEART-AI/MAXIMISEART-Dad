@@ -32,9 +32,9 @@ model action is one indivisible step of this code:
 | `Scalanie` | `tool_update.py` `ToolClone.update`, `git merge --ff-only` |
 | `PrzywroceniePoOdmowie`, `PrzywroceniePoScaleniu` | `tool_update.py` `_DadFiles.set_aside` `finally`. An exception here leaves `update()` before the `try` that calls `_roll_back`. |
 | `Instalacja`, `InstalacjaKoniec` | `tool_update.py` `ToolClone._install_libraries` (`_Git.changed`, `pip_install`), the `try`/`except BaseException` around it, and the `if installed is False` branch after it |
-| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back`, called by `ToolClone.update` (`cofa = "centrum"`) or by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`) |
-| `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart` |
-| `OpiekunPort`, `OpiekunStart` | `restart_guardian.py` `main` up to `_answers(new, …, after)`, then `_stop` and `_rolled_back` |
+| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back`, called by `ToolClone.update` or `ToolUpdates._rolled_back` through `ToolClone.roll_back` (`cofa = "centrum"`), or by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`) |
+| `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart`; when `restart_guardian.launch` raises, `_rolled_back` (`NIEOCZEKIWANY_BLAD`) |
+| `OpiekunPort`, `OpiekunStart` | `restart_guardian.py` `main` up to `_answers(new, …, after)`, then `_stop` and `_rolled_back`; when `_port_released` times out, `write_result` (`NIEOCZEKIWANY_BLAD`) and `_rolled_back` |
 | `OpiekunPortStara`, `OpiekunStartStara` | `restart_guardian.py` `main` after a successful rollback: `_port_released`, `_start_centrum`, `_answers(…, before)`, or the dialog `not_started_after_update` |
 | `Wylacz` | none: the computer switches off, and nothing runs at the next start to finish or undo the update |
 | `Skrot` | `launcher.py` `main` started from the shortcut (only "does it start") |
@@ -43,9 +43,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/tool_updates.py`,
 `src/rozliczenia/centrum/restart_guardian.py`.
 
-Sync commit: `0e3a773130dd` (tip of `integracja/180-aktualizacja-narzedzia`,
-2026-10-21, with #196's guardian rollback). At this commit every row above was
-checked against the code.
+Sync commit: `7a8baa84d4ee` (#212's fix on top of
+`integracja/180-aktualizacja-narzedzia`, 2026-10-21: Centrum and the guardian
+roll the clone back when nobody checks the new version). At this commit every
+row above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,
@@ -119,7 +120,7 @@ guardian's rollback meets every other failure too.
 | `zwykle-awarie` | merge refused (`ZMIANY_NA_KOMPUTERZE`), fetch fails (`BRAK_POLACZENIA`), pip fails (`INSTALACJA_BIBLIOTEK`), guardian does not start or the port is not released | passes |
 | `git` | the above + a new version that may not start + `GitFailed` from `git checkout HEAD --`, `git diff`, `git reset --keep` | known finding `reset` |
 | `kopiowanie` | the above without git + `shutil.copy2` of Dad's file raises `OSError` | known finding `kopiowanie` |
-| `nieudany-start` | `zwykle-awarie` + the new version does not answer in `START_TIMEOUT_S` | known finding `bez_opiekuna` |
+| `nieudany-start` | `zwykle-awarie` + the new version does not answer in `START_TIMEOUT_S` | passes |
 | `wylaczenie` | `nieudany-start` + the computer switches off at any step | known finding `wylaczenie` |
 
 TLC stops at the first counterexample, so a configuration with a known finding
@@ -154,14 +155,7 @@ Each was traced back to the code at the sync commit.
    in the other `finally` blocks (after a refused merge, or in `_roll_back` in
    Centrum or the guardian) leaves the repository's sample in place of Dad's
    file. TLC may print any of these, because they are equally short.
-3. **`bez_opiekuna`** (config `nieudany-start`, #212): #196's rollback runs only
-   once the guardian has started the new version. When
-   `restart_guardian.launch` raises, the old Centrum keeps running and reports
-   the update as done. When the old Centrum does not release the port within
-   `PORT_TIMEOUT_S`, `main` returns 1 before it starts anything. Either way
-   nobody checks the new version, and one that will not start stays in the
-   clone for Dad's next start.
-4. **`wylaczenie`** (#213): the computer switches off anywhere from
+3. **`wylaczenie`** (#213): the computer switches off anywhere from
    `git checkout HEAD --` to the end of the guardian's rollback
    (`OknoWylaczenia`). The shortest case is between `git merge --ff-only` and
    the end of `pip_install` (up to `_INSTALL_TIMEOUT_S`, 15 minutes): the

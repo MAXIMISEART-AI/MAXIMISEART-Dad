@@ -49,7 +49,7 @@ dysk == <<head, plikTaty, kopia, biblioteki>>
 nowa == <<nowaUsuwaPlikTaty, nowaZmieniaWymagania, nowaStartuje>>
 vars == <<dysk, nowa, centrum, pc, klikniecia, krok, slady, cofa>>
 
-ZnaneZnaleziska == {"reset", "kopiowanie", "bez_opiekuna", "wylaczenie"}
+ZnaneZnaleziska == {"reset", "kopiowanie", "wylaczenie"}
 
 Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie",
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
@@ -264,20 +264,24 @@ CofaniePrzywroc ==
 
 \* --- ToolUpdates._restart, restart_guardian.main ------------------------------
 
+\* Gdy opiekun nie wystartuje, Centrum działa dalej i samo cofa klon
+\* (ToolUpdates._rolled_back -> ToolClone.roll_back), wynik NIEOCZEKIWANY_BLAD.
 Restart ==
     /\ pc = "restart"
     /\ \/ /\ AwariaOpiekuna
           /\ UNCHANGED centrum
-          /\ Slad("spoczynek", "ToolUpdates._restart: restart_guardian.launch rzuca, Centrum dziala dalej", "bez_opiekuna")
+          /\ Cofaj("centrum", "ToolUpdates._restart: restart_guardian.launch rzuca; Centrum dziala dalej i wola _roll_back (NIEOCZEKIWANY_BLAD)")
        \/ /\ centrum' = "brak"
           /\ Idz("opiekun_port", "ToolUpdates._restart: opiekun startuje, Shutdown.close_for_update zamyka Centrum")
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
 
-\* write_result, potem _port_released.
+\* write_result, potem _port_released. Gdy port nie zwolni się, nikt nie sprawdził
+\* nowej wersji: write_result z NIEOCZEKIWANY_BLAD i _rolled_back, a po nim to samo
+\* co po nowej wersji, która nie odpowiedziała (OpiekunPortStara).
 OpiekunPort ==
     /\ pc = "opiekun_port"
     /\ \/ /\ AwariaOpiekuna
-          /\ Slad("spoczynek", "restart_guardian.main: port nie zwolniony w PORT_TIMEOUT_S, opiekun konczy sie przed startem nowej wersji", "bez_opiekuna")
+          /\ Cofaj("opiekun", "restart_guardian.main: port nie zwolniony w PORT_TIMEOUT_S; write_result NIEOCZEKIWANY_BLAD, potem _rolled_back")
        \/ Idz("opiekun_start", "restart_guardian.main: port zwolniony")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 

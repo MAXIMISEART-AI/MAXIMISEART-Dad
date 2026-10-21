@@ -13,9 +13,7 @@
     "znalezisko": "copy2 pliku taty z kopii rzuca OSError w finally (set_aside albo _roll_back): plik taty zostaje z treścią z repozytorium albo znika; po przesunięciu klonu nic nie woła _roll_back. (#211)"
   },
   "nieudany-start": {
-    "wynik": "narusza",
-    "wybacz": "bez_opiekuna",
-    "znalezisko": "Opiekun się nie uruchomi albo stare Centrum nie zwolni portu: nikt nie sprawdza nowej wersji, więc ta, która nie wystartuje, zostaje w klonie. (#212)"
+    "wynik": "przechodzi"
   },
   "wylaczenie": {
     "wynik": "narusza",
