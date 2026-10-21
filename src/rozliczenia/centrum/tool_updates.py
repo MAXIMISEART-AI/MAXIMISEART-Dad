@@ -86,7 +86,8 @@ class ToolUpdates:
         self._guardian = guardian
         self._result_file = result_file
         self._lock = threading.Lock()
-        self._view: contract.ToolUpdate = self._after_restart()
+        self._view: contract.ToolUpdate = contract.ToolUpdateIdle(state="idle")
+        self._after_restart()
 
     def current(self) -> contract.ToolUpdate:
         with self._lock:
@@ -110,16 +111,39 @@ class ToolUpdates:
         ).start()
         return first
 
-    def _after_restart(self) -> contract.ToolUpdate:
+    def _after_restart(self) -> None:
+        """Wynik od opiekuna ponownego startu: do dziennika i do karty, raz, bez czekania na sieć.
+
+        Po porażce (np. cofnięcie nowej wersji) skrzynkę Zgłoszeń pyta osobny wątek: start Centrum na nią nie czeka.
+        """
+
         result = read_result(self._result_file)
         if result is None:
-            return contract.ToolUpdateIdle(state="idle")
+            return
         self._finished(result)
         try:
             self._result_file.unlink(missing_ok=True)
         except OSError:
             pass  # wynik i tak jest już w dzienniku; plik zostaje do następnego startu
-        return _view_of(result) or self._failed(result)
+        view = _view_of(result)
+        if view is not None:
+            self._view = view
+            return
+        failed = self._failed(result)
+        self._view = failed
+        threading.Thread(
+            target=self._ask_box_after_restart, args=(failed,), name="zgloszenie-aktualizacji", daemon=True
+        ).start()
+
+    def _ask_box_after_restart(self, failed: contract.ToolUpdateFailed) -> None:
+        try:
+            state = self._reports.update_report_state()
+        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+            self._log.unexpected_failure(failure, where="stan Zgłoszenia aktualizacji przy starcie")
+            return
+        with self._lock:
+            if self._view is failed:  # karta mogła już wysłać Zgłoszenie
+                self._view = failed.model_copy(update={"report": state})
 
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
@@ -135,7 +159,9 @@ class ToolUpdates:
                 restarting = self._restart(restart, guardian)
             if not restarting:
                 self._finished(result)
-                view = _view_of(result) or self._failed(result)
+                view = _view_of(result) or self._failed(result).model_copy(
+                    update={"report": self._reports.update_report_state()}
+                )
                 with self._lock:
                     self._view = view
         finally:
@@ -173,7 +199,7 @@ class ToolUpdates:
         )
 
     def _failed(self, result: UpdateResult) -> contract.ToolUpdateFailed:
-        """Komunikat porażki z podglądem Zgłoszenia; wpis ``aktualizacja-koniec`` jest już w dzienniku."""
+        """Komunikat porażki z podglądem Zgłoszenia i ostatnim znanym stanem; ``aktualizacja-koniec`` jest już w dzienniku."""
 
         message = update_messages.message_of(result.code)
         draft, report = self._reports.draft_update(result, message)

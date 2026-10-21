@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from rozliczenia.centrum.tool_update import RESULT_FILE, UPDATED, UpdateResult, write_result
+from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, UpdateResult, write_result
 
 from tests.fixtures.centrum import project_version, views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
@@ -497,3 +497,45 @@ def test_nieudana_instalacja_bibliotek_daje_komunikat_a_narzedzie_zostaje_w_popr
     assert log_entries(centrum, "aktualizacja-koniec") == [
         f"wynik=INSTALACJA_BIBLIOTEK przed={before} po={newest} biblioteki=tak"
     ]
+
+
+def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_zgloszen(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    result = tmp_path / "config" / RESULT_FILE
+    write_result(result, UpdateResult(NEW_VERSION_FAILED, before, newest))
+    centrum.restart()
+    first = tool_update_until(centrum, lambda view: view["report"] == {"state": "ready"})
+    assert send_report(centrum) == {"state": "sent"}
+    box.close(1)  # Maks naprawił, ale nowa wersja znowu nie wystartowała
+    write_result(result, UpdateResult(NEW_VERSION_FAILED, before, newest))
+    box.search_hold = threading.Event()
+    release = threading.Timer(8, box.search_hold.set)  # bez osobnego wątku start czekałby na skrzynkę
+    release.start()
+    started = time.monotonic()
+
+    try:
+        centrum.restart()
+        took = time.monotonic() - started
+        while_box_silent = centrum.client.get("/api/tool-update").json()
+    finally:
+        box.search_hold.set()
+        release.cancel()
+    answered = tool_update_until(centrum, lambda view: view["report"] == {"state": "ready"})
+
+    assert took < 2
+    assert {key: value for key, value in first.items() if key != "draft"} == {
+        "state": "failed",
+        "message": {"what": "Nowa wersja narzędzia nie wystartowała.", "where": "narzędzie na tym komputerze", "action": TO_MAKS},
+        "next_action": "report",
+        "report": {"state": "ready"},
+    }
+    assert first["draft"]["title"] == "NOWA_WERSJA_NIE_WYSTARTOWALA: Nowa wersja narzędzia nie wystartowała."
+    assert (while_box_silent["state"], while_box_silent["report"]) == ("failed", {"state": "waiting"})
+    assert answered["message"] == first["message"]
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie"
+    ] * 2

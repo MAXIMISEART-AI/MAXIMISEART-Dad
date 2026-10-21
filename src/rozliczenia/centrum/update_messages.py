@@ -18,6 +18,7 @@ from rozliczenia.centrum.tool_update import (
     LOCAL_CHANGES,
     LOGIN,
     NO_CONNECTION,
+    NEW_VERSION_FAILED,
     NO_GIT,
     OTHER_BRANCH,
     UNEXPECTED,
@@ -103,6 +104,17 @@ def libraries_failed() -> Message:
     )
 
 
+def new_version_failed() -> Message:
+    """Nowa wersja nie odpowiedziała po ponownym starcie; opiekun cofnął narzędzie do wersji sprzed kliknięcia."""
+
+    return Message(
+        code=NEW_VERSION_FAILED,
+        what="Nowa wersja narzędzia nie wystartowała.",
+        where=_TOOL,
+        action=_TO_MAKS,
+    )
+
+
 _BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
     NO_GIT: no_git,
     NO_CONNECTION: no_connection,
@@ -111,6 +123,7 @@ _BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
     LOCAL_CHANGES: local_changes,
     UNEXPECTED: unexpected_failure,
     LIBRARIES_FAILED: libraries_failed,
+    NEW_VERSION_FAILED: new_version_failed,
 }
 
 

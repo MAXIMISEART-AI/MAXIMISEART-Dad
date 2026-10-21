@@ -6,13 +6,18 @@ odłączonym procesem bez konsoli (``launch``) i samo się zamyka. Opiekun dzia�
 z kopii sprzed aktualizacji i używa tylko biblioteki standardowej (``main``):
 zapisuje wynik aktualizacji obok Ustawień taty, czeka na zwolnienie portu,
 startuje nową wersję jak skrót, tylko bez karty i bez okienek, i czeka, aż
-odpowie w nowym commicie. Na końcu usuwa katalog tymczasowy aktualizacji.
+odpowie w nowym commicie. Gdy nie odpowie, opiekun ją zatrzymuje, cofa klon do
+commitu sprzed aktualizacji razem z plikami taty (``ToolClone.roll_back``),
+zapisuje wynik „Nowa wersja nie wystartowała” i tak samo startuje starą wersję,
+która pokaże go w karcie. Gdy nie wystartuje i ona, opiekun pokazuje jedno
+natywne okienko z Komunikatem startu. Na końcu usuwa katalog tymczasowy
+aktualizacji.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import json
 import os
@@ -25,19 +30,25 @@ import time
 import urllib.request
 from typing import Final
 
-from rozliczenia.centrum.tool_update import UPDATED, UpdateResult, write_result
+from rozliczenia.centrum import start_problems
+from rozliczenia.centrum.platform import show_start_problem
+from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, UPDATED, ToolClone, UpdateResult, write_result
 
 # Tyle czekają: stare Centrum na zamknięcie (otwarte połączenia karty do 5 s) i nowa wersja na pierwszą odpowiedź.
 PORT_TIMEOUT_S: Final = 60.0
 START_TIMEOUT_S: Final = 60.0
 _POLL_S: Final = 0.2
+_STOP_TIMEOUT_S: Final = 10.0
 _HOST: Final = "127.0.0.1"
 _SERVICE: Final = "centrum-rozliczen"
 _SOURCE: Final = Path(__file__).resolve().parents[2]
 # Pakiet-szkielet kopii: tylko moduły bez bibliotek narzędzia, które opiekun importuje.
 _COPIED: Final = (
     "rozliczenia/__init__.py",
+    "rozliczenia/message.py",
     "rozliczenia/centrum/__init__.py",
+    "rozliczenia/centrum/platform.py",
+    "rozliczenia/centrum/start_problems.py",
     "rozliczenia/centrum/tool_update.py",
     "rozliczenia/centrum/restart_guardian.py",
 )
@@ -113,27 +124,71 @@ def launch(copy: Path, restart: Restart) -> subprocess.Popen[bytes]:
     return _detached([_windowless_python(), "-I", "-B", "-c", _BOOT, str(copy), *restart.arguments()], restart.root)
 
 
-def main(argv: Sequence[str]) -> int:
+def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show_start_problem) -> int:
+    """Ponowny start po aktualizacji: 0, gdy Centrum odpowiada (nowe albo cofnięte stare), inaczej 1.
+
+    ``show_problem`` pokazuje natywne okienko (tytuł, treść); w testach podstawiane.
+    """
+
     restart = Restart.of_arguments(argv)
     # Nowe Centrum czyta wynik raz przy starcie, więc plik musi być gotowy, zanim ono wystartuje.
     write_result(restart.result, UpdateResult(UPDATED, restart.before, restart.after, restart.installed))
     if not _port_released(restart.port):
         return 1
-    centrum = _detached(
-        [
-            sys.executable,
-            str(restart.root / "run_centrum.py"),
-            "--port",
-            str(restart.port),
-            "--no-browser",
-            "--bez-okienek",
-        ],
-        restart.root,
-    )
-    if not _answers(centrum, restart.port, restart.after):
-        return 1
+    new = _start_centrum(restart)
+    if _answers(new, restart.port, restart.after):
+        shutil.rmtree(restart.work, ignore_errors=True)
+        return 0
+    _stop(new)
+    write_result(restart.result, UpdateResult(NEW_VERSION_FAILED, restart.before, restart.after, restart.installed))
+    if restart.before is not None and _rolled_back(restart, restart.before) and _port_released(restart.port):
+        if _answers(_start_centrum(restart), restart.port, restart.before):
+            return 0
+    # Ani nowa, ani stara wersja: jedno okienko, bo karta nie ma już z kim rozmawiać.
+    problem = start_problems.not_started_after_update()
+    show_problem(start_problems.TITLE, problem.text)
+    return 1
+
+
+def _start_centrum(restart: Restart) -> subprocess.Popen[bytes]:
+    """Centrum z klonu jak skrót, tylko bez karty i bez okienek: tata ma widzieć jeden Komunikat."""
+
+    command = [
+        sys.executable,
+        str(restart.root / "run_centrum.py"),
+        "--port",
+        str(restart.port),
+        "--no-browser",
+        "--bez-okienek",
+    ]
+    return _detached(command, restart.root)
+
+
+def _stop(centrum: subprocess.Popen[bytes]) -> None:
+    """Zatrzymuje wersję, która nie odpowiedziała, żeby zwolniła port i pliki klonu."""
+
+    if centrum.poll() is not None:
+        return
+    centrum.terminate()
+    try:
+        centrum.wait(timeout=_STOP_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        centrum.kill()
+        centrum.wait()
+
+
+def _rolled_back(restart: Restart, before: str) -> bool:
+    """Cofa klon do ``before`` z plikami taty z katalogu aktualizacji; potem katalog nie jest już potrzebny.
+
+    Gdy cofnięcie się nie uda, katalog z kopią plików taty zostaje dla Maksa.
+    """
+
+    try:
+        ToolClone(restart.root).roll_back(before, restart.work / "pliki-taty")
+    except Exception:  # noqa: BLE001 - każda porażka cofnięcia kończy się okienkiem dla taty
+        return False
     shutil.rmtree(restart.work, ignore_errors=True)
-    return 0
+    return True
 
 
 def _windowless_python() -> str:
