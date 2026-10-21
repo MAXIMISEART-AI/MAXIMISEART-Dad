@@ -9,9 +9,11 @@ startuje nową wersję jak skrót, tylko bez karty i bez okienek, i czeka, aż
 odpowie w nowym commicie. Gdy nie odpowie, opiekun ją zatrzymuje, cofa klon do
 commitu sprzed aktualizacji razem z plikami taty (``ToolClone.roll_back``),
 zapisuje wynik „Nowa wersja nie wystartowała” i tak samo startuje starą wersję,
-która pokaże go w karcie. Gdy nie wystartuje i ona, opiekun pokazuje jedno
-natywne okienko z Komunikatem startu. Na końcu usuwa katalog tymczasowy
-aktualizacji.
+która pokaże go w karcie. Gdy port nie zwolni się w ``PORT_TIMEOUT_S``, nikt nie
+sprawdził nowej wersji: opiekun cofa klon tak samo, z wynikiem porażki
+nieoczekiwanej, i czeka na port jeszcze raz, żeby wystartować starą. Gdy nie
+wystartuje i ona, opiekun pokazuje jedno natywne okienko z Komunikatem startu.
+Na końcu usuwa katalog tymczasowy aktualizacji.
 """
 
 from __future__ import annotations
@@ -32,7 +34,14 @@ from typing import Final
 
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.platform import show_start_problem
-from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, UPDATED, ToolClone, UpdateResult, write_result
+from rozliczenia.centrum.tool_update import (
+    NEW_VERSION_FAILED,
+    UNEXPECTED,
+    UPDATED,
+    ToolClone,
+    UpdateResult,
+    write_result,
+)
 
 # Tyle czekają: stare Centrum na zamknięcie (otwarte połączenia karty do 5 s) i nowa wersja na pierwszą odpowiedź.
 PORT_TIMEOUT_S: Final = 60.0
@@ -133,14 +142,16 @@ def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show
     restart = Restart.of_arguments(argv)
     # Nowe Centrum czyta wynik raz przy starcie, więc plik musi być gotowy, zanim ono wystartuje.
     write_result(restart.result, UpdateResult(UPDATED, restart.before, restart.after, restart.installed))
-    if not _port_released(restart.port):
-        return 1
-    new = _start_centrum(restart)
-    if _answers(new, restart.port, restart.after):
-        shutil.rmtree(restart.work, ignore_errors=True)
-        return 0
-    _stop(new)
-    write_result(restart.result, UpdateResult(NEW_VERSION_FAILED, restart.before, restart.after, restart.installed))
+    if _port_released(restart.port):
+        new = _start_centrum(restart)
+        if _answers(new, restart.port, restart.after):
+            shutil.rmtree(restart.work, ignore_errors=True)
+            return 0
+        _stop(new)
+        failure = NEW_VERSION_FAILED
+    else:
+        failure = UNEXPECTED
+    write_result(restart.result, UpdateResult(failure, restart.before, restart.after, restart.installed))
     if restart.before is not None and _rolled_back(restart, restart.before) and _port_released(restart.port):
         if _answers(_start_centrum(restart), restart.port, restart.before):
             return 0

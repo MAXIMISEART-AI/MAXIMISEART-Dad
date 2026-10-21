@@ -7,10 +7,11 @@ aktualizację w osobnym wątku, a karta odczytuje krok i wynik. Dziennik Centrum
 dostaje start i koniec z commitem przed i po, bez ścieżek i bez wyjścia Gita.
 Po udanej aktualizacji Centrum zamyka się, a opiekun ponownego startu
 (``restart_guardian``) uruchamia nową wersję; koniec aktualizacji zapisuje
-wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Każdą porażkę,
-której ``tool_update`` nie przewidział, karta widzi jako Komunikat
-nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku. Przy każdej
-porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika.
+wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Gdy opiekun nie
+wystartuje, Centrum działa dalej i samo cofa klon. Każdą porażkę, której
+``tool_update`` nie przewidział, karta widzi jako Komunikat nieoczekiwanej
+porażki, a dziennik tylko nazwę typu wyjątku. Przy każdej porażce karta
+dostaje też Zgłoszenie do Maksa z faktami dziennika.
 """
 
 from __future__ import annotations
@@ -157,6 +158,8 @@ class ToolUpdates:
                     port, result.before, result.after, clone.root, self._result_file, result.installed, work
                 )
                 restarting = self._restart(restart, guardian)
+                if not restarting:
+                    result = self._rolled_back(clone, result, work)
             if not restarting:
                 self._finished(result)
                 view = _view_of(result) or self._failed(result).model_copy(
@@ -192,6 +195,14 @@ class ToolUpdates:
             return False
         self._shutdown.close_for_update()
         return True
+
+    def _rolled_back(self, clone: ToolClone, result: UpdateResult, work: Path) -> UpdateResult:
+        try:
+            if result.before is not None:
+                clone.roll_back(result.before, work / "pliki-taty")
+        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+            self._log.unexpected_failure(failure, where="cofanie po aktualizacji bez opiekuna")
+        return replace(result, code=UNEXPECTED)
 
     def _finished(self, result: UpdateResult) -> None:
         self._log.update_finished(
