@@ -33,6 +33,7 @@ from typing import Final
 
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.platform import show_start_problem
+from rozliczenia.centrum.version import short_commit
 from rozliczenia.centrum.tool_update import (
     NEW_VERSION_FAILED,
     ROLLBACK_FAILED,
@@ -60,6 +61,7 @@ _COPIED: Final = (
     "rozliczenia/centrum/platform.py",
     "rozliczenia/centrum/start_problems.py",
     "rozliczenia/centrum/tool_update.py",
+    "rozliczenia/centrum/version.py",
     "rozliczenia/centrum/restart_guardian.py",
 )
 _BOOT: Final = (
@@ -252,7 +254,10 @@ def _port_released(port: int) -> bool:
 
 
 def _answers(centrum: subprocess.Popen[bytes], port: int, commit: str) -> bool:
-    """Czy nowe Centrum odpowiada w ``START_TIMEOUT_S`` jako Centrum rozliczeń w commicie ``commit``."""
+    """Czy nowe Centrum odpowiada w ``START_TIMEOUT_S`` jako Centrum rozliczeń w commicie ``commit``.
+
+    ``health`` podaje commit skrócony, tak jak widzi go tata.
+    """
 
     direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # serwer proxy nie widzi 127.0.0.1 taty
     deadline = time.monotonic() + START_TIMEOUT_S
@@ -262,7 +267,7 @@ def _answers(centrum: subprocess.Popen[bytes], port: int, commit: str) -> bool:
                 health = json.load(response)
         except (OSError, ValueError):
             health = None
-        if isinstance(health, dict) and health.get("service") == _SERVICE and health.get("commit") == commit:
+        if isinstance(health, dict) and health.get("service") == _SERVICE and health.get("commit") == short_commit(commit):
             return True
         time.sleep(_POLL_S)
     return False

@@ -42,7 +42,7 @@ class Shutdown:
     def close_for_update(self) -> None:
         """Zamknięcie po udanej Aktualizacji narzędzia, bez warunku odmowy: miejsce „jedno naraz” trzyma ona sama."""
 
-        self._log.shutdown_requested(by="aktualizacja")
+        self._log.shutdown_for_update()
         self._requested.set()
 
     def wait(self) -> None:

@@ -17,7 +17,7 @@ from rozliczenia.settings import default_settings_path
 from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, Centrum, ROOT, centrum, project_version
 
 
-def test_health_przedstawia_centrum_rozliczen_z_wersja_commitem_i_identyfikatorem_startu(tmp_path: Path) -> None:
+def test_health_przedstawia_centrum_rozliczen_z_wersja_skroconym_commitem_i_identyfikatorem_startu(tmp_path: Path) -> None:
     first = centrum(tmp_path).client.get("/api/health")
     again = centrum(tmp_path).client.get("/api/health")
 
@@ -26,7 +26,7 @@ def test_health_przedstawia_centrum_rozliczen_z_wersja_commitem_i_identyfikatore
     assert health | {"instance": None} == {
         "service": "centrum-rozliczen",
         "version": project_version(),
-        "commit": TOOL_COMMIT,
+        "commit": TOOL_COMMIT[:7],
         "instance": None,
     }
     assert len(health["instance"]) == 32

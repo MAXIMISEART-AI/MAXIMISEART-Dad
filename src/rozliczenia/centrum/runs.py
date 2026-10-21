@@ -122,6 +122,10 @@ class StoppedRun:
     stop: Stop
 
 
+# Odmowa w trakcie Aktualizacji narzędzia: uruchomienia procesu, zamknięcia Centrum albo innej aktualizacji.
+_UPDATING = "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem {then}."
+
+
 class RunHost:
     """Jedno Uruchomienie procesu naraz w obrębie serwera i jego widoki dla przeglądarki.
 
@@ -176,7 +180,7 @@ class RunHost:
         """Co teraz trwa, z prośbą, żeby poczekać i ``then``; ``None``, gdy nic."""
 
         if self._updating:
-            return f"Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem {then}."
+            return _UPDATING.format(then=then)
         run = self._run
         if run is None or run.ended:
             return None
@@ -196,7 +200,7 @@ class RunHost:
     def start(self, prepared: PreparedRun[Any, Any]) -> contract.RunView:
         with self._lock:
             if self._updating:
-                raise contract.Refusal(409, "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem uruchom proces.")
+                raise contract.Refusal(409, _UPDATING.format(then="uruchom proces"))
             if self._run is not None and not self._run.ended:
                 running = self._run.info
                 raise contract.Refusal(

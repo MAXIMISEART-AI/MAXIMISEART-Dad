@@ -10,7 +10,7 @@ brakuje zależności.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 import threading
@@ -19,6 +19,8 @@ VIEW_TIMING_EVENT = "pomiar"
 # Pomiar przychodzi po każdym widoku, więc na jedno uruchomienie Centrum dziennik przyjmuje ich najwyżej
 # tyle (spec #164, US29); kolejne przepadają po cichu, a wpisy o pracy serwera są zapisywane dalej.
 MAX_VIEW_TIMINGS = 200
+# Wpisy o Aktualizacji narzędzia i jej Zgłoszeniach mówią, skąd są, tym samym słowem.
+_UPDATE = "aktualizacja"
 
 
 class CentrumLog:
@@ -38,10 +40,13 @@ class CentrumLog:
     def start_failed(self, code: str, *, port: int, **facts: str) -> None:
         self._write("blad-startu", kod=code, port=port, **facts)
 
-    def shutdown_requested(self, *, by: str = "karta Centrum") -> None:
-        """Prośba o zamknięcie z karty Centrum albo (``by="aktualizacja"``) po udanej Aktualizacji narzędzia."""
+    def shutdown_requested(self) -> None:
+        self._write("zamkniecie", z="karta Centrum")
 
-        self._write("zamkniecie", z=by)
+    def shutdown_for_update(self) -> None:
+        """Centrum zamyka się samo po udanej Aktualizacji narzędzia, żeby wystartować w nowej wersji."""
+
+        self._write("zamkniecie", z=_UPDATE)
 
     def stopped(self, *, port: int) -> None:
         self._write("stop", port=port)
@@ -82,28 +87,45 @@ class CentrumLog:
 
         self._write("diagnoza", proces=process, okres=period, przyczyna=cause)
 
-    def report_sent(self, subject: Mapping[str, str], *, number: int) -> None:
-        """Zgłoszenie do Maksa przyjęte przez skrzynkę Zgłoszeń jako issue ``number``; bez treści i klucza.
+    def report_sent(self, *, process: str, period: str, number: int) -> None:
+        """Zgłoszenie do Maksa przyjęte przez skrzynkę Zgłoszeń jako issue ``number``; bez treści i klucza."""
 
-        ``subject`` to fakty, z czego jest Zgłoszenie: proces i okres Uruchomienia albo Aktualizacja narzędzia.
-        """
+        self._write("zgloszenie-wyslane", proces=process, okres=period, numer=number)
 
-        self._write("zgloszenie-wyslane", **subject, numer=number)
-
-    def report_waiting(self, subject: Mapping[str, str], *, number: int) -> None:
+    def report_waiting(self, *, process: str, period: str, number: int) -> None:
         """Zgłoszenia nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego samego problemu."""
 
-        self._write("zgloszenie-czeka", **subject, numer=number)
+        self._write("zgloszenie-czeka", proces=process, okres=period, numer=number)
 
-    def report_saved(self, subject: Mapping[str, str], *, code: str) -> None:
+    def report_saved(self, *, process: str, period: str, code: str) -> None:
         """Zgłoszenia nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
 
-        self._write("zgloszenie-zapisane", **subject, kod=code)
+        self._write("zgloszenie-zapisane", proces=process, okres=period, kod=code)
 
-    def report_not_saved(self, subject: Mapping[str, str], *, cause: str) -> None:
+    def report_not_saved(self, *, process: str, period: str, cause: str) -> None:
         """Zgłoszenia nie wysłano ani nie zapisano w pliku; ``cause`` to kod Komunikatu, dlaczego nie wysłano."""
 
-        self._write("zgloszenie-niezapisane", **subject, przyczyna=cause)
+        self._write("zgloszenie-niezapisane", proces=process, okres=period, przyczyna=cause)
+
+    def update_report_sent(self, *, number: int) -> None:
+        """Zgłoszenie nieudanej Aktualizacji narzędzia przyjęte przez skrzynkę Zgłoszeń jako issue ``number``."""
+
+        self._write("zgloszenie-wyslane", z=_UPDATE, numer=number)
+
+    def update_report_waiting(self, *, number: int) -> None:
+        """Zgłoszenia aktualizacji nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego problemu."""
+
+        self._write("zgloszenie-czeka", z=_UPDATE, numer=number)
+
+    def update_report_saved(self, *, code: str) -> None:
+        """Zgłoszenia aktualizacji nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
+
+        self._write("zgloszenie-zapisane", z=_UPDATE, kod=code)
+
+    def update_report_not_saved(self, *, cause: str) -> None:
+        """Zgłoszenia aktualizacji nie wysłano ani nie zapisano w pliku; ``cause``: dlaczego nie wysłano."""
+
+        self._write("zgloszenie-niezapisane", z=_UPDATE, przyczyna=cause)
 
     def view_timed(
         self,

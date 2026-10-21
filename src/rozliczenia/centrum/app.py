@@ -46,7 +46,7 @@ from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum import restart_guardian
 from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
 from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
-from rozliczenia.centrum.version import SERVICE, tool_version
+from rozliczenia.centrum.version import SERVICE, short_commit, tool_version
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 _LOCAL_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
@@ -120,7 +120,7 @@ def create_app(
     @app.get("/api/health", operation_id="getHealth")
     def health() -> Health:
         return Health(
-            service=SERVICE, version=tool_version(), commit=surroundings.tool_freshness.local(), instance=instance
+            service=SERVICE, version=tool_version(), commit=_short(surroundings.tool_freshness.local()), instance=instance
         )
 
     store = SettingsStore(settings_path)
@@ -179,3 +179,7 @@ class _Frontend(StaticFiles):
         immutable = path.startswith("assets/")
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
         return response
+
+
+def _short(commit: str | None) -> str | None:
+    return None if commit is None else short_commit(commit)

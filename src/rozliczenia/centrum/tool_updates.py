@@ -26,7 +26,7 @@ from fastapi import APIRouter, Request
 
 from rozliczenia.centrum import contract, restart_guardian, update_messages
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.reports import Reports
+from rozliczenia.centrum.reports import NO_FAILED_UPDATE, Reports
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.shutdown import Shutdown
@@ -238,7 +238,7 @@ class ToolUpdates:
         with self._lock:
             failed = self._view
         if not isinstance(failed, contract.ToolUpdateFailed):
-            raise contract.Refusal(409, "Zgłoszenie powstaje po nieudanej aktualizacji narzędzia.")
+            raise contract.Refusal(409, NO_FAILED_UPDATE)
         state = self._reports.send_update()
         with self._lock:
             if self._view is failed:
@@ -253,8 +253,8 @@ class ToolUpdates:
 def _view_of(result: UpdateResult) -> contract.ToolUpdate | None:
     """Widok udanej aktualizacji albo ``None`` przy porażce."""
 
-    if result.code == UPDATED and result.after is not None:
-        return contract.ToolUpdateUpdated(state="updated", commit=result.after[:7])
+    if result.code == UPDATED:
+        return contract.ToolUpdateUpdated(state="updated")
     if result.code == UP_TO_DATE:
         return contract.ToolUpdateUpToDate(state="up_to_date")
     return None

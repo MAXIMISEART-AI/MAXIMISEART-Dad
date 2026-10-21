@@ -41,8 +41,9 @@ NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, object]] = {404: {"model": Prob
 class Health(_Model):
     """Tożsamość działającego Centrum.
 
-    ``commit`` to pełny commit narzędzia (``None`` poza klonem Gita), ``instance`` losowy identyfikator tego
-    startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
+    ``commit`` to skrócony commit narzędzia, jak na Konfiguracji (``None`` poza klonem Gita); po nim opiekun
+    ponownego startu rozpoznaje nową wersję, a karta pokazuje go w „Zaktualizowano”. ``instance`` to losowy
+    identyfikator tego startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił.
     """
 
     service: Literal["centrum-rozliczen"]
@@ -617,10 +618,9 @@ class ToolUpdateUpToDate(_Model):
 
 
 class ToolUpdateUpdated(_Model):
-    """Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); to Centrum wystartowało już w niej."""
+    """Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (wersja i commit są w ``Health``)."""
 
     state: Literal["updated"]
-    commit: str
 
 
 class ToolUpdateFailed(_Model):

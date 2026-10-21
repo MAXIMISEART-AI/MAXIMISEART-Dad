@@ -8,7 +8,7 @@ wynik, Konfiguracja, odmowy „jedno naraz” i dziennik Centrum.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -27,7 +27,6 @@ from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
     FakeInstaller,
     ToolRepository,
-    origin_asking_for_login,
     tool_repository,
 )
 
@@ -43,8 +42,6 @@ def updating_centrum(
     *,
     hold: threading.Event | None = None,
     incomplete_period: bool = False,
-    git_installed: bool = True,
-    origin: str | None = None,
     installer: FakeInstaller | None = None,
     guardian_failure: Callable[[ToolRepository], None] | None = None,
 ) -> tuple[PreparingCentrum, ToolRepository]:
@@ -53,8 +50,6 @@ def updating_centrum(
         guardian_failure=None if guardian_failure is None else lambda: guardian_failure(repository),
         tool=repository,
         update_hold=hold,
-        git_installed=git_installed,
-        update_origin=origin,
         installer=installer or FakeInstaller(),
     )
     rows = incomplete_period_rows() if incomplete_period else None
@@ -142,9 +137,9 @@ def test_nowe_centrum_po_aktualizacji_zapisuje_wynik_od_opiekuna_w_dzienniku_i_p
     view = centrum.client.get("/api/tool-update").json()
     centrum.restart()
 
-    assert (old_health["commit"], new_health["commit"]) == (before, newest)
+    assert (old_health["commit"], new_health["commit"]) == (before[:7], newest[:7])
     assert new_health["instance"] != old_health["instance"]
-    assert view == {"state": "updated", "commit": newest[:7]}
+    assert view == {"state": "updated"}
     assert tool_on_configuration(centrum) | {"version": None} == {
         "version": None,
         "commit": newest[:7],
@@ -329,96 +324,31 @@ def github_out_of_reach(repository: ToolRepository) -> Iterator[None]:
         away.rename(repository.origin)
 
 
-def newer_version(centrum_and_repository: tuple[PreparingCentrum, ToolRepository]) -> tuple[PreparingCentrum, ToolRepository]:
-    """Maks wydał nową wersję narzędzia: `main` w „origin” jest o commit przed klonem taty."""
-
-    centrum_and_repository[1].publish({"src/narzedzie.py": "WERSJA = 2\n"})
-    return centrum_and_repository
-
-
-def without_git(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
-    return newer_version(updating_centrum(tmp_path, git_installed=False))
-
-
-def without_internet(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
-    centrum, repository = newer_version(updating_centrum(tmp_path))
-    stack.enter_context(github_out_of_reach(repository))
-    return centrum, repository
-
-
-def github_asking_for_login(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
-    return newer_version(updating_centrum(tmp_path, origin=stack.enter_context(origin_asking_for_login())))
-
-
-def on_other_branch(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
-    centrum, repository = newer_version(updating_centrum(tmp_path))
-    repository.in_clone("checkout", "--quiet", "-b", "proba-maksa")
-    return centrum, repository
-
-
-def with_local_change(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
-    centrum, repository = newer_version(updating_centrum(tmp_path))
-    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
-    return centrum, repository
-
-
-Situation = Callable[[Path, ExitStack], tuple[PreparingCentrum, ToolRepository]]
-
-
-@pytest.mark.parametrize(
-    ("situation", "code", "what", "action", "next_action"),
-    [
-        (without_git, "BRAK_GITA", "Nie zaktualizowano narzędzia: na tym komputerze nie ma Gita.", TO_MAKS, "report"),
-        (
-            without_internet,
-            "BRAK_POLACZENIA",
-            "Nie zaktualizowano narzędzia: brak połączenia z GitHubem.",
-            f"{STILL_WORKS} Sprawdź internet i kliknij „Zaktualizuj narzędzie” jeszcze raz.",
-            "retry",
-        ),
-        (
-            github_asking_for_login,
-            "LOGOWANIE",
-            "Nie zaktualizowano narzędzia: GitHub prosi o logowanie.",
-            TO_MAKS,
-            "report",
-        ),
-        (
-            on_other_branch,
-            "INNA_GALAZ",
-            "Nie zaktualizowano narzędzia: na tym komputerze jest inna gałąź narzędzia niż main.",
-            TO_MAKS,
-            "report",
-        ),
-        (
-            with_local_change,
-            "ZMIANY_NA_KOMPUTERZE",
-            "Nie zaktualizowano narzędzia: ma zmiany zrobione na tym komputerze.",
-            TO_MAKS,
-            "report",
-        ),
-    ],
-    ids=["brak-gita", "brak-internetu", "logowanie", "inna-galaz", "zmiany-na-komputerze"],
-)
-def test_aktualizacja_ktora_nie_moze_sie_udac_daje_komunikat_w_trzech_czesciach_a_narzedzie_zostaje(
-    tmp_path: Path, situation: Situation, code: str, what: str, action: str, next_action: str
+def test_porazka_aktualizacji_karta_dostaje_jako_komunikat_w_trzech_czesciach_a_narzedzie_zostaje(
+    tmp_path: Path,
 ) -> None:
-    with ExitStack() as stack:
-        centrum, repository = situation(tmp_path, stack)
-        before = repository.head()
+    # Reguły porażek są w ``test_aktualizacja_narzedzia.py``; tu jedna zamiana kodu na Komunikat karty.
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
 
+    with github_out_of_reach(repository):
         view = update_until_done(centrum)
 
+    what = "Nie zaktualizowano narzędzia: brak połączenia z GitHubem."
     assert {key: value for key, value in view.items() if key != "draft"} == {
         "state": "failed",
-        "message": {"what": what, "where": "narzędzie na tym komputerze", "action": action},
-        "next_action": next_action,
+        "message": {
+            "what": what,
+            "where": "narzędzie na tym komputerze",
+            "action": f"{STILL_WORKS} Sprawdź internet i kliknij „Zaktualizuj narzędzie” jeszcze raz.",
+        },
+        "next_action": "retry",
         "report": {"state": "ready"},
     }
-    assert view["draft"]["title"] == f"{code}: {what}"
+    assert view["draft"]["title"] == f"BRAK_POLACZENIA: {what}"
     assert repository.head() == before
-    assert repository.read("src/narzedzie.py") != "WERSJA = 2\n"
-    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik={code} przed={before} po=- biblioteki=nie"]
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=BRAK_POLACZENIA przed={before} po=- biblioteki=nie"]
 
 
 def with_key(centrum: PreparingCentrum) -> None:
@@ -508,36 +438,6 @@ def test_nowe_biblioteki_karta_widzi_krok_instalowania_a_dziennik_zapisuje_insta
     [restart] = centrum.surroundings.restarts
     # Opiekun przekaże nowemu Centrum, że instalowano biblioteki; koniec aktualizacji zapisze ono.
     assert (restart.before, restart.after, restart.installed) == (before, newest, True)
-
-
-def test_nieudana_instalacja_bibliotek_daje_komunikat_a_narzedzie_zostaje_w_poprzedniej_wersji(
-    tmp_path: Path,
-) -> None:
-    centrum, repository = updating_centrum(tmp_path, installer=FakeInstaller(succeeds=False))
-    before = repository.head()
-    newest = repository.publish({"requirements.txt": NEW_REQUIREMENTS, "src/narzedzie.py": "WERSJA = 2\n"})
-
-    view = update_until_done(centrum)
-
-    assert {key: value for key, value in view.items() if key != "draft"} == {
-        "state": "failed",
-        "message": {
-            "what": "Nie udało się zainstalować bibliotek nowej wersji narzędzia.",
-            "where": "narzędzie na tym komputerze",
-            "action": (
-                "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
-                "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
-            ),
-        },
-        "next_action": "retry",
-        "report": {"state": "ready"},
-    }
-    assert repository.head() == before
-    assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
-    assert tool_on_configuration(centrum)["commit"] == before[:7]
-    assert log_entries(centrum, "aktualizacja-koniec") == [
-        f"wynik=INSTALACJA_BIBLIOTEK przed={before} po={newest} biblioteki=tak"
-    ]
 
 
 def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_zgloszen(tmp_path: Path) -> None:

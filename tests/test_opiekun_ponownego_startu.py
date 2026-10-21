@@ -57,13 +57,13 @@ def _get(port: int, path: str) -> dict[str, object]:
 
 
 def _health(port: int, *, commit: str | None = None, timeout_s: float = 60) -> dict[str, object]:
-    """``health`` Centrum na porcie; z ``commit`` dopiero wtedy, gdy odpowiada Centrum w tym commicie."""
+    """``health`` Centrum na porcie; z ``commit`` dopiero wtedy, gdy odpowiada Centrum w tym commicie (skróconym)."""
 
     deadline = time.monotonic() + timeout_s
     while True:
         try:
             health = _get(port, "/api/health")
-            if commit is None or health["commit"] == commit:
+            if commit is None or health["commit"] == commit[:7]:
                 return health
         except OSError:
             pass
@@ -140,11 +140,11 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
         old.wait()
 
     assert old_exit == 0
-    assert (old_health["commit"], new_health["commit"]) == (before, newest)
+    assert (old_health["commit"], new_health["commit"]) == (before[:7], newest[:7])
     assert new_health["instance"] != old_health["instance"]
     assert new_health["version"] == old_health["version"]
     assert guardian_exit == 0
-    assert view == {"state": "updated", "commit": newest[:7]}
+    assert view == {"state": "updated"}
     assert not (clone / "config" / RESULT_FILE).exists()
     assert not work.exists()
     events = [line.split(" ", 2)[1] for line in _log_lines(clone)]
