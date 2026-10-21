@@ -357,6 +357,10 @@ Plik zbiorczy wynika z okresu, więc go nie szukasz: Centrum bierze
    szablony` i `Puste szablony`. Przycisk `Folder okresu`
    otwiera folder, a na stronie `Okresy` okres ma Status `Rozliczenia
    pracowników gotowe`. Otwórz pliki pracowników i sprawdź ich zawartość.
+7. Wiersze w pliku pracownika wyglądają jak w Pliku zbiorczym: mają te same
+   kolory wypełnienia, kolory czcionki, pogrubienia i kursywy. Krój i rozmiar
+   czcionki, format liczb i obramowania są jak we Wzorcu rozliczenia
+   pracownika.
 
 Wynik z żółtym znakiem `Podgląd wymaga sprawdzenia · nic nie zapisano` to nie
 sukces: pod nim są problemy w Pliku zbiorczym, każdy w trzech częściach. Popraw
