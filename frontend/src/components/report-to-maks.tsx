@@ -2,28 +2,29 @@ import * as React from "react"
 import { CircleCheckIcon, ClockIcon, RotateCcwIcon, SendIcon } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
-import { reportRun, type ReportDraft, type RunOutcome } from "@/api/centrum"
+import type { ReportDraft, RunOutcome } from "@/api/centrum"
 import { Disclosure } from "@/components/disclosure"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { toast } from "@/components/ui/toast"
 
-type ReportState = NonNullable<RunOutcome["report"]>
+export type ReportState = NonNullable<RunOutcome["report"]>
 
 /**
- * Zgłoszenie do Maksa przy Zatrzymaniu: podgląd z Diagnozy i „Wyślij do Maksa”, potwierdzenie po wysłaniu
- * albo Komunikat z „Spróbuj ponownie”, gdy Zgłoszenie czeka w pliku. Gdy ten problem ma już otwarte Zgłoszenie,
- * zamiast przycisku jest „już wysłane i czeka na naprawę”. Stan liczy serwer; `draft` jest dopiero
- * po Diagnozie, więc przed nią widać tylko potwierdzenie albo zapisane Zgłoszenie.
+ * Zgłoszenie do Maksa (przy Zatrzymaniu albo nieudanej Aktualizacji narzędzia): podgląd i „Wyślij do Maksa”,
+ * potwierdzenie po wysłaniu albo Komunikat z „Spróbuj ponownie”, gdy Zgłoszenie czeka w pliku. Gdy ten problem
+ * ma już otwarte Zgłoszenie, zamiast przycisku jest „już wysłane i czeka na naprawę”. Stan liczy serwer, a `send`
+ * prosi go o wysyłkę; `draft` przy Zatrzymaniu jest dopiero po Diagnozie, więc przed nią widać tylko
+ * potwierdzenie albo zapisane Zgłoszenie.
  */
 export function ReportToMaks({
-  runId,
+  send: sendReport,
   report,
   draft,
   primary,
 }: {
-  runId: string
+  send: () => Promise<ReportState>
   report: ReportState
   draft: ReportDraft | null
   /** „Wyślij do Maksa” jest głównym przyciskiem, gdy przyczynę usuwa Maks. */
@@ -36,7 +37,7 @@ export function ReportToMaks({
   const send = () => {
     setSending(true)
 
-    reportRun(runId)
+    sendReport()
       .then(setAnswer, (failure: Error) => {
         toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
       })

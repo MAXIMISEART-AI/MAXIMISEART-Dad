@@ -491,13 +491,18 @@ def cell_values(path: Path, *, min_row: int, max_row: int, min_col: int, max_col
         workbook.close()
 
 
-def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+def incomplete_period_rows() -> list[RegisterRow]:
     """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
 
-    rows: list[RegisterRow] = [
+    return [
         register_order(1, datetime(2026, 9, 8, 8, 0)),
         None,
         register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
         register_order(3, datetime(2026, 9, 12, 12, 0)),
     ]
-    return make_preparation_fixture(tmp_path, rows)
+
+
+def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
+
+    return make_preparation_fixture(tmp_path, incomplete_period_rows())

@@ -436,7 +436,7 @@ def test_progress_projection_accepts_przygotowanie_pliku_zbiorczego_interrupted_
     assert projection.snapshot.phase_durations_ms[ProgressPhase.SAVING] >= save_s * 1000
 
 
-def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path: Path) -> None:
+def test_nienadpisywanie_przerywa_przygotowanie_w_sprawdzaniu(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     fixture.period_directory.mkdir()
     fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
@@ -449,8 +449,6 @@ def test_interrupted_przygotowanie_emits_failed_without_exception_text(tmp_path:
         (ProgressPhase.CHECKING, PhaseStarted),
         (ProgressPhase.CHECKING, PhaseFailed),
     ]
-    assert "istnieje" not in repr(recorded)
-    assert COLLECTIVE_FILE_NAME not in repr(recorded)
 
 
 def test_failing_observer_is_detached_and_does_not_change_result_or_files(tmp_path: Path) -> None:

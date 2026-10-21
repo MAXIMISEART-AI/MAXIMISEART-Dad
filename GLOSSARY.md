@@ -307,7 +307,14 @@ _Avoid_: issue tracker, publiczne issue
 
 Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
 narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
-Znika samo po aktualizacji i ponownym otwarciu Centrum.
+Ma przycisk aktualizacji i znika samo, gdy Centrum wystartuje w nowej wersji.
+
+## Wersja narzędzia
+
+Commit klonu narzędzia, z którego wystartowało Centrum rozliczeń na komputerze
+taty. Karta `Narzędzie` w Konfiguracji pokazuje jego skrót i dzień, od którego
+narzędzie jest na tym commicie; Zgłoszenie podaje pełny commit.
+_Avoid_: numer wersji z `pyproject.toml`
 
 ## Aktualizacja narzędzia
 
@@ -315,6 +322,23 @@ Przejście narzędzia na komputerze taty na jego najnowszą wersję, które
 tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
 zostawia poprzednią wersję; pliki taty pozostają nietknięte.
 _Avoid_: upgrade, git pull, instalacja
+
+## Aktualność narzędzia
+
+Czy narzędzie na komputerze taty jest w najnowszej wersji, czyli czy jego
+commit to `main` publicznego repozytorium: `Aktualna`, `Jest nowsza wersja`
+albo `Nie sprawdzono` (bez internetu). Pokazuje ją Konfiguracja i sprawdza
+Diagnoza; nowsza wersja jest przyczyną Zatrzymania tylko wtedy, gdy Diagnoza
+nie znalazła innej.
+_Avoid_: świeżość, freshness
+
+## Ponowny start Centrum
+
+Koniec udanej Aktualizacji narzędzia: Centrum rozliczeń samo się zamyka i
+startuje w nowej wersji na tym samym adresie, a otwarta karta przeglądarki
+sama się odświeża. Gdy nowa wersja nie wystartuje, wraca poprzednia, a karta
+pokazuje Komunikat.
+_Avoid_: restart, reboot
 
 ## Nienadpisywanie
 

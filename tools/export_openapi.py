@@ -28,7 +28,6 @@ from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 # Trasy, których przeglądarka nie mierzy przez `call` (frontend/src/api/client.ts), każda z powodem. Każda inna
 # trasa jest w ApiOperation, a każda operacja z ApiOperation ma trasę i przeglądarka woła ją przez `call`.
 OUTSIDE_TIMING = {
-    "getHealth": "tożsamość Centrum dla launchera (launcher.py); przeglądarka jej nie czyta",
     "streamRunEvents": "strumień SSE (EventSource) otwarty przez całe życie karty, nie zapytanie z odpowiedzią",
     "recordViewTiming": "sam pomiar widoku, wysyłany po pomiarze; odpowiedź 204 bez treści",
     "getCurrentRun": "przeglądarka bierze bieżące Uruchomienie ze strumienia; trasę czytają testy i weryfikacja",

@@ -15,7 +15,6 @@ from openpyxl.utils import get_column_letter
 
 from rozliczenia.domain import ProgressEvent, ProgressObserver
 from rozliczenia.progress import ProgressProjection
-from rozliczenia.telemetry import MetricsStore
 from tests.fixtures.workbooks import active_worksheet
 
 PERIOD = "08_14_09_2026"
@@ -144,29 +143,3 @@ def make_preview_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=True)
     return source_path, target_directory, config_path
-
-
-def append_completed_records(metrics_path: Path, mode: str, count: int = 5) -> None:
-    for sample in range(count):
-        MetricsStore(metrics_path).append(
-            {
-                "schema_version": 1,
-                "started_at": f"2026-09-28T00:00:0{sample}+00:00",
-                "mode": mode,
-                "period": PERIOD,
-                "completed": True,
-                "result": "OK",
-                "total_duration_ms": 1000,
-                "phase_durations_ms": {"Sprawdzanie": 1, "Odczyt danych": 1, "Planowanie": 1, "Zapisywanie": 1},
-                "counters": {
-                    "templates_total": 1,
-                    "templates_completed": 1,
-                    "rows": 1,
-                    "written": 1,
-                    "empty": 0,
-                    "planned": 0,
-                    "skipped": 0,
-                    "issues": 0,
-                },
-            }
-        )

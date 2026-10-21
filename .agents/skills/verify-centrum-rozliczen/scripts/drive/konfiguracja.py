@@ -3,21 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tomllib
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import REPO_ROOT, Run
+from drive.common import Run, served_version, version_line
 
 TEMPLATE_LABELS = ("Wzorzec rozliczenia wewnętrznego", "Wzorzec pliku zbiorczego", "Wzorzec rozliczenia pracownika")
 REPORT_TO_MAINTAINER = "Przekaż ten komunikat osobie utrzymującej narzędzie."
-
-
-def _project_version() -> str:
-    with (REPO_ROOT / "pyproject.toml").open("rb") as file:
-        version = tomllib.load(file)["project"]["version"]
-    assert isinstance(version, str)
-    return version
 
 
 def _configuration_snapshot(files: dict[str, Path]) -> dict[str, tuple[bytes, int]]:
@@ -66,13 +58,16 @@ def drive_configuration(run: Run, page: Page) -> None:
         configuration["workers"] == {"state": "ready", "names": run.fixture["workers"]},
         "the server lists the Wykonawcy in the order of the konfiguracja wykonawców",
     )
-    version = _project_version()
-    run.check(configuration["version"] == version, "the server reports the pyproject.toml version")
+    commit, since = served_version(run)
+    run.check(
+        configuration["version"] == {"commit": commit[:7], "since": since},
+        "the server reports the tool's commit and the day the tool moved there",
+    )
     for label in TEMPLATE_LABELS:
         _shown_as_ready(page, label)
     expect(page.get_by_text("3 z 3", exact=True)).to_be_visible()
     expect(page.get_by_role("list", name="Wykonawcy").get_by_role("listitem")).to_have_text(run.fixture["workers"])
-    expect(page.get_by_text(f"Wersja {version}", exact=True)).to_be_visible()
+    expect(page.get_by_role("region", name="Narzędzie").get_by_text(version_line(commit, since), exact=True)).to_be_visible()
     expect(page.get_by_role("alert")).to_have_count(0)
     run.check(True, "the screen shows the same Wzorce, Wykonawcy, and version, with no problem")
     run.capture(page, "10-konfiguracja-gotowa")
@@ -80,9 +75,12 @@ def drive_configuration(run: Run, page: Page) -> None:
     run.step(feature, "konfiguracja-tylko-do-odczytu")
     page.get_by_text("Tylko do odczytu", exact=True).hover()
     expect(page.get_by_text("Zmiany robi osoba utrzymująca narzędzie.", exact=True)).to_be_visible()
+    buttons = page.locator("main").get_by_role("button")
     run.check(
-        page.url.endswith("#/konfiguracja") and page.locator("main").get_by_role("button").count() == 2,
-        "the page offers no action besides the header's menu and theme buttons",
+        page.url.endswith("#/konfiguracja")
+        and buttons.count() == 3
+        and buttons.filter(has_text="Zaktualizuj narzędzie").count() == 1,
+        "the page offers no action besides the header's menu and theme buttons and `Zaktualizuj narzędzie`",
     )
     run.capture(page, "11-konfiguracja-tylko-do-odczytu", full_page=False)
     page.mouse.move(0, 0)
