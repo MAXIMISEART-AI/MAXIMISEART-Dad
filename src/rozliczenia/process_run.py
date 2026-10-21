@@ -53,7 +53,6 @@ __all__ = [
 ]
 
 _DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
-_EXIT_CODES = {"OK": 0, "WYMAGA_SPRAWDZENIA": 2, "BLAD_KRYTYCZNY": 1}
 
 
 class ProcessInputs(Protocol):
@@ -164,6 +163,10 @@ class Outcome(Generic[ViewT]):
     @property
     def result(self) -> Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]:
         return self.ending.result if isinstance(self.ending, Finished) else "BLAD_KRYTYCZNY"
+
+    @property
+    def exit_code(self) -> int:
+        return {"OK": 0, "WYMAGA_SPRAWDZENIA": 2, "BLAD_KRYTYCZNY": 1}[self.result]
 
 
 @dataclass(frozen=True)
@@ -453,4 +456,4 @@ def run(
     gathered = _gather(process, entry, args, terminal)
     outcome = _conduct(process, gathered, terminal, entry.summary, args.metrics, dry_run=args.dry_run)
     terminal.print_lines(_final_lines(process, entry, outcome, args.metrics))
-    return _EXIT_CODES[outcome.result]
+    return outcome.exit_code
