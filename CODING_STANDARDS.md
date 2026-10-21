@@ -62,7 +62,7 @@ their contents.
   to its golden file in the same commit (`UPDATE_GOLDEN=1`, then review the
   diff).
 - Before reporting work done, run `tools/ci_lokalnie.py` with the checkout's
-  own `.venv`: the CI jobs ruff, mypy, pytest and frontend, ending with
+  own `.venv`: the CI jobs ruff, mypy, pytest, mutations and frontend, ending with
   `CI LOKALNIE OK`. Before real files are used, run `--dry-run`.
 
 ## Frontend
