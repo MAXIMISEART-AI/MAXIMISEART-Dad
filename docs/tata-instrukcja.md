@@ -191,8 +191,9 @@ jest najnowsza: `Aktualna`, `Jest nowsza wersja` albo `Nie sprawdzono` (bez
 internetu).
 
 1. Na stronie `Konfiguracja` kliknij `Zaktualizuj narzędzie`.
-2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a przycisk jest
-   wtedy wyłączony.
+2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a gdy nowa wersja
+   potrzebuje nowych bibliotek, potem `Instalowanie bibliotek…` (to może
+   potrwać kilka minut). Przycisk jest wtedy wyłączony.
 3. Na końcu karta pokaże jedno z dwóch:
    - `Zaktualizowano. Zamknij Centrum rozliczeń i kliknij skrót.` W menu po
      lewej kliknij `Zamknij Centrum rozliczeń`, potem otwórz Centrum skrótem.
@@ -217,6 +218,7 @@ przed wysłaniem.
 | „GitHub prosi o logowanie” | Nie loguj się nigdzie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „inna gałąź narzędzia” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „zmiany zrobione na tym komputerze” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 
 Bez internetu `Wyślij do Maksa` zapisze Zgłoszenie w pliku: postępuj wtedy

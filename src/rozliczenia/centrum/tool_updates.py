@@ -27,6 +27,7 @@ from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import (
+    LIBRARIES_FAILED,
     NO_CONNECTION,
     UNEXPECTED,
     UP_TO_DATE,
@@ -37,7 +38,7 @@ from rozliczenia.centrum.tool_update import (
 )
 
 # Porażki, po których tata sam klika „Zaktualizuj narzędzie” jeszcze raz; każdą inną przejmuje Maks.
-_RETRIED_BY_TATA = frozenset({NO_CONNECTION, UNEXPECTED})
+_RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED})
 
 
 class ToolUpdates:

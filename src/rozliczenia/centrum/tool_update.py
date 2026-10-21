@@ -4,7 +4,11 @@ Jedna operacja, ``ToolClone.update``, robi to, co Maks zrobiłby ręcznie
 (ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` ze
 stałego adresu publicznego repozytorium i przesuwa klon tylko do przodu.
 Pliki taty w ``config/``, które nowa wersja usuwa albo przestaje śledzić,
-zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``).
+zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``). Gdy nowa
+wersja zmienia ``requirements.txt``, biblioteki instaluje ten sam Python, w
+którym działa Centrum (``pip_install``); nieudana instalacja cofa klon do
+commitu sprzed aktualizacji (``ToolClone.roll_back``). Bibliotek się nie cofa:
+wymagania mają tylko dolne granice wersji, więc stara wersja dalej je spełnia.
 Wynik to kod (``UPDATED``, ``UP_TO_DATE`` albo kod Komunikatu porażki) z
 commitem przed i po; treść Komunikatów należy do Centrum
 (``update_messages``).
@@ -47,12 +51,17 @@ OTHER_BRANCH: Final = "INNA_GALAZ"
 LOCAL_CHANGES: Final = "ZMIANY_NA_KOMPUTERZE"
 # Kod Komunikatu porażki, której nikt nie przewidział (``GitFailed`` albo inny wyjątek); zamienia go Centrum.
 UNEXPECTED: Final = "NIEOCZEKIWANY_BLAD"
+# Kod Komunikatu: biblioteki nowej wersji się nie zainstalowały, a klon wrócił do commitu sprzed aktualizacji.
+LIBRARIES_FAILED: Final = "INSTALACJA_BIBLIOTEK"
 
 Step = Literal["fetching", "installing"]
 
 _FETCHED: Final = f"refs/remotes/origin/{BRANCH}"
 _FETCH_TIMEOUT_S: Final = 120.0
 _LOCAL_TIMEOUT_S: Final = 60.0
+_REQUIREMENTS: Final = "requirements.txt"
+# Pip na wolnym łączu taty pobiera i rozpakowuje koła bibliotek przez kilka minut.
+_INSTALL_TIMEOUT_S: Final = 15 * 60.0
 # Zmienne, którymi Git dostałby inne repozytorium albo okno z pytaniem o hasło.
 _FOREIGN_VARIABLES: Final = (
     "GIT_DIR",
@@ -117,17 +126,46 @@ def _registered_git_for_windows(hive: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def pip_install(requirements: Path) -> bool:
+    """Instaluje ``requirements`` tym samym Pythonem, w którym działa Centrum; ``False``, gdy pip się nie uda.
+
+    Bez ``--user``: pip sam przechodzi na instalację użytkownika, gdy nie może
+    pisać do globalnego Pythona. Wyjście pip nie trafia nigdzie; bez okna
+    konsoli i bez pytań.
+    """
+
+    command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--quiet"]
+    try:
+        result = subprocess.run(
+            [*command, "-r", str(requirements)],
+            cwd=requirements.parent,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_INSTALL_TIMEOUT_S,
+            check=False,
+            creationflags=_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 class GitFailed(Exception):
     """Polecenie Gita nie przeszło z nieprzewidzianego powodu; ``str()`` to samo polecenie, bez wyjścia Gita."""
 
 
 @dataclass(frozen=True)
 class ToolClone:
-    """Klon narzędzia w ``root`` i adres repozytorium, z którego przychodzi nowa wersja (``origin``)."""
+    """Klon narzędzia w ``root`` i adres repozytorium, z którego przychodzi nowa wersja (``origin``).
+
+    ``install`` instaluje biblioteki z podanego pliku wymagań i mówi, czy się udało.
+    """
 
     root: Path
     origin: str = GITHUB_REPOSITORY
     find_git: Callable[[], Path | None] = find_git
+    install: Callable[[Path], bool] = pip_install
 
     @classmethod
     def of_system(cls) -> ToolClone:
@@ -163,7 +201,51 @@ class ToolClone:
             # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
             if run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode != 0:
                 return UpdateResult(LOCAL_CHANGES, before, None)
-        return UpdateResult(UPDATED, before, after)
+        try:
+            installed = self._install_libraries(run, before, after, on_step)
+        except BaseException:
+            _roll_back(run, before, backup)
+            raise
+        if installed is False:
+            _roll_back(run, before, backup)
+            return UpdateResult(LIBRARIES_FAILED, before, after, installed=True)
+        return UpdateResult(UPDATED, before, after, installed=installed is True)
+
+    def _install_libraries(self, run: _Git, before: str, after: str, on_step: Callable[[Step], None]) -> bool | None:
+        """Instaluje biblioteki, gdy ``after`` zmienia wymagania: czy się udało, a ``None``, gdy nie było czego instalować."""
+
+        if not run.changed(before, after, _REQUIREMENTS):
+            return None
+        on_step("installing")
+        return self.install(self.root / _REQUIREMENTS)
+
+    def roll_back(self, before: str, backup: Path) -> None:
+        """Cofa przesunięty klon do commitu ``before`` z plikami taty z ``backup`` (katalog kopii ``update``)."""
+
+        git = self.find_git()
+        if git is None:
+            raise GitFailed("brak Gita")
+        _roll_back(_Git(git, self.root), before, backup)
+
+
+def _roll_back(git: _Git, before: str, backup: Path) -> None:
+    """``git reset --keep before``, a pliki taty z ``backup`` przed nim znikają z klonu i po nim do niego wracają.
+
+    Po przesunięciu klonu pliki taty są w nim nieśledzone, a ``before`` je
+    śledzi: Git odmówiłby ich nadpisania. Po cofnięciu mają treść taty, tak jak
+    przed kliknięciem.
+    """
+
+    names = [copy.relative_to(backup) for copy in backup.rglob("*") if copy.is_file()]
+    for name in names:
+        (git.root / name).unlink(missing_ok=True)
+    try:
+        git.check("reset", "--keep", "--quiet", before)
+    finally:
+        for name in names:
+            target = git.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backup / name, target)
 
 
 def _has_local_commits(run: _Git) -> bool:
@@ -277,6 +359,14 @@ class _Git:
         if result.returncode != 0:
             raise GitFailed(args[0])
         return result.stdout
+
+    def changed(self, before: str, after: str, name: str) -> bool:
+        """Czy ``after`` dodaje albo zmienia plik ``name`` względem ``before``."""
+
+        result = self.run("diff", "--quiet", "--no-renames", "--diff-filter=AM", before, after, "--", f":(literal){name}")
+        if result.returncode not in (0, 1):
+            raise GitFailed("diff")
+        return result.returncode == 1
 
     def fetch(self, origin: str) -> str | None:
         """Pobiera `main` z ``origin``; ``None``, gdy się udało, inaczej kod porażki (logowanie albo brak sieci).

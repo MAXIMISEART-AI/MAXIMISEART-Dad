@@ -19,6 +19,8 @@ from rozliczenia.centrum.tool_update import ToolClone, UpdateResult, find_git
 
 from tests.fixtures.tool_clone import (
     FIRST_VERSION,
+    NEW_REQUIREMENTS,
+    FakeInstaller,
     ToolRepository,
     origin_asking_for_login,
     tool_repository,
@@ -320,3 +322,105 @@ def test_odmowa_przesuniecia_zostawia_pliki_taty_i_klon_bez_zmian(repository: To
         " M config/worker_mapping.yaml",
         "?? config/rejestr.yaml",
     ]
+
+
+def test_zmiana_wymagan_instaluje_biblioteki_nowej_wersji(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    newest = repository.publish({"requirements.txt": NEW_REQUIREMENTS, "src/narzedzie.py": "WERSJA = 2\n"})
+    installer = FakeInstaller()
+    steps: list[str] = []
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=installer)
+
+    result = clone.update(tmp_path / "kopia-plikow-taty", steps.append)
+
+    assert result == UpdateResult("ok", before=before, after=newest, installed=True)
+    assert installer.installed == [(repository.clone / "requirements.txt", NEW_REQUIREMENTS)]
+    assert steps == ["fetching", "installing"]
+
+
+def test_bez_zmiany_wymagan_biblioteki_nie_sa_instalowane(repository: ToolRepository, tmp_path: Path) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    installer = FakeInstaller()
+    steps: list[str] = []
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=installer)
+
+    result = clone.update(tmp_path / "kopia-plikow-taty", steps.append)
+
+    assert (result.code, result.installed) == ("ok", False)
+    assert installer.installed == []
+    assert steps == ["fetching"]
+
+
+DAD_SETTINGS = "config/centrum-ustawienia.yaml"
+
+
+def moved_with_new_requirements(repository: ToolRepository) -> str:
+    """Nowa wersja zmienia wymagania, przestaje śledzić zmienioną u taty Konfigurację wykonawców i usuwa jej przykład."""
+
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    (repository.clone / DAD_SETTINGS).write_text("folder_okresow: Załączniki\n", encoding="utf-8")
+    return repository.publish(
+        {
+            ".gitignore": "config/worker_mapping.yaml\n",
+            "config/worker_mapping.example.yaml": None,
+            "requirements.txt": NEW_REQUIREMENTS,
+            "src/narzedzie.py": "WERSJA = 2\n",
+        },
+        untrack=("config/worker_mapping.yaml",),
+    )
+
+
+def assert_back_before_click(repository: ToolRepository, before: str) -> None:
+    assert repository.head() == before
+    assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
+    assert repository.read("requirements.txt") == FIRST_VERSION["requirements.txt"]
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+    assert repository.read("config/worker_mapping.example.yaml") == FIRST_VERSION["config/worker_mapping.example.yaml"]
+    assert repository.read(DAD_SETTINGS) == "folder_okresow: Załączniki\n"
+    assert repository.in_clone("status", "--porcelain", "--branch").splitlines() == [
+        "## main...origin/main [behind 1]",
+        " M config/worker_mapping.yaml",
+        "?? config/centrum-ustawienia.yaml",
+    ]
+
+
+def test_nieudana_instalacja_bibliotek_cofa_klon_z_plikami_taty_i_daje_komunikat(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    newest = moved_with_new_requirements(repository)
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller(succeeds=False))
+
+    result = clone.update(tmp_path / "kopia-plikow-taty")
+
+    assert result == UpdateResult("INSTALACJA_BIBLIOTEK", before=before, after=newest, installed=True)
+    assert_back_before_click(repository, before)
+
+
+def test_wyjatek_instalatora_cofa_klon_z_plikami_taty(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    moved_with_new_requirements(repository)
+
+    def broken_installer(requirements: Path) -> bool:
+        raise RuntimeError("instalator się wysypał")
+
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=broken_installer)
+
+    with pytest.raises(RuntimeError):
+        clone.update(tmp_path / "kopia-plikow-taty")
+
+    assert_back_before_click(repository, before)
+
+
+def test_cofniecie_po_udanej_aktualizacji_wraca_do_commitu_sprzed_niej_z_plikami_taty(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    moved_with_new_requirements(repository)
+    backup = tmp_path / "kopia-plikow-taty"
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
+    assert clone.update(backup).code == "ok"
+
+    clone.roll_back(before, backup)
+
+    assert_back_before_click(repository, before)

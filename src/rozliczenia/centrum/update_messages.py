@@ -13,7 +13,15 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from rozliczenia.centrum.tool_update import LOCAL_CHANGES, LOGIN, NO_CONNECTION, NO_GIT, OTHER_BRANCH, UNEXPECTED
+from rozliczenia.centrum.tool_update import (
+    LIBRARIES_FAILED,
+    LOCAL_CHANGES,
+    LOGIN,
+    NO_CONNECTION,
+    NO_GIT,
+    OTHER_BRANCH,
+    UNEXPECTED,
+)
 from rozliczenia.message import Message
 
 _TOOL: Final = "narzędzie na tym komputerze"
@@ -81,6 +89,20 @@ def unexpected_failure() -> Message:
     )
 
 
+def libraries_failed() -> Message:
+    """Nowa wersja zmieniła biblioteki, a ich instalacja się nie udała; klon wrócił do wersji sprzed kliknięcia."""
+
+    return Message(
+        code=LIBRARIES_FAILED,
+        what="Nie udało się zainstalować bibliotek nowej wersji narzędzia.",
+        where=_TOOL,
+        action=(
+            f"{_STILL_WORKS} Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+            "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
+        ),
+    )
+
+
 _BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
     NO_GIT: no_git,
     NO_CONNECTION: no_connection,
@@ -88,6 +110,7 @@ _BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
     OTHER_BRANCH: other_branch,
     LOCAL_CHANGES: local_changes,
     UNEXPECTED: unexpected_failure,
+    LIBRARIES_FAILED: libraries_failed,
 }
 
 

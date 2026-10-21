@@ -388,6 +388,8 @@ def _publish(publisher: Path, version: int, message: str, *, untrack: tuple[str,
 
 # The tool's konfiguracja wykonawców: tracked in the first version with an example, untracked by the newest (#161).
 WORKER_MAPPING = "config/worker_mapping.yaml"
+# A library no index has: with pip offline (PIP_NO_INDEX in serve_centrum.py) its installation always fails.
+UNINSTALLABLE_REQUIREMENTS = "biblioteka-syntetyczna-nie-do-zainstalowania>=1.0\n"
 # Dad's files in the clone's config/ after the first version: his konfiguracja wykonawców with synthetic
 # "real" names (a local change) and files Git never tracks (Ustawienia taty, the key to Zgłoszenia, a Wzorzec).
 DAD_FILES = {
@@ -402,7 +404,8 @@ def _tool_clone(root: Path) -> dict[str, object]:
     """The run's tool: a clone on the first version with Dad's files, and a local "origin" one version ahead.
 
     The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
-    update after #161 on Dad's computer.
+    update after #161 on Dad's computer. One version later (``libraries``, on the origin's branch
+    ``biblioteki`` until the drive makes it `main`) needs a library whose installation fails.
     """
 
     tool = root / "aktualizacja"
@@ -418,7 +421,17 @@ def _tool_clone(root: Path) -> dict[str, object]:
     (publisher / ".gitignore").write_text(f"{WORKER_MAPPING}\n", encoding="utf-8")
     newest = _publish(publisher, 2, "Nowa wersja narzędzia", untrack=(WORKER_MAPPING,))
     _git(publisher, "push", "--quiet", str(origin), "main")
-    return {"clone": str(clone), "origin": str(origin), "first": first, "newest": newest, "dad_files": DAD_FILES}
+    (publisher / "requirements.txt").write_text(UNINSTALLABLE_REQUIREMENTS, encoding="utf-8")
+    libraries = _publish(publisher, 3, "Wersja z nową biblioteką")
+    _git(publisher, "push", "--quiet", str(origin), "main:biblioteki")
+    return {
+        "clone": str(clone),
+        "origin": str(origin),
+        "first": first,
+        "newest": newest,
+        "libraries": libraries,
+        "dad_files": DAD_FILES,
+    }
 
 
 def create(root: Path, variant: str | None = None) -> dict[str, object]:
