@@ -35,6 +35,7 @@ from tests.fixtures.preparation import (
     RegisterRow,
     default_register_rows,
     in_old_layout,
+    link_register_order_numbers,
     make_dad_layout_fixture,
     make_preparation_fixture,
     register_order,
@@ -44,7 +45,7 @@ from tests.fixtures.preparation import (
     write_register,
 )
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
-from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts
+from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts, hyperlinks
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import cell_values, collective_row, incomplete_period_fixture, run_preparation
 from tests.fixtures.interlocutor import Tata
@@ -508,6 +509,54 @@ def test_highlights_from_rejestr_reach_both_files_and_plain_cells_get_none(tmp_p
         "A18": (None, None, False, False),
         "B19": (None, None, False, False),
         "H18": (None, None, False, False),
+    }
+
+
+def test_numer_zlecenia_w_obu_plikach_okresu_ma_hiperlacze_z_rejestru_bez_zmiany_wygladu(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    links = link_register_order_numbers(fixture.register_path, "https://przyklad.invalid/zlecenie?tw=1&caseId=SYN-")
+
+    run_preparation(fixture)
+
+    # Zlecenia okresu: wiersze Rejestru 4, 6, 9 i 13; skuteczne: 4, 9 i 13. NUMER ZL. jest w I, G i F.
+    assert hyperlinks(fixture.internal_settlement_path) == {
+        "G2": links[4],
+        "G3": links[6],
+        "G4": links[9],
+        "G5": links[13],
+    }
+    assert hyperlinks(fixture.collective_file_path) == {"F18": links[4], "F19": links[9], "F20": links[13]}
+    assert cell_formats(fixture.collective_file_path, ["F18"]) == {"F18": (None, None, False, False)}
+    workbook = load_workbook(fixture.collective_file_path)
+    try:
+        assert active_worksheet(workbook)["F18"].font.u is None
+    finally:
+        workbook.close()
+
+
+def test_hiperlacze_wzorca_w_zapisanym_wierszu_znika_a_poza_nim_zostaje(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    for path, cells in (
+        (fixture.internal_template_path, ("A1", "G2", "C3")),
+        (fixture.collective_template_path, ("A1", "B18", "F18", "F23")),
+    ):
+        workbook = load_workbook(path)
+        try:
+            sheet = active_worksheet(workbook)
+            for coordinate in cells:
+                sheet[coordinate].value = sheet[coordinate].value or "pole Wzorca"
+                sheet[coordinate].hyperlink = f"https://przyklad.invalid/wzorzec/{coordinate}"
+            workbook.save(path)
+        finally:
+            workbook.close()
+
+    run_preparation(fixture)
+
+    # Zapisane wiersze: 2–5 Rozliczenia wewnętrznego, 18–20 Pliku zbiorczego.
+    assert hyperlinks(fixture.internal_settlement_path) == {"A1": "https://przyklad.invalid/wzorzec/A1"}
+    assert hyperlinks(fixture.collective_file_path) == {
+        "A1": "https://przyklad.invalid/wzorzec/A1",
+        "F23": "https://przyklad.invalid/wzorzec/F23",
     }
 
 
