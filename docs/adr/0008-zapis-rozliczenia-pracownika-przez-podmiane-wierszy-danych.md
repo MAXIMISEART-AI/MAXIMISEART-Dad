@@ -146,3 +146,45 @@ Odrzucone kierunki:
 Koszt: na lustrze `typowy-tydzien` (Mac M4 Max) mediana czasu ściany 681 → 709
 ms; Odczyt danych tworzy komórki openpyxl zamiast samych wartości (+17 ms), a
 Zapisywanie szuka stylu dla każdej wpisanej komórki (+12 ms).
+
+## Zmiana z 2026-10-21: Hiperłącza
+
+Numer zlecenia w `NUMER ZL.` Pliku zbiorczego jest u taty Hiperłączem do
+zlecenia w aplikacji firmowej, a w Rozliczeniu pracownika nie dało się go
+kliknąć: Przebieg rozliczeń hiperłączy nie czytał ani nie zapisywał.
+
+Teraz `read_data_rows` czyta też Hiperłącza każdej komórki A:AT z wartością
+(`hyperlinks.read_sheet_hyperlinks`: blok `<hyperlinks>` za `</sheetData>` i
+relacje arkusza, bez parsowania wierszy), a obie drogi zapisu wpisują je w te
+same komórki Rozliczenia pracownika. Hiperłącze zastępuje hiperłącze komórki
+Wzorca w zapisywanym Wierszu danych, jak Wyróżnienia.
+
+Kopia ma dwa nowe wyjątki od przepisania bajt w bajt, oba tylko wtedy, gdy
+któraś wpisana komórka ma Hiperłącze:
+
+- w ogonie XML arkusza pojawia się jeden blok `<hyperlinks>` w miejscu, które
+  wyznacza mu schemat arkusza (za `mergeCells`, `conditionalFormatting` i
+  `dataValidations`, przed `pageMargins`); pozostałe bajty ogona zostają;
+- relacje arkusza (`xl/worksheets/_rels/sheetN.xml.rels`) dostają na końcu po
+  jednej relacji `TargetMode="External"` na Hiperłącze, pod numerami `rId` za
+  najwyższym numerem we Wzorcu; istniejące relacje (u taty `rId1` rysunek VML
+  i `rId2` komentarze) zostają bajt w bajt. Wzorzec bez relacji arkusza dostaje
+  nową część na końcu zip; `[Content_Types].xml` się nie zmienia, bo typ
+  rozszerzenia `rels` już w nim jest. Wzorzec bez takiego typu idzie dawną
+  drogą.
+
+Bez Hiperłączy wszystkie części Rozliczenia pracownika mają po rozpakowaniu te
+same bajty co przed zmianą. Skompresowany arkusz ma jedną granicę kawałka
+więcej: ostatni kawałek zaczyna się w miejscu bloku `<hyperlinks>`, więc kopia z
+Hiperłączami kompresuje od nowa tylko ogon arkusza (u taty ~200 B).
+
+Wzorzec, którego arkusz ma już własny blok `<hyperlinks>`, idzie dawną drogą
+(`UnsupportedShape`). Wzorzec taty go nie ma, a zasada dla hiperłącza Wzorca w
+Wierszach danych wymagałaby scalania dwóch bloków.
+
+Wygląd komórki się nie zmienia: podkreślenie i styl komórki „Hiperłącze” nie
+są Wyróżnieniem, więc nie przechodzą z Pliku zbiorczego.
+
+Adres Hiperłącza to treść wiersza (np. numer sprawy klienta). `Hyperlink` nie
+pokazuje go w `repr`, a żaden Komunikat, Zdarzenie przebiegu, rekord metryk ani
+Zgłoszenie go nie zawiera.

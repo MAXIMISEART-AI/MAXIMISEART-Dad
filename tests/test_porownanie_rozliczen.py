@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -111,6 +112,36 @@ def test_bramka_wykrywa_kazda_kategorie_roznicy_w_rozliczeniu_pracownika(
     write_settlement(candidate / SETTLEMENT_NAME, change)
 
     assert compare_worker_settlements(reference, candidate) == expected
+
+
+def test_bramka_liczy_hiperlacze_komorki_spoza_xml_arkusza(tmp_path: Path) -> None:
+    """Hiperłącze komórki, której nie ma w ``sheetData``: openpyxl tworzy ją dopiero przy wczytaniu, z adresem jako wartością."""
+
+    relationship = (
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+        'Target="https://przyklad.invalid/zlecenie" TargetMode="External"/>'
+    )
+
+    def linked(name: str, data: bytes) -> bytes:
+        if name != "xl/worksheets/sheet1.xml":
+            return data
+        block = (
+            b'<hyperlinks xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            b'<hyperlink ref="Z30" r:id="rId1"/></hyperlinks>'
+        )
+        return data.replace(b"<pageMargins", block + b"<pageMargins", 1)
+
+    reference, candidate = settlement_folders(tmp_path)
+    path = candidate / SETTLEMENT_NAME
+    rewrite_parts(path, linked)
+    with zipfile.ZipFile(path, "a") as archive:
+        archive.writestr(
+            "xl/worksheets/_rels/sheet1.xml.rels",
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f"{relationship}</Relationships>",
+        )
+
+    assert compare_worker_settlements(reference, candidate) == _only("hiperlacza") | {"wartosci": 1}
 
 
 def test_bramka_wykrywa_zmienione_bajty_odwolania_zewnetrznego(tmp_path: Path) -> None:

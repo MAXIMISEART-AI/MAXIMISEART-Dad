@@ -92,7 +92,8 @@ dla Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
 
 Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca
 rozliczenia pracownika. Zachowuje jego strukturę, formuły, stawki i
-formatowanie; jedynie Wiersze danych mają Wyróżnienia z Pliku zbiorczego.
+formatowanie; jedynie Wiersze danych mają Wyróżnienia i Hiperłącza z Pliku
+zbiorczego.
 Zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli wykonawca nie
 ma wierszy w Pliku zbiorczym.
 
@@ -158,6 +159,19 @@ zastępują wygląd komórki wzorca w całości: komórka bez Wyróżnień daje 
 bez wypełnienia, z kolorem automatycznym, bez pogrubienia i bez kursywy. Krój i
 rozmiar czcionki nie są Wyróżnieniem i zawsze pochodzą z wzorca.
 _Avoid_: formatowanie (szersze: obejmuje też krój, obramowania i formaty liczb)
+
+## Hiperłącze
+
+Adres poza skoroszytem, który komórka otwiera po kliknięciu, np. numer zlecenia
+w `NUMER ZL.` prowadzący do zlecenia w aplikacji firmowej. Przechodzi razem z
+wartością komórki z Pliku zbiorczego do Rozliczeń pracowników i zastępuje
+hiperłącze komórki wzorca: komórka bez Hiperłącza daje komórkę bez hiperłącza.
+Komórka bez wartości nie niesie Hiperłącza. Odnośnik do miejsca w tym samym
+skoroszycie (np. do innego arkusza) nie jest Hiperłączem i nie przechodzi.
+Hiperłącze nie jest Wyróżnieniem i nie zmienia wyglądu komórki. Adres jest
+treścią wiersza: nie trafia do Komunikatów, Zdarzeń przebiegu, metryk ani
+Zgłoszeń.
+_Avoid_: link, odnośnik
 
 ## Gotowość
 

@@ -173,7 +173,7 @@ def build_templates(directory: Path, real_template: Path | None) -> list[Templat
         shutil.copyfile(real_template, copied)
         return [Template.of("wzorzec-taty", f"prawdziwy Wzorzec: {real_template.name}", copied, max_rows=700)]
     synthetic = directory / "syntetyczny.xlsx"
-    write_settlement_template(synthetic, "GODZINA", data_rows=200)
+    write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
     small = directory / "maly.xlsx"
     write_template(small)
     add_external_link_fixture(small)

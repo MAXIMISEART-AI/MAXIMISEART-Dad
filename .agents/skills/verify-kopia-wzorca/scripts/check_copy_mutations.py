@@ -37,8 +37,8 @@ MUTATIONS = (
     Mutation(
         "CRC arkusza tylko z początku",
         "Excel i openpyxl odrzucają Rozliczenie pracownika jako uszkodzony plik",
-        "crc = zlib.crc32(memoryview(xml)[tail_start:], zlib.crc32(head))",
-        "crc = zlib.crc32(head)",
+        "crc = zlib.crc32(piece, crc)",
+        "crc = crc",
     ),
     Mutation(
         "kawałki kompresji bez pełnego opróżnienia",
@@ -49,8 +49,8 @@ MUTATIONS = (
     Mutation(
         "zgubiony kawałek za podmienionymi wierszami",
         "z Rozliczenia pracownika znika 64 wierszy Wzorca z formułami",
-        "*self._chunks[chunk:]",
-        "*self._chunks[chunk + 1 :]",
+        "*self._chunks[chunk:-1]",
+        "*self._chunks[chunk + 1 : -1]",
     ),
     Mutation(
         "dimension bez wpisanych wierszy",

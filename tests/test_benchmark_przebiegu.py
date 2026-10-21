@@ -48,6 +48,7 @@ ORACLE_CATEGORIES = (
     "wartosci",
     "formuly",
     "style",
+    "hiperlacza",
     "scalenia",
     "wymiary",
     "nazwy_zdefiniowane",
