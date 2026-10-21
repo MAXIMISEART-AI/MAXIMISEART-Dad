@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -26,10 +27,24 @@ def _commit(cwd: Path, path: str, content: str, message: str) -> None:
     _git(cwd, "commit", "-m", message)
 
 
-def _report(cwd: Path, *args: str) -> str:
+def _report(cwd: Path, *args: str, gh_answer: str | None = None) -> str:
+    """Raport bez GitHuba albo z ``gh``, który na każde wywołanie odpowiada ``gh_answer``."""
+
+    env, mode = dict(os.environ), ["--lokalnie"]
+    if gh_answer is not None:
+        fake = cwd.parent / "gh-na-niby"
+        fake.mkdir(exist_ok=True)
+        (fake / "odpowiedz.json").write_text(gh_answer, encoding="utf-8")
+        if os.name == "nt":
+            (fake / "gh.cmd").write_text(f'@type "{fake / "odpowiedz.json"}"\n', encoding="utf-8")
+        else:
+            (fake / "gh").write_text(f"#!/bin/sh\ncat '{fake / 'odpowiedz.json'}'\n", encoding="utf-8")
+            (fake / "gh").chmod(0o755)
+        env["PATH"], mode = f"{fake}{os.pathsep}{env['PATH']}", []
     completed = subprocess.run(
-        [sys.executable, str(TOOL), "--lokalnie", *args],
+        [sys.executable, str(TOOL), *mode, *args],
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -94,3 +109,23 @@ def test_galaz_zbudowana_na_innej_naklada_sie_tylko_wlasnymi_commitami(checkouts
     lines = overlaps.splitlines()
     assert not [line for line in lines if line.startswith("- fix/opiekun")]
     assert "inny.py" in next(line for line in lines if line.startswith("- feat/moje"))
+
+
+def test_przeniesienie_naklada_sie_stara_sciezka(checkouts: dict[str, Path]) -> None:
+    moving = checkouts["other"].parent / "przenosze"
+    _git(checkouts["other"], "worktree", "add", "-b", "feat/przenosze", str(moving), "main")
+    _git(moving, "mv", "wspolny.py", "przeniesiony.py")
+    _git(moving, "commit", "-m", "refactor: przenoszę wspolny.py")
+    _git(moving, "mv", "inny.py", "inny2.py")
+
+    github_only = '[{"number": 9, "headRefName": "fix/zdalna", "title": "", "body": "", "files": [{"path": "wspolny.py"}]}]'
+
+    lines = _report(moving, "--nakladania", gh_answer=github_only).splitlines()
+
+    assert "wspolny.py" in next(line for line in lines if line.startswith("- fix/opiekun"))
+    assert "- fix/zdalna (PR #9): wspolny.py" in lines
+    mine = next(line for line in lines if line.startswith("- feat/moje"))
+    assert "wspolny.py" in mine  # przeniesiony w commicie tutaj, zmieniony w commicie tam
+    assert "inny.py" in mine  # przeniesiony tutaj bez commita, zmieniony tam bez commita
+
+

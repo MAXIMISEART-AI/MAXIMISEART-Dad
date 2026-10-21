@@ -4,6 +4,7 @@ Wiele sesji pracuje naraz, każda w swoim git worktree, i nie widzą się nawzaj
 czyta: worktree (``git worktree list``), lokalne gałęzie z commitami spoza ``origin/main``,
 niezacommitowane pliki każdego worktree i otwarte PR-y z GitHuba (``gh``). Odłączony HEAD liczy się
 tylko z commitami, których nie ma żadna gałąź ani remote (inaczej to piaskownica albo przegląd).
+Przeniesienie pliku liczy się jako zmiana starej i nowej ścieżki.
 
 Drukuje jedną linię na każdą inną pracę w toku, potem nakładania: pliki, które bieżący checkout i
 inna praca zmieniają każdy we własnych commitach albo niezacommitowanych. Commity wspólne obu stron
@@ -277,23 +278,17 @@ def _overlaps(shared: list[tuple[WorkInProgress, frozenset[str]]]) -> list[str]:
 
 
 def _files(root: Path, ref: str) -> frozenset[str]:
-    return frozenset(_git(root, "diff", "--name-only", "-z", f"{BASE}...{ref}").split("\0")) - {""}
+    return frozenset(_git(root, "diff", "--no-renames", "--name-only", "-z", f"{BASE}...{ref}").split("\0")) - {""}
 
 
 def _own_files(root: Path, ref: str, other: str) -> frozenset[str]:
-    return frozenset(_git(root, "log", "--name-only", "--format=", "-z", ref, f"^{BASE}", f"^{other}").split("\0")) - {""}
+    log = _git(root, "log", "--no-renames", "--name-only", "--format=", "-z", ref, f"^{BASE}", f"^{other}")
+    return frozenset(log.split("\0")) - {""}
 
 
 def _dirty(worktree: Path) -> frozenset[str]:
-    entries = iter(_git(worktree, "status", "--porcelain=v1", "-z", "--untracked-files=all").split("\0"))
-    paths = set()
-    for entry in entries:
-        if not entry:
-            continue
-        paths.add(entry[3:])
-        if entry[0] in "RC":
-            next(entries, None)  # przy przeniesieniu -z podaje jeszcze starą ścieżkę
-    return frozenset(paths)
+    status = _git(worktree, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all")
+    return frozenset(entry[3:] for entry in status.split("\0") if entry)
 
 
 def _issues(text: str) -> frozenset[int]:
