@@ -14,8 +14,8 @@ Dad's file in `config/` (today `worker_mapping.yaml`, with his real names) has
 his content, or the journal „Aktualizacja w toku” is still on disk and Dad's
 content is on disk too, in the clone or in the journal's copy.
 
-**Postep**: a journal in progress always disappears. The shortcut, the guardian
-or Centrum finishes the update or rolls it back. When it disappears with
+**Postep**: a journal in progress always disappears. The shortcut, the guardian,
+Centrum or Dad's next click finishes the update or rolls it back. When it disappears with
 nothing in progress, `TataMaDzialajacaWersje` again demands a version that
 starts and Dad's content in the clone.
 
@@ -35,16 +35,16 @@ model action is one indivisible step of this code:
 
 | Model action | Code (`src/rozliczenia/centrum/`) |
 | --- | --- |
-| `Klik` | `tool_updates.py` `ToolUpdates.start`, `_result` (`restart_guardian.prepare`) |
-| `Pobranie` | `tool_update.py` `ToolClone.update` up to `_DadFiles.leaving`, `_has_local_commits`, `_changed_tracked_files` |
-| `KopiaPlikow` | `tool_update.py` `_Journal.begin`: `JournalKept` when a journal is in progress, else copy and `fsync` of Dad's files into `pliki-taty`, then `stan.json` (`_write`) |
+| `Klik` | `tool_updates.py` `ToolUpdates.start`, `_result` (`restart_guardian.prepare`). A click while a journal is in progress does not count toward `MaxKlikniec` (see Scope). |
+| `Pobranie` | `tool_update.py` `ToolClone.update`: `_Journal.read`, and when no guardian may run (`guardian_may_run`) `_moved_back` before anything else (`cofa = "klik"`, `ROLLBACK_FAILED` when it fails); otherwise up to `_DadFiles.leaving`, `_has_local_commits`, `_changed_tracked_files` |
+| `KopiaPlikow` | `tool_update.py` `_Journal.begin`: `JournalKept` when a journal is in progress (only with a guardian's lease, since `Pobranie` rolls back any other), else copy and `fsync` of Dad's files into `pliki-taty`, then `stan.json` (`_write`) |
 | `CheckoutHead` | `tool_update.py` `_DadFiles.set_aside` before `yield` |
 | `Scalanie` | `tool_update.py` `ToolClone.update`, `git merge --ff-only`, and `if not moved` (`journal.end()`) when Git refuses |
 | `PrzywroceniePoOdmowie`, `PrzywroceniePoScaleniu` | `tool_update.py` `_DadFiles.set_aside` `finally` (`_put_back`; its `OSError` becomes `_NotPutBack`) and `except _NotPutBack` in `ToolClone.update`: after the merge it calls `_moved_back`, before it returns `ROLLBACK_FAILED` and keeps the journal. After a refused merge or `except _NotSetAside` (`git checkout HEAD --` failed), `journal.end()`. |
 | `Instalacja`, `InstalacjaKoniec` | `tool_update.py` `ToolClone._install_libraries` (`_Git.changed`, `pip_install`), the `try`/`except Exception` around it, and the `if installed is False` branch after it (both through `_moved_back`) |
-| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back` (`_Journal.read` and `rev-parse HEAD` first), called by `ToolClone.update` through `_moved_back` or by `tool_updates.py` `ToolUpdates._moved_back` through `ToolClone.roll_back` (`cofa = "centrum"`), by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`, or `"opiekun_bez_portu"` when the port was never released), or by `launcher._roll_back` through `ToolClone.roll_back` (`cofa = "skrot"`) |
-| `KoniecDziennika` | `tool_update.py` `_Journal.end` at the end of `_roll_back` and in `ToolClone.update` after a refusal; for `cofa = "skrot"` also `launcher._roll_back` (`write_result`) and `subprocess.call(restart_from_disk)` in `launcher._start` |
-| `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart` (`ToolClone.lease_to_guardian`, then `restart_guardian.launch`), and `_moved_back` when either raises |
+| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back` (`_Journal.read` and `rev-parse HEAD` first), called by `ToolClone.update` through `_moved_back` or by `tool_updates.py` `ToolUpdates._moved_back` through `ToolClone.roll_back` (`cofa = "centrum"`), by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`, or `"opiekun_bez_portu"` when the port was never released), by `launcher._roll_back` through `ToolClone.roll_back` (`cofa = "skrot"`), or by `ToolClone.update` before fetching through `_moved_back` (`cofa = "klik"`) |
+| `KoniecDziennika` | `tool_update.py` `_Journal.end` at the end of `_roll_back` and in `ToolClone.update` after a refusal; for `cofa = "skrot"` also `launcher._roll_back` (`write_result`) and `subprocess.call(restart_from_disk)` in `launcher._start`; for `cofa = "klik"` `ToolClone.update` goes on to `rev-parse HEAD` and the fetch |
+| `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart` (`ToolClone.leased_to_guardian` around `restart_guardian.launch`: it writes the lease and removes it when `launch` raises), and `_moved_back` when either raises |
 | `OpiekunPort`, `OpiekunStart` | `restart_guardian.py` `main`: `_port_released`, `write_result` (ok), `_start_centrum` (`run_centrum.py --bez-okienek`, which skips the journal), `_answers(new, …, after)`, then `_stop` and `_rolled_back`; without the port straight to `_rolled_back` |
 | `OpiekunKoniec` | `restart_guardian.py` `main`: `ToolClone.confirm_update` after `_answers(new, …, after)` |
 | `OpiekunPortStara`, `OpiekunStartStara` | `restart_guardian.py` `main` after a successful rollback of a version that did not answer: `_port_released`, `_start_centrum`, `_answers(…, before)`, or the dialog `not_started_after_update` |
@@ -57,10 +57,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `a713bc87d5c2` (#213's fix on top of
-`integracja/180-aktualizacja-narzedzia`, 2026-10-21: the journal „Aktualizacja
-w toku” and its rollback when the shortcut starts). At this commit every row
-above was checked against the code.
+Sync commit: `f25d28faed63` (#210's fix on top of #213, 2026-10-21: a click
+first rolls back from a journal that no guardian finishes, and a guardian that
+fails to launch leaves no lease). At this commit every row above was checked
+against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,
@@ -132,8 +132,8 @@ guardian's rollback meets every other failure too.
 | Config | Failures on | Expected |
 | --- | --- | --- |
 | `zwykle-awarie` | merge refused (`ZMIANY_NA_KOMPUTERZE`), fetch fails (`BRAK_POLACZENIA`), pip fails (`INSTALACJA_BIBLIOTEK`), guardian does not start or the port is not released | passes |
-| `git` | the above + a new version that may not start + `GitFailed` from `git checkout HEAD --`, `git diff`, `git reset --keep` | known finding `reset` |
-| `kopiowanie` | the above without git + `shutil.copy2` of Dad's file raises `OSError` | known finding `kopiowanie` |
+| `git` | the above + a new version that may not start + `GitFailed` from `git checkout HEAD --`, `git diff`, `git reset --keep` | passes |
+| `kopiowanie` | the above without git + `shutil.copy2` of Dad's file or a write of `stan.json` raises `OSError` | passes |
 | `nieudany-start` | `zwykle-awarie` + the new version does not answer in `START_TIMEOUT_S` | passes |
 | `wylaczenie` | `nieudany-start` + the computer switches off at any step | passes |
 
@@ -146,9 +146,7 @@ TLC stops at the first counterexample, so a configuration with a known finding
 runs twice, both times with `TataMaDzialajacaWersjePozaZnanymi` and
 `PostepPozaZnanymi`. They excuse any behaviour in which a step tagged with an
 excused finding happened (`Slad(...)` adds the tag to `slady`, and `Znane`
-checks it). Only a failure in Centrum, which keeps running, is tagged
-(`SladCentrum`): the same failure in the guardian or the shortcut leaves the
-journal, and the check must show that the next start finishes it.
+checks it).
 
 1. Excusing every other known finding (every `wybacz` in
    `model/oczekiwane.json`), it must break. The printed counterexample is this
@@ -158,33 +156,18 @@ journal, and the check must show that the next start finishes it.
 
 ## Known findings
 
-Each was traced back to the code at the sync commit.
+None. Fixed:
 
-1. **`reset`** (config `git`, #210): `git reset --keep` in `_roll_back` fails in
-   Centrum (after `pip_install` returns `False`, `_Git.changed` raises, or
-   `restart_guardian.launch` raises), and the clone stays on the new commit.
-   `_moved_back` gives `COFNIECIE_NIEUDANE` and the journal stays, so the next
-   start from the shortcut rolls the clone back. But Centrum keeps running:
-   Dad's next click answers `AKTUALNA` (or the fetch fails), nothing in Centrum
-   touches the journal, and `Postep` breaks for as long as Centrum runs. The
-   same failure in the guardian is no longer a finding: the journal stays, and
-   the next start rolls back.
-2. **`kopiowanie`** (#211): `copy2` of Dad's file from the copy raises `OSError`
-   at the last restore in Centrum: in the `finally` of `_DadFiles.set_aside`
-   after a refused merge, or in the `finally` of `_roll_back`. The
-   repository's sample stays in place of Dad's file (or the file is gone), his
-   content is only in the journal's copy, and Centrum shows
-   `COFNIECIE_NIEUDANE`. The next start restores it, but while Centrum runs
-   nothing does (`Postep` breaks the same way as for `reset`). A failed
-   restore after `git merge --ff-only` rolls the clone back, and the same
-   failure in the guardian or the shortcut leaves the journal for the next
-   start.
-
-#212 (`bez_opiekuna`) is fixed: Centrum rolls the clone back when
-`restart_guardian.launch` raises, and the guardian rolls it back when the port
-is not released, then shows the dialog. #213 (`wylaczenie`) is fixed: the
-journal „Aktualizacja w toku” survives a switch-off, and the next start from
-the shortcut rolls the clone back from it before it loads any library.
+- #212 (`bez_opiekuna`): Centrum rolls the clone back when
+  `restart_guardian.launch` raises, and the guardian rolls it back when the
+  port is not released, then shows the dialog.
+- #213 (`wylaczenie`): the journal „Aktualizacja w toku” survives a
+  switch-off, and the next start from the shortcut rolls the clone back from
+  it before it loads any library.
+- #210 (`reset`) and #211 (`kopiowanie`): a failed `git reset --keep` or
+  `copy2` in Centrum keeps the journal, and Dad's next click rolls the clone
+  back from it before it fetches. Before, that click answered `AKTUALNA` on
+  the new commit, and nothing in Centrum finished the journal.
 
 ## Real bug or modeling error?
 
@@ -213,13 +196,16 @@ of `Postep`):
 
 - Running code takes its next step, Dad clicks again while Centrum runs and
   he has clicks left, and he starts the shortcut while Centrum is not running.
+- After `COFNIECIE_NIEUDANE` Dad clicks again, as the Komunikat tells him.
+  These clicks do not count toward `MaxKlikniec`; with them counted, two
+  clicks used before a failed rollback leave the journal for good.
 - Git and copy failures are transient: a rollback retried without end
   succeeds at some point (strong fairness on `CofanieResetUdane` and
   `CofaniePrzywrocUdane`). A disk that fails for good leaves the journal and
   a Komunikat startu at every start.
 - The computer switches off finitely many times.
-- `GUARDIAN_LEASE_S` (10 minutes) passes at some point, and only when no code
-  runs. The guardian takes at most twice `PORT_TIMEOUT_S` plus twice
+- `GUARDIAN_LEASE_S` (10 minutes) passes at some point, also while Dad keeps
+  clicking (strong fairness), and only when no code runs. The guardian takes at most twice `PORT_TIMEOUT_S` plus twice
   `START_TIMEOUT_S` plus a rollback, well under 10 minutes. The model has no
   shortcut start while the guardian runs; in the code the lease makes such a
   start refuse with `AKTUALIZACJA_SIE_KONCZY`. Not covered: a computer that

@@ -441,7 +441,7 @@ def test_cofniecie_nie_rusza_klonu_przesunietego_po_aktualizacji_na_inny_commit(
     assert repository.state() == by_maks
 
 
-def test_aktualizacja_w_toku_nie_zastepuje_kopii_pliku_taty_kolejnym_kliknieciem(
+def test_kolejne_klikniecie_przy_aktualizacji_w_toku_nie_gubi_pliku_taty(
     repository: ToolRepository, tmp_path: Path
 ) -> None:
     before = repository.head()
@@ -455,8 +455,7 @@ def test_aktualizacja_w_toku_nie_zastepuje_kopii_pliku_taty_kolejnym_kliknieciem
     clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
     assert clone.update().code == "COFNIECIE_NIEUDANE"
 
-    with pytest.raises(JournalKept):
-        clone.update()
+    assert clone.update().code == "COFNIECIE_NIEUDANE"
     clone.roll_back()
 
     assert repository.head() == before
@@ -531,6 +530,80 @@ def test_gdy_cofniecie_po_nieudanej_instalacji_sie_nie_uda_wynik_mowi_to_wprost(
 
     assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
     assert repository.head() == newest
+
+
+def failed_rollback_with_index_locked(repository: ToolRepository) -> Path:
+    """Aktualizacja, której biblioteki się nie instalują, a cofnięcie zatrzymuje blokada indeksu Gita."""
+
+    lock = repository.clone / ".git" / "index.lock"
+
+    def install(requirements: Path) -> bool:
+        lock.touch()
+        return False
+
+    before = repository.head()
+    newest = moved_with_new_requirements(repository)
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=install).update()
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
+    assert repository.head() == newest
+    return lock
+
+
+def test_po_nieudanym_cofnieciu_kolejne_klikniecie_cofa_klon_i_instaluje_biblioteki_nowej_wersji(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository).unlink()
+    newest = repository.in_clone("rev-parse", "HEAD")
+    installer = FakeInstaller()
+
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=installer).update()
+
+    assert result == UpdateResult("ok", before=before, after=newest, installed=True)
+    assert [content for _, content in installer.installed] == [NEW_REQUIREMENTS]
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+
+
+def test_po_nieudanym_cofnieciu_kolejne_klikniecie_bez_internetu_zostawia_klon_sprzed_aktualizacji(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository).unlink()
+
+    result = ToolClone(repository.clone, origin=unreachable_origin()).update()
+
+    assert result == UpdateResult("BRAK_POLACZENIA", before=before, after=None)
+    assert_back_before_click(repository, before)
+
+
+def test_gdy_cofniecie_wciaz_sie_nie_udaje_kolejne_klikniecie_mowi_to_wprost(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository)
+    newest = repository.in_clone("rev-parse", "HEAD")
+
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller()).update()
+
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest)
+    assert repository.head() == newest
+
+
+def test_klikniecie_w_trakcie_ponownego_startu_nie_cofa_aktualizacji_ktora_konczy_opiekun(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    newest = moved_with_new_requirements(repository)
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
+    assert clone.update().code == "ok"
+    with clone.leased_to_guardian():
+        pass
+
+    result = clone.update()
+
+    assert result == UpdateResult("AKTUALNA", before=newest, after=newest)
+    interrupted = clone.interrupted_update()
+    assert interrupted is not None
+    assert interrupted.guardian_may_run(time.time())
 
 
 def test_gdy_plik_taty_nie_wroci_po_przesunieciu_klon_wraca_do_poprzedniej_wersji_z_plikiem_taty(

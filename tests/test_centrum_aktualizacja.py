@@ -524,11 +524,9 @@ def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedn
         "message": {
             "what": "Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.",
             "where": "narzędzie na tym komputerze",
-            "action": (
-                "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
-            ),
+            "action": "Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.",
         },
-        "next_action": "report",
+        "next_action": "retry",
         "report": {"state": "ready"},
     }
     assert log_entries(centrum, "aktualizacja-koniec") == [
@@ -537,3 +535,35 @@ def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedn
     interrupted = ToolClone(repository.clone).interrupted_update()
     assert interrupted is not None
     assert (interrupted.before, interrupted.after) == (before, newest)
+
+
+def test_po_nieudanym_cofnieciu_kolejne_klikniecie_nie_mowi_ze_narzedzie_jest_aktualne_i_cofa_klon(
+    tmp_path: Path,
+) -> None:
+    lock_once = threading.Event()
+
+    def locks_index_once(repository: ToolRepository) -> None:
+        if not lock_once.is_set():
+            lock_once.set()
+            (repository.clone / ".git" / "index.lock").touch()
+
+    centrum, repository = updating_centrum(tmp_path, guardian_failure=locks_index_once)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    failed = update_until_result(centrum)
+    (repository.clone / ".git" / "index.lock").unlink()
+
+    view = update_until_result(centrum)
+
+    assert failed["message"]["what"] == "Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji."
+    assert (view["state"], view.get("message", {}).get("what")) == (
+        "failed",
+        "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
+    )
+    assert repository.head() == before
+    assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
+    assert ToolClone(repository.clone).interrupted_update() is None
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=COFNIECIE_NIEUDANE przed={before} po={newest} biblioteki=nie",
+        f"wynik=NIEOCZEKIWANY_BLAD przed={before} po={newest} biblioteki=nie",
+    ]

@@ -65,7 +65,10 @@ rozliczeń. Centrum robi to samo, co Maks zrobiłby ręcznie, i niczego więcej:
   znika dopiero przy wyniku ostatecznym. Gdy komputer zgaśnie w trakcie, skrót
   przy następnym starcie, zanim wczyta biblioteki, cofa z dziennika klon i
   pliki taty, a potem startuje poprzednią wersję. Nie cofa, dopóki opiekun
-  ponownego startu może jeszcze działać (10 minut od jego startu).
+  ponownego startu może jeszcze działać (10 minut od jego startu). Gdy
+  cofnięcie w działającym Centrum się nie uda, następne kliknięcie
+  `Zaktualizuj narzędzie` najpierw cofa klon z dziennika, a potem aktualizuje
+  jak zwykle.
 - **Ponowne uruchomienie.** Po udanej Aktualizacji narzędzia Centrum zamyka się
   i startuje od nowa w nowej wersji, a karta przeglądarki sama łączy się z nim
   ponownie. Opiekun ponownego startu działa z kopii sprzed Aktualizacji

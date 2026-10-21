@@ -7,7 +7,7 @@
 (* klon narzędzia stoi na wersji, która wystartuje ze skrótu taty, a plik  *)
 (* taty w config/ (dziś worker_mapping.yaml) ma treść taty. Albo zostaje   *)
 (* dziennik „Aktualizacja w toku” z treścią taty, a skrót przy następnym   *)
-(* starcie cofa z niego klon (Postep).                                     *)
+(* starcie albo następne kliknięcie cofa z niego klon (Postep).            *)
 (*                                                                         *)
 (* Jedna akcja to jeden krok kodu, który kończy się, zanim zacznie się     *)
 (* następny: jedno polecenie Gita, jedno shutil.copy2, jedno uruchomienie  *)
@@ -25,7 +25,7 @@ CONSTANTS
     AwariaBibliotek,    \* pip_install zwraca False (błąd pip, limit czasu) -> INSTALACJA_BIBLIOTEK
     AwariaOpiekuna,     \* restart_guardian.launch rzuca; stare Centrum nie zwalnia portu w PORT_TIMEOUT_S
     AwariaGita,         \* git checkout HEAD -- (set_aside), git diff (changed), git reset --keep (_roll_back): GitFailed
-    AwariaKopiowania,   \* shutil.copy2 pliku taty rzuca OSError (dysk, antywirus, OneDrive)
+    AwariaKopiowania,   \* shutil.copy2 pliku taty albo zapis stan.json rzuca OSError (dysk, antywirus, OneDrive)
     NieudanyStart,      \* nowa wersja nie odpowiada w START_TIMEOUT_S, choć ma swoje biblioteki
     Wylaczenie,         \* komputer gaśnie albo proces ginie w dowolnym kroku
     Wybaczone           \* znane znaleziska, które TataMaDzialajacaWersjePozaZnanymi pomija (oczekiwane.json)
@@ -48,7 +48,8 @@ VARIABLES
     klikniecia,
     krok,          \* ostatni krok, słowami kodu: z nich składa się kontrprzykład
     slady,         \* awarie znanych znalezisk, które już się zdarzyły (ZnaneZnaleziska)
-    cofa           \* kto woła _roll_back: "centrum" (ToolClone.update, ToolUpdates._moved_back), "opiekun"
+    cofa           \* kto woła _roll_back: "centrum" (ToolClone.update, ToolUpdates._moved_back), "klik"
+                   \* (ToolClone.update przed pobraniem, gdy zastaje dziennik bez terminu opiekuna), "opiekun"
                    \* (restart_guardian._rolled_back po nowej wersji, która nie odpowiada) albo "opiekun_bez_portu"
                    \* (restart_guardian._rolled_back, gdy port nie został zwolniony: potem nic nie startuje)
                    \* albo "skrot" (launcher._roll_back przy starcie); po odmowie scalenia "centrum"
@@ -57,7 +58,7 @@ dysk == <<head, plikTaty, kopia, biblioteki, dziennik, dzierzawa>>
 nowa == <<nowaUsuwaPlikTaty, nowaZmieniaWymagania, nowaStartuje>>
 vars == <<dysk, nowa, centrum, pc, klikniecia, krok, slady, cofa>>
 
-ZnaneZnaleziska == {"reset", "kopiowanie"}
+ZnaneZnaleziska == {}
 
 Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie",
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
@@ -77,7 +78,7 @@ TypeOK ==
     /\ pc \in Kroki
     /\ klikniecia \in 0..MaxKlikniec
     /\ slady \subseteq ZnaneZnaleziska
-    /\ cofa \in {"centrum", "opiekun", "opiekun_bez_portu", "skrot"}
+    /\ cofa \in {"centrum", "klik", "opiekun", "opiekun_bez_portu", "skrot"}
 
 \* Czy wersja wystartuje ze skrótu taty (run_centrum.py z klonu). Założenie: stara
 \* wersja startuje z każdymi bibliotekami, bo requirements.txt ma tylko dolne granice
@@ -135,38 +136,41 @@ Cofaj(kto, opis) == pc' = "cofanie_usun" /\ krok' = opis /\ slady' = slady /\ co
 \* Klon się nie przesunął, a pliki taty są z powrotem: ToolClone.update usuwa dziennik.
 PoOdmowie(opis) == pc' = "koniec_dziennika" /\ krok' = opis /\ slady' = slady /\ cofa' = "centrum"
 
-\* Awaria w Centrum, które działa dalej: tylko ona zostawia znane znalezisko. Ta sama awaria
-\* u opiekuna albo przy starcie skrótu zostawia dziennik, a następny start skrótu go kończy.
-SladCentrum(nastepny, opis, slad) ==
-    IF cofa = "centrum" THEN Slad(nastepny, opis, slad) ELSE Idz(nastepny, opis)
-
 \* --- ToolUpdates.start, ToolUpdates._result ----------------------------------
 
 \* RunHost.begin_update zajmuje miejsce „jedno naraz”; restart_guardian.prepare
 \* kopiuje opiekuna do nowego katalogu tymczasowego (work), zanim klon się zmieni.
+\* Kliknięcie przy dzienniku w toku nie liczy się do MaxKlikniec: po COFNIECIE_NIEUDANE
+\* Komunikat każe tacie kliknąć jeszcze raz.
 Klik ==
     /\ pc = "spoczynek"
     /\ centrum /= "brak"
-    /\ klikniecia < MaxKlikniec
-    /\ klikniecia' = klikniecia + 1
+    /\ klikniecia < MaxKlikniec \/ dziennik = "w_toku"
+    /\ klikniecia' = IF dziennik = "w_toku" THEN klikniecia ELSE klikniecia + 1
     /\ Idz("pobieranie", "ToolUpdates.start: tata klika 'Zaktualizuj narzedzie'")
     /\ UNCHANGED <<dysk, nowa, centrum>>
 
 \* --- ToolClone.update ---------------------------------------------------------
 
-\* run.fetch(self.origin), potem after == before, potem _has_local_commits i
-\* _changed_tracked_files (te odmowy nie zmieniają klonu, tak jak porażka fetch).
+\* Dziennik w toku bez terminu opiekuna (_Journal.read, guardian_may_run): _moved_back cofa
+\* klon, zanim cokolwiek się pobierze. Inaczej run.fetch(self.origin), potem after == before,
+\* potem _has_local_commits i _changed_tracked_files (te odmowy nie zmieniają klonu, tak jak
+\* porażka fetch).
 Pobranie ==
     /\ pc = "pobieranie"
-    /\ \/ /\ AwariaPobrania
-          /\ Idz("spoczynek", "ToolClone.update: fetch nie przeszedl (BRAK_POLACZENIA), klon bez zmian")
-       \/ /\ head = "nowa"
-          /\ Idz("spoczynek", "ToolClone.update: after == before (AKTUALNA), klon bez zmian")
-       \/ /\ head = "stara"
-          /\ Idz("kopia_plikow",
-                 IF nowaUsuwaPlikTaty
-                 THEN "ToolClone.update: fetch pobral main, ktory usuwa plik taty z config/"
-                 ELSE "ToolClone.update: fetch pobral nowy main")
+    /\ \/ /\ dziennik = "w_toku"
+          /\ dzierzawa = "brak"
+          /\ Cofaj("klik", "ToolClone.update: dziennik 'Aktualizacja w toku' bez terminu opiekuna, _roll_back przed pobraniem")
+       \/ /\ dziennik = "brak" \/ dzierzawa = "wazna"
+          /\ \/ /\ AwariaPobrania
+                /\ Idz("spoczynek", "ToolClone.update: fetch nie przeszedl (BRAK_POLACZENIA), klon bez zmian")
+             \/ /\ head = "nowa"
+                /\ Idz("spoczynek", "ToolClone.update: after == before (AKTUALNA), klon bez zmian")
+             \/ /\ head = "stara"
+                /\ Idz("kopia_plikow",
+                       IF nowaUsuwaPlikTaty
+                       THEN "ToolClone.update: fetch pobral main, ktory usuwa plik taty z config/"
+                       ELSE "ToolClone.update: fetch pobral nowy main")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 
 \* _Journal.begin: copy2 pliku taty do pliki-taty i fsync, potem stan.json (plik tymczasowy, fsync,
@@ -221,7 +225,7 @@ PrzywroceniePoOdmowie ==
           /\ PoOdmowie("_DadFiles.set_aside (finally): plik taty wraca z kopii, klon bez zmian")
        \/ /\ AwariaKopiowania
           /\ plikTaty' = plikTaty
-          /\ Slad("spoczynek", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w dzienniku)", "kopiowanie")
+          /\ Idz("spoczynek", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w dzienniku)")
     /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia>>
 
 \* _DadFiles.set_aside, finally, po przesunięciu klonu. OSError z _put_back staje się
@@ -277,7 +281,7 @@ CofanieReset ==
           /\ Idz("cofanie_przywroc", "_roll_back: git reset --keep cofa klon do starego commitu")
        \/ /\ AwariaGita
           /\ UNCHANGED <<head, plikTaty>>
-          /\ SladCentrum("cofanie_przywroc", "_roll_back: git reset --keep rzuca GitFailed, klon zostaje na nowym commicie", "reset")
+          /\ Idz("cofanie_przywroc", "_roll_back: git reset --keep rzuca GitFailed, klon zostaje na nowym commicie")
     /\ UNCHANGED <<kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia>>
 
 CofanieResetUdane == CofanieReset /\ head' = "stara"
@@ -292,17 +296,16 @@ CofaniePrzywroc ==
     /\ \/ /\ plikTaty' = IF kopia = "taty" THEN "taty" ELSE plikTaty
           /\ Idz(IF head = "stara" THEN "koniec_dziennika" ELSE "spoczynek",
                  CASE head = "stara" -> "_roll_back (finally): plik taty wraca z kopii"
-                   [] cofa = "centrum" -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, Centrum pokazuje COFNIECIE_NIEUDANE"
+                   [] cofa \in {"centrum", "klik"} -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, Centrum pokazuje COFNIECIE_NIEUDANE"
                    [] cofa = "skrot" -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, skrot konczy sie Komunikatem startu"
                    [] OTHER -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, opiekun pokazuje okienko (return 1)")
        \/ /\ AwariaKopiowania
           /\ kopia = "taty"
           /\ plikTaty' = plikTaty
-          /\ SladCentrum("spoczynek",
-                  CASE cofa = "centrum" -> "_roll_back (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w dzienniku)"
+          /\ Idz("spoczynek",
+                  CASE cofa \in {"centrum", "klik"} -> "_roll_back (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w dzienniku)"
                     [] cofa = "skrot" -> "_roll_back (finally): copy2 z kopii rzuca OSError, skrot konczy sie Komunikatem startu"
-                    [] OTHER -> "_roll_back (finally): copy2 z kopii rzuca OSError, opiekun pokazuje okienko (return 1)",
-                  "kopiowanie")
+                    [] OTHER -> "_roll_back (finally): copy2 z kopii rzuca OSError, opiekun pokazuje okienko (return 1)")
     /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia>>
 
 CofaniePrzywrocUdane == CofaniePrzywroc /\ pc' = "koniec_dziennika"
@@ -319,8 +322,11 @@ KoniecDziennika ==
           /\ Idz("spoczynek", "_Journal.end: dziennik znika; skrot zapisuje wynik NIEOCZEKIWANY_BLAD i startuje Centrum od nowa")
        \/ /\ cofa /= "skrot"
           /\ UNCHANGED centrum
-          /\ Idz(IF cofa = "opiekun" THEN "opiekun_port_stara" ELSE "spoczynek",
+          /\ Idz(CASE cofa = "opiekun" -> "opiekun_port_stara"
+                   [] cofa = "klik" -> "pobieranie"
+                   [] OTHER -> "spoczynek",
                  CASE cofa = "opiekun" -> "_Journal.end: dziennik znika; opiekun cofnal klon"
+                   [] cofa = "klik" -> "_Journal.end: dziennik znika; ToolClone.update pobiera main jak zwykle"
                    [] cofa = "opiekun_bez_portu" -> "_Journal.end: dziennik znika; opiekun cofnal klon bez portu, pokazuje okienko (return 1)"
                    [] OTHER -> "_Journal.end: dziennik znika; Centrum pokazuje Komunikat porazki")
     /\ UNCHANGED <<head, plikTaty, biblioteki, nowa, klikniecia>>
@@ -329,14 +335,16 @@ KoniecDziennika ==
 
 \* ToolUpdates._restart; gdy restart_guardian.launch rzuca, ToolUpdates._moved_back woła
 \* ToolClone.roll_back (-> _roll_back), a Centrum działa dalej w starej wersji.
-\* Przed restart_guardian.launch ToolClone.lease_to_guardian zapisuje w dzienniku opiekun_do.
+\* ToolClone.leased_to_guardian zapisuje w dzienniku opiekun_do przed restart_guardian.launch, a gdy
+\* launch rzuci, usuwa go.
 Restart ==
     /\ pc = "restart"
-    /\ dzierzawa' = "wazna"
     /\ \/ /\ AwariaOpiekuna
+          /\ dzierzawa' \in IF AwariaKopiowania THEN {"brak", "wazna"} ELSE {"brak"}
           /\ UNCHANGED centrum
           /\ Cofaj("centrum", "ToolUpdates._restart: restart_guardian.launch rzuca; _moved_back cofa klon, Centrum dziala dalej")
-       \/ /\ centrum' = "brak"
+       \/ /\ dzierzawa' = "wazna"
+          /\ centrum' = "brak"
           /\ Idz("opiekun_port", "ToolUpdates._restart: opiekun startuje, Shutdown.close_for_update zamyka Centrum")
     /\ UNCHANGED <<head, plikTaty, kopia, biblioteki, dziennik, nowa, klikniecia>>
 
@@ -437,14 +445,15 @@ Program ==
 
 Next == Program \/ Klik \/ Wylacz \/ DzierzawaMija \/ Skrot
 
-\* Działający kod robi następny krok, tata klika, póki Centrum działa i ma kliknięcia, uruchamia
-\* skrót, póki Centrum nie działa, a termin opiekuna kiedyś mija. Awarie Gita i kopiowania są
-\* przejściowe: cofanie ponawiane bez końca kiedyś się udaje (silna sprawiedliwość).
+\* Działający kod robi następny krok, tata klika, póki Centrum działa i ma kliknięcia albo dziennik
+\* jest w toku, uruchamia skrót, póki Centrum nie działa, a termin opiekuna kiedyś mija, także gdy
+\* tata w międzyczasie klika. Awarie Gita i kopiowania są przejściowe: cofanie ponawiane bez końca
+\* kiedyś się udaje (silna sprawiedliwość).
 Sprawiedliwosc ==
     /\ WF_vars(Program)
     /\ WF_vars(Klik)
     /\ WF_vars(Skrot)
-    /\ WF_vars(DzierzawaMija)
+    /\ SF_vars(DzierzawaMija)
     /\ SF_vars(CofanieResetUdane)
     /\ SF_vars(CofaniePrzywrocUdane)
 
@@ -453,7 +462,8 @@ Spec == Init /\ [][Next]_vars /\ Sprawiedliwosc
 
 \* --- Postęp ------------------------------------------------------------------
 
-\* Dziennik w toku w końcu znika: skrót, opiekun albo Centrum kończy albo cofa aktualizację.
+\* Dziennik w toku w końcu znika: skrót, opiekun, Centrum albo następne kliknięcie kończy albo cofa
+\* aktualizację.
 \* Gdy znika w spoczynku, TataMaDzialajacaWersje wymaga wersji, która startuje, i pliku taty.
 \* Założenie: komputer gaśnie skończenie wiele razy.
 Postep == <>[][~Wylacz]_vars => (dziennik = "w_toku" ~> dziennik = "brak")
