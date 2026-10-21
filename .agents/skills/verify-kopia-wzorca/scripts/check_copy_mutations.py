@@ -94,6 +94,30 @@ MUTATIONS = (
         'text.replace("&", "&amp;")',
         "text",
     ),
+    Mutation(
+        "<hyperlinks> za pageMargins",
+        "blok Hiperłączy poza kolejnością schematu arkusza: Excel proponuje naprawę pliku i usuwa Hiperłącza",
+        '        "dataValidations",\n    }',
+        '        "dataValidations",\n        "pageMargins",\n    }',
+    ),
+    Mutation(
+        "rId Wzorca użyty ponownie",
+        "numer zlecenia otwiera rysunek komentarza Wzorca zamiast zlecenia, a Excel proponuje naprawę pliku",
+        "self._first = max(numbers) + 1",
+        "self._first = 1",
+    ),
+    Mutation(
+        "Hiperłącze o wiersz dalej",
+        "numer zlecenia otwiera zlecenie z wiersza wyżej",
+        'b"%d" % (first_row + index), link)',
+        'b"%d" % (first_row + index + 1), link)',
+    ),
+    Mutation(
+        "& w adresie Hiperłącza bez escapowania",
+        "relacje arkusza są niepoprawnym XML i plik się nie otwiera",
+        "html.escape(text, quote=True)",
+        "text",
+    ),
 )
 
 

@@ -176,7 +176,7 @@ któraś wpisana komórka ma Hiperłącze:
 Bez Hiperłączy wszystkie części Rozliczenia pracownika mają po rozpakowaniu te
 same bajty co przed zmianą. Skompresowany arkusz ma jedną granicę kawałka
 więcej: ostatni kawałek zaczyna się w miejscu bloku `<hyperlinks>`, więc kopia z
-Hiperłączami kompresuje od nowa tylko ogon arkusza (u taty ~200 B).
+Hiperłączami kompresuje od nowa tylko ogon arkusza (u taty 128 B).
 
 Wzorzec, którego arkusz ma już własny blok `<hyperlinks>`, idzie dawną drogą
 (`UnsupportedShape`). Wzorzec taty go nie ma, a zasada dla hiperłącza Wzorca w
