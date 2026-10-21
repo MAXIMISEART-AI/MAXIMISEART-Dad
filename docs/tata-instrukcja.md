@@ -206,11 +206,21 @@ procesu ani nie zamkniesz Centrum.
 ### Aktualizacja narzędzia → co zrobić
 
 Gdy aktualizacja się nie uda, narzędzie działa dalej w wersji sprzed
-kliknięcia, a karta pokaże komunikat w trzech częściach.
+kliknięcia, a karta pokaże komunikat w trzech częściach i przycisk
+`Wyślij do Maksa`. Rozwiń `Co zostanie wysłane`, żeby zobaczyć Zgłoszenie
+przed wysłaniem.
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
-| „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
+| „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Zaktualizuj narzędzie` jeszcze raz. |
+| „nie ma Gita” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „GitHub prosi o logowanie” | Nie loguj się nigdzie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „inna gałąź narzędzia” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „zmiany zrobione na tym komputerze” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
+
+Bez internetu `Wyślij do Maksa` zapisze Zgłoszenie w pliku: postępuj wtedy
+według tabeli „Zgłoszenie → co zrobić”.
 
 ### Komunikaty startu Centrum rozliczeń
 

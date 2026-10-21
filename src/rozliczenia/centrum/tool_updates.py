@@ -6,12 +6,14 @@ Uruchomienia procesu albo innej aktualizacji), odpowiada od razu i prowadzi
 aktualizację w osobnym wątku, a karta odczytuje krok i wynik. Dziennik Centrum
 dostaje start i koniec z commitem przed i po, bez ścieżek i bez wyjścia Gita.
 Każdą porażkę, której ``tool_update`` nie przewidział, karta widzi jako
-Komunikat nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku.
+Komunikat nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku. Przy
+każdej porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import tempfile
@@ -21,9 +23,21 @@ from fastapi import APIRouter
 
 from rozliczenia.centrum import contract, update_messages
 from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.tool_freshness import CommitSource
-from rozliczenia.centrum.tool_update import UNEXPECTED, UP_TO_DATE, UPDATED, Step, ToolClone, UpdateResult
+from rozliczenia.centrum.tool_update import (
+    NO_CONNECTION,
+    UNEXPECTED,
+    UP_TO_DATE,
+    UPDATED,
+    Step,
+    ToolClone,
+    UpdateResult,
+)
+
+# Porażki, po których tata sam klika „Zaktualizuj narzędzie” jeszcze raz; każdą inną przejmuje Maks.
+_RETRIED_BY_TATA = frozenset({NO_CONNECTION, UNEXPECTED})
 
 
 class ToolUpdates:
@@ -32,12 +46,16 @@ class ToolUpdates:
     ``clone`` daje klon narzędzia przy każdym kliknięciu, nie przy starcie
     Centrum (test bez podstawionego klonu kończy się dopiero na akcji), a
     ``commit`` to commit narzędzia przed aktualizacją, tak jak widzi go Diagnoza.
+    ``reports`` przygotowuje i wysyła Zgłoszenie nieudanej aktualizacji.
     """
 
-    def __init__(self, clone: Callable[[], ToolClone], runs: RunHost, log: CentrumLog, commit: CommitSource) -> None:
+    def __init__(
+        self, clone: Callable[[], ToolClone], runs: RunHost, log: CentrumLog, commit: CommitSource, reports: Reports
+    ) -> None:
         self._clone = clone
         self._runs = runs
         self._log = log
+        self._reports = reports
         self._commit = commit
         self._lock = threading.Lock()
         self._view: contract.ToolUpdate = contract.ToolUpdateIdle(state="idle")
@@ -62,11 +80,14 @@ class ToolUpdates:
     def _update(self, clone: ToolClone, before: str | None) -> None:
         try:
             result = self._result(clone, before)
+            if result.before is None:  # bez Gita commit zna tylko Centrum
+                result = replace(result, before=before)
             self._log.update_finished(
                 result=result.code, before=result.before, after=result.after, installed=result.installed
             )
+            view = _view_of(result) or self._failed(result)
             with self._lock:
-                self._view = _view_of(result)
+                self._view = view
         finally:
             self._runs.end_update()
 
@@ -81,18 +102,45 @@ class ToolUpdates:
             self._log.unexpected_failure(failure, where="aktualizacja narzędzia")
             return UpdateResult(UNEXPECTED, before, None)
 
+    def _failed(self, result: UpdateResult) -> contract.ToolUpdateFailed:
+        """Komunikat porażki z podglądem Zgłoszenia; wpis ``aktualizacja-koniec`` jest już w dzienniku."""
+
+        message = update_messages.message_of(result.code)
+        draft, report = self._reports.draft_update(result, message)
+        return contract.ToolUpdateFailed(
+            state="failed",
+            message=contract.Message.of(message),
+            next_action="retry" if message.code in _RETRIED_BY_TATA else "report",
+            report=report,
+            draft=draft,
+        )
+
+    def send_report(self) -> contract.ReportState:
+        """„Wyślij do Maksa” przy nieudanej aktualizacji; ``contract.Refusal``, gdy ostatnia aktualizacja nie zawiodła."""
+
+        with self._lock:
+            failed = self._view
+        if not isinstance(failed, contract.ToolUpdateFailed):
+            raise contract.Refusal(409, "Zgłoszenie powstaje po nieudanej aktualizacji narzędzia.")
+        state = self._reports.send_update()
+        with self._lock:
+            if self._view is failed:
+                self._view = failed.model_copy(update={"report": state})
+        return state
+
     def _show_step(self, step: Step) -> None:
         with self._lock:
             self._view = contract.ToolUpdateRunning(state="running", step=step)
 
 
-def _view_of(result: UpdateResult) -> contract.ToolUpdate:
+def _view_of(result: UpdateResult) -> contract.ToolUpdate | None:
+    """Widok udanej aktualizacji albo ``None`` przy porażce."""
+
     if result.code == UPDATED and result.after is not None:
         return contract.ToolUpdateUpdated(state="updated", commit=result.after[:7])
     if result.code == UP_TO_DATE:
         return contract.ToolUpdateUpToDate(state="up_to_date")
-    message = update_messages.message_of(result.code)
-    return contract.ToolUpdateFailed(state="failed", message=contract.Message.of(message))
+    return None
 
 
 def tool_update_router(updates: ToolUpdates) -> APIRouter:
@@ -105,5 +153,9 @@ def tool_update_router(updates: ToolUpdates) -> APIRouter:
     @router.get("", operation_id="getToolUpdate")
     def current() -> contract.ToolUpdate:
         return updates.current()
+
+    @router.post("/report", operation_id="reportToolUpdate", responses={409: {"model": contract.Problem}})
+    def send_report() -> contract.ReportState:
+        return updates.send_report()
 
     return router

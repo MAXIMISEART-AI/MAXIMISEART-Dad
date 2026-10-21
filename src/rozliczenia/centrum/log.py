@@ -10,7 +10,7 @@ brakuje zależności.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 import threading
@@ -80,25 +80,28 @@ class CentrumLog:
 
         self._write("diagnoza", proces=process, okres=period, przyczyna=cause)
 
-    def report_sent(self, *, process: str, period: str, number: int) -> None:
-        """Zgłoszenie do Maksa przyjęte przez skrzynkę Zgłoszeń jako issue ``number``; bez treści i klucza."""
+    def report_sent(self, subject: Mapping[str, str], *, number: int) -> None:
+        """Zgłoszenie do Maksa przyjęte przez skrzynkę Zgłoszeń jako issue ``number``; bez treści i klucza.
 
-        self._write("zgloszenie-wyslane", proces=process, okres=period, numer=number)
+        ``subject`` to fakty, z czego jest Zgłoszenie: proces i okres Uruchomienia albo Aktualizacja narzędzia.
+        """
 
-    def report_waiting(self, *, process: str, period: str, number: int) -> None:
+        self._write("zgloszenie-wyslane", **subject, numer=number)
+
+    def report_waiting(self, subject: Mapping[str, str], *, number: int) -> None:
         """Zgłoszenia nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego samego problemu."""
 
-        self._write("zgloszenie-czeka", proces=process, okres=period, numer=number)
+        self._write("zgloszenie-czeka", **subject, numer=number)
 
-    def report_saved(self, *, process: str, period: str, code: str) -> None:
+    def report_saved(self, subject: Mapping[str, str], *, code: str) -> None:
         """Zgłoszenia nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
 
-        self._write("zgloszenie-zapisane", proces=process, okres=period, kod=code)
+        self._write("zgloszenie-zapisane", **subject, kod=code)
 
-    def report_not_saved(self, *, process: str, period: str, cause: str) -> None:
+    def report_not_saved(self, subject: Mapping[str, str], *, cause: str) -> None:
         """Zgłoszenia nie wysłano ani nie zapisano w pliku; ``cause`` to kod Komunikatu, dlaczego nie wysłano."""
 
-        self._write("zgloszenie-niezapisane", proces=process, okres=period, przyczyna=cause)
+        self._write("zgloszenie-niezapisane", **subject, przyczyna=cause)
 
     def view_timed(
         self,

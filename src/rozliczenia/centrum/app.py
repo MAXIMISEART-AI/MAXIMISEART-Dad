@@ -133,7 +133,7 @@ def create_app(
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”.
     updates = ToolUpdates(
-        lambda: tool_update or ToolClone.of_system(), runs, log, surroundings.tool_freshness.local
+        lambda: tool_update or ToolClone.of_system(), runs, log, surroundings.tool_freshness.local, reports
     )
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)

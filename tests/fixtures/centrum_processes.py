@@ -55,6 +55,8 @@ class Surroundings:
     commit narzędzia i `main` pochodzą z tych repozytoriów, a Aktualizacja
     narzędzia przesuwa ten klon. ``update_hold`` zatrzymuje każdą Aktualizację
     narzędzia na jej początku, dopóki test jej nie puści (``set``).
+    ``git_installed=False`` to komputer bez Gita, a ``update_origin`` adres,
+    z którego aktualizacja pobiera nową wersję zamiast lokalnego „origin”.
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -63,6 +65,8 @@ class Surroundings:
     clock: FakeClock = field(default_factory=FakeClock)
     tool: ToolRepository | None = None
     update_hold: threading.Event | None = None
+    git_installed: bool = True
+    update_origin: str | None = None
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -71,17 +75,17 @@ class Surroundings:
         return ToolFreshness(local=lambda: tool_commit(tool.clone), main=lambda: git(tool.origin, "rev-parse", "main"))
 
     def tool_update(self) -> ToolClone | None:
-        tool, hold = self.tool, self.update_hold
+        tool, hold, installed = self.tool, self.update_hold, self.git_installed
         if tool is None:
             return None
 
         def held_git() -> Path | None:
             if hold is not None:
                 hold.wait()
-            found = shutil.which("git")
+            found = shutil.which("git") if installed else None
             return None if found is None else Path(found)
 
-        return ToolClone(tool.clone, origin=str(tool.origin), find_git=held_git)
+        return ToolClone(tool.clone, origin=self.update_origin or str(tool.origin), find_git=held_git)
 
 
 def _client(
