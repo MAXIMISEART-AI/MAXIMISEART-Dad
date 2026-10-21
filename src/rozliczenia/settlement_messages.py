@@ -228,7 +228,7 @@ _ISSUE_ACTIONS: Final[dict[str, str]] = {
 
 
 def issue_message(issue: Issue, source: Path) -> Message:
-    """Problem z podsumowania (wynik „Wymaga sprawdzenia”) w trzech częściach; „Co się stało” to opis problemu z podsumowania."""
+    """Problem z podsumowania (wynik „Wymaga sprawdzenia”) w trzech częściach."""
 
     return Message(
         code=issue.code,

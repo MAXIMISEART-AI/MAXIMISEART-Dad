@@ -1,5 +1,3 @@
-"""Jedyna projekcja postępu (ADR 0002): czysta redukcja Zdarzeń przebiegu do niemutowalnego snapshotu."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -86,8 +84,6 @@ class ProgressProjection:
         return self._snapshot
 
     def update(self, event: ProgressEvent) -> ProgressSnapshot:
-        """Redukuje jedno zdarzenie i zwraca nowy niemutowalny snapshot."""
-
         self._total_elapsed_ms = event.elapsed_ms
         match event:
             case PhaseStarted(phase=phase):

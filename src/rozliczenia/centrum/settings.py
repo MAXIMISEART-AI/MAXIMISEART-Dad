@@ -1,7 +1,4 @@
-"""Ustawienia taty w Centrum rozliczeń: odczyt, wskazanie Rejestru zleceń i folderu okresów oknem wyboru, motyw.
-
-Plik ustawień i jego zapis należą do ``rozliczenia.settings``, wspólnego z CLI.
-"""
+"""Ustawienia taty w Centrum rozliczeń: odczyt, wskazanie Rejestru zleceń i folderu okresów oknem wyboru, motyw."""
 
 from __future__ import annotations
 

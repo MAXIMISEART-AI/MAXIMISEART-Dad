@@ -459,7 +459,7 @@ def test_failing_observer_is_detached_and_does_not_change_result_or_files(tmp_pa
     def failing_observer(event: ProgressEvent) -> None:
         nonlocal calls
         calls += 1
-        raise RuntimeError("awaria terminala")
+        raise RuntimeError("awaria podglądu")
 
     summary = run_preparation(fixture, observer=failing_observer)
 

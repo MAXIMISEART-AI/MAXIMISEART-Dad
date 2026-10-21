@@ -1,8 +1,7 @@
 """Przebieg rozliczeń dla Uruchomienia procesu: wejście procesu, wywołanie silnika i fakty zakończenia.
 
-Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy: Centrum
-rozliczeń i skrypt dla maszyn podają gotowe ``SettlementInputs`` do
-``run_process``, więc liczby, Komunikaty i rekord metryk są te same.
+Opis procesu (``PROCESS``) jest wspólny dla każdego rozmówcy, więc liczby,
+Komunikaty i rekord metryk są te same.
 """
 
 from __future__ import annotations
@@ -33,10 +32,9 @@ def _period_label(source: Path) -> str:
 
 @dataclass(frozen=True)
 class SettlementInputs:
-    """Wejście procesu Przebiegu rozliczeń, niezależne od argumentów CLI.
+    """Wejście procesu Przebiegu rozliczeń, gotowe przed startem silnika.
 
     Okres wynika z nazwy Pliku zbiorczego (``nieznany``, gdy się nie da).
-    Konfiguracja wykonawców i wzorzec mają te same domyślne ścieżki co CLI.
     """
 
     source: Path

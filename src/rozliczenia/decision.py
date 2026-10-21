@@ -1,8 +1,8 @@
 """Decyzja taty w trakcie silnika i rozmowa, w której proces o nią pyta.
 
 Proces (np. Przygotowanie pliku zbiorczego) sam składa Decyzję i sam
-zatrzymuje się po odmowie; rozmówca rdzenia Uruchomienia procesu (Centrum
-rozliczeń albo skrypt dla maszyn) tylko ją pokazuje i zwraca zgodę taty. Moduł
+zatrzymuje się po odmowie; rozmówca rdzenia Uruchomienia procesu zwraca tylko
+zgodę taty albo odmowę. Moduł
 zależy tylko od biblioteki standardowej i od ``message`` (który sam używa tylko
 biblioteki standardowej), żeby moduły procesu nie zależały od rdzenia
 Uruchomienia procesu.

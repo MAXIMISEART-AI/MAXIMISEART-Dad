@@ -68,8 +68,6 @@ class Catalog:
         return [sample() for samples in self.samples.values() for sample in samples]
 
     def shown_messages(self) -> list[Message]:
-        """Komunikaty, które tata może zobaczyć w Centrum rozliczeń."""
-
         return [
             sample() for name, samples in self.samples.items() if name not in self.outside_centrum for sample in samples
         ]
@@ -81,7 +79,7 @@ CATALOGS = {
         messages,
         "### Komunikat → co zrobić",
         PREPARATION_SAMPLES,
-        # Centrum przyjmuje tylko okres z kalendarza okresów; zły token zgłasza rdzeń skryptowi dla maszyn.
+        # Centrum przyjmuje tylko okres z kalendarza okresów; zły token zgłasza silnik tylko skryptowi dla maszyn.
         outside_centrum=frozenset({"invalid_period_token"}),
     ),
     "przebieg-rozliczen": Catalog(

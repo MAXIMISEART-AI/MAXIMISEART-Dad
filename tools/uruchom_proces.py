@@ -30,7 +30,7 @@ Na stdout trafia jeden obiekt JSON (UTF-8, ``ProcessResult``):
 - ``notices``: ostrzeżenia rdzenia (niezapisane metryki, odłączony podgląd);
 - ``metrics_saved``: rekord metryk trafił do pliku metryk.
 
-JSON nie zawiera tekstu wyjątku, śladu wywołań ani linii terminala.
+JSON nie zawiera tekstu wyjątku ani śladu wywołań.
 
 Kod wyjścia to ``Outcome.exit_code``: 0 OK, 2 Wymaga sprawdzenia, 1 Zatrzymanie.
 Błędne argumenty też kończą się kodem 1, bez JSON, z opisem użycia na stderr,

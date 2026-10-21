@@ -22,7 +22,7 @@ from rozliczenia.domain import PHASES
 from rozliczenia.process_run import Process
 from rozliczenia.telemetry import MINIMUM_STATISTIC_SAMPLES, MetricsStore, comparable_records, statistics_for
 
-# Procesy Centrum rozliczeń pod kluczami kontraktu; opis procesu ten sam co w skrypcie dla maszyn.
+# Procesy Centrum rozliczeń pod kluczami kontraktu.
 PROCESSES: Final[dict[contract.ProcessKey, Process[Any, Any]]] = {
     "preparation": preparation_process.PROCESS,
     "settlement": settlement_process.PROCESS,
@@ -33,7 +33,7 @@ _RECENT_WEEKS = 8
 
 @dataclass(frozen=True)
 class MetricsFiles:
-    """Pliki metryk obu procesów; domyślnie pliki metryk procesów (``Process.metrics_path``)."""
+    """Pliki metryk obu procesów."""
 
     preparation: Path
     settlement: Path
@@ -137,8 +137,7 @@ def _results(runs: Iterable[contract.ProcessRun]) -> contract.ResultCounts:
 def previewed_periods(store: MetricsStore) -> frozenset[str]:
     """Okresy, dla których historia metryk ma udany podgląd bez zapisu (DRY-RUN z wynikiem OK).
 
-    Historia jest wspólna dla Centrum i launcherów ``.cmd``, więc liczy się każdy
-    podgląd; nieczytelny plik metryk oznacza „nie było podglądu”.
+    Nieczytelny plik metryk oznacza „nie było podglądu”.
     """
 
     try:

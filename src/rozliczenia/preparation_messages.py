@@ -518,10 +518,7 @@ def incomplete_period(
 
 
 def incomplete_period_refused(period: str, continue_hint: str) -> Message:
-    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie.
-
-    ``continue_hint`` mówi, jak u rozmówcy wyraża się zgodę, np. przy decyzji wybierz „Kontynuuj”.
-    """
+    """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie."""
 
     return Message(
         code="PRZERWANO_NIEPELNY_OKRES",

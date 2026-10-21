@@ -7,8 +7,7 @@ wyjątku, widok podsumowania rozmówcy w tej samej osłonie, rekord metryk i
 wynik jako strukturę (``Outcome``). Każde zakończenie to ``Finished`` albo
 ``Stop`` z Komunikatem z katalogu procesu. Rozmówca (``Interlocutor``)
 pokazuje tacie Decyzję w trakcie silnika (``decision``), pokazuje postęp i sam
-renderuje wynik: Centrum rozliczeń albo skrypt dla maszyn
-(``tools/uruchom_proces.py``). Decyzję składa proces, nie rozmówca. Proces
+renderuje wynik. Decyzję składa proces, nie rozmówca. Proces
 opisuje tylko to, co jest jego i wspólne dla każdego rozmówcy (``Process``).
 Tekst wyjątku nigdy nie przechodzi przez ten seam: tata widzi wyłącznie
 Komunikaty podane przez proces.
@@ -117,7 +116,7 @@ class Process(Generic[InputsT, SummaryT]):
     ``plan_not_shown``, ``summary_not_shown``) rdzeń dołącza do każdego innego
     zatrzymania, więc żaden rozmówca nie dobiera treści sam. ``finished`` to
     czysta funkcja faktów zakończonego procesu. ``metrics_path`` to domyślny
-    plik metryk, ten sam dla Centrum rozliczeń i skryptu dla maszyn.
+    plik metryk procesu.
     """
 
     name: str
@@ -288,7 +287,6 @@ def run_process(
 
     dry_run = inputs.dry_run
     mode = "DRY-RUN" if dry_run else "RUN"
-    # Czas liczony od startu silnika, bez czasu odpowiedzi taty.
     started_at = datetime.now(timezone.utc).isoformat()
     clock = _Clock()
     observation = _Observation(interlocutor)
