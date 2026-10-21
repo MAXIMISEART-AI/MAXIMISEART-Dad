@@ -28,6 +28,7 @@ import {
   zGetToolUpdateResponse,
   zOpenPeriodPathResponse,
   zReportRunResponse,
+  zReportToolUpdateResponse,
   zRunEvent,
   zStartRunResponse,
   zStartToolUpdateResponse,
@@ -236,6 +237,11 @@ export function startToolUpdate() {
 /** Krok trwającej Aktualizacji narzędzia albo jej wynik od startu Centrum. */
 export function getToolUpdate() {
   return call(zGetToolUpdateResponse, "getToolUpdate", "/api/tool-update")
+}
+
+/** „Wyślij do Maksa” przy nieudanej Aktualizacji narzędzia: serwer wysyła podgląd Zgłoszenia z jej faktami. */
+export function reportToolUpdate() {
+  return call(zReportToolUpdateResponse, "reportToolUpdate", "/api/tool-update/report", send("POST"))
 }
 
 /** Czy Maks naprawił zgłoszony problem; serwer pyta skrzynkę Zgłoszeń najwyżej raz na 10 minut, bez sieci po cichu. */

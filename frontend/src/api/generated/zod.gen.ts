@@ -25,6 +25,7 @@ export const zApiTiming = z.object({
         'getConfiguration',
         'startToolUpdate',
         'getToolUpdate',
+        'reportToolUpdate',
         'closeCentrum'
     ]),
     browser_ms: z.int().gte(0).lte(600000),
@@ -641,10 +642,22 @@ export const zThemeChange = z.object({
  * ToolUpdateFailed
  *
  * Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+ *
+ * ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
+ * ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
+ * wyśle „Wyślij do Maksa”, a ``report`` jego stan.
  */
 export const zToolUpdateFailed = z.object({
     state: z.literal('failed'),
-    message: zMessage
+    message: zMessage,
+    next_action: z.enum(['retry', 'report']),
+    report: z.discriminatedUnion('state', [
+        zReportReady,
+        zReportSent,
+        zReportWaiting,
+        zReportSaved
+    ]),
+    draft: zReportDraft
 });
 
 /**
@@ -1035,6 +1048,18 @@ export const zStartToolUpdateResponse = z.discriminatedUnion('state', [
     zToolUpdateUpToDate,
     zToolUpdateUpdated,
     zToolUpdateFailed
+]);
+
+/**
+ * Response Reporttoolupdate
+ *
+ * Successful Response
+ */
+export const zReportToolUpdateResponse = z.discriminatedUnion('state', [
+    zReportReady,
+    zReportSent,
+    zReportWaiting,
+    zReportSaved
 ]);
 
 /**

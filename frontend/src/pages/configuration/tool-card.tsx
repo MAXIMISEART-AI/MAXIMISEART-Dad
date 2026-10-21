@@ -1,7 +1,8 @@
 import * as React from "react"
 import { CircleArrowUpIcon, CircleCheckIcon, CircleDashedIcon, RefreshCwIcon } from "lucide-react"
 
-import type { Configuration, ToolUpdate } from "@/api/centrum"
+import { reportToolUpdate, type Configuration, type ToolUpdate } from "@/api/centrum"
+import { ReportToMaks } from "@/components/report-to-maks"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,7 +32,8 @@ const STEPS: Record<Step, string> = {
 
 /**
  * Wersja narzędzia z Aktualnością i przyciskiem `Zaktualizuj narzędzie`. Po aktualizacji strona czyta
- * Konfigurację od nowa (`onFinished`), więc commit i Aktualność pochodzą z serwera, nie z wyniku.
+ * Konfigurację od nowa (`onFinished`), więc commit i Aktualność pochodzą z serwera, nie z wyniku. Po porażce
+ * głównym przyciskiem jest to, co każe Komunikat: ponowna aktualizacja albo „Wyślij do Maksa”.
  */
 export function ToolCard({
   version,
@@ -46,6 +48,8 @@ export function ToolCard({
 }) {
   const { update, busy, start } = useToolUpdate()
   const shownCommit = update?.state === "updated" ? update.commit : commit
+  const failedNext = update?.state === "failed" ? update.next_action : null
+  const updateIsNext = failedNext === "retry" || (freshness === "newer" && failedNext !== "report")
   const watched = React.useRef(false)
 
   React.useEffect(() => {
@@ -79,7 +83,7 @@ export function ToolCard({
         <CardAction>
           {/* Wyłączony, ale dalej pod kursorem: drugie kliknięcie tylko trafia w przycisk, nie zaznacza tekstu strony. */}
           <Button
-            variant={freshness === "newer" ? "default" : "outline"}
+            variant={updateIsNext ? "default" : "outline"}
             disabled={busy}
             focusableWhenDisabled
             className="data-disabled:opacity-50"
@@ -101,7 +105,17 @@ export function ToolCard({
 
 function UpdateStatus({ update }: { update: Exclude<ToolUpdate, { state: "idle" }> }) {
   if (update.state === "failed") {
-    return <ThreePartMessage message={update.message} kind="warning" />
+    return (
+      <div className="flex flex-col gap-3">
+        <ThreePartMessage message={update.message} kind="warning" />
+        <ReportToMaks
+          send={reportToolUpdate}
+          report={update.report}
+          draft={update.draft}
+          primary={update.next_action === "report"}
+        />
+      </div>
+    )
   }
 
   return (
