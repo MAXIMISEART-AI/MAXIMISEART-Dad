@@ -16,6 +16,8 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 PERIOD = "08_14_09_2026"
 SOURCE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
+# Hiperłącze w NUMER ZL. (F) każdego Wiersza danych, jak do zlecenia w aplikacji firmowej; numer wiersza na końcu.
+ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=SYNTHETIC-LINK&tw=1&wiersz="
 WORKERS = {
     "adrian.testowy": "Adrian Testowy",
     "dariusz.fikcyjny2": "Darek Fikcyjny",
@@ -82,6 +84,7 @@ def _write_source(path: Path, *, include_unmapped: bool) -> None:
     for row_number, (city, worker, marker) in enumerate(rows, start=18):
         sheet.cell(row_number, 1).value = city
         sheet.cell(row_number, 6).value = marker
+        sheet.cell(row_number, 6).hyperlink = f"{ORDER_LINK}{row_number}"
         sheet.cell(row_number, 8).value = worker
         sheet.cell(row_number, 14).value = row_number - 17
     workbook.save(path)
