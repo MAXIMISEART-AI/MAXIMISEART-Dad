@@ -52,6 +52,8 @@ def _steps() -> list[Step]:
     return [
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check")),
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy")),
+        # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
+        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32")),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto")),
         Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py")),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), FRONTEND),
@@ -117,6 +119,11 @@ def main(argv: list[str] | None = None) -> int:
         if not passed:
             failed.append(step.name)
             print("\n".join(output.rstrip().splitlines()[-OUTPUT_ON_FAILURE:]), flush=True)
+    try:
+        overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
+        subprocess.run(overlaps, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
     if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1

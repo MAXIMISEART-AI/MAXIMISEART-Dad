@@ -92,7 +92,8 @@ dla Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
 
 Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca
 rozliczenia pracownika. Zachowuje jego strukturę, formuły, stawki i
-formatowanie; jedynie Wiersze danych mają Wyróżnienia z Pliku zbiorczego.
+formatowanie; jedynie Wiersze danych mają Wyróżnienia i Hiperłącza z Pliku
+zbiorczego.
 Zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli wykonawca nie
 ma wierszy w Pliku zbiorczym.
 
@@ -158,6 +159,19 @@ zastępują wygląd komórki wzorca w całości: komórka bez Wyróżnień daje 
 bez wypełnienia, z kolorem automatycznym, bez pogrubienia i bez kursywy. Krój i
 rozmiar czcionki nie są Wyróżnieniem i zawsze pochodzą z wzorca.
 _Avoid_: formatowanie (szersze: obejmuje też krój, obramowania i formaty liczb)
+
+## Hiperłącze
+
+Adres poza skoroszytem, który komórka otwiera po kliknięciu, np. numer zlecenia
+w `NUMER ZL.` prowadzący do zlecenia w aplikacji firmowej. Przechodzi razem z
+wartością komórki z Pliku zbiorczego do Rozliczeń pracowników i zastępuje
+hiperłącze komórki wzorca: komórka bez Hiperłącza daje komórkę bez hiperłącza.
+Komórka bez wartości nie niesie Hiperłącza. Odnośnik do miejsca w tym samym
+skoroszycie (np. do innego arkusza) nie jest Hiperłączem i nie przechodzi.
+Hiperłącze nie jest Wyróżnieniem i nie zmienia wyglądu komórki. Adres jest
+treścią wiersza: nie trafia do Komunikatów, Zdarzeń przebiegu, metryk ani
+Zgłoszeń.
+_Avoid_: link, odnośnik
 
 ## Gotowość
 
@@ -292,7 +306,14 @@ _Avoid_: issue tracker, publiczne issue
 
 Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
 narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
-Znika samo po aktualizacji i ponownym otwarciu Centrum.
+Ma przycisk aktualizacji i znika samo, gdy Centrum wystartuje w nowej wersji.
+
+## Wersja narzędzia
+
+Commit klonu narzędzia, z którego wystartowało Centrum rozliczeń na komputerze
+taty. Karta `Narzędzie` w Konfiguracji pokazuje jego skrót i dzień, od którego
+narzędzie jest na tym commicie; Zgłoszenie podaje pełny commit.
+_Avoid_: numer wersji z `pyproject.toml`
 
 ## Aktualizacja narzędzia
 
@@ -300,6 +321,23 @@ Przejście narzędzia na komputerze taty na jego najnowszą wersję, które
 tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
 zostawia poprzednią wersję; pliki taty pozostają nietknięte.
 _Avoid_: upgrade, git pull, instalacja
+
+## Aktualność narzędzia
+
+Czy narzędzie na komputerze taty jest w najnowszej wersji, czyli czy jego
+commit to `main` publicznego repozytorium: `Aktualna`, `Jest nowsza wersja`
+albo `Nie sprawdzono` (bez internetu). Pokazuje ją Konfiguracja i sprawdza
+Diagnoza; nowsza wersja jest przyczyną Zatrzymania tylko wtedy, gdy Diagnoza
+nie znalazła innej.
+_Avoid_: świeżość, freshness
+
+## Ponowny start Centrum
+
+Koniec udanej Aktualizacji narzędzia: Centrum rozliczeń samo się zamyka i
+startuje w nowej wersji na tym samym adresie, a otwarta karta przeglądarki
+sama się odświeża. Gdy nowa wersja nie wystartuje, wraca poprzednia, a karta
+pokazuje Komunikat.
+_Avoid_: restart, reboot
 
 ## Nienadpisywanie
 

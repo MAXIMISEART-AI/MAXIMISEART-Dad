@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { RunsProvider } from "@/lib/runs"
 import { SettingsProvider } from "@/lib/settings"
+import { ToolUpdateProvider } from "@/lib/tool-update"
 import { useViewTiming } from "@/lib/view-timing"
 import { useCurrentPage } from "@/pages"
 
@@ -31,6 +32,7 @@ export function App() {
       <TooltipProvider>
         <Toaster>
           <RunsProvider>
+          <ToolUpdateProvider>
           <SidebarProvider style={LAYOUT}>
             <AppSidebar variant="inset" current={page} onClosed={() => setClosed(true)} />
             <SidebarInset>
@@ -40,6 +42,7 @@ export function App() {
               </div>
             </SidebarInset>
           </SidebarProvider>
+          </ToolUpdateProvider>
           </RunsProvider>
         </Toaster>
       </TooltipProvider>

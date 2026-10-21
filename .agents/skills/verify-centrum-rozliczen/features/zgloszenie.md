@@ -21,15 +21,15 @@ whether the key is there, never its value.
 - `zgloszenie-wyslane`: `Spróbuj ponownie` on Uruchomienia sends: status `Zgłoszenie wysłane do Maksa. Poczekaj na naprawę.`; the skrzynka has `1.json` equal to the preview with label `zgloszenie`; the unsent file is gone; `config/zgloszenia-wyslane.json` keeps the fingerprint and number `1`; the Centrum log has `zgloszenie-wyslane` and no key.
 - `zgloszenie-po-odswiezeniu`: a reload shows the confirmation again (`report` `sent`).
 - `zgloszenie-kolejne-uruchomienie`: a new Podgląd bez zapisu with the same stop shows `Zgłoszenie tego problemu już jest wysłane i czeka na naprawę.` at once (`report` `waiting`); after `Diagnoza` it stays, there is no `Wyślij do Maksa`, and the skrzynka still has one Zgłoszenie.
-- `zgloszenie-zamkniete`: Maks closes `1.json` (harness step); the same stop again still shows the waiting `status` before the Diagnoza (the local sent state); `Diagnoza` asks the skrzynka, the `status` goes, `Wyślij do Maksa` returns (`report` `ready`), and the preview has `- Poprzednie Zgłoszenie: #1`.
+- `zgloszenie-zamkniete`: Maks closes `1.json` (harness step); the same stop again still shows the waiting `status` before the Diagnoza (the skrzynka's last answer in this Centrum); `Diagnoza` asks the skrzynka, the `status` goes, `Wyślij do Maksa` returns (`report` `ready`), and the preview has `- Poprzednie Zgłoszenie: #1`.
 - `zgloszenie-nowe-z-odnosnikiem`: `Wyślij do Maksa` shows the confirmation; the skrzynka has `1.json` closed and `2.json` open, equal to the new preview; `config/zgloszenia-wyslane.json` has numbers `1` and `2`.
 - `zgloszenie-inny-problem`: a stop without the Wzorzec pliku zbiorczego (same code, other three parts) has `report` `ready` and, after `Diagnoza`, `Wyślij do Maksa` next to the open Zgłoszenie 2; nothing is sent.
 
 ## How to get to it (user POV)
 
 - Uruchomienia: a stop with `Diagnoza`; after it, region `Diagnoza` holds `Wyślij do Maksa` and `Co zostanie wysłane`, or the confirmation, or the `Ostrzeżenie` with `Spróbuj ponownie`.
-- Before a Diagnoza (after a reload or in a new Uruchomienie) only the confirmation or the saved Zgłoszenie with `Spróbuj ponownie` is shown under the stop.
-- Konfiguracja: the page header reads `Wersja … · Zgłoszenia: gotowe` or `Zgłoszenia: brak klucza`.
+- Before a Diagnoza (after a reload or in a new Uruchomienie) only the confirmation, the waiting `status`, or the saved Zgłoszenie with `Spróbuj ponownie` is shown under the stop.
+- Konfiguracja: the page header reads `Zgłoszenia: gotowe` or `Zgłoszenia: brak klucza`.
 
 ## Driving it with Playwright for Python
 
@@ -53,5 +53,5 @@ Preconditions:
 - The preview belongs to the last Diagnoza of the Uruchomienie: a second `POST /api/runs/{id}/diagnosis` from the drive replaces it (its log tail differs), so compare the skrzynka with the preview shown in the tab, not with an extra API Diagnoza.
 - Leaving and re-entering Uruchomienia drops the Diagnoza shown in the tab, but the server keeps the saved state and the Zgłoszenie, so `Spróbuj ponownie` still sends exactly the preview.
 - Rename the Wzorzec back right after the stop: the Diagnoza must find no cause, and later features need the Wzorzec.
-- Before a Diagnoza the waiting `status` comes from the local sent state only; the Centrum asks the skrzynka for the open Zgłoszenie of the problem in the Diagnoza and again when sending, so a closed Zgłoszenie shows only after `Diagnoza`.
+- Before a Diagnoza the waiting `status` comes from the skrzynka's last answer in this Centrum, or from the local sent state when this Centrum has not asked yet; the Centrum asks the skrzynka for the open Zgłoszenie of the problem in the Diagnoza and again when sending, so a closed Zgłoszenie shows only after `Diagnoza`.
 - The file skrzynka finds the open Zgłoszenie by the `- Odcisk problemu:` line of an `open` file; edit only `state` when closing one.

@@ -12,10 +12,22 @@ asks Dad's decision about the incomplete period. Its order cells carry
 Wykonawca missing from the konfiguracja wykonawców, so a Podgląd bez zapisu of
 Przebieg rozliczeń for that period needs checking.
 
+The tool itself is a synthetic Git clone in ``<root>/aktualizacja/klon`` whose
+"origin" is a local bare repository, ``<root>/aktualizacja/origin.git``, one commit
+ahead of the clone: Aktualizacja narzędzia in this run moves that clone, never
+the checkout the verification runs from, and never reaches GitHub. The clone's
+``config/`` holds Dad's files, among them his locally changed konfiguracja
+wykonawców, which the newest commit stops tracking. Its
+``run_centrum.py``, which the restart guardian starts after an update, is a shim
+that serves this run's scripted Centrum (``serve_centrum.py`` with this run root)
+on the port it is given; while ``<root>/pacing/ponowny-start-ms.txt`` exists, it
+waits that many milliseconds first. One version on the origin's branch
+``nie-startuje`` has a ``run_centrum.py`` that fails at once with an import error.
+
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
 Dad's layout, each before it with a Folder rozliczeń pracowników of 14
-Wykonawcy, and 260 more synthetic records in both metrics files.
+Wykonawcy, and 258 more synthetic records in both metrics files.
 """
 
 from __future__ import annotations
@@ -25,7 +37,9 @@ from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
 import random
+import os
 import shutil
+import subprocess
 import sys
 
 from openpyxl import Workbook
@@ -349,6 +363,119 @@ def _year_of_work(root: Path, metrics: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _git(directory: Path, *args: str) -> str:
+    """Git without the machine's own configuration, with a synthetic author; never the network."""
+
+    environment = os.environ | {
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "Maks Syntetyczny",
+        "GIT_AUTHOR_EMAIL": "maks@example.invalid",
+        "GIT_COMMITTER_NAME": "Maks Syntetyczny",
+        "GIT_COMMITTER_EMAIL": "maks@example.invalid",
+    }
+    result = subprocess.run(
+        ["git", "-C", str(directory), *args], env=environment, capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+
+
+def _publish(publisher: Path, version: int, message: str, *, untrack: tuple[str, ...] = ()) -> str:
+    (publisher / "pyproject.toml").write_text(
+        f'[project]\nname = "narzedzie-syntetyczne"\nversion = "0.0.{version}"\n', encoding="utf-8"
+    )
+    if untrack:
+        _git(publisher, "rm", "--cached", "--quiet", *untrack)
+    _git(publisher, "add", "--all")
+    _git(publisher, "commit", "--quiet", "--message", message)
+    return _git(publisher, "rev-parse", "HEAD")
+
+
+# The synthetic tool's Centrum: the run's scripted Centrum, so a restarted Centrum keeps the run-local boundaries.
+_CENTRUM_SHIM = """\
+\"\"\"Centrum of the run's synthetic tool: the run's scripted Centrum on the port the restart guardian gives.\"\"\"
+
+from pathlib import Path
+import runpy
+import sys
+import time
+
+SERVE = {serve!r}
+ROOT = Path({root!r})
+
+pacing = ROOT / "pacing" / "ponowny-start-ms.txt"
+if pacing.exists():
+    time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
+port = sys.argv[sys.argv.index("--port") + 1]
+sys.argv = [SERVE, "--root", str(ROOT), "--port", port]
+runpy.run_path(SERVE, run_name="__main__")
+"""
+
+
+# A version whose Centrum does not start: an import error, as when a new version needs a library this Python lacks.
+_NOT_STARTING_CENTRUM = """\
+\"\"\"Centrum of a version that does not start: it needs a library no Python on this computer has.\"\"\"
+
+import biblioteka_ktorej_nie_ma  # noqa: F401
+"""
+
+
+# The tool's konfiguracja wykonawców: tracked in the first version with an example, untracked by the newest (#161).
+WORKER_MAPPING = "config/worker_mapping.yaml"
+# A library no index has: with pip offline (PIP_NO_INDEX in serve_centrum.py) its installation always fails.
+UNINSTALLABLE_REQUIREMENTS = "biblioteka-syntetyczna-nie-do-zainstalowania>=1.0\n"
+# Dad's files in the clone's config/ after the first version: his konfiguracja wykonawców with synthetic
+# "real" names (a local change) and files Git never tracks (Ustawienia taty, the key to Zgłoszenia, a Wzorzec).
+DAD_FILES = {
+    WORKER_MAPPING: "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n",
+    "config/centrum-ustawienia.yaml": "folder_okresow: INEA\n",
+    "config/zgloszenia-klucz.txt": "klucz-syntetyczny\n",
+    "config/Wzorzec rozliczenia pracownika.xlsx": "wzorzec syntetyczny\n",
+}
+
+
+def _tool_clone(root: Path) -> dict[str, object]:
+    """The run's tool: a clone on the first version with Dad's files, and a local "origin" one version ahead.
+
+    The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
+    update after #161 on Dad's computer. One version later (``libraries``, on the origin's branch
+    ``biblioteki`` until the drive makes it `main`) needs a library whose installation fails. Another
+    one after the newest (``not_starting``, on the branch ``nie-startuje``) has a Centrum that does not start.
+    """
+
+    tool = root / "aktualizacja"
+    publisher, origin, clone = tool / "wydawca", tool / "origin.git", tool / "klon"
+    (publisher / "config").mkdir(parents=True)
+    _git(publisher, "init", "--quiet", "--initial-branch", "main")
+    shim = _CENTRUM_SHIM.format(serve=str(Path(__file__).resolve().with_name("serve_centrum.py")), root=str(root))
+    (publisher / "run_centrum.py").write_text(shim, encoding="utf-8")
+    (publisher / WORKER_MAPPING).write_text("schema_version: 1\nworkers:\n  przyklad: Przykład\n", encoding="utf-8")
+    first = _publish(publisher, 1, "Pierwsza wersja narzędzia")
+    _git(tool, "clone", "--quiet", "--bare", str(publisher), str(origin))
+    _git(tool, "clone", "--quiet", str(origin), str(clone))
+    for name, content in DAD_FILES.items():
+        (clone / name).write_text(content, encoding="utf-8")
+    (publisher / ".gitignore").write_text(f"{WORKER_MAPPING}\n", encoding="utf-8")
+    newest = _publish(publisher, 2, "Nowa wersja narzędzia", untrack=(WORKER_MAPPING,))
+    _git(publisher, "push", "--quiet", str(origin), "main")
+    (publisher / "requirements.txt").write_text(UNINSTALLABLE_REQUIREMENTS, encoding="utf-8")
+    libraries = _publish(publisher, 3, "Wersja z nową biblioteką")
+    _git(publisher, "push", "--quiet", str(origin), "main:biblioteki")
+    _git(publisher, "checkout", "--quiet", "-b", "nie-startuje", newest)
+    (publisher / "run_centrum.py").write_text(_NOT_STARTING_CENTRUM, encoding="utf-8")
+    not_starting = _publish(publisher, 4, "Wersja, która nie wystartuje")
+    _git(publisher, "push", "--quiet", str(origin), "nie-startuje")
+    return {
+        "clone": str(clone),
+        "origin": str(origin),
+        "first": first,
+        "newest": newest,
+        "libraries": libraries,
+        "not_starting": not_starting,
+        "dad_files": DAD_FILES,
+    }
+
+
 def create(root: Path, variant: str | None = None) -> dict[str, object]:
     root.mkdir(parents=True)
     (root / "config").mkdir()
@@ -379,6 +506,8 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
         # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
         "configuration": configuration,
         "workers": list(WORKERS),
+        # Aktualizacja narzędzia: the run's tool clone, its local "origin", both commits, and Dad's files in the clone
+        "tool": _tool_clone(root),
         # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
         "preparation": EXPECTED_PREPARATION,
         # Przebieg rozliczeń: one Wiersz danych per Wykonawca after Przygotowanie of the last complete period,
@@ -415,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         fixture = create(Path(args.root), args.wariant)
-    except OSError as exc:
+    except (OSError, subprocess.CalledProcessError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
     print(f"FIXTURE OK | root={args.root} | today={fixture['today']} | variant={args.wariant or 'podstawowy'}")

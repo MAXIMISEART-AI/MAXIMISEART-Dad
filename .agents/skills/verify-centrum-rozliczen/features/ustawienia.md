@@ -47,5 +47,5 @@ Preconditions:
 - The scripted picker answers at once, while Dad's native window stays open for seconds. A step about what happens while a picker is open holds the request with `page.route` and continues it afterwards; without that, the window is over before the second click.
 - A waiting picker button spins forever, so capture that state with `live=True`, or `Run.capture` waits for the spinner until it times out.
 - The picker that is open belongs to the tab, not to a page: navigating away and back keeps every picker button waiting until it answers.
-- Centrum reads the remembered Rejestr zleceń only when Przygotowanie pliku zbiorczego runs; without it, starting that Uruchomienie is refused with `Najpierw wskaż …`.
+- Centrum reads the remembered Rejestr zleceń only when Przygotowanie pliku zbiorczego runs or its Diagnoza checks it; without it, starting that Uruchomienie is refused with `Najpierw wskaż …`.
 - Settings reload when the tab regains focus, so a missing path can also appear without a manual reload.

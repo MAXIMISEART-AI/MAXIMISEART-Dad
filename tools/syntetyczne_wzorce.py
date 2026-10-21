@@ -14,7 +14,8 @@ nagłówki w wierszu 17, ~10 tys. sformatowanych Wierszy danych (18..10093), ~50
 ~50 tys. formuł zapisanych jako wspólne (wzór co 64 wiersze) z zapisanymi wartościami,
 ``calcChain`` z każdą komórką z formułą, ``sharedStrings``, jedno odwołanie zewnętrzne
 (``xl/externalLinks/*``), scalenia, pasy stylów i 483 wiersze zer w N:V i X. Nie wszystkie
-wiersze mają komórki w A i B, jak u taty. openpyxl nie zapisuje wspólnych formuł ani
+wiersze mają komórki w A i B, jak u taty. Wzorzec rozliczenia pracownika ma, jak u taty,
+komentarz komórki, więc relacje arkusza (``rId1`` rysunek VML, ``rId2`` komentarze). openpyxl nie zapisuje wspólnych formuł ani
 ``calcChain``, więc generator pisze XML części zip sam.
 
 Etykiety A:K, AQ:AY i opisy wierszy 13–16 są takie jak u taty; usługi N:AP, stawki, formuły
@@ -52,7 +53,7 @@ COLLECTIVE_TEMPLATE = default_collective_template_path().name
 INTERNAL_TEMPLATE = default_internal_template_path().name
 WORKER_CONFIG = default_config_path().name
 # Zmiana kształtu albo treści wygenerowanych plików podnosi wersję (benchmark trzyma je pod nią).
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 # Wiersze danych Wzorca taty: 18..10093.
 FULL_DATA_ROWS = 10_076
@@ -452,7 +453,7 @@ class _TemplateSheet:
         rows.append(f'<row r="{trailing}" ht="13.5" customHeight="1" x14ac:dyDescent="0.25"/>')
         return rows
 
-    def parts(self) -> tuple[str, str]:
+    def parts(self, *, comments: bool) -> tuple[str, str]:
         """XML arkusza i ``calcChain``: łańcuch powstaje z formuł zapisanych w arkuszu."""
 
         last = self._bands.last_row
@@ -480,7 +481,8 @@ class _TemplateSheet:
             f'<autoFilter ref="A17:AY17"/><mergeCells count="{len(merges)}">'
             + "".join(f'<mergeCell ref="{merge}"/>' for merge in merges)
             + '</mergeCells><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
-            "</worksheet>"
+            + ('<legacyDrawing r:id="rId1"/>' if comments else "")
+            + "</worksheet>"
         )
         # Jak w ``calcChain`` Excela: ``i`` (arkusz) podany raz, kolejne komórki go dziedziczą.
         chain = [f'<c r="{self._formula_cells[0]}" i="1"/>'] + [f'<c r="{cell}"/>' for cell in self._formula_cells[1:]]
@@ -490,7 +492,7 @@ class _TemplateSheet:
 # --- części pakietu ---------------------------------------------------------------------------
 
 
-def _content_types(*, linked: bool) -> str:
+def _content_types(*, linked: bool, comments: bool = False) -> str:
     overrides = {
         "/xl/workbook.xml": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
         "/xl/worksheets/sheet1.xml": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
@@ -504,10 +506,14 @@ def _content_types(*, linked: bool) -> str:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"
         )
         overrides["/xl/calcChain.xml"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.calcChain+xml"
+    if comments:
+        overrides["/xl/comments1.xml"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"
+    vml = '<Default Extension="vml" ContentType="application/vnd.openxmlformats-officedocument.vmlDrawing"/>'
     return (
         f'{_XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        '<Default Extension="xml" ContentType="application/xml"/>'
+        + (vml if comments else "")
+        + '<Default Extension="xml" ContentType="application/xml"/>'
         + "".join(f'<Override PartName="{name}" ContentType="{kind}"/>' for name, kind in overrides.items())
         + "</Types>"
     )
@@ -580,6 +586,29 @@ _EXTERNAL_LINK_RELS = _relationships(
 )
 
 
+# Komentarz komórki nagłówka, jak we Wzorcu taty: część komentarzy i rysunek VML, który Excel pokazuje jako notatkę.
+_COMMENTS = (
+    f'{_XML}<comments xmlns="{_MAIN_NS}"><authors><author>Autor syntetyczny</author></authors><commentList>'
+    '<comment ref="H17" authorId="0"><text><r><t>Identyfikator z Konfiguracji wykonawców</t></r></text></comment>'
+    "</commentList></comments>"
+)
+_VML_DRAWING = (
+    '<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" '
+    'xmlns:x="urn:schemas-microsoft-com:office:excel"><o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="1"/>'
+    '</o:shapelayout><v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe">'
+    '<v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype>'
+    '<v:shape id="_x0000_s1025" type="#_x0000_t202" style="position:absolute;margin-left:59.25pt;margin-top:1.5pt;'
+    'width:108pt;height:59.25pt;z-index:1;visibility:hidden" fillcolor="#ffffe1" o:insetmode="auto">'
+    '<v:fill color2="#ffffe1"/><v:shadow on="t" color="black" obscured="t"/><v:path o:connecttype="none"/>'
+    '<v:textbox style="mso-direction-alt:auto"><div style="text-align:left"></div></v:textbox>'
+    '<x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/><x:Anchor>8, 15, 15, 2, 10, 15, 19, 1</x:Anchor>'
+    "<x:AutoFill>False</x:AutoFill><x:Row>16</x:Row><x:Column>7</x:Column></x:ClientData></v:shape></xml>"
+)
+_SHEET_RELS = _relationships(
+    [(f"{_OFFICE}/vmlDrawing", "../drawings/vmlDrawing1.vml"), (f"{_OFFICE}/comments", "../comments1.xml")]
+)
+
+
 def _write_package(path: Path, parts: Sequence[tuple[str, str]]) -> None:
     """Zip z częściami w podanej kolejności i stałym czasem, więc te same części dają te same bajty."""
 
@@ -591,11 +620,16 @@ def _write_package(path: Path, parts: Sequence[tuple[str, str]]) -> None:
             archive.writestr(info, content.encode("utf-8"))
 
 
-def write_settlement_template(path: Path, first_header: str, data_rows: int = FULL_DATA_ROWS) -> None:
-    """Wzorzec z nagłówkami w wierszu 17: rozliczenia pracownika (``GODZINA``) albo pliku zbiorczego (``MIASTO``)."""
+def write_settlement_template(
+    path: Path, first_header: str, data_rows: int = FULL_DATA_ROWS, *, comments: bool = False
+) -> None:
+    """Wzorzec z nagłówkami w wierszu 17: rozliczenia pracownika (``GODZINA``) albo pliku zbiorczego (``MIASTO``).
+
+    ``comments`` dodaje komentarz komórki H17 z relacjami arkusza, jak we Wzorcu rozliczenia pracownika taty.
+    """
 
     styles, strings = _Styles(), _SharedStrings()
-    sheet_xml, calc_chain_xml = _TemplateSheet(first_header, data_rows, styles, strings).parts()
+    sheet_xml, calc_chain_xml = _TemplateSheet(first_header, data_rows, styles, strings).parts(comments=comments)
     workbook_rels = _relationships(
         [
             (f"{_OFFICE}/worksheet", "worksheets/sheet1.xml"),
@@ -605,10 +639,19 @@ def write_settlement_template(path: Path, first_header: str, data_rows: int = FU
             (f"{_OFFICE}/calcChain", "calcChain.xml"),
         ]
     )
+    commented = (
+        [
+            ("xl/comments1.xml", _COMMENTS),
+            ("xl/drawings/vmlDrawing1.vml", _VML_DRAWING),
+            ("xl/worksheets/_rels/sheet1.xml.rels", _SHEET_RELS),
+        ]
+        if comments
+        else []
+    )
     _write_package(
         path,
         [
-            ("[Content_Types].xml", _content_types(linked=True)),
+            ("[Content_Types].xml", _content_types(linked=True, comments=comments)),
             ("_rels/.rels", _PACKAGE_RELS),
             ("xl/workbook.xml", _workbook("Sheet1", "Sheet1!$A$17:$AY$17", linked=True)),
             ("xl/_rels/workbook.xml.rels", workbook_rels),
@@ -620,6 +663,7 @@ def write_settlement_template(path: Path, first_header: str, data_rows: int = FU
             ("docProps/core.xml", _CORE),
             ("docProps/app.xml", _app("Sheet1")),
             ("xl/externalLinks/_rels/externalLink1.xml.rels", _EXTERNAL_LINK_RELS),
+            *commented,
         ],
     )
 
@@ -691,7 +735,7 @@ def write_worker_config(path: Path) -> None:
 def write_synthetic_templates(directory: Path, data_rows: int = FULL_DATA_ROWS) -> None:
     """Trzy Wzorce pod nazwami z ``config`` i Konfiguracja wykonawców w ``directory``."""
 
-    write_settlement_template(directory / WORKER_TEMPLATE, "GODZINA", data_rows)
+    write_settlement_template(directory / WORKER_TEMPLATE, "GODZINA", data_rows, comments=True)
     write_settlement_template(directory / COLLECTIVE_TEMPLATE, "MIASTO", data_rows)
     write_internal_template(directory / INTERNAL_TEMPLATE)
     write_worker_config(directory / WORKER_CONFIG)

@@ -9,13 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
 from rozliczenia.domain import ProgressEvent, ProgressObserver
 from rozliczenia.progress import ProgressProjection
-from rozliczenia.telemetry import MetricsStore
 from tests.fixtures.workbooks import active_worksheet
 
 PERIOD = "08_14_09_2026"
@@ -104,6 +103,24 @@ def write_source(path: Path, *, include_unmapped: bool = True) -> None:
     workbook.save(path)
 
 
+def link_order_numbers(path: Path, address: str) -> dict[int, str]:
+    """Hiperłącze w ``NUMER ZL.`` (F) każdego Wiersza danych Pliku zbiorczego, jak przy zleceniu z aplikacji firmowej.
+
+    Adres to ``address`` z numerem wiersza na końcu; zwraca numer wiersza → adres.
+    """
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        links = {row: f"{address}{row}" for row in range(18, sheet.max_row + 1) if sheet.cell(row, 6).value is not None}
+        for row, link in links.items():
+            sheet.cell(row, 6).hyperlink = link
+        workbook.save(path)
+    finally:
+        workbook.close()
+    return links
+
+
 def make_fixture(tmp_path: Path, period: str = PERIOD) -> tuple[Path, Path, Path]:
     period_directory = tmp_path / period
     period_directory.mkdir(parents=True)
@@ -126,29 +143,3 @@ def make_preview_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=True)
     return source_path, target_directory, config_path
-
-
-def append_completed_records(metrics_path: Path, mode: str, count: int = 5) -> None:
-    for sample in range(count):
-        MetricsStore(metrics_path).append(
-            {
-                "schema_version": 1,
-                "started_at": f"2026-09-28T00:00:0{sample}+00:00",
-                "mode": mode,
-                "period": PERIOD,
-                "completed": True,
-                "result": "OK",
-                "total_duration_ms": 1000,
-                "phase_durations_ms": {"Sprawdzanie": 1, "Odczyt danych": 1, "Planowanie": 1, "Zapisywanie": 1},
-                "counters": {
-                    "templates_total": 1,
-                    "templates_completed": 1,
-                    "rows": 1,
-                    "written": 1,
-                    "empty": 0,
-                    "planned": 0,
-                    "skipped": 0,
-                    "issues": 0,
-                },
-            }
-        )

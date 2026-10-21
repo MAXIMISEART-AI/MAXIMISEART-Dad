@@ -19,11 +19,12 @@ import time
 import urllib.request
 import uuid
 
-from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
-from quiet_machine import MachineBusy, QuietMachine
-
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES  # noqa: E402
+from quiet_machine import MachineBusy, QuietMachine  # noqa: E402
 STEP_TIMEOUT_SECONDS = 300
 # wydajnosc repeats every scenario in two CPU profiles, so its drive takes minutes.
 PERFORMANCE_TIMEOUT_SECONDS = 1800
@@ -63,6 +64,23 @@ REQUIRED_SCREENSHOTS = {
         "12-konfiguracja-wzorzec-otwarty.png",
         "13-konfiguracja-brak-wzorca.png",
         "14-konfiguracja-nieczytelna-konfiguracja-wykonawcow.png",
+    ),
+    "aktualizacja": (
+        "93-aktualizacja-jest-nowsza.png",
+        "115-aktualizacja-brak-sieci.png",
+        "116-aktualizacja-brak-sieci-zgloszenie.png",
+        "141-aktualizacja-powiadomienie.png",
+        "94-aktualizacja-postep.png",
+        "142-aktualizacja-postep-konfiguracja.png",
+        "100-aktualizacja-ponowny-start.png",
+        "143-aktualizacja-bez-powiadomienia.png",
+        "101-aktualizacja-zaktualizowano.png",
+        "96-aktualizacja-najnowsza.png",
+        "130-aktualizacja-instalowanie.png",
+        "131-aktualizacja-instalacja-nieudana.png",
+        "135-aktualizacja-nie-wystartowala-ponowny-start.png",
+        "136-aktualizacja-nie-wystartowala.png",
+        "137-aktualizacja-nie-wystartowala-konfiguracja.png",
     ),
     "metryki": (
         "20-metryki-karty-okresow.png",
@@ -117,6 +135,8 @@ REQUIRED_SCREENSHOTS = {
         "76-aktualnosc-nowsza-wersja.png",
         "77-aktualnosc-brak-sieci.png",
         "78-onedrive-tylko-w-chmurze.png",
+        "81-aktualnosc-propozycja.png",
+        "140-aktualnosc-aktualizacja-w-trakcie.png",
         "79-aktualnosc-i-onedrive-przeszly.png",
     ),
     "zgloszenie": (
