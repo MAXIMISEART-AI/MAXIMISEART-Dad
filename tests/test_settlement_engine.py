@@ -784,7 +784,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     assert isinstance(failed[0], WorkerFailed)
     assert failed[0].worker_name == "Darek Fikcyjny"
     assert failed[0].template_index == 2
-    assert all("syntetyczny" not in repr(event) and "#1" not in repr(event) for event in failed)
+    assert all("synthetic failure" not in repr(event) and "#1" not in repr(event) for event in failed)
     assert not any(
         isinstance(event, WorkerEnded) and event.worker_name == "Darek Fikcyjny" for event in recorded
     )
