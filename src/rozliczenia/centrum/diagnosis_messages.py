@@ -36,7 +36,7 @@ def newer_tool_version() -> Message:
         code=NEWER_TOOL_VERSION,
         what="Jest nowsza wersja narzędzia.",
         where="narzędzie na tym komputerze",
-        action="Zaktualizuj narzędzie, zamknij Centrum rozliczeń i otwórz je ponownie skrótem, potem uruchom ponownie.",
+        action="Kliknij „Zaktualizuj narzędzie”. Gdy karta Centrum sama się odświeży, uruchom proces ponownie.",
     )
 
 

@@ -36,8 +36,20 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
   const instance = React.useRef<string | null>(null)
   const running = update?.state === "running"
 
+  // Przycisk i stan aktualizacji w jednym miejscu odczytują ją razem przy wejściu: jedno pytanie zamiast kilku.
+  const reading = React.useRef(false)
+
   const read = React.useCallback(() => {
-    getToolUpdate().then(setUpdate, () => undefined)
+    if (reading.current) {
+      return
+    }
+
+    reading.current = true
+    getToolUpdate()
+      .then(setUpdate, () => undefined)
+      .finally(() => {
+        reading.current = false
+      })
   }, [])
 
   React.useEffect(() => {
@@ -112,7 +124,7 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
   return <ToolUpdateContext.Provider value={value}>{children}</ToolUpdateContext.Provider>
 }
 
-/** Aktualizacja narzędzia dla strony z przyciskiem; strona odczytuje jej stan przy każdym wejściu. */
+/** Aktualizacja narzędzia dla miejsca z przyciskiem; miejsce odczytuje jej stan przy każdym wejściu. */
 export function useToolUpdate() {
   const context = React.useContext(ToolUpdateContext)
 

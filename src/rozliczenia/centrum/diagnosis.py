@@ -99,9 +99,13 @@ class Diagnosis:
         return newer and self.explanation.code != NEWER_TOOL_VERSION
 
     @property
-    def fixable_by_tata(self) -> bool:
+    def next_action(self) -> contract.DiagnosisNextAction:
+        """Co tata robi po wyjaśnieniu: aktualizuje narzędzie, sam usuwa przyczynę i uruchamia ponownie albo wysyła do Maksa."""
+
         cause = self.cause
-        return cause is not None and not cause.reports_to_maintainer
+        if cause is None or cause.reports_to_maintainer:
+            return "report"
+        return "update" if cause.code == NEWER_TOOL_VERSION else "rerun"
 
     def view(self, report: contract.ReportDraft) -> contract.Diagnosis:
         """Widok Diagnozy z podglądem Zgłoszenia ``report``, które wyśle „Wyślij do Maksa”."""
@@ -112,7 +116,7 @@ class Diagnosis:
         return contract.Diagnosis(
             explanation=contract.Message.of(explanation),
             confirms_stop=same,
-            next_action="rerun" if self.fixable_by_tata else "report",
+            next_action=self.next_action,
             update_proposal=self.proposes_update,
             checks=[contract.DiagnosisCheck(label=check.label, state=check.state, detail=check.detail) for check in self.checks],
             report=report,

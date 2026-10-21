@@ -508,12 +508,16 @@ class DiagnosisCheck(_Model):
     detail: str
 
 
+DiagnosisNextAction = Literal["rerun", "update", "report"]
+
+
 class Diagnosis(_Model):
     """Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
 
     ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
     przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
-    ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+    ponownie; ``update``: przyczyną jest nowsza wersja narzędzia, więc tata klika „Zaktualizuj
+    narzędzie”; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
     „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
     Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
     ``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc
@@ -522,7 +526,7 @@ class Diagnosis(_Model):
 
     explanation: Message
     confirms_stop: bool
-    next_action: Literal["rerun", "report"]
+    next_action: DiagnosisNextAction
     update_proposal: bool
     checks: list[DiagnosisCheck]
     report: ReportDraft
@@ -644,7 +648,7 @@ class RepairNotice(_Model):
     """Powiadomienie o naprawie na stronie Okresy.
 
     ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
-    działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+    działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
     """
 
     repaired: bool

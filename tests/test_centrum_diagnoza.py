@@ -539,7 +539,7 @@ NEWER_MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
 NEWER = {
     "what": "Jest nowsza wersja narzędzia.",
     "where": "narzędzie na tym komputerze",
-    "action": "Zaktualizuj narzędzie, zamknij Centrum rozliczeń i otwórz je ponownie skrótem, potem uruchom ponownie.",
+    "action": "Kliknij „Zaktualizuj narzędzie”. Gdy karta Centrum sama się odświeży, uruchom proces ponownie.",
 }
 
 
@@ -558,7 +558,7 @@ def test_rejestr_otwarty_w_excelu_przy_nowszej_wersji_wyjasnia_rejestr_a_aktuali
     assert check(diagnosis, "Aktualność narzędzia") == ("failed", "Jest nowsza wersja narzędzia.")
 
 
-def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narzedzie(
+def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narzedzie_przyciskiem(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=NEWER_MAIN)))
@@ -566,7 +566,7 @@ def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narz
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert (diagnosis["explanation"], diagnosis["next_action"], diagnosis["update_proposal"]) == (NEWER, "rerun", False)
+    assert (diagnosis["explanation"], diagnosis["next_action"], diagnosis["update_proposal"]) == (NEWER, "update", False)
     assert check(diagnosis, "Aktualność narzędzia") == ("failed", "Jest nowsza wersja narzędzia.")
 
 

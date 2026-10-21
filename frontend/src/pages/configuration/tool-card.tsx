@@ -1,18 +1,13 @@
 import * as React from "react"
-import { CircleArrowUpIcon, CircleCheckIcon, CircleDashedIcon, RefreshCwIcon } from "lucide-react"
+import { CircleArrowUpIcon, CircleCheckIcon, CircleDashedIcon } from "lucide-react"
 
-import { reportToolUpdate, type Configuration, type ToolUpdate } from "@/api/centrum"
-import { ReportToMaks } from "@/components/report-to-maks"
-import { ThreePartMessage } from "@/components/three-part-message"
+import type { Configuration } from "@/api/centrum"
+import { ToolUpdateButton, ToolUpdateStatus } from "@/components/tool-update"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Spinner } from "@/components/ui/spinner"
 import { useToolUpdate } from "@/lib/tool-update"
 
 type Freshness = Configuration["freshness"]
-
-type Step = Extract<ToolUpdate, { state: "running" }>["step"]
 
 const FRESHNESS: Record<Freshness, { label: string; icon: React.ReactNode }> = {
   current: { label: "Aktualna", icon: <CircleCheckIcon data-icon="inline-start" className="text-success" /> },
@@ -21,13 +16,6 @@ const FRESHNESS: Record<Freshness, { label: string; icon: React.ReactNode }> = {
     label: "Nie sprawdzono",
     icon: <CircleDashedIcon data-icon="inline-start" className="text-muted-foreground" />,
   },
-}
-
-// Jeden stan w trzech krokach, bez procentów: tata widzi, że trwa, i co teraz.
-const STEPS: Record<Step, string> = {
-  fetching: "Pobieranie nowej wersji…",
-  installing: "Instalowanie bibliotek…",
-  restarting: "Ponowne uruchamianie Centrum…",
 }
 
 /**
@@ -47,9 +35,7 @@ export function ToolCard({
   freshness: Freshness
   onFinished: () => void
 }) {
-  const { update, busy, start } = useToolUpdate()
-  const failedNext = update?.state === "failed" ? update.next_action : null
-  const updateIsNext = failedNext === "retry" || (freshness === "newer" && failedNext !== "report")
+  const { update } = useToolUpdate()
   const watched = React.useRef(false)
 
   React.useEffect(() => {
@@ -81,56 +67,14 @@ export function ToolCard({
           </Badge>
         </CardDescription>
         <CardAction>
-          {/* Wyłączony, ale dalej pod kursorem: drugie kliknięcie tylko trafia w przycisk, nie zaznacza tekstu strony. */}
-          <Button
-            variant={updateIsNext ? "default" : "outline"}
-            disabled={busy}
-            focusableWhenDisabled
-            className="data-disabled:opacity-50"
-            onClick={start}
-          >
-            {busy ? <Spinner data-icon="inline-start" aria-hidden /> : <RefreshCwIcon data-icon="inline-start" />}
-            Zaktualizuj narzędzie
-          </Button>
+          <ToolUpdateButton primary={freshness === "newer"} />
         </CardAction>
       </CardHeader>
       {update === null || update.state === "idle" || update.state === "updated" ? null : (
         <CardContent>
-          <UpdateStatus update={update} />
+          <ToolUpdateStatus />
         </CardContent>
       )}
     </Card>
-  )
-}
-
-function UpdateStatus({ update }: { update: Exclude<ToolUpdate, { state: "idle" | "updated" }> }) {
-  if (update.state === "failed") {
-    return (
-      <div className="flex flex-col gap-3">
-        <ThreePartMessage message={update.message} kind="warning" />
-        <ReportToMaks
-          send={reportToolUpdate}
-          report={update.report}
-          draft={update.draft}
-          primary={update.next_action === "report"}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <p role="status" className="wejscie flex items-center gap-2 text-sm">
-      {update.state === "running" ? (
-        <>
-          <Spinner aria-hidden className="text-muted-foreground" />
-          <span className="text-muted-foreground">{STEPS[update.step]}</span>
-        </>
-      ) : (
-        <>
-          <CircleCheckIcon className="size-4 text-success" aria-hidden />
-          Masz najnowszą wersję.
-        </>
-      )}
-    </p>
   )
 }

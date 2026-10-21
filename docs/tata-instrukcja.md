@@ -15,7 +15,7 @@ Narzędzie ma dwa wejścia, które działają obok siebie:
 | Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu | Ręcznie w Eksploratorze |
 | Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` | `Przygotuj plik zbiorczy.cmd` |
 | Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` | `Utwórz rozliczenia.cmd` |
-| Zaktualizować narzędzie | Strona `Konfiguracja`, przycisk `Zaktualizuj narzędzie` | — |
+| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`: na stronie `Konfiguracja`, w Powiadomieniu o naprawie i w Diagnozie | — |
 
 Oba procesy możesz uruchomić w Centrum rozliczeń albo launcherami `.cmd`,
 opisanymi niżej. Launchery działają też wtedy, gdy Centrum rozliczeń nie
@@ -115,9 +115,11 @@ potwierdza ten komunikat.` Gdy wyjaśnienie mówi, co zrobić, popraw to i klikn
 `Uruchom ponownie`. Lista `Sprawdzono` pokazuje każde sprawdzenie Diagnozy.
 
 Nowsza wersja narzędzia jest wyjaśnieniem tylko wtedy, gdy Diagnoza nie
-znalazła innej przyczyny. Gdy znalazła, pod wyjaśnieniem jest tylko krótkie
-zdanie `Jest też nowsza wersja narzędzia.` Najpierw usuń przyczynę według
-wyjaśnienia; aktualizacja może poczekać.
+znalazła innej przyczyny. Wtedy przy wyjaśnieniu jest przycisk `Zaktualizuj
+narzędzie`. Gdy Diagnoza znalazła inną przyczynę, pod wyjaśnieniem jest tylko
+krótkie zdanie `Jest też nowsza wersja narzędzia.` z tym samym przyciskiem,
+drugim po `Uruchom ponownie`. Najpierw usuń przyczynę według wyjaśnienia;
+aktualizacja może poczekać.
 
 ### Wyjaśnienie Diagnozy → co zrobić
 
@@ -127,7 +129,7 @@ otwarty w Excelu) albo jednym z tych:
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Kliknij `Wyślij do Maksa`. |
-| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”). Gdy karta Centrum sama się odświeży, uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
+| „Jest nowsza wersja narzędzia” | Kliknij `Zaktualizuj narzędzie` przy wyjaśnieniu (niżej, „Aktualizacja narzędzia”). Gdy karta Centrum sama się odświeży, uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
 | „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
 | „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
 
@@ -172,12 +174,13 @@ Maks; Ty niczego tam nie wpisujesz.
 ### Powiadomienie o naprawie
 
 Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`
-pod tytułem pojawi się `Maks naprawił zgłoszony problem. Zaktualizuj
-narzędzie.`
+pod tytułem pojawi się `Maks naprawił zgłoszony problem.` z przyciskiem
+`Zaktualizuj narzędzie`.
 
-Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”). Po aktualizacji
-powiadomienie zniknie samo; niczego nie zamykasz. Centrum
-sprawdza to przy otwarciu i przy wejściu na `Okresy`, najwyżej raz na 10 minut.
+Kliknij `Zaktualizuj narzędzie` (niżej, „Aktualizacja narzędzia”). Gdy karta
+sama się odświeży w nowej wersji, powiadomienia już nie ma; niczego nie
+zamykasz. Centrum sprawdza to przy otwarciu i przy wejściu na `Okresy`,
+najwyżej raz na 10 minut.
 Bez internetu nic się nie pokazuje i nic się nie psuje; Centrum sprawdzi
 ponownie później.
 
@@ -187,12 +190,14 @@ Na stronie `Konfiguracja`, w karcie `Narzędzie`, widać wersję narzędzia i cz
 jest najnowsza: `Aktualna`, `Jest nowsza wersja` albo `Nie sprawdzono` (bez
 internetu).
 
-1. Na stronie `Konfiguracja` kliknij `Zaktualizuj narzędzie`.
-2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a gdy nowa wersja
-   potrzebuje nowych bibliotek, potem `Instalowanie bibliotek…` (to może
-   potrwać kilka minut). Na końcu pokazuje `Ponowne uruchamianie Centrum…`.
-   Przycisk jest wtedy wyłączony. Nie zamykaj karty i nie klikaj skrótu:
-   Centrum samo uruchamia się w nowej wersji.
+1. Kliknij `Zaktualizuj narzędzie`: na stronie `Konfiguracja`, w
+   Powiadomieniu o naprawie na `Okresach` albo w Diagnozie. Każdy z tych
+   przycisków robi to samo.
+2. Poczekaj. Pod przyciskiem widać `Pobieranie nowej wersji…`, a gdy nowa
+   wersja potrzebuje nowych bibliotek, potem `Instalowanie bibliotek…` (to może
+   potrwać kilka minut). Na końcu widać `Ponowne uruchamianie Centrum…`. Każdy
+   przycisk aktualizacji jest wtedy wyłączony. Nie zamykaj karty i nie klikaj
+   skrótu: Centrum samo uruchamia się w nowej wersji.
 3. Na końcu zobaczysz jedno z dwóch:
    - Karta sama się odświeży i na chwilę pokaże `Zaktualizowano`. Działa już
      nowa wersja; niczego nie zamykasz.
@@ -205,8 +210,8 @@ procesu ani nie zamkniesz Centrum.
 ### Aktualizacja narzędzia → co zrobić
 
 Gdy aktualizacja się nie uda, narzędzie działa dalej w wersji sprzed
-kliknięcia, a karta pokaże komunikat w trzech częściach i przycisk
-`Wyślij do Maksa`. Rozwiń `Co zostanie wysłane`, żeby zobaczyć Zgłoszenie
+kliknięcia, a pod przyciskiem pojawi się komunikat w trzech częściach i
+przycisk `Wyślij do Maksa`. Rozwiń `Co zostanie wysłane`, żeby zobaczyć Zgłoszenie
 przed wysłaniem.
 
 | Co się stało (fragment) | Co zrobić |

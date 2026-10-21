@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import Run, current_run, diagnosis_answer, ensure_files_set, finished_result, stop_banner
+from drive.common import (
+    Run,
+    current_run,
+    diagnosis_answer,
+    ensure_files_set,
+    finished_result,
+    sent_requests,
+    settle,
+    stop_banner,
+)
 
 FEATURE = "aktualnosc-i-onedrive"
 # The period of features/diagnoza.md: no Folder okresu and no orders, so no Uruchomienie here writes a file.
@@ -20,6 +30,11 @@ KEEP_ON_DEVICE = "„Zawsze zachowuj na tym urządzeniu”"
 OTHER_MAIN = "f" * 40
 FRESHNESS = "Aktualność narzędzia"
 ONEDRIVE = "Pliki w OneDrive"
+UPDATE_BUTTON = "Zaktualizuj narzędzie"
+FETCHING = "Pobieranie nowej wersji…"
+UP_TO_DATE = "Masz najnowszą wersję."
+# Long enough to see the update running and click its button again; the local "origin" answers in milliseconds.
+UPDATE_PACING_MS = 4000
 
 
 def _stop_without_cause_on_computer(run: Run, page: Page) -> str:
@@ -95,14 +110,18 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
     main_commit.write_text(OTHER_MAIN, encoding="utf-8")
     explanation = _diagnose(page)
     expect(explanation).to_contain_text(NEWER)
-    expect(explanation.get_by_role("button", name="Uruchom ponownie", exact=True)).to_be_visible()
+    expect(explanation).to_contain_text("Kliknij „Zaktualizuj narzędzie”.")
+    update = explanation.get_by_role("button", name=UPDATE_BUTTON, exact=True)
+    expect(update).to_be_enabled()
+    expect(explanation.get_by_role("button", name="Uruchom ponownie", exact=True)).to_have_count(0)
     expect(_proposal(page)).to_have_count(0)
+    run.check("bg-primary" in (update.get_attribute("class") or ""), "updating the tool is the explanation's main action")
     answer = diagnosis_answer(run, run_id, "aktualnosc-nowsza-wersja")
     run.check(
         _state(answer, FRESHNESS) == ("failed", NEWER)
-        and answer["next_action"] == "rerun"
+        and answer["next_action"] == "update"
         and answer["update_proposal"] is False,
-        "with no other cause a newer `main` on GitHub explains the stop, and Dad updates the tool himself",
+        "with no other cause a newer `main` on GitHub explains the stop, and Dad updates the tool with the button",
     )
     run.capture(page, "76-aktualnosc-nowsza-wersja")
 
@@ -143,7 +162,13 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
     explanation = _diagnose(page)
     expect(explanation).to_contain_text(ONLY_IN_CLOUD)
     expect(explanation.get_by_role("button", name="Uruchom ponownie", exact=True)).to_be_visible()
-    expect(_proposal(page)).to_have_text(PROPOSAL)
+    expect(_proposal(page)).to_contain_text(PROPOSAL)
+    update = _proposal(page).get_by_role("button", name=UPDATE_BUTTON, exact=True)
+    expect(update).to_be_enabled()
+    run.check(
+        "bg-primary" not in (update.get_attribute("class") or ""),
+        "`Zaktualizuj narzędzie` in the proposal comes second, after the explanation's `Uruchom ponownie`",
+    )
     answer = diagnosis_answer(run, run_id, "aktualnosc-propozycja")
     shown_explanation = answer["explanation"]
     assert isinstance(shown_explanation, dict)
@@ -154,6 +179,7 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
         "a newer `main` does not cover the Rejestr zleceń only in the cloud: it is only proposed under the explanation",
     )
     run.capture(page, "81-aktualnosc-propozycja")
+    _drive_update_in_progress(run, page, update)
 
     run.step(FEATURE, "aktualnosc-i-onedrive-przeszly")
     main_commit.unlink()
@@ -175,3 +201,51 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
     )
     run.capture(page, "79-aktualnosc-i-onedrive-przeszly")
 
+
+
+def _update_entries(run: Run) -> list[str]:
+    log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
+    return [line for line in log.splitlines() if line.split(" ")[1:2] == ["aktualizacja-start"]]
+
+
+def _drive_update_in_progress(run: Run, page: Page, update: Locator) -> None:
+    """Dad clicks `Zaktualizuj narzędzie` under the Diagnoza: while it runs the button cannot be clicked again."""
+
+    run.step(FEATURE, "aktualnosc-aktualizacja-w-trakcie")
+    tool = run.fixture["tool"]
+    origin, clone = Path(tool["origin"]), Path(tool["clone"])
+    head = subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    pacing = run.root / "pacing" / "aktualizacja-ms.txt"
+    pacing.parent.mkdir(exist_ok=True)
+    print("  harness: `main` in the local origin is the clone's own commit, so the update changes nothing", flush=True)
+    subprocess.run(["git", "-C", str(origin), "update-ref", "refs/heads/main", head.stdout.strip()], check=True)
+    print(f"  harness: the Aktualizacja narzędzia waits {UPDATE_PACING_MS} ms before it looks for Git", flush=True)
+    pacing.write_text(str(UPDATE_PACING_MS), encoding="utf-8")
+    started = len(_update_entries(run))
+    diagnosis = page.get_by_role("region", name="Diagnoza")
+    try:
+        with sent_requests(page, "POST", "/api/tool-update") as sent:
+            update.click()
+            expect(diagnosis.get_by_role("status").filter(has_text=FETCHING)).to_be_visible()
+            expect(update).to_be_disabled()
+            update.click(force=True)
+            run.check(settle(page, sent) == 1, "the click on the disabled button during the update sends nothing")
+        run.check(
+            run.api("/api/tool-update", "aktualnosc-aktualizacja-w-trakcie") == {"state": "running", "step": "fetching"},
+            "the server reports the update running",
+        )
+        diagnosis.get_by_role("status").filter(has_text=FETCHING).evaluate(
+            "element => Promise.all(element.getAnimations().map((animation) => animation.finished))"
+        )
+        run.capture(page, "140-aktualnosc-aktualizacja-w-trakcie", live=True)
+    finally:
+        pacing.unlink(missing_ok=True)
+    try:
+        expect(diagnosis.get_by_role("status").filter(has_text=UP_TO_DATE)).to_be_visible(timeout=20_000)
+        expect(update).to_be_enabled()
+        run.check(
+            len(_update_entries(run)) == started + 1,
+            "the click on the disabled button during the update started no second Aktualizacja narzędzia",
+        )
+    finally:
+        subprocess.run(["git", "-C", str(origin), "update-ref", "refs/heads/main", tool["newest"]], check=True)

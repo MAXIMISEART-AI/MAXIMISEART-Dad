@@ -11,7 +11,8 @@ from drive import zgloszenie
 from drive.common import Run, stop_banner
 
 FEATURE = "powiadomienie-o-naprawie"
-REPAIRED = "Maks naprawił zgłoszony problem. Zaktualizuj narzędzie."
+REPAIRED = "Maks naprawił zgłoszony problem."
+UPDATE_BUTTON = "Zaktualizuj narzędzie"
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
 KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
 # The tool Dad runs when he sends the Zgłoszenie of this feature: newer than the one of features/zgloszenie.md,
@@ -130,6 +131,7 @@ def drive_repair_notice(run: Run, page: Page) -> None:
     _advance_clock(run, 10)
     notice = _enter_periods(page, run)
     expect(notice).to_be_visible()
+    expect(notice.get_by_role("button", name=UPDATE_BUTTON, exact=True)).to_be_enabled()
     run.check(_repaired(run, "naprawa-powiadomienie") is True, "a closed Zgłoszenie from this version is repaired")
     run.check(_sent(config)[-1]["state"] == "closed", "the local sent state remembers the closed Zgłoszenie")
     run.check(KEY not in page.content(), "the key never reaches the browser")

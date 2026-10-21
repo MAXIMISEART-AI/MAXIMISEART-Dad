@@ -147,9 +147,17 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     try:
         stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
         expect(diagnosis).to_contain_text(CONFIRMS)
-        expect(proposal).to_have_text(PROPOSAL)
+        expect(proposal).to_contain_text(PROPOSAL)
         expect(page.get_by_role("button", name="Uruchom ponownie", exact=True)).to_have_count(0)
         run.check(True, "a cause only Maks removes has no Uruchom ponownie; the newer version is only a quiet proposal")
+        update = proposal.get_by_role("button", name="Zaktualizuj narzędzie", exact=True)
+        expect(update).to_be_enabled()
+        send = diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)
+        run.check(
+            "bg-primary" not in (update.get_attribute("class") or "")
+            and "bg-primary" in (send.get_attribute("class") or ""),
+            "the proposal holds `Zaktualizuj narzędzie` as a second action; `Wyślij do Maksa` stays the main one",
+        )
         current = run.api("/api/runs/current", "diagnoza-do-maksa")
         run_info = current["run"]
         assert isinstance(run_info, dict)

@@ -265,7 +265,7 @@ _Avoid_: issue tracker, publiczne issue
 
 Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
 narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
-Znika samo po aktualizacji i ponownym otwarciu Centrum.
+Ma przycisk aktualizacji i znika samo, gdy Centrum wystartuje w nowej wersji.
 
 ## Aktualizacja narzędzia
 
