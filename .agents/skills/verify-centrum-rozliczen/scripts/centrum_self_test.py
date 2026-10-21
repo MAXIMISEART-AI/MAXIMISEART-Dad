@@ -119,6 +119,7 @@ def _check_machine_lock(errors: list[str]) -> None:
     """One measurement at a time on the machine, as SKILL.md says: checked in a scratch lock directory."""
 
     import tempfile
+    import threading
 
     sys.path.insert(0, str(TOOLS_ROOT))
     from quiet_machine import MachineBusy, QuietMachine
@@ -149,6 +150,18 @@ def _check_machine_lock(errors: list[str]) -> None:
             cases["a second measurement waits for the first"] = not held(machine().measurement())
         cases["a measurement waits for pytest or a benchmark"] = not held(machine(["pytest"]).measurement())
         cases["a run does not wait for pytest"] = held(machine(["pytest"]).run())
+        polled = threading.Event()
+
+        def pytest_running() -> list[str]:
+            polled.set()
+            return ["pytest"]
+
+        waiting = QuietMachine(directory, timeout_s=1, poll_s=0.05, busy_processes=pytest_running, report_every_s=None)
+        measuring = threading.Thread(target=held, args=(waiting.measurement(),))
+        measuring.start()
+        polled.wait(timeout=1)
+        cases["a run does not wait for a measurement that waits for a quiet CPU"] = held(machine().run())
+        measuring.join()
         (directory / "pomiar.lock").write_text(str(dead_pid), encoding="utf-8")
         (directory / f"run-{dead_pid}.pid").write_text(str(dead_pid), encoding="utf-8")
         cases["locks of a process that died are taken over"] = held(machine().measurement())
