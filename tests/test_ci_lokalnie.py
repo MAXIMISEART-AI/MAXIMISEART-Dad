@@ -7,11 +7,14 @@ wskazuje każdy commit gałęzi, na którym krok pada, także gdy HEAD przechodz
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
+from types import ModuleType
 
+import pytest
 import yaml
 
 from tests.fixtures.git_repo import commit, git, repository
@@ -65,6 +68,35 @@ def test_kazde_polecenie_odtwarzanych_zadan_ma_krok_i_odwrotnie() -> None:
     assert without_command == []
 
 
+def _load_tool(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    monkeypatch.syspath_prepend(str(TOOL.parent))
+    spec = importlib.util.spec_from_file_location("ci_lokalnie", TOOL)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("fail_fast", [False, True])
+def test_do_pierwszego_bledu_pomija_kroki_po_pierwszym_nieudanym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], fail_fast: bool
+) -> None:
+    tool = _load_tool(monkeypatch)
+    second_ran = tmp_path / "drugi-krok"
+    steps = [
+        tool.Step("pierwszy", "ruff", "", (sys.executable, "-c", "raise SystemExit(1)"), tmp_path),
+        tool.Step("drugi", "mypy", "", (sys.executable, "-c", f"open({str(second_ran)!r}, 'w')"), tmp_path),
+    ]
+    monkeypatch.setattr(tool, "_steps", lambda root: steps)
+
+    returned = tool.main(["--do-pierwszego-bledu"] if fail_fast else [])
+
+    assert returned == 1
+    assert "CI LOKALNIE FAIL | pierwszy" in capsys.readouterr().out
+    assert second_ran.exists() != fail_fast
+
+
 def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(tmp_path: Path) -> None:
     repo = repository(tmp_path / "repo", {"tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
     base = commit(repo, "baza")
@@ -112,3 +144,17 @@ def test_kazdy_commit_od_nieistniejacej_bazy_nazywa_baze_bez_tracebacku(tmp_path
 
     assert (answered.returncode, answered.stdout.splitlines()[-1:]) == (1, ["COMMITY FAIL | nieznana baza nie-ma-takiej-bazy"])
     assert "Traceback" not in answered.stderr
+
+
+def test_przebieg_tylko_czesci_zadan_nie_zostawia_pieczatki_dla_bramy_pre_push(tmp_path: Path) -> None:
+    repo = repository(
+        tmp_path / "repo", {".gitignore": "__pycache__/\n", "tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"}
+    )
+    commit(repo, "baza")
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest"], capture_output=True, text=True, encoding="utf-8"
+    )
+
+    assert answered.stdout.splitlines()[-1] == "CI LOKALNIE OK"
+    assert not (repo / git(repo, "rev-parse", "--git-dir") / "ci-lokalnie-ok").exists()

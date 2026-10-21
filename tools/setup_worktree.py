@@ -5,6 +5,7 @@ więc pytest i skrypty weryfikacyjne uruchomione nim z worktree mogą po cichu
 sprawdzać kod z ``main``. Ten skrypt tworzy ``.venv`` w checkoucie, w którym
 leży, instaluje go edytowalnie i sprawdza, że ``rozliczenia`` importuje się z
 jego ``src``. Używa ``uv``, gdy jest dostępne, a bez niego ``venv`` i ``pip``.
+Włącza też bramę ``tools/hooks/pre-push`` (``core.hooksPath``, wspólne dla wszystkich worktree).
 
     py -3 tools/setup_worktree.py              # Windows
     python3 tools/setup_worktree.py            # macOS i Linux
@@ -25,6 +26,7 @@ import venv
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / ".venv"
 EXTRAS = ".[dev,test]"
+HOOKS = "tools/hooks"
 MINIMUM_PYTHON = (3, 11)  # requires-python z pyproject.toml
 SUPPORTED = sys.version_info >= MINIMUM_PYTHON
 
@@ -49,6 +51,10 @@ def main(argv: list[str] | None = None) -> int:
         venv.EnvBuilder(with_pip=True, symlinks=os.name != "nt").create(VENV)  # jak ``python -m venv``
         _run([str(_venv_python()), "-m", "pip", "install", "--disable-pip-version-check", "-e", EXTRAS])
 
+    # Na Windows `#!/usr/bin/env python3` w sh z Git for Windows trafia zwykle na alias Microsoft Store.
+    if os.name != "nt":
+        _gate_pushes()
+
     imported = _imported_package_directory()
     expected = ROOT / "src" / "rozliczenia"
     if imported != expected:
@@ -57,6 +63,23 @@ def main(argv: list[str] | None = None) -> int:
     print(f"OK: {VENV} importuje rozliczenia z {expected}.", flush=True)
     _print_work_in_progress()
     return 0
+
+
+def _gate_pushes() -> None:
+    """Ustawia ``core.hooksPath`` na bramę pre-push i ostrzega o hookach, które przestają działać."""
+
+    configured = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True)
+    if configured.stdout.strip() == HOOKS:
+        return
+    hooks_path = subprocess.run(
+        ["git", "rev-parse", "--git-path", "hooks"], cwd=ROOT, capture_output=True, text=True, check=True
+    )
+    current = ROOT / hooks_path.stdout.strip()
+    disabled = sorted(hook.name for hook in current.glob("*") if hook.is_file() and hook.suffix != ".sample")
+    if disabled:
+        print(f"UWAGA: core.hooksPath={HOOKS} wyłącza hooki z {current}: {', '.join(disabled)}.", file=sys.stderr)
+    _run(["git", "config", "core.hooksPath", HOOKS])
+    print(f"OK: push sprawdza {HOOKS}/pre-push.")
 
 
 def _venv_python() -> Path:

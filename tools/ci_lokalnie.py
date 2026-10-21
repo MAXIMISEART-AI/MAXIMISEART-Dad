@@ -9,6 +9,10 @@ Timing guard mają swoje narzędzia (``--kroki-ci`` je wymienia), bo trwają kil
 tymczasowym worktree, domyślnie krokami ruff, mypy i pytest, i nie dotyka checkoutu: zastępuje
 ręczne ``git rebase --exec``. Niezacommitowanych zmian nie sprawdza.
 
+Po ``CI LOKALNIE OK`` pełnego przebiegu (bez ``--tylko``) na czystym checkoucie zapisuje jego drzewo HEAD w pieczątce
+``$(git rev-parse --git-dir)/ci-lokalnie-ok``: brama ``tools/hooks/pre-push`` przepuszcza wtedy push
+tego drzewa bez ponownego przebiegu.
+
     py -3 tools/ci_lokalnie.py                  # Windows
     .venv/bin/python tools/ci_lokalnie.py       # macOS i Linux
     .venv/bin/python tools/ci_lokalnie.py --kazdy-commit
@@ -39,6 +43,7 @@ JOBS_ELSEWHERE = {
 }
 OUTPUT_ON_FAILURE = 40
 EVERY_COMMIT_JOBS = ("ruff", "mypy", "pytest")
+STAMP = "ci-lokalnie-ok"
 
 
 @dataclass(frozen=True)
@@ -106,6 +111,12 @@ def _dependencies_fresh(frontend: Path) -> bool:
     return installed.exists() and installed.stat().st_mtime >= (frontend / "package-lock.json").stat().st_mtime
 
 
+def _clean_tree() -> str | None:
+    """Drzewo HEAD, gdy checkout nie ma zmian ani nieśledzonych plików (pytest uruchomiłby i je)."""
+
+    return None if _git("status", "--porcelain") else _git("rev-parse", "HEAD^{tree}")
+
+
 def _run(step: Step, root: Path) -> tuple[bool, str]:
     completed = subprocess.run(
         step.command,
@@ -126,11 +137,13 @@ def _run(step: Step, root: Path) -> tuple[bool, str]:
     return completed.returncode == 0, output
 
 
-def _check(root: Path, jobs: set[str]) -> list[str]:
+def _check(root: Path, jobs: set[str], *, fail_fast: bool = False) -> list[str]:
     """Uruchamia kroki wybranych zadań w ``root``; zwraca nazwy kroków, które padły."""
 
-    failed = []
+    failed: list[str] = []
     for step in _steps(root):
+        if failed and fail_fast:
+            break
         if step.job not in jobs:
             continue
         if step.name == "npm ci" and _dependencies_fresh(step.cwd):
@@ -151,7 +164,7 @@ def _git(*arguments: str) -> str:
     return completed.stdout.strip()
 
 
-def _check_every_commit(base: str, jobs: set[str]) -> int:
+def _check_every_commit(base: str, jobs: set[str], *, fail_fast: bool) -> int:
     known = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"], cwd=ROOT, capture_output=True, check=False)
     if known.returncode != 0:
         print(f"COMMITY FAIL | nieznana baza {base}")
@@ -172,7 +185,7 @@ def _check_every_commit(base: str, jobs: set[str]) -> int:
             tree = Path(scratch) / commit
             _git("worktree", "add", "--quiet", "--detach", str(tree), commit)
             try:
-                if steps := _check(tree, jobs):
+                if steps := _check(tree, jobs, fail_fast=fail_fast):
                     failed.append(f"{commit[:7]} ({', '.join(steps)})")
             finally:
                 _git("worktree", "remove", "--force", str(tree))
@@ -194,6 +207,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Sprawdź każdy commit od BAZA (domyślnie origin/main) do HEAD w osobnym worktree.",
     )
     parser.add_argument("--tylko", metavar="ZADANIA", help="Tylko te zadania CI, po przecinku, np. ruff,mypy.")
+    parser.add_argument(
+        "--do-pierwszego-bledu",
+        action="store_true",
+        help="Zakończ po pierwszym nieudanym kroku (brama pre-push: nieudany push odpowiada szybko).",
+    )
     args = parser.parse_args(argv)
     steps = _steps(ROOT)
     known = {step.job for step in steps}
@@ -204,8 +222,9 @@ def main(argv: list[str] | None = None) -> int:
     if unknown := jobs - known:
         parser.error(f"nieznane zadania: {', '.join(sorted(unknown))}; znane: {', '.join(sorted(known))}")
     if args.kazdy_commit:
-        return _check_every_commit(args.kazdy_commit, jobs)
-    failed = _check(ROOT, jobs)
+        return _check_every_commit(args.kazdy_commit, jobs, fail_fast=args.do_pierwszego_bledu)
+    tree = _clean_tree() if jobs == known else None
+    failed = _check(ROOT, jobs, fail_fast=args.do_pierwszego_bledu)
     try:
         overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
         subprocess.run(overlaps, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
@@ -214,6 +233,9 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1
+    # Commit albo zmiana w trakcie przebiegu znaczy, że sprawdzone drzewo nie jest już drzewem HEAD.
+    if tree is not None and _clean_tree() == tree:
+        (ROOT / _git("rev-parse", "--git-dir") / STAMP).write_text(tree, encoding="utf-8")
     print("CI LOKALNIE OK")
     return 0
 
