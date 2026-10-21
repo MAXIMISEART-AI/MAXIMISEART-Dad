@@ -142,7 +142,7 @@ Prove the check can still fail. This applies the broken variants to a temporary
 copy of `src`, never to the checkout:
 
 ```powershell
-py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\check_mutations.py
+py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\check_publication_mutations.py
 ```
 
 It must end with `MUTACJE OK`: `os.replace` instead of `os.rename`, a removed
@@ -150,7 +150,7 @@ rollback, a failed rollback reported as plain `BLAD_ZAPISU`, recording a file
 for rollback before it is moved, and a failed staging cleanup reported as
 `BLAD_ZAPISU` all give `NOWE NARUSZENIE`. `shutil.move` gives `LUKA MODELU`. A mutation reported as
 `NIEAKTUALNA` no longer matches `preparation_files.py`. Rewrite its `anchor` and
-`replacement` in `check_mutations.py` against the new code so it breaks the same
+`replacement` in `check_publication_mutations.py` against the new code so it breaks the same
 rule again. If the publication code moves to another file, update
 `VERIFIED_FILE` and the harness in `explore_publication.py`, and update this
 skill's description.

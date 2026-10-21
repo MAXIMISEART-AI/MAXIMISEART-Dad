@@ -46,7 +46,7 @@ from types import TracebackType
 from typing import Any, Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-# check_mutations.py points this at a mutated copy of src; otherwise the checkout's own src is checked.
+# check_publication_mutations.py points this at a mutated copy of src; otherwise the checkout's own src is checked.
 SOURCE_ROOT = Path(os.environ.get("VERIFY_PUBLIKACJA_SRC", REPO_ROOT / "src"))
 sys.path.insert(0, str(SOURCE_ROOT))
 
