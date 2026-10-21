@@ -38,6 +38,8 @@ def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+        # Hypothesis warns about the size of a shrunk counterexample's repr; the checker prints its own story.
+        warnings.filterwarnings("ignore", message="Generating overly large repr")
         outcome = checker.run_check()
 
     assert outcome.exit_code == 0, "\n".join(outcome.lines)

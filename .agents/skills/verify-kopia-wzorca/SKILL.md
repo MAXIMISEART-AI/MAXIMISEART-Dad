@@ -125,6 +125,12 @@ Not covered:
 - The reference is the openpyxl path, and the judge reads both files with openpyxl. A defect
   shared by both paths, or a difference openpyxl hides when reading, is invisible, apart from
   what KSZTALT_EXCELA checks. Excel itself is never run.
+- Raw `\r` in text. Every XML reader turns `\r\n` and a lone `\r` into `\n`, so the reference
+  gets text with line ends already normalized (`_xml_line_ends`) and the copy gets the raw text.
+  The reason: openpyxl writes the sheet through et_xmlfile, which opens its temporary file in text
+  mode, so on Windows a raw `\r\n` comes back from the openpyxl path as two line breaks (first CI
+  run of this skill). That quirk of the old path is not checked. A Plik zbiorczy read by openpyxl
+  practically never carries a raw `\r` (Excel stores it as `_x000D_`).
 - Only the Wzorce above. Wzorce of other shapes go the old way (`UnsupportedShape`), and that
   routing decision is not checked.
 - Reading the Plik zbiorczy, the engine, the publication of the Folder rozliczeń pracowników, the

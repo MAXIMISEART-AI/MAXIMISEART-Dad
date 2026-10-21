@@ -75,6 +75,7 @@ DEFAULT_EXAMPLES = 60
 # Hypothesis shrinks a counterexample for up to 300 s; a minute gives a short story here and keeps a failing run cheap.
 SHRINK_SECONDS = 60
 CELL_DIFFERENCES_SHOWN = 5
+MAX_TEXT = 32767
 
 # A known finding is a real divergence in the current code. It is printed with its first example on every
 # run and does not fail the check until the code is fixed; then the checker stops seeing it and the entry
@@ -327,7 +328,24 @@ def _attempt(target: Path, write: Callable[[], None]) -> Attempt:
 
 def _write_with_openpyxl(template: Path, target: Path, rows: Sequence[ExcelRow]) -> None:
     with file_from_template(template, target, Layout.COLLECTIVE, recalculate=True) as sheet:
-        sheet.write_data_rows(rows)
+        sheet.write_data_rows([tuple(_xml_line_ends(value) for value in row) for row in rows])
+
+
+def _xml_line_ends(value: Any) -> Any:
+    """Text as every XML reader sees it: ``\\r\\n`` and a lone ``\\r`` become ``\\n``.
+
+    openpyxl writes the sheet through et_xmlfile, which opens its temporary file in text mode, so on
+    Windows every ``\\n`` is written as ``\\r\\n`` and a raw ``\\r\\n`` in a value comes back as two line
+    breaks. The copy writes bytes and is the same on every system. Giving the reference the text an XML
+    reader would read anyway keeps the reference independent of the system; the copy still gets the raw
+    ``\\r``, so dropping or mangling it would still be a divergence.
+    """
+
+    if isinstance(value, str):
+        # openpyxl cuts text to 32 767 characters first (``Cell.check_string``); normalizing before that would
+        # move the cut.
+        return value[:MAX_TEXT].replace("\r\n", "\n").replace("\r", "\n")
+    return value
 
 
 class Routes:
@@ -836,7 +854,7 @@ def _known_finding_example(template: Template) -> Case | None:
 
 
 def _value_rows() -> tuple[ExcelRow, ...]:
-    """The value-type rows of the owner test, as a fixed first example."""
+    """The value-type rows of the owner test, plus Windows line ends, as a fixed first example."""
 
     values: list[Any] = [None] * DATA_COLUMNS
     for letter, value in {
@@ -853,6 +871,7 @@ def _value_rows() -> tuple[ExcelRow, ...]:
         "P": Decimal("2.5"),
         "Q": time(13, 45),
         "AT": "zażółć gęślą jaźń\nnowa linia",
+        "R": "koniec linii Windows\r\ni sam\r",
     }.items():
         values[column_index_from_string(letter) - 1] = value
     return (tuple(values), ("tylko miasto",) + (None,) * (DATA_COLUMNS - 1))
