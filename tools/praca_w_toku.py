@@ -3,8 +3,8 @@
 Wiele sesji pracuje naraz, każda w swoim git worktree, i nie widzą się nawzajem. Skrypt tylko
 czyta: worktree (``git worktree list``), lokalne gałęzie z commitami spoza ``origin/main``,
 niezacommitowane pliki każdego worktree i otwarte PR-y z GitHuba (``gh``). Odłączony HEAD liczy się
-tylko z commitami, których nie ma żadna gałąź ani remote (inaczej to piaskownica albo przegląd).
-Przeniesienie pliku liczy się jako zmiana starej i nowej ścieżki.
+tylko z commitem innym niż merge, którego nie ma żadna gałąź ani remote (inaczej to piaskownica
+albo przegląd). Przeniesienie pliku liczy się jako zmiana starej i nowej ścieżki.
 
 Drukuje jedną linię na każdą inną pracę w toku, potem nakładania: pliki, które bieżący checkout i
 inna praca zmieniają każdy we własnych commitach albo niezacommitowanych. Commity wspólne obu stron
@@ -146,8 +146,8 @@ def _local_work(root: Path) -> list[WorkInProgress]:
 
 
 def _work(root: Path, branch: str | None, worktree: Path | None, ref: str) -> WorkInProgress | None:
-    if branch is None and not int(_git(root, "rev-list", "--count", ref, "--not", "--branches", "--remotes")):
-        return None  # odłączona kopia commitów, które pokazuje już gałąź: piaskownica narzędzia albo przegląd
+    if branch is None and not int(_git(root, "rev-list", "--count", "--no-merges", ref, "--not", "--branches", "--remotes")):
+        return None  # odłączona kopia commitów, które pokazuje już gałąź, albo ich merge: piaskownica albo przegląd
     dirty = _dirty(worktree) if worktree is not None else frozenset()
     ahead = int(_git(root, "rev-list", "--count", f"{BASE}..{ref}"))
     if not ahead and not dirty:
