@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import date
 import json
 from pathlib import Path
+import shutil
+import threading
 from typing import Any, NoReturn, Protocol
 
 import pytest
@@ -22,6 +24,9 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.tool_update import ToolClone
+from rozliczenia.centrum.version import tool_commit
 
 from tests.fixtures.centrum import (
     CENTRUM,
@@ -34,6 +39,7 @@ from tests.fixtures.centrum import (
 )
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
+from tests.fixtures.tool_clone import ToolRepository, git
 
 # Środa po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
@@ -44,13 +50,38 @@ WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
 class Surroundings:
     """GitHub, OneDrive, skrzynka Zgłoszeń i zegar widziane z komputera taty.
 
-    ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu.
+    ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu. ``tool`` to
+    narzędzie jako prawdziwy klon z lokalnym „origin” zamiast GitHuba: wtedy
+    commit narzędzia i `main` pochodzą z tych repozytoriów, a Aktualizacja
+    narzędzia przesuwa ten klon. ``update_hold`` zatrzymuje każdą Aktualizację
+    narzędzia na jej początku, dopóki test jej nie puści (``set``).
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
     onedrive: FakeOneDrive | None = field(default_factory=FakeOneDrive)
     report_box: FakeReportBox = field(default_factory=FakeReportBox)
     clock: FakeClock = field(default_factory=FakeClock)
+    tool: ToolRepository | None = None
+    update_hold: threading.Event | None = None
+
+    def tool_freshness(self) -> ToolFreshness:
+        tool = self.tool
+        if tool is None:
+            return self.github.freshness()
+        return ToolFreshness(local=lambda: tool_commit(tool.clone), main=lambda: git(tool.origin, "rev-parse", "main"))
+
+    def tool_update(self) -> ToolClone | None:
+        tool, hold = self.tool, self.update_hold
+        if tool is None:
+            return None
+
+        def held_git() -> Path | None:
+            if hold is not None:
+                hold.wait()
+            found = shutil.which("git")
+            return None if found is None else Path(found)
+
+        return ToolClone(tool.clone, origin=str(tool.origin), find_git=held_git)
 
 
 def _client(
@@ -70,10 +101,11 @@ def _client(
         today=lambda: TODAY,
         configuration_files=configuration,
         metrics_files=metrics,
-        tool_freshness=surroundings.github.freshness(),
+        tool_freshness=surroundings.tool_freshness(),
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
         clock=surroundings.clock,
+        tool_update=surroundings.tool_update(),
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
 

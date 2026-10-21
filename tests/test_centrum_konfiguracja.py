@@ -16,7 +16,7 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
 from tests.fixtures.preparation import write_collective_template, write_internal_template
-from tests.fixtures.centrum import CENTRUM, FakePlatform, project_version
+from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakePlatform, project_version
 from tests.fixtures.workbooks import cut_sheet_after_data_rows
 from tests.fixtures.settlement import write_mapping, write_template
 
@@ -57,6 +57,7 @@ def configured(tmp_path: Path) -> Configured:
         log=log,
         shutdown=Shutdown(log),
         configuration_files=files,
+        tool_freshness=FakeGitHub().freshness(),
     )
     return Configured(TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}), files)
 

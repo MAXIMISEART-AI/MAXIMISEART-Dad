@@ -125,8 +125,10 @@ class StoppedRun:
 class RunHost:
     """Jedno Uruchomienie procesu naraz w obrębie serwera i jego widoki dla przeglądarki.
 
-    ``shutdown_refusal()`` odmawia zamknięcia serwera, gdy Uruchomienie trwa
-    (także gdy czeka na decyzję taty). Początek i koniec każdego Uruchomienia
+    To samo miejsce „jedno naraz” zajmuje Aktualizacja narzędzia (``begin_update``
+    do ``end_update``): w jej trakcie start Uruchomienia jest odrzucony, a w trakcie
+    Uruchomienia ona. ``shutdown_refusal()`` odmawia zamknięcia serwera, gdy
+    Uruchomienie trwa (także gdy czeka na decyzję taty) albo trwa aktualizacja. Początek i koniec każdego Uruchomienia
     trafiają do dziennika Centrum jako bezpieczne fakty, a rekord metryk każdego
     Uruchomienia z Centrum do ``CentrumRuns``. Ostatnie Zatrzymanie każdego procesu
     zostaje w pamięci (``StopMemory``), żeby rozpoznać powtórkę. Przy Zatrzymaniu
@@ -147,18 +149,41 @@ class RunHost:
         self._sequence = 0
         self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=contract.RunIdle(state="idle"))]
         self._run: _Run | None = None
+        self._updating = False
 
     def shutdown_refusal(self) -> str | None:
         """Dlaczego teraz nie można zamknąć Centrum (``Shutdown.refuse_while``); ``None``, gdy nic nie trwa."""
 
         with self._lock:
-            run = self._run
-            if run is None or run.ended:
-                return None
-            return (
-                f"Trwa Uruchomienie procesu: {run.info.title}, okres {run.info.period}. "
-                "Poczekaj na jego wynik w Uruchomieniach, potem zamknij Centrum rozliczeń."
-            )
+            return self._busy_locked("zamknij Centrum rozliczeń")
+
+    def begin_update(self) -> None:
+        """Zajmuje miejsce „jedno naraz” na Aktualizację narzędzia; ``contract.Refusal``, gdy jest zajęte."""
+
+        with self._lock:
+            if self._updating:
+                raise contract.Refusal(409, "Trwa już aktualizacja narzędzia. Poczekaj na jej wynik.")
+            busy = self._busy_locked("zaktualizuj narzędzie")
+            if busy is not None:
+                raise contract.Refusal(409, busy)
+            self._updating = True
+
+    def end_update(self) -> None:
+        with self._lock:
+            self._updating = False
+
+    def _busy_locked(self, then: str) -> str | None:
+        """Co teraz trwa, z prośbą, żeby poczekać i ``then``; ``None``, gdy nic."""
+
+        if self._updating:
+            return f"Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem {then}."
+        run = self._run
+        if run is None or run.ended:
+            return None
+        return (
+            f"Trwa Uruchomienie procesu: {run.info.title}, okres {run.info.period}. "
+            f"Poczekaj na jego wynik w Uruchomieniach, potem {then}."
+        )
 
     def current(self) -> contract.RunEvent:
         with self._lock:
@@ -170,6 +195,8 @@ class RunHost:
 
     def start(self, prepared: PreparedRun[Any, Any]) -> contract.RunView:
         with self._lock:
+            if self._updating:
+                raise contract.Refusal(409, "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem uruchom proces.")
             if self._run is not None and not self._run.ended:
                 running = self._run.info
                 raise contract.Refusal(

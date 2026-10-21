@@ -724,6 +724,110 @@
         }
       }
     },
+    "/api/tool-update": {
+      "get": {
+        "tags": [
+          "aktualizacja"
+        ],
+        "summary": "Current",
+        "operationId": "getToolUpdate",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpToDate"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpdated"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  ],
+                  "title": "Response Gettoolupdate",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/ToolUpdateIdle",
+                      "running": "#/components/schemas/ToolUpdateRunning",
+                      "up_to_date": "#/components/schemas/ToolUpdateUpToDate",
+                      "updated": "#/components/schemas/ToolUpdateUpdated",
+                      "failed": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aktualizacja"
+        ],
+        "summary": "Start",
+        "operationId": "startToolUpdate",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpToDate"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpdated"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  ],
+                  "title": "Response Starttoolupdate",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/ToolUpdateIdle",
+                      "running": "#/components/schemas/ToolUpdateRunning",
+                      "up_to_date": "#/components/schemas/ToolUpdateUpToDate",
+                      "updated": "#/components/schemas/ToolUpdateUpdated",
+                      "failed": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/shutdown": {
       "post": {
         "tags": [
@@ -811,6 +915,8 @@
               "getRepairNotice",
               "getMetrics",
               "getConfiguration",
+              "startToolUpdate",
+              "getToolUpdate",
               "closeCentrum"
             ],
             "title": "Operation"
@@ -978,6 +1084,26 @@
             "type": "string",
             "title": "Version"
           },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "current",
+              "newer",
+              "not_checked"
+            ],
+            "title": "Freshness"
+          },
           "templates": {
             "items": {
               "oneOf": [
@@ -1030,12 +1156,14 @@
         "type": "object",
         "required": [
           "version",
+          "commit",
+          "freshness",
           "templates",
           "workers",
           "reports"
         ],
         "title": "Configuration",
-        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``commit`` to pierwsze 7 znaków commitu narzędzia (``None`` poza klonem Gita), ``freshness`` jego\nAktualność względem `main` na GitHubie, sprawdzana jak w Diagnozie."
       },
       "Count": {
         "properties": {
@@ -2722,6 +2850,104 @@
           "theme"
         ],
         "title": "ThemeChange"
+      },
+      "ToolUpdateFailed": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "failed",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "ToolUpdateFailed",
+        "description": "Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia."
+      },
+      "ToolUpdateIdle": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "idle",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ToolUpdateIdle",
+        "description": "Od startu Centrum tata nie zlecił Aktualizacji narzędzia."
+      },
+      "ToolUpdateRunning": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "running",
+            "title": "State"
+          },
+          "step": {
+            "type": "string",
+            "enum": [
+              "fetching",
+              "installing",
+              "restarting"
+            ],
+            "title": "Step"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "step"
+        ],
+        "title": "ToolUpdateRunning"
+      },
+      "ToolUpdateUpToDate": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "up_to_date",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ToolUpdateUpToDate",
+        "description": "Narzędzie już było w najnowszej wersji; nic się nie zmieniło."
+      },
+      "ToolUpdateUpdated": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "updated",
+            "title": "State"
+          },
+          "commit": {
+            "type": "string",
+            "title": "Commit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "commit"
+        ],
+        "title": "ToolUpdateUpdated",
+        "description": "Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); Centrum działa dalej w poprzedniej."
       },
       "ValidationError": {
         "properties": {

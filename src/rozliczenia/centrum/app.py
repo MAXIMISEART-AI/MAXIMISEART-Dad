@@ -2,7 +2,7 @@
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
 ``runs_router``, ``diagnosis_router``, ``reports_router``, ``metrics_router``, ``configuration_router``,
-``shutdown_router``, ``timing_router``);
+``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``,
 nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku,
@@ -42,6 +42,8 @@ from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.timing import server_timing, timing_router
 from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.tool_update import ToolClone
+from rozliczenia.centrum.tool_updates import ToolUpdates, tool_update_router
 from rozliczenia.centrum.version import SERVICE, tool_version
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
@@ -62,6 +64,7 @@ def create_app(
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
     clock: Callable[[], float] = time.monotonic,
+    tool_update: ToolClone | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -125,9 +128,13 @@ def create_app(
     reports = Reports(
         settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock
     )
-    # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
+    # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     runs = RunHost(log, centrum_runs, reports.state)
     shutdown.refuse_while(runs.shutdown_refusal)
+    # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”.
+    updates = ToolUpdates(
+        lambda: tool_update or ToolClone.of_system(), runs, log, surroundings.tool_freshness.local
+    )
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
@@ -135,7 +142,8 @@ def create_app(
     app.include_router(reports_router(runs, reports))
     app.include_router(repair_router(reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
-    app.include_router(configuration_router(configuration, reports.key_state))
+    app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state))
+    app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API

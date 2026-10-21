@@ -516,16 +516,21 @@ def run_cli_asking_for_period(
     return exit_code, output.getvalue()
 
 
-def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+def incomplete_period_rows() -> list[RegisterRow]:
     """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
 
-    rows: list[RegisterRow] = [
+    return [
         register_order(1, datetime(2026, 9, 8, 8, 0)),
         None,
         register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
         register_order(3, datetime(2026, 9, 12, 12, 0)),
     ]
-    return make_preparation_fixture(tmp_path, rows)
+
+
+def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
+
+    return make_preparation_fixture(tmp_path, incomplete_period_rows())
 
 
 def run_cli_answering(fixture: PreparationFixture, answers: str, *extra_args: str) -> tuple[int, str]:

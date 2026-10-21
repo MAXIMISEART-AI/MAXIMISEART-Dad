@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'closeCentrum';
+    operation: 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -113,12 +113,23 @@ export type Closing = {
  * Configuration
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ *
+ * ``commit`` to pierwsze 7 znaków commitu narzędzia (``None`` poza klonem Gita), ``freshness`` jego
+ * Aktualność względem `main` na GitHubie, sprawdzana jak w Diagnozie.
  */
 export type Configuration = {
     /**
      * Version
      */
     version: string;
+    /**
+     * Commit
+     */
+    commit: string | null;
+    /**
+     * Freshness
+     */
+    freshness: 'current' | 'newer' | 'not_checked';
     /**
      * Templates
      */
@@ -1197,6 +1208,73 @@ export type ThemeChange = {
 };
 
 /**
+ * ToolUpdateFailed
+ *
+ * Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+ */
+export type ToolUpdateFailed = {
+    /**
+     * State
+     */
+    state: 'failed';
+    message: Message;
+};
+
+/**
+ * ToolUpdateIdle
+ *
+ * Od startu Centrum tata nie zlecił Aktualizacji narzędzia.
+ */
+export type ToolUpdateIdle = {
+    /**
+     * State
+     */
+    state: 'idle';
+};
+
+/**
+ * ToolUpdateRunning
+ */
+export type ToolUpdateRunning = {
+    /**
+     * State
+     */
+    state: 'running';
+    /**
+     * Step
+     */
+    step: 'fetching' | 'installing' | 'restarting';
+};
+
+/**
+ * ToolUpdateUpToDate
+ *
+ * Narzędzie już było w najnowszej wersji; nic się nie zmieniło.
+ */
+export type ToolUpdateUpToDate = {
+    /**
+     * State
+     */
+    state: 'up_to_date';
+};
+
+/**
+ * ToolUpdateUpdated
+ *
+ * Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); Centrum działa dalej w poprzedniej.
+ */
+export type ToolUpdateUpdated = {
+    /**
+     * State
+     */
+    state: 'updated';
+    /**
+     * Commit
+     */
+    commit: string;
+};
+
+/**
  * ValidationError
  */
 export type ValidationError = {
@@ -1744,6 +1822,71 @@ export type GetConfigurationResponses = {
 };
 
 export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];
+
+export type GetToolUpdateData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tool-update';
+};
+
+export type GetToolUpdateResponses = {
+    /**
+     * Response Gettoolupdate
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'idle';
+    } & ToolUpdateIdle) | ({
+        state: 'running';
+    } & ToolUpdateRunning) | ({
+        state: 'up_to_date';
+    } & ToolUpdateUpToDate) | ({
+        state: 'updated';
+    } & ToolUpdateUpdated) | ({
+        state: 'failed';
+    } & ToolUpdateFailed);
+};
+
+export type GetToolUpdateResponse = GetToolUpdateResponses[keyof GetToolUpdateResponses];
+
+export type StartToolUpdateData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tool-update';
+};
+
+export type StartToolUpdateErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type StartToolUpdateError = StartToolUpdateErrors[keyof StartToolUpdateErrors];
+
+export type StartToolUpdateResponses = {
+    /**
+     * Response Starttoolupdate
+     *
+     * Successful Response
+     */
+    202: ({
+        state: 'idle';
+    } & ToolUpdateIdle) | ({
+        state: 'running';
+    } & ToolUpdateRunning) | ({
+        state: 'up_to_date';
+    } & ToolUpdateUpToDate) | ({
+        state: 'updated';
+    } & ToolUpdateUpdated) | ({
+        state: 'failed';
+    } & ToolUpdateFailed);
+};
+
+export type StartToolUpdateResponse = StartToolUpdateResponses[keyof StartToolUpdateResponses];
 
 export type CloseCentrumData = {
     body?: never;

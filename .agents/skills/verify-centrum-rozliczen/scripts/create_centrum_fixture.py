@@ -12,6 +12,11 @@ asks Dad's decision about the incomplete period. Its order cells carry
 Wykonawca missing from the konfiguracja wykonawców, so a Podgląd bez zapisu of
 Przebieg rozliczeń for that period needs checking.
 
+The tool itself is a synthetic Git clone in ``<root>/aktualizacja/klon`` whose
+"origin" is a local bare repository, ``<root>/aktualizacja/origin.git``, one commit
+ahead of the clone: Aktualizacja narzędzia in this run moves that clone, never
+the checkout the verification runs from, and never reaches GitHub.
+
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
 Dad's layout, each before it with a Folder rozliczeń pracowników of 14
@@ -25,7 +30,9 @@ from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
 import random
+import os
 import shutil
+import subprocess
 import sys
 
 from openpyxl import Workbook
@@ -349,6 +356,47 @@ def _year_of_work(root: Path, metrics: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _git(directory: Path, *args: str) -> str:
+    """Git without the machine's own configuration, with a synthetic author; never the network."""
+
+    environment = os.environ | {
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "Maks Syntetyczny",
+        "GIT_AUTHOR_EMAIL": "maks@example.invalid",
+        "GIT_COMMITTER_NAME": "Maks Syntetyczny",
+        "GIT_COMMITTER_EMAIL": "maks@example.invalid",
+    }
+    result = subprocess.run(
+        ["git", "-C", str(directory), *args], env=environment, capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+
+
+def _publish(publisher: Path, version: int, message: str) -> str:
+    (publisher / "pyproject.toml").write_text(
+        f'[project]\nname = "narzedzie-syntetyczne"\nversion = "0.0.{version}"\n', encoding="utf-8"
+    )
+    _git(publisher, "add", "--all")
+    _git(publisher, "commit", "--quiet", "--message", message)
+    return _git(publisher, "rev-parse", "HEAD")
+
+
+def _tool_clone(root: Path) -> dict[str, str]:
+    """The run's tool: a clone on the first version and a local "origin" whose `main` is one version ahead."""
+
+    tool = root / "aktualizacja"
+    publisher, origin, clone = tool / "wydawca", tool / "origin.git", tool / "klon"
+    publisher.mkdir(parents=True)
+    _git(publisher, "init", "--quiet", "--initial-branch", "main")
+    first = _publish(publisher, 1, "Pierwsza wersja narzędzia")
+    _git(tool, "clone", "--quiet", "--bare", str(publisher), str(origin))
+    _git(tool, "clone", "--quiet", str(origin), str(clone))
+    newest = _publish(publisher, 2, "Nowa wersja narzędzia")
+    _git(publisher, "push", "--quiet", str(origin), "main")
+    return {"clone": str(clone), "origin": str(origin), "first": first, "newest": newest}
+
+
 def create(root: Path, variant: str | None = None) -> dict[str, object]:
     root.mkdir(parents=True)
     (root / "config").mkdir()
@@ -379,6 +427,8 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
         # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
         "configuration": configuration,
         "workers": list(WORKERS),
+        # Aktualizacja narzędzia: the run's tool clone, its local "origin", and both commits
+        "tool": _tool_clone(root),
         # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
         "preparation": EXPECTED_PREPARATION,
         # Przebieg rozliczeń: one Wiersz danych per Wykonawca after Przygotowanie of the last complete period,
@@ -415,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         fixture = create(Path(args.root), args.wariant)
-    except OSError as exc:
+    except (OSError, subprocess.CalledProcessError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
     print(f"FIXTURE OK | root={args.root} | today={fixture['today']} | variant={args.wariant or 'podstawowy'}")

@@ -560,13 +560,65 @@ Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state
 ReportKeyState = Literal["ready", "missing_key"]
 
 
+# Aktualność narzędzia: ``current`` (commit narzędzia to `main` na GitHubie), ``newer`` (jest nowsza wersja),
+# ``not_checked`` (brak sieci albo narzędzie bez commitu Gita).
+ToolFreshnessState = Literal["current", "newer", "not_checked"]
+
+
 class Configuration(_Model):
-    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."""
+    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+
+    ``commit`` to pierwsze 7 znaków commitu narzędzia (``None`` poza klonem Gita), ``freshness`` jego
+    Aktualność względem `main` na GitHubie, sprawdzana jak w Diagnozie.
+    """
 
     version: str
+    commit: str | None
+    freshness: ToolFreshnessState
     templates: list[TemplateStatus]
     workers: Workers
     reports: ReportKeyState
+
+
+# Krok Aktualizacji narzędzia: pobieranie nowej wersji, instalowanie bibliotek, ponowne uruchamianie Centrum.
+ToolUpdateStep = Literal["fetching", "installing", "restarting"]
+
+
+class ToolUpdateIdle(_Model):
+    """Od startu Centrum tata nie zlecił Aktualizacji narzędzia."""
+
+    state: Literal["idle"]
+
+
+class ToolUpdateRunning(_Model):
+    state: Literal["running"]
+    step: ToolUpdateStep
+
+
+class ToolUpdateUpToDate(_Model):
+    """Narzędzie już było w najnowszej wersji; nic się nie zmieniło."""
+
+    state: Literal["up_to_date"]
+
+
+class ToolUpdateUpdated(_Model):
+    """Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); Centrum działa dalej w poprzedniej."""
+
+    state: Literal["updated"]
+    commit: str
+
+
+class ToolUpdateFailed(_Model):
+    """Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia."""
+
+    state: Literal["failed"]
+    message: Message
+
+
+ToolUpdate = Annotated[
+    ToolUpdateIdle | ToolUpdateRunning | ToolUpdateUpToDate | ToolUpdateUpdated | ToolUpdateFailed,
+    Field(discriminator="state"),
+]
 
 
 class RepairNotice(_Model):
@@ -600,6 +652,8 @@ ApiOperation = Literal[
     "getRepairNotice",
     "getMetrics",
     "getConfiguration",
+    "startToolUpdate",
+    "getToolUpdate",
     "closeCentrum",
 ]
 # Do 10 minut: dłuższy czas to uśpiona karta, nie pomiar.

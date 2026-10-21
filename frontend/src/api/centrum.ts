@@ -3,6 +3,7 @@ import type {
   DecisionAnswer,
   GetCurrentRunResponse,
   GetPeriodBoardResponse,
+  GetToolUpdateResponse,
   OpenRequest,
   PeriodRow,
   RunEvent,
@@ -24,10 +25,12 @@ import {
   zGetRepairNoticeResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
+  zGetToolUpdateResponse,
   zOpenPeriodPathResponse,
   zReportRunResponse,
   zRunEvent,
   zStartRunResponse,
+  zStartToolUpdateResponse,
 } from "@/api/generated/zod.gen"
 
 export type {
@@ -63,6 +66,9 @@ export type {
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse
+
+/** Aktualizacja narzędzia: krok albo wynik (unia z kontraktu). */
+export type ToolUpdate = GetToolUpdateResponse
 
 /** Następny krok okresu: proces z podpowiedzią podglądu albo okres zamknięty (unia z kontraktu). */
 export type NextStep = PeriodRow["next_step"]
@@ -220,6 +226,16 @@ export function getMetrics() {
 /** Konfiguracja tylko do odczytu: Wzorce, Wykonawcy i wersja narzędzia. */
 export function getConfiguration() {
   return call(zGetConfigurationResponse, "getConfiguration", "/api/configuration")
+}
+
+/** Aktualizacja narzędzia: serwer odpowiada od razu pierwszym krokiem i aktualizuje w tle; odmawia, gdy coś trwa. */
+export function startToolUpdate() {
+  return call(zStartToolUpdateResponse, "startToolUpdate", "/api/tool-update", send("POST"))
+}
+
+/** Krok trwającej Aktualizacji narzędzia albo jej wynik od startu Centrum. */
+export function getToolUpdate() {
+  return call(zGetToolUpdateResponse, "getToolUpdate", "/api/tool-update")
 }
 
 /** Czy Maks naprawił zgłoszony problem; serwer pyta skrzynkę Zgłoszeń najwyżej raz na 10 minut, bez sieci po cichu. */

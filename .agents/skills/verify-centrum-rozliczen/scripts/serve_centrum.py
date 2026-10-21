@@ -17,11 +17,16 @@ verification never reaches GitHub and checks OneDrive on every system:
 
 - the commit of `main` on GitHub is the tool's own commit (up to date) unless
   ``<root>/github/main-commit.txt`` names another one; while
-  ``<root>/github/brak-sieci`` exists there is no network. The tool's own
-  commit is the real one (``tool_commit``) from this checkout unless
-  ``<root>/github/tool-commit.txt`` names another one (Dad updated the tool);
+  ``<root>/github/brak-sieci`` exists there is no network. The tool is the
+  run's synthetic clone ``<root>/aktualizacja/klon``: its own commit is the
+  clone's ``HEAD`` (``tool_commit``) unless ``<root>/github/tool-commit.txt``
+  names another one (Dad updated the tool);
 - a file whose full path is a line of ``<root>/onedrive/tylko-w-chmurze.txt``
   has the Windows attribute of a OneDrive file „tylko online”.
+
+Aktualizacja narzędzia moves that clone with real Git, fetching from the
+run's local "origin" ``<root>/aktualizacja/origin.git`` instead of GitHub, so no
+Centrum of a verification run ever updates the checkout it runs from.
 
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
@@ -42,6 +47,11 @@ each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
 milliseconds before it is written. The synthetic Szablony take milliseconds,
 so without it the live Szablony pracowników progress and the refused closing
 during the Uruchomienie could not be observed. Results are unchanged.
+
+One more pacing hook: while ``<root>/pacing/aktualizacja-ms.txt`` exists, each
+Aktualizacja narzędzia waits that many milliseconds before it looks for Git.
+Fetching from the local "origin" takes milliseconds, so without it the progress
+and the refusals during an update could not be observed. Results are unchanged.
 
 One harness-only fault hook: while ``<root>/awaria/odczyt-rejestru`` exists,
 reading the Rejestr zleceń raises an exception the process does not expect, so
@@ -92,6 +102,7 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
+from rozliczenia.centrum.tool_update import ToolClone, find_git  # noqa: E402
 from rozliczenia.centrum.version import tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
 from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate  # noqa: E402
@@ -166,16 +177,16 @@ class FileReportBox:
         return states
 
 
-def _scripted_github(root: Path) -> ToolFreshness:
+def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
     def local_commit() -> str | None:
         chosen = root / "github" / "tool-commit.txt"
-        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit()
+        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit(clone)
 
     def main_commit() -> str | None:
         if (root / "github" / "brak-sieci").exists():
             return None
         chosen = root / "github" / "main-commit.txt"
-        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit()
+        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit()
 
     return ToolFreshness(local=local_commit, main=main_commit)
 
@@ -197,6 +208,18 @@ def _scripted_onedrive(root: Path) -> CloudFiles:
         return online_only if str(path) in lines else normal
 
     return CloudFiles(read_attributes=attributes)
+
+
+def _paced_git(root: Path) -> Callable[[], Path | None]:
+    """Git for Aktualizacja narzędzia, found after a wait while ``<root>/pacing/aktualizacja-ms.txt`` exists."""
+
+    def found() -> Path | None:
+        pacing = root / "pacing" / "aktualizacja-ms.txt"
+        if pacing.exists():
+            time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
+        return find_git()
+
+    return found
 
 
 def _pace_worker_templates(root: Path) -> None:
@@ -242,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
     )
     configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
+    clone = Path(fixture["tool"]["clone"])
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
     _pace_worker_templates(root)
@@ -254,10 +278,11 @@ def main(argv: list[str] | None = None) -> int:
         today=lambda: today,
         metrics_files=metrics,
         configuration_files=ConfigurationFiles(**configuration),
-        tool_freshness=_scripted_github(root),
+        tool_freshness=_scripted_github(root, clone),
         cloud_files=_scripted_onedrive(root),
         report_box=FileReportBox(root / "skrzynka-zgloszen"),
         clock=_scripted_clock(root),
+        tool_update=ToolClone(clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root)),
     )
 
     def record_bound_server(url: str) -> None:

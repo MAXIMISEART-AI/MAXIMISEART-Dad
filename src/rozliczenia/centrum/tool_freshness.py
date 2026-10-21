@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 import urllib.request
 
 from rozliczenia.centrum.deadline import within
@@ -33,6 +33,15 @@ class ToolFreshness:
     @classmethod
     def of_system(cls) -> ToolFreshness:
         return cls(local=tool_commit, main=github_main_commit)
+
+    def state(self) -> Literal["current", "newer", "not_checked"]:
+        """Czy commit narzędzia to `main`; ``not_checked`` bez commitu Gita albo bez odpowiedzi GitHuba."""
+
+        local = self.local()
+        main = None if local is None else self.main()
+        if local is None or main is None:
+            return "not_checked"
+        return "current" if main == local else "newer"
 
 
 def github_main_commit() -> str | None:

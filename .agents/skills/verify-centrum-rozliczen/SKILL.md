@@ -19,7 +19,7 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
-`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
+`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
 `--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature powiadomienie-o-naprawie`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
@@ -68,7 +68,10 @@ either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.js
 per Zgłoszenie (never the key, `state` editable to `closed`), unreachable while
 `<root>/skrzynka-zgloszen/brak-sieci` exists; `<root>/github/tool-commit.txt` stands for
 the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum's clock
-forward past the 10-minute limit on asking the skrzynka. The adapter is the production boundary for those actions; the real
+forward past the 10-minute limit on asking the skrzynka. The tool itself is the run's synthetic Git clone
+`<root>/aktualizacja/klon` (its commit is the tool's own commit): Aktualizacja narzędzia moves only that clone,
+fetching from the local "origin" `<root>/aktualizacja/origin.git`, never from GitHub, and while
+`<root>/pacing/aktualizacja-ms.txt` exists each update waits that many milliseconds first. The adapter is the production boundary for those actions; the real
 Windows and macOS adapters are covered by `tests/test_centrum_launcher.py` (real
 process, real browser opening) and by hand.
 

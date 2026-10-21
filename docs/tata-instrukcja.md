@@ -15,6 +15,7 @@ Narzędzie ma dwa wejścia, które działają obok siebie:
 | Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu | Ręcznie w Eksploratorze |
 | Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` | `Przygotuj plik zbiorczy.cmd` |
 | Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` | `Utwórz rozliczenia.cmd` |
+| Zaktualizować narzędzie | Strona `Konfiguracja`, przycisk `Zaktualizuj narzędzie` | — |
 
 Oba procesy możesz uruchomić w Centrum rozliczeń albo launcherami `.cmd`,
 opisanymi niżej. Launchery działają też wtedy, gdy Centrum rozliczeń nie
@@ -121,7 +122,7 @@ otwarty w Excelu) albo jednym z tych:
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Kliknij `Wyślij do Maksa`. |
-| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie. Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
+| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”). Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
 | „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
 | „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
 
@@ -169,7 +170,7 @@ Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`
 pod tytułem pojawi się `Maks naprawił zgłoszony problem. Zaktualizuj
 narzędzie.`
 
-1. Zaktualizuj narzędzie.
+1. Zaktualizuj narzędzie (niżej, „Aktualizacja narzędzia”).
 2. W karcie Centrum kliknij `Zamknij Centrum rozliczeń` i otwórz Centrum
    skrótem.
 
@@ -177,6 +178,34 @@ Po aktualizacji powiadomienie zniknie samo; niczego nie zamykasz. Centrum
 sprawdza to przy otwarciu i przy wejściu na `Okresy`, najwyżej raz na 10 minut.
 Bez internetu nic się nie pokazuje i nic się nie psuje; Centrum sprawdzi
 ponownie później.
+
+### Aktualizacja narzędzia
+
+Na stronie `Konfiguracja`, w karcie `Narzędzie`, widać wersję narzędzia i czy
+jest najnowsza: `Aktualna`, `Jest nowsza wersja` albo `Nie sprawdzono` (bez
+internetu).
+
+1. Na stronie `Konfiguracja` kliknij `Zaktualizuj narzędzie`.
+2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a przycisk jest
+   wtedy wyłączony.
+3. Na końcu karta pokaże jedno z dwóch:
+   - `Zaktualizowano. Zamknij Centrum rozliczeń i kliknij skrót.` W menu po
+     lewej kliknij `Zamknij Centrum rozliczeń`, potem otwórz Centrum skrótem.
+     Dopiero wtedy działa nowa wersja.
+   - `Masz najnowszą wersję.` Niczego więcej nie robisz.
+
+Gdy trwa Uruchomienie procesu, Centrum nie zaktualizuje narzędzia: poczekaj
+na wynik na stronie `Uruchomienia`. W trakcie aktualizacji nie uruchomisz
+procesu ani nie zamkniesz Centrum.
+
+### Aktualizacja narzędzia → co zrobić
+
+Gdy aktualizacja się nie uda, narzędzie działa dalej w wersji sprzed
+kliknięcia, a karta pokaże komunikat w trzech częściach.
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
 
 ### Komunikaty startu Centrum rozliczeń
 
@@ -193,8 +222,8 @@ zbiorczego możesz zawsze uruchomić launcherami `.cmd`.
 | „nie wystartowało z nieoczekiwanego powodu” | Kliknij skrót ponownie. Jeśli komunikat wraca, przekaż osobie utrzymującej narzędzie plik `logs\centrum-rozliczen.log` z folderu narzędzia. |
 
 Plik `logs\centrum-rozliczen.log` to dziennik Centrum: zapisuje tylko start,
-zamknięcie, port, rodzaj błędu i czas otwierania stron, bez danych z Twoich
-plików. Możesz go bezpiecznie przekazać do diagnozy.
+zamknięcie, port, rodzaj błędu, aktualizacje narzędzia i czas otwierania
+stron, bez danych z Twoich plików. Możesz go bezpiecznie przekazać do diagnozy.
 
 ## Przygotowanie pliku zbiorczego
 

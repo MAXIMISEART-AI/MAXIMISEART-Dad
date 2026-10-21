@@ -64,6 +64,12 @@ REQUIRED_SCREENSHOTS = {
         "13-konfiguracja-brak-wzorca.png",
         "14-konfiguracja-nieczytelna-konfiguracja-wykonawcow.png",
     ),
+    "aktualizacja": (
+        "93-aktualizacja-jest-nowsza.png",
+        "94-aktualizacja-postep.png",
+        "95-aktualizacja-zaktualizowano.png",
+        "96-aktualizacja-najnowsza.png",
+    ),
     "metryki": (
         "20-metryki-karty-okresow.png",
         "21-metryki-wykres.png",

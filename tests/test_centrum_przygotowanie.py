@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from io import StringIO
 import itertools
 import json
@@ -21,8 +20,7 @@ from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
-    RegisterRow,
-    register_order,
+    incomplete_period_rows,
 )
 from tests.fixtures.centrum import centrum as bare_centrum
 from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, preparing_centrum
@@ -98,17 +96,6 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
     assert row["status_label"] == "Plik zbiorczy przygotowany"
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"], record["counters"]["successful_orders"]) == ("RUN", "OK", 3)
-
-
-def incomplete_period_rows() -> list[RegisterRow]:
-    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
-
-    return [
-        register_order(1, datetime(2026, 9, 8, 8, 0)),
-        None,
-        register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
-        register_order(3, datetime(2026, 9, 12, 12, 0)),
-    ]
 
 
 def awaiting_decision(tmp_path: Path) -> tuple[PreparingCentrum, dict[str, Any]]:

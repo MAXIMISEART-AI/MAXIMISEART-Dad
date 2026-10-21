@@ -23,6 +23,8 @@ export const zApiTiming = z.object({
         'getRepairNotice',
         'getMetrics',
         'getConfiguration',
+        'startToolUpdate',
+        'getToolUpdate',
         'closeCentrum'
     ]),
     browser_ms: z.int().gte(0).lte(600000),
@@ -633,6 +635,56 @@ export const zThemeChange = z.object({
 });
 
 /**
+ * ToolUpdateFailed
+ *
+ * Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+ */
+export const zToolUpdateFailed = z.object({
+    state: z.literal('failed'),
+    message: zMessage
+});
+
+/**
+ * ToolUpdateIdle
+ *
+ * Od startu Centrum tata nie zlecił Aktualizacji narzędzia.
+ */
+export const zToolUpdateIdle = z.object({
+    state: z.literal('idle')
+});
+
+/**
+ * ToolUpdateRunning
+ */
+export const zToolUpdateRunning = z.object({
+    state: z.literal('running'),
+    step: z.enum([
+        'fetching',
+        'installing',
+        'restarting'
+    ])
+});
+
+/**
+ * ToolUpdateUpToDate
+ *
+ * Narzędzie już było w najnowszej wersji; nic się nie zmieniło.
+ */
+export const zToolUpdateUpToDate = z.object({
+    state: z.literal('up_to_date')
+});
+
+/**
+ * ToolUpdateUpdated
+ *
+ * Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); Centrum działa dalej w poprzedniej.
+ */
+export const zToolUpdateUpdated = z.object({
+    state: z.literal('updated'),
+    commit: z.string()
+});
+
+/**
  * ValidationError
  */
 export const zValidationError = z.object({
@@ -793,9 +845,18 @@ export const zWorkersUnreadable = z.object({
  * Configuration
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ *
+ * ``commit`` to pierwsze 7 znaków commitu narzędzia (``None`` poza klonem Gita), ``freshness`` jego
+ * Aktualność względem `main` na GitHubie, sprawdzana jak w Diagnozie.
  */
 export const zConfiguration = z.object({
     version: z.string(),
+    commit: z.string().nullable(),
+    freshness: z.enum([
+        'current',
+        'newer',
+        'not_checked'
+    ]),
     templates: z.array(z.union([zTemplateReady, zTemplateProblem])),
     workers: z.discriminatedUnion('state', [
         zWorkersReady,
@@ -946,6 +1007,32 @@ export const zGetMetricsResponse = zMetrics;
  * Successful Response
  */
 export const zGetConfigurationResponse = zConfiguration;
+
+/**
+ * Response Gettoolupdate
+ *
+ * Successful Response
+ */
+export const zGetToolUpdateResponse = z.discriminatedUnion('state', [
+    zToolUpdateIdle,
+    zToolUpdateRunning,
+    zToolUpdateUpToDate,
+    zToolUpdateUpdated,
+    zToolUpdateFailed
+]);
+
+/**
+ * Response Starttoolupdate
+ *
+ * Successful Response
+ */
+export const zStartToolUpdateResponse = z.discriminatedUnion('state', [
+    zToolUpdateIdle,
+    zToolUpdateRunning,
+    zToolUpdateUpToDate,
+    zToolUpdateUpdated,
+    zToolUpdateFailed
+]);
 
 /**
  * Successful Response

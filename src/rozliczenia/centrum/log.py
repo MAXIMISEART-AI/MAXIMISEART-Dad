@@ -54,6 +54,22 @@ class CentrumLog:
 
         self._write("uruchomienie-koniec", proces=process, tryb=mode, okres=period, wynik=result, koniec=ending)
 
+    def update_started(self, *, before: str | None) -> None:
+        """Tata kliknął „Zaktualizuj narzędzie”; ``before`` to commit narzędzia przed aktualizacją."""
+
+        self._write("aktualizacja-start", przed=before or "-")
+
+    def update_finished(self, *, result: str, before: str | None, after: str | None, installed: bool) -> None:
+        """Wynik Aktualizacji narzędzia (``ok``, ``AKTUALNA`` albo kod Komunikatu), bez wyjścia Gita ani pip."""
+
+        self._write(
+            "aktualizacja-koniec",
+            wynik=result,
+            przed=before or "-",
+            po=after or "-",
+            biblioteki="tak" if installed else "nie",
+        )
+
     def unexpected_failure(self, failure: BaseException, *, where: str) -> None:
         """Nieoczekiwany wyjątek: tylko nazwa typu i miejsce (np. trasa API), bez tekstu wyjątku."""
 
