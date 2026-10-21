@@ -8,6 +8,8 @@ from collections.abc import Callable, Iterable
 from typing import cast
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell
+from openpyxl.styles import Border, Color, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 
@@ -205,6 +207,89 @@ def test_przebieg_rozliczen_na_syntetycznym_wzorcu_ksztaltu_taty_zapisuje_wiersz
         assert written.max_row == 17 + SMALL_DATA_ROWS
     finally:
         source_workbook.close()
+        written_workbook.close()
+
+
+def style_cells(cells: dict[str, tuple[Font, PatternFill]]) -> Callable[[Path], None]:
+    def change(path: Path) -> None:
+        workbook = load_workbook(path)
+        try:
+            sheet = active_worksheet(workbook)
+            for coordinate, (font, fill) in cells.items():
+                sheet[coordinate].font = font
+                sheet[coordinate].fill = fill
+            workbook.save(path)
+        finally:
+            workbook.close()
+
+    return change
+
+
+def highlights(cell: Cell) -> tuple[object, ...]:
+    """Wyróżnienia komórki tak, jak widzi je tata: wypełnienie, kolor czcionki, pogrubienie, kursywa."""
+
+    fill = cell.fill
+    return (fill.fill_type, fill.fgColor if fill.fill_type else None, cell.font.color, bool(cell.font.b), bool(cell.font.i))
+
+
+def template_look(cell: Cell) -> tuple[object, ...]:
+    """Wygląd komórki, który zostaje z Wzorca: krój i rozmiar czcionki, obramowanie, format liczby."""
+
+    return (cell.font.name, cell.font.sz, cell.border.left.style, cell.number_format)
+
+
+def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego_i_czcionke_wzorca(
+    complete_run: tuple[Path, Path, Path, Path],
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
+    style_cells(
+        {
+            "B18": (
+                Font(name="Arial", sz=8, color="FFFF0000", b=True, i=True),
+                PatternFill(fill_type="solid", fgColor="FFFFFF00"),
+            ),
+            "N18": (Font(name="Arial", sz=8), PatternFill(fill_type="solid", fgColor=Color(theme=5, tint=0.4))),
+        }
+    )(source_path)
+    template_cell = (
+        Font(name="Times New Roman", sz=9, color="FF00AA55", b=True, i=True),
+        PatternFill(fill_type="solid", fgColor="FF0000FF"),
+    )
+    style_cells({"B18": template_cell, "A19": template_cell, "C18": template_cell})(worker_template_path)
+    workbook = load_workbook(worker_template_path)
+    try:
+        active_worksheet(workbook)["B18"].border = Border(left=Side(style="thin"))
+        active_worksheet(workbook)["B18"].number_format = "@"
+        workbook.save(worker_template_path)
+    finally:
+        workbook.close()
+    template_workbook = load_workbook(worker_template_path)
+    source_workbook = load_workbook(source_path)
+    try:
+        template = active_worksheet(template_workbook)
+        source = active_worksheet(source_workbook)
+        expected_template_looks = {cell: template_look(template[cell]) for cell in ("A19", "B18", "C18", "N18")}
+        # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego: wiersze 18 i 20.
+        expected_highlights = {
+            written: highlights(source[read]) for written, read in (("A19", "A20"), ("B18", "B18"), ("N18", "N18"))
+        }
+    finally:
+        template_workbook.close()
+        source_workbook.close()
+    assert expected_highlights["B18"] == ("solid", Color("FFFFFF00"), Color("FFFF0000"), True, True)
+    assert expected_highlights["A19"][:2] == (None, None)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.written_count == 2
+    written_workbook = load_workbook(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx")
+    try:
+        written = active_worksheet(written_workbook)
+        assert {cell: highlights(written[cell]) for cell in expected_highlights} == expected_highlights
+        # Komórki C18 nie ma w Pliku zbiorczym: bez Wyróżnień.
+        assert highlights(written["C18"]) == (None, None, None, False, False)
+        assert {cell: template_look(written[cell]) for cell in expected_template_looks} == expected_template_looks
+    finally:
         written_workbook.close()
 
 
