@@ -104,17 +104,17 @@ class RegisterRow:
 
 @dataclass(frozen=True)
 class RegisterSheet:
-    """Arkusz ze zleceniami: wiersze z danymi, numery całkowicie pustych wierszy i kolumny ``COLUMNS`` (od 1)."""
+    """Arkusz ze zleceniami: wiersze z danymi i numery całkowicie pustych wierszy."""
 
     name: str
     rows: tuple[RegisterRow, ...]
     empty_rows: tuple[int, ...]
-    positions: tuple[int, ...]
+    _positions: tuple[int, ...]  # numery kolumn ``COLUMNS`` w arkuszu (od 1)
 
     def column_letter(self, column: Column) -> str:
         """Litera kolumny arkusza z nagłówkiem ``column``, np. ``L`` dla ``SKUTECZNE``."""
 
-        return get_column_letter(self.positions[COLUMNS.index(column)])
+        return get_column_letter(self._positions[COLUMNS.index(column)])
 
 
 def is_blank(value: object) -> bool:
