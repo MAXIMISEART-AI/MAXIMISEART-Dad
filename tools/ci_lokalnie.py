@@ -152,6 +152,10 @@ def _git(*arguments: str) -> str:
 
 
 def _check_every_commit(base: str, jobs: set[str]) -> int:
+    known = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"], cwd=ROOT, capture_output=True, check=False)
+    if known.returncode != 0:
+        print(f"COMMITY FAIL | nieznana baza {base}")
+        return 1
     commits = _git("rev-list", "--reverse", f"{base}..HEAD").split()
     if not commits:
         print(f"COMMITY FAIL | brak commitów między {base} a HEAD")

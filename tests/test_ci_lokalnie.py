@@ -65,7 +65,6 @@ def test_kazde_polecenie_odtwarzanych_zadan_ma_krok_i_odwrotnie() -> None:
     assert without_command == []
 
 
-
 def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(tmp_path: Path) -> None:
     repo = repository(tmp_path / "repo", {"tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
     base = commit(repo, "baza")
@@ -81,3 +80,35 @@ def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(t
     assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK")
     assert (every_commit.returncode, every_commit.stdout.splitlines()[-1]) == (1, f"COMMITY FAIL | {broken[:7]} (pytest)")
     assert (git(repo, "rev-parse", "HEAD"), git(repo, "worktree", "list", "--porcelain").count("worktree ")) == (head, 1)
+
+
+def test_kazdy_commit_przechodzi_gdy_kazdy_commit_przechodzi(tmp_path: Path) -> None:
+    repo = repository(tmp_path / "repo", {"tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
+    base = commit(repo, "baza")
+    for name in ("drugi", "trzeci"):
+        (repo / "tests" / f"test_{name}.py").write_text(f"def test_{name}() -> None:\n    pass\n", encoding="utf-8")
+        commit(repo, name)
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest", "--kazdy-commit", base],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "COMMITY OK (2)")
+
+
+def test_kazdy_commit_od_nieistniejacej_bazy_nazywa_baze_bez_tracebacku(tmp_path: Path) -> None:
+    repo = repository(tmp_path / "repo", {"tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
+    commit(repo, "baza")
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--kazdy-commit", "nie-ma-takiej-bazy"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert (answered.returncode, answered.stdout.splitlines()[-1:]) == (1, ["COMMITY FAIL | nieznana baza nie-ma-takiej-bazy"])
+    assert "Traceback" not in answered.stderr
