@@ -14,6 +14,9 @@ Zgłoszeniach i Diagnozie.
 [ADR 0010](0010-centrum-jedynym-wejsciem-taty.md) podejmuje odłożoną tu decyzję:
 launchery `.cmd` znikają, Centrum jest jedynym wejściem taty, a CLI zostaje
 narzędziem osoby utrzymującej.
+[ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa CLI i adaptery
+terminala: Centrum jest jedynym rozmówcą procesów, a Komunikat nie ma linii
+terminala (`terminal_line`).
 
 ## Decyzja
 

@@ -13,6 +13,10 @@ odłożył „do czasu, aż Centrum przejmie całą pracę taty”. Zmienia:
 - [ADR 0009](0009-aktualizacja-narzedzia-z-centrum.md): zdanie „launchery
   `.cmd` bez zmian” przestaje obowiązywać.
 
+[ADR 0011](0011-bez-cli-i-adapterow-terminala.md) zmienia punkt „CLI zostaje
+jako narzędzie osoby utrzymującej”: CLI znika, a E2E, straż czasu i benchmark
+uruchamiają procesy skryptem dla maszyn przez rdzeń Uruchomienia procesu.
+
 ## Kontekst
 
 Centrum rozliczeń robi wszystko, co tata robił launcherami: uruchamia oba

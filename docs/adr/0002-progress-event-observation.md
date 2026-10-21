@@ -4,6 +4,9 @@
 
 Zaakceptowana. Zmieniona 2026-10-20: Zdarzenia przebiegu są osobnymi typami, a
 kolejność sprawdza tylko sekwencer etapów (patrz „Zmiana z 2026-10-20”).
+[ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa adaptery plain i Rich
+oraz CLI: jedynym podglądem postępu jest Centrum rozliczeń, a projekcja zwraca
+sam snapshot bez faktów, które czytał tylko terminal.
 
 ## Decyzja
 
