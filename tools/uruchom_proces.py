@@ -55,7 +55,6 @@ from rozliczenia.centrum import contract, run_view  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.decision import Decision  # noqa: E402
-from rozliczenia.domain import ProgressEvent  # noqa: E402
 from rozliczenia.message import Message  # noqa: E402
 from rozliczenia.preparation_process import PreparationInputs  # noqa: E402
 from rozliczenia.process_run import Finished, Process, ProcessInputs, run_process  # noqa: E402
@@ -111,7 +110,7 @@ class _Unattended:
     def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
-    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
     def stop_progress(self) -> None:

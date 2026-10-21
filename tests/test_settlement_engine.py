@@ -814,7 +814,7 @@ def test_progress_projection_accepts_whole_przebieg_rozliczen(
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=include_unmapped)
-    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+    projection = ProgressProjection()
 
     summary = run_settlements(
         source_path,
@@ -838,7 +838,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_path, _, config_path = make_fixture(tmp_path)
-    projection = ProgressProjection("RUN", PERIOD)
+    projection = ProgressProjection()
     save_s = 0.05
 
     def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[DataRow]) -> WorkerResult:

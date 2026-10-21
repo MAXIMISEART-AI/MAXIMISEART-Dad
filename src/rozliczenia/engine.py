@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from collections import defaultdict
 from dataclasses import replace
 from pathlib import Path
@@ -19,7 +18,7 @@ from .domain import (
 )
 from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError
-from .phase_runner import PhaseRunner, elapsed_ms_since
+from .phase_runner import PhaseRunner
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
 from .workbook_files import DataRow, Problem, WorkbookError, WorkerSettlementTemplate
 from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
@@ -147,7 +146,6 @@ def run_settlements(
         results: list[WorkerResult] = []
         for template_index, worker_name in enumerate(worker_names, start=1):
             target_path = directory / folder.worker_settlement(worker_name).name
-            worker_started = time.perf_counter()
             notify(
                 WorkerStarted(
                     worker_name,
@@ -180,7 +178,6 @@ def run_settlements(
                         template_total=len(worker_names),
                         elapsed_ms=phases.elapsed_ms(),
                         phase_elapsed_ms=phases.phase_elapsed_ms(),
-                        worker_elapsed_ms=elapsed_ms_since(worker_started),
                     )
                 )
                 if isinstance(exc, StopError):
@@ -197,7 +194,6 @@ def run_settlements(
                     status=result.status,
                     rows=result.rows,
                     elapsed_ms=phases.elapsed_ms(),
-                    worker_elapsed_ms=elapsed_ms_since(worker_started),
                     issue_count=len(summary.issues),
                 )
             )

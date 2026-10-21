@@ -69,7 +69,7 @@ class Interlocutor(Conversation, Protocol):
 
     def start_progress(self, snapshot: ProgressSnapshot) -> None: ...
 
-    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None: ...
+    def show_progress(self, snapshot: ProgressSnapshot) -> None: ...
 
     def stop_progress(self) -> None: ...
 
@@ -198,9 +198,9 @@ class _Observation:
     przestaje wysyłać zdarzenia, a rdzeń kończy jedną neutralną linią.
     """
 
-    def __init__(self, interlocutor: Interlocutor, mode: str, period: str) -> None:
+    def __init__(self, interlocutor: Interlocutor) -> None:
         self._interlocutor = interlocutor
-        self.projection = ProgressProjection(mode, period)
+        self.projection = ProgressProjection()
         self.failed = False
 
     def start(self) -> None:
@@ -211,10 +211,10 @@ class _Observation:
 
     def __call__(self, event: ProgressEvent) -> None:
         try:
-            update = self.projection.update(event)
+            snapshot = self.projection.update(event)
             if self.failed:
                 raise RuntimeError("Progress view is detached.")
-            self._interlocutor.show_progress(update.snapshot, update.event)
+            self._interlocutor.show_progress(snapshot)
         except Exception:
             self.failed = True
             raise
@@ -291,7 +291,7 @@ def run_process(
     # Czas liczony od startu silnika, bez czasu odpowiedzi taty.
     started_at = datetime.now(timezone.utc).isoformat()
     clock = _Clock()
-    observation = _Observation(interlocutor, mode, inputs.period)
+    observation = _Observation(interlocutor)
     observation.start()
 
     engine_outcome = _run_engine(process, inputs, observation, _ClockedConversation(interlocutor, clock), view)

@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from rozliczenia.decision import Decision
-from rozliczenia.domain import ProgressEvent
 from rozliczenia.progress import ProgressSnapshot
 
 
@@ -29,7 +28,7 @@ class Tata:
     def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self.progress_view.append("start")
 
-    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot) -> None:
         pass
 
     def stop_progress(self) -> None:

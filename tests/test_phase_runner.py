@@ -121,14 +121,13 @@ def worker_ended(runner: PhaseRunner, index: int = 1, name: str = "Wykonawca") -
         status="ZAPISANO",
         rows=1,
         elapsed_ms=runner.elapsed_ms(),
-        worker_elapsed_ms=0,
         issue_count=0,
     )
 
 
 def worker_failed(runner: PhaseRunner, index: int = 1, name: str = "Wykonawca") -> WorkerFailed:
     return WorkerFailed(
-        name, template_index=index, template_total=2, elapsed_ms=runner.elapsed_ms(), phase_elapsed_ms=0, worker_elapsed_ms=0
+        name, template_index=index, template_total=2, elapsed_ms=runner.elapsed_ms(), phase_elapsed_ms=0
     )
 
 

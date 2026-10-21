@@ -112,7 +112,6 @@ class WorkerEnded:
     status: WorkerStatus
     rows: int
     elapsed_ms: int
-    worker_elapsed_ms: int
     issue_count: int
     phase: ClassVar[ProgressPhase] = ProgressPhase.SAVING
 
@@ -126,7 +125,6 @@ class WorkerFailed:
     template_total: int
     elapsed_ms: int
     phase_elapsed_ms: int
-    worker_elapsed_ms: int
     phase: ClassVar[ProgressPhase] = ProgressPhase.SAVING
 
 

@@ -394,7 +394,7 @@ def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
 ) -> None:
     fixture = make_preparation_fixture(tmp_path, [register_order(1, datetime(2026, 9, 13, 23, 59))])
     recorded: list[ProgressEvent] = []
-    projection = ProgressProjection("DRY-RUN" if dry_run else "RUN", PERIOD)
+    projection = ProgressProjection()
 
     def recording_observer(event: ProgressEvent) -> None:
         recorded.append(event)
@@ -414,7 +414,7 @@ def test_progress_projection_accepts_przygotowanie_pliku_zbiorczego_interrupted_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    projection = ProgressProjection("RUN", PERIOD)
+    projection = ProgressProjection()
     save_s = 0.05
 
     def fail_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:

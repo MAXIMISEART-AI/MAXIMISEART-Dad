@@ -45,7 +45,6 @@ from rozliczenia.process_run import (
     Stop,
     run_process,
 )
-from rozliczenia.domain import ProgressEvent
 from rozliczenia.progress import ProgressProjection, ProgressSnapshot
 from rozliczenia.telemetry import MetricsStore
 
@@ -280,7 +279,7 @@ class _Run:
             dry_run=prepared.dry_run,
             confirms_readiness=prepared.view.confirms_readiness,
         )
-        self._progress = prepared.progress_view(ProgressProjection(_mode(prepared.dry_run), prepared.period).snapshot)
+        self._progress = prepared.progress_view(ProgressProjection().snapshot)
         self._stale = False
         self._decided = threading.Event()
         self._consent = False
@@ -354,7 +353,7 @@ class _Run:
     def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
-    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
     def stop_progress(self) -> None:
