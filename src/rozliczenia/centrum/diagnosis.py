@@ -8,7 +8,9 @@ gotowego Komunikatu z katalogu procesu; tylko przyczyny bez Komunikatu procesu
 mają własny katalog (``diagnosis_messages``). Wyjaśnienie to Komunikat
 pierwszego sprawdzenia, które nie przeszło, a gdy przeszły wszystkie:
 „Nie znalazłem przyczyny na tym komputerze”. Rodzaj wyjaśnienia (tata usuwa
-przyczynę sam albo nie) liczy ta sama reguła co rodzaj Zatrzymania.
+przyczynę sam albo nie) liczy ta sama reguła co rodzaj Zatrzymania. Aktualność
+narzędzia sprawdza się po plikach taty: nowsza wersja jest wyjaśnieniem tylko
+bez innej przyczyny, a obok innej przyczyny Diagnoza ją tylko proponuje (ADR 0009).
 
 Nowe sprawdzenie to funkcja ``(_Computer, label) -> list[CheckResult]`` z
 nazwą w ``@_check(label)``, dopisana do ``_CHECKS`` procesu w kolejności, w
@@ -32,6 +34,7 @@ from fastapi import APIRouter
 
 from rozliczenia import preparation_messages, preparation_register, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
+from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
@@ -39,6 +42,7 @@ from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
 from rozliczenia.settings import Settings, SettingsStore
@@ -89,9 +93,20 @@ class Diagnosis:
         return self.cause or diagnosis_messages.cause_not_found()
 
     @property
-    def fixable_by_tata(self) -> bool:
+    def proposes_update(self) -> bool:
+        """Jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna."""
+
+        newer = any(check.message is not None and check.message.code == NEWER_TOOL_VERSION for check in self.checks)
+        return newer and self.explanation.code != NEWER_TOOL_VERSION
+
+    @property
+    def next_action(self) -> contract.DiagnosisNextAction:
+        """Co tata robi po wyjaśnieniu: aktualizuje narzędzie, sam usuwa przyczynę i uruchamia ponownie albo wysyła do Maksa."""
+
         cause = self.cause
-        return cause is not None and not cause.reports_to_maintainer
+        if cause is None or cause.reports_to_maintainer:
+            return "report"
+        return "update" if cause.code == NEWER_TOOL_VERSION else "rerun"
 
     def view(self, report: contract.ReportDraft) -> contract.Diagnosis:
         """Widok Diagnozy z podglądem Zgłoszenia ``report``, które wyśle „Wyślij do Maksa”."""
@@ -102,7 +117,8 @@ class Diagnosis:
         return contract.Diagnosis(
             explanation=contract.Message.of(explanation),
             confirms_stop=same,
-            next_action="rerun" if self.fixable_by_tata else "report",
+            next_action=self.next_action,
+            update_proposal=self.proposes_update,
             checks=[contract.DiagnosisCheck(label=check.label, state=check.state, detail=check.detail) for check in self.checks],
             report=report,
         )
@@ -208,7 +224,7 @@ def _tool_freshness(computer: _Computer, label: str) -> list[CheckResult]:
         return [CheckResult.not_checked(label, "Nie sprawdzono: brak połączenia z GitHubem.")]
     if main != local:
         return [CheckResult.failed(label, diagnosis_messages.newer_tool_version())]
-    return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {local[:7]}.")]
+    return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {short_commit(local)}.")]
 
 
 @dataclass(frozen=True)
@@ -305,7 +321,7 @@ def _period_folder(computer: _Computer, label: str) -> list[CheckResult]:
     if folder is None:
         return [CheckResult.not_checked(label, "Folderu okresów nie ma na miejscu.")]
     if isinstance(folder, PeriodFolderLookupError):
-        # Komunikat Przebiegu rozliczeń o odszukaniu jest tylko terminalowy (w Centrum start wymaga Folderu okresu),
+        # Przebieg rozliczeń nie ma Komunikatu o odszukaniu (w Centrum start wymaga Folderu okresu),
         # więc oba procesy wyjaśniają Komunikatem Przygotowania: założyć albo zostawić jeden Folder okresu.
         return [CheckResult.failed(label, preparation_messages.period_folder_lookup_problem(folder))]
     if computer.process == "settlement" and not folder.collective_file.is_file():
@@ -369,11 +385,11 @@ def _centrum_log(computer: _Computer, label: str) -> list[CheckResult]:
 
 # Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.
 # OneDrive idzie przed sprawdzeniami, które otwierają Rejestr zleceń, wzorce i pliki okresu: plik tylko w
-# chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik. Dziennik idzie
-# ostatni, po wpisach o sprawdzeniach, które same się nie udały.
+# chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik. Aktualność narzędzia
+# idzie po plikach taty: `main` zmienia się kilka razy dziennie, więc nowsza wersja jest prawie zawsze, a
+# prawie nigdy nie jest przyczyną. Dziennik idzie ostatni, po wpisach o sprawdzeniach, które same się nie udały.
 _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
     "preparation": (
-        _tool_freshness,
         _tata_settings,
         _files_in_onedrive,
         _register,
@@ -381,16 +397,17 @@ _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
         _worker_config,
         _period_folder,
         _period_files_in_excel,
+        _tool_freshness,
         _centrum_log,
     ),
     "settlement": (
-        _tool_freshness,
         _tata_settings,
         _files_in_onedrive,
         _templates,
         _worker_config,
         _period_folder,
         _period_files_in_excel,
+        _tool_freshness,
         _centrum_log,
     ),
 }

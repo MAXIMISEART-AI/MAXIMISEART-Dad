@@ -2,7 +2,7 @@
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
 ``runs_router``, ``diagnosis_router``, ``reports_router``, ``metrics_router``, ``configuration_router``,
-``shutdown_router``, ``timing_router``);
+``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``,
 nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku,
@@ -17,6 +17,7 @@ from datetime import date
 from pathlib import Path
 import time
 from typing import Any
+import uuid
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response
@@ -42,7 +43,10 @@ from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.timing import server_timing, timing_router
 from rozliczenia.centrum.tool_freshness import ToolFreshness
-from rozliczenia.centrum.version import SERVICE
+from rozliczenia.centrum import restart_guardian
+from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
+from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
+from rozliczenia.centrum.version import SERVICE, short_commit
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 _LOCAL_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
@@ -62,6 +66,8 @@ def create_app(
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
     clock: Callable[[], float] = time.monotonic,
+    tool_update: ToolClone | None = None,
+    guardian: GuardianLauncher | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -108,29 +114,41 @@ def create_app(
     async def refused(request: Request, refusal: Refusal) -> Response:
         return _problem(refusal.status_code, refusal.message)
 
+    # Każdy start Centrum ma własny identyfikator: karta po aktualizacji rozpozna po nim nowe Centrum.
+    instance = uuid.uuid4().hex
+
+    @app.get("/api/health", operation_id="getHealth")
+    def health() -> Health:
+        return Health(service=SERVICE, commit=_short(surroundings.tool_freshness.local()), instance=instance)
+
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
-    metrics = metrics_files or MetricsFiles.of_cli()
+    metrics = metrics_files or MetricsFiles.default()
     configuration = configuration_files or ConfigurationFiles.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
-    # Commit kodu, który działa w tym Centrum; klon przesunięty później nie zmienia tożsamości działającego Centrum.
-    running_commit = surroundings.tool_freshness.local()
-
-    @app.get("/api/health", operation_id="getHealth")
-    def health() -> Health:
-        return Health(service=SERVICE, commit=running_commit)
-
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
     reports = Reports(
         settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock
     )
-    # Jedno Uruchomienie procesu naraz; w jego trakcie zamknięcie Centrum jest odrzucone.
+    # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     runs = RunHost(log, centrum_runs, reports.state)
     shutdown.refuse_while(runs.shutdown_refusal)
+    # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie
+    # opiekun ponownego startu zostawia wynik obok Ustawień taty, a to Centrum odczytuje go teraz, raz.
+    updates = ToolUpdates(
+        lambda: tool_update or ToolClone.of_system(),
+        runs,
+        log,
+        surroundings.tool_freshness.local,
+        reports,
+        shutdown=shutdown,
+        guardian=guardian or (lambda copy, restart: restart_guardian.launch(copy, restart)),
+        result_file=settings_path.parent / RESULT_FILE,
+    )
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
@@ -138,7 +156,8 @@ def create_app(
     app.include_router(reports_router(runs, reports))
     app.include_router(repair_router(reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
-    app.include_router(configuration_router(configuration, reports.key_state, running_commit))
+    app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
+    app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API
@@ -158,3 +177,7 @@ class _Frontend(StaticFiles):
         immutable = path.startswith("assets/")
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
         return response
+
+
+def _short(commit: str | None) -> str | None:
+    return None if commit is None else short_commit(commit)

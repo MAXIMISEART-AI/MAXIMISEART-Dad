@@ -1,11 +1,4 @@
-"""Wynik referencyjny scenariusza zamrożony z commita i bramka poprawności pomiaru względem niego.
-
-Kody Komunikatów nie wychodzą poza proces (nie pokazuje ich ani terminal, ani rekord
-metryk), więc Komunikaty są porównywane jako linie terminala (Komunikaty,
-podsumowanie i postęp, z czasami zastąpionymi przez ``<N> ms``): treść Komunikatu
-wyznacza jego kod, więc ta sama linia to ten sam kod, a porównanie linii jest
-nawet ostrzejsze niż porównanie kodów.
-"""
+"""Wynik referencyjny scenariusza zamrożony z commita i bramka poprawności pomiaru względem niego."""
 
 from __future__ import annotations
 
@@ -15,19 +8,29 @@ import json
 import shutil
 import tempfile
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmark import BenchmarkError
+from benchmark import SCRIPT, BenchmarkError
 from benchmark.lustro import worker_settlements_folder
 from benchmark.uruchomienie import Przebieg, git_output, remove_worker_settlements, run_przebieg
 from porownanie_rozliczen import CATEGORIES, compare_worker_settlements
 
 
-ORACLE_CATEGORIES = (*CATEGORIES, "liczniki", "komunikaty")
+ORACLE_CATEGORIES = (*CATEGORIES, "liczniki", "komunikaty", "podsumowanie")
 
 
 REFERENCE_RESULT = "wynik.json"
+
+
+@dataclass(frozen=True)
+class Reference:
+    """Zamrożony wynik referencyjny scenariusza z jednego commita."""
+
+    folder: Path
+    counters: dict[str, Any]
+    result: dict[str, Any]
 
 
 def reference_folder(references: Path, mirror: Path, worker_template: Path) -> Path:
@@ -61,6 +64,12 @@ def freeze_reference(
         if git_output("worktree", "add", "--detach", str(checkout), sha) is None:
             raise BenchmarkError(f"Nie udało się zbudować commita {sha[:7]} w tymczasowym worktree gita.")
         try:
+            if not (checkout / SCRIPT).is_file():
+                raise BenchmarkError(
+                    f"Commit {sha[:7]} nie ma skryptu {SCRIPT.as_posix()}, przez który benchmark uruchamia "
+                    "Przebieg rozliczeń. Zamroź wynik referencyjny z commita, który go ma: python tools/benchmark_przebiegu.py "
+                    "freeze --commit SHA z tymi samymi --scenario, --templates-dir i --config."
+                )
             przebieg = run_przebieg(checkout, mirror, config, worker_template, scratch)
         finally:
             git_output("worktree", "remove", "--force", str(checkout))
@@ -68,7 +77,7 @@ def freeze_reference(
         try:
             worker_settlements = worker_settlements_folder(mirror)
             shutil.copytree(worker_settlements, staging / worker_settlements.name)
-            result = {"git_sha": sha, "counters": przebieg.metrics["counters"], "terminal": przebieg.terminal}
+            result = {"git_sha": sha, "counters": przebieg.metrics["counters"], "result": przebieg.result}
             (staging / REFERENCE_RESULT).write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
             staging.rename(target)
         finally:
@@ -77,7 +86,18 @@ def freeze_reference(
     return target
 
 
-def find_reference(references: Path, mirror: Path, worker_template: Path, commit: str | None) -> Path | None:
+def _load_reference(folder: Path) -> Reference:
+    frozen = json.loads((folder / REFERENCE_RESULT).read_text(encoding="utf-8"))
+    if "result" not in frozen:
+        raise BenchmarkError(
+            f"Wynik referencyjny {folder.name[:7]} ma stary format: linie terminala sprzed przejścia benchmarku "
+            f"na skrypt {SCRIPT.as_posix()}. Usuń {folder} i zamroź wynik od nowa: python tools/benchmark_przebiegu.py "
+            "freeze --commit SHA z tymi samymi --scenario, --templates-dir i --config, z commita, który ma ten skrypt."
+        )
+    return Reference(folder, frozen["counters"], frozen["result"])
+
+
+def find_reference(references: Path, mirror: Path, worker_template: Path, commit: str | None) -> Reference | None:
     """Wynik referencyjny lustra i Wzorca rozliczenia pracownika: wskazany prefiksem commita albo jedyny, jaki jest."""
 
     folder = reference_folder(references, mirror, worker_template)
@@ -91,10 +111,10 @@ def find_reference(references: Path, mirror: Path, worker_template: Path, commit
                 f"Dla {mirror.name} nie ma wyniku referencyjnego z commita {commit} zamrożonego z tym Wzorcem "
                 f"rozliczenia pracownika ({folder.name}); zamroź go przez freeze z tymi samymi Wzorcami."
             )
-        return matching[0]
+        return _load_reference(matching[0])
     if len(frozen) > 1:
         raise BenchmarkError(f"Dla {folder.name} jest kilka wyników referencyjnych; wskaż jeden przez --reference.")
-    return frozen[0] if frozen else None
+    return _load_reference(frozen[0]) if frozen else None
 
 
 def _line_differences(reference: Sequence[str], candidate: Sequence[str]) -> int:
@@ -106,19 +126,28 @@ def _line_differences(reference: Sequence[str], candidate: Sequence[str]) -> int
     )
 
 
-def check_oracle(reference: Path, mirror: Path, przebieg: Przebieg) -> dict[str, Any]:
+def _message_codes(result: dict[str, Any]) -> list[str]:
+    stop = result["stop"]
+    return [warning["code"] for warning in result["warnings"]] + ([stop["message"]["code"]] if stop else [])
+
+
+def _summary_lines(result: dict[str, Any]) -> list[str]:
+    return json.dumps(result["summary"], ensure_ascii=False, indent=1, sort_keys=True).splitlines()
+
+
+def check_oracle(reference: Reference, mirror: Path, przebieg: Przebieg) -> dict[str, Any]:
     """Bramka poprawności: liczba różnic w każdej kategorii względem wyniku referencyjnego, bez treści."""
 
-    frozen = json.loads((reference / REFERENCE_RESULT).read_text(encoding="utf-8"))
     worker_settlements = worker_settlements_folder(mirror)
-    differences = compare_worker_settlements(reference / worker_settlements.name, worker_settlements)
-    counters, frozen_counters = przebieg.metrics["counters"], frozen["counters"]
+    differences = compare_worker_settlements(reference.folder / worker_settlements.name, worker_settlements)
+    counters = przebieg.metrics["counters"]
     differences["liczniki"] = sum(
-        counters.get(name) != frozen_counters.get(name) for name in {*counters, *frozen_counters}
+        counters.get(name) != reference.counters.get(name) for name in {*counters, *reference.counters}
     )
-    differences["komunikaty"] = _line_differences(frozen["terminal"], przebieg.terminal)
+    differences["komunikaty"] = _line_differences(_message_codes(reference.result), _message_codes(przebieg.result))
+    differences["podsumowanie"] = _line_differences(_summary_lines(reference.result), _summary_lines(przebieg.result))
     return {
         "wynik": "niezgodny" if any(differences.values()) else "zgodny",
-        "referencja": reference.name,
+        "referencja": reference.folder.name,
         "roznice": {category: differences[category] for category in ORACLE_CATEGORIES},
     }

@@ -17,11 +17,21 @@ verification never reaches GitHub and checks OneDrive on every system:
 
 - the commit of `main` on GitHub is the tool's own commit (up to date) unless
   ``<root>/github/main-commit.txt`` names another one; while
-  ``<root>/github/brak-sieci`` exists there is no network. The tool's own
-  commit is the real one (``tool_commit``) from this checkout unless
-  ``<root>/github/tool-commit.txt`` names another one (Dad updated the tool);
+  ``<root>/github/brak-sieci`` exists there is no network. The tool is the
+  run's synthetic clone ``<root>/aktualizacja/klon``: its own commit is the
+  clone's ``HEAD`` (``tool_commit``) unless ``<root>/github/tool-commit.txt``
+  names another one (Dad updated the tool), and the day it is on that commit
+  comes from the clone's ``HEAD`` reflog (``commit_since``);
 - a file whose full path is a line of ``<root>/onedrive/tylko-w-chmurze.txt``
   has the Windows attribute of a OneDrive file „tylko online”.
+
+Aktualizacja narzędzia moves that clone with real Git, fetching from the
+run's local "origin" ``<root>/aktualizacja/origin.git`` instead of GitHub, so no
+Centrum of a verification run ever updates the checkout it runs from. After a
+successful update this Centrum closes itself and the real restart guardian runs
+the clone's ``run_centrum.py``, a fixture shim that runs this script again with
+the same run root and port: the restarted Centrum keeps every scripted boundary
+and rewrites ``server.json`` with its own pid.
 
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
@@ -42,6 +52,19 @@ each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
 milliseconds before it is written. The synthetic Szablony take milliseconds,
 so without it the live Szablony pracowników progress and the refused closing
 during the Uruchomienie could not be observed. Results are unchanged.
+
+One more pacing hook: while ``<root>/pacing/aktualizacja-ms.txt`` exists, each
+Aktualizacja narzędzia waits that many milliseconds before it looks for Git.
+Fetching from the local "origin" takes milliseconds, so without it the progress
+and the refusals during an update could not be observed. Results are unchanged.
+Likewise, while ``<root>/pacing/instalacja-ms.txt`` exists, each installation of
+libraries waits that many milliseconds before it starts.
+
+Libraries are installed by the production installer (``pip_install``: this
+Python's ``-m pip``), but pip is offline: ``PIP_NO_INDEX`` is set for this
+process, so an installation never reaches PyPI and fails when it needs a library
+that is not installed. The run's virtual environment may have no pip at all;
+then the installation fails the same way.
 
 One harness-only fault hook: while ``<root>/awaria/odczyt-rejestru`` exists,
 reading the Rejestr zleceń raises an exception the process does not expect, so
@@ -89,12 +112,14 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
     Unreachable,
     fingerprint_line,
 )
-from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
+from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
+from rozliczenia.centrum.server import serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
-from rozliczenia.centrum.version import tool_commit  # noqa: E402
+from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
+from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
-from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate  # noqa: E402
+from rozliczenia.workbook_files import DataRow, WorkerSettlementTemplate  # noqa: E402
 
 
 class ScriptedPlatform:
@@ -166,18 +191,22 @@ class FileReportBox:
         return states
 
 
-def _scripted_github(root: Path) -> ToolFreshness:
+def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
     def local_commit() -> str | None:
         chosen = root / "github" / "tool-commit.txt"
-        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit()
+        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit(clone)
+
+    def since() -> date | None:
+        commit = local_commit()
+        return None if commit is None else commit_since(commit, clone)
 
     def main_commit() -> str | None:
         if (root / "github" / "brak-sieci").exists():
             return None
         chosen = root / "github" / "main-commit.txt"
-        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else tool_commit()
+        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit()
 
-    return ToolFreshness(local=local_commit, main=main_commit)
+    return ToolFreshness(local=local_commit, since=since, main=main_commit)
 
 
 def _scripted_clock(root: Path) -> Callable[[], float]:
@@ -199,12 +228,36 @@ def _scripted_onedrive(root: Path) -> CloudFiles:
     return CloudFiles(read_attributes=attributes)
 
 
+def _paced_git(root: Path) -> Callable[[], Path | None]:
+    """Git for Aktualizacja narzędzia, found after a wait while ``<root>/pacing/aktualizacja-ms.txt`` exists."""
+
+    def found() -> Path | None:
+        pacing = root / "pacing" / "aktualizacja-ms.txt"
+        if pacing.exists():
+            time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
+        return find_git()
+
+    return found
+
+
+def _paced_install(root: Path) -> Callable[[Path], bool]:
+    """Pip for the libraries of a new version, started after a wait while ``<root>/pacing/instalacja-ms.txt`` exists."""
+
+    def install(requirements: Path) -> bool:
+        pacing = root / "pacing" / "instalacja-ms.txt"
+        if pacing.exists():
+            time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
+        return pip_install(requirements)
+
+    return install
+
+
 def _pace_worker_templates(root: Path) -> None:
     """Slow each written Szablon pracownika while ``<root>/pacing/szablony-ms.txt`` exists (see the module doc)."""
 
     write = template_settlement.process_template
 
-    def paced(worker_name: str, template: WorkerSettlementTemplate, target_path: Path, rows: Iterable[ExcelRow]) -> WorkerResult:
+    def paced(worker_name: str, template: WorkerSettlementTemplate, target_path: Path, rows: Iterable[DataRow]) -> WorkerResult:
         pacing = root / "pacing" / "szablony-ms.txt"
         if pacing.exists():
             time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
@@ -242,10 +295,13 @@ def main(argv: list[str] | None = None) -> int:
         preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
     )
     configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
+    clone = Path(fixture["tool"]["clone"])
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
     _pace_worker_templates(root)
     _fail_register_reading(root)
+    # Pip never reaches PyPI from a verification run.
+    os.environ["PIP_NO_INDEX"] = "1"
     app = create_app(
         settings_path=Path(fixture["settings"]),
         platform=ScriptedPlatform(root),
@@ -254,10 +310,13 @@ def main(argv: list[str] | None = None) -> int:
         today=lambda: today,
         metrics_files=metrics,
         configuration_files=ConfigurationFiles(**configuration),
-        tool_freshness=_scripted_github(root),
+        tool_freshness=_scripted_github(root, clone),
         cloud_files=_scripted_onedrive(root),
         report_box=FileReportBox(root / "skrzynka-zgloszen"),
         clock=_scripted_clock(root),
+        tool_update=ToolClone(
+            clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root), install=_paced_install(root)
+        ),
     )
 
     def record_bound_server(url: str) -> None:

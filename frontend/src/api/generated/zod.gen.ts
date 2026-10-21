@@ -9,6 +9,7 @@ import * as z from 'zod';
  */
 export const zApiTiming = z.object({
     operation: z.enum([
+        'getHealth',
         'getSettings',
         'chooseRegister',
         'choosePeriodsDirectory',
@@ -23,6 +24,9 @@ export const zApiTiming = z.object({
         'getRepairNotice',
         'getMetrics',
         'getConfiguration',
+        'startToolUpdate',
+        'getToolUpdate',
+        'reportToolUpdate',
         'closeCentrum'
     ]),
     browser_ms: z.int().gte(0).lte(600000),
@@ -116,17 +120,23 @@ export const zFigure = z.object({
 /**
  * Health
  *
- * Tożsamość Centrum dla launchera: commit narzędzia, z którego Centrum wystartowało; ``None`` poza klonem Gita.
+ * Tożsamość działającego Centrum.
+ *
+ * ``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza
+ * klonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta
+ * pokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie
+ * jest inny, także gdy commit się nie zmienił.
  */
 export const zHealth = z.object({
     service: z.literal('centrum-rozliczen'),
-    commit: z.string().nullable()
+    commit: z.string().nullable(),
+    instance: z.string()
 });
 
 /**
  * Message
  *
- * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu.
+ * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu.
  */
 export const zMessage = z.object({
     what: z.string(),
@@ -273,7 +283,8 @@ export const zProblem = z.object({
  *
  * Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
  *
- * ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+ * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
+ * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
  */
 export const zProcessRun = z.object({
     process: z.enum(['preparation', 'settlement']),
@@ -390,7 +401,7 @@ export const zReadyPath = z.object({
  * Powiadomienie o naprawie na stronie Okresy.
  *
  * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
- * działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+ * działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
  */
 export const zRepairNotice = z.object({
     repaired: z.boolean()
@@ -413,14 +424,22 @@ export const zReportDraft = z.object({
  *
  * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
  * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
- * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+ * ponownie; ``update``: przyczyną jest nowsza wersja narzędzia, więc tata klika „Zaktualizuj
+ * narzędzie”; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
  * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
  * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+ * ``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc
+ * Diagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem.
  */
 export const zDiagnosis = z.object({
     explanation: zMessage,
     confirms_stop: z.boolean(),
-    next_action: z.enum(['rerun', 'report']),
+    next_action: z.enum([
+        'rerun',
+        'update',
+        'report'
+    ]),
+    update_proposal: z.boolean(),
     checks: z.array(zDiagnosisCheck),
     report: zReportDraft
 });
@@ -635,6 +654,67 @@ export const zThemeChange = z.object({
 });
 
 /**
+ * ToolUpdateFailed
+ *
+ * Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+ *
+ * ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
+ * ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
+ * wyśle „Wyślij do Maksa”, a ``report`` jego stan.
+ */
+export const zToolUpdateFailed = z.object({
+    state: z.literal('failed'),
+    message: zMessage,
+    next_action: z.enum(['retry', 'report']),
+    report: z.discriminatedUnion('state', [
+        zReportReady,
+        zReportSent,
+        zReportWaiting,
+        zReportSaved
+    ]),
+    draft: zReportDraft
+});
+
+/**
+ * ToolUpdateIdle
+ *
+ * Od startu Centrum tata nie zlecił Aktualizacji narzędzia.
+ */
+export const zToolUpdateIdle = z.object({
+    state: z.literal('idle')
+});
+
+/**
+ * ToolUpdateRunning
+ */
+export const zToolUpdateRunning = z.object({
+    state: z.literal('running'),
+    step: z.enum([
+        'fetching',
+        'installing',
+        'restarting'
+    ])
+});
+
+/**
+ * ToolUpdateUpToDate
+ *
+ * Narzędzie już było w najnowszej wersji; nic się nie zmieniło.
+ */
+export const zToolUpdateUpToDate = z.object({
+    state: z.literal('up_to_date')
+});
+
+/**
+ * ToolUpdateUpdated
+ *
+ * Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (jej commit jest w ``Health``).
+ */
+export const zToolUpdateUpdated = z.object({
+    state: z.literal('updated')
+});
+
+/**
  * ToolVersion
  *
  * Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie.
@@ -806,10 +886,16 @@ export const zWorkersUnreadable = z.object({
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
  *
- * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita.
+ * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
+ * względem `main` na GitHubie, sprawdzana jak w Diagnozie.
  */
 export const zConfiguration = z.object({
     version: zToolVersion.nullable(),
+    freshness: z.enum([
+        'current',
+        'newer',
+        'not_checked'
+    ]),
     templates: z.array(z.union([zTemplateReady, zTemplateProblem])),
     workers: z.discriminatedUnion('state', [
         zWorkersReady,
@@ -817,6 +903,11 @@ export const zConfiguration = z.object({
     ]),
     reports: z.enum(['ready', 'missing_key'])
 });
+
+/**
+ * Successful Response
+ */
+export const zGetHealthResponse = zHealth;
 
 /**
  * Successful Response
@@ -861,11 +952,6 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
-
-/**
- * Successful Response
- */
-export const zGetHealthResponse = zHealth;
 
 /**
  * Successful Response
@@ -960,6 +1046,44 @@ export const zGetMetricsResponse = zMetrics;
  * Successful Response
  */
 export const zGetConfigurationResponse = zConfiguration;
+
+/**
+ * Response Gettoolupdate
+ *
+ * Successful Response
+ */
+export const zGetToolUpdateResponse = z.discriminatedUnion('state', [
+    zToolUpdateIdle,
+    zToolUpdateRunning,
+    zToolUpdateUpToDate,
+    zToolUpdateUpdated,
+    zToolUpdateFailed
+]);
+
+/**
+ * Response Starttoolupdate
+ *
+ * Successful Response
+ */
+export const zStartToolUpdateResponse = z.discriminatedUnion('state', [
+    zToolUpdateIdle,
+    zToolUpdateRunning,
+    zToolUpdateUpToDate,
+    zToolUpdateUpdated,
+    zToolUpdateFailed
+]);
+
+/**
+ * Response Reporttoolupdate
+ *
+ * Successful Response
+ */
+export const zReportToolUpdateResponse = z.discriminatedUnion('state', [
+    zReportReady,
+    zReportSent,
+    zReportWaiting,
+    zReportSaved
+]);
 
 /**
  * Successful Response

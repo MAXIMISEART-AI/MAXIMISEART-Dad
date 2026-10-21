@@ -9,7 +9,7 @@ import urllib.request
 from playwright.sync_api import Page, Request, expect
 
 from drive.common import (
-    LAST_COMPLETE_FOR_CLI,
+    LAST_COMPLETE,
     ROW_MARKER,
     Run,
     current_run,
@@ -44,7 +44,7 @@ def _started_once(run: Run, page: Page, sent: list[Request], what: str) -> None:
 
 
 def _preparation_records(run: Run, name: str) -> list[dict[str, object]]:
-    """Valid records of the CLI's Przygotowanie metrics file as the server reads them, newest first."""
+    """Valid records of the Przygotowanie metrics file as the server reads them, newest first."""
 
     runs = run.api("/api/metrics", name)["runs"]
     assert isinstance(runs, list)
@@ -62,16 +62,16 @@ def drive_preparation(run: Run, page: Page) -> None:
     page.goto(run.url)
     ensure_files_set(run, page)
     page.reload()
-    page.get_by_role("button", name=f"Przygotuj plik zbiorczy, okres {LAST_COMPLETE_FOR_CLI}", exact=True).click()
+    page.get_by_role("button", name=f"Przygotuj plik zbiorczy, okres {LAST_COMPLETE}", exact=True).click()
     expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
     run.check(page.url.endswith("#/uruchomienia"), "the row's next step opens Uruchomienia")
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE_FOR_CLI} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
     expect(page.get_by_role("group", name="Rejestr zleceń")).to_contain_text(register_name)
     expect(page.get_by_text("Zapisz i zamknij Rejestr zleceń w Excelu", exact=True)).to_be_visible()
     setup = run.api("/api/runs/setup", "przygotowanie-wybor-okresu")["processes"]
     assert isinstance(setup, list)
     run.check(
-        setup[0]["preselected_period"] == LAST_COMPLETE_FOR_CLI and setup[0]["blocker"] is None,
+        setup[0]["preselected_period"] == LAST_COMPLETE and setup[0]["blocker"] is None,
         "the server preselects the last complete period and nothing is missing",
     )
     run.capture(page, "30-przygotowanie-nowe-uruchomienie")
@@ -96,12 +96,12 @@ def drive_preparation(run: Run, page: Page) -> None:
     )
     expect(live.get_by_role("listitem", name="sob 10.10.2026: 1", exact=True)).to_be_visible()
     expect(live.get_by_label("Ostrzeżenie").filter(has_text=INCOMPLETE_PERIOD_WHAT)).to_be_visible()
-    expect(live).to_contain_text(f"Rozliczenie {LAST_COMPLETE_FOR_CLI} - zbiorcze.xlsx")
+    expect(live).to_contain_text(f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx")
     run.check(not period_folder.exists(), "the DRY-RUN created neither files nor the Folder okresu")
     records = _preparation_records(run, "przygotowanie-metryki-podglad")
     run.check(
         len(records) == records_before + 1 and records[0]["mode"] == "DRY-RUN",
-        "the DRY-RUN appended one record to the CLI's metrics file",
+        "the DRY-RUN appended one record to the process's metrics file",
     )
     run.capture(page, "31-przygotowanie-podglad")
     preview_warnings = result["warnings"]
@@ -112,7 +112,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     no_preview = confirm.get_by_text("Nie było podglądu bez zapisu", exact=True)
     page.reload()
     page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE_FOR_CLI} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
     page.get_by_role("button", name="Uruchom", exact=True).click()
     expect(confirm).to_be_visible()
     expect(no_preview).to_have_count(0)
@@ -125,7 +125,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     assert isinstance(setup, list)
     previewed = {choice["token"]: choice["previewed"] for choice in setup[0]["periods"]}
     run.check(
-        previewed[LAST_COMPLETE_FOR_CLI] is True and previewed[NOT_PREVIEWED] is False,
+        previewed[LAST_COMPLETE] is True and previewed[NOT_PREVIEWED] is False,
         "the server remembers the successful preview per period from the metrics history",
     )
     run.check(
@@ -168,7 +168,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     )
     second = urllib.request.Request(
         run.url.rstrip("/") + "/api/runs",
-        data=json.dumps({"process": "preparation", "period": LAST_COMPLETE_FOR_CLI, "dry_run": True}).encode(),
+        data=json.dumps({"process": "preparation", "period": LAST_COMPLETE, "dry_run": True}).encode(),
         method="POST",
         headers={"Content-Type": "application/json", "Origin": run.url.rstrip("/")},
     )
@@ -228,7 +228,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(page.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany")
     run.check(True, "with the stream back, the dialog closes on the result")
     opened_before = len(run.lines("opened.jsonl"))
-    with sent_requests(page, "POST", f"/api/periods/{LAST_COMPLETE_FOR_CLI}/open") as sent:
+    with sent_requests(page, "POST", f"/api/periods/{LAST_COMPLETE}/open") as sent:
         page.get_by_label("Wynik").get_by_role("button", name="Folder okresu").dblclick()
         settle(page, sent)
     run.check(
@@ -245,11 +245,11 @@ def drive_preparation(run: Run, page: Page) -> None:
         len(records) == records_before + 3
         and [(record["mode"], record["result"]) for record in records[:3]]
         == [("RUN", "OK"), ("RUN", "BLAD_KRYTYCZNY"), ("DRY-RUN", "OK")],
-        "every Uruchomienie procesu appended one record to the CLI's metrics file",
+        "every Uruchomienie procesu appended one record to the process's metrics file",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
     run.check(
-        f"uruchomienie-koniec proces=preparation tryb=RUN okres={LAST_COMPLETE_FOR_CLI} wynik=OK koniec=finished" in log
+        f"uruchomienie-koniec proces=preparation tryb=RUN okres={LAST_COMPLETE} wynik=OK koniec=finished" in log
         and "uruchomienie-start proces=preparation tryb=RUN" in log
         and ROW_MARKER not in log,
         "the Centrum log records the start and end of each Uruchomienie procesu with safe facts only",
@@ -258,7 +258,7 @@ def drive_preparation(run: Run, page: Page) -> None:
 
     run.step(feature, "przygotowanie-status-okresu")
     page.goto(run.url)
-    expect(period_row(page, LAST_COMPLETE_FOR_CLI)).to_contain_text("Plik zbiorczy przygotowany")
+    expect(period_row(page, LAST_COMPLETE)).to_contain_text("Plik zbiorczy przygotowany")
     expect(page.get_by_role("region", name="Następny krok")).to_contain_text("Utwórz rozliczenia pracowników")
     run.check(True, "the Status okresu on Tablica okresów is Plik zbiorczy przygotowany")
     run.capture(page, "36-przygotowanie-status-okresu")
@@ -283,7 +283,7 @@ def drive_preparation(run: Run, page: Page) -> None:
         "the metrics history marks the four Uruchomienia from Centrum without a schema change",
     )
     newest = history_rows(page).nth(1)
-    expect(newest).to_contain_text(LAST_COMPLETE_FOR_CLI)
+    expect(newest).to_contain_text(LAST_COMPLETE)
     expect(newest).not_to_contain_text(".cmd")
     run.check(True, "the Historia tab shows the newest Uruchomienie without the .cmd badge")
     run.capture(page, "38-przygotowanie-historia")

@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -114,10 +114,15 @@ export type Closing = {
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
  *
- * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita.
+ * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
+ * względem `main` na GitHubie, sprawdzana jak w Diagnozie.
  */
 export type Configuration = {
     version: ToolVersion | null;
+    /**
+     * Freshness
+     */
+    freshness: 'current' | 'newer' | 'not_checked';
     /**
      * Templates
      */
@@ -199,9 +204,12 @@ export type DecisionAnswer = {
  *
  * ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
  * przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
- * ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+ * ponownie; ``update``: przyczyną jest nowsza wersja narzędzia, więc tata klika „Zaktualizuj
+ * narzędzie”; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
  * „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
  * Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+ * ``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc
+ * Diagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem.
  */
 export type Diagnosis = {
     explanation: Message;
@@ -212,7 +220,11 @@ export type Diagnosis = {
     /**
      * Next Action
      */
-    next_action: 'rerun' | 'report';
+    next_action: 'rerun' | 'update' | 'report';
+    /**
+     * Update Proposal
+     */
+    update_proposal: boolean;
     /**
      * Checks
      */
@@ -273,7 +285,12 @@ export type HttpValidationError = {
 /**
  * Health
  *
- * Tożsamość Centrum dla launchera: commit narzędzia, z którego Centrum wystartowało; ``None`` poza klonem Gita.
+ * Tożsamość działającego Centrum.
+ *
+ * ``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza
+ * klonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta
+ * pokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie
+ * jest inny, także gdy commit się nie zmienił.
  */
 export type Health = {
     /**
@@ -284,12 +301,16 @@ export type Health = {
      * Commit
      */
     commit: string | null;
+    /**
+     * Instance
+     */
+    instance: string;
 };
 
 /**
  * Message
  *
- * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu.
+ * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu.
  */
 export type Message = {
     /**
@@ -606,7 +627,8 @@ export type Problem = {
  *
  * Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
  *
- * ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+ * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
+ * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
  */
 export type ProcessRun = {
     /**
@@ -783,7 +805,7 @@ export type RecentResults = {
  * Powiadomienie o naprawie na stronie Okresy.
  *
  * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
- * działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+ * działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
  */
 export type RepairNotice = {
     /**
@@ -1198,6 +1220,90 @@ export type ThemeChange = {
 };
 
 /**
+ * ToolUpdateFailed
+ *
+ * Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+ *
+ * ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
+ * ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
+ * wyśle „Wyślij do Maksa”, a ``report`` jego stan.
+ */
+export type ToolUpdateFailed = {
+    /**
+     * State
+     */
+    state: 'failed';
+    message: Message;
+    /**
+     * Next Action
+     */
+    next_action: 'retry' | 'report';
+    /**
+     * Report
+     */
+    report: ({
+        state: 'ready';
+    } & ReportReady) | ({
+        state: 'sent';
+    } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
+        state: 'saved';
+    } & ReportSaved);
+    draft: ReportDraft;
+};
+
+/**
+ * ToolUpdateIdle
+ *
+ * Od startu Centrum tata nie zlecił Aktualizacji narzędzia.
+ */
+export type ToolUpdateIdle = {
+    /**
+     * State
+     */
+    state: 'idle';
+};
+
+/**
+ * ToolUpdateRunning
+ */
+export type ToolUpdateRunning = {
+    /**
+     * State
+     */
+    state: 'running';
+    /**
+     * Step
+     */
+    step: 'fetching' | 'installing' | 'restarting';
+};
+
+/**
+ * ToolUpdateUpToDate
+ *
+ * Narzędzie już było w najnowszej wersji; nic się nie zmieniło.
+ */
+export type ToolUpdateUpToDate = {
+    /**
+     * State
+     */
+    state: 'up_to_date';
+};
+
+/**
+ * ToolUpdateUpdated
+ *
+ * Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (jej commit jest w ``Health``).
+ */
+export type ToolUpdateUpdated = {
+    /**
+     * State
+     */
+    state: 'updated';
+};
+
+/**
  * ToolVersion
  *
  * Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie.
@@ -1318,6 +1424,22 @@ export type WorkersUnreadable = {
     state: 'unreadable';
     message: Message;
 };
+
+export type GetHealthData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/health';
+};
+
+export type GetHealthResponses = {
+    /**
+     * Successful Response
+     */
+    200: Health;
+};
+
+export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
 
 export type GetSettingsData = {
     body?: never;
@@ -1453,22 +1575,6 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
-
-export type GetHealthData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/health';
-};
-
-export type GetHealthResponses = {
-    /**
-     * Successful Response
-     */
-    200: Health;
-};
-
-export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
 
 export type GetRunSetupData = {
     body?: never;
@@ -1761,6 +1867,106 @@ export type GetConfigurationResponses = {
 };
 
 export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];
+
+export type GetToolUpdateData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tool-update';
+};
+
+export type GetToolUpdateResponses = {
+    /**
+     * Response Gettoolupdate
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'idle';
+    } & ToolUpdateIdle) | ({
+        state: 'running';
+    } & ToolUpdateRunning) | ({
+        state: 'up_to_date';
+    } & ToolUpdateUpToDate) | ({
+        state: 'updated';
+    } & ToolUpdateUpdated) | ({
+        state: 'failed';
+    } & ToolUpdateFailed);
+};
+
+export type GetToolUpdateResponse = GetToolUpdateResponses[keyof GetToolUpdateResponses];
+
+export type StartToolUpdateData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tool-update';
+};
+
+export type StartToolUpdateErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type StartToolUpdateError = StartToolUpdateErrors[keyof StartToolUpdateErrors];
+
+export type StartToolUpdateResponses = {
+    /**
+     * Response Starttoolupdate
+     *
+     * Successful Response
+     */
+    202: ({
+        state: 'idle';
+    } & ToolUpdateIdle) | ({
+        state: 'running';
+    } & ToolUpdateRunning) | ({
+        state: 'up_to_date';
+    } & ToolUpdateUpToDate) | ({
+        state: 'updated';
+    } & ToolUpdateUpdated) | ({
+        state: 'failed';
+    } & ToolUpdateFailed);
+};
+
+export type StartToolUpdateResponse = StartToolUpdateResponses[keyof StartToolUpdateResponses];
+
+export type ReportToolUpdateData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tool-update/report';
+};
+
+export type ReportToolUpdateErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type ReportToolUpdateError = ReportToolUpdateErrors[keyof ReportToolUpdateErrors];
+
+export type ReportToolUpdateResponses = {
+    /**
+     * Response Reporttoolupdate
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'ready';
+    } & ReportReady) | ({
+        state: 'sent';
+    } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
+        state: 'saved';
+    } & ReportSaved);
+};
+
+export type ReportToolUpdateResponse = ReportToolUpdateResponses[keyof ReportToolUpdateResponses];
 
 export type CloseCentrumData = {
     body?: never;

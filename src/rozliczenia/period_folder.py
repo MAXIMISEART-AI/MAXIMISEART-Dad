@@ -45,9 +45,6 @@ _COLLECTIVE_FILE_NAME = re.compile(
     rf"{re.escape(_COLLECTIVE_FILE_PREFIX)}(?P<token>{PERIOD_TOKEN_PATTERN}){re.escape(_COLLECTIVE_FILE_SUFFIX)}"
 )
 
-COLLECTIVE_FILE_PATTERN = _COLLECTIVE_FILE.format(token="*")
-"""Plik zbiorczy dowolnego okresu, np. w oknie wyboru pliku."""
-
 # Układ folderów taty: Rozliczenia {rok}\{miesiąc}\INEA\{token}.
 _YEAR_FOLDER = re.compile(r"Rozliczenia \d{4}")
 _MONTH_PERIODS_FOLDER = "INEA"

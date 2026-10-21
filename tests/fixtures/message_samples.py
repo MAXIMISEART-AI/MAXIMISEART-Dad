@@ -12,7 +12,8 @@ from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems
+from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems, update_messages
+from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
@@ -56,6 +57,7 @@ def _missing_worker_template_detail() -> str:
 
 # Każda fabryka katalogu z przykładowymi argumentami; warianty liczby pojedynczej i mnogiej osobno.
 PREPARATION_SAMPLES: Samples = {
+    "invalid_period_token": [lambda: messages.invalid_period_token("08_14_9_2026")],
     "period_file_exists": [lambda: messages.period_file_exists(PERIOD_DIRECTORY, f"Rozliczenie wew. {PERIOD}.xlsx")],
     "worker_config_problem": [
         lambda: messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
@@ -96,8 +98,9 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.rows_without_date(REGISTER, SHEET, [7, 9]),
     ],
     "invalid_successful_values": [
-        lambda: messages.invalid_successful_values(REGISTER, SHEET, [4]),
-        lambda: messages.invalid_successful_values(REGISTER, SHEET, [4, 6]),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [4], []),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [4, 5, 9], [messages.CellContent(6, "???")]),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [], [messages.CellContent(n, "tsk") for n in range(2, 14)]),
     ],
     "unknown_workers": [
         lambda: messages.unknown_workers(REGISTER, SHEET, CONFIG, [("nowy.wykonawca", [4])]),
@@ -112,7 +115,9 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],
     "incomplete_period_refused": [
-        lambda: messages.incomplete_period_refused(PERIOD, "przy pytaniu wpisz t"),
+        lambda: messages.incomplete_period_refused(
+            PERIOD, "uruchom proces w Centrum rozliczeń i przy decyzji wybierz „Kontynuuj”"
+        ),
         lambda: messages.incomplete_period_refused(PERIOD, "przy decyzji wybierz „Kontynuuj”"),
     ],
     "write_failed": [lambda: messages.write_failed(PERIOD_DIRECTORY)],
@@ -173,6 +178,8 @@ START_SAMPLES: Samples = {
     "other_version_running": [lambda: start_problems.other_version_running(47811, "3c1d0a9")],
     "missing_library": [lambda: start_problems.missing_library("fastapi")],
     "unexpected_start_failure": [start_problems.unexpected_start_failure],
+    "not_started_after_update": [start_problems.not_started_after_update],
+    "update_finishing": [start_problems.update_finishing],
 }
 
 DIAGNOSIS_SAMPLES: Samples = {
@@ -189,4 +196,23 @@ REPORT_SAMPLES: Samples = {
     "key_refused": [lambda: report_messages.key_refused(UNSENT_REPORT)],
     "box_unreachable": [lambda: report_messages.box_unreachable(UNSENT_REPORT)],
     "not_saved": [lambda: report_messages.not_saved(UNSENT_REPORT.parent)],
+}
+
+UPDATE_SAMPLES: Samples = {
+    "no_git": [update_messages.no_git],
+    "no_connection": [update_messages.no_connection],
+    "login_required": [update_messages.login_required],
+    "other_branch": [update_messages.other_branch],
+    "local_changes": [update_messages.local_changes],
+    "unexpected_failure": [update_messages.unexpected_failure],
+    "libraries_failed": [update_messages.libraries_failed],
+    "new_version_failed": [update_messages.new_version_failed],
+    "rollback_failed": [update_messages.rollback_failed],
+    "message_of": [
+        lambda: update_messages.message_of(UNEXPECTED),
+        lambda: update_messages.message_of(LIBRARIES_FAILED),
+        lambda: update_messages.message_of(NEW_VERSION_FAILED),
+        lambda: update_messages.message_of(ROLLBACK_FAILED),
+        lambda: update_messages.message_of("NIEZNANY_KOD"),
+    ],
 }

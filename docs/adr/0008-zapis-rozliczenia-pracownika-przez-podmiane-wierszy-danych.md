@@ -18,7 +18,8 @@ Skutkiem ubocznym były pliki większe od Wzorca (2,8 MB zamiast 1,9 MB): bez
 wspólnych formuł i bez `calcChain`.
 
 Rozliczenie pracownika różni się od Wzorca tylko Wierszami danych od wiersza
-18 w kolumnach A:AT i flagami przeliczania w `calcPr`.
+18 w kolumnach A:AT (wartości i, od zmiany z 2026-10-21, Wyróżnienia) i
+flagami przeliczania w `calcPr`.
 
 ## Decyzja
 
@@ -30,7 +31,8 @@ Przebieg rozliczeń, za interfejsem `workbook_files.WorkerSettlementTemplate`
   przepisywana bajt w bajt razem ze skompresowaną treścią, w tym
   `xl/externalLinks/*`, `xl/calcChain.xml` i `xl/sharedStrings.xml`.
   `xl/styles.xml` zmienia się tylko wtedy, gdy data trafia do komórki bez
-  formatu daty (dopisany styl, jak w openpyxl).
+  formatu daty (dopisany styl, jak w openpyxl) albo gdy Wyróżnienia wpisanej
+  komórki różnią się od komórki Wzorca (zmiana z 2026-10-21).
 - W XML arkusza zmieniają się tylko wiersze od 18 do ostatniego wpisanego.
   Komórki A:AT dostają wartości z tą samą semantyką co wpisanie przez openpyxl
   (tekst, `=formuła`, kody błędów, liczby, prawda/fałsz, daty jako liczba
@@ -104,3 +106,43 @@ Odrzucone kierunki:
 - Do decyzji trzeba wrócić, jeśli Wzorzec zacznie mieć formuły albo scalenia w
   A:AT Wierszy danych (cały zapis wraca wtedy do openpyxl i do minut) albo
   jeśli Excel zacznie zgłaszać naprawę plików z kopii.
+
+## Zmiana z 2026-10-21
+
+Przebieg rozliczeń czytał z Pliku zbiorczego same wartości, więc każda komórka
+A:AT Wierszy danych dostawała wygląd komórki Wzorca. Wyróżnienia, które
+Przygotowanie pliku zbiorczego przeniosło z Rejestru zleceń (wypełnienie, kolor
+czcionki, pogrubienie, kursywa), znikały. Na kopii prawdziwego Pliku zbiorczego
+różniło się tak 1981 z 7906 niepustych komórek.
+
+Teraz `read_data_rows` czyta też Wyróżnienia każdej komórki A:AT, a obie drogi
+zapisu nakładają je na komórkę Wzorca tą samą regułą co Przygotowanie z
+Rejestru: Wyróżnienia zastępują wypełnienie, kolor, pogrubienie i kursywę
+komórki Wzorca (komórka bez Wyróżnień daje komórkę bez wypełnienia, z kolorem
+automatycznym); krój i rozmiar czcionki, format liczby, obramowanie,
+wyrównanie i ochrona zostają z Wzorca. Kopia dopisuje brakujące czcionki,
+wypełnienia i style komórek na końcu ich list w `xl/styles.xml`, każdy raz na
+Rozliczenie pracownika; istniejące wpisy zostają bajt w bajt, a gdy żadna
+komórka nie potrzebuje nowego stylu, `xl/styles.xml` jest przepisany bez zmian.
+Test właściciel zapisu porównuje Wyróżnienia z drogi kopii i drogi przez
+openpyxl.
+
+Czcionki i wypełnienia są serializowane przez openpyxl (`to_tree`), więc zapis
+jest deterministyczny i ma kształt, który openpyxl już zapisuje w drodze
+zapasowej. Oba Wzorce taty mają ten sam motyw (`theme1.xml`), więc kolory
+motywu z Pliku zbiorczego znaczą w Rozliczeniu pracownika to samo.
+
+Odrzucone kierunki:
+
+- **Przeniesienie całego stylu komórki Pliku zbiorczego** (jak „Wklej
+  wszystko”). Zmieniłoby krój, rozmiar i obramowania, które pochodzą z Wzorca
+  rozliczenia pracownika, i wymagałoby kopiowania obramowań oraz formatów
+  liczb między dwoma plikami stylów.
+- **Wspólny typ z `CellFormat` Przygotowania.** `CellFormat` niesie też format
+  liczby z Rejestru i zawsze ustawia pogrubienie i kursywę; w Przebiegu każda
+  zwykła komórka dostałaby wtedy nową czcionkę i nowy styl. Ujednolicenie
+  zmieniłoby zapis Przygotowania, które jest poza zakresem tej zmiany.
+
+Koszt: na lustrze `typowy-tydzien` (Mac M4 Max) mediana czasu ściany 681 → 709
+ms; Odczyt danych tworzy komórki openpyxl zamiast samych wartości (+17 ms), a
+Zapisywanie szuka stylu dla każdej wpisanej komórki (+12 ms).

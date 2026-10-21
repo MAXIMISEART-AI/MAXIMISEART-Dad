@@ -1,4 +1,4 @@
-"""Dzień, od którego narzędzie jest na swoim commicie, odczytany z reflogu prawdziwego klonu Gita."""
+"""Wersja narzędzia z prawdziwego klonu Gita: dzień przejścia na commit z reflogu i wersja z chwili startu Centrum."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import subprocess
 
 import pytest
 
+from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.version import commit_since, tool_commit
 
 # Kwadrans po północy czasu polskiego to jeszcze poprzedni dzień w UTC: liczy się dzień na komputerze taty.
@@ -73,3 +74,13 @@ def test_klon_bez_wpisow_reflogu_nie_ma_dnia(tmp_path: Path, reflog: str | None)
 
 def test_narzedzie_poza_klonem_gita_nie_ma_dnia(tmp_path: Path) -> None:
     assert commit_since(OTHER, tmp_path) is None
+
+
+def test_centrum_zostaje_przy_wersji_ze_startu_po_przesunieciu_klonu(tmp_path: Path) -> None:
+    clone = tmp_path / "narzedzie"
+    started_on = _clone(clone)
+    running = ToolFreshness.of_clone(clone, main=lambda: None)
+    _git(clone, "commit", "--quiet", "--allow-empty", "--message", "nowa wersja", when="2026-10-20T09:00:00+02:00")
+
+    assert tool_commit(clone) != started_on
+    assert (running.local(), running.since()) == (started_on, date(2026, 10, 13))

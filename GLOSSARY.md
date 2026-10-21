@@ -25,6 +25,13 @@ Zlecenie, którego wartość `SKUTECZNE` to `tak`, bez względu na wielkość li
 otaczające spacje. Każde zlecenie skuteczne z Rozliczenia wewnętrznego trafia
 do Pliku zbiorczego.
 
+## Zlecenie nieskuteczne
+
+Zlecenie, którego wartość `SKUTECZNE` to `nie`, bez względu na wielkość liter i
+otaczające spacje. Każde zlecenie okresu jest skuteczne albo nieskuteczne.
+Puste `SKUTECZNE` albo inna wartość, na przykład `???` czy `tsk`, to brak w
+Rejestrze, który tata uzupełnia, a nie trzeci stan zlecenia.
+
 ## Rozliczenie wewnętrzne
 
 Skoroszyt `Rozliczenie wew. {okres}.xlsx` zawierający wszystkie zlecenia
@@ -85,8 +92,9 @@ dla Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
 
 Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca
 rozliczenia pracownika. Zachowuje jego strukturę, formuły, stawki i
-formatowanie; zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli
-wykonawca nie ma wierszy w Pliku zbiorczym.
+formatowanie; jedynie Wiersze danych mają Wyróżnienia z Pliku zbiorczego.
+Zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli wykonawca nie
+ma wierszy w Pliku zbiorczym.
 
 ## Folder okresu
 
@@ -108,8 +116,8 @@ bezpośrednio (np. `INEA`).
 
 ## Ustawienia taty
 
-Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. CLI bierze
-je stamtąd i pyta oknem wyboru tylko o to, czego brak.
+Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. Czyta je
+tylko Centrum rozliczeń.
 
 ## Folder rozliczeń pracowników
 
@@ -141,6 +149,16 @@ Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
 Wiersz od 18. w dół zawierający dane wejściowe pracy. Formuły i techniczne
 wartości szablonu nie są same w sobie wierszami danych.
 
+## Wyróżnienie
+
+Wygląd komórki, którym tata zaznacza zlecenie: kolor wypełnienia, kolor
+czcionki, pogrubienie i kursywa. Przechodzi razem z wartością z Rejestru zleceń
+do plików okresu, a z Pliku zbiorczego do Rozliczeń pracowników. Wyróżnienia
+zastępują wygląd komórki wzorca w całości: komórka bez Wyróżnień daje komórkę
+bez wypełnienia, z kolorem automatycznym, bez pogrubienia i bez kursywy. Krój i
+rozmiar czcionki nie są Wyróżnieniem i zawsze pochodzą z wzorca.
+_Avoid_: formatowanie (szersze: obejmuje też krój, obramowania i formaty liczb)
+
 ## Gotowość
 
 Świadoma decyzja taty, że plik zbiorczy jest zakończony i można przygotować
@@ -164,9 +182,9 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 ## Uruchomienie procesu
 
 Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
-Centrum rozliczeń albo z CLI, od ustalenia plików i okresu do wyniku
-końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na to,
-skąd wystartowało; nie jest z definicji pytaniem w terminalu.
+Centrum rozliczeń albo ze Skryptu dla maszyn, od gotowych plików i okresu do
+wyniku końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na
+to, skąd wystartowało.
 Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo Zatrzymaniem z
 bezpiecznym Komunikatem zrozumiałym dla taty, nigdy z treścią błędu
 technicznego.
@@ -177,16 +195,25 @@ _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
 Pytanie, które proces zadaje tacie w trakcie Uruchomienia procesu; dziś tylko
 o niepełny okres w Przygotowaniu pliku zbiorczego. Składa ją proces i sam
 zatrzymuje się po odmowie; rozmówca tylko pyta i mówi, jak wyrazić zgodę
-(`t` w terminalu, `Kontynuuj` w Centrum rozliczeń). Czas czekania na Decyzję
-taty nie wlicza się do `Czas uruchomienia` ani do metryk.
+(`Kontynuuj` w Centrum rozliczeń). Skrypt dla maszyn zawsze odmawia. Czas
+czekania na Decyzję taty nie wlicza się do `Czas uruchomienia` ani do metryk.
 
 ## Centrum rozliczeń
 
 Lokalna aplikacja w przeglądarce na komputerze taty, z której uruchamia
 Przygotowanie pliku zbiorczego i Przebieg rozliczeń oraz widzi Status okresu
 każdego okresu i historię Uruchomień procesu. Jest jedynym wejściem taty do
-tych procesów (CLI służy osobie utrzymującej narzędzie), nie osobnym procesem.
+tych procesów, nie osobnym procesem.
 _Avoid_: dashboard, panel, centrum dowodzenia
+
+## Skrypt dla maszyn
+
+Jedyne wejście do procesów spoza Centrum rozliczeń, dla testów, pomiarów czasu
+i osoby utrzymującej narzędzie. Przyjmuje pliki i okres parametrami, z nikim
+nie rozmawia i oddaje wynik w kształcie karty Uruchomienia. Jego Uruchomienia
+procesu mają w historii Centrum odznakę `.cmd`, tę samą co stare Uruchomienia
+z dawnych launcherów.
+_Avoid_: CLI, launcher
 
 ## Zdarzenie przebiegu
 
@@ -202,9 +229,9 @@ Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
 Bezpieczny tekst dla taty w trzech częściach: Co się stało, Gdzie, Co zrobić.
 Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów ani treści
 wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
-Wykonawcę. Wyjątkiem jest wyłącznie terminalowa dawna jedna linia Zatrzymania
-Przebiegu rozliczeń (ADR 0004): może mieć pełną ścieżkę i nie trafia do
-Centrum rozliczeń. Komunikat niesie Zatrzymanie, ostrzeżenie, problem z
+Wykonawcę. Jedynym wyjątkiem jest Zatrzymanie o brakach w `SKUTECZNE`:
+pokazuje dokładną zawartość komórki innej niż `tak` i `nie`, żeby tata od razu
+widział, co poprawić. Komunikat niesie Zatrzymanie, ostrzeżenie, problem z
 podsumowania albo problem startu Centrum rozliczeń. Jego kod jest unikalny w
 obrębie procesu.
 _Avoid_: błąd, wiadomość
@@ -265,13 +292,13 @@ _Avoid_: issue tracker, publiczne issue
 
 Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
 narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
-Znika samo po aktualizacji i ponownym otwarciu Centrum.
+Ma przycisk aktualizacji i znika samo, gdy Centrum wystartuje w nowej wersji.
 
 ## Wersja narzędzia
 
-Commit klonu narzędzia, z którego działa Centrum rozliczeń na komputerze taty.
-Konfiguracja pokazuje jego skrót i dzień, od którego narzędzie jest na tym
-commicie; Zgłoszenie podaje pełny commit.
+Commit klonu narzędzia, z którego wystartowało Centrum rozliczeń na komputerze
+taty. Karta `Narzędzie` w Konfiguracji pokazuje jego skrót i dzień, od którego
+narzędzie jest na tym commicie; Zgłoszenie podaje pełny commit.
 _Avoid_: numer wersji z `pyproject.toml`
 
 ## Aktualizacja narzędzia
@@ -280,6 +307,23 @@ Przejście narzędzia na komputerze taty na jego najnowszą wersję, które
 tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
 zostawia poprzednią wersję; pliki taty pozostają nietknięte.
 _Avoid_: upgrade, git pull, instalacja
+
+## Aktualność narzędzia
+
+Czy narzędzie na komputerze taty jest w najnowszej wersji, czyli czy jego
+commit to `main` publicznego repozytorium: `Aktualna`, `Jest nowsza wersja`
+albo `Nie sprawdzono` (bez internetu). Pokazuje ją Konfiguracja i sprawdza
+Diagnoza; nowsza wersja jest przyczyną Zatrzymania tylko wtedy, gdy Diagnoza
+nie znalazła innej.
+_Avoid_: świeżość, freshness
+
+## Ponowny start Centrum
+
+Koniec udanej Aktualizacji narzędzia: Centrum rozliczeń samo się zamyka i
+startuje w nowej wersji na tym samym adresie, a otwarta karta przeglądarki
+sama się odświeża. Gdy nowa wersja nie wystartuje, wraca poprzednia, a karta
+pokazuje Komunikat.
+_Avoid_: restart, reboot
 
 ## Nienadpisywanie
 

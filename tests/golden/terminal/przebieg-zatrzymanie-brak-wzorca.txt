@@ -1,8 +1,0 @@
-Rozliczenia | okres: 08_14_09_2026 | tryb: RUN
-Status: uruchomiono
-Ostatnie operacje:
-Etap: Sprawdzanie
-Etap przerwany: Sprawdzanie
-Status semantyczny: BŁĄD
-Nie wykonano: Nie znaleziono Wzorca rozliczenia pracownika: Wzorzec rozliczenia pracownika.xlsx. Zmień nazwę pliku placeholder.xlsx w tym samym folderze na „Wzorzec rozliczenia pracownika.xlsx”.
-Czas uruchomienia: <N> ms

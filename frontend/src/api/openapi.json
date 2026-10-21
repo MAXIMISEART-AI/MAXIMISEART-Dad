@@ -5,6 +5,24 @@
     "version": "kontrakt"
   },
   "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": [
@@ -214,24 +232,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/health": {
-      "get": {
-        "summary": "Health",
-        "operationId": "getHealth",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Health"
                 }
               }
             }
@@ -724,6 +724,164 @@
         }
       }
     },
+    "/api/tool-update": {
+      "get": {
+        "tags": [
+          "aktualizacja"
+        ],
+        "summary": "Current",
+        "operationId": "getToolUpdate",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpToDate"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpdated"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  ],
+                  "title": "Response Gettoolupdate",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/ToolUpdateIdle",
+                      "running": "#/components/schemas/ToolUpdateRunning",
+                      "up_to_date": "#/components/schemas/ToolUpdateUpToDate",
+                      "updated": "#/components/schemas/ToolUpdateUpdated",
+                      "failed": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aktualizacja"
+        ],
+        "summary": "Start",
+        "operationId": "startToolUpdate",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpToDate"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateUpdated"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  ],
+                  "title": "Response Starttoolupdate",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/ToolUpdateIdle",
+                      "running": "#/components/schemas/ToolUpdateRunning",
+                      "up_to_date": "#/components/schemas/ToolUpdateUpToDate",
+                      "updated": "#/components/schemas/ToolUpdateUpdated",
+                      "failed": "#/components/schemas/ToolUpdateFailed"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tool-update/report": {
+      "post": {
+        "tags": [
+          "aktualizacja"
+        ],
+        "summary": "Send Report",
+        "operationId": "reportToolUpdate",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReportReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportSent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportWaiting"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportSaved"
+                    }
+                  ],
+                  "title": "Response Reporttoolupdate",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "ready": "#/components/schemas/ReportReady",
+                      "sent": "#/components/schemas/ReportSent",
+                      "waiting": "#/components/schemas/ReportWaiting",
+                      "saved": "#/components/schemas/ReportSaved"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/shutdown": {
       "post": {
         "tags": [
@@ -797,6 +955,7 @@
           "operation": {
             "type": "string",
             "enum": [
+              "getHealth",
               "getSettings",
               "chooseRegister",
               "choosePeriodsDirectory",
@@ -811,6 +970,9 @@
               "getRepairNotice",
               "getMetrics",
               "getConfiguration",
+              "startToolUpdate",
+              "getToolUpdate",
+              "reportToolUpdate",
               "closeCentrum"
             ],
             "title": "Operation"
@@ -984,6 +1146,15 @@
               }
             ]
           },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "current",
+              "newer",
+              "not_checked"
+            ],
+            "title": "Freshness"
+          },
           "templates": {
             "items": {
               "oneOf": [
@@ -1036,12 +1207,13 @@
         "type": "object",
         "required": [
           "version",
+          "freshness",
           "templates",
           "workers",
           "reports"
         ],
         "title": "Configuration",
-        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita."
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji\nwzględem `main` na GitHubie, sprawdzana jak w Diagnozie."
       },
       "Count": {
         "properties": {
@@ -1143,9 +1315,14 @@
             "type": "string",
             "enum": [
               "rerun",
+              "update",
               "report"
             ],
             "title": "Next Action"
+          },
+          "update_proposal": {
+            "type": "boolean",
+            "title": "Update Proposal"
           },
           "checks": {
             "items": {
@@ -1164,11 +1341,12 @@
           "explanation",
           "confirms_stop",
           "next_action",
+          "update_proposal",
           "checks",
           "report"
         ],
         "title": "Diagnosis",
-        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle\n„Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam\nKomunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza."
+        "description": "Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.\n\n``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem\nprzyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia\nponownie; ``update``: przyczyną jest nowsza wersja narzędzia, więc tata klika „Zaktualizuj\nnarzędzie”; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle\n„Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam\nKomunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.\n``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc\nDiagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem."
       },
       "DiagnosisCheck": {
         "properties": {
@@ -1259,16 +1437,21 @@
               }
             ],
             "title": "Commit"
+          },
+          "instance": {
+            "type": "string",
+            "title": "Instance"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "service",
-          "commit"
+          "commit",
+          "instance"
         ],
         "title": "Health",
-        "description": "Tożsamość Centrum dla launchera: commit narzędzia, z którego Centrum wystartowało; ``None`` poza klonem Gita."
+        "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
       },
       "Message": {
         "properties": {
@@ -1293,7 +1476,7 @@
           "action"
         ],
         "title": "Message",
-        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."
+        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu."
       },
       "Metrics": {
         "properties": {
@@ -1829,7 +2012,7 @@
           "origin"
         ],
         "title": "ProcessRun",
-        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń."
+        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło\nrekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn."
       },
       "ProcessSetup": {
         "properties": {
@@ -2039,7 +2222,7 @@
           "repaired"
         ],
         "title": "RepairNotice",
-        "description": "Powiadomienie o naprawie na stronie Okresy.\n\n``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal\ndziała na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”)."
+        "description": "Powiadomienie o naprawie na stronie Okresy.\n\n``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal\ndziała na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”)."
       },
       "ReportDraft": {
         "properties": {
@@ -2736,6 +2919,139 @@
           "theme"
         ],
         "title": "ThemeChange"
+      },
+      "ToolUpdateFailed": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "failed",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "retry",
+              "report"
+            ],
+            "title": "Next Action"
+          },
+          "report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReportReady"
+              },
+              {
+                "$ref": "#/components/schemas/ReportSent"
+              },
+              {
+                "$ref": "#/components/schemas/ReportWaiting"
+              },
+              {
+                "$ref": "#/components/schemas/ReportSaved"
+              }
+            ],
+            "title": "Report",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "ready": "#/components/schemas/ReportReady",
+                "saved": "#/components/schemas/ReportSaved",
+                "sent": "#/components/schemas/ReportSent",
+                "waiting": "#/components/schemas/ReportWaiting"
+              }
+            }
+          },
+          "draft": {
+            "$ref": "#/components/schemas/ReportDraft"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message",
+          "next_action",
+          "report",
+          "draft"
+        ],
+        "title": "ToolUpdateFailed",
+        "description": "Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.\n\n``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);\n``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które\nwyśle „Wyślij do Maksa”, a ``report`` jego stan."
+      },
+      "ToolUpdateIdle": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "idle",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ToolUpdateIdle",
+        "description": "Od startu Centrum tata nie zlecił Aktualizacji narzędzia."
+      },
+      "ToolUpdateRunning": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "running",
+            "title": "State"
+          },
+          "step": {
+            "type": "string",
+            "enum": [
+              "fetching",
+              "installing",
+              "restarting"
+            ],
+            "title": "Step"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "step"
+        ],
+        "title": "ToolUpdateRunning"
+      },
+      "ToolUpdateUpToDate": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "up_to_date",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ToolUpdateUpToDate",
+        "description": "Narzędzie już było w najnowszej wersji; nic się nie zmieniło."
+      },
+      "ToolUpdateUpdated": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "updated",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ToolUpdateUpdated",
+        "description": "Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (jej commit jest w ``Health``)."
       },
       "ToolVersion": {
         "properties": {

@@ -19,7 +19,7 @@ const ICONS: Record<MessageKind, React.ReactNode> = {
 }
 
 /**
- * Komunikat w trzech częściach (ta sama treść co w terminalu) jako baner: „Co się stało” jest tytułem,
+ * Komunikat w trzech częściach jako baner: „Co się stało” jest tytułem,
  * „Gdzie” i „Co zrobić” to dwa wiersze z ikonami. Opis jest spokojny, nie cały czerwony. Zatrzymanie
  * i ostrzeżenie różnią się ikoną i kolorem tytułu, a wyjaśnienie Diagnozy jest spokojne, bez czerwieni;
  * `action` to akcja przy banerze.

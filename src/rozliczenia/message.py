@@ -7,7 +7,10 @@ każda ich fabryka zwraca ``Message``. Zatrzymanie Uruchomienia procesu to
 
 Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów ani treści
 wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
-Wykonawcę. Kod jest unikalny w obrębie katalogu procesu: w
+Wykonawcę. Wyjątkiem jest Zatrzymanie o brakach w ``SKUTECZNE``
+(``preparation_messages.invalid_successful_values``): pokazuje dokładną
+zawartość komórki innej niż ``tak`` i ``nie``, żeby tata od razu widział, co
+poprawić. Kod jest unikalny w obrębie katalogu procesu: w
 ``tests/test_instrukcja_taty.py`` każdy kod katalogu ma dokładnie jeden cytat
 instrukcji taty, a każdy cytat wskazuje dokładnie jeden kod. Typ zwracany przez
 każdą fabrykę pilnuje mypy (tryb strict obejmuje testy).
@@ -30,18 +33,12 @@ _CONDITIONS: Final = ("jeśli", "w innym wypadku")
 
 @dataclass(frozen=True)
 class Message:
-    """Komunikat: co się stało, gdzie, co zrobić; ta sama treść w terminalu i w Centrum rozliczeń.
-
-    ``terminal_line`` to dawna jedna linia zatrzymania Przebiegu rozliczeń w
-    terminalu (ADR 0004). Jest wyłącznie terminalowa: może zawierać pełną
-    ścieżkę i nie trafia do Centrum rozliczeń.
-    """
+    """Komunikat: co się stało, gdzie, co zrobić, z kodem unikalnym w katalogu procesu."""
 
     code: str
     what: str
     where: str
     action: str
-    terminal_line: str | None = None
 
     @property
     def text(self) -> str:
@@ -57,19 +54,13 @@ class Message:
 
         return any(_unconditional_referral(sentence) for sentence in _SENTENCE_END.split(self.action))
 
-    @property
-    def terminal_lines(self) -> list[str]:
-        """Linie terminala: ``terminal_line``, jeśli jest, a w przeciwnym razie trzy części."""
-
-        return [self.terminal_line] if self.terminal_line is not None else self.text.splitlines()
-
 
 class StopError(Exception):
     """Zatrzymanie Uruchomienia procesu z Komunikatem z katalogu procesu.
 
     Treść dla taty jest w ``message``, nigdy w ``str(error)`` (ADR 0004):
     ``str(error)`` to sam kod Komunikatu, więc zapis wyjątku do logu nie
-    przenosi pełnej ścieżki z ``terminal_line``.
+    przenosi treści Komunikatu.
     """
 
     def __init__(self, message: Message) -> None:

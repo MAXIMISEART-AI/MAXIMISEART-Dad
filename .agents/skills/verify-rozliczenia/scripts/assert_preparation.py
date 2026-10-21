@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+from typing import Any
 import zipfile
 
 from openpyxl import load_workbook
@@ -21,25 +22,33 @@ INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 ROW_MARKER = "PREP-SYN-"
 EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_rows": 4, "warnings": 0}
-EXPECTED_SUMMARY = (
-    "Status końcowy: OK",
-    f"Okres: {PERIOD}",
-    "Zlecenia okresu: 5",
-    "Zlecenia skuteczne: 4",
-    "Pominięte puste wiersze: 4",
-    "Zlecenia na dzień:",
-    "- wt 08.09.2026: 1",
-    "- śr 09.09.2026: 1",
-    "- czw 10.09.2026: 0",
-    "- pt 11.09.2026: 0",
-    "- sob 12.09.2026: 1",
-    "- niedz 13.09.2026: 1",
-    "- pon 14.09.2026: 1",
-    "Ostrzeżenia: 0",
-    f"Rozliczenie wewnętrzne: {INTERNAL_NAME}",
-    f"Plik zbiorczy: {COLLECTIVE_NAME}",
-)
-DRY_RUN_NOTICE = "DRY-RUN: Nic nie zapisano"
+EXPECTED_SUMMARY = {
+    "figures": [
+        {"label": "Zlecenia okresu", "value": 5, "unit": "count"},
+        {"label": "Zlecenia skuteczne", "value": 4, "unit": "count"},
+        {"label": "Pominięte puste wiersze", "value": 4, "unit": "count"},
+    ],
+    "counts": {
+        "title": "Zlecenia na dzień",
+        "counts": [
+            {"label": label, "count": count}
+            for label, count in (
+                ("wt 08.09.2026", 1),
+                ("śr 09.09.2026", 1),
+                ("czw 10.09.2026", 0),
+                ("pt 11.09.2026", 0),
+                ("sob 12.09.2026", 1),
+                ("niedz 13.09.2026", 1),
+                ("pon 14.09.2026", 1),
+            )
+        ],
+    },
+    "files": [
+        {"name": INTERNAL_NAME, "kind": "internal_settlement"},
+        {"name": COLLECTIVE_NAME, "kind": "collective_file"},
+    ],
+    "file_plan": None,
+}
 INTERNAL_TEMPLATE = Path("config") / "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE = Path("config") / "Wzorzec pliku zbiorczego.xlsx"
 # Target headers the process fills; a real Wzorzec may order them differently.
@@ -137,21 +146,25 @@ def _unchanged_inputs(root: Path) -> list[str]:
     return errors
 
 
-def _check_transcript(transcript: Path | None, mode: str, errors: list[str]) -> None:
-    if transcript is None or not transcript.is_file():
-        errors.append("transcript is missing")
+def _check_result(result_path: Path | None, errors: list[str]) -> None:
+    if result_path is None or not result_path.is_file():
+        errors.append("process step evidence is missing")
         return
-    output = transcript.read_text(encoding="utf-8")
-    if f"Przygotowanie pliku zbiorczego | okres: {PERIOD} | tryb: {mode}" not in output:
-        errors.append(f"transcript does not show the {mode} dashboard header")
-    lines = {line.strip() for line in output.splitlines()}
-    for expected in EXPECTED_SUMMARY:
-        if expected not in lines:
-            errors.append(f"transcript is missing summary line {expected}")
-    if (DRY_RUN_NOTICE in lines) != (mode == "DRY-RUN"):
-        errors.append("transcript dry-run notice does not match the mode")
-    if ROW_MARKER in output:
-        errors.append("transcript contains Rejestr row content")
+    text = result_path.read_text(encoding="utf-8")
+    if ROW_MARKER in text:
+        errors.append("process result contains Rejestr row content")
+    result: Any = json.loads(text)["result"]
+    if not isinstance(result, dict):
+        errors.append("process step printed no JSON result")
+        return
+    if result["result"] != "OK" or result["stop"] is not None or result["warnings"] != []:
+        errors.append("result is not OK without warnings")
+    if result["summary"] != EXPECTED_SUMMARY:
+        errors.append("summary does not match the synthetic Rejestr")
+    if {figure["label"]: figure["value"] for figure in result["progress"]["figures"]}.get("Ostrzeżenia") != 0:
+        errors.append("progress does not report 0 Ostrzeżenia")
+    if result["metrics_saved"] is not True:
+        errors.append("result reports its metrics record as not saved")
 
 
 def _check_metrics(root: Path, metrics: Path, modes: list[str], errors: list[str]) -> None:
@@ -178,12 +191,12 @@ def _finish(errors: list[str], success_message: str) -> int:
     return 0
 
 
-def _assert_dry_run(root: Path, metrics: Path, transcript: Path | None) -> int:
+def _assert_dry_run(root: Path, metrics: Path, result_path: Path | None) -> int:
     errors = _unchanged_inputs(root)
     leftovers = sorted(path.name for path in (root / "INEA").iterdir())
     if leftovers:
         errors.append(f"dry-run created entries in the periods directory: {leftovers}")
-    _check_transcript(transcript, "DRY-RUN", errors)
+    _check_result(result_path, errors)
     _check_metrics(root, metrics, ["DRY-RUN"], errors)
     return _finish(
         errors,
@@ -332,7 +345,7 @@ def _check_real_template_file(
         output_book.close()
 
 
-def _assert_run(root: Path, metrics: Path, transcript: Path | None, templates: str) -> int:
+def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: str) -> int:
     errors = _unchanged_inputs(root)
     periods_directory = root / "INEA"
     period_directory = periods_directory / PERIOD
@@ -375,7 +388,7 @@ def _assert_run(root: Path, metrics: Path, transcript: Path | None, templates: s
                 errors.append("Wzorzec pliku zbiorczego has no xl/externalLinks parts to preserve")
         except (OSError, ValueError, KeyError, zipfile.BadZipFile):
             errors.append("one or both period files cannot be read")
-    _check_transcript(transcript, "RUN", errors)
+    _check_result(result_path, errors)
     _check_metrics(root, metrics, ["DRY-RUN", "RUN"], errors)
     return _finish(
         errors,
@@ -395,16 +408,16 @@ def main(argv: list[str] | None = None) -> int:
         help="'config': the fixture copied the real Wzorce, so check them generically",
     )
     parser.add_argument("--metrics", type=Path, help="metrics history of the Przygotowanie (default: <root>/metrics.jsonl)")
-    parser.add_argument("--transcript", type=Path)
+    parser.add_argument("--result", type=Path, help="evidence JSON of the Przygotowanie step")
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
     metrics = args.metrics.expanduser().resolve() if args.metrics else root / "metrics.jsonl"
-    transcript = args.transcript.expanduser().resolve() if args.transcript else None
+    result_path = args.result.expanduser().resolve() if args.result else None
     try:
         if args.expect == "dry-run":
-            return _assert_dry_run(root, metrics, transcript)
-        return _assert_run(root, metrics, transcript, args.templates)
-    except (OSError, ValueError) as exc:
+            return _assert_dry_run(root, metrics, result_path)
+        return _assert_run(root, metrics, result_path, args.templates)
+    except (OSError, ValueError, KeyError) as exc:
         print(f"ASSERT FAIL: {exc}", file=sys.stderr)
         return 1
 

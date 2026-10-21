@@ -1,7 +1,7 @@
 """Akcje systemowe komputera taty za jednym adapterem: otwarcie pliku albo folderu i okna wyboru.
 
 U taty (Windows) plik otwiera skojarzony program, czyli Excel, a okna wyboru
-to te same okna tkinter co w CLI. Przy rozwoju na macOS działają odpowiedniki
+to okna tkinter. Przy rozwoju na macOS działają odpowiedniki
 systemu: ``open`` i ``osascript``, bo tkinter na macOS działa tylko w wątku
 głównym, a serwer obsługuje żądania w wątkach roboczych. Testy API podają
 własny adapter do ``create_app``; serwer dostaje ``system_platform()``.
@@ -23,7 +23,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol
 
-FileTypes = Sequence[tuple[str, str]]  # (opis, wzorzec nazwy), jak w oknach wyboru CLI
+FileTypes = Sequence[tuple[str, str]]  # (opis, wzorzec nazwy) w oknie wyboru pliku
 
 
 class Platform(Protocol):

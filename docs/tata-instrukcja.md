@@ -15,6 +15,7 @@ Oba kroki robisz w Centrum rozliczeń, które otwierasz skrótem na pulpicie:
 | Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu |
 | Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` |
 | Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` |
+| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`: na stronie `Konfiguracja`, w Powiadomieniu o naprawie i w Diagnozie |
 
 ## Pierwsza instalacja
 
@@ -107,6 +108,13 @@ Gdy przyczyną jest sam komunikat zatrzymania, Centrum pisze tylko `Diagnoza
 potwierdza ten komunikat.` Gdy wyjaśnienie mówi, co zrobić, popraw to i kliknij
 `Uruchom ponownie`. Lista `Sprawdzono` pokazuje każde sprawdzenie Diagnozy.
 
+Nowsza wersja narzędzia jest wyjaśnieniem tylko wtedy, gdy Diagnoza nie
+znalazła innej przyczyny. Wtedy przy wyjaśnieniu jest przycisk `Zaktualizuj
+narzędzie`. Gdy Diagnoza znalazła inną przyczynę, pod wyjaśnieniem jest tylko
+krótkie zdanie `Jest też nowsza wersja narzędzia.` z tym samym przyciskiem,
+drugim po `Uruchom ponownie`. Najpierw usuń przyczynę według wyjaśnienia;
+aktualizacja może poczekać.
+
 ### Wyjaśnienie Diagnozy → co zrobić
 
 Diagnoza wyjaśnia przyczynę komunikatem z tabel procesów (np. Rejestr zleceń
@@ -115,7 +123,7 @@ otwarty w Excelu) albo jednym z tych:
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „Nie znalazłem przyczyny na tym komputerze” | Przyczyna nie leży na Twoim komputerze. Kliknij `Wyślij do Maksa`. |
-| „Jest nowsza wersja narzędzia” | Zaktualizuj narzędzie. Potem w karcie Centrum kliknij `Zamknij Centrum rozliczeń`, otwórz Centrum skrótem i uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
+| „Jest nowsza wersja narzędzia” | Kliknij `Zaktualizuj narzędzie` przy wyjaśnieniu (niżej, „Aktualizacja narzędzia”). Gdy karta Centrum sama się odświeży, uruchom proces ponownie. Bez internetu Diagnoza tego nie sprawdza. |
 | „Plik okresu jest otwarty w Excelu” | Zapisz i zamknij wskazany plik w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik zaczynający się od `~$`. |
 | „Plik jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij wskazany plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy ikona chmurki zmieni się w zielony znacznik, uruchom ponownie. |
 
@@ -157,23 +165,65 @@ Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
 jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
 Maks; Ty niczego tam nie wpisujesz.
 
-Obok widać wersję narzędzia, np. `Wersja 1a2b3c4 od 20.10.2026`. Gdy Maks
-zapyta, którą wersję masz, przeczytaj mu ją.
-
 ### Powiadomienie o naprawie
 
 Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`
-pod tytułem pojawi się `Maks naprawił zgłoszony problem. Zaktualizuj
-narzędzie.`
+pod tytułem pojawi się `Maks naprawił zgłoszony problem.` z przyciskiem
+`Zaktualizuj narzędzie`.
 
-1. Zaktualizuj narzędzie.
-2. W karcie Centrum kliknij `Zamknij Centrum rozliczeń` i otwórz Centrum
-   skrótem.
-
-Po aktualizacji powiadomienie zniknie samo; niczego nie zamykasz. Centrum
-sprawdza to przy otwarciu i przy wejściu na `Okresy`, najwyżej raz na 10 minut.
+Kliknij `Zaktualizuj narzędzie` (niżej, „Aktualizacja narzędzia”). Gdy karta
+sama się odświeży w nowej wersji, powiadomienia już nie ma; niczego nie
+zamykasz. Centrum sprawdza to przy otwarciu i przy wejściu na `Okresy`,
+najwyżej raz na 10 minut.
 Bez internetu nic się nie pokazuje i nic się nie psuje; Centrum sprawdzi
 ponownie później.
+
+### Aktualizacja narzędzia
+
+Na stronie `Konfiguracja`, w karcie `Narzędzie`, widać wersję narzędzia, np.
+`Wersja 1a2b3c4 od 20.10.2026`, i czy jest najnowsza: `Aktualna`, `Jest nowsza
+wersja` albo `Nie sprawdzono` (bez internetu). Gdy Maks zapyta, którą wersję
+masz, przeczytaj mu ją.
+
+1. Kliknij `Zaktualizuj narzędzie`: na stronie `Konfiguracja`, w
+   Powiadomieniu o naprawie na `Okresach` albo w Diagnozie. Każdy z tych
+   przycisków robi to samo.
+2. Poczekaj. Pod przyciskiem widać `Pobieranie nowej wersji…`, a gdy nowa
+   wersja potrzebuje nowych bibliotek, potem `Instalowanie bibliotek…` (to może
+   potrwać kilka minut). Na końcu widać `Ponowne uruchamianie Centrum…`. Każdy
+   przycisk aktualizacji jest wtedy wyłączony. Nie zamykaj karty i nie klikaj
+   skrótu: Centrum samo uruchamia się w nowej wersji.
+3. Na końcu zobaczysz jedno z dwóch:
+   - Karta sama się odświeży i na chwilę pokaże `Zaktualizowano`. Działa już
+     nowa wersja; niczego nie zamykasz.
+   - `Masz najnowszą wersję.` Niczego więcej nie robisz.
+
+Gdy trwa Uruchomienie procesu, Centrum nie zaktualizuje narzędzia: poczekaj
+na wynik na stronie `Uruchomienia`. W trakcie aktualizacji nie uruchomisz
+procesu ani nie zamkniesz Centrum.
+
+### Aktualizacja narzędzia → co zrobić
+
+Gdy aktualizacja się nie uda, narzędzie działa dalej w wersji sprzed
+kliknięcia (chyba że komunikat mówi, że nie dało się jej przywrócić), a pod
+przyciskiem pojawi się komunikat w trzech częściach i przycisk `Wyślij do
+Maksa`. Rozwiń `Co zostanie wysłane`, żeby zobaczyć Zgłoszenie
+przed wysłaniem.
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Zaktualizuj narzędzie` jeszcze raz. |
+| „nie ma Gita” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „GitHub prosi o logowanie” | Nie loguj się nigdzie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „inna gałąź narzędzia” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „zmiany zrobione na tym komputerze” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
+| „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
+| „Nowa wersja narzędzia nie wystartowała” | Niczego nie zamykasz: Centrum samo wróciło do poprzedniej wersji, a karta odświeżyła się na niej z tym komunikatem pod tytułem strony. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „nie dało się przywrócić poprzedniej wersji” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
+
+Bez internetu `Wyślij do Maksa` zapisze Zgłoszenie w pliku: postępuj wtedy
+według tabeli „Zgłoszenie → co zrobić”.
 
 ### Komunikaty startu Centrum rozliczeń
 
@@ -184,13 +234,15 @@ fragmentem pierwszej części.
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „zajmuje inny program” | Uruchom ponownie komputer i kliknij skrót. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
-| „Działa już Centrum rozliczeń w innej wersji” | Zdarza się po aktualizacji narzędzia. W otwartej karcie Centrum kliknij `Zamknij Centrum rozliczeń`, potem kliknij skrót ponownie. |
+| „Działa już Centrum rozliczeń w innej wersji” | Zdarza się po aktualizacji narzędzia bez przycisku w Centrum. W otwartej karcie Centrum kliknij `Zamknij Centrum rozliczeń`, potem kliknij skrót ponownie. |
 | „Brakuje biblioteki potrzebnej Centrum rozliczeń” | W folderze narzędzia uruchom `py -3 -m pip install -r requirements.txt` i kliknij skrót ponownie. |
 | „nie wystartowało z nieoczekiwanego powodu” | Kliknij skrót ponownie. Jeśli komunikat wraca, przekaż osobie utrzymującej narzędzie plik `logs\centrum-rozliczen.log` z folderu narzędzia. |
+| „nie wystartowało po aktualizacji narzędzia” | Nie wystartowała ani nowa, ani poprzednia wersja. Przekaż komunikat Maksowi. |
+| „Aktualizacja narzędzia jeszcze się kończy” | Centrum właśnie startuje w nowej wersji albo wraca do poprzedniej. Poczekaj 10 minut i kliknij skrót ponownie. |
 
 Plik `logs\centrum-rozliczen.log` to dziennik Centrum: zapisuje tylko start,
-zamknięcie, port, rodzaj błędu i czas otwierania stron, bez danych z Twoich
-plików. Możesz go bezpiecznie przekazać do diagnozy.
+zamknięcie, port, rodzaj błędu, aktualizacje narzędzia i czas otwierania
+stron, bez danych z Twoich plików. Możesz go bezpiecznie przekazać do diagnozy.
 
 ## Przygotowanie pliku zbiorczego
 
@@ -291,7 +343,7 @@ którego nie udało się usunąć, w Folderze okresu został wskazany plik.
 | „więcej niż raz, więc nie wiadomo, z której kolumny brać dane” | Zostaw wymieniony nagłówek tylko w jednej kolumnie: zmień nazwę drugiej kolumny albo ją usuń. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „Zlecenia tego okresu są w więcej niż jednym arkuszu” | Przenieś zlecenia tego okresu do jednego z wymienionych arkuszy. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „bez poprawnej daty w kolumnie DATA GODZ. POCZ.” | We wskazanych wierszach wpisz datę zlecenia albo wyczyść cały wiersz, jeśli jest zbędny. Zapisz i zamknij Rejestr, uruchom ponownie. |
-| „puste albo nieznane SKUTECZNE” | We wskazanych wierszach wpisz w `SKUTECZNE` `tak` albo `nie`. Zapisz i zamknij Rejestr, uruchom ponownie. |
+| „tak ani nie w SKUTECZNE” | `Gdzie` pokazuje komórki Rejestru zleceń, np. `L42081`: osobno puste i osobno z inną wartością, z jej treścią w cudzysłowie. We wszystkich wskazanych komórkach wpisz `tak` albo `nie`. Braki w `SKUTECZNE` poprawiaj w Rejestrze zleceń przed uruchomieniem, a nie w Rozliczeniu wewnętrznym, bo Rozliczenie wewnętrzne powstaje z Rejestru. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „spoza konfiguracji wykonawców” | Literówkę w `WYKONAWCA` popraw we wskazanych wierszach Rejestru. Nowego wykonawcę trzeba dopisać do konfiguracji wykonawców (`config\worker_mapping.yaml`, tej samej co w Przebiegu rozliczeń); poproś o to osobę utrzymującą narzędzie. |
 | „nie ma żadnego zlecenia z tego okresu” | Sprawdź, czy wybrano właściwy okres i czy eksport zleceń jest zapisany w Rejestrze. Uruchom ponownie. |
 | „Plik tego okresu już istnieje” | Narzędzie nie nadpisuje plików okresu, żeby nie stracić ręcznych poprawek. Sprawdź okres. Jeśli plik ma powstać od nowa, przenieś albo usuń wskazany plik i uruchom ponownie. Jeśli w Folderze okresu jest samo Rozliczenie wewnętrzne, bez Pliku zbiorczego, a poprzednie uruchomienie nie doszło do wyniku (np. zabrakło prądu), to jest niedokończony zapis: usuń to Rozliczenie wewnętrzne i uruchom ponownie. |
@@ -360,6 +412,10 @@ Plik zbiorczy wynika z okresu, więc go nie szukasz: Centrum bierze
    szablony` i `Puste szablony`. Przycisk `Folder okresu`
    otwiera folder, a na stronie `Okresy` okres ma Status `Rozliczenia
    pracowników gotowe`. Otwórz pliki pracowników i sprawdź ich zawartość.
+7. Wiersze w pliku pracownika wyglądają jak w Pliku zbiorczym: mają te same
+   kolory wypełnienia, kolory czcionki, pogrubienia i kursywy. Krój i rozmiar
+   czcionki, format liczb i obramowania są jak we Wzorcu rozliczenia
+   pracownika.
 
 Wynik z żółtym znakiem `Podgląd wymaga sprawdzenia · nic nie zapisano` to nie
 sukces: pod nim są problemy w Pliku zbiorczym, każdy w trzech częściach. Popraw

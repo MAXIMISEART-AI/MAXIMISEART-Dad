@@ -22,8 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 PAGES = {"okresy": "Okresy", "uruchomienia": "Uruchomienia", "metryki": "Metryki", "konfiguracja": "Konfiguracja"}
 # Dad's computer runs on Polish time; dates in Centrum are shown in the browser's time zone.
 DAD_TIME_ZONE = ZoneInfo("Europe/Warsaw")
-# The period the CLI step names: the fixture's last complete period, without a Folder okresu.
-LAST_COMPLETE_FOR_CLI = "06_12_10_2026"
+# The fixture's last complete period, without a Folder okresu.
+LAST_COMPLETE = "06_12_10_2026"
 # The fixture puts this marker in every synthetic workbook row; it must never reach the Centrum log.
 ROW_MARKER = "CENTRUM-SYN-ROW"
 # Dad double-clicks out of habit and double-taps the touch screen: the second click comes within milliseconds,
@@ -33,14 +33,6 @@ REPEAT_SETTLE_MS = 300
 
 class DriveFailure(Exception):
     pass
-
-
-def repo_commit() -> str:
-    """The checkout's ``HEAD`` commit as Git reports it, independent of how Centrum reads ``.git``."""
-
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
 
 
 class Run:
@@ -155,10 +147,10 @@ def history_rows(page: Page) -> Locator:
 
 
 def period_files(run: Run) -> list[Path]:
-    folder = Path(run.fixture["periods_directory"]) / LAST_COMPLETE_FOR_CLI
+    folder = Path(run.fixture["periods_directory"]) / LAST_COMPLETE
     return [
-        folder / f"Rozliczenie wew. {LAST_COMPLETE_FOR_CLI}.xlsx",
-        folder / f"Rozliczenie {LAST_COMPLETE_FOR_CLI} - zbiorcze.xlsx",
+        folder / f"Rozliczenie wew. {LAST_COMPLETE}.xlsx",
+        folder / f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx",
     ]
 
 
@@ -245,3 +237,31 @@ def error_toasts(page: Page) -> Locator:
     """Error notifications („Nie udało się …”), also those stacked behind the newest one."""
 
     return page.get_by_role("region", name="Notifications").get_by_role("dialog", name="Nie udało się")
+
+
+def served_version(run: Run) -> tuple[str, str | None]:
+    """The tool commit the served Centrum runs and the day the run's tool clone moved to it, as Git reports them.
+
+    The commit is the clone's ``HEAD`` unless powiadomienie-o-naprawie pinned another one in
+    ``<root>/github/tool-commit.txt``. The day (``YYYY-MM-DD``) is the last ``HEAD`` reflog entry's, in that entry's
+    time zone, when that entry leads to the commit, else ``None``. Neither depends on how Centrum reads ``.git``.
+    """
+
+    def git(*arguments: str) -> str:
+        return subprocess.run(
+            ["git", "-C", run.fixture["tool"]["clone"], *arguments], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    pinned = run.root / "github" / "tool-commit.txt"
+    commit = pinned.read_text(encoding="utf-8").strip() if pinned.exists() else git("rev-parse", "HEAD")
+    entry_commit, _, selector = git("log", "--walk-reflogs", "-1", "--date=short", "--format=%H %gd").partition(" ")
+    return commit, selector.removeprefix("HEAD@{").removesuffix("}") if entry_commit == commit else None
+
+
+def version_line(commit: str, since: str | None) -> str:
+    """The version line Dad reads in the card ``Narzędzie``: ``Wersja 1a2b3c4 od 20.10.2026``."""
+
+    if since is None:
+        return f"Wersja {commit[:7]}"
+    year, month, day = since.split("-")
+    return f"Wersja {commit[:7]} od {day}.{month}.{year}"

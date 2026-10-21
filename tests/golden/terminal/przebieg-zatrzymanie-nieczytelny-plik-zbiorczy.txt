@@ -1,9 +1,0 @@
-Rozliczenia | okres: 08_14_09_2026 | tryb: RUN
-Status: uruchomiono
-Ostatnie operacje:
-Etap: Sprawdzanie
-Etap: Odczyt danych
-Etap przerwany: Odczyt danych
-Status semantyczny: BŁĄD
-Nie wykonano: Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
-Czas uruchomienia: <N> ms

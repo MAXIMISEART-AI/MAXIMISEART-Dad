@@ -17,12 +17,12 @@ import { Item, ItemActions, ItemContent, ItemMedia, ItemTitle } from "@/componen
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useContentEntrance } from "@/lib/content-entrance"
-import { fullDate } from "@/lib/format"
 import { useResource } from "@/lib/use-resource"
+import { ToolCard } from "@/pages/configuration/tool-card"
 
-/** Konfiguracja tylko do odczytu: czy Wzorce są gotowe, kto jest Wykonawcą i jaka jest wersja narzędzia. */
+/** Konfiguracja tylko do odczytu: czy Wzorce są gotowe, kto jest Wykonawcą i jaka jest wersja narzędzia (z jej aktualizacją). */
 export function ConfigurationPage() {
-  const { resource: configuration } = useResource(getConfiguration)
+  const { resource: configuration, reload } = useResource(getConfiguration)
   const entrance = useContentEntrance(configuration.state === "loading")
 
   return (
@@ -32,11 +32,7 @@ export function ConfigurationPage() {
         badge={<ReadOnlyBadge />}
         action={
           configuration.state === "ready" ? (
-            <span className="flex gap-2 text-sm text-muted-foreground tabular-nums">
-              <span>{versionLabel(configuration.data.version)}</span>
-              <span aria-hidden>·</span>
-              <span>{REPORT_KEY_LABELS[configuration.data.reports]}</span>
-            </span>
+            <span className="text-sm text-muted-foreground">{REPORT_KEY_LABELS[configuration.data.reports]}</span>
           ) : undefined
         }
       />
@@ -49,21 +45,17 @@ export function ConfigurationPage() {
       ) : null}
       {configuration.state === "ready" ? (
         <div className={cn(entrance, "grid grid-cols-1 items-start gap-6 @4xl/main:grid-cols-2")}>
+          <ToolCard
+            version={configuration.data.version}
+            freshness={configuration.data.freshness}
+            onFinished={reload}
+          />
           <TemplatesCard templates={configuration.data.templates} />
           <WorkersCard workers={configuration.data.workers} />
         </div>
       ) : null}
     </>
   )
-}
-
-/** `Wersja 1a2b3c4 od 20.10.2026`: skrót commitu, po którym Maks znajdzie wersję, i dzień, od którego działa. */
-function versionLabel(version: Configuration["version"]) {
-  if (version === null) {
-    return "Wersja nieznana"
-  }
-
-  return version.since === null ? `Wersja ${version.commit}` : `Wersja ${version.commit} od ${fullDate(version.since)}`
 }
 
 /** Czy na tym komputerze jest klucz do Zgłoszeń; wartości klucza serwer nigdy nie wysyła. */
@@ -210,6 +202,7 @@ function ConfigurationSkeleton() {
       aria-busy="true"
       aria-label="Wczytywanie konfiguracji"
     >
+      <Skeleton className="h-20 rounded-xl @4xl/main:col-span-2" />
       <Skeleton className="h-64 rounded-xl" />
       <Skeleton className="h-64 rounded-xl" />
     </div>

@@ -1,4 +1,4 @@
-"""Przygotowanie pliku zbiorczego w testach: syntetyczne skoroszyty, operacja i CLI.
+"""Przygotowanie pliku zbiorczego w testach: syntetyczne skoroszyty i operacja.
 
 Rejestr zleceń, Wzorzec rozliczenia wewnętrznego i Wzorzec pliku zbiorczego są
 budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date, datetime
-from io import StringIO
+from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -23,7 +22,6 @@ from rozliczenia.collective_preparation import (
 )
 from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
-from rozliczenia.preparation_cli import main
 from tests.fixtures.settlement import write_mapping
 from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture
 
@@ -472,63 +470,18 @@ def cell_values(path: Path, *, min_row: int, max_row: int, min_col: int, max_col
         workbook.close()
 
 
-def metrics_path_for(fixture: PreparationFixture) -> Path:
-    return fixture.register_path.parent / "przygotowanie-metrics.jsonl"
-
-
-def preparation_arguments(fixture: PreparationFixture, *extra_args: str) -> list[str]:
-    return [
-        "--register",
-        str(fixture.register_path),
-        "--periods-directory",
-        str(fixture.periods_directory),
-        "--period",
-        PERIOD,
-        "--config",
-        str(fixture.config_path),
-        "--internal-template",
-        str(fixture.internal_template_path),
-        "--collective-template",
-        str(fixture.collective_template_path),
-        "--metrics",
-        str(metrics_path_for(fixture)),
-        *extra_args,
-    ]
-
-
-def run_preparation_cli(fixture: PreparationFixture, *extra_args: str) -> tuple[int, str]:
-    output = StringIO()
-    exit_code = main(preparation_arguments(fixture, *extra_args), output=output)
-    return exit_code, output.getvalue()
-
-
-def without_option(arguments: list[str], option: str) -> list[str]:
-    index = arguments.index(option)
-    return arguments[:index] + arguments[index + 2 :]
-
-
-def run_cli_asking_for_period(
-    fixture: PreparationFixture, answers: str, *extra_args: str, today: date = date(2026, 9, 16)
-) -> tuple[int, str]:
-    output = StringIO()
-    arguments = without_option(preparation_arguments(fixture, *extra_args), "--period")
-    exit_code = main(arguments, output=output, input_stream=StringIO(answers), today=today)
-    return exit_code, output.getvalue()
-
-
-def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+def incomplete_period_rows() -> list[RegisterRow]:
     """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
 
-    rows: list[RegisterRow] = [
+    return [
         register_order(1, datetime(2026, 9, 8, 8, 0)),
         None,
         register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
         register_order(3, datetime(2026, 9, 12, 12, 0)),
     ]
-    return make_preparation_fixture(tmp_path, rows)
 
 
-def run_cli_answering(fixture: PreparationFixture, answers: str, *extra_args: str) -> tuple[int, str]:
-    output = StringIO()
-    exit_code = main(preparation_arguments(fixture, *extra_args), output=output, input_stream=StringIO(answers))
-    return exit_code, output.getvalue()
+def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
+
+    return make_preparation_fixture(tmp_path, incomplete_period_rows())

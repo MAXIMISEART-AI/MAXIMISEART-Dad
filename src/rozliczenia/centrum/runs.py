@@ -1,13 +1,13 @@
 """Uruchomienia procesu z Centrum rozliczeń: jedno naraz, w wątku roboczym, z podglądem przez SSE.
 
-Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i trzecim
-adapterem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
-procesu: proces podaje gotowe ``PreparedRun`` (opis procesu z CLI, wejście
+Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i
+podglądem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
+procesu: proces podaje gotowe ``PreparedRun`` (opis procesu, wejście
 procesu, plik metryk i widok Uruchomienia procesu z ``run_view``), a moduł
 prowadzi z nim rdzeń i publikuje widoki dla przeglądarki. Widok podsumowania robi rdzeń
 w swojej osłonie, więc jego awaria to błąd po silniku z Komunikatem z katalogu
 procesu, ten sam wynik co w metrykach. Zatrzymania, ostrzeżenia i decyzja taty
-przechodzą jako komunikaty w trzech częściach, bez linii terminala.
+przechodzą jako Komunikaty w trzech częściach.
 
 Każda zmiana stanu to nowy niemutowalny widok (``contract.RunView``) z kolejnym
 numerem. Strumień SSE wysyła najpierw bieżący widok, potem każdy kolejny, więc
@@ -45,7 +45,6 @@ from rozliczenia.process_run import (
     Stop,
     run_process,
 )
-from rozliczenia.domain import ProgressEvent
 from rozliczenia.progress import ProgressProjection, ProgressSnapshot
 from rozliczenia.telemetry import MetricsStore
 
@@ -67,11 +66,9 @@ SummaryT = TypeVar("SummaryT")
 
 @dataclass(frozen=True)
 class PreparedRun(Generic[InputsT, SummaryT]):
-    """Uruchomienie procesu gotowe do startu: ten sam opis procesu co w CLI i wejście procesu z ustawień.
+    """Uruchomienie procesu gotowe do startu.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
-    ``view`` (deklaracja procesu, liczby na żywo i wynik) i ``warnings`` zamieniają snapshot postępu i podsumowanie
-    silnika na widok dla przeglądarki; ``summary_view`` woła rdzeń.
     """
 
     key: contract.ProcessKey
@@ -80,8 +77,7 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     inputs: InputsT
     metrics_path: Path
     done: str
-    view: ProcessView[SummaryT]
-    warnings: Callable[[SummaryT], Sequence[Message]]
+    view: ProcessView[InputsT, SummaryT]
 
     @property
     def dry_run(self) -> bool:
@@ -90,10 +86,10 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
         return self.view.progress(snapshot, dry_run=self.dry_run)
 
-    def summary_view(self, _inputs: InputsT, summary: SummaryT) -> _SummaryView:
+    def summary_view(self, inputs: InputsT, summary: SummaryT) -> _SummaryView:
         return _SummaryView(
             summary=self.view.summary(summary, dry_run=self.dry_run),
-            warnings=[contract.Message.of(warning) for warning in self.warnings(summary)],
+            warnings=[contract.Message.of(warning) for warning in self.view.warnings(inputs, summary)],
         )
 
 
@@ -122,11 +118,20 @@ class StoppedRun:
     stop: Stop
 
 
+# Odmowa w trakcie Aktualizacji narzędzia: uruchomienia procesu, zamknięcia Centrum albo innej aktualizacji.
+_UPDATING = "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem {then}."
+# Odmowa po przyjętym zamknięciu: wątek, który teraz by wystartował, zginąłby z końcem serwera.
+_CLOSING = "Centrum rozliczeń się zamyka. Kliknij skrót „Centrum rozliczeń” na pulpicie, potem {then}."
+
+
 class RunHost:
     """Jedno Uruchomienie procesu naraz w obrębie serwera i jego widoki dla przeglądarki.
 
-    ``shutdown_refusal()`` odmawia zamknięcia serwera, gdy Uruchomienie trwa
-    (także gdy czeka na decyzję taty). Początek i koniec każdego Uruchomienia
+    To samo miejsce „jedno naraz” zajmuje Aktualizacja narzędzia (``begin_update``
+    do ``end_update``): w jej trakcie start Uruchomienia jest odrzucony, a w trakcie
+    Uruchomienia ona. ``shutdown_refusal()`` odmawia zamknięcia serwera, gdy
+    Uruchomienie trwa (także gdy czeka na decyzję taty) albo trwa aktualizacja, a gdy
+    nie odmawia, od tej chwili odrzuca oba starty. Początek i koniec każdego Uruchomienia
     trafiają do dziennika Centrum jako bezpieczne fakty, a rekord metryk każdego
     Uruchomienia z Centrum do ``CentrumRuns``. Ostatnie Zatrzymanie każdego procesu
     zostaje w pamięci (``StopMemory``), żeby rozpoznać powtórkę. Przy Zatrzymaniu
@@ -147,18 +152,50 @@ class RunHost:
         self._sequence = 0
         self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=contract.RunIdle(state="idle"))]
         self._run: _Run | None = None
+        self._updating = False
+        self._closing = False
 
     def shutdown_refusal(self) -> str | None:
-        """Dlaczego teraz nie można zamknąć Centrum (``Shutdown.refuse_while``); ``None``, gdy nic nie trwa."""
+        """Dlaczego teraz nie można zamknąć Centrum (``Shutdown.refuse_while``); ``None``, gdy nic nie trwa.
+
+        ``None`` przyjmuje zamknięcie w tej samej blokadzie: kolejne Uruchomienie ani aktualizacja już nie wystartują.
+        """
 
         with self._lock:
-            run = self._run
-            if run is None or run.ended:
-                return None
-            return (
-                f"Trwa Uruchomienie procesu: {run.info.title}, okres {run.info.period}. "
-                "Poczekaj na jego wynik w Uruchomieniach, potem zamknij Centrum rozliczeń."
-            )
+            busy = self._busy_locked("zamknij Centrum rozliczeń")
+            if busy is None:
+                self._closing = True
+            return busy
+
+    def begin_update(self) -> None:
+        """Zajmuje miejsce „jedno naraz” na Aktualizację narzędzia; ``contract.Refusal``, gdy jest zajęte."""
+
+        with self._lock:
+            if self._closing:
+                raise contract.Refusal(409, _CLOSING.format(then="zaktualizuj narzędzie"))
+            if self._updating:
+                raise contract.Refusal(409, "Trwa już aktualizacja narzędzia. Poczekaj na jej wynik.")
+            busy = self._busy_locked("zaktualizuj narzędzie")
+            if busy is not None:
+                raise contract.Refusal(409, busy)
+            self._updating = True
+
+    def end_update(self) -> None:
+        with self._lock:
+            self._updating = False
+
+    def _busy_locked(self, then: str) -> str | None:
+        """Co teraz trwa, z prośbą, żeby poczekać i ``then``; ``None``, gdy nic."""
+
+        if self._updating:
+            return _UPDATING.format(then=then)
+        run = self._run
+        if run is None or run.ended:
+            return None
+        return (
+            f"Trwa Uruchomienie procesu: {run.info.title}, okres {run.info.period}. "
+            f"Poczekaj na jego wynik w Uruchomieniach, potem {then}."
+        )
 
     def current(self) -> contract.RunEvent:
         with self._lock:
@@ -170,6 +207,10 @@ class RunHost:
 
     def start(self, prepared: PreparedRun[Any, Any]) -> contract.RunView:
         with self._lock:
+            if self._closing:
+                raise contract.Refusal(409, _CLOSING.format(then="uruchom proces"))
+            if self._updating:
+                raise contract.Refusal(409, _UPDATING.format(then="uruchom proces"))
             if self._run is not None and not self._run.ended:
                 running = self._run.info
                 raise contract.Refusal(
@@ -283,7 +324,7 @@ class _Run:
             dry_run=prepared.dry_run,
             confirms_readiness=prepared.view.confirms_readiness,
         )
-        self._progress = prepared.progress_view(ProgressProjection(_mode(prepared.dry_run), prepared.period).snapshot)
+        self._progress = prepared.progress_view(ProgressProjection().snapshot)
         self._stale = False
         self._decided = threading.Event()
         self._consent = False
@@ -351,13 +392,13 @@ class _Run:
         self._decided.wait()
         return self._consent
 
-    # Podgląd postępu (trzeci adapter projekcji). Każde powiadomienie odświeża widok
+    # Podgląd postępu. Każde powiadomienie odświeża widok
     # na żywo; przeglądarka dostaje nowy widok tylko wtedy, gdy zmieniło się to, co pokazuje.
 
-    def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
+    def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
-    def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
+    def show_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
     def stop_progress(self) -> None:

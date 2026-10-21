@@ -11,7 +11,7 @@ stop leaves a safe line in the Centrum log (`logs/centrum-rozliczen.log`).
 
 ## Sub-features
 
-- `start-gotowosc`: the served Centrum answers `health` with its identity and the tool's commit, and the Centrum log starts with a `start` line naming the port.
+- `start-gotowosc`: the served Centrum answers `health` with its identity, the tool's commit it runs, and this start, and the Centrum log starts with a `start` line naming the port.
 - `start-druga-instancja`: the real launcher on the same port says `Centrum rozliczeń już działa`, opens only the tab, logs `juz-dziala`, and the first Centrum keeps serving.
 - `start-obcy-program`: the real launcher on a port held by another program exits 1 with the three-part message and logs `blad-startu`.
 - `karty-w-tle`: a tab in the background closes its event stream; with 7 more tabs (more than the browser's 6 connections to one address) each new tab still shows Uruchomienia, and the first tab reconnects when it comes back to the front.
@@ -29,9 +29,9 @@ stop leaves a safe line in the Centrum log (`logs/centrum-rozliczen.log`).
 Preconditions:
 
 - Centrum is served for this run with `DOCTOR OK`. This feature closes it, so it runs last in `all`; nothing can be driven after it.
-- The launcher steps copy the tool into `<root>/narzedzie` so the real launcher's log stays in the run root. The copy's `.git/HEAD` names the checkout's commit, so it is the same version as the served Centrum. The steps set `BROWSER` to a recorder that appends to `<root>/browser.txt`.
+- The launcher steps copy the tool into `<root>/narzedzie` so the real launcher's log stays in the run root. The copy's `.git/HEAD` names the served Centrum's commit (the tool clone's `HEAD`, or `<root>/github/tool-commit.txt` when powiadomienie-o-naprawie pinned one), so it is the same version. The steps set `BROWSER` to a recorder that appends to `<root>/browser.txt`.
 
-- **Readiness.** `GET /api/health` (`api/start-health.json`) names `centrum-rozliczen` and the checkout's `HEAD` commit (`git rev-parse HEAD`); `<root>/logs/centrum-rozliczen.log` starts with `start … port=<port>`.
+- **Readiness.** `GET /api/health` (`api/start-health.json`) has exactly `service` `centrum-rozliczen`, the served Centrum's commit shortened to 7 characters, and a non-empty `instance`; `<root>/logs/centrum-rozliczen.log` starts with `start … port=<port>`.
 - **Second start.** Run `<root>/narzedzie/run_centrum.py --port <port>`. It exits 0, prints `Centrum rozliczeń już działa: <url>` (`api/start-druga-instancja.txt`), `browser.txt` holds exactly the URL, the copy's log holds `juz-dziala`, and `health` still answers.
 - **Foreign program.** Bind a socket on a free port, then run the launcher on it. It exits 1, prints the lines `Co się stało`, `Gdzie`, `Co zrobić` with `zajmuje inny program`, nothing on stderr (`api/start-obcy-program.txt`), and the copy's log ends with `blad-startu`.
 - **Tabs in the background.** The drive's tab opens `#/uruchomienia` and waits until heading `Uruchomienia` shows and the skeleton `Wczytywanie Uruchomień` is gone, which needs both the run setup (API) and the current Uruchomienie (stream). The harness sends it to the background (`document.visibilityState` `hidden` and a `visibilitychange` event, as the browser does for a tab left behind); its `/api/runs/events` request fails with `net::ERR_ABORTED`. Seven times: open a new tab (`context.new_page()`) on `#/uruchomienia` and wait up to 5 s for the same, then send it to the background before the next one. Capture `90` (the seventh tab). Bring the drive's tab back to the front: its new `/api/runs/events` request answers `200`. Close the seven tabs.

@@ -13,7 +13,7 @@ import urllib.request
 
 from playwright.sync_api import Page, Request, Response, expect
 
-from drive.common import REPO_ROOT, Run, repo_commit
+from drive.common import REPO_ROOT, Run, served_version
 
 # Every click on the shortcut opens one more tab; the browser keeps at most 6 connections to Centrum for all tabs.
 _SHORTCUT_TABS = 7
@@ -43,7 +43,7 @@ def _copy_tool(run: Run) -> Path:
         shutil.copy2(REPO_ROOT / "run_centrum.py", tool)
         shutil.copytree(REPO_ROOT / "src", tool / "src", ignore=shutil.ignore_patterns("__pycache__"))
         (tool / ".git").mkdir()
-        (tool / ".git" / "HEAD").write_text(repo_commit() + "\n", encoding="utf-8")
+        (tool / ".git" / "HEAD").write_text(served_version(run)[0] + "\n", encoding="utf-8")
     return tool
 
 
@@ -108,8 +108,12 @@ def drive_start_and_close(run: Run, page: Page) -> None:
 
     run.step(feature, "start-gotowosc")
     health = run.api("/api/health", "start-health")
+    commit, _ = served_version(run)
     run.check(
-        health == {"service": "centrum-rozliczen", "commit": repo_commit()}, "health names Centrum rozliczeń and its commit"
+        health.keys() == {"service", "commit", "instance"}
+        and (health["service"], health["commit"]) == ("centrum-rozliczen", commit[:7])
+        and bool(health["instance"]),
+        "health names Centrum rozliczeń, the tool's commit it runs, and this start",
     )
     run.check(_log_events(served_log)[:1] == ["start"], "the Centrum log starts with a start entry")
     run.check(f"port={port}" in served_log.read_text(encoding="utf-8"), "the start entry names the port")
@@ -167,6 +171,8 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     run.check(_answers(run.url), "closing a tab leaves Centrum running")
 
     run.step(feature, "zamykanie-potwierdzenie")
+    # In `all`, Centrum already closed once for aktualizacja (`zamkniecie z=aktualizacja`) and was restarted.
+    closings = _log_events(served_log).count("zamkniecie")
     close_button = page.get_by_role("button", name="Zamknij Centrum rozliczeń", exact=True)
     close_button.click()
     dialog = page.get_by_role("alertdialog", name="Zamknąć Centrum rozliczeń?")
@@ -175,7 +181,9 @@ def drive_start_and_close(run: Run, page: Page) -> None:
     run.capture(page, "91-start-i-zamykanie-potwierdzenie", full_page=False)
     dialog.get_by_role("button", name="Anuluj", exact=True).click()
     expect(dialog).to_be_hidden()
-    run.check(_answers(run.url) and "zamkniecie" not in _log_events(served_log), "Anuluj leaves Centrum running")
+    run.check(
+        _answers(run.url) and _log_events(served_log).count("zamkniecie") == closings, "Anuluj leaves Centrum running"
+    )
 
     run.step(feature, "zamykanie")
     close_button.click()

@@ -442,7 +442,7 @@ class _StagingDirectory:
     Its removal fails like the real one: with ``ignore_cleanup_errors`` the folder
     stays and the failure is swallowed, otherwise it is raised. A kill during the
     removal is not explored: the run's outcome is already decided, as with a kill
-    while the terminal prints it, which the checker does not explore either.
+    while the result is shown, which the checker does not explore either.
     """
 
     def __init__(

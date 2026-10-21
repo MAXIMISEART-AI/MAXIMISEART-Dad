@@ -46,8 +46,10 @@ py -3 install_centrum_shortcut.py
 Polecenie tworzy na pulpicie skrót „Centrum rozliczeń” (zob.
 [Centrum rozliczeń](#centrum-rozliczeń-rozwój)). Powtórz je po przeniesieniu
 folderu narzędzia albo po instalacji nowego Pythona. Tata pracuje wyłącznie w
-Centrum rozliczeń ([ADR 0010](docs/adr/0010-centrum-jedynym-wejsciem-taty.md));
-CLI niżej służy osobie utrzymującej narzędzie, testom E2E i pomiarom czasu.
+Centrum rozliczeń ([ADR 0010](docs/adr/0010-centrum-jedynym-wejsciem-taty.md)).
+Osoba utrzymująca narzędzie, testy E2E i pomiary czasu uruchamiają procesy
+[skryptem dla maszyn](#skrypt-dla-maszyn)
+([ADR 0011](docs/adr/0011-bez-cli-i-adapterow-terminala.md)).
 
 Żeby „Wyślij do Maksa” zakładało Zgłoszenia, Maks tworzy w ustawieniach
 GitHuba token fine-grained (tylko repozytorium
@@ -57,32 +59,20 @@ zapis, ważność do roku) i wpisuje go jako jedyną linię do
 niego Centrum zapisuje Zgłoszenia w `config\zgloszenia\`, a Konfiguracja
 pokazuje „Zgłoszenia: brak klucza”.
 
-Instalacja obejmuje `rich`, używany przez kolorowy dashboard CLI. Jeśli terminal
-nie obsługuje kolorów albo pakiet jest chwilowo niedostępny, narzędzie używa
-tekstowego fallbacku z tymi samymi informacjami operacyjnymi.
+Wspólny Wzorzec rozliczenia pracownika leży domyślnie w
+`config\Wzorzec rozliczenia pracownika.xlsx`. Plik wcześniej nazywał się
+`config\placeholder.xlsx`. Gdy brakuje Wzorca rozliczenia pracownika, a obok
+leży `placeholder.xlsx`, komunikat podpowiada zmianę nazwy pliku.
 
-Przed pierwszym prawdziwym Przebiegiem rozliczeń użyj kontroli bez zapisu:
-
-```powershell
-py -3 run.py --dry-run --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx" --worker-template "C:\Dane\Wzorzec rozliczenia pracownika.xlsx"
-```
-
-`--worker-template` wskazuje wspólny skoroszyt bazowy. Domyślna ścieżka to
-`config\Wzorzec rozliczenia pracownika.xlsx`; parametr pozwala wskazać Wzorzec
-rozliczenia pracownika poza repozytorium. Plik wcześniej nazywał się
-`config\placeholder.xlsx`, a opcja `--placeholder`; starej opcji już nie ma.
-Gdy brakuje Wzorca rozliczenia pracownika, a obok leży `placeholder.xlsx`,
-komunikat podpowiada zmianę nazwy pliku.
-Podgląd sprawdza, czy folder wynikowy jest wolny, i pokazuje okres, folder,
-nazwy wszystkich planowanych plików oraz liczbę wierszy dla każdego wykonawcy.
-Nie tworzy folderu ani skoroszytów. Zwykły przebieg przygotowuje wszystkie kopie
-i uzupełnia je w katalogu tymczasowym, a Folder rozliczeń pracowników publikuje
+Przed pierwszym prawdziwym Przebiegiem rozliczeń użyj w Centrum `Podgląd bez
+zapisu`. Podgląd sprawdza, czy folder wynikowy jest wolny, i pokazuje nazwy
+wszystkich planowanych plików oraz liczbę wierszy dla każdego wykonawcy. Nie
+tworzy folderu ani skoroszytów. Zwykły przebieg przygotowuje wszystkie kopie i
+uzupełnia je w katalogu tymczasowym, a Folder rozliczeń pracowników publikuje
 dopiero po powodzeniu całej partii. Błąd nie zostawia częściowego folderu.
-Uruchomienie pokazuje też etapy, postęp skoroszytów pracownika i końcowe liczniki.
-W przekierowanym wyjściu lub terminalu bez kolorów używany jest zwykły tekst.
-Historia czasów jest dopisywana lokalnie do `.rozliczenia-metrics.jsonl`; można
-wskazać inne miejsce parametrem `--metrics`. P50 i P95 pojawiają się po pięciu
-ukończonych obserwacjach tego samego trybu (`RUN` albo `DRY-RUN`).
+Historia czasów jest dopisywana lokalnie do `.rozliczenia-metrics.jsonl`. P50 i
+P95 pojawiają się w Metrykach Centrum po pięciu ukończonych obserwacjach tego
+samego trybu (`RUN` albo `DRY-RUN`).
 
 ### Konfiguracja wykonawców
 
@@ -113,17 +103,6 @@ aktualizacji i przestań go śledzić:
 ```powershell
 git checkout ORIG_HEAD -- config/worker_mapping.yaml
 git rm --cached config/worker_mapping.yaml
-```
-
-## Uruchomienie Przebiegu rozliczeń z CLI
-
-`py -3 run.py` z folderem okresów w Ustawieniach taty pyta o okres z propozycją
-ostatniego pełnego okresu, tak jak Przygotowanie pliku zbiorczego, i bierze
-Plik zbiorczy z jego Folderu okresu. Bez Ustawień taty otwiera okno wyboru
-Pliku zbiorczego. Ścieżkę można też podać od razu:
-
-```powershell
-py -3 run.py --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
 ```
 
 ## Przygotowanie pliku zbiorczego
@@ -207,58 +186,63 @@ używanego przez Przebieg rozliczeń:
 
 Pliki `*.xlsx` nie trafiają do repozytorium. Wzorce przygotowuje człowiek z
 pustych plików taty; kod nie poprawia ich wyglądu. Komórki wzorca, do których
-trafiają zlecenia, nie mogą być scalone; sprawdza to już `--dry-run`. Ścieżki domyślne nadpisują
-parametry `--internal-template` i `--collective-template`, tak jak
-`--worker-template` w Przebiegu rozliczeń.
+trafiają zlecenia, nie mogą być scalone; sprawdza to już `Podgląd bez zapisu`.
 
 ### Uruchomienie
 
-Tata uruchamia proces w Centrum rozliczeń. `py -3 run_preparation.py` bierze
-Rejestr zleceń i folder okresów z Ustawień taty wskazanych w Centrum rozliczeń
-(`config\centrum-ustawienia.yaml`). Okno wyboru otwiera tylko dla tego, czego
-tam nie ma albo co zniknęło z dysku. Potem proponuje ostatni pełny okres przed
-dzisiejszą datą (Enter potwierdza, można wpisać inny token).
+Tata uruchamia proces w Centrum rozliczeń. Rejestr zleceń i folder okresów
+pochodzą z Ustawień taty (`config\centrum-ustawienia.yaml`), a Centrum
+proponuje ostatni pełny okres przed dzisiejszą datą.
 
-Kontrola bez zapisu z wiersza poleceń:
+`Podgląd bez zapisu` wykonuje w całości etapy Sprawdzanie, Odczyt danych i
+Planowanie, łącznie z Nienadpisywaniem, regułami zleceń i ostrzeżeniami.
+Pokazuje plan: liczbę zleceń okresu, Zleceń skutecznych i pominiętych pustych
+wierszy, liczby zleceń na każdy dzień, ostrzeżenia oraz nazwy obu plików. Nie
+tworzy plików ani Folderu okresu; dopisuje tylko rekord do historii czasów.
 
-```powershell
-py -3 run_preparation.py --dry-run --register "C:\Dane\ZLECENIA INTERMAX OD 08_11_2021.xlsx" --periods-directory "C:\Dane\INEA" --period 08_14_09_2026
-```
-
-| Parametr | Domyślnie | Znaczenie |
-|---|---|---|
-| `--register` | Ustawienia taty, potem okno wyboru pliku | Rejestr zleceń. |
-| `--periods-directory` | Ustawienia taty, potem okno wyboru folderu | Folder okresów z Folderami okresu. |
-| `--period` | pytanie z propozycją | Token okresu. |
-| `--config` | `config\worker_mapping.yaml` | Konfiguracja wykonawców. |
-| `--internal-template` | `config\Wzorzec rozliczenia wewnętrznego.xlsx` | Wzorzec rozliczenia wewnętrznego. |
-| `--collective-template` | `config\Wzorzec pliku zbiorczego.xlsx` | Wzorzec pliku zbiorczego. |
-| `--metrics` | `.przygotowanie-pliku-zbiorczego-metrics.jsonl` | Lokalna historia czasów. |
-| `--dry-run` | wyłączony | Podgląd bez zapisu. |
-
-`--dry-run` wykonuje w całości etapy Sprawdzanie, Odczyt danych i Planowanie,
-łącznie z Nienadpisywaniem, regułami zleceń i ostrzeżeniami. Pokazuje plan:
-okres, liczbę zleceń okresu, Zleceń skutecznych i pominiętych pustych wierszy,
-liczby zleceń na każdy dzień, ostrzeżenia oraz nazwy obu plików, a na końcu
-`DRY-RUN: Nic nie zapisano`. Nie tworzy plików ani Folderu okresu; dopisuje
-tylko rekord do historii czasów.
-
-Bez `--dry-run`, gdy ostatnie zlecenie okresu jest sprzed poniedziałku, CLI
-po etapie Planowanie, a przed Zapisywaniem, pokazuje ostrzeżenie o niepełnym
-okresie z liczbami na dzień i pyta o kontynuację, także gdy okres podano
-parametrem. Odpowiedź `t` albo `tak` kontynuuje, każda inna przerywa bez
-zapisu. Silnik o nic nie pyta: przekazuje plan, a decyzję podejmuje CLI.
-Rejestr jest czytany raz, a czas oczekiwania na odpowiedź nie wlicza się do
-czasu uruchomienia ani do historii czasów.
-
-Kody wyjścia: `0` sukces, także z ostrzeżeniami i po potwierdzeniu niepełnego
-okresu; `1` zatrzymanie, błąd, odmowa kontynuacji albo zamknięte okno wyboru.
+Przy zapisie, gdy ostatnie zlecenie okresu jest sprzed poniedziałku, Centrum po
+etapie Planowanie, a przed Zapisywaniem, pokazuje ostrzeżenie o niepełnym
+okresie z liczbami na dzień. `Kontynuuj` zapisuje oba pliki, `Przerwij bez
+zapisu` kończy Zatrzymaniem. Silnik o nic nie pyta: przekazuje plan, a decyzję
+podejmuje tata. Rejestr jest czytany raz, a czas oczekiwania na odpowiedź nie
+wlicza się do czasu uruchomienia ani do historii czasów.
 
 Historia czasów jest dopisywana do `.przygotowanie-pliku-zbiorczego-metrics.jsonl`,
 osobno od historii Przebiegu rozliczeń, w tym samym formacie rekordu i trybach
 `RUN`/`DRY-RUN`. Liczniki to zlecenia okresu, Zlecenia skuteczne, pominięte
-puste wiersze i ostrzeżenia. P50 i P95 pojawiają się po pięciu ukończonych
-obserwacjach tego samego trybu.
+puste wiersze i ostrzeżenia.
+
+## Skrypt dla maszyn
+
+`tools/uruchom_proces.py` uruchamia jeden proces bez Centrum, przez ten sam
+rdzeń Uruchomienia procesu. Nie jest wejściem taty. Służy weryfikacji
+end-to-end, straży czasu w CI, benchmarkowi i osobie utrzymującej narzędzie.
+Nie czyta Ustawień taty, nie otwiera okien wyboru i nie pyta o nic: każdą
+Decyzję taty, np. o niepełnym okresie, odrzuca.
+
+```sh
+.venv/bin/python tools/uruchom_proces.py settlement --dry-run --source "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+.venv/bin/python tools/uruchom_proces.py preparation --dry-run --register "ZLECENIA INTERMAX OD 08_11_2021.xlsx" --periods-directory INEA --period 08_14_09_2026
+```
+
+| Parametr | Proces | Domyślnie | Znaczenie |
+|---|---|---|---|
+| `--source` | `settlement` | wymagany | Plik zbiorczy. |
+| `--worker-template` | `settlement` | `config\Wzorzec rozliczenia pracownika.xlsx` | Wzorzec rozliczenia pracownika. |
+| `--register` | `preparation` | wymagany | Rejestr zleceń. |
+| `--periods-directory` | `preparation` | wymagany | Folder okresów z Folderami okresu. |
+| `--period` | `preparation` | wymagany | Token okresu. |
+| `--internal-template` | `preparation` | `config\Wzorzec rozliczenia wewnętrznego.xlsx` | Wzorzec rozliczenia wewnętrznego. |
+| `--collective-template` | `preparation` | `config\Wzorzec pliku zbiorczego.xlsx` | Wzorzec pliku zbiorczego. |
+| `--config` | oba | `config\worker_mapping.yaml` | Konfiguracja wykonawców. |
+| `--metrics` | oba | plik metryk procesu | Lokalna historia czasów. |
+| `--dry-run` | oba | wyłączony | Podgląd bez zapisu. |
+
+Na stdout trafia jeden obiekt JSON w kształcie kontraktu Centrum: wynik,
+podsumowanie z karty Uruchomienia, ostrzeżenia i Zatrzymanie z kodem
+Komunikatu, ostatni stan postępu, `Czas uruchomienia` i informacja o zapisie
+metryk. Pełny opis pól jest w opisie skryptu (`--help`). Kody wyjścia: `0` OK,
+`2` Wymaga sprawdzenia, `1` Zatrzymanie albo błędne argumenty.
 
 ## Testy
 
@@ -294,7 +278,7 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 .venv/bin/python -m mypy
 ```
 Check formatowania nie jest wymagany. Wszystkie zadania CI poza E2E i Timing
-guard (ruff, mypy, pytest, frontend z odtwarzalnym buildem) uruchamia naraz
+guard (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) uruchamia naraz
 `.venv/bin/python tools/ci_lokalnie.py` (Windows: `py -3 tools/ci_lokalnie.py`).
 
 W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
@@ -322,10 +306,10 @@ wystarczają zależności z `requirements.txt`, bez Node.
   jednorazowo `py -3 install_centrum_shortcut.py`: wskazuje `pythonw.exe`
   tego samego Pythona co `py -3` i `run_centrum.py`, więc nie ma okna konsoli.
   Ponowne kliknięcie rozpoznaje działające Centrum po `/api/health` (tożsamość
-  i commit narzędzia, z którego wystartowało) i tylko otwiera kartę. Błąd startu (port zajęty przez inny
-  program, inna wersja Centrum, brak biblioteki) bez konsoli pokazuje
-  natywne okienko, z konsolą trzy linie komunikatu
-  (`src/rozliczenia/centrum/start_problems.py`).
+  i commit narzędzia, z którego wystartowało) i tylko otwiera kartę. Błąd
+  startu (port zajęty przez inny program, Centrum z innego commitu, brak
+  biblioteki) bez konsoli pokazuje natywne okienko, z konsolą trzy linie
+  komunikatu (`src/rozliczenia/centrum/start_problems.py`).
 - `py -3 run_centrum.py` uruchamia Centrum z widoczną konsolą na `http://127.0.0.1:47811/` i otwiera kartę w
   przeglądarce. `--port` zmienia port, `--no-browser` nie otwiera karty.
 - Serwer działa do kliknięcia „Zamknij Centrum rozliczeń” w karcie
@@ -341,10 +325,11 @@ wystarczają zależności z `requirements.txt`, bez Node.
   OneDrive od wolnej przeglądarki.
 - Ustawienia Centrum (Rejestr zleceń, folder okresów, motyw) są w
   `config/centrum-ustawienia.yaml`, poza gitem.
-- Metryki czytają przy każdym odczycie oba pliki metryk CLI
+- Metryki czytają przy każdym odczycie oba pliki metryk
   (`.rozliczenia-metrics.jsonl`, `.przygotowanie-pliku-zbiorczego-metrics.jsonl`)
-  bez zmiany schematu, więc widać w nich także Uruchomienia procesu z CLI
-  (odznaka `.cmd`, także przy Uruchomieniach z dawnych launcherów).
+  bez zmiany schematu, więc widać w nich także Uruchomienia spoza Centrum.
+  Mają odznakę `.cmd`: to stare Uruchomienia z dawnych launcherów i CLI oraz
+  rekordy ze skryptu dla maszyn.
 
 Zmiana frontendu wymaga Node 24 i kończy się commitem źródeł razem z
 odbudowanym buildem; CI sprawdza, że build i kontrakt odpowiadają źródłom:
