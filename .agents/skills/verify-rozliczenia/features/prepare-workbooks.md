@@ -14,12 +14,12 @@ only after every workbook is ready.
 
 ## How to get to it (user POV)
 
-- Dad starts it in Centrum rozliczeń from the `Uruchomienia` page with the period picked from a list; the Plik zbiorczy comes from that Folder okresu. `verify-centrum-rozliczen` drives that route. The CLI (`py -3 run.py`) is the maintainer's route to the same process: with Ustawienia taty it asks for the period, without them it opens a file dialog or takes `--source`.
-- For direct verification, run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
+- Dad starts it in Centrum rozliczeń from the `Uruchomienia` page with the period picked from a list; the Plik zbiorczy comes from that Folder okresu. `verify-centrum-rozliczen` drives that route.
+- Outside Centrum, run `py -3 tools\uruchom_proces.py settlement --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
 
-## Driving it with PowerShell and run.py
+## Driving it with PowerShell and the machine script
 
-- Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` for the direct CLI proof.
+- Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` for the proof.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped` to prove an unknown WYKONAWCA prevents publication.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing` to prove an existing output folder is preserved.
 - Run the write-failure test listed in `safety-gates.md` to prove staging cleanup and retry.
