@@ -74,7 +74,7 @@ def _shortcut(clone: Path, port: int) -> Iterator[subprocess.Popen[str]]:
     try:
         yield process
     finally:
-        if os.name == "nt":
+        if sys.platform == "win32":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
         elif process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)
