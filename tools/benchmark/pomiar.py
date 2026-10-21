@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from benchmark import ROOT, BenchmarkError
-from benchmark.referencja import check_oracle
+from benchmark.referencja import Reference, check_oracle
 from benchmark.uruchomienie import Przebieg, git_output, run_przebieg
 
 
@@ -87,7 +87,7 @@ def measure(
     config: Path,
     worker_template: Path,
     machine: str,
-    reference: Path | None = None,
+    reference: Reference | None = None,
 ) -> dict[str, Any]:
     """Rekord dziennika z ``RUNS`` uruchomień Przebiegu rozliczeń na lustrze i bramki poprawności ostatniego z nich."""
 

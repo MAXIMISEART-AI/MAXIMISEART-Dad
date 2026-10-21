@@ -15,18 +15,18 @@ workbook, and leaves a worker with no rows empty.
 
 ## How to get to it (user POV)
 
-- Dad starts it in Centrum rozliczeń from the `Uruchomienia` page with the period picked from a list; the Plik zbiorczy comes from that Folder okresu. `verify-centrum-rozliczen` drives that route. The CLI (`py -3 run.py`) is the maintainer's route to the same process: with Ustawienia taty it asks for the period, without them it opens a file dialog or takes `--source`.
-- For direct verification, run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
+- Dad starts it in Centrum rozliczeń from the `Uruchomienia` page with the period picked from a list; the Plik zbiorczy comes from that Folder okresu. `verify-centrum-rozliczen` drives that route.
+- Outside Centrum, run `py -3 tools\uruchom_proces.py settlement --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
 
-## Driving it with PowerShell and run.py
+## Driving it with PowerShell and the machine script
 
 Preconditions:
 
 - Run the one-command orchestrator from the repository root.
 - Its default fixture contains mapped rows for Adrian Testowy and Darek Fikcyjny and no rows for Kamil Syntetyczny. The output folder is absent before the run.
 
-- **Run the direct CLI proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The application dry-run and write both return `0` for the default fixture.
-- **Observe progress.** `assert-run.txt` reports `progress_reported=true`: `run.txt` reaches `Postęp szablonów: 3/3 (100%)`, reports two `ZAPISANO` results and one `PUSTY_SZABLON`, and includes `Zapisane szablony: 2` in the final summary.
+- **Run the proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The dry-run and write both return `0` for the default fixture.
+- **Observe progress.** `assert-run.txt` reports `progress_reported=true`: in `run.json` the progress has `templates_completed` 3 of `template_total` 3 with `Zapisane szablony` 2 and `Puste szablony` 1, and the summary has `Zapisane szablony` 2, `Puste szablony` 1, and the `file_plan` of all three workers.
 - **Verify workbook state.** Read `assert-run.txt`; it returns `ASSERT OK` with exit code `0` after checking exactly three files, routed values, preserved formulas/sheets/formatting, an empty Kamil workbook, and an untouched Wzorzec rozliczenia pracownika.
 
 ## Gotchas

@@ -39,10 +39,16 @@ import rozliczenia.engine as settlement_engine
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.workbook_files import DataRow, WorkerSettlementTemplate
 
-from tests.fixtures.preparation import make_preparation_fixture
-from tests.fixtures.settlement import append_completed_records, install_source_dialog, make_preview_fixture, run_cli
-from tests.fixtures.preparation import incomplete_period_fixture, preparation_arguments, run_cli_answering, run_cli_asking_for_period, run_preparation_cli
-from tests.fixtures.settlement import make_fixture
+from tests.fixtures.preparation import incomplete_period_fixture, make_preparation_fixture
+from tests.fixtures.settlement import append_completed_records, make_fixture, make_preview_fixture
+from tests.fixtures.terminal import (
+    install_source_dialog,
+    preparation_arguments,
+    run_cli,
+    run_cli_answering,
+    run_cli_asking_for_period,
+    run_preparation_cli,
+)
 
 GOLDEN_DIRECTORY = Path(__file__).resolve().parent / "golden" / "terminal"
 MILLISECONDS = re.compile(r"\d+ ms\b")

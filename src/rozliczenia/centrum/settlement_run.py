@@ -17,15 +17,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Final
 
-from rozliczenia import settlement_messages
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import located_period_folder, read_board, requested_period
 from rozliczenia.centrum.runs import PreparedRun
 from rozliczenia.settings import SettingsStore
-from rozliczenia.domain import SettlementSummary
-from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.settlement_process import PROCESS, SettlementInputs
@@ -83,9 +80,6 @@ class SettlementEntry:
             worker_template_path=self.configuration.worker_template,
         )
 
-        def warnings(summary: SettlementSummary) -> list[Message]:
-            return [settlement_messages.issue_message(issue, source) for issue in summary.issues]
-
         return PreparedRun(
             key=_KEY,
             period=period.token,
@@ -94,7 +88,6 @@ class SettlementEntry:
             metrics_path=self.metrics_path,
             done="Rozliczenia pracowników gotowe",
             view=_VIEW,
-            warnings=warnings,
         )
 
 

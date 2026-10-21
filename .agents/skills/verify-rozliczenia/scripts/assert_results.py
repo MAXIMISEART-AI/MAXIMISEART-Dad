@@ -7,7 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -15,6 +15,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 PERIOD = "08_14_09_2026"
 WORKERS = ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
+PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
+FILE_PLAN = [
+    {"file": f"Rozliczenie {PERIOD} - {worker}.xlsx", "rows": rows} for worker, rows in zip(WORKERS, (2, 1, 0))
+]
 
 
 class WorkbookSnapshot(NamedTuple):
@@ -108,17 +112,44 @@ def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str
         errors.append("metrics contain row content or a filesystem path")
 
 
-def _check_progress(output: str, errors: list[str]) -> None:
-    phases = [output.find(f"Etap: {phase}") for phase in ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")]
-    if -1 in phases or phases != sorted(phases):
-        errors.append("run transcript does not report the four stages in order")
-    if (
-        "Postęp szablonów: 3/3 (100%)" not in output
-        or output.count("| ZAPISANO |") != 2
-        or output.count("| PUSTY_SZABLON |") != 1
-        or "Status semantyczny: OK" not in output
-    ):
-        errors.append("run transcript does not report template progress and semantic status")
+def _figures(figures: list[dict[str, Any]]) -> list[tuple[str, int]]:
+    return [(figure["label"], figure["value"]) for figure in figures]
+
+
+def _load_result(path: Path | None, errors: list[str]) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        errors.append("process step evidence is missing")
+        return {"progress": {}}
+    text = path.read_text(encoding="utf-8")
+    if any(value in text for value in _ROW_CONTENT):
+        errors.append("process result contains source row content")
+    result = json.loads(text)["result"]
+    if not isinstance(result, dict):
+        errors.append("process step printed no JSON result")
+        return {"progress": {}}
+    if result["metrics_saved"] is not True:
+        errors.append("process result reports its metrics record as not saved")
+    return result
+
+
+def _check_progress(progress: dict[str, Any], errors: list[str]) -> None:
+    if [(phase["phase"], phase["state"]) for phase in progress.get("phases", [])] != [
+        (phase, "completed") for phase in PHASES
+    ]:
+        errors.append("run progress does not complete the four stages in order")
+    if (progress.get("template_total"), progress.get("templates_completed")) != (3, 3) or _figures(
+        progress.get("figures", [])
+    ) != [("Wiersze danych", 3), ("Zapisane szablony", 2), ("Puste szablony", 1), ("Problemy", 0)]:
+        errors.append("run progress does not report 3/3 templates with two written and one empty")
+
+
+def _check_stop(result: dict[str, Any], expected_stop: str, expected_what: str | None, errors: list[str]) -> None:
+    message = (result.get("stop") or {}).get("message", {})
+    code = message.get("code")
+    if result.get("result") != "BLAD_KRYTYCZNY" or result.get("summary") is not None or code != expected_stop:
+        errors.append(f"run did not stop with {expected_stop} (stopped with {code})")
+    elif expected_what is not None and expected_what not in message.get("what", ""):
+        errors.append(f"{expected_stop} does not say: {expected_what}")
 
 
 def _finish_assertion(errors: list[str], success_message: str) -> int:
@@ -130,37 +161,35 @@ def _finish_assertion(errors: list[str], success_message: str) -> int:
     return 0
 
 
-def _assert_dry_run(root: Path, transcript: Path | None) -> int:
+def _assert_dry_run(root: Path, result_path: Path | None) -> int:
     period_directory = root / PERIOD
     target_directory = period_directory / f"Rozliczenie pracowników {PERIOD}"
     manifest = json.loads((root / "fixture_manifest.json").read_text(encoding="utf-8"))
     errors = _unchanged_inputs(root, manifest)
     if target_directory.exists():
         errors.append("dry-run created the target directory")
-    if transcript is None or not transcript.is_file():
-        errors.append("dry-run transcript is missing")
-    else:
-        output = transcript.read_text(encoding="utf-8")
-        expected_output = (
-            f"Okres rozliczeniowy: {PERIOD}",
-            f"Folder rozliczeń pracowników: {target_directory.resolve()}",
-            "Plan plików:",
-            f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx | Wiersze do uzupełnienia: 2",
-            f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx | Wiersze do uzupełnienia: 1",
-            f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx | "
-            "Wiersze do uzupełnienia: 0 | Pusty skoroszyt",
-            f"Problemy: {1 if manifest.get('include_unmapped') else 0}",
-            "Nic nie zapisano",
-        )
-        for expected in expected_output:
-            if expected not in output:
-                errors.append(f"dry-run output is missing {expected}")
-        if manifest.get("include_unmapped") and "Nieznany identyfikator WYKONAWCA" not in output:
-            errors.append("dry-run output is missing the unmapped-worker warning")
-        if any(forbidden in output for forbidden in _ROW_CONTENT):
-            errors.append("dry-run output contains source row content")
-    dry_run_result = "WYMAGA_SPRAWDZENIA" if manifest.get("include_unmapped") else "OK"
-    _check_metrics(root, [("DRY-RUN", dry_run_result)], errors)
+    result = _load_result(result_path, errors)
+    unmapped = bool(manifest.get("include_unmapped"))
+    expected_summary = {
+        "figures": [
+            {"label": "Wiersze danych", "value": 3, "unit": "count"},
+            {"label": "Planowane szablony", "value": 2, "unit": "count"},
+            {"label": "Puste szablony", "value": 1, "unit": "count"},
+        ],
+        "counts": None,
+        "files": [],
+        "file_plan": FILE_PLAN,
+    }
+    if result.get("result") != ("WYMAGA_SPRAWDZENIA" if unmapped else "OK") or result.get("stop") is not None:
+        errors.append("dry-run result is not the expected finished result")
+    if result.get("summary") != expected_summary:
+        errors.append("dry-run plan does not list every worker file with its rows")
+    if [warning["code"] for warning in result.get("warnings", [])] != (["BRAK_MAPOWANIA"] if unmapped else []):
+        errors.append("dry-run warnings do not match the unmapped workers")
+    problems = dict(_figures(result["progress"].get("figures", []))).get("Problemy")
+    if problems != (1 if unmapped else 0):
+        errors.append(f"dry-run reports {problems} Problemy")
+    _check_metrics(root, [("DRY-RUN", "WYMAGA_SPRAWDZENIA" if unmapped else "OK")], errors)
 
     return _finish_assertion(
         errors,
@@ -169,7 +198,7 @@ def _assert_dry_run(root: Path, transcript: Path | None) -> int:
     )
 
 
-def _assert_run(root: Path, transcript: Path | None) -> int:
+def _assert_run(root: Path, result_path: Path | None) -> int:
     target_directory = root / PERIOD / f"Rozliczenie pracowników {PERIOD}"
     manifest = json.loads((root / "fixture_manifest.json").read_text(encoding="utf-8"))
     errors = _unchanged_inputs(root, manifest)
@@ -205,15 +234,24 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
     except (OSError, ValueError, KeyError):
         errors.append("one or more published workbooks cannot be read")
 
-    if transcript is None or not transcript.is_file():
-        errors.append("run transcript is missing")
-    else:
-        output = transcript.read_text(encoding="utf-8")
-        if "Status końcowy: OK" not in output or "Zapisane szablony: 2" not in output:
-            errors.append("run transcript does not report a successful complete run")
-        if any(value in output for value in _ROW_CONTENT):
-            errors.append("run transcript contains source row content")
-        _check_progress(output, errors)
+    result = _load_result(result_path, errors)
+    expected_summary = {
+        "figures": [
+            {"label": "Zapisane szablony", "value": 2, "unit": "count"},
+            {"label": "Puste szablony", "value": 1, "unit": "count"},
+        ],
+        "counts": None,
+        "files": [],
+        "file_plan": FILE_PLAN,
+    }
+    if (
+        result.get("result") != "OK"
+        or result.get("stop") is not None
+        or result.get("warnings") != []
+        or result.get("summary") != expected_summary
+    ):
+        errors.append("run result does not report a successful complete run")
+    _check_progress(result["progress"], errors)
     _check_metrics(root, [("DRY-RUN", "OK"), ("RUN", "OK")], errors)
 
     return _finish_assertion(
@@ -223,7 +261,7 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
     )
 
 
-def _assert_no_publish(root: Path, transcript: Path | None, expected_message: str) -> int:
+def _assert_no_publish(root: Path, result_path: Path | None, expected_stop: str, expected_what: str | None) -> int:
     period_directory = root / PERIOD
     target_directory = period_directory / f"Rozliczenie pracowników {PERIOD}"
     manifest = json.loads((root / "fixture_manifest.json").read_text(encoding="utf-8"))
@@ -232,21 +270,14 @@ def _assert_no_publish(root: Path, transcript: Path | None, expected_message: st
         errors.append("failed run published the target directory")
     if list(period_directory.glob(f".{target_directory.name}.staging-*")):
         errors.append("failed run left a staging directory")
-    if transcript is None or not transcript.is_file():
-        errors.append("failed run transcript is missing")
-    else:
-        output = transcript.read_text(encoding="utf-8")
-        if expected_message not in output:
-            errors.append("failed run transcript is missing its safe failure message")
-        if any(value in output for value in ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3", "unknown.synthetic")):
-            errors.append("failed run transcript contains source row content")
+    _check_stop(_load_result(result_path, errors), expected_stop, expected_what, errors)
     return _finish_assertion(
         errors,
         "ASSERT OK | mode=no-publish | output_folder_absent=true | inputs_unchanged=true",
     )
 
 
-def _assert_existing_output(root: Path, transcript: Path | None) -> int:
+def _assert_existing_output(root: Path, result_path: Path | None, expected_stop: str, expected_what: str | None) -> int:
     target_directory = root / PERIOD / f"Rozliczenie pracowników {PERIOD}"
     sentinel = target_directory / "existing-synthetic.txt"
     manifest = json.loads((root / "fixture_manifest.json").read_text(encoding="utf-8"))
@@ -255,10 +286,7 @@ def _assert_existing_output(root: Path, transcript: Path | None) -> int:
         errors.append("existing output folder was changed")
     if {path.name for path in target_directory.iterdir()} != {sentinel.name}:
         errors.append("existing output folder gained or lost files")
-    if transcript is None or not transcript.is_file():
-        errors.append("existing-output transcript is missing")
-    elif "Folder docelowy już istnieje" not in transcript.read_text(encoding="utf-8"):
-        errors.append("existing-output failure was not reported")
+    _check_stop(_load_result(result_path, errors), expected_stop, expected_what, errors)
     return _finish_assertion(
         errors,
         "ASSERT OK | mode=existing-output | existing_folder_unchanged=true",
@@ -273,22 +301,23 @@ def main(argv: list[str] | None = None) -> int:
         choices=("dry-run", "run", "no-publish", "existing-output"),
         required=True,
     )
-    parser.add_argument("--expected-message")
-    parser.add_argument("--transcript", type=Path)
+    parser.add_argument("--expected-stop", help="code of the Komunikat the run stops with (no-publish, existing-output)")
+    parser.add_argument("--expected-what", help="text the stop's Komunikat must contain in what happened")
+    parser.add_argument("--result", type=Path, help="evidence JSON of the process step")
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
-    transcript = args.transcript.expanduser().resolve() if args.transcript else None
+    result_path = args.result.expanduser().resolve() if args.result else None
     try:
         if args.expect == "dry-run":
-            return _assert_dry_run(root, transcript)
+            return _assert_dry_run(root, result_path)
         if args.expect == "run":
-            return _assert_run(root, transcript)
+            return _assert_run(root, result_path)
+        if not args.expected_stop:
+            parser.error(f"--expected-stop is required for {args.expect}")
         if args.expect == "no-publish":
-            if not args.expected_message:
-                parser.error("--expected-message is required for no-publish")
-            return _assert_no_publish(root, transcript, args.expected_message)
-        return _assert_existing_output(root, transcript)
-    except (OSError, ValueError) as exc:
+            return _assert_no_publish(root, result_path, args.expected_stop, args.expected_what)
+        return _assert_existing_output(root, result_path, args.expected_stop, args.expected_what)
+    except (OSError, ValueError, KeyError) as exc:
         print(f"ASSERT FAIL: {exc}", file=sys.stderr)
         return 1
 
