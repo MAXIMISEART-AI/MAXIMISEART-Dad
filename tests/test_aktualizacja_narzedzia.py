@@ -441,7 +441,7 @@ def test_cofniecie_nie_rusza_klonu_przesunietego_po_aktualizacji_na_inny_commit(
     assert repository.state() == by_maks
 
 
-def test_aktualizacja_w_toku_nie_zastepuje_kopii_pliku_taty_kolejnym_kliknieciem(
+def test_kolejne_klikniecie_przy_aktualizacji_w_toku_nie_gubi_pliku_taty(
     repository: ToolRepository, tmp_path: Path
 ) -> None:
     before = repository.head()
@@ -455,8 +455,7 @@ def test_aktualizacja_w_toku_nie_zastepuje_kopii_pliku_taty_kolejnym_kliknieciem
     clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
     assert clone.update().code == "COFNIECIE_NIEUDANE"
 
-    with pytest.raises(JournalKept):
-        clone.update()
+    assert clone.update().code == "COFNIECIE_NIEUDANE"
     clone.roll_back()
 
     assert repository.head() == before
@@ -588,6 +587,23 @@ def test_gdy_cofniecie_wciaz_sie_nie_udaje_kolejne_klikniecie_mowi_to_wprost(
 
     assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest)
     assert repository.head() == newest
+
+
+def test_klikniecie_w_trakcie_ponownego_startu_nie_cofa_aktualizacji_ktora_konczy_opiekun(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    newest = moved_with_new_requirements(repository)
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
+    assert clone.update().code == "ok"
+    with clone.leased_to_guardian():
+        pass
+
+    result = clone.update()
+
+    assert result == UpdateResult("AKTUALNA", before=newest, after=newest)
+    interrupted = clone.interrupted_update()
+    assert interrupted is not None
+    assert interrupted.guardian_may_run(time.time())
 
 
 def test_gdy_plik_taty_nie_wroci_po_przesunieciu_klon_wraca_do_poprzedniej_wersji_z_plikiem_taty(

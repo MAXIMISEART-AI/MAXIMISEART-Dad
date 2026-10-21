@@ -5,8 +5,7 @@ Kody porażek zwraca moduł ``tool_update``; treść dla taty jest tylko tutaj
 sprzed kliknięcia, a „Co zrobić” wprost, czy spróbować ponownie, czy przekazać
 sprawę Maksowi przyciskiem „Wyślij do Maksa” (Zgłoszenie przy Komunikacie).
 Wyjątkiem jest nieudane cofnięcie (``rollback_failed``): wtedy narzędzie może
-nie działać, więc Komunikat każe nie ponawiać aktualizacji (ADR 0010: bez
-ścieżki zapasowej).
+nie działać.
 „Gdzie” nie ma ścieżek. Instrukcja taty
 cytuje „Co się stało” każdego Komunikatu (``tests/test_instrukcja_taty.py``).
 """
@@ -33,6 +32,7 @@ _TOOL: Final = "narzędzie na tym komputerze"
 _STILL_WORKS: Final = "Narzędzie działa dalej w poprzedniej wersji."
 _TO_MAKS: Final = f"{_STILL_WORKS} Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
 _NOT_UPDATED: Final = "Nie zaktualizowano narzędzia:"
+_RETRY: Final = "Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
 
 
 def no_git() -> Message:
@@ -87,10 +87,7 @@ def unexpected_failure() -> Message:
         code=UNEXPECTED,
         what="Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
         where=_TOOL,
-        action=(
-            f"{_STILL_WORKS} Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
-            "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
-        ),
+        action=f"{_STILL_WORKS} {_RETRY}",
     )
 
 
@@ -101,10 +98,7 @@ def libraries_failed() -> Message:
         code=LIBRARIES_FAILED,
         what="Nie udało się zainstalować bibliotek nowej wersji narzędzia.",
         where=_TOOL,
-        action=(
-            f"{_STILL_WORKS} Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
-            "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
-        ),
+        action=f"{_STILL_WORKS} {_RETRY}",
     )
 
 
@@ -126,9 +120,7 @@ def rollback_failed() -> Message:
         code=ROLLBACK_FAILED,
         what="Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.",
         where=_TOOL,
-        action=(
-            "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
-        ),
+        action=_RETRY,
     )
 
 

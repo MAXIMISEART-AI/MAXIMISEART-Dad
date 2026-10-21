@@ -46,7 +46,7 @@ from rozliczenia.centrum.tool_update import (
 )
 
 # Porażki, po których tata sam klika „Zaktualizuj narzędzie” jeszcze raz; każdą inną przejmuje Maks.
-_RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED})
+_RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED, ROLLBACK_FAILED})
 
 GuardianLauncher = Callable[[Path, Restart], object]
 """Uruchamia opiekuna ponownego startu z kopii (``restart_guardian.launch``); w testach podstawiany."""
@@ -186,10 +186,10 @@ class ToolUpdates:
         """Uruchamia opiekuna i zamyka Centrum; ``False``, gdy opiekun nie wystartował (Centrum działa dalej)."""
 
         try:
-            clone.lease_to_guardian()
-            with self._lock:
-                self._view = contract.ToolUpdateRunning(state="running", step="restarting")
-            self._guardian(guardian, restart)
+            with clone.leased_to_guardian():
+                with self._lock:
+                    self._view = contract.ToolUpdateRunning(state="running", step="restarting")
+                self._guardian(guardian, restart)
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="ponowny start po aktualizacji")
             return False

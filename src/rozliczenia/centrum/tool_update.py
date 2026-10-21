@@ -30,7 +30,9 @@ Zanim aktualizacja zmieni klon, zapisuje dziennik „Aktualizacja w toku”
 Dziennik znika dopiero przy wyniku ostatecznym: po odmowie z plikami taty z
 powrotem, po udanym cofnięciu albo gdy opiekun ponownego startu zobaczy, że
 nowa wersja odpowiada. Gdy komputer zgaśnie w trakcie, skrót przy następnym
-starcie zastaje dziennik i cofa klon (``ToolClone.roll_back``).
+starcie zastaje dziennik i cofa klon (``ToolClone.roll_back``). Gdy w
+Centrum nie uda się samo cofnięcie, następne kliknięcie najpierw kończy je z
+dziennika, a potem aktualizuje jak zwykle.
 
 Moduł używa tylko biblioteki standardowej: opiekun ponownego startu działa z
 jego kopii sprzed aktualizacji, a skrót cofa przerwaną aktualizację, zanim
@@ -258,12 +260,20 @@ class ToolClone:
         ``on_step`` dostaje każdy krok, zanim się zacznie. Po ``UPDATED``
         dziennik „Aktualizacja w toku” zostaje, dopóki nowa wersja nie
         odpowie (``confirm_update``) albo klon się nie cofnie (``roll_back``).
+        Dziennik z wcześniejszej aktualizacji, której nie kończy już opiekun
+        ponownego startu, najpierw cofa klon; gdy to się nie uda, wynikiem
+        jest ``ROLLBACK_FAILED``.
         """
 
         git = self.find_git()
         if git is None:
             return UpdateResult(NO_GIT, None, None)
         run = _Git(git, self.root)
+        journal = self._journal
+        interrupted = journal.read()
+        if interrupted is not None and not interrupted.guardian_may_run(time.time()):
+            if not _moved_back(run, journal):
+                return UpdateResult(ROLLBACK_FAILED, interrupted.before, interrupted.after)
         before = run.text("rev-parse", "HEAD")
         if run.branch() != BRANCH:
             return UpdateResult(OTHER_BRANCH, before, None)
@@ -277,7 +287,6 @@ class ToolClone:
         dad_files = _DadFiles.leaving(run, _FETCHED)
         if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
             return UpdateResult(LOCAL_CHANGES, before, None)
-        journal = self._journal
         journal.begin(self.root, dad_files.names, before, after)
         moved = False
         try:
@@ -331,10 +340,19 @@ class ToolClone:
 
         return self._journal.read()
 
-    def lease_to_guardian(self) -> None:
-        """Przed startem opiekuna ponownego startu: przez ``GUARDIAN_LEASE_S`` skrót nie cofa tej aktualizacji."""
+    @contextmanager
+    def leased_to_guardian(self) -> Iterator[None]:
+        """Na start opiekuna ponownego startu: przez ``GUARDIAN_LEASE_S`` ani skrót, ani kliknięcie nie cofają tej aktualizacji.
+
+        Gdy blok rzuci, opiekun nie wystartował, więc termin znika.
+        """
 
         self._journal.lease(time.time() + GUARDIAN_LEASE_S)
+        try:
+            yield
+        except BaseException:
+            self._journal.lease(None)
+            raise
 
     def confirm_update(self) -> None:
         """Nowa wersja odpowiada: aktualizacja jest skończona, a jej dziennik znika."""
@@ -460,7 +478,7 @@ class _Journal:
             _flush_to_disk(copy)
         self._write(InterruptedUpdate(before, after))
 
-    def lease(self, until: float) -> None:
+    def lease(self, until: float | None) -> None:
         update = self.read()
         if update is None:
             raise JournalKept("brak dziennika")

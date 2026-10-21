@@ -524,11 +524,9 @@ def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedn
         "message": {
             "what": "Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.",
             "where": "narzędzie na tym komputerze",
-            "action": (
-                "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
-            ),
+            "action": "Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.",
         },
-        "next_action": "report",
+        "next_action": "retry",
         "report": {"state": "ready"},
     }
     assert log_entries(centrum, "aktualizacja-koniec") == [
