@@ -54,7 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     if imported != expected:
         print(f"BŁĄD: .venv importuje rozliczenia z {imported}, a powinno z {expected}.", file=sys.stderr)
         return 1
-    print(f"OK: {VENV} importuje rozliczenia z {expected}.")
+    print(f"OK: {VENV} importuje rozliczenia z {expected}.", flush=True)
+    _print_work_in_progress()
     return 0
 
 
@@ -73,6 +74,16 @@ def _imported_package_directory() -> Path:
             check=True,
         )
     return Path(completed.stdout.strip()).resolve().parent
+
+
+def _print_work_in_progress() -> None:
+    """Raport ``tools/praca_w_toku.py``: każda sesja zaczyna od tego skryptu, więc widzi inne sesje."""
+
+    try:
+        report = (str(_venv_python()), str(ROOT / "tools" / "praca_w_toku.py"))
+        subprocess.run(report, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"PRACA W TOKU POMINIĘTA | {error}")
 
 
 def _run(command: list[str]) -> None:
