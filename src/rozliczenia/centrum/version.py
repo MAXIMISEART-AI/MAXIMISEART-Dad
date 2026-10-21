@@ -1,39 +1,68 @@
-"""Tożsamość Centrum w ``health``: nazwa usługi, wersja i commit narzędzia.
+"""Wersja narzędzia i tożsamość Centrum w ``health``.
 
-Wersja pochodzi z ``pyproject.toml``: u taty pakiet nie jest instalowany, więc
-nie ma metadanych pakietu. Commit to ``HEAD`` klonu Gita, w którym leży
-narzędzie, odczytany z plików ``.git`` bez uruchamiania ``git`` (Centrum działa
-bez konsoli, a ``git`` nie musi być w ``PATH``). Moduł używa tylko biblioteki
-standardowej, bo launcher rozpoznaje po nich działające Centrum, zanim wczyta
-FastAPI.
+Wersją narzędzia jest commit ``HEAD`` klonu Gita, w którym leży narzędzie, a
+obok niej dzień, od którego klon jest na tym commicie. Oba fakty pochodzą z
+plików ``.git``, bez uruchamiania ``git`` (Centrum działa bez konsoli, a
+``git`` nie musi być w ``PATH``). Launcher i opiekun ponownego startu pytają
+``health`` działającego Centrum o jego commit (``running_centrum``) i tak samo
+rozstrzygają, czy to ta sama wersja (``RunningCentrum.runs``). Moduł używa tylko
+biblioteki standardowej: launcher korzysta z niego, zanim wczyta FastAPI, a
+opiekun działa z jego kopii.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date, datetime
+import json
 import re
-import tomllib
 from pathlib import Path
 from typing import Final
+import urllib.request
 
 from rozliczenia import TOOL_ROOT
 
 SERVICE: Final = "centrum-rozliczen"
-_PYPROJECT = TOOL_ROOT / "pyproject.toml"
 _COMMIT = re.compile(r"[0-9a-f]{40}")
-
-
-def tool_version() -> str:
-    with _PYPROJECT.open("rb") as file:
-        version = tomllib.load(file)["project"]["version"]
-    if not isinstance(version, str):
-        raise ValueError("pyproject.toml nie podaje wersji narzędzia.")
-    return version
 
 
 def short_commit(commit: str) -> str:
     """Pierwsze 7 znaków commitu: tak commit narzędzia widzi tata (Konfiguracja, Diagnoza, ``health``)."""
 
     return commit[:7]
+
+
+def version_label(commit: str | None) -> str:
+    """Wersja narzędzia w komunikacie startu i dzienniku Centrum: skrót commitu albo „nieznana” poza klonem Gita."""
+
+    return "nieznana" if commit is None else short_commit(commit)
+
+
+@dataclass(frozen=True)
+class RunningCentrum:
+    """Centrum rozliczeń, które odpowiada na porcie: skrót commitu z jego ``health`` (``None`` poza klonem Gita)."""
+
+    commit: str | None
+
+    def runs(self, commit: str | None) -> bool:
+        """Czy to Centrum działa z commitu ``commit``, czyli w tej samej wersji narzędzia."""
+
+        return self.commit == (None if commit is None else short_commit(commit))
+
+
+def running_centrum(port: int, *, timeout_s: float) -> RunningCentrum | None:
+    """Centrum na ``127.0.0.1:port`` według jego ``health``; ``None``, gdy odpowiada coś innego albo nic."""
+
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # serwer proxy nie widzi 127.0.0.1 taty
+    try:
+        with direct.open(f"http://127.0.0.1:{port}/api/health", timeout=timeout_s) as response:
+            health = json.load(response)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(health, dict) or health.get("service") != SERVICE:
+        return None
+    commit = health.get("commit")
+    return RunningCentrum(commit if isinstance(commit, str) else None)
 
 
 def is_commit(text: str) -> bool:
@@ -58,6 +87,30 @@ def tool_commit(root: Path = TOOL_ROOT) -> str | None:
             return head if is_commit(head) else None
         return _resolved(head.removeprefix("ref: "), git_directory)
     except (OSError, UnicodeDecodeError):
+        return None
+
+
+def commit_since(commit: str, root: Path = TOOL_ROOT) -> date | None:
+    """Dzień, od którego narzędzie w ``root`` jest na ``commit``: data ostatniego wpisu reflogu ``HEAD``.
+
+    ``None``, gdy reflogu nie ma, jest pusty albo jego ostatni wpis prowadzi do innego commitu.
+    """
+
+    try:
+        git_directory = _git_directory(root)
+        if git_directory is None:
+            return None
+        entries = (git_directory / "logs" / "HEAD").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not entries:
+        return None
+    fields = entries[-1].partition("\t")[0].split(" ")  # <stary> <nowy> <kto> <sekundy> <strefa>
+    if len(fields) < 5 or fields[1] != commit:
+        return None
+    try:
+        return datetime.fromtimestamp(int(fields[-2]), datetime.strptime(fields[-1], "%z").tzinfo).date()
+    except (ValueError, OverflowError):
         return None
 
 

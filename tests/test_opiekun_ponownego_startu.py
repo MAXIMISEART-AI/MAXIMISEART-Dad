@@ -96,6 +96,20 @@ def _log_lines(clone: Path) -> list[str]:
     return (clone / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8").splitlines()
 
 
+def _shortcut(clone: Path, port: int) -> subprocess.CompletedProcess[str]:
+    """Skrót „Centrum rozliczeń” z klonu, gdy na porcie już działa Centrum."""
+
+    return subprocess.run(
+        [sys.executable, str(clone / "run_centrum.py"), "--port", str(port), "--no-browser"],
+        cwd=clone,
+        env=os.environ | {"PYTHONUTF8": "1"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+    )
+
+
 def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identyfikatorem_startu(
     tmp_path: Path,
 ) -> None:
@@ -114,6 +128,7 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
         old_health = _health(port)
         newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
         assert ToolClone(clone, origin=str(repository.origin)).update().code == UPDATED
+        before_restart = _shortcut(clone, port)
         work = tmp_path / "praca"
         work.mkdir()
         guardian = launch(
@@ -133,6 +148,7 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
         new_health = _health(port, commit=newest)
         guardian_exit = guardian.wait(timeout=30)
         view = _get(port, "/api/tool-update")
+        after_restart = _shortcut(clone, port)
     finally:
         _close_if_running(port)
         old.kill()
@@ -141,15 +157,19 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
     assert old_exit == 0
     assert (old_health["commit"], new_health["commit"]) == (before[:7], newest[:7])
     assert new_health["instance"] != old_health["instance"]
-    assert new_health["version"] == old_health["version"]
     assert guardian_exit == 0
+    # Skrót z przesuniętego klonu rozpoznaje stare Centrum jako inną wersję, a nowe jako tę samą, jak opiekun.
+    assert before_restart.returncode == 1, before_restart.stdout
+    assert f"w innej wersji ({before[:7]})" in before_restart.stdout
+    assert after_restart.returncode == 0, after_restart.stdout
+    assert f"Centrum rozliczeń już działa: http://127.0.0.1:{port}/" in after_restart.stdout
     assert view == {"state": "updated"}
     assert not (clone / "config" / RESULT_FILE).exists()
     assert not work.exists()
     assert ToolClone(clone).interrupted_update() is None
     events = [line.split(" ", 2)[1] for line in _log_lines(clone)]
     # Stare Centrum zwalnia port, zanim zapisze „stop”, więc jego „stop” może przyjść po starcie nowego.
-    assert [event for event in events if event != "stop"][:5] == [
+    assert [event for event in events if event not in {"stop", "blad-startu", "juz-dziala"}][:5] == [
         "start",
         "zamkniecie",
         "aktualizacja-koniec",

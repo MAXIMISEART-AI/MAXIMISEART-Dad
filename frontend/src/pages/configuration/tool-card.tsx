@@ -5,6 +5,7 @@ import type { Configuration } from "@/api/centrum"
 import { ToolUpdateButton, ToolUpdateStatus } from "@/components/tool-update"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { fullDate } from "@/lib/format"
 import { useToolUpdate } from "@/lib/tool-update"
 
 type Freshness = Configuration["freshness"]
@@ -20,18 +21,16 @@ const FRESHNESS: Record<Freshness, { label: string; icon: React.ReactNode }> = {
 
 /**
  * Wersja narzędzia z Aktualnością i przyciskiem `Zaktualizuj narzędzie`. Po aktualizacji strona czyta
- * Konfigurację od nowa (`onFinished`), więc commit i Aktualność pochodzą z serwera, nie z wyniku. Udana
+ * Konfigurację od nowa (`onFinished`), więc wersja i Aktualność pochodzą z serwera, nie z wyniku. Udana
  * aktualizacja kończy się ponownym startem Centrum i przeładowaniem karty: nową wersję widać w commicie. Po
  * porażce głównym przyciskiem jest to, co każe Komunikat: ponowna aktualizacja albo „Wyślij do Maksa”.
  */
 export function ToolCard({
   version,
-  commit,
   freshness,
   onFinished,
 }: {
-  version: string
-  commit: string | null
+  version: Configuration["version"]
   freshness: Freshness
   onFinished: () => void
 }) {
@@ -52,15 +51,7 @@ export function ToolCard({
       <CardHeader>
         <CardTitle id="narzedzie">Narzędzie</CardTitle>
         <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
-          <span>Wersja {version}</span>
-          {commit === null ? null : (
-            <>
-              <span aria-hidden>·</span>
-              <span className="font-mono text-xs" aria-label="Commit">
-                {commit}
-              </span>
-            </>
-          )}
+          <span>{versionLabel(version)}</span>
           <Badge variant="outline" className="ml-1">
             {FRESHNESS[freshness].icon}
             {FRESHNESS[freshness].label}
@@ -76,4 +67,13 @@ export function ToolCard({
       </CardContent>
     </Card>
   )
+}
+
+/** `Wersja 1a2b3c4 od 20.10.2026`: skrót commitu, po którym Maks znajdzie wersję, i dzień, od którego działa. */
+function versionLabel(version: Configuration["version"]) {
+  if (version === null) {
+    return "Wersja nieznana"
+  }
+
+  return version.since === null ? `Wersja ${version.commit}` : `Wersja ${version.commit} od ${fullDate(version.since)}`
 }

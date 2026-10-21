@@ -21,7 +21,7 @@ import pytest
 
 from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
 
-from tests.fixtures.centrum import project_version, views_until
+from tests.fixtures.centrum import views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.tool_clone import (
@@ -85,7 +85,8 @@ def tool_update_until(centrum: PreparingCentrum, reached: Callable[[dict[str, An
 
 def tool_on_configuration(centrum: PreparingCentrum) -> dict[str, Any]:
     configuration = centrum.client.get("/api/configuration").json()
-    return {key: configuration[key] for key in ("version", "commit", "freshness")}
+    version = configuration["version"]
+    return {"commit": None if version is None else version["commit"], "freshness": configuration["freshness"]}
 
 
 def log_events(centrum: PreparingCentrum) -> list[str]:
@@ -141,11 +142,7 @@ def test_nowe_centrum_po_aktualizacji_zapisuje_wynik_od_opiekuna_w_dzienniku_i_p
     assert (old_health["commit"], new_health["commit"]) == (before[:7], newest[:7])
     assert new_health["instance"] != old_health["instance"]
     assert view == {"state": "updated"}
-    assert tool_on_configuration(centrum) | {"version": None} == {
-        "version": None,
-        "commit": newest[:7],
-        "freshness": "current",
-    }
+    assert tool_on_configuration(centrum) == {"commit": newest[:7], "freshness": "current"}
     assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
     assert not restart.result.exists()
     assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
@@ -300,6 +297,7 @@ def test_po_przyjetym_zamknieciu_aktualizacja_i_uruchomienie_sa_odrzucone(tmp_pa
 
 def test_nieprzewidziana_porazka_daje_komunikat_a_klon_zostaje_bez_zmian(tmp_path: Path) -> None:
     centrum, repository = updating_centrum(tmp_path)
+    running = repository.head()
     repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
     # Gałąź main bez commitu: Git nie poda commitu narzędzia, czego aktualizacja nie przewiduje.
     repository.in_clone("update-ref", "-d", "refs/heads/main")
@@ -320,7 +318,10 @@ def test_nieprzewidziana_porazka_daje_komunikat_a_klon_zostaje_bez_zmian(tmp_pat
         "report": {"state": "ready"},
     }
     assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
-    assert log_entries(centrum, "aktualizacja-koniec") == ["wynik=NIEOCZEKIWANY_BLAD przed=- po=- biblioteki=nie"]
+    # Commit przed aktualizacją to ten, z którego działa Centrum, choć Git go już nie poda.
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=NIEOCZEKIWANY_BLAD przed={running} po=- biblioteki=nie"
+    ]
     assert centrum.client.post("/api/tool-update").status_code == 202
 
 
@@ -422,7 +423,6 @@ def test_zgloszenie_nieudanej_aktualizacji_ma_te_same_fakty_co_dziennik(tmp_path
         f"## Aktualizacja narzędzia\n\n- Wynik: INNA_GALAZ\n- Commit przed: {before}\n- Commit po: brak\n"
         "- Biblioteki instalowane: nie\n"
     ) in body
-    assert f"- Wersja: {project_version()}\n" in body
     log = centrum.log_path.read_text(encoding="utf-8").splitlines()
     started = next(line for line in log if " aktualizacja-start " in line)
     finished = next(line for line in log if " aktualizacja-koniec " in line)

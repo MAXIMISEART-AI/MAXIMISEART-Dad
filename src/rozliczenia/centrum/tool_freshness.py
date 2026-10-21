@@ -1,8 +1,8 @@
 """Aktualność narzędzia: commit narzędzia u taty względem `main` na publicznym GitHubie.
 
 Diagnoza i Konfiguracja porównują dwa źródła z ``ToolFreshness``: commit
-klonu narzędzia (``version.tool_commit``) i commit `main` publicznego
-repozytorium narzędzia. Oba są wstrzykiwane do aplikacji Centrum, więc testy i
+narzędzia, z którego działa Centrum (``version.tool_commit`` odczytany przy
+starcie), i commit `main` publicznego repozytorium narzędzia. Oba są wstrzykiwane do aplikacji Centrum, więc testy i
 weryfikacja w przeglądarce nigdy nie łączą się z GitHubem. Brak sieci to
 ``None`` w krótkim limicie czasu, nigdy wyjątek ani Komunikat. Diagnoza pyta
 GitHuba przy każdym sprawdzeniu; Konfiguracja, odczytywana przy każdym wejściu
@@ -13,12 +13,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
 import threading
 from typing import Final
 import urllib.request
 
+from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum.deadline import within
-from rozliczenia.centrum.version import is_commit, tool_commit
+from rozliczenia.centrum.version import commit_since, is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
 
@@ -28,14 +31,31 @@ _TIMEOUT_S: Final = 3.0
 
 @dataclass(frozen=True)
 class ToolFreshness:
-    """Źródła commitu narzędzia u taty (``local``) i `main` na GitHubie (``main``); ``None`` = nie wiadomo."""
+    """Źródła wersji narzędzia u taty i `main` na GitHubie; ``None`` = nie wiadomo.
+
+    ``local`` to commit narzędzia, z którego działa Centrum, ``since`` dzień, od
+    którego narzędzie jest na tym commicie, a ``main`` commit `main` na GitHubie.
+    """
 
     local: CommitSource
+    since: Callable[[], date | None]
     main: CommitSource
 
     @classmethod
     def of_system(cls) -> ToolFreshness:
-        return cls(local=tool_commit, main=github_main_commit)
+        return cls.of_clone(TOOL_ROOT, github_main_commit)
+
+    @classmethod
+    def of_clone(cls, root: Path, main: CommitSource) -> ToolFreshness:
+        """Wersja narzędzia w ``root`` odczytana teraz, przy starcie Centrum.
+
+        Klon przesunięty później (ręcznie albo przez aktualizację przed ponownym startem) nie zmienia kodu, który
+        już działa, więc nie zmienia też wersji tego Centrum.
+        """
+
+        running = tool_commit(root)
+        since = None if running is None else commit_since(running, root)
+        return cls(local=lambda: running, since=lambda: since, main=main)
 
 
 

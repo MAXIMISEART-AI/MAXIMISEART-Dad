@@ -1137,19 +1137,14 @@
       "Configuration": {
         "properties": {
           "version": {
-            "type": "string",
-            "title": "Version"
-          },
-          "commit": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/ToolVersion"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Commit"
+            ]
           },
           "freshness": {
             "type": "string",
@@ -1212,14 +1207,13 @@
         "type": "object",
         "required": [
           "version",
-          "commit",
           "freshness",
           "templates",
           "workers",
           "reports"
         ],
         "title": "Configuration",
-        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``commit`` to pierwsze 7 znaków commitu narzędzia (``None`` poza klonem Gita), ``freshness`` jego\nAktualność względem `main` na GitHubie, sprawdzana jak w Diagnozie."
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji\nwzględem `main` na GitHubie, sprawdzana jak w Diagnozie."
       },
       "Count": {
         "properties": {
@@ -1433,10 +1427,6 @@
             "const": "centrum-rozliczen",
             "title": "Service"
           },
-          "version": {
-            "type": "string",
-            "title": "Version"
-          },
           "commit": {
             "anyOf": [
               {
@@ -1457,12 +1447,11 @@
         "type": "object",
         "required": [
           "service",
-          "version",
           "commit",
           "instance"
         ],
         "title": "Health",
-        "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, jak na Konfiguracji (``None`` poza klonem Gita); po nim opiekun\nponownego startu rozpoznaje nową wersję, a karta pokazuje go w „Zaktualizowano”. ``instance`` to losowy\nidentyfikator tego startu Centrum: po ponownym starcie jest inny, także gdy commit się nie zmienił."
+        "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
       },
       "Message": {
         "properties": {
@@ -3062,7 +3051,35 @@
           "state"
         ],
         "title": "ToolUpdateUpdated",
-        "description": "Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (wersja i commit są w ``Health``)."
+        "description": "Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (jej commit jest w ``Health``)."
+      },
+      "ToolVersion": {
+        "properties": {
+          "commit": {
+            "type": "string",
+            "title": "Commit"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "commit",
+          "since"
+        ],
+        "title": "ToolVersion",
+        "description": "Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie."
       },
       "ValidationError": {
         "properties": {

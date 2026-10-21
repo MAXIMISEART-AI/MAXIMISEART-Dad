@@ -14,7 +14,7 @@ from uvicorn.config import LOGGING_CONFIG
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import has_console
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.centrum.version import tool_version
+from rozliczenia.centrum.version import tool_commit, version_label
 
 HOST = "127.0.0.1"  # wyłącznie ten komputer (ADR 0004)
 _GRACEFUL_SHUTDOWN_S = 5  # otwarte połączenia (np. strumień postępu) nie wstrzymują zamknięcia dłużej
@@ -44,7 +44,7 @@ def serve(
     )
 
     def started() -> None:
-        log.started(port=port, version=tool_version(), console=console)
+        log.started(port=port, version=version_label(tool_commit()), console=console)
         threading.Thread(target=on_ready, args=(url,), name="centrum-gotowosc", daemon=True).start()
 
     server = _Server(config, started=started)

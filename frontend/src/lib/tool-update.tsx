@@ -30,8 +30,8 @@ const ToolUpdateContext = React.createContext<ToolUpdateContextValue | null>(nul
  * Jedna Aktualizacja narzędzia na Centrum, wspólna dla każdego miejsca z przyciskiem `Zaktualizuj narzędzie`.
  * Serwer odpowiada od razu pierwszym krokiem i aktualizuje w tle, a karta odczytuje krok, aż przyjdzie wynik.
  * Po udanej aktualizacji Centrum startuje od nowa: karta czeka, aż odpowie Centrum o innym identyfikatorze
- * startu niż przed kliknięciem, przeładowuje stronę i krótko pokazuje „Zaktualizowano” z wersją i commitem,
- * w których działa nowe Centrum.
+ * startu niż przed kliknięciem, przeładowuje stronę i krótko pokazuje „Zaktualizowano” z commitem, w którym
+ * działa nowe Centrum.
  */
 export function ToolUpdateProvider({ children }: { children: React.ReactNode }) {
   const [update, setUpdate] = React.useState<ToolUpdate | null>(null)
@@ -57,8 +57,8 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
       setUpdate(result)
 
       if (result.state === "updated") {
-        const commit = health.commit === null ? "" : ` (${health.commit})`
-        toast.add({ title: "Zaktualizowano", description: `Centrum działa w wersji ${health.version}${commit}.` })
+        const version = health.commit === null ? "nowej wersji" : `wersji ${health.commit}`
+        toast.add({ title: "Zaktualizowano", description: `Centrum działa w ${version}.` })
       }
     }, () => undefined)
   }, [])

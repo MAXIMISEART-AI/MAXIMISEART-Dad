@@ -2,9 +2,9 @@
 
 Treść Zgłoszenia powstaje tylko tutaj (``report_of``), z tych samych
 bezpiecznych faktów co Komunikat i Diagnoza: Komunikat z kodem i trzema
-częściami, proces, okres i tryb, wersja i commit narzędzia, wynik każdego
-sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum, a przy nieoczekiwanym
-wyjątku jego typ i ślad wywołań w kodzie narzędzia. Ścieżki są już skrócone w
+częściami, proces, okres i tryb, commit narzędzia, wynik każdego sprawdzenia
+Diagnozy i ostatnie wpisy dziennika Centrum, a przy nieoczekiwanym wyjątku
+jego typ i ślad wywołań w kodzie narzędzia. Ścieżki są już skrócone w
 Komunikatach, szczegółach sprawdzeń i ramkach śladu; treści wierszy, treści
 wyjątków ani klucza Zgłoszenie nie ma (ADR 0007).
 
@@ -12,8 +12,8 @@ Diagnoza zostawia treść Zgłoszenia jako podgląd dla swojego Uruchomienia
 (``Reports.draft``), a „Wyślij do Maksa” wysyła dokładnie ten podgląd.
 Nieudana Aktualizacja narzędzia zostawia swój podgląd (``Reports.draft_update``)
 z tymi samymi faktami co dziennik Centrum: kod Komunikatu, commit przed i po,
-czy instalowano biblioteki, wersja narzędzia i ostatnie wpisy dziennika, bez
-ścieżek i bez wyjścia Gita.
+czy instalowano biblioteki i ostatnie wpisy dziennika, bez ścieżek i bez
+wyjścia Gita.
 """
 
 from __future__ import annotations
@@ -46,7 +46,6 @@ from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
-from rozliczenia.centrum.version import tool_version
 from rozliczenia.message import Message
 
 if TYPE_CHECKING:
@@ -153,12 +152,11 @@ def _message_lines(message: Message) -> list[str]:
 
 
 def _tool_lines(fingerprint: str, previous: int | None, *, commit: str | None = None) -> list[str]:
-    """Sekcja narzędzia: wersja, ``commit`` (gotowy wiersz, jeśli jest), odcisk problemu i poprzednie Zgłoszenie."""
+    """Sekcja narzędzia: ``commit`` (gotowy wiersz, jeśli jest), odcisk problemu i poprzednie Zgłoszenie."""
 
     return [
         "## Narzędzie",
         "",
-        f"- Wersja: {tool_version()}",
         *([] if commit is None else [commit]),
         fingerprint_line(fingerprint),
         *([] if previous is None else [f"- Poprzednie Zgłoszenie: #{previous}"]),

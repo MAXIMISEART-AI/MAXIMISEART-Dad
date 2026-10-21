@@ -47,7 +47,6 @@ export function ConfigurationPage() {
         <div className={cn(entrance, "grid grid-cols-1 items-start gap-6 @4xl/main:grid-cols-2")}>
           <ToolCard
             version={configuration.data.version}
-            commit={configuration.data.commit}
             freshness={configuration.data.freshness}
             onFinished={reload}
           />

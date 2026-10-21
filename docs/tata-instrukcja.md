@@ -180,9 +180,10 @@ ponownie później.
 
 ### Aktualizacja narzędzia
 
-Na stronie `Konfiguracja`, w karcie `Narzędzie`, widać wersję narzędzia i czy
-jest najnowsza: `Aktualna`, `Jest nowsza wersja` albo `Nie sprawdzono` (bez
-internetu).
+Na stronie `Konfiguracja`, w karcie `Narzędzie`, widać wersję narzędzia, np.
+`Wersja 1a2b3c4 od 20.10.2026`, i czy jest najnowsza: `Aktualna`, `Jest nowsza
+wersja` albo `Nie sprawdzono` (bez internetu). Gdy Maks zapyta, którą wersję
+masz, przeczytaj mu ją.
 
 1. Kliknij `Zaktualizuj narzędzie`: na stronie `Konfiguracja`, w
    Powiadomieniu o naprawie na `Okresach` albo w Diagnozie. Każdy z tych

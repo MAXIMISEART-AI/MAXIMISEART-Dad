@@ -1,10 +1,10 @@
 """Start Centrum rozliczeń: skrót „Centrum rozliczeń” (``pythonw``, bez konsoli) albo ``run_centrum.py`` z konsolą.
 
 Jedno Centrum na komputerze: gdy port jest zajęty, ``health`` rozstrzyga, czy
-to własne Centrum tej samej wersji (wtedy tylko otwiera kartę), Centrum innej
-wersji, czy inny program. Każdy błąd startu kończy się komunikatem w trzech
-częściach: bez konsoli w natywnym okienku, z konsolą w konsoli, a fakt trafia
-do dziennika Centrum. Ponowny start po Aktualizacji narzędzia (``--bez-okienek``)
+to własne Centrum z tego samego commitu narzędzia (wtedy tylko otwiera kartę),
+Centrum innej wersji, czy inny program. Każdy błąd startu kończy się
+komunikatem w trzech częściach: bez konsoli w natywnym okienku, z konsolą w
+konsoli, a fakt trafia do dziennika Centrum. Ponowny start po Aktualizacji narzędzia (``--bez-okienek``)
 nie pokazuje okienka, tylko zapisuje fakt w dzienniku: tata widzi wtedy jeden
 Komunikat, w karcie. Przy imporcie moduł używa tylko biblioteki
 standardowej, więc brak FastAPI albo uvicorn też staje się takim komunikatem.
@@ -23,13 +23,11 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 import functools
-import json
 import os
 import socket
 import subprocess
 import sys
 import time
-import urllib.request
 import webbrowser
 
 from rozliczenia import TOOL_ROOT
@@ -44,7 +42,7 @@ from rozliczenia.centrum.tool_update import (
     UpdateResult,
     write_result,
 )
-from rozliczenia.centrum.version import SERVICE, tool_version
+from rozliczenia.centrum.version import running_centrum, tool_commit, version_label
 from rozliczenia.message import Message
 
 DEFAULT_PORT = 47811
@@ -97,16 +95,16 @@ def _start(
     try:
         listener = listen_locally(port)
     except OSError:
-        running = _running_centrum_version(url)
-        if running == tool_version():
+        running = running_centrum(port, timeout_s=_HEALTH_TIMEOUT_S)
+        if running is None:
+            return refuse(start_problems.port_taken(port))
+        if running.runs(tool_commit()):
             log.already_running(port=port)
             _say(f"Centrum rozliczeń już działa: {url}")
             open_tab(url)
             return 0
-        if running is None:
-            return refuse(start_problems.port_taken(port))
         open_tab(url)  # tata widzi starą kartę z przyciskiem „Zamknij Centrum rozliczeń”
-        return refuse(start_problems.other_version_running(port, running))
+        return refuse(start_problems.other_version_running(port, version_label(running.commit)))
 
     try:
         interrupted = None if started_by_guardian else ToolClone(TOOL_ROOT).interrupted_update()
@@ -166,21 +164,6 @@ def _roll_back(interrupted: InterruptedUpdate) -> None:
 
     ToolClone(TOOL_ROOT).roll_back()
     write_result(TOOL_ROOT / "config" / RESULT_FILE, UpdateResult(UNEXPECTED, interrupted.before, interrupted.after))
-
-
-def _running_centrum_version(url: str) -> str | None:
-    """Wersja Centrum, które odpowiada na tym adresie; ``None``, gdy odpowiada coś innego albo nic."""
-
-    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # serwer proxy nie widzi 127.0.0.1 taty
-    try:
-        with direct.open(url + "api/health", timeout=_HEALTH_TIMEOUT_S) as response:
-            health = json.load(response)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(health, dict) or health.get("service") != SERVICE:
-        return None
-    version = health.get("version")
-    return version if isinstance(version, str) else None
 
 
 def _refuse(problem: Message, *, port: int, log: CentrumLog, dialog: bool) -> int:
