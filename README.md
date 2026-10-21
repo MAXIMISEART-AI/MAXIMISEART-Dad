@@ -281,7 +281,8 @@ Check formatowania nie jest wymagany. Wszystkie zadania CI poza E2E i Timing
 guard (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) uruchamia naraz
 `.venv/bin/python tools/ci_lokalnie.py` (Windows: `py -3 tools/ci_lokalnie.py`).
 Na macOS i Linuksie `tools/setup_worktree.py` włącza bramę `tools/hooks/pre-push`:
-push HEAD przechodzi dopiero po `CI LOKALNIE OK`. Udany przebieg na czystym
+push agenta (zmienna `AI_AGENT` albo `CLAUDECODE`) przechodzi dopiero po
+`CI LOKALNIE OK`, a push człowieka bez sprawdzania. Udany przebieg na czystym
 checkoucie zostawia pieczątkę drzewa, więc push zaraz po nim nie powtarza sprawdzeń.
 
 W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`

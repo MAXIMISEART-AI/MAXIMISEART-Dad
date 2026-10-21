@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Brama pre-push: push, który wysyła HEAD, przechodzi dopiero po ``CI LOKALNIE OK`` na jego drzewie.
+"""Brama pre-push: push agenta, który wysyła HEAD, przechodzi dopiero po ``CI LOKALNIE OK`` na jego drzewie.
+
+Push człowieka przechodzi bez sprawdzania i bez słowa. Agenta rozpoznaje zmienna ``AI_AGENT`` (Claude Code,
+opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
 
 ``tools/ci_lokalnie.py`` po udanym przebiegu na czystym checkoucie zapisuje drzewo HEAD w pieczątce
 ``$(git rev-parse --git-dir)/ci-lokalnie-ok``, więc push tego drzewa przechodzi od razu. Bez pieczątki
@@ -16,6 +19,7 @@ import subprocess
 import sys
 
 STAMP = "ci-lokalnie-ok"
+AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 VENV_PYTHON = Path(".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
 RUNS_CI = "uruchamiam tools/ci_lokalnie.py (ok. 4 min); po udanym przebiegu przed pushem push przechodzi od razu"
 
@@ -26,6 +30,7 @@ class Decision:
     runs_ci: bool
 
 
+HUMAN = Decision("", runs_ci=False)
 NOT_HEAD = Decision("push nie wysyła HEAD (usunięcie gałęzi albo inna gałąź), więc bez sprawdzania", runs_ci=False)
 STAMPED = Decision("ci_lokalnie przeszło już na drzewie HEAD, push bez ponownego sprawdzania", runs_ci=False)
 CLEAN = Decision(RUNS_CI, runs_ci=True)
@@ -40,6 +45,8 @@ def _git(*args: str) -> str:
 
 
 def _decide(pushed: set[str]) -> Decision:
+    if not any(os.environ.get(marker) for marker in AGENT_MARKERS):
+        return HUMAN
     if _git("rev-parse", "HEAD") not in pushed:
         return NOT_HEAD
     stamp = Path(_git("rev-parse", "--git-dir")) / STAMP
@@ -52,7 +59,8 @@ def _decide(pushed: set[str]) -> Decision:
 def main() -> int:
     pushed = {line.split()[1] for line in sys.stdin if line.strip()}
     decision = _decide(pushed)
-    print(f"pre-push: {decision.message}.", flush=True)
+    if decision.message:
+        print(f"pre-push: {decision.message}.", flush=True)
     if not decision.runs_ci:
         return 0
     if not VENV_PYTHON.exists():

@@ -1,7 +1,8 @@
-"""Brama ``tools/hooks/pre-push``: push HEAD przechodzi tylko po ``CI LOKALNIE OK`` albo z pieczątką jego drzewa.
+"""Brama ``tools/hooks/pre-push``: push agenta z HEAD przechodzi tylko po ``CI LOKALNIE OK`` albo z pieczątką jego drzewa.
 
 Każdy test robi prawdziwy ``git push`` do tymczasowego repozytorium bare. ``tools/ci_lokalnie.py`` zastępuje
 atrapa ``.venv/bin/python``, która od razu kończy się werdyktem, więc testy nie uruchamiają pełnego CI.
+Push robi agent (``AI_AGENT``), chyba że test mówi inaczej.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import pytest
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 BRANCH = "refs/heads/zmiana"
+AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt",
@@ -22,9 +24,15 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+def _git(cwd: Path, *args: str, agent: str | None = "claude-code") -> subprocess.CompletedProcess[str]:
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("GIT_") and name not in AGENT_MARKERS
+    }
     environment |= {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+    if agent is not None:
+        environment["AI_AGENT"] = agent
     return subprocess.run(
         ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args],
         cwd=cwd,
@@ -123,3 +131,13 @@ def test_push_bez_venv_jest_odrzucony_ze_wskazaniem_setup_worktree(checkout: Pat
     assert pushed.returncode != 0
     assert "tools/setup_worktree.py" in pushed.stderr + pushed.stdout
     assert _remote_branch(checkout) == ""
+
+
+def test_push_czlowieka_przechodzi_bez_ci_lokalnie_i_bez_komunikatu(checkout: Path) -> None:
+    _ci_lokalnie(checkout, passes=False)
+
+    pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}", agent=None)
+
+    assert pushed.returncode == 0, pushed.stderr
+    assert "pre-push" not in pushed.stderr + pushed.stdout
+    assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()

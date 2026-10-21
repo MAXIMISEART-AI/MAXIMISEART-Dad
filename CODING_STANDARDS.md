@@ -61,7 +61,7 @@ their contents.
   `SKUTECZNE` values, because the Komunikat shows the exact cell content.
 - Before reporting work done, run `tools/ci_lokalnie.py` with the checkout's
   own `.venv`: the CI jobs ruff, mypy, pytest, mutations and frontend, ending with
-  `CI LOKALNIE OK`. The `pre-push` hook enforces it; a green run on a clean,
+  `CI LOKALNIE OK`. The `pre-push` hook enforces it for agent pushes; a green run on a clean,
   committed checkout makes the next push instant. Before real files are used,
   run a preview without saving (`Podgląd bez zapisu`).
 
