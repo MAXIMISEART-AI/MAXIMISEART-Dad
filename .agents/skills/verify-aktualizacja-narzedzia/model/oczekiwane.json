@@ -3,14 +3,10 @@
     "wynik": "przechodzi"
   },
   "git": {
-    "wynik": "narusza",
-    "wybacz": "reset",
-    "znalezisko": "git reset --keep w _roll_back w Centrum kończy się błędem: klon zostaje na nowej wersji, a dziennik „Aktualizacja w toku” czeka na następny start skrótu; póki Centrum działa, kolejne kliknięcie go nie kończy (Postep). (#210)"
+    "wynik": "przechodzi"
   },
   "kopiowanie": {
-    "wynik": "narusza",
-    "wybacz": "kopiowanie",
-    "znalezisko": "copy2 pliku taty z kopii rzuca OSError przy ostatnim przywróceniu w Centrum (po odmowie scalenia albo w _roll_back): plik taty ma treść z repozytorium albo znika, jego treść jest tylko w kopii w dzienniku; póki Centrum działa, nic jej nie przywraca (Postep). (#211)"
+    "wynik": "przechodzi"
   },
   "nieudany-start": {
     "wynik": "przechodzi"
