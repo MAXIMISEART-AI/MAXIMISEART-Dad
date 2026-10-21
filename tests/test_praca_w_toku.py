@@ -147,3 +147,10 @@ def test_zly_ksztalt_odpowiedzi_gh_to_raport_bez_githuba(checkouts: dict[str, Pa
 
     assert "GITHUB POMINIĘTY" in report
     assert "fix/opiekun" in report  # praca lokalna nadal w raporcie
+
+
+def test_zly_ksztalt_tresci_zgloszenia_to_raport_bez_githuba(checkouts: dict[str, Path]) -> None:
+    report = _report(checkouts["current"], "--issue", "7", gh_answer="[]")
+
+    assert report.count("GITHUB POMINIĘTY") == 1
+    assert "fix/opiekun" in report  # praca lokalna nadal w raporcie
