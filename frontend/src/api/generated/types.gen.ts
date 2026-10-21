@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -1230,6 +1230,10 @@ export type ThemeChange = {
  * ToolUpdateFailed
  *
  * Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+ *
+ * ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
+ * ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
+ * wyśle „Wyślij do Maksa”, a ``report`` jego stan.
  */
 export type ToolUpdateFailed = {
     /**
@@ -1237,6 +1241,23 @@ export type ToolUpdateFailed = {
      */
     state: 'failed';
     message: Message;
+    /**
+     * Next Action
+     */
+    next_action: 'retry' | 'report';
+    /**
+     * Report
+     */
+    report: ({
+        state: 'ready';
+    } & ReportReady) | ({
+        state: 'sent';
+    } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
+        state: 'saved';
+    } & ReportSaved);
+    draft: ReportDraft;
 };
 
 /**
@@ -1280,7 +1301,7 @@ export type ToolUpdateUpToDate = {
 /**
  * ToolUpdateUpdated
  *
- * Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); Centrum działa dalej w poprzedniej.
+ * Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); to Centrum wystartowało już w niej.
  */
 export type ToolUpdateUpdated = {
     /**
@@ -1906,6 +1927,41 @@ export type StartToolUpdateResponses = {
 };
 
 export type StartToolUpdateResponse = StartToolUpdateResponses[keyof StartToolUpdateResponses];
+
+export type ReportToolUpdateData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tool-update/report';
+};
+
+export type ReportToolUpdateErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type ReportToolUpdateError = ReportToolUpdateErrors[keyof ReportToolUpdateErrors];
+
+export type ReportToolUpdateResponses = {
+    /**
+     * Response Reporttoolupdate
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'ready';
+    } & ReportReady) | ({
+        state: 'sent';
+    } & ReportSent) | ({
+        state: 'waiting';
+    } & ReportWaiting) | ({
+        state: 'saved';
+    } & ReportSaved);
+};
+
+export type ReportToolUpdateResponse = ReportToolUpdateResponses[keyof ReportToolUpdateResponses];
 
 export type CloseCentrumData = {
     body?: never;

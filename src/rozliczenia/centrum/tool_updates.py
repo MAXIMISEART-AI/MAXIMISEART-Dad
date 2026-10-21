@@ -7,13 +7,16 @@ aktualizację w osobnym wątku, a karta odczytuje krok i wynik. Dziennik Centrum
 dostaje start i koniec z commitem przed i po, bez ścieżek i bez wyjścia Gita.
 Po udanej aktualizacji Centrum zamyka się, a opiekun ponownego startu
 (``restart_guardian``) uruchamia nową wersję; koniec aktualizacji zapisuje
-wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Każdą porażkę, której ``tool_update`` nie przewidział, karta widzi jako
-Komunikat nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku.
+wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Każdą porażkę,
+której ``tool_update`` nie przewidział, karta widzi jako Komunikat
+nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku. Przy każdej
+porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import tempfile
@@ -23,11 +26,14 @@ from fastapi import APIRouter, Request
 
 from rozliczenia.centrum import contract, restart_guardian, update_messages
 from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.reports import Reports
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import (
+    LIBRARIES_FAILED,
+    NO_CONNECTION,
     UNEXPECTED,
     UP_TO_DATE,
     UPDATED,
@@ -37,6 +43,8 @@ from rozliczenia.centrum.tool_update import (
     read_result,
 )
 
+# Porażki, po których tata sam klika „Zaktualizuj narzędzie” jeszcze raz; każdą inną przejmuje Maks.
+_RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED})
 
 GuardianLauncher = Callable[[Path, Restart], object]
 """Uruchamia opiekuna ponownego startu z kopii (``restart_guardian.launch``); w testach podstawiany."""
@@ -53,7 +61,8 @@ class ToolUpdates:
     (``guardian``) i zamyka się (``shutdown``); miejsca „jedno naraz” już nie
     zwalnia. Opiekun zostawia wynik w ``result_file``, a nowe Centrum odczytuje
     go raz przy starcie: zapisuje koniec aktualizacji w dzienniku, usuwa plik i
-    pokazuje wynik karcie.
+    pokazuje wynik karcie. ``reports`` przygotowuje i wysyła Zgłoszenie nieudanej
+    aktualizacji.
     """
 
     def __init__(
@@ -62,6 +71,7 @@ class ToolUpdates:
         runs: RunHost,
         log: CentrumLog,
         commit: CommitSource,
+        reports: Reports,
         *,
         shutdown: Shutdown,
         guardian: GuardianLauncher,
@@ -70,6 +80,7 @@ class ToolUpdates:
         self._clone = clone
         self._runs = runs
         self._log = log
+        self._reports = reports
         self._commit = commit
         self._shutdown = shutdown
         self._guardian = guardian
@@ -108,13 +119,15 @@ class ToolUpdates:
             self._result_file.unlink(missing_ok=True)
         except OSError:
             pass  # wynik i tak jest już w dzienniku; plik zostaje do następnego startu
-        return _view_of(result)
+        return _view_of(result) or self._failed(result)
 
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
         restarting = False
         try:
             result, guardian = self._result(clone, before, work)
+            if result.before is None:  # bez Gita commit zna tylko Centrum
+                result = replace(result, before=before)
             if result.code == UPDATED and result.after is not None and guardian is not None:
                 restart = Restart(
                     port, result.before, result.after, clone.root, self._result_file, result.installed, work
@@ -122,8 +135,9 @@ class ToolUpdates:
                 restarting = self._restart(restart, guardian)
             if not restarting:
                 self._finished(result)
+                view = _view_of(result) or self._failed(result)
                 with self._lock:
-                    self._view = _view_of(result)
+                    self._view = view
         finally:
             if not restarting:
                 shutil.rmtree(work, ignore_errors=True)
@@ -158,18 +172,45 @@ class ToolUpdates:
             result=result.code, before=result.before, after=result.after, installed=result.installed
         )
 
+    def _failed(self, result: UpdateResult) -> contract.ToolUpdateFailed:
+        """Komunikat porażki z podglądem Zgłoszenia; wpis ``aktualizacja-koniec`` jest już w dzienniku."""
+
+        message = update_messages.message_of(result.code)
+        draft, report = self._reports.draft_update(result, message)
+        return contract.ToolUpdateFailed(
+            state="failed",
+            message=contract.Message.of(message),
+            next_action="retry" if message.code in _RETRIED_BY_TATA else "report",
+            report=report,
+            draft=draft,
+        )
+
+    def send_report(self) -> contract.ReportState:
+        """„Wyślij do Maksa” przy nieudanej aktualizacji; ``contract.Refusal``, gdy ostatnia aktualizacja nie zawiodła."""
+
+        with self._lock:
+            failed = self._view
+        if not isinstance(failed, contract.ToolUpdateFailed):
+            raise contract.Refusal(409, "Zgłoszenie powstaje po nieudanej aktualizacji narzędzia.")
+        state = self._reports.send_update()
+        with self._lock:
+            if self._view is failed:
+                self._view = failed.model_copy(update={"report": state})
+        return state
+
     def _show_step(self, step: Step) -> None:
         with self._lock:
             self._view = contract.ToolUpdateRunning(state="running", step=step)
 
 
-def _view_of(result: UpdateResult) -> contract.ToolUpdate:
+def _view_of(result: UpdateResult) -> contract.ToolUpdate | None:
+    """Widok udanej aktualizacji albo ``None`` przy porażce."""
+
     if result.code == UPDATED and result.after is not None:
         return contract.ToolUpdateUpdated(state="updated", commit=result.after[:7])
     if result.code == UP_TO_DATE:
         return contract.ToolUpdateUpToDate(state="up_to_date")
-    message = update_messages.message_of(result.code)
-    return contract.ToolUpdateFailed(state="failed", message=contract.Message.of(message))
+    return None
 
 
 def tool_update_router(updates: ToolUpdates) -> APIRouter:
@@ -183,5 +224,9 @@ def tool_update_router(updates: ToolUpdates) -> APIRouter:
     @router.get("", operation_id="getToolUpdate")
     def current() -> contract.ToolUpdate:
         return updates.current()
+
+    @router.post("/report", operation_id="reportToolUpdate", responses={409: {"model": contract.Problem}})
+    def send_report() -> contract.ReportState:
+        return updates.send_report()
 
     return router

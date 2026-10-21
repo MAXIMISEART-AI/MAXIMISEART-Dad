@@ -7,9 +7,11 @@ wynik, Konfiguracja, odmowy „jedno naraz” i dziennik Centrum.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 import os
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Any
@@ -18,10 +20,16 @@ import pytest
 
 from rozliczenia.centrum.tool_update import RESULT_FILE, UPDATED, UpdateResult, write_result
 
-from tests.fixtures.centrum import views_until
+from tests.fixtures.centrum import project_version, views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
-from tests.fixtures.tool_clone import NEW_REQUIREMENTS, FakeInstaller, ToolRepository, tool_repository
+from tests.fixtures.tool_clone import (
+    NEW_REQUIREMENTS,
+    FakeInstaller,
+    ToolRepository,
+    origin_asking_for_login,
+    tool_repository,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -35,10 +43,18 @@ def updating_centrum(
     *,
     hold: threading.Event | None = None,
     incomplete_period: bool = False,
+    git_installed: bool = True,
+    origin: str | None = None,
     installer: FakeInstaller | None = None,
 ) -> tuple[PreparingCentrum, ToolRepository]:
     repository = tool_repository(tmp_path / "repozytoria")
-    surroundings = Surroundings(tool=repository, update_hold=hold, installer=installer or FakeInstaller())
+    surroundings = Surroundings(
+        tool=repository,
+        update_hold=hold,
+        git_installed=git_installed,
+        update_origin=origin,
+        installer=installer or FakeInstaller(),
+    )
     rows = incomplete_period_rows() if incomplete_period else None
     return preparing_centrum(tmp_path, rows, surroundings=surroundings), repository
 
@@ -237,20 +253,202 @@ def test_nieprzewidziana_porazka_daje_komunikat_a_klon_zostaje_bez_zmian(tmp_pat
 
     view = update_until_done(centrum)
 
-    assert view == {
+    assert {key: value for key, value in view.items() if key != "draft"} == {
         "state": "failed",
         "message": {
             "what": "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
             "where": "narzędzie na tym komputerze",
             "action": (
                 "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
-                "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
+                "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
             ),
         },
+        "next_action": "retry",
+        "report": {"state": "ready"},
     }
     assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
     assert log_entries(centrum, "aktualizacja-koniec") == ["wynik=NIEOCZEKIWANY_BLAD przed=- po=- biblioteki=nie"]
     assert centrum.client.post("/api/tool-update").status_code == 202
+
+
+STILL_WORKS = "Narzędzie działa dalej w poprzedniej wersji."
+TO_MAKS = f"{STILL_WORKS} Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
+KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
+
+
+@contextmanager
+def github_out_of_reach(repository: ToolRepository) -> Iterator[None]:
+    """Lokalny „origin” poza zasięgiem, jak GitHub bez internetu, aż internet wróci."""
+
+    away = repository.origin.with_name("origin-poza-zasiegiem.git")
+    repository.origin.rename(away)
+    try:
+        yield
+    finally:
+        away.rename(repository.origin)
+
+
+def newer_version(centrum_and_repository: tuple[PreparingCentrum, ToolRepository]) -> tuple[PreparingCentrum, ToolRepository]:
+    """Maks wydał nową wersję narzędzia: `main` w „origin” jest o commit przed klonem taty."""
+
+    centrum_and_repository[1].publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    return centrum_and_repository
+
+
+def without_git(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
+    return newer_version(updating_centrum(tmp_path, git_installed=False))
+
+
+def without_internet(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
+    centrum, repository = newer_version(updating_centrum(tmp_path))
+    stack.enter_context(github_out_of_reach(repository))
+    return centrum, repository
+
+
+def github_asking_for_login(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
+    return newer_version(updating_centrum(tmp_path, origin=stack.enter_context(origin_asking_for_login())))
+
+
+def on_other_branch(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
+    centrum, repository = newer_version(updating_centrum(tmp_path))
+    repository.in_clone("checkout", "--quiet", "-b", "proba-maksa")
+    return centrum, repository
+
+
+def with_local_change(tmp_path: Path, stack: ExitStack) -> tuple[PreparingCentrum, ToolRepository]:
+    centrum, repository = newer_version(updating_centrum(tmp_path))
+    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
+    return centrum, repository
+
+
+Situation = Callable[[Path, ExitStack], tuple[PreparingCentrum, ToolRepository]]
+
+
+@pytest.mark.parametrize(
+    ("situation", "code", "what", "action", "next_action"),
+    [
+        (without_git, "BRAK_GITA", "Nie zaktualizowano narzędzia: na tym komputerze nie ma Gita.", TO_MAKS, "report"),
+        (
+            without_internet,
+            "BRAK_POLACZENIA",
+            "Nie zaktualizowano narzędzia: brak połączenia z GitHubem.",
+            f"{STILL_WORKS} Sprawdź internet i kliknij „Zaktualizuj narzędzie” jeszcze raz.",
+            "retry",
+        ),
+        (
+            github_asking_for_login,
+            "LOGOWANIE",
+            "Nie zaktualizowano narzędzia: GitHub prosi o logowanie.",
+            TO_MAKS,
+            "report",
+        ),
+        (
+            on_other_branch,
+            "INNA_GALAZ",
+            "Nie zaktualizowano narzędzia: na tym komputerze jest inna gałąź narzędzia niż main.",
+            TO_MAKS,
+            "report",
+        ),
+        (
+            with_local_change,
+            "ZMIANY_NA_KOMPUTERZE",
+            "Nie zaktualizowano narzędzia: ma zmiany zrobione na tym komputerze.",
+            TO_MAKS,
+            "report",
+        ),
+    ],
+    ids=["brak-gita", "brak-internetu", "logowanie", "inna-galaz", "zmiany-na-komputerze"],
+)
+def test_aktualizacja_ktora_nie_moze_sie_udac_daje_komunikat_w_trzech_czesciach_a_narzedzie_zostaje(
+    tmp_path: Path, situation: Situation, code: str, what: str, action: str, next_action: str
+) -> None:
+    with ExitStack() as stack:
+        centrum, repository = situation(tmp_path, stack)
+        before = repository.head()
+
+        view = update_until_done(centrum)
+
+    assert {key: value for key, value in view.items() if key != "draft"} == {
+        "state": "failed",
+        "message": {"what": what, "where": "narzędzie na tym komputerze", "action": action},
+        "next_action": next_action,
+        "report": {"state": "ready"},
+    }
+    assert view["draft"]["title"] == f"{code}: {what}"
+    assert repository.head() == before
+    assert repository.read("src/narzedzie.py") != "WERSJA = 2\n"
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik={code} przed={before} po=- biblioteki=nie"]
+
+
+def with_key(centrum: PreparingCentrum) -> None:
+    (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
+
+
+def send_report(centrum: PreparingCentrum) -> dict[str, Any]:
+    response = centrum.client.post("/api/tool-update/report")
+    assert response.status_code == 200, response.json()
+    state: dict[str, Any] = response.json()
+    return state
+
+
+def test_zgloszenie_nieudanej_aktualizacji_ma_te_same_fakty_co_dziennik(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    with_key(centrum)
+    before = repository.head()
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.in_clone("checkout", "--quiet", "-b", "proba-maksa")
+    preview = update_until_done(centrum)["draft"]
+
+    state = send_report(centrum)
+
+    assert state == {"state": "sent"}
+    [report] = centrum.surroundings.report_box.sent
+    assert {"title": report.title, "body": report.body} == preview
+    assert report.title == "INNA_GALAZ: Nie zaktualizowano narzędzia: na tym komputerze jest inna gałąź narzędzia niż main."
+    body = report.body
+    assert "- Kod: INNA_GALAZ\n" in body
+    assert f"- Co zrobić: {TO_MAKS}\n" in body
+    assert (
+        f"## Aktualizacja narzędzia\n\n- Wynik: INNA_GALAZ\n- Commit przed: {before}\n- Commit po: brak\n"
+        "- Biblioteki instalowane: nie\n"
+    ) in body
+    assert f"- Wersja: {project_version()}\n" in body
+    log = centrum.log_path.read_text(encoding="utf-8").splitlines()
+    started = next(line for line in log if " aktualizacja-start " in line)
+    finished = next(line for line in log if " aktualizacja-koniec " in line)
+    assert f"```text\n{started}\n{finished}\n```" in body
+    assert re.search(r"fatal|error:|hint:|proba-maksa|origin\.git", body) is None
+    assert centrum.client.get("/api/tool-update").json()["report"] == {"state": "sent"}
+    assert "zgloszenie-wyslane z=aktualizacja numer=1" in centrum.log_path.read_text(encoding="utf-8")
+
+
+def test_zgloszenie_bez_nieudanej_aktualizacji_jest_odrzucone(tmp_path: Path) -> None:
+    centrum, _ = updating_centrum(tmp_path)
+    with_key(centrum)
+    assert update_until_done(centrum)["state"] == "up_to_date"
+
+    refused = centrum.client.post("/api/tool-update/report")
+
+    assert refused.status_code == 409
+    assert centrum.surroundings.report_box.sent == []
+
+
+def test_gdy_wroci_internet_ponowna_aktualizacja_sie_udaje(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    with github_out_of_reach(repository):
+        offline = update_until_done(centrum)
+
+    retried = update_until_done(centrum)
+
+    assert offline["message"]["what"] == "Nie zaktualizowano narzędzia: brak połączenia z GitHubem."
+    assert retried == {"state": "running", "step": "restarting"}
+    assert [restart.after for restart in centrum.surroundings.restarts] == [newest]
+    assert repository.head() == newest
+    # Koniec udanej aktualizacji zapisze nowe Centrum, z pliku wyniku od opiekuna.
+    assert [entry.split(" ", 1)[0] for entry in log_entries(centrum, "aktualizacja-koniec")] == [
+        "wynik=BRAK_POLACZENIA"
+    ]
 
 
 def test_nowe_biblioteki_karta_widzi_krok_instalowania_a_dziennik_zapisuje_instalacje(tmp_path: Path) -> None:
@@ -280,16 +478,18 @@ def test_nieudana_instalacja_bibliotek_daje_komunikat_a_narzedzie_zostaje_w_popr
 
     view = update_until_done(centrum)
 
-    assert view == {
+    assert {key: value for key, value in view.items() if key != "draft"} == {
         "state": "failed",
         "message": {
             "what": "Nie udało się zainstalować bibliotek nowej wersji narzędzia.",
             "where": "narzędzie na tym komputerze",
             "action": (
                 "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
-                "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
+                "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
             ),
         },
+        "next_action": "retry",
+        "report": {"state": "ready"},
     }
     assert repository.head() == before
     assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"

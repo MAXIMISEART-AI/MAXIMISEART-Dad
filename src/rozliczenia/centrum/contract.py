@@ -613,17 +613,25 @@ class ToolUpdateUpToDate(_Model):
 
 
 class ToolUpdateUpdated(_Model):
-    """Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); Centrum działa dalej w poprzedniej."""
+    """Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); to Centrum wystartowało już w niej."""
 
     state: Literal["updated"]
     commit: str
 
 
 class ToolUpdateFailed(_Model):
-    """Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia."""
+    """Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+
+    ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
+    ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
+    wyśle „Wyślij do Maksa”, a ``report`` jego stan.
+    """
 
     state: Literal["failed"]
     message: Message
+    next_action: Literal["retry", "report"]
+    report: ReportState
+    draft: ReportDraft
 
 
 ToolUpdate = Annotated[
@@ -666,6 +674,7 @@ ApiOperation = Literal[
     "getConfiguration",
     "startToolUpdate",
     "getToolUpdate",
+    "reportToolUpdate",
     "closeCentrum",
 ]
 # Do 10 minut: dłuższy czas to uśpiona karta, nie pomiar.

@@ -828,6 +828,60 @@
         }
       }
     },
+    "/api/tool-update/report": {
+      "post": {
+        "tags": [
+          "aktualizacja"
+        ],
+        "summary": "Send Report",
+        "operationId": "reportToolUpdate",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReportReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportSent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportWaiting"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportSaved"
+                    }
+                  ],
+                  "title": "Response Reporttoolupdate",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "ready": "#/components/schemas/ReportReady",
+                      "sent": "#/components/schemas/ReportSent",
+                      "waiting": "#/components/schemas/ReportWaiting",
+                      "saved": "#/components/schemas/ReportSaved"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/shutdown": {
       "post": {
         "tags": [
@@ -918,6 +972,7 @@
               "getConfiguration",
               "startToolUpdate",
               "getToolUpdate",
+              "reportToolUpdate",
               "closeCentrum"
             ],
             "title": "Operation"
@@ -2884,16 +2939,56 @@
           },
           "message": {
             "$ref": "#/components/schemas/Message"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "retry",
+              "report"
+            ],
+            "title": "Next Action"
+          },
+          "report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReportReady"
+              },
+              {
+                "$ref": "#/components/schemas/ReportSent"
+              },
+              {
+                "$ref": "#/components/schemas/ReportWaiting"
+              },
+              {
+                "$ref": "#/components/schemas/ReportSaved"
+              }
+            ],
+            "title": "Report",
+            "discriminator": {
+              "propertyName": "state",
+              "mapping": {
+                "ready": "#/components/schemas/ReportReady",
+                "saved": "#/components/schemas/ReportSaved",
+                "sent": "#/components/schemas/ReportSent",
+                "waiting": "#/components/schemas/ReportWaiting"
+              }
+            }
+          },
+          "draft": {
+            "$ref": "#/components/schemas/ReportDraft"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "state",
-          "message"
+          "message",
+          "next_action",
+          "report",
+          "draft"
         ],
         "title": "ToolUpdateFailed",
-        "description": "Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia."
+        "description": "Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.\n\n``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);\n``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które\nwyśle „Wyślij do Maksa”, a ``report`` jego stan."
       },
       "ToolUpdateIdle": {
         "properties": {
@@ -2971,7 +3066,7 @@
           "commit"
         ],
         "title": "ToolUpdateUpdated",
-        "description": "Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); Centrum działa dalej w poprzedniej."
+        "description": "Narzędzie jest w nowej wersji ``commit`` (pierwsze 7 znaków); to Centrum wystartowało już w niej."
       },
       "ValidationError": {
         "properties": {

@@ -7,14 +7,25 @@ jego interfejsie. Żaden test nie łączy się z siecią.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import os
 from pathlib import Path
+import sys
+import time
 
 import pytest
 
-from rozliczenia.centrum.tool_update import GitFailed, ToolClone, UpdateResult, find_git
+from rozliczenia.centrum.tool_update import ToolClone, UpdateResult, find_git
 
-from tests.fixtures.tool_clone import FIRST_VERSION, NEW_REQUIREMENTS, FakeInstaller, ToolRepository, tool_repository
+from tests.fixtures.tool_clone import (
+    FIRST_VERSION,
+    NEW_REQUIREMENTS,
+    FakeInstaller,
+    ToolRepository,
+    origin_asking_for_login,
+    tool_repository,
+    unreachable_origin,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +62,107 @@ def test_klon_na_najnowszym_commicie_jest_juz_aktualny(repository: ToolRepositor
 
     assert result == UpdateResult("AKTUALNA", before=current, after=current, installed=False)
     assert repository.head() == current
+
+
+def test_bez_gita_na_komputerze_aktualizacja_konczy_sie_brakiem_gita_a_klon_zostaje_bez_zmian(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    unchanged = repository.state()
+
+    result = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: None).update(tmp_path / "kopia")
+
+    assert result == UpdateResult("BRAK_GITA", before=None, after=None)
+    assert repository.state() == unchanged
+
+
+def test_bez_polaczenia_z_githubem_aktualizacja_konczy_sie_brakiem_polaczenia_a_klon_zostaje_bez_zmian(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = ToolClone(repository.clone, origin=unreachable_origin()).update(tmp_path / "kopia")
+
+    assert result == UpdateResult("BRAK_POLACZENIA", before=before, after=None)
+    assert repository.state() == unchanged
+
+
+def credential_helper_that_waits(tmp_path: Path) -> Path:
+    """Konfiguracja Gita komputera z pomocnikiem logowania, który zapisuje ślad i czeka na odpowiedź taty."""
+
+    asked = tmp_path / "pomocnik-logowania-zapytany"
+    helper = tmp_path / "pomocnik_logowania.py"
+    helper.write_text(
+        f"import pathlib, time\npathlib.Path({str(asked)!r}).touch()\ntime.sleep(60)\n", encoding="utf-8"
+    )
+    config = tmp_path / "gitconfig"
+    command = f"!'{Path(sys.executable).as_posix()}' '{helper.as_posix()}'"
+    config.write_text(f'[credential]\n\thelper = "{command}"\n', encoding="utf-8")
+    return config
+
+
+def test_github_proszacy_o_logowanie_konczy_sie_od_razu_bez_pytania_a_klon_zostaje_bez_zmian(
+    repository: ToolRepository, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Na komputerze taty Git for Windows ma pomocnika logowania z oknem; tu pomocnik czekałby minutę.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(credential_helper_that_waits(tmp_path)))
+    before = repository.head()
+    unchanged = repository.state()
+
+    with origin_asking_for_login() as origin:
+        started = time.monotonic()
+        result = ToolClone(repository.clone, origin=origin).update(tmp_path / "kopia")
+        elapsed = time.monotonic() - started
+
+    assert result == UpdateResult("LOGOWANIE", before=before, after=None)
+    assert elapsed < 20
+    assert not (tmp_path / "pomocnik-logowania-zapytany").exists()
+    assert repository.state() == unchanged
+
+
+def test_klon_na_innej_galezi_daje_odmowe_a_klon_zostaje_bez_zmian(repository: ToolRepository, tmp_path: Path) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.in_clone("checkout", "--quiet", "-b", "proba-maksa")
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository, tmp_path)
+
+    assert result == UpdateResult("INNA_GALAZ", before=before, after=None)
+    assert repository.state() == unchanged
+
+
+def local_commit(repository: ToolRepository) -> None:
+    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
+    repository.in_clone("commit", "--quiet", "--all", "--message", "Poprawka na komputerze taty")
+
+
+def changed_tracked_file(repository: ToolRepository) -> None:
+    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
+
+
+def untracked_file_that_new_version_adds(repository: ToolRepository) -> None:
+    repository.write("src/nowy_modul.py", "# plik zostawiony na komputerze taty\n")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [local_commit, changed_tracked_file, untracked_file_that_new_version_adds],
+    ids=["lokalny-commit", "zmieniony-sledzony-plik", "niesledzony-plik-z-nowej-wersji"],
+)
+def test_zmiany_na_komputerze_daja_odmowe_a_klon_zostaje_bez_zmian(
+    repository: ToolRepository, tmp_path: Path, change: Callable[[ToolRepository], None]
+) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n", "src/nowy_modul.py": "WERSJA_MODULU = 2\n"})
+    change(repository)
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository, tmp_path)
+
+    assert result == UpdateResult("ZMIANY_NA_KOMPUTERZE", before=before, after=None)
+    assert repository.state() == unchanged
 
 
 def installed_git(directory: Path) -> Path:
@@ -199,9 +311,9 @@ def test_odmowa_przesuniecia_zostawia_pliki_taty_i_klon_bez_zmian(repository: To
         untrack=("config/worker_mapping.yaml",),
     )
 
-    with pytest.raises(GitFailed):
-        update(repository, tmp_path)
+    result = update(repository, tmp_path)
 
+    assert result == UpdateResult("ZMIANY_NA_KOMPUTERZE", before=before, after=None)
     assert repository.head() == before
     assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
     assert repository.read("config/rejestr.yaml") == "zachowany u taty\n"

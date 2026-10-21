@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 import subprocess
 import urllib.request
@@ -17,6 +19,9 @@ UPDATED = "Zaktualizowano"
 UP_TO_DATE = "Masz najnowszą wersję."
 FETCHING = "Pobieranie nowej wersji…"
 RESTARTING = "Ponowne uruchamianie Centrum…"
+NO_CONNECTION = "Nie zaktualizowano narzędzia: brak połączenia z GitHubem."
+RETRY = "Narzędzie działa dalej w poprzedniej wersji. Sprawdź internet i kliknij „Zaktualizuj narzędzie” jeszcze raz."
+REPORT_BUTTON = "Wyślij do Maksa"
 INSTALLING = "Instalowanie bibliotek…"
 LIBRARIES_FAILED = "Nie udało się zainstalować bibliotek nowej wersji narzędzia."
 # Long enough to see the progress and send the refused requests; fetching from the local "origin" takes milliseconds.
@@ -50,6 +55,77 @@ def _dad_files_kept(run: Run, clone: Path, dad_files: dict[str, str], run_config
         "the new version no longer tracks the konfiguracja wykonawców that Dad still has",
     )
     run.check(_contents(run.root / "config") == run_configuration, "the run's configuration directory is untouched")
+
+
+@contextmanager
+def _without_internet(run: Run) -> Iterator[None]:
+    """No internet on Dad's computer: the local "origin", the scripted GitHub and the skrzynka are out of reach."""
+
+    origin = Path(run.fixture["tool"]["origin"])
+    away = origin.with_name("origin-poza-zasiegiem.git")
+    markers = [run.root / "github" / "brak-sieci", run.root / "skrzynka-zgloszen" / "brak-sieci"]
+    print("  harness: no internet (the local origin moved out of reach, GitHub and the skrzynka unreachable)", flush=True)
+    origin.rename(away)
+    for marker in markers:
+        marker.parent.mkdir(exist_ok=True)
+        marker.touch()
+    try:
+        yield
+    finally:
+        away.rename(origin)
+        for marker in markers:
+            marker.unlink(missing_ok=True)
+        print("  harness: the internet is back", flush=True)
+
+
+def _drive_no_connection(run: Run, page: Page, card: Locator, clone: Path, first: str) -> None:
+    run.step(FEATURE, "aktualizacja-brak-sieci")
+    with _without_internet(run):
+        card.get_by_role("button", name=BUTTON, exact=True).click()
+        message = card.get_by_role("alert", name="Ostrzeżenie")
+        expect(message).to_contain_text(NO_CONNECTION, timeout=20_000)
+        expect(message).to_contain_text("narzędzie na tym komputerze")
+        expect(message).to_contain_text(RETRY)
+        update = card.get_by_role("button", name=BUTTON, exact=True)
+        expect(update).to_be_enabled()
+        report = card.get_by_role("button", name=REPORT_BUTTON, exact=True)
+        expect(report).to_be_visible()
+        run.check("bg-primary" in (update.get_attribute("class") or ""), "trying again is the main action")
+        run.check("bg-primary" not in (report.get_attribute("class") or ""), "`Wyślij do Maksa` is the second action")
+        view = run.api("/api/tool-update", "aktualizacja-brak-sieci")
+        run.check(
+            (view["state"], view["message"], view["next_action"], view["report"])
+            == (
+                "failed",
+                {"what": NO_CONNECTION, "where": "narzędzie na tym komputerze", "action": RETRY},
+                "retry",
+                {"state": "ready"},
+            ),
+            "the server reports the Komunikat in three parts, a retry, and a Zgłoszenie ready to send",
+        )
+        run.check(_head(clone) == first, "the clone stays on the commit Dad had")
+        run.check(
+            _git(clone, "status", "--porcelain", "--", "config/worker_mapping.yaml") == "M config/worker_mapping.yaml",
+            "Dad's changed konfiguracja wykonawców is still there, still tracked",
+        )
+        run.check(
+            _update_entries(run)
+            == [f"aktualizacja-start przed={first}", f"aktualizacja-koniec wynik=BRAK_POLACZENIA przed={first} po=- biblioteki=nie"],
+            "the Centrum log has the failed update with its code and commit, and no path",
+        )
+        run.capture(page, "115-aktualizacja-brak-sieci")
+        card.get_by_role("button", name="Co zostanie wysłane").click()
+        preview = card.get_by_role("figure", name="Treść Zgłoszenia")
+        expect(preview).to_contain_text(f"BRAK_POLACZENIA: {NO_CONNECTION}")
+        expect(preview).to_contain_text(f"- Commit przed: {first}")
+        expect(preview).to_contain_text("- Biblioteki instalowane: nie")
+        expect(preview).to_contain_text("aktualizacja-koniec wynik=BRAK_POLACZENIA")
+        draft = view["draft"]
+        run.check(
+            isinstance(draft, dict) and "origin" not in str(draft["body"]) and str(run.root) not in str(draft["body"]),
+            "the Zgłoszenie has the log's facts, no path and no Git output",
+        )
+        run.capture(page, "116-aktualizacja-brak-sieci-zgloszenie")
 
 
 def _tool_card(page: Page) -> Locator:
@@ -130,6 +206,7 @@ def drive_update(run: Run, page: Page) -> None:
             "no Aktualizacja narzędzia since Centrum started",
         )
         run.capture(page, "93-aktualizacja-jest-nowsza")
+        _drive_no_connection(run, page, card, clone, first)
 
         run.step(FEATURE, "aktualizacja-postep")
         print(f"  harness: each Aktualizacja narzędzia waits {PACING_MS} ms before it looks for Git", flush=True)
@@ -153,8 +230,8 @@ def drive_update(run: Run, page: Page) -> None:
         )
         run.capture(page, "94-aktualizacja-postep", live=True)
         run.check(
-            [entry.split(" ")[0] for entry in _update_entries(run)] == ["aktualizacja-start"],
-            "the double click started exactly one Aktualizacja narzędzia",
+            [entry.split(" ")[0] for entry in _update_entries(run)[2:]] == ["aktualizacja-start"],
+            "with the internet back, the double click started exactly one more Aktualizacja narzędzia",
         )
     finally:
         pacing.unlink(missing_ok=True)
@@ -203,8 +280,8 @@ def drive_update(run: Run, page: Page) -> None:
         )
         entries = _update_entries(run)
         run.check(
-            entries == [f"aktualizacja-start przed={first}", f"aktualizacja-koniec wynik=ok przed={first} po={newest} biblioteki=nie"],
-            "the Centrum log has the start and the end with both commits, and no path",
+            entries[2:] == [f"aktualizacja-start przed={first}", f"aktualizacja-koniec wynik=ok przed={first} po={newest} biblioteki=nie"],
+            "the Centrum log has the retry's start and end with both commits, and no path",
         )
         # The old Centrum releases the port at once but gives open connections (the tab's event stream) up to
         # 5 s before it logs `stop`, so its `stop` may come after the new Centrum's `start`.
@@ -271,19 +348,20 @@ def _drive_failed_installation(
     expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
     view = run.api("/api/tool-update", "aktualizacja-instalacja-nieudana")
     run.check(
-        view
-        == {
-            "state": "failed",
-            "message": {
+        (view["state"], view["message"], view["next_action"])
+        == (
+            "failed",
+            {
                 "what": LIBRARIES_FAILED,
                 "where": "narzędzie na tym komputerze",
                 "action": (
                     "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
-                    "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
+                    "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
                 ),
             },
-        },
-        "the server reports the three-part Komunikat of the failed installation",
+            "retry",
+        ),
+        "the server reports the three-part Komunikat of the failed installation, to be tried again",
     )
     run.check(_head(clone) == newest, "the clone is back on the commit before the click")
     run.check(not (clone / "requirements.txt").exists(), "the new version's requirements left with it")

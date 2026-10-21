@@ -197,6 +197,11 @@ REPORT_SAMPLES: Samples = {
 }
 
 UPDATE_SAMPLES: Samples = {
+    "no_git": [update_messages.no_git],
+    "no_connection": [update_messages.no_connection],
+    "login_required": [update_messages.login_required],
+    "other_branch": [update_messages.other_branch],
+    "local_changes": [update_messages.local_changes],
     "unexpected_failure": [update_messages.unexpected_failure],
     "libraries_failed": [update_messages.libraries_failed],
     "message_of": [

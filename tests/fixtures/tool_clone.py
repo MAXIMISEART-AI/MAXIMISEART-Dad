@@ -4,17 +4,23 @@
 commituje nowe wersje), jego kopię bez katalogu roboczego jako „origin” i klon
 narzędzia taty na pierwszym commicie. ``publish`` dodaje do `main` w „origin”
 nowy commit, a ``in_clone`` robi w klonie to, co mógłby zrobić ktoś przy
-komputerze taty. Pomocniki pomijają konfigurację Gita komputera, na którym
-biegną testy; żaden nie łączy się z siecią.
+komputerze taty; ``state`` to wszystko, co aktualizacja mogłaby w klonie
+zmienić. ``unreachable_origin`` i ``origin_asking_for_login`` to GitHub bez
+internetu i GitHub, który prosi o logowanie, oba na tym komputerze. Pomocniki
+pomijają konfigurację Gita komputera, na którym biegną testy; żaden nie łączy
+się z siecią.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import threading
 
@@ -95,6 +101,19 @@ class ToolRepository:
     def read(self, name: str) -> str:
         return (self.clone / name).read_text(encoding="utf-8")
 
+    def write(self, name: str, content: str) -> None:
+        _write(self.clone, {name: content})
+
+    def state(self) -> tuple[str, str, Mapping[str, str]]:
+        """Commit, gałąź (albo ``HEAD`` bez gałęzi) i treść każdego pliku klonu poza ``.git``."""
+
+        files = {
+            path.relative_to(self.clone).as_posix(): path.read_text(encoding="utf-8")
+            for path in sorted(self.clone.rglob("*"))
+            if path.is_file() and ".git" not in path.relative_to(self.clone).parts
+        }
+        return self.head(), git(self.clone, "rev-parse", "--abbrev-ref", "HEAD"), files
+
 
 def copy_centrum_runtime(destination: Path) -> Path:
     """Kopia narzędzia z launcherem Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
@@ -141,6 +160,40 @@ def _published(directory: Path, publisher: Path) -> ToolRepository:
     clone = directory / "narzedzie"
     git(directory, "clone", "--quiet", str(origin), str(clone))
     return ToolRepository(publisher, origin, clone)
+
+
+def unreachable_origin() -> str:
+    """Adres HTTP na tym komputerze, pod którym nikt nie słucha: jak GitHub bez internetu."""
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    return f"http://127.0.0.1:{port}/MAXIMISEART-Dad.git"
+
+
+class _LoginRequired(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="GitHub"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+@contextmanager
+def origin_asking_for_login() -> Iterator[str]:
+    """Serwer HTTP na tym komputerze, który na każde pytanie Gita odpowiada „401: zaloguj się”, jak GitHub."""
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _LoginRequired)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/MAXIMISEART-Dad.git"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 class FakeInstaller:

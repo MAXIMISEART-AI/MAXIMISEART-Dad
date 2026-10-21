@@ -66,6 +66,8 @@ REQUIRED_SCREENSHOTS = {
     ),
     "aktualizacja": (
         "93-aktualizacja-jest-nowsza.png",
+        "115-aktualizacja-brak-sieci.png",
+        "116-aktualizacja-brak-sieci-zgloszenie.png",
         "94-aktualizacja-postep.png",
         "100-aktualizacja-ponowny-start.png",
         "101-aktualizacja-zaktualizowano.png",

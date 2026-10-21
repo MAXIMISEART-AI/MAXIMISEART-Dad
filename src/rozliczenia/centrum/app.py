@@ -146,6 +146,7 @@ def create_app(
         runs,
         log,
         surroundings.tool_freshness.local,
+        reports,
         shutdown=shutdown,
         guardian=guardian or (lambda copy, restart: restart_guardian.launch(copy, restart)),
         result_file=settings_path.parent / RESULT_FILE,

@@ -9,13 +9,13 @@ import {
 } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
-import { diagnoseRun, type Diagnosis, type DiagnosisCheck, type RunOutcome } from "@/api/centrum"
+import { diagnoseRun, reportRun, type Diagnosis, type DiagnosisCheck, type RunOutcome } from "@/api/centrum"
 import { Disclosure } from "@/components/disclosure"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { toast } from "@/components/ui/toast"
-import { ReportToMaks } from "@/pages/runs/report"
+import { ReportToMaks } from "@/components/report-to-maks"
 
 type StopDiagnosis = {
   /** Akcja przy banerze Zatrzymania: „Diagnoza”, a po niej „Uruchom ponownie”, gdy Diagnoza potwierdza Komunikat. */
@@ -62,7 +62,7 @@ export function useStopDiagnosis(
     return {
       action: <DiagnoseButton checking={checking} onDiagnose={diagnose} />,
       result:
-        report === null ? null : <ReportToMaks runId={runId} report={report} draft={null} primary={false} />,
+        report === null ? null : <ReportToMaks send={() => reportRun(runId)} report={report} draft={null} primary={false} />,
     }
   }
 
@@ -90,7 +90,7 @@ export function useStopDiagnosis(
         <Checks checks={diagnosis.checks} />
         {report === null ? null : (
           <ReportToMaks
-            runId={runId}
+            send={() => reportRun(runId)}
             report={report}
             draft={diagnosis.report}
             primary={diagnosis.next_action === "report"}

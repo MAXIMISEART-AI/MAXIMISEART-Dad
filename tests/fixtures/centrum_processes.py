@@ -56,8 +56,10 @@ class Surroundings:
     commit narzędzia i `main` pochodzą z tych repozytoriów, a Aktualizacja
     narzędzia przesuwa ten klon. ``update_hold`` zatrzymuje każdą Aktualizację
     narzędzia na jej początku, dopóki test jej nie puści (``set``), a
-    ``installer`` instaluje biblioteki zamiast pip. Opiekun ponownego startu po
-    udanej aktualizacji tylko zapisuje prośbę w ``restarts`` (i usuwa katalog
+    ``installer`` instaluje biblioteki zamiast pip. ``git_installed=False`` to
+    komputer bez Gita, a ``update_origin`` adres, z którego aktualizacja pobiera
+    nową wersję zamiast lokalnego „origin”. Opiekun ponownego startu po udanej
+    aktualizacji tylko zapisuje prośbę w ``restarts`` (i usuwa katalog
     tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji).
     """
 
@@ -67,6 +69,8 @@ class Surroundings:
     clock: FakeClock = field(default_factory=FakeClock)
     tool: ToolRepository | None = None
     update_hold: threading.Event | None = None
+    git_installed: bool = True
+    update_origin: str | None = None
     installer: FakeInstaller = field(default_factory=FakeInstaller)
     restarts: list[Restart] = field(default_factory=list)
 
@@ -77,17 +81,19 @@ class Surroundings:
         return ToolFreshness(local=lambda: tool_commit(tool.clone), main=lambda: git(tool.origin, "rev-parse", "main"))
 
     def tool_update(self) -> ToolClone | None:
-        tool, hold = self.tool, self.update_hold
+        tool, hold, installed = self.tool, self.update_hold, self.git_installed
         if tool is None:
             return None
 
         def held_git() -> Path | None:
             if hold is not None:
                 hold.wait()
-            found = shutil.which("git")
+            found = shutil.which("git") if installed else None
             return None if found is None else Path(found)
 
-        return ToolClone(tool.clone, origin=str(tool.origin), find_git=held_git, install=self.installer)
+        return ToolClone(
+            tool.clone, origin=self.update_origin or str(tool.origin), find_git=held_git, install=self.installer
+        )
 
     def guardian(self, copy: Path, restart: Restart) -> None:
         assert (copy / "rozliczenia" / "centrum" / "restart_guardian.py").is_file()
