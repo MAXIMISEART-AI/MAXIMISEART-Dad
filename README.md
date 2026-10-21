@@ -266,7 +266,8 @@ py -3 -m mypy
 
 Ruff i mypy obejmują aplikację, testy, narzędzia oraz skrypty weryfikacyjne.
 Zakres plików jest ustawiony tylko w `pyproject.toml`; nowy plik `*.py` w
-katalogu głównym jest sprawdzany automatycznie.
+katalogu głównym albo w `scripts/` skilla w `.agents/skills/` jest sprawdzany
+automatycznie.
 
 Na macOS i Linuksie (bez `py -3`) zestaw developerski instaluje się przez
 [`uv`](https://docs.astral.sh/uv/), a komendy uruchamia z `.venv`:
