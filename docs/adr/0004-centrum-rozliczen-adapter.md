@@ -15,8 +15,8 @@ Zgłoszeniach i Diagnozie.
 launchery `.cmd` znikają, Centrum jest jedynym wejściem taty, a CLI zostaje
 narzędziem osoby utrzymującej.
 [ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa CLI i adaptery
-terminala: Centrum jest jedynym rozmówcą procesów, a Komunikat nie ma linii
-terminala (`terminal_line`).
+terminala: procesy mają jedną rozmowę z tatą, w Centrum, a Komunikat nie ma
+linii terminala (`terminal_line`).
 
 ## Decyzja
 
