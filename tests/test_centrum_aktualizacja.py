@@ -46,6 +46,7 @@ def updating_centrum(
     git_installed: bool = True,
     origin: str | None = None,
     installer: FakeInstaller | None = None,
+    guardian_starts: bool = True,
 ) -> tuple[PreparingCentrum, ToolRepository]:
     repository = tool_repository(tmp_path / "repozytoria")
     surroundings = Surroundings(
@@ -54,6 +55,7 @@ def updating_centrum(
         git_installed=git_installed,
         update_origin=origin,
         installer=installer or FakeInstaller(),
+        guardian_starts=guardian_starts,
     )
     rows = incomplete_period_rows() if incomplete_period else None
     return preparing_centrum(tmp_path, rows, surroundings=surroundings), repository
@@ -497,6 +499,46 @@ def test_nieudana_instalacja_bibliotek_daje_komunikat_a_narzedzie_zostaje_w_popr
     assert log_entries(centrum, "aktualizacja-koniec") == [
         f"wynik=INSTALACJA_BIBLIOTEK przed={before} po={newest} biblioteki=tak"
     ]
+
+
+def test_gdy_opiekun_nie_wystartuje_centrum_cofa_klon_z_plikiem_taty_i_pokazuje_komunikat(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path, guardian_starts=False)
+    before = repository.head()
+    dad_mapping = "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n"
+    repository.write("config/worker_mapping.yaml", dad_mapping)
+    newest = repository.publish(
+        {".gitignore": "config/worker_mapping.yaml\n", "src/narzedzie.py": "WERSJA = 2\n"},
+        untrack=("config/worker_mapping.yaml",),
+    )
+    assert centrum.client.post("/api/tool-update").status_code == 202
+
+    view = tool_update_until(centrum, lambda view: view["state"] != "running")
+    run = centrum.start(dry_run=True)
+
+    assert {key: value for key, value in view.items() if key != "draft"} == {
+        "state": "failed",
+        "message": {
+            "what": "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
+            "where": "narzędzie na tym komputerze",
+            "action": (
+                "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+                "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
+            ),
+        },
+        "next_action": "retry",
+        "report": {"state": "ready"},
+    }
+    assert repository.head() == before
+    assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
+    assert repository.read("config/worker_mapping.yaml") == dad_mapping
+    assert repository.in_clone("status", "--porcelain", "--untracked-files=no") == "M config/worker_mapping.yaml"
+    assert centrum.surroundings.restarts == []
+    assert log_entries(centrum, "nieoczekiwany-wyjatek") == ['typ=OSError miejsce="ponowny start po aktualizacji"']
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=NIEOCZEKIWANY_BLAD przed={before} po={newest} biblioteki=nie"
+    ]
+    assert "zamkniecie" not in log_events(centrum)
+    assert run.status_code == 200
 
 
 def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_zgloszen(tmp_path: Path) -> None:

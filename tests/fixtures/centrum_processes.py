@@ -60,7 +60,8 @@ class Surroundings:
     komputer bez Gita, a ``update_origin`` adres, z którego aktualizacja pobiera
     nową wersję zamiast lokalnego „origin”. Opiekun ponownego startu po udanej
     aktualizacji tylko zapisuje prośbę w ``restarts`` (i usuwa katalog
-    tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji).
+    tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji), a z
+    ``guardian_starts=False`` nie startuje (``launch`` rzuca ``OSError``).
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -73,6 +74,7 @@ class Surroundings:
     update_origin: str | None = None
     installer: FakeInstaller = field(default_factory=FakeInstaller)
     restarts: list[Restart] = field(default_factory=list)
+    guardian_starts: bool = True
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -97,6 +99,8 @@ class Surroundings:
 
     def guardian(self, copy: Path, restart: Restart) -> None:
         assert (copy / "rozliczenia" / "centrum" / "restart_guardian.py").is_file()
+        if not self.guardian_starts:
+            raise OSError("pythonw.exe nie wystartował")
         self.restarts.append(restart)
         shutil.rmtree(restart.work)
 

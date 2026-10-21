@@ -19,11 +19,14 @@ import urllib.request
 
 import pytest
 
+from rozliczenia.centrum import restart_guardian
+
 # Prawdziwy ``launch`` z importu: strażnik z conftest podmienia go tylko dla Centrum w testach API.
 from rozliczenia.centrum.restart_guardian import Restart, launch, main, prepare
 from rozliczenia.centrum.tool_update import (
     NEW_VERSION_FAILED,
     RESULT_FILE,
+    UNEXPECTED,
     UPDATED,
     ToolClone,
     UpdateResult,
@@ -292,3 +295,103 @@ def test_gdy_nie_startuje_zadna_wersja_opiekun_pokazuje_jedno_okienko_a_klon_sto
     assert repository.read("config/worker_mapping.yaml") == dad_mapping
     assert repository.in_clone("status", "--porcelain", "--untracked-files=no") == "M config/worker_mapping.yaml"
     assert read_result(result) == UpdateResult(NEW_VERSION_FAILED, before, newest, False)
+
+
+def test_gdy_stare_centrum_nie_zwalnia_portu_opiekun_cofa_klon_i_startuje_stara_wersje_z_komunikatem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(restart_guardian, "PORT_TIMEOUT_S", 5.0)
+    repository = centrum_tool_repository(tmp_path / "repozytoria")
+    clone = repository.clone
+    before = repository.head()
+    port = _free_port()
+    dialogs: list[tuple[str, str]] = []
+    old = subprocess.Popen(
+        [sys.executable, str(clone / "run_centrum.py"), "--port", str(port), "--no-browser"],
+        cwd=clone,
+        env=os.environ | {"PYTHONUTF8": "1"},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        old_health = _health(port)
+        newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
+        work = tmp_path / "praca"
+        (work / "pliki-taty").mkdir(parents=True)
+        assert ToolClone(clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+        result = clone / "config" / RESULT_FILE
+        guardian, exits = _guardian_in_background(
+            Restart(port, before, newest, clone, result, False, work), dialogs
+        )
+        deadline = time.monotonic() + 30
+        while (unchecked := read_result(result)) is None or unchecked.code == UPDATED:
+            assert time.monotonic() < deadline, "Opiekun nie zapisał wyniku po czekaniu na port."
+            time.sleep(0.02)
+        _close(port)
+        old.wait(timeout=30)
+        guardian.join(timeout=90)
+        back_health = _health(port, commit=before)
+        view = _get(port, "/api/tool-update")
+    finally:
+        _close_if_running(port)
+        old.kill()
+        old.wait()
+
+    assert unchecked == UpdateResult(UNEXPECTED, before, newest, False)
+    assert exits == [0]
+    assert dialogs == []
+    assert repository.head() == before
+    assert not (clone / "NOWA_WERSJA.txt").exists()
+    assert back_health["instance"] != old_health["instance"]
+    assert (view["state"], view["message"], view["next_action"]) == (
+        "failed",
+        {
+            "what": "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
+            "where": "narzędzie na tym komputerze",
+            "action": (
+                "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+                "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
+            ),
+        },
+        "retry",
+    )
+    entries = [line.split(" ", 1)[1] for line in _log_lines(clone)]
+    assert [entry for entry in entries if entry.startswith("aktualizacja-koniec")] == [
+        f"aktualizacja-koniec wynik=NIEOCZEKIWANY_BLAD przed={before} po={newest} biblioteki=nie"
+    ]
+
+
+def test_gdy_port_nie_zwolni_sie_wcale_opiekun_cofa_klon_z_plikiem_taty_i_pokazuje_okienko(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(restart_guardian, "PORT_TIMEOUT_S", 0.5)
+    repository = tool_repository(tmp_path / "repozytoria")
+    before = repository.head()
+    dad_mapping = "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n"
+    repository.write("config/worker_mapping.yaml", dad_mapping)
+    newest = repository.publish(
+        {".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",)
+    )
+    work = tmp_path / "praca"
+    (work / "pliki-taty").mkdir(parents=True)
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+    result = repository.clone / "config" / RESULT_FILE
+    dialogs: list[tuple[str, str]] = []
+
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        guardian, exits = _guardian_in_background(
+            Restart(busy.getsockname()[1], before, newest, repository.clone, result, False, work), dialogs
+        )
+        guardian.join(timeout=30)
+
+    assert exits == [1]
+    assert [text.splitlines()[0] for _, text in dialogs] == [
+        "Co się stało: Centrum rozliczeń nie wystartowało po aktualizacji narzędzia."
+    ]
+    assert repository.head() == before
+    assert repository.read("config/worker_mapping.yaml") == dad_mapping
+    assert repository.in_clone("status", "--porcelain", "--untracked-files=no") == "M config/worker_mapping.yaml"
+    assert read_result(result) == UpdateResult(UNEXPECTED, before, newest, False)
+    assert not work.exists()
