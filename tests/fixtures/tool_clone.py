@@ -25,8 +25,6 @@ import subprocess
 import threading
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-CENTRUM_LAUNCHER = "Centrum rozliczeń (konsola).cmd"
-SHORTCUT_INSTALLER = "Zainstaluj skrót Centrum rozliczeń.cmd"
 
 # Pliki pierwszej wersji narzędzia: śledzona konfiguracja wykonawców sprzed #161 i biblioteki.
 FIRST_VERSION: Mapping[str, str] = {
@@ -116,12 +114,10 @@ class ToolRepository:
 
 
 def copy_centrum_runtime(destination: Path) -> Path:
-    """Kopia narzędzia z launcherem Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
+    """Kopia narzędzia z Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
 
     destination.mkdir(parents=True)
     for name in (
-        CENTRUM_LAUNCHER,
-        SHORTCUT_INSTALLER,
         "run_centrum.py",
         "install_centrum_shortcut.py",
         "pyproject.toml",

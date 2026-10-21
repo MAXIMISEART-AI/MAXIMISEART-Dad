@@ -13,7 +13,7 @@ code separately from the displayed status.
 
 ## How to get to it (user POV)
 
-- Dad runs `Utwórz rozliczenia.cmd` from a terminal or passes it a source file.
+- Dad sees progress and metrics in Centrum rozliczeń (`verify-centrum-rozliczen`); the terminal dashboard belongs to the CLI.
 - Direct `py -3 run.py` calls are for verification with explicit source and metrics paths.
 
 ## Driving it with PowerShell and run.py

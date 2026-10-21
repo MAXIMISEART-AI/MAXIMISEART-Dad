@@ -287,8 +287,7 @@ def test_gdy_nie_startuje_zadna_wersja_opiekun_pokazuje_jedno_okienko_a_klon_sto
             "Centrum rozliczeń",
             "Co się stało: Centrum rozliczeń nie wystartowało po aktualizacji narzędzia.\n"
             "Gdzie: narzędzie na tym komputerze\n"
-            "Co zrobić: Przekaż ten komunikat Maksowi. "
-            "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd.",
+            "Co zrobić: Przekaż ten komunikat Maksowi.",
         )
     ]
     assert repository.head() == before
@@ -301,8 +300,7 @@ NOT_STARTED_AFTER_UPDATE = (
     "Centrum rozliczeń",
     "Co się stało: Centrum rozliczeń nie wystartowało po aktualizacji narzędzia.\n"
     "Gdzie: narzędzie na tym komputerze\n"
-    "Co zrobić: Przekaż ten komunikat Maksowi. "
-    "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd.",
+    "Co zrobić: Przekaż ten komunikat Maksowi.",
 )
 
 

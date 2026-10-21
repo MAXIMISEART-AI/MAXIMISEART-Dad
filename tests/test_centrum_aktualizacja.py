@@ -531,8 +531,7 @@ def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedn
             "what": "Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.",
             "where": "narzędzie na tym komputerze",
             "action": (
-                "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”. "
-                "Do czasu naprawy używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd."
+                "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
             ),
         },
         "next_action": "report",

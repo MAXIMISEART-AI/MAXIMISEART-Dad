@@ -1,8 +1,8 @@
 # Rozliczenia verification map
 
 This is the maintained source for verifying the user-facing MAXIMISEART-Dad
-processes. The Dad-facing launchers are `Utwórz rozliczenia.cmd` (Przebieg
-rozliczeń) and `Przygotuj plik zbiorczy.cmd` (Przygotowanie pliku zbiorczego);
+processes through their CLI (`run.py` for Przebieg rozliczeń, `run_preparation.py`
+for Przygotowanie pliku zbiorczego). Dad starts them in Centrum rozliczeń;
 direct CLI runs provide detailed verification evidence.
 
 ## Baseline preconditions
@@ -10,17 +10,16 @@ direct CLI runs provide detailed verification evidence.
 - Run from the repository root on Windows PowerShell.
 - Python 3.11 or newer and `requirements.txt` are installed.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`; it creates fresh roots and runs the doctor before driving.
-- Drive the supported CMD route with `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q`; the test uses a copied runtime and synthetic workbooks.
 - Use `--variant existing`, `--variant locked`, or `--variant unmapped` for the corresponding publication and safety-gate proof.
 - Use `--variant preparation` for Przygotowanie pliku zbiorczego.
 - Use `--variant preparation-real-templates` locally when `config/` holds the real Wzorce; it is outside CI and `--variant all`, and prints `VERIFY SKIP` without them.
 - Use `--variant chain` for the whole path from Rejestr zleceń through both processes to the Rozliczenia pracowników; `--variant chain-real-templates` is its local-only twin on the three real Wzorce, with the same skip rule.
-- Centrum rozliczeń starts both processes too; its route is covered by `verify-centrum-rozliczen`, not by this map.
+- Centrum rozliczeń is Dad's route to both processes; it is covered by `verify-centrum-rozliczen`, not by this map.
 - Never use real customer workbooks or a fixture owned by another verification run. The real Wzorce enter only as byte copies inside the run root.
 
 ## Driving conventions
 
-- The one-command orchestrator verifies each engine through its CLI (`run.py`, `run_preparation.py` for `--variant preparation`, or both in turn for `--variant chain`); the CMD smoke tests separately drive Dad's launchers in an isolated synthetic runtime.
+- The one-command orchestrator verifies each engine through its CLI (`run.py`, `run_preparation.py` for `--variant preparation`, or both in turn for `--variant chain`).
 - Read stdout, stderr, and native exit codes from the UTF-8 evidence files it creates.
 - Use workbook reads only for post-action assertions; do not call internal engine functions as proof.
 - The orchestrator runs `--dry-run` before a real run, checks the complete plan,
@@ -45,5 +44,5 @@ direct CLI runs provide detailed verification evidence.
 - [Worker settlement](./settle-workbooks.md) covers fan-out into mapped templates and preserved formulas.
 - [Safety gates](./safety-gates.md) covers unknown workers, the Wzorzec rozliczenia pracownika, existing data, Excel locks, and the stop on an unreadable Plik zbiorczy.
 - [Progress and telemetry](./progress-and-metrics.md) covers observable phases, counters, exit semantics, and safe metrics.
-- [Przygotowanie pliku zbiorczego](./prepare-collective-file.md) covers the Rejestr zleceń to Rozliczenie wewnętrzne and Plik zbiorczy process, its dry-run, and its launcher.
-- [From Rejestr zleceń to Rozliczenia pracowników](./prepare-and-settle.md) covers both processes in turn, the Gotowość hand-over, and the launcher chain.
+- [Przygotowanie pliku zbiorczego](./prepare-collective-file.md) covers the Rejestr zleceń to Rozliczenie wewnętrzne and Plik zbiorczy process, and its dry-run.
+- [From Rejestr zleceń to Rozliczenia pracowników](./prepare-and-settle.md) covers both processes in turn, and the Gotowość hand-over.

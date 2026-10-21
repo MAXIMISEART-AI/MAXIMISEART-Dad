@@ -108,8 +108,8 @@ bezpośrednio (np. `INEA`).
 
 ## Ustawienia taty
 
-Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. Launchery
-`.cmd` biorą je stamtąd i pytają oknem wyboru tylko o to, czego brak.
+Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. CLI bierze
+je stamtąd i pyta oknem wyboru tylko o to, czego brak.
 
 ## Folder rozliczeń pracowników
 
@@ -164,7 +164,7 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 ## Uruchomienie procesu
 
 Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
-launchera albo z Centrum rozliczeń, od ustalenia plików i okresu do wyniku
+Centrum rozliczeń albo z CLI, od ustalenia plików i okresu do wyniku
 końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na to,
 skąd wystartowało; nie jest z definicji pytaniem w terminalu.
 Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo Zatrzymaniem z
@@ -184,8 +184,8 @@ taty nie wlicza się do `Czas uruchomienia` ani do metryk.
 
 Lokalna aplikacja w przeglądarce na komputerze taty, z której uruchamia
 Przygotowanie pliku zbiorczego i Przebieg rozliczeń oraz widzi Status okresu
-każdego okresu i historię Uruchomień procesu. Jest drugim wejściem do tych
-samych procesów obok launcherów, nie osobnym procesem.
+każdego okresu i historię Uruchomień procesu. Jest jedynym wejściem taty do
+tych procesów (CLI służy osobie utrzymującej narzędzie), nie osobnym procesem.
 _Avoid_: dashboard, panel, centrum dowodzenia
 
 ## Zdarzenie przebiegu

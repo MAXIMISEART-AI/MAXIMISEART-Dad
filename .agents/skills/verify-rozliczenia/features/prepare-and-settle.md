@@ -21,7 +21,7 @@ own synthetic input; only this one hands the output of one process to the other.
 
 ## How to get to it (user POV)
 
-- Dad double-clicks `Przygotuj plik zbiorczy.cmd`, then fills the Plik zbiorczy in Excel, saves it, and double-clicks `Utwórz rozliczenia.cmd`, picking that Plik zbiorczy.
+- Dad runs Przygotowanie pliku zbiorczego in Centrum rozliczeń, fills the Plik zbiorczy in Excel, saves and closes it, then runs Przebieg rozliczeń for the same period in Centrum.
 - Direct verification passes every input explicitly: first `py -3 run_preparation.py --register <rejestr> --periods-directory <folder okresów> --period 08_14_09_2026 --config <mapping> --internal-template <wzorzec> --collective-template <wzorzec> --metrics <metrics> [--dry-run]`, then `py -3 run.py --source <Folder okresu>\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx --config <mapping> --worker-template <wzorzec> --metrics <metrics> [--dry-run]`.
 
 ## Driving it with PowerShell and run.py
@@ -34,7 +34,6 @@ Preconditions:
 - **Read the counts.** The Przygotowanie counts match `preparation`. The Przebieg dry-run plans 2 rows for Adrian Testowy, 1 for Darek Fikcyjny, and 1 for Kamil Syntetyczny with `Problemy: 0`; the write reports three `ZAPISANO` results and `Zapisane szablony: 3`. Gotowość fills Adrian's two rows and Darek's row; Kamil's keeps the Wzorzec's zeros in `N:AP` and an empty `AQ:AT`.
 - **Read the workbook proof.** `readiness.txt` has a `READINESS OK | … rows_filled=3 | columns=N:AT` line; the `ASSERT OK` line in `assert-settlement-run.txt` contains `rows_equal_plik_zbiorczy=A:AT | readiness_carried=true | unsuccessful_absent=true`. Every step file ends with its `exit_code`. A failure names the worker, row, and columns, never a value.
 - **Check the real Wzorce.** When `config/` holds all three Wzorce, run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant chain-real-templates`; in a worktree the runner reads the main checkout's `config/`, and `--templates-dir` overrides that. Without them it prints `VERIFY SKIP`. It takes under a minute; the real Wzorce have about 10 000 rows each.
-- **Drive the launcher chain.** On Windows run `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launchers_run_przygotowanie_then_przebieg_rozliczen_on_its_plik_zbiorczy -q`. In one disposable runtime it runs `Przygotuj plik zbiorczy.cmd` with explicit `--register`, `--periods-directory`, and `--period`, adds a synthetic Wzorzec rozliczenia pracownika, then runs `Utwórz rozliczenia.cmd "<Plik zbiorczy>"` without a Gotowość step, and checks exit code `0`, `Status końcowy: OK`, the three files of the Folder rozliczeń pracowników, and Adrian's first Zlecenie.
 
 ## Gotchas
 

@@ -69,7 +69,7 @@ SETTLEMENT_COUNTERS = {
     "skipped": 0,
     "issues": 0,
 }
-# Synthetic history in the CLI's metrics schema (schema_version 1), as the .cmd launchers write it:
+# Synthetic history in the CLI's metrics schema (schema_version 1), as the CLI writes it:
 # (started_at UTC, mode, period, result, phase times in ms; the total is their sum).
 MetricRun = tuple[str, str, str, str, tuple[int, int, int, int]]
 PREPARATION_RUNS: tuple[MetricRun, ...] = (

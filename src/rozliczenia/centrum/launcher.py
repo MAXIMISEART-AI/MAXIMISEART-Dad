@@ -1,4 +1,4 @@
-"""Start Centrum rozliczeń: skrót „Centrum rozliczeń” (``pythonw``, bez konsoli) albo launcher z konsolą.
+"""Start Centrum rozliczeń: skrót „Centrum rozliczeń” (``pythonw``, bez konsoli) albo ``run_centrum.py`` z konsolą.
 
 Jedno Centrum na komputerze: gdy port jest zajęty, ``health`` rozstrzyga, czy
 to własne Centrum tej samej wersji (wtedy tylko otwiera kartę), Centrum innej

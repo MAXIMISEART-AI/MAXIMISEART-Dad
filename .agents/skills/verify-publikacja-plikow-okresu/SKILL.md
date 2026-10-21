@@ -70,7 +70,7 @@ the bounds left.
 | Scope | Runs at once | Initial Folder okresu | Dad's actions | Failed calls | Kills |
 | --- | --- | --- | --- | --- | --- |
 | `jedno-uruchomienie` | 1 | absent, empty, with Dad's file named like either period file | ≤ 2 | ≤ 2 | ≤ 1 |
-| `dwa-uruchomienia` (Dad double-clicks the launcher) | 2 | same four | ≤ 1 | ≤ 1 | ≤ 1 |
+| `dwa-uruchomienia` (Centrum and a CLI run at once) | 2 | same four | ≤ 1 | ≤ 1 | ≤ 1 |
 
 Dad's actions are: create the Folder okresu, or save his own file under a
 period file's name. Failures are injected only into calls that change the

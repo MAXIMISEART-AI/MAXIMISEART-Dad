@@ -11,6 +11,9 @@ launcherach: czytają one Ustawienia taty z Centrum rozliczeń.
 prywatności dla treści Zgłoszenia wysyłanego do Maksa, dodaje własne pliki
 Centrum dla Zgłoszeń i pozwala Centrum łączyć się z API GitHuba przy
 Zgłoszeniach i Diagnozie.
+[ADR 0010](0010-centrum-jedynym-wejsciem-taty.md) podejmuje odłożoną tu decyzję:
+launchery `.cmd` znikają, Centrum jest jedynym wejściem taty, a CLI zostaje
+narzędziem osoby utrzymującej.
 
 ## Decyzja
 

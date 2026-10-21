@@ -21,9 +21,8 @@ metrics file and parent directory if needed.
 - Run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics> --dry-run`.
 - `--worker-template` defaults to `config/Wzorzec rozliczenia pracownika.xlsx`; supply the path to the
   shared Wzorzec rozliczenia pracownika when it is stored elsewhere.
-- `Utwórz rozliczenia.cmd` does not expose a dry-run flag; use the direct CLI.
-  Centrum rozliczeń offers the same dry-run as `Podgląd bez zapisu`, which
-  `verify-centrum-rozliczen` drives.
+- Dad's dry-run is `Podgląd bez zapisu` in Centrum rozliczeń, which
+  `verify-centrum-rozliczen` drives; here use the direct CLI with `--dry-run`.
 
 ## Driving it with PowerShell and run.py
 

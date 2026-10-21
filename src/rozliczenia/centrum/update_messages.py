@@ -5,7 +5,8 @@ Kody porażek zwraca moduł ``tool_update``; treść dla taty jest tylko tutaj
 sprzed kliknięcia, a „Co zrobić” wprost, czy spróbować ponownie, czy przekazać
 sprawę Maksowi przyciskiem „Wyślij do Maksa” (Zgłoszenie przy Komunikacie).
 Wyjątkiem jest nieudane cofnięcie (``rollback_failed``): wtedy narzędzie może
-nie działać, więc Komunikat odsyła do launcherów ``.cmd``.
+nie działać, więc Komunikat każe nie ponawiać aktualizacji (ADR 0010: bez
+ścieżki zapasowej).
 „Gdzie” nie ma ścieżek. Instrukcja taty
 cytuje „Co się stało” każdego Komunikatu (``tests/test_instrukcja_taty.py``).
 """
@@ -126,8 +127,7 @@ def rollback_failed() -> Message:
         what="Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.",
         where=_TOOL,
         action=(
-            "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”. "
-            "Do czasu naprawy używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd."
+            "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
         ),
     )
 

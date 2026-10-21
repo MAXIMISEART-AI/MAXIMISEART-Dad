@@ -21,7 +21,7 @@ stop leaves a safe line in the Centrum log (`logs/centrum-rozliczen.log`).
 
 ## How to get to it (user POV)
 
-- The desktop shortcut „Centrum rozliczeń” (created by `Zainstaluj skrót Centrum rozliczeń.cmd`) starts Centrum without a console; clicking it again opens the tab.
+- The desktop shortcut „Centrum rozliczeń” (created by `py -3 install_centrum_shortcut.py`) starts Centrum without a console; clicking it again opens the tab.
 - The sidebar footer button `Zamknij Centrum rozliczeń`, on every page.
 
 ## Driving it with Playwright for Python

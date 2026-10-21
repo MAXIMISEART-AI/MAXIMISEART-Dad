@@ -27,7 +27,8 @@ Proponowana. Zmienia trzy zdania
   wygrywać z przyczyną znalezioną przez inne sprawdzenie (niżej).
 
 Pozostałe zasady (tylko `127.0.0.1`, kontrola `Host` i `Origin`, reguła
-prywatności, launchery `.cmd` bez zmian) zostają.
+prywatności, launchery `.cmd` bez zmian) zostają. Launchery `.cmd` usunął
+potem [ADR 0010](0010-centrum-jedynym-wejsciem-taty.md).
 
 ## Kontekst
 

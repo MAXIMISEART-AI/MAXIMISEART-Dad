@@ -58,10 +58,6 @@ def _missing_worker_template_detail() -> str:
 # Każda fabryka katalogu z przykładowymi argumentami; warianty liczby pojedynczej i mnogiej osobno.
 PREPARATION_SAMPLES: Samples = {
     "period_file_exists": [lambda: messages.period_file_exists(PERIOD_DIRECTORY, f"Rozliczenie wew. {PERIOD}.xlsx")],
-    "invalid_period_token": [lambda: messages.invalid_period_token("08_14_9_2026")],
-    "register_not_selected": [messages.register_not_selected],
-    "periods_directory_not_selected": [messages.periods_directory_not_selected],
-    "period_not_entered": [messages.period_not_entered],
     "worker_config_problem": [
         lambda: messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_UTF8),

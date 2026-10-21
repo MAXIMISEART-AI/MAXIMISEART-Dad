@@ -141,9 +141,9 @@ Each was traced back to the code at the sync commit.
    the clone stays on the new commit. In Centrum (after `pip_install` returns
    `False`, `_Git.changed` raises, or `restart_guardian.launch` raises),
    `_moved_back` gives `COFNIECIE_NIEUDANE`: the card no longer claims the
-   old version runs and tells Dad to send it to Maks and use the `.cmd`
-   launchers, but the new version may have no libraries and will not start
-   from the shortcut. In the guardian (`_rolled_back`), the new version that
+   old version runs and tells Dad to send it to Maks, but the new version may
+   have no libraries and will not start from the shortcut (ADR 0010: no `.cmd`
+   launchers to fall back on). In the guardian (`_rolled_back`), the new version that
    would not start stays, the result file says `COFNIECIE_NIEUDANE`, and Dad
    sees the dialog.
 2. **`kopiowanie`** (#211): `copy2` of Dad's file from the copy raises `OSError`
