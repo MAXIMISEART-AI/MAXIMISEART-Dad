@@ -30,10 +30,16 @@ Przebieg rozliczeń up to the Status okresu `Rozliczenia pracowników gotowe`;
 measures how fast Centrum is in Dad's CPU profiles against the baseline in
 `wydajnosc-baseline.json`; it is never part of `all` and takes minutes
 (`--baseline` and `--powtorzenia` apply to it only; see
-`features/wydajnosc.md`). The runner holds the machine for it: a measurement
-waits for a quiet CPU, every other run waits for a measurement in progress
-(`scripts/quiet_machine.py`), and `MASZYNA ZAJĘTA | …` lines say what it waits
-for. Success prints
+`features/wydajnosc.md`). The runner holds the machine for it
+(`tools/quiet_machine.py`). A measurement waits at most 3 minutes for a quiet
+CPU (no other run, measurement or test run) and holds the machine only while it
+measures, about 5 minutes. Every other run waits at most 15 minutes for a
+measurement in progress and never for a measurement still waiting for a quiet
+CPU. `MASZYNA ZAJĘTA | …` lines say what a run or measurement waits for. Run
+`wydajnosc` as a background command and read its last line instead of piping it
+through `tail`; do the same with any run while
+`tools/quiet_machine.py --status` shows `pomiar`, because waiting for it can
+outlast a 10-minute command limit. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 
@@ -178,7 +184,7 @@ Then confirm the evidence directory still exists.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
   check (with the `wydajnosc` gate on made-up numbers and the machine lock in a
   scratch directory) and evidence hygiene check.
-- `scripts/quiet_machine.py --status`: what holds the machine now (a
+- `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 
 Read `features/README.md` before choosing a feature. Each Centrum slice adds
