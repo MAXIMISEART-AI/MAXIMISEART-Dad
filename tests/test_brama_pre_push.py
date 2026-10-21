@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import time
 
 import pytest
@@ -251,3 +252,23 @@ def test_drugi_push_z_tego_checkoutu_nie_uruchamia_drugiego_ci_lokalnie(checkout
     finally:
         os.kill(-first.pid, signal.SIGTERM)
         first.wait(timeout=10)
+
+
+def test_udany_ci_lokalnie_z_zombie_w_grupie_przepuszcza_push(checkout: Path) -> None:
+    # Potomek wychodzi z grupy i nie zbiera swojego dziecka, więc w grupie ci_lokalnie zostaje samo zombie,
+    # na które macOS odpowiada EPERM.
+    leaves_zombie = (
+        "import os, time\n"
+        "if os.fork() == 0:\n    os._exit(0)\n"
+        "os.setpgid(0, 0)\n"
+        "open('rodzic.pid', 'w').write(str(os.getpid()))\n"
+        "time.sleep(30)\n"
+    )
+    _fake_python(checkout, f"'{sys.executable}' -c \"{leaves_zombie}\" > /dev/null 2>&1 &\nsleep 1\necho 'CI LOKALNIE OK'")
+    try:
+        pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
+
+        assert pushed.returncode == 0, pushed.stderr
+        assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
+    finally:
+        os.kill(int((checkout / "rodzic.pid").read_text()), signal.SIGTERM)

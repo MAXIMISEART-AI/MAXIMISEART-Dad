@@ -115,7 +115,8 @@ def _run_ci(environment: dict[str, str]) -> int:
             try:
                 os.killpg(ci.pid, signum)
                 ci.wait(timeout=5)
-            except ProcessLookupError:
+            # macOS odpowiada EPERM, gdy w grupie zostały same zombie.
+            except (ProcessLookupError, PermissionError):
                 break
             except subprocess.TimeoutExpired:
                 pass
