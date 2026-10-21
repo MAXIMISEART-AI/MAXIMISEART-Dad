@@ -1,7 +1,7 @@
-"""Metryki: historia Uruchomień procesu obu procesów z plików metryk CLI, z P50/P95 i rozkładem wyników.
+"""Metryki: historia Uruchomień procesu obu procesów z plików metryk, z P50/P95 i rozkładem wyników.
 
-Pliki są te same co w CLI i czytane przy każdym odczycie, więc rekord dopisany
-z launchera ``.cmd`` widać bez restartu serwera. Walidację rekordów, pomijanie
+Pliki są czytane przy każdym odczycie, więc rekord dopisany spoza Centrum, np.
+przez skrypt dla maszyn, widać bez restartu serwera. Walidację rekordów, pomijanie
 niepoprawnych i reguły P50/P95 daje ``telemetry``; Centrum ich nie powtarza.
 """
 
@@ -22,7 +22,7 @@ from rozliczenia.domain import PHASES
 from rozliczenia.process_run import Process
 from rozliczenia.telemetry import MINIMUM_STATISTIC_SAMPLES, MetricsStore, comparable_records, statistics_for
 
-# Procesy Centrum rozliczeń pod kluczami kontraktu; opis procesu ten sam co w CLI.
+# Procesy Centrum rozliczeń pod kluczami kontraktu; opis procesu ten sam co w skrypcie dla maszyn.
 PROCESSES: Final[dict[contract.ProcessKey, Process[Any, Any]]] = {
     "preparation": preparation_process.PROCESS,
     "settlement": settlement_process.PROCESS,
@@ -33,13 +33,13 @@ _RECENT_WEEKS = 8
 
 @dataclass(frozen=True)
 class MetricsFiles:
-    """Pliki metryk obu procesów; domyślnie te same, do których dopisuje CLI."""
+    """Pliki metryk obu procesów; domyślnie pliki metryk procesów (``Process.metrics_path``)."""
 
     preparation: Path
     settlement: Path
 
     @classmethod
-    def of_cli(cls) -> MetricsFiles:
+    def default(cls) -> MetricsFiles:
         return cls(**{key: process.metrics_path() for key, process in PROCESSES.items()})
 
     def stores(self) -> dict[contract.ProcessKey, MetricsStore]:

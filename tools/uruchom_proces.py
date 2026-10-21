@@ -176,7 +176,7 @@ class _Parser(argparse.ArgumentParser):
 
 def _parser() -> argparse.ArgumentParser:
     files = ConfigurationFiles.default()
-    metrics = MetricsFiles.of_cli()
+    metrics = MetricsFiles.default()
     parser = _Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     processes = parser.add_subparsers(required=True, metavar="PROCES")
 

@@ -333,7 +333,7 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruc
     store.append({**own, "started_at": later})
     history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert MetricsFiles.of_cli().settlement == settlement_process.default_metrics_path()
+    assert MetricsFiles.default().settlement == settlement_process.default_metrics_path()
     assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
     assert [(run["process"], run["origin"]) for run in history] == [("settlement", "cmd"), ("settlement", "centrum")]
 
