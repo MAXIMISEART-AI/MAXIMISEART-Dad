@@ -1,14 +1,20 @@
-"""One measurement at a time on this machine: ``wydajnosc`` waits for a quiet CPU, other runs wait for it.
+"""One measurement at a time on this machine, on a quiet CPU; other runs wait only while it measures.
 
-A measurement (``--feature wydajnosc``) takes ``pomiar.lock`` in a lock directory
-shared by every checkout and worktree on the machine, then waits until no other
-verification run is registered there and no test run, benchmark or browser drive
-is running (on macOS and Linux, read from ``ps``). Every other run registers a
-``run-*.pid`` file for its duration and first waits while a measurement holds
-the lock. Locks and registrations of a process that died are taken over. Each
-side waits at most ``timeout_s`` and then fails with what kept the machine busy.
+A measurement (``--feature wydajnosc``, ``benchmark_przebiegu.py measure``) waits,
+holding nothing, until no run is registered in a lock directory shared by every
+checkout and worktree on the machine, no other measurement holds ``pomiar.lock``
+and no test run, mutation check or browser drive is running (on macOS and Linux,
+read from ``ps``). Then it takes ``pomiar.lock`` for as long as it measures.
+Every other run (a Centrum verification run, ``benchmark_przebiegu.py freeze``)
+registers a ``run-*.pid`` file for its duration and first waits while a
+measurement holds the lock. Locks and registrations of a process that died are
+taken over.
 
-    python quiet_machine.py --status   # who holds the machine now
+What a waiter waits for sets its limit. A measurement waits for a quiet CPU at
+most ``QUIET_TIMEOUT_S``; a run waits for a measurement in progress at most
+``MEASUREMENT_TIMEOUT_S``. Past its limit each fails with what kept the machine busy.
+
+    python tools/quiet_machine.py --status   # who holds the machine now
 """
 
 from __future__ import annotations
@@ -26,18 +32,22 @@ import uuid
 
 LOCK_DIRECTORY = Path(tempfile.gettempdir()) / "verify-centrum-rozliczen"
 MEASUREMENT_LOCK = "pomiar.lock"
-WAIT_TIMEOUT_S = 45 * 60
+# A measurement's wait for a quiet CPU: short, so the wait plus a wydajnosc measurement (about 5 minutes)
+# ends inside an agent's 10-minute command limit.
+QUIET_TIMEOUT_S = 3 * 60
+# A run's wait for a measurement in progress: a whole wydajnosc measurement (about 5 minutes) three times over.
+MEASUREMENT_TIMEOUT_S = 15 * 60
 POLL_S = 5.0
 REPORT_EVERY_S = 60.0
 # Command-line fragments of work that loads the CPU and is not registered in the lock directory.
+# Benchmarks are absent: they hold the lock or a registration, and two waiting ones would see each other here.
 BUSY_COMMANDS = (
     "pytest",
     "serve_centrum.py",
     "drive_centrum.py",
     "chrome-headless-shell",
     "run_verification.py",
-    "check_mutations.py",
-    "benchmark_przebiegu.py",
+    "_mutations.py",
 )
 
 
@@ -103,13 +113,15 @@ class QuietMachine:
         self,
         directory: Path = LOCK_DIRECTORY,
         *,
-        timeout_s: float = WAIT_TIMEOUT_S,
+        quiet_timeout_s: float = QUIET_TIMEOUT_S,
+        measurement_timeout_s: float = MEASUREMENT_TIMEOUT_S,
         poll_s: float = POLL_S,
         busy_processes: Callable[[], list[str]] = busy_commands,
         report_every_s: float | None = REPORT_EVERY_S,
     ) -> None:
         self._directory = directory
-        self._timeout_s = timeout_s
+        self._quiet_timeout_s = quiet_timeout_s
+        self._measurement_timeout_s = measurement_timeout_s
         self._poll_s = poll_s
         self._busy_processes = busy_processes
         self._report_every_s = report_every_s
@@ -119,16 +131,15 @@ class QuietMachine:
         """Hold the machine for one measurement; yields how many seconds it waited."""
 
         started = time.monotonic()
-        self._wait("pomiar", self._take_lock)
+        self._wait("pomiar", self._take_quiet_machine, self._quiet_timeout_s)
         try:
-            self._wait("pomiar", self._quiet)
             yield time.monotonic() - started
         finally:
             (self._directory / MEASUREMENT_LOCK).unlink(missing_ok=True)
 
     @contextmanager
     def run(self) -> Iterator[float]:
-        """Register one verification run for its duration; yields how many seconds it waited for a measurement."""
+        """Register one run for its duration; yields how many seconds it waited for a measurement."""
 
         started = time.monotonic()
         self._directory.mkdir(parents=True, exist_ok=True)
@@ -138,7 +149,7 @@ class QuietMachine:
             marker.write_text(str(os.getpid()), encoding="utf-8")
             while self._measurement_holder() is not None:
                 marker.unlink(missing_ok=True)
-                self._wait("przebieg", self._measurement_holder)
+                self._wait("przebieg", self._measurement_holder, self._measurement_timeout_s)
                 marker.write_text(str(os.getpid()), encoding="utf-8")
             yield time.monotonic() - started
         finally:
@@ -154,7 +165,7 @@ class QuietMachine:
             return None
         pid = _owner(lock)
         if _alive(pid):
-            return f"pomiar wydajnosc (pid {pid})"
+            return f"pomiar (pid {pid})"
         lock.unlink(missing_ok=True)
         return None
 
@@ -163,7 +174,7 @@ class QuietMachine:
         for marker in sorted(self._directory.glob("run-*.pid")):
             pid = _owner(marker)
             if _alive(pid):
-                runs.append(f"przebieg weryfikacji Centrum (pid {pid})")
+                runs.append(f"przebieg (pid {pid})")
             else:
                 marker.unlink(missing_ok=True)
         return runs
@@ -177,22 +188,38 @@ class QuietMachine:
         try:
             descriptor = os.open(self._directory / MEASUREMENT_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            return "pomiar wydajnosc (właśnie zaczęty)"
+            return "pomiar (właśnie zaczęty)"
         with os.fdopen(descriptor, "w", encoding="utf-8") as lock:
             lock.write(str(os.getpid()))
+        return None
+
+    def _take_quiet_machine(self) -> str | None:
+        """None once this process holds the lock on a quiet machine, otherwise what keeps it busy."""
+
+        if (busy := self._quiet()) is not None:
+            return busy
+        if (holder := self._take_lock()) is not None:
+            return holder
+        # A run that registered between the first look and the lock saw no lock and goes ahead, so this one backs off.
+        if (busy := self._quiet()) is not None:
+            (self._directory / MEASUREMENT_LOCK).unlink(missing_ok=True)
+            return busy
         return None
 
     def _quiet(self) -> str | None:
         busy = self._registered_runs() + self._busy_processes()
         return ", ".join(busy) if busy else None
 
-    def _wait(self, who: str, blocked: Callable[[], str | None]) -> None:
-        deadline = time.monotonic() + self._timeout_s
+    def _wait(self, who: str, blocked: Callable[[], str | None], timeout_s: float) -> None:
+        deadline = time.monotonic() + timeout_s
         reported: float | None = None
         while (blocker := blocked()) is not None:
             now = time.monotonic()
             if now >= deadline:
-                raise MachineBusy(f"maszyna nie ucichła w {self._timeout_s:.0f} s; zajmuje ją: {blocker}")
+                raise MachineBusy(
+                    f"maszyna nie ucichła w {timeout_s:.0f} s; zajmuje ją: {blocker}; "
+                    "uruchom ponownie, gdy ucichnie (python tools/quiet_machine.py --status)"
+                )
             if self._report_every_s is not None and (reported is None or now - reported >= self._report_every_s):
                 print(f"MASZYNA ZAJĘTA | {who} czeka na: {blocker}", flush=True)
                 reported = now

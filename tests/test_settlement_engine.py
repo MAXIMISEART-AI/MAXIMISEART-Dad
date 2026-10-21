@@ -28,14 +28,14 @@ from rozliczenia.message import StopError
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.workbook_files import DataRow, Layout, WorkerSettlementTemplate, file_from_template, read_data_rows
-from tests.fixtures.benchmark import SMALL_DATA_ROWS, WORKER_TEMPLATE, write_synthetic_templates
+from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
     active_worksheet,
     add_external_link_fixture,
     column_widths,
     cut_sheet_after_data_rows,
-    external_link_parts,
+    hyperlinks,
     without_sheet,
 )
 from tests.fixtures.settlement import (
@@ -43,6 +43,7 @@ from tests.fixtures.settlement import (
     PERIOD,
     SOURCE_NAME,
     WORKER_TEMPLATE_COLUMN_WIDTHS,
+    link_order_numbers,
     make_fixture,
     projected,
     write_source,
@@ -174,39 +175,6 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
         empty_workbook.close()
 
 
-def test_przebieg_rozliczen_na_syntetycznym_wzorcu_ksztaltu_taty_zapisuje_wiersze_danych_i_zachowuje_formuly(
-    tmp_path: Path,
-) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    worker_template_path = write_synthetic_templates(tmp_path / "syntetyczne") / WORKER_TEMPLATE
-    worker_template_before = worker_template_path.read_bytes()
-
-    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
-
-    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
-    assert worker_template_path.read_bytes() == worker_template_before
-    two_rows = next(result for result in summary.results if result.rows == 2)
-    assert external_link_parts(two_rows.output_file) == external_link_parts(worker_template_path)
-    source_workbook = load_workbook(source_path)
-    written_workbook = load_workbook(two_rows.output_file)
-    try:
-        source = active_worksheet(source_workbook)
-        written = active_worksheet(written_workbook)
-        # Szablon pracownika z dwoma wierszami dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
-        assert [worksheet_input_row(written, row) for row in (18, 19)] == [
-            worksheet_input_row(source, row) for row in (18, 20)
-        ]
-        assert (written["H17"].value, written["N20"].value, written["N21"].value) == ("WYKONAWCA", 0, 0)
-        assert str(written["AU19"].value).startswith("=N19*")
-        assert str(written["AU150"].value).startswith("=N150*")
-        assert str(written["AV150"].value).startswith("=IFERROR(SUMPRODUCT(N150:V150")
-        assert "[1]Słownik" in str(written["AY18"].value)
-        assert written.max_row == 17 + SMALL_DATA_ROWS
-    finally:
-        source_workbook.close()
-        written_workbook.close()
-
-
 def style_cells(cells: dict[str, tuple[Font, PatternFill]]) -> Callable[[Path], None]:
     def change(path: Path) -> None:
         workbook = load_workbook(path)
@@ -288,6 +256,41 @@ def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego
         assert {cell: template_look(written[cell]) for cell in expected_template_looks} == expected_template_looks
     finally:
         written_workbook.close()
+
+
+def test_numer_zlecenia_w_rozliczeniu_pracownika_ma_hiperlacze_z_pliku_zbiorczego(
+    complete_run: tuple[Path, Path, Path, Path],
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
+    links = link_order_numbers(source_path, "https://przyklad.invalid/zlecenie?tw=1&caseId=SYN-")
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego, Darka drugie.
+    assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx") == {"F18": links[18], "F19": links[20]}
+    assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx") == {"F18": links[19]}
+    assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx") == {}
+
+
+def test_hiperlacze_wzorca_w_wierszu_danych_znika_a_poza_wierszami_danych_zostaje(tmp_path: Path) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    workbook = load_workbook(worker_template_path)
+    try:
+        sheet = active_worksheet(workbook)
+        sheet["A5"] = "instrukcja"
+        sheet["A5"].hyperlink = "https://przyklad.invalid/instrukcja"
+        sheet["AT18"] = "uwaga Wzorca"
+        sheet["AT18"].hyperlink = "https://przyklad.invalid/wzorzec"
+        workbook.save(worker_template_path)
+    finally:
+        workbook.close()
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.written_count == 2
+    written = target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
+    assert hyperlinks(written) == {"A5": "https://przyklad.invalid/instrukcja"}
 
 
 def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_openpyxl(tmp_path: Path) -> None:
@@ -713,32 +716,6 @@ def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozl
     assert [path.name for path in source_path.parent.iterdir()] == [source_path.name]
 
 
-def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disabled(tmp_path: Path) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
-    recorded: list[ProgressEvent] = []
-    calls = 0
-
-    def recording_observer(event: ProgressEvent) -> None:
-        nonlocal calls
-        calls += 1
-        recorded.append(event)
-        raise RuntimeError("observer output failed")
-
-    summary = run_settlements(
-        source_path,
-        config_path,
-        worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
-        observer=recording_observer,
-    )
-
-    assert summary.written_count == 2
-    assert summary.issues == []
-    assert calls == 1
-    assert len(recorded) == 1
-    assert isinstance(recorded[0], PhaseStarted)
-    assert "syntetyczny" not in repr(recorded[0])
-
-
 @pytest.mark.parametrize(
     "failure",
     [template_settlement.TemplateWriteError("synthetic failure"), RuntimeError("synthetic failure")],
@@ -794,19 +771,6 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     summary = run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
     assert summary.written_count == 2
     assert target_directory.is_dir()
-
-
-def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(tmp_path: Path) -> None:
-    source_path = tmp_path / "08_14_09_2026" / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
-    recorded: list[ProgressEvent] = []
-
-    with pytest.raises(StopError) as raised:
-        run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)
-
-    assert raised.value.message.code == "BRAK_PLIKU_ZBIORCZEGO"
-    assert [type(event) for event in recorded] == [PhaseStarted, PhaseFailed]
-    assert recorded[-1].phase is ProgressPhase.CHECKING
-    assert raised.value.message.what not in repr(recorded[-1])
 
 
 @pytest.mark.parametrize(

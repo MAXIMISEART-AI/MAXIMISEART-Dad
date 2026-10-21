@@ -14,14 +14,22 @@ from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.reports import REPORT_KEY_FILE, SENT_REPORTS_FILE, UNSENT_DIRECTORY
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.settings import default_settings_path
-from tests.fixtures.centrum import CENTRUM, Centrum, ROOT, centrum, project_version
+from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, Centrum, ROOT, centrum
 
 
-def test_health_przedstawia_centrum_rozliczen_z_wersja_narzedzia(tmp_path: Path) -> None:
-    response = centrum(tmp_path).client.get("/api/health")
+def test_health_przedstawia_centrum_rozliczen_ze_skroconym_commitem_i_identyfikatorem_startu(tmp_path: Path) -> None:
+    first = centrum(tmp_path).client.get("/api/health")
+    again = centrum(tmp_path).client.get("/api/health")
 
-    assert response.status_code == 200
-    assert response.json() == {"service": "centrum-rozliczen", "version": project_version()}
+    assert first.status_code == 200
+    health = first.json()
+    assert health | {"instance": None} == {
+        "service": "centrum-rozliczen",
+        "commit": TOOL_COMMIT[:7],
+        "instance": None,
+    }
+    assert len(health["instance"]) == 32
+    assert again.json()["instance"] != health["instance"]
 
 
 def test_ten_sam_serwer_podaje_zbudowane_centrum_bez_node(tmp_path: Path) -> None:
@@ -38,7 +46,7 @@ def test_zadanie_z_obcym_naglowkiem_host_jest_odrzucone(tmp_path: Path) -> None:
     response = client.get("/api/health", headers={"Host": "zly.example:47811"})
 
     assert response.status_code == 403
-    assert "version" not in response.text
+    assert "commit" not in response.text
 
 
 def test_localhost_jest_dozwolonym_naglowkiem_host(tmp_path: Path) -> None:

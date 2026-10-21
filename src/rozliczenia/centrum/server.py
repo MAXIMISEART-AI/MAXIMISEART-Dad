@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import logging
-import os
 import socket
 import threading
 
@@ -15,25 +14,10 @@ from uvicorn.config import LOGGING_CONFIG
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import has_console
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.centrum.version import tool_version
+from rozliczenia.centrum.version import tool_commit, version_label
 
 HOST = "127.0.0.1"  # wyłącznie ten komputer (ADR 0004)
 _GRACEFUL_SHUTDOWN_S = 5  # otwarte połączenia (np. strumień postępu) nie wstrzymują zamknięcia dłużej
-
-
-def listen_locally(port: int) -> socket.socket:
-    """Zajmuje port na ``127.0.0.1``; ``OSError``, gdy port ma już inny program albo inne Centrum."""
-
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        if os.name != "nt":  # na Windows SO_REUSEADDR pozwoliłby przejąć port działającego programu
-            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind((HOST, port))
-        listener.listen()  # kolejne uruchomienie czeka na health, zamiast dostać odmowę połączenia
-    except OSError:
-        listener.close()
-        raise
-    return listener
 
 
 def serve(
@@ -60,7 +44,7 @@ def serve(
     )
 
     def started() -> None:
-        log.started(port=port, version=tool_version(), console=console)
+        log.started(port=port, version=version_label(tool_commit()), console=console)
         threading.Thread(target=on_ready, args=(url,), name="centrum-gotowosc", daemon=True).start()
 
     server = _Server(config, started=started)

@@ -37,8 +37,8 @@ MUTATIONS = (
     Mutation(
         "CRC arkusza tylko z początku",
         "Excel i openpyxl odrzucają Rozliczenie pracownika jako uszkodzony plik",
-        "crc = zlib.crc32(memoryview(xml)[tail_start:], zlib.crc32(head))",
-        "crc = zlib.crc32(head)",
+        "crc = zlib.crc32(piece, crc)",
+        "crc = crc",
     ),
     Mutation(
         "kawałki kompresji bez pełnego opróżnienia",
@@ -49,8 +49,8 @@ MUTATIONS = (
     Mutation(
         "zgubiony kawałek za podmienionymi wierszami",
         "z Rozliczenia pracownika znika 64 wierszy Wzorca z formułami",
-        "*self._chunks[chunk:]",
-        "*self._chunks[chunk + 1 :]",
+        "*self._chunks[chunk:-1]",
+        "*self._chunks[chunk + 1 : -1]",
     ),
     Mutation(
         "dimension bez wpisanych wierszy",
@@ -92,6 +92,30 @@ MUTATIONS = (
         "& bez escapowania",
         "tekst z & daje niepoprawny XML i plik, którego Excel nie otworzy",
         'text.replace("&", "&amp;")',
+        "text",
+    ),
+    Mutation(
+        "<hyperlinks> za pageMargins",
+        "blok Hiperłączy poza kolejnością schematu arkusza: Excel proponuje naprawę pliku i usuwa Hiperłącza",
+        '        "dataValidations",\n    }',
+        '        "dataValidations",\n        "pageMargins",\n    }',
+    ),
+    Mutation(
+        "rId Wzorca użyty ponownie",
+        "numer zlecenia otwiera rysunek komentarza Wzorca zamiast zlecenia, a Excel proponuje naprawę pliku",
+        "self._first = max(numbers) + 1",
+        "self._first = 1",
+    ),
+    Mutation(
+        "Hiperłącze o wiersz dalej",
+        "numer zlecenia otwiera zlecenie z wiersza wyżej",
+        'b"%d" % (first_row + index), link)',
+        'b"%d" % (first_row + index + 1), link)',
+    ),
+    Mutation(
+        "& w adresie Hiperłącza bez escapowania",
+        "relacje arkusza są niepoprawnym XML i plik się nie otwiera",
+        "html.escape(text, quote=True)",
         "text",
     ),
 )

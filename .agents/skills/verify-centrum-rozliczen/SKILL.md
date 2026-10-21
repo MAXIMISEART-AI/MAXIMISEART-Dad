@@ -19,7 +19,7 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
-`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
+`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
 `--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature powiadomienie-o-naprawie`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
@@ -30,10 +30,16 @@ Przebieg rozliczeń up to the Status okresu `Rozliczenia pracowników gotowe`;
 measures how fast Centrum is in Dad's CPU profiles against the baseline in
 `wydajnosc-baseline.json`; it is never part of `all` and takes minutes
 (`--baseline` and `--powtorzenia` apply to it only; see
-`features/wydajnosc.md`). The runner holds the machine for it: a measurement
-waits for a quiet CPU, every other run waits for a measurement in progress
-(`scripts/quiet_machine.py`), and `MASZYNA ZAJĘTA | …` lines say what it waits
-for. Success prints
+`features/wydajnosc.md`). The runner holds the machine for it
+(`tools/quiet_machine.py`). A measurement waits at most 3 minutes for a quiet
+CPU (no other run, measurement or test run) and holds the machine only while it
+measures, about 5 minutes. Every other run waits at most 15 minutes for a
+measurement in progress and never for a measurement still waiting for a quiet
+CPU. `MASZYNA ZAJĘTA | …` lines say what a run or measurement waits for. Run
+`wydajnosc` as a background command and read its last line instead of piping it
+through `tail`; do the same with any run while
+`tools/quiet_machine.py --status` shows `pomiar`, because waiting for it can
+outlast a 10-minute command limit. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 
@@ -68,7 +74,13 @@ either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.js
 per Zgłoszenie (never the key, `state` editable to `closed`), unreachable while
 `<root>/skrzynka-zgloszen/brak-sieci` exists; `<root>/github/tool-commit.txt` stands for
 the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum's clock
-forward past the 10-minute limit on asking the skrzynka. The adapter is the production boundary for those actions; the real
+forward past the 10-minute limit on asking the skrzynka. The tool itself is the run's synthetic Git clone
+`<root>/aktualizacja/klon` (its commit is the tool's own commit): Aktualizacja narzędzia moves only that clone,
+fetching from the local "origin" `<root>/aktualizacja/origin.git`, never from GitHub, and while
+`<root>/pacing/aktualizacja-ms.txt` exists each update waits that many milliseconds first (`<root>/pacing/instalacja-ms.txt`: before pip starts). Pip runs with `PIP_NO_INDEX=1`, never reaching PyPI. After a successful
+update Centrum restarts itself: the restart guardian runs the clone's `run_centrum.py`, a shim that serves this
+run's scripted Centrum again on the same port (it rewrites `server.json`), waiting first while
+`<root>/pacing/ponowny-start-ms.txt` exists. When the new version does not answer, the guardian moves the clone back and starts the old version's shim the same way. The adapter is the production boundary for those actions; the real
 Windows and macOS adapters are covered by `tests/test_centrum_launcher.py` (real
 process, real browser opening) and by hand.
 
@@ -86,7 +98,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\centrum_doctor.py --root "
 ```
 
 `DOCTOR OK` means `server.json` exists, the URL is on `127.0.0.1`, `/api/health`
-returns Centrum's identity and the `pyproject.toml` version, `/` serves the
+returns Centrum's identity, the commit of this run's tool clone, and an identifier of this start, `/` serves the
 built frontend, and the settings and metrics files belong to this run. The doctor only reads.
 
 ## Drive
@@ -172,7 +184,7 @@ Then confirm the evidence directory still exists.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
   check (with the `wydajnosc` gate on made-up numbers and the machine lock in a
   scratch directory) and evidence hygiene check.
-- `scripts/quiet_machine.py --status`: what holds the machine now (a
+- `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 
 Read `features/README.md` before choosing a feature. Each Centrum slice adds

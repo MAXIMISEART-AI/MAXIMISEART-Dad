@@ -55,7 +55,7 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant pr
 
 `preparation` builds a synthetic Rejestr zleceń and both Wzorce, drives
 `tools/uruchom_proces.py preparation` through dry-run and write, and checks
-both period files.
+both period files, including the Rejestr Hiperłącze of every written `NUMER ZL.` cell.
 Its route and counts are in `features/prepare-collective-file.md`.
 
 When `config/` holds the real Wzorce, also run the local variant after changes
@@ -87,8 +87,9 @@ quantities into `N:AP` and charges and remarks into `AQ:AT` of three Wiersze
 danych of the resulting Plik zbiorczy, then Przebieg rozliczeń on that file
 (dry-run, then write). It checks that every Rozliczenie pracownika holds only
 its Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, with `A:AT` equal to
-the Plik zbiorczy row, Gotowość entries included, and with the Wyróżnienia of
-the Plik zbiorczy cells. `chain-real-templates` runs
+the Plik zbiorczy row, Gotowość entries included, and with the Wyróżnienia and
+Hiperłącza of the Plik zbiorczy cells; every `NUMER ZL.` cell keeps the
+Hiperłącze of its Rejestr cell. `chain-real-templates` runs
 the same path on byte copies of all three real Wzorce, including the Wzorzec
 rozliczenia pracownika; like `preparation-real-templates` it is local only,
 takes `--templates-dir`, and prints `VERIFY SKIP` without them. Route and
@@ -152,9 +153,9 @@ explicitly, so no run reads `config/`. Its ordered stages are:
    pracownika and assert the complete plan, no target folder, unchanged
    source/Wzorzec rozliczenia pracownika, and no row content.
 4. Run `settlement` without `--dry-run`; the default fixture requires exit code
-   `0` and asserts exactly three workbooks, routed values, preserved
-   formulas/formatting, an empty worker workbook, and an unchanged Wzorzec
-   rozliczenia pracownika.
+   `0` and asserts exactly three workbooks, routed values, the Hiperłącze of
+   every `NUMER ZL.` cell, preserved formulas/formatting, an empty worker
+   workbook, and an unchanged Wzorzec rozliczenia pracownika.
 5. For `existing`, `locked`, or `unmapped`, require exit code `1`, the stop's
    Komunikat code, and no partial output (or an existing folder left
    unchanged).
@@ -270,7 +271,7 @@ already performs both checks and prints `scratch_removed=true`.
   `--with-worker-template` also validates the Wzorzec rozliczenia pracownika.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\preparation_doctor.py --root "$runRoot" --expected-version "0.1.0"`.
 - `scripts/assert_preparation.py` checks the Folder okresu, both period files,
-  external links, inputs, the JSON result, and metrics; `--templates config` swaps
+  their Hiperłącza, external links, inputs, the JSON result, and metrics; `--templates config` swaps
   the synthetic Wzorzec checks for the generic real-Wzorzec checks, and
   `--metrics` reads a history other than `<root>\metrics.jsonl`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_preparation.py --root "$runRoot" --expect run --result "$evidenceRoot\run.json"`.
@@ -279,8 +280,8 @@ already performs both checks and prints `scratch_removed=true`.
   external links, and records the period files' hashes for `assert_chain.py`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\fill_readiness.py --root "$runRoot"`.
 - `scripts/assert_chain.py` checks the Przebieg rozliczeń of `chain` against
-  the Plik zbiorczy it read: worker routing and order, `A:AT` equality of values
-  and Wyróżnienia, Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
+  the Plik zbiorczy it read: worker routing and order, `A:AT` equality of values,
+  Wyróżnienia and Hiperłącza, the Rejestr Hiperłącze in `NUMER ZL.`, Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
   pracownika, unchanged inputs and period files, the JSON result, and metrics.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_chain.py --root "$runRoot" --expect run --result "$evidenceRoot\settlement-run.json"`.
 - `scripts/cleanup.py` removes only a run root below `.verification\runs\`.

@@ -266,7 +266,8 @@ py -3 -m mypy
 
 Ruff i mypy obejmują aplikację, testy, narzędzia oraz skrypty weryfikacyjne.
 Zakres plików jest ustawiony tylko w `pyproject.toml`; nowy plik `*.py` w
-katalogu głównym jest sprawdzany automatycznie.
+katalogu głównym albo w `scripts/` skilla w `.agents/skills/` jest sprawdzany
+automatycznie.
 
 Na macOS i Linuksie (bez `py -3`) zestaw developerski instaluje się przez
 [`uv`](https://docs.astral.sh/uv/), a komendy uruchamia z `.venv`:
@@ -280,6 +281,12 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 Check formatowania nie jest wymagany. Wszystkie zadania CI poza E2E i Timing
 guard (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) uruchamia naraz
 `.venv/bin/python tools/ci_lokalnie.py` (Windows: `py -3 tools/ci_lokalnie.py`).
+Na macOS i Linuksie `tools/setup_worktree.py` włącza bramę `tools/hooks/pre-push`:
+push agenta (zmienna `AI_AGENT` albo `CLAUDECODE`) przechodzi dopiero po
+`CI LOKALNIE OK`, a push człowieka bez sprawdzania. Udany przebieg na czystym
+checkoucie zostawia pieczątkę drzewa, więc push zaraz po nim nie powtarza sprawdzeń.
+Brama kończy przebieg na pierwszym nieudanym kroku i razem z przerwanym pushem, a drugi
+push z tego samego checkoutu w trakcie przebiegu odrzuca od razu.
 
 W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
 (macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
@@ -306,10 +313,10 @@ wystarczają zależności z `requirements.txt`, bez Node.
   jednorazowo `py -3 install_centrum_shortcut.py`: wskazuje `pythonw.exe`
   tego samego Pythona co `py -3` i `run_centrum.py`, więc nie ma okna konsoli.
   Ponowne kliknięcie rozpoznaje działające Centrum po `/api/health` (tożsamość
-  i wersja) i tylko otwiera kartę. Błąd startu (port zajęty przez inny
-  program, inna wersja Centrum, brak biblioteki) bez konsoli pokazuje
-  natywne okienko, z konsolą trzy linie komunikatu
-  (`src/rozliczenia/centrum/start_problems.py`).
+  i commit narzędzia, z którego wystartowało) i tylko otwiera kartę. Błąd
+  startu (port zajęty przez inny program, Centrum z innego commitu, brak
+  biblioteki) bez konsoli pokazuje natywne okienko, z konsolą trzy linie
+  komunikatu (`src/rozliczenia/centrum/start_problems.py`).
 - `py -3 run_centrum.py` uruchamia Centrum z widoczną konsolą na `http://127.0.0.1:47811/` i otwiera kartę w
   przeglądarce. `--port` zmienia port, `--no-browser` nie otwiera karty.
 - Serwer działa do kliknięcia „Zamknij Centrum rozliczeń” w karcie

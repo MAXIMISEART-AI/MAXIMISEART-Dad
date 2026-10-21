@@ -278,6 +278,27 @@ def write_register_sheet(
                     cell.number_format = REGISTER_DATE_FORMAT
 
 
+def link_register_order_numbers(path: Path, address: str) -> dict[int, str]:
+    """Hiperłącze w ``NUMER ZL.`` każdego zlecenia arkusza ``ZLECENIA``, jak do zlecenia w aplikacji firmowej.
+
+    Adres to ``address`` z numerem wiersza Rejestru na końcu; zwraca numer wiersza → adres.
+    """
+
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook["ZLECENIA"]
+        [column] = [cell.column for cell in sheet[1] if cell.value in ("NUMER ZL.", "nr zlecenia")]
+        links = {
+            row: f"{address}{row}" for row in range(2, sheet.max_row + 1) if sheet.cell(row, column).value is not None
+        }
+        for row, link in links.items():
+            sheet.cell(row, column).hyperlink = link
+        workbook.save(path)
+    finally:
+        workbook.close()
+    return links
+
+
 def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, row_style: bool = False) -> None:
     """Szerokości kolumn, czcionka kolumn, wysokości wierszy, pogrubiony nagłówek i blokada nagłówka.
 
@@ -470,13 +491,18 @@ def cell_values(path: Path, *, min_row: int, max_row: int, min_col: int, max_col
         workbook.close()
 
 
-def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+def incomplete_period_rows() -> list[RegisterRow]:
     """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
 
-    rows: list[RegisterRow] = [
+    return [
         register_order(1, datetime(2026, 9, 8, 8, 0)),
         None,
         register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
         register_order(3, datetime(2026, 9, 12, 12, 0)),
     ]
-    return make_preparation_fixture(tmp_path, rows)
+
+
+def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
+    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
+
+    return make_preparation_fixture(tmp_path, incomplete_period_rows())

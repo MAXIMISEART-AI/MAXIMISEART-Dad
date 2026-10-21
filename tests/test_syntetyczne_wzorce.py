@@ -104,6 +104,20 @@ def test_syntetyczny_wzorzec_ma_wspolne_formuly_calcchain_i_odwolanie_zewnetrzne
         workbook.close()
 
 
+def test_syntetyczny_wzorzec_rozliczenia_pracownika_ma_komentarz_i_relacje_arkusza_jak_wzorzec_taty(tmp_path: Path) -> None:
+    path = write_synthetic_templates(tmp_path / "wzorce") / WORKER_TEMPLATE
+
+    relationships = re.findall(r'Id="(rId\d+)" Type="[^"]*/(\w+)"', zip_part(path, "xl/worksheets/_rels/sheet1.xml.rels"))
+    assert relationships == [("rId1", "vmlDrawing"), ("rId2", "comments")]
+    assert '<legacyDrawing r:id="rId1"/>' in zip_part(path, SHEET)
+    workbook = load_workbook(path)
+    try:
+        comment = active_worksheet(workbook)["H17"].comment
+        assert comment is not None and comment.text == "Identyfikator z Konfiguracji wykonawców"
+    finally:
+        workbook.close()
+
+
 def test_pelny_syntetyczny_wzorzec_ma_rozmiar_wzorca_taty(tmp_path: Path) -> None:
     sheet_xml = zip_part(write_synthetic_templates(tmp_path / "wzorce", data_rows=None) / WORKER_TEMPLATE, SHEET)
 

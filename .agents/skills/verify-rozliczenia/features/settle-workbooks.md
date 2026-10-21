@@ -9,6 +9,7 @@ workbook, and leaves a worker with no rows empty.
 - `settle-map` maps each `WYKONAWCA` identifier, compared without case, extra spaces, or non-breaking spaces, to its configured worker name, which names the workbook.
 - `settle-copy` writes source values into `A:AT` starting at row 18.
 - `settle-highlights` gives every written `A:AT` cell the Wyróżnienia of its Plik zbiorczy cell (fill, font color, bold, italic); font face and size, number format, and borders stay from the Wzorzec rozliczenia pracownika. A source cell without Wyróżnienia clears them, as Przygotowanie does from the Rejestr.
+- `settle-hyperlinks` gives every written `A:AT` cell the Hiperłącze of its Plik zbiorczy cell (an external address, e.g. the order in the company app behind `NUMER ZL.`); a Wzorzec hyperlink in a written Wiersz danych is replaced or cleared, and the address never reaches the JSON result, metrics or evidence.
 - `settle-preserve` keeps the template `AU` formulas and structure.
 - `settle-empty` leaves a mapped worker with no rows as `PUSTY_SZABLON`.
 - `settle-roster` creates exactly one workbook for every configured worker.
@@ -27,7 +28,7 @@ Preconditions:
 
 - **Run the proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The dry-run and write both return `0` for the default fixture.
 - **Observe progress.** `assert-run.txt` reports `progress_reported=true`: in `run.json` the progress has `templates_completed` 3 of `template_total` 3 with `Zapisane szablony` 2 and `Puste szablony` 1, and the summary has `Zapisane szablony` 2, `Puste szablony` 1, and the `file_plan` of all three workers.
-- **Verify workbook state.** Read `assert-run.txt`; it returns `ASSERT OK` with exit code `0` after checking exactly three files, routed values, preserved formulas/sheets/formatting, an empty Kamil workbook, and an untouched Wzorzec rozliczenia pracownika.
+- **Verify workbook state.** Read `assert-run.txt`; it returns `ASSERT OK` with exit code `0` after checking exactly three files, routed values, the Hiperłącze of every `NUMER ZL.` cell (`hyperlinks_equal_plik_zbiorczy=F`), preserved formulas/sheets/formatting, an empty Kamil workbook, and an untouched Wzorzec rozliczenia pracownika.
 
 ## Gotchas
 
@@ -35,6 +36,7 @@ Preconditions:
 - The configured shared Wzorzec rozliczenia pracownika is copied into each new workbook and is
   never modified. The final output folder appears only after all files are ready.
 - The proof must inspect formulas with `data_only=False`; cached formula results are not the template-preservation proof.
+- The default fixture's Plik zbiorczy carries a Hiperłącze in `F` of every Wiersz danych (`caseId=SYNTHETIC-LINK`); `self_test.py` rejects that marker in the evidence, so an address leaking into the JSON result or metrics fails the proof. The `chain` variants carry the Rejestr's Hiperłącza through Przygotowanie pliku zbiorczego (`chain-hyperlinks`).
 - The default fixture's Plik zbiorczy has no Wyróżnienia, so `settle-highlights` is proven by `chain` (`highlights_equal_plik_zbiorczy=A:AT`), whose Plik zbiorczy carries the Rejestr's highlighted cells and the Wzorzec pliku zbiorczego's fills. When comparing looks with openpyxl, take the set of cells in the file right after loading: `iter_rows` on a full workbook adds the missing cells, which then show the default font instead of no Wyróżnienia.
 - An unmapped WYKONAWCA stops the real run before creating the output folder;
   verify that path with `--variant unmapped` under the safety-gates feature.

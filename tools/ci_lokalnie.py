@@ -5,6 +5,10 @@ patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjści
 przy porażce. Kończy się ``CI LOKALNIE OK`` albo ``CI LOKALNIE FAIL | <kroki>``. Zadania E2E i
 Timing guard mają swoje narzędzia (``--kroki-ci`` je wymienia), bo trwają kilka minut.
 
+Po ``CI LOKALNIE OK`` na czystym checkoucie zapisuje jego drzewo HEAD w pieczątce
+``$(git rev-parse --git-dir)/ci-lokalnie-ok``: brama ``tools/hooks/pre-push`` przepuszcza wtedy push
+tego drzewa bez ponownego przebiegu.
+
     py -3 tools/ci_lokalnie.py                  # Windows
     .venv/bin/python tools/ci_lokalnie.py       # macOS i Linux
 """
@@ -31,6 +35,7 @@ JOBS_ELSEWHERE = {
     "required": "zbiorczy status pozostałych zadań, nic do odtworzenia",
 }
 OUTPUT_ON_FAILURE = 40
+STAMP = "ci-lokalnie-ok"
 
 
 @dataclass(frozen=True)
@@ -52,25 +57,10 @@ def _steps() -> list[Step]:
     return [
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check")),
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy")),
+        # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
+        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32")),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto")),
-        Step(
-            "mutacje publikacji",
-            "mutations",
-            "check_mutations.py",
-            (python, ".agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py"),
-        ),
-        Step(
-            "mutacje jednego Uruchomienia naraz",
-            "mutations",
-            "check_runs_mutations.py",
-            (python, ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py"),
-        ),
-        Step(
-            "mutacje kopii Wzorca",
-            "mutations",
-            "verify-kopia-wzorca/scripts/check_copy_mutations.py",
-            (python, ".agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py"),
-        ),
+        Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py")),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), FRONTEND),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), FRONTEND)
@@ -90,6 +80,16 @@ def _dependencies_fresh() -> bool:
 
     installed = FRONTEND / "node_modules" / ".package-lock.json"
     return installed.exists() and installed.stat().st_mtime >= (FRONTEND / "package-lock.json").stat().st_mtime
+
+
+def _git(*args: str) -> str:
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _clean_tree() -> str | None:
+    """Drzewo HEAD, gdy checkout nie ma zmian ani nieśledzonych plików (pytest uruchomiłby i je)."""
+
+    return None if _git("status", "--porcelain") else _git("rev-parse", "HEAD^{tree}")
 
 
 def _run(step: Step) -> tuple[bool, str]:
@@ -116,14 +116,22 @@ def _run(step: Step) -> tuple[bool, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--kroki-ci", action="store_true", help="Wypisz JSON: odtwarzane zadania CI i ich polecenia.")
+    parser.add_argument(
+        "--do-pierwszego-bledu",
+        action="store_true",
+        help="Zakończ po pierwszym nieudanym kroku (brama pre-push: nieudany push odpowiada szybko).",
+    )
     args = parser.parse_args(argv)
     steps = _steps()
     if args.kroki_ci:
         jobs = sorted({step.job for step in steps})
         print(json.dumps({"lokalnie": jobs, "gdzie_indziej": JOBS_ELSEWHERE, "fragmenty": [s.ci for s in steps]}))
         return 0
-    failed = []
+    tree = _clean_tree()
+    failed: list[str] = []
     for step in steps:
+        if failed and args.do_pierwszego_bledu:
+            break
         if step.name == "npm ci" and _dependencies_fresh():
             print(f"POMINIĘTO {step.name} (node_modules z bieżącego package-lock.json)", flush=True)
             continue
@@ -134,9 +142,17 @@ def main(argv: list[str] | None = None) -> int:
         if not passed:
             failed.append(step.name)
             print("\n".join(output.rstrip().splitlines()[-OUTPUT_ON_FAILURE:]), flush=True)
+    try:
+        overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
+        subprocess.run(overlaps, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
     if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1
+    # Commit albo zmiana w trakcie przebiegu znaczy, że sprawdzone drzewo nie jest już drzewem HEAD.
+    if tree is not None and _clean_tree() == tree:
+        (ROOT / _git("rev-parse", "--git-dir") / STAMP).write_text(tree, encoding="utf-8")
     print("CI LOKALNIE OK")
     return 0
 

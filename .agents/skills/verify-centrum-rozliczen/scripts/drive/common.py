@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from fnmatch import fnmatchcase
 import json
 from pathlib import Path
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -236,3 +237,31 @@ def error_toasts(page: Page) -> Locator:
     """Error notifications („Nie udało się …”), also those stacked behind the newest one."""
 
     return page.get_by_role("region", name="Notifications").get_by_role("dialog", name="Nie udało się")
+
+
+def served_version(run: Run) -> tuple[str, str | None]:
+    """The tool commit the served Centrum runs and the day the run's tool clone moved to it, as Git reports them.
+
+    The commit is the clone's ``HEAD`` unless powiadomienie-o-naprawie pinned another one in
+    ``<root>/github/tool-commit.txt``. The day (``YYYY-MM-DD``) is the last ``HEAD`` reflog entry's, in that entry's
+    time zone, when that entry leads to the commit, else ``None``. Neither depends on how Centrum reads ``.git``.
+    """
+
+    def git(*arguments: str) -> str:
+        return subprocess.run(
+            ["git", "-C", run.fixture["tool"]["clone"], *arguments], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    pinned = run.root / "github" / "tool-commit.txt"
+    commit = pinned.read_text(encoding="utf-8").strip() if pinned.exists() else git("rev-parse", "HEAD")
+    entry_commit, _, selector = git("log", "--walk-reflogs", "-1", "--date=short", "--format=%H %gd").partition(" ")
+    return commit, selector.removeprefix("HEAD@{").removesuffix("}") if entry_commit == commit else None
+
+
+def version_line(commit: str, since: str | None) -> str:
+    """The version line Dad reads in the card ``Narzędzie``: ``Wersja 1a2b3c4 od 20.10.2026``."""
+
+    if since is None:
+        return f"Wersja {commit[:7]}"
+    year, month, day = since.split("-")
+    return f"Wersja {commit[:7]} od {day}.{month}.{year}"

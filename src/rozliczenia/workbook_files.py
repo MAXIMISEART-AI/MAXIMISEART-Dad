@@ -1,8 +1,8 @@
 """Skoroszyty na dysku: otwarcie z jedną klasyfikacją uszkodzeń, układ arkusza i plik z Wzorca.
 
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
-zbiorczy (``read_data_rows``, z Wyróżnieniami komórek), Rejestr zleceń
-(``read_workbook``, z formatem komórek), Wzorce do Sprawdzania i dla
+zbiorczy (``read_data_rows``, z Wyróżnieniami i Hiperłączami komórek), Rejestr zleceń
+(``read_workbook``, z formatem i Hiperłączami komórek), Wzorce do Sprawdzania i dla
 Przygotowania pliku zbiorczego (``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
 pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
 pracowników (``WorkerSettlementTemplate``). Otwarcie
@@ -25,10 +25,10 @@ import os
 import tempfile
 import zipfile
 import zlib
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
@@ -51,6 +51,7 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .highlights import Highlights
+from .hyperlinks import Hyperlink, read_sheet_hyperlinks
 from .input_rows import rows_with_input
 from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
 
@@ -177,26 +178,29 @@ class Layout(Enum):
 
 @dataclass(frozen=True)
 class DataRow:
-    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA, wartości A:AT i ich Wyróżnienia."""
+    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA, wartości A:AT, Wyróżnienia i Hiperłącza."""
 
     number: int
     worker: _ExcelCellValue
     values: ExcelRow
     highlights: tuple[Highlights, ...]
     """Wyróżnienia komórek A:AT, po pozycji jak ``values``."""
+    hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
+    """Hiperłącza komórek A:AT z wartością: kolumna od 1 → Hiperłącze."""
 
 
 @dataclass(frozen=True)
 class FormattedCell:
-    """Wartość komórki z wyróżnieniami odczytanymi przy otwarciu; brakująca komórka ma same ``None``."""
+    """Wartość komórki z wyróżnieniami i Hiperłączem odczytanymi przy otwarciu; brakująca komórka ma same ``None``."""
 
     value: object
     font: Font | None
     fill: Fill | None
     number_format: str | None
+    hyperlink: Hyperlink | None
 
 
-_EMPTY_CELL = FormattedCell(None, None, None, None)
+_EMPTY_CELL = FormattedCell(None, None, None, None, None)
 
 
 def is_open_in_excel(path: Path) -> bool:
@@ -239,11 +243,11 @@ def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
         yield item
 
 
-def _load(path: Path, *, read_only: bool) -> Workbook:
-    """Skoroszyt ``path`` dostępny na dysku, otwarty przez openpyxl."""
+def _load(path: Path) -> Workbook:
+    """Skoroszyt ``path`` dostępny na dysku, otwarty przez openpyxl do zapisu."""
 
     ensure_available(path)
-    return _open(path, path, read_only=read_only)
+    return _open(path, path, read_only=False)
 
 
 def _open(path: Path, source: Path | IO[bytes], *, read_only: bool) -> Workbook:
@@ -273,7 +277,7 @@ def _check_worker_header(path: Path, header: Sequence[object]) -> None:
 
 
 def read_data_rows(path: Path) -> list[DataRow]:
-    """Wiersze danych Pliku zbiorczego z Wyróżnieniami komórek w kolejności z pliku; plik jest tylko czytany.
+    """Wiersze danych Pliku zbiorczego z Wyróżnieniami i Hiperłączami komórek w kolejności z pliku; plik jest tylko czytany.
 
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
     nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem.
@@ -300,6 +304,8 @@ def read_data_rows(path: Path) -> list[DataRow]:
         _check_worker_header(path, header)
         with _unreadable_as_error(path):
             max_column = max(DATA_ROW_COLUMNS[-1], sheet.max_column)
+            with zipfile.ZipFile(BytesIO(content)) as archive:
+                links = read_sheet_hyperlinks(archive, sheet.title)
         rows: list[DataRow] = []
         last_column = DATA_ROW_COLUMNS[-1]
         highlights = _HighlightsReader()
@@ -311,7 +317,7 @@ def read_data_rows(path: Path) -> list[DataRow]:
                 continue
             with _unreadable_as_error(path):
                 row_highlights = tuple(highlights.of(cell) for cell in cells[:last_column])
-            rows.append(DataRow(number, values[_WORKER_COLUMN - 1], values, row_highlights))
+            rows.append(DataRow(number, values[_WORKER_COLUMN - 1], values, row_highlights, links.row(number, values)))
     finally:
         workbook.close()
     return rows
@@ -335,8 +341,9 @@ class _HighlightsReader:
 class ReadSheet:
     """Arkusz skoroszytu otwartego tylko do odczytu; każdy odczyt komórek jest klasyfikowany."""
 
-    def __init__(self, path: Path, sheet: Worksheet) -> None:
+    def __init__(self, path: Path, content: bytes, sheet: Worksheet) -> None:
         self._path = path
+        self._content = content
         self._sheet = sheet
 
     @property
@@ -349,48 +356,62 @@ class ReadSheet:
     def formatted_rows(
         self, min_row: int, columns: Sequence[int]
     ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
-        """Wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami, od ``min_row`` w dół."""
+        """Wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami i Hiperłączami, od ``min_row`` w dół."""
 
         return _classified(self._path, self._formatted_rows(min_row, columns))
 
     def _formatted_rows(
         self, min_row: int, columns: Sequence[int]
     ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
-        for cells in self._sheet.iter_rows(min_row=min_row):
+        with zipfile.ZipFile(BytesIO(self._content)) as archive:
+            links = read_sheet_hyperlinks(archive, self.title)
+        for number, cells in enumerate(self._sheet.iter_rows(min_row=min_row), start=min_row):
             values = tuple(getattr(cell, "value", None) for cell in cells)
-            yield values, tuple(_formatted(cells[column - 1]) if column <= len(cells) else _EMPTY_CELL for column in columns)
+            row_links = links.row(number, values)
+            yield values, tuple(
+                _formatted(cells[column - 1], row_links.get(column)) if column <= len(cells) else _EMPTY_CELL
+                for column in columns
+            )
 
 
-def _formatted(cell: object) -> FormattedCell:
+def _formatted(cell: object, hyperlink: Hyperlink | None) -> FormattedCell:
     return FormattedCell(
         value=getattr(cell, "value", None),
         font=getattr(cell, "font", None),
         fill=getattr(cell, "fill", None),
         number_format=getattr(cell, "number_format", None),
+        hyperlink=hyperlink,
     )
 
 
 class ReadWorkbook:
     """Skoroszyt otwarty tylko do odczytu, np. Rejestr zleceń."""
 
-    def __init__(self, path: Path, workbook: Workbook) -> None:
+    def __init__(self, path: Path, content: bytes, workbook: Workbook) -> None:
         self._path = path
+        self._content = content
         self._workbook = workbook
 
     def sheets(self) -> Iterator[ReadSheet]:
         with _unreadable_as_error(self._path):
             worksheets = list(self._workbook.worksheets)
         for sheet in worksheets:
-            yield ReadSheet(self._path, cast(Worksheet, sheet))
+            yield ReadSheet(self._path, self._content, cast(Worksheet, sheet))
 
 
 @contextmanager
 def read_workbook(path: Path) -> Iterator[ReadWorkbook]:
-    """Skoroszyt tylko do odczytu z formatem komórek; zamykany przy wyjściu z bloku."""
+    """Skoroszyt tylko do odczytu z formatem i Hiperłączami komórek; zamykany przy wyjściu z bloku.
 
-    workbook = _load(path, read_only=True)
+    openpyxl i Hiperłącza czytają te same bajty, odczytane z dysku raz.
+    """
+
+    ensure_available(path)
+    with _unreadable_as_error(path):
+        content = path.read_bytes()
+    workbook = _open(path, BytesIO(content), read_only=True)
     try:
-        yield ReadWorkbook(path, workbook)
+        yield ReadWorkbook(path, content, workbook)
     finally:
         workbook.close()
 
@@ -456,14 +477,18 @@ class TemplateSheet:
         return count
 
     def write_data_rows(self, rows: Sequence[DataRow]) -> None:
-        """Wpisuje Wiersze danych z ich Wyróżnieniami po pozycji kolumn A:AT od pierwszego Wiersza danych.
+        """Wpisuje Wiersze danych z ich Wyróżnieniami i Hiperłączami po pozycji kolumn A:AT od pierwszego Wiersza danych.
 
-        Krój i rozmiar czcionki, format liczby, obramowanie, wyrównanie i ochrona zostają z komórki Wzorca.
+        Krój i rozmiar czcionki, format liczby, obramowanie, wyrównanie i ochrona zostają z komórki Wzorca;
+        hiperłącze komórki Wzorca zastępuje Hiperłącze z Wiersza danych albo żadne.
         """
 
         for index, row in enumerate(rows):
             for column, value, highlights in zip(DATA_ROW_COLUMNS, row.values, row.highlights, strict=True):
                 cell = self.worksheet.cell(self.data_row(index), column)
+                link = row.hyperlinks.get(column)
+                # Przed wartością: openpyxl wpisuje adres jako wartość pustej komórki.
+                cell.hyperlink = None if link is None else link.address
                 cell.value = value
                 cell.font = highlights.font_over(cast(Font, copy(cell.font)))
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
@@ -481,7 +506,7 @@ def _is_zero(value: object) -> bool:
 def open_template(path: Path, layout: Layout) -> Iterator[TemplateSheet]:
     """Wzorzec do sprawdzenia; niczego nie zapisuje."""
 
-    workbook = _load(path, read_only=False)
+    workbook = _load(path)
     try:
         yield _template_sheet(path, workbook, layout)
     finally:
@@ -498,7 +523,7 @@ def file_from_template(template: Path, target: Path, layout: Layout, *, recalcul
     zawsze pozostaje niezmieniony.
     """
 
-    workbook = _load(template, read_only=False)
+    workbook = _load(template)
     try:
         yield _template_sheet(template, workbook, layout)
         if recalculate:
@@ -547,7 +572,7 @@ class WorkerSettlementTemplate:
     def create_settlement(self, target: Path, rows: Sequence[DataRow]) -> None:
         """Tworzy atomowo pod ``target`` Rozliczenie pracownika z ``rows`` jako Wierszami danych.
 
-        Wiersze danych są wpisywane z Wyróżnieniami po pozycji kolumn A:AT od
+        Wiersze danych są wpisywane z Wyróżnieniami i Hiperłączami po pozycji kolumn A:AT od
         wiersza 18; formuły (także wspólne), ``calcChain``, pozostałe
         formatowanie i ``xl/externalLinks/*`` zostają z Wzorca, a Excel
         przeliczy formuły przy otwarciu.

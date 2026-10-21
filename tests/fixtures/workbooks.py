@@ -10,7 +10,7 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 
@@ -196,3 +196,19 @@ def without_sheet(path: Path) -> None:
         path,
         lambda name, data: re.sub(rb"<sheets>.*?</sheets>", b"<sheets/>", data) if name == "xl/workbook.xml" else data,
     )
+
+
+def hyperlinks(path: Path) -> dict[str, str]:
+    """Hiperłącza aktywnego arkusza tak, jak otwiera je Excel: adres komórki → adres (z ``#miejsce``)."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        return {
+            cell.coordinate: cell.hyperlink.target + (f"#{cell.hyperlink.location}" if cell.hyperlink.location else "")
+            for row in sheet.iter_rows()
+            for cell in row
+            if cell.hyperlink is not None and cell.hyperlink.target
+        }
+    finally:
+        workbook.close()
