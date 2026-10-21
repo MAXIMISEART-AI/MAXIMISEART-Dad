@@ -2,7 +2,7 @@
 
 Treść Zgłoszenia powstaje tylko tutaj (``report_of``), z tych samych
 bezpiecznych faktów co Komunikat i Diagnoza: Komunikat z kodem i trzema
-częściami, proces, okres i tryb, wersja i commit narzędzia, wynik każdego
+częściami, proces, okres i tryb, commit narzędzia, wynik każdego
 sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum, a przy nieoczekiwanym
 wyjątku jego typ i ślad wywołań w kodzie narzędzia. Ścieżki są już skrócone w
 Komunikatach, szczegółach sprawdzeń i ramkach śladu; treści wierszy, treści
@@ -41,7 +41,6 @@ from rozliczenia.centrum.report_box import (
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import CommitSource
-from rozliczenia.centrum.version import tool_version
 
 if TYPE_CHECKING:
     from rozliczenia.centrum.diagnosis import Diagnosis
@@ -87,7 +86,6 @@ def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None 
         *_trace_lines(stopped.stop.trace),
         "## Narzędzie",
         "",
-        f"- Wersja: {tool_version()}",
         f"- Commit: {commit or 'nieznany'}",
         fingerprint_line(fingerprint),
         *([] if previous is None else [f"- Poprzednie Zgłoszenie: #{previous}"]),
