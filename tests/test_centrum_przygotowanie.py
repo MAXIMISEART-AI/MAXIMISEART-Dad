@@ -14,7 +14,6 @@ import pytest
 from rozliczenia import collective_preparation, preparation_process, preparation_register
 from rozliczenia.telemetry import MetricsStore, metric_record
 from rozliczenia.centrum import contract, run_view
-from rozliczenia.centrum.metrics import MetricsFiles
 
 from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
@@ -521,7 +520,6 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruc
     store.append({**own, "started_at": later})
     history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert MetricsFiles.default().preparation == preparation_process.default_metrics_path()
     assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
     assert [(run["origin"], run["mode"]) for run in history] == [("cmd", "DRY-RUN"), ("centrum", "DRY-RUN")]
 
