@@ -3,9 +3,11 @@
 Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co się
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
 Komunikaty są po polsku, bez żargonu i treści wyjątków oraz bez adresów,
-numerów zleceń i treści wierszy. Wskazują wyłącznie plik, arkusz, nagłówek albo
-numer wiersza. Obok fabryk katalog ma napisy Decyzji taty o niepełnym okresie
-i etykiety liczb zleceń na dzień.
+numerów zleceń i treści wierszy. Wskazują wyłącznie plik, arkusz, nagłówek,
+numer wiersza albo adres komórki. Jedynym wyjątkiem jest
+``invalid_successful_values``, który pokazuje dokładną zawartość komórki
+``SKUTECZNE`` innej niż ``tak`` i ``nie``. Obok fabryk katalog ma napisy
+Decyzji taty o niepełnym okresie i etykiety liczb zleceń na dzień.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+import re
 from typing import Final
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
@@ -381,22 +384,72 @@ def rows_without_date(register_path: Path, sheet: str, row_numbers: Sequence[int
     )
 
 
-def invalid_successful_values(register_path: Path, sheet: str, row_numbers: Sequence[int]) -> Message:
-    """Zlecenie okresu ma puste ``SKUTECZNE`` albo wartość inną niż ``tak``/``nie``."""
+def invalid_successful_values(
+    register_path: Path,
+    sheet: str,
+    column: str,
+    empty_rows: Sequence[int],
+    other_values: Sequence[tuple[int, object]],
+) -> Message:
+    """Zlecenia okresu bez ``tak`` ani ``nie`` w ``SKUTECZNE``: puste komórki i komórki z inną wartością.
 
-    subject = "Zlecenie okresu ma" if len(row_numbers) == 1 else "Zlecenia okresu mają"
+    Wyjątek od reguły katalogu: komórka z inną wartością pokazuje dokładną
+    zawartość. Lista jest pełna, a kolejne wiersze grupy są sklejone w zakres.
+    """
+
+    count = len(empty_rows) + len(other_values)
+    groups: list[str] = []
+    if empty_rows:
+        runs = _consecutive(empty_rows, [None] * len(empty_rows))
+        groups.append("puste: " + ", ".join(_cells_label(column, rows) for rows, _ in runs))
+    if other_values:
+        shown = [_cell_content(value) for _, value in other_values]
+        runs = _consecutive([row for row, _ in other_values], shown)
+        groups.append("inna wartość: " + ", ".join(f"{_cells_label(column, rows)} („{text}”)" for rows, text in runs))
     return Message(
         code="ZLE_SKUTECZNE",
-        what=(
-            f"{subject} puste albo nieznane SKUTECZNE (dozwolone: tak, nie). "
-            "Nie utworzono żadnego pliku."
-        ),
-        where=f"{_register_location(register_path, sheet)}, {_rows_label(row_numbers)}",
+        what=f"{count} {_orders_without_successful(count)} tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.",
+        where=f"{_register_location(register_path, sheet)}, {'; '.join(groups)}",
         action=(
-            "Wpisz tak albo nie w kolumnie SKUTECZNE we wskazanych wierszach Rejestru zleceń. "
+            "Wpisz tak albo nie we wskazanych komórkach Rejestru zleceń. "
             "Zapisz i zamknij Rejestr, i uruchom ponownie."
         ),
     )
+
+
+# Znaki, po których ``str.splitlines`` zaczyna nową linię; w zawartości komórki zastępuje je spacja.
+_LINE_BREAK: Final = re.compile(r"\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
+
+
+def _cell_content(value: object) -> str:
+    return _LINE_BREAK.sub(" ", str(value))
+
+
+def _consecutive(row_numbers: Sequence[int], keys: Sequence[str | None]) -> list[tuple[tuple[int, int], str | None]]:
+    """Zakresy kolejnych wierszy o tym samym kluczu, w kolejności Rejestru."""
+
+    runs: list[tuple[tuple[int, int], str | None]] = []
+    for row, key in zip(row_numbers, keys, strict=True):
+        if runs and runs[-1][1] == key and runs[-1][0][1] == row - 1:
+            runs[-1] = ((runs[-1][0][0], row), key)
+        else:
+            runs.append(((row, row), key))
+    return runs
+
+
+def _cells_label(column: str, rows: tuple[int, int]) -> str:
+    first, last = rows
+    return f"{column}{first}" if first == last else f"{column}{first}–{column}{last}"
+
+
+def _orders_without_successful(count: int) -> str:
+    """Odmiana „zlecenie okresu nie ma” dla liczby zleceń: 1, 2–4 (bez 12–14) i pozostałe."""
+
+    if count == 1:
+        return "zlecenie okresu nie ma"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "zlecenia okresu nie mają"
+    return "zleceń okresu nie ma"
 
 
 def unknown_workers(

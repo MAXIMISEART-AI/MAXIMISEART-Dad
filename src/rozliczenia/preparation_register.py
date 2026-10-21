@@ -15,6 +15,7 @@ from pathlib import Path
 
 from openpyxl.styles.colors import Color
 from openpyxl.styles.fills import Fill
+from openpyxl.utils import get_column_letter
 
 from . import preparation_messages as messages
 from . import workbook_files
@@ -103,11 +104,17 @@ class RegisterRow:
 
 @dataclass(frozen=True)
 class RegisterSheet:
-    """Arkusz ze zleceniami: wiersze z danymi i numery całkowicie pustych wierszy."""
+    """Arkusz ze zleceniami: wiersze z danymi, numery całkowicie pustych wierszy i kolumny ``COLUMNS`` (od 1)."""
 
     name: str
     rows: tuple[RegisterRow, ...]
     empty_rows: tuple[int, ...]
+    positions: tuple[int, ...]
+
+    def column_letter(self, column: Column) -> str:
+        """Litera kolumny arkusza z nagłówkiem ``column``, np. ``L`` dla ``SKUTECZNE``."""
+
+        return get_column_letter(self.positions[COLUMNS.index(column)])
 
 
 def is_blank(value: object) -> bool:
@@ -215,7 +222,7 @@ def _read_register_sheets(register_path: Path, workbook: ReadWorkbook) -> list[R
                 empty_rows.append(row_number)
                 continue
             rows.append(RegisterRow(row_number, tuple(RegisterCell(cell.value, _cell_format(cell)) for cell in cells)))
-        sheets.append(RegisterSheet(sheet.title, tuple(rows), tuple(empty_rows)))
+        sheets.append(RegisterSheet(sheet.title, tuple(rows), tuple(empty_rows), tuple(positions)))
     if sheets:
         return sheets
     if closest is not None:
