@@ -70,7 +70,15 @@ class Catalog:
 
 CATALOGS = {
     # Folder Dane i folder okresów INEA legalnie widać jako folder nadrzędny Rejestru zleceń i folderu okresu.
-    "przygotowanie-pliku-zbiorczego": Catalog(messages, "### Komunikat → co zrobić", PREPARATION_SAMPLES),
+    "przygotowanie-pliku-zbiorczego": Catalog(
+        messages,
+        "### Komunikat → co zrobić",
+        PREPARATION_SAMPLES,
+        # Tylko CLI: w Centrum Rejestr zleceń i folder okresów są w Ustawieniach, a okres wybiera się z listy.
+        terminal_only=frozenset(
+            {"register_not_selected", "periods_directory_not_selected", "period_not_entered", "invalid_period_token"}
+        ),
+    ),
     "przebieg-rozliczen": Catalog(
         settlement_messages,
         "### Komunikat w Centrum rozliczeń → co zrobić",

@@ -5,6 +5,8 @@
 Zaakceptowana. Zmienia jedno zdanie [ADR 0004](0004-centrum-rozliczen-adapter.md):
 launchery `.cmd` i CLI nie zostają bez zmian, tylko czytają Ustawienia taty z
 Centrum rozliczeń. Same launchery zostają jako ścieżka zapasowa.
+[ADR 0010](0010-centrum-jedynym-wejsciem-taty.md) usuwa launchery; Ustawienia
+taty czyta dalej CLI.
 
 ## Kontekst
 

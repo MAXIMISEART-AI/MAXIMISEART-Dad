@@ -18,15 +18,13 @@ from pathlib import Path
 import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-CENTRUM_LAUNCHER = "Centrum rozliczeń (konsola).cmd"
-SHORTCUT_INSTALLER = "Zainstaluj skrót Centrum rozliczeń.cmd"
 
 
 def _copy_centrum_runtime(destination: Path) -> Path:
-    """Kopia narzędzia z launcherem Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
+    """Kopia narzędzia z Centrum i krokiem instalacji skrótu, bez ustawień i dziennika taty."""
 
     destination.mkdir()
-    for name in (CENTRUM_LAUNCHER, SHORTCUT_INSTALLER, "run_centrum.py", "install_centrum_shortcut.py", "pyproject.toml"):
+    for name in ("run_centrum.py", "install_centrum_shortcut.py", "pyproject.toml"):
         shutil.copy2(REPOSITORY_ROOT / name, destination)
     shutil.copytree(REPOSITORY_ROOT / "src", destination / "src", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(
@@ -84,7 +82,7 @@ class _Console:
 
 
 @contextmanager
-def _started(command: list[str] | str, runtime: Path, environment: dict[str, str]) -> Iterator[_Console]:
+def _started(command: list[str], runtime: Path, environment: dict[str, str]) -> Iterator[_Console]:
     """Uruchamia Centrum i po bloku zamyka dokładnie ten proces (z potomkami); konsola jest dostępna po bloku."""
 
     console = _Console()
@@ -115,12 +113,11 @@ def _environment(browser: Path) -> dict[str, str]:
     return environment
 
 
-@pytest.mark.skipif(os.name != "nt", reason="The CMD launcher is Windows-only.")
-def test_launcher_cmd_uruchamia_centrum_z_konsola_i_otwiera_przegladarke(tmp_path: Path) -> None:
+def test_centrum_z_konsola_pokazuje_adres_i_otwiera_przegladarke(tmp_path: Path) -> None:
     runtime = _copy_centrum_runtime(tmp_path / "narzedzie")
     browser, opened = _browser_recorder(tmp_path)
     port = _free_port()
-    command_line = f'cmd.exe /d /c ""{runtime / CENTRUM_LAUNCHER}" --port {port}"'
+    command_line = [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)]
 
     with _started(command_line, runtime, _environment(browser)) as console:
         health = _health(port)
@@ -201,8 +198,7 @@ def test_obcy_program_na_porcie_daje_bezpieczny_komunikat_w_trzech_czesciach(tmp
         f"Co się stało: Centrum rozliczeń nie wystartowało, bo port {port} zajmuje inny program.",
         f"Gdzie: adres http://127.0.0.1:{port}/ na tym komputerze",
         "Co zrobić: Uruchom ponownie komputer i kliknij skrót „Centrum rozliczeń”. Jeśli komunikat wraca, "
-        "przekaż go osobie utrzymującej narzędzie. "
-        "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd.",
+        "przekaż go osobie utrzymującej narzędzie.",
     ]
     assert result.stderr == ""
     assert not opened.exists()
@@ -309,7 +305,7 @@ def test_krok_instalacji_tworzy_skrot_ktory_uruchamia_centrum_przez_pythonw(tmp_
     browser, opened = _browser_recorder(tmp_path)
 
     installed = subprocess.run(
-        f'cmd.exe /d /c ""{runtime / SHORTCUT_INSTALLER}" --folder "{desktop}""',
+        [sys.executable, str(runtime / "install_centrum_shortcut.py"), "--folder", str(desktop)],
         cwd=runtime,
         capture_output=True,
         text=True,

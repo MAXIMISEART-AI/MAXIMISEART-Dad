@@ -1,15 +1,16 @@
 ---
 name: verify-rozliczenia
-description: Verify MAXIMISEART-Dad's CMD-launched processes (Przebieg rozliczeń, Przygotowanie pliku zbiorczego), each alone and chained from Rejestr zleceń to Rozliczenia pracowników, with synthetic Excel files, workbook side-effect checks, and retained evidence; use after CLI, workbook, or safety-rule changes.
+description: Verify MAXIMISEART-Dad's processes (Przebieg rozliczeń, Przygotowanie pliku zbiorczego) through their CLI, each alone and chained from Rejestr zleceń to Rozliczenia pracowników, with synthetic Excel files, workbook side-effect checks, and retained evidence; use after CLI, workbook, or safety-rule changes.
 ---
 
 # Verify rozliczenia
 
-This is a short-lived Windows CLI, not a server. Dad has two launchers:
-`Utwórz rozliczenia.cmd` starts `run.py` (Przebieg rozliczeń), and
-`Przygotuj plik zbiorczy.cmd` starts `run_preparation.py` (Przygotowanie pliku
-zbiorczego). The verification harness also drives each CLI directly for
-detailed assertions. Verification uses synthetic `.xlsx` files
+This is a short-lived Windows CLI, not a server: `run.py` runs Przebieg
+rozliczeń and `run_preparation.py` runs Przygotowanie pliku zbiorczego. Dad
+starts both processes in Centrum rozliczeń, which talks to the same core and is
+verified by `verify-centrum-rozliczen`
+([ADR 0010](../../../docs/adr/0010-centrum-jedynym-wejsciem-taty.md)). This
+harness drives each CLI directly for detailed assertions. Verification uses synthetic `.xlsx` files
 and never uses a real customer workbook; the only exceptions are the local
 `preparation-real-templates` and `chain-real-templates` variants, which copy
 the real Wzorce from `config/`.
@@ -28,15 +29,6 @@ the real CLI through dry-run and write modes, checks workbook side effects, and
 cleans the scratch directory in `finally`. A successful run prints
 `VERIFY OK`, an evidence path, and `scratch_removed=true`. The default fixture
 contains only mapped synthetic workers, so dry-run and write both return `0`.
-
-Drive the supported CMD launcher separately with its isolated synthetic runtime:
-
-```powershell
-py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q
-```
-
-The test copies the launcher and engine into a disposable runtime with a
-synthetic mapping and Wzorzec rozliczenia pracownika, then checks the command result and workbooks.
 
 Use these variants for publication and safety-gate features:
 
@@ -59,7 +51,7 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant pr
 
 `preparation` builds a synthetic Rejestr zleceń and both Wzorce, drives
 `run_preparation.py` through dry-run and write, and checks both period files.
-Its route, counts, and launcher test are in `features/prepare-collective-file.md`.
+Its route and counts are in `features/prepare-collective-file.md`.
 
 When `config/` holds the real Wzorce, also run the local variant after changes
 to formatting or template handling in Przygotowanie pliku zbiorczego:
@@ -93,8 +85,8 @@ its Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, with `A:AT` equal to
 the Plik zbiorczy row, Gotowość entries included. `chain-real-templates` runs
 the same path on byte copies of all three real Wzorce, including the Wzorzec
 rozliczenia pracownika; like `preparation-real-templates` it is local only,
-takes `--templates-dir`, and prints `VERIFY SKIP` without them. Route, counts,
-and the launcher chain test are in `features/prepare-and-settle.md`.
+takes `--templates-dir`, and prints `VERIFY SKIP` without them. Route and
+counts are in `features/prepare-and-settle.md`.
 
 Before handing work over, run every CI variant in one command, as CI does:
 
@@ -178,9 +170,6 @@ UTF-8 evidence files. The default fixture reports two mapped writes, one
 `PUSTY_SZABLON`, no issues, and progress `3/3 (100%)`. The `unmapped` variant
 proves that the dry-run warns and the real run publishes nothing.
 
-`Utwórz rozliczenia.cmd` has no `--config` or `--metrics` flags;
-`Przygotuj plik zbiorczy.cmd` passes all its arguments to `run_preparation.py`.
-
 ## Evidence
 
 Evidence is written under `.verification\evidence\` and survives cleanup. A
@@ -205,8 +194,7 @@ The `chain` variants name the steps of each process instead:
 `DRY-RUN` and one `RUN` record.
 
 The CLI proof captures the action and resulting state and verifies filesystem
-side effects alongside terminal output. The CMD smoke test separately drives
-the supported launcher in an isolated runtime. The dry-run still reads
+side effects alongside terminal output. The dry-run still reads
 workbooks and writes local metrics, so those effects are asserted instead of
 inferred from the mode name. Mocks are not used.
 

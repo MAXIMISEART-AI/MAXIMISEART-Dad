@@ -1,7 +1,7 @@
 """Katalog Komunikatów startu Centrum rozliczeń dla taty: co się stało, gdzie, co zrobić.
 
 Bez konsoli (skrót ``pythonw``) Komunikat pokazuje natywne okienko, z konsolą
-(launcher ``.cmd``) trzy linie w konsoli. Treść nie zawiera tekstu wyjątku.
+(``py -3 run_centrum.py``) trzy linie w konsoli. Treść nie zawiera tekstu wyjątku.
 Instrukcja taty cytuje „Co się stało” każdego Komunikatu
 (``tests/test_instrukcja_taty.py``). Moduł używa tylko biblioteki standardowej,
 bo jeden z Komunikatów mówi o brakujących zależnościach.
@@ -13,7 +13,6 @@ from rozliczenia.message import Message
 
 TITLE = "Centrum rozliczeń"
 _SHORTCUT = "skrót „Centrum rozliczeń”"
-_FALLBACK = "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd."
 _LOG = "logs\\centrum-rozliczen.log"
 
 
@@ -30,7 +29,7 @@ def port_taken(port: int) -> Message:
         where=_address(port),
         action=(
             f"Uruchom ponownie komputer i kliknij {_SHORTCUT}. Jeśli komunikat wraca, "
-            f"przekaż go osobie utrzymującej narzędzie. {_FALLBACK}"
+            "przekaż go osobie utrzymującej narzędzie."
         ),
     )
 
@@ -55,7 +54,7 @@ def missing_library(name: str) -> Message:
         where="Python na tym komputerze",
         action=(
             "W folderze narzędzia uruchom py -3 -m pip install -r requirements.txt, "
-            f"potem kliknij {_SHORTCUT} ponownie. {_FALLBACK}"
+            f"potem kliknij {_SHORTCUT} ponownie."
         ),
     )
 
@@ -67,6 +66,6 @@ def unexpected_start_failure() -> Message:
         where=f"dziennik Centrum {_LOG} w folderze narzędzia",
         action=(
             f"Kliknij {_SHORTCUT} ponownie. Jeśli komunikat wraca, przekaż dziennik osobie "
-            f"utrzymującej narzędzie. {_FALLBACK}"
+            "utrzymującej narzędzie."
         ),
     )

@@ -1,8 +1,8 @@
 # Metryki
 
 Metryki show the history of every Uruchomienie procesu of both processes,
-including those started from the `.cmd` launchers, read from the CLI's two
-metrics files on every request: P50/P95 per process and mode from five
+including those started from the CLI or the former `.cmd` launchers, read from
+the CLI's two metrics files on every request: P50/P95 per process and mode from five
 completed observations, the result distribution, a stage-times chart, the
 interrupted runs with their phase times, and a sortable, filterable history
 table. Okresy shows three key numbers above the Tablica okresów. Records the

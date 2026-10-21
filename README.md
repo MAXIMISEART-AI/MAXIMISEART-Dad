@@ -37,9 +37,17 @@ Wymagany jest Python 3.11 lub nowszy na komputerze taty.
 py -3 -m pip install -r requirements.txt
 ```
 
-Potem jednorazowo dwukrotne kliknięcie `Zainstaluj skrót Centrum rozliczeń.cmd`
-tworzy na pulpicie skrót „Centrum rozliczeń” (zob.
-[Centrum rozliczeń](#centrum-rozliczeń-rozwój)).
+Potem jednorazowo w folderze narzędzia:
+
+```powershell
+py -3 install_centrum_shortcut.py
+```
+
+Polecenie tworzy na pulpicie skrót „Centrum rozliczeń” (zob.
+[Centrum rozliczeń](#centrum-rozliczeń-rozwój)). Powtórz je po przeniesieniu
+folderu narzędzia albo po instalacji nowego Pythona. Tata pracuje wyłącznie w
+Centrum rozliczeń ([ADR 0010](docs/adr/0010-centrum-jedynym-wejsciem-taty.md));
+CLI niżej służy osobie utrzymującej narzędzie, testom E2E i pomiarom czasu.
 
 Żeby „Wyślij do Maksa” zakładało Zgłoszenia, Maks tworzy w ustawieniach
 GitHuba token fine-grained (tylko repozytorium
@@ -107,15 +115,15 @@ git checkout ORIG_HEAD -- config/worker_mapping.yaml
 git rm --cached config/worker_mapping.yaml
 ```
 
-## Uruchomienie Przebiegu rozliczeń przez CMD
+## Uruchomienie Przebiegu rozliczeń z CLI
 
-Dwuklik `Utwórz rozliczenia.cmd` z folderem okresów w Ustawieniach taty pyta o
-okres z propozycją ostatniego pełnego okresu, tak jak Przygotowanie pliku
-zbiorczego, i bierze Plik zbiorczy z jego Folderu okresu. Bez Ustawień taty
-otwiera okno wyboru Pliku zbiorczego. Ścieżkę można też podać od razu:
+`py -3 run.py` z folderem okresów w Ustawieniach taty pyta o okres z propozycją
+ostatniego pełnego okresu, tak jak Przygotowanie pliku zbiorczego, i bierze
+Plik zbiorczy z jego Folderu okresu. Bez Ustawień taty otwiera okno wyboru
+Pliku zbiorczego. Ścieżkę można też podać od razu:
 
 ```powershell
-Utwórz rozliczenia.cmd "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+py -3 run.py --source "C:\Dane\08_14_09_2026\Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
 ```
 
 ## Przygotowanie pliku zbiorczego
@@ -205,13 +213,11 @@ parametry `--internal-template` i `--collective-template`, tak jak
 
 ### Uruchomienie
 
-Dla taty: dwuklik `Przygotuj plik zbiorczy.cmd`. Launcher bierze Rejestr zleceń
-i folder okresów z Ustawień taty wskazanych w Centrum rozliczeń
+Tata uruchamia proces w Centrum rozliczeń. `py -3 run_preparation.py` bierze
+Rejestr zleceń i folder okresów z Ustawień taty wskazanych w Centrum rozliczeń
 (`config\centrum-ustawienia.yaml`). Okno wyboru otwiera tylko dla tego, czego
 tam nie ma albo co zniknęło z dysku. Potem proponuje ostatni pełny okres przed
-dzisiejszą datą (Enter potwierdza, można wpisać inny token) i po zakończeniu
-czeka na klawisz. Argumenty podane launcherowi trafiają bez zmian do
-`run_preparation.py`.
+dzisiejszą datą (Enter potwierdza, można wpisać inny token).
 
 Kontrola bez zapisu z wiersza poleceń:
 
@@ -301,9 +307,7 @@ folderów taty; `tools/benchmark_przebiegu.py comment` drukuje z dziennika
 `.benchmark/przebieg.jsonl` komentarz Markdown do issue-dziennika wspinaczki.
 Szczegóły i argumenty są w opisie narzędzia (`--help`).
 
-Na Windows testy uruchamiają także `Utwórz rozliczenia.cmd`,
-`Przygotuj plik zbiorczy.cmd` i `Centrum rozliczeń (konsola).cmd` przez
-`cmd.exe`, tworzą skrót przez `Zainstaluj skrót Centrum rozliczeń.cmd` i
+Na Windows testy tworzą też skrót przez `install_centrum_shortcut.py` i
 uruchamiają Centrum przez `pythonw.exe`.
 
 ## Centrum rozliczeń (rozwój)
@@ -315,15 +319,14 @@ commitowany w `src/rozliczenia/centrum/static/`, więc do uruchomienia
 wystarczają zależności z `requirements.txt`, bez Node.
 
 - Tata uruchamia Centrum skrótem „Centrum rozliczeń” z pulpitu. Skrót tworzy
-  jednorazowo `Zainstaluj skrót Centrum rozliczeń.cmd`: wskazuje `pythonw.exe`
+  jednorazowo `py -3 install_centrum_shortcut.py`: wskazuje `pythonw.exe`
   tego samego Pythona co `py -3` i `run_centrum.py`, więc nie ma okna konsoli.
   Ponowne kliknięcie rozpoznaje działające Centrum po `/api/health` (tożsamość
   i wersja) i tylko otwiera kartę. Błąd startu (port zajęty przez inny
   program, inna wersja Centrum, brak biblioteki) bez konsoli pokazuje
   natywne okienko, z konsolą trzy linie komunikatu
   (`src/rozliczenia/centrum/start_problems.py`).
-- `Centrum rozliczeń (konsola).cmd` (albo `py -3 run_centrum.py`) uruchamia
-  Centrum z widoczną konsolą na `http://127.0.0.1:47811/` i otwiera kartę w
+- `py -3 run_centrum.py` uruchamia Centrum z widoczną konsolą na `http://127.0.0.1:47811/` i otwiera kartę w
   przeglądarce. `--port` zmienia port, `--no-browser` nie otwiera karty.
 - Serwer działa do kliknięcia „Zamknij Centrum rozliczeń” w karcie
   (`POST /api/shutdown`), Ctrl+C w konsoli albo wylogowania; zamknięcie karty
@@ -340,7 +343,8 @@ wystarczają zależności z `requirements.txt`, bez Node.
   `config/centrum-ustawienia.yaml`, poza gitem.
 - Metryki czytają przy każdym odczycie oba pliki metryk CLI
   (`.rozliczenia-metrics.jsonl`, `.przygotowanie-pliku-zbiorczego-metrics.jsonl`)
-  bez zmiany schematu, więc widać w nich także Uruchomienia procesu z `.cmd`.
+  bez zmiany schematu, więc widać w nich także Uruchomienia procesu z CLI
+  (odznaka `.cmd`, także przy Uruchomieniach z dawnych launcherów).
 
 Zmiana frontendu wymaga Node 24 i kończy się commitem źródeł razem z
 odbudowanym buildem; CI sprawdza, że build i kontrakt odpowiadają źródłom:

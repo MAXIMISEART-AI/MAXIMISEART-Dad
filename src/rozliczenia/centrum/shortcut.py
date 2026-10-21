@@ -1,7 +1,7 @@
 """Jednorazowy krok instalacji: skrót „Centrum rozliczeń” z ikoną na pulpicie taty.
 
 Skrót uruchamia ``run_centrum.py`` przez ``pythonw.exe`` tego samego Pythona,
-którym tata zainstalował zależności (``py -3``), więc Centrum startuje bez okna
+którym zainstalowano zależności (``py -3``), więc Centrum startuje bez okna
 konsoli. Skrót zapisuje PowerShell przez WScript.Shell, bez dodatkowych
 bibliotek. Ścieżki trafiają do PowerShella w zmiennych środowiskowych, nie w
 treści skryptu, więc spacje i polskie znaki nie wymagają cytowania. Ponowne

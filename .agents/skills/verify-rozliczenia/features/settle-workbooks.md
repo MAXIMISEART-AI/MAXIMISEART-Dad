@@ -14,7 +14,7 @@ workbook, and leaves a worker with no rows empty.
 
 ## How to get to it (user POV)
 
-- Dad double-clicks `Utwórz rozliczenia.cmd` and confirms the proposed period with Enter; the Plik zbiorczy comes from that Folder okresu in the folder okresów of Ustawienia taty. Without Ustawienia taty he picks the Plik zbiorczy in a file dialog, or passes its path as an argument; Centrum rozliczeń starts the same process from its `Uruchomienia` page, which `verify-centrum-rozliczen` drives.
+- Dad starts it in Centrum rozliczeń from the `Uruchomienia` page with the period picked from a list; the Plik zbiorczy comes from that Folder okresu. `verify-centrum-rozliczen` drives that route. The CLI (`py -3 run.py`) is the maintainer's route to the same process: with Ustawienia taty it asks for the period, without them it opens a file dialog or takes `--source`.
 - For direct verification, run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
 
 ## Driving it with PowerShell and run.py
@@ -27,7 +27,6 @@ Preconditions:
 - **Run the direct CLI proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The application dry-run and write both return `0` for the default fixture.
 - **Observe progress.** `assert-run.txt` reports `progress_reported=true`: `run.txt` reaches `Postęp szablonów: 3/3 (100%)`, reports two `ZAPISANO` results and one `PUSTY_SZABLON`, and includes `Zapisane szablony: 2` in the final summary.
 - **Verify workbook state.** Read `assert-run.txt`; it returns `ASSERT OK` with exit code `0` after checking exactly three files, routed values, preserved formulas/sheets/formatting, an empty Kamil workbook, and an untouched Wzorzec rozliczenia pracownika.
-- **Drive the CMD launcher.** On Windows run `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q` (skipped elsewhere; CI runs it). It uses a copied runtime with a synthetic mapping and Wzorzec rozliczenia pracownika and checks the generated file names and routed `A18` values.
 
 ## Gotchas
 

@@ -2,8 +2,8 @@
 
 The second process, run before the settlement. From a Rejestr zleceń it creates
 the Rozliczenie wewnętrzne and the Plik zbiorczy of one period inside the Folder
-okresu, both together or neither. Dad starts it with
-`Przygotuj plik zbiorczy.cmd`, which runs `run_preparation.py`.
+okresu, both together or neither. Dad starts it in Centrum rozliczeń; the CLI
+is `run_preparation.py`.
 
 ## Sub-features
 
@@ -18,7 +18,7 @@ okresu, both together or neither. Dad starts it with
 
 ## How to get to it (user POV)
 
-- Dad double-clicks `Przygotuj plik zbiorczy.cmd`, which takes the Rejestr and the folder okresów from Ustawienia taty (dialogs only for what is missing), and confirms the proposed period with Enter. In Dad's layout the folder okresów is `Załączniki` and the Folder okresu is found in `Rozliczenia {rok}\{miesiąc}\INEA`; the synthetic fixture uses the flat layout.
+- Dad starts it in Centrum rozliczeń, which takes the Rejestr and the folder okresów from Ustawienia taty and proposes the period; `verify-centrum-rozliczen` drives that route. `py -3 run_preparation.py` reads the same Ustawienia taty (dialogs only for what is missing) and asks for the period with a proposal. In Dad's layout the folder okresów is `Załączniki` and the Folder okresu is found in `Rozliczenia {rok}\{miesiąc}\INEA`; the synthetic fixture uses the flat layout.
 - Direct verification passes every input explicitly, so no dialog or period question appears: `py -3 run_preparation.py --register <rejestr> --periods-directory <folder okresów> --period 08_14_09_2026 --config <mapping> --internal-template <wzorzec> --collective-template <wzorzec> --metrics <metrics> [--dry-run]`.
 
 ## Driving it with PowerShell and run.py
@@ -31,7 +31,6 @@ Preconditions:
 - **Read the counts.** The fixture yields 5 period orders, 4 Zlecenia skuteczne, 4 skipped empty rows (every fully empty row from the first to the last period order, including the one before the next-period order), orders on Tue, Wed, Sat, Sun, and Mon, and 0 warnings. Adrian's Sunday order sits after the next-period order, so his two Zlecenia skuteczne are split by Kamil's in the Plik zbiorczy. Both runs exit `0`.
 - **Read the workbook proof.** `assert-run.txt` confirms both period files, routed values, formatting, autofilters, preserved Wzorzec content, byte-identical external links, unchanged inputs, and two metrics records (`DRY-RUN`, `RUN`).
 - **Check the real Wzorce.** When `config/` holds both Wzorce, run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant preparation-real-templates`; in a worktree the runner reads the main checkout's `config/`, and `--templates-dir` overrides that. Without both Wzorce it prints `VERIFY SKIP`, which is a skip. Counts and summary match `preparation`; the `ASSERT OK` line in `assert-run.txt` contains `templates=config`. A failure names the column and both fonts, never a cell value.
-- **Drive the launcher.** On Windows run `py -3 -m pytest tests/test_cmd_launcher.py -k "przygotowanie or incomplete_period" -q`; it copies `Przygotuj plik zbiorczy.cmd` into a synthetic runtime, checks a successful run, checks that answering `n` to an incomplete period exits `1` with `Status końcowy: ZATRZYMANO` and nothing written, and also selects the launcher chain test from `prepare-and-settle.md`.
 - **Drive stops, warnings, and the row-style font.** The variant fixture reaches none of these; prove them with `py -3 -m pytest tests/test_collective_preparation.py tests/test_collective_preparation_stops.py tests/test_collective_preparation_cli.py -q`. They cover every stop and warning, including:
   - Wzorzec checks (missing, open in Excel, damaged, wrong header, WYKONAWCA outside H17 in the Wzorzec pliku zbiorczego) in Sprawdzanie, before the Rejestr is read, also in `--dry-run`;
   - merged Wzorzec cells in the rows orders will fill, which stop the run in Planowanie;

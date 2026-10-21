@@ -14,13 +14,12 @@ only after every workbook is ready.
 
 ## How to get to it (user POV)
 
-- Dad double-clicks `Utwórz rozliczenia.cmd` and confirms the proposed period with Enter; the Plik zbiorczy comes from that Folder okresu in the folder okresów of Ustawienia taty. Without Ustawienia taty he picks the Plik zbiorczy in a file dialog, or passes its path as an argument; Centrum rozliczeń starts the same process from its `Uruchomienia` page, which `verify-centrum-rozliczen` drives.
+- Dad starts it in Centrum rozliczeń from the `Uruchomienia` page with the period picked from a list; the Plik zbiorczy comes from that Folder okresu. `verify-centrum-rozliczen` drives that route. The CLI (`py -3 run.py`) is the maintainer's route to the same process: with Ustawienia taty it asks for the period, without them it opens a file dialog or takes `--source`.
 - For direct verification, run `py -3 run.py --source <source> --config <mapping> --worker-template <worker-template> --metrics <metrics>` with a synthetic fixture.
 
 ## Driving it with PowerShell and run.py
 
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py` for the direct CLI proof.
-- On Windows run `py -3 -m pytest tests/test_cmd_launcher.py::test_cmd_launcher_runs_przebieg_rozliczen -q` to drive the supported CMD launcher in a copied synthetic runtime (skipped elsewhere; CI runs it).
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped` to prove an unknown WYKONAWCA prevents publication.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing` to prove an existing output folder is preserved.
 - Run the write-failure test listed in `safety-gates.md` to prove staging cleanup and retry.
