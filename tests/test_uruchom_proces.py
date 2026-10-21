@@ -26,7 +26,9 @@ from tests.fixtures.preparation import (
     incomplete_period_fixture,
     make_preparation_fixture,
 )
-from tests.fixtures.settlement import PERIOD, SOURCE_NAME, make_fixture, make_preview_fixture
+from rozliczenia.workbook_files import read_data_rows
+from tests.fixtures.settlement import PERIOD, SOURCE_NAME, link_order_numbers, make_fixture, make_preview_fixture
+from tests.fixtures.workbooks import hyperlinks
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "uruchom_proces.py"
 WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
@@ -132,6 +134,21 @@ def test_przebieg_rozliczen_ok_konczy_kodem_0_z_podsumowaniem_karty_uruchomienia
     assert (record["mode"], record["result"], record["total_duration_ms"]) == ("RUN", "OK", result["total_duration_ms"])
     assert (result["metrics_saved"], result["notices"]) == (True, [])
     assert str(tmp_path) not in json.dumps(result)
+
+
+def test_adres_hiperlacza_nie_trafia_do_wyniku_komunikatow_ani_metryk(tmp_path: Path) -> None:
+    source, target, config = make_fixture(tmp_path)
+    sentinel = "SENTINEL-SPRAWA-7"
+    links = link_order_numbers(source, f"https://przyklad.invalid/zlecenie?caseId={sentinel}&wiersz=")
+
+    outputs = [_completed(*_settlement_arguments(tmp_path, source, config, *mode)) for mode in (("--dry-run",), ())]
+
+    assert [completed.returncode for completed in outputs] == [0, 0]
+    assert hyperlinks(target / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx") == {"F18": links[19]}
+    for completed in outputs:
+        assert sentinel not in completed.stdout + completed.stderr
+    assert sentinel not in (tmp_path / "metrics.jsonl").read_text(encoding="utf-8")
+    assert sentinel not in repr(read_data_rows(source))
 
 
 @pytest.mark.parametrize(("good_views", "phase_states"), [(0, set()), (1, {"pending"})])

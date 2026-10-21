@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -101,6 +101,24 @@ def write_source(path: Path, *, include_unmapped: bool = True) -> None:
         sheet.cell(row_number, 8).value = worker
         sheet.cell(row_number, 14).value = row_number - 17
     workbook.save(path)
+
+
+def link_order_numbers(path: Path, address: str) -> dict[int, str]:
+    """Hiperłącze w ``NUMER ZL.`` (F) każdego Wiersza danych Pliku zbiorczego, jak przy zleceniu z aplikacji firmowej.
+
+    Adres to ``address`` z numerem wiersza na końcu; zwraca numer wiersza → adres.
+    """
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        links = {row: f"{address}{row}" for row in range(18, sheet.max_row + 1) if sheet.cell(row, 6).value is not None}
+        for row, link in links.items():
+            sheet.cell(row, 6).hyperlink = link
+        workbook.save(path)
+    finally:
+        workbook.close()
+    return links
 
 
 def make_fixture(tmp_path: Path, period: str = PERIOD) -> tuple[Path, Path, Path]:

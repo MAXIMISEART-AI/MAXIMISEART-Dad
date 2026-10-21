@@ -35,6 +35,7 @@ from tests.fixtures.workbooks import (
     add_external_link_fixture,
     column_widths,
     cut_sheet_after_data_rows,
+    hyperlinks,
     without_sheet,
 )
 from tests.fixtures.settlement import (
@@ -42,6 +43,7 @@ from tests.fixtures.settlement import (
     PERIOD,
     SOURCE_NAME,
     WORKER_TEMPLATE_COLUMN_WIDTHS,
+    link_order_numbers,
     make_fixture,
     projected,
     write_source,
@@ -254,6 +256,41 @@ def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego
         assert {cell: template_look(written[cell]) for cell in expected_template_looks} == expected_template_looks
     finally:
         written_workbook.close()
+
+
+def test_numer_zlecenia_w_rozliczeniu_pracownika_ma_hiperlacze_z_pliku_zbiorczego(
+    complete_run: tuple[Path, Path, Path, Path],
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
+    links = link_order_numbers(source_path, "https://przyklad.invalid/zlecenie?tw=1&caseId=SYN-")
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego, Darka drugie.
+    assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx") == {"F18": links[18], "F19": links[20]}
+    assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx") == {"F18": links[19]}
+    assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx") == {}
+
+
+def test_hiperlacze_wzorca_w_wierszu_danych_znika_a_poza_wierszami_danych_zostaje(tmp_path: Path) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    workbook = load_workbook(worker_template_path)
+    try:
+        sheet = active_worksheet(workbook)
+        sheet["A5"] = "instrukcja"
+        sheet["A5"].hyperlink = "https://przyklad.invalid/instrukcja"
+        sheet["AT18"] = "uwaga Wzorca"
+        sheet["AT18"].hyperlink = "https://przyklad.invalid/wzorzec"
+        workbook.save(worker_template_path)
+    finally:
+        workbook.close()
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.written_count == 2
+    written = target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
+    assert hyperlinks(written) == {"A5": "https://przyklad.invalid/instrukcja"}
 
 
 def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_openpyxl(tmp_path: Path) -> None:

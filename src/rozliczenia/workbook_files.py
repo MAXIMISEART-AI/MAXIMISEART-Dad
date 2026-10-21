@@ -1,7 +1,7 @@
 """Skoroszyty na dysku: otwarcie z jedną klasyfikacją uszkodzeń, układ arkusza i plik z Wzorca.
 
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
-zbiorczy (``read_data_rows``, z Wyróżnieniami komórek), Rejestr zleceń
+zbiorczy (``read_data_rows``, z Wyróżnieniami i Hiperłączami komórek), Rejestr zleceń
 (``read_workbook``, z formatem komórek), Wzorce do Sprawdzania i dla
 Przygotowania pliku zbiorczego (``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
 pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
@@ -25,10 +25,10 @@ import os
 import tempfile
 import zipfile
 import zlib
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
@@ -51,6 +51,7 @@ from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .highlights import Highlights
+from .hyperlinks import Hyperlink, read_sheet_hyperlinks
 from .input_rows import rows_with_input
 from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
 
@@ -177,13 +178,15 @@ class Layout(Enum):
 
 @dataclass(frozen=True)
 class DataRow:
-    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA, wartości A:AT i ich Wyróżnienia."""
+    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA, wartości A:AT, Wyróżnienia i Hiperłącza."""
 
     number: int
     worker: _ExcelCellValue
     values: ExcelRow
     highlights: tuple[Highlights, ...]
     """Wyróżnienia komórek A:AT, po pozycji jak ``values``."""
+    hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
+    """Hiperłącza komórek A:AT z wartością: kolumna od 1 → Hiperłącze."""
 
 
 @dataclass(frozen=True)
@@ -273,7 +276,7 @@ def _check_worker_header(path: Path, header: Sequence[object]) -> None:
 
 
 def read_data_rows(path: Path) -> list[DataRow]:
-    """Wiersze danych Pliku zbiorczego z Wyróżnieniami komórek w kolejności z pliku; plik jest tylko czytany.
+    """Wiersze danych Pliku zbiorczego z Wyróżnieniami i Hiperłączami komórek w kolejności z pliku; plik jest tylko czytany.
 
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
     nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem.
@@ -300,6 +303,8 @@ def read_data_rows(path: Path) -> list[DataRow]:
         _check_worker_header(path, header)
         with _unreadable_as_error(path):
             max_column = max(DATA_ROW_COLUMNS[-1], sheet.max_column)
+            with zipfile.ZipFile(BytesIO(content)) as archive:
+                links = read_sheet_hyperlinks(archive, sheet.title)
         rows: list[DataRow] = []
         last_column = DATA_ROW_COLUMNS[-1]
         highlights = _HighlightsReader()
@@ -311,7 +316,7 @@ def read_data_rows(path: Path) -> list[DataRow]:
                 continue
             with _unreadable_as_error(path):
                 row_highlights = tuple(highlights.of(cell) for cell in cells[:last_column])
-            rows.append(DataRow(number, values[_WORKER_COLUMN - 1], values, row_highlights))
+            rows.append(DataRow(number, values[_WORKER_COLUMN - 1], values, row_highlights, links.row(number, values)))
     finally:
         workbook.close()
     return rows
@@ -456,14 +461,18 @@ class TemplateSheet:
         return count
 
     def write_data_rows(self, rows: Sequence[DataRow]) -> None:
-        """Wpisuje Wiersze danych z ich Wyróżnieniami po pozycji kolumn A:AT od pierwszego Wiersza danych.
+        """Wpisuje Wiersze danych z ich Wyróżnieniami i Hiperłączami po pozycji kolumn A:AT od pierwszego Wiersza danych.
 
-        Krój i rozmiar czcionki, format liczby, obramowanie, wyrównanie i ochrona zostają z komórki Wzorca.
+        Krój i rozmiar czcionki, format liczby, obramowanie, wyrównanie i ochrona zostają z komórki Wzorca;
+        hiperłącze komórki Wzorca zastępuje Hiperłącze z Wiersza danych albo żadne.
         """
 
         for index, row in enumerate(rows):
             for column, value, highlights in zip(DATA_ROW_COLUMNS, row.values, row.highlights, strict=True):
                 cell = self.worksheet.cell(self.data_row(index), column)
+                link = row.hyperlinks.get(column)
+                # Przed wartością: openpyxl wpisuje adres jako wartość pustej komórki.
+                cell.hyperlink = None if link is None else link.address
                 cell.value = value
                 cell.font = highlights.font_over(cast(Font, copy(cell.font)))
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
@@ -547,7 +556,7 @@ class WorkerSettlementTemplate:
     def create_settlement(self, target: Path, rows: Sequence[DataRow]) -> None:
         """Tworzy atomowo pod ``target`` Rozliczenie pracownika z ``rows`` jako Wierszami danych.
 
-        Wiersze danych są wpisywane z Wyróżnieniami po pozycji kolumn A:AT od
+        Wiersze danych są wpisywane z Wyróżnieniami i Hiperłączami po pozycji kolumn A:AT od
         wiersza 18; formuły (także wspólne), ``calcChain``, pozostałe
         formatowanie i ``xl/externalLinks/*`` zostają z Wzorca, a Excel
         przeliczy formuły przy otwarciu.

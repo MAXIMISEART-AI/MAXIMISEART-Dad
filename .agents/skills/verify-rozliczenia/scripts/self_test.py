@@ -40,6 +40,7 @@ ROW_CONTENT_MARKERS = (
     "SYNTHETIC-3",
     "SYNTHETIC-4",
     "PREP-SYN-",
+    "SYNTHETIC-LINK",
 )
 
 

@@ -14,6 +14,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 
 PERIOD = "08_14_09_2026"
+ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=SYNTHETIC-LINK&tw=1&wiersz="
 WORKERS = ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
 PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
 FILE_PLAN = [
@@ -57,6 +58,22 @@ def _read_input_row(path: Path, row_number: int) -> tuple[object, ...]:
         if not isinstance(sheet, Worksheet):
             raise ValueError("Workbook does not contain an active worksheet")
         return next(sheet.iter_rows(min_row=row_number, max_row=row_number, max_col=46, values_only=True))
+    finally:
+        workbook.close()
+
+
+def _hyperlinks(path: Path) -> dict[str, str | None]:
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook.active
+        if not isinstance(sheet, Worksheet):
+            raise ValueError("Workbook does not contain an active worksheet")
+        return {
+            cell.coordinate: cell.hyperlink.target
+            for row in sheet.iter_rows()
+            for cell in row
+            if cell.hyperlink is not None
+        }
     finally:
         workbook.close()
 
@@ -231,6 +248,12 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
             or _read_input_row(kamil_file, 18) != (None,) * 13 + (0,) + (None,) * 32
         ):
             errors.append("worker rows were not routed or the empty workbook was changed")
+        if (
+            _hyperlinks(adrian_file) != {"F18": f"{ORDER_LINK}18", "F19": f"{ORDER_LINK}20"}
+            or _hyperlinks(darek_file) != {"F18": f"{ORDER_LINK}19"}
+            or _hyperlinks(kamil_file) != {}
+        ):
+            errors.append("order number hyperlinks of the Plik zbiorczy did not reach the worker workbooks")
     except (OSError, ValueError, KeyError):
         errors.append("one or more published workbooks cannot be read")
 
@@ -257,7 +280,8 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
     return _finish_assertion(
         errors,
         "ASSERT OK | mode=run | workbooks_checked=3 | "
-        "formulas_preserved=true | worker_template_unchanged=true | progress_reported=true | metrics_safe=true",
+        "formulas_preserved=true | hyperlinks_equal_plik_zbiorczy=F | worker_template_unchanged=true | "
+        "progress_reported=true | metrics_safe=true",
     )
 
 

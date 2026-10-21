@@ -22,12 +22,17 @@ składa z tego jedną kopię:
   początek arkusza do granicy kawałka za ostatnim wpisanym wierszem, reszta to
   gotowe kawałki z pierwszej kopii;
 - ``calcPr`` w ``xl/workbook.xml`` dostaje ``calcMode="auto"``, ``fullCalcOnLoad="1"``
-  i ``forceFullCalc="1"``, jak przy zapisie przez openpyxl.
+  i ``forceFullCalc="1"``, jak przy zapisie przez openpyxl;
+- Hiperłącza wpisanych komórek trafiają do jednego bloku ``<hyperlinks>`` w miejscu,
+  które wyznacza mu schemat arkusza, a ich relacje są dopisywane na końcu relacji
+  arkusza pod numerami ``rId`` za najwyższym we Wzorcu; Wzorzec bez relacji arkusza
+  dostaje nową część na końcu zip. Bez Hiperłączy arkusz i relacje są takie jak bez
+  tej zmiany.
 
 Wzorzec, którego kształtu ten moduł nie obsługuje (np. formuła w kolumnach Wiersza
-danych, scalenie w Wierszach danych, XML z prefiksami albo bez atrybutów ``r``,
-uszkodzona część XML), zgłasza ``UnsupportedShape``; tak samo wartość, której typu
-moduł nie zapisuje. Wtedy ``workbook_files`` sprawdza Wzorzec i tworzy Rozliczenie
+danych, scalenie w Wierszach danych, własne hiperłącza arkusza, XML z prefiksami albo
+bez atrybutów ``r``, uszkodzona część XML), zgłasza ``UnsupportedShape``; tak samo
+wartość, której typu moduł nie zapisuje. Wtedy ``workbook_files`` sprawdza Wzorzec i tworzy Rozliczenie
 pracownika dawną drogą przez openpyxl, z jej klasyfikacją uszkodzeń.
 Wartość, której nie da się zapisać w ogóle (znak niedozwolony w XML, data ze
 strefą czasową), to ``InvalidValue``.
@@ -43,7 +48,7 @@ import struct
 import zipfile
 import zlib
 from bisect import bisect_left, bisect_right
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -68,6 +73,7 @@ from openpyxl.utils.cell import column_index_from_string, get_column_letter, ran
 from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, to_excel
 
 from .highlights import Highlights
+from .hyperlinks import Hyperlink
 from .sheet_data import IrregularSheetData, SheetRow, sheet_data_bounds, sheet_rows
 
 
@@ -84,6 +90,7 @@ class InvalidValue(Exception):
 
 _OFFICE_REL: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_REL: Final = "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
+_CONTENT_DEFAULT: Final = "{http://schemas.openxmlformats.org/package/2006/content-types}Default"
 _MAIN: Final = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 # Błędy odczytu bajtów Wzorca, które znaczą kształt spoza kopii albo uszkodzenie: Wzorzec idzie wtedy dawną
 # drogą przez openpyxl, z jej klasyfikacją. Kopia czyta tylko bajty w pamięci, więc błąd wejścia-wyjścia
@@ -125,6 +132,27 @@ _XF = re.compile(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", re.S)
 _NUM_FMT = re.compile(rb"<numFmt\b([^>]*?)/?>")
 _NUM_FMT_ID = re.compile(rb'numFmtId="(\d+)"')
 _CALC_FLAGS: Final = ((b"calcMode", b"auto"), (b"fullCalcOnLoad", b"1"), (b"forceFullCalc", b"1"))
+_WORKSHEET_START = re.compile(rb"<((?:[\w.-]+:)?)worksheet\b[^>]*>")
+_RELATIONSHIPS_PREFIX = re.compile(rb"""xmlns:([\w.-]+)\s*=\s*["']""" + _OFFICE_REL.encode() + rb"""["']""")
+_RELATIONSHIP_NUMBER = re.compile(r"rId(\d+)")
+# Elementy arkusza, które schemat (CT_Worksheet) stawia między ``sheetData`` a ``hyperlinks``; każdy inny element
+# za ``sheetData`` (``printOptions``, ``pageMargins``, …, ``extLst``, także z innej przestrzeni nazw) idzie za nimi.
+_BEFORE_HYPERLINKS: Final = frozenset(
+    {
+        "sheetCalcPr",
+        "sheetProtection",
+        "protectedRanges",
+        "scenarios",
+        "autoFilter",
+        "sortState",
+        "dataConsolidate",
+        "customSheetViews",
+        "mergeCells",
+        "phoneticPr",
+        "conditionalFormatting",
+        "dataValidations",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -172,13 +200,18 @@ class Package:
 
 
 class Row(Protocol):
-    """Wiersz danych do wpisania: wartości i Wyróżnienia kolumn Wiersza danych od A, po pozycji."""
+    """Wiersz danych do wpisania: wartości i Wyróżnienia kolumn Wiersza danych od A, po pozycji, i ich Hiperłącza."""
 
     @property
     def values(self) -> Sequence[object]: ...
 
     @property
     def highlights(self) -> Sequence[Highlights]: ...
+
+    @property
+    def hyperlinks(self) -> Mapping[int, Hyperlink]:
+        """Kolumna od 1 → Hiperłącze; tylko komórki z wartością."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -199,12 +232,14 @@ class TemplateCopy:
         parts: list[_Part | None],
         sheet: _Sheet,
         styles: _Styles,
+        sheet_rels: _SheetRels,
         header: list[object],
         has_input_data: bool,
     ) -> None:
         self._parts = parts  # ``None``: miejsce arkusza albo stylów, składanych dla każdej kopii
         self._sheet = sheet
         self._styles = styles
+        self._sheet_rels = sheet_rels
         self.header = header
         """Wartości wiersza nagłówka w kolumnach danych wejściowych (od A), jak do sprawdzenia WYKONAWCA."""
         self.has_input_data = has_input_data
@@ -218,15 +253,21 @@ class TemplateCopy:
             raise UnsupportedShape(type(exc).__name__) from exc
 
     def with_rows(self, rows: Sequence[Row]) -> Package:
+        links = self._sheet.links(rows)
+        rels_part, ids = self._sheet_rels.with_links([link for _, link in links])
         styles = _StyleAdditions(self._styles)
-        sheet_part = self._sheet.with_rows(rows, styles)
+        sheet_part = self._sheet.with_rows(rows, styles, self._sheet.hyperlinks(links, ids))
         styles_part = self._styles.part(styles)
-        return Package(
-            [
-                part if part is not None else sheet_part if index == self._sheet.index else styles_part
-                for index, part in enumerate(self._parts)
-            ]
-        )
+        parts = [
+            part if part is not None else sheet_part if index == self._sheet.index else styles_part
+            for index, part in enumerate(self._parts)
+        ]
+        if rels_part is not None:
+            if self._sheet_rels.index is None:
+                parts.append(rels_part)
+            else:
+                parts[self._sheet_rels.index] = rels_part
+        return Package(parts)
 
 
 # --- wczytanie ---------------------------------------------------------------------------------
@@ -252,9 +293,14 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         raise UnsupportedShape("styles")
     shared_strings = _shared_strings(plain[strings_name]) if strings_name in plain else []
 
+    folder, name = posixpath.split(sheet_name)
+    rels_name = posixpath.join(folder, "_rels", f"{name}.rels")
     sheet_index = styles_index = -1
+    rels_index: int | None = None
     parts: list[_Part | None] = []
     for index, info in enumerate(infos):
+        if info.filename == rels_name:
+            rels_index = index
         if info.filename == sheet_name:
             sheet_index = index
             parts.append(None)
@@ -269,7 +315,20 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         raise UnsupportedShape("sheet")
     sheet = _Sheet(infos[sheet_index], sheet_index, plain[sheet_name], layout, epoch=MAC_EPOCH if date1904 else WINDOWS_EPOCH)
     styles = _Styles(infos[styles_index], plain[styles_name], _raw_part(content, infos[styles_index]))
-    return TemplateCopy(parts, sheet, styles, sheet.header(shared_strings), sheet.has_input_data)
+    if rels_index is None:
+        sheet_rels = _SheetRels(
+            zipfile.ZipInfo(rels_name, infos[sheet_index].date_time), None, None, _rels_content_type(plain)
+        )
+    else:
+        sheet_rels = _SheetRels(infos[rels_index], rels_index, plain[rels_name], True)
+    return TemplateCopy(parts, sheet, styles, sheet_rels, sheet.header(shared_strings), sheet.has_input_data)
+
+
+def _rels_content_type(plain: dict[str, bytes]) -> bool:
+    """``[Content_Types].xml`` ma typ dla rozszerzenia ``rels``, więc nowa część relacji go nie zmienia."""
+
+    types = ElementTree.fromstring(plain["[Content_Types].xml"])
+    return any(default.get("Extension", "").lower() == "rels" for default in types.iter(_CONTENT_DEFAULT))
 
 
 def _require_well_formed_xml(plain: dict[str, bytes]) -> None:
@@ -430,8 +489,12 @@ class _Sheet:
         self._data_end = data_end
         self.has_input_data = _writable_data_rows_have_input(xml, self._data_start, data_end, layout)
         """Jak ``TemplateSheet.has_input_data``: niepusta wartość bez formuły w kolumnach danych wejściowych."""
-        self._boundaries = [self._data_start] + [
-            row.start for row in self._rows[first + _ROWS_PER_CHUNK :: _ROWS_PER_CHUNK]
+        self._links_at, self._links_open, self._links_prefix = _hyperlinks_place(xml, data_end)
+        # Ostatni kawałek zaczyna się w miejscu bloku Hiperłączy, więc kopia z nimi kompresuje tylko ogon arkusza.
+        self._boundaries = [
+            self._data_start,
+            *(row.start for row in self._rows[first + _ROWS_PER_CHUNK :: _ROWS_PER_CHUNK]),
+            self._links_at,
         ]
         self._chunks: list[bytes] | None = None  # dopiero przy pierwszej kopii: Sprawdzanie ich nie potrzebuje
         dimension = _DIMENSION.search(xml, 0, data_start)
@@ -449,7 +512,29 @@ class _Sheet:
                 values[column - 1] = _header_value(cell.group(3), cell.group(4), shared_strings)
         return values
 
-    def with_rows(self, rows: Sequence[Row], styles: _StyleAdditions) -> _Part:
+    def links(self, rows: Sequence[Row]) -> list[tuple[bytes, Hyperlink]]:
+        """Hiperłącza wpisywanych komórek kolumn Wiersza danych: adres komórki → Hiperłącze, wierszami."""
+
+        first_row = self._layout.first_data_row
+        return [
+            (self._letters[column - 1] + b"%d" % (first_row + index), link)
+            for index, row in enumerate(rows)
+            for column, link in sorted(row.hyperlinks.items())
+            if column <= self._layout.data_columns
+        ]
+
+    def hyperlinks(self, links: Sequence[tuple[bytes, Hyperlink]], ids: Sequence[bytes]) -> bytes:
+        """Blok ``<hyperlinks>`` z odnośnikiem każdej komórki do relacji o tym samym miejscu w ``ids``; pusty bez nich."""
+
+        if not links:
+            return b""
+        entries = b"".join(
+            b'<hyperlink ref="' + reference + b'" ' + self._links_prefix + b':id="' + rid + b'"/>'
+            for (reference, _), rid in zip(links, ids, strict=True)
+        )
+        return self._links_open + entries + b"</hyperlinks>"
+
+    def with_rows(self, rows: Sequence[Row], styles: _StyleAdditions, hyperlinks: bytes) -> _Part:
         xml = self._xml
         first_row = self._layout.first_data_row
         last_row = first_row + len(rows) - 1
@@ -461,19 +546,23 @@ class _Sheet:
             for index, row in enumerate(rows)
         ]
         chunk = bisect_left(self._boundaries, region_end)
-        tail_start = self._boundaries[chunk] if chunk < len(self._boundaries) else len(xml)
+        tail_start = self._boundaries[chunk]
+        links_at = self._links_at
         head = b"".join([self._prefix(last_row if rows else None), *patched, xml[region_end:tail_start]])
+        if self._chunks is None:
+            self._chunks = _compressed_chunks(xml, self._boundaries)
         compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
-        if chunk < len(self._boundaries):
-            if self._chunks is None:
-                self._chunks = _compressed_chunks(xml, self._boundaries)
-            compressed = [compressor.compress(head) + compressor.flush(zlib.Z_SYNC_FLUSH), *self._chunks[chunk:]]
-        else:
-            compressed = [compressor.compress(head) + compressor.flush()]
-        crc = zlib.crc32(memoryview(xml)[tail_start:], zlib.crc32(head))
+        tail = self._chunks[-1]
+        if hyperlinks:
+            tail_compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
+            tail = tail_compressor.compress(hyperlinks + xml[links_at:]) + tail_compressor.flush()
+        compressed = [compressor.compress(head) + compressor.flush(zlib.Z_SYNC_FLUSH), *self._chunks[chunk:-1], tail]
+        crc = zlib.crc32(head)
+        for piece in (memoryview(xml)[tail_start:links_at], hyperlinks, memoryview(xml)[links_at:]):
+            crc = zlib.crc32(piece, crc)
         name, flags = _encoded_name(self._info.filename)
         dos_time, dos_date = _dos_stamp(self._info)
-        size = len(head) + len(xml) - tail_start
+        size = len(head) + len(xml) - tail_start + len(hyperlinks)
         return _Part(name, flags, zipfile.ZIP_DEFLATED, dos_time, dos_date, crc, size, compressed)
 
     def _prefix(self, last_row: int | None) -> bytes:
@@ -522,6 +611,8 @@ class _Sheet:
             style = styles.style(template_style, None, highlights)
             if style == template_style and existing is not None and existing.endswith(b"/>"):
                 return existing
+            if style is None and existing is None:
+                return b""  # openpyxl nie zapisuje pustej komórki bez stylu; Excel daje jej styl kolumny
             return _cell_xml(reference, style, None, b"")
         if isinstance(value, (datetime, date, time, timedelta)):
             if getattr(value, "tzinfo", None) is not None:
@@ -558,6 +649,47 @@ def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, l
         if (min_column or 1) <= layout.data_columns and (max_row or min_row or 1) >= layout.first_data_row:
             raise UnsupportedShape("merged data rows")
     return has_input
+
+
+def _hyperlinks_place(xml: bytes, data_end: int) -> tuple[int, bytes, bytes]:
+    """Miejsce bloku ``<hyperlinks>`` w arkuszu, jego znacznik otwierający i przedrostek przestrzeni nazw relacji.
+
+    Miejsce to początek pierwszego elementu za ``sheetData``, który schemat stawia za
+    ``hyperlinks``, a bez takiego koniec arkusza. Ogon arkusza jest mały, więc jest
+    parsowany raz, z deklaracjami przestrzeni nazw z korzenia. Wzorzec z własnymi
+    hiperłączami to ``UnsupportedShape``.
+    """
+
+    root = _WORKSHEET_START.search(xml)
+    if root is None:
+        raise UnsupportedShape("worksheet")
+    after_data = data_end + len(b"</sheetData>")
+    document = root.group(0) + xml[after_data:]
+    places: list[tuple[str, int]] = []
+    depth = 0
+    parser = expat.ParserCreate()
+
+    def start(name: str, _attributes: dict[str, str]) -> None:
+        nonlocal depth
+        depth += 1
+        if depth == 2:
+            places.append((name, parser.CurrentByteIndex - len(root.group(0)) + after_data))
+
+    def end(_name: str) -> None:
+        nonlocal depth
+        depth -= 1
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.Parse(document, True)
+    if any(name == "hyperlinks" for name, _ in places):
+        raise UnsupportedShape("hyperlinks in template")
+    after = [position for name, position in places if name not in _BEFORE_HYPERLINKS]
+    position = after[0] if after else xml.rindex(b"</" + root.group(1) + b"worksheet>")
+    bound = _RELATIONSHIPS_PREFIX.search(root.group(0))
+    if bound is not None:
+        return position, b"<hyperlinks>", bound.group(1)
+    return position, b'<hyperlinks xmlns:r="' + _OFFICE_REL.encode() + b'">', b"r"
 
 
 def _compressed_chunks(xml: bytes, boundaries: list[int]) -> list[bytes]:
@@ -613,6 +745,49 @@ def _header_value(attributes: bytes, content: bytes | None, shared_strings: list
     return text
 
 
+class _SheetRels:
+    """Relacje arkusza Wzorca: relacje Hiperłączy kopii są dopisywane na końcu, istniejące zostają bajt w bajt."""
+
+    def __init__(self, info: zipfile.ZipInfo, index: int | None, xml: bytes | None, addable: bool) -> None:
+        self._info = info
+        self.index = index
+        """Miejsce części w zip Wzorca; ``None``: Wzorzec jej nie ma, a kopia z Hiperłączami dopisuje ją na końcu."""
+        self._xml = xml
+        numbers = [0]
+        if xml is not None:
+            for relationship in ElementTree.fromstring(xml).iter(_PACKAGE_REL):
+                number = _RELATIONSHIP_NUMBER.fullmatch(relationship.get("Id", ""))
+                if number is not None:
+                    numbers.append(int(number.group(1)))
+        self._first = max(numbers) + 1
+        self._addable = addable and (xml is None or b"</Relationships>" in xml)
+
+    def with_links(self, links: Sequence[Hyperlink]) -> tuple[_Part | None, list[bytes]]:
+        """Część relacji z relacją każdego Hiperłącza i ich identyfikatory; bez Hiperłączy ``None``, część bez zmian."""
+
+        if not links:
+            return None, []
+        if not self._addable:
+            raise UnsupportedShape("sheet rels")
+        ids = [b"rId%d" % number for number in range(self._first, self._first + len(links))]
+        entries = b"".join(
+            b'<Relationship Id="' + rid + b'" Type="' + _OFFICE_REL.encode() + b'/hyperlink" Target="'
+            + _escaped_attribute(link.address) + b'" TargetMode="External"/>'
+            for rid, link in zip(ids, links, strict=True)
+        )
+        if self._xml is None:
+            xml = (
+                b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                + entries
+                + b"</Relationships>"
+            )
+        else:
+            end = self._xml.rindex(b"</Relationships>")
+            xml = self._xml[:end] + entries + self._xml[end:]
+        return _compressed_part(self._info, xml), ids
+
+
 # --- wartości ----------------------------------------------------------------------------------
 
 
@@ -644,6 +819,16 @@ def _number(value: int | float | Decimal) -> bytes:
     if math.isnan(number) or math.isinf(number):
         return b""
     return ("%.16g" % value).encode("ascii")
+
+
+def _escaped_attribute(text: str) -> bytes:
+    """Tekst wartości atrybutu XML; tabulacja i końce linii jako odwołania, bo parser zamieniłby je na spacje."""
+
+    escaped = html.escape(text, quote=True).replace("\t", "&#9;").replace("\n", "&#10;").replace("\r", "&#13;")
+    try:
+        return escaped.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InvalidValue("kodowanie") from exc
 
 
 def _escaped(text: str) -> bytes:
