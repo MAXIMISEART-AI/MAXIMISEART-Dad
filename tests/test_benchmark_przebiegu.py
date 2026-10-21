@@ -55,6 +55,7 @@ ORACLE_CATEGORIES = (
     "flagi_przeliczania",
     "liczniki",
     "komunikaty",
+    "podsumowanie",
 )
 
 
@@ -419,16 +420,22 @@ def changed_counter(result: dict[str, Any]) -> None:
     result["counters"]["rows"] += 1
 
 
-def changed_terminal_line(result: dict[str, Any]) -> None:
-    result["terminal"][-1] += " (inna linia)"
+def added_warning(result: dict[str, Any]) -> None:
+    result["result"]["warnings"].append(
+        {"code": "inny_komunikat", "what": "Co się stało.", "where": "Gdzie.", "action": "Co zrobić."}
+    )
+
+
+def changed_summary_figure(result: dict[str, Any]) -> None:
+    result["result"]["summary"]["figures"][0]["value"] += 1
 
 
 @pytest.mark.parametrize(
     ("change", "category"),
-    [(changed_counter, "liczniki"), (changed_terminal_line, "komunikaty")],
-    ids=["inne-liczniki", "inna-linia-terminala"],
+    [(changed_counter, "liczniki"), (added_warning, "komunikaty"), (changed_summary_figure, "podsumowanie")],
+    ids=["inne-liczniki", "inny-kod-komunikatu", "inne-podsumowanie"],
 )
-def test_bramka_poprawnosci_jest_niezgodna_przy_innych_licznikach_albo_komunikatach(
+def test_bramka_poprawnosci_jest_niezgodna_przy_innych_licznikach_komunikatach_albo_podsumowaniu(
     tmp_path: Path, change: Callable[[dict[str, Any]], None], category: str
 ) -> None:
     config = write_mapping(tmp_path / "worker_mapping.yaml")
@@ -460,3 +467,37 @@ def test_bramka_poprawnosci_jest_niezgodna_przy_innych_licznikach_albo_komunikat
     assert record["oracle"]["wynik"] == "niezgodny"
     assert record["oracle"]["roznice"] == dict.fromkeys(ORACLE_CATEGORIES, 0) | {category: 1}
     assert "niezgodny" in measured.stdout
+
+
+def test_pomiar_z_wynikiem_referencyjnym_w_formacie_terminala_konczy_sie_poleceniem_ponownego_zamrozenia(
+    tmp_path: Path,
+) -> None:
+    config = write_mapping(tmp_path / "worker_mapping.yaml")
+    journal = tmp_path / "dziennik.jsonl"
+    references = tmp_path / "referencje"
+    common = [
+        "--scenario",
+        "maly-tydzien",
+        "--templates-dir",
+        str(write_templates(tmp_path / "wzorce")),
+        "--config",
+        str(config),
+        "--mirror-dir",
+        str(tmp_path / "lustro"),
+        "--reference-dir",
+        str(references),
+    ]
+    frozen = run_benchmark("freeze", *common, "--commit", "HEAD")
+    assert frozen.returncode == 0, frozen.stdout + frozen.stderr
+    result_path = frozen_reference(references).parent / "wynik.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    terminal_format = {"git_sha": result["git_sha"], "counters": result["counters"], "terminal": ["Wynik: OK"]}
+    result_path.write_text(json.dumps(terminal_format, ensure_ascii=False), encoding="utf-8")
+
+    measured = run_benchmark("measure", *common, "--journal", str(journal), "--machine", "test")
+
+    assert measured.returncode == 1
+    assert "stary format" in measured.stderr
+    assert "freeze --commit" in measured.stderr
+    assert str(result_path.parent) in measured.stderr
+    assert not journal.exists()

@@ -1,4 +1,4 @@
-"""Jedno uruchomienie Przebiegu rozliczeń na lustrze, tą samą ścieżką co launcher (``run.py --source``).
+"""Jedno uruchomienie Przebiegu rozliczeń na lustrze tym samym rdzeniem Uruchomienia procesu co Centrum rozliczeń.
 
 Czas ściany uruchomienia dzieli się na start procesu (do ``started_at`` rekordu
 metryk), ``Czas uruchomienia`` (z rekordu metryk) i zakończenie procesu.
@@ -7,8 +7,6 @@ metryk), ``Czas uruchomienia`` (z rekordu metryk) i zakończenie procesu.
 from __future__ import annotations
 
 import json
-import locale
-import re
 import shutil
 import subprocess
 import tempfile
@@ -17,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from benchmark import ROOT, BenchmarkError
+from benchmark import ROOT, SCRIPT, BenchmarkError
 from benchmark.lustro import PERIOD, period_directory, run_quietly
 from rozliczenia.period_folder import PeriodFolder, collective_file_name
 
@@ -49,16 +47,9 @@ def git_output(*arguments: str) -> str | None:
         return None
 
 
-def _terminal_lines(output: bytes) -> list[str]:
-    """Wyjście terminala Przebiegu bez czasów, które różnią się między uruchomieniami."""
-
-    text = output.decode(locale.getpreferredencoding(False), errors="replace")
-    return [re.sub(r"\d+ ms\b", "<N> ms", line.rstrip()) for line in text.splitlines()]
-
-
 @dataclass(frozen=True)
 class Przebieg:
-    """Jedno uruchomienie Przebiegu rozliczeń na lustrze: czas ściany, rekord metryk procesu i linie terminala.
+    """Jedno uruchomienie Przebiegu rozliczeń na lustrze.
 
     ``start_ms``: od uruchomienia procesu do startu silnika (``started_at`` rekordu metryk).
     """
@@ -66,7 +57,7 @@ class Przebieg:
     wall_ms: int
     start_ms: int
     metrics: dict[str, Any]
-    terminal: list[str]
+    result: dict[str, Any]
 
     @property
     def finish_ms(self) -> int:
@@ -76,7 +67,7 @@ class Przebieg:
 
 
 def run_przebieg(checkout: Path, mirror: Path, config: Path, worker_template: Path, scratch: Path) -> Przebieg:
-    """Przebieg rozliczeń checkoutu ``checkout`` na lustrze, tą samą ścieżką co launcher (``run.py --source``)."""
+    """Przebieg rozliczeń checkoutu ``checkout`` na lustrze, tym samym rdzeniem co Centrum rozliczeń."""
 
     source = period_directory(mirror) / collective_file_name(PERIOD)
     remove_worker_settlements(PeriodFolder.from_collective_file(source).worker_settlements)
@@ -84,7 +75,8 @@ def run_przebieg(checkout: Path, mirror: Path, config: Path, worker_template: Pa
     failure_log = mirror.parent / "ostatni-blad-przebiegu.txt"
     run = run_quietly(
         [
-            checkout / "run.py",
+            checkout / SCRIPT,
+            "settlement",
             "--source",
             source,
             "--config",
@@ -101,4 +93,4 @@ def run_przebieg(checkout: Path, mirror: Path, config: Path, worker_template: Pa
     metrics = _process_metrics(metrics_path)
     engine_started = datetime.fromisoformat(metrics["started_at"])
     start_ms = max(0, round((engine_started - run.spawned_at).total_seconds() * 1000))
-    return Przebieg(run.wall_ms, start_ms, metrics, _terminal_lines(run.output))
+    return Przebieg(run.wall_ms, start_ms, metrics, json.loads(run.stdout))
