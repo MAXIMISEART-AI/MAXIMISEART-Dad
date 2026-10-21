@@ -195,8 +195,8 @@ _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
 Pytanie, które proces zadaje tacie w trakcie Uruchomienia procesu; dziś tylko
 o niepełny okres w Przygotowaniu pliku zbiorczego. Składa ją proces i sam
 zatrzymuje się po odmowie; rozmówca tylko pyta i mówi, jak wyrazić zgodę
-(`Kontynuuj` w Centrum rozliczeń). Skrypt dla maszyn zawsze odmawia. Czas czekania na Decyzję
-taty nie wlicza się do `Czas uruchomienia` ani do metryk.
+(`Kontynuuj` w Centrum rozliczeń). Skrypt dla maszyn zawsze odmawia. Czas
+czekania na Decyzję taty nie wlicza się do `Czas uruchomienia` ani do metryk.
 
 ## Centrum rozliczeń
 

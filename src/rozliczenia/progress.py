@@ -1,3 +1,5 @@
+"""Projekcja postępu: Zdarzenia przebiegu zredukowane do bezpiecznego snapshotu dla Centrum rozliczeń (ADR 0002)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
