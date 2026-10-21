@@ -111,7 +111,8 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
     Unreachable,
     fingerprint_line,
 )
-from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
+from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
+from rozliczenia.centrum.server import serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
 from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402

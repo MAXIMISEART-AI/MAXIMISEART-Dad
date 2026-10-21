@@ -22,5 +22,6 @@ config/zgloszenia-klucz.txt
 config/zgloszenia-wyslane.json*
 config/zgloszenia/
 config/centrum-aktualizacja.json*
+config/centrum-aktualizacja-w-toku/
 node_modules/
 .benchmark/

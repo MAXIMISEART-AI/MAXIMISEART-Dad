@@ -25,6 +25,8 @@ import urllib.request
 
 import pytest
 
+from rozliczenia.centrum import tool_update
+
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
 from tests.fixtures.tool_clone import REPOSITORY_ROOT, FakeInstaller, ToolRepository, centrum_tool_repository
 
@@ -148,11 +150,8 @@ def test_po_wylaczeniu_komputera_w_trakcie_instalacji_bibliotek_skrot_wraca_do_p
     repository = _repository_with_dad_file(tmp_path / "repozytoria")
     before = repository.head()
     newest = _version_without_its_library(repository)
-    # Pip nigdy nie kończy: komputer gaśnie w trakcie instalacji, a Centrum już niczego nie zrobi.
-    centrum = preparing_centrum(
-        tmp_path,
-        surroundings=Surroundings(tool=repository, installer=FakeInstaller(hold=threading.Event())),
-    )
+    pip_never_finishes = FakeInstaller(hold=threading.Event())
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository, installer=pip_never_finishes))
     _update_until(centrum, lambda view: view.get("step") == "installing")
     switched_off = repository.head()
     port = _free_port()
@@ -178,7 +177,6 @@ def test_skrot_w_trakcie_ponownego_startu_po_aktualizacji_nie_rusza_klonu_i_pros
 ) -> None:
     repository = centrum_tool_repository(tmp_path / "repozytoria")
     newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
-    # Opiekun ponownego startu dopiero czeka na port: nowa wersja jeszcze nie działa.
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository))
     _update_until(centrum, lambda view: view.get("step") == "restarting")
     port = _free_port()
@@ -189,3 +187,24 @@ def test_skrot_w_trakcie_ponownego_startu_po_aktualizacji_nie_rusza_klonu_i_pros
     assert code == 1
     assert console.splitlines()[0] == "Co się stało: Aktualizacja narzędzia jeszcze się kończy."
     assert repository.head() == newest
+
+
+def test_gdy_opiekun_nie_skonczyl_aktualizacji_przed_wylaczeniem_skrot_po_jego_terminie_wraca_do_poprzedniej_wersji(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_update, "GUARDIAN_LEASE_S", 0.0)
+    repository = _repository_with_dad_file(tmp_path / "repozytoria")
+    before = repository.head()
+    newest = repository.publish({".gitignore": GITIGNORE}, untrack=(MAPPING,))
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository))
+    _update_until(centrum, lambda view: view.get("step") == "restarting")
+    switched_off = repository.head()
+    port = _free_port()
+
+    with _shortcut(repository.clone, port) as shortcut:
+        health = _health(shortcut, port)
+
+    assert switched_off == newest
+    assert health["commit"] == before[:7]
+    assert repository.head() == before
+    assert repository.read(MAPPING) == DAD_MAPPING

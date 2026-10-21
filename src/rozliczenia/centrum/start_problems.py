@@ -80,3 +80,14 @@ def not_started_after_update() -> Message:
         where="narzędzie na tym komputerze",
         action="Przekaż ten komunikat Maksowi.",
     )
+
+
+def update_finishing() -> Message:
+    """Skrót w trakcie ponownego startu po Aktualizacji narzędzia: opiekun może jeszcze cofać albo startować wersję."""
+
+    return Message(
+        code="AKTUALIZACJA_SIE_KONCZY",
+        what="Aktualizacja narzędzia jeszcze się kończy.",
+        where="narzędzie na tym komputerze",
+        action=f"Poczekaj 10 minut i kliknij {_SHORTCUT} ponownie.",
+    )

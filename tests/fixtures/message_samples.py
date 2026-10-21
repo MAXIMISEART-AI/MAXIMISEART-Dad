@@ -175,6 +175,7 @@ START_SAMPLES: Samples = {
     "missing_library": [lambda: start_problems.missing_library("fastapi")],
     "unexpected_start_failure": [start_problems.unexpected_start_failure],
     "not_started_after_update": [start_problems.not_started_after_update],
+    "update_finishing": [start_problems.update_finishing],
 }
 
 DIAGNOSIS_SAMPLES: Samples = {

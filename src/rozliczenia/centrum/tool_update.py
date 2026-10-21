@@ -12,7 +12,7 @@ wymagania mają tylko dolne granice wersji, więc stara wersja dalej je spełnia
 Gdy nie uda się samo cofnięcie, wynik mówi to wprost (``ROLLBACK_FAILED``).
 Gdy kopia pliku taty nie wróci do przesuniętego klonu, klon też się cofa; gdy
 nie wróci ostatecznie, wynikiem jest ``ROLLBACK_FAILED``, a treść taty zostaje
-w katalogu kopii. Wynik to kod (``UPDATED``, ``UP_TO_DATE`` albo kod Komunikatu porażki) z
+w kopii. Wynik to kod (``UPDATED``, ``UP_TO_DATE`` albo kod Komunikatu porażki) z
 commitem przed i po; treść Komunikatów należy do Centrum
 (``update_messages``).
 
@@ -25,15 +25,23 @@ klonowi tylko na czas wywołania (``safe.directory``), a konfiguracja Gita taty
 zostaje bez zmian. Adres repozytorium wstrzykuje się z zewnątrz; ``origin`` w
 klonie taty nie ma znaczenia.
 
+Zanim aktualizacja zmieni klon, zapisuje dziennik „Aktualizacja w toku”
+(``JOURNAL`` w ``config/`` klonu): commit przed i po oraz kopię plików taty.
+Dziennik znika dopiero przy wyniku ostatecznym: po odmowie z plikami taty z
+powrotem, po udanym cofnięciu albo gdy opiekun ponownego startu zobaczy, że
+nowa wersja odpowiada. Gdy komputer zgaśnie w trakcie, skrót przy następnym
+starcie zastaje dziennik i cofa klon (``ToolClone.roll_back``).
+
 Moduł używa tylko biblioteki standardowej: opiekun ponownego startu działa z
-jego kopii sprzed aktualizacji, bez bibliotek narzędzia.
+jego kopii sprzed aktualizacji, a skrót cofa przerwaną aktualizację, zanim
+wczyta biblioteki nowej wersji.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
@@ -42,6 +50,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from typing import IO, Final, Literal, TypeGuard
 
 GITHUB_REPOSITORY: Final = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git"
@@ -72,6 +81,9 @@ Step = Literal["fetching", "installing"]
 # Wynik aktualizacji po ponownym starcie Centrum: plik obok Ustawień taty, który zapisuje opiekun ponownego startu,
 # a Centrum, które potem wystartuje, odczytuje raz i usuwa.
 RESULT_FILE: Final = "centrum-aktualizacja.json"
+JOURNAL: Final = "centrum-aktualizacja-w-toku"
+GUARDIAN_LEASE_S: Final = 10 * 60.0
+_JOURNAL_FORMAT: Final = 1
 
 _FETCHED: Final = f"refs/remotes/origin/{BRANCH}"
 _FETCH_TIMEOUT_S: Final = 120.0
@@ -204,6 +216,24 @@ class GitFailed(Exception):
     """Polecenie Gita nie przeszło z nieprzewidzianego powodu; ``str()`` to samo polecenie, bez wyjścia Gita."""
 
 
+class JournalKept(Exception):
+    """Dziennik „Aktualizacja w toku” zostaje bez zmian: nie da się go bezpiecznie użyć ani zastąpić; ``str()`` mówi czemu."""
+
+
+@dataclass(frozen=True)
+class InterruptedUpdate:
+    """Aktualizacja narzędzia z dziennika: commit przed i po, a od ponownego startu termin opiekuna (``guardian_until``)."""
+
+    before: str
+    after: str
+    guardian_until: float | None = None
+
+    def guardian_may_run(self, now: float) -> bool:
+        """Czy opiekun ponownego startu może jeszcze kończyć tę aktualizację (``now`` w sekundach od epoki)."""
+
+        return self.guardian_until is not None and now < self.guardian_until
+
+
 @dataclass(frozen=True)
 class ToolClone:
     """Klon narzędzia w ``root`` i adres repozytorium, z którego przychodzi nowa wersja (``origin``).
@@ -222,11 +252,12 @@ class ToolClone:
 
         return cls(Path(__file__).resolve().parents[3])
 
-    def update(self, backup: Path, on_step: Callable[[Step], None] = lambda step: None) -> UpdateResult:
+    def update(self, on_step: Callable[[Step], None] = lambda step: None) -> UpdateResult:
         """Przesuwa klon do przodu na najnowszy `main`; wszystko albo nic.
 
-        ``backup`` to pusty katalog tymczasowy Centrum na kopię plików taty.
-        ``on_step`` dostaje każdy krok, zanim się zacznie.
+        ``on_step`` dostaje każdy krok, zanim się zacznie. Po ``UPDATED``
+        dziennik „Aktualizacja w toku” zostaje, dopóki nowa wersja nie
+        odpowie (``confirm_update``) albo klon się nie cofnie (``roll_back``).
         """
 
         git = self.find_git()
@@ -246,26 +277,32 @@ class ToolClone:
         dad_files = _DadFiles.leaving(run, _FETCHED)
         if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
             return UpdateResult(LOCAL_CHANGES, before, None)
+        journal = self._journal
+        journal.begin(self.root, dad_files.names, before, after)
         moved = False
         try:
-            with dad_files.set_aside(run, backup):
+            with dad_files.set_aside(run, journal.backup):
                 # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
-                if run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode != 0:
-                    return UpdateResult(LOCAL_CHANGES, before, None)
-                moved = True
+                moved = run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode == 0
         except _NotPutBack:
             # Wszystko albo nic: klon wraca sprzed kliknięcia, a cofnięcie jeszcze raz wgrywa pliki taty.
-            if moved and _moved_back(run, before, backup):
+            if moved and _moved_back(run, journal):
                 return UpdateResult(UNEXPECTED, before, after)
             return UpdateResult(ROLLBACK_FAILED, before, after if moved else None)
+        except _NotSetAside:
+            journal.end()
+            raise
+        if not moved:
+            journal.end()
+            return UpdateResult(LOCAL_CHANGES, before, None)
         try:
             installed = self._install_libraries(run, before, after, on_step)
         except Exception:
-            if _moved_back(run, before, backup):
+            if _moved_back(run, journal):
                 raise
             return UpdateResult(ROLLBACK_FAILED, before, after, installed=True)
         if installed is False:
-            code = LIBRARIES_FAILED if _moved_back(run, before, backup) else ROLLBACK_FAILED
+            code = LIBRARIES_FAILED if _moved_back(run, journal) else ROLLBACK_FAILED
             return UpdateResult(code, before, after, installed=True)
         return UpdateResult(UPDATED, before, after, installed=installed is True)
 
@@ -277,41 +314,69 @@ class ToolClone:
         on_step("installing")
         return self.install(self.root / _REQUIREMENTS)
 
-    def roll_back(self, before: str, backup: Path) -> None:
-        """Cofa przesunięty klon do commitu ``before`` z plikami taty z ``backup`` (katalog kopii ``update``).
+    def roll_back(self) -> None:
+        """Cofa aktualizację z dziennika „Aktualizacja w toku” do commitu przed nią, z plikami taty z jego kopii.
 
-        ``GitFailed``, gdy cofnięcie się nie uda (także bez Gita).
+        Po cofnięciu dziennik znika. Każda porażka (``GitFailed`` także bez
+        Gita, ``OSError``, ``JournalKept``) zostawia dziennik na następną próbę.
         """
 
         git = self.find_git()
         if git is None:
             raise GitFailed("brak Gita")
-        _roll_back(_Git(git, self.root), before, backup)
+        _roll_back(_Git(git, self.root), self._journal)
+
+    def interrupted_update(self) -> InterruptedUpdate | None:
+        """Aktualizacja z dziennika „Aktualizacja w toku”; ``None``, gdy żadna nie trwa, ``JournalKept``, gdy jest nieczytelny."""
+
+        return self._journal.read()
+
+    def lease_to_guardian(self) -> None:
+        """Przed startem opiekuna ponownego startu: przez ``GUARDIAN_LEASE_S`` skrót nie cofa tej aktualizacji."""
+
+        self._journal.lease(time.time() + GUARDIAN_LEASE_S)
+
+    def confirm_update(self) -> None:
+        """Nowa wersja odpowiada: aktualizacja jest skończona, a jej dziennik znika."""
+
+        self._journal.end()
+
+    @property
+    def _journal(self) -> _Journal:
+        return _Journal(self.root / "config" / JOURNAL)
 
 
-def _roll_back(git: _Git, before: str, backup: Path) -> None:
-    """``git reset --keep before``, a pliki taty z ``backup`` przed nim znikają z klonu i po nim do niego wracają.
+def _roll_back(git: _Git, journal: _Journal) -> None:
+    """``git reset --keep`` do commitu przed aktualizacją z ``journal``; pliki taty z jego kopii przed nim znikają z klonu i po nim do niego wracają.
 
-    Po przesunięciu klonu pliki taty są w nim nieśledzone, a ``before`` je
+    Po przesunięciu klonu pliki taty są w nim nieśledzone, a commit przed je
     śledzi: Git odmówiłby ich nadpisania. Po cofnięciu mają treść taty, tak jak
-    przed kliknięciem.
+    przed kliknięciem, a dziennik znika. Klon na innym commicie niż przed albo
+    po aktualizacji to ``JournalKept``: ktoś go zmienił, więc cofnięcie mogłoby
+    zgubić cudzą pracę.
     """
 
-    names = [copy.relative_to(backup).as_posix() for copy in backup.rglob("*") if copy.is_file()]
+    update = journal.read()
+    if update is None:
+        raise JournalKept("brak dziennika")
+    if git.text("rev-parse", "HEAD") not in (update.before, update.after):
+        raise JournalKept("klon na innym commicie")
+    names = [copy.relative_to(journal.backup).as_posix() for copy in journal.backup.rglob("*") if copy.is_file()]
     for name in names:
         (git.root / name).unlink(missing_ok=True)
     try:
-        git.check("reset", "--keep", "--quiet", before)
+        git.check("reset", "--keep", "--quiet", update.before)
     finally:
-        _put_back(git.root, backup, names)
+        _put_back(git.root, journal.backup, names)
+    journal.end()
 
 
-def _moved_back(git: _Git, before: str, backup: Path) -> bool:
+def _moved_back(git: _Git, journal: _Journal) -> bool:
     """``_roll_back``, który mówi, czy się udało, zamiast rzucać."""
 
     try:
-        _roll_back(git, before, backup)
-    except (GitFailed, OSError, subprocess.SubprocessError):
+        _roll_back(git, journal)
+    except (GitFailed, OSError, subprocess.SubprocessError, JournalKept):
         return False
     return True
 
@@ -338,8 +403,89 @@ def _changed_tracked_files(run: _Git, *, keep: frozenset[str]) -> bool:
     return any(entry[3:] not in keep for entry in entries)
 
 
+class _NotSetAside(GitFailed):
+    """``git checkout HEAD --`` nie przywrócił plikom taty treści z ``HEAD``, zanim klon się przesunął."""
+
+
 class _NotPutBack(Exception):
-    """Kopia pliku taty nie wróciła do klonu; jego treść jest tylko w katalogu kopii."""
+    """Kopia pliku taty nie wróciła do klonu; jego treść jest tylko w kopii w dzienniku."""
+
+
+@dataclass(frozen=True)
+class _Journal:
+    """Dziennik „Aktualizacja w toku” w katalogu ``directory``: ``stan.json`` i kopia plików taty (``backup``).
+
+    ``stan.json`` to ``{"format": 1, "przed", "po", "opiekun_do"}``. Nieznany
+    ``format`` albo nieczytelny plik zostaje nietknięty (``JournalKept``);
+    nieznane klucze nie mają znaczenia. Kopia trafia na dysk przed
+    ``stan.json``, więc dziennik nigdy nie wskazuje niepełnej kopii.
+    """
+
+    directory: Path
+
+    @property
+    def backup(self) -> Path:
+        return self.directory / "pliki-taty"
+
+    @property
+    def _state(self) -> Path:
+        return self.directory / "stan.json"
+
+    def read(self) -> InterruptedUpdate | None:
+        try:
+            record = json.loads(self._state.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as unreadable:
+            raise JournalKept("nieczytelny") from unreadable
+        if not isinstance(record, dict) or record.get("format") != _JOURNAL_FORMAT:
+            raise JournalKept("nieznany format")
+        before, after, until = record.get("przed"), record.get("po"), record.get("opiekun_do")
+        if not isinstance(before, str) or not isinstance(after, str):
+            raise JournalKept("bez commitów")
+        if not isinstance(until, (int, float)) or isinstance(until, bool):
+            until = None
+        return InterruptedUpdate(before, after, until)
+
+    def begin(self, root: Path, names: Iterable[str], before: str, after: str) -> None:
+        """Kopia plików taty ``names`` z klonu ``root``, potem ``stan.json``; trwająca aktualizacja to ``JournalKept``."""
+
+        if self._state.exists():
+            raise JournalKept("poprzednia aktualizacja w toku")
+        self.end()
+        for name in names:
+            copy = self.backup / name
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / name, copy)
+            _flush_to_disk(copy)
+        self._write(InterruptedUpdate(before, after))
+
+    def lease(self, until: float) -> None:
+        update = self.read()
+        if update is None:
+            raise JournalKept("brak dziennika")
+        self._write(replace(update, guardian_until=until))
+
+    def end(self) -> None:
+        """Najpierw ``stan.json``: bez niego reszta katalogu nic nie znaczy i znika, jeśli się da."""
+
+        self._state.unlink(missing_ok=True)
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def _write(self, update: InterruptedUpdate) -> None:
+        record = {"format": _JOURNAL_FORMAT, "przed": update.before, "po": update.after, "opiekun_do": update.guardian_until}
+        temporary = self._state.with_name(self._state.name + ".tmp")
+        self.directory.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        _flush_to_disk(temporary)
+        os.replace(temporary, self._state)
+
+
+def _flush_to_disk(path: Path) -> None:
+    """Treść pliku na dysku, nie tylko w pamięci systemu: dziennik ma przetrwać wyłączenie komputera."""
+
+    with path.open("r+b") as written:
+        os.fsync(written.fileno())
 
 
 @dataclass(frozen=True)
@@ -348,8 +494,9 @@ class _DadFiles:
 
     Tata może je mieć zmienione (Konfiguracja wykonawców z prawdziwymi
     nazwiskami po #161); te zmiany nie zatrzymują Aktualizacji narzędzia.
-    Przed przesunięciem trafiają do kopii i wracają do stanu z ``HEAD``, żeby
-    Git nie odmówił; po przesunięciu (udanym albo nie) wraca ich kopia. Inne
+    Przed przesunięciem trafiają do kopii w dzienniku „Aktualizacja w toku”
+    i wracają do stanu z ``HEAD``, żeby Git nie odmówił; po przesunięciu
+    (udanym albo nie) wraca ich kopia. Inne
     pliki taty (Wzorce, Ustawienia taty, klucz do Zgłoszeń, dziennik, metryki)
     Git zostawia sam, bo ich nie śledzi.
     """
@@ -367,18 +514,16 @@ class _DadFiles:
 
     @contextmanager
     def set_aside(self, git: _Git, backup: Path) -> Iterator[None]:
-        """Kopiuje pliki do ``backup`` i przywraca im treść z ``HEAD``; po bloku (udanym albo nie) wgrywa kopie z powrotem.
+        """Przywraca plikom treść z ``HEAD``; po bloku (udanym albo nie) wgrywa z powrotem ich kopie z ``backup``.
 
         ``_NotPutBack``, gdy kopia nie wróci (np. plik zablokowany): treść taty jest wtedy tylko w ``backup``.
+        ``_NotSetAside``, gdy Git nie przywróci treści z ``HEAD``: kopie już wróciły, a klon się nie zmienił.
         """
 
-        for name in self.names:
-            copy = backup / name
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(git.root / name, copy)
         try:
-            if self.names:
-                git.check("checkout", "HEAD", "--", *(f":(literal){name}" for name in self.names))
+            restored = (f":(literal){name}" for name in self.names)
+            if self.names and git.run("checkout", "HEAD", "--", *restored).returncode != 0:
+                raise _NotSetAside("checkout")
             yield
         finally:
             try:

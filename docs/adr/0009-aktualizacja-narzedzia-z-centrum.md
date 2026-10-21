@@ -58,6 +58,14 @@ rozliczeń. Centrum robi to samo, co Maks zrobiłby ręcznie, i niczego więcej:
 - **Wszystko albo nic.** Porażka po przesunięciu klonu (instalacja bibliotek,
   przywracanie plików taty) cofa klon do commitu sprzed Aktualizacji
   narzędzia. Tata zostaje z wersją, która działała.
+
+  Zanim Aktualizacja narzędzia zmieni klon, zapisuje dziennik „Aktualizacja w
+  toku” w `config/centrum-aktualizacja-w-toku/`: commit przed i po oraz kopię
+  plików taty. Ta nazwa jest zarezerwowana i ignorowana przez Gita. Dziennik
+  znika dopiero przy wyniku ostatecznym. Gdy komputer zgaśnie w trakcie, skrót
+  przy następnym starcie, zanim wczyta biblioteki, cofa z dziennika klon i
+  pliki taty, a potem startuje poprzednią wersję. Nie cofa, dopóki opiekun
+  ponownego startu może jeszcze działać (10 minut od jego startu).
 - **Ponowne uruchomienie.** Po udanej Aktualizacji narzędzia Centrum zamyka się
   i startuje od nowa w nowej wersji, a karta przeglądarki sama łączy się z nim
   ponownie. Opiekun ponownego startu działa z kopii sprzed Aktualizacji
