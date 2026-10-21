@@ -109,21 +109,6 @@ def _environment(browser: Path) -> dict[str, str]:
     return environment
 
 
-def test_centrum_z_konsola_pokazuje_adres_i_otwiera_przegladarke(tmp_path: Path) -> None:
-    runtime = copy_centrum_runtime(tmp_path / "narzedzie")
-    browser, opened = _browser_recorder(tmp_path)
-    port = _free_port()
-    command_line = [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)]
-
-    with _started(command_line, runtime, _environment(browser)) as console:
-        health = _health(port)
-        address = _wait_for_line(opened)
-
-    assert health["service"] == "centrum-rozliczen"
-    assert address == f"http://127.0.0.1:{port}/"
-    assert f"Centrum rozliczeń działa: http://127.0.0.1:{port}/" in console.text
-
-
 def _launch_again(runtime: Path, port: int, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port)],
@@ -169,7 +154,7 @@ def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path:
     assert f"Centrum rozliczeń już działa: http://127.0.0.1:{port}/" in again.stdout
     assert addresses == [f"http://127.0.0.1:{port}/"] * 2
     assert still_serving["service"] == "centrum-rozliczen"
-    assert first.text.count("Centrum rozliczeń działa:") == 1
+    assert first.text.count(f"Centrum rozliczeń działa: http://127.0.0.1:{port}/") == 1
     assert not (runtime / "config" / "centrum-ustawienia.yaml").exists()
 
 

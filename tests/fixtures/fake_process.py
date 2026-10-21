@@ -16,7 +16,6 @@ from rozliczenia.process_run import Finished, Process
 
 PERIOD = "08_14_09_2026"
 COUNTERS = frozenset({"items"})
-DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 METRICS_WARNING = "Ostrzeżenie: Nie zapisano metryk; Proces testowy zakończył się niezależnie."
 SECRET = "sekret klienta SYN-001"
 # Komunikaty zakończeń sztucznego procesu: każde zatrzymanie bez własnego Komunikatu procesu dostaje jeden z nich.
