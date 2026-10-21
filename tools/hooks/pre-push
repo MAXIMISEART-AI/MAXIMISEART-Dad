@@ -30,8 +30,8 @@ AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 VENV_PYTHON = Path(".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
 COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--do-pierwszego-bledu")
 RUNS_CI = (
-    "uruchamiam tools/ci_lokalnie.py: czysty przebieg 5-8 min, przy błędzie koniec na pierwszym nieudanym kroku"
-    " (ruff po kilku sekundach); po udanym przebiegu przed pushem push przechodzi od razu"
+    "uruchamiam tools/ci_lokalnie.py: czysty przebieg 4-8 min zależnie od obciążenia Maca, przy błędzie koniec"
+    " na pierwszym nieudanym kroku (ruff po kilku sekundach); po udanym przebiegu przed pushem push przechodzi od razu"
 )
 
 

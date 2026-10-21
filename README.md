@@ -284,6 +284,8 @@ Na macOS i Linuksie `tools/setup_worktree.py` włącza bramę `tools/hooks/pre-p
 push agenta (zmienna `AI_AGENT` albo `CLAUDECODE`) przechodzi dopiero po
 `CI LOKALNIE OK`, a push człowieka bez sprawdzania. Udany przebieg na czystym
 checkoucie zostawia pieczątkę drzewa, więc push zaraz po nim nie powtarza sprawdzeń.
+Brama kończy przebieg na pierwszym nieudanym kroku i razem z przerwanym pushem, a drugi
+push z tego samego checkoutu w trakcie przebiegu odrzuca od razu.
 
 W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
 (macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
