@@ -58,7 +58,10 @@ nieoczekiwanym błędzie dochodzi typ wyjątku i ślad wywołań w kodzie narzę
 (plik względem katalogu narzędzia, linia, funkcja); Centrum trzyma go w pamięci
 tylko przy tym Zatrzymaniu, poza dziennikiem, metrykami i innymi odpowiedziami.
 Bez treści wierszy, adresów, numerów zleceń, stawek, treści wyjątków i pełnych
-ścieżek.
+ścieżek. Jedyny wyjątek jest ten sam co w regule ADR 0004: Komunikat
+Zatrzymania o brakach w `SKUTECZNE` (`ZLE_SKUTECZNE`, specyfikacja #206) niesie
+dokładną zawartość komórek `SKUTECZNE` innych niż `tak` i `nie`, bo to kolumna
+stanu zlecenia, nie dane klienta, a tata musi widzieć, co poprawić.
 
 Diagnoza, z której powstaje Zgłoszenie, sprawdza pliki w OneDrive zaraz po
 Ustawieniach taty, przed odczytem Rejestru zleceń, wzorców i plików okresu

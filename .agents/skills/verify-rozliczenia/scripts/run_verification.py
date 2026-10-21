@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import shlex
@@ -23,6 +24,7 @@ PYTHON_COMMAND = (sys.executable,)
 PREPARATION_TEMPLATE_NAMES = ("Wzorzec rozliczenia wewnętrznego.xlsx", "Wzorzec pliku zbiorczego.xlsx")
 WORKER_TEMPLATE_NAME = "Wzorzec rozliczenia pracownika.xlsx"
 HELPER_DIRECTORY = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
+PROCESS_SCRIPT = str(Path("tools") / "uruchom_proces.py")
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,8 @@ class WorkflowVariant:
     dry_run_exit: int = 0
     run_exit: int = 0
     assertion: Literal["run", "existing-output", "no-publish"] = "run"
-    expected_message: str | None = None
+    expected_stop: str | None = None
+    expected_stop_what: str | None = None
     templates: Literal["synthetic", "config"] = "synthetic"
 
     @property
@@ -54,25 +57,20 @@ class WorkflowVariant:
     def evidence_names(self) -> frozenset[str]:
         """Evidence files a successful run of this variant leaves behind, before the self-test."""
 
-        steps: tuple[str, ...]
+        processes: tuple[str, ...]
+        helpers: tuple[str, ...]
         if self.process == "chain":
-            steps = (
-                "fixture",
-                "doctor",
-                "preparation-dry-run",
-                "assert-preparation-dry-run",
-                "preparation-run",
-                "assert-preparation-run",
-                "readiness",
-                "settlement-dry-run",
-                "assert-settlement-dry-run",
-                "settlement-run",
-                "assert-settlement-run",
-                "cleanup",
-            )
-            return frozenset({*(f"{step}.txt" for step in steps), "preparation-metrics.jsonl", "settlement-metrics.jsonl"})
-        steps = ("fixture", "doctor", "dry-run", "assert-dry-run", "run", "assert-run", "cleanup")
-        return frozenset({*(f"{step}.txt" for step in steps), "metrics.jsonl"})
+            processes = ("preparation-dry-run", "preparation-run", "settlement-dry-run", "settlement-run")
+            helpers = ("fixture", "doctor", "readiness", "cleanup")
+        else:
+            processes = ("dry-run", "run")
+            helpers = ("fixture", "doctor", "cleanup")
+        return frozenset(
+            {
+                *(f"{step}.txt" for step in helpers),
+                *(name for step in processes for name in (f"{step}.json", f"{step}-metrics.jsonl", f"assert-{step}.txt")),
+            }
+        )
 
 
 WORKFLOW_VARIANTS = {
@@ -81,19 +79,21 @@ WORKFLOW_VARIANTS = {
         pre_run_setup="existing",
         run_exit=1,
         assertion="existing-output",
+        expected_stop="FOLDER_ROZLICZEN_ISTNIEJE",
     ),
     "locked": WorkflowVariant(
         pre_run_setup="locked",
         run_exit=1,
         assertion="no-publish",
-        expected_message="Wzorzec rozliczenia pracownika jest otwarty lub zablokowany",
+        expected_stop="ZLY_WZORZEC_PRACOWNIKA",
+        expected_stop_what="Wzorzec rozliczenia pracownika jest otwarty lub zablokowany",
     ),
     "unmapped": WorkflowVariant(
         include_unmapped=True,
         dry_run_exit=2,
         run_exit=1,
         assertion="no-publish",
-        expected_message="WYKONAWCA bez mapowania",
+        expected_stop="NIEZNANY_WYKONAWCA",
     ),
     "preparation": WorkflowVariant(process="preparation"),
     "preparation-real-templates": WorkflowVariant(process="preparation", templates="config"),
@@ -126,22 +126,41 @@ def _echo(text: str, stream: TextIO) -> None:
         stream.flush()
 
 
-def _write_step_evidence(
-    evidence_path: Path,
-    arguments: list[str],
-    *,
-    stdout: str = "",
-    stderr: str = "",
-    exit_code: int | None = None,
-    launch_error: str | None = None,
-) -> None:
-    sections = [f"command: {_display_command(arguments)}", "stdout:", stdout]
-    sections.extend(["stderr:", stderr])
-    if launch_error is not None:
-        sections.extend(["launch_error:", launch_error])
-    if exit_code is not None:
-        sections.append(f"exit_code={exit_code}")
-    evidence_path.write_text("\n".join(sections).rstrip() + "\n", encoding="utf-8")
+@dataclass(frozen=True)
+class _Completed:
+    stdout: str
+    stderr: str
+    exit_code: int | None
+    launch_error: str | None = None
+
+
+def _launch(arguments: list[str], environment: dict[str, str]) -> _Completed:
+    try:
+        completed = subprocess.run(
+            [*PYTHON_COMMAND, *arguments],
+            cwd=REPO_ROOT,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return _Completed(
+            _decode(exc.stdout), _decode(exc.stderr), None, f"timed out after {TIMEOUT_SECONDS} seconds"
+        )
+    except OSError as exc:
+        return _Completed("", "", None, f"could not start: {exc}")
+    return _Completed(_decode(completed.stdout), _decode(completed.stderr), completed.returncode)
+
+
+def _finish_step(name: str, completed: _Completed, expected_exit: int) -> None:
+    _echo(completed.stdout, sys.stdout)
+    _echo(completed.stderr, sys.stderr)
+    if completed.launch_error is not None:
+        raise VerificationFailure(f"{name} {completed.launch_error}")
+    if completed.exit_code != expected_exit:
+        raise VerificationFailure(f"{name} returned {completed.exit_code}; expected {expected_exit}")
 
 
 def _run_step(
@@ -152,50 +171,45 @@ def _run_step(
     *,
     expected_exit: int,
 ) -> None:
-    evidence_path = evidence_root / f"{name}.txt"
-    try:
-        completed = subprocess.run(
-            [*PYTHON_COMMAND, *arguments],
-            cwd=REPO_ROOT,
-            env=environment,
-            # A CLI question answered by EOF ends the step instead of waiting for the timeout.
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            check=False,
-            timeout=TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        stdout = _decode(exc.stdout)
-        stderr = _decode(exc.stderr)
-        _write_step_evidence(
-            evidence_path,
-            arguments,
-            stdout=stdout,
-            stderr=stderr,
-            launch_error=f"timed out after {TIMEOUT_SECONDS} seconds",
-        )
-        _echo(stdout, sys.stdout)
-        _echo(stderr, sys.stderr)
-        raise VerificationFailure(f"{name} timed out") from exc
-    except OSError as exc:
-        _write_step_evidence(evidence_path, arguments, launch_error=str(exc))
-        raise VerificationFailure(f"{name} could not start: {exc}") from exc
+    completed = _launch(arguments, environment)
+    sections = [f"command: {_display_command(arguments)}", "stdout:", completed.stdout, "stderr:", completed.stderr]
+    if completed.launch_error is not None:
+        sections.extend(["launch_error:", completed.launch_error])
+    if completed.exit_code is not None:
+        sections.append(f"exit_code={completed.exit_code}")
+    (evidence_root / f"{name}.txt").write_text("\n".join(sections).rstrip() + "\n", encoding="utf-8")
+    _finish_step(name, completed, expected_exit)
 
-    stdout = _decode(completed.stdout)
-    stderr = _decode(completed.stderr)
-    _write_step_evidence(
-        evidence_path,
-        arguments,
-        stdout=stdout,
-        stderr=stderr,
-        exit_code=completed.returncode,
-    )
-    _echo(stdout, sys.stdout)
-    _echo(stderr, sys.stderr)
-    if completed.returncode != expected_exit:
-        raise VerificationFailure(
-            f"{name} returned {completed.returncode}; expected {expected_exit}"
-        )
+
+def _json_or_text(stdout: str) -> object:
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout
+
+
+def _run_process_step(
+    name: str,
+    arguments: list[str],
+    metrics: Path,
+    evidence_root: Path,
+    environment: dict[str, str],
+    *,
+    expected_exit: int,
+) -> None:
+    command = [PROCESS_SCRIPT, *arguments, "--metrics", str(metrics)]
+    completed = _launch(command, environment)
+    evidence = {
+        "command": _display_command(command),
+        "exit_code": completed.exit_code,
+        "launch_error": completed.launch_error,
+        "result": _json_or_text(completed.stdout),
+        "stderr": completed.stderr,
+    }
+    (evidence_root / f"{name}.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if metrics.is_file():
+        shutil.copy2(metrics, evidence_root / f"{name}-metrics.jsonl")
+    _finish_step(name, completed, expected_exit)
 
 
 def _version() -> str:
@@ -293,71 +307,50 @@ def _run_workflow(variant: str, run_root: Path, evidence_root: Path, templates_d
         expected_exit=0,
     )
 
-    dry_assert_arguments = [
-        str(HELPER_DIRECTORY / "assert_results.py"),
-        "--root",
-        str(run_root),
-        "--expect",
-        "dry-run",
-        "--transcript",
-        str(evidence_root / "dry-run.txt"),
+    settlement_arguments = [
+        "settlement",
+        "--source",
+        str(source),
+        "--config",
+        str(config),
+        "--worker-template",
+        str(run_root / WORKER_TEMPLATE_NAME),
     ]
 
-    _run_step(
+    def assert_arguments(step: str, expectation: str) -> list[str]:
+        return [
+            str(HELPER_DIRECTORY / "assert_results.py"),
+            "--root",
+            str(run_root),
+            "--expect",
+            expectation,
+            "--result",
+            str(evidence_root / f"{step}.json"),
+        ]
+
+    _run_process_step(
         "dry-run",
-        [
-            "run.py",
-            "--source",
-            str(source),
-            "--config",
-            str(config),
-            "--worker-template",
-            str(run_root / "Wzorzec rozliczenia pracownika.xlsx"),
-            "--metrics",
-            str(metrics),
-            "--dry-run",
-        ],
+        [*settlement_arguments, "--dry-run"],
+        metrics,
         evidence_root,
         environment,
         expected_exit=variant_config.dry_run_exit,
     )
-    _run_step("assert-dry-run", dry_assert_arguments, evidence_root, environment, expected_exit=0)
+    _run_step("assert-dry-run", assert_arguments("dry-run", "dry-run"), evidence_root, environment, expected_exit=0)
 
     if variant_config.pre_run_setup == "existing":
         _create_existing_output(run_root)
     elif variant_config.pre_run_setup == "locked":
         _create_lock(run_root)
 
-    _run_step(
-        "run",
-        [
-            "run.py",
-            "--source",
-            str(source),
-            "--config",
-            str(config),
-            "--worker-template",
-            str(run_root / "Wzorzec rozliczenia pracownika.xlsx"),
-            "--metrics",
-            str(metrics),
-        ],
-        evidence_root,
-        environment,
-        expected_exit=variant_config.run_exit,
+    _run_process_step(
+        "run", settlement_arguments, metrics, evidence_root, environment, expected_exit=variant_config.run_exit
     )
-    shutil.copy2(metrics, evidence_root / "metrics.jsonl")
-
-    run_assert_arguments = [
-        str(HELPER_DIRECTORY / "assert_results.py"),
-        "--root",
-        str(run_root),
-        "--expect",
-        variant_config.assertion,
-        "--transcript",
-        str(evidence_root / "run.txt"),
-    ]
-    if variant_config.expected_message is not None:
-        run_assert_arguments.extend(["--expected-message", variant_config.expected_message])
+    run_assert_arguments = assert_arguments("run", variant_config.assertion)
+    if variant_config.expected_stop is not None:
+        run_assert_arguments.extend(["--expected-stop", variant_config.expected_stop])
+    if variant_config.expected_stop_what is not None:
+        run_assert_arguments.extend(["--expected-what", variant_config.expected_stop_what])
     _run_step("assert-run", run_assert_arguments, evidence_root, environment, expected_exit=0)
 
 
@@ -377,11 +370,9 @@ def _run_preparation_stage(
     metrics: Path,
     step_prefix: str = "",
 ) -> None:
-    """Przygotowanie pliku zbiorczego through its CLI: dry-run, its assertion, the real write, its assertion."""
-
     config_directory = run_root / "config"
-    cli_arguments = [
-        "run_preparation.py",
+    preparation_arguments = [
+        "preparation",
         "--register",
         str(run_root / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"),
         "--periods-directory",
@@ -394,8 +385,6 @@ def _run_preparation_stage(
         str(config_directory / "Wzorzec rozliczenia wewnętrznego.xlsx"),
         "--collective-template",
         str(config_directory / "Wzorzec pliku zbiorczego.xlsx"),
-        "--metrics",
-        str(metrics),
     ]
 
     def assert_arguments(mode: str) -> list[str]:
@@ -409,13 +398,15 @@ def _run_preparation_stage(
             templates,
             "--metrics",
             str(metrics),
-            "--transcript",
-            str(evidence_root / f"{step_prefix}{mode}.txt"),
+            "--result",
+            str(evidence_root / f"{step_prefix}{mode}.json"),
         ]
 
-    _run_step(f"{step_prefix}dry-run", [*cli_arguments, "--dry-run"], evidence_root, environment, expected_exit=0)
+    _run_process_step(
+        f"{step_prefix}dry-run", [*preparation_arguments, "--dry-run"], metrics, evidence_root, environment, expected_exit=0
+    )
     _run_step(f"assert-{step_prefix}dry-run", assert_arguments("dry-run"), evidence_root, environment, expected_exit=0)
-    _run_step(f"{step_prefix}run", cli_arguments, evidence_root, environment, expected_exit=0)
+    _run_process_step(f"{step_prefix}run", preparation_arguments, metrics, evidence_root, environment, expected_exit=0)
     _run_step(f"assert-{step_prefix}run", assert_arguments("run"), evidence_root, environment, expected_exit=0)
 
 
@@ -426,7 +417,6 @@ def _run_preparation_workflow(run_root: Path, evidence_root: Path, templates_dir
     """
 
     environment = _utf8_environment()
-    metrics = run_root / "metrics.jsonl"
     _run_step("fixture", _fixture_arguments(run_root, templates_directory), evidence_root, environment, expected_exit=0)
     _run_step(
         "doctor",
@@ -435,17 +425,13 @@ def _run_preparation_workflow(run_root: Path, evidence_root: Path, templates_dir
         environment,
         expected_exit=0,
     )
-    try:
-        _run_preparation_stage(
-            run_root,
-            evidence_root,
-            environment,
-            templates="synthetic" if templates_directory is None else "config",
-            metrics=metrics,
-        )
-    finally:
-        if metrics.is_file():
-            shutil.copy2(metrics, evidence_root / "metrics.jsonl")
+    _run_preparation_stage(
+        run_root,
+        evidence_root,
+        environment,
+        templates="synthetic" if templates_directory is None else "config",
+        metrics=run_root / "metrics.jsonl",
+    )
 
 
 def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory: Path | None) -> None:
@@ -458,19 +444,16 @@ def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory
 
     environment = _utf8_environment()
     config_directory = run_root / "config"
-    preparation_metrics = run_root / "preparation-metrics.jsonl"
     settlement_metrics = run_root / "settlement-metrics.jsonl"
     templates: Literal["synthetic", "config"] = "synthetic" if templates_directory is None else "config"
     settlement_arguments = [
-        "run.py",
+        "settlement",
         "--source",
         str(run_root / "INEA" / PERIOD / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"),
         "--config",
         str(config_directory / "worker_mapping.yaml"),
         "--worker-template",
         str(config_directory / WORKER_TEMPLATE_NAME),
-        "--metrics",
-        str(settlement_metrics),
     ]
 
     def assert_settlement_arguments(mode: str) -> list[str]:
@@ -480,8 +463,8 @@ def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory
             str(run_root),
             "--expect",
             mode,
-            "--transcript",
-            str(evidence_root / f"settlement-{mode}.txt"),
+            "--result",
+            str(evidence_root / f"settlement-{mode}.json"),
         ]
 
     _run_step(
@@ -505,48 +488,46 @@ def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory
         environment,
         expected_exit=0,
     )
-    try:
-        _run_preparation_stage(
-            run_root,
-            evidence_root,
-            environment,
-            templates=templates,
-            metrics=preparation_metrics,
-            step_prefix="preparation-",
-        )
-        _run_step(
-            "readiness",
-            [str(HELPER_DIRECTORY / "fill_readiness.py"), "--root", str(run_root)],
-            evidence_root,
-            environment,
-            expected_exit=0,
-        )
-        _run_step(
-            "settlement-dry-run",
-            [*settlement_arguments, "--dry-run"],
-            evidence_root,
-            environment,
-            expected_exit=0,
-        )
-        _run_step(
-            "assert-settlement-dry-run",
-            assert_settlement_arguments("dry-run"),
-            evidence_root,
-            environment,
-            expected_exit=0,
-        )
-        _run_step("settlement-run", settlement_arguments, evidence_root, environment, expected_exit=0)
-        _run_step(
-            "assert-settlement-run",
-            assert_settlement_arguments("run"),
-            evidence_root,
-            environment,
-            expected_exit=0,
-        )
-    finally:
-        for metrics in (preparation_metrics, settlement_metrics):
-            if metrics.is_file():
-                shutil.copy2(metrics, evidence_root / metrics.name)
+    _run_preparation_stage(
+        run_root,
+        evidence_root,
+        environment,
+        templates=templates,
+        metrics=run_root / "preparation-metrics.jsonl",
+        step_prefix="preparation-",
+    )
+    _run_step(
+        "readiness",
+        [str(HELPER_DIRECTORY / "fill_readiness.py"), "--root", str(run_root)],
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
+    _run_process_step(
+        "settlement-dry-run",
+        [*settlement_arguments, "--dry-run"],
+        settlement_metrics,
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
+    _run_step(
+        "assert-settlement-dry-run",
+        assert_settlement_arguments("dry-run"),
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
+    _run_process_step(
+        "settlement-run", settlement_arguments, settlement_metrics, evidence_root, environment, expected_exit=0
+    )
+    _run_step(
+        "assert-settlement-run",
+        assert_settlement_arguments("run"),
+        evidence_root,
+        environment,
+        expected_exit=0,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

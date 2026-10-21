@@ -56,7 +56,9 @@ their contents.
   formulas and formatting, atomic replacement, and every entry under
   `xl/externalLinks/*`. Other tests assert only the behaviour they name.
 - Keep tests free of client addresses, order numbers, and row contents in
-  output or logs.
+  output or logs. The one exception is the Zatrzymanie about gaps in
+  `SKUTECZNE` (`ZLE_SKUTECZNE`, ADR 0004): its tests use synthetic
+  `SKUTECZNE` values, because the Komunikat shows the exact cell content.
 - Terminal output of both processes is pinned by golden files in
   `tests/golden/terminal/`. A change to terminal text is a deliberate change
   to its golden file in the same commit (`UPDATE_GOLDEN=1`, then review the

@@ -1,9 +1,10 @@
 """Assert the Przebieg rozliczeń of a chain run on the Plik zbiorczy from Przygotowanie, without printing row contents.
 
 The Plik zbiorczy was written by Przygotowanie pliku zbiorczego and then filled by
-the Gotowość step, so its Wiersze danych carry values in all of ``A:AT``. The
-checks are generic over the Wzorce, so the same helper serves both the synthetic
-and the real Wzorce. Messages name workers, rows, and columns, never a cell value.
+the Gotowość step, so its Wiersze danych carry values in all of ``A:AT``, and the
+Wyróżnienia Przygotowanie carried over from the Rejestr. The checks are generic
+over the Wzorce, so the same helper serves both the synthetic and the real
+Wzorce. Messages name workers, rows, and columns, never a cell value.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+from typing import Any
 import zipfile
 
 from openpyxl import load_workbook
@@ -39,6 +41,11 @@ EXPECTED_WORKER_ORDERS = {
     "Kamil Syntetyczny": ("PREP-SYN-ZL-4",),
 }
 EXPECTED_ROWS = sum(len(orders) for orders in EXPECTED_WORKER_ORDERS.values())
+TEMPLATES = len(EXPECTED_WORKER_ORDERS)
+FILE_PLAN = [
+    {"file": f"Rozliczenie {PERIOD} - {name}.xlsx", "rows": len(orders)} for name, orders in EXPECTED_WORKER_ORDERS.items()
+]
+PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
 UNSUCCESSFUL_ORDER = "PREP-SYN-ZL-3"  # Darek's NIE order, present only in the Rozliczenie wewnętrzne
 INPUTS = (
     ("Rejestr zleceń", Path("ZLECENIA INTERMAX OD 08_11_2021.xlsx"), "fixture_manifest.json", "register_sha256"),
@@ -65,6 +72,8 @@ INPUTS = (
 )
 
 Row = tuple[object, ...]
+Looks = tuple[tuple[object, ...], ...]
+PLAIN_LOOK = (None, None, None, False, False)
 
 
 def _sheet(workbook: Workbook) -> Worksheet:
@@ -100,21 +109,31 @@ def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str
         counters = record.get("counters") or {}
         if record.get("period") != PERIOD or record.get("completed") is not True:
             errors.append("settlement metrics record is not a completed run of the period")
-        if (counters.get("templates_total"), counters.get("rows")) != (len(EXPECTED_WORKER_ORDERS), EXPECTED_ROWS):
+        if (counters.get("templates_total"), counters.get("rows")) != (TEMPLATES, EXPECTED_ROWS):
             errors.append("settlement metrics counters do not match the Plik zbiorczy")
     root_spellings = (str(root), json.dumps(str(root))[1:-1])
     if ROW_MARKER in content or any(spelling in content for spelling in root_spellings):
         errors.append("settlement metrics contain row content or a filesystem path")
 
 
-def _transcript(path: Path | None, errors: list[str]) -> str:
+def _result(path: Path | None, errors: list[str]) -> dict[str, Any]:
     if path is None or not path.is_file():
-        errors.append("transcript is missing")
-        return ""
-    output = path.read_text(encoding="utf-8")
-    if ROW_MARKER in output:
-        errors.append("transcript contains row content")
-    return output
+        errors.append("process step evidence is missing")
+        return {"progress": {}}
+    text = path.read_text(encoding="utf-8")
+    if ROW_MARKER in text:
+        errors.append("process result contains row content")
+    result = json.loads(text)["result"]
+    if not isinstance(result, dict):
+        errors.append("process step printed no JSON result")
+        return {"progress": {}}
+    if result["metrics_saved"] is not True:
+        errors.append("process result reports its metrics record as not saved")
+    return result
+
+
+def _figures(figures: list[dict[str, Any]]) -> list[tuple[str, int]]:
+    return [(figure["label"], figure["value"]) for figure in figures]
 
 
 def _finish(errors: list[str], success_message: str) -> int:
@@ -126,28 +145,28 @@ def _finish(errors: list[str], success_message: str) -> int:
     return 0
 
 
-def _assert_dry_run(root: Path, transcript: Path | None) -> int:
+def _assert_dry_run(root: Path, result_path: Path | None) -> int:
     errors: list[str] = []
     _unchanged_inputs(root, errors)
     period_directory = root / "INEA" / PERIOD
     if sorted(path.name for path in period_directory.iterdir()) != sorted([INTERNAL_NAME, COLLECTIVE_NAME]):
         errors.append("dry-run added entries to the Folder okresu")
-    output = _transcript(transcript, errors)
-    expected_lines = [
-        f"Okres rozliczeniowy: {PERIOD}",
-        f"Folder rozliczeń pracowników: {(period_directory / TARGET_DIRECTORY_NAME).resolve()}",
-        "Plan plików:",
-        *(
-            f"- Rozliczenie {PERIOD} - {name}.xlsx | Wiersze do uzupełnienia: {len(orders)}"
-            for name, orders in EXPECTED_WORKER_ORDERS.items()
-        ),
-        "Problemy: 0",
-        "DRY-RUN: Nic nie zapisano",
-    ]
-    lines = {line.strip() for line in output.splitlines()}
-    for expected in expected_lines:
-        if expected not in lines:
-            errors.append(f"dry-run transcript is missing {expected}")
+    result = _result(result_path, errors)
+    if result.get("result") != "OK" or result.get("stop") is not None or result.get("warnings") != []:
+        errors.append("dry-run result is not OK without warnings")
+    if result.get("summary") != {
+        "figures": [
+            {"label": "Wiersze danych", "value": EXPECTED_ROWS, "unit": "count"},
+            {"label": "Planowane szablony", "value": TEMPLATES, "unit": "count"},
+            {"label": "Puste szablony", "value": 0, "unit": "count"},
+        ],
+        "counts": None,
+        "files": [],
+        "file_plan": FILE_PLAN,
+    }:
+        errors.append("dry-run plan does not list every Wykonawca's file with its Zlecenia skuteczne")
+    if dict(_figures(result["progress"].get("figures", []))).get("Problemy") != 0:
+        errors.append("dry-run reports Problemy")
     _check_metrics(root, [("DRY-RUN", "OK")], errors)
     return _finish(
         errors,
@@ -180,6 +199,24 @@ def _data_rows(sheet: Worksheet) -> list[tuple[int, Row]]:
     ]
 
 
+def _looks(sheet: Worksheet, in_file: set[tuple[int, int]], number: int) -> Looks:
+    """Wyróżnienia of A:AT in row ``number``: fill, font color, bold, italic; a cell not ``in_file`` has none.
+
+    ``in_file`` is taken right after loading: reading a row through openpyxl adds its missing cells to the sheet.
+    """
+
+    looks = []
+    for column in range(1, COPIED_COLUMNS + 1):
+        if (number, column) not in in_file:
+            looks.append(PLAIN_LOOK)
+            continue
+        cell = sheet.cell(number, column)
+        fill_type = getattr(cell.fill, "fill_type", None)
+        fill = (fill_type, cell.fill.fgColor if fill_type else None)
+        looks.append((*fill, cell.font.color, bool(cell.font.b), bool(cell.font.i)))
+    return tuple(looks)
+
+
 def _cell_values(workbook: Workbook, skipped_rows: range) -> dict[tuple[str, int, int], object]:
     """Every stored value except the A:AT cells of ``skipped_rows`` on the active sheet."""
 
@@ -203,6 +240,7 @@ def _check_worker_file(
     name: str,
     path: Path,
     expected_rows: list[Row],
+    expected_looks: list[Looks],
     template: Workbook,
     template_links: dict[str, bytes],
     readiness_orders: set[object],
@@ -212,6 +250,7 @@ def _check_worker_file(
     workbook = load_workbook(path, data_only=False, keep_links=True)
     try:
         sheet = _sheet(workbook)
+        in_file = set(sheet._cells)
         data_rows = _data_rows(sheet)
         written = range(FIRST_DATA_ROW, FIRST_DATA_ROW + len(expected_rows))
         if [number for number, _ in data_rows] != list(written):
@@ -221,10 +260,15 @@ def _check_worker_file(
             errors.append(f"{name}: holds a Zlecenie nieskuteczne")
         if [values[order_index] for values in actual_rows] != [values[order_index] for values in expected_rows]:
             errors.append(f"{name}: orders differ from its Zlecenia skuteczne in Plik zbiorczy order")
-        for number, (actual, expected) in enumerate(zip(actual_rows, expected_rows), start=FIRST_DATA_ROW):
+        for number, (actual, expected, looks) in enumerate(
+            zip(actual_rows, expected_rows, expected_looks), start=FIRST_DATA_ROW
+        ):
             differing = [get_column_letter(index + 1) for index, value in enumerate(expected) if actual[index] != value]
             if differing:
                 errors.append(f"{name}: row {number} differs from the Plik zbiorczy in {', '.join(differing[:8])}")
+            unlike = [get_column_letter(index + 1) for index, look in enumerate(_looks(sheet, in_file, number)) if look != looks[index]]
+            if unlike:
+                errors.append(f"{name}: row {number} lacks the Wyróżnienia of the Plik zbiorczy in {', '.join(unlike[:8])}")
             elif expected[order_index] in readiness_orders and any(
                 actual[index] in (None, 0) for index in READINESS_COLUMNS
             ):
@@ -249,10 +293,16 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
     collective = load_workbook(period_directory / COLLECTIVE_NAME, data_only=False, keep_links=True)
     try:
         collective_sheet = _sheet(collective)
+        collective_in_file = set(collective_sheet._cells)
         order_index = _order_column(collective_sheet) - 1
-        collective_rows = [values for _, values in _data_rows(collective_sheet)]
+        numbered_rows = _data_rows(collective_sheet)
+        collective_rows = [values for _, values in numbered_rows]
+        collective_looks = [_looks(collective_sheet, collective_in_file, number) for number, _ in numbered_rows]
+        highlighted = sum(look != PLAIN_LOOK and look[0] is not None for looks in collective_looks for look in looks)
     finally:
         collective.close()
+    if not highlighted:
+        errors.append("Plik zbiorczy has no filled cell in its Wiersze danych, so the Wyróżnienia check proves nothing")
     if UNSUCCESSFUL_ORDER in {values[order_index] for values in collective_rows}:
         errors.append("Plik zbiorczy holds a Zlecenie nieskuteczne")
     filled = [values for values in collective_rows if values[order_index] in readiness_orders]
@@ -267,12 +317,16 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
     try:
         for name, orders in EXPECTED_WORKER_ORDERS.items():
             expected_rows = [values for values in collective_rows if values[order_index] in orders]
+            expected_looks = [
+                looks for values, looks in zip(collective_rows, collective_looks) if values[order_index] in orders
+            ]
             if tuple(values[order_index] for values in expected_rows) != orders:
                 errors.append(f"Plik zbiorczy does not hold the Zlecenia skuteczne of {name} in Rejestr order")
             _check_worker_file(
                 name,
                 target_directory / f"Rozliczenie {PERIOD} - {name}.xlsx",
                 expected_rows,
+                expected_looks,
                 template,
                 template_links,
                 readiness_orders,
@@ -283,7 +337,7 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
         template.close()
 
 
-def _assert_run(root: Path, transcript: Path | None) -> int:
+def _assert_run(root: Path, result_path: Path | None) -> int:
     errors: list[str] = []
     _unchanged_inputs(root, errors)
     period_directory = root / "INEA" / PERIOD
@@ -298,22 +352,34 @@ def _assert_run(root: Path, transcript: Path | None) -> int:
     else:
         _check_worker_files(root, period_directory, target_directory, errors)
 
-    output = _transcript(transcript, errors)
-    phases = [output.find(f"Etap: {phase}") for phase in ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")]
-    if -1 in phases or phases != sorted(phases):
-        errors.append("run transcript does not report the four stages in order")
+    result = _result(result_path, errors)
+    progress = result["progress"]
+    if [(phase["phase"], phase["state"]) for phase in progress.get("phases", [])] != [
+        (phase, "completed") for phase in PHASES
+    ]:
+        errors.append("run progress does not complete the four stages in order")
     if (
-        "Status końcowy: OK" not in output
-        or f"Zapisane szablony: {len(EXPECTED_WORKER_ORDERS)}" not in output
-        or f"Postęp szablonów: {len(EXPECTED_WORKER_ORDERS)}/{len(EXPECTED_WORKER_ORDERS)} (100%)" not in output
-        or output.count("| ZAPISANO |") != len(EXPECTED_WORKER_ORDERS)
+        result.get("result") != "OK"
+        or result.get("stop") is not None
+        or result.get("warnings") != []
+        or result.get("summary")
+        != {
+            "figures": [
+                {"label": "Zapisane szablony", "value": TEMPLATES, "unit": "count"},
+                {"label": "Puste szablony", "value": 0, "unit": "count"},
+            ],
+            "counts": None,
+            "files": [],
+            "file_plan": FILE_PLAN,
+        }
+        or (progress.get("template_total"), progress.get("templates_completed")) != (TEMPLATES, TEMPLATES)
     ):
-        errors.append("run transcript does not report a complete run with every template written")
+        errors.append("run result does not report a complete run with every template written")
     _check_metrics(root, [("DRY-RUN", "OK"), ("RUN", "OK")], errors)
     return _finish(
         errors,
         f"ASSERT OK | process=przebieg | source=przygotowanie | mode=run | workbooks_checked={len(expected_files)} | "
-        "rows_equal_plik_zbiorczy=A:AT | readiness_carried=true | unsuccessful_absent=true | "
+        "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | readiness_carried=true | unsuccessful_absent=true | "
         "wzorzec_preserved=true | external_links_preserved=true | inputs_unchanged=true",
     )
 
@@ -322,14 +388,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--expect", choices=("dry-run", "run"), required=True)
-    parser.add_argument("--transcript", type=Path)
+    parser.add_argument("--result", type=Path, help="evidence JSON of the Przebieg rozliczeń step")
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
-    transcript = args.transcript.expanduser().resolve() if args.transcript else None
+    result_path = args.result.expanduser().resolve() if args.result else None
     try:
         if args.expect == "dry-run":
-            return _assert_dry_run(root, transcript)
-        return _assert_run(root, transcript)
+            return _assert_dry_run(root, result_path)
+        return _assert_run(root, result_path)
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
         print(f"ASSERT FAIL: {exc}", file=sys.stderr)
         return 1

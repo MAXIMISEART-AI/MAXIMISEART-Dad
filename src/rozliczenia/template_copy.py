@@ -8,12 +8,16 @@ Wierszach danych); na tym opiera się Sprawdzanie Wzorca. Arkusz jest kompresowa
 raz, w kawałkach od granic wierszy, przy pierwszej kopii. ``TemplateCopy.with_rows``
 składa z tego jedną kopię:
 
-- każda część zip poza arkuszem, ``xl/workbook.xml`` i (przy datach) ``xl/styles.xml``
-  jest przepisana bajt w bajt razem ze skompresowaną treścią, w tym
+- każda część zip poza arkuszem, ``xl/workbook.xml`` i ``xl/styles.xml`` jest
+  przepisana bajt w bajt razem ze skompresowaną treścią, w tym
   ``xl/externalLinks/*``, ``xl/calcChain.xml`` i ``xl/sharedStrings.xml``;
+- ``xl/styles.xml`` zmienia się tylko wtedy, gdy wpisana komórka potrzebuje stylu,
+  którego Wzorzec nie ma: data w komórce bez formatu daty albo Wyróżnienia inne niż
+  w komórce Wzorca; nowe czcionki, wypełnienia i style komórek są dopisywane na
+  końcu swoich list, a istniejące zostają bajt w bajt;
 - w arkuszu zmieniają się tylko wiersze od pierwszego Wiersza danych do ostatniego
-  wpisanego: komórki kolumn Wiersza danych dostają wartości tak jak przy wpisaniu
-  przez openpyxl (``TemplateSheet.write_data_rows``), a pozostałe komórki, w tym
+  wpisanego: komórki kolumn Wiersza danych dostają wartości i Wyróżnienia tak jak
+  przy wpisaniu przez openpyxl (``TemplateSheet.write_data_rows``), a pozostałe komórki, w tym
   formuły, wspólne formuły i style, zostają bajt w bajt; kompresowany jest tylko
   początek arkusza do granicy kawałka za ostatnim wpisanym wierszem, reszta to
   gotowe kawałki z pierwszej kopii;
@@ -44,7 +48,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from io import BytesIO
-from typing import IO, Final
+from typing import IO, Any, Final, Protocol, TypeVar, cast
 from xml.etree import ElementTree
 from xml.parsers import expat
 
@@ -58,10 +62,16 @@ from openpyxl.styles.numbers import (
     FORMAT_DATE_YYYYMMDD2,
     is_date_format,
 )
+from openpyxl.styles.fills import Fill, PatternFill
+from openpyxl.styles.fonts import Font
 from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
 from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, to_excel
 
+from .highlights import Highlights
 from .sheet_data import IrregularSheetData, SheetRow, sheet_data_bounds, sheet_rows
+
+
+_T = TypeVar("_T")
 
 
 class UnsupportedShape(Exception):
@@ -109,6 +119,8 @@ _CALC_PR = re.compile(rb"<((?:[\w.-]+:)?)calcPr\b([^>]*?)(\s*/)?>")
 _DIMENSION = re.compile(rb'<dimension ref="([A-Z]+\d+(?::[A-Z]+\d+)?)"')
 _MERGE = re.compile(rb'<mergeCell ref="([^"]+)"')
 _CELL_XFS = re.compile(rb"<cellXfs\b[^>]*>(.*?)</cellXfs>", re.S)
+_FONTS = re.compile(rb"<fonts\b[^>]*>(.*?)</fonts>", re.S)
+_FILLS = re.compile(rb"<fills\b[^>]*>(.*?)</fills>", re.S)
 _XF = re.compile(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", re.S)
 _NUM_FMT = re.compile(rb"<numFmt\b([^>]*?)/?>")
 _NUM_FMT_ID = re.compile(rb'numFmtId="(\d+)"')
@@ -159,6 +171,16 @@ class Package:
         out.write(struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(central), len(central), len(directory), offset, 0))
 
 
+class Row(Protocol):
+    """Wiersz danych do wpisania: wartości i Wyróżnienia kolumn Wiersza danych od A, po pozycji."""
+
+    @property
+    def values(self) -> Sequence[object]: ...
+
+    @property
+    def highlights(self) -> Sequence[Highlights]: ...
+
+
 @dataclass(frozen=True)
 class SheetLayout:
     """Gdzie w arkuszu są nagłówek, Wiersze danych, dane wejściowe i kolumny Wiersza danych (od 1)."""
@@ -195,7 +217,7 @@ class TemplateCopy:
         except _READ_ERRORS as exc:
             raise UnsupportedShape(type(exc).__name__) from exc
 
-    def with_rows(self, rows: Sequence[Sequence[object]]) -> Package:
+    def with_rows(self, rows: Sequence[Row]) -> Package:
         styles = _StyleAdditions(self._styles)
         sheet_part = self._sheet.with_rows(rows, styles)
         styles_part = self._styles.part(styles)
@@ -427,7 +449,7 @@ class _Sheet:
                 values[column - 1] = _header_value(cell.group(3), cell.group(4), shared_strings)
         return values
 
-    def with_rows(self, rows: Sequence[Sequence[object]], styles: _StyleAdditions) -> _Part:
+    def with_rows(self, rows: Sequence[Row], styles: _StyleAdditions) -> _Part:
         xml = self._xml
         first_row = self._layout.first_data_row
         last_row = first_row + len(rows) - 1
@@ -435,8 +457,8 @@ class _Sheet:
         by_number = {row.number: row for row in existing}
         region_end = existing[-1].end if existing else self._data_start
         patched = [
-            self._patched_row(by_number.get(first_row + index), first_row + index, values, styles)
-            for index, values in enumerate(rows)
+            self._patched_row(by_number.get(first_row + index), first_row + index, row, styles)
+            for index, row in enumerate(rows)
         ]
         chunk = bisect_left(self._boundaries, region_end)
         tail_start = self._boundaries[chunk] if chunk < len(self._boundaries) else len(xml)
@@ -472,37 +494,44 @@ class _Sheet:
         reference = f"{get_column_letter(covering[0])}{covering[1]}:{get_column_letter(covering[2])}{covering[3]}"
         return prefix[:start] + reference.encode("ascii") + prefix[end:]
 
-    def _patched_row(self, row: SheetRow | None, number: int, values: Sequence[object], styles: _StyleAdditions) -> bytes:
+    def _patched_row(self, row: SheetRow | None, number: int, data: Row, styles: _StyleAdditions) -> bytes:
         cells: dict[int, bytes] = {}
         if row is None:
             start_tag = b'<row r="%d">' % number
         else:
             start_tag, cells = _split_row(self._xml[row.start : row.end], number)
         suffix = b"%d" % number
+        columns = self._layout.data_columns
         written: list[tuple[int, bytes]] = []
-        for column, value in enumerate(values[: self._layout.data_columns], start=1):
-            written.append((column, self._cell(self._letters[column - 1] + suffix, cells.get(column), value, styles)))
+        for column, (value, highlights) in enumerate(
+            zip(data.values[:columns], data.highlights[:columns], strict=True), start=1
+        ):
+            reference = self._letters[column - 1] + suffix
+            written.append((column, self._cell(reference, cells.get(column), value, highlights, styles)))
         kept = [(column, cell) for column, cell in cells.items() if column > len(written)]
         return start_tag + b"".join(cell for _, cell in sorted(written + kept)) + b"</row>"
 
-    def _cell(self, reference: bytes, existing: bytes | None, value: object, styles: _StyleAdditions) -> bytes:
+    def _cell(
+        self, reference: bytes, existing: bytes | None, value: object, highlights: Highlights, styles: _StyleAdditions
+    ) -> bytes:
         style_match = _STYLE.search(existing[: existing.index(b">")]) if existing is not None else None
-        style = int(style_match.group(1)) if style_match else None
+        template_style = int(style_match.group(1)) if style_match else None
         if isinstance(value, str) and value[:_MAX_TEXT] == "":
             value = None
         if value is None:
-            if existing is not None and existing.endswith(b"/>"):
+            style = styles.style(template_style, None, highlights)
+            if style == template_style and existing is not None and existing.endswith(b"/>"):
                 return existing
             return _cell_xml(reference, style, None, b"")
         if isinstance(value, (datetime, date, time, timedelta)):
             if getattr(value, "tzinfo", None) is not None:
                 raise InvalidValue("strefa czasowa")
-            if not is_date_format(styles.number_format(style)):
-                style = styles.with_number_format(style, _date_format(value))
+            date_format = None if is_date_format(styles.number_format(template_style)) else _date_format(value)
             serial: float = to_excel(value, self._epoch)  # type: ignore[no-untyped-call]
+            style = styles.style(template_style, date_format, highlights)
             return _cell_xml(reference, style, b"n", b"<v>" + _number(serial) + b"</v>")
         kind, content = _value_xml(value)
-        return _cell_xml(reference, style, kind, content)
+        return _cell_xml(reference, styles.style(template_style, None, highlights), kind, content)
 
 
 def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, layout: SheetLayout) -> bool:
@@ -647,8 +676,17 @@ def _value_xml(value: object) -> tuple[bytes | None, bytes]:
 # --- style -------------------------------------------------------------------------------------
 
 
+# Styl komórki bez atrybutu ``s``: taki, jaki openpyxl nadaje nowej komórce.
+_DEFAULT_XF: Final = b'<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+_FONT_ID: Final = re.compile(rb'\sfontId="(\d+)"')
+_FILL_ID: Final = re.compile(rb'\sfillId="(\d+)"')
+
+
 class _Styles:
-    """``xl/styles.xml`` Wzorca: formaty liczb stylów komórek i miejsca na dopisanie stylów dat."""
+    """``xl/styles.xml`` Wzorca: style komórek z ich formatami liczb, czcionkami i wypełnieniami.
+
+    Czcionki i wypełnienia z nałożonymi Wyróżnieniami są liczone raz na Wzorzec, wspólnie dla wszystkich kopii.
+    """
 
     def __init__(self, info: zipfile.ZipInfo, xml: bytes, unchanged: _Part) -> None:
         self._info = info
@@ -656,26 +694,65 @@ class _Styles:
         cell_xfs = _CELL_XFS.search(xml)
         if cell_xfs is None:
             raise UnsupportedShape("cellXfs")
-        self.xfs = _XF.findall(cell_xfs.group(1))
+        self.xfs: list[bytes] = _XF.findall(cell_xfs.group(1))
         self.custom_formats: dict[int, str] = {}
         for number_format in _NUM_FMT.finditer(xml):
             attributes = {match.group(1): match.group(2) or match.group(3) or b"" for match in _ATTRIBUTE.finditer(number_format.group(1))}
             self.custom_formats[int(attributes[b"numFmtId"])] = html.unescape(attributes[b"formatCode"].decode("utf-8"))
+        root = ElementTree.fromstring(xml)
+        fonts = root.find(f"{_MAIN}fonts")
+        fills = root.find(f"{_MAIN}fills")
+        if fonts is None or fills is None or _FONTS.search(xml) is None or _FILLS.search(xml) is None:
+            raise UnsupportedShape("fonts")
+        self.fonts = [Font.from_tree(cast(Any, font)) for font in fonts.iterfind(f"{_MAIN}font")]
+        self.fills = [Fill.from_tree(cast(Any, fill)) or PatternFill() for fill in fills.iterfind(f"{_MAIN}fill")]
+        self.font_ids = _first_ids(self.fonts)
+        self.fill_ids = _first_ids(self.fills)
+        self._fonts_over: dict[tuple[int, Highlights], Font | None] = {}
+        self._fills_over: dict[tuple[int, Highlights], Fill | None] = {}
         self._unchanged = unchanged
 
+    def xf(self, style: int | None) -> bytes:
+        if style is None:
+            return _DEFAULT_XF
+        if style >= len(self.xfs):
+            raise UnsupportedShape("style")
+        return self.xfs[style]
+
     def format_id(self, style: int) -> int:
-        found = _NUM_FMT_ID.search(self.xfs[style][: self.xfs[style].index(b">")])
+        xf = self.xf(style)
+        found = _NUM_FMT_ID.search(xf, 0, xf.index(b">"))
         return int(found.group(1)) if found else 0
+
+    def font_over(self, font_id: int, highlights: Highlights) -> Font | None:
+        """Czcionka ``font_id`` z Wyróżnieniami; ``None``, gdy zostaje bez zmian."""
+
+        key = (font_id, highlights)
+        if key not in self._fonts_over:
+            base = _item(self.fonts, font_id)
+            font = highlights.font_over(base)
+            self._fonts_over[key] = None if font == base else font
+        return self._fonts_over[key]
+
+    def fill_over(self, fill_id: int, highlights: Highlights) -> Fill | None:
+        """Wypełnienie ``fill_id`` zastąpione Wyróżnieniami; ``None``, gdy zostaje bez zmian."""
+
+        key = (fill_id, highlights)
+        if key not in self._fills_over:
+            base = _item(self.fills, fill_id)
+            fill = highlights.fill_over(base)
+            self._fills_over[key] = None if fill == base else fill
+        return self._fills_over[key]
 
     def part(self, additions: _StyleAdditions) -> _Part:
         if not additions.xfs:
             return self._unchanged
         xml = self.xml
-        cell_xfs = _CELL_XFS.search(xml)
-        assert cell_xfs is not None
-        close = cell_xfs.end(1)
-        xml = xml[:close] + b"".join(additions.xfs) + xml[close:]
-        xml = _with_count(xml, b"cellXfs", len(self.xfs) + len(additions.xfs))
+        fonts = [ElementTree.tostring(font.to_tree()) for font in additions.fonts]
+        fills = [ElementTree.tostring(fill.to_tree()) for fill in additions.fills]
+        xml = _appended(xml, _FONTS, b"fonts", fonts, len(self.fonts))
+        xml = _appended(xml, _FILLS, b"fills", fills, len(self.fills))
+        xml = _appended(xml, _CELL_XFS, b"cellXfs", additions.xfs, len(self.xfs))
         if additions.formats:
             entries = b"".join(
                 b'<numFmt numFmtId="%d" formatCode="' % number + html.escape(code).encode("utf-8") + b'"/>'
@@ -696,6 +773,30 @@ class _Styles:
         return _compressed_part(self._info, xml)
 
 
+def _first_ids(items: Sequence[Font] | Sequence[Fill]) -> dict[object, int]:
+    ids: dict[object, int] = {}
+    for index, item in enumerate(items):
+        ids.setdefault(item, index)
+    return ids
+
+
+def _item(items: Sequence[_T], index: int) -> _T:
+    if index >= len(items):
+        raise UnsupportedShape("style")
+    return items[index]
+
+
+def _appended(xml: bytes, block: re.Pattern[bytes], tag: bytes, entries: Sequence[bytes], existing: int) -> bytes:
+    """``entries`` dopisane na końcu listy ``tag`` (pierwszej w pliku) z licznikiem ``existing`` + ich liczba."""
+
+    if not entries:
+        return xml
+    found = block.search(xml)
+    assert found is not None
+    xml = xml[: found.end(1)] + b"".join(entries) + xml[found.end(1) :]
+    return _with_count(xml, tag, existing + len(entries))
+
+
 def _with_count(xml: bytes, tag: bytes, count: int) -> bytes:
     start = re.search(rb"<" + tag + rb"\b[^>]*>", xml)
     assert start is not None
@@ -705,33 +806,47 @@ def _with_count(xml: bytes, tag: bytes, count: int) -> bytes:
 
 
 class _StyleAdditions:
-    """Style komórek dopisane dla jednej kopii: komórka z datą bez formatu daty dostaje format jak w openpyxl."""
+    """Style dopisane dla jednej kopii: format daty jak w openpyxl i Wyróżnienia inne niż w komórce Wzorca."""
 
     def __init__(self, styles: _Styles) -> None:
         self._styles = styles
         self.xfs: list[bytes] = []
         self.formats: list[tuple[int, str]] = []
-        self._added: dict[tuple[int | None, str], int] = {}
+        self.fonts: list[Font] = []
+        self.fills: list[Fill] = []
+        self._added: dict[tuple[int | None, str | None, Highlights], int | None] = {}
 
     def number_format(self, style: int | None) -> str:
         if style is None:
             return "General"
-        if style >= len(self._styles.xfs):
-            raise UnsupportedShape("style")
         number = self._styles.format_id(style)
         return self._styles.custom_formats.get(number) or BUILTIN_FORMATS.get(number, "General")
 
-    def with_number_format(self, style: int | None, code: str) -> int:
-        key = (style, code)
+    def style(self, style: int | None, date_format: str | None, highlights: Highlights) -> int | None:
+        """Styl wpisanej komórki: styl Wzorca ``style`` z formatem ``date_format`` (``None``: bez zmiany) i Wyróżnieniami."""
+
+        key = (style, date_format, highlights)
         if key not in self._added:
-            number = self._format_id(code)
-            if style is None:
-                xf = b'<xf numFmtId="%d" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' % number
-            else:
-                xf = _with_number_format(self._styles.xfs[style], number)
-            self._added[key] = len(self._styles.xfs) + len(self.xfs)
-            self.xfs.append(xf)
+            self._added[key] = self._resolved(style, date_format, highlights)
         return self._added[key]
+
+    def _resolved(self, style: int | None, date_format: str | None, highlights: Highlights) -> int | None:
+        base = self._styles.xf(style)
+        xf = base
+        if date_format is not None:
+            xf = _with_id(xf, b"numFmtId", self._format_id(date_format), b"applyNumberFormat")
+        font = self._styles.font_over(_xf_id(xf, _FONT_ID), highlights)
+        if font is not None:
+            font_id = _id(self._styles.font_ids, len(self._styles.fonts), self.fonts, font)
+            xf = _with_id(xf, b"fontId", font_id, b"applyFont")
+        fill = self._styles.fill_over(_xf_id(xf, _FILL_ID), highlights)
+        if fill is not None:
+            fill_id = _id(self._styles.fill_ids, len(self._styles.fills), self.fills, fill)
+            xf = _with_id(xf, b"fillId", fill_id, b"applyFill")
+        if xf is base:
+            return style
+        self.xfs.append(xf)
+        return len(self._styles.xfs) + len(self.xfs) - 1
 
     def _format_id(self, code: str) -> int:
         if code in BUILTIN_FORMATS_REVERSE:
@@ -744,12 +859,28 @@ class _StyleAdditions:
         return number
 
 
-def _with_number_format(xf: bytes, number: int) -> bytes:
+def _id(existing: dict[object, int], count: int, added: list[_T], item: _T) -> int:
+    """Numer ``item`` na liście Wzorca o ``count`` pozycjach, a gdy go tam nie ma, wśród dopisanych za nią."""
+
+    if item in existing:
+        return existing[item]
+    if item not in added:
+        added.append(item)
+    return count + added.index(item)
+
+
+def _xf_id(xf: bytes, attribute: re.Pattern[bytes]) -> int:
+    found = attribute.search(xf, 0, xf.index(b">"))
+    return int(found.group(1)) if found else 0
+
+
+def _with_id(xf: bytes, name: bytes, value: int, apply: bytes) -> bytes:
+    """Styl ``xf`` z atrybutem ``name`` równym ``value`` i flagą ``apply``; reszta stylu bez zmian."""
+
     tag_end = xf.index(b">")
     tag = xf[:tag_end]
-    tag = re.sub(rb'\snumFmtId="\d+"', b"", tag)
-    tag = re.sub(rb'\sapplyNumberFormat="\w+"', b"", tag)
+    tag = re.sub(rb"\s" + name + rb'="\d+"', b"", tag)
+    tag = re.sub(rb"\s" + apply + rb'="\w+"', b"", tag)
     tag = tag.rstrip(b"/ ")
     closing = xf[tag_end:] if not xf[tag_end - 1 : tag_end] == b"/" else b"/>"
-    return tag[:3] + b' numFmtId="%d"' % number + tag[3:] + b' applyNumberFormat="1"' + closing
-
+    return tag[:3] + b" " + name + b'="%d"' % value + tag[3:] + b" " + apply + b'="1"' + closing
