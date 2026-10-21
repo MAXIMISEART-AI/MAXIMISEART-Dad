@@ -519,7 +519,9 @@ def test_gdy_plik_taty_nie_wroci_po_przesunieciu_klon_wraca_do_poprzedniej_wersj
 def git_locking_after_merge(tmp_path: Path, locked: Path) -> Path:
     """Prawdziwy Git, po którego ``merge`` ``locked`` jest tylko do odczytu aż do następnego polecenia Gita.
 
-    Tak na chwilę blokuje plik albo folder antywirus czy OneDrive.
+    Tak na chwilę blokuje plik albo folder antywirus czy OneDrive. Windows nie
+    zważa na atrybut tylko do odczytu folderu, więc tam folder blokuje wpis
+    uprawnień, który odmawia tworzenia w nim plików.
     """
 
     real = shutil.which("git")
@@ -528,10 +530,17 @@ def git_locking_after_merge(tmp_path: Path, locked: Path) -> Path:
     script.write_text(
         "import os, stat, subprocess, sys\n"
         f"locked = {str(locked)!r}\n"
-        "os.chmod(locked, stat.S_IRWXU)\n"
+        "acl = os.name == 'nt' and os.path.isdir(locked)\n"
+        "def lock(on):\n"
+        "    if acl:\n"
+        "        rule = ['/deny', '*S-1-1-0:(WD,AD)'] if on else ['/remove:d', '*S-1-1-0']\n"
+        "        subprocess.run(['icacls', locked, *rule], capture_output=True, check=True)\n"
+        "    else:\n"
+        "        os.chmod(locked, stat.S_IREAD | stat.S_IEXEC if on else stat.S_IRWXU)\n"
+        "lock(False)\n"
         f"code = subprocess.call([{real!r}, *sys.argv[1:]])\n"
         "if 'merge' in sys.argv:\n"
-        "    os.chmod(locked, stat.S_IREAD | stat.S_IEXEC)\n"
+        "    lock(True)\n"
         "sys.exit(code)\n",
         encoding="utf-8",
     )
