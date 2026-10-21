@@ -32,8 +32,8 @@ SKILLS = ROOT / ".agents" / "skills"
 PATTERN = "check_*_mutations.py"
 MENTION = re.compile(r"[\w.-]*mutation[\w.-]*\.py", re.IGNORECASE)
 VERDICT = "MUTACJE OK"
-# Najdłuższy skrypt trwa w CI około 4,5 min; limit łapie zawieszenie, a nie wolny runner.
-LIMIT_S = 20 * 60
+# Najdłuższy skrypt trwa w CI od 4 do ponad 8 min; limit łapie zawieszenie, a nie wolny runner.
+LIMIT_S = 30 * 60
 
 
 def _name(path: Path) -> str:
