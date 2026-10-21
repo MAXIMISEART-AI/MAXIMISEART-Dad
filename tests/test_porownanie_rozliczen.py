@@ -68,6 +68,9 @@ def test_identyczne_foldery_rozliczen_pracownikow_nie_maja_roznic(tmp_path: Path
         pytest.param(_set("N18", "number_format", "0.00"), _only("style"), id="format-liczb"),
         pytest.param(_set("N18", "protection", Protection(locked=True)), _only("style"), id="ochrona"),
         pytest.param(
+            _set("F18", "hyperlink", "https://przyklad.invalid/zlecenie?caseId=SYN-1"), _only("hiperlacza"), id="hiperlacze"
+        ),
+        pytest.param(
             _change_workbook(lambda _workbook, sheet: sheet.unmerge_cells("A16:M16")), _only("scalenia"), id="scalenie"
         ),
         pytest.param(

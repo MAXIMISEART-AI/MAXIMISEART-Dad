@@ -47,6 +47,7 @@ from tests.fixtures.workbooks import (
     cut_sheet_after_data_rows,
     cut_sheet_after_sheet_data,
     external_link_parts,
+    hyperlinks,
     replace_cells,
     rewrite_parts,
     without_sheet,
@@ -604,6 +605,44 @@ def test_wyroznienia_takie_jak_we_wzorcu_zostawiaja_style_wzorca_bez_zmian(tmp_p
     WorkerSettlementTemplate(template_path).create_settlement(target, [_data_row(_row(A="syntetyczne miasto", N=2), **same)])
 
     assert zip_part(target, "xl/styles.xml") == zip_part(template_path, "xl/styles.xml")
+
+
+# Adresy, które aplikacja firmowa może dać w Rejestrze zleceń: znaki specjalne XML, fragment, spacje na brzegach, polskie znaki.
+LINKED_CELLS = {
+    "F18": 'https://przyklad.invalid/zlecenie?caseId=SYN-1&tw=1&q="a"<b>#sekcja',
+    "B19": " https://przyklad.invalid/ścieżka/zażółć gęślą?x='1' ",
+    "F20": "https://przyklad.invalid/zlecenie?caseId=SYN-3",
+}
+
+
+def linked_collective_file(directory: Path) -> Path:
+    """Plik zbiorczy z Wierszami danych 18–20 i Hiperłączami ``LINKED_CELLS``."""
+
+    path = directory / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+    write_source(path, include_unmapped=False)
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        for coordinate, address in LINKED_CELLS.items():
+            sheet[coordinate].hyperlink = address
+        workbook.save(path)
+    finally:
+        workbook.close()
+    return path
+
+
+@pytest.mark.parametrize("template", ["maly", "syntetyczny"])
+def test_rozliczenie_pracownika_ma_hiperlacza_wierszy_danych_jak_plik_z_wzorca(tmp_path: Path, template: str) -> None:
+    if template == "maly":
+        template_path = linked_template(tmp_path / "Wzorzec.xlsx")
+    else:
+        template_path = write_synthetic_templates(tmp_path / "wzorce") / WORKER_TEMPLATE
+    rows = read_data_rows(linked_collective_file(tmp_path))
+
+    created, expected = _settlement_folders(tmp_path, template_path, rows)
+
+    assert set(compare_worker_settlements(expected, created).values()) == {0}
+    assert hyperlinks(created / "Rozliczenie - Wykonawca.xlsx") == LINKED_CELLS
 
 
 def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_pracownika_bez_pliku(tmp_path: Path) -> None:
