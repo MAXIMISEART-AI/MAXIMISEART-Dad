@@ -140,10 +140,15 @@ def tool_repository(directory: Path, files: Mapping[str, str] = FIRST_VERSION) -
     return _published(directory, publisher)
 
 
-def centrum_tool_repository(directory: Path) -> ToolRepository:
-    """Jak ``tool_repository``, ale pierwsza wersja to prawdziwe Centrum rozliczeń (``copy_centrum_runtime``)."""
+def centrum_tool_repository(directory: Path, files: Mapping[str, str] | None = None) -> ToolRepository:
+    """Jak ``tool_repository``, ale pierwsza wersja to prawdziwe Centrum rozliczeń (``copy_centrum_runtime``).
 
-    return _published(directory, copy_centrum_runtime(directory / "wydawca"))
+    ``files`` podmienia albo dodaje pliki tej pierwszej wersji.
+    """
+
+    publisher = copy_centrum_runtime(directory / "wydawca")
+    _write(publisher, files or {})
+    return _published(directory, publisher)
 
 
 def _published(directory: Path, publisher: Path) -> ToolRepository:

@@ -1,0 +1,191 @@
+"""Aktualizacja narzędzia przerwana wyłączeniem komputera, a potem skrót „Centrum rozliczeń”.
+
+Klon narzędzia to prawdziwe Centrum rozliczeń w klonie Gita z lokalnym
+„origin” zamiast GitHuba. Aktualizację prowadzi Centrum w procesie testu.
+Wyłączenie komputera to Centrum, które w danym kroku przestaje cokolwiek robić:
+na dysku zostaje dokładnie to, co zdążyło zapisać. Skrót to prawdziwy proces
+``run_centrum.py`` z klonu.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+from typing import Any
+import urllib.request
+
+import pytest
+
+from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
+from tests.fixtures.tool_clone import REPOSITORY_ROOT, FakeInstaller, ToolRepository, centrum_tool_repository
+
+DAD_MAPPING = "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n"
+SAMPLE_MAPPING = "schema_version: 1\nworkers:\n  przyklad: Przykładowy Wykonawca\n"
+GITIGNORE = (REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8")
+MAPPING = "config/worker_mapping.yaml"
+
+
+@pytest.fixture(autouse=True)
+def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+        return port
+
+
+def _get(port: int, path: str) -> dict[str, Any]:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=1) as response:
+        body = json.load(response)
+        assert isinstance(body, dict)
+        return body
+
+
+@contextmanager
+def _shortcut(clone: Path, port: int) -> Iterator[subprocess.Popen[str]]:
+    """Tata klika skrót: ``run_centrum.py`` z klonu; po bloku Centrum zamyka się razem z każdym procesem potomnym."""
+
+    process = subprocess.Popen(
+        [sys.executable, str(clone / "run_centrum.py"), "--port", str(port), "--no-browser"],
+        cwd=clone,
+        env=os.environ | {"PYTHONUTF8": "1"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        start_new_session=os.name != "nt",
+    )
+    try:
+        yield process
+    finally:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
+        elif process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+        process.communicate(timeout=30)
+
+
+def _health(process: subprocess.Popen[str], port: int) -> dict[str, Any]:
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            return _get(port, "/api/health")
+        except OSError:
+            pass
+        if process.poll() is not None:
+            output = process.stdout.read() if process.stdout else ""
+            raise AssertionError(f"Centrum ze skrótu zakończyło się kodem {process.returncode}:\n{output}")
+        assert time.monotonic() < deadline, "Centrum ze skrótu nie odpowiedziało na health."
+        time.sleep(0.1)
+
+
+def _refusal(process: subprocess.Popen[str], port: int) -> tuple[int, str]:
+    """Kod wyjścia i konsola skrótu, który miał odmówić startu; ``AssertionError``, gdy Centrum jednak odpowiada."""
+
+    try:
+        output, _ = process.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        raise AssertionError(f"Skrót nie odmówił startu, Centrum odpowiada: {_get(port, '/api/health')}") from None
+    return process.returncode, output
+
+
+def _repository_with_dad_file(directory: Path) -> ToolRepository:
+    """Prawdziwe Centrum, którego pierwsza wersja śledzi Konfigurację wykonawców, a tata ma w niej swoje nazwiska."""
+
+    repository = centrum_tool_repository(
+        directory, {".gitignore": GITIGNORE.replace(f"{MAPPING}\n", ""), MAPPING: SAMPLE_MAPPING}
+    )
+    repository.write(MAPPING, DAD_MAPPING)
+    return repository
+
+
+def _version_without_its_library(repository: ToolRepository) -> str:
+    """Nowa wersja przestaje śledzić plik taty, dodaje bibliotekę do wymagań i bez niej nie wystartuje."""
+
+    app = (repository.publisher / "src/rozliczenia/centrum/app.py").read_text(encoding="utf-8")
+    return repository.publish(
+        {
+            ".gitignore": GITIGNORE,
+            "requirements.txt": "biblioteka-ktorej-nie-ma>=1\n",
+            "src/rozliczenia/centrum/app.py": app.replace(
+                "from __future__ import annotations\n",
+                "from __future__ import annotations\n\nimport biblioteka_ktorej_nie_ma  # noqa: F401\n",
+                1,
+            ),
+        },
+        untrack=(MAPPING,),
+    )
+
+
+def _update_until(centrum: PreparingCentrum, reached: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+    assert centrum.client.post("/api/tool-update").status_code == 202
+    deadline = time.monotonic() + 30
+    while True:
+        view = dict(centrum.client.get("/api/tool-update").json())
+        if reached(view):
+            return view
+        assert time.monotonic() < deadline, f"Aktualizacja narzędzia utknęła w {view}."
+        time.sleep(0.02)
+
+
+def test_po_wylaczeniu_komputera_w_trakcie_instalacji_bibliotek_skrot_wraca_do_poprzedniej_wersji_z_plikiem_taty(
+    tmp_path: Path,
+) -> None:
+    repository = _repository_with_dad_file(tmp_path / "repozytoria")
+    before = repository.head()
+    newest = _version_without_its_library(repository)
+    # Pip nigdy nie kończy: komputer gaśnie w trakcie instalacji, a Centrum już niczego nie zrobi.
+    centrum = preparing_centrum(
+        tmp_path,
+        surroundings=Surroundings(tool=repository, installer=FakeInstaller(hold=threading.Event())),
+    )
+    _update_until(centrum, lambda view: view.get("step") == "installing")
+    switched_off = repository.head()
+    port = _free_port()
+
+    with _shortcut(repository.clone, port) as shortcut:
+        health = _health(shortcut, port)
+        view = _get(port, "/api/tool-update")
+
+    assert switched_off == newest
+    assert health["commit"] == before[:7]
+    assert repository.head() == before
+    assert repository.read(MAPPING) == DAD_MAPPING
+    assert repository.in_clone("status", "--porcelain", "--untracked-files=no") == f"M {MAPPING}"
+    assert (view["state"], view["message"]["what"], view["next_action"]) == (
+        "failed",
+        "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
+        "retry",
+    )
+
+
+def test_skrot_w_trakcie_ponownego_startu_po_aktualizacji_nie_rusza_klonu_i_prosi_o_chwile_cierpliwosci(
+    tmp_path: Path,
+) -> None:
+    repository = centrum_tool_repository(tmp_path / "repozytoria")
+    newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
+    # Opiekun ponownego startu dopiero czeka na port: nowa wersja jeszcze nie działa.
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository))
+    _update_until(centrum, lambda view: view.get("step") == "restarting")
+    port = _free_port()
+
+    with _shortcut(repository.clone, port) as shortcut:
+        code, console = _refusal(shortcut, port)
+
+    assert code == 1
+    assert console.splitlines()[0] == "Co się stało: Aktualizacja narzędzia jeszcze się kończy."
+    assert repository.head() == newest
