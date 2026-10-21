@@ -5,6 +5,10 @@ patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjści
 przy porażce. Kończy się ``CI LOKALNIE OK`` albo ``CI LOKALNIE FAIL | <kroki>``. Zadania E2E i
 Timing guard mają swoje narzędzia (``--kroki-ci`` je wymienia), bo trwają kilka minut.
 
+Po ``CI LOKALNIE OK`` na czystym checkoucie zapisuje jego drzewo HEAD w pieczątce
+``$(git rev-parse --git-dir)/ci-lokalnie-ok``: brama ``tools/hooks/pre-push`` przepuszcza wtedy push
+tego drzewa bez ponownego przebiegu.
+
     py -3 tools/ci_lokalnie.py                  # Windows
     .venv/bin/python tools/ci_lokalnie.py       # macOS i Linux
 """
@@ -31,6 +35,7 @@ JOBS_ELSEWHERE = {
     "required": "zbiorczy status pozostałych zadań, nic do odtworzenia",
 }
 OUTPUT_ON_FAILURE = 40
+STAMP = "ci-lokalnie-ok"
 
 
 @dataclass(frozen=True)
@@ -94,6 +99,16 @@ def _dependencies_fresh() -> bool:
     return installed.exists() and installed.stat().st_mtime >= (FRONTEND / "package-lock.json").stat().st_mtime
 
 
+def _git(*args: str) -> str:
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _clean_tree() -> str | None:
+    """Drzewo HEAD, gdy checkout nie ma zmian ani nieśledzonych plików (pytest uruchomiłby i je)."""
+
+    return None if _git("status", "--porcelain") else _git("rev-parse", "HEAD^{tree}")
+
+
 def _run(step: Step) -> tuple[bool, str]:
     environment = {**os.environ, "PYTHON": sys.executable, "PYTHONUTF8": "1"}
     completed = subprocess.run(
@@ -118,14 +133,22 @@ def _run(step: Step) -> tuple[bool, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--kroki-ci", action="store_true", help="Wypisz JSON: odtwarzane zadania CI i ich polecenia.")
+    parser.add_argument(
+        "--do-pierwszego-bledu",
+        action="store_true",
+        help="Zakończ po pierwszym nieudanym kroku (brama pre-push: nieudany push odpowiada szybko).",
+    )
     args = parser.parse_args(argv)
     steps = _steps()
     if args.kroki_ci:
         jobs = sorted({step.job for step in steps})
         print(json.dumps({"lokalnie": jobs, "gdzie_indziej": JOBS_ELSEWHERE, "fragmenty": [s.ci for s in steps]}))
         return 0
-    failed = []
+    tree = _clean_tree()
+    failed: list[str] = []
     for step in steps:
+        if failed and args.do_pierwszego_bledu:
+            break
         if step.name == "npm ci" and _dependencies_fresh():
             print(f"POMINIĘTO {step.name} (node_modules z bieżącego package-lock.json)", flush=True)
             continue
@@ -144,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1
+    # Commit albo zmiana w trakcie przebiegu znaczy, że sprawdzone drzewo nie jest już drzewem HEAD.
+    if tree is not None and _clean_tree() == tree:
+        (ROOT / _git("rev-parse", "--git-dir") / STAMP).write_text(tree, encoding="utf-8")
     print("CI LOKALNIE OK")
     return 0
 
