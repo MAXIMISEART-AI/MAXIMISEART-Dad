@@ -7,7 +7,7 @@ Centrum it runs as `tools/uruchom_proces.py preparation`.
 
 ## Sub-features
 
-- `preparation-plan` dry-run reports order counts, skipped empty rows, orders per day, warnings, and both file names in `summary`, and records the period in its metrics; it creates neither file nor the Folder okresu.
+- `preparation-plan` dry-run reports order counts, skipped empty rows, orders per day, and both file names in `summary` and its warnings in `warnings`, and records the period in its metrics; it creates neither file nor the Folder okresu.
 - `preparation-internal` writes every period order (successful or not) in Rejestr order to the Rozliczenie wewnętrzne, with `zwrot`/`UWAGI` empty; the Rejestr columns AKCJE, ZWROT and UWAGI reach neither period file.
 - `preparation-collective` writes every Zlecenie skuteczne to `A:K` from row 18 of the Plik zbiorczy, leaving rates, sums, `N:AP` zeros, formulas, and sheets from the Wzorzec.
 - `preparation-formatting` carries fill, font colour, bold, italic, and number format (dates included) from the Rejestr; widths and frozen header from the Wzorzec; font face/size from the Wzorzec cell, else its row style, else its column style; autofilter covers header plus data rows.

@@ -3,8 +3,8 @@
 When Maks closes a Zgłoszenie that Dad sent from the version of the tool that
 still runs, Okresy shows the calm notice `Maks naprawił zgłoszony problem.` with the
 button `Zaktualizuj narzędzie`. Centrum asks the skrzynka Zgłoszeń about open sent
-Zgłoszenia at its first read after start and on entering Okresy, at most once
-per 10 minutes; no network passes silently with the last known state. After
+Zgłoszenia once at start (in the background) and on entering Okresy, at most
+once per 10 minutes; no network passes silently with the last known state. After
 Dad updates the tool, the commit differs and the notice is gone by itself. The
 button's update itself is driven in `aktualizacja.md`; here the tool's commit is
 pinned instead.

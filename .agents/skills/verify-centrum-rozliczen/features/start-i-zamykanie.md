@@ -36,9 +36,9 @@ Preconditions:
 - **Foreign program.** Bind a socket on a free port, then run the launcher on it. It exits 1, prints the lines `Co się stało`, `Gdzie`, `Co zrobić` with `zajmuje inny program`, nothing on stderr (`api/start-obcy-program.txt`), and the copy's log ends with `blad-startu`.
 - **Tabs in the background.** The drive's tab opens `#/uruchomienia` and waits until heading `Uruchomienia` shows and the skeleton `Wczytywanie Uruchomień` is gone, which needs both the run setup (API) and the current Uruchomienie (stream). The harness sends it to the background (`document.visibilityState` `hidden` and a `visibilitychange` event, as the browser does for a tab left behind); its `/api/runs/events` request fails with `net::ERR_ABORTED`. Seven times: open a new tab (`context.new_page()`) on `#/uruchomienia` and wait up to 5 s for the same, then send it to the background before the next one. Capture `90` (the seventh tab). Bring the drive's tab back to the front: its new `/api/runs/events` request answers `200`. Close the seven tabs.
 - **Tab close.** Open the URL in a second tab (`context.new_page()`), wait for heading `Okresy`, close it; `health` still answers.
-- **Confirmation.** Click button `Zamknij Centrum rozliczeń` (exact). Alert dialog `Zamknąć Centrum rozliczeń?` shows `Wrócisz skrótem „Centrum rozliczeń” na pulpicie.`; capture `91`. Click `Anuluj`; the dialog closes and the log has no `zamkniecie`.
+- **Confirmation.** Click button `Zamknij Centrum rozliczeń` (exact). Alert dialog `Zamknąć Centrum rozliczeń?` shows `Wrócisz skrótem „Centrum rozliczeń” na pulpicie.`; capture `91`. Click `Anuluj`; the dialog closes and the log has no new `zamkniecie` (in `all`, aktualizacja already logged one).
 - **Close.** Click `Zamknij Centrum rozliczeń`, then `Zamknij Centrum`. Heading `Centrum rozliczeń jest zamknięte` appears, `health` stops answering, the log ends with `zamkniecie`, `stop`; capture `92`.
-- **Proof.** Screenshots `90`–`92`, `api/start-*.txt`, `state/centrum-rozliczen.log`.
+- **Proof.** Screenshots `90`–`92`, `api/start-health.json`, `api/start-*.txt`, `state/centrum-rozliczen.log`. The copy's log under `<root>/narzedzie` goes with the run root.
 
 ## Gotchas
 
