@@ -9,7 +9,9 @@ z ``PYTHONPATH`` na ``src`` kopii: edytowalna instalacja ``.venv`` wskazuje ``sr
 Mutacja zmienia jedną albo kilka kotwic, każdą obecną w swoim pliku dokładnie raz; inaczej jest
 NIEAKTUALNA. Zanim narzędzie zepsuje kod, polecenie musi przejść na kopii bez mutacji. Mutacja
 jest WYKRYTA, gdy polecenie pada; PRZEKROCZONY CZAS nie jest wykryciem. Mutacje biegną po kolei,
-bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je zrównolegla.
+bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je zrównolegla. Przekroczony
+czas i przerwanie (Ctrl-C albo SIGINT do samego narzędzia) zabijają polecenie razem z jego procesami
+potomnymi, a kopie są usuwane.
 
     .venv/bin/python tools/mutacje.py --zmiana src/rozliczenia/x.py 'stary kod' 'nowy kod' \\
         -- -m pytest -q tests/test_x.py -k nazwa_testu
@@ -27,13 +29,16 @@ from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 600
@@ -81,13 +86,14 @@ def checkout_copy() -> Iterator[Path]:
         copy = Path(scratch) / "kopia"
         _git("worktree", "add", "--quiet", "--detach", str(copy), "HEAD")
         try:
-            for name in set(filter(None, changed.split("\0"))):
-                source, target = ROOT / name, copy / name
-                if source.is_file():
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source, target, follow_symlinks=False)
-                else:
-                    target.unlink(missing_ok=True)
+            names = sorted(set(filter(None, changed.split("\0"))))
+            present = [name for name in names if (ROOT / name).is_symlink() or (ROOT / name).is_file()]
+            # Najpierw usunięcia: ścieżka, która zmieniła typ, zwalnia miejsce na plik albo katalog o tej nazwie.
+            for name in sorted(set(names) - set(present)):
+                _remove(copy, copy / name)
+            for name in present:
+                (copy / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, copy / name, follow_symlinks=False)
             imported = subprocess.run(
                 [sys.executable, "-c", "import rozliczenia; print(rozliczenia.__file__)"],
                 cwd=copy,
@@ -106,6 +112,80 @@ def checkout_copy() -> Iterator[Path]:
     _git("worktree", "prune")
 
 
+def _remove(copy: Path, path: Path) -> None:
+    """Usuwa plik kopii i katalogi, które przez to zostały puste, jak ``git rm``."""
+
+    path.unlink(missing_ok=True)
+    for parent in path.parents:
+        if parent == copy or any(parent.iterdir()):
+            break
+        parent.rmdir()
+
+
+class _Commands:
+    """Trwające polecenia mutacji; ``stop`` zabija je razem z ich procesami potomnymi i nie wpuszcza nowych."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._running: set[subprocess.Popen[str]] = set()
+        self._stopped = False
+
+    @contextmanager
+    def run(self, command: Sequence[str], copy: Path) -> Iterator[subprocess.Popen[str]]:
+        """Polecenie w kopii; nie przeżywa bloku ``with``, także po przekroczeniu czasu i przerwaniu."""
+
+        with self._lock:
+            if self._stopped:
+                raise _Stopped
+            process = subprocess.Popen(
+                command,
+                cwd=copy,
+                env=environment(copy),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                start_new_session=os.name != "nt",
+            )
+            self._running.add(process)
+        with process:
+            try:
+                yield process
+            finally:
+                _kill_tree(process)
+                process.wait()
+                with self._lock:
+                    self._running.discard(process)
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stopped = True
+            running = list(self._running)
+        for process in running:
+            _kill_tree(process)
+
+
+class _Stopped(Exception):
+    """Mutacja nie uruchomiła polecenia, bo przebieg został przerwany."""
+
+
+def _kill_tree(process: subprocess.Popen[str]) -> None:
+    """Zabija trwające polecenie z jego potomkami: w Windows ``taskkill /T``, gdzie indziej całą jego sesję."""
+
+    if process.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, timeout=30, check=False)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass  # sesja już się skończyła
+    process.kill()
+
+
 def _apply(copy: Path, edits: Sequence[Edit]) -> str | None:
     """Zmienia kod kopii; zwraca opis kotwicy, której nie ma dokładnie raz."""
 
@@ -118,62 +198,60 @@ def _apply(copy: Path, edits: Sequence[Edit]) -> str | None:
     return None
 
 
-def _run(copy: Path, command: Sequence[str]) -> tuple[int | None, str]:
+def _run(commands: _Commands, copy: Path, command: Sequence[str]) -> tuple[int | None, str]:
     """Uruchamia polecenie w kopii; zwraca kod wyjścia (None po przekroczeniu czasu) i ostatnią linię."""
 
-    try:
-        completed = subprocess.run(
-            [sys.executable, *command],
-            cwd=copy,
-            env=environment(copy),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=TIMEOUT,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return None, f"brak wyniku po {TIMEOUT} s"
-    lines = (completed.stdout.strip() or completed.stderr.strip()).splitlines()
-    return completed.returncode, lines[-1] if lines else f"kod wyjścia {completed.returncode}"
+    with commands.run([sys.executable, *command], copy) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return None, f"brak wyniku po {TIMEOUT} s"
+    lines = (stdout.strip() or stderr.strip()).splitlines()
+    return process.returncode, lines[-1] if lines else f"kod wyjścia {process.returncode}"
 
 
-def _verdict(mutation: Mutation) -> tuple[str, str]:
+def _verdict(commands: _Commands, mutation: Mutation) -> tuple[str, str]:
     with checkout_copy() as copy:
         stale = _apply(copy, mutation.edits)
         if stale:
             return "NIEAKTUALNA", stale
-        code, last = _run(copy, mutation.command)
+        code, last = _run(commands, copy, mutation.command)
     if code is None:
         return "PRZEKROCZONY CZAS", last
     caught = last.startswith(mutation.expected) if mutation.expected is not None else code != 0
     return ("WYKRYTA" if caught else "NIEWYKRYTA"), last
 
 
-def _baseline(commands: set[tuple[str, ...]]) -> list[str]:
+def _baseline(commands: _Commands, baseline: set[tuple[str, ...]]) -> list[str]:
     """Polecenia, które padają już bez mutacji, z ostatnią linią wyjścia."""
 
     red = []
     with checkout_copy() as copy:
-        for command in sorted(commands):
-            code, last = _run(copy, command)
+        for command in sorted(baseline):
+            code, last = _run(commands, copy, command)
             if code != 0:
                 red.append(f"{' '.join(command)} → {last}")
     return red
 
 
 def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, baseline: bool = False) -> int:
+    commands = _Commands()
     if baseline:
-        red = _baseline({mutation.command for mutation in mutations if mutation.expected is None})
+        red = _baseline(commands, {mutation.command for mutation in mutations if mutation.expected is None})
         for line in red:
             print(f"PODSTAWA CZERWONA: {line}", flush=True)
         if red:
             print("MUTACJE: polecenie pada bez mutacji, więc porażka po mutacji niczego nie dowodzi")
             return 2
-    with ThreadPoolExecutor(max_workers=None if parallel else 1) as pool:
-        verdicts = list(pool.map(_verdict, mutations))
+    pool = ThreadPoolExecutor(max_workers=None if parallel else 1)
+    try:
+        verdicts = list(pool.map(partial(_verdict, commands), mutations))
+    except BaseException:
+        # Przerwanie (np. SIGINT tylko do tego procesu) nie czeka, aż trwające mutacje dobiegną końca.
+        commands.stop()
+        raise
+    finally:
+        pool.shutdown(cancel_futures=True)
     failures = 0
     for mutation, (verdict, last) in zip(mutations, verdicts, strict=True):
         failures += verdict != "WYKRYTA"

@@ -6,10 +6,16 @@ modułu, więc test nie zależy od niej.
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
+import signal
 import subprocess
 import sys
+import time
+from types import ModuleType
 
 import pytest
 
@@ -125,3 +131,107 @@ def test_plik_mutacji_spoza_repozytorium_jest_odrzucony_przed_zmiana() -> None:
 
     assert answered.returncode == 2
     assert "plik mutacji musi leżeć w repozytorium" in answered.stderr
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [({"zmiana": "plik"}, {"zmiana/a.txt": "nowy", "zmiana/b.txt": "nowy", "zmiana/c.txt": "nowy"}), ({"zmiana/a.txt": "stary"}, {"zmiana": "nowy"})],
+    ids=["plik-w-katalog", "katalog-w-plik"],
+)
+def test_kopia_ma_sciezke_ktora_zmienila_typ(tmp_path: Path, before: dict[str, str], after: dict[str, str]) -> None:
+    repo = repository(tmp_path / "repo", {"src/rozliczenia/__init__.py": "WARTOSC = 0\n", **before})
+    commit(repo, "baza")
+    if (repo / "zmiana").is_dir():
+        shutil.rmtree(repo / "zmiana")
+    else:
+        (repo / "zmiana").unlink()
+    for name, text in after.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+    sees_after = (
+        "import pathlib, rozliczenia; path = pathlib.Path('zmiana'); "
+        "seen = {file.as_posix(): file.read_text() for file in [path, *path.rglob('*')] if file.is_file()}; "
+        f"raise SystemExit(0 if seen == {after!r} and rozliczenia.WARTOSC == 0 else 9)"
+    )
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "mutacje.py"), "--zmiana", "src/rozliczenia/__init__.py", "WARTOSC = 0", "WARTOSC = 1", "--", "-c", sees_after],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+    )
+
+    assert answered.stdout.splitlines() == ["WYKRYTA: mutacja → kod wyjścia 9", "MUTACJE OK"], answered.stderr
+
+
+def _hanging_repository(path: Path) -> tuple[Path, list[str], Path, Path]:
+    """Repozytorium, którego mutacja uruchamia wnuka i wisi; wnuk, póki żyje, dopisuje do pliku co 0,1 s."""
+
+    repo = repository(path / "repo", {"src/rozliczenia/__init__.py": "WISI = False\n"})
+    commit(repo, "baza")
+    started, beats = path / "wystartowal", path / "wnuk-zyje"
+    grandchild = f"import time\nwhile True:\n    open({str(beats)!r}, 'a').write('.')\n    time.sleep(0.1)\n"
+    hangs = (
+        "import pathlib, subprocess, sys, time, rozliczenia\n"
+        "if rozliczenia.WISI:\n"
+        f"    subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
+        f"    while not pathlib.Path({str(beats)!r}).exists():\n"
+        "        time.sleep(0.1)\n"
+        f"    pathlib.Path({str(started)!r}).touch()\n"
+        "    time.sleep(60)\n"
+    )
+    mutation = ["--zmiana", "src/rozliczenia/__init__.py", "WISI = False", "WISI = True", "--", "-c", hangs]
+    return repo, mutation, started, beats
+
+
+def _beating(beats: Path) -> bool:
+    before = beats.stat().st_size
+    time.sleep(2)
+    return beats.stat().st_size != before
+
+
+def _load(tool: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location("mutacje_repozytorium", tool)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_po_przekroczeniu_czasu_nie_zostaje_zaden_proces_polecenia(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, mutation, started, beats = _hanging_repository(tmp_path)
+    mutacje = _load(repo / "tools" / "mutacje.py")
+    monkeypatch.setattr(mutacje, "TIMEOUT", 5)
+
+    code = mutacje.main(mutation)
+
+    assert (code, capsys.readouterr().out.splitlines()[0]) == (1, "PRZEKROCZONY CZAS: mutacja → brak wyniku po 5 s")
+    assert (started.exists(), _beating(beats)) == (True, False)
+    assert git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT do jednego procesu jest sygnałem POSIX")
+def test_sigint_do_narzedzia_konczy_trwajace_mutacje_i_sprzata(tmp_path: Path) -> None:
+    repo, mutation, started, beats = _hanging_repository(tmp_path)
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    tool = subprocess.Popen(
+        [sys.executable, str(repo / "tools" / "mutacje.py"), *mutation],
+        env={**os.environ, "TMPDIR": str(scratch)},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 60
+    while not started.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+
+    tool.send_signal(signal.SIGINT)
+    tool.wait(timeout=20)
+
+    assert (started.exists(), _beating(beats)) == (True, False)
+    assert git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
+    assert list(scratch.iterdir()) == []
