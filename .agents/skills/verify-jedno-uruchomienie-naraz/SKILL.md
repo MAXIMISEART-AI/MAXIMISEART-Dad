@@ -145,7 +145,8 @@ Read the counterexample as a story. Each numbered line is one step:
 ## After changing the checker or an intended change to the covered code
 
 Prove the check can still fail. This applies broken variants to a temporary copy
-of `src`, never to the checkout, all at once (about 70 s on a Mac):
+of `src`, never to the checkout, each in the one scope that catches it (about
+50 s on a Mac, most of it `dwie-karty` for the split check and claim):
 
 ```powershell
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutations.py

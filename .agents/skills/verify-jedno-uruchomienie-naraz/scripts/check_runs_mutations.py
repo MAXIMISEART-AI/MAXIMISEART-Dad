@@ -13,7 +13,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +30,7 @@ class Mutation:
     file: Path
     anchor: str
     replacement: str
+    scope: str  # the explorer scope that catches it; every scope for every mutation costs minutes in CI
     expected: str  # last line of the checker's report
 
 
@@ -41,6 +41,7 @@ MUTATIONS = (
         RUNS,
         "            run = _Run(self, prepared)\n",
         "        with self._lock:\n            run = _Run(self, prepared)\n",
+        "dwie-karty",
         "URUCHOMIENIA: NOWE NARUSZENIE",
     ),
     Mutation(
@@ -49,6 +50,7 @@ MUTATIONS = (
         RUNS,
         "            if run is None or run.ended:\n",
         "            if run is None or run.ended or run.awaiting_decision:\n",
+        "zamknij-w-trakcie",
         "URUCHOMIENIA: NOWE NARUSZENIE",
     ),
     Mutation(
@@ -57,6 +59,7 @@ MUTATIONS = (
         RUNS,
         "        prepared = self._prepared\n        stop: Stop | None\n",
         "        prepared = self._prepared\n        self.ended = True\n        stop: Stop | None\n",
+        "zamknij-w-trakcie",
         "URUCHOMIENIA: NOWE NARUSZENIE",
     ),
     Mutation(
@@ -65,6 +68,7 @@ MUTATIONS = (
         SHUTDOWN,
         "        message = self._blocker()\n",
         "        message = None\n",
+        "zamknij-w-trakcie",
         "URUCHOMIENIA: NOWE NARUSZENIE",
     ),
     Mutation(
@@ -73,6 +77,7 @@ MUTATIONS = (
         RUNS,
         "        self._lock = threading.Lock()\n",
         "        self._lock = threading.RLock()\n",
+        "zamknij-w-trakcie",
         "URUCHOMIENIA: LUKA MODELU",
     ),
 )
@@ -100,12 +105,12 @@ def run_mutation(mutation: Mutation) -> tuple[bool, str]:
             "PYTHONUTF8": "1",
         }
         completed = subprocess.run(
-            [sys.executable, str(EXPLORER)],
+            [sys.executable, str(EXPLORER), "--scope", mutation.scope],
             capture_output=True,
             text=True,
             encoding="utf-8",
             env=environment,
-            timeout=300,
+            timeout=600,
             check=False,
         )
     lines = completed.stdout.strip().splitlines()
@@ -115,12 +120,11 @@ def run_mutation(mutation: Mutation) -> tuple[bool, str]:
 
 def main() -> int:
     failures = 0
-    with ThreadPoolExecutor() as pool:
-        results = list(pool.map(run_mutation, MUTATIONS))
-    for mutation, (caught, last) in zip(MUTATIONS, results, strict=True):
+    for mutation in MUTATIONS:
+        caught, last = run_mutation(mutation)
         failures += not caught
         verdict = "WYKRYTA" if caught else "NIEWYKRYTA"
-        print(f"{verdict}: {mutation.name} ({mutation.harm}) → {last}")
+        print(f"{verdict}: {mutation.name} ({mutation.harm}) → {last}", flush=True)
     print("MUTACJE OK" if not failures else f"MUTACJE: {failures} bez oczekiwanego wyniku")
     return 1 if failures else 0
 
