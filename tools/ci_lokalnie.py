@@ -61,7 +61,7 @@ def _steps() -> list[Step]:
         ),
         Step(
             "mutacje kopii Wzorca",
-            "pytest",
+            "mutations",
             "verify-kopia-wzorca/scripts/check_copy_mutations.py",
             (python, ".agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py"),
         ),
