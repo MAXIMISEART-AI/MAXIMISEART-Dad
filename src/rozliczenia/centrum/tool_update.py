@@ -506,7 +506,7 @@ def _text_of(file: IO[bytes]) -> str:
 def _kill_tree(process: subprocess.Popen[bytes]) -> None:
     """Zabija Gita razem z jego pomocnikami: w Windows ``taskkill /T``, gdzie indziej całą jego sesję."""
 
-    if os.name == "nt":
+    if sys.platform == "win32":
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(process.pid)],
             stdin=subprocess.DEVNULL,
