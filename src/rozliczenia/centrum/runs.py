@@ -351,7 +351,7 @@ class _Run:
     # Podgląd postępu (trzeci adapter projekcji). Każde powiadomienie odświeża widok
     # na żywo; przeglądarka dostaje nowy widok tylko wtedy, gdy zmieniło się to, co pokazuje.
 
-    def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
+    def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self._show(snapshot)
 
     def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:

@@ -79,8 +79,6 @@ def _finished(summary: PreparationSummary) -> Finished:
 
 PROCESS: Process[PreparationInputs, PreparationSummary] = Process(
     name="Przygotowanie pliku zbiorczego",
-    title="Przygotowanie pliku zbiorczego",
-    shows_templates=False,
     counter_names=_COUNTERS,
     metrics_path=default_metrics_path,
     metrics_failure_tail="Przygotowanie pliku zbiorczego zakończyło się niezależnie.",

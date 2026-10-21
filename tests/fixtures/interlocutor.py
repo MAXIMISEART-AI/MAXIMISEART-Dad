@@ -26,7 +26,7 @@ class Tata:
         self.before_answer()
         return self.consent
 
-    def start_progress(self, snapshot: ProgressSnapshot, **_view: object) -> None:
+    def start_progress(self, snapshot: ProgressSnapshot) -> None:
         self.progress_view.append("start")
 
     def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:

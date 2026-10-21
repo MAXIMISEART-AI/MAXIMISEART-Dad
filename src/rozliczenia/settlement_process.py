@@ -80,11 +80,8 @@ def _finished(summary: SettlementSummary) -> Finished:
     )
 
 
-# ``title`` to nagłówek podglądu w terminalu („Rozliczenia | okres | tryb”), bez zmian od pierwszej wersji.
 PROCESS: Process[SettlementInputs, SettlementSummary] = Process(
     name="Przebieg rozliczeń",
-    title="Rozliczenia",
-    shows_templates=True,
     counter_names=COUNTER_NAMES,
     metrics_path=default_metrics_path,
     metrics_failure_tail="proces rozliczeń zakończył się niezależnie.",

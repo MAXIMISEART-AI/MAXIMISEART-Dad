@@ -67,7 +67,7 @@ class Interlocutor(Conversation, Protocol):
     go na resztę Uruchomienia bez wpływu na wynik.
     """
 
-    def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None: ...
+    def start_progress(self, snapshot: ProgressSnapshot) -> None: ...
 
     def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None: ...
 
@@ -110,8 +110,8 @@ class Finished:
 class Process(Generic[InputsT, SummaryT]):
     """Opis procesu dla rdzenia Uruchomienia procesu, wspólny dla każdego rozmówcy.
 
-    ``name`` to nazwa procesu z GLOSSARY, a ``title`` nagłówek podglądu
-    postępu. ``execute`` wywołuje silnik z gotowym wejściem procesu.
+    ``name`` to nazwa procesu z GLOSSARY. ``execute`` wywołuje silnik z
+    gotowym wejściem procesu.
     Zatrzymanie zgłasza ``StopError`` z Komunikatem z katalogu procesu.
     Komunikaty zakończeń z tego samego katalogu (``unexpected_failure``,
     ``plan_not_shown``, ``summary_not_shown``) rdzeń dołącza do każdego innego
@@ -121,8 +121,6 @@ class Process(Generic[InputsT, SummaryT]):
     """
 
     name: str
-    title: str
-    shows_templates: bool
     counter_names: frozenset[str]
     metrics_path: Callable[[], Path]
     metrics_failure_tail: str
@@ -205,9 +203,9 @@ class _Observation:
         self.projection = ProgressProjection(mode, period)
         self.failed = False
 
-    def start(self, *, title: str, shows_templates: bool) -> None:
+    def start(self) -> None:
         try:
-            self._interlocutor.start_progress(self.projection.snapshot, title=title, shows_templates=shows_templates)
+            self._interlocutor.start_progress(self.projection.snapshot)
         except Exception:  # noqa: BLE001 - ADR 0002: awaria podglądu odłącza go, rdzeń zgłasza to neutralną linią
             self.failed = True
 
@@ -294,7 +292,7 @@ def run_process(
     started_at = datetime.now(timezone.utc).isoformat()
     clock = _Clock()
     observation = _Observation(interlocutor, mode, inputs.period)
-    observation.start(title=process.title, shows_templates=process.shows_templates)
+    observation.start()
 
     engine_outcome = _run_engine(process, inputs, observation, _ClockedConversation(interlocutor, clock), view)
     total_duration_ms = clock.elapsed_ms()
