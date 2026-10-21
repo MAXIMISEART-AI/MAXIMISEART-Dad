@@ -11,7 +11,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from playwright.sync_api import Page, expect
 
 from drive.common import (
-    LAST_COMPLETE_FOR_CLI,
+    LAST_COMPLETE,
     ROW_MARKER,
     Run,
     current_run,
@@ -25,14 +25,14 @@ from drive.common import (
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
 SETTLEMENT = "przebieg-rozliczen"
-WORKER_SETTLEMENTS = f"Rozliczenie pracowników {LAST_COMPLETE_FOR_CLI}"
+WORKER_SETTLEMENTS = f"Rozliczenie pracowników {LAST_COMPLETE}"
 # serve_centrum.py waits this long before each Szablon pracownika while the pacing file exists.
 TEMPLATE_PACING_MS = 1500
 WORKER_COLUMN, QUANTITY_COLUMN, FIRST_DATA_ROW = 8, 14, 18  # H (WYKONAWCA), N (first quantity), row 18
 
 
 def _settlement_records(run: Run, name: str) -> list[dict[str, object]]:
-    """Valid records of the CLI's Przebieg rozliczeń metrics file as the server reads them, newest first."""
+    """Valid records of the Przebieg rozliczeń metrics file as the server reads them, newest first."""
 
     runs = run.api("/api/metrics", name)["runs"]
     assert isinstance(runs, list)
@@ -74,7 +74,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     period_folder = collective_file.parent
     worker_settlements = period_folder / WORKER_SETTLEMENTS
     workers = run.fixture["workers"]
-    files = [f"Rozliczenie {LAST_COMPLETE_FOR_CLI} - {worker}.xlsx" for worker in workers]
+    files = [f"Rozliczenie {LAST_COMPLETE} - {worker}.xlsx" for worker in workers]
     needs_check = run.fixture["settlement"]["needs_check"]
     if not collective_file.is_file():
         # Dad's path starts with Przygotowanie pliku zbiorczego; alone, this feature drives it first.
@@ -90,18 +90,18 @@ def drive_settlement(run: Run, page: Page) -> None:
 
     run.step(feature, "przebieg-wybor-okresu")
     page.goto(run.url)
-    page.get_by_role("button", name=f"Utwórz rozliczenia pracowników, okres {LAST_COMPLETE_FOR_CLI}", exact=True).click()
+    page.get_by_role("button", name=f"Utwórz rozliczenia pracowników, okres {LAST_COMPLETE}", exact=True).click()
     expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
     expect(page.get_by_role("radio", name="Przebieg rozliczeń")).to_be_checked()
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE_FOR_CLI} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
     expect(page.get_by_role("group", name="Plik zbiorczy")).to_contain_text(collective_file.name)
     expect(page.get_by_text("Zapisz i zamknij Plik zbiorczy w Excelu", exact=True)).to_be_visible()
     processes = run.api("/api/runs/setup", "przebieg-wybor-okresu")["processes"]
     assert isinstance(processes, list)
     [setup] = [process for process in processes if process["process"] == "settlement"]
     run.check(
-        setup["preselected_period"] == LAST_COMPLETE_FOR_CLI
-        and [choice["token"] for choice in setup["periods"]] == [LAST_COMPLETE_FOR_CLI, needs_check]
+        setup["preselected_period"] == LAST_COMPLETE
+        and [choice["token"] for choice in setup["periods"]] == [LAST_COMPLETE, needs_check]
         and setup["blocker"] is None,
         "only periods with Status Plik zbiorczy przygotowany are offered; the Plik zbiorczy follows from the period",
     )
@@ -130,7 +130,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     records = _settlement_records(run, "przebieg-metryki-podglad")
     run.check(
         len(records) == records_before + 1 and records[0]["mode"] == "DRY-RUN",
-        "the DRY-RUN appended one record to the CLI's Przebieg rozliczeń metrics file",
+        "the DRY-RUN appended one record to the Przebieg rozliczeń metrics file",
     )
     run.capture(page, "41-przebieg-podglad")
 
@@ -201,11 +201,11 @@ def drive_settlement(run: Run, page: Page) -> None:
         len(records) == records_before + 2
         and [(record["mode"], record["result"], record["origin"]) for record in records[:2]]
         == [("RUN", "OK", "centrum"), ("DRY-RUN", "OK", "centrum")],
-        "both Uruchomienia appended one record each to the CLI's metrics file, marked as started from Centrum",
+        "both Uruchomienia appended one record each to the process's metrics file, marked as started from Centrum",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
     run.check(
-        f"uruchomienie-koniec proces=settlement tryb=RUN okres={LAST_COMPLETE_FOR_CLI} wynik=OK koniec=finished" in log
+        f"uruchomienie-koniec proces=settlement tryb=RUN okres={LAST_COMPLETE} wynik=OK koniec=finished" in log
         and ROW_MARKER not in log,
         "the Centrum log records the Przebieg rozliczeń with safe facts only",
     )
@@ -237,11 +237,11 @@ def drive_settlement(run: Run, page: Page) -> None:
 
     run.step(feature, "przebieg-status-okresu")
     page.goto(run.url)
-    expect(period_row(page, LAST_COMPLETE_FOR_CLI)).to_contain_text("Rozliczenia pracowników gotowe")
+    expect(period_row(page, LAST_COMPLETE)).to_contain_text("Rozliczenia pracowników gotowe")
     expect(page.get_by_role("region", name="Następny krok")).to_contain_text("Okres zamknięty")
     board = run.api("/api/periods", "przebieg-status-okresu")["periods"]
     assert isinstance(board, list)
-    [row] = [row for row in board if row["token"] == LAST_COMPLETE_FOR_CLI]
+    [row] = [row for row in board if row["token"] == LAST_COMPLETE]
     run.check(
         row["status"] == "worker_settlements_ready" and row["worker_settlement_count"] == len(workers),
         "the Status okresu is Rozliczenia pracowników gotowe with three Rozliczenia pracowników",
@@ -253,14 +253,14 @@ def drive_settlement(run: Run, page: Page) -> None:
     started = _post(
         run,
         "/api/runs",
-        {"process": "settlement", "period": LAST_COMPLETE_FOR_CLI, "dry_run": False},
+        {"process": "settlement", "period": LAST_COMPLETE, "dry_run": False},
         "przebieg-nienadpisywanie-start",
     )
     run.check(started == 200, "a second RUN of the closed period starts (the Okres list no longer offers it)")
     page.goto(run.url + "#/uruchomienia")
     stop = page.get_by_label("Zatrzymanie")
     expect(stop).to_contain_text("Folder rozliczeń pracowników tego okresu już istnieje, więc nie został nadpisany.")
-    expect(stop).to_contain_text(f"folder {LAST_COMPLETE_FOR_CLI}\\{WORKER_SETTLEMENTS}")
+    expect(stop).to_contain_text(f"folder {LAST_COMPLETE}\\{WORKER_SETTLEMENTS}")
     result = finished_result(run, "przebieg-nienadpisywanie")
     stops = result["stops"]
     assert isinstance(stops, list)
