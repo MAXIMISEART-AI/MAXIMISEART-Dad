@@ -6,12 +6,13 @@ odłączonym procesem bez konsoli (``launch``) i samo się zamyka. Opiekun dzia�
 z kopii sprzed aktualizacji i używa tylko biblioteki standardowej (``main``):
 zapisuje wynik aktualizacji obok Ustawień taty, czeka na zwolnienie portu,
 startuje nową wersję jak skrót, tylko bez karty i bez okienek, i czeka, aż
-odpowie w nowym commicie. Gdy nie odpowie, opiekun ją zatrzymuje, cofa klon do
-commitu sprzed aktualizacji razem z plikami taty (``ToolClone.roll_back``),
-zapisuje wynik „Nowa wersja nie wystartowała” i tak samo startuje starą wersję,
-która pokaże go w karcie. Gdy nie wystartuje i ona, opiekun pokazuje jedno
-natywne okienko z Komunikatem startu. Na końcu usuwa katalog tymczasowy
-aktualizacji.
+odpowie w nowym commicie. Gdy nie odpowie (albo stare Centrum nie zwolni
+portu), opiekun ją zatrzymuje, cofa klon do commitu sprzed aktualizacji razem z
+plikami taty (``ToolClone.roll_back``), zapisuje wynik „Nowa wersja nie
+wystartowała” i tak samo startuje starą wersję, która pokaże go w karcie. Gdy
+cofnięcie się nie uda, wynik mówi to wprost. Gdy nie wystartuje żadna wersja,
+opiekun pokazuje jedno natywne okienko z Komunikatem startu. Po udanym starcie
+albo cofnięciu usuwa katalog tymczasowy aktualizacji.
 """
 
 from __future__ import annotations
@@ -32,7 +33,14 @@ from typing import Final
 
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.platform import show_start_problem
-from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, UPDATED, ToolClone, UpdateResult, write_result
+from rozliczenia.centrum.tool_update import (
+    NEW_VERSION_FAILED,
+    ROLLBACK_FAILED,
+    UPDATED,
+    ToolClone,
+    UpdateResult,
+    write_result,
+)
 
 # Tyle czekają: stare Centrum na zamknięcie (otwarte połączenia karty do 5 s) i nowa wersja na pierwszą odpowiedź.
 PORT_TIMEOUT_S: Final = 60.0
@@ -41,6 +49,8 @@ _POLL_S: Final = 0.2
 _STOP_TIMEOUT_S: Final = 10.0
 _HOST: Final = "127.0.0.1"
 _SERVICE: Final = "centrum-rozliczen"
+# Katalog kopii plików taty w katalogu tymczasowym aktualizacji (``Restart.work``): z niego opiekun cofa klon.
+DAD_FILES: Final = "pliki-taty"
 _SOURCE: Final = Path(__file__).resolve().parents[2]
 # Pakiet-szkielet kopii: tylko moduły bez bibliotek narzędzia, które opiekun importuje.
 _COPIED: Final = (
@@ -127,27 +137,37 @@ def launch(copy: Path, restart: Restart) -> subprocess.Popen[bytes]:
 def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show_start_problem) -> int:
     """Ponowny start po aktualizacji: 0, gdy Centrum odpowiada (nowe albo cofnięte stare), inaczej 1.
 
-    ``show_problem`` pokazuje natywne okienko (tytuł, treść); w testach podstawiane.
+    Wszystko albo nic: gdy nowa wersja nie odpowie (albo stare Centrum nie
+    zwolni portu), klon wraca do commitu sprzed aktualizacji, a plik wyniku
+    mówi, co się stało naprawdę. ``show_problem`` pokazuje natywne okienko
+    (tytuł, treść); w testach podstawiane.
     """
 
     restart = Restart.of_arguments(argv)
-    # Nowe Centrum czyta wynik raz przy starcie, więc plik musi być gotowy, zanim ono wystartuje.
-    write_result(restart.result, UpdateResult(UPDATED, restart.before, restart.after, restart.installed))
-    if not _port_released(restart.port):
-        return 1
-    new = _start_centrum(restart)
-    if _answers(new, restart.port, restart.after):
-        shutil.rmtree(restart.work, ignore_errors=True)
-        return 0
-    _stop(new)
-    write_result(restart.result, UpdateResult(NEW_VERSION_FAILED, restart.before, restart.after, restart.installed))
-    if restart.before is not None and _rolled_back(restart, restart.before) and _port_released(restart.port):
-        if _answers(_start_centrum(restart), restart.port, restart.before):
+    released = _port_released(restart.port)
+    if released:
+        # Nowe Centrum czyta wynik raz przy starcie, więc plik musi być gotowy, zanim ono wystartuje.
+        write_result(restart.result, _result(restart, UPDATED))
+        new = _start_centrum(restart)
+        if _answers(new, restart.port, restart.after):
+            shutil.rmtree(restart.work, ignore_errors=True)
             return 0
-    # Ani nowa, ani stara wersja: jedno okienko, bo karta nie ma już z kim rozmawiać.
+        _stop(new)
+    before = restart.before
+    rolled_back = before is not None and _rolled_back(restart, before)
+    write_result(restart.result, _result(restart, NEW_VERSION_FAILED if rolled_back else ROLLBACK_FAILED))
+    # Bez zwolnionego portu stara wersja też by nie wystartowała; po nieudanym cofnięciu nie ma starej wersji.
+    if released and rolled_back and before is not None and _port_released(restart.port):
+        if _answers(_start_centrum(restart), restart.port, before):
+            return 0
+    # Karta nie ma już z kim rozmawiać: jedno okienko zamiast ciszy.
     problem = start_problems.not_started_after_update()
     show_problem(start_problems.TITLE, problem.text)
     return 1
+
+
+def _result(restart: Restart, code: str) -> UpdateResult:
+    return UpdateResult(code, restart.before, restart.after, restart.installed)
 
 
 def _start_centrum(restart: Restart) -> subprocess.Popen[bytes]:
@@ -184,7 +204,7 @@ def _rolled_back(restart: Restart, before: str) -> bool:
     """
 
     try:
-        ToolClone(restart.root).roll_back(before, restart.work / "pliki-taty")
+        ToolClone(restart.root).roll_back(before, restart.work / DAD_FILES)
     except Exception:  # noqa: BLE001 - każda porażka cofnięcia kończy się okienkiem dla taty
         return False
     shutil.rmtree(restart.work, ignore_errors=True)

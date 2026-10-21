@@ -19,11 +19,14 @@ import urllib.request
 
 import pytest
 
+from rozliczenia.centrum import restart_guardian
+
 # Prawdziwy ``launch`` z importu: strażnik z conftest podmienia go tylko dla Centrum w testach API.
 from rozliczenia.centrum.restart_guardian import Restart, launch, main, prepare
 from rozliczenia.centrum.tool_update import (
     NEW_VERSION_FAILED,
     RESULT_FILE,
+    ROLLBACK_FAILED,
     UPDATED,
     ToolClone,
     UpdateResult,
@@ -292,3 +295,72 @@ def test_gdy_nie_startuje_zadna_wersja_opiekun_pokazuje_jedno_okienko_a_klon_sto
     assert repository.read("config/worker_mapping.yaml") == dad_mapping
     assert repository.in_clone("status", "--porcelain", "--untracked-files=no") == "M config/worker_mapping.yaml"
     assert read_result(result) == UpdateResult(NEW_VERSION_FAILED, before, newest, False)
+
+
+NOT_STARTED_AFTER_UPDATE = (
+    "Centrum rozliczeń",
+    "Co się stało: Centrum rozliczeń nie wystartowało po aktualizacji narzędzia.\n"
+    "Gdzie: narzędzie na tym komputerze\n"
+    "Co zrobić: Przekaż ten komunikat Maksowi. "
+    "Do tego czasu używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd.",
+)
+
+
+def test_gdy_port_nie_zostanie_zwolniony_opiekun_cofa_klon_zapisuje_prawdziwy_wynik_i_pokazuje_okienko(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(restart_guardian, "PORT_TIMEOUT_S", 1.0)
+    repository = tool_repository(tmp_path / "repozytoria")
+    before = repository.head()
+    dad_mapping = "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n"
+    repository.write("config/worker_mapping.yaml", dad_mapping)
+    newest = repository.publish(
+        {".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",)
+    )
+    work = tmp_path / "praca"
+    (work / "pliki-taty").mkdir(parents=True)
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+    result = repository.clone / "config" / RESULT_FILE
+    dialogs: list[tuple[str, str]] = []
+
+    with socket.socket() as held:  # stare Centrum (albo inny program) nie oddaje portu
+        held.bind(("127.0.0.1", 0))
+        held.listen()
+        restart = Restart(held.getsockname()[1], before, newest, repository.clone, result, False, work)
+        guardian, exits = _guardian_in_background(restart, dialogs)
+        guardian.join(timeout=60)
+
+    assert exits == [1]
+    assert dialogs == [NOT_STARTED_AFTER_UPDATE]
+    assert repository.head() == before
+    assert repository.read("config/worker_mapping.yaml") == dad_mapping
+    assert read_result(result) == UpdateResult(NEW_VERSION_FAILED, before, newest, False)
+
+
+def test_gdy_cofniecie_sie_nie_uda_wynik_nie_mowi_o_poprzedniej_wersji_a_tata_widzi_jedno_okienko(
+    tmp_path: Path,
+) -> None:
+    repository = tool_repository(tmp_path / "repozytoria")
+    before = repository.head()
+    # Nowa wersja przy starcie zmienia swój plik i kończy się błędem: Git nie cofnie klonu przez tę zmianę.
+    newest = repository.publish(
+        {
+            "src/narzedzie.py": "WERSJA = 2\n",
+            "run_centrum.py": "open('src/narzedzie.py', 'a').write('# zmiana\\n')\nraise SystemExit(1)\n",
+        }
+    )
+    work = tmp_path / "praca"
+    (work / "pliki-taty").mkdir(parents=True)
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+    result = repository.clone / "config" / RESULT_FILE
+    dialogs: list[tuple[str, str]] = []
+
+    guardian, exits = _guardian_in_background(
+        Restart(_free_port(), before, newest, repository.clone, result, False, work), dialogs
+    )
+    guardian.join(timeout=90)
+
+    assert exits == [1]
+    assert dialogs == [NOT_STARTED_AFTER_UPDATE]
+    assert read_result(result) == UpdateResult(ROLLBACK_FAILED, before, newest, False)
+    assert (work / "pliki-taty").is_dir()

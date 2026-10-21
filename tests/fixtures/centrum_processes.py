@@ -6,6 +6,7 @@ taty, jak po zamknięciu i ponownym otwarciu Centrum na komputerze taty.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 import json
@@ -60,7 +61,8 @@ class Surroundings:
     komputer bez Gita, a ``update_origin`` adres, z którego aktualizacja pobiera
     nową wersję zamiast lokalnego „origin”. Opiekun ponownego startu po udanej
     aktualizacji tylko zapisuje prośbę w ``restarts`` (i usuwa katalog
-    tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji).
+    tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji). Z
+    ``guardian_failure`` opiekun nie wystartuje: wywołuje ją i rzuca ``OSError``.
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -73,6 +75,7 @@ class Surroundings:
     update_origin: str | None = None
     installer: FakeInstaller = field(default_factory=FakeInstaller)
     restarts: list[Restart] = field(default_factory=list)
+    guardian_failure: Callable[[], None] | None = None
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -97,6 +100,9 @@ class Surroundings:
 
     def guardian(self, copy: Path, restart: Restart) -> None:
         assert (copy / "rozliczenia" / "centrum" / "restart_guardian.py").is_file()
+        if self.guardian_failure is not None:
+            self.guardian_failure()
+            raise OSError("opiekun nie wystartował")
         self.restarts.append(restart)
         shutil.rmtree(restart.work)
 

@@ -9,12 +9,16 @@ wersja zmienia ``requirements.txt``, biblioteki instaluje ten sam Python, w
 którym działa Centrum (``pip_install``); nieudana instalacja cofa klon do
 commitu sprzed aktualizacji (``ToolClone.roll_back``). Bibliotek się nie cofa:
 wymagania mają tylko dolne granice wersji, więc stara wersja dalej je spełnia.
+Gdy nie uda się samo cofnięcie, wynik mówi to wprost (``ROLLBACK_FAILED``).
 Wynik to kod (``UPDATED``, ``UP_TO_DATE`` albo kod Komunikatu porażki) z
 commitem przed i po; treść Komunikatów należy do Centrum
 (``update_messages``).
 
 Żadne polecenie Gita nie otwiera okna ani nie czeka na odpowiedź: bez
-terminala, bez pomocnika logowania i bez okna konsoli w Windows. Każde ufa
+terminala, bez pomocnika logowania i bez okna konsoli w Windows. Każde kończy
+się w swoim limicie czasu, także gdy pomocnik Gita (np. ``git-remote-https``)
+zostaje po nim przy zerwanym połączeniu: wyjście idzie do plików tymczasowych,
+nie do potoków, a po limicie ginie całe drzewo procesów Gita. Każde ufa
 klonowi tylko na czas wywołania (``safe.directory``), a konfiguracja Gita taty
 zostaje bez zmian. Adres repozytorium wstrzykuje się z zewnątrz; ``origin`` w
 klonie taty nie ma znaczenia.
@@ -25,16 +29,18 @@ jego kopii sprzed aktualizacji, bez bibliotek narzędzia.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
-from typing import Final, Literal, TypeGuard
+import tempfile
+from typing import IO, Final, Literal, TypeGuard
 
 GITHUB_REPOSITORY: Final = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git"
 BRANCH: Final = "main"
@@ -56,6 +62,8 @@ UNEXPECTED: Final = "NIEOCZEKIWANY_BLAD"
 LIBRARIES_FAILED: Final = "INSTALACJA_BIBLIOTEK"
 # Kod Komunikatu: nowa wersja nie odpowiedziała po ponownym starcie, więc opiekun cofnął klon i uruchomił starą.
 NEW_VERSION_FAILED: Final = "NOWA_WERSJA_NIE_WYSTARTOWALA"
+# Kod Komunikatu: klon miał wrócić do commitu sprzed aktualizacji, ale cofnięcie się nie udało.
+ROLLBACK_FAILED: Final = "COFNIECIE_NIEUDANE"
 
 Step = Literal["fetching", "installing"]
 
@@ -66,6 +74,9 @@ RESULT_FILE: Final = "centrum-aktualizacja.json"
 _FETCHED: Final = f"refs/remotes/origin/{BRANCH}"
 _FETCH_TIMEOUT_S: Final = 120.0
 _LOCAL_TIMEOUT_S: Final = 60.0
+# Pobranie, które przez tyle sekund idzie wolniej niż tyle bajtów na sekundę, kończy sam Git: połączenie stoi.
+_STALLED_BYTES_PER_S: Final = 1000
+_STALLED_FOR_S: Final = 30
 _REQUIREMENTS: Final = "requirements.txt"
 # Pip na wolnym łączu taty pobiera i rozpakowuje koła bibliotek przez kilka minut.
 _INSTALL_TIMEOUT_S: Final = 15 * 60.0
@@ -239,12 +250,13 @@ class ToolClone:
                 return UpdateResult(LOCAL_CHANGES, before, None)
         try:
             installed = self._install_libraries(run, before, after, on_step)
-        except BaseException:
-            _roll_back(run, before, backup)
-            raise
+        except Exception:
+            if _moved_back(run, before, backup):
+                raise
+            return UpdateResult(ROLLBACK_FAILED, before, after, installed=True)
         if installed is False:
-            _roll_back(run, before, backup)
-            return UpdateResult(LIBRARIES_FAILED, before, after, installed=True)
+            code = LIBRARIES_FAILED if _moved_back(run, before, backup) else ROLLBACK_FAILED
+            return UpdateResult(code, before, after, installed=True)
         return UpdateResult(UPDATED, before, after, installed=installed is True)
 
     def _install_libraries(self, run: _Git, before: str, after: str, on_step: Callable[[Step], None]) -> bool | None:
@@ -256,7 +268,10 @@ class ToolClone:
         return self.install(self.root / _REQUIREMENTS)
 
     def roll_back(self, before: str, backup: Path) -> None:
-        """Cofa przesunięty klon do commitu ``before`` z plikami taty z ``backup`` (katalog kopii ``update``)."""
+        """Cofa przesunięty klon do commitu ``before`` z plikami taty z ``backup`` (katalog kopii ``update``).
+
+        ``GitFailed``, gdy cofnięcie się nie uda (także bez Gita).
+        """
 
         git = self.find_git()
         if git is None:
@@ -272,16 +287,32 @@ def _roll_back(git: _Git, before: str, backup: Path) -> None:
     przed kliknięciem.
     """
 
-    names = [copy.relative_to(backup) for copy in backup.rglob("*") if copy.is_file()]
+    names = [copy.relative_to(backup).as_posix() for copy in backup.rglob("*") if copy.is_file()]
     for name in names:
         (git.root / name).unlink(missing_ok=True)
     try:
         git.check("reset", "--keep", "--quiet", before)
     finally:
-        for name in names:
-            target = git.root / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(backup / name, target)
+        _put_back(git.root, backup, names)
+
+
+def _moved_back(git: _Git, before: str, backup: Path) -> bool:
+    """``_roll_back``, który mówi, czy się udało, zamiast rzucać."""
+
+    try:
+        _roll_back(git, before, backup)
+    except (GitFailed, OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
+def _put_back(root: Path, backup: Path, names: Iterable[str]) -> None:
+    """Wgrywa do klonu w ``root`` kopie plików taty ``names`` z ``backup`` z dokładnie ich treścią."""
+
+    for name in names:
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backup / name, target)
 
 
 def _has_local_commits(run: _Git) -> bool:
@@ -333,10 +364,7 @@ class _DadFiles:
                 git.check("checkout", "HEAD", "--", *(f":(literal){name}" for name in self.names))
             yield
         finally:
-            for name in self.names:
-                target = git.root / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(backup / name, target)
+            _put_back(git.root, backup, self.names)
 
 
 @dataclass(frozen=True)
@@ -347,6 +375,12 @@ class _Git:
     root: Path
 
     def run(self, *args: str, timeout_s: float = _LOCAL_TIMEOUT_S) -> subprocess.CompletedProcess[str]:
+        """Polecenie Gita z wyjściem i błędami jako tekst; ``subprocess.TimeoutExpired`` najpóźniej po ``timeout_s``.
+
+        Wyjście idzie do plików tymczasowych: potok, który pomocnik Gita trzyma
+        otwarty po końcu Gita, wstrzymałby odczyt, a w Windows także po limicie czasu.
+        """
+
         command = [
             str(self.executable),
             "-c",
@@ -359,18 +393,22 @@ class _Git:
             str(self.root),
             *args,
         ]
-        return subprocess.run(
-            command,
-            env=_quiet_environment(),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_s,
-            check=False,
-            creationflags=_NO_WINDOW,
-        )
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            process = subprocess.Popen(
+                command,
+                env=_quiet_environment(),
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=errors,
+                creationflags=_NO_WINDOW,
+                start_new_session=os.name != "nt",
+            )
+            try:
+                returncode = process.wait(timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                _kill_tree(process)
+                raise
+            return subprocess.CompletedProcess(command, returncode, _text_of(output), _text_of(errors))
 
     def check(self, *args: str) -> None:
         if self.run(*args).returncode != 0:
@@ -414,6 +452,10 @@ class _Git:
             result = self.run(
                 "-c",
                 "http.proxy=",
+                "-c",
+                f"http.lowSpeedLimit={_STALLED_BYTES_PER_S}",
+                "-c",
+                f"http.lowSpeedTime={_STALLED_FOR_S}",
                 "fetch",
                 "--quiet",
                 "--no-tags",
@@ -434,6 +476,37 @@ _LOGIN_SIGNS: Final = ("terminal prompts disabled", "could not read username", "
 
 # Pod pythonw każde polecenie konsolowe otworzyłoby w Windows własne okno konsoli.
 _NO_WINDOW: Final = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def _text_of(file: IO[bytes]) -> str:
+    file.seek(0)
+    return file.read().decode("utf-8", errors="replace")
+
+
+def _kill_tree(process: subprocess.Popen[bytes]) -> None:
+    """Zabija Gita razem z jego pomocnikami: w Windows ``taskkill /T``, gdzie indziej całą jego sesję."""
+
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_KILL_TIMEOUT_S,
+            check=False,
+            creationflags=_NO_WINDOW,
+        )
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass  # Git i jego pomocnicy już się zakończyli
+    process.kill()
+    process.wait()
+
+
+# Tyle czeka zabijanie drzewa procesów Gita po limicie czasu.
+_KILL_TIMEOUT_S: Final = 10.0
 
 
 def _quiet_environment() -> dict[str, str]:

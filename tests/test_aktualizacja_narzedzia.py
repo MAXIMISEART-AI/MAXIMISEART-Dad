@@ -424,3 +424,69 @@ def test_cofniecie_po_udanej_aktualizacji_wraca_do_commitu_sprzed_niej_z_plikami
     clone.roll_back(before, backup)
 
     assert_back_before_click(repository, before)
+
+
+def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
+    """Git, którego pomocnik (jak ``git-remote-https`` przy pobraniu) zostaje po nim z jego wyjściem otwartym na minutę.
+
+    Odpowiada jak klon na `main` już na najnowszym commicie ``commit``.
+    """
+
+    script = tmp_path / "git_z_pomocnikiem.py"
+    script.write_text(
+        "import subprocess, sys\n"
+        f"COMMIT = {commit!r}\n"
+        "args = [arg for index, arg in enumerate(sys.argv[1:]) if arg != '-c' and sys.argv[index] != '-c']\n"
+        "command = args[2] if args[:1] == ['-C'] else args[0]\n"
+        "if command == 'fetch':\n"
+        "    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print('main' if command == 'symbolic-ref' else COMMIT)\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        git = tmp_path / "git.cmd"
+        git.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+    else:
+        git = tmp_path / "git"
+        git.write_text(f"#!{sys.executable}\nexec(open({str(script)!r}, encoding='utf-8').read())\n", encoding="utf-8")
+        git.chmod(0o755)
+    return git
+
+
+def test_pomocnik_gita_trzymajacy_jego_wyjscie_nie_wstrzymuje_aktualizacji(tmp_path: Path) -> None:
+    commit = "1" * 40
+    git = git_whose_helper_holds_its_output(tmp_path, commit)
+
+    started = time.monotonic()
+    result = ToolClone(tmp_path, origin="https://example.invalid/narzedzie.git", find_git=lambda: git).update(
+        tmp_path / "kopia"
+    )
+    elapsed = time.monotonic() - started
+
+    assert result == UpdateResult("AKTUALNA", before=commit, after=commit)
+    assert elapsed < 20
+
+
+def installer_that_changes(repository: ToolRepository, name: str) -> Callable[[Path], bool]:
+    """Instalator, który nie zainstaluje bibliotek, a po drodze zmienia plik ``name`` klonu: cofnięcie go nie przejdzie."""
+
+    def install(requirements: Path) -> bool:
+        repository.write(name, "zmienione w trakcie instalacji\n")
+        return False
+
+    return install
+
+
+def test_gdy_cofniecie_po_nieudanej_instalacji_sie_nie_uda_wynik_mowi_to_wprost(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    newest = repository.publish({"requirements.txt": NEW_REQUIREMENTS, "src/narzedzie.py": "WERSJA = 2\n"})
+    clone = ToolClone(
+        repository.clone, origin=str(repository.origin), install=installer_that_changes(repository, "src/narzedzie.py")
+    )
+
+    result = clone.update(tmp_path / "kopia-plikow-taty")
+
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
+    assert repository.head() == newest

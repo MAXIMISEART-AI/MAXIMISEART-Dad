@@ -36,7 +36,9 @@ from rozliczenia.centrum.tool_update import (
     NO_CONNECTION,
     UNEXPECTED,
     UP_TO_DATE,
+    ROLLBACK_FAILED,
     UPDATED,
+    GitFailed,
     Step,
     ToolClone,
     UpdateResult,
@@ -147,9 +149,10 @@ class ToolUpdates:
 
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
+        backup = work / restart_guardian.DAD_FILES
         restarting = False
         try:
-            result, guardian = self._result(clone, before, work)
+            result, guardian = self._result(clone, before, work, backup)
             if result.before is None:  # bez Gita commit zna tylko Centrum
                 result = replace(result, before=before)
             if result.code == UPDATED and result.after is not None and guardian is not None:
@@ -157,6 +160,8 @@ class ToolUpdates:
                     port, result.before, result.after, clone.root, self._result_file, result.installed, work
                 )
                 restarting = self._restart(restart, guardian)
+                if not restarting:
+                    result = self._moved_back(clone, result, backup)
             if not restarting:
                 self._finished(result)
                 view = _view_of(result) or self._failed(result).model_copy(
@@ -169,11 +174,12 @@ class ToolUpdates:
                 shutil.rmtree(work, ignore_errors=True)
                 self._runs.end_update()
 
-    def _result(self, clone: ToolClone, before: str | None, work: Path) -> tuple[UpdateResult, Path | None]:
+    def _result(
+        self, clone: ToolClone, before: str | None, work: Path, backup: Path
+    ) -> tuple[UpdateResult, Path | None]:
         try:
             # Opiekun działa z kopii sprzed aktualizacji, więc kopia powstaje, zanim klon się zmieni.
             guardian = restart_guardian.prepare(work)
-            backup = work / "pliki-taty"
             backup.mkdir()
             return clone.update(backup, self._show_step), guardian
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
@@ -192,6 +198,21 @@ class ToolUpdates:
             return False
         self._shutdown.close_for_update()
         return True
+
+    def _moved_back(self, clone: ToolClone, result: UpdateResult, backup: Path) -> UpdateResult:
+        """Bez opiekuna nowa wersja nie wystartuje, a stary kod działałby na nowych plikach: klon wraca sprzed kliknięcia.
+
+        Wynik to porażka nieoczekiwana, a gdy nie uda się cofnięcie, porażka cofnięcia.
+        """
+
+        try:
+            if result.before is None:
+                raise GitFailed("brak commitu sprzed aktualizacji")
+            clone.roll_back(result.before, backup)
+        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+            self._log.unexpected_failure(failure, where="cofnięcie aktualizacji")
+            return replace(result, code=ROLLBACK_FAILED)
+        return replace(result, code=UNEXPECTED)
 
     def _finished(self, result: UpdateResult) -> None:
         self._log.update_finished(

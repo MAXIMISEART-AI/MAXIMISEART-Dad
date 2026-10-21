@@ -210,8 +210,9 @@ procesu ani nie zamkniesz Centrum.
 ### Aktualizacja narzędzia → co zrobić
 
 Gdy aktualizacja się nie uda, narzędzie działa dalej w wersji sprzed
-kliknięcia, a pod przyciskiem pojawi się komunikat w trzech częściach i
-przycisk `Wyślij do Maksa`. Rozwiń `Co zostanie wysłane`, żeby zobaczyć Zgłoszenie
+kliknięcia (chyba że komunikat mówi, że nie dało się jej przywrócić), a pod
+przyciskiem pojawi się komunikat w trzech częściach i przycisk `Wyślij do
+Maksa`. Rozwiń `Co zostanie wysłane`, żeby zobaczyć Zgłoszenie
 przed wysłaniem.
 
 | Co się stało (fragment) | Co zrobić |
@@ -224,6 +225,7 @@ przed wysłaniem.
 | „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „Nowa wersja narzędzia nie wystartowała” | Niczego nie zamykasz: Centrum samo wróciło do poprzedniej wersji, a karta odświeżyła się na niej. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „nie dało się przywrócić poprzedniej wersji” | Nie klikaj `Zaktualizuj narzędzie` ponownie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. Do czasu naprawy używaj launcherów `.cmd`. |
 
 Bez internetu `Wyślij do Maksa` zapisze Zgłoszenie w pliku: postępuj wtedy
 według tabeli „Zgłoszenie → co zrobić”.

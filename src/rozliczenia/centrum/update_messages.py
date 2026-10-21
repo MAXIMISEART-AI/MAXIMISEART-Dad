@@ -4,6 +4,8 @@ Kody porażek zwraca moduł ``tool_update``; treść dla taty jest tylko tutaj
 (``message_of``). Każdy Komunikat mówi, że narzędzie działa dalej w wersji
 sprzed kliknięcia, a „Co zrobić” wprost, czy spróbować ponownie, czy przekazać
 sprawę Maksowi przyciskiem „Wyślij do Maksa” (Zgłoszenie przy Komunikacie).
+Wyjątkiem jest nieudane cofnięcie (``rollback_failed``): wtedy narzędzie może
+nie działać, więc Komunikat odsyła do launcherów ``.cmd``.
 „Gdzie” nie ma ścieżek. Instrukcja taty
 cytuje „Co się stało” każdego Komunikatu (``tests/test_instrukcja_taty.py``).
 """
@@ -21,6 +23,7 @@ from rozliczenia.centrum.tool_update import (
     NEW_VERSION_FAILED,
     NO_GIT,
     OTHER_BRANCH,
+    ROLLBACK_FAILED,
     UNEXPECTED,
 )
 from rozliczenia.message import Message
@@ -115,6 +118,20 @@ def new_version_failed() -> Message:
     )
 
 
+def rollback_failed() -> Message:
+    """Klon miał wrócić do wersji sprzed kliknięcia, ale cofnięcie się nie udało: narzędzie może nie działać."""
+
+    return Message(
+        code=ROLLBACK_FAILED,
+        what="Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.",
+        where=_TOOL,
+        action=(
+            "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”. "
+            "Do czasu naprawy używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd."
+        ),
+    )
+
+
 _BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
     NO_GIT: no_git,
     NO_CONNECTION: no_connection,
@@ -124,6 +141,7 @@ _BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
     UNEXPECTED: unexpected_failure,
     LIBRARIES_FAILED: libraries_failed,
     NEW_VERSION_FAILED: new_version_failed,
+    ROLLBACK_FAILED: rollback_failed,
 }
 
 

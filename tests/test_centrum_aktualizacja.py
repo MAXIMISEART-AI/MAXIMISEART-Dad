@@ -46,9 +46,11 @@ def updating_centrum(
     git_installed: bool = True,
     origin: str | None = None,
     installer: FakeInstaller | None = None,
+    guardian_failure: Callable[[ToolRepository], None] | None = None,
 ) -> tuple[PreparingCentrum, ToolRepository]:
     repository = tool_repository(tmp_path / "repozytoria")
     surroundings = Surroundings(
+        guardian_failure=None if guardian_failure is None else lambda: guardian_failure(repository),
         tool=repository,
         update_hold=hold,
         git_installed=git_installed,
@@ -66,6 +68,13 @@ def update_until_done(centrum: PreparingCentrum) -> dict[str, Any]:
     assert started.status_code == 202, started.json()
     assert started.json() == {"state": "running", "step": "fetching"}
     return tool_update_until(centrum, lambda view: view["state"] != "running" or view["step"] == "restarting")
+
+
+def update_until_result(centrum: PreparingCentrum) -> dict[str, Any]:
+    """Klika „Zaktualizuj narzędzie” i czeka na wynik, także po nieudanej próbie ponownego startu."""
+
+    assert centrum.client.post("/api/tool-update").status_code == 202
+    return tool_update_until(centrum, lambda view: view["state"] != "running")
 
 
 def tool_update_until(centrum: PreparingCentrum, reached: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
@@ -539,3 +548,58 @@ def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_z
     assert log_entries(centrum, "aktualizacja-koniec") == [
         f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie"
     ] * 2
+
+
+def nothing(repository: ToolRepository) -> None:
+    pass
+
+
+def test_gdy_opiekun_nie_wystartuje_klon_wraca_do_poprzedniej_wersji_a_karta_dostaje_komunikat(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path, guardian_failure=nothing)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+
+    view = update_until_result(centrum)
+
+    assert (view["state"], view["message"]["what"], view["next_action"]) == (
+        "failed",
+        "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
+        "retry",
+    )
+    assert repository.head() == before
+    assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
+    assert centrum.surroundings.restarts == []
+    assert "zamkniecie" not in log_events(centrum)
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=NIEOCZEKIWANY_BLAD przed={before} po={newest} biblioteki=nie"
+    ]
+    assert centrum.start(dry_run=True).status_code == 200
+
+
+def changes_new_version_file(repository: ToolRepository) -> None:
+    repository.write("src/narzedzie.py", "WERSJA = 2  # zmienione, zanim opiekun miał wystartować\n")
+
+
+def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedniej_wersji(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path, guardian_failure=changes_new_version_file)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+
+    view = update_until_result(centrum)
+
+    assert {key: value for key, value in view.items() if key != "draft"} == {
+        "state": "failed",
+        "message": {
+            "what": "Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.",
+            "where": "narzędzie na tym komputerze",
+            "action": (
+                "Nie klikaj „Zaktualizuj narzędzie” ponownie. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”. "
+                "Do czasu naprawy używaj launcherów Przygotuj plik zbiorczy.cmd i Utwórz rozliczenia.cmd."
+            ),
+        },
+        "next_action": "report",
+        "report": {"state": "ready"},
+    }
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=COFNIECIE_NIEUDANE przed={before} po={newest} biblioteki=nie"
+    ]
