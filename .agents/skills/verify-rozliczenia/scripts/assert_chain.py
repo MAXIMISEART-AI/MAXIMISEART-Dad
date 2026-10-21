@@ -2,7 +2,7 @@
 
 The Plik zbiorczy was written by Przygotowanie pliku zbiorczego and then filled by
 the Gotowość step, so its Wiersze danych carry values in all of ``A:AT``, and the
-Wyróżnienia Przygotowanie carried over from the Rejestr. The checks are generic
+Wyróżnienia and NUMER ZL. Hiperłącza Przygotowanie carried over from the Rejestr. The checks are generic
 over the Wzorce, so the same helper serves both the synthetic and the real
 Wzorce. Messages name workers, rows, and columns, never a cell value.
 """
@@ -40,6 +40,9 @@ EXPECTED_WORKER_ORDERS = {
     "Darek Fikcyjny": ("PREP-SYN-ZL-6",),
     "Kamil Syntetyczny": ("PREP-SYN-ZL-4",),
 }
+# Rejestr row of every Zlecenie skuteczne; its NUMER ZL. Hiperłącze ends with that row number.
+ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
+REGISTER_ROWS_OF_ORDERS = {"PREP-SYN-ZL-2": 4, "PREP-SYN-ZL-4": 9, "PREP-SYN-ZL-7": 12, "PREP-SYN-ZL-6": 13}
 EXPECTED_ROWS = sum(len(orders) for orders in EXPECTED_WORKER_ORDERS.values())
 TEMPLATES = len(EXPECTED_WORKER_ORDERS)
 FILE_PLAN = [
@@ -73,6 +76,7 @@ INPUTS = (
 
 Row = tuple[object, ...]
 Looks = tuple[tuple[object, ...], ...]
+Link = tuple[object, object]
 PLAIN_LOOK = (None, None, None, False, False)
 
 
@@ -217,6 +221,24 @@ def _looks(sheet: Worksheet, in_file: set[tuple[int, int]], number: int) -> Look
     return tuple(looks)
 
 
+def _hyperlinks(sheet: Worksheet) -> dict[tuple[int, int], Link]:
+    """(row, column) -> (address, location) of every cell hyperlink; reads only cells stored in the file."""
+
+    return {
+        coordinate: (cell.hyperlink.target, cell.hyperlink.location)
+        for coordinate, cell in sheet._cells.items()
+        if cell.hyperlink is not None
+    }
+
+
+def _row_links(links: dict[tuple[int, int], Link], number: int) -> dict[int, Link]:
+    return {column: link for (row, column), link in links.items() if row == number and column <= COPIED_COLUMNS}
+
+
+def _outside_rows(links: dict[tuple[int, int], Link], rows: range) -> dict[tuple[int, int], Link]:
+    return {cell: link for cell, link in links.items() if not (cell[0] in rows and cell[1] <= COPIED_COLUMNS)}
+
+
 def _cell_values(workbook: Workbook, skipped_rows: range) -> dict[tuple[str, int, int], object]:
     """Every stored value except the A:AT cells of ``skipped_rows`` on the active sheet."""
 
@@ -241,6 +263,7 @@ def _check_worker_file(
     path: Path,
     expected_rows: list[Row],
     expected_looks: list[Looks],
+    expected_links: list[dict[int, Link]],
     template: Workbook,
     template_links: dict[str, bytes],
     readiness_orders: set[object],
@@ -251,6 +274,7 @@ def _check_worker_file(
     try:
         sheet = _sheet(workbook)
         in_file = set(sheet._cells)
+        links = _hyperlinks(sheet)
         data_rows = _data_rows(sheet)
         written = range(FIRST_DATA_ROW, FIRST_DATA_ROW + len(expected_rows))
         if [number for number, _ in data_rows] != list(written):
@@ -260,9 +284,11 @@ def _check_worker_file(
             errors.append(f"{name}: holds a Zlecenie nieskuteczne")
         if [values[order_index] for values in actual_rows] != [values[order_index] for values in expected_rows]:
             errors.append(f"{name}: orders differ from its Zlecenia skuteczne in Plik zbiorczy order")
-        for number, (actual, expected, looks) in enumerate(
-            zip(actual_rows, expected_rows, expected_looks), start=FIRST_DATA_ROW
+        for number, (actual, expected, looks, row_links) in enumerate(
+            zip(actual_rows, expected_rows, expected_looks, expected_links), start=FIRST_DATA_ROW
         ):
+            if _row_links(links, number) != row_links:
+                errors.append(f"{name}: row {number} lacks the Hiperłącza of the Plik zbiorczy")
             differing = [get_column_letter(index + 1) for index, value in enumerate(expected) if actual[index] != value]
             if differing:
                 errors.append(f"{name}: row {number} differs from the Plik zbiorczy in {', '.join(differing[:8])}")
@@ -277,6 +303,8 @@ def _check_worker_file(
             template, written
         ):
             errors.append(f"{name}: cells outside the Wiersze danych differ from the Wzorzec rozliczenia pracownika")
+        if _outside_rows(links, written) != _outside_rows(_hyperlinks(_sheet(template)), written):
+            errors.append(f"{name}: hyperlinks outside the Wiersze danych differ from the Wzorzec rozliczenia pracownika")
     finally:
         workbook.close()
     if _external_link_parts(path) != template_links:
@@ -294,15 +322,21 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
     try:
         collective_sheet = _sheet(collective)
         collective_in_file = set(collective_sheet._cells)
+        collective_hyperlinks = _hyperlinks(collective_sheet)
         order_index = _order_column(collective_sheet) - 1
         numbered_rows = _data_rows(collective_sheet)
         collective_rows = [values for _, values in numbered_rows]
         collective_looks = [_looks(collective_sheet, collective_in_file, number) for number, _ in numbered_rows]
+        collective_links = [_row_links(collective_hyperlinks, number) for number, _ in numbered_rows]
         highlighted = sum(look != PLAIN_LOOK and look[0] is not None for looks in collective_looks for look in looks)
     finally:
         collective.close()
     if not highlighted:
         errors.append("Plik zbiorczy has no filled cell in its Wiersze danych, so the Wyróżnienia check proves nothing")
+    if {values[order_index]: links.get(order_index + 1) for values, links in zip(collective_rows, collective_links)} != {
+        order: (f"{ORDER_LINK}{row}", None) for order, row in REGISTER_ROWS_OF_ORDERS.items()
+    }:
+        errors.append("Plik zbiorczy NUMER ZL. cells lack the Hiperłącze of their Rejestr cell")
     if UNSUCCESSFUL_ORDER in {values[order_index] for values in collective_rows}:
         errors.append("Plik zbiorczy holds a Zlecenie nieskuteczne")
     filled = [values for values in collective_rows if values[order_index] in readiness_orders]
@@ -320,6 +354,9 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
             expected_looks = [
                 looks for values, looks in zip(collective_rows, collective_looks) if values[order_index] in orders
             ]
+            expected_links = [
+                links for values, links in zip(collective_rows, collective_links) if values[order_index] in orders
+            ]
             if tuple(values[order_index] for values in expected_rows) != orders:
                 errors.append(f"Plik zbiorczy does not hold the Zlecenia skuteczne of {name} in Rejestr order")
             _check_worker_file(
@@ -327,6 +364,7 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
                 target_directory / f"Rozliczenie {PERIOD} - {name}.xlsx",
                 expected_rows,
                 expected_looks,
+                expected_links,
                 template,
                 template_links,
                 readiness_orders,
@@ -379,7 +417,9 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
     return _finish(
         errors,
         f"ASSERT OK | process=przebieg | source=przygotowanie | mode=run | workbooks_checked={len(expected_files)} | "
-        "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | readiness_carried=true | unsuccessful_absent=true | "
+        "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | hyperlinks_equal_plik_zbiorczy=A:AT | "
+        "hyperlinks_from_rejestr=NUMER ZL. | "
+        "readiness_carried=true | unsuccessful_absent=true | "
         "wzorzec_preserved=true | external_links_preserved=true | inputs_unchanged=true",
     )
 

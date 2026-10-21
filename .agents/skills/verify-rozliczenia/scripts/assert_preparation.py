@@ -21,6 +21,7 @@ PERIOD = "08_14_09_2026"
 INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 ROW_MARKER = "PREP-SYN-"
+ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
 EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_rows": 4, "warnings": 0}
 EXPECTED_SUMMARY = {
     "figures": [
@@ -121,6 +122,9 @@ EXPECTED_COLLECTIVE_ROWS = (
 )
 EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
 EXPECTED_COLLECTIVE_ORDER_NUMBERS = tuple(row[5] for row in EXPECTED_COLLECTIVE_ROWS)
+# Rejestr rows of those orders; their NUMER ZL. Hiperłącze ends with the row number.
+EXPECTED_INTERNAL_REGISTER_ROWS = (4, 6, 9, 12, 13)
+EXPECTED_COLLECTIVE_REGISTER_ROWS = (4, 9, 12, 13)
 
 
 def _sheet(workbook_sheet: object) -> Worksheet:
@@ -345,6 +349,44 @@ def _check_real_template_file(
         output_book.close()
 
 
+def _hyperlinks(sheet: Worksheet) -> dict[tuple[int, int], tuple[object, object]]:
+    """(row, column) -> (address, location) of every cell hyperlink; reads only cells stored in the file."""
+
+    return {
+        coordinate: (cell.hyperlink.target, cell.hyperlink.location)
+        for coordinate, cell in sheet._cells.items()
+        if cell.hyperlink is not None
+    }
+
+
+def _check_hyperlinks(
+    template: Path, output: Path, *, label: str, header_row: int, register_rows: tuple[int, ...], errors: list[str]
+) -> None:
+    """Written NUMER ZL. cells carry the Rejestr Hiperłącze, other written cells none, the rest the Wzorzec's own.
+
+    Messages name cells only, never an address.
+    """
+
+    template_book = load_workbook(template, data_only=False)
+    output_book = load_workbook(output, data_only=False)
+    try:
+        template_sheet = _sheet(template_book.active)
+        positions = _target_positions(template_sheet, header_row, label, [])
+        first_row = header_row + 1
+        written = {(first_row + index, column) for index in range(len(register_rows)) for column in positions.values()}
+        expected = {cell: link for cell, link in _hyperlinks(template_sheet).items() if cell not in written}
+        order_column = positions.get("NUMER ZL.", 0)
+        expected |= {(first_row + index, order_column): (f"{ORDER_LINK}{row}", None) for index, row in enumerate(register_rows)}
+        actual = _hyperlinks(_sheet(output_book.active))
+        differing = sorted(cell for cell in expected.keys() | actual.keys() if expected.get(cell) != actual.get(cell))
+        if differing:
+            where = ", ".join(f"{get_column_letter(column)}{row}" for row, column in differing[:5])
+            errors.append(f"{label}: {len(differing)} cells lack the Rejestr NUMER ZL. Hiperłącze or keep a wrong one ({where})")
+    finally:
+        template_book.close()
+        output_book.close()
+
+
 def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: str) -> int:
     errors = _unchanged_inputs(root)
     periods_directory = root / "INEA"
@@ -377,10 +419,18 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     order_numbers=EXPECTED_COLLECTIVE_ORDER_NUMBERS,
                     errors=errors,
                 )
-            for template, output in (
-                (INTERNAL_TEMPLATE, INTERNAL_NAME),
-                (COLLECTIVE_TEMPLATE, COLLECTIVE_NAME),
+            for template, output, label, header_row, register_rows in (
+                (INTERNAL_TEMPLATE, INTERNAL_NAME, "Rozliczenie wewnętrzne", 1, EXPECTED_INTERNAL_REGISTER_ROWS),
+                (COLLECTIVE_TEMPLATE, COLLECTIVE_NAME, "Plik zbiorczy", 17, EXPECTED_COLLECTIVE_REGISTER_ROWS),
             ):
+                _check_hyperlinks(
+                    root / template,
+                    period_directory / output,
+                    label=label,
+                    header_row=header_row,
+                    register_rows=register_rows,
+                    errors=errors,
+                )
                 template_links = _external_link_parts(root / template)
                 if _external_link_parts(period_directory / output) != template_links:
                     errors.append(f"{output} xl/externalLinks parts differ from the Wzorzec")
@@ -393,7 +443,8 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
     return _finish(
         errors,
         f"ASSERT OK | process=przygotowanie | mode=run | templates={templates} | workbooks_checked=2 | "
-        "formatting_preserved=true | external_links_preserved=true | inputs_unchanged=true",
+        "formatting_preserved=true | hyperlinks_from_rejestr=NUMER ZL. | external_links_preserved=true | "
+        "inputs_unchanged=true",
     )
 
 
