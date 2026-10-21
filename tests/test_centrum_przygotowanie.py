@@ -517,7 +517,8 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruc
 def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    centrum = preparing_centrum(tmp_path)
+    # Decyzja taty zatrzymuje Uruchomienie po awarii podglądu, więc karta widzi je w trakcie także pod obciążeniem.
+    centrum = preparing_centrum(tmp_path, incomplete_period_rows())
     shown_before_start = run_view.ProcessView.progress
     calls = itertools.count()
 
@@ -529,11 +530,13 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     monkeypatch.setattr(run_view.ProcessView, "progress", broken_after_start)
 
     centrum.start(dry_run=False)
-    views = views_until(centrum.client, "finished")
-    result = views[-1]["result"]
+    waiting = views_until(centrum.client, "awaiting_decision")[-1]
+    running = decide(centrum, waiting, "continue").json()
+    finished = finished_view(centrum.client)
+    result = finished["result"]
 
-    assert any(view["state"] == "running" and view["progress_stale"] for view in views)
-    assert views[-1]["progress_stale"] is True
+    assert (running["state"], running["progress_stale"]) == ("running", True)
+    assert finished["progress_stale"] is True
     assert (result["result"], result["ending"]) == ("OK", "finished")
     assert result["notices"] == ["Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."]
     assert centrum.fixture.collective_file_path.is_file()
