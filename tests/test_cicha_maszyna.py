@@ -65,3 +65,20 @@ def test_pomiar_czeka_na_cichy_procesor_krotko_nic_nie_trzymajac(tmp_path: Path,
             pass
     assert zegar.now + POMIAR_S <= LIMIT_POLECENIA_S
     assert runs_waited == [0]
+
+
+def test_pomiar_ustepuje_przebiegowi_ktory_zarejestrowal_sie_gdy_pomiar_bral_blokade(
+    tmp_path: Path, zegar: ZegarTestu
+) -> None:
+    late_run = tmp_path / "run-spozniony.pid"
+
+    def run_registers_after_first_look() -> list[str]:
+        late_run.write_text(str(os.getpid()), encoding="utf-8")
+        return []
+
+    racing = QuietMachine(tmp_path, busy_processes=run_registers_after_first_look, report_every_s=None)
+
+    with pytest.raises(MachineBusy, match=rf"przebieg \(pid {os.getpid()}\)"):
+        with racing.measurement():
+            pass
+    assert not (tmp_path / "pomiar.lock").exists()
