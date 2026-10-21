@@ -739,8 +739,13 @@ def test_recording_observer_receives_safe_zdarzenia_przebiegu_and_can_be_disable
     assert "syntetyczny" not in repr(recorded[0])
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [template_settlement.TemplateWriteError("synthetic failure"), RuntimeError("synthetic failure")],
+    ids=["blad-zapisu", "nieoczekiwany-blad"],
+)
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     original_process_template = template_settlement.process_template
@@ -756,7 +761,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise template_settlement.TemplateWriteError("synthetic failure")
+            raise failure
         return original_process_template(worker_name, template, path, rows)
 
     monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
