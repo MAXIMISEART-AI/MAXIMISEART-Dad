@@ -219,7 +219,7 @@ przed wysłaniem.
 | „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „Nowa wersja narzędzia nie wystartowała” | Niczego nie zamykasz: Centrum samo wróciło do poprzedniej wersji, a karta odświeżyła się na niej z tym komunikatem pod tytułem strony. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
-| „nie dało się przywrócić poprzedniej wersji” | Nie klikaj `Zaktualizuj narzędzie` ponownie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
+| „nie dało się przywrócić poprzedniej wersji” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 
 Bez internetu `Wyślij do Maksa` zapisze Zgłoszenie w pliku: postępuj wtedy
 według tabeli „Zgłoszenie → co zrobić”.
@@ -237,6 +237,7 @@ fragmentem pierwszej części.
 | „Brakuje biblioteki potrzebnej Centrum rozliczeń” | W folderze narzędzia uruchom `py -3 -m pip install -r requirements.txt` i kliknij skrót ponownie. |
 | „nie wystartowało z nieoczekiwanego powodu” | Kliknij skrót ponownie. Jeśli komunikat wraca, przekaż osobie utrzymującej narzędzie plik `logs\centrum-rozliczen.log` z folderu narzędzia. |
 | „nie wystartowało po aktualizacji narzędzia” | Nie wystartowała ani nowa, ani poprzednia wersja. Przekaż komunikat Maksowi. |
+| „Aktualizacja narzędzia jeszcze się kończy” | Centrum właśnie startuje w nowej wersji albo wraca do poprzedniej. Poczekaj 10 minut i kliknij skrót ponownie. |
 
 Plik `logs\centrum-rozliczen.log` to dziennik Centrum: zapisuje tylko start,
 zamknięcie, port, rodzaj błędu, aktualizacje narzędzia i czas otwierania

@@ -113,8 +113,7 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
     try:
         old_health = _health(port)
         newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
-        (tmp_path / "pliki-taty").mkdir()
-        assert ToolClone(clone, origin=str(repository.origin)).update(tmp_path / "pliki-taty").code == UPDATED
+        assert ToolClone(clone, origin=str(repository.origin)).update().code == UPDATED
         work = tmp_path / "praca"
         work.mkdir()
         guardian = launch(
@@ -147,6 +146,7 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
     assert view == {"state": "updated"}
     assert not (clone / "config" / RESULT_FILE).exists()
     assert not work.exists()
+    assert ToolClone(clone).interrupted_update() is None
     events = [line.split(" ", 2)[1] for line in _log_lines(clone)]
     # Stare Centrum zwalnia port, zanim zapisze „stop”, więc jego „stop” może przyjść po starcie nowego.
     assert [event for event in events if event != "stop"][:5] == [
@@ -221,8 +221,8 @@ def test_nowa_wersja_ktora_nie_wystartuje_wraca_do_starego_commitu_a_stara_start
         old_health = _health(port)
         newest = repository.publish(_broken_version(repository, new_version_dialogs))
         work = tmp_path / "praca"
-        (work / "pliki-taty").mkdir(parents=True)
-        assert ToolClone(clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+        work.mkdir()
+        assert ToolClone(clone, origin=str(repository.origin)).update().code == UPDATED
         restart = Restart(port, before, newest, clone, clone / "config" / RESULT_FILE, False, work)
         guardian, exits = _guardian_in_background(restart, dialogs)
         _close(port)
@@ -271,8 +271,8 @@ def test_gdy_nie_startuje_zadna_wersja_opiekun_pokazuje_jedno_okienko_a_klon_sto
         {".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",)
     )
     work = tmp_path / "praca"
-    (work / "pliki-taty").mkdir(parents=True)
-    assert ToolClone(repository.clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+    work.mkdir()
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update().code == UPDATED
     result = repository.clone / "config" / RESULT_FILE
     dialogs: list[tuple[str, str]] = []
 
@@ -316,8 +316,8 @@ def test_gdy_port_nie_zostanie_zwolniony_opiekun_cofa_klon_zapisuje_prawdziwy_wy
         {".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",)
     )
     work = tmp_path / "praca"
-    (work / "pliki-taty").mkdir(parents=True)
-    assert ToolClone(repository.clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+    work.mkdir()
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update().code == UPDATED
     result = repository.clone / "config" / RESULT_FILE
     dialogs: list[tuple[str, str]] = []
 
@@ -348,8 +348,8 @@ def test_gdy_cofniecie_sie_nie_uda_wynik_nie_mowi_o_poprzedniej_wersji_a_tata_wi
         }
     )
     work = tmp_path / "praca"
-    (work / "pliki-taty").mkdir(parents=True)
-    assert ToolClone(repository.clone, origin=str(repository.origin)).update(work / "pliki-taty").code == UPDATED
+    work.mkdir()
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update().code == UPDATED
     result = repository.clone / "config" / RESULT_FILE
     dialogs: list[tuple[str, str]] = []
 
@@ -361,4 +361,6 @@ def test_gdy_cofniecie_sie_nie_uda_wynik_nie_mowi_o_poprzedniej_wersji_a_tata_wi
     assert exits == [1]
     assert dialogs == [NOT_STARTED_AFTER_UPDATE]
     assert read_result(result) == UpdateResult(ROLLBACK_FAILED, before, newest, False)
-    assert (work / "pliki-taty").is_dir()
+    interrupted = ToolClone(repository.clone).interrupted_update()
+    assert interrupted is not None
+    assert (interrupted.before, interrupted.after) == (before, newest)

@@ -16,7 +16,7 @@ import time
 
 import pytest
 
-from rozliczenia.centrum.tool_update import ToolClone, UpdateResult, find_git
+from rozliczenia.centrum.tool_update import JournalKept, ToolClone, UpdateResult, find_git
 
 from tests.fixtures.tool_clone import (
     FIRST_VERSION,
@@ -40,16 +40,15 @@ def repository(tmp_path: Path) -> ToolRepository:
     return tool_repository(tmp_path / "repozytoria")
 
 
-def update(repository: ToolRepository, tmp_path: Path) -> UpdateResult:
-    backup = tmp_path / "kopia-plikow-taty"
-    return ToolClone(repository.clone, origin=str(repository.origin)).update(backup)
+def update(repository: ToolRepository) -> UpdateResult:
+    return ToolClone(repository.clone, origin=str(repository.origin)).update()
 
 
 def test_aktualizacja_przesuwa_klon_do_przodu_na_najnowszy_main(repository: ToolRepository, tmp_path: Path) -> None:
     before = repository.head()
     newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
 
-    result = update(repository, tmp_path)
+    result = update(repository)
 
     assert result == UpdateResult("ok", before=before, after=newest, installed=False)
     assert repository.head() == newest
@@ -59,7 +58,7 @@ def test_aktualizacja_przesuwa_klon_do_przodu_na_najnowszy_main(repository: Tool
 def test_klon_na_najnowszym_commicie_jest_juz_aktualny(repository: ToolRepository, tmp_path: Path) -> None:
     current = repository.head()
 
-    result = update(repository, tmp_path)
+    result = update(repository)
 
     assert result == UpdateResult("AKTUALNA", before=current, after=current, installed=False)
     assert repository.head() == current
@@ -71,7 +70,7 @@ def test_bez_gita_na_komputerze_aktualizacja_konczy_sie_brakiem_gita_a_klon_zost
     repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
     unchanged = repository.state()
 
-    result = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: None).update(tmp_path / "kopia")
+    result = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: None).update()
 
     assert result == UpdateResult("BRAK_GITA", before=None, after=None)
     assert repository.state() == unchanged
@@ -83,7 +82,7 @@ def test_bez_polaczenia_z_githubem_aktualizacja_konczy_sie_brakiem_polaczenia_a_
     before = repository.head()
     unchanged = repository.state()
 
-    result = ToolClone(repository.clone, origin=unreachable_origin()).update(tmp_path / "kopia")
+    result = ToolClone(repository.clone, origin=unreachable_origin()).update()
 
     assert result == UpdateResult("BRAK_POLACZENIA", before=before, after=None)
     assert repository.state() == unchanged
@@ -113,7 +112,7 @@ def test_github_proszacy_o_logowanie_konczy_sie_od_razu_bez_pytania_a_klon_zosta
 
     with origin_asking_for_login() as origin:
         started = time.monotonic()
-        result = ToolClone(repository.clone, origin=origin).update(tmp_path / "kopia")
+        result = ToolClone(repository.clone, origin=origin).update()
         elapsed = time.monotonic() - started
 
     assert result == UpdateResult("LOGOWANIE", before=before, after=None)
@@ -128,7 +127,7 @@ def test_klon_na_innej_galezi_daje_odmowe_a_klon_zostaje_bez_zmian(repository: T
     before = repository.head()
     unchanged = repository.state()
 
-    result = update(repository, tmp_path)
+    result = update(repository)
 
     assert result == UpdateResult("INNA_GALAZ", before=before, after=None)
     assert repository.state() == unchanged
@@ -160,7 +159,7 @@ def test_zmiany_na_komputerze_daja_odmowe_a_klon_zostaje_bez_zmian(
     before = repository.head()
     unchanged = repository.state()
 
-    result = update(repository, tmp_path)
+    result = update(repository)
 
     assert result == UpdateResult("ZMIANY_NA_KOMPUTERZE", before=before, after=None)
     assert repository.state() == unchanged
@@ -242,7 +241,7 @@ def test_konfiguracja_wykonawcow_ktorej_nowa_wersja_nie_sledzi_zostaje_z_prawdzi
     (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
     newest = repository.publish({".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",))
 
-    result = update(repository, tmp_path)
+    result = update(repository)
 
     assert (result.code, result.after) == ("ok", newest)
     assert repository.head() == newest
@@ -263,7 +262,7 @@ def test_plik_konfiguracji_usuniety_w_nowej_wersji_zostaje_u_taty(
     repository = tool_repository(tmp_path / "repozytoria", {**FIRST_VERSION, "config/stawki.yaml": RATES})
     newest = repository.publish(new_version)
 
-    result = update(repository, tmp_path)
+    result = update(repository)
 
     assert (result.code, repository.head()) == ("ok", newest)
     assert repository.read("config/stawki.yaml") == RATES
@@ -296,7 +295,7 @@ def test_aktualizacja_nie_dotyka_wzorcow_ustawien_klucza_metryk_dziennika_ani_pl
     modified = {path: path.stat().st_mtime_ns for path in untouched}
     repository.publish({".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",))
 
-    assert update(repository, tmp_path).code == "ok"
+    assert update(repository).code == "ok"
 
     assert {name: repository.read(name) for name in UNTRACKED_DAD_FILES} == UNTRACKED_DAD_FILES
     assert period_file.read_text(encoding="utf-8") == "plik okresu"
@@ -312,7 +311,7 @@ def test_odmowa_przesuniecia_zostawia_pliki_taty_i_klon_bez_zmian(repository: To
         untrack=("config/worker_mapping.yaml",),
     )
 
-    result = update(repository, tmp_path)
+    result = update(repository)
 
     assert result == UpdateResult("ZMIANY_NA_KOMPUTERZE", before=before, after=None)
     assert repository.head() == before
@@ -332,7 +331,7 @@ def test_zmiana_wymagan_instaluje_biblioteki_nowej_wersji(repository: ToolReposi
     steps: list[str] = []
     clone = ToolClone(repository.clone, origin=str(repository.origin), install=installer)
 
-    result = clone.update(tmp_path / "kopia-plikow-taty", steps.append)
+    result = clone.update(steps.append)
 
     assert result == UpdateResult("ok", before=before, after=newest, installed=True)
     assert installer.installed == [(repository.clone / "requirements.txt", NEW_REQUIREMENTS)]
@@ -345,7 +344,7 @@ def test_bez_zmiany_wymagan_biblioteki_nie_sa_instalowane(repository: ToolReposi
     steps: list[str] = []
     clone = ToolClone(repository.clone, origin=str(repository.origin), install=installer)
 
-    result = clone.update(tmp_path / "kopia-plikow-taty", steps.append)
+    result = clone.update(steps.append)
 
     assert (result.code, result.installed) == ("ok", False)
     assert installer.installed == []
@@ -392,7 +391,7 @@ def test_nieudana_instalacja_bibliotek_cofa_klon_z_plikami_taty_i_daje_komunikat
     newest = moved_with_new_requirements(repository)
     clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller(succeeds=False))
 
-    result = clone.update(tmp_path / "kopia-plikow-taty")
+    result = clone.update()
 
     assert result == UpdateResult("INSTALACJA_BIBLIOTEK", before=before, after=newest, installed=True)
     assert_back_before_click(repository, before)
@@ -408,7 +407,7 @@ def test_wyjatek_instalatora_cofa_klon_z_plikami_taty(repository: ToolRepository
     clone = ToolClone(repository.clone, origin=str(repository.origin), install=broken_installer)
 
     with pytest.raises(RuntimeError):
-        clone.update(tmp_path / "kopia-plikow-taty")
+        clone.update()
 
     assert_back_before_click(repository, before)
 
@@ -418,13 +417,49 @@ def test_cofniecie_po_udanej_aktualizacji_wraca_do_commitu_sprzed_niej_z_plikami
 ) -> None:
     before = repository.head()
     moved_with_new_requirements(repository)
-    backup = tmp_path / "kopia-plikow-taty"
     clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
-    assert clone.update(backup).code == "ok"
+    assert clone.update().code == "ok"
 
-    clone.roll_back(before, backup)
+    clone.roll_back()
 
     assert_back_before_click(repository, before)
+
+
+def test_cofniecie_nie_rusza_klonu_przesunietego_po_aktualizacji_na_inny_commit(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    moved_with_new_requirements(repository)
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
+    assert clone.update().code == "ok"
+    repository.write("src/narzedzie.py", "WERSJA = 3\n")
+    repository.in_clone("commit", "--quiet", "--all", "--message", "Poprawka Maksa")
+    by_maks = repository.state()
+
+    with pytest.raises(JournalKept):
+        clone.roll_back()
+
+    assert repository.state() == by_maks
+
+
+def test_kolejne_klikniecie_przy_aktualizacji_w_toku_nie_gubi_pliku_taty(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    (repository.clone / "config" / "rejestr.yaml").write_text("zachowany u taty\n", encoding="utf-8")
+    repository.publish(
+        {".gitignore": "config/worker_mapping.yaml\n", "config/rejestr.yaml": "z nowej wersji\n"},
+        untrack=("config/worker_mapping.yaml",),
+    )
+    git = git_locking_after_merge(tmp_path, repository.clone / "config" / "worker_mapping.yaml")
+    clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
+    assert clone.update().code == "COFNIECIE_NIEUDANE"
+
+    assert clone.update().code == "COFNIECIE_NIEUDANE"
+    clone.roll_back()
+
+    assert repository.head() == before
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
 
 
 def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
@@ -465,9 +500,7 @@ def test_pomocnik_gita_trzymajacy_jego_wyjscie_nie_wstrzymuje_aktualizacji(tmp_p
     git = git_whose_helper_holds_its_output(tmp_path, commit)
 
     started = time.monotonic()
-    result = ToolClone(tmp_path, origin="https://example.invalid/narzedzie.git", find_git=lambda: git).update(
-        tmp_path / "kopia"
-    )
+    result = ToolClone(tmp_path, origin="https://example.invalid/narzedzie.git", find_git=lambda: git).update()
     elapsed = time.monotonic() - started
 
     assert result == UpdateResult("AKTUALNA", before=commit, after=commit)
@@ -493,10 +526,84 @@ def test_gdy_cofniecie_po_nieudanej_instalacji_sie_nie_uda_wynik_mowi_to_wprost(
         repository.clone, origin=str(repository.origin), install=installer_that_changes(repository, "src/narzedzie.py")
     )
 
-    result = clone.update(tmp_path / "kopia-plikow-taty")
+    result = clone.update()
 
     assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
     assert repository.head() == newest
+
+
+def failed_rollback_with_index_locked(repository: ToolRepository) -> Path:
+    """Aktualizacja, której biblioteki się nie instalują, a cofnięcie zatrzymuje blokada indeksu Gita."""
+
+    lock = repository.clone / ".git" / "index.lock"
+
+    def install(requirements: Path) -> bool:
+        lock.touch()
+        return False
+
+    before = repository.head()
+    newest = moved_with_new_requirements(repository)
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=install).update()
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
+    assert repository.head() == newest
+    return lock
+
+
+def test_po_nieudanym_cofnieciu_kolejne_klikniecie_cofa_klon_i_instaluje_biblioteki_nowej_wersji(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository).unlink()
+    newest = repository.in_clone("rev-parse", "HEAD")
+    installer = FakeInstaller()
+
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=installer).update()
+
+    assert result == UpdateResult("ok", before=before, after=newest, installed=True)
+    assert [content for _, content in installer.installed] == [NEW_REQUIREMENTS]
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+
+
+def test_po_nieudanym_cofnieciu_kolejne_klikniecie_bez_internetu_zostawia_klon_sprzed_aktualizacji(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository).unlink()
+
+    result = ToolClone(repository.clone, origin=unreachable_origin()).update()
+
+    assert result == UpdateResult("BRAK_POLACZENIA", before=before, after=None)
+    assert_back_before_click(repository, before)
+
+
+def test_gdy_cofniecie_wciaz_sie_nie_udaje_kolejne_klikniecie_mowi_to_wprost(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    failed_rollback_with_index_locked(repository)
+    newest = repository.in_clone("rev-parse", "HEAD")
+
+    result = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller()).update()
+
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest)
+    assert repository.head() == newest
+
+
+def test_klikniecie_w_trakcie_ponownego_startu_nie_cofa_aktualizacji_ktora_konczy_opiekun(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    newest = moved_with_new_requirements(repository)
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
+    assert clone.update().code == "ok"
+    with clone.leased_to_guardian():
+        pass
+
+    result = clone.update()
+
+    assert result == UpdateResult("AKTUALNA", before=newest, after=newest)
+    interrupted = clone.interrupted_update()
+    assert interrupted is not None
+    assert interrupted.guardian_may_run(time.time())
 
 
 def test_gdy_plik_taty_nie_wroci_po_przesunieciu_klon_wraca_do_poprzedniej_wersji_z_plikiem_taty(
@@ -509,7 +616,7 @@ def test_gdy_plik_taty_nie_wroci_po_przesunieciu_klon_wraca_do_poprzedniej_wersj
     git = git_locking_after_merge(tmp_path, repository.clone / "config")
     clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
 
-    result = clone.update(tmp_path / "kopia-plikow-taty")
+    result = clone.update()
 
     assert result == UpdateResult("NIEOCZEKIWANY_BLAD", before=before, after=newest)
     assert repository.head() == before
@@ -537,7 +644,8 @@ def git_locking_after_merge(tmp_path: Path, locked: Path) -> Path:
         "        subprocess.run(['icacls', locked, *rule], capture_output=True, check=True)\n"
         "    else:\n"
         "        os.chmod(locked, stat.S_IREAD | stat.S_IEXEC if on else stat.S_IRWXU)\n"
-        "lock(False)\n"
+        "if os.path.exists(locked):\n"
+        "    lock(False)\n"
         f"code = subprocess.call([{real!r}, *sys.argv[1:]])\n"
         "if 'merge' in sys.argv:\n"
         "    lock(True)\n"
@@ -547,7 +655,7 @@ def git_locking_after_merge(tmp_path: Path, locked: Path) -> Path:
     return _executable(tmp_path, script)
 
 
-def test_gdy_plik_taty_nie_wroci_po_odmowie_przesuniecia_wynik_mowi_to_wprost_a_kopia_zostaje(
+def test_gdy_plik_taty_nie_wroci_po_odmowie_przesuniecia_wynik_mowi_to_wprost_a_cofniecie_przywraca_plik_taty(
     repository: ToolRepository, tmp_path: Path
 ) -> None:
     before = repository.head()
@@ -557,13 +665,13 @@ def test_gdy_plik_taty_nie_wroci_po_odmowie_przesuniecia_wynik_mowi_to_wprost_a_
         {".gitignore": "config/worker_mapping.yaml\n", "config/rejestr.yaml": "z nowej wersji\n"},
         untrack=("config/worker_mapping.yaml",),
     )
-    backup = tmp_path / "kopia-plikow-taty"
     # Plik taty zablokowany do zapisu (np. przez antywirusa), gdy kopia ma do niego wrócić.
     git = git_locking_after_merge(tmp_path, repository.clone / "config" / "worker_mapping.yaml")
     clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
 
-    result = clone.update(backup)
+    result = clone.update()
+    clone.roll_back()
 
     assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=None)
     assert repository.head() == before
-    assert (backup / "config" / "worker_mapping.yaml").read_text(encoding="utf-8") == REAL_NAMES
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES

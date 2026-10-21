@@ -39,7 +39,6 @@ from rozliczenia.centrum.tool_update import (
     UP_TO_DATE,
     ROLLBACK_FAILED,
     UPDATED,
-    GitFailed,
     Step,
     ToolClone,
     UpdateResult,
@@ -47,7 +46,7 @@ from rozliczenia.centrum.tool_update import (
 )
 
 # Porażki, po których tata sam klika „Zaktualizuj narzędzie” jeszcze raz; każdą inną przejmuje Maks.
-_RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED})
+_RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED, ROLLBACK_FAILED})
 
 GuardianLauncher = Callable[[Path, Restart], object]
 """Uruchamia opiekuna ponownego startu z kopii (``restart_guardian.launch``); w testach podstawiany."""
@@ -150,23 +149,19 @@ class ToolUpdates:
 
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
-        backup = work / restart_guardian.DAD_FILES
         restarting = False
-        # Po nieudanym cofnięciu treść taty może być już tylko w kopii: katalog zostaje dla Maksa.
-        kept = False
         try:
-            result, guardian = self._result(clone, before, work, backup)
+            result, guardian = self._result(clone, before, work)
             if result.before is None:  # bez Gita commit zna tylko Centrum
                 result = replace(result, before=before)
             if result.code == UPDATED and result.after is not None and guardian is not None:
                 restart = Restart(
                     port, result.before, result.after, clone.root, self._result_file, result.installed, work
                 )
-                restarting = self._restart(restart, guardian)
+                restarting = self._restart(clone, restart, guardian)
                 if not restarting:
-                    result = self._moved_back(clone, result, backup)
+                    result = self._moved_back(clone, result)
             if not restarting:
-                kept = result.code == ROLLBACK_FAILED
                 self._finished(result)
                 view = _view_of(result) or self._failed(result).model_copy(
                     update={"report": self._reports.update_report_state()}
@@ -175,45 +170,40 @@ class ToolUpdates:
                     self._view = view
         finally:
             if not restarting:
-                if not kept:
-                    shutil.rmtree(work, ignore_errors=True)
+                shutil.rmtree(work, ignore_errors=True)
                 self._runs.end_update()
 
-    def _result(
-        self, clone: ToolClone, before: str | None, work: Path, backup: Path
-    ) -> tuple[UpdateResult, Path | None]:
+    def _result(self, clone: ToolClone, before: str | None, work: Path) -> tuple[UpdateResult, Path | None]:
         try:
             # Opiekun działa z kopii sprzed aktualizacji, więc kopia powstaje, zanim klon się zmieni.
             guardian = restart_guardian.prepare(work)
-            backup.mkdir()
-            return clone.update(backup, self._show_step), guardian
+            return clone.update(self._show_step), guardian
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="aktualizacja narzędzia")
             return UpdateResult(UNEXPECTED, before, None), None
 
-    def _restart(self, restart: Restart, guardian: Path) -> bool:
+    def _restart(self, clone: ToolClone, restart: Restart, guardian: Path) -> bool:
         """Uruchamia opiekuna i zamyka Centrum; ``False``, gdy opiekun nie wystartował (Centrum działa dalej)."""
 
-        with self._lock:
-            self._view = contract.ToolUpdateRunning(state="running", step="restarting")
         try:
-            self._guardian(guardian, restart)
+            with clone.leased_to_guardian():
+                with self._lock:
+                    self._view = contract.ToolUpdateRunning(state="running", step="restarting")
+                self._guardian(guardian, restart)
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="ponowny start po aktualizacji")
             return False
         self._shutdown.close_for_update()
         return True
 
-    def _moved_back(self, clone: ToolClone, result: UpdateResult, backup: Path) -> UpdateResult:
+    def _moved_back(self, clone: ToolClone, result: UpdateResult) -> UpdateResult:
         """Bez opiekuna nowa wersja nie wystartuje, a stary kod działałby na nowych plikach: klon wraca sprzed kliknięcia.
 
         Wynik to porażka nieoczekiwana, a gdy nie uda się cofnięcie, porażka cofnięcia.
         """
 
         try:
-            if result.before is None:
-                raise GitFailed("brak commitu sprzed aktualizacji")
-            clone.roll_back(result.before, backup)
+            clone.roll_back()
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="cofnięcie aktualizacji")
             return replace(result, code=ROLLBACK_FAILED)

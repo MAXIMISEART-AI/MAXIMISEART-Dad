@@ -6,13 +6,15 @@ odłączonym procesem bez konsoli (``launch``) i samo się zamyka. Opiekun dzia�
 z kopii sprzed aktualizacji i używa tylko biblioteki standardowej (``main``):
 zapisuje wynik aktualizacji obok Ustawień taty, czeka na zwolnienie portu,
 startuje nową wersję jak skrót, tylko bez karty i bez okienek, i czeka, aż
-odpowie w nowym commicie. Gdy nie odpowie (albo stare Centrum nie zwolni
-portu), opiekun ją zatrzymuje, cofa klon do commitu sprzed aktualizacji razem z
-plikami taty (``ToolClone.roll_back``), zapisuje wynik „Nowa wersja nie
-wystartowała” i tak samo startuje starą wersję, która pokaże go w karcie. Gdy
-cofnięcie się nie uda, wynik mówi to wprost. Gdy nie wystartuje żadna wersja,
-opiekun pokazuje jedno natywne okienko z Komunikatem startu. Po udanym starcie
-albo cofnięciu usuwa katalog tymczasowy aktualizacji.
+odpowie w nowym commicie. Wtedy aktualizacja jest skończona, a jej dziennik
+„Aktualizacja w toku” znika (``ToolClone.confirm_update``). Gdy nie odpowie
+(albo stare Centrum nie zwolni portu), opiekun ją zatrzymuje, cofa klon z
+dziennika do commitu sprzed aktualizacji razem z plikami taty
+(``ToolClone.roll_back``), zapisuje wynik „Nowa wersja nie wystartowała” i tak
+samo startuje starą wersję, która pokaże go w karcie. Gdy cofnięcie się nie
+uda, wynik mówi to wprost, a dziennik czeka na następny start skrótu. Gdy nie
+wystartuje żadna wersja, opiekun pokazuje jedno natywne okienko z Komunikatem
+startu. Na końcu usuwa katalog tymczasowy aktualizacji.
 """
 
 from __future__ import annotations
@@ -50,8 +52,6 @@ _POLL_S: Final = 0.2
 _STOP_TIMEOUT_S: Final = 10.0
 _HOST: Final = "127.0.0.1"
 _SERVICE: Final = "centrum-rozliczen"
-# Katalog kopii plików taty w katalogu tymczasowym aktualizacji (``Restart.work``): z niego opiekun cofa klon.
-DAD_FILES: Final = "pliki-taty"
 _SOURCE: Final = Path(__file__).resolve().parents[2]
 # Pakiet-szkielet kopii: tylko moduły bez bibliotek narzędzia, które opiekun importuje.
 _COPIED: Final = (
@@ -77,7 +77,7 @@ class Restart:
     """Ponowny start po udanej aktualizacji.
 
     ``root`` to katalog narzędzia, ``result`` plik wyniku obok Ustawień taty,
-    ``work`` katalog tymczasowy aktualizacji (kopia opiekuna i plików taty).
+    ``work`` katalog tymczasowy aktualizacji z kopią opiekuna.
     """
 
     port: int
@@ -152,11 +152,12 @@ def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show
         write_result(restart.result, _result(restart, UPDATED))
         new = _start_centrum(restart)
         if _answers(new, restart.port, restart.after):
+            ToolClone(restart.root).confirm_update()
             shutil.rmtree(restart.work, ignore_errors=True)
             return 0
         _stop(new)
     before = restart.before
-    rolled_back = before is not None and _rolled_back(restart, before)
+    rolled_back = _rolled_back(restart)
     write_result(restart.result, _result(restart, NEW_VERSION_FAILED if rolled_back else ROLLBACK_FAILED))
     # Bez zwolnionego portu stara wersja też by nie wystartowała; po nieudanym cofnięciu nie ma starej wersji.
     if released and rolled_back and before is not None and _port_released(restart.port):
@@ -199,17 +200,15 @@ def _stop(centrum: subprocess.Popen[bytes]) -> None:
         centrum.wait()
 
 
-def _rolled_back(restart: Restart, before: str) -> bool:
-    """Cofa klon do ``before`` z plikami taty z katalogu aktualizacji; potem katalog nie jest już potrzebny.
-
-    Gdy cofnięcie się nie uda, katalog z kopią plików taty zostaje dla Maksa.
-    """
+def _rolled_back(restart: Restart) -> bool:
+    """Cofa klon z dziennika „Aktualizacja w toku”; po porażce dziennik z kopią plików taty czeka na następny start skrótu."""
 
     try:
-        ToolClone(restart.root).roll_back(before, restart.work / DAD_FILES)
+        ToolClone(restart.root).roll_back()
     except Exception:  # noqa: BLE001 - każda porażka cofnięcia kończy się okienkiem dla taty
         return False
-    shutil.rmtree(restart.work, ignore_errors=True)
+    finally:
+        shutil.rmtree(restart.work, ignore_errors=True)
     return True
 
 
@@ -235,7 +234,7 @@ def _detached(command: list[str], cwd: Path) -> subprocess.Popen[bytes]:
 
 
 def _port_released(port: int) -> bool:
-    """Czy stare Centrum zwolniło port w ``PORT_TIMEOUT_S`` (zajęcie go tak jak ``server.listen_locally``)."""
+    """Czy stare Centrum zwolniło port w ``PORT_TIMEOUT_S`` (zajęcie go tak jak ``launcher.listen_locally``)."""
 
     deadline = time.monotonic() + PORT_TIMEOUT_S
     while True:

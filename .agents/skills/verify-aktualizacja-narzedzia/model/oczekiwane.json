@@ -3,21 +3,15 @@
     "wynik": "przechodzi"
   },
   "git": {
-    "wynik": "narusza",
-    "wybacz": "reset",
-    "znalezisko": "git reset --keep w _roll_back (w Centrum albo u opiekuna) kończy się błędem: klon zostaje na nowej wersji, która nie wystartuje (bez bibliotek albo zepsuta); tata dostaje COFNIECIE_NIEUDANE albo okienko. (#210)"
+    "wynik": "przechodzi"
   },
   "kopiowanie": {
-    "wynik": "narusza",
-    "wybacz": "kopiowanie",
-    "znalezisko": "copy2 pliku taty z kopii rzuca OSError przy ostatnim przywróceniu (po odmowie scalenia albo w _roll_back): plik taty zostaje z treścią z repozytorium albo znika, a jego treść jest tylko w pliki-taty; po przesunięciu klonu nieudane przywrócenie cofa klon. (#211)"
+    "wynik": "przechodzi"
   },
   "nieudany-start": {
     "wynik": "przechodzi"
   },
   "wylaczenie": {
-    "wynik": "narusza",
-    "wybacz": "wylaczenie",
-    "znalezisko": "Komputer gaśnie od git checkout HEAD do końca cofania przez opiekuna: klon na nowej wersji bez bibliotek albo niesprawdzonej, albo plik taty tylko w katalogu tymczasowym. (#213)"
+    "wynik": "przechodzi"
   }
 }
