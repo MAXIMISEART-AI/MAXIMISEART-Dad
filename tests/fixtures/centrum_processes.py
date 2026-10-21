@@ -39,7 +39,7 @@ from tests.fixtures.centrum import (
 )
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
-from tests.fixtures.tool_clone import ToolRepository, git
+from tests.fixtures.tool_clone import FakeInstaller, ToolRepository, git
 
 # Środa po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
@@ -54,7 +54,8 @@ class Surroundings:
     narzędzie jako prawdziwy klon z lokalnym „origin” zamiast GitHuba: wtedy
     commit narzędzia i `main` pochodzą z tych repozytoriów, a Aktualizacja
     narzędzia przesuwa ten klon. ``update_hold`` zatrzymuje każdą Aktualizację
-    narzędzia na jej początku, dopóki test jej nie puści (``set``).
+    narzędzia na jej początku, dopóki test jej nie puści (``set``), a
+    ``installer`` instaluje biblioteki zamiast pip.
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -63,6 +64,7 @@ class Surroundings:
     clock: FakeClock = field(default_factory=FakeClock)
     tool: ToolRepository | None = None
     update_hold: threading.Event | None = None
+    installer: FakeInstaller = field(default_factory=FakeInstaller)
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -81,7 +83,7 @@ class Surroundings:
             found = shutil.which("git")
             return None if found is None else Path(found)
 
-        return ToolClone(tool.clone, origin=str(tool.origin), find_git=held_git)
+        return ToolClone(tool.clone, origin=str(tool.origin), find_git=held_git, install=self.installer)
 
 
 def _client(

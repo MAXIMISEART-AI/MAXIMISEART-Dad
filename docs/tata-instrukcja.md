@@ -191,8 +191,9 @@ jest najnowsza: `Aktualna`, `Jest nowsza wersja` albo `Nie sprawdzono` (bez
 internetu).
 
 1. Na stronie `Konfiguracja` kliknij `Zaktualizuj narzędzie`.
-2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a przycisk jest
-   wtedy wyłączony.
+2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a gdy nowa wersja
+   potrzebuje nowych bibliotek, potem `Instalowanie bibliotek…` (to może
+   potrwać kilka minut). Przycisk jest wtedy wyłączony.
 3. Na końcu karta pokaże jedno z dwóch:
    - `Zaktualizowano. Zamknij Centrum rozliczeń i kliknij skrót.` W menu po
      lewej kliknij `Zamknij Centrum rozliczeń`, potem otwórz Centrum skrótem.
@@ -211,6 +212,7 @@ kliknięcia, a karta pokaże komunikat w trzech częściach.
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
+| „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
 
 ### Komunikaty startu Centrum rozliczeń
 

@@ -7,6 +7,7 @@ wynik, Konfiguracja, odmowy „jedno naraz” i dziennik Centrum.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import os
 from pathlib import Path
 import threading
@@ -18,7 +19,7 @@ import pytest
 from tests.fixtures.centrum import views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
-from tests.fixtures.tool_clone import ToolRepository, tool_repository
+from tests.fixtures.tool_clone import NEW_REQUIREMENTS, FakeInstaller, ToolRepository, tool_repository
 
 
 @pytest.fixture(autouse=True)
@@ -28,10 +29,14 @@ def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def updating_centrum(
-    tmp_path: Path, *, hold: threading.Event | None = None, incomplete_period: bool = False
+    tmp_path: Path,
+    *,
+    hold: threading.Event | None = None,
+    incomplete_period: bool = False,
+    installer: FakeInstaller | None = None,
 ) -> tuple[PreparingCentrum, ToolRepository]:
     repository = tool_repository(tmp_path / "repozytoria")
-    surroundings = Surroundings(tool=repository, update_hold=hold)
+    surroundings = Surroundings(tool=repository, update_hold=hold, installer=installer or FakeInstaller())
     rows = incomplete_period_rows() if incomplete_period else None
     return preparing_centrum(tmp_path, rows, surroundings=surroundings), repository
 
@@ -40,12 +45,16 @@ def update_until_done(centrum: PreparingCentrum) -> dict[str, Any]:
     started = centrum.client.post("/api/tool-update")
     assert started.status_code == 202, started.json()
     assert started.json() == {"state": "running", "step": "fetching"}
+    return tool_update_until(centrum, lambda view: view["state"] != "running")
+
+
+def tool_update_until(centrum: PreparingCentrum, reached: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
     deadline = time.monotonic() + 30
     while True:
-        view = centrum.client.get("/api/tool-update").json()
-        if view["state"] != "running":
-            return dict(view)
-        assert time.monotonic() < deadline, "Aktualizacja narzędzia nie skończyła się."
+        view = dict(centrum.client.get("/api/tool-update").json())
+        if reached(view):
+            return view
+        assert time.monotonic() < deadline, f"Aktualizacja narzędzia utknęła w {view}."
         time.sleep(0.02)
 
 
@@ -207,3 +216,47 @@ def test_nieprzewidziana_porazka_daje_komunikat_a_klon_zostaje_bez_zmian(tmp_pat
     assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
     assert log_entries(centrum, "aktualizacja-koniec") == ["wynik=NIEOCZEKIWANY_BLAD przed=- po=- biblioteki=nie"]
     assert centrum.client.post("/api/tool-update").status_code == 202
+
+
+def test_nowe_biblioteki_karta_widzi_krok_instalowania_a_dziennik_zapisuje_instalacje(tmp_path: Path) -> None:
+    hold = threading.Event()
+    centrum, repository = updating_centrum(tmp_path, installer=FakeInstaller(hold=hold))
+    before = repository.head()
+    newest = repository.publish({"requirements.txt": NEW_REQUIREMENTS})
+    assert centrum.client.post("/api/tool-update").status_code == 202
+
+    installing = tool_update_until(centrum, lambda view: view.get("step") == "installing")
+    hold.set()
+    view = tool_update_until(centrum, lambda view: view["state"] != "running")
+
+    assert installing == {"state": "running", "step": "installing"}
+    assert view == {"state": "updated", "commit": newest[:7]}
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=tak"]
+
+
+def test_nieudana_instalacja_bibliotek_daje_komunikat_a_narzedzie_zostaje_w_poprzedniej_wersji(
+    tmp_path: Path,
+) -> None:
+    centrum, repository = updating_centrum(tmp_path, installer=FakeInstaller(succeeds=False))
+    before = repository.head()
+    newest = repository.publish({"requirements.txt": NEW_REQUIREMENTS, "src/narzedzie.py": "WERSJA = 2\n"})
+
+    view = update_until_done(centrum)
+
+    assert view == {
+        "state": "failed",
+        "message": {
+            "what": "Nie udało się zainstalować bibliotek nowej wersji narzędzia.",
+            "where": "narzędzie na tym komputerze",
+            "action": (
+                "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+                "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
+            ),
+        },
+    }
+    assert repository.head() == before
+    assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
+    assert tool_on_configuration(centrum)["commit"] == before[:7]
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=INSTALACJA_BIBLIOTEK przed={before} po={newest} biblioteki=tak"
+    ]

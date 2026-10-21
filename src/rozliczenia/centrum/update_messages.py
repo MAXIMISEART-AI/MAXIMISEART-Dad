@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from rozliczenia.centrum.tool_update import UNEXPECTED
+from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, UNEXPECTED
 from rozliczenia.message import Message
 
 _TOOL: Final = "narzędzie na tym komputerze"
@@ -33,7 +33,24 @@ def unexpected_failure() -> Message:
     )
 
 
-_BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {UNEXPECTED: unexpected_failure}
+def libraries_failed() -> Message:
+    """Nowa wersja zmieniła biblioteki, a ich instalacja się nie udała; klon wrócił do wersji sprzed kliknięcia."""
+
+    return Message(
+        code=LIBRARIES_FAILED,
+        what="Nie udało się zainstalować bibliotek nowej wersji narzędzia.",
+        where=_TOOL,
+        action=(
+            f"{_STILL_WORKS} Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+            "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
+        ),
+    )
+
+
+_BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
+    UNEXPECTED: unexpected_failure,
+    LIBRARIES_FAILED: libraries_failed,
+}
 
 
 def message_of(code: str) -> Message:
