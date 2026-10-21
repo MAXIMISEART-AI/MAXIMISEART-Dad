@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             others = _with_pull_requests(others, _pull_requests(root), branch)
             if args.issue is not None:
-                issue_body = _gh(root, "issue", "view", str(args.issue), "--json", "body")["body"] or ""
+                issue_body = _issue_body(root, args.issue)
         except _GitHubSkipped as skipped:
             print(f"GITHUB POMINIĘTY | {skipped}")
     others.sort(key=lambda item: (item.worktree is None, item.branch is None, item.branch or "", str(item.worktree)))
@@ -211,15 +211,26 @@ def _with_pull_requests(
 def _pull_requests(root: Path) -> list[_PullRequest]:
     fields = "number,headRefName,title,body,files"
     answer = _gh(root, "pr", "list", "--state", "open", "--limit", "200", "--json", fields)
-    return [
-        _PullRequest(
-            number=int(pr["number"]),
-            branch=str(pr["headRefName"]),
-            issues=_issues(f"{pr['title']}\n{pr['body'] or ''}"),
-            files=frozenset(str(file["path"]) for file in pr["files"] or ()),
-        )
-        for pr in answer
-    ]
+    try:
+        return [
+            _PullRequest(
+                number=int(pr["number"]),
+                branch=str(pr["headRefName"]),
+                issues=_issues(f"{pr['title']}\n{pr['body'] or ''}"),
+                files=frozenset(str(file["path"]) for file in pr["files"] or ()),
+            )
+            for pr in answer
+        ]
+    except (KeyError, TypeError, ValueError) as error:
+        raise _GitHubSkipped(f"gh pr list: nieoczekiwana odpowiedź ({error!r})") from error
+
+
+def _issue_body(root: Path, issue: int) -> str:
+    answer = _gh(root, "issue", "view", str(issue), "--json", "body")
+    try:
+        return str(answer["body"] or "")
+    except (KeyError, TypeError) as error:
+        raise _GitHubSkipped(f"gh issue view: nieoczekiwana odpowiedź ({error!r})") from error
 
 
 def _issue_reasons(work: list[WorkInProgress], issue: int, body: str) -> dict[WorkInProgress, str]:
