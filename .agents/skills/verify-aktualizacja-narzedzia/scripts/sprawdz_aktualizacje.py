@@ -36,6 +36,8 @@ TLA_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 
 PASSES, VIOLATES = "przechodzi", "narusza"
 _STATE = re.compile(r"^State \d+: ")
+_STUTTERING = re.compile(r"^State \d+: Stuttering")
+_BACK = re.compile(r"^Back to state (\d+): ")
 _VARIABLE = re.compile(r"^/\\ (\w+) = (.*)$")
 
 
@@ -183,7 +185,8 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
     """Werdykt TLC dla konfiguracji ``name``, z opowiedzianym kontrprzykładem; ``None`` przy błędzie modelu.
 
     ``forgiven`` to znane znaleziska z ``model/oczekiwane.json``; gdy są, przebieg
-    sprawdza ``TataMaDzialajacaWersjePozaZnanymi`` z ``Wybaczone`` równym im.
+    sprawdza ``TataMaDzialajacaWersjePozaZnanymi`` i ``PostepPozaZnanymi`` z
+    ``Wybaczone`` równym im.
     """
 
     config = (MODEL / f"{name}.cfg").read_text(encoding="utf-8")
@@ -192,6 +195,7 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
         config = config.replace(
             " TataMaDzialajacaWersje\n", " TataMaDzialajacaWersjePozaZnanymi\n"
         )
+        config = config.replace(" Postep\n", " PostepPozaZnanymi\n")
         config = config.replace("Wybaczone = {}", f"Wybaczone = {{{tags}}}")
     # TLC zapisuje ślady i stany obok specyfikacji, więc działa na kopii w katalogu tymczasowym.
     with tempfile.TemporaryDirectory(prefix="tlc-") as work:
@@ -225,6 +229,8 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
     if invariant is None:
         print("   BŁĄD MODELU: TLC nie dał werdyktu.\n" + output)
         return None
+    if invariant == _LIVENESS:
+        print("   naruszony Postep: dziennik „Aktualizacja w toku” zostaje na zawsze.")
     _tell(_trace(output))
     if invariant == "TypeOK":
         print(
@@ -234,15 +240,29 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
     return VIOLATES
 
 
+_LIVENESS = "Postep"
+
+
 def _violated(output: str) -> str | None:
+    """Naruszony niezmiennik albo ``Postep``, gdy TLC znalazł przebieg bez końca, w którym dziennik nie znika."""
+
+    if "Temporal properties were violated" in output:
+        return _LIVENESS
     found = re.search(r"Invariant (\w+) is violated", output)
     return found.group(1) if found else None
 
 
 def _trace(output: str) -> list[dict[str, str]]:
+    """Stany kontrprzykładu; przebieg bez końca kończy się stanem, którego ``krok`` mówi, co się powtarza."""
+
     states: list[dict[str, str]] = []
     for line in output.splitlines():
-        if _STATE.match(line):
+        if _STUTTERING.match(line):
+            states.append(states[-1] | {"krok": "(dalej nic sie nie dzieje)"})
+        elif back := _BACK.match(line):
+            again = int(back.group(1)) - 1
+            states.append(states[-1] | {"krok": f"(stad znow krok {again} i tak bez konca)"})
+        elif _STATE.match(line):
             states.append({})
         elif states and (variable := _VARIABLE.match(line.strip())):
             states[-1][variable.group(1)] = variable.group(2).strip('"')
@@ -263,7 +283,7 @@ def _tell(trace: list[dict[str, str]]) -> None:
         print(f"   {number}. {state['krok']}")
     print(
         f"   na koniec: klon na wersji {last['head']}, plik taty: {last['plikTaty']}, "
-        f"biblioteki: {last['biblioteki']}, Centrum: {last['centrum']}"
+        f"biblioteki: {last['biblioteki']}, Centrum: {last['centrum']}, dziennik: {last['dziennik']}"
     )
 
 
