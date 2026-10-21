@@ -10,6 +10,10 @@ wyjątków ani klucza Zgłoszenie nie ma (ADR 0007).
 
 Diagnoza zostawia treść Zgłoszenia jako podgląd dla swojego Uruchomienia
 (``Reports.draft``), a „Wyślij do Maksa” wysyła dokładnie ten podgląd.
+Nieudana Aktualizacja narzędzia zostawia swój podgląd (``Reports.draft_update``)
+z tymi samymi faktami co dziennik Centrum: kod Komunikatu, commit przed i po,
+czy instalowano biblioteki, wersja narzędzia i ostatnie wpisy dziennika, bez
+ścieżek i bez wyjścia Gita.
 """
 
 from __future__ import annotations
@@ -41,7 +45,9 @@ from rozliczenia.centrum.report_box import (
 from rozliczenia.centrum.runs import RunHost, StoppedRun
 from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import CommitSource
+from rozliczenia.centrum.tool_update import UpdateResult
 from rozliczenia.centrum.version import tool_version
+from rozliczenia.message import Message
 
 if TYPE_CHECKING:
     from rozliczenia.centrum.diagnosis import Diagnosis
@@ -53,6 +59,13 @@ SENT_REPORTS_FILE: Final = "zgloszenia-wyslane.json"
 STATES_INTERVAL_S: Final = 10 * 60
 # Diagnoza czeka na odpowiedź skrzynki o otwarte Zgłoszenie najwyżej tyle, co na commit `main`.
 SEARCH_DEADLINE_S: Final = 3.0
+
+# Zgłoszenie nieudanej Aktualizacji narzędzia ma tyle ostatnich wpisów dziennika co Zgłoszenie z Diagnozy.
+_UPDATE_LOG_ENTRIES: Final = 20
+# Podgląd Zgłoszenia aktualizacji jest jeden na Centrum, jak sama aktualizacja.
+_UPDATE_KEY: Final = "aktualizacja-narzedzia"
+# Odmowa „Wyślij do Maksa”, gdy ostatnia Aktualizacja narzędzia nie zawiodła.
+NO_FAILED_UPDATE: Final = "Zgłoszenie powstaje po nieudanej aktualizacji narzędzia."
 
 _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
@@ -69,15 +82,7 @@ def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None 
     fingerprint = ProblemFingerprint.of(info.process, message).digest
     explanation = diagnosis.explanation
     lines = [
-        "Zgłoszenie z Centrum rozliczeń.",
-        "",
-        "## Komunikat",
-        "",
-        f"- Kod: {message.code}",
-        f"- Co się stało: {message.what}",
-        f"- Gdzie: {message.where}",
-        f"- Co zrobić: {message.action}",
-        "",
+        *_message_lines(message),
         "## Uruchomienie procesu",
         "",
         f"- Proces: {info.title}",
@@ -85,13 +90,7 @@ def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None 
         f"- Tryb: {_MODES[info.dry_run]}",
         "",
         *_trace_lines(stopped.stop.trace),
-        "## Narzędzie",
-        "",
-        f"- Wersja: {tool_version()}",
-        f"- Commit: {commit or 'nieznany'}",
-        fingerprint_line(fingerprint),
-        *([] if previous is None else [f"- Poprzednie Zgłoszenie: #{previous}"]),
-        "",
+        *_tool_lines(fingerprint, previous, commit=f"- Commit: {commit or 'nieznany'}"),
         "## Diagnoza",
         "",
         f"Wyjaśnienie: {explanation.code} · {explanation.what}",
@@ -109,6 +108,67 @@ def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None 
         *diagnosis.log_entries,
         "```",
     ]
+    return _report(message, lines, fingerprint)
+
+
+def update_report_of(
+    result: UpdateResult, message: Message, *, log_entries: list[str], previous: int | None = None
+) -> Report:
+    """Zgłoszenie nieudanej Aktualizacji narzędzia: Komunikat i fakty wpisu ``aktualizacja-koniec`` dziennika."""
+
+    fingerprint = ProblemFingerprint.of_tool_update(message).digest
+    lines = [
+        *_message_lines(message),
+        "## Aktualizacja narzędzia",
+        "",
+        f"- Wynik: {result.code}",
+        f"- Commit przed: {result.before or 'nieznany'}",
+        f"- Commit po: {result.after or 'brak'}",
+        f"- Biblioteki instalowane: {'tak' if result.installed else 'nie'}",
+        "",
+        *_tool_lines(fingerprint, previous),
+        "## Dziennik Centrum rozliczeń",
+        "",
+        "```text",
+        *log_entries,
+        "```",
+    ]
+    return _report(message, lines, fingerprint)
+
+
+def _message_lines(message: Message) -> list[str]:
+    """Początek każdego Zgłoszenia: Komunikat z kodem i trzema częściami."""
+
+    return [
+        "Zgłoszenie z Centrum rozliczeń.",
+        "",
+        "## Komunikat",
+        "",
+        f"- Kod: {message.code}",
+        f"- Co się stało: {message.what}",
+        f"- Gdzie: {message.where}",
+        f"- Co zrobić: {message.action}",
+        "",
+    ]
+
+
+def _tool_lines(fingerprint: str, previous: int | None, *, commit: str | None = None) -> list[str]:
+    """Sekcja narzędzia: wersja, ``commit`` (gotowy wiersz, jeśli jest), odcisk problemu i poprzednie Zgłoszenie."""
+
+    return [
+        "## Narzędzie",
+        "",
+        f"- Wersja: {tool_version()}",
+        *([] if commit is None else [commit]),
+        fingerprint_line(fingerprint),
+        *([] if previous is None else [f"- Poprzednie Zgłoszenie: #{previous}"]),
+        "",
+    ]
+
+
+def _report(message: Message, lines: list[str], fingerprint: str) -> Report:
+    """Zgłoszenie z tytułem z kodu i „Co się stało” Komunikatu."""
+
     return Report(title=f"{message.code}: {message.what}", body="\n".join(lines) + "\n", fingerprint=fingerprint)
 
 
@@ -226,12 +286,44 @@ class SentReports:
 
 
 @dataclass(frozen=True)
-class _Draft:
-    """Zgłoszenie z ostatniej Diagnozy, jego Uruchomienie i nazwa pliku na wypadek nieudanej wysyłki."""
+class _ReportLog:
+    """Wpisy dziennika Centrum o wysyłce jednego podglądu: z Uruchomienia albo z Aktualizacji narzędzia."""
 
-    run_id: str
+    sent: Callable[[int], None]
+    waiting: Callable[[int], None]
+    saved: Callable[[str], None]
+    not_saved: Callable[[str], None]
+
+    @classmethod
+    def of_run(cls, log: CentrumLog, process: str, period: str) -> _ReportLog:
+        return cls(
+            sent=lambda number: log.report_sent(process=process, period=period, number=number),
+            waiting=lambda number: log.report_waiting(process=process, period=period, number=number),
+            saved=lambda code: log.report_saved(process=process, period=period, code=code),
+            not_saved=lambda cause: log.report_not_saved(process=process, period=period, cause=cause),
+        )
+
+    @classmethod
+    def of_update(cls, log: CentrumLog) -> _ReportLog:
+        return cls(
+            sent=lambda number: log.update_report_sent(number=number),
+            waiting=lambda number: log.update_report_waiting(number=number),
+            saved=lambda code: log.update_report_saved(code=code),
+            not_saved=lambda cause: log.update_report_not_saved(cause=cause),
+        )
+
+
+@dataclass(frozen=True)
+class _Draft:
+    """Podgląd Zgłoszenia, jego wpisy w dzienniku i nazwa pliku na wypadek nieudanej wysyłki.
+
+    ``key`` to Uruchomienie (jego identyfikator) albo Aktualizacja narzędzia.
+    """
+
+    key: str
     report: Report
     file_name: str
+    logged: _ReportLog
 
 
 class Reports:
@@ -264,9 +356,10 @@ class Reports:
         # Blokada chroni tylko stan w pamięci i pliki stanu; pytania do skrzynki idą bez niej.
         self._lock = threading.Lock()
         self._changed = threading.Condition(self._lock)
-        self._draft: _Draft | None = None
-        self._sent_runs: set[str] = set()
-        self._sending: set[str] = set()  # Uruchomienia, których Zgłoszenie właśnie idzie do skrzynki
+        self._draft: _Draft | None = None  # z ostatniej Diagnozy
+        self._update_draft: _Draft | None = None  # z ostatniej nieudanej Aktualizacji narzędzia
+        self._sent_drafts: set[str] = set()  # ``_Draft.key`` podglądów wysłanych w tej pracy Centrum
+        self._sending: set[str] = set()  # ``_Draft.key`` podglądów, które właśnie idą do skrzynki
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
         self._open: dict[str, int | None] = {}
 
@@ -289,9 +382,45 @@ class Reports:
         report = report_of(diagnosis, commit=self._commit(), previous=previous.number if previous else None)
         file_name = f"Zgłoszenie {stopped.stop.message.code} {info.period}.md"
         with self._lock:
-            self._draft = _Draft(info.id, report, file_name)
-            state = contract.ReportSent(state="sent") if info.id in self._sent_runs else self._state_of(fingerprint)
+            self._draft = _Draft(info.id, report, file_name, _ReportLog.of_run(self._log, info.process, info.period))
+            state = contract.ReportSent(state="sent") if info.id in self._sent_drafts else self._state_of(fingerprint)
         return contract.ReportDraft(title=report.title, body=report.body), state
+
+    def draft_update(self, result: UpdateResult, message: Message) -> tuple[contract.ReportDraft, contract.ReportState]:
+        """Zgłoszenie nieudanej Aktualizacji narzędzia, które wyśle „Wyślij do Maksa”, i ostatni znany stan.
+
+        Skrzynki nie pyta (start Centrum po cofnięciu nie czeka na sieć); pyta ją ``update_report_state``.
+        Wpis ``aktualizacja-koniec`` jest już w dzienniku, więc Zgłoszenie ma go wśród ostatnich wpisów.
+        """
+
+        fingerprint = ProblemFingerprint.of_tool_update(message).digest
+        previous = self._sent.find(fingerprint)
+        report = update_report_of(
+            result,
+            message,
+            log_entries=self._log.recent(_UPDATE_LOG_ENTRIES),
+            previous=previous.number if previous else None,
+        )
+        with self._lock:
+            self._update_draft = _Draft(
+                _UPDATE_KEY, report, f"Zgłoszenie {message.code} aktualizacja.md", _ReportLog.of_update(self._log)
+            )
+            self._sent_drafts.discard(_UPDATE_KEY)  # nowa porażka: jej Zgłoszenie jeszcze nie wyszło
+            state = self._state_of(fingerprint)
+        return contract.ReportDraft(title=report.title, body=report.body), state
+
+    def update_report_state(self) -> contract.ReportState:
+        """Stan Zgłoszenia ostatniej nieudanej Aktualizacji narzędzia po pytaniu skrzynki (``_ask_box``)."""
+
+        with self._lock:
+            draft = self._update_draft
+        if draft is None:
+            return contract.ReportReady(state="ready")
+        self._ask_box(draft.report.fingerprint)
+        with self._lock:
+            if _UPDATE_KEY in self._sent_drafts:
+                return contract.ReportSent(state="sent")
+            return self._state_of(draft.report.fingerprint)
 
     def send(self, stopped: StoppedRun) -> contract.ReportState:
         """Wysyła podgląd z Diagnozy ``stopped``, chyba że skrzynka ma już otwarte Zgłoszenie tego problemu.
@@ -299,24 +428,35 @@ class Reports:
         Gdy się nie uda, zapisuje Zgłoszenie w pliku i mówi, co dalej.
         """
 
-        info = stopped.info
+        return self._send(
+            stopped.info.id, lambda: self._draft, "Zgłoszenie powstaje z Diagnozy. Najpierw kliknij „Diagnoza”."
+        )
+
+    def send_update(self) -> contract.ReportState:
+        """Wysyła podgląd z ostatniej nieudanej Aktualizacji narzędzia, tak samo jak ``send``."""
+
+        return self._send(_UPDATE_KEY, lambda: self._update_draft, NO_FAILED_UPDATE)
+
+    def _send(self, key: str, current: Callable[[], _Draft | None], refusal: str) -> contract.ReportState:
+        """Wysyła podgląd ``current()`` o kluczu ``key`` najwyżej raz; bez takiego podglądu odmowa ``refusal``."""
+
         with self._changed:
-            while info.id in self._sending:  # drugie kliknięcie czeka na wynik pierwszego
+            while key in self._sending:  # drugie kliknięcie czeka na wynik pierwszego
                 self._changed.wait()
-            draft = self._draft
-            if draft is None or draft.run_id != info.id:
-                raise contract.Refusal(409, "Zgłoszenie powstaje z Diagnozy. Najpierw kliknij „Diagnoza”.")
-            if info.id in self._sent_runs:
+            draft = current()
+            if draft is None or draft.key != key:
+                raise contract.Refusal(409, refusal)
+            if key in self._sent_drafts:
                 return contract.ReportSent(state="sent")
-            self._sending.add(info.id)
+            self._sending.add(key)
         try:
-            return self._deliver(info, draft)
+            return self._deliver(draft)
         finally:
             with self._changed:
-                self._sending.discard(info.id)
+                self._sending.discard(key)
                 self._changed.notify_all()
 
-    def _deliver(self, info: contract.RunInfo, draft: _Draft) -> contract.ReportState:
+    def _deliver(self, draft: _Draft) -> contract.ReportState:
         """Wysyła ``draft``, gdy skrzynka nie ma otwartego Zgłoszenia tego problemu; inaczej zapisuje plik."""
 
         key = self._key()
@@ -326,7 +466,7 @@ class Reports:
             if isinstance(found, int):
                 with self._lock:
                     self._open[draft.report.fingerprint] = found
-                self._log.report_waiting(process=info.process, period=info.period, number=found)
+                draft.logged.waiting(found)
                 return contract.ReportWaiting(state="waiting")
             outcome = self._box.send(draft.report, key=key) if found is None else found
         saved = self._unsent / draft.file_name
@@ -334,8 +474,8 @@ class Reports:
             with self._lock:
                 self._sent.add(SentReport(draft.report.fingerprint, outcome.number, self._commit()))
                 self._open[draft.report.fingerprint] = outcome.number
-                self._sent_runs.add(info.id)
-            self._log.report_sent(process=info.process, period=info.period, number=outcome.number)
+                self._sent_drafts.add(draft.key)
+            draft.logged.sent(outcome.number)
             try:
                 saved.unlink(missing_ok=True)
             except OSError as failure:  # np. plik otwarty w Windows: zostaje w folderze, Zgłoszenie i tak wysłane
@@ -352,10 +492,10 @@ class Reports:
             _replace_atomically(saved, f"# {draft.report.title}\n\n{draft.report.body}")
         except OSError as failure:  # np. folder Zgłoszeń niedostępny: treść zostaje tylko w podglądzie Diagnozy
             self._log.unexpected_failure(failure, where="zapis niewysłanego Zgłoszenia")
-            self._log.report_not_saved(process=info.process, period=info.period, cause=unsent.code)
+            draft.logged.not_saved(unsent.code)
             message = report_messages.not_saved(self._unsent)
             return contract.ReportSaved(state="saved", message=contract.Message.of(message))
-        self._log.report_saved(process=info.process, period=info.period, code=unsent.code)
+        draft.logged.saved(unsent.code)
         return contract.ReportSaved(state="saved", message=contract.Message.of(unsent))
 
     def repair_notice(self) -> contract.RepairNotice:

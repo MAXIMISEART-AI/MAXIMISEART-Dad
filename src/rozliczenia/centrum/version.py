@@ -30,6 +30,12 @@ def tool_version() -> str:
     return version
 
 
+def short_commit(commit: str) -> str:
+    """Pierwsze 7 znaków commitu: tak commit narzędzia widzi tata (Konfiguracja, Diagnoza, ``health``)."""
+
+    return commit[:7]
+
+
 def is_commit(text: str) -> bool:
     """Czy ``text`` to pełny commit Gita (40 znaków szesnastkowych)."""
 

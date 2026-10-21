@@ -12,7 +12,8 @@ from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems
+from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems, update_messages
+from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
@@ -177,6 +178,8 @@ START_SAMPLES: Samples = {
     "other_version_running": [lambda: start_problems.other_version_running(47811, "0.0.9")],
     "missing_library": [lambda: start_problems.missing_library("fastapi")],
     "unexpected_start_failure": [start_problems.unexpected_start_failure],
+    "not_started_after_update": [start_problems.not_started_after_update],
+    "update_finishing": [start_problems.update_finishing],
 }
 
 DIAGNOSIS_SAMPLES: Samples = {
@@ -193,4 +196,23 @@ REPORT_SAMPLES: Samples = {
     "key_refused": [lambda: report_messages.key_refused(UNSENT_REPORT)],
     "box_unreachable": [lambda: report_messages.box_unreachable(UNSENT_REPORT)],
     "not_saved": [lambda: report_messages.not_saved(UNSENT_REPORT.parent)],
+}
+
+UPDATE_SAMPLES: Samples = {
+    "no_git": [update_messages.no_git],
+    "no_connection": [update_messages.no_connection],
+    "login_required": [update_messages.login_required],
+    "other_branch": [update_messages.other_branch],
+    "local_changes": [update_messages.local_changes],
+    "unexpected_failure": [update_messages.unexpected_failure],
+    "libraries_failed": [update_messages.libraries_failed],
+    "new_version_failed": [update_messages.new_version_failed],
+    "rollback_failed": [update_messages.rollback_failed],
+    "message_of": [
+        lambda: update_messages.message_of(UNEXPECTED),
+        lambda: update_messages.message_of(LIBRARIES_FAILED),
+        lambda: update_messages.message_of(NEW_VERSION_FAILED),
+        lambda: update_messages.message_of(ROLLBACK_FAILED),
+        lambda: update_messages.message_of("NIEZNANY_KOD"),
+    ],
 }
