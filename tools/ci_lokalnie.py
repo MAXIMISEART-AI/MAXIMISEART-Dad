@@ -52,6 +52,8 @@ def _steps() -> list[Step]:
     return [
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check")),
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy")),
+        # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
+        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32")),
         Step("pytest", "pytest", "-m pytest", (python, "-m", "pytest", "-q")),
         Step(
             "mutacje publikacji",
