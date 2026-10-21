@@ -3,7 +3,7 @@
 - Praca w git worktree: zanim uruchomisz Pythona, utwórz własne `.venv` przez `python3 tools/setup_worktree.py` (Windows: `py -3`); `.venv` głównego checkoutu sprawdza kod `main`.
 - Model domeny i reguły procesu: przeczytaj [`GLOSSARY.md`](GLOSSARY.md) oraz właściwe ADR-y w [`docs/adr/`](docs/adr/).
 - Implementacja i review: przeczytaj [`CODING_STANDARDS.md`](CODING_STANDARDS.md).
-- Weryfikacja end-to-end: przy zmianach w `run.py`, `src/`, obsłudze skoroszytów, regułach bezpieczeństwa albo metrykach załaduj [`verify-rozliczenia`](.agents/skills/verify-rozliczenia/SKILL.md) i wykonaj opisany tam workflow.
+- Weryfikacja end-to-end: przy zmianach w `tools/uruchom_proces.py`, `src/`, obsłudze skoroszytów, regułach bezpieczeństwa albo metrykach załaduj [`verify-rozliczenia`](.agents/skills/verify-rozliczenia/SKILL.md) i wykonaj opisany tam workflow.
 - Publikacja plików okresu: przy zmianach w `write_period_files`, `_publish` albo `ensure_period_files_absent` (`src/rozliczenia/preparation_files.py`) załaduj [`verify-publikacja-plikow-okresu`](.agents/skills/verify-publikacja-plikow-okresu/SKILL.md).
 - Jedno Uruchomienie naraz i zamknięcie Centrum: przy zmianach w `RunHost`/`_Run` (`src/rozliczenia/centrum/runs.py`), `Shutdown` (`shutdown.py`), `stop_when_asked` (`server.py`) albo przy nowej akcji, która nie może biec w trakcie Uruchomienia, załaduj [`verify-jedno-uruchomienie-naraz`](.agents/skills/verify-jedno-uruchomienie-naraz/SKILL.md).
 - Kopia Wzorca rozliczenia pracownika: przy zmianach w `src/rozliczenia/template_copy.py`, `sheet_data.py`, `highlights.py` albo w `WorkerSettlementTemplate` (`src/rozliczenia/workbook_files.py`) załaduj [`verify-kopia-wzorca`](.agents/skills/verify-kopia-wzorca/SKILL.md).

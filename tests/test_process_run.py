@@ -78,7 +78,9 @@ def test_core_closes_every_ending_with_a_message(tmp_path: Path, dry_run: bool) 
         "after_engine": ("after_engine", not_shown, None),
         "view": ("after_engine", not_shown, None),
     }
-    assert [record["result"] for record in records(tmp_path / "metrics.jsonl")] == ["BLAD_KRYTYCZNY"] * 4
+    assert [
+        (record["result"], record["completed"], record["counters"]) for record in records(tmp_path / "metrics.jsonl")
+    ] == [("BLAD_KRYTYCZNY", False, {"items": 0})] * 4
 
 
 def test_zatrzymanie_zapisuje_rekord_z_okresem_zerowymi_licznikami_i_czasami_etapow_ktore_sie_wykonaly(

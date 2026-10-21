@@ -288,7 +288,7 @@ export type Health = {
 /**
  * Message
  *
- * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu.
+ * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu.
  */
 export type Message = {
     /**
@@ -605,7 +605,8 @@ export type Problem = {
  *
  * Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.
  *
- * ``origin`` mówi, skąd wystartowało: ``cmd`` to launcher (CLI), ``centrum`` to Centrum rozliczeń.
+ * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
+ * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
  */
 export type ProcessRun = {
     /**

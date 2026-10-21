@@ -71,8 +71,6 @@ def fail(*_args: object) -> NoReturn:
 def fake_process(**overrides: Any) -> Process[Inputs, Durations]:
     fields: dict[str, Any] = {
         "name": "Proces testowy",
-        "title": "Proces testowy",
-        "shows_templates": False,
         "counter_names": COUNTERS,
         "metrics_path": lambda: Path("nieuzywany-plik-metryk.jsonl"),
         "metrics_failure_tail": "Proces testowy zakończył się niezależnie.",

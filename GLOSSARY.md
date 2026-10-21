@@ -116,8 +116,8 @@ bezpośrednio (np. `INEA`).
 
 ## Ustawienia taty
 
-Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. CLI bierze
-je stamtąd i pyta oknem wyboru tylko o to, czego brak.
+Rejestr zleceń i folder okresów wskazane raz w Centrum rozliczeń. Czyta je
+tylko Centrum rozliczeń.
 
 ## Folder rozliczeń pracowników
 
@@ -182,9 +182,9 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 ## Uruchomienie procesu
 
 Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
-Centrum rozliczeń albo z CLI, od ustalenia plików i okresu do wyniku
-końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na to,
-skąd wystartowało; nie jest z definicji pytaniem w terminalu.
+Centrum rozliczeń albo ze Skryptu dla maszyn, od gotowych plików i okresu do
+wyniku końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na
+to, skąd wystartowało.
 Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo Zatrzymaniem z
 bezpiecznym Komunikatem zrozumiałym dla taty, nigdy z treścią błędu
 technicznego.
@@ -195,16 +195,25 @@ _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
 Pytanie, które proces zadaje tacie w trakcie Uruchomienia procesu; dziś tylko
 o niepełny okres w Przygotowaniu pliku zbiorczego. Składa ją proces i sam
 zatrzymuje się po odmowie; rozmówca tylko pyta i mówi, jak wyrazić zgodę
-(`t` w terminalu, `Kontynuuj` w Centrum rozliczeń). Czas czekania na Decyzję
-taty nie wlicza się do `Czas uruchomienia` ani do metryk.
+(`Kontynuuj` w Centrum rozliczeń). Skrypt dla maszyn zawsze odmawia. Czas
+czekania na Decyzję taty nie wlicza się do `Czas uruchomienia` ani do metryk.
 
 ## Centrum rozliczeń
 
 Lokalna aplikacja w przeglądarce na komputerze taty, z której uruchamia
 Przygotowanie pliku zbiorczego i Przebieg rozliczeń oraz widzi Status okresu
 każdego okresu i historię Uruchomień procesu. Jest jedynym wejściem taty do
-tych procesów (CLI służy osobie utrzymującej narzędzie), nie osobnym procesem.
+tych procesów, nie osobnym procesem.
 _Avoid_: dashboard, panel, centrum dowodzenia
+
+## Skrypt dla maszyn
+
+Jedyne wejście do procesów spoza Centrum rozliczeń, dla testów, pomiarów czasu
+i osoby utrzymującej narzędzie. Przyjmuje pliki i okres parametrami, z nikim
+nie rozmawia i oddaje wynik w kształcie karty Uruchomienia. Jego Uruchomienia
+procesu mają w historii Centrum odznakę `.cmd`, tę samą co stare Uruchomienia
+z dawnych launcherów.
+_Avoid_: CLI, launcher
 
 ## Zdarzenie przebiegu
 
@@ -220,9 +229,7 @@ Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
 Bezpieczny tekst dla taty w trzech częściach: Co się stało, Gdzie, Co zrobić.
 Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów ani treści
 wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
-Wykonawcę. Wyjątkiem jest wyłącznie terminalowa dawna jedna linia Zatrzymania
-Przebiegu rozliczeń (ADR 0004): może mieć pełną ścieżkę i nie trafia do
-Centrum rozliczeń. Drugim wyjątkiem jest Zatrzymanie o brakach w `SKUTECZNE`:
+Wykonawcę. Jedynym wyjątkiem jest Zatrzymanie o brakach w `SKUTECZNE`:
 pokazuje dokładną zawartość komórki innej niż `tak` i `nie`, żeby tata od razu
 widział, co poprawić. Komunikat niesie Zatrzymanie, ostrzeżenie, problem z
 podsumowania albo problem startu Centrum rozliczeń. Jego kod jest unikalny w

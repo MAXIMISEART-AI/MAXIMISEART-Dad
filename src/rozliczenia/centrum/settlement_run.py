@@ -3,10 +3,7 @@
 Plik zbiorczy wynika z folderu okresów i okresu; tata go nie wskazuje. Do
 wyboru są okresy ze Statusem okresu „Plik zbiorczy przygotowany”. Kliknięcie
 „Uruchom” jest potwierdzeniem Gotowości: Centrum nie zgaduje jej z pliku ani
-nie blokuje startu. Proces prowadzi rdzeń Uruchomienia procesu z tym samym
-opisem procesu co CLI (``settlement_process.PROCESS``), więc liczby, komunikaty i rekord
-metryk są te same. Terminal pokazuje zatrzymanie jedną linią, Centrum ten sam
-komunikat w trzech częściach.
+nie blokuje startu.
 """
 
 from __future__ import annotations

@@ -19,7 +19,7 @@ no metrics files mean an empty state, not an error.
 - `metryki-tabela-etapow`: the `Tabela` tab lists each run's phase times with P50/P95 rows per phase.
 - `metryki-za-malo-obserwacji`: below five completed observations (Przygotowanie DRY-RUN), P50/P95 show `–` and `od 5 ukończonych (jest N)`.
 - `metryki-przerwane`: an interrupted run shows its phase times until the interruption.
-- `metryki-historia`: the history lists both processes newest first, marks DRY-RUN with the eye icon and launcher runs with `.cmd`, sorts by `Czas`, filters by process, and shows older runs on demand.
+- `metryki-historia`: the history lists both processes newest first, marks DRY-RUN with the eye icon and runs from outside Centrum with `.cmd`, sorts by `Czas`, filters by process, and shows older runs on demand.
 - `metryki-nowy-rekord-spoza-centrum`: a record that the machine script (`tools/uruchom_proces.py`) appends appears after a reload, without restarting Centrum.
 - `metryki-pusty-stan`: with no metrics files the API returns an empty list and the page shows `Jeszcze nie ma metryk`.
 

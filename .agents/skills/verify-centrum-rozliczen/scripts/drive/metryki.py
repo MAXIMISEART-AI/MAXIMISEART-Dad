@@ -12,7 +12,7 @@ from typing import Any
 
 from playwright.sync_api import Locator, Page, ViewportSize, expect
 
-from drive.common import DAD_TIME_ZONE, LAST_COMPLETE_FOR_CLI, REPO_ROOT, Run, choose_periods_directory, history_rows
+from drive.common import DAD_TIME_ZONE, LAST_COMPLETE, REPO_ROOT, Run, choose_periods_directory, history_rows
 
 # The chart shows the newest Uruchomienia procesu of the chosen process and mode; older ones are in the history.
 CHART_RUNS = 12
@@ -55,7 +55,7 @@ def drive_metrics(run: Run, page: Page) -> None:
     run.check(len(runs) == fixture_metrics["runs"], "the server reads every valid record of both metrics files")
     run.check(
         {entry["process"] for entry in runs} == {"preparation", "settlement"},
-        "the history holds both processes, and the records the CLI's reader skips are absent",
+        "the history holds both processes, and the records the metrics reader skips are absent",
     )
     stats = page.get_by_role("group", name="Najważniejsze liczby")
     board = run.api("/api/periods", "metryki-tablica")["periods"]
@@ -178,7 +178,7 @@ def drive_metrics(run: Run, page: Page) -> None:
         [sys.executable, str(REPO_ROOT / "tools" / "uruchom_proces.py"), "preparation",
          "--register", str(run.root / "brak-rejestru.xlsx"),
          "--periods-directory", run.fixture["periods_directory"],
-         "--period", LAST_COMPLETE_FOR_CLI, "--dry-run",
+         "--period", LAST_COMPLETE, "--dry-run",
          "--metrics", fixture_metrics["preparation"]],
         cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, check=False,
     )
@@ -193,11 +193,11 @@ def drive_metrics(run: Run, page: Page) -> None:
     page.reload()
     newest = history_rows(page).nth(1)
     expect(newest).to_contain_text(_local(after[0]["started_at"]))
-    expect(newest).to_contain_text(LAST_COMPLETE_FOR_CLI)
+    expect(newest).to_contain_text(LAST_COMPLETE)
     expect(newest).to_contain_text("Zatrzymano")
     expect(newest).to_contain_text(".cmd")
     run.check(True, "the reloaded page shows the DRY-RUN from outside Centrum as the newest Uruchomienie procesu")
-    run.capture(page, "26-metryki-nowy-rekord-z-cli")
+    run.capture(page, "26-metryki-nowy-rekord-spoza-centrum")
 
     run.step(feature, "metryki-pusty-stan")
     moved = [Path(fixture_metrics[name]) for name in ("preparation", "settlement")]

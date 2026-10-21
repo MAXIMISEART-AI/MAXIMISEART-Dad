@@ -1,9 +1,7 @@
 """Przygotowanie pliku zbiorczego z Centrum rozliczeń: wybór okresu, wejście procesu z ustawień i wynik.
 
 Rejestr zleceń i folder okresów pochodzą z ustawień, okres z listy ostatnich
-pełnych okresów. Proces prowadzi rdzeń Uruchomienia procesu z tym samym opisem
-procesu co CLI (``preparation_process.PROCESS``), więc liczby, ostrzeżenia,
-komunikaty i rekord metryk są te same.
+pełnych okresów.
 """
 
 from __future__ import annotations

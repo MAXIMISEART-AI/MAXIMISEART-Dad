@@ -1,4 +1,4 @@
-"""Benchmark Przebiegu rozliczeń za CLI ``tools/benchmark_przebiegu.py``.
+"""Benchmark Przebiegu rozliczeń za poleceniem ``tools/benchmark_przebiegu.py``.
 
 - ``lustro``: lustro folderów taty dla scenariusza (Rejestr zleceń, Przygotowanie pliku
   zbiorczego, wpisy taty w ``N:AT``),

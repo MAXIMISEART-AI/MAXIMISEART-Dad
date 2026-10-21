@@ -5,7 +5,9 @@
 Zaakceptowana. Zastępuje część ADR 0001 dotyczącą adaptera VBA. Część o
 uruchamianiu procesów wyłącznie przez CLI zastąpiona przez
 [ADR 0004](0004-centrum-rozliczen-adapter.md). Launchery `.cmd` usunięte przez
-[ADR 0010](0010-centrum-jedynym-wejsciem-taty.md).
+[ADR 0010](0010-centrum-jedynym-wejsciem-taty.md). Zastąpiona przez
+[ADR 0011](0011-bez-cli-i-adapterow-terminala.md): CLI procesów zniknęło, a
+rezygnacja z adaptera VBA pozostaje w mocy.
 
 ## Decyzja
 

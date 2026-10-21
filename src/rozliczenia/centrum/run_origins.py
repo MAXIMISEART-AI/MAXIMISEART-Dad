@@ -1,9 +1,11 @@
 """Które Uruchomienia procesu z plików metryk wystartowały z Centrum rozliczeń.
 
-Schemat metryk się nie zmienia (CLI i Centrum dopisują te same rekordy), więc
-Centrum zapisuje we własnym lokalnym pliku obok ustawień, poza gitem, proces i
-dokładny ``started_at`` rekordu metryk, który dopisało jego Uruchomienie.
-Metryki porównują po tej parze; reszta historii to launchery ``.cmd``.
+Schemat metryk się nie zmienia (Centrum i skrypt dla maszyn dopisują te same
+rekordy), więc Centrum zapisuje we własnym lokalnym pliku obok ustawień, poza
+gitem, proces i dokładny ``started_at`` rekordu metryk, który dopisało jego
+Uruchomienie. Metryki porównują po tej parze; reszta historii ma pochodzenie
+``.cmd``: stare Uruchomienia taty z dawnych launcherów i CLI oraz rekordy ze
+skryptu dla maszyn.
 
 Plik ma tylko bezpieczne fakty (proces i czas startu). Jego brak, uszkodzenie
 albo nieudany zapis oznacza tylko, że Uruchomienie pokaże się jako ``.cmd``:
@@ -33,7 +35,7 @@ class CentrumRuns:
         """Zapamiętuje rekordy metryk ``process``, które zaczęły się między ``since`` a ``until`` (czasy UTC).
 
         Centrum prowadzi jedno Uruchomienie naraz, więc w tym oknie jest jego rekord.
-        Uruchomienie z ``.cmd`` w tym samym czasie też zostałoby oznaczone; to rzadkie i tylko kosmetyczne.
+        Uruchomienie spoza Centrum w tym samym czasie też zostałoby oznaczone; to rzadkie i tylko kosmetyczne.
         """
 
         try:

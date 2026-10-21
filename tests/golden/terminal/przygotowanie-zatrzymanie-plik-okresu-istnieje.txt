@@ -1,9 +1,0 @@
-Przygotowanie pliku zbiorczego | okres: 08_14_09_2026 | tryb: RUN
-Status: uruchomiono
-Etap: Sprawdzanie
-Etap przerwany: Sprawdzanie
-Status końcowy: ZATRZYMANO
-Co się stało: Plik tego okresu już istnieje, więc nie został nadpisany. Nie utworzono żadnego pliku.
-Gdzie: folder INEA\08_14_09_2026, plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
-Co zrobić: Sprawdź, czy wybrano właściwy okres. Jeśli plik ma powstać od nowa, przenieś albo usuń istniejący plik i uruchom ponownie.
-Czas uruchomienia: <N> ms

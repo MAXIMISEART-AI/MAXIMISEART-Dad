@@ -1,9 +1,7 @@
 """Ustawienia taty w lokalnym pliku YAML poza gitem: Rejestr zleceń, folder okresów i motyw.
 
-Wskazuje je tata w Centrum rozliczeń; CLI czyta ten sam plik, żeby nie pytać
-oknem wyboru o to, co już wskazano (ADR 0006). Brak albo uszkodzenie pliku
-znaczy „nie ustawiono”, nigdy błąd startu. Zapis podmienia plik atomowo, więc
-przerwany zapis zostawia poprzednie ustawienia.
+Brak albo uszkodzenie pliku znaczy „nie ustawiono”, nigdy błąd startu. Zapis
+podmienia plik atomowo, więc przerwany zapis zostawia poprzednie ustawienia.
 """
 
 from __future__ import annotations
@@ -34,14 +32,10 @@ class Settings:
 
     @property
     def existing_register(self) -> Path | None:
-        """Wskazany Rejestr zleceń, jeśli nadal jest na dysku; inaczej CLI pyta oknem wyboru."""
-
         return self.register if self.register is not None and self.register.is_file() else None
 
     @property
     def existing_periods_directory(self) -> Path | None:
-        """Wskazany folder okresów, jeśli nadal jest na dysku; inaczej CLI pyta oknem wyboru."""
-
         return self.periods_directory if self.periods_directory is not None and self.periods_directory.is_dir() else None
 
 
@@ -103,8 +97,3 @@ class SettingsStore:
 def _path_or_none(value: object) -> Path | None:
     return Path(value) if isinstance(value, str) and value else None
 
-
-def load_settings() -> Settings:
-    """Ustawienia taty z domyślnego pliku, tego samego, który zapisuje Centrum rozliczeń."""
-
-    return SettingsStore(default_settings_path()).load()

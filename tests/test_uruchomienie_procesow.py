@@ -18,8 +18,8 @@ from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.fake_process import fail
 from tests.fixtures.interlocutor import Tata
-from tests.fixtures.preparation import make_preparation_fixture
-from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, make_fixture
+from tests.fixtures.preparation import PreparationFixture, incomplete_period_fixture, make_preparation_fixture
+from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, make_fixture, make_preview_fixture
 
 PHASES = {"Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"}
 
@@ -43,8 +43,8 @@ def settlement(tmp_path: Path, *, period: str = PERIOD) -> ProcessCase:
     )
 
 
-def preparation(tmp_path: Path, *, period: str = PERIOD) -> ProcessCase:
-    fixture = make_preparation_fixture(tmp_path)
+def preparation(tmp_path: Path, *, period: str = PERIOD, fixture: PreparationFixture | None = None) -> ProcessCase:
+    fixture = fixture or make_preparation_fixture(tmp_path)
     return ProcessCase(
         process=preparation_process.PROCESS,
         inputs=lambda dry_run: PreparationInputs(
@@ -159,3 +159,48 @@ def test_okres_ktorego_nie_da_sie_ustalic_trafia_do_metryk_jako_nieznany(
     [record] = MetricsStore(tmp_path / "metrics.jsonl", case.process.counter_names).read()
     assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
     assert record["counters"] == dict.fromkeys(case.process.counter_names, 0)
+
+
+def test_problem_przebiegu_rozliczen_i_ostrzezenie_przygotowania_sa_licznikami_rekordu_metryk(tmp_path: Path) -> None:
+    (tmp_path / "przebieg").mkdir()
+    (tmp_path / "przygotowanie").mkdir()
+    source, _target_directory, config = make_preview_fixture(tmp_path / "przebieg")
+    worker_template = config.parent / "Wzorzec rozliczenia pracownika.xlsx"
+    settled = run_process(
+        settlement_process.PROCESS,
+        SettlementInputs(source, True, config, worker_template),
+        Tata(),
+        view=summary_view,
+        metrics_path=tmp_path / "przebieg.jsonl",
+    )
+    prepared = run(
+        preparation(tmp_path, fixture=incomplete_period_fixture(tmp_path / "przygotowanie")),
+        tmp_path / "przygotowanie.jsonl",
+        dry_run=True,
+    )
+
+    assert (settled.result, prepared.result) == ("WYMAGA_SPRAWDZENIA", "OK")
+    [settlement_record] = MetricsStore(tmp_path / "przebieg.jsonl", settlement_process.PROCESS.counter_names).read()
+    [preparation_record] = MetricsStore(
+        tmp_path / "przygotowanie.jsonl", preparation_process.PROCESS.counter_names
+    ).read()
+    assert (settlement_record["result"], settlement_record["counters"]["issues"]) == ("WYMAGA_SPRAWDZENIA", 1)
+    assert (preparation_record["result"], preparation_record["counters"]["warnings"]) == ("OK", 1)
+
+
+METRICS_NOT_SAVED = {
+    "przebieg-rozliczen": "Ostrzeżenie: Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.",
+    "przygotowanie-pliku-zbiorczego": (
+        "Ostrzeżenie: Nie zapisano metryk; Przygotowanie pliku zbiorczego zakończyło się niezależnie."
+    ),
+}
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_nieudany_zapis_metryk_jest_ostrzezeniem_procesu_bez_zmiany_wyniku(tmp_path: Path, name: str) -> None:
+    not_a_directory = tmp_path / "nie-katalog"
+    not_a_directory.write_text("nie katalog", encoding="utf-8")
+
+    outcome = run(CASES[name](tmp_path), not_a_directory / "metrics.jsonl", dry_run=True)
+
+    assert (outcome.result, outcome.metrics_saved, outcome.notices) == ("OK", False, (METRICS_NOT_SAVED[name],))

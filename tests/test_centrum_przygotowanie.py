@@ -189,7 +189,6 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
             ),
         }
     ]
-    assert "wpisz t" not in json.dumps(result, ensure_ascii=False)
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["result"], record["phase_durations_ms"]["Zapisywanie"]) == ("BLAD_KRYTYCZNY", 0)
@@ -522,7 +521,7 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruc
     store.append({**own, "started_at": later})
     history = centrum.client.get("/api/metrics").json()["runs"]
 
-    assert MetricsFiles.of_cli().preparation == preparation_process.default_metrics_path()
+    assert MetricsFiles.default().preparation == preparation_process.default_metrics_path()
     assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
     assert [(run["origin"], run["mode"]) for run in history] == [("cmd", "DRY-RUN"), ("centrum", "DRY-RUN")]
 
