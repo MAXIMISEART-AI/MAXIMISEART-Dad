@@ -96,8 +96,9 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.rows_without_date(REGISTER, SHEET, [7, 9]),
     ],
     "invalid_successful_values": [
-        lambda: messages.invalid_successful_values(REGISTER, SHEET, [4]),
-        lambda: messages.invalid_successful_values(REGISTER, SHEET, [4, 6]),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [4], []),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [4, 5, 9], [messages.CellContent(6, "???")]),
+        lambda: messages.invalid_successful_values(REGISTER, SHEET, "L", [], [messages.CellContent(n, "tsk") for n in range(2, 14)]),
     ],
     "unknown_workers": [
         lambda: messages.unknown_workers(REGISTER, SHEET, CONFIG, [("nowy.wykonawca", [4])]),

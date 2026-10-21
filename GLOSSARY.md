@@ -25,6 +25,13 @@ Zlecenie, którego wartość `SKUTECZNE` to `tak`, bez względu na wielkość li
 otaczające spacje. Każde zlecenie skuteczne z Rozliczenia wewnętrznego trafia
 do Pliku zbiorczego.
 
+## Zlecenie nieskuteczne
+
+Zlecenie, którego wartość `SKUTECZNE` to `nie`, bez względu na wielkość liter i
+otaczające spacje. Każde zlecenie okresu jest skuteczne albo nieskuteczne.
+Puste `SKUTECZNE` albo inna wartość, na przykład `???` czy `tsk`, to brak w
+Rejestrze, który tata uzupełnia, a nie trzeci stan zlecenia.
+
 ## Rozliczenie wewnętrzne
 
 Skoroszyt `Rozliczenie wew. {okres}.xlsx` zawierający wszystkie zlecenia
@@ -204,7 +211,9 @@ Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów an
 wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
 Wykonawcę. Wyjątkiem jest wyłącznie terminalowa dawna jedna linia Zatrzymania
 Przebiegu rozliczeń (ADR 0004): może mieć pełną ścieżkę i nie trafia do
-Centrum rozliczeń. Komunikat niesie Zatrzymanie, ostrzeżenie, problem z
+Centrum rozliczeń. Drugim wyjątkiem jest Zatrzymanie o brakach w `SKUTECZNE`:
+pokazuje dokładną zawartość komórki innej niż `tak` i `nie`, żeby tata od razu
+widział, co poprawić. Komunikat niesie Zatrzymanie, ostrzeżenie, problem z
 podsumowania albo problem startu Centrum rozliczeń. Jego kod jest unikalny w
 obrębie procesu.
 _Avoid_: błąd, wiadomość
