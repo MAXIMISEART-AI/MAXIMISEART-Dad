@@ -22,8 +22,8 @@ Od ADR 0010 tata pracuje tylko w Centrum rozliczeń. CLI obu procesów zostało
 dla weryfikacji end-to-end, straży czasu i benchmarku Przebiegu rozliczeń.
 Płaciliśmy za to drugą rozmową z tatą, której nikt nie prowadził: pulpitem
 postępu Rich i adapterem tekstowym, pytaniami `t`/`n`, oknami wyboru, pytaniem
-o okres, jednolinijkową wersją każdego Komunikatu i siedmioma Komunikatami
-osiągalnymi tylko z terminala. E2E i benchmark sprawdzały linie terminala,
+o okres, jednolinijkową wersją każdego Komunikatu i siedmioma fabrykami
+Komunikatów osiągalnymi tylko z terminala. E2E i benchmark sprawdzały linie terminala,
 których tata nie widzi.
 
 ## Decyzja
@@ -39,12 +39,16 @@ których tata nie widzi.
   otwiera okien wyboru. Stoją na nim E2E, straż czasu, benchmark i test Metryk
   w weryfikacji Centrum.
 - **Komunikat ma jeden kształt.** Trzy części: co się stało, gdzie, co zrobić.
-  Katalogi tracą siedem Komunikatów, które zgłaszał tylko terminal. W
-  Przygotowaniu pliku zbiorczego to `NIE_WYBRANO_REJESTRU`,
-  `NIE_WYBRANO_FOLDERU_OKRESOW` i `NIE_PODANO_OKRESU`. W Przebiegu rozliczeń to
-  `NIE_WYBRANO_PLIKU_ZBIORCZEGO`, `NIE_PODANO_OKRESU`,
-  `POWTORZONY_FOLDER_OKRESU` i `ZLY_TOKEN_OKRESU`. `ZLY_TOKEN_OKRESU`
-  Przygotowania zostaje, bo zgłasza go silnik.
+  Katalogi tracą siedem fabryk Komunikatów, które wołał tylko terminal.
+  Przygotowanie pliku zbiorczego traci trzy: niewybrany Rejestr zleceń
+  (`NIE_WYBRANO_REJESTRU`), niewybrany folder okresów
+  (`NIE_WYBRANO_FOLDERU_OKRESOW`) i niepodany okres (`NIE_PODANO_OKRESU`).
+  Przebieg rozliczeń traci cztery: niewybrany Plik zbiorczy
+  (`NIE_WYBRANO_PLIKU_ZBIORCZEGO`), niepodany okres (`NIE_PODANO_OKRESU`),
+  Folder okresu, którego nie ma albo który jest w kilku folderach miesiąca
+  (`BRAK_FOLDERU_OKRESU`, `POWTORZONY_FOLDER_OKRESU`), i zły token okresu
+  (`ZLY_TOKEN_OKRESU`). Zły token okresu w Przygotowaniu zostaje, bo zgłasza go
+  silnik.
 - **Historia bez zmian.** Pochodzenie `.cmd` zostaje w kontrakcie i na
   odznace. Oznacza stare Uruchomienia z dawnych launcherów i z CLI.
 
