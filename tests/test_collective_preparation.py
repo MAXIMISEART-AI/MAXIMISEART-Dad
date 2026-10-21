@@ -875,6 +875,27 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
     assert [row[13] for row in created] == [0] * COLLECTIVE_TEMPLATE_ZERO_ROWS + [None] * 3
 
 
+def test_jedno_zlecenie_skuteczne_ponad_wiersze_z_zerami_ostrzega_o_jednym_wierszu(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        register_order(number, datetime(2026, 9, 14, 8, number))
+        for number in range(1, COLLECTIVE_TEMPLATE_ZERO_ROWS + 2)
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture)
+
+    assert [(warning.code, warning.text) for warning in summary.warnings] == [
+        (
+            "MALO_WIERSZY_Z_ZERAMI",
+            "Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
+            "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
+            f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersz 24\n"
+            "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
+            "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.",
+        )
+    ]
+
+
 def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_path: Path) -> None:
     rows: list[RegisterRow] = [
         register_order(number, datetime(2026, 9, 14, 8, number))
