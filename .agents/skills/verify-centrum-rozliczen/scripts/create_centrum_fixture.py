@@ -27,7 +27,7 @@ waits that many milliseconds first. One version on the origin's branch
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
 Dad's layout, each before it with a Folder rozliczeń pracowników of 14
-Wykonawcy, and 260 more synthetic records in both metrics files.
+Wykonawcy, and 258 more synthetic records in both metrics files.
 """
 
 from __future__ import annotations

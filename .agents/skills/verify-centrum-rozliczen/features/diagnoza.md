@@ -3,9 +3,10 @@
 When an Uruchomienie procesu stops, Centrum tells Dad what kind of stop it is.
 A stop Dad fixes himself („dla taty”) offers `Uruchom ponownie`, which starts
 the same process for the same period in the same mode. A stop „do Maksa” (the
-Komunikat tells him to pass it on, or an unexpected error) and the same
+Komunikat tells him to pass it on, or an ending the process did not stop
+itself: an unexpected error or an error after the engine) and the same
 Komunikat coming back after `Uruchom ponownie` offer `Diagnoza` instead; after
-an unexpected error the Diagnoza starts by itself. The Diagnoza checks Dad's
+such an ending the Diagnoza starts by itself. The Diagnoza checks Dad's
 computer read-only and explains the cause in three parts; when Dad removes the
 cause himself, `Uruchom ponownie` comes first. The server computes the kind of
 stop, whether and how to offer the Diagnoza (`diagnosis`: `on_request` or
