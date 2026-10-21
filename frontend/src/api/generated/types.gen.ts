@@ -113,12 +113,11 @@ export type Closing = {
  * Configuration
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ *
+ * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita.
  */
 export type Configuration = {
-    /**
-     * Version
-     */
-    version: string;
+    version: ToolVersion | null;
     /**
      * Templates
      */
@@ -1196,6 +1195,22 @@ export type ThemeChange = {
      * Theme
      */
     theme: 'dark' | 'light';
+};
+
+/**
+ * ToolVersion
+ *
+ * Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie.
+ */
+export type ToolVersion = {
+    /**
+     * Commit
+     */
+    commit: string;
+    /**
+     * Since
+     */
+    since: string | null;
 };
 
 /**

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
 from typing import Any
 
 import pytest
@@ -15,8 +16,9 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.centrum.tool_freshness import ToolFreshness
 from tests.fixtures.preparation import write_collective_template, write_internal_template
-from tests.fixtures.centrum import CENTRUM, FakePlatform, project_version
+from tests.fixtures.centrum import CENTRUM, ROOT, FakeGitHub, FakePlatform
 from tests.fixtures.workbooks import cut_sheet_after_data_rows
 from tests.fixtures.settlement import write_mapping, write_template
 
@@ -38,8 +40,11 @@ class Configured:
     files: ConfigurationFiles
 
 
-def configured(tmp_path: Path) -> Configured:
-    """Centrum z syntetycznym katalogiem konfiguracji: wszystkie trzy Wzorce i konfiguracja wykonawców."""
+def configured(tmp_path: Path, *, tool_freshness: ToolFreshness | None = None) -> Configured:
+    """Centrum z syntetycznym katalogiem konfiguracji: wszystkie trzy Wzorce i konfiguracja wykonawców.
+
+    Bez ``tool_freshness`` Centrum działa z commitu tego klonu narzędzia, jak u taty.
+    """
 
     config = tmp_path / "config"
     config.mkdir()
@@ -57,6 +62,7 @@ def configured(tmp_path: Path) -> Configured:
         log=log,
         shutdown=Shutdown(log),
         configuration_files=files,
+        tool_freshness=tool_freshness,
     )
     return Configured(TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}), files)
 
@@ -287,7 +293,22 @@ def test_nowy_wykonawca_dopisany_do_konfiguracji_jest_widoczny_bez_restartu(tmp_
     assert workers["names"][-1] == "Nowy Wykonawca"
 
 
-def test_wersja_narzedzia_jest_wersja_projektu(tmp_path: Path) -> None:
+def _git(*arguments: str) -> str:
+    return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_wersja_narzedzia_to_skrot_commitu_i_dzien_przejscia_na_niego(tmp_path: Path) -> None:
+    head = _git("rev-parse", "HEAD")
+    # Ostatni wpis reflogu HEAD według samego Gita: commit i dzień w strefie czasu wpisu („HEAD@{2026-10-21}”).
+    entry_commit, _, selector = _git("log", "--walk-reflogs", "-1", "--date=short", "--format=%H %gd").partition(" ")
+    since = selector.removeprefix("HEAD@{").removesuffix("}") if entry_commit == head else None
+
     configuration = read_configuration(configured(tmp_path))
 
-    assert configuration["version"] == project_version()
+    assert configuration["version"] == {"commit": head[:7], "since": since}
+
+
+def test_narzedzie_poza_klonem_gita_ma_nieznana_wersje(tmp_path: Path) -> None:
+    app = configured(tmp_path, tool_freshness=FakeGitHub(tool_commit=None).freshness())
+
+    assert read_configuration(app)["version"] is None

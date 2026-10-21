@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import threading
-import tomllib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -202,13 +201,6 @@ def view_timing(**changes: object) -> dict[str, object]:
         ],
     }
     return timing | changes
-
-
-def project_version() -> str:
-    with (ROOT / "pyproject.toml").open("rb") as file:
-        version = tomllib.load(file)["project"]["version"]
-    assert isinstance(version, str)
-    return version
 
 
 def run_events(client: TestClient) -> Iterator[dict[str, Any]]:

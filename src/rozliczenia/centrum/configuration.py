@@ -1,4 +1,4 @@
-"""Konfiguracja tylko do odczytu: trzy Wzorce, Wykonawcy z konfiguracji wykonawców i wersja narzędzia.
+"""Konfiguracja tylko do odczytu: trzy Wzorce, Wykonawcy z konfiguracji wykonawców i wersja narzędzia (commit).
 
 Reguły należą do procesów: Wzorce sprawdzają te same funkcje co Sprawdzanie w
 obu procesach, a Konfigurację wykonawców wczytuje moduł ``worker_config``.
@@ -18,7 +18,7 @@ from fastapi import APIRouter
 
 from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.version import tool_version
+from rozliczenia.centrum.version import commit_since, short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import default_worker_template_path
 from rozliczenia.message import Message, StopError
@@ -80,16 +80,26 @@ _PROBLEM_CODES: dict[str, contract.TemplateProblemKind] = {
 }
 
 
-def configuration_router(files: ConfigurationFiles, report_key: Callable[[], contract.ReportKeyState]) -> APIRouter:
-    """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości)."""
+def configuration_router(
+    files: ConfigurationFiles, report_key: Callable[[], contract.ReportKeyState], running_commit: str | None
+) -> APIRouter:
+    """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości).
+
+    ``running_commit`` to commit, z którego wystartowało Centrum; wersja w Konfiguracji to ten commit.
+    """
 
     router = APIRouter(prefix="/api/configuration", tags=["konfiguracja"])
     checked = _CheckedTemplates()
+    version = (
+        None
+        if running_commit is None
+        else contract.ToolVersion(commit=short_commit(running_commit), since=commit_since(running_commit))
+    )
 
     @router.get("", operation_id="getConfiguration")
     def configuration() -> contract.Configuration:
         return contract.Configuration(
-            version=tool_version(),
+            version=version,
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
             reports=report_key(),

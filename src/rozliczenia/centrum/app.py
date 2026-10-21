@@ -138,7 +138,7 @@ def create_app(
     app.include_router(reports_router(runs, reports))
     app.include_router(repair_router(reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
-    app.include_router(configuration_router(configuration, reports.key_state))
+    app.include_router(configuration_router(configuration, reports.key_state, running_commit))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))
     if STATIC_DIRECTORY.is_dir():  # bez buildu (np. świeży katalog roboczy frontendu) działa samo API

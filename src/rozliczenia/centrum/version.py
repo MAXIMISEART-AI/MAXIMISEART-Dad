@@ -1,35 +1,23 @@
-"""Tożsamość Centrum w ``health``: nazwa usługi, wersja i commit narzędzia.
+"""Wersja narzędzia: commit ``HEAD`` klonu Gita, w którym leży narzędzie, i dzień, od którego klon jest na nim.
 
-Wersja pochodzi z ``pyproject.toml``: u taty pakiet nie jest instalowany, więc
-nie ma metadanych pakietu. Commit to ``HEAD`` klonu Gita, w którym leży
-narzędzie, odczytany z plików ``.git`` bez uruchamiania ``git`` (Centrum działa
+Oba fakty pochodzą z plików ``.git``, bez uruchamiania ``git`` (Centrum działa
 bez konsoli, a ``git`` nie musi być w ``PATH``). Moduł używa tylko biblioteki
-standardowej, bo launcher rozpoznaje po nich działające Centrum, zanim wczyta
-FastAPI.
+standardowej, bo launcher rozpoznaje po commicie działające Centrum, zanim
+wczyta FastAPI.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
 import re
-import tomllib
 from pathlib import Path
 from typing import Final
 
 from rozliczenia import TOOL_ROOT
 
 SERVICE: Final = "centrum-rozliczen"
-_PYPROJECT = TOOL_ROOT / "pyproject.toml"
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _SHORT_COMMIT = 7
-
-
-def tool_version() -> str:
-    with _PYPROJECT.open("rb") as file:
-        version = tomllib.load(file)["project"]["version"]
-    if not isinstance(version, str):
-        raise ValueError("pyproject.toml nie podaje wersji narzędzia.")
-    return version
 
 
 def is_commit(text: str) -> bool:

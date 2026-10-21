@@ -267,6 +267,13 @@ Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
 narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
 Znika samo po aktualizacji i ponownym otwarciu Centrum.
 
+## Wersja narzędzia
+
+Commit klonu narzędzia, z którego działa Centrum rozliczeń na komputerze taty.
+Konfiguracja pokazuje jego skrót i dzień, od którego narzędzie jest na tym
+commicie; Zgłoszenie podaje pełny commit.
+_Avoid_: numer wersji z `pyproject.toml`
+
 ## Aktualizacja narzędzia
 
 Przejście narzędzia na komputerze taty na jego najnowszą wersję, które

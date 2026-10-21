@@ -562,10 +562,20 @@ Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state
 ReportKeyState = Literal["ready", "missing_key"]
 
 
-class Configuration(_Model):
-    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."""
+class ToolVersion(_Model):
+    """Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie."""
 
-    version: str
+    commit: str
+    since: date | None
+
+
+class Configuration(_Model):
+    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+
+    ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita.
+    """
+
+    version: ToolVersion | None
     templates: list[TemplateStatus]
     workers: Workers
     reports: ReportKeyState

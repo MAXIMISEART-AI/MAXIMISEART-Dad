@@ -635,6 +635,16 @@ export const zThemeChange = z.object({
 });
 
 /**
+ * ToolVersion
+ *
+ * Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie.
+ */
+export const zToolVersion = z.object({
+    commit: z.string(),
+    since: z.iso.date().nullable()
+});
+
+/**
  * ValidationError
  */
 export const zValidationError = z.object({
@@ -795,9 +805,11 @@ export const zWorkersUnreadable = z.object({
  * Configuration
  *
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+ *
+ * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita.
  */
 export const zConfiguration = z.object({
-    version: z.string(),
+    version: zToolVersion.nullable(),
     templates: z.array(z.union([zTemplateReady, zTemplateProblem])),
     workers: z.discriminatedUnion('state', [
         zWorkersReady,

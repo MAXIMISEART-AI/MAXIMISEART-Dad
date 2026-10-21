@@ -975,8 +975,14 @@
       "Configuration": {
         "properties": {
           "version": {
-            "type": "string",
-            "title": "Version"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolVersion"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "templates": {
             "items": {
@@ -1035,7 +1041,7 @@
           "reports"
         ],
         "title": "Configuration",
-        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita."
       },
       "Count": {
         "properties": {
@@ -2730,6 +2736,34 @@
           "theme"
         ],
         "title": "ThemeChange"
+      },
+      "ToolVersion": {
+        "properties": {
+          "commit": {
+            "type": "string",
+            "title": "Commit"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "commit",
+          "since"
+        ],
+        "title": "ToolVersion",
+        "description": "Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie."
       },
       "ValidationError": {
         "properties": {

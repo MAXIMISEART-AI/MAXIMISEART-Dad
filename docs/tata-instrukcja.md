@@ -157,6 +157,9 @@ Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
 jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
 Maks; Ty niczego tam nie wpisujesz.
 
+Obok widać wersję narzędzia, np. `Wersja 1a2b3c4 od 20.10.2026`. Gdy Maks
+zapyta, którą wersję masz, przeczytaj mu ją.
+
 ### Powiadomienie o naprawie
 
 Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`

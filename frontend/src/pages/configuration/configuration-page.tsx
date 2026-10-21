@@ -17,6 +17,7 @@ import { Item, ItemActions, ItemContent, ItemMedia, ItemTitle } from "@/componen
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useContentEntrance } from "@/lib/content-entrance"
+import { fullDate } from "@/lib/format"
 import { useResource } from "@/lib/use-resource"
 
 /** Konfiguracja tylko do odczytu: czy Wzorce są gotowe, kto jest Wykonawcą i jaka jest wersja narzędzia. */
@@ -32,7 +33,7 @@ export function ConfigurationPage() {
         action={
           configuration.state === "ready" ? (
             <span className="flex gap-2 text-sm text-muted-foreground tabular-nums">
-              <span>Wersja {configuration.data.version}</span>
+              <span>{versionLabel(configuration.data.version)}</span>
               <span aria-hidden>·</span>
               <span>{REPORT_KEY_LABELS[configuration.data.reports]}</span>
             </span>
@@ -54,6 +55,15 @@ export function ConfigurationPage() {
       ) : null}
     </>
   )
+}
+
+/** `Wersja 1a2b3c4 od 20.10.2026`: skrót commitu, po którym Maks znajdzie wersję, i dzień, od którego działa. */
+function versionLabel(version: Configuration["version"]) {
+  if (version === null) {
+    return "Wersja nieznana"
+  }
+
+  return version.since === null ? `Wersja ${version.commit}` : `Wersja ${version.commit} od ${fullDate(version.since)}`
 }
 
 /** Czy na tym komputerze jest klucz do Zgłoszeń; wartości klucza serwer nigdy nie wysyła. */

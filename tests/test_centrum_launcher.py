@@ -34,7 +34,7 @@ def _copy_centrum_runtime(destination: Path) -> Path:
 
     destination.mkdir()
     _check_out(destination, COMMIT)
-    for name in ("run_centrum.py", "install_centrum_shortcut.py", "pyproject.toml"):
+    for name in ("run_centrum.py", "install_centrum_shortcut.py"):
         shutil.copy2(REPOSITORY_ROOT / name, destination)
     shutil.copytree(REPOSITORY_ROOT / "src", destination / "src", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(
