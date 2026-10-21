@@ -20,8 +20,7 @@ from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
-    RegisterRow,
-    register_order,
+    incomplete_period_rows,
 )
 from tests.fixtures.centrum import centrum as bare_centrum
 from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, preparing_centrum
@@ -97,17 +96,6 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
     assert row["status_label"] == "Plik zbiorczy przygotowany"
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"], record["counters"]["successful_orders"]) == ("RUN", "OK", 3)
-
-
-def incomplete_period_rows() -> list[RegisterRow]:
-    """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
-
-    return [
-        register_order(1, datetime(2026, 9, 8, 8, 0)),
-        None,
-        register_order(2, datetime(2026, 9, 9, 10, 0), successful="nie"),
-        register_order(3, datetime(2026, 9, 12, 12, 0)),
-    ]
 
 
 def awaiting_decision(tmp_path: Path) -> tuple[PreparingCentrum, dict[str, Any]]:
@@ -529,7 +517,8 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruc
 def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    centrum = preparing_centrum(tmp_path)
+    # Decyzja taty zatrzymuje Uruchomienie po awarii podglądu, więc karta widzi je w trakcie także pod obciążeniem.
+    centrum = preparing_centrum(tmp_path, incomplete_period_rows())
     shown_before_start = run_view.ProcessView.progress
     calls = itertools.count()
 
@@ -541,11 +530,13 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     monkeypatch.setattr(run_view.ProcessView, "progress", broken_after_start)
 
     centrum.start(dry_run=False)
-    views = views_until(centrum.client, "finished")
-    result = views[-1]["result"]
+    waiting = views_until(centrum.client, "awaiting_decision")[-1]
+    running = decide(centrum, waiting, "continue").json()
+    finished = finished_view(centrum.client)
+    result = finished["result"]
 
-    assert any(view["state"] == "running" and view["progress_stale"] for view in views)
-    assert views[-1]["progress_stale"] is True
+    assert (running["state"], running["progress_stale"]) == ("running", True)
+    assert finished["progress_stale"] is True
     assert (result["result"], result["ending"]) == ("OK", "finished")
     assert result["notices"] == ["Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."]
     assert centrum.fixture.collective_file_path.is_file()

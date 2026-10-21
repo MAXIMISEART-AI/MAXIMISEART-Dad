@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import astuple, dataclass
 import hashlib
 import threading
+from typing import Literal
 
 from rozliczenia.centrum import contract
 from rozliczenia.message import Message
@@ -26,12 +27,12 @@ from rozliczenia.process_run import Stop
 
 @dataclass(frozen=True)
 class ProblemFingerprint:
-    """Odcisk problemu: proces, kod Komunikatu i jego trzy części.
+    """Odcisk problemu: proces (albo Aktualizacja narzędzia), kod Komunikatu i jego trzy części.
 
     Kody są unikalne tylko w katalogu procesu, więc odcisk zawiera proces.
     """
 
-    process: contract.ProcessKey
+    process: contract.ProcessKey | Literal["tool_update"]
     code: str
     what: str
     where: str
@@ -40,6 +41,12 @@ class ProblemFingerprint:
     @classmethod
     def of(cls, process: contract.ProcessKey, message: Message) -> ProblemFingerprint:
         return cls(process, message.code, message.what, message.where, message.action)
+
+    @classmethod
+    def of_tool_update(cls, message: Message) -> ProblemFingerprint:
+        """Odcisk problemu nieudanej Aktualizacji narzędzia: jej kody są unikalne w jej własnym katalogu."""
+
+        return cls("tool_update", message.code, message.what, message.where, message.action)
 
     @property
     def digest(self) -> str:

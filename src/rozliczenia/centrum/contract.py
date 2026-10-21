@@ -39,8 +39,17 @@ NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, object]] = {404: {"model": Prob
 
 
 class Health(_Model):
+    """Tożsamość działającego Centrum.
+
+    ``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza
+    klonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta
+    pokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie
+    jest inny, także gdy commit się nie zmienił.
+    """
+
     service: Literal["centrum-rozliczen"]
-    version: str
+    commit: str | None
+    instance: str
 
 
 class Closing(_Model):
@@ -499,19 +508,26 @@ class DiagnosisCheck(_Model):
     detail: str
 
 
+DiagnosisNextAction = Literal["rerun", "update", "report"]
+
+
 class Diagnosis(_Model):
     """Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
 
     ``explanation`` to Komunikat pierwszego sprawdzenia, które nie przeszło, albo „Nie znalazłem
     przyczyny na tym komputerze”. ``next_action`` ``rerun``: przyczynę tata usuwa sam i uruchamia
-    ponownie; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
+    ponownie; ``update``: przyczyną jest nowsza wersja narzędzia, więc tata klika „Zaktualizuj
+    narzędzie”; ``report``: przyczynę usuwa Maks. ``report`` to podgląd: dokładnie to Zgłoszenie wyśle
     „Wyślij do Maksa” (przy ``rerun`` jako drugi przycisk). ``confirms_stop``: wyjaśnienie to ten sam
     Komunikat (kod i trzy części) co Zatrzymanie, więc przeglądarka go nie powtarza.
+    ``update_proposal``: jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna, więc
+    Diagnoza proponuje Aktualizację narzędzia tylko pod wyjaśnieniem.
     """
 
     explanation: Message
     confirms_stop: bool
-    next_action: Literal["rerun", "report"]
+    next_action: DiagnosisNextAction
+    update_proposal: bool
     checks: list[DiagnosisCheck]
     report: ReportDraft
 
@@ -559,20 +575,85 @@ Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state
 ReportKeyState = Literal["ready", "missing_key"]
 
 
-class Configuration(_Model):
-    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie."""
+# Aktualność narzędzia: ``current`` (commit narzędzia to `main` na GitHubie), ``newer`` (jest nowsza wersja),
+# ``not_checked`` (brak sieci albo narzędzie bez commitu Gita).
+ToolFreshnessState = Literal["current", "newer", "not_checked"]
 
-    version: str
+
+class ToolVersion(_Model):
+    """Wersja narzędzia, z której działa Centrum: skrót commitu i dzień, od którego narzędzie jest na tym commicie."""
+
+    commit: str
+    since: date | None
+
+
+class Configuration(_Model):
+    """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
+
+    ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
+    względem `main` na GitHubie, sprawdzana jak w Diagnozie.
+    """
+
+    version: ToolVersion | None
+    freshness: ToolFreshnessState
     templates: list[TemplateStatus]
     workers: Workers
     reports: ReportKeyState
+
+
+# Krok Aktualizacji narzędzia: pobieranie nowej wersji, instalowanie bibliotek, ponowne uruchamianie Centrum.
+ToolUpdateStep = Literal["fetching", "installing", "restarting"]
+
+
+class ToolUpdateIdle(_Model):
+    """Od startu Centrum tata nie zlecił Aktualizacji narzędzia."""
+
+    state: Literal["idle"]
+
+
+class ToolUpdateRunning(_Model):
+    state: Literal["running"]
+    step: ToolUpdateStep
+
+
+class ToolUpdateUpToDate(_Model):
+    """Narzędzie już było w najnowszej wersji; nic się nie zmieniło."""
+
+    state: Literal["up_to_date"]
+
+
+class ToolUpdateUpdated(_Model):
+    """Narzędzie jest w nowej wersji; to Centrum wystartowało już w niej (jej commit jest w ``Health``)."""
+
+    state: Literal["updated"]
+
+
+class ToolUpdateFailed(_Model):
+    """Aktualizacja narzędzia się nie udała; narzędzie zostało w wersji sprzed kliknięcia.
+
+    ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
+    ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
+    wyśle „Wyślij do Maksa”, a ``report`` jego stan.
+    """
+
+    state: Literal["failed"]
+    message: Message
+    next_action: Literal["retry", "report"]
+    report: ReportState
+    draft: ReportDraft
+
+
+ToolUpdate = Annotated[
+    ToolUpdateIdle | ToolUpdateRunning | ToolUpdateUpToDate | ToolUpdateUpdated | ToolUpdateFailed,
+    Field(discriminator="state"),
+]
 
 
 class RepairNotice(_Model):
     """Powiadomienie o naprawie na stronie Okresy.
 
     ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
-    działa na tym komputerze („Maks naprawił zgłoszony problem. Zaktualizuj narzędzie.”).
+    działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
     """
 
     repaired: bool
@@ -585,6 +666,7 @@ ViewKind = Literal["cold_start", "navigation"]
 # Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu. Trasy spoza
 # tej listy, każda z powodem, wymienia `OUTSIDE_TIMING` w tools/export_openapi.py, który pilnuje obu stron.
 ApiOperation = Literal[
+    "getHealth",
     "getSettings",
     "chooseRegister",
     "choosePeriodsDirectory",
@@ -599,6 +681,9 @@ ApiOperation = Literal[
     "getRepairNotice",
     "getMetrics",
     "getConfiguration",
+    "startToolUpdate",
+    "getToolUpdate",
+    "reportToolUpdate",
     "closeCentrum",
 ]
 # Do 10 minut: dłuższy czas to uśpiona karta, nie pomiar.

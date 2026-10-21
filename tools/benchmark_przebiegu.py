@@ -21,10 +21,14 @@ wspinaczki (spec #141); „przed” i „po” to zawsze ten sam scenariusz na t
 ``guard`` to straż czasu w CI: opisuje ostatni pomiar dziennika w Markdown i kończy się
 kodem 1 tylko wtedy, gdy mediana czasu ściany przekracza budżet.
 
-``measure`` i ``freeze`` trzymają wyłączną blokadę pliku obok folderu wyników
-referencyjnych (``--reference-dir`` ``reference`` → ``reference.lock``): pomiary ze
-wspólnym folderem, np. oficjalne pomiary z kilku worktree, nigdy nie biegną naraz. Drugi
-pomiar czeka i mówi o tym na stderr.
+``measure`` trzyma maszynę jak pomiar ``wydajnosc`` weryfikacji Centrum
+(``tools/quiet_machine.py``): czeka najwyżej 3 minuty na cichy procesor i mierzy sam, a
+inne weryfikacje Centrum i ``freeze`` czekają, dopóki mierzy, najwyżej 15 minut. ``freeze``
+obciąża procesor, więc zajmuje maszynę jak każdy inny przebieg. Wewnątrz obie komendy trzymają wyłączną
+blokadę pliku obok folderu wyników referencyjnych (``--reference-dir`` ``reference`` →
+``reference.lock``): pomiary ze wspólnym folderem, np. oficjalne pomiary z kilku worktree,
+nigdy nie biegną naraz. Czekanie na maszynę opisują linie ``MASZYNA ZAJĘTA | …``, na
+blokadę pliku linia na stderr.
 
 ``freeze`` zamraża wynik referencyjny scenariusza z commita, który ma skrypt dla maszyn:
 buduje ten commit w tymczasowym worktree gita poza repozytorium, uruchamia jego Przebieg
@@ -71,6 +75,7 @@ nazwy scenariuszy, commit i maszyna: nigdy Wykonawcy, adresy, numery zleceń ani
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import sys
 from pathlib import Path
@@ -89,11 +94,19 @@ from benchmark.dziennik import (
 from benchmark.lustro import SCENARIOS, default_templates_directory, default_worker_config, ensure_mirror, template_paths
 from benchmark.pomiar import RUNS, exclusive_measurement, measure, measurement_lock
 from benchmark.referencja import find_reference, freeze_reference, reference_folder
+from quiet_machine import MachineBusy, QuietMachine
 from syntetyczne_wzorce import WORKER_TEMPLATE
 
 
 def _default_machine() -> str:
     return f"{platform.system()}-{platform.machine()}".lower()
+
+
+def _machine() -> QuietMachine:
+    """Maszyna tego komputera; testy podają w ``QUIET_MACHINE_SCRATCH`` własny folder blokad bez ``ps``."""
+
+    scratch = os.environ.get("QUIET_MACHINE_SCRATCH")
+    return QuietMachine() if scratch is None else QuietMachine(Path(scratch), busy_processes=lambda: [])
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -172,9 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "guard":
             return _guard(args.journal, args.budget_ms, args.summary)
         references = args.reference_dir.expanduser().resolve()
-        with exclusive_measurement(measurement_lock(references)):
-            record = _measure_or_freeze(args, references)
-    except BenchmarkError as error:
+        machine = _machine()
+        hold = machine.measurement() if args.command == "measure" else machine.run()
+        with hold as waited:
+            if waited >= 1:
+                print(f"MASZYNA WOLNA | czekano {waited:.0f} s", flush=True)
+            with exclusive_measurement(measurement_lock(references)):
+                record = _measure_or_freeze(args, references)
+    except (BenchmarkError, MachineBusy) as error:
         print(f"Benchmark przerwany: {error}", file=sys.stderr)
         return 1
     if record is None:

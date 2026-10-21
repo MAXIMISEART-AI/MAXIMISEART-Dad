@@ -23,6 +23,7 @@ from playwright.sync_api import sync_playwright
 from drive import (
     DEFAULT_REPEATS,
     EXPLICIT_FEATURES,
+    aktualizacja,
     aktualnosc_i_onedrive,
     diagnoza,
     konfiguracja,
@@ -40,9 +41,9 @@ from drive import (
 )
 from drive.common import DAD_TIME_ZONE, DriveFailure, Run
 
-# Przygotowanie pliku zbiorczego appends to the metrics files that Metryki counts, so it runs after
-# Metryki; Przebieg rozliczeń continues Dad's path from its Plik zbiorczy; Diagnoza stops Uruchomienia
-# of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
+# aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
+# appends to the metrics files that Metryki counts, so it runs after Metryki; Przebieg rozliczeń continues Dad's
+# path from its Plik zbiorczy; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
 # scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
 # powiadomienie-o-naprawie closes that Zgłoszenie there; pomiar-u-taty clicks through the pages with the files
 # of Dad's whole week; start-i-zamykanie closes Centrum, so it stays last.
@@ -51,6 +52,7 @@ FEATURES = (
     "tablica-okresow",
     "uklad-folderow-taty",
     "konfiguracja",
+    "aktualizacja",
     "metryki",
     "przygotowanie-pliku-zbiorczego",
     "przebieg-rozliczen",
@@ -82,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         "tablica-okresow": tablica_okresow.drive_period_board,
         "uklad-folderow-taty": uklad_folderow_taty.drive_dad_layout,
         "konfiguracja": konfiguracja.drive_configuration,
+        "aktualizacja": aktualizacja.drive_update,
         "metryki": metryki.drive_metrics,
         "przygotowanie-pliku-zbiorczego": przygotowanie_pliku_zbiorczego.drive_preparation,
         "przebieg-rozliczen": przebieg_rozliczen.drive_settlement,
