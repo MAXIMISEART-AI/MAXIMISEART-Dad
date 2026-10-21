@@ -74,6 +74,8 @@ REQUIRED_SCREENSHOTS = {
         "96-aktualizacja-najnowsza.png",
         "130-aktualizacja-instalowanie.png",
         "131-aktualizacja-instalacja-nieudana.png",
+        "135-aktualizacja-nie-wystartowala-ponowny-start.png",
+        "136-aktualizacja-nie-wystartowala.png",
     ),
     "metryki": (
         "20-metryki-karty-okresow.png",
