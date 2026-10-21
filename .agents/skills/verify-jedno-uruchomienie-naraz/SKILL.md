@@ -51,7 +51,7 @@ do not matter here: the checker replaces the engine with fixed steps.
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\explore_runs.py
 ```
 
-On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 8 s on a
+On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes 10 to 13 s on a
 Mac and runs in CI as `tests/test_jedno_uruchomienie_naraz.py`. In a worktree the
 script checks the worktree's own `src`.
 
@@ -145,7 +145,7 @@ Read the counterexample as a story. Each numbered line is one step:
 ## After changing the checker or an intended change to the covered code
 
 Prove the check can still fail. This applies broken variants to a temporary copy
-of `src`, never to the checkout (about 90 s):
+of `src`, never to the checkout, all at once (about 70 s on a Mac):
 
 ```powershell
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutations.py
@@ -155,6 +155,6 @@ It must end with `MUTACJE OK`. These all give `NOWE NARUSZENIE`: the check and
 claim in `start` under two lock entries (two Uruchomienia at once), a refusal that
 skips a run waiting for its Decyzja, `ended` set at the start of `_Run.work`, and
 `Shutdown.request` without the refusal. `RLock` in `RunHost` gives `LUKA MODELU`.
-CI runs this too. A mutation reported as `NIEAKTUALNA` no longer matches its file.
+CI runs this in the `mutations` job. A mutation reported as `NIEAKTUALNA` no longer matches its file.
 Rewrite its `anchor` and `replacement` in `check_runs_mutations.py` so it breaks
 the same rule again in the new code. Then move the sync commit forward as above.

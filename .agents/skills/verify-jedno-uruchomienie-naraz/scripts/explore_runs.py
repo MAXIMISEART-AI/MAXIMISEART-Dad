@@ -360,7 +360,6 @@ PREPARED: runs.PreparedRun[Any, Any] = runs.PreparedRun(
     metrics_path=Path("metryki-modelu.jsonl"),
     done="Plik zbiorczy przygotowany",
     view=PREPARATION,
-    warnings=lambda summary: [],
 )
 
 
