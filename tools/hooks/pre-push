@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Brama pre-push: push agenta, który wysyła HEAD, przechodzi dopiero po ``CI LOKALNIE OK`` na jego drzewie.
+
+Push człowieka przechodzi bez sprawdzania i bez słowa. Agenta rozpoznaje zmienna ``AI_AGENT`` (Claude Code,
+opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
+
+``tools/ci_lokalnie.py`` po udanym przebiegu na czystym checkoucie zapisuje drzewo HEAD w pieczątce
+``$(git rev-parse --git-dir)/ci-lokalnie-ok``, więc push tego drzewa przechodzi od razu. Bez pieczątki
+brama uruchamia ``tools/ci_lokalnie.py --do-pierwszego-bledu`` Pythonem z ``.venv`` checkoutu. Włącza ją
+``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
+
+Przebieg nie przeżywa pushu: brama kończy ``ci_lokalnie`` razem z jego procesami, gdy proces ``git push``
+zniknie (np. zabity po limicie czasu agenta) albo gdy dostanie SIGTERM, SIGHUP lub SIGINT. Drugi push z tego
+samego checkoutu w trakcie przebiegu kończy się od razu, bez równoległego ``ci_lokalnie`` na tym samym drzewie.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+from types import FrameType
+
+STAMP = "ci-lokalnie-ok"
+LOCK = "ci-lokalnie.lock"
+AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
+VENV_PYTHON = Path(".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
+COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--do-pierwszego-bledu")
+RUNS_CI = (
+    "uruchamiam tools/ci_lokalnie.py: czysty przebieg 4-8 min zależnie od obciążenia Maca, przy błędzie koniec"
+    " na pierwszym nieudanym kroku (ruff po kilku sekundach); po udanym przebiegu przed pushem push przechodzi od razu"
+)
+
+
+@dataclass(frozen=True)
+class Decision:
+    message: str
+    runs_ci: bool
+
+
+HUMAN = Decision("", runs_ci=False)
+NOT_HEAD = Decision("push nie wysyła HEAD (usunięcie gałęzi albo inna gałąź), więc bez sprawdzania", runs_ci=False)
+STAMPED = Decision("ci_lokalnie przeszło już na drzewie HEAD, push bez ponownego sprawdzania", runs_ci=False)
+CLEAN = Decision(RUNS_CI, runs_ci=True)
+DIRTY = Decision(
+    f"{RUNS_CI}; checkout ma niezacommitowane zmiany, więc werdykt dotyczy drzewa roboczego, nie tylko wysyłanego commitu",
+    runs_ci=True,
+)
+
+
+def _git(*args: str) -> str:
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _decide(pushed: set[str]) -> Decision:
+    if not any(os.environ.get(marker) for marker in AGENT_MARKERS):
+        return HUMAN
+    if _git("rev-parse", "HEAD") not in pushed:
+        return NOT_HEAD
+    stamp = Path(_git("rev-parse", "--git-dir")) / STAMP
+    # Pieczątka mówi, że to drzewo przeszło na czystym checkoucie, więc zmiany obok niego nie mają znaczenia.
+    if stamp.exists() and stamp.read_text(encoding="utf-8").strip() == _git("rev-parse", "HEAD^{tree}"):
+        return STAMPED
+    return DIRTY if _git("status", "--porcelain") else CLEAN
+
+
+def main() -> int:
+    pushed = {line.split()[1] for line in sys.stdin if line.strip()}
+    decision = _decide(pushed)
+    if decision.message:
+        print(f"pre-push: {decision.message}.", flush=True)
+    if not decision.runs_ci:
+        return 0
+    if not VENV_PYTHON.exists():
+        print("pre-push: brak .venv; utwórz je przez tools/setup_worktree.py i ponów push.", flush=True)
+        return 1
+    # Zmienne GIT_* hooka (np. GIT_CONFIG_PARAMETERS z `git -c`) zmieniłyby repozytoria tworzone przez testy.
+    environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    return _run_ci(environment)
+
+
+def _run_ci(environment: dict[str, str]) -> int:
+    if sys.platform == "win32":  # tools/setup_worktree.py nie włącza bramy na Windows
+        return subprocess.run(COMMAND, env=environment, stdin=subprocess.DEVNULL, check=False).returncode
+    import fcntl
+
+    # Otwarty plik trzyma zamek do końca bramy; ci_lokalnie go nie dziedziczy.
+    lock = (Path(_git("rev-parse", "--git-dir")) / LOCK).open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("pre-push: inny push z tego checkoutu już uruchomił ci_lokalnie; poczekaj na jego wynik.", flush=True)
+        return 1
+
+    def stop(signum: int, _frame: FrameType | None) -> None:
+        raise SystemExit(128 + signum)
+
+    for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(signum, stop)
+    push = os.getppid()
+    # Własna grupa procesów: pytest, npm i ich potomkowie kończą się razem z ci_lokalnie.
+    ci = subprocess.Popen(COMMAND, env=environment, stdin=subprocess.DEVNULL, start_new_session=True)
+    try:
+        while True:
+            try:
+                return ci.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                if os.getppid() != push:
+                    return 1
+    finally:
+        for signum in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(ci.pid, signum)
+                ci.wait(timeout=5)
+            # macOS odpowiada EPERM, gdy w grupie zostały same zombie.
+            except (ProcessLookupError, PermissionError):
+                break
+            except subprocess.TimeoutExpired:
+                pass
+
+if __name__ == "__main__":
+    raise SystemExit(main())

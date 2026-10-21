@@ -88,6 +88,9 @@ COLLECTIVE_ZERO_ROWS = 6
 REGISTER_DATE_FORMAT = "dd.mm.yyyy hh:mm"
 HIGHLIGHT_FILL = "FFFFFF00"
 HIGHLIGHT_COLOR = "FFC00000"
+# Hiperłącze in NUMER ZL. of every ZLECENIA order, like the link to the order in the company app; the Rejestr
+# row number ends the address. The PREP-SYN- marker makes self_test.py reject an address leaking into evidence.
+ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
 
 
 def _repo_root() -> Path:
@@ -176,6 +179,9 @@ def _write_register(path: Path) -> None:
     highlighted.fill = PatternFill(fill_type="solid", fgColor=HIGHLIGHT_FILL)
     worker_column = REGISTER_HEADERS.index("WYKONAWCA") + 1
     sheet.cell(9, worker_column).font = Font(name="Arial", size=8, italic=True)
+    order_column = REGISTER_HEADERS.index("NUMER ZL.") + 1
+    for row_number in REGISTER_ROWS:
+        sheet.cell(row_number, order_column).hyperlink = f"{ORDER_LINK}{row_number}"
     workbook.active = workbook.sheetnames.index("ZLECENIA")
     workbook.save(path)
     workbook.close()

@@ -2,7 +2,7 @@
 
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
 zbiorczy (``read_data_rows``, z Wyróżnieniami i Hiperłączami komórek), Rejestr zleceń
-(``read_workbook``, z formatem komórek), Wzorce do Sprawdzania i dla
+(``read_workbook``, z formatem i Hiperłączami komórek), Wzorce do Sprawdzania i dla
 Przygotowania pliku zbiorczego (``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
 pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
 pracowników (``WorkerSettlementTemplate``). Otwarcie
@@ -191,15 +191,16 @@ class DataRow:
 
 @dataclass(frozen=True)
 class FormattedCell:
-    """Wartość komórki z wyróżnieniami odczytanymi przy otwarciu; brakująca komórka ma same ``None``."""
+    """Wartość komórki z wyróżnieniami i Hiperłączem odczytanymi przy otwarciu; brakująca komórka ma same ``None``."""
 
     value: object
     font: Font | None
     fill: Fill | None
     number_format: str | None
+    hyperlink: Hyperlink | None
 
 
-_EMPTY_CELL = FormattedCell(None, None, None, None)
+_EMPTY_CELL = FormattedCell(None, None, None, None, None)
 
 
 def is_open_in_excel(path: Path) -> bool:
@@ -242,11 +243,11 @@ def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
         yield item
 
 
-def _load(path: Path, *, read_only: bool) -> Workbook:
-    """Skoroszyt ``path`` dostępny na dysku, otwarty przez openpyxl."""
+def _load(path: Path) -> Workbook:
+    """Skoroszyt ``path`` dostępny na dysku, otwarty przez openpyxl do zapisu."""
 
     ensure_available(path)
-    return _open(path, path, read_only=read_only)
+    return _open(path, path, read_only=False)
 
 
 def _open(path: Path, source: Path | IO[bytes], *, read_only: bool) -> Workbook:
@@ -340,8 +341,9 @@ class _HighlightsReader:
 class ReadSheet:
     """Arkusz skoroszytu otwartego tylko do odczytu; każdy odczyt komórek jest klasyfikowany."""
 
-    def __init__(self, path: Path, sheet: Worksheet) -> None:
+    def __init__(self, path: Path, content: bytes, sheet: Worksheet) -> None:
         self._path = path
+        self._content = content
         self._sheet = sheet
 
     @property
@@ -354,48 +356,62 @@ class ReadSheet:
     def formatted_rows(
         self, min_row: int, columns: Sequence[int]
     ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
-        """Wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami, od ``min_row`` w dół."""
+        """Wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami i Hiperłączami, od ``min_row`` w dół."""
 
         return _classified(self._path, self._formatted_rows(min_row, columns))
 
     def _formatted_rows(
         self, min_row: int, columns: Sequence[int]
     ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
-        for cells in self._sheet.iter_rows(min_row=min_row):
+        with zipfile.ZipFile(BytesIO(self._content)) as archive:
+            links = read_sheet_hyperlinks(archive, self.title)
+        for number, cells in enumerate(self._sheet.iter_rows(min_row=min_row), start=min_row):
             values = tuple(getattr(cell, "value", None) for cell in cells)
-            yield values, tuple(_formatted(cells[column - 1]) if column <= len(cells) else _EMPTY_CELL for column in columns)
+            row_links = links.row(number, values)
+            yield values, tuple(
+                _formatted(cells[column - 1], row_links.get(column)) if column <= len(cells) else _EMPTY_CELL
+                for column in columns
+            )
 
 
-def _formatted(cell: object) -> FormattedCell:
+def _formatted(cell: object, hyperlink: Hyperlink | None) -> FormattedCell:
     return FormattedCell(
         value=getattr(cell, "value", None),
         font=getattr(cell, "font", None),
         fill=getattr(cell, "fill", None),
         number_format=getattr(cell, "number_format", None),
+        hyperlink=hyperlink,
     )
 
 
 class ReadWorkbook:
     """Skoroszyt otwarty tylko do odczytu, np. Rejestr zleceń."""
 
-    def __init__(self, path: Path, workbook: Workbook) -> None:
+    def __init__(self, path: Path, content: bytes, workbook: Workbook) -> None:
         self._path = path
+        self._content = content
         self._workbook = workbook
 
     def sheets(self) -> Iterator[ReadSheet]:
         with _unreadable_as_error(self._path):
             worksheets = list(self._workbook.worksheets)
         for sheet in worksheets:
-            yield ReadSheet(self._path, cast(Worksheet, sheet))
+            yield ReadSheet(self._path, self._content, cast(Worksheet, sheet))
 
 
 @contextmanager
 def read_workbook(path: Path) -> Iterator[ReadWorkbook]:
-    """Skoroszyt tylko do odczytu z formatem komórek; zamykany przy wyjściu z bloku."""
+    """Skoroszyt tylko do odczytu z formatem i Hiperłączami komórek; zamykany przy wyjściu z bloku.
 
-    workbook = _load(path, read_only=True)
+    openpyxl i Hiperłącza czytają te same bajty, odczytane z dysku raz.
+    """
+
+    ensure_available(path)
+    with _unreadable_as_error(path):
+        content = path.read_bytes()
+    workbook = _open(path, BytesIO(content), read_only=True)
     try:
-        yield ReadWorkbook(path, workbook)
+        yield ReadWorkbook(path, content, workbook)
     finally:
         workbook.close()
 
@@ -490,7 +506,7 @@ def _is_zero(value: object) -> bool:
 def open_template(path: Path, layout: Layout) -> Iterator[TemplateSheet]:
     """Wzorzec do sprawdzenia; niczego nie zapisuje."""
 
-    workbook = _load(path, read_only=False)
+    workbook = _load(path)
     try:
         yield _template_sheet(path, workbook, layout)
     finally:
@@ -507,7 +523,7 @@ def file_from_template(template: Path, target: Path, layout: Layout, *, recalcul
     zawsze pozostaje niezmieniony.
     """
 
-    workbook = _load(template, read_only=False)
+    workbook = _load(template)
     try:
         yield _template_sheet(template, workbook, layout)
         if recalculate:

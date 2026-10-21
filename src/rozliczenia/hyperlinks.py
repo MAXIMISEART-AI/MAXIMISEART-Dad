@@ -1,9 +1,9 @@
 """Hiperłącza komórek: adres poza skoroszytem, który komórka otwiera po kliknięciu (GLOSSARY „Hiperłącze”).
 
-Przebieg rozliczeń przenosi je z każdej komórki A:AT Wiersza danych Pliku
-zbiorczego do tej samej komórki Rozliczenia pracownika; obie drogi zapisu
-(``template_copy`` i openpyxl w ``workbook_files``) zastępują nimi hiperłącza
-komórek Wzorca w zapisywanych Wierszach danych.
+Przygotowanie pliku zbiorczego przenosi je z komórek Rejestru zleceń do obu
+plików okresu, a Przebieg rozliczeń z każdej komórki A:AT Wiersza danych Pliku
+zbiorczego do tej samej komórki Rozliczenia pracownika. Każdy zapis zastępuje
+nimi hiperłącza komórek Wzorca w zapisywanych wierszach.
 
 ``read_sheet_hyperlinks`` czyta Hiperłącza jednego arkusza z bajtów skoroszytu:
 blok ``<hyperlinks>``, który w schemacie arkusza leży za ``</sheetData>``, i

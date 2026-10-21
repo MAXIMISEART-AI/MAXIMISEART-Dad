@@ -52,6 +52,7 @@ include = [
     "src/**/*.py",
     "tests/**/*.py",
     "tools/**/*.py",
+    "tools/hooks/pre-push",
     ".agents/skills/*/scripts/**/*.py",
 ]
 extend-exclude = [".claude"]
@@ -67,6 +68,7 @@ files = [
     "src",
     "tests",
     "tools",
+    "tools/hooks/pre-push",
     ".agents/skills/*/scripts",
 ]
 mypy_path = "src"

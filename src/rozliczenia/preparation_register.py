@@ -1,8 +1,8 @@
 """Rejestr zleceń w Przygotowaniu pliku zbiorczego: dostępność i odczyt (etap Odczyt danych).
 
 Rejestr jest tylko czytany, przez moduł skoroszytu. Arkusze ze zleceniami są rozpoznawane po komplecie
-wymaganych nagłówków w pierwszym wierszu, a wartości i wyróżnienia komórek są
-zwracane w kolejności ``COLUMNS``. Moduł wewnętrzny Przygotowania pliku
+wymaganych nagłówków w pierwszym wierszu, a wartości, wyróżnienia i Hiperłącza
+komórek są zwracane w kolejności ``COLUMNS``. Moduł wewnętrzny Przygotowania pliku
 zbiorczego; operacją publiczną pozostaje
 ``collective_preparation.prepare_collective_file()``.
 """
@@ -19,6 +19,7 @@ from openpyxl.utils import get_column_letter
 
 from . import preparation_messages as messages
 from . import workbook_files
+from .hyperlinks import Hyperlink
 from .message import StopError
 from .workbook_files import FormattedCell, Problem, ReadWorkbook, WorkbookError
 from .worker_config import normalize_text
@@ -87,8 +88,11 @@ PLAIN_CELL = CellFormat(fill=None, color=None, bold=False, italic=False, number_
 
 @dataclass(frozen=True)
 class RegisterCell:
+    """Wartość komórki Rejestru z jej Wyróżnieniami i Hiperłączem."""
+
     value: object
     format: CellFormat
+    hyperlink: Hyperlink | None
 
 
 @dataclass(frozen=True)
@@ -221,7 +225,11 @@ def _read_register_sheets(register_path: Path, workbook: ReadWorkbook) -> list[R
             if all(is_blank(value) for value in values):
                 empty_rows.append(row_number)
                 continue
-            rows.append(RegisterRow(row_number, tuple(RegisterCell(cell.value, _cell_format(cell)) for cell in cells)))
+            rows.append(
+                RegisterRow(
+                    row_number, tuple(RegisterCell(cell.value, _cell_format(cell), cell.hyperlink) for cell in cells)
+                )
+            )
         sheets.append(RegisterSheet(sheet.title, tuple(rows), tuple(empty_rows), tuple(positions)))
     if sheets:
         return sheets
