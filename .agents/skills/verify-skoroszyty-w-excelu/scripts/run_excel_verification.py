@@ -31,7 +31,6 @@ SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 OTHER_SKILL = REPO_ROOT / ".agents" / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = REPO_ROOT / "tools" / "uruchom_proces.py"
-LOCK = REPO_ROOT / ".verification" / "excel.lock"
 PERIOD = "08_14_09_2026"
 TEMPLATE_NAMES = (
     "Wzorzec rozliczenia wewnętrznego.xlsx",
@@ -456,25 +455,6 @@ def repair_control(run: Run) -> None:
 # ---- orchestration -----------------------------------------------------------------------------------
 
 
-def _alive(process_id: int) -> bool:
-    try:
-        os.kill(process_id, 0)
-    except OSError:
-        return False
-    return True
-
-
-def _take_lock() -> None:
-    """One Excel serves one run: a second run would close or type into the first run's workbooks."""
-
-    LOCK.parent.mkdir(parents=True, exist_ok=True)
-    if LOCK.exists():
-        holder = LOCK.read_text(encoding="utf-8").strip()
-        if holder.isdigit() and _alive(int(holder)):
-            raise VerificationFailure(f"another Excel verification (pid {holder}) is running")
-    LOCK.write_text(str(os.getpid()), encoding="utf-8")
-
-
 def _cleanup(run: Run, started_excel: int | None) -> list[str]:
     """Close this run's workbooks, stop the Excel this run started, remove scratch; evidence stays."""
 
@@ -497,8 +477,6 @@ def _cleanup(run: Run, started_excel: int | None) -> list[str]:
     )
     removed = completed.returncode == 0 and not run.root.exists() and not run.desk.exists()
     notes.append(f"scratch_removed={str(removed).lower()}")
-    if LOCK.exists() and LOCK.read_text(encoding="utf-8").strip() == str(os.getpid()):
-        LOCK.unlink()
     (run.evidence / "cleanup.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
     return notes
 
@@ -517,6 +495,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--kontrola-naprawy", action="store_true", help="also prove the dialog detector; needs one click")
     args = parser.parse_args(argv)
 
+    # Taken before Excel is looked at, because a second run would close or type into the first run's workbooks.
+    try:
+        lock = excel.claim(owner=str(REPO_ROOT))
+    except excel.ExcelError as exc:
+        print(f"VERIFY FAIL | {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
     run_id = f"excel-{uuid.uuid4().hex[:12]}"
     evidence = REPO_ROOT / ".verification" / "evidence" / run_id
     evidence.mkdir(parents=True)
@@ -534,7 +518,6 @@ def main(argv: list[str] | None = None) -> int:
     started_excel: int | None = None
     outcome = "OK"
     try:
-        _take_lock()
         run.root.mkdir(parents=True)
         create_fixture(run, real_templates)
         run.desk.mkdir(parents=True)
@@ -559,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         run.write_evidence()
         notes = _cleanup(run, started_excel)
+        lock.close()
     try:
         _hygiene(run)
     except VerificationFailure as exc:

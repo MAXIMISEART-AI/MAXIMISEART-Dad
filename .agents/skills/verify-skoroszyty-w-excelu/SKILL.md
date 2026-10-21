@@ -25,8 +25,9 @@ From the repository root, after `tools/setup_worktree.py` in a worktree:
 ```
 
 One command runs the whole path. It ends with `VERIFY OK | wzorce=prawdziwe |
-steps=20 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`, in
-under two minutes.
+steps=20 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
+Maks's Mac with Excel 16.114 it took 2:56 with Dad's Wzorce and 77 s with
+`syntetyczne`.
 
 - `--wzorce prawdziwe` (default) copies Dad's three Wzorce from `config/`, in a
   worktree from the main checkout's `config/` (`--templates-dir` overrides).
@@ -40,10 +41,13 @@ The Rejestr zleceń, Wykonawcy and orders are always the synthetic ones of
 `verify-rozliczenia`'s `create_preparation_fixture.py`, so no customer data
 enters a run.
 
-Excel is a shared, single-instance app. The runner takes
-`.verification/excel.lock`, so a second run refuses to start while one drives
-Excel. It starts Excel itself when Excel is not running, and quits it at the
-end only then and only when no workbook is left. Workbooks of the user stay
+Excel is a shared, single-instance app. Before it looks at Excel, the runner
+locks `~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/excel.lock`,
+one lock for the whole Mac, so a run from any worktree refuses to start with
+`VERIFY FAIL | ExcelBusy: … (pid <n>, <worktree>)` while another drives Excel.
+The kernel drops the lock when its process ends, so a killed run blocks no
+one. The runner starts Excel itself when Excel is not running, and quits it at
+the end only then and only when no workbook is left. Workbooks of the user stay
 untouched: every call addresses a workbook by its full path on the desk.
 
 ### The desk
@@ -78,9 +82,13 @@ has no Folder okresu yet, and a running Excel answers AppleScript with no dialog
 and holds no workbook named like this run's (Excel refuses two workbooks of the
 same name). `excel.py status` is the read-only check of Excel alone.
 
-When AppleScript gets no answer at all (`-1712` even for Finder), macOS lost the
-Automatyzacja consent prompt: in System Settings → Prywatność i ochrona →
-Automatyzacja, the app running the agent needs Microsoft Excel switched on.
+`excel.py` names an AppleScript failure by its number. `-1743` raises
+`ExcelNotPermitted`: macOS denies the app running the agent control of Excel,
+and the run says so at once, also while it starts Excel. In System Settings →
+Prywatność i ochrona → Automatyzacja, switch Microsoft Excel on for that app.
+`-1708` and `-1712` raise `ExcelDialog`. When AppleScript gets no answer at
+all (`-1712` even for Finder), macOS lost the Automatyzacja consent prompt;
+the same setting fixes it.
 
 ## Drive
 
@@ -115,8 +123,9 @@ Drive Excel only through `scripts/excel.py`; it encodes the traps below.
 - Every entry recalculates the whole workbook (some 50 000 formulas in Dad's
   Wzorce), so type one row per call (`excel.type_row`); typed cell by cell,
   the first row of the synthetic Wzorce ran past the 60 s call limit.
-- While a dialog is up, Excel answers `missing value` or fails with `-1708`;
-  `excel.dialogs()` lists its untitled windows without any permission.
+- While a dialog is up, Excel answers `missing value` or fails with `-1708`,
+  and both raise `ExcelDialog`; `excel.dialogs()` lists its untitled windows
+  without any permission.
 
 ## Evidence
 
@@ -139,8 +148,8 @@ AppleScript instead.
 ## Cleanup
 
 The runner's `finally` closes, without saving, every workbook on the desk,
-removes the desk and the run root, releases the lock, and writes
-`cleanup.txt`; evidence stays. If a dialog keeps Excel from closing and this run
+removes the desk and the run root, writes
+`cleanup.txt`, and releases the lock; evidence stays. If a dialog keeps Excel from closing and this run
 started Excel, it stops that process by its id, then starts Excel once more and
 quits it, so macOS does not reopen the run's windows at the next start. A dialog
 in an Excel that was already running stays for its owner to answer
@@ -152,7 +161,6 @@ After a runner killed before its `finally`:
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/excel.py close-under --root ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja
 rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<run>
 .venv/bin/python .agents/skills/verify-rozliczenia/scripts/cleanup.py --root .verification/runs/<run>
-rm .verification/excel.lock
 ```
 
 ## Helpers
@@ -162,6 +170,8 @@ rm .verification/excel.lock
   doctor.
 - `scripts/excel.py status | close-under --root <dir>`: Excel's state, and
   closing stranded workbooks; as a module, every Excel call of the runner.
+- `tests/test_weryfikacja_w_excelu.py`: the error naming and the Mac-wide
+  lock, with a fake `osascript`; part of `pytest`, so no Excel is needed.
 - `scripts/excel_windows.js`: Excel's on-screen windows, run as
   `osascript -l JavaScript scripts/excel_windows.js`; a window without a title
   is a dialog.

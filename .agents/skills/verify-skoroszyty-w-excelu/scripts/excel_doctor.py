@@ -77,9 +77,9 @@ def check(root: Path, desk: Path) -> list[str]:
         try:
             open_names = {Path(path).name for path in excel.open_paths()}
         except excel.ExcelDialog as exc:
-            problems.append(f"Excel shows a dialog or does not answer: {exc}; dialogs: {excel.dialogs()}")
+            problems.append(f"Excel shows a dialog or does not answer: {exc}; dialogs: {excel.dialogs() or 'none on screen'}")
         except excel.ExcelError as exc:
-            problems.append(f"Excel refuses AppleScript (Automatyzacja permission?): {exc}")
+            problems.append(f"Excel fails AppleScript: {exc}")
         else:
             clashes = sorted(open_names.intersection(WORKBOOK_NAMES))
             if clashes:

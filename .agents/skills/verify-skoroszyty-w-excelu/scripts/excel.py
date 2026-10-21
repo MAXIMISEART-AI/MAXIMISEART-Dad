@@ -18,17 +18,22 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import fcntl
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
 import time
+from typing import TextIO
 
 
 APP = "Microsoft Excel"
 BUNDLE_ID = "com.microsoft.Excel"
 DESK = Path.home() / "Library" / "Containers" / BUNDLE_ID / "Data" / "maximiseart-weryfikacja"
+# One Excel per Mac, so one lock per Mac beside every worktree's desks, never inside a worktree.
+LOCK = DESK / "excel.lock"
 WINDOWS_SCRIPT = Path(__file__).with_name("excel_windows.js")
 EVENT_TIMEOUT_SECONDS = 60
 # Excel answers "missing value" for its workbooks while a modal dialog (repair, links, same name) is up.
@@ -66,6 +71,27 @@ class ExcelDialog(ExcelError):
     """Excel shows a modal dialog (repair, external links, same name) and answers no workbook calls."""
 
 
+class ExcelNotPermitted(ExcelError):
+    """macOS does not let the app running the agent control Excel (Automatyzacja)."""
+
+
+class ExcelBusy(ExcelError):
+    """Another verification run drives this Mac's Excel."""
+
+
+AUTOMATION_SETTING = "System Settings → Prywatność i ochrona → Automatyzacja"
+APPLESCRIPT_ERRORS: dict[int, tuple[type[ExcelError], str]] = {
+    -1712: (ExcelDialog, "Excel did not answer within {timeout} s (AppleEvent timeout -1712): a dialog is up or Excel is busy"),
+    -1708: (ExcelDialog, "Excel refuses AppleScript calls (-1708), as it does while a modal dialog is up"),
+    -1743: (
+        ExcelNotPermitted,
+        f"macOS denies control of Microsoft Excel (-1743): switch Microsoft Excel on for the app running the agent "
+        f"in {AUTOMATION_SETTING}",
+    ),
+}
+APPLESCRIPT_ERROR_NUMBER = re.compile(r"\((-\d+)\)$")
+
+
 @dataclass(frozen=True)
 class Cell:
     """One cell as Excel holds it: kind ``n`` number, ``s`` text, ``d`` date (ISO), ``b`` boolean, ``m`` empty."""
@@ -100,9 +126,13 @@ def _osascript(script: str, *arguments: str, timeout: int = EVENT_TIMEOUT_SECOND
         raise ExcelDialog(f"Excel did not answer within {timeout} s") from exc
     if completed.returncode != 0:
         message = completed.stderr.strip()
-        if "-1712" in message:
-            raise ExcelDialog(f"Excel did not answer within {timeout} s (AppleEvent timeout -1712)")
-        raise ExcelError(message.splitlines()[-1] if message else f"osascript exit {completed.returncode}")
+        last_line = message.splitlines()[-1] if message else f"osascript exit {completed.returncode}"
+        number = APPLESCRIPT_ERROR_NUMBER.search(last_line)
+        known = APPLESCRIPT_ERRORS.get(int(number.group(1))) if number else None
+        if known is None:
+            raise ExcelError(last_line)
+        error, text = known
+        raise error(text.format(timeout=timeout))
     return completed.stdout.rstrip("\n")
 
 
@@ -219,12 +249,41 @@ def launch(*, timeout: float = 90) -> int:
         time.sleep(1)
         try:
             open_paths(timeout=5)
+        except ExcelNotPermitted:
+            raise
         except ExcelError:
             continue
         process_id = pid()
         if process_id is not None:
             return process_id
     raise ExcelDialog(f"Excel did not answer within {timeout:.0f} s of starting; dialogs: {dialogs()}")
+
+
+def claim(*, owner: str) -> TextIO:
+    """Hold this Mac's Excel for one run until the returned file is closed or the process ends.
+
+    The lock is an ``flock``, which the kernel drops when its process dies, so a killed run blocks no one.
+    The file keeps the last holder's pid and ``owner`` for the refusal message.
+    """
+
+    if sys.platform == "win32":
+        raise ExcelError("this skill drives Excel for Mac")
+    if not DESK.parent.is_dir():
+        raise ExcelError(f"Excel's container {DESK.parent} does not exist; start Excel once by hand")
+    DESK.mkdir(exist_ok=True)
+    handle = LOCK.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.seek(0)
+        holder = handle.read().strip() or "holder unknown"
+        handle.close()
+        raise ExcelBusy(f"another Excel verification drives this Mac's Excel ({holder})") from None
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"pid {os.getpid()}, {owner}")
+    handle.flush()
+    return handle
 
 
 def terminate(process_id: int) -> bool:
