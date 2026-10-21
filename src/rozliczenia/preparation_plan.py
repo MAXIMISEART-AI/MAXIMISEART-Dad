@@ -120,7 +120,7 @@ def _check_successful_values(register_path: Path, register: RegisterSheet, order
     """Zatrzymanie, gdy zlecenie okresu nie ma ``tak`` ani ``nie`` w ``SKUTECZNE``: puste komórki i inne wartości."""
 
     empty_rows: list[int] = []
-    other_values: list[tuple[int, object]] = []
+    other_values: list[messages.CellContent] = []
     for order in orders:
         value = order.row.value(SUCCESSFUL)
         if normalize_text(value) in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE):
@@ -128,7 +128,7 @@ def _check_successful_values(register_path: Path, register: RegisterSheet, order
         if is_blank(value):
             empty_rows.append(order.row_number)
         else:
-            other_values.append((order.row_number, value))
+            other_values.append(messages.CellContent(order.row_number, value))
     if empty_rows or other_values:
         raise StopError(
             messages.invalid_successful_values(
