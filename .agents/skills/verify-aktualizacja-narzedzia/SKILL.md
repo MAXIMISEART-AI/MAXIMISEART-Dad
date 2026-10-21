@@ -43,8 +43,8 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/tool_updates.py`,
 `src/rozliczenia/centrum/restart_guardian.py`.
 
-Sync commit: `0e3a773130dd` (tip of `integracja/180-aktualizacja-narzedzia`,
-2026-10-21, with #196's guardian rollback). At this commit every row above was
+Sync commit: `6759ee38ec9a` (branch `review/180-poprawki`,
+2026-10-21, with the rollbacks for #211 and #212). At this commit every row above was
 checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
