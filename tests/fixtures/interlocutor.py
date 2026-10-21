@@ -1,4 +1,4 @@
-"""Rozmówca w testach rdzenia Uruchomienia procesu i silników, bez terminala i bez Centrum rozliczeń."""
+"""Rozmówca w testach rdzenia Uruchomienia procesu i silników, bez Centrum rozliczeń."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class Tata:
     """Rozmówca w teście: zapisuje każdą Decyzję, robi ``before_answer`` i odpowiada ``consent``."""
 
     consent: bool = True
-    continue_hint: str = "przy pytaniu wpisz t"
+    continue_hint: str = "przy decyzji wybierz „Kontynuuj”"
     before_answer: Callable[[], None] = lambda: None
     decisions: list[Decision] = field(default_factory=list)
     progress_view: list[Literal["start", "stop"]] = field(default_factory=list)

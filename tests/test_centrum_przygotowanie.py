@@ -189,7 +189,6 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
             ),
         }
     ]
-    assert "wpisz t" not in json.dumps(result, ensure_ascii=False)
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["result"], record["phase_durations_ms"]["Zapisywanie"]) == ("BLAD_KRYTYCZNY", 0)

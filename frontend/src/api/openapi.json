@@ -1279,7 +1279,7 @@
           "action"
         ],
         "title": "Message",
-        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."
+        "description": "Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu."
       },
       "Metrics": {
         "properties": {

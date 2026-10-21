@@ -4,11 +4,6 @@ Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co s
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
 Części nie zawierają pełnych ścieżek ani treści wierszy: wskazują tylko nazwę
 pliku, folder okresu, kolumnę albo Wykonawcę z konfiguracji wykonawców.
-
-Terminal pokazuje zatrzymanie jedną linią po „Nie wykonano: ”, bez zmian od
-pierwszej wersji (``Message.terminal_line``, ADR 0004). Ta linia może
-zawierać pełną ścieżkę i nie trafia do Centrum rozliczeń, które pokazuje trzy
-części.
 """
 
 from __future__ import annotations
@@ -18,7 +13,6 @@ from typing import Final
 
 from .domain import Issue
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
-from .period_folder import PeriodFolderLookupError, month_folder_label
 from .workbook_files import WORKER_HEADER
 from .worker_config import WorkerConfigError
 
@@ -26,67 +20,6 @@ _NOTHING_CREATED: Final = "Nie utworzono żadnego pliku pracownika."
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
-
-
-def collective_file_not_selected() -> Message:
-    """Tylko terminal: tata zamknął okno wyboru Pliku zbiorczego."""
-
-    return Message(
-        code="NIE_WYBRANO_PLIKU_ZBIORCZEGO",
-        what=f"Nie wybrano Pliku zbiorczego. {_NOTHING_CREATED}",
-        where="okno wyboru pliku",
-        action="Uruchom ponownie i wybierz Plik zbiorczy okresu.",
-        terminal_line="Nie wybrano pliku zbiorczego.",
-    )
-
-
-def period_not_entered() -> Message:
-    """Tylko terminal: tata nie potwierdził proponowanego okresu ani nie wpisał innego."""
-
-    return Message(
-        code="NIE_PODANO_OKRESU",
-        what=f"Nie potwierdzono okresu ani nie wpisano innego. {_NOTHING_CREATED}",
-        where="pytanie o okres",
-        action="Uruchom ponownie i naciśnij Enter, aby potwierdzić proponowany okres, albo wpisz inny.",
-        terminal_line="Nie podano okresu.",
-    )
-
-
-def invalid_period_token(token: str) -> Message:
-    """Tylko terminal: wpisany okres nie opisuje przedziału od wtorku do poniedziałku; pytanie wraca."""
-
-    return Message(
-        code="ZLY_TOKEN_OKRESU",
-        what="Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.",
-        where=f"okres {token!r}",
-        action=(
-            "Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). "
-            "Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 27_02_11_2026 "
-            "(wtorek 27 października – poniedziałek 2 listopada 2026)."
-        ),
-    )
-
-
-def period_folder_lookup_problem(error: PeriodFolderLookupError) -> Message:
-    """Tylko terminal: w układzie folderów taty Folderu okresu nie ma albo jest w kilku miesiącach."""
-
-    token = error.period.token
-    if not error.locations:
-        return Message(
-            code="BRAK_FOLDERU_OKRESU",
-            what=f"Nie znaleziono folderu {token} w żadnym folderze miesiąca. {_NOTHING_CREATED}",
-            where=f"foldery INEA w folderze {error.periods_directory.name}",
-            action=f"Najpierw przygotuj plik zbiorczy okresu {token} w jego folderze i uruchom ponownie.",
-            terminal_line=f"Nie znaleziono folderu {token} w żadnym folderze miesiąca.",
-        )
-    months = ", ".join(month_folder_label(error.periods_directory, location) for location in error.locations)
-    return Message(
-        code="POWTORZONY_FOLDER_OKRESU",
-        what=f"Folder {token} jest w więcej niż jednym folderze miesiąca. {_NOTHING_CREATED}",
-        where=months,
-        action=f"Zostaw folder {token} tylko w jednym folderze miesiąca: drugi usuń albo zmień mu nazwę. Potem uruchom ponownie.",
-        terminal_line=f"Folder {token} jest w więcej niż jednym folderze miesiąca: {months}.",
-    )
 
 
 def collective_file_missing(source: Path) -> Message:
@@ -98,7 +31,6 @@ def collective_file_missing(source: Path) -> Message:
             "Sprawdź, czy Plik zbiorczy leży w Folderze okresu pod tą nazwą, i uruchom ponownie. "
             "Jeśli okresu jeszcze nie przygotowano, najpierw przygotuj plik zbiorczy."
         ),
-        terminal_line=f"Nie znaleziono pliku źródłowego: {source}",
     )
 
 
@@ -113,7 +45,6 @@ def collective_file_open(source: Path) -> Message:
             "Zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, "
             f"a komunikat wraca, usuń z tego samego folderu pozostawiony plik ~${source.name} i uruchom ponownie."
         ),
-        terminal_line=f"Plik jest otwarty lub zablokowany: {source.name}",
     )
 
 
@@ -128,7 +59,6 @@ def collective_file_invalid(source: Path, detail: str) -> Message:
         what=f"Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. {detail}",
         where=file_label(source),
         action=f"Popraw Plik zbiorczy w Excelu. {_SAVE_AND_RETRY} Jeśli błąd wraca, {REPORT_TO_MAINTAINER.lower()}",
-        terminal_line=detail,
     )
 
 
@@ -160,25 +90,17 @@ def worker_settlements_exist(target_directory: Path) -> Message:
             "Sprawdź, czy wybrano właściwy okres. Rozliczenia pracowników tego okresu już są w Folderze okresu. "
             "Jeśli trzeba je utworzyć od nowa, najpierw przenieś ten folder poza Folder okresu i uruchom ponownie."
         ),
-        terminal_line=f"Folder docelowy już istnieje: {target_directory.name}.",
     )
 
 
 def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
     """Konfiguracji wykonawców nie da się użyć; ``error.detail`` nie zawiera ścieżki."""
 
-    terminal_lines = {
-        "unreadable": f"Nie można odczytać konfiguracji: {config_path}",
-        "not_utf8": f"Konfiguracja nie jest zapisana w UTF-8: {config_path}",
-        "not_yaml": f"Niepoprawny YAML konfiguracji: {config_path}",
-        "invalid": error.detail,
-    }
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
         what=f"Konfiguracja wykonawców jest niepoprawna. {error.detail}",
         where=file_label(config_path),
         action=REPORT_TO_MAINTAINER,
-        terminal_line=terminal_lines[error.reason],
     )
 
 
@@ -193,7 +115,6 @@ def worker_template_invalid(template_path: Path, detail: str) -> Message:
             "Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. "
             f"W innym wypadku {REPORT_TO_MAINTAINER.lower()}"
         ),
-        terminal_line=detail,
     )
 
 
@@ -211,7 +132,6 @@ def unmapped_worker(source: Path) -> Message:
             f"{_PREVIEW_PROBLEMS} Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie "
             f"o dopisanie Wykonawcy do konfiguracji wykonawców. {_SAVE_AND_RETRY}"
         ),
-        terminal_line="WYKONAWCA bez mapowania; folder wynikowy nie został opublikowany.",
     )
 
 
@@ -223,7 +143,6 @@ def rows_without_worker(source: Path) -> Message:
         what=f"Nie wszystkie Wiersze danych Pliku zbiorczego mają WYKONAWCĘ. {_NOTHING_CREATED}",
         where=f"{file_label(source)}, kolumna H",
         action=f"{_PREVIEW_PROBLEMS} Wpisz WYKONAWCĘ w kolumnie H tych wierszy. {_SAVE_AND_RETRY}",
-        terminal_line="Nie wszystkie wiersze danych mają przypisanego WYKONAWCĘ; folder wynikowy nie został opublikowany.",
     )
 
 
@@ -233,7 +152,6 @@ def worker_file_failed(target_directory: Path, worker_name: str) -> Message:
         what=f"Nie udało się przygotować skoroszytu pracownika {worker_name}. {_NOTHING_CREATED}",
         where=folder_label(target_directory),
         action=_RETRY,
-        terminal_line=f"Nie udało się przygotować skoroszytu pracownika {worker_name}; folder wynikowy nie został opublikowany.",
     )
 
 
@@ -243,7 +161,6 @@ def worker_files_not_copied(template_path: Path) -> Message:
         what=f"Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. {_NOTHING_CREATED}",
         where=file_label(template_path),
         action=_RETRY,
-        terminal_line="Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika; folder wynikowy nie został opublikowany.",
     )
 
 
@@ -253,7 +170,6 @@ def publish_failed(target_directory: Path) -> Message:
         what=f"Nie można opublikować gotowego Folderu rozliczeń pracowników. {_NOTHING_CREATED}",
         where=folder_label(target_directory),
         action=f"Sprawdź, czy Folder okresu jest dostępny. {_RETRY}",
-        terminal_line="Nie można opublikować gotowego folderu rozliczeń pracowników.",
     )
 
 
@@ -263,7 +179,6 @@ def write_failed(target_directory: Path) -> Message:
         what=f"Nie można przygotować Folderu rozliczeń pracowników. {_NOTHING_CREATED}",
         where=folder_label(target_directory),
         action=f"Sprawdź, czy Folder okresu jest dostępny. {_RETRY}",
-        terminal_line="Nie można przygotować folderu rozliczeń pracowników; folder wynikowy nie został opublikowany.",
     )
 
 
@@ -275,10 +190,6 @@ def unexpected_failure() -> Message:
         what=f"Wystąpił nieoczekiwany błąd. {_NOTHING_CREATED}",
         where="Przebieg rozliczeń",
         action=_RETRY,
-        terminal_line=(
-            "Wystąpił nieoczekiwany błąd; folder rozliczeń pracowników nie został opublikowany. "
-            "Uruchom ponownie; jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
-        ),
     )
 
 
@@ -293,10 +204,6 @@ def summary_not_shown() -> Message:
             "Nie uruchamiaj ponownie: Folder rozliczeń pracowników już jest. "
             "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
         ),
-        terminal_line=(
-            "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania. "
-            "Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie."
-        ),
     )
 
 
@@ -308,7 +215,6 @@ def plan_not_shown() -> Message:
         what="Nie udało się pokazać planu. Nic nie zapisano.",
         where="Przebieg rozliczeń",
         action=REPORT_TO_MAINTAINER,
-        terminal_line=f"Nie udało się pokazać planu. DRY-RUN: Nic nie zapisano. {REPORT_TO_MAINTAINER}",
     )
 
 
@@ -322,7 +228,7 @@ _ISSUE_ACTIONS: Final[dict[str, str]] = {
 
 
 def issue_message(issue: Issue, source: Path) -> Message:
-    """Problem z podsumowania (wynik „Wymaga sprawdzenia”) w trzech częściach; „Co się stało” to linia terminala."""
+    """Problem z podsumowania (wynik „Wymaga sprawdzenia”) w trzech częściach; „Co się stało” to opis problemu z podsumowania."""
 
     return Message(
         code=issue.code,

@@ -317,7 +317,7 @@ class RunInfo(_Model):
 
 
 class Message(_Model):
-    """Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu."""
+    """Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu."""
 
     what: str
     where: str
@@ -325,8 +325,6 @@ class Message(_Model):
 
     @classmethod
     def of(cls, message: ProcessMessage) -> Message:
-        """Tylko trzy części Komunikatu; ``terminal_line`` nie trafia do Centrum, bo może mieć pełną ścieżkę."""
-
         return cls(what=message.what, where=message.where, action=message.action)
 
 

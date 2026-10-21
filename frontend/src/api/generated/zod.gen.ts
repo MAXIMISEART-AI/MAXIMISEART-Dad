@@ -124,7 +124,7 @@ export const zHealth = z.object({
 /**
  * Message
  *
- * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić), ta sama treść co w terminalu.
+ * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu.
  */
 export const zMessage = z.object({
     what: z.string(),

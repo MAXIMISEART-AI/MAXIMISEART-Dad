@@ -66,39 +66,6 @@ def invalid_period_token(token: str) -> Message:
     )
 
 
-def register_not_selected() -> Message:
-    """Okno wyboru pliku Rejestru zleceń zostało zamknięte bez wyboru."""
-
-    return Message(
-        code="NIE_WYBRANO_REJESTRU",
-        what="Nie wybrano pliku Rejestru zleceń. Nie utworzono żadnego pliku.",
-        where="okno wyboru pliku Rejestru zleceń",
-        action="Uruchom ponownie i wybierz plik ZLECENIA INTERMAX OD 08_11_2021.xlsx.",
-    )
-
-
-def periods_directory_not_selected() -> Message:
-    """Okno wyboru folderu okresów zostało zamknięte bez wyboru."""
-
-    return Message(
-        code="NIE_WYBRANO_FOLDERU_OKRESOW",
-        what="Nie wybrano folderu okresów. Nie utworzono żadnego pliku.",
-        where="okno wyboru folderu okresów",
-        action="Uruchom ponownie i wybierz folder z poprzednimi tygodniami, np. INEA.",
-    )
-
-
-def period_not_entered() -> Message:
-    """Tata nie potwierdził proponowanego okresu ani nie wpisał innego."""
-
-    return Message(
-        code="NIE_PODANO_OKRESU",
-        what="Nie potwierdzono okresu ani nie wpisano innego. Nie utworzono żadnego pliku.",
-        where="pytanie o okres",
-        action="Uruchom ponownie i naciśnij Enter, aby potwierdzić proponowany okres, albo wpisz inny.",
-    )
-
-
 def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
     """Konfiguracji wykonawców nie da się użyć; poza nieczytelnym plikiem ``error.detail`` mówi, co jest nie tak."""
 
@@ -553,7 +520,7 @@ def incomplete_period(
 def incomplete_period_refused(period: str, continue_hint: str) -> Message:
     """Tata nie zgodził się kontynuować po ostrzeżeniu o niepełnym okresie.
 
-    ``continue_hint`` mówi, jak u rozmówcy wyraża się zgodę, np. „przy pytaniu wpisz t”.
+    ``continue_hint`` mówi, jak u rozmówcy wyraża się zgodę, np. przy decyzji wybierz „Kontynuuj”.
     """
 
     return Message(
