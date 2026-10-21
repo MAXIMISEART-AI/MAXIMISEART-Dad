@@ -30,7 +30,8 @@ from typing import IO
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / ".agents" / "skills"
 PATTERN = "check_*_mutations.py"
-MENTION = re.compile(r"[\w.-]*mutation[\w.-]*\.py", re.IGNORECASE)
+# Wywołanie skryptu mutacji w SKILL.md; ścieżka bez ``.agents`` na początku liczy się od folderu skilla.
+MENTION = re.compile(r"[\w.\\/-]*scripts[\\/]check_\w+_mutations\.py")
 VERDICT = "MUTACJE OK"
 # Najdłuższy skrypt trwa w CI od 4 do ponad 8 min; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
@@ -50,7 +51,9 @@ def _lost(scripts: list[Path]) -> dict[str, str]:
     }
     for skill_md in SKILLS.glob("*/SKILL.md"):
         for mentioned in set(MENTION.findall(skill_md.read_text(encoding="utf-8"))):
-            path = skill_md.parent / "scripts" / mentioned
+            relative = mentioned.replace("\\", "/")
+            base = ROOT if relative.startswith(".agents/") else skill_md.parent
+            path = Path(os.path.normpath(base / relative))
             if path not in scripts:
                 lost.setdefault(_name(path), f"wskazany w {_name(skill_md)}, a nie ma go pod tą nazwą")
     return lost

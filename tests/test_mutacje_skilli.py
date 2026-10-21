@@ -10,6 +10,8 @@ import shutil
 import subprocess
 import sys
 
+import pytest
+
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "mutacje_skilli.py"
 PASSING = 'print("WYKRYTA: proba")\nprint("MUTACJE OK")\n'
 
@@ -67,6 +69,25 @@ def test_skrypt_wskazany_w_skill_md_a_usuniety_daje_fail(tmp_path: Path) -> None
 
     assert result.returncode == 1
     assert ".agents/skills/verify-b/scripts/check_b_mutations.py" in result.stdout.splitlines()[-1]
+
+
+@pytest.mark.parametrize(
+    "mention",
+    [
+        "Nazwij skrypt `scripts/check_<co>_mutations.py`.",
+        "Zobacz też `check_b_mutations.py` w verify-b.",
+        "py -3 .agents\\skills\\verify-b\\scripts\\check_b_mutations.py",
+        "Testy runnera są w `tests/test_mutations.py`.",
+    ],
+)
+def test_wzmianka_w_prozie_nie_daje_fail(tmp_path: Path, mention: str) -> None:
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING}, f"py -3 scripts\\check_a_mutations.py\n{mention}\n")
+    _skill(tmp_path, "verify-b", {"check_b_mutations.py": PASSING})
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 0, result.stdout
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK"
 
 
 def test_skrypt_bez_werdyktu_daje_fail(tmp_path: Path) -> None:
