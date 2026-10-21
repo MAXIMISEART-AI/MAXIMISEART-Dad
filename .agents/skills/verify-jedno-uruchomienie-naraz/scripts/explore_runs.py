@@ -872,18 +872,9 @@ def explore(scope: Scope) -> ScopeReport:
 
 # --- Report -------------------------------------------------------------------------------------------
 
-# Real defects in the current code, reported on every run until a code change fixes them.
-# Each entry names the window in which „Uruchom” started the Uruchomienie that the shutdown killed.
-KNOWN_FINDINGS: dict[tuple[object, ...], str] = {
-    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "między sprawdzeniem odmowy a przyjęciem prośby"): (
-        "Shutdown.request sprawdza odmowę pod blokadą RunHost, a _requested ustawia już bez niej; "
-        "„Uruchom” z drugiej karty startuje między tymi krokami i Centrum zamyka się w trakcie Uruchomienia."
-    ),
-    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "po przyjęciu prośby o zamknięcie"): (
-        "RunHost.start nie odmawia po przyjętej prośbie o zamknięcie; „Uruchom”, które dotrze, zanim uvicorn "
-        "przestanie przyjmować żądania, startuje Uruchomienie, a koniec procesu zabija jego wątek."
-    ),
-}
+# Real defects in the current code, reported on every run until a code change fixes them: signature → why.
+# Empty since „Zamknij” that is not refused closes RunHost to new Uruchomienia and Aktualizacje under its lock.
+KNOWN_FINDINGS: dict[tuple[object, ...], str] = {}
 
 
 @dataclass
