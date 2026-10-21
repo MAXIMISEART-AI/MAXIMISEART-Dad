@@ -23,7 +23,7 @@ EXPECTED = "KOPIA WZORCA: NOWE NARUSZENIE"
 MUTATIONS = (
     Mutation(
         "CRC arkusza tylko z początku",
-        (Edit(VERIFIED, "crc = zlib.crc32(memoryview(xml)[tail_start:], zlib.crc32(head))", "crc = zlib.crc32(head)"),),
+        (Edit(VERIFIED, "crc = zlib.crc32(piece, crc)", "crc = crc"),),
         CHECKER,
         "Excel i openpyxl odrzucają Rozliczenie pracownika jako uszkodzony plik",
         EXPECTED,
@@ -37,7 +37,7 @@ MUTATIONS = (
     ),
     Mutation(
         "zgubiony kawałek za podmienionymi wierszami",
-        (Edit(VERIFIED, "*self._chunks[chunk:]", "*self._chunks[chunk + 1 :]"),),
+        (Edit(VERIFIED, "*self._chunks[chunk:-1]", "*self._chunks[chunk + 1 : -1]"),),
         CHECKER,
         "z Rozliczenia pracownika znika 64 wierszy Wzorca z formułami",
         EXPECTED,
@@ -89,6 +89,34 @@ MUTATIONS = (
         (Edit(VERIFIED, 'text.replace("&", "&amp;")', "text"),),
         CHECKER,
         "tekst z & daje niepoprawny XML i plik, którego Excel nie otworzy",
+        EXPECTED,
+    ),
+    Mutation(
+        "<hyperlinks> za pageMargins",
+        (Edit(VERIFIED, '        "dataValidations",\n    }', '        "dataValidations",\n        "pageMargins",\n    }'),),
+        CHECKER,
+        "blok Hiperłączy poza kolejnością schematu arkusza: Excel proponuje naprawę pliku i usuwa Hiperłącza",
+        EXPECTED,
+    ),
+    Mutation(
+        "rId Wzorca użyty ponownie",
+        (Edit(VERIFIED, "self._first = max(numbers) + 1", "self._first = 1"),),
+        CHECKER,
+        "numer zlecenia otwiera rysunek komentarza Wzorca zamiast zlecenia, a Excel proponuje naprawę pliku",
+        EXPECTED,
+    ),
+    Mutation(
+        "Hiperłącze o wiersz dalej",
+        (Edit(VERIFIED, 'b"%d" % (first_row + index), link)', 'b"%d" % (first_row + index + 1), link)'),),
+        CHECKER,
+        "numer zlecenia otwiera zlecenie z wiersza wyżej",
+        EXPECTED,
+    ),
+    Mutation(
+        "& w adresie Hiperłącza bez escapowania",
+        (Edit(VERIFIED, "html.escape(text, quote=True)", "text"),),
+        CHECKER,
+        "relacje arkusza są niepoprawnym XML i plik się nie otwiera",
         EXPECTED,
     ),
 )

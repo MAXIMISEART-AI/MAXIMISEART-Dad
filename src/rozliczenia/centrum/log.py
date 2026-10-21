@@ -19,6 +19,8 @@ VIEW_TIMING_EVENT = "pomiar"
 # Pomiar przychodzi po każdym widoku, więc na jedno uruchomienie Centrum dziennik przyjmuje ich najwyżej
 # tyle (spec #164, US29); kolejne przepadają po cichu, a wpisy o pracy serwera są zapisywane dalej.
 MAX_VIEW_TIMINGS = 200
+# Wpisy o Aktualizacji narzędzia i jej Zgłoszeniach mówią, skąd są, tym samym słowem.
+_UPDATE = "aktualizacja"
 
 
 class CentrumLog:
@@ -41,6 +43,11 @@ class CentrumLog:
     def shutdown_requested(self) -> None:
         self._write("zamkniecie", z="karta Centrum")
 
+    def shutdown_for_update(self) -> None:
+        """Centrum zamyka się samo po udanej Aktualizacji narzędzia, żeby wystartować w nowej wersji."""
+
+        self._write("zamkniecie", z=_UPDATE)
+
     def stopped(self, *, port: int) -> None:
         self._write("stop", port=port)
 
@@ -53,6 +60,22 @@ class CentrumLog:
         """Koniec Uruchomienia procesu z Centrum: wynik i sposób zakończenia, bez linii komunikatu."""
 
         self._write("uruchomienie-koniec", proces=process, tryb=mode, okres=period, wynik=result, koniec=ending)
+
+    def update_started(self, *, before: str | None) -> None:
+        """Tata kliknął „Zaktualizuj narzędzie”; ``before`` to commit narzędzia przed aktualizacją."""
+
+        self._write("aktualizacja-start", przed=before or "-")
+
+    def update_finished(self, *, result: str, before: str | None, after: str | None, installed: bool) -> None:
+        """Wynik Aktualizacji narzędzia (``ok``, ``AKTUALNA`` albo kod Komunikatu), bez wyjścia Gita ani pip."""
+
+        self._write(
+            "aktualizacja-koniec",
+            wynik=result,
+            przed=before or "-",
+            po=after or "-",
+            biblioteki="tak" if installed else "nie",
+        )
 
     def unexpected_failure(self, failure: BaseException, *, where: str) -> None:
         """Nieoczekiwany wyjątek: tylko nazwa typu i miejsce (np. trasa API), bez tekstu wyjątku."""
@@ -83,6 +106,26 @@ class CentrumLog:
         """Zgłoszenia nie wysłano ani nie zapisano w pliku; ``cause`` to kod Komunikatu, dlaczego nie wysłano."""
 
         self._write("zgloszenie-niezapisane", proces=process, okres=period, przyczyna=cause)
+
+    def update_report_sent(self, *, number: int) -> None:
+        """Zgłoszenie nieudanej Aktualizacji narzędzia przyjęte przez skrzynkę Zgłoszeń jako issue ``number``."""
+
+        self._write("zgloszenie-wyslane", z=_UPDATE, numer=number)
+
+    def update_report_waiting(self, *, number: int) -> None:
+        """Zgłoszenia aktualizacji nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego problemu."""
+
+        self._write("zgloszenie-czeka", z=_UPDATE, numer=number)
+
+    def update_report_saved(self, *, code: str) -> None:
+        """Zgłoszenia aktualizacji nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
+
+        self._write("zgloszenie-zapisane", z=_UPDATE, kod=code)
+
+    def update_report_not_saved(self, *, cause: str) -> None:
+        """Zgłoszenia aktualizacji nie wysłano ani nie zapisano w pliku; ``cause``: dlaczego nie wysłano."""
+
+        self._write("zgloszenie-niezapisane", z=_UPDATE, przyczyna=cause)
 
     def view_timed(
         self,

@@ -30,7 +30,7 @@ MUTATIONS = (
     ),
     Mutation(
         "odmowa zamknięcia pomija Uruchomienie czekające na Decyzję",
-        (Edit(RUNS, "            if run is None or run.ended:\n", "            if run is None or run.ended or run.awaiting_decision:\n"),),
+        (Edit(RUNS, "        if run is None or run.ended:\n", "        if run is None or run.ended or run.awaiting_decision:\n"),),
         (EXPLORER, "--scope", "zamknij-w-trakcie"),
         "Centrum zamyka się, gdy tata jeszcze nie odpowiedział na Decyzję",
         "URUCHOMIENIA: NOWE NARUSZENIE",
@@ -47,6 +47,34 @@ MUTATIONS = (
         (Edit(SHUTDOWN, "        message = self._blocker()\n", "        message = None\n"),),
         (EXPLORER, "--scope", "zamknij-w-trakcie"),
         "„Zamknij” zamyka Centrum w trakcie każdego Uruchomienia",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
+        "zamknięcie przyjęte bez odcięcia nowych startów",
+        (Edit(RUNS, "                self._closing = True\n", "                pass\n"),),
+        (EXPLORER, "--scope", "zamknij-w-trakcie"),
+        "„Uruchom” albo „Zaktualizuj narzędzie” tuż po „Zamknij” startuje wątek, który koniec serwera zabija",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
+        "begin_update bez odmowy po przyjętym zamknięciu",
+        (Edit(RUNS, "            if self._closing:\n                raise contract.Refusal(409, _CLOSING.format(then=\"zaktualizuj narzędzie\"))\n", ""),),
+        (EXPLORER, "--scope", "aktualizacja"),
+        "aktualizacja startuje po „Zamknij” i ginie w trakcie Gita albo pip",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
+        "begin_update bez sprawdzenia trwającego Uruchomienia",
+        (Edit(RUNS, "            busy = self._busy_locked(\"zaktualizuj narzędzie\")\n", "            busy = None\n"),),
+        (EXPLORER, "--scope", "aktualizacja"),
+        "aktualizacja przesuwa klon narzędzia pod pracującym silnikiem",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
+        "RunHost.start bez odmowy w trakcie aktualizacji",
+        (Edit(RUNS, "            if self._updating:\n                raise contract.Refusal(409, _UPDATING.format(then=\"uruchom proces\"))\n", ""),),
+        (EXPLORER, "--scope", "aktualizacja"),
+        "Uruchomienie startuje, gdy aktualizacja zmienia kod i biblioteki narzędzia",
         "URUCHOMIENIA: NOWE NARUSZENIE",
     ),
     Mutation(

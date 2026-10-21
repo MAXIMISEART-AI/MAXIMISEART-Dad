@@ -1,6 +1,6 @@
 ---
 name: verify-kopia-wzorca
-description: Check with generated Wiersze danych that every Rozliczenie pracownika written by the template copy (ADR 0008, `template_copy.py`) is the file the old openpyxl path would write, keeps the rest of the Wzorzec byte for byte, and has the shape Excel needs. Use when a change touches `src/rozliczenia/template_copy.py`, `src/rozliczenia/sheet_data.py`, `src/rozliczenia/highlights.py`, `WorkerSettlementTemplate` or `TemplateSheet.write_data_rows` in `src/rozliczenia/workbook_files.py`, `tools/porownanie_rozliczen.py`, or when `tests/test_kopia_wzorca.py` fails.
+description: Check with generated Wiersze danych that every Rozliczenie pracownika written by the template copy (ADR 0008, `template_copy.py`) is the file the old openpyxl path would write, keeps the rest of the Wzorzec byte for byte, and has the shape Excel needs. Use when a change touches `src/rozliczenia/template_copy.py`, `src/rozliczenia/sheet_data.py`, `src/rozliczenia/highlights.py`, `src/rozliczenia/hyperlinks.py`, `WorkerSettlementTemplate` or `TemplateSheet.write_data_rows` in `src/rozliczenia/workbook_files.py`, `tools/porownanie_rozliczen.py`, or when `tests/test_kopia_wzorca.py` fails.
 ---
 
 # Verify kopia Wzorca
@@ -15,42 +15,52 @@ The check holds that copy to four rules, for any Wiersze danych:
 - **WIERNA_KOPIA**: the Rozliczenie pracownika from the copy matches the file the old openpyxl path
   writes (`file_from_template` + `write_data_rows`) in everything Dad sees in Excel, as judged by
   the benchmark's correctness gate `tools/porownanie_rozliczen.py`: values, formulas, resolved
-  styles (with the Wyróżnienia: fill, font color, bold, italic), merges, row and column dimensions, defined names, external links, recalculation flags.
+  styles (with the Wyróżnienia: fill, font color, bold, italic), Hiperłącza (address and location of every cell's
+  hyperlink, not its relationship id), merges, row and column dimensions, defined names, external links,
+  recalculation flags.
   Harm: a worker's quantities or amounts are wrong or formatted differently, and nothing stops.
 - **TA_SAMA_ODMOWA**: the copy refuses a value (the run stops) exactly when the openpyxl path
   refuses it, and a refusal leaves no file behind. Harm: a stop that the old path would not make,
   or a file written from a value openpyxl rejects.
 - **NIETKNIETY_WZORZEC**: what ADR 0008 promises stays byte for byte does stay so: every zip part
-  except the sheet, `xl/workbook.xml` (only `calcPr` changes) and `xl/styles.xml` (fonts, fills,
-  cell styles and number formats are only appended), every sheet row outside the written Wiersze danych, the row attributes and the cells
-  right of AT (formulas AU:AY) in written rows, and the Wzorzec file on disk. Harm: lost shared
-  formulas, `calcChain` or external links, which openpyxl's view would not show.
+  except the sheet, `xl/workbook.xml` (only `calcPr` changes), `xl/styles.xml` (fonts, fills,
+  cell styles and number formats are only appended) and the sheet relationships (only whole
+  `<Relationship/>` entries of Hiperłącza appended, or a new part at the end of the zip when the
+  Wzorzec has none; without Hiperłącza byte for byte), every sheet row outside the written Wiersze
+  danych apart from one inserted `<hyperlinks>`, the row attributes and the cells right of AT
+  (formulas AU:AY) in written rows, and the Wzorzec file on disk. Harm: lost shared formulas,
+  `calcChain`, external links or the Wzorzec's comments, which openpyxl's view would not show.
 - **KSZTALT_EXCELA**: the file has the shape Excel expects, which openpyxl does not check when it
   reads a file: zip CRCs, rows and cells in ascending order with references matching the row,
   `dimension` covering the written rows, `xml:space="preserve"` on text with spaces at either edge,
   the `count` of `numFmts`, `fonts`, `fills` and `cellXfs` matching their entries, every cell style
-  pointing at an existing font, fill and number format, unique `numFmtId`. Harm: Excel offers to
-  repair the file or silently trims text.
+  pointing at an existing font, fill and number format, unique `numFmtId`, the children of
+  `<worksheet>` in schema order (CT_Worksheet, written down in the checker independently of the
+  copy) with at most one `<hyperlinks>`, a content type for every part, unique relationship ids in
+  the sheet relationships, every `<hyperlink>` pointing at an external hyperlink relationship and no
+  cell twice in `<hyperlinks>`. Harm: Excel offers to repair the file, drops the Hiperłącza or
+  silently trims text.
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `b9c0ec4`** (main with Wyróżnienia, 2026-10-21):
+Coverage, confirmed at **sync commit `61e3605`** (Hiperłącza in Rozliczenia pracowników, 2026-10-21):
 
 | Code | What the check covers |
 | --- | --- |
 | `src/rozliczenia/template_copy.py` (all of it) | the code under verification |
 | `src/rozliczenia/sheet_data.py` (`sheet_data_bounds`, `sheet_rows`) | row index the copy splices on |
 | `src/rozliczenia/highlights.py` (`Highlights.of`, `font_over`, `fill_over`) | Wyróżnienia both paths lay over the Wzorzec's font and fill |
+| `src/rozliczenia/hyperlinks.py` (`Hyperlink`) | the Hiperłącze both paths write; its reader `read_sheet_hyperlinks` is covered by pytest (`tests/test_hiperlacza_pliku_zbiorczego.py`), not here |
 | `src/rozliczenia/workbook_files.py`: `WorkerSettlementTemplate` (`check`, `create_settlement`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_write_atomically`, `_package_writer` | the real entry point; which path it takes |
 | `src/rozliczenia/workbook_files.py`: `file_from_template`, `TemplateSheet.write_data_rows`, `_request_full_recalculation`, `save_workbook` | the reference (old openpyxl path) |
-| `tools/porownanie_rozliczen.py` (`compare_worker_settlements` and its per-cell helpers) | the judge for WIERNA_KOPIA |
+| `tools/porownanie_rozliczen.py` (`compare_worker_settlements` and its per-cell helpers, `_hyperlink` among them) | the judge for WIERNA_KOPIA |
 | `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`) | the Wzorce under test |
 
 Run the check when a diff touches any of these. To see whether the covered code moved since the
 sync commit:
 
 ```bash
-git diff --stat b9c0ec4 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py
+git diff --stat 61e3605 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
@@ -76,7 +86,7 @@ The last line is the verdict:
 | --- | --- | --- |
 | `KOPIA WZORCA OK` | 0 | All four rules hold in every example. |
 | `KOPIA WZORCA: NOWE NARUSZENIE (n)` | 1 | A rule breaks. The shrunk counterexample is printed. |
-| `KOPIA WZORCA: LUKA SPRAWDZENIA (n)` | 2 | The run did not exercise what it must: the copy was used less often than the openpyxl fallback or than refusals, a reachable compression chunk start was never crossed, no Rozliczenie pracownika with Wyróżnienia went through the copy, Wiersze danych without a rare value were refused (`odmowy Wierszy danych bez rzadkiej wartości`: usually an interface change both paths fail on alike), `rozliczenia` was imported from another checkout, or the checker itself failed (`błąd samego sprawdzenia`). No verdict on the rules. |
+| `KOPIA WZORCA: LUKA SPRAWDZENIA (n)` | 2 | The run did not exercise what it must: the copy was used less often than the openpyxl fallback or than refusals, a reachable compression chunk start was never crossed, no Rozliczenie pracownika with Wyróżnienia or no Rozliczenie pracownika with Hiperłącza went through the copy, Wiersze danych without a rare value were refused (`odmowy Wierszy danych bez rzadkiej wartości`: usually an interface change both paths fail on alike), `rozliczenia` was imported from another checkout, or the checker itself failed (`błąd samego sprawdzenia`). No verdict on the rules. |
 
 Options:
 
@@ -96,16 +106,17 @@ checked once, then 1 to 3 Rozliczenia pracowników are made from it in a row, as
 does for its workers. That catches state carried from one copy to the next, such as the
 compressed chunks cached at the first copy. Each Wzorzec below gets its own Hypothesis run with the
 full number of examples (60 by default), and three fixed examples first: the value-type and
-Wyróżnienia rows of the owner tests in `tests/test_workbook_files.py`, one Rozliczenie pracownika
-with the most Wiersze danych in scope (it crosses every reachable chunk start), and empty A and B up
+Wyróżnienia rows of the owner tests in `tests/test_workbook_files.py` with Hiperłącza in A and I, one
+Rozliczenie pracownika with the most Wiersze danych in scope, each with a Hiperłącze in F (it crosses
+every reachable chunk start and writes the sheet tail with `<hyperlinks>`), and empty A and B up
 to the first row whose A cell the Wzorzec XML lacks (row 139 of `syntetyczny`), which the copy has
 to add. Each Rozliczenie
 pracownika is written by the real `create_settlement()` and, separately, by the openpyxl path from the same Wzorzec, then judged.
 
 | Wzorzec | Shape | Wiersze danych per Rozliczenie pracownika |
 | --- | --- | --- |
-| `syntetyczny` | Dad's Wzorzec in small, from `tools/syntetyczne_wzorce.py` with 200 Wiersze danych: Excel-written XML, shared formulas every 64 rows, `calcChain`, external link, `sharedStrings`, rows of zeros in N:V and X, date formats, no cells in A and B from row 139 (Dad: from row 609) | 0–260, so writes reach past the last formatted row and the trailing row 269; compression chunks start at rows 18, 82, 146, 210 |
-| `maly` | openpyxl-written workbook with two formatted Wiersze danych, a second sheet, an external link, namespace prefixes in `workbook.xml` | 0–80 |
+| `syntetyczny` | Dad's Wzorzec in small, from `tools/syntetyczne_wzorce.py` with 200 Wiersze danych: Excel-written XML, shared formulas every 64 rows, `calcChain`, external link, `sharedStrings`, a comment in H17 with Dad's sheet relationships (`rId1` VML drawing, `rId2` comments, `<legacyDrawing>` after `pageMargins`, so new ids must start at `rId3`), rows of zeros in N:V and X, date formats, no cells in A and B from row 139 (Dad: from row 609) | 0–260, so writes reach past the last formatted row and the trailing row 269; compression chunks start at rows 18, 82, 146, 210 |
+| `maly` | openpyxl-written workbook with two formatted Wiersze danych, a second sheet, an external link, namespace prefixes in `workbook.xml`, no sheet relationships (a copy with Hiperłącza adds the part) | 0–80 |
 | `wzorzec-taty` (only with `--wzorzec`, then the only one) | Dad's real Wzorzec | 0–700, chunks from rows 18, 82, …, 658 |
 
 Row counts are drawn both at random and from the counts whose last written row falls right
@@ -115,7 +126,12 @@ was crossed by a Rozliczenie pracownika written through the copy. Each row is a 
 values (A:AT) and 46 Wyróżnienia, as `read_data_rows` gives them. About half the rows have no
 Wyróżnienia; the others mark up to 10 cells, built with `Highlights.of` from fonts and fills as
 reading a Plik zbiorczy does: solid, patterned and gradient fills, RGB, theme-with-tint and indexed
-colors, bold, italic. Values cover what reading a Plik
+colors, bold, italic. About half the rows have Hiperłącza in 1 to 3 cells, mostly in F (`NUMER ZL.`),
+and only on cells with a value, as `read_data_rows` gives them (an empty cell drawn for a link gets
+a synthetic order number). Addresses: `&`, `#fragment`, quotes, `<`, spaces at the edges, Polish
+letters, emoji, tab and line breaks, `mailto:`, `file:///`, 2000 characters, and random text of any
+character XML allows. The run reports `z Hiperłączami przez kopię` and is a LUKA SPRAWDZENIA when no
+Rozliczenie pracownika with Hiperłącza went through the copy on a Wzorzec. Values cover what reading a Plik
 zbiorczy gives and what openpyxl accepts: `None`, text (XML specials, spaces at the edges, line
 breaks, `_x000D_`, emoji, 32 767 characters and longer), formulas and `=`, error codes, integers past
 2^53, floats (NaN, infinities, subnormals, −0), `Decimal`, booleans, dates, datetimes, times and
@@ -175,10 +191,12 @@ Prove the check can still fail. This applies broken variants to a temporary copy
 py -3 .agents\skills\verify-kopia-wzorca\scripts\check_copy_mutations.py
 ```
 
-It must end with `MUTACJE OK`: each of the ten mutations (sheet CRC over the head only, chunks
+It must end with `MUTACJE OK`: each of the fourteen mutations (sheet CRC over the head only, chunks
 without a full flush, a dropped chunk, `dimension` not extended, a date without a date format, an
 empty value keeping the Wzorzec's zero, Wyróżnienia without the fill, 15 significant digits,
-`xml:space` only for leading spaces, `&` not escaped) must give `KOPIA WZORCA: NOWE NARUSZENIE`.
+`xml:space` only for leading spaces, `&` not escaped, `<hyperlinks>` placed after `pageMargins`, a
+reused Wzorzec `rId`, a Hiperłącze one row off, `&` not escaped in a Hiperłącze address) must give
+`KOPIA WZORCA: NOWE NARUSZENIE`.
 The mutations run side by side; it takes about 15 s. CI runs it in the `mutations` job. A
 mutation reported as `NIEAKTUALNA` no longer matches `template_copy.py`: rewrite its `anchor` and
 `replacement` in `check_copy_mutations.py` against the new code so that it breaks the same rule again.

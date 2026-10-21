@@ -14,7 +14,8 @@ shows its Status okresu, and opens its files from the month folder they live in.
 
 ## How to get to it (user POV)
 
-- Okresy, settings card `Folder okresów`, button `Zmień` (or `Wskaż folder okresów` on the empty state), choosing `Załączniki`.
+- Okresy, card `Ustawienia`, group `Folder okresów`, button `Zmień` (or `Wskaż folder okresów` on the empty state), choosing `Załączniki`.
+- Uruchomienia, `Zmień Folder okresów` in the run setup.
 
 ## Driving it with Playwright for Python
 

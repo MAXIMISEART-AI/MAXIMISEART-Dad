@@ -152,9 +152,9 @@ explicitly, so no run reads `config/`. Its ordered stages are:
    pracownika and assert the complete plan, no target folder, unchanged
    source/Wzorzec rozliczenia pracownika, and no row content.
 4. Run `settlement` without `--dry-run`; the default fixture requires exit code
-   `0` and asserts exactly three workbooks, routed values, preserved
-   formulas/formatting, an empty worker workbook, and an unchanged Wzorzec
-   rozliczenia pracownika.
+   `0` and asserts exactly three workbooks, routed values, the Hiperłącze of
+   every `NUMER ZL.` cell, preserved formulas/formatting, an empty worker
+   workbook, and an unchanged Wzorzec rozliczenia pracownika.
 5. For `existing`, `locked`, or `unmapped`, require exit code `1`, the stop's
    Komunikat code, and no partial output (or an existing folder left
    unchanged).

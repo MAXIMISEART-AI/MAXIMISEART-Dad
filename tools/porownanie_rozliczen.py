@@ -17,6 +17,8 @@ same liczby: bez treści komórek, adresów komórek, nazw plików i numerów zl
 - ``style``: rozwiązany styl komórki (czcionka, wypełnienie, obramowanie, wyrównanie,
   format liczb, ochrona), nie numer stylu; komórka nieobecna w XML ma styl wiersza,
   a bez niego styl kolumny, tak jak w Excelu;
+- ``hiperlacza``: adres (``Target``) i miejsce (``location``) hiperłącza każdej komórki,
+  nie numer relacji;
 - ``scalenia``, ``wymiary`` (wysokość, ukrycie i poziom konspektu wierszy i kolumn),
   ``nazwy_zdefiniowane`` (nazwa arkusza w apostrofach i bez nich to to samo), ``external_links`` (bajty każdej części ``xl/externalLinks/*``)
   i ``flagi_przeliczania`` (``calcMode``, ``fullCalcOnLoad``, ``forceFullCalc``).
@@ -52,6 +54,7 @@ CATEGORIES: Final = (
     "wartosci",
     "formuly",
     "style",
+    "hiperlacza",
     "scalenia",
     "wymiary",
     "nazwy_zdefiniowane",
@@ -199,7 +202,9 @@ class _Styles:
     def of(self, source: _StyleSource, sheet: Worksheet) -> int:
         """Numer rozwiązanego stylu komórki albo wymiaru; openpyxl trzyma styl jako indeksy list skoroszytu."""
 
-        style_array: Sequence[int] = getattr(source, "_style")  # prywatne pole openpyxl, bez typu w stubach
+        # Prywatne pole openpyxl, bez typu w stubach; komórka utworzona przy wczytaniu hiperłącza dostaje je dopiero
+        # przy pierwszym odczycie stylu, a do tego czasu ma styl domyślny.
+        style_array: Sequence[int] = getattr(source, "_style") or StyleArray()
         key = (id(sheet), tuple(style_array))
         found = self._by_style_array.get(key)
         if found is None:
@@ -231,6 +236,7 @@ def _compare_sheets(reference: Worksheet, candidate: Worksheet, styles: _Styles)
         differences["style"] += _style(reference, reference_cell, coordinate, reference_columns, styles) != _style(
             candidate, candidate_cell, coordinate, candidate_columns, styles
         )
+        differences["hiperlacza"] += _hyperlink(reference_cell) != _hyperlink(candidate_cell)
     differences["scalenia"] = len(
         {str(merged) for merged in reference.merged_cells.ranges}
         ^ {str(merged) for merged in candidate.merged_cells.ranges}
@@ -249,6 +255,11 @@ def _formula(cell: Cell | MergedCell | None) -> tuple[str, ...] | None:
     if text is not None:  # formuła tablicowa
         return ("tablicowa", str(getattr(value, "ref", "")), str(text))
     return ("tabela danych", *(f"{key}={item}" for key, item in sorted(vars(value).items())))
+
+
+def _hyperlink(cell: Cell | MergedCell | None) -> tuple[str | None, str | None] | None:
+    link = getattr(cell, "hyperlink", None)
+    return None if link is None else (link.target, link.location)
 
 
 def _value(cell: Cell | MergedCell | None) -> tuple[str, object] | None:

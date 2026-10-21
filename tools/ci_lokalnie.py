@@ -60,6 +60,8 @@ def _steps(root: Path) -> list[Step]:
     return [
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check"), root),
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy"), root),
+        # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
+        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32"), root),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         Step(
             "mutacje publikacji",
@@ -199,7 +201,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"nieznane zadania: {', '.join(sorted(unknown))}; znane: {', '.join(sorted(known))}")
     if args.kazdy_commit:
         return _check_every_commit(args.kazdy_commit, jobs)
-    if failed := _check(ROOT, jobs):
+    failed = _check(ROOT, jobs)
+    try:
+        overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
+        subprocess.run(overlaps, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
+    if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1
     print("CI LOKALNIE OK")

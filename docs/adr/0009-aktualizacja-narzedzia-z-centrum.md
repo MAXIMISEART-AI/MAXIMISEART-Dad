@@ -3,7 +3,7 @@
 ## Status
 
 Proponowana. Zmienia trzy zdania
-[ADR 0004](0004-centrum-rozliczen-adapter.md) i dwa
+[ADR 0004](0004-centrum-rozliczen-adapter.md) i trzy
 [ADR 0007](0007-zgloszenia-do-maksa-w-prywatnym-repo.md):
 
 - ADR 0004 „Pliki i foldery otwiera tylko wtedy, gdy sam wyliczył je z folderu
@@ -18,6 +18,11 @@ Proponowana. Zmienia trzy zdania
 - ADR 0007 „Centrum łączy się wyłącznie z API GitHuba”: dochodzi pobranie
   `main` publicznego repozytorium narzędzia z `github.com` przez Git, tylko po
   kliknięciu taty.
+- ADR 0007 „Centrum łączy się wyłącznie z API GitHuba: … przy sprawdzeniu
+  aktualności narzędzia w Diagnozie”: dochodzi sprawdzenie Aktualności narzędzia
+  na stronie Konfiguracja. Konfiguracja pamięta odpowiedź `main` przez 10
+  minut, a brak odpowiedzi przez minutę (limit API bez logowania, czekanie bez
+  sieci); Diagnoza dalej pyta przy każdym sprawdzeniu.
 - ADR 0007, kolejność wyjaśnień Diagnozy: Aktualność narzędzia przestaje
   wygrywać z przyczyną znalezioną przez inne sprawdzenie (niżej).
 
@@ -53,6 +58,17 @@ rozliczeń. Centrum robi to samo, co Maks zrobiłby ręcznie, i niczego więcej:
 - **Wszystko albo nic.** Porażka po przesunięciu klonu (instalacja bibliotek,
   przywracanie plików taty) cofa klon do commitu sprzed Aktualizacji
   narzędzia. Tata zostaje z wersją, która działała.
+
+  Zanim Aktualizacja narzędzia zmieni klon, zapisuje dziennik „Aktualizacja w
+  toku” w `config/centrum-aktualizacja-w-toku/`: commit przed i po oraz kopię
+  plików taty. Ta nazwa jest zarezerwowana i ignorowana przez Gita. Dziennik
+  znika dopiero przy wyniku ostatecznym. Gdy komputer zgaśnie w trakcie, skrót
+  przy następnym starcie, zanim wczyta biblioteki, cofa z dziennika klon i
+  pliki taty, a potem startuje poprzednią wersję. Nie cofa, dopóki opiekun
+  ponownego startu może jeszcze działać (10 minut od jego startu). Gdy
+  cofnięcie w działającym Centrum się nie uda, następne kliknięcie
+  `Zaktualizuj narzędzie` najpierw cofa klon z dziennika, a potem aktualizuje
+  jak zwykle.
 - **Ponowne uruchomienie.** Po udanej Aktualizacji narzędzia Centrum zamyka się
   i startuje od nowa w nowej wersji, a karta przeglądarki sama łączy się z nim
   ponownie. Opiekun ponownego startu działa z kopii sprzed Aktualizacji

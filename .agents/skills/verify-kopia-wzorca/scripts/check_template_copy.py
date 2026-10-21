@@ -3,22 +3,25 @@
 Przebieg rozliczeń writes every Rozliczenie pracownika with ``template_copy.py``: it splices the
 Wiersze danych into the bytes of the Wzorzec rozliczenia pracownika instead of loading and saving the
 workbook with openpyxl. This checker generates Wiersze danych with Hypothesis (every value type a cell
-can hold, edge texts and numbers, Wyróżnienia, row counts on both sides of each compression chunk boundary), writes
+can hold, edge texts and numbers, Wyróżnienia, Hiperłącza, row counts on both sides of each compression chunk boundary), writes
 them through the real ``WorkerSettlementTemplate.create_settlement()`` and, as the reference, through
 the old openpyxl path (``file_from_template`` + ``write_data_rows``), and checks four rules:
 
 - WIERNA_KOPIA: the two files are the same for what Dad sees in Excel, as judged by the benchmark's
-  correctness gate (``tools/porownanie_rozliczen.py``): values, formulas, resolved styles with Wyróżnienia, merges,
-  dimensions, defined names, external links and recalculation flags.
+  correctness gate (``tools/porownanie_rozliczen.py``): values, formulas, resolved styles with Wyróżnienia,
+  Hiperłącza, merges, dimensions, defined names, external links and recalculation flags.
 - TA_SAMA_ODMOWA: the copy refuses a value exactly when the openpyxl path refuses it, and a refusal
   leaves no file.
 - NIETKNIETY_WZORZEC: what ADR 0008 says stays byte for byte stays: every zip part except the sheet,
-  ``xl/workbook.xml`` (only ``calcPr``) and ``xl/styles.xml`` (only appended fonts, fills and styles), every sheet row
-  outside the written Wiersze danych, and the cells right of AT in the written rows.
+  ``xl/workbook.xml`` (only ``calcPr``), ``xl/styles.xml`` (only appended fonts, fills and styles) and the sheet
+  relationships (only appended relationships of Hiperłącza, or a new part at the end when the Wzorzec has none),
+  every sheet row outside the written Wiersze danych apart from one inserted ``<hyperlinks>``, and the cells right
+  of AT in the written rows.
 - KSZTALT_EXCELA: the file has the shape Excel needs and openpyxl does not check when reading it:
   valid zip CRCs, rows and cells in ascending order with matching references, ``dimension`` covering
   the written rows, ``xml:space="preserve"`` on text with spaces at its edges, style lists whose counts and
-  references match.
+  references match, sheet elements in schema order, a content type for every part, unique relationship ids and
+  every hyperlink pointing at an external hyperlink relationship.
 
 One Hypothesis example is one Przebieg rozliczeń: one ``WorkerSettlementTemplate`` loaded once and
 1 to 3 Rozliczenia pracowników made from it in a row, as ``run_settlements()`` does for its workers.
@@ -60,6 +63,7 @@ from openpyxl.worksheet.formula import ArrayFormula  # noqa: E402
 import porownanie_rozliczen as gate  # noqa: E402
 from rozliczenia import workbook_files  # noqa: E402
 from rozliczenia.highlights import PLAIN, Highlights  # noqa: E402
+from rozliczenia.hyperlinks import Hyperlink  # noqa: E402
 from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, WorkerSettlementTemplate, file_from_template  # noqa: E402
 from syntetyczne_wzorce import write_settlement_template  # noqa: E402
 from tests.fixtures.settlement import write_template  # noqa: E402
@@ -69,6 +73,9 @@ VERIFIED_FILE = "template_copy.py"
 SHEET = "xl/worksheets/sheet1.xml"
 WORKBOOK = "xl/workbook.xml"
 STYLES = "xl/styles.xml"
+SHEET_RELS = "xl/worksheets/_rels/sheet1.xml.rels"
+CONTENT_TYPES = "[Content_Types].xml"
+ORDER_NUMBER = 6  # F, NUMER ZL.: the column whose Hiperłącza Dad clicks
 FIRST_DATA_ROW = workbook_files.FIRST_DATA_ROW
 DATA_COLUMNS = workbook_files.DATA_ROW_COLUMNS[-1]  # AT
 ROWS_PER_CHUNK = 64  # Excel's shared-formula block and the copy's compression chunk (``_ROWS_PER_CHUNK``)
@@ -86,6 +93,20 @@ _COUNT = re.compile(rb'\scount="(\d+)"')
 _FIRST_CUSTOM_FORMAT = 164  # numFmtId below it are Excel's built-in formats
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 _MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_OFFICE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PACKAGE = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+_TYPES = "{http://schemas.openxmlformats.org/package/2006/content-types}"
+_HYPERLINKS_BLOCK = re.compile(rb"<hyperlinks\b[^>]*>.*?</hyperlinks>", re.S)
+_RELATIONSHIP = re.compile(rb"<Relationship\b[^>]*/>")
+# Children of <worksheet> in the order of the schema (CT_Worksheet), written down here independently of the copy.
+WORKSHEET_ORDER = (
+    "sheetPr", "dimension", "sheetViews", "sheetFormatPr", "cols", "sheetData", "sheetCalcPr", "sheetProtection",
+    "protectedRanges", "scenarios", "autoFilter", "sortState", "dataConsolidate", "customSheetViews", "mergeCells",
+    "phoneticPr", "conditionalFormatting", "dataValidations", "hyperlinks", "printOptions", "pageMargins", "pageSetup",
+    "headerFooter", "rowBreaks", "colBreaks", "customProperties", "cellWatches", "ignoredErrors", "smartTags", "drawing",
+    "legacyDrawing", "legacyDrawingHF", "drawingHF", "picture", "oleObjects", "controls", "webPublishItems", "tableParts",
+    "extLst",
+)
 
 
 @dataclass(frozen=True)
@@ -171,7 +192,7 @@ def build_templates(directory: Path, real_template: Path | None) -> list[Templat
         shutil.copyfile(real_template, copied)
         return [Template.of("wzorzec-taty", f"prawdziwy Wzorzec: {real_template.name}", copied, max_rows=700)]
     synthetic = directory / "syntetyczny.xlsx"
-    write_settlement_template(synthetic, "GODZINA", data_rows=200)
+    write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
     small = directory / "maly.xlsx"
     write_template(small)
     add_external_link_fixture(small)
@@ -179,11 +200,16 @@ def build_templates(directory: Path, real_template: Path | None) -> list[Templat
         Template.of(
             "syntetyczny",
             "kształt Wzorca taty z tools/syntetyczne_wzorce.py, 200 Wierszy danych: wspólne formuły, calcChain, "
-            "link zewnętrzny, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
+            "link zewnętrzny, komentarz z relacjami arkusza rId1 i rId2, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
             synthetic,
             max_rows=260,
         ),
-        Template.of("maly", "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz", small, max_rows=80),
+        Template.of(
+            "maly",
+            "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz, bez relacji arkusza",
+            small,
+            max_rows=80,
+        ),
     ]
     return templates
 
@@ -327,25 +353,61 @@ def highlights() -> st.SearchStrategy[Highlights]:
     return st.builds(Highlights.of, fonts, fills)
 
 
-def _data_row(values: ExcelRow, marked: dict[int, Highlights] | None = None) -> DataRow:
-    """A Wiersz danych of 46 values (A:AT); cells missing from ``marked`` have no Wyróżnienia."""
+EDGE_ADDRESSES = (
+    "https://przyklad.invalid/zlecenie?caseId=SYN-1&tw=1",
+    "https://przyklad.invalid/zlecenie?a=1&b=2#sekcja-2",
+    "https://przyklad.invalid/\"cudzysłów\"/'apostrof'/<b>&amp;</b>",
+    " https://przyklad.invalid/spacje na brzegach ",
+    "https://przyklad.invalid/zażółć/gęślą?jaźń=ŻÓŁĆ",
+    "https://przyklad.invalid/😀",
+    "https://przyklad.invalid/tab\tnowa\nlinia\r",
+    "mailto:biuro@przyklad.invalid",
+    "file:///C:/Syntetyczny%20folder/plik.xlsx",
+    "https://przyklad.invalid/" + "a" * 2000,
+)
+
+
+def addresses() -> st.SearchStrategy[str]:
+    """Addresses of Hiperłącza as reading an XML attribute can give them: any character XML allows."""
+
+    characters = st.characters(exclude_categories=("Cs", "Cc", "Cn"), include_characters="\t\n\r")
+    return st.one_of(st.sampled_from(EDGE_ADDRESSES), st.text(characters, max_size=30).map("https://przyklad.invalid/".__add__))
+
+
+def _data_row(
+    values: ExcelRow, marked: dict[int, Highlights] | None = None, links: dict[int, str] | None = None
+) -> DataRow:
+    """A Wiersz danych of 46 values (A:AT); cells missing from ``marked`` have no Wyróżnienia, ``links`` maps index → address."""
 
     cells = marked or {}
-    return DataRow(FIRST_DATA_ROW, values[7], values, tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS)))
+    hyperlinks = {index + 1: Hyperlink(address) for index, address in (links or {}).items()}
+    return DataRow(FIRST_DATA_ROW, values[7], values, tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS)), hyperlinks)
 
 
 @st.composite
 def data_rows(draw: st.DrawFn) -> DataRow:
-    """One Wiersz danych as from Plik zbiorczy: 46 values and their Wyróżnienia, often none at all."""
+    """One Wiersz danych as from Plik zbiorczy: 46 values, their Wyróżnienia and Hiperłącza, often none at all.
+
+    A Hiperłącze sits mostly in F (``NUMER ZL.``) and only on a cell with a value, as ``read_data_rows`` gives it.
+    """
 
     columns = st.integers(min_value=0, max_value=DATA_COLUMNS - 1)
     values = draw(st.dictionaries(columns, cell_values(), max_size=8))
     marked = draw(st.one_of(st.just({}), st.dictionaries(columns, highlights(), max_size=10)))
-    return _data_row(tuple(values.get(index) for index in range(DATA_COLUMNS)), marked)  # type: ignore[misc]
+    linked_columns = st.one_of(st.just(ORDER_NUMBER - 1), columns)
+    links = draw(st.one_of(st.just({}), st.dictionaries(linked_columns, addresses(), min_size=1, max_size=3)))
+    for index in links:
+        if values.get(index) in (None, ""):
+            values[index] = f"ZL-SYN-{index}"
+    return _data_row(tuple(values.get(index) for index in range(DATA_COLUMNS)), marked, links)  # type: ignore[misc]
 
 
 def _highlighted(rows: Sequence[DataRow]) -> bool:
     return any(cell != PLAIN for row in rows for cell in row.highlights)
+
+
+def _linked(rows: Sequence[DataRow]) -> bool:
+    return any(row.hyperlinks for row in rows)
 
 
 @st.composite
@@ -441,6 +503,7 @@ class Statistics:
     settlements: Counter[str] = field(default_factory=Counter)  # kopia / droga openpyxl / odmowa
     refusals: Counter[str] = field(default_factory=Counter)
     highlighted: int = 0  # Rozliczenia pracowników with Wyróżnienia written through the copy
+    linked: int = 0  # Rozliczenia pracowników with Hiperłącza written through the copy
     unexplained: Counter[str] = field(default_factory=Counter)  # refusals of Wiersze danych without a rare value
     max_rows: int = 0
     chunk_rows_reached: set[int] = field(default_factory=set)
@@ -478,7 +541,7 @@ def _gate_divergences(copy: Path, reference: Path) -> list[Divergence]:
     if not any(differences.values()):
         return []
     found: list[Divergence] = []
-    cell_counts = Counter({category: differences[category] for category in ("wartosci", "formuly", "style")})
+    cell_counts = Counter({category: differences[category] for category in ("wartosci", "formuly", "style", "hiperlacza")})
     other = {category: count for category, count in differences.items() if count and category not in cell_counts}
     if other:
         found.append(Divergence("WIERNA_KOPIA", f"bramka poprawności: {other}"))
@@ -510,6 +573,9 @@ def _cell_differences(copy: Path, reference: Path) -> list[str]:
             expected_value, actual_value = gate._value(expected_cell), gate._value(actual_cell)
             if expected_value != actual_value:
                 cells.append(f"{label} wartość kopia={_value_text(actual_value)} openpyxl={_value_text(expected_value)}")
+            expected_link, actual_link = gate._hyperlink(expected_cell), gate._hyperlink(actual_cell)
+            if expected_link != actual_link:
+                cells.append(f"{label} hiperłącze kopia={_value_text(actual_link)} openpyxl={_value_text(expected_link)}")
             expected_style = gate._style(expected, expected_cell, coordinate, expected_columns, styles)
             actual_style = gate._style(actual, actual_cell, coordinate, actual_columns, styles)
             if expected_style != actual_style:
@@ -560,12 +626,18 @@ def _styles_untouched(before: bytes, after: bytes) -> list[Divergence]:
 def _untouched_divergences(template: Template, copy: Path, written: int) -> list[Divergence]:
     found: list[Divergence] = []
     original, result = zipfile.ZipFile(template.path), zipfile.ZipFile(copy)
-    if [info.filename for info in original.infolist()] != [info.filename for info in result.infolist()]:
+    names_before, names_after = original.namelist(), result.namelist()
+    linked = _HYPERLINKS_BLOCK.search(result.read(SHEET)) is not None
+    added_rels = linked and SHEET_RELS not in names_before and names_after == [*names_before, SHEET_RELS]
+    if names_before != names_after and not added_rels:
         return [Divergence("NIETKNIETY_WZORZEC", "inny zestaw albo kolejność części zip niż we Wzorcu")]
     for before in original.infolist():
         after = result.getinfo(before.filename)
         name = before.filename
         if name == SHEET:
+            continue
+        if name == SHEET_RELS and linked:
+            found += _rels_untouched(original.read(name), result.read(name))
             continue
         if name == WORKBOOK:
             if _without_calc_pr(original.read(name)) != _without_calc_pr(result.read(name)):
@@ -579,6 +651,16 @@ def _untouched_divergences(template: Template, copy: Path, written: int) -> list
             found.append(Divergence("NIETKNIETY_WZORZEC", f"{name} nie jest przepisana bajt w bajt"))
     found += _sheet_untouched(original.read(SHEET), result.read(SHEET), written)
     return found
+
+
+def _rels_untouched(before: bytes, after: bytes) -> list[Divergence]:
+    """The Wzorzec's sheet relationships with only whole ``<Relationship/>`` entries inserted before the end."""
+
+    end = before.rindex(b"</Relationships>")
+    middle = after[end : len(after) - (len(before) - end)]
+    if not (after.startswith(before[:end]) and after.endswith(before[end:]) and not _RELATIONSHIP.sub(b"", middle)):
+        return [Divergence("NIETKNIETY_WZORZEC", f"{SHEET_RELS}: relacje Wzorca zmienione, a nie tylko dopisane")]
+    return []
 
 
 def _region(xml: bytes, rows: dict[int, tuple[int, int]], last: int) -> tuple[int, int]:
@@ -600,8 +682,8 @@ def _sheet_untouched(before: bytes, after: bytes, written: int) -> list[Divergen
     found: list[Divergence] = []
     if _DIMENSION.sub(b"", before[:start_before]) != _DIMENSION.sub(b"", after[:start_after]):
         found.append(Divergence("NIETKNIETY_WZORZEC", "arkusz zmienił się przed pierwszym Wierszem danych"))
-    if before[end_before:] != after[end_after:]:
-        found.append(Divergence("NIETKNIETY_WZORZEC", f"arkusz zmienił się za ostatnim wpisanym wierszem {last}"))
+    if before[end_before:] != _HYPERLINKS_BLOCK.sub(b"", after[end_after:], count=1):
+        found.append(Divergence("NIETKNIETY_WZORZEC", f"arkusz zmienił się za ostatnim wpisanym wierszem {last} poza <hyperlinks>"))
     for number in range(FIRST_DATA_ROW, last + 1):
         if number not in rows_after:
             found.append(Divergence("NIETKNIETY_WZORZEC", f"brak wiersza {number} w arkuszu"))
@@ -666,7 +748,52 @@ def _excel_shape_divergences(copy: Path, written: int) -> list[Divergence]:
         bound = re.fullmatch(r"([A-Z]+)(\d+)", last_cell)
         if bound is None or int(bound.group(2)) < FIRST_DATA_ROW + written - 1 or column_index_from_string(bound.group(1)) < max_column:
             found.append(Divergence("KSZTALT_EXCELA", f"dimension {reference} nie obejmuje wpisanych wierszy do {FIRST_DATA_ROW + written - 1}"))
-    return found + _styles_shape(archive.read(STYLES), xml)
+    return found + _styles_shape(archive.read(STYLES), xml) + _package_shape(archive, root)
+
+
+def _package_shape(archive: zipfile.ZipFile, root: ElementTree.Element) -> list[Divergence]:
+    """Sheet elements in schema order, a content type for every part, hyperlinks pointing at external hyperlink relationships."""
+
+    found = []
+    names = [child.tag.removeprefix(_MAIN) for child in root]
+    if names.count("hyperlinks") > 1:
+        found.append(Divergence("KSZTALT_EXCELA", "więcej niż jeden <hyperlinks>"))
+    positions = [WORKSHEET_ORDER.index(name) for name in names if name in WORKSHEET_ORDER]
+    if positions != sorted(positions):
+        found.append(Divergence("KSZTALT_EXCELA", f"elementy arkusza poza kolejnością schematu: {names[names.index('sheetData') + 1:]}"))
+    types = ElementTree.fromstring(archive.read(CONTENT_TYPES))
+    extensions = {default.get("Extension", "").lower() for default in types.iter(f"{_TYPES}Default")}
+    overrides = {override.get("PartName", "") for override in types.iter(f"{_TYPES}Override")}
+    untyped = [
+        name
+        for name in archive.namelist()
+        if name != CONTENT_TYPES and f"/{name}" not in overrides and name.rsplit(".", 1)[-1].lower() not in extensions
+    ]
+    if untyped:
+        found.append(Divergence("KSZTALT_EXCELA", f"części bez typu zawartości: {untyped}"))
+    relationships = (
+        list(ElementTree.fromstring(archive.read(SHEET_RELS)).iter(f"{_PACKAGE}Relationship"))
+        if SHEET_RELS in archive.namelist()
+        else []
+    )
+    ids = [relationship.get("Id") for relationship in relationships]
+    if len(ids) != len(set(ids)):
+        found.append(Divergence("KSZTALT_EXCELA", f"powtórzony Id w {SHEET_RELS}: {ids}"))
+    by_id = {relationship.get("Id"): relationship for relationship in relationships}
+    references = []
+    for link in root.iter(f"{_MAIN}hyperlink"):
+        references.append(link.get("ref"))
+        relationship = by_id.get(link.get(f"{{{_OFFICE_REL}}}id"))
+        if (
+            relationship is None
+            or not relationship.get("Type", "").endswith("/hyperlink")
+            or relationship.get("TargetMode") != "External"
+        ):
+            found.append(Divergence("KSZTALT_EXCELA", f"hiperłącze {link.get('ref')} nie wskazuje zewnętrznej relacji hiperłącza"))
+            break
+    if len(references) != len(set(references)):
+        found.append(Divergence("KSZTALT_EXCELA", "powtórzona komórka w <hyperlinks>"))
+    return found
 
 
 def _styles_shape(styles: bytes, sheet: bytes) -> list[Divergence]:
@@ -740,6 +867,7 @@ class Run:
                 statistics.max_rows = max(statistics.max_rows, len(rows))
                 if via_copy and copy.refusal is None:
                     statistics.highlighted += _highlighted(rows)
+                    statistics.linked += _linked(rows)
                     last = FIRST_DATA_ROW + len(rows) - 1
                     statistics.chunk_rows_reached.update(row for row in template.chunk_rows[1:] if row <= last + 1)
                 divergences += [(index, divergence) for divergence in check_settlement(template, copy, reference, rows, via_copy)]
@@ -802,9 +930,14 @@ def story(case: Case, divergences: Sequence[tuple[int, Divergence]]) -> list[str
             for column, cell in enumerate(row.highlights, start=1)
             if cell != PLAIN
         ]
+        linked = [
+            f"{get_column_letter(column)}{FIRST_DATA_ROW + offset}→{_value_text(link.address)}"
+            for offset, row in enumerate(rows)
+            for column, link in sorted(row.hyperlinks.items())
+        ]
         lines.append(
             f"  {index + 1}. Rozliczenie pracownika {index}: {len(rows)} Wierszy danych (wiersze {FIRST_DATA_ROW}–{last}); "
-            f"niepuste: {_first(values) or 'brak'}; Wyróżnienia: {_first(marked) or 'brak'}."
+            f"niepuste: {_first(values) or 'brak'}; Wyróżnienia: {_first(marked) or 'brak'}; Hiperłącza: {_first(linked) or 'brak'}."
         )
     for index, divergence in divergences:
         where = f"Rozliczenie pracownika {index}" if index else "Wzorzec"
@@ -858,7 +991,7 @@ def run_check(
             reached = len(statistics.chunk_rows_reached)
             lines.append(
                 f"Wzorzec {template.name}: {statistics.examples} przykładów, Rozliczenia pracowników: {routes}{refusals}; "
-                f"z Wyróżnieniami przez kopię {statistics.highlighted}; do {statistics.max_rows} Wierszy danych; granice kawałków przekroczone: {reached}/{len(template.chunk_rows) - 1}"
+                f"z Wyróżnieniami przez kopię {statistics.highlighted}; z Hiperłączami przez kopię {statistics.linked}; do {statistics.max_rows} Wierszy danych; granice kawałków przekroczone: {reached}/{len(template.chunk_rows) - 1}"
             )
     gaps = []
     for template in templates:
@@ -878,6 +1011,8 @@ def run_check(
             gaps.append(f"Wzorzec {template.name}: nie każda granica kawałka kompresji została przekroczona")
         if not statistics.highlighted:
             gaps.append(f"Wzorzec {template.name}: żadne Rozliczenie pracownika z Wyróżnieniami nie przeszło przez kopię")
+        if not statistics.linked:
+            gaps.append(f"Wzorzec {template.name}: żadne Rozliczenie pracownika z Hiperłączami nie przeszło przez kopię")
     for failure in failures:
         lines.append("NOWE NARUSZENIE:")
         lines += story(failure.case, failure.divergences)
@@ -929,9 +1064,10 @@ def _leaves(group: BaseExceptionGroup[BaseException] | None) -> Iterator[BaseExc
 
 
 def _longest_example(template: Template) -> Case:
-    """One Rozliczenie pracownika with the most Wiersze danych in scope: it crosses every reachable chunk start."""
+    """One Rozliczenie pracownika with the most Wiersze danych in scope, each with a Hiperłącze in F: it crosses every reachable chunk start."""
 
-    row = _data_row(("syntetyczne miasto",) + (None,) * 12 + (1,) + (None,) * (DATA_COLUMNS - 14))
+    values = ("syntetyczne miasto",) + (None,) * 4 + ("ZL-SYN-1",) + (None,) * 7 + (1,) + (None,) * (DATA_COLUMNS - 14)
+    row = _data_row(values, links={ORDER_NUMBER - 1: EDGE_ADDRESSES[0]})
     return Case(template, ((row,) * template.max_rows,))
 
 
@@ -947,7 +1083,7 @@ def _missing_cells_example(template: Template) -> Case | None:
 
 
 def _value_rows() -> tuple[DataRow, ...]:
-    """The value-type and Wyróżnienia rows of the owner tests, plus Windows line ends, as a fixed first example."""
+    """The value-type and Wyróżnienia rows of the owner tests, plus Windows line ends and Hiperłącza, as a fixed first example."""
 
     values: list[Any] = [None] * DATA_COLUMNS
     for letter, value in {
@@ -970,7 +1106,11 @@ def _value_rows() -> tuple[DataRow, ...]:
     yellow = Highlights(PatternFill(fill_type="solid", fgColor="FFFFFF00"), Color("FFFF0000"), bold=True, italic=True)
     theme_fill = Highlights(PatternFill(fill_type="solid", fgColor=Color(theme=5, tint=0.4)), Color(theme=1))
     marked = {column_index_from_string(letter) - 1: cell for letter, cell in {"A": yellow, "G": theme_fill, "N": yellow, "AT": yellow}.items()}
-    return (_data_row(tuple(values), marked), _data_row(("tylko miasto",) + (None,) * (DATA_COLUMNS - 1)))
+    links = {0: EDGE_ADDRESSES[2], 8: EDGE_ADDRESSES[1]}
+    return (
+        _data_row(tuple(values), marked, links),
+        _data_row(("tylko miasto",) + (None,) * (DATA_COLUMNS - 1), links={0: EDGE_ADDRESSES[3]}),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

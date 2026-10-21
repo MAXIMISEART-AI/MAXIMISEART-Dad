@@ -1,5 +1,6 @@
 import * as React from "react"
 import {
+  CircleArrowUpIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleXIcon,
@@ -8,13 +9,14 @@ import {
 } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
-import { diagnoseRun, type Diagnosis, type DiagnosisCheck, type RunOutcome } from "@/api/centrum"
+import { diagnoseRun, reportRun, type Diagnosis, type DiagnosisCheck, type RunOutcome } from "@/api/centrum"
 import { Disclosure } from "@/components/disclosure"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
+import { ToolUpdateButton, ToolUpdateStatus } from "@/components/tool-update"
 import { toast } from "@/components/ui/toast"
-import { ReportToMaks } from "@/pages/runs/report"
+import { ReportToMaks } from "@/components/report-to-maks"
 
 type StopDiagnosis = {
   /** Akcja przy banerze Zatrzymania: „Diagnoza”, a po niej „Uruchom ponownie”, gdy Diagnoza potwierdza Komunikat. */
@@ -27,6 +29,9 @@ type StopDiagnosis = {
  * Diagnoza Zatrzymania Uruchomienia `runId`; wynik i rodzaj przyczyny liczy serwer. Przy `offer`
  * `automatic` (nieoczekiwany błąd) zaczyna się sama po pokazaniu wyniku, inaczej na żądanie taty.
  * Gdy wyjaśnienie to ten sam Komunikat co Zatrzymanie (`confirms_stop`), nie powtarza go drugi raz.
+ * Gdy wyjaśnieniem jest nowsza wersja narzędzia (`next_action` `update`), akcją wyjaśnienia jest `Zaktualizuj
+ * narzędzie`. Nowsza wersja obok innej przyczyny (`update_proposal`) to jedno ciche zdanie pod wyjaśnieniem z tym
+ * samym przyciskiem, drugim po `Uruchom ponownie`.
  * Pod wynikiem jest Zgłoszenie do Maksa (`report`): przed Diagnozą tylko jego potwierdzenie albo zapisany plik.
  */
 export function useStopDiagnosis(
@@ -60,7 +65,7 @@ export function useStopDiagnosis(
     return {
       action: <DiagnoseButton checking={checking} onDiagnose={diagnose} />,
       result:
-        report === null ? null : <ReportToMaks runId={runId} report={report} draft={null} primary={false} />,
+        report === null ? null : <ReportToMaks send={() => reportRun(runId)} report={report} draft={null} primary={false} />,
     }
   }
 
@@ -72,6 +77,8 @@ export function useStopDiagnosis(
       </Button>
     ) : undefined
 
+  const update = diagnosis.next_action === "update" ? <ToolUpdateButton primary size="sm" /> : undefined
+
   return {
     action: diagnosis.confirms_stop ? rerun : undefined,
     result: (
@@ -82,12 +89,14 @@ export function useStopDiagnosis(
             Diagnoza potwierdza ten komunikat.
           </p>
         ) : (
-          <ThreePartMessage message={diagnosis.explanation} kind="diagnosis" action={rerun} />
+          <ThreePartMessage message={diagnosis.explanation} kind="diagnosis" action={rerun ?? update} />
         )}
+        {diagnosis.update_proposal ? <UpdateProposal /> : null}
+        {update !== undefined || diagnosis.update_proposal ? <ToolUpdateStatus /> : null}
         <Checks checks={diagnosis.checks} />
         {report === null ? null : (
           <ReportToMaks
-            runId={runId}
+            send={() => reportRun(runId)}
             report={report}
             draft={diagnosis.report}
             primary={diagnosis.next_action === "report"}
@@ -96,6 +105,21 @@ export function useStopDiagnosis(
       </section>
     ),
   }
+}
+
+/** Propozycja Aktualizacji narzędzia: ciszej niż wyjaśnienie, bo przyczyną Zatrzymania jest co innego. */
+function UpdateProposal() {
+  return (
+    <div
+      role="note"
+      aria-label="Propozycja aktualizacji"
+      className="flex items-center gap-2 pr-3 text-sm text-muted-foreground"
+    >
+      <CircleArrowUpIcon className="size-4 shrink-0" aria-hidden />
+      <span className="mr-auto">Jest też nowsza wersja narzędzia.</span>
+      <ToolUpdateButton primary={false} size="sm" />
+    </div>
+  )
 }
 
 /** Przycisk „Diagnoza” przy Zatrzymaniu; w trakcie sprawdzania pokazuje, że trwa. */
