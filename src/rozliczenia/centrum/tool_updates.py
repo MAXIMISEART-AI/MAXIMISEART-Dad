@@ -150,6 +150,7 @@ class ToolUpdates:
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
         restarting = False
+        view: contract.ToolUpdate | None = None
         try:
             result, guardian = self._result(clone, before, work)
             if result.before is None:  # bez Gita commit zna tylko Centrum
@@ -166,12 +167,15 @@ class ToolUpdates:
                 view = _view_of(result) or self._failed(result).model_copy(
                     update={"report": self._reports.update_report_state()}
                 )
-                with self._lock:
-                    self._view = view
         finally:
             if not restarting:
                 shutil.rmtree(work, ignore_errors=True)
-                self._runs.end_update()
+                # Karta widzi wynik dopiero z wolnym miejscem „jedno naraz”, żeby „jeszcze raz” nie dostało 409;
+                # pod blokadą widoku, żeby następne kliknięcie nie zobaczyło po swoim starcie tego wyniku.
+                with self._lock:
+                    self._runs.end_update()
+                    if view is not None:
+                        self._view = view
 
     def _result(self, clone: ToolClone, before: str | None, work: Path) -> tuple[UpdateResult, Path | None]:
         try:
