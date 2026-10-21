@@ -16,6 +16,8 @@ BUTTON = "Zaktualizuj narzędzie"
 UPDATED = "Zaktualizowano. Zamknij Centrum rozliczeń i kliknij skrót."
 UP_TO_DATE = "Masz najnowszą wersję."
 FETCHING = "Pobieranie nowej wersji…"
+INSTALLING = "Instalowanie bibliotek…"
+LIBRARIES_FAILED = "Nie udało się zainstalować bibliotek nowej wersji narzędzia."
 # Long enough to see the progress and send the refused requests; fetching from the local "origin" takes milliseconds.
 PACING_MS = 4000
 
@@ -71,6 +73,7 @@ def _update_entries(run: Run) -> list[str]:
 def drive_update(run: Run, page: Page) -> None:
     tool = run.fixture["tool"]
     clone, first, newest, dad_files = Path(tool["clone"]), tool["first"], tool["newest"], tool["dad_files"]
+    origin, libraries = Path(tool["origin"]), tool["libraries"]
     run_configuration = _contents(run.root / "config")
     github = run.root / "github"
     github.mkdir(exist_ok=True)
@@ -161,5 +164,71 @@ def drive_update(run: Run, page: Page) -> None:
             "the Centrum log has the update that changed nothing",
         )
         run.capture(page, "96-aktualizacja-najnowsza")
+
+        _drive_failed_installation(run, page, clone, origin, newest, libraries, dad_files, run_configuration)
     finally:
         main_commit.unlink(missing_ok=True)
+        pacing.with_name("instalacja-ms.txt").unlink(missing_ok=True)
+        _git(origin, "update-ref", "refs/heads/main", newest)
+
+
+def _drive_failed_installation(
+    run: Run,
+    page: Page,
+    clone: Path,
+    origin: Path,
+    newest: str,
+    libraries: str,
+    dad_files: dict[str, str],
+    run_configuration: dict[str, bytes],
+) -> None:
+    run.step(FEATURE, "aktualizacja-instalowanie")
+    print("  harness: `main` in the local origin and on the scripted GitHub needs a library pip cannot install offline", flush=True)
+    _git(origin, "update-ref", "refs/heads/main", libraries)
+    (run.root / "github" / "main-commit.txt").write_text(libraries, encoding="utf-8")
+    print(f"  harness: each installation of libraries waits {PACING_MS} ms before pip starts", flush=True)
+    (run.root / "pacing" / "instalacja-ms.txt").write_text(str(PACING_MS), encoding="utf-8")
+    page.reload()
+    card = _tool_card(page)
+    expect(card).to_contain_text("Jest nowsza wersja")
+    card.get_by_role("button", name=BUTTON, exact=True).click()
+    expect(card.get_by_role("status").filter(has_text=INSTALLING)).to_be_visible()
+    expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
+    view = run.api("/api/tool-update", "aktualizacja-instalowanie")
+    run.check(view == {"state": "running", "step": "installing"}, "the server reports the step `installing`")
+    run.capture(page, "130-aktualizacja-instalowanie", live=True)
+    (run.root / "pacing" / "instalacja-ms.txt").unlink()
+
+    run.step(FEATURE, "aktualizacja-instalacja-nieudana")
+    message = card.get_by_role("alert").filter(has_text=LIBRARIES_FAILED)
+    expect(message).to_be_visible(timeout=20_000)
+    expect(message).to_contain_text("Narzędzie działa dalej w poprzedniej wersji.")
+    expect(card).to_contain_text(newest[:7])
+    expect(card).to_contain_text("Jest nowsza wersja")
+    expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
+    view = run.api("/api/tool-update", "aktualizacja-instalacja-nieudana")
+    run.check(
+        view
+        == {
+            "state": "failed",
+            "message": {
+                "what": LIBRARIES_FAILED,
+                "where": "narzędzie na tym komputerze",
+                "action": (
+                    "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+                    "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
+                ),
+            },
+        },
+        "the server reports the three-part Komunikat of the failed installation",
+    )
+    run.check(_head(clone) == newest, "the clone is back on the commit before the click")
+    run.check(not (clone / "requirements.txt").exists(), "the new version's requirements left with it")
+    run.check(_git(clone, "status", "--porcelain", "--untracked-files=no") == "", "the clone has no changes left")
+    _dad_files_kept(run, clone, dad_files, run_configuration)
+    run.check(
+        _update_entries(run)[-1]
+        == f"aktualizacja-koniec wynik=INSTALACJA_BIBLIOTEK przed={newest} po={libraries} biblioteki=tak",
+        "the Centrum log has the failed installation with both commits, and no path or pip output",
+    )
+    run.capture(page, "131-aktualizacja-instalacja-nieudana")
