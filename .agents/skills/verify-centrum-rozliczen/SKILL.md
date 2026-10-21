@@ -71,7 +71,7 @@ the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum'
 forward past the 10-minute limit on asking the skrzynka. The tool itself is the run's synthetic Git clone
 `<root>/aktualizacja/klon` (its commit is the tool's own commit): Aktualizacja narzędzia moves only that clone,
 fetching from the local "origin" `<root>/aktualizacja/origin.git`, never from GitHub, and while
-`<root>/pacing/aktualizacja-ms.txt` exists each update waits that many milliseconds first. After a successful
+`<root>/pacing/aktualizacja-ms.txt` exists each update waits that many milliseconds first (`<root>/pacing/instalacja-ms.txt`: before pip starts). Pip runs with `PIP_NO_INDEX=1`, never reaching PyPI. After a successful
 update Centrum restarts itself: the restart guardian runs the clone's `run_centrum.py`, a shim that serves this
 run's scripted Centrum again on the same port (it rewrites `server.json`), waiting first while
 `<root>/pacing/ponowny-start-ms.txt` exists. The adapter is the production boundary for those actions; the real

@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CENTRUM_LAUNCHER = "Centrum rozliczeń (konsola).cmd"
@@ -29,6 +30,8 @@ FIRST_VERSION: Mapping[str, str] = {
     "config/worker_mapping.example.yaml": "schema_version: 1\nworkers:\n  przyklad: Przykładowy Wykonawca\n",
     "src/narzedzie.py": "WERSJA = 1\n",
 }
+# Wymagania nowej wersji: jedna biblioteka więcej.
+NEW_REQUIREMENTS = "openpyxl>=3.1.5\nfastapi>=0.115\n"
 _IDENTITY = {
     "GIT_AUTHOR_NAME": "Maks Testowy",
     "GIT_AUTHOR_EMAIL": "maks@example.invalid",
@@ -138,3 +141,21 @@ def _published(directory: Path, publisher: Path) -> ToolRepository:
     clone = directory / "narzedzie"
     git(directory, "clone", "--quiet", str(origin), str(clone))
     return ToolRepository(publisher, origin, clone)
+
+
+class FakeInstaller:
+    """Instalator bibliotek w miejscu pip: zapamiętuje plik wymagań z jego treścią i kończy się ``succeeds``.
+
+    ``hold`` zatrzymuje każdą instalację, dopóki test jej nie puści (``set``).
+    """
+
+    def __init__(self, *, succeeds: bool = True, hold: threading.Event | None = None) -> None:
+        self.succeeds = succeeds
+        self.hold = hold
+        self.installed: list[tuple[Path, str]] = []
+
+    def __call__(self, requirements: Path) -> bool:
+        self.installed.append((requirements, requirements.read_text(encoding="utf-8")))
+        if self.hold is not None:
+            self.hold.wait()
+        return self.succeeds

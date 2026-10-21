@@ -56,6 +56,14 @@ One more pacing hook: while ``<root>/pacing/aktualizacja-ms.txt`` exists, each
 Aktualizacja narzędzia waits that many milliseconds before it looks for Git.
 Fetching from the local "origin" takes milliseconds, so without it the progress
 and the refusals during an update could not be observed. Results are unchanged.
+Likewise, while ``<root>/pacing/instalacja-ms.txt`` exists, each installation of
+libraries waits that many milliseconds before it starts.
+
+Libraries are installed by the production installer (``pip_install``: this
+Python's ``-m pip``), but pip is offline: ``PIP_NO_INDEX`` is set for this
+process, so an installation never reaches PyPI and fails when it needs a library
+that is not installed. The run's virtual environment may have no pip at all;
+then the installation fails the same way.
 
 One harness-only fault hook: while ``<root>/awaria/odczyt-rejestru`` exists,
 reading the Rejestr zleceń raises an exception the process does not expect, so
@@ -106,7 +114,7 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
 from rozliczenia.centrum.server import listen_locally, serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
-from rozliczenia.centrum.tool_update import ToolClone, find_git  # noqa: E402
+from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
 from rozliczenia.centrum.version import tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
 from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate  # noqa: E402
@@ -226,6 +234,18 @@ def _paced_git(root: Path) -> Callable[[], Path | None]:
     return found
 
 
+def _paced_install(root: Path) -> Callable[[Path], bool]:
+    """Pip for the libraries of a new version, started after a wait while ``<root>/pacing/instalacja-ms.txt`` exists."""
+
+    def install(requirements: Path) -> bool:
+        pacing = root / "pacing" / "instalacja-ms.txt"
+        if pacing.exists():
+            time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
+        return pip_install(requirements)
+
+    return install
+
+
 def _pace_worker_templates(root: Path) -> None:
     """Slow each written Szablon pracownika while ``<root>/pacing/szablony-ms.txt`` exists (see the module doc)."""
 
@@ -274,6 +294,8 @@ def main(argv: list[str] | None = None) -> int:
     shutdown = Shutdown(log)
     _pace_worker_templates(root)
     _fail_register_reading(root)
+    # Pip never reaches PyPI from a verification run.
+    os.environ["PIP_NO_INDEX"] = "1"
     app = create_app(
         settings_path=Path(fixture["settings"]),
         platform=ScriptedPlatform(root),
@@ -286,7 +308,9 @@ def main(argv: list[str] | None = None) -> int:
         cloud_files=_scripted_onedrive(root),
         report_box=FileReportBox(root / "skrzynka-zgloszen"),
         clock=_scripted_clock(root),
-        tool_update=ToolClone(clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root)),
+        tool_update=ToolClone(
+            clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root), install=_paced_install(root)
+        ),
     )
 
     def record_bound_server(url: str) -> None:

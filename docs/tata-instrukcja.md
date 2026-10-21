@@ -188,9 +188,11 @@ jest najnowsza: `Aktualna`, `Jest nowsza wersja` albo `Nie sprawdzono` (bez
 internetu).
 
 1. Na stronie `Konfiguracja` kliknij `Zaktualizuj narzędzie`.
-2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a potem `Ponowne
-   uruchamianie Centrum…`. Przycisk jest wtedy wyłączony. Nie zamykaj karty
-   i nie klikaj skrótu: Centrum samo uruchamia się w nowej wersji.
+2. Poczekaj. Karta pokazuje `Pobieranie nowej wersji…`, a gdy nowa wersja
+   potrzebuje nowych bibliotek, potem `Instalowanie bibliotek…` (to może
+   potrwać kilka minut). Na końcu pokazuje `Ponowne uruchamianie Centrum…`.
+   Przycisk jest wtedy wyłączony. Nie zamykaj karty i nie klikaj skrótu:
+   Centrum samo uruchamia się w nowej wersji.
 3. Na końcu zobaczysz jedno z dwóch:
    - Karta sama się odświeży i na chwilę pokaże `Zaktualizowano`. Działa już
      nowa wersja; niczego nie zamykasz.
@@ -208,6 +210,7 @@ kliknięcia, a karta pokaże komunikat w trzech częściach.
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
+| „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie. |
 
 ### Komunikaty startu Centrum rozliczeń
 

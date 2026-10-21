@@ -13,7 +13,7 @@ from pathlib import Path
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
 from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems, update_messages
-from rozliczenia.centrum.tool_update import UNEXPECTED
+from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, UNEXPECTED
 from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
@@ -198,5 +198,10 @@ REPORT_SAMPLES: Samples = {
 
 UPDATE_SAMPLES: Samples = {
     "unexpected_failure": [update_messages.unexpected_failure],
-    "message_of": [lambda: update_messages.message_of(UNEXPECTED), lambda: update_messages.message_of("NIEZNANY_KOD")],
+    "libraries_failed": [update_messages.libraries_failed],
+    "message_of": [
+        lambda: update_messages.message_of(UNEXPECTED),
+        lambda: update_messages.message_of(LIBRARIES_FAILED),
+        lambda: update_messages.message_of("NIEZNANY_KOD"),
+    ],
 }
