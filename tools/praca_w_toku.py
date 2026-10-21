@@ -1,0 +1,358 @@
+"""Praca w toku w innych checkoutach tego repozytorium i pliki, które zmienia też bieżący checkout.
+
+Wiele sesji pracuje naraz, każda w swoim git worktree, i nie widzą się nawzajem. Skrypt tylko
+czyta: worktree (``git worktree list``), lokalne gałęzie z commitami spoza ``origin/main``,
+niezacommitowane pliki każdego worktree i otwarte PR-y z GitHuba (``gh``). Odłączony HEAD liczy się
+z niezacommitowanymi plikami albo z commitem innym niż merge, którego nie ma żadna gałąź ani remote
+(inaczej to piaskownica albo przegląd). Przeniesienie pliku liczy się jako zmiana starej i nowej ścieżki.
+
+Drukuje jedną linię na każdą inną pracę w toku, potem nakładania: pliki, które bieżący checkout i
+inna praca zmieniają każdy we własnych commitach albo niezacommitowanych. Commity wspólne obu stron
+(gałąź zbudowana na innej) się nie liczą. Bieżący checkout to ten, w którym skrypt uruchomiono.
+Raport informuje i nie blokuje: kod wyjścia 0, inny tylko przy błędnym użyciu.
+
+    py -3 tools/praca_w_toku.py                  # Windows
+    python3 tools/praca_w_toku.py                # macOS i Linux
+    python3 tools/praca_w_toku.py --issue 212    # przed startem zgłoszenia #212
+    python3 tools/praca_w_toku.py --lokalnie     # bez GitHuba
+    python3 tools/praca_w_toku.py --nakladania   # tylko nakładania (drukuje je tools/ci_lokalnie.py)
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass, replace
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from typing import Any
+
+BASE = "origin/main"
+SUBJECTS = 3
+TIMEOUT_S = 30
+ISSUE_REFERENCE = re.compile(r"#(\d+)\b")
+PR_REFERENCE = re.compile(r"(?:#|/pull/)(\d+)\b")
+BRANCH_NUMBER = re.compile(r"(?:^|/)(\d{1,5})(?=$|[/_-])")
+
+
+@dataclass(frozen=True)
+class WorkInProgress:
+    """Jedna niescalona linia pracy: gałąź, odłączony HEAD worktree albo PR bez lokalnej gałęzi."""
+
+    branch: str | None
+    worktree: Path | None
+    # None: gałąź PR istnieje tylko na GitHubie.
+    head: str | None
+    ahead: int
+    unpushed: int
+    dirty: frozenset[str]
+    files: frozenset[str]
+    pr: int | None
+    issues: frozenset[int]
+    subjects: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _Worktree:
+    path: Path
+    branch: str | None
+    head: str
+
+
+@dataclass(frozen=True)
+class _PullRequest:
+    number: int
+    branch: str
+    issues: frozenset[int]
+    files: frozenset[str]
+
+
+class _GitHubSkipped(Exception):
+    pass
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--issue", type=int, metavar="N", help="Tylko praca nad zgłoszeniem #N albo PR, którego dotyczy.")
+    parser.add_argument("--lokalnie", action="store_true", help="Bez wywołań gh.")
+    parser.add_argument("--nakladania", action="store_true", help="Tylko sekcja nakładań.")
+    args = parser.parse_args(argv)
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        # Tematy commitów mogą mieć znaki spoza strony kodowej konsoli Windows.
+        sys.stdout.reconfigure(errors="replace")
+    try:
+        root = Path(_git(Path.cwd(), "rev-parse", "--show-toplevel").strip()).resolve()
+    except (OSError, subprocess.CalledProcessError):
+        print("BŁĄD: uruchom w checkoucie repozytorium git.", file=sys.stderr)
+        return 2
+    if subprocess.run(["git", "rev-parse", "--verify", "--quiet", BASE], cwd=root, capture_output=True).returncode:
+        print(f"PRACA W TOKU POMINIĘTA | brak {BASE}, nie ma z czym porównać")
+        return 0
+
+    branch = _git(root, "branch", "--show-current").strip() or None
+    mine_dirty = _dirty(root)
+    others = [item for item in _local_work(root) if item.worktree != root and (branch is None or item.branch != branch)]
+    issue_body = ""
+    if args.lokalnie:
+        print("GITHUB POMINIĘTY | --lokalnie")
+    else:
+        try:
+            others = _with_pull_requests(others, _pull_requests(root), branch)
+            if args.issue is not None:
+                issue_body = _issue_body(root, args.issue)
+        except _GitHubSkipped as skipped:
+            print(f"GITHUB POMINIĘTY | {skipped}")
+    others.sort(key=lambda item: (item.worktree is None, item.branch is None, item.branch or "", str(item.worktree)))
+
+    if args.issue is not None:
+        reasons = _issue_reasons(others, args.issue, issue_body)
+        others = [item for item in others if item in reasons]
+        if not args.nakladania:
+            print(f"PRACA W TOKU NAD #{args.issue} | {len(others) or 'nikt'}")
+            for item in others:
+                print(f"{_line(item)} | {reasons[item]}")
+    elif not args.nakladania:
+        print(f"PRACA W TOKU | inne: {len(others)} | odniesienie: {root} ({branch or 'odłączony HEAD'})")
+        for item in others:
+            print(_line(item))
+    mine = _files(root, "HEAD") | mine_dirty
+    for line in _overlaps([(item, _shared(root, mine, mine_dirty, item)) for item in others]):
+        print(line)
+    return 0
+
+
+def _local_work(root: Path) -> list[WorkInProgress]:
+    worktrees = _worktrees(root)
+    checked_out = {tree.branch: tree.path for tree in worktrees if tree.branch is not None}
+    branches = _git(root, "for-each-ref", "refs/heads", "--format=%(refname)").split()
+    lines: list[tuple[str | None, Path | None, str]] = [
+        (ref.removeprefix("refs/heads/"), checked_out.get(ref.removeprefix("refs/heads/")), ref) for ref in branches
+    ]
+    lines += [(None, tree.path, tree.head) for tree in worktrees if tree.branch is None]
+    work = []
+    for branch, worktree, ref in lines:
+        try:
+            item = _work(root, branch, worktree, ref)
+        except (OSError, subprocess.CalledProcessError):
+            continue  # inna sesja właśnie usunęła ten worktree albo gałąź
+        if item is not None:
+            work.append(item)
+    return work
+
+
+def _work(root: Path, branch: str | None, worktree: Path | None, ref: str) -> WorkInProgress | None:
+    dirty = _dirty(worktree) if worktree is not None else frozenset()
+    own = ("rev-list", "--count", "--no-merges", ref, "--not", "--branches", "--remotes")
+    if branch is None and not dirty and not int(_git(root, *own)):
+        return None  # czysta odłączona kopia commitów, które pokazuje już gałąź, albo ich merge: piaskownica albo przegląd
+    ahead = int(_git(root, "rev-list", "--count", f"{BASE}..{ref}"))
+    if not ahead and not dirty:
+        return None
+    return WorkInProgress(
+        branch=branch,
+        worktree=worktree,
+        head=_git(root, "rev-parse", ref).strip(),
+        ahead=ahead,
+        unpushed=int(_git(root, "rev-list", "--count", ref, "--not", "--remotes")),
+        dirty=dirty,
+        files=_files(root, ref) | dirty,
+        pr=None,
+        issues=_issues(_git(root, "log", "--format=%B", f"{BASE}..{ref}")) | _branch_issues(branch),
+        subjects=tuple(_git(root, "log", "--no-merges", f"-n{SUBJECTS}", "--format=%s", f"{BASE}..{ref}").splitlines()),
+    )
+
+
+def _worktrees(root: Path) -> list[_Worktree]:
+    trees = []
+    for block in _git(root, "worktree", "list", "--porcelain").strip().split("\n\n"):
+        fields = dict(line.partition(" ")[::2] for line in block.splitlines())
+        path = Path(fields["worktree"])
+        if "bare" in fields or not path.is_dir():
+            continue
+        branch = fields.get("branch")
+        trees.append(_Worktree(path.resolve(), branch.removeprefix("refs/heads/") if branch else None, fields["HEAD"]))
+    return trees
+
+
+def _with_pull_requests(
+    work: list[WorkInProgress], pull_requests: list[_PullRequest], current_branch: str | None
+) -> list[WorkInProgress]:
+    by_branch = {pr.branch: pr for pr in pull_requests}
+    attached = [
+        replace(item, pr=pr.number, issues=item.issues | pr.issues, files=item.files | pr.files)
+        if item.branch is not None and (pr := by_branch.get(item.branch)) is not None
+        else item
+        for item in work
+    ]
+    local = {item.branch for item in work}
+    remote = [
+        WorkInProgress(
+            branch=pr.branch,
+            worktree=None,
+            head=None,
+            ahead=0,
+            unpushed=0,
+            dirty=frozenset(),
+            files=pr.files,
+            pr=pr.number,
+            issues=pr.issues | _branch_issues(pr.branch),
+            subjects=(),
+        )
+        for pr in pull_requests
+        if pr.branch not in local and pr.branch != current_branch
+    ]
+    return attached + remote
+
+
+def _pull_requests(root: Path) -> list[_PullRequest]:
+    fields = "number,headRefName,title,body,files"
+    answer = _gh(root, "pr", "list", "--state", "open", "--limit", "200", "--json", fields)
+    try:
+        return [
+            _PullRequest(
+                number=int(pr["number"]),
+                branch=str(pr["headRefName"]),
+                issues=_issues(f"{pr['title']}\n{pr['body'] or ''}"),
+                files=frozenset(str(file["path"]) for file in pr["files"] or ()),
+            )
+            for pr in answer
+        ]
+    except (KeyError, TypeError, ValueError) as error:
+        raise _GitHubSkipped(f"gh pr list: nieoczekiwana odpowiedź ({error!r})") from error
+
+
+def _issue_body(root: Path, issue: int) -> str:
+    answer = _gh(root, "issue", "view", str(issue), "--json", "body")
+    try:
+        return str(answer["body"] or "")
+    except (KeyError, TypeError) as error:
+        raise _GitHubSkipped(f"gh issue view: nieoczekiwana odpowiedź ({error!r})") from error
+
+
+def _issue_reasons(work: list[WorkInProgress], issue: int, body: str) -> dict[WorkInProgress, str]:
+    referenced_prs = {int(number) for number in PR_REFERENCE.findall(body)} - {issue}
+    reasons = {}
+    for item in work:
+        found = []
+        if issue in item.issues:
+            found.append(f"odwołuje się do #{issue}")
+        if item.pr in referenced_prs:
+            found.append(f"#{issue} dotyczy PR #{item.pr}")
+        if found:
+            reasons[item] = ", ".join(found)
+    return reasons
+
+
+def _line(item: WorkInProgress) -> str:
+    parts = [item.branch or "odłączony HEAD"]
+    if item.pr is not None:
+        parts.append(f"PR #{item.pr}")
+    if item.worktree is not None:
+        parts.append(str(item.worktree))
+    else:
+        parts.append("tylko na GitHubie" if item.head is None else "bez worktree")
+    counts = [] if item.head is None else [f"przed {BASE} {item.ahead}", f"niewypchnięte {item.unpushed}"]
+    counts += [f"niezacommitowane {len(item.dirty)}", f"pliki {len(item.files)}"]
+    parts.append(", ".join(counts))
+    if item.issues:
+        parts.append(" ".join(f"#{number}" for number in sorted(item.issues)))
+    if item.subjects:
+        parts.append(item.subjects[0])
+    return "- " + " | ".join(parts)
+
+
+def _shared(root: Path, mine: frozenset[str], mine_dirty: frozenset[str], item: WorkInProgress) -> frozenset[str]:
+    """Pliki, które zmienia ten checkout i ``item``, każdy we własnych commitach albo niezacommitowanych.
+
+    Gałąź zbudowana na innej niesie jej commity; liczą się tylko commity, których druga strona nie ma.
+    """
+
+    if item.head is None:
+        return mine & item.files
+    return (_own_files(root, "HEAD", item.head) | mine_dirty) & (_own_files(root, item.head, "HEAD") | item.dirty)
+
+
+def _overlaps(shared: list[tuple[WorkInProgress, frozenset[str]]]) -> list[str]:
+    shared = [(item, files) for item, files in shared if files]
+    if not shared:
+        return ["NAKŁADANIA | brak"]
+    lines = ["NAKŁADANIA | pliki zmieniane tu i w innej pracy w toku"]
+    for item, files in shared:
+        name = item.branch or f"odłączony HEAD {item.worktree}"
+        pr = f" (PR #{item.pr})" if item.pr is not None else ""
+        lines.append(f"- {name}{pr}: {', '.join(sorted(files))}")
+    return lines
+
+
+def _files(root: Path, ref: str) -> frozenset[str]:
+    return frozenset(_git(root, "diff", "--no-renames", "--name-only", "-z", f"{BASE}...{ref}").split("\0")) - {""}
+
+
+def _own_files(root: Path, ref: str, other: str) -> frozenset[str]:
+    log = _git(root, "log", "--no-renames", "--name-only", "--format=", "-z", ref, f"^{BASE}", f"^{other}")
+    return frozenset(log.split("\0")) - {""}
+
+
+def _dirty(worktree: Path) -> frozenset[str]:
+    status = _git(worktree, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all")
+    return frozenset(entry[3:] for entry in status.split("\0") if entry)
+
+
+def _issues(text: str) -> frozenset[int]:
+    return frozenset(int(number) for number in ISSUE_REFERENCE.findall(text))
+
+
+def _branch_issues(branch: str | None) -> frozenset[int]:
+    return frozenset(int(number) for number in BRANCH_NUMBER.findall(branch or ""))
+
+
+def _git(cwd: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        # Raport tylko czyta: bez odświeżania indeksu cudzych worktree przez git status.
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=TIMEOUT_S,
+        check=True,
+    )
+    return completed.stdout
+
+
+def _gh(root: Path, *args: str) -> Any:
+    gh = shutil.which("gh")
+    if gh is None:
+        raise _GitHubSkipped("brak gh")
+    try:
+        completed = subprocess.run(
+            [gh, *args],
+            cwd=root,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise _GitHubSkipped(f"gh: {error}") from error
+    if completed.returncode != 0:
+        reason = (completed.stderr.strip().splitlines() or [f"kod {completed.returncode}"])[0]
+        raise _GitHubSkipped(f"gh: {reason}")
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise _GitHubSkipped(f"gh: {error}") from error
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
