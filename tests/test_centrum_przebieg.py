@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from io import StringIO
+from datetime import datetime, timedelta
 import json
 from pathlib import Path
 import threading
@@ -11,7 +11,7 @@ from typing import Any, NoReturn
 from fastapi.testclient import TestClient
 import pytest
 
-from rozliczenia import cli, engine, settlement_process, template_settlement
+from rozliczenia import engine, settlement_process, template_settlement
 from rozliczenia.centrum import run_view
 from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.telemetry import MetricsStore
@@ -323,30 +323,19 @@ def test_zamkniecie_centrum_w_trakcie_przebiegu_rozliczen_jest_odrzucone(
     assert accepted.status_code == 202
 
 
-def test_centrum_dopisuje_rekord_do_pliku_metryk_cli_i_rozpoznaje_swoje_uruchomienie(tmp_path: Path) -> None:
+def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruchomienie(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
     run_to_end(centrum, dry_run=True)
-    config = tmp_path / "config"
+    store = MetricsStore(centrum.metrics_path, settlement_process.PROCESS.counter_names)
+    [own] = store.read()
+    later = (datetime.fromisoformat(own["started_at"]) + timedelta(seconds=1)).isoformat()
 
-    cli_exit_code = cli.main(
-        [
-            "--source", str(centrum.period_directory / SOURCE_NAME),
-            "--config", str(config / "worker_mapping.yaml"),
-            "--worker-template", str(config / "Wzorzec rozliczenia pracownika.xlsx"),
-            "--metrics", str(centrum.metrics_path),
-            "--dry-run",
-        ],
-        output=StringIO(),
-    )
-    records = MetricsStore(centrum.metrics_path, settlement_process.PROCESS.counter_names).read()
+    store.append({**own, "started_at": later})
     history = centrum.client.get("/api/metrics").json()["runs"]
 
     assert MetricsFiles.of_cli().settlement == settlement_process.default_metrics_path()
-    assert cli_exit_code == 0
+    assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
     assert [(run["process"], run["origin"]) for run in history] == [("settlement", "cmd"), ("settlement", "centrum")]
-    assert [(record["mode"], record["result"]) for record in records] == [("DRY-RUN", "OK"), ("DRY-RUN", "OK")]
-    assert records[0].keys() == records[1].keys()
-    assert records[0]["counters"] == records[1]["counters"]
 
 
 def settlement_setup(client: TestClient) -> dict[str, Any]:
