@@ -214,8 +214,9 @@ def test_po_przekroczeniu_czasu_nie_zostaje_zaden_proces_polecenia(
     assert git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT do jednego procesu jest sygnałem POSIX")
-def test_sigint_do_narzedzia_konczy_trwajace_mutacje_i_sprzata(tmp_path: Path) -> None:
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT i SIGKILL do jednego procesu są sygnałami POSIX")
+@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGKILL"])
+def test_przerwane_albo_zabite_narzedzie_konczy_trwajace_mutacje_i_sprzata(tmp_path: Path, signal_name: str) -> None:
     repo, mutation, started, beats = _hanging_repository(tmp_path)
     scratch = tmp_path / "tmp"
     scratch.mkdir()
@@ -229,8 +230,11 @@ def test_sigint_do_narzedzia_konczy_trwajace_mutacje_i_sprzata(tmp_path: Path) -
     while not started.exists() and time.monotonic() < deadline:
         time.sleep(0.1)
 
-    tool.send_signal(signal.SIGINT)
+    tool.send_signal(getattr(signal, signal_name))
     tool.wait(timeout=20)
+    deadline = time.monotonic() + 20
+    while any(scratch.iterdir()) and time.monotonic() < deadline:
+        time.sleep(0.1)
 
     assert (started.exists(), _beating(beats)) == (True, False)
     assert git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
