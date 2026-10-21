@@ -69,3 +69,25 @@ def unexpected_start_failure() -> Message:
             "utrzymującej narzędzie."
         ),
     )
+
+
+def not_started_after_update() -> Message:
+    """Po Aktualizacji narzędzia nie wystartowała ani nowa wersja, ani stara, do której opiekun cofnął klon."""
+
+    return Message(
+        code="NIE_WYSTARTOWALO_PO_AKTUALIZACJI",
+        what="Centrum rozliczeń nie wystartowało po aktualizacji narzędzia.",
+        where="narzędzie na tym komputerze",
+        action="Przekaż ten komunikat Maksowi.",
+    )
+
+
+def update_finishing() -> Message:
+    """Skrót w trakcie ponownego startu po Aktualizacji narzędzia: opiekun może jeszcze cofać albo startować wersję."""
+
+    return Message(
+        code="AKTUALIZACJA_SIE_KONCZY",
+        what="Aktualizacja narzędzia jeszcze się kończy.",
+        where="narzędzie na tym komputerze",
+        action=f"Poczekaj 10 minut i kliknij {_SHORTCUT} ponownie.",
+    )

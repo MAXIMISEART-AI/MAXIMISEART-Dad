@@ -19,7 +19,7 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
-`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`,
+`--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
 `--feature przebieg-rozliczen`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature powiadomienie-o-naprawie`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
@@ -74,7 +74,13 @@ either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.js
 per Zgłoszenie (never the key, `state` editable to `closed`), unreachable while
 `<root>/skrzynka-zgloszen/brak-sieci` exists; `<root>/github/tool-commit.txt` stands for
 the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum's clock
-forward past the 10-minute limit on asking the skrzynka. The adapter is the production boundary for those actions; the real
+forward past the 10-minute limit on asking the skrzynka. The tool itself is the run's synthetic Git clone
+`<root>/aktualizacja/klon` (its commit is the tool's own commit): Aktualizacja narzędzia moves only that clone,
+fetching from the local "origin" `<root>/aktualizacja/origin.git`, never from GitHub, and while
+`<root>/pacing/aktualizacja-ms.txt` exists each update waits that many milliseconds first (`<root>/pacing/instalacja-ms.txt`: before pip starts). Pip runs with `PIP_NO_INDEX=1`, never reaching PyPI. After a successful
+update Centrum restarts itself: the restart guardian runs the clone's `run_centrum.py`, a shim that serves this
+run's scripted Centrum again on the same port (it rewrites `server.json`), waiting first while
+`<root>/pacing/ponowny-start-ms.txt` exists. When the new version does not answer, the guardian moves the clone back and starts the old version's shim the same way. The adapter is the production boundary for those actions; the real
 Windows and macOS adapters are covered by `tests/test_centrum_launcher.py` (real
 process, real browser opening) and by hand.
 

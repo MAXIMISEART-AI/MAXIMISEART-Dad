@@ -1,42 +1,50 @@
 ---
 name: verify-jedno-uruchomienie-naraz
-description: Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu at a time and never closes during one (also while it waits for Dad's Decyzja), under every interleaving of two tabs, Dad and the server. Use when a change touches `RunHost` or `_Run` in `src/rozliczenia/centrum/runs.py`, `Shutdown` in `shutdown.py`, `stop_when_asked` in `server.py`, the `refuse_while` wiring in `app.py`, adds another action that must wait for a running Uruchomienie (such as Aktualizacja narzędzia), or `test_jedno_uruchomienie_naraz` fails.
+description: Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu or Aktualizacja narzędzia at a time and never closes during one (also while it waits for Dad's Decyzja), under every interleaving of browser tabs, Dad and the server. Use when a change touches `RunHost` or `_Run` in `src/rozliczenia/centrum/runs.py`, `Shutdown` in `shutdown.py`, `stop_when_asked` in `server.py`, the `refuse_while` wiring in `app.py`, `ToolUpdates.start` or `_update` in `tool_updates.py`, adds another action that must wait for a running Uruchomienie, or `test_jedno_uruchomienie_naraz` fails.
 ---
 
 # Verify jedno Uruchomienie naraz
 
 ## The promise
 
-- **JEDNO_NARAZ**: Centrum never has two Uruchomienia procesu in progress at once.
-  Harm: two engines work on the same Folder okresu and metrics file, and Dad gets
-  two results that contradict each other.
+- **JEDNO_NARAZ**: Centrum never has two Uruchomienia procesu in progress at once,
+  nor an Uruchomienie and an Aktualizacja narzędzia, nor two Aktualizacje. Harm: two
+  engines work on the same Folder okresu and metrics file, and Dad gets two results
+  that contradict each other; or Git and pip change the tool under a running engine.
 - **BEZ_ZAMKNIECIA_W_TRAKCIE**: Centrum's server never ends while an Uruchomienie
   procesu is in progress, including one waiting for Dad's Decyzja. Harm: the
   Uruchomienie thread is a daemon, so the end of the Python process kills it
   mid-work. Dad saw it start and then gets no result; its metrics record and the
   end entry in the Centrum log are missing; a temporary folder can stay behind; a
   kill during publication is the [ADR 0005](../../../docs/adr/0005-przerwana-publikacja-plikow-okresu.md) case.
+  The same holds for an Aktualizacja narzędzia until its restart guardian has
+  started: killed mid-Git or mid-pip, it leaves the clone for the next start to
+  roll back.
 
 An Uruchomienie is in progress from the moment `RunHost.start` creates its `_Run`
 until `RunHost.finished` has written its end to the Centrum log. The checker
-tracks this itself, not through the code's `ended` flag.
+tracks this itself, not through the code's `ended` flag. An Aktualizacja is in
+progress from a successful `RunHost.begin_update` until `end_update` returns or,
+after a new version, until the restart guardian has started and
+`Shutdown.close_for_update` may end the server.
 
 ## Does the change touch it?
 
 | Covered code | What the check relies on |
 | --- | --- |
-| `runs.py` `RunHost.start`, `shutdown_refusal`, `decide`, `finished`, `publish` | check and claim of `_run` under `_lock`; refusal while a run has not ended |
+| `runs.py` `RunHost.start`, `shutdown_refusal`, `decide`, `finished`, `publish` | check and claim of `_run` under `_lock`; refusal while a run has not ended; an accepted shutdown sets `_closing` under the same lock |
+| `runs.py` `RunHost.begin_update`, `end_update`, `_busy_locked` | check and claim of `_updating` under `_lock`; refusal while closing, updating or running |
 | `runs.py` `_Run.work`, `confirm`, `answer` | when `ended` is set; waiting for the Decyzja on `_decided` |
-| `shutdown.py` `Shutdown.request`, `wait`, `refuse_while` | refusal check, then `_requested.set()` |
+| `shutdown.py` `Shutdown.request`, `wait`, `refuse_while`, `close_for_update` | refusal check, then `_requested.set()`; `close_for_update` sets it without the check |
+| `tool_updates.py` `ToolUpdates.start`, `_update`, `_restart` | modelled by hand: `begin_update`, a log entry, the thread; then either `end_update` or the guardian and `close_for_update` |
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `c81d155`.** At this commit the checker was confirmed to describe
-the covered code (which last changed in `c041d3b`). To see whether it needs
-another look:
+**Sync commit: `b98f948`.** At this commit the checker was confirmed to describe
+the covered code. To see whether it needs another look:
 
 ```bash
-git log --oneline c81d155..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py
+git log --oneline b98f948..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
@@ -51,7 +59,7 @@ do not matter here: the checker replaces the engine with fixed steps.
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\explore_runs.py
 ```
 
-On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes 10 to 13 s on a
+On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 8 s on a
 Mac and runs in CI as `tests/test_jedno_uruchomienie_naraz.py`. In a worktree the
 script checks the worktree's own `src`.
 
@@ -62,7 +70,7 @@ script checks the worktree's own `src`.
 | `URUCHOMIENIA: NOWE NARUSZENIE (n)` | 1 | A rule breaks in a way not listed below, or a scope never reached a behaviour it must reach (`BRAK_ZAMKNIECIA`, `BRAK_ODMOWY_ZAMKNIECIA`, `BRAK_WYNIKU`, `BRAK_ODMOWY_STARTU`), so the check would prove nothing. |
 | `URUCHOMIENIA: LUKA MODELU (n)` | 2 | `runs.py` or `shutdown.py` uses `threading` in a way the model does not cover (for example `RLock`, `Condition`, `wait(timeout=...)`). No verdict on the rules. |
 
-`--scope zamknij-w-trakcie` or `--scope dwie-karty` runs one scope. `--strict`
+`--scope zamknij-w-trakcie`, `--scope dwie-karty` or `--scope aktualizacja` runs one scope. `--strict`
 counts known findings as violations too: use it to confirm a fix.
 
 ## How it works and what it covers
@@ -78,7 +86,11 @@ checker lets any thread whose step can go now go first, and it tries every such
 order. A lock entry can go only while the lock is free, and `wait()` only once the
 Event is set. Schedules that reach a state already seen are cut short.
 
-Replaced: `run_process` by an engine with one work step, an optional Decyzja
+Replaced: `ToolUpdates` by a „Zaktualizuj narzędzie” tab that calls the real
+`begin_update`, logs and starts the update thread, and a thread whose Git, pip and
+guardian work is one step ending either without a new version (or in a failure),
+then `end_update`, or with the guardian started, then the real
+`Shutdown.close_for_update`. Replaced: `run_process` by an engine with one work step, an optional Decyzja
 through the real `_Run.confirm` (both variants are explored) and an end step. Every
 Uruchomienie ends in success. Modelled by hand: after `Shutdown.wait()` returns,
 the server may end at any moment when no HTTP request is in flight. This is
@@ -90,41 +102,31 @@ received.
 | --- | --- | --- | --- |
 | `zamknij-w-trakcie` | 1 | ≤ 2 (a refused click is retried) | ≤ 1 |
 | `dwie-karty` | 2 | ≤ 1 | ≤ 2 |
+| `aktualizacja` | 1, plus 2 „Zaktualizuj narzędzie” tabs | ≤ 1 | ≤ 1 |
 
 Not covered: Zatrzymania and errors inside the engine (`_Run.work`'s `except`
-path), the CLI or a second Centrum process on another port, Windows logoff, the
-SSE stream, `stopped`/`show_report`, more tabs or clicks than above, and
-anything Aktualizacja narzędzia (PR #198) adds. When `RunHost.begin_update` or a
-similar action that must not run during an Uruchomienie lands, add it as an actor
-in `_drive` with a rule that it never overlaps an Uruchomienie or a shutdown, and
-add a mutation for it.
+path), `tools/uruchom_proces.py` or a second Centrum process on another port,
+Windows logoff, the SSE stream, `stopped`/`show_report`, more tabs or clicks than
+above, and what Aktualizacja narzędzia does to the clone (the
+[`verify-aktualizacja-narzedzia`](../verify-aktualizacja-narzedzia/SKILL.md) model
+covers it). When another action that must not run during an Uruchomienie lands,
+add it as an actor in `_drive` with a rule that it never overlaps an Uruchomienie
+or a shutdown, and add a mutation for it.
 
 ## Known findings
 
-Real defects in the current code, printed as `ZNANE USTALENIE` on every run.
-Both break BEZ_ZAMKNIECIA_W_TRAKCIE:
-
-1. **„Uruchom” between the refusal check and the accepted shutdown.**
-   `Shutdown.request` calls `shutdown_refusal()` under `RunHost._lock`, releases
-   it, logs, then sets `_requested`. Counterexample: Dad clicks „Zamknij” in
-   tab A, and the server finds nothing in progress. Tab B's „Uruchom” enters
-   `RunHost.start` and starts an Uruchomienie thread. Tab A sets `_requested`,
-   and `stop_when_asked` ends the server with the Uruchomienie in progress.
-2. **„Uruchom” after the shutdown was accepted.** `RunHost.start` does not know
-   about the shutdown. A „Uruchom” that reaches the server before uvicorn stops
-   accepting requests gets 200 and starts a thread that the end of the process
-   kills.
-
-A fix must cover both. One sketch passes the check: `shutdown_refusal` sets a
-closing flag under `_lock` when it returns `None`, and `start` refuses with 409
-while that flag is set. When a fix lands, run with `--strict`, then delete the
-fixed entries from `KNOWN_FINDINGS` in `explore_runs.py` and from this list.
+None. The two earlier ones (a „Uruchom” between the refusal check and the
+accepted shutdown, and a „Uruchom” after it) went away when `shutdown_refusal`
+started closing `RunHost` to new Uruchomienia and Aktualizacje under its lock.
+A finding the user accepts goes into `KNOWN_FINDINGS` in `explore_runs.py` and
+here, with the printed signature and one line naming the decision.
 
 ## When the check fails
 
 Read the counterexample as a story. Each numbered line is one step:
-`karta Uruchom n`, `karta Zamknij` and `tata` are browser requests,
-`wątek Uruchomienie n` is the thread `RunHost.start` spawned, `serwer` is
+`karta Uruchom n`, `karta Zaktualizuj n`, `karta Zamknij` and `tata` are browser
+requests, `wątek Uruchomienie n` is the thread `RunHost.start` spawned,
+`wątek Aktualizacja n` the one `ToolUpdates.start` spawned, `serwer` is
 `stop_when_asked`, and `[runs.py:LINE function]` is the code that took the step
 (`[model]` marks a harness step). Then sort it into one of three cases:
 
@@ -146,7 +148,7 @@ Read the counterexample as a story. Each numbered line is one step:
 
 Prove the check can still fail. This applies broken variants to a temporary copy
 of `src`, never to the checkout, each in the one scope that catches it (about
-50 s on a Mac, most of it `dwie-karty` for the split check and claim):
+2 minutes on a Mac):
 
 ```powershell
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutations.py
@@ -154,8 +156,10 @@ py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutation
 
 It must end with `MUTACJE OK`. These all give `NOWE NARUSZENIE`: the check and
 claim in `start` under two lock entries (two Uruchomienia at once), a refusal that
-skips a run waiting for its Decyzja, `ended` set at the start of `_Run.work`, and
-`Shutdown.request` without the refusal. `RLock` in `RunHost` gives `LUKA MODELU`.
+skips a run waiting for its Decyzja, `ended` set at the start of `_Run.work`,
+`Shutdown.request` without the refusal, an accepted shutdown that does not set
+`_closing`, `begin_update` without the closing or the running check, and `start`
+without the updating check. `RLock` in `RunHost` gives `LUKA MODELU`.
 CI runs this in the `mutations` job. A mutation reported as `NIEAKTUALNA` no longer matches its file.
 Rewrite its `anchor` and `replacement` in `check_runs_mutations.py` so it breaks
 the same rule again in the new code. Then move the sync commit forward as above.

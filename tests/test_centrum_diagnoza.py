@@ -174,7 +174,7 @@ def test_diagnoza_nieznanego_uruchomienia_jest_odrzucona(tmp_path: Path) -> None
     assert (refused.status_code, refused.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
 
 
-def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_onedrive_rejestr_wzorce_folder_okresu_i_dziennik(
+def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_onedrive_rejestr_wzorce_folder_okresu_aktualnosc_i_dziennik(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
@@ -183,7 +183,6 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_onedrive
     checks = diagnose(centrum, run_id)["checks"]
 
     assert [(check["label"], check["detail"]) for check in checks] == [
-        ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
         ("Ustawienia taty", "Rejestr zleceń i folder okresów są na miejscu."),
         ("Pliki w OneDrive", "Sprawdzone pliki są na tym komputerze: 3."),
         ("Rejestr zleceń", "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki."),
@@ -192,6 +191,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_aktualnosc_ustawienia_onedrive
         ("Konfiguracja wykonawców", "Wczytuje się."),
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
+        ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
         ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2."),
     ]
 
@@ -480,13 +480,13 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
     missing = diagnose(centrum, run_id)
 
     assert [(check["label"], check["state"]) for check in passing["checks"]] == [
-        ("Aktualność narzędzia", "passed"),
         ("Ustawienia taty", "passed"),
         ("Pliki w OneDrive", "passed"),
         ("Wzorzec rozliczenia pracownika", "passed"),
         ("Konfiguracja wykonawców", "passed"),
         ("Folder okresu", "passed"),
         ("Pliki okresu w Excelu", "passed"),
+        ("Aktualność narzędzia", "passed"),
         ("Dziennik Centrum rozliczeń", "passed"),
     ]
     assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
@@ -535,22 +535,38 @@ def check(diagnosis: dict[str, Any], label: str) -> tuple[str, str]:
     return found["state"], found["detail"]
 
 
-def test_nowsza_wersja_na_githubie_wyjasnia_ze_trzeba_zaktualizowac_narzedzie(
+NEWER_MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
+NEWER = {
+    "what": "Jest nowsza wersja narzędzia.",
+    "where": "narzędzie na tym komputerze",
+    "action": "Kliknij „Zaktualizuj narzędzie”. Gdy karta Centrum sama się odświeży, uruchom proces ponownie.",
+}
+
+
+def test_rejestr_otwarty_w_excelu_przy_nowszej_wersji_wyjasnia_rejestr_a_aktualizacje_tylko_proponuje(
+    tmp_path: Path,
+) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=NEWER_MAIN)))
+    lock(centrum.fixture.register_path)
+    stop_of(centrum)
+    repeated = run_to_end(centrum, dry_run=True)
+
+    diagnosis = diagnose(centrum, repeated["run"]["id"])
+
+    assert diagnosis["explanation"] == repeated["result"]["stops"][0]
+    assert (diagnosis["confirms_stop"], diagnosis["next_action"], diagnosis["update_proposal"]) == (True, "rerun", True)
+    assert check(diagnosis, "Aktualność narzędzia") == ("failed", "Jest nowsza wersja narzędzia.")
+
+
+def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narzedzie_przyciskiem(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    surroundings = Surroundings(github=FakeGitHub(main="9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"))
-    centrum = preparing_centrum(tmp_path, surroundings=surroundings)
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=NEWER_MAIN)))
     run_id = stopped_for_maks(centrum, monkeypatch)
-    lock(centrum.fixture.register_path)
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert diagnosis["explanation"] == {
-        "what": "Jest nowsza wersja narzędzia.",
-        "where": "narzędzie na tym komputerze",
-        "action": "Zaktualizuj narzędzie, zamknij Centrum rozliczeń i otwórz je ponownie skrótem, potem uruchom ponownie.",
-    }
-    assert diagnosis["next_action"] == "rerun"
+    assert (diagnosis["explanation"], diagnosis["next_action"], diagnosis["update_proposal"]) == (NEWER, "update", False)
     assert check(diagnosis, "Aktualność narzędzia") == ("failed", "Jest nowsza wersja narzędzia.")
 
 
@@ -572,6 +588,18 @@ def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyc
 
     assert check(diagnosis, "Aktualność narzędzia") == ("not_checked", detail)
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+def test_brak_sieci_przy_sprawdzaniu_aktualnosci_nie_zmienia_wyjasnienia(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=None)))
+    lock(centrum.fixture.register_path)
+    stop_of(centrum)
+    repeated = run_to_end(centrum, dry_run=True)
+
+    diagnosis = diagnose(centrum, repeated["run"]["id"])
+
+    assert diagnosis["explanation"] == repeated["result"]["stops"][0]
+    assert (diagnosis["confirms_stop"], diagnosis["next_action"], diagnosis["update_proposal"]) == (True, "rerun", False)
 
 
 ONLY_IN_CLOUD_ACTION = (

@@ -80,9 +80,12 @@ def drive_configuration(run: Run, page: Page) -> None:
     run.step(feature, "konfiguracja-tylko-do-odczytu")
     page.get_by_text("Tylko do odczytu", exact=True).hover()
     expect(page.get_by_text("Zmiany robi osoba utrzymująca narzędzie.", exact=True)).to_be_visible()
+    buttons = page.locator("main").get_by_role("button")
     run.check(
-        page.url.endswith("#/konfiguracja") and page.locator("main").get_by_role("button").count() == 2,
-        "the page offers no action besides the header's menu and theme buttons",
+        page.url.endswith("#/konfiguracja")
+        and buttons.count() == 3
+        and buttons.filter(has_text="Zaktualizuj narzędzie").count() == 1,
+        "the page offers no action besides the header's menu and theme buttons and `Zaktualizuj narzędzie`",
     )
     run.capture(page, "11-konfiguracja-tylko-do-odczytu", full_page=False)
     page.mouse.move(0, 0)
