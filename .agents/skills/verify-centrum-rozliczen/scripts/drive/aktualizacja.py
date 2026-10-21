@@ -306,6 +306,16 @@ def drive_update(run: Run, page: Page) -> None:
         run.capture(page, "96-aktualizacja-najnowsza")
 
         _drive_failed_installation(run, page, clone, origin, newest, libraries, dad_files, run_configuration)
+        # Later features (pomiar-u-taty) expect Konfiguracja without an alert: one more click on the restored
+        # `main` leaves this Centrum with `Masz najnowszą wersję.` instead of the failed installation.
+        print("  harness: `main` in the local origin is the newest commit again", flush=True)
+        _git(origin, "update-ref", "refs/heads/main", newest)
+        main_commit.write_text(newest, encoding="utf-8")
+        card = _tool_card(page)
+        card.get_by_role("button", name=BUTTON, exact=True).click()
+        expect(card.get_by_role("status").filter(has_text=UP_TO_DATE)).to_be_visible(timeout=20_000)
+        expect(card.get_by_role("alert")).to_have_count(0)
+        run.check(_head(clone) == newest, "after the failed installation the tool is up to date on the newest commit")
     finally:
         main_commit.unlink(missing_ok=True)
         pacing.with_name("instalacja-ms.txt").unlink(missing_ok=True)
