@@ -1,13 +1,13 @@
 # Metryki
 
 Metryki show the history of every Uruchomienie procesu of both processes,
-including those started from the CLI or the former `.cmd` launchers, read from
-the CLI's two metrics files on every request: P50/P95 per process and mode from five
-completed observations, the result distribution, a stage-times chart, the
-interrupted runs with their phase times, and a sortable, filterable history
-table. Okresy shows three key numbers above the Tablica okresów. Records the
-CLI's reader skips are skipped here too, and no metrics files mean an empty
-state, not an error.
+including those started outside Centrum (the former `.cmd` launchers, Maks's
+tools), read from the two metrics files of the processes on every request:
+P50/P95 per process and mode from five completed observations, the result
+distribution, a stage-times chart, the interrupted runs with their phase times,
+and a sortable, filterable history table. Okresy shows three key numbers above
+the Tablica okresów. Records the metrics reader skips are skipped here too, and
+no metrics files mean an empty state, not an error.
 
 ## Sub-features
 
@@ -20,7 +20,7 @@ state, not an error.
 - `metryki-za-malo-obserwacji`: below five completed observations (Przygotowanie DRY-RUN), P50/P95 show `–` and `od 5 ukończonych (jest N)`.
 - `metryki-przerwane`: an interrupted run shows its phase times until the interruption.
 - `metryki-historia`: the history lists both processes newest first, marks DRY-RUN with the eye icon and launcher runs with `.cmd`, sorts by `Czas`, filters by process, and shows older runs on demand.
-- `metryki-nowy-rekord-z-cli`: a record the real CLI (`run_preparation.py`) appends appears after a reload, without restarting Centrum.
+- `metryki-nowy-rekord-spoza-centrum`: a record that the machine script (`tools/uruchom_proces.py`) appends appears after a reload, without restarting Centrum.
 - `metryki-pusty-stan`: with no metrics files the API returns an empty list and the page shows `Jeszcze nie ma metryk`.
 
 ## How to get to it (user POV)
@@ -46,7 +46,7 @@ Preconditions:
 - **Za mało obserwacji.** In group `Tryb` click `DRY-RUN`. Group `P50` shows `od 5 ukończonych (jest 3)`; the API has `percentiles: null` and `completed_runs: 3`.
 - **Przerwane.** Region `Przerwane` contains the interrupted period and `Sprawdzanie 0,4 s · Odczyt danych 1,3 s` plus `do przerwania 1,7 s`.
 - **Historia.** Table `Historia Uruchomień procesu` shows 10 rows, newest first; the screen-reader text `DRY-RUN` appears once per DRY-RUN row and `.cmd` once per row. Click button `Czas`: the longest run is first and the column header has `aria-sort="descending"`. In group `Proces w historii` click `Przebieg`: only `Przebieg rozliczeń` rows. Click `Wszystkie`, then `Pokaż starsze`: up to 20 rows.
-- **Nowy rekord z CLI.** Run `run_preparation.py --register <root>/brak-rejestru.xlsx --periods-directory <INEA> --period 06_12_10_2026 --dry-run --metrics <fixture.metrics.preparation>`; it exits `1` (no Rejestr zleceń) after appending a `BLAD_KRYTYCZNY` record. `/api/metrics` (`api/metryki-po-cli.json`) has one more run; after a reload the first history row shows `06_12_10_2026`, `Zatrzymano` and `.cmd`.
+- **Nowy rekord spoza Centrum.** Run `tools/uruchom_proces.py preparation --register <root>/brak-rejestru.xlsx --periods-directory <INEA> --period 06_12_10_2026 --dry-run --metrics <fixture.metrics.preparation>`; it exits `1` with stop code `BRAK_REJESTRU` and `metrics_saved: true` in its JSON, after appending a `BLAD_KRYTYCZNY` record. `/api/metrics` (`api/metryki-spoza-centrum.json`) has one more run; after a reload the first history row shows `06_12_10_2026`, `Zatrzymano` and `.cmd` (screenshot `26`).
 - **Pusty stan.** Rename both metrics files; `/api/metrics` returns `runs: []` (`api/metryki-brak-plikow.json`) and the page shows `Jeszcze nie ma metryk`. The drive renames them back.
 - **Proof.** Screenshots `20`–`29` and `2a` (`2a`: the narrow chart; `28`: details after a tap, dark; `29`: details on hover, light), `api/metryki*.json`.
 
@@ -55,7 +55,7 @@ Preconditions:
 - Statistics are per process and mode. A `BLAD_KRYTYCZNY` record is not a completed observation, but `WYMAGA_SPRAWDZENIA` is.
 - The header filter (`Proces`, `Tryb`) drives the strip and the chart only; the history card has its own filters (`Proces w historii`, `Tryb w historii`). Filter and sort state is lost on reload.
 - Every fixture run is marked `.cmd`: the metrics schema has no origin field, so Centrum takes `origin` from its own `centrum-uruchomienia.jsonl`, and Metryki runs before any feature that starts an Uruchomienie procesu from Centrum. Runs Centrum started carry `origin: centrum` and no badge, so `--feature metryki` on a run root where they already ran fails the `.cmd` count.
-- The CLI step writes a record with the real current time, so it is the newest run; it uses the run-local metrics file, never the tool's.
+- The step outside Centrum writes a record with the real current time, so it is the newest run; it uses the run-local metrics file, never the tool's.
 - Bars and details render without animation; a capture right after a filter click is still stable.
 - `tap()` needs a context with `has_touch=True`; the drive's own context has none, so the tap runs in a second context on the same Centrum.
 - The details are one `tooltip` for the whole chart; every bar's accessible name already carries them, so a screen reader reads them on focus.
