@@ -57,9 +57,9 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `f25d28faed63` (#210's fix on top of #213, 2026-10-21: a click
-first rolls back from a journal that no guardian finishes, and a guardian that
-fails to launch leaves no lease). At this commit every row above was checked
+Sync commit: `b98f948` (2026-10-21: after a result without a restart,
+`ToolUpdates._update` frees the „jedno naraz” slot and shows the result together,
+which touches no step of the model). At this commit every row above was checked
 against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
