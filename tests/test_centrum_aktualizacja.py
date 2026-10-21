@@ -281,6 +281,22 @@ def test_w_trakcie_aktualizacji_uruchomienie_druga_aktualizacja_i_zamkniecie_sa_
     assert log_events(centrum).count("aktualizacja-start") == 1
 
 
+def test_po_przyjetym_zamknieciu_aktualizacja_i_uruchomienie_sa_odrzucone(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    assert centrum.client.post("/api/shutdown").status_code == 202
+
+    update = centrum.client.post("/api/tool-update")
+    run = centrum.start(dry_run=True)
+
+    closing = "Centrum rozliczeń się zamyka. Kliknij skrót „Centrum rozliczeń” na pulpicie, potem"
+    assert (update.status_code, update.json()) == (409, {"message": f"{closing} zaktualizuj narzędzie."})
+    assert (run.status_code, run.json()) == (409, {"message": f"{closing} uruchom proces."})
+    assert repository.head() == before
+    assert "aktualizacja-start" not in log_events(centrum)
+
+
 def test_nieprzewidziana_porazka_daje_komunikat_a_klon_zostaje_bez_zmian(tmp_path: Path) -> None:
     centrum, repository = updating_centrum(tmp_path)
     repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
