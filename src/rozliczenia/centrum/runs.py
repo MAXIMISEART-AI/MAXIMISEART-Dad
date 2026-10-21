@@ -70,7 +70,7 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     """Uruchomienie procesu gotowe do startu: ten sam opis procesu co w CLI i wejście procesu z ustawień.
 
     ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
-    ``view`` (deklaracja procesu, liczby na żywo i wynik) i ``warnings`` zamieniają snapshot postępu i podsumowanie
+    ``view`` (deklaracja procesu, liczby na żywo, wynik i ostrzeżenia) zamienia snapshot postępu i podsumowanie
     silnika na widok dla przeglądarki; ``summary_view`` woła rdzeń.
     """
 
@@ -80,8 +80,7 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     inputs: InputsT
     metrics_path: Path
     done: str
-    view: ProcessView[SummaryT]
-    warnings: Callable[[SummaryT], Sequence[Message]]
+    view: ProcessView[InputsT, SummaryT]
 
     @property
     def dry_run(self) -> bool:
@@ -90,10 +89,10 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
         return self.view.progress(snapshot, dry_run=self.dry_run)
 
-    def summary_view(self, _inputs: InputsT, summary: SummaryT) -> _SummaryView:
+    def summary_view(self, inputs: InputsT, summary: SummaryT) -> _SummaryView:
         return _SummaryView(
             summary=self.view.summary(summary, dry_run=self.dry_run),
-            warnings=[contract.Message.of(warning) for warning in self.warnings(summary)],
+            warnings=[contract.Message.of(warning) for warning in self.view.warnings(inputs, summary)],
         )
 
 

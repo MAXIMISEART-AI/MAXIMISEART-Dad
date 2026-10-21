@@ -40,23 +40,22 @@ Błędne argumenty też kończą się kodem 1, bez JSON, z opisem użycia na std
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 import sys
-from typing import Generic, Literal, NoReturn, TypeVar
+from typing import Literal, NoReturn, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from rozliczenia import preparation_process, settlement_messages, settlement_process  # noqa: E402
+from rozliczenia import preparation_process, settlement_process  # noqa: E402
 from rozliczenia.centrum import contract, run_view  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
-from rozliczenia.collective_preparation import PreparationSummary  # noqa: E402
 from rozliczenia.decision import Decision  # noqa: E402
-from rozliczenia.domain import ProgressEvent, SettlementSummary  # noqa: E402
+from rozliczenia.domain import ProgressEvent  # noqa: E402
 from rozliczenia.message import Message  # noqa: E402
 from rozliczenia.preparation_process import PreparationInputs  # noqa: E402
 from rozliczenia.process_run import Finished, Process, ProcessInputs, run_process  # noqa: E402
@@ -97,12 +96,11 @@ class ProcessResult(_Model):
     metrics_saved: bool
 
 
-class _Unattended(Generic[SummaryT]):
+class _Unattended:
     continue_hint = "uruchom proces w Centrum rozliczeń i przy decyzji wybierz „Kontynuuj”"
 
-    def __init__(self, view: run_view.ProcessView[SummaryT], *, dry_run: bool) -> None:
-        self._view = view
-        self._dry_run = dry_run
+    def __init__(self, progress_view: Callable[[ProgressSnapshot], contract.Progress]) -> None:
+        self._progress_view = progress_view
         self.progress = contract.Progress(
             phases=[], template_total=0, templates_completed=0, current_worker=None, figures=[]
         )
@@ -120,21 +118,20 @@ class _Unattended(Generic[SummaryT]):
         pass
 
     def _show(self, snapshot: ProgressSnapshot) -> None:
-        self.progress = self._view.progress(snapshot, dry_run=self._dry_run)
+        self.progress = self._progress_view(snapshot)
 
 
 def _conduct(
     process: Process[InputsT, SummaryT],
-    view: run_view.ProcessView[SummaryT],
-    warnings: Callable[[InputsT, SummaryT], Sequence[Message]],
+    view: run_view.ProcessView[InputsT, SummaryT],
     inputs: InputsT,
     metrics: Path,
 ) -> tuple[ProcessResult, int]:
     dry_run = inputs.dry_run
-    unattended = _Unattended(view, dry_run=dry_run)
+    unattended = _Unattended(lambda snapshot: view.progress(snapshot, dry_run=dry_run))
 
-    def finished_view(_inputs: InputsT, summary: SummaryT) -> tuple[contract.RunSummary, list[CodedMessage]]:
-        return view.summary(summary, dry_run=dry_run), [CodedMessage.of(warning) for warning in warnings(inputs, summary)]
+    def finished_view(inputs: InputsT, summary: SummaryT) -> tuple[contract.RunSummary, list[CodedMessage]]:
+        return view.summary(summary, dry_run=dry_run), [CodedMessage.of(warning) for warning in view.warnings(inputs, summary)]
 
     outcome = run_process(process, inputs, unattended, view=finished_view, metrics_path=metrics)
     summary, coded_warnings = outcome.view or (None, [])
@@ -152,19 +149,11 @@ def _conduct(
     return result, outcome.exit_code
 
 
-def _settlement_warnings(inputs: SettlementInputs, summary: SettlementSummary) -> list[Message]:
-    return [settlement_messages.issue_message(issue, inputs.source) for issue in summary.issues]
-
-
-def _preparation_warnings(_inputs: PreparationInputs, summary: PreparationSummary) -> list[Message]:
-    return list(summary.warnings)
-
-
 def _settle(args: argparse.Namespace) -> tuple[ProcessResult, int]:
     inputs = SettlementInputs(
         args.source, dry_run=args.dry_run, config_path=args.config, worker_template_path=args.worker_template
     )
-    return _conduct(settlement_process.PROCESS, run_view.SETTLEMENT, _settlement_warnings, inputs, args.metrics)
+    return _conduct(settlement_process.PROCESS, run_view.SETTLEMENT, inputs, args.metrics)
 
 
 def _prepare(args: argparse.Namespace) -> tuple[ProcessResult, int]:
@@ -177,7 +166,7 @@ def _prepare(args: argparse.Namespace) -> tuple[ProcessResult, int]:
         internal_template_path=args.internal_template,
         collective_template_path=args.collective_template,
     )
-    return _conduct(preparation_process.PROCESS, run_view.PREPARATION, _preparation_warnings, inputs, args.metrics)
+    return _conduct(preparation_process.PROCESS, run_view.PREPARATION, inputs, args.metrics)
 
 
 class _Parser(argparse.ArgumentParser):

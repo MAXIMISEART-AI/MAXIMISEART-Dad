@@ -18,6 +18,7 @@ from rozliczenia.centrum import run_view
 from rozliczenia.preparation_process import PROCESS as PREPARATION
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore
 
+from tests.fixtures.centrum_processes import run_to_end, settling_centrum
 from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
     INTERNAL_SETTLEMENT_NAME,
@@ -204,6 +205,30 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_kodem_2_z_kodem_ostrze
     assert sorted(path.name for path in source.parent.iterdir()) == [SOURCE_NAME]
     [record] = MetricsStore(tmp_path / "metrics.jsonl", COUNTER_NAMES).read()
     assert (record["mode"], record["result"]) == ("DRY-RUN", "WYMAGA_SPRAWDZENIA")
+
+
+def test_podsumowanie_i_ostrzezenia_sa_te_same_co_na_karcie_uruchomienia_centrum(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path, include_unmapped=True)
+    card = run_to_end(centrum, dry_run=True)["result"]
+
+    exit_code, result = _run(
+        "settlement",
+        "--source",
+        centrum.collective_file,
+        "--config",
+        centrum.configuration.worker_config,
+        "--worker-template",
+        centrum.configuration.worker_template,
+        "--metrics",
+        tmp_path / "metrics-skryptu.jsonl",
+        "--dry-run",
+    )
+
+    assert (exit_code, result["result"]) == (2, card["result"])
+    assert result["summary"] == card["summary"]
+    assert [{key: value for key, value in warning.items() if key != "code"} for warning in result["warnings"]] == card[
+        "warnings"
+    ]
 
 
 def test_zatrzymanie_w_sprawdzaniu_konczy_kodem_1_z_kodem_komunikatu_i_bez_plikow(tmp_path: Path) -> None:
