@@ -7,7 +7,10 @@ każda ich fabryka zwraca ``Message``. Zatrzymanie Uruchomienia procesu to
 
 Trzy części nie zawierają pełnych ścieżek, treści wyjątków, adresów ani treści
 wierszy; wskazują tylko nazwę pliku, folder, arkusz, kolumnę, wiersz albo
-Wykonawcę. Kod jest unikalny w obrębie katalogu procesu: w
+Wykonawcę. Wyjątkiem jest Zatrzymanie o brakach w ``SKUTECZNE``
+(``preparation_messages.invalid_successful_values``): pokazuje dokładną
+zawartość komórki innej niż ``tak`` i ``nie``, żeby tata od razu widział, co
+poprawić. Kod jest unikalny w obrębie katalogu procesu: w
 ``tests/test_instrukcja_taty.py`` każdy kod katalogu ma dokładnie jeden cytat
 instrukcji taty, a każdy cytat wskazuje dokładnie jeden kod. Typ zwracany przez
 każdą fabrykę pilnuje mypy (tryb strict obejmuje testy).

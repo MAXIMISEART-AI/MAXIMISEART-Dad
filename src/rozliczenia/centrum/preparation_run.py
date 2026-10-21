@@ -86,7 +86,6 @@ class PreparationEntry:
             metrics_path=self.metrics_path,
             done="Plik zbiorczy przygotowany",
             view=_VIEW,
-            warnings=lambda summary: summary.warnings,
         )
 
 

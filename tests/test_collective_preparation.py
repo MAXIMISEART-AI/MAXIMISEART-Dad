@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import time
@@ -9,7 +8,6 @@ import time
 from openpyxl import Workbook, load_workbook
 import pytest
 
-from rozliczenia.decision import Decision
 from rozliczenia.domain import (
     IssueCountReady,
     PhaseEnded,
@@ -49,21 +47,7 @@ from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, wri
 from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import cell_values, collective_row, incomplete_period_fixture, run_preparation
-
-
-@dataclass
-class Tata:
-    """Rozmówca w teście: zapisuje każdą Decyzję, robi ``before_answer`` i odpowiada ``consent``."""
-
-    consent: bool = True
-    continue_hint: str = "przy pytaniu wpisz t"
-    before_answer: Callable[[], None] = lambda: None
-    decisions: list[Decision] = field(default_factory=list)
-
-    def confirm(self, decision: Decision) -> bool:
-        self.decisions.append(decision)
-        self.before_answer()
-        return self.consent
+from tests.fixtures.interlocutor import Tata
 
 
 def sheet_rows(path: Path, *, min_row: int, max_col: int) -> list[tuple[object, ...]]:
@@ -756,14 +740,28 @@ def test_period_without_orders_stops(tmp_path: Path) -> None:
     )
 
 
-def test_period_order_with_empty_or_unknown_skuteczne_stops_with_register_row_numbers(tmp_path: Path) -> None:
+SKUTECZNE_ACTION = (
+    "Co zrobić: Wpisz tak albo nie we wskazanych komórkach Rejestru zleceń. "
+    "Zapisz i zamknij Rejestr, i uruchom ponownie."
+)
+
+
+def with_skuteczne(order: dict[str, object], value: object) -> dict[str, object]:
+    """Zlecenie z dowolną odczytaną wartością ``SKUTECZNE``, także nie-tekstem."""
+
+    return order | {"SKUTECZNE": value}
+
+
+def test_period_orders_without_tak_or_nie_in_skuteczne_stop_with_empty_and_other_cells(tmp_path: Path) -> None:
     rows: list[RegisterRow] = [
-        register_order(1, datetime(2026, 9, 7, 15, 0), successful="???"),  # poprzedni okres
-        register_order(2, datetime(2026, 9, 8, 8, 0), successful=" Nie "),
-        register_order(3, datetime(2026, 9, 9, 8, 0), successful=""),
-        register_order(4, datetime(2026, 9, 10, 8, 0), successful="tak"),
-        register_order(5, datetime(2026, 9, 11, 8, 0), successful="częściowo"),
-        register_order(6, datetime(2026, 9, 12, 8, 0), successful="   "),
+        register_order(1, datetime(2026, 9, 7, 15, 0), successful="???"),  # poprzedni okres, wiersz 2
+        register_order(2, datetime(2026, 9, 8, 8, 0), successful=""),
+        with_skuteczne(register_order(3, datetime(2026, 9, 8, 9, 0)), None),
+        register_order(4, datetime(2026, 9, 9, 8, 0), successful=" NIE "),
+        register_order(5, datetime(2026, 9, 9, 9, 0), successful="   "),
+        register_order(6, datetime(2026, 9, 10, 8, 0), successful="Tak"),
+        register_order(7, datetime(2026, 9, 11, 8, 0), successful="TAK/NIE\nsprawdzić"),
+        register_order(8, datetime(2026, 9, 12, 8, 0), successful="nie"),
     ]
     fixture = make_preparation_fixture(tmp_path, rows)
 
@@ -771,13 +769,47 @@ def test_period_order_with_empty_or_unknown_skuteczne_stops_with_register_row_nu
 
     assert error.message.code == "ZLE_SKUTECZNE"
     assert error.message.text == (
-        "Co się stało: Zlecenia okresu mają puste albo nieznane SKUTECZNE (dozwolone: tak, nie). "
-        "Nie utworzono żadnego pliku.\n"
-        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, wiersze 4, 6, 7\n"
-        "Co zrobić: Wpisz tak albo nie w kolumnie SKUTECZNE we wskazanych wierszach Rejestru zleceń. "
-        "Zapisz i zamknij Rejestr, i uruchom ponownie."
+        "Co się stało: 4 zlecenia okresu nie mają tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, puste: L3–L4, L6; inna wartość: L8 („TAK/NIE sprawdzić”)\n"
+        f"{SKUTECZNE_ACTION}"
     )
-    assert "częściowo" not in error.message.text
+
+
+def test_single_empty_skuteczne_points_to_cell_in_column_of_skuteczne_header(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    rows: list[RegisterRow] = [
+        register_order(1, datetime(2026, 9, 8, 8, 0), successful=""),
+        register_order(2, datetime(2026, 9, 9, 8, 0)),
+    ]
+    write_register(fixture.register_path, in_old_layout(rows), headers=OLD_REGISTER_HEADERS)
+
+    error = stop_message(fixture)
+
+    assert error.message.text == (
+        "Co się stało: 1 zlecenie okresu nie ma tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, puste: J2\n"
+        f"{SKUTECZNE_ACTION}"
+    )
+
+
+def test_every_other_skuteczne_value_is_listed_with_exact_cell_content(tmp_path: Path) -> None:
+    values: list[object] = ["???", "tsk", "tsk", " nia ", "ne", "trak", "niie", "tak/nie", 1, "TAKK", "x", "-"]
+    rows: list[RegisterRow] = [
+        with_skuteczne(register_order(number, datetime(2026, 9, 10, 8, number)), value)
+        for number, value in enumerate(values, start=1)
+    ]
+    rows.append(register_order(99, datetime(2026, 9, 11, 8, 0)))
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    error = stop_message(fixture)
+
+    assert error.message.text == (
+        "Co się stało: 12 zleceń okresu nie ma tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, inna wartość: L2 („???”), L3–L4 („tsk”), "
+        "L5 („ nia ”), L6 („ne”), L7 („trak”), L8 („niie”), L9 („tak/nie”), L10 („1”), L11 („TAKK”), "
+        "L12 („x”), L13 („-”)\n"
+        f"{SKUTECZNE_ACTION}"
+    )
 
 
 def test_zlecenie_skuteczne_with_worker_outside_worker_config_stops_with_identifier(tmp_path: Path) -> None:

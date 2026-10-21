@@ -29,13 +29,10 @@ REQUIRED_MAP_HEADINGS = (
 REQUIRED_FEATURE_HEADINGS = (
     "## Sub-features",
     "## How to get to it (user POV)",
-    "## Driving it with PowerShell and run.py",
+    "## Driving it with PowerShell and the machine script",
     "## Gotchas",
 )
 
-# These values are deliberately unique to create_fixture.py,
-# create_preparation_fixture.py, and fill_readiness.py. Their presence in
-# evidence means a source row escaped into a transcript or metrics file.
 ROW_CONTENT_MARKERS = (
     "TEST-CITY",
     "SYNTHETIC-1",

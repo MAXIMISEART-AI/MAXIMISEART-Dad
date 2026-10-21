@@ -1,9 +1,10 @@
 # Rozliczenia verification map
 
 This is the maintained source for verifying the user-facing MAXIMISEART-Dad
-processes through their CLI (`run.py` for Przebieg rozliczeń, `run_preparation.py`
-for Przygotowanie pliku zbiorczego). Dad starts them in Centrum rozliczeń;
-direct CLI runs provide detailed verification evidence.
+processes through the machine script `tools/uruchom_proces.py` (`settlement`
+for Przebieg rozliczeń, `preparation` for Przygotowanie pliku zbiorczego). Dad
+starts them in Centrum rozliczeń; the script runs the same core outside Centrum
+and prints the Centrum contract as JSON, which the assertions read.
 
 ## Baseline preconditions
 
@@ -19,8 +20,9 @@ direct CLI runs provide detailed verification evidence.
 
 ## Driving conventions
 
-- The one-command orchestrator verifies each engine through its CLI (`run.py`, `run_preparation.py` for `--variant preparation`, or both in turn for `--variant chain`).
-- Read stdout, stderr, and native exit codes from the UTF-8 evidence files it creates.
+- The one-command orchestrator verifies each process through the machine script (`settlement`, `preparation` for `--variant preparation`, or both in turn for `--variant chain`).
+- Read each run's command, exit code, and JSON result from `<step>.json` and its metrics file from `<step>-metrics.jsonl` in the UTF-8 evidence directory.
+- Recognise a warning or a stop by its Komunikat `code`.
 - Use workbook reads only for post-action assertions; do not call internal engine functions as proof.
 - The orchestrator runs `--dry-run` before a real run, checks the complete plan,
   and verifies that it writes metrics but creates no destination folder or
@@ -30,8 +32,8 @@ direct CLI runs provide detailed verification evidence.
 
 ## Proof and skip reporting
 
-- A terminal transcript alone is insufficient: pair it with workbook state and metrics.
-- Keep row values, Wzorzec cell values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths and, for the `*-real-templates` variants, the Wzorce directory on each transcript's `command:` line; metrics carry no path at all.
+- A JSON result alone is insufficient: pair it with workbook state and metrics.
+- Keep row values, Wzorzec cell values, customer addresses, and order numbers out of evidence and metrics. The only paths in evidence are the synthetic scratch paths and, for the `*-real-templates` variants, the Wzorce directory in each step's `command`; metrics carry no path at all.
 - The default fixture returns `0`; `--variant unmapped` separately verifies a
   dry-run warning and a failed real run with no published folder.
 - `VERIFY SKIP` from `preparation-real-templates` or `chain-real-templates` is a skip: report it as one.

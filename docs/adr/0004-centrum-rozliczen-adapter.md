@@ -43,7 +43,11 @@ Reguła prywatności: do Centrum trafia tylko to, co przechodzi przez seam
 obserwacji z ADR 0002 (snapshoty projekcji i neutralne powiadomienia), oraz
 bezpieczne komunikaty procesu wspólne z terminalem. Adresy klientów, numery
 zleceń, treści Wierszy danych i tekst wyjątków nie trafiają do przeglądarki,
-dziennika Centrum ani metryk. Typowane błędy silnika niosą jawny bezpieczny
+dziennika Centrum ani metryk. Jedynym wyjątkiem jest Zatrzymanie o brakach w
+`SKUTECZNE` (`ZLE_SKUTECZNE`, specyfikacja #206): pokazuje dokładną zawartość
+komórek `SKUTECZNE` innych niż `tak` i `nie`, więc ta zawartość trafia do
+przeglądarki, Zgłoszenia i historii Uruchomień. `SKUTECZNE` to kolumna stanu
+zlecenia, nie dane klienta, a tata musi widzieć, co poprawić. Typowane błędy silnika niosą jawny bezpieczny
 komunikat dla taty (`message`), napisany jak komunikat, nie jak opis błędu;
 terminal i Centrum biorą go stamtąd, nigdy z `str()` wyjątku.
 

@@ -12,12 +12,8 @@ from typing import Any
 
 import pytest
 
-from rozliczenia import collective_preparation
 from rozliczenia import settings as settings_file
-from rozliczenia import settlement_process
 from rozliczenia.preparation_cli import main
-from rozliczenia.preparation_process import default_metrics_path
-from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
@@ -30,10 +26,19 @@ from tests.fixtures.preparation import (
     make_preparation_fixture,
     register_order,
 )
-from tests.fixtures.terminal import TtyOutput, install_fake_rich, live_starts_and_stops
-from tests.fixtures.preparation import incomplete_period_fixture, metrics_path_for, preparation_arguments, run_cli_answering, run_cli_asking_for_period, run_preparation_cli, without_option
+from tests.fixtures.preparation import incomplete_period_fixture
+from tests.fixtures.terminal import (
+    TtyOutput,
+    install_fake_rich,
+    live_starts_and_stops,
+    metrics_path_for,
+    preparation_arguments,
+    run_cli_answering,
+    run_cli_asking_for_period,
+    run_preparation_cli,
+    without_option,
+)
 
-PREPARATION_COUNTERS = {"period_orders", "successful_orders", "skipped_empty_rows", "warnings"}
 ORDERS_PER_DAY_LINES = [
     "Zlecenia na dzień:",
     "- wt 08.09.2026: 1",
@@ -54,86 +59,6 @@ def metric_records(fixture: PreparationFixture) -> list[dict[str, Any]]:
 def summary_lines(output: str) -> list[str]:
     lines = output.splitlines()
     return lines[lines.index("Status końcowy: OK") :]
-
-
-def test_cli_stop_records_incomplete_run_with_zero_preparation_counters(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    fixture.period_directory.mkdir()
-    fixture.collective_file_path.write_bytes(b"reczne poprawki taty")
-
-    exit_code, _ = run_preparation_cli(fixture)
-
-    assert exit_code == 1
-    [record] = metric_records(fixture)
-    assert record["completed"] is False
-    assert record["result"] == "BLAD_KRYTYCZNY"
-    assert record["counters"] == dict.fromkeys(PREPARATION_COUNTERS, 0)
-
-
-@pytest.mark.parametrize("extra_args", [(), ("--dry-run",)], ids=["RUN", "DRY-RUN"])
-def test_summary_failure_after_engine_leaves_period_files_only_after_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_args: tuple[str, ...]
-) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    prepare = collective_preparation.prepare_collective_file
-
-    def prepare_with_unprintable_summary(*args: Any, **kwargs: Any) -> Any:
-        summary = prepare(*args, **kwargs)
-        summary.orders_per_day = {"SYN-001": 1}  # type: ignore[dict-item]  # podsumowanie, którego nie da się pokazać
-        return summary
-
-    monkeypatch.setattr(collective_preparation, "prepare_collective_file", prepare_with_unprintable_summary)
-
-    exit_code, _ = run_preparation_cli(fixture, *extra_args)
-
-    assert exit_code == 1
-    assert fixture.internal_settlement_path.is_file() is (not extra_args)
-    assert fixture.collective_file_path.is_file() is (not extra_args)
-
-
-@pytest.mark.parametrize(("extra_args", "mode"), [((), "RUN"), (("--dry-run",), "DRY-RUN")])
-def test_cli_writes_safe_metrics_with_preparation_counters(
-    tmp_path: Path, extra_args: tuple[str, ...], mode: str
-) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-
-    run_preparation_cli(fixture, *extra_args)
-
-    [record] = metric_records(fixture)
-    assert record["schema_version"] == 1
-    assert record["mode"] == mode
-    assert record["period"] == PERIOD
-    assert record["completed"] is True
-    assert record["result"] == "OK"
-    assert set(record["phase_durations_ms"]) == {"Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"}
-    assert record["counters"] == {
-        "period_orders": 4,
-        "successful_orders": 3,
-        "skipped_empty_rows": 5,
-        "warnings": 0,
-    }
-    metrics_text = metrics_path_for(fixture).read_text(encoding="utf-8")
-    assert "SYN-" not in metrics_text
-    assert str(tmp_path) not in metrics_text
-    assert MetricsStore(metrics_path_for(fixture)).read() == []
-
-
-def test_przygotowanie_has_own_metrics_history_next_to_przebieg_rozliczen() -> None:
-    assert default_metrics_path().parent == settlement_process.default_metrics_path().parent
-    assert default_metrics_path().name == ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
-
-
-def test_invalid_period_is_recorded_as_unknown_period(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    arguments = preparation_arguments(fixture)
-    arguments[arguments.index(PERIOD)] = "zly okres"
-
-    exit_code = main(arguments, output=StringIO())
-
-    assert exit_code == 1
-    [record] = metric_records(fixture)
-    assert record["period"] == "nieznany"
-    assert record["result"] == "BLAD_KRYTYCZNY"
 
 
 def test_cli_runs_without_rich_with_the_same_information(tmp_path: Path) -> None:

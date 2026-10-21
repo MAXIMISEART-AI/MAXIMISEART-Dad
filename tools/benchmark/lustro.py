@@ -23,7 +23,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from benchmark import ROOT, BenchmarkError
+from benchmark import ROOT, SCRIPT, BenchmarkError
 from rozliczenia.period_folder import PeriodFolder, collective_file_name
 from rozliczenia.settlement_period import parse_period_token
 from rozliczenia.workbook_files import DATA_ROW_COLUMNS, QUANTITY_COLUMNS, read_data_rows, save_workbook
@@ -251,7 +251,7 @@ class _ChildRun:
     exit_code: int
     spawned_at: datetime
     wall_ms: int
-    output: bytes
+    stdout: bytes
 
 
 def run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRun:
@@ -266,13 +266,13 @@ def run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRun
         [sys.executable, *map(str, arguments)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         check=False,
     )
     wall_ms = round((time.perf_counter() - started) * 1000)
     if completed.returncode != 0:
         failure_log.parent.mkdir(parents=True, exist_ok=True)
-        failure_log.write_bytes(completed.stdout)
+        failure_log.write_bytes(completed.stdout + completed.stderr)
     return _ChildRun(completed.returncode, spawned_at, wall_ms, completed.stdout)
 
 
@@ -293,7 +293,8 @@ def ensure_mirror(
         with tempfile.TemporaryDirectory(prefix="benchmark-przygotowanie-") as scratch:
             preparation = run_quietly(
                 [
-                    ROOT / "run_preparation.py",
+                    ROOT / SCRIPT,
+                    "preparation",
                     "--register",
                     register,
                     "--periods-directory",

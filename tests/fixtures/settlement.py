@@ -1,4 +1,4 @@
-"""Przebieg rozliczeń w testach: syntetyczne pliki, obserwator postępu i CLI.
+"""Przebieg rozliczeń w testach: syntetyczne pliki i obserwator postępu.
 
 Plik zbiorczy, Wzorzec rozliczenia pracownika i konfiguracja wykonawców są
 budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
@@ -6,19 +6,13 @@ budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
 
 from __future__ import annotations
 
-import sys
-import time
-import types
-from io import StringIO
 from pathlib import Path
 
-import pytest
 import yaml
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
-from rozliczenia.cli import main
 from rozliczenia.domain import ProgressEvent, ProgressObserver
 from rozliczenia.progress import ProgressProjection
 from rozliczenia.telemetry import MetricsStore
@@ -128,61 +122,10 @@ def projected(projection: ProgressProjection) -> ProgressObserver:
     return observer
 
 
-def run_cli(
-    source_path: Path,
-    config_path: Path,
-    metrics_path: Path,
-    *extra_args: str,
-) -> tuple[int, str]:
-    output = StringIO()
-    exit_code = main(
-        [
-            "--source",
-            str(source_path),
-            "--config",
-            str(config_path),
-            "--worker-template",
-            str(config_path.parent / "Wzorzec rozliczenia pracownika.xlsx"),
-            "--metrics",
-            str(metrics_path),
-            *extra_args,
-        ],
-        output=output,
-    )
-    return exit_code, output.getvalue()
-
-
 def make_preview_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     write_source(source_path, include_unmapped=True)
     return source_path, target_directory, config_path
-
-
-def install_source_dialog(monkeypatch: pytest.MonkeyPatch, *, selected: str, answer_after_s: float = 0) -> list[str]:
-    """Zastępuje okno wyboru Pliku zbiorczego (tkinter); zwraca tytuły pokazanych okien."""
-
-    shown: list[str] = []
-
-    class FakeRoot:
-        def withdraw(self) -> None:
-            pass
-
-        def destroy(self) -> None:
-            pass
-
-    def askopenfilename(*, title: str, **_kwargs: object) -> str:
-        shown.append(title)
-        time.sleep(answer_after_s)
-        return selected
-
-    filedialog = types.ModuleType("tkinter.filedialog")
-    setattr(filedialog, "askopenfilename", askopenfilename)
-    tk_module = types.ModuleType("tkinter")
-    setattr(tk_module, "Tk", FakeRoot)
-    setattr(tk_module, "filedialog", filedialog)
-    monkeypatch.setitem(sys.modules, "tkinter", tk_module)
-    monkeypatch.setitem(sys.modules, "tkinter.filedialog", filedialog)
-    return shown
 
 
 def append_completed_records(metrics_path: Path, mode: str, count: int = 5) -> None:

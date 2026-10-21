@@ -1,23 +1,27 @@
 ---
 name: verify-rozliczenia
-description: Verify MAXIMISEART-Dad's processes (Przebieg rozliczeń, Przygotowanie pliku zbiorczego) through their CLI, each alone and chained from Rejestr zleceń to Rozliczenia pracowników, with synthetic Excel files, workbook side-effect checks, and retained evidence; use after CLI, workbook, or safety-rule changes.
+description: Verify MAXIMISEART-Dad's processes (Przebieg rozliczeń, Przygotowanie pliku zbiorczego) through the machine script `tools/uruchom_proces.py`, each alone and chained from Rejestr zleceń to Rozliczenia pracowników, with synthetic Excel files, workbook side-effect checks, and retained evidence; use after process, workbook, or safety-rule changes.
 ---
 
 # Verify rozliczenia
 
-This is a short-lived Windows CLI, not a server: `run.py` runs Przebieg
-rozliczeń and `run_preparation.py` runs Przygotowanie pliku zbiorczego. Dad
-starts both processes in Centrum rozliczeń, which talks to the same core and is
-verified by `verify-centrum-rozliczen`
+Dad starts both processes in Centrum rozliczeń, verified by
+`verify-centrum-rozliczen`
 ([ADR 0010](../../../docs/adr/0010-centrum-jedynym-wejsciem-taty.md)). This
-harness drives each CLI directly for detailed assertions. Verification uses synthetic `.xlsx` files
+harness starts them outside Centrum through the machine script
+`tools/uruchom_proces.py`: `settlement` runs Przebieg rozliczeń and
+`preparation` runs Przygotowanie pliku zbiorczego, through the same core
+(`run_process`) and the same Uruchomienie view as Centrum. Each run prints one
+JSON result in the shape of the Centrum contract and exits `0` (OK), `2`
+(Wymaga sprawdzenia), or `1` (Zatrzymanie). The script's docstring is the
+reference for its parameters and fields. Verification uses synthetic `.xlsx` files
 and never uses a real customer workbook; the only exceptions are the local
 `preparation-real-templates` and `chain-real-templates` variants, which copy
 the real Wzorce from `config/`.
 
 ## Launch
 
-Run the direct CLI proof from the repository root in PowerShell:
+Run the proof from the repository root in PowerShell:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py
@@ -25,8 +29,8 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py
 
 The runner creates unique scratch and evidence directories, sets UTF-8
 environment variables, creates the synthetic fixture, runs the doctor, drives
-the real CLI through dry-run and write modes, checks workbook side effects, and
-cleans the scratch directory in `finally`. A successful run prints
+the machine script through dry-run and write modes, checks the JSON results and
+workbook side effects, and cleans the scratch directory in `finally`. A successful run prints
 `VERIFY OK`, an evidence path, and `scratch_removed=true`. The default fixture
 contains only mapped synthetic workers, so dry-run and write both return `0`.
 
@@ -50,7 +54,8 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant pr
 ```
 
 `preparation` builds a synthetic Rejestr zleceń and both Wzorce, drives
-`run_preparation.py` through dry-run and write, and checks both period files.
+`tools/uruchom_proces.py preparation` through dry-run and write, and checks
+both period files.
 Its route and counts are in `features/prepare-collective-file.md`.
 
 When `config/` holds the real Wzorce, also run the local variant after changes
@@ -82,7 +87,8 @@ quantities into `N:AP` and charges and remarks into `AQ:AT` of three Wiersze
 danych of the resulting Plik zbiorczy, then Przebieg rozliczeń on that file
 (dry-run, then write). It checks that every Rozliczenie pracownika holds only
 its Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, with `A:AT` equal to
-the Plik zbiorczy row, Gotowość entries included. `chain-real-templates` runs
+the Plik zbiorczy row, Gotowość entries included, and with the Wyróżnienia of
+the Plik zbiorczy cells. `chain-real-templates` runs
 the same path on byte copies of all three real Wzorce, including the Wzorzec
 rozliczenia pracownika; like `preparation-real-templates` it is local only,
 takes `--templates-dir`, and prints `VERIFY SKIP` without them. Route and
@@ -119,7 +125,7 @@ there means the Rejestr has a sheet with all required headers, both Wzorce are
 unlocked with their expected headers, the Wzorzec pliku zbiorczego has
 `xl/externalLinks/*` parts, the mapping is readable, and the Folder okresu does
 not yet exist. The `chain` variants pass `--with-worker-template`, which also
-validates the Wzorzec rozliczenia pracownika the way `run.py` does.
+validates the Wzorzec rozliczenia pracownika the way Przebieg rozliczeń does.
 
 For targeted debugging of a fixture that already exists, invoke the primitive
 directly:
@@ -133,70 +139,81 @@ metrics. Never drive a fixture that this run did not create.
 
 ## Drive
 
-Use `run_verification.py` as the harness entry point. It launches the real
-`run.py` CLI with the same selected Python interpreter as the harness, not
-imports into `rozliczenia`, test-only helpers, or direct calls to the settlement
-engine. Its ordered stages are:
+Use `run_verification.py` as the harness entry point. It launches
+`tools/uruchom_proces.py` as a separate process with the same Python
+interpreter as the harness; it never imports `rozliczenia`, uses test-only
+helpers, or calls the settlement engine directly. Every input path is passed
+explicitly, so no run reads `config/`. Its ordered stages are:
 
 1. Create a disposable source workbook, a shared Wzorzec rozliczenia pracownika, and a local
    three-entry mapping. The target folder is absent.
 2. Run the read-only doctor.
-3. Run `run.py --dry-run` with the synthetic Wzorzec rozliczenia pracownika and assert the complete
-   plan, no target folder, unchanged source/Wzorzec rozliczenia pracownika, and no row content.
-4. Run `run.py` normally; the default fixture requires exit code `0` and asserts
-   exactly three workbooks, routed values, preserved formulas/formatting, an
-   empty worker workbook, and an unchanged Wzorzec rozliczenia pracownika.
-5. For `existing`, `locked`, or `unmapped`, require exit code `1` and assert no
-   partial output is published (or an existing folder is left unchanged).
-6. Copy metrics to evidence and invoke cleanup in `finally`, then run the
-   mechanical self-test against the retained evidence.
+3. Run `settlement --dry-run` with the synthetic Wzorzec rozliczenia
+   pracownika and assert the complete plan, no target folder, unchanged
+   source/Wzorzec rozliczenia pracownika, and no row content.
+4. Run `settlement` without `--dry-run`; the default fixture requires exit code
+   `0` and asserts exactly three workbooks, routed values, preserved
+   formulas/formatting, an empty worker workbook, and an unchanged Wzorzec
+   rozliczenia pracownika.
+5. For `existing`, `locked`, or `unmapped`, require exit code `1`, the stop's
+   Komunikat code, and no partial output (or an existing folder left
+   unchanged).
+6. Invoke cleanup in `finally`, then run the mechanical self-test against the
+   retained evidence.
 
 The `preparation` variant follows the same stages with its own primitives:
 `create_preparation_fixture.py`, `preparation_doctor.py`,
-`run_preparation.py --dry-run`, `assert_preparation.py --expect dry-run`,
-`run_preparation.py`, then `assert_preparation.py --expect run`. Both runs
-require exit code `0`.
+`preparation --dry-run`, `assert_preparation.py --expect dry-run`,
+`preparation`, then `assert_preparation.py --expect run`. Both runs require
+exit code `0`.
 
 The `chain` variants run, in order: `create_preparation_fixture.py
 --with-worker-template`, `preparation_doctor.py --with-worker-template`, the four
 preparation steps above under a `preparation-` prefix with their own
-`preparation-metrics.jsonl`, `fill_readiness.py` (Gotowość), `run.py --source
+`preparation-metrics.jsonl`, `fill_readiness.py` (Gotowość), `settlement --source
 <the Plik zbiorczy written by Przygotowanie> --dry-run`, `assert_chain.py
---expect dry-run`, `run.py` on the same file, then `assert_chain.py --expect
+--expect dry-run`, `settlement` on the same file, then `assert_chain.py --expect
 run`. Every run requires exit code `0`.
 
-Each subprocess is recorded with its command, stdout, stderr, and exit code in
-UTF-8 evidence files. The default fixture reports two mapped writes, one
-`PUSTY_SZABLON`, no issues, and progress `3/3 (100%)`. The `unmapped` variant
-proves that the dry-run warns and the real run publishes nothing.
+The assertions read the contract fields Dad sees on the Uruchomienie card:
+`result`, the plan or summary in `summary` (figures, `file_plan`, period
+files, Zlecenia na dzień), `warnings` and `stop` by their Komunikat `code`,
+and `progress` (the four stages completed in order, Szablony pracowników
+completed of total, written and empty). The default fixture plans and writes
+two mapped workbooks and one empty one with no Problemy, and its progress ends
+at three of three Szablony pracowników. The `unmapped` variant proves that the
+dry-run warns with `BRAK_MAPOWANIA` and the real run stops with
+`NIEZNANY_WYKONAWCA` and publishes nothing.
 
 ## Evidence
 
-Evidence is written under `.verification\evidence\` and survives cleanup. A
-successful default run contains:
+Evidence is written under `.verification\evidence\` and survives cleanup. Each
+Uruchomienie procesu leaves `<step>.json` with the command, exit code, JSON
+result, and stderr, and `<step>-metrics.jsonl`, the metrics file right after
+that step. Every other step leaves `<step>.txt` with its command, stdout,
+stderr, and exit code. A successful default run contains:
 
 - `fixture.txt` with fixture creation output.
 - `doctor.txt` with the read-only preflight result.
-- `dry-run.txt` with the dry-run command, stdout, stderr, and expected exit code.
-- `assert-dry-run.txt` with the no-write workbook assertion and exit code `0`.
-- `run.txt` with the real command, stdout, stderr, and expected exit code.
-- `assert-run.txt` with workbook side-effect assertions and exit code `0`.
-- `metrics.jsonl` with safe local telemetry and no source path or row content.
+- `dry-run.json` and `dry-run-metrics.jsonl` from the dry-run.
+- `assert-dry-run.txt` with the plan and no-write assertion and exit code `0`.
+- `run.json` and `run-metrics.jsonl` from the real run; the metrics file holds
+  the `DRY-RUN` and the `RUN` record, with no source path or row content.
+- `assert-run.txt` with result, progress, and workbook side-effect assertions
+  and exit code `0`.
 - `cleanup.txt` with cleanup output and exit code `0`.
 - `self-test.txt` with the skill and evidence invariant check.
 
 The `chain` variants name the steps of each process instead:
-`preparation-dry-run.txt`, `assert-preparation-dry-run.txt`,
-`preparation-run.txt`, `assert-preparation-run.txt`, `readiness.txt`,
-`settlement-dry-run.txt`, `assert-settlement-dry-run.txt`,
-`settlement-run.txt`, `assert-settlement-run.txt`, and two metrics histories,
-`preparation-metrics.jsonl` and `settlement-metrics.jsonl`, each with one
-`DRY-RUN` and one `RUN` record.
+`preparation-dry-run`, `preparation-run`, `settlement-dry-run`, and
+`settlement-run`, each with its `.json`, `-metrics.jsonl`, and `assert-*.txt`,
+plus `readiness.txt`. Each process keeps its own metrics history, so
+`preparation-run-metrics.jsonl` and `settlement-run-metrics.jsonl` each hold
+exactly one `DRY-RUN` and one `RUN` record.
 
-The CLI proof captures the action and resulting state and verifies filesystem
-side effects alongside terminal output. The dry-run still reads
-workbooks and writes local metrics, so those effects are asserted instead of
-inferred from the mode name. Mocks are not used.
+The proof pairs every JSON result with the filesystem side effects. The
+dry-run still reads workbooks and writes local metrics, so those effects are
+asserted instead of inferred from the mode name. Mocks are not used.
 
 ## Self-test
 
@@ -239,8 +256,11 @@ already performs both checks and prints `scratch_removed=true`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\create_fixture.py --root "$runRoot"`.
 - `scripts/doctor.py` performs the read-only fixture and build check.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\doctor.py --root "$runRoot" --expected-version "0.1.0"`.
-- `scripts/assert_results.py` checks workbook state after either mode.
-  Dry-run additionally requires `--transcript`; write mode checks workbook state.
+- `scripts/assert_results.py` checks the JSON result of a Przebieg rozliczeń
+  step (`--result`) and workbook state after either mode; `--expected-stop`
+  names the stop's Komunikat code for `no-publish` and `existing-output`, and
+  `--expected-what` text its "Co się stało" must contain.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_results.py --root "$runRoot" --expect run --result "$evidenceRoot\run.json"`.
 - `scripts/create_preparation_fixture.py` creates the synthetic Rejestr zleceń,
   both Wzorce, and the mapping for the `preparation` variant;
   `--with-worker-template` adds the Wzorzec rozliczenia pracownika for `chain`, and
@@ -250,24 +270,24 @@ already performs both checks and prints `scratch_removed=true`.
   `--with-worker-template` also validates the Wzorzec rozliczenia pracownika.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\preparation_doctor.py --root "$runRoot" --expected-version "0.1.0"`.
 - `scripts/assert_preparation.py` checks the Folder okresu, both period files,
-  external links, inputs, transcript, and metrics; `--templates config` swaps
+  external links, inputs, the JSON result, and metrics; `--templates config` swaps
   the synthetic Wzorzec checks for the generic real-Wzorzec checks, and
   `--metrics` reads a history other than `<root>\metrics.jsonl`.
-  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_preparation.py --root "$runRoot" --expect run --transcript "$evidenceRoot\run.txt"`.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_preparation.py --root "$runRoot" --expect run --result "$evidenceRoot\run.json"`.
 - `scripts/fill_readiness.py` is the Gotowość step of `chain`: it fills `N:AT`
   in three Wiersze danych of the Plik zbiorczy, keeps every other cell and the
   external links, and records the period files' hashes for `assert_chain.py`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\fill_readiness.py --root "$runRoot"`.
 - `scripts/assert_chain.py` checks the Przebieg rozliczeń of `chain` against
-  the Plik zbiorczy it read: worker routing and order, `A:AT` equality,
-  Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
-  pracownika, unchanged inputs and period files, transcript, and metrics.
-  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_chain.py --root "$runRoot" --expect run --transcript "$evidenceRoot\settlement-run.txt"`.
+  the Plik zbiorczy it read: worker routing and order, `A:AT` equality of values
+  and Wyróżnienia, Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
+  pracownika, unchanged inputs and period files, the JSON result, and metrics.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_chain.py --root "$runRoot" --expect run --result "$evidenceRoot\settlement-run.json"`.
 - `scripts/cleanup.py` removes only a run root below `.verification\runs\`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.
 - `scripts/self_test.py` checks the skill package and evidence hygiene.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\self_test.py --evidence-root "$evidenceRoot"`.
 
 Read `features/README.md` before choosing a feature. Keep the feature map
-updated when routes, command flags, workbook rules, or adapter entry points
+updated when routes, script parameters, contract fields, or workbook rules
 change. Use `/maintain-verification-skill` for the maintenance loop.
