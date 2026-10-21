@@ -294,7 +294,7 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 .venv/bin/python -m mypy
 ```
 Check formatowania nie jest wymagany. Wszystkie zadania CI poza E2E i Timing
-guard (ruff, mypy, pytest, frontend z odtwarzalnym buildem) uruchamia naraz
+guard (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) uruchamia naraz
 `.venv/bin/python tools/ci_lokalnie.py` (Windows: `py -3 tools/ci_lokalnie.py`).
 
 W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`

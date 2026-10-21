@@ -78,12 +78,28 @@ jobs:
         run: py -3 -m pip install --disable-pip-version-check -r requirements.txt
 
       - name: Run tests
-        run: py -3 -m pytest
+        run: py -3 -m pytest -n auto
+
+  mutations:
+    # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
+    name: Mutation checks
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
 
       - name: Prove the publication check fails on broken variants
         shell: pwsh
         run: |
-          py -3 .agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py
+          python .agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py
           if ($LASTEXITCODE -ne 0) {
             throw "Mutation check failed (exit code $LASTEXITCODE)"
           }
@@ -272,6 +288,7 @@ jobs:
       - ruff
       - mypy
       - pytest
+      - mutations
       - e2e
       - timing
       - frontend
@@ -283,6 +300,7 @@ jobs:
           RUFF_RESULT: ${{ needs.ruff.result }}
           MYPY_RESULT: ${{ needs.mypy.result }}
           PYTEST_RESULT: ${{ needs.pytest.result }}
+          MUTATIONS_RESULT: ${{ needs.mutations.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
           TIMING_RESULT: ${{ needs.timing.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
@@ -291,6 +309,7 @@ jobs:
             Ruff = $env:RUFF_RESULT
             mypy = $env:MYPY_RESULT
             pytest = $env:PYTEST_RESULT
+            Mutations = $env:MUTATIONS_RESULT
             E2E = $env:E2E_RESULT
             Timing = $env:TIMING_RESULT
             Frontend = $env:FRONTEND_RESULT
