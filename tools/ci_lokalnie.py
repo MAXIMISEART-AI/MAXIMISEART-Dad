@@ -134,6 +134,11 @@ def main(argv: list[str] | None = None) -> int:
         if not passed:
             failed.append(step.name)
             print("\n".join(output.rstrip().splitlines()[-OUTPUT_ON_FAILURE:]), flush=True)
+    try:
+        overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
+        subprocess.run(overlaps, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
     if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1
