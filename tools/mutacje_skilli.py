@@ -7,7 +7,8 @@ skrypt o takiej nazwie trafia do CI i do ``tools/ci_lokalnie.py`` bez wpisu w ``
 Skrypt nie może zgubić się po cichu. FAIL dostaje plik ``.py`` w skillu z ``mutation`` w nazwie,
 który nie pasuje do wzorca, oraz skrypt mutacji wskazany w ``SKILL.md`` skilla, którego nie ma.
 FAIL dostaje też skrypt, który przekroczył limit czasu, skończył się kodem innym niż 0 albo nie
-wydrukował na końcu ``MUTACJE OK``. Kończy się ``MUTACJE SKILLI OK`` albo
+wydrukował na końcu ``MUTACJE OK``. Limit obejmuje też procesy potomne skryptu: po końcu
+skryptu albo po limicie runner zabija je razem z nim. Kończy się ``MUTACJE SKILLI OK`` albo
 ``MUTACJE SKILLI FAIL | <skrypty>``.
 
     py -3 tools/mutacje_skilli.py                  # Windows
@@ -65,12 +66,34 @@ def _echo(stream: IO[str], lines: list[str]) -> None:
         lines.append(line)
 
 
-def _kill_tree(process: subprocess.Popen[str]) -> None:
-    if sys.platform == "win32":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
-    else:
-        os.killpg(process.pid, signal.SIGKILL)
-    process.wait()
+class _Tree:
+    """Skrypt z jego procesami potomnymi, także tymi, które przeżyły skrypt."""
+
+    def __init__(self, process: subprocess.Popen[str]) -> None:
+        self.process = process
+        if sys.platform == "win32":
+            # Job Object obejmuje potomków także po końcu skryptu, a taskkill /T już ich wtedy nie znajduje.
+            import ctypes
+            from ctypes import wintypes
+
+            self.kernel32 = kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateJobObjectW.restype = kernel32.OpenProcess.restype = wintypes.HANDLE
+            self.job = wintypes.HANDLE(kernel32.CreateJobObjectW(None, None))
+            handle = wintypes.HANDLE(kernel32.OpenProcess(0x0101, False, process.pid))  # TERMINATE | SET_QUOTA
+            if not self.job.value or not handle.value or not kernel32.AssignProcessToJobObject(self.job, handle):
+                raise OSError(ctypes.get_last_error(), "Job Object dla skryptu mutacji")
+            kernel32.CloseHandle(handle)
+
+    def kill(self) -> None:
+        if sys.platform == "win32":
+            self.kernel32.TerminateJobObject(self.job, 1)
+            self.kernel32.CloseHandle(self.job)
+        else:
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        self.process.wait()
 
 
 def _run(script: Path, limit_s: float) -> str | None:
@@ -90,16 +113,21 @@ def _run(script: Path, limit_s: float) -> str | None:
         start_new_session=sys.platform != "win32",
     )
     assert process.stdout is not None
+    deadline = time.monotonic() + limit_s
+    tree = _Tree(process)
     lines: list[str] = []
     reader = threading.Thread(target=_echo, args=(process.stdout, lines), daemon=True)
     reader.start()
     try:
-        code = process.wait(timeout=limit_s)
+        process.wait(timeout=limit_s)
     except subprocess.TimeoutExpired:
-        _kill_tree(process)
-        reader.join(timeout=10)
+        pass
+    tree.kill()
+    # Potomek, który uciekł z grupy procesów, trzyma potok otwarty; czekanie na niego też mieści się w limicie.
+    reader.join(timeout=max(deadline - time.monotonic(), 5))
+    if reader.is_alive() or time.monotonic() > deadline:
         return f"przekroczył limit {limit_s:.0f} s"
-    reader.join()
+    code = process.returncode
     if code != 0:
         return f"kod wyjścia {code}"
     if [line.strip() for line in lines if line.strip()][-1:] != [VERDICT]:

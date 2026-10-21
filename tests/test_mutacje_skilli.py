@@ -6,9 +6,12 @@ Każdy test buduje własne ``.agents/skills`` obok kopii narzędzia, więc narz�
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import shutil
+import signal
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -105,6 +108,53 @@ def test_skrypt_po_limicie_czasu_daje_fail_a_kolejne_dalej_ruszaja(tmp_path: Pat
 
     result = _run(tmp_path, "--limit-s", "1")
 
+    assert result.returncode == 1
+    assert "OK   .agents/skills/verify-b/scripts/check_b_mutations.py" in result.stdout
+    final = result.stdout.splitlines()[-1]
+    assert ".agents/skills/verify-a/scripts/check_a_mutations.py" in final
+    assert "verify-b" not in final
+
+
+def _leaves_child(marker: Path, escape: bool) -> str:
+    """Skrypt z werdyktem, który kończy się kodem 0, a zostawia potomka z otwartym stdout."""
+
+    ready = marker.with_name("potomek-gotowy")
+    child = (
+        ("import os\nos.setsid()\n" if escape else "")
+        + f"import os, pathlib, time\npathlib.Path({str(ready)!r}).write_text(str(os.getpid()))\ntime.sleep(3)\n"
+        + f"pathlib.Path({str(marker)!r}).touch()\ntime.sleep(600)\n"
+    )
+    return (
+        f"import pathlib, subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', {child!r}])\n"
+        + f"while not pathlib.Path({str(ready)!r}).exists():\n    time.sleep(0.05)\n"
+        + PASSING
+    )
+
+
+def test_potomek_skryptu_z_otwartym_wyjsciem_ginie_razem_ze_skryptem(tmp_path: Path) -> None:
+    marker = tmp_path / "potomek-zyje"
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": _leaves_child(marker, escape=False)})
+
+    result = _run(tmp_path, "--limit-s", "60")
+    time.sleep(6)
+
+    assert result.returncode == 0, result.stdout
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK"
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="na Windows potomek nie wychodzi z Job Object skryptu")
+def test_potomek_poza_grupa_procesow_z_otwartym_wyjsciem_daje_fail_po_limicie(tmp_path: Path) -> None:
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": _leaves_child(tmp_path / "potomek-zyje", escape=True)})
+    _skill(tmp_path, "verify-b", {"check_b_mutations.py": PASSING})
+
+    started = time.monotonic()
+    try:
+        result = _run(tmp_path, "--limit-s", "5")
+    finally:
+        os.kill(int((tmp_path / "potomek-gotowy").read_text()), signal.SIGTERM)
+
+    assert time.monotonic() - started < 60
     assert result.returncode == 1
     assert "OK   .agents/skills/verify-b/scripts/check_b_mutations.py" in result.stdout
     final = result.stdout.splitlines()[-1]
