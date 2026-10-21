@@ -26,8 +26,18 @@ from tests.fixtures.preparation import (
     make_preparation_fixture,
     register_order,
 )
-from tests.fixtures.terminal import TtyOutput, install_fake_rich, live_starts_and_stops
-from tests.fixtures.preparation import incomplete_period_fixture, metrics_path_for, preparation_arguments, run_cli_answering, run_cli_asking_for_period, run_preparation_cli, without_option
+from tests.fixtures.preparation import incomplete_period_fixture
+from tests.fixtures.terminal import (
+    TtyOutput,
+    install_fake_rich,
+    live_starts_and_stops,
+    metrics_path_for,
+    preparation_arguments,
+    run_cli_answering,
+    run_cli_asking_for_period,
+    run_preparation_cli,
+    without_option,
+)
 
 ORDERS_PER_DAY_LINES = [
     "Zlecenia na dzień:",

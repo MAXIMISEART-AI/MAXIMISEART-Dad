@@ -21,10 +21,9 @@ import rozliczenia.template_settlement as template_settlement
 from rozliczenia.telemetry import MetricsStore
 from rozliczenia.workbook_files import ExcelRow, WorkerSettlementTemplate
 
-from tests.fixtures.terminal import TtyOutput, install_fake_rich
-from tests.fixtures.settlement import PERIOD, make_fixture
+from tests.fixtures.settlement import PERIOD, append_completed_records, make_fixture, make_preview_fixture
 from tests.fixtures.workbooks import active_worksheet
-from tests.fixtures.settlement import append_completed_records, install_source_dialog, make_preview_fixture, run_cli
+from tests.fixtures.terminal import TtyOutput, install_fake_rich, install_source_dialog, run_cli
 
 
 def assert_fixture_workbooks(target_directory: Path, *, dry_run: bool) -> None:
