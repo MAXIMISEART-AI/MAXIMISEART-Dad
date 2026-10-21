@@ -59,13 +59,10 @@ their contents.
   output or logs. The one exception is the Zatrzymanie about gaps in
   `SKUTECZNE` (`ZLE_SKUTECZNE`, ADR 0004): its tests use synthetic
   `SKUTECZNE` values, because the Komunikat shows the exact cell content.
-- Terminal output of both processes is pinned by golden files in
-  `tests/golden/terminal/`. A change to terminal text is a deliberate change
-  to its golden file in the same commit (`UPDATE_GOLDEN=1`, then review the
-  diff).
 - Before reporting work done, run `tools/ci_lokalnie.py` with the checkout's
   own `.venv`: the CI jobs ruff, mypy, pytest and frontend, ending with
-  `CI LOKALNIE OK`. Before real files are used, run `--dry-run`.
+  `CI LOKALNIE OK`. Before real files are used, run a preview without saving
+  (`Podgląd bez zapisu`).
 
 ## Frontend
 
@@ -93,14 +90,18 @@ their contents.
   adapter.
 - Treat ADR 0004 as the constraint that Centrum rozliczeń is an adapter of
   Uruchomienie procesu, not a second process: it talks to the same core as the
-  terminal, keeps no rules of its own, renders only the progress projection's
+  machine script, keeps no rules of its own, renders only the progress projection's
   snapshots and the process's shared messages as three-part structures.
   Review every Centrum change for localhost-only listening, `Host`/`Origin`
   checks, and file actions limited to paths the server derived from the
   periods folder.
 - Treat ADR 0010 as the constraint that Centrum rozliczeń is Dad's only entry:
-  there are no `.cmd` launchers, the CLI is a maintainer tool for E2E, timing,
-  and benchmarks, and Dad's manual describes only Centrum.
+  there are no `.cmd` launchers and Dad's manual describes only Centrum.
+- Treat ADR 0011 as the constraint that the processes have one conversation,
+  Centrum rozliczeń: there is no CLI and no terminal adapter, and a Komunikat
+  has only its three parts. E2E, the timing guard and the benchmark run the
+  processes through the machine script `tools/uruchom_proces.py`, which uses
+  the same core as Centrum and prints the Centrum contract as JSON.
 - Review standards separately from specification compliance. A passing test
   suite does not replace a review of module depth, seam locality, or domain
   vocabulary.
