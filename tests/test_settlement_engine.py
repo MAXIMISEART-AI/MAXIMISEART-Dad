@@ -58,10 +58,8 @@ def overwrite_with_non_workbook(path: Path) -> None:
     path.write_bytes(b"uszkodzony")
 
 
-def terminal_text(error: StopError) -> str:
-    """Tekst, który terminal pokazuje po „Nie wykonano: ” dla tego zatrzymania."""
-
-    return "\n".join(error.message.terminal_lines)
+UNFIT_COLLECTIVE_FILE_PREFIX = "Plik zbiorczy nie nadaje się do Przebiegu rozliczeń."
+UNUSABLE_WORKER_TEMPLATE_PREFIX = "Nie można użyć Wzorca rozliczenia pracownika."
 
 
 def make_complete_run_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -268,7 +266,7 @@ def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracown
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert "WYKONAWCA bez mapowania" in terminal_text(raised.value)
+    assert raised.value.message.code == "NIEZNANY_WYKONAWCA"
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -303,7 +301,10 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     with pytest.raises(StopError) as stop:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert terminal_text(stop.value) == UNREADABLE_SOURCE_MESSAGE
+    assert (stop.value.message.code, stop.value.message.what) == (
+        "ZLY_PLIK_ZBIORCZY",
+        f"{UNFIT_COLLECTIVE_FILE_PREFIX} {UNREADABLE_SOURCE_MESSAGE}",
+    )
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -318,7 +319,7 @@ def test_plik_zbiorczy_otwarty_w_excelu_zatrzymuje_przebieg_rozliczen_i_zostawia
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert stop.value.message.code == "PLIK_ZBIORCZY_OTWARTY"
-    assert terminal_text(stop.value) == f"Plik jest otwarty lub zablokowany: {source_path.name}"
+    assert stop.value.message.where == f"plik {source_path.name}, folder {PERIOD}"
     assert lock_file.read_bytes() == b"blokada Excela"
     assert source_path.read_bytes() == source_before
     assert not target_directory.exists()
@@ -338,7 +339,7 @@ def test_plik_zbiorczy_bez_wykonawca_w_h17_zatrzymuje_przebieg_rozliczen(tmp_pat
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     assert stop.value.message.code == "ZLY_PLIK_ZBIORCZY"
-    assert terminal_text(stop.value) == "W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H."
+    assert stop.value.message.what == f"{UNFIT_COLLECTIVE_FILE_PREFIX} W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H."
     assert not target_directory.exists()
 
 
@@ -351,7 +352,7 @@ def test_istniejacy_folder_rozliczen_pracownikow_nie_jest_nadpisywany(complete_r
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert "Folder docelowy już istnieje" in terminal_text(raised.value)
+    assert raised.value.message.code == "FOLDER_ROZLICZEN_ISTNIEJE"
     assert sentinel.read_text(encoding="utf-8") == "zachowaj"
 
 
@@ -418,7 +419,7 @@ def test_wzorzec_rozliczenia_pracownika_ktorego_nie_mozna_uzyc_zatrzymuje_sprawd
         run_settlements(source_path, config_path, dry_run=dry_run, worker_template_path=worker_template_path)
 
     assert raised.value.message.code == "ZLY_WZORZEC_PRACOWNIKA"
-    assert terminal_text(raised.value) == detail
+    assert raised.value.message.what == f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} {detail}"
     assert "SENSITIVE-SYNTHETIC" not in raised.value.message.text
     assert not target_directory.exists()
 
@@ -432,7 +433,7 @@ def test_wzorzec_rozliczenia_pracownika_spoza_formatow_skoroszytu_jest_nieczytel
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     assert raised.value.message.code == "ZLY_WZORZEC_PRACOWNIKA"
-    assert terminal_text(raised.value) == "Nie można odczytać Wzorca rozliczenia pracownika."
+    assert raised.value.message.what == f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} Nie można odczytać Wzorca rozliczenia pracownika."
     assert not target_directory.exists()
 
 
@@ -464,10 +465,10 @@ def test_wzorzec_rozliczenia_pracownika_otwarty_w_zapisywaniu_wstrzymuje_publika
 
 
 TEMPLATE_NOT_COPIED = (
-    "Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika; folder wynikowy nie został opublikowany."
+    "Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. Nie utworzono żadnego pliku pracownika."
 )
 FIRST_WORKER_FILE_FAILED = (
-    "Nie udało się przygotować skoroszytu pracownika Adrian Testowy; folder wynikowy nie został opublikowany."
+    "Nie udało się przygotować skoroszytu pracownika Adrian Testowy. Nie utworzono żadnego pliku pracownika."
 )
 
 
@@ -495,7 +496,7 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
         run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=damage_in_saving)
 
     assert raised.value.message.code == code
-    assert terminal_text(raised.value) == komunikat
+    assert raised.value.message.what == komunikat
     assert "SENSITIVE-SYNTHETIC" not in raised.value.message.text
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
@@ -531,7 +532,7 @@ def test_blad_odczytu_wzorca_rozliczenia_pracownika_z_dysku_wstrzymuje_publikacj
 
     assert raised.value.message.code == code
     if failing_phase is ProgressPhase.CHECKING:
-        assert terminal_text(raised.value) == "Nie można odczytać Wzorca rozliczenia pracownika."
+        assert raised.value.message.what == f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} Nie można odczytać Wzorca rozliczenia pracownika."
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -554,7 +555,7 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
     assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
-    assert "Adrian Testowy" in terminal_text(raised.value)
+    assert "Adrian Testowy" in raised.value.message.what
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
     assert sorted(path.name for path in target_directory.parent.iterdir()) == [SOURCE_NAME]
@@ -591,7 +592,8 @@ def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_plik
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert terminal_text(raised.value) == (
+    assert raised.value.message.what == (
+        f"{UNUSABLE_WORKER_TEMPLATE_PREFIX} "
         "Nie znaleziono Wzorca rozliczenia pracownika: Wzorzec rozliczenia pracownika.xlsx. "
         "Zmień nazwę pliku placeholder.xlsx w tym samym folderze na „Wzorzec rozliczenia pracownika.xlsx”."
     )
@@ -617,7 +619,7 @@ def test_rozliczenie_wewnetrzne_albo_plik_zbiorczy_poza_folderem_okresu_zatrzymu
         run_settlements(source_path, tmp_path / "missing.yaml")
 
     assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
-    assert terminal_text(raised.value) == detail
+    assert raised.value.message.what == f"{UNFIT_COLLECTIVE_FILE_PREFIX} {detail}"
 
 
 def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozliczen(tmp_path: Path) -> None:
@@ -687,7 +689,8 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
             observer=recorded.append,
         )
 
-    assert "folder wynikowy nie został opublikowany" in terminal_text(raised.value)
+    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+    assert "Darek Fikcyjny" in raised.value.message.what
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
@@ -715,10 +718,10 @@ def test_failed_faza_przebiegu_rozliczen_is_interrupted_without_exception_text(t
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, tmp_path / "missing.yaml", observer=recorded.append)
 
-    assert "Nie znaleziono pliku" in terminal_text(raised.value)
+    assert raised.value.message.code == "BRAK_PLIKU_ZBIORCZEGO"
     assert [type(event) for event in recorded] == [PhaseStarted, PhaseFailed]
     assert recorded[-1].phase is ProgressPhase.CHECKING
-    assert "Nie znaleziono pliku" not in repr(recorded[-1])
+    assert raised.value.message.what not in repr(recorded[-1])
 
 
 @pytest.mark.parametrize(
