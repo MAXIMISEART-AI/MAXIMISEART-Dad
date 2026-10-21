@@ -3,21 +3,22 @@
 Przebieg rozliczeń writes every Rozliczenie pracownika with ``template_copy.py``: it splices the
 Wiersze danych into the bytes of the Wzorzec rozliczenia pracownika instead of loading and saving the
 workbook with openpyxl. This checker generates Wiersze danych with Hypothesis (every value type a cell
-can hold, edge texts and numbers, row counts on both sides of each compression chunk boundary), writes
+can hold, edge texts and numbers, Wyróżnienia, row counts on both sides of each compression chunk boundary), writes
 them through the real ``WorkerSettlementTemplate.create_settlement()`` and, as the reference, through
 the old openpyxl path (``file_from_template`` + ``write_data_rows``), and checks four rules:
 
 - WIERNA_KOPIA: the two files are the same for what Dad sees in Excel, as judged by the benchmark's
-  correctness gate (``tools/porownanie_rozliczen.py``): values, formulas, resolved styles, merges,
+  correctness gate (``tools/porownanie_rozliczen.py``): values, formulas, resolved styles with Wyróżnienia, merges,
   dimensions, defined names, external links and recalculation flags.
 - TA_SAMA_ODMOWA: the copy refuses a value exactly when the openpyxl path refuses it, and a refusal
   leaves no file.
 - NIETKNIETY_WZORZEC: what ADR 0008 says stays byte for byte stays: every zip part except the sheet,
-  ``xl/workbook.xml`` (only ``calcPr``) and ``xl/styles.xml`` (only appended styles), every sheet row
+  ``xl/workbook.xml`` (only ``calcPr``) and ``xl/styles.xml`` (only appended fonts, fills and styles), every sheet row
   outside the written Wiersze danych, and the cells right of AT in the written rows.
 - KSZTALT_EXCELA: the file has the shape Excel needs and openpyxl does not check when reading it:
   valid zip CRCs, rows and cells in ascending order with matching references, ``dimension`` covering
-  the written rows, ``xml:space="preserve"`` on text with spaces at its edges, style counts that match.
+  the written rows, ``xml:space="preserve"`` on text with spaces at its edges, style lists whose counts and
+  references match.
 
 One Hypothesis example is one Przebieg rozliczeń: one ``WorkerSettlementTemplate`` loaded once and
 1 to 3 Rozliczenia pracowników made from it in a row, as ``run_settlements()`` does for its workers.
@@ -36,7 +37,7 @@ import warnings
 import zipfile
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -54,12 +55,14 @@ from hypothesis.internal.conjecture import engine as hypothesis_engine  # noqa: 
 from openpyxl import load_workbook  # noqa: E402
 from openpyxl.cell.rich_text import CellRichText, TextBlock  # noqa: E402
 from openpyxl.cell.text import InlineFont  # noqa: E402
+from openpyxl.styles import Color, Font, GradientFill, PatternFill  # noqa: E402
 from openpyxl.utils import column_index_from_string, get_column_letter  # noqa: E402
 from openpyxl.worksheet.formula import ArrayFormula  # noqa: E402
 
 import porownanie_rozliczen as gate  # noqa: E402
 from rozliczenia import workbook_files  # noqa: E402
-from rozliczenia.workbook_files import ExcelRow, Layout, WorkerSettlementTemplate, file_from_template  # noqa: E402
+from rozliczenia.highlights import PLAIN, Highlights  # noqa: E402
+from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, WorkerSettlementTemplate, file_from_template  # noqa: E402
 from syntetyczne_wzorce import write_settlement_template  # noqa: E402
 from tests.fixtures.settlement import write_template  # noqa: E402
 from tests.fixtures.workbooks import add_external_link_fixture  # noqa: E402
@@ -77,27 +80,50 @@ SHRINK_SECONDS = 60
 CELL_DIFFERENCES_SHOWN = 5
 MAX_TEXT = 32767
 
-# A known finding is a real divergence in the current code. It is printed with its first example on every
-# run and does not fail the check until the code is fixed; then the checker stops seeing it and the entry
-# is deleted here and in SKILL.md.
-KNOWN_FINDINGS: dict[str, str] = {
-    "PUSTA_KOMORKA_BEZ_STYLU_KOLUMNY": (
-        "Pusta wartość w komórce, której nie ma w XML Wzorca (u taty A i B od wiersza 609), staje się w kopii "
-        'komórką <c r=".."/> bez stylu; openpyxl jej nie zapisuje, więc Excel pokazuje tam styl kolumny.'
-    ),
-}
-
 _ROW = re.compile(rb'<row r="(\d+)"[^>]*?(?:/>|>.*?</row>)', re.S)
 _CELL = re.compile(rb'<c r="([A-Z]{1,3})(\d+)"([^>]*?)(/>|>.*?</c>)', re.S)
 _DIMENSION = re.compile(rb'<dimension ref="([^"]*)"\s*/>')
 _CALC_PR = re.compile(rb"<(?:[\w.-]+:)?calcPr\b[^>]*?/?>")
-_CELL_XFS = re.compile(rb"<cellXfs\b[^>]*>(.*?)</cellXfs>", re.S)
-_NUM_FMTS = re.compile(rb"<numFmts\b[^>]*?(?:/>|>(.*?)</numFmts>)", re.S)
 _COUNT = re.compile(rb'\scount="(\d+)"')
-_XF = re.compile(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", re.S)
-_NUM_FMT_ID = re.compile(rb'<numFmt\b[^>]*numFmtId="(\d+)"')
+_FIRST_CUSTOM_FORMAT = 164  # numFmtId below it are Excel's built-in formats
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 _MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+
+@dataclass(frozen=True)
+class StyleList:
+    """A list in ``xl/styles.xml`` the copy may only append to; a cell style refers to its entries by position."""
+
+    tag: str
+    block: re.Pattern[bytes]
+    entry: re.Pattern[bytes]
+
+    @classmethod
+    def of(cls, tag: str, item: str) -> StyleList:
+        block = re.compile(rb"<%b\b([^>]*?)(?:/>|>(.*?)</%b>)" % (tag.encode(), tag.encode()), re.S)
+        return cls(tag, block, re.compile(rb"<%b\b[^>]*?(?:/>|>.*?</%b>)" % (item.encode(), item.encode()), re.S))
+
+    def entries(self, styles: bytes) -> list[bytes]:
+        found = self.block.search(styles)
+        return self.entry.findall(found.group(2) or b"") if found else []
+
+    def count(self, styles: bytes) -> int | None:
+        found = self.block.search(styles)
+        count = _COUNT.search(found.group(1)) if found else None
+        return int(count.group(1)) if count else None
+
+    def without(self, styles: bytes) -> bytes:
+        return self.block.sub(b"", styles, count=1)
+
+
+NUM_FMTS, FONTS, FILLS, CELL_XFS = (
+    StyleList.of("numFmts", "numFmt"),
+    StyleList.of("fonts", "font"),
+    StyleList.of("fills", "fill"),
+    StyleList.of("cellXfs", "xf"),
+)
+STYLE_LISTS = (NUM_FMTS, FONTS, FILLS, CELL_XFS)
+_XF_ID = {name: re.compile(rb'\s%b="(\d+)"' % name.encode()) for name in ("numFmtId", "fontId", "fillId")}
 
 
 # --- Wzorce ----------------------------------------------------------------------------------------
@@ -261,21 +287,71 @@ def cell_values() -> st.SearchStrategy[object]:
     return st.integers(min_value=0, max_value=59).flatmap(lambda pick: rare if pick == 0 else common)
 
 
-@st.composite
-def data_rows(draw: st.DrawFn, columns: int = DATA_COLUMNS) -> ExcelRow:
-    """One Wiersz danych: usually 46 values (A:AT) as from Plik zbiorczy, sometimes shorter or longer."""
+def is_rare(value: object) -> bool:
+    """A value of the rare kind in ``cell_values()``: the only kind either path may refuse."""
 
-    width = draw(st.one_of(st.just(columns), st.integers(min_value=0, max_value=columns + 4)))
-    values: dict[int, object] = draw(
-        st.dictionaries(st.integers(min_value=0, max_value=max(width - 1, 0)), cell_values(), max_size=8)
+    if isinstance(value, str):
+        return any(ord(character) < 0x20 and character not in "\t\n\r" for character in value)
+    if isinstance(value, Decimal):
+        return value.is_nan()
+    if isinstance(value, (datetime, time)):
+        return value.tzinfo is not None
+    return isinstance(value, (CellRichText, ArrayFormula, bytes))
+
+
+def colors() -> st.SearchStrategy[Color]:
+    return st.one_of(
+        st.integers(min_value=0, max_value=0xFFFFFF).map(lambda rgb: Color(f"FF{rgb:06X}")),
+        st.builds(
+            lambda theme, tint: Color(theme=theme, tint=tint),
+            st.integers(min_value=0, max_value=9),
+            st.sampled_from((0.0, 0.3999755851924192, -0.249977111117893)),
+        ),
+        st.integers(min_value=0, max_value=63).map(lambda index: Color(indexed=index)),
     )
-    if draw(st.booleans()):
-        values.update({index: None for index in draw(st.lists(st.integers(min_value=0, max_value=max(width - 1, 0)), max_size=6))})
-    return tuple(values.get(index) for index in range(width))  # type: ignore[misc]
+
+
+def highlights() -> st.SearchStrategy[Highlights]:
+    """Wyróżnienia of one cell as reading a Plik zbiorczy gives them: ``Highlights.of`` over its font and fill."""
+
+    fills = st.one_of(
+        st.none(),
+        st.builds(lambda color: PatternFill(fill_type="solid", fgColor=color), colors()),
+        st.builds(
+            lambda pattern, foreground, background: PatternFill(fill_type=pattern, fgColor=foreground, bgColor=background),
+            st.sampled_from(("gray125", "darkGrid", "lightUp")),
+            colors(),
+            colors(),
+        ),
+        st.just(GradientFill(degree=90, stop=("FFFFFF00", "FF0070C0"))),
+    )
+    fonts = st.builds(lambda color, bold, italic: Font(color=color, b=bold, i=italic), st.none() | colors(), st.booleans(), st.booleans())
+    return st.builds(Highlights.of, fonts, fills)
+
+
+def _data_row(values: ExcelRow, marked: dict[int, Highlights] | None = None) -> DataRow:
+    """A Wiersz danych of 46 values (A:AT); cells missing from ``marked`` have no Wyróżnienia."""
+
+    cells = marked or {}
+    return DataRow(FIRST_DATA_ROW, values[7], values, tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS)))
 
 
 @st.composite
-def settlements(draw: st.DrawFn, template: Template) -> list[ExcelRow]:
+def data_rows(draw: st.DrawFn) -> DataRow:
+    """One Wiersz danych as from Plik zbiorczy: 46 values and their Wyróżnienia, often none at all."""
+
+    columns = st.integers(min_value=0, max_value=DATA_COLUMNS - 1)
+    values = draw(st.dictionaries(columns, cell_values(), max_size=8))
+    marked = draw(st.one_of(st.just({}), st.dictionaries(columns, highlights(), max_size=10)))
+    return _data_row(tuple(values.get(index) for index in range(DATA_COLUMNS)), marked)  # type: ignore[misc]
+
+
+def _highlighted(rows: Sequence[DataRow]) -> bool:
+    return any(cell != PLAIN for row in rows for cell in row.highlights)
+
+
+@st.composite
+def settlements(draw: st.DrawFn, template: Template) -> list[DataRow]:
     """Wiersze danych of one Rozliczenie pracownika: a few distinct rows repeated, with some rows overridden."""
 
     interesting = template.interesting_counts()
@@ -290,7 +366,7 @@ class Case:
     """One Przebieg rozliczeń: one Wzorzec loaded once, then each Rozliczenie pracownika in order."""
 
     template: Template
-    workers: tuple[tuple[ExcelRow, ...], ...]
+    workers: tuple[tuple[DataRow, ...], ...]
 
     def __repr__(self) -> str:
         return f"Case({self.template.name}, {[len(rows) for rows in self.workers]} Wierszy danych)"
@@ -309,7 +385,6 @@ def cases(template: Template) -> st.SearchStrategy[Case]:
 class Divergence:
     rule: str
     detail: str
-    known: str | None = None  # KNOWN_FINDINGS key, when the divergence is a known finding
 
 
 @dataclass(frozen=True)
@@ -321,14 +396,14 @@ class Attempt:
 def _attempt(target: Path, write: Callable[[], None]) -> Attempt:
     try:
         write()
-    except Exception as exc:  # noqa: BLE001 - both paths may refuse a value in any way; the type is compared
+    except Exception as exc:  # noqa: BLE001 - a path may refuse a rare value in any way; a refusal without one is a LUKA
         return Attempt(target, type(exc).__name__)
     return Attempt(target, None)
 
 
-def _write_with_openpyxl(template: Path, target: Path, rows: Sequence[ExcelRow]) -> None:
+def _write_with_openpyxl(template: Path, target: Path, rows: Sequence[DataRow]) -> None:
     with file_from_template(template, target, Layout.COLLECTIVE, recalculate=True) as sheet:
-        sheet.write_data_rows([tuple(_xml_line_ends(value) for value in row) for row in rows])
+        sheet.write_data_rows([replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows])
 
 
 def _xml_line_ends(value: Any) -> Any:
@@ -355,7 +430,7 @@ class Routes:
         self.fallbacks: list[Path] = []
         original = WorkerSettlementTemplate._create_with_openpyxl
 
-        def recording(worker: WorkerSettlementTemplate, target: Path, rows: Sequence[ExcelRow]) -> None:
+        def recording(worker: WorkerSettlementTemplate, target: Path, rows: Sequence[DataRow]) -> None:
             self.fallbacks.append(target)
             original(worker, target, rows)
 
@@ -367,12 +442,14 @@ class Statistics:
     examples: int = 0
     settlements: Counter[str] = field(default_factory=Counter)  # kopia / droga openpyxl / odmowa
     refusals: Counter[str] = field(default_factory=Counter)
+    highlighted: int = 0  # Rozliczenia pracowników with Wyróżnienia written through the copy
+    unexplained: Counter[str] = field(default_factory=Counter)  # refusals of Wiersze danych without a rare value
     max_rows: int = 0
     chunk_rows_reached: set[int] = field(default_factory=set)
 
 
 def check_settlement(
-    template: Template, copy: Attempt, reference: Attempt, rows: Sequence[ExcelRow], via_copy: bool
+    template: Template, copy: Attempt, reference: Attempt, rows: Sequence[DataRow], via_copy: bool
 ) -> list[Divergence]:
     if copy.refusal is not None or reference.refusal is not None:
         found = []
@@ -394,13 +471,11 @@ def check_settlement(
             return [Divergence("KSZTALT_EXCELA", f"pliku nie da się przeczytać: {type(exc).__name__}: {exc}")]
         if shape:
             return shape
-        return _gate_divergences(template, copy.path, reference.path, rows) + _untouched_divergences(
-            template, copy.path, len(rows)
-        )
-    return _gate_divergences(template, copy.path, reference.path, rows)
+        return _gate_divergences(copy.path, reference.path) + _untouched_divergences(template, copy.path, len(rows))
+    return _gate_divergences(copy.path, reference.path)
 
 
-def _gate_divergences(template: Template, copy: Path, reference: Path, rows: Sequence[ExcelRow]) -> list[Divergence]:
+def _gate_divergences(copy: Path, reference: Path) -> list[Divergence]:
     differences = gate.compare_worker_settlements(reference.parent, copy.parent)
     if not any(differences.values()):
         return []
@@ -410,29 +485,18 @@ def _gate_divergences(template: Template, copy: Path, reference: Path, rows: Seq
     if other:
         found.append(Divergence("WIERNA_KOPIA", f"bramka poprawności: {other}"))
     if sum(cell_counts.values()):
-        unknown, known = _cell_differences(template, copy, reference, len(rows))
-        if known:
-            found.append(
-                Divergence(
-                    "WIERNA_KOPIA",
-                    f"{len(known)} komórek, np. {', '.join(known[:CELL_DIFFERENCES_SHOWN])}",
-                    known="PUSTA_KOMORKA_BEZ_STYLU_KOLUMNY",
-                )
-            )
-        if unknown or len(known) != sum(cell_counts.values()):
-            shown = "; ".join(unknown[:CELL_DIFFERENCES_SHOWN]) or f"liczniki bramki {dict(cell_counts)}"
-            found.append(Divergence("WIERNA_KOPIA", f"{len(unknown)} komórek: {shown}"))
+        cells = _cell_differences(copy, reference)
+        shown = "; ".join(cells[:CELL_DIFFERENCES_SHOWN]) or f"liczniki bramki {dict(cell_counts)}"
+        found.append(Divergence("WIERNA_KOPIA", f"{len(cells)} komórek: {shown}"))
     return found
 
 
-def _cell_differences(template: Template, copy: Path, reference: Path, written: int) -> tuple[list[str], list[str]]:
-    """Cells that differ, with the gate's own semantics, split into new ones and the known finding."""
+def _cell_differences(copy: Path, reference: Path) -> list[str]:
+    """Cells that differ, with the gate's own semantics."""
 
     reference_book, copy_book = load_workbook(reference), load_workbook(copy)
-    copy_xml = zipfile.ZipFile(copy).read(SHEET)
     styles = gate._Styles()
-    unknown: list[str] = []
-    known: list[str] = []
+    cells: list[str] = []
     for title in dict.fromkeys([*reference_book.sheetnames, *copy_book.sheetnames]):
         expected, actual = gate._sheet(reference_book, title), gate._sheet(copy_book, title)
         expected_columns, actual_columns = gate._column_dimensions(expected), gate._column_dimensions(actual)
@@ -443,31 +507,18 @@ def _cell_differences(template: Template, copy: Path, reference: Path, written: 
             expected_formula, actual_formula = gate._formula(expected_cell), gate._formula(actual_cell)
             if expected_formula is not None or actual_formula is not None:
                 if expected_formula != actual_formula:
-                    unknown.append(f"{label} formuła kopia={_value_text(actual_formula)} openpyxl={_value_text(expected_formula)}")
+                    cells.append(f"{label} formuła kopia={_value_text(actual_formula)} openpyxl={_value_text(expected_formula)}")
                 continue
             expected_value, actual_value = gate._value(expected_cell), gate._value(actual_cell)
             if expected_value != actual_value:
-                unknown.append(f"{label} wartość kopia={_value_text(actual_value)} openpyxl={_value_text(expected_value)}")
+                cells.append(f"{label} wartość kopia={_value_text(actual_value)} openpyxl={_value_text(expected_value)}")
             expected_style = gate._style(expected, expected_cell, coordinate, expected_columns, styles)
             actual_style = gate._style(actual, actual_cell, coordinate, actual_columns, styles)
-            if expected_style == actual_style:
-                continue
-            reference_xml = f'<c r="{get_column_letter(column)}{row}"/>'.encode()
-            if (
-                title == copy_book.active.title  # type: ignore[union-attr]
-                and expected_value is None
-                and actual_value is None
-                and column <= DATA_COLUMNS
-                and FIRST_DATA_ROW <= row < FIRST_DATA_ROW + written
-                and coordinate not in template.cells
-                and reference_xml in copy_xml
-            ):
-                known.append(label)
-            else:
-                unknown.append(f"{label} styl (czcionka, wypełnienie, obramowanie, wyrównanie albo format liczb)")
+            if expected_style != actual_style:
+                cells.append(f"{label} styl (czcionka, wypełnienie, obramowanie, wyrównanie albo format liczb)")
     reference_book.close()
     copy_book.close()
-    return unknown, known
+    return cells
 
 
 def _rows(xml: bytes) -> dict[int, tuple[int, int]]:
@@ -492,7 +543,20 @@ def _without_calc_pr(xml: bytes) -> bytes:
 
 
 def _without_style_lists(xml: bytes) -> bytes:
-    return _NUM_FMTS.sub(b"", _CELL_XFS.sub(b"", xml, count=1), count=1)
+    for style_list in STYLE_LISTS:
+        xml = style_list.without(xml)
+    return xml
+
+
+def _styles_untouched(before: bytes, after: bytes) -> list[Divergence]:
+    found = []
+    if _without_style_lists(before) != _without_style_lists(after):
+        found.append(Divergence("NIETKNIETY_WZORZEC", f"{STYLES} zmienił się poza {', '.join(item.tag for item in STYLE_LISTS)}"))
+    for style_list in STYLE_LISTS:
+        original = style_list.entries(before)
+        if style_list.entries(after)[: len(original)] != original:
+            found.append(Divergence("NIETKNIETY_WZORZEC", f"{STYLES}: {style_list.tag} Wzorca zmienione, a nie tylko dopisane"))
+    return found
 
 
 def _untouched_divergences(template: Template, copy: Path, written: int) -> list[Divergence]:
@@ -510,12 +574,7 @@ def _untouched_divergences(template: Template, copy: Path, written: int) -> list
                 found.append(Divergence("NIETKNIETY_WZORZEC", f"{name} zmienił się poza calcPr"))
             continue
         if name == STYLES:
-            if _without_style_lists(original.read(name)) != _without_style_lists(result.read(name)):
-                found.append(Divergence("NIETKNIETY_WZORZEC", f"{name} zmienił się poza cellXfs i numFmts"))
-            xfs_before = _XF.findall(_CELL_XFS.search(original.read(name)).group(1))  # type: ignore[union-attr]
-            xfs_after = _XF.findall(_CELL_XFS.search(result.read(name)).group(1))  # type: ignore[union-attr]
-            if xfs_after[: len(xfs_before)] != xfs_before:
-                found.append(Divergence("NIETKNIETY_WZORZEC", f"{name}: style Wzorca zmienione, a nie tylko dopisane"))
+            found += _styles_untouched(original.read(name), result.read(name))
             continue
         same = (before.CRC, before.compress_size, before.compress_type) == (after.CRC, after.compress_size, after.compress_type)
         if not same or original.read(name) != result.read(name):
@@ -609,20 +668,35 @@ def _excel_shape_divergences(copy: Path, written: int) -> list[Divergence]:
         bound = re.fullmatch(r"([A-Z]+)(\d+)", last_cell)
         if bound is None or int(bound.group(2)) < FIRST_DATA_ROW + written - 1 or column_index_from_string(bound.group(1)) < max_column:
             found.append(Divergence("KSZTALT_EXCELA", f"dimension {reference} nie obejmuje wpisanych wierszy do {FIRST_DATA_ROW + written - 1}"))
-    styles = archive.read(STYLES)
-    cell_xfs = re.search(rb"<cellXfs\b[^>]*>", styles)
-    block = _CELL_XFS.search(styles)
-    if cell_xfs is not None and block is not None:
-        count = _COUNT.search(cell_xfs.group(0))
-        xfs = len(_XF.findall(block.group(1)))
-        if count is not None and int(count.group(1)) != xfs:
-            found.append(Divergence("KSZTALT_EXCELA", f"cellXfs count={count.group(1).decode()}, a stylów jest {xfs}"))
-        used = [int(style) for style in re.findall(rb'<c r="[A-Z]+\d+" s="(\d+)"', xml)]
-        if used and max(used) >= xfs:
-            found.append(Divergence("KSZTALT_EXCELA", f"komórka ze stylem {max(used)} spoza {xfs} stylów"))
-    formats = [int(number) for number in _NUM_FMT_ID.findall(styles)]
+    return found + _styles_shape(archive.read(STYLES), xml)
+
+
+def _styles_shape(styles: bytes, sheet: bytes) -> list[Divergence]:
+    """Every list's ``count`` matches its entries and every reference by position points at an existing entry."""
+
+    found = []
+    for style_list in STYLE_LISTS:
+        count, entries = style_list.count(styles), len(style_list.entries(styles))
+        if count is not None and count != entries:
+            found.append(Divergence("KSZTALT_EXCELA", f"{style_list.tag} count={count}, a pozycji jest {entries}"))
+    formats = [int(_XF_ID["numFmtId"].search(entry).group(1)) for entry in NUM_FMTS.entries(styles)]  # type: ignore[union-attr]
     if len(formats) != len(set(formats)):
         found.append(Divergence("KSZTALT_EXCELA", "powtórzony numFmtId"))
+    xfs = CELL_XFS.entries(styles)
+    fonts, fills = len(FONTS.entries(styles)), len(FILLS.entries(styles))
+    for position, xf in enumerate(xfs):
+        tag = xf[: xf.index(b">")]
+        ids = {name: int(match.group(1)) for name, pattern in _XF_ID.items() if (match := pattern.search(tag))}
+        if (
+            ids.get("fontId", 0) >= fonts
+            or ids.get("fillId", 0) >= fills
+            or ids.get("numFmtId", 0) >= _FIRST_CUSTOM_FORMAT and ids["numFmtId"] not in formats
+        ):
+            found.append(Divergence("KSZTALT_EXCELA", f"styl komórki {position} wskazuje brakującą pozycję: {ids}"))
+            break
+    used = [int(style) for style in re.findall(rb'<c r="[A-Z]+\d+" s="(\d+)"', sheet)]
+    if used and max(used) >= len(xfs):
+        found.append(Divergence("KSZTALT_EXCELA", f"komórka ze stylem {max(used)} spoza {len(xfs)} stylów"))
     return found
 
 
@@ -640,7 +714,6 @@ class Violation(AssertionError):
 class Run:
     routes: Routes
     statistics: dict[str, Statistics]
-    known: dict[str, tuple[Case, int, Divergence]] = field(default_factory=dict)
 
     def check(self, case: Case) -> None:
         template = case.template
@@ -663,28 +736,43 @@ class Run:
                 statistics.settlements[route] += 1
                 if copy.refusal:
                     statistics.refusals[copy.refusal] += 1
+                refusal = copy.refusal or reference.refusal
+                if refusal and not any(is_rare(value) for row in rows for value in row.values):
+                    statistics.unexplained[refusal] += 1
                 statistics.max_rows = max(statistics.max_rows, len(rows))
                 if via_copy and copy.refusal is None:
+                    statistics.highlighted += _highlighted(rows)
                     last = FIRST_DATA_ROW + len(rows) - 1
                     statistics.chunk_rows_reached.update(row for row in template.chunk_rows[1:] if row <= last + 1)
                 divergences += [(index, divergence) for divergence in check_settlement(template, copy, reference, rows, via_copy)]
         if template.path.read_bytes() != template.content:
             divergences.append((0, Divergence("NIETKNIETY_WZORZEC", "plik Wzorca na dysku się zmienił")))
-        new = []
-        for index, divergence in divergences:
-            if divergence.known is None:
-                new.append((index, divergence))
-            elif divergence.known not in self.known or _size(case) < _size(self.known[divergence.known][0]):
-                self.known[divergence.known] = (case, index, divergence)
-        if new:
-            raise Violation(case, new)
-
-
-def _size(case: Case) -> int:
-    return sum(len(rows) for rows in case.workers)
+        if divergences:
+            raise Violation(case, divergences)
 
 
 # --- report -----------------------------------------------------------------------------------------
+
+
+def _first(items: Sequence[str]) -> str:
+    return ", ".join(items[:8]) + (f" i {len(items) - 8} innych" if len(items) > 8 else "")
+
+
+def _highlights_text(highlights: Highlights) -> str:
+    fill = highlights.fill
+    parts = [
+        f"wypełnienie {getattr(fill, 'patternType', None) or type(fill).__name__}" if fill is not None else "",
+        f"kolor {_color_text(highlights.color)}" if highlights.color is not None else "",
+        "pogrubienie" if highlights.bold else "",
+        "kursywa" if highlights.italic else "",
+    ]
+    return "(" + ", ".join(part for part in parts if part) + ")"
+
+
+def _color_text(color: Color) -> str:
+    if color.type == "theme":
+        return f"motyw {color.theme} tint {color.tint}"
+    return f"{color.type} {color.value}"
 
 
 def _value_text(value: object) -> str:
@@ -707,14 +795,18 @@ def story(case: Case, divergences: Sequence[tuple[int, Divergence]]) -> list[str
         values = [
             f"{get_column_letter(column)}{FIRST_DATA_ROW + offset}={_value_text(value)}"
             for offset, row in enumerate(rows)
-            for column, value in enumerate(row, start=1)
+            for column, value in enumerate(row.values, start=1)
             if value is not None
         ]
-        widths = sorted({len(row) for row in rows})
-        shown = ", ".join(values[:8]) + (f" i {len(values) - 8} innych" if len(values) > 8 else "")
+        marked = [
+            f"{get_column_letter(column)}{FIRST_DATA_ROW + offset} {_highlights_text(cell)}"
+            for offset, row in enumerate(rows)
+            for column, cell in enumerate(row.highlights, start=1)
+            if cell != PLAIN
+        ]
         lines.append(
-            f"  {index + 1}. Rozliczenie pracownika {index}: {len(rows)} Wierszy danych (wiersze {FIRST_DATA_ROW}–{last}, "
-            f"{'/'.join(map(str, widths))} wartości w wierszu); niepuste: {shown or 'brak'}."
+            f"  {index + 1}. Rozliczenie pracownika {index}: {len(rows)} Wierszy danych (wiersze {FIRST_DATA_ROW}–{last}); "
+            f"niepuste: {_first(values) or 'brak'}; Wyróżnienia: {_first(marked) or 'brak'}."
         )
     for index, divergence in divergences:
         where = f"Rozliczenie pracownika {index}" if index else "Wzorzec"
@@ -733,7 +825,6 @@ def run_check(
     random_seed: int | None = None,
     shrink: bool = True,
     real_template: Path | None = None,
-    strict: bool = False,
 ) -> Outcome:
     started = clock.perf_counter()
     lines: list[str] = []
@@ -748,9 +839,9 @@ def run_check(
         for template in templates:
             # Each Wzorzec gets its own Hypothesis run with the full budget of examples.
             explicit = [Case(template, (_value_rows(),)), _longest_example(template)]
-            known_example = _known_finding_example(template)
-            if known_example is not None:
-                explicit.append(known_example)
+            missing_cells = _missing_cells_example(template)
+            if missing_cells is not None:
+                explicit.append(missing_cells)
             test = _property(run, template, explicit, examples, random_seed, phases)
             try:
                 test()
@@ -769,7 +860,7 @@ def run_check(
             reached = len(statistics.chunk_rows_reached)
             lines.append(
                 f"Wzorzec {template.name}: {statistics.examples} przykładów, Rozliczenia pracowników: {routes}{refusals}; "
-                f"do {statistics.max_rows} Wierszy danych; granice kawałków przekroczone: {reached}/{len(template.chunk_rows) - 1}"
+                f"z Wyróżnieniami przez kopię {statistics.highlighted}; do {statistics.max_rows} Wierszy danych; granice kawałków przekroczone: {reached}/{len(template.chunk_rows) - 1}"
             )
     gaps = []
     for template in templates:
@@ -778,26 +869,30 @@ def run_check(
             continue
         if statistics.settlements["kopia"] < statistics.settlements["droga openpyxl"]:
             gaps.append(f"Wzorzec {template.name}: kopia użyta rzadziej niż droga openpyxl, sprawdzenie byłoby puste")
+        if statistics.settlements["kopia"] < statistics.settlements["odmowa"]:
+            gaps.append(f"Wzorzec {template.name}: odmów więcej niż kopii, sprawdzenie byłoby puste")
+        if statistics.unexplained:
+            gaps.append(
+                f"Wzorzec {template.name}: odmowy Wierszy danych bez rzadkiej wartości {dict(statistics.unexplained)}; "
+                "to zmiana interfejsu albo nowa odmowa, nie wartość, której obie drogi nie zapiszą"
+            )
         if len(statistics.chunk_rows_reached) < len(template.chunk_rows) - 1:
             gaps.append(f"Wzorzec {template.name}: nie każda granica kawałka kompresji została przekroczona")
-    for key, (case, index, divergence) in sorted(run.known.items()):
-        lines.append(f"ZNANE USTALENIE {key}: {KNOWN_FINDINGS.get(key, '(brak opisu w KNOWN_FINDINGS)')}")
-        lines += story(case, [(index, divergence)])
+        if not statistics.highlighted:
+            gaps.append(f"Wzorzec {template.name}: żadne Rozliczenie pracownika z Wyróżnieniami nie przeszło przez kopię")
     for failure in failures:
         lines.append("NOWE NARUSZENIE:")
         lines += story(failure.case, failure.divergences)
     gaps += errors
     lines += [f"LUKA SPRAWDZENIA: {gap}" for gap in gaps]
     lines.append(f"Czas: {clock.perf_counter() - started:.0f} s, {examples} przykładów na Wzorzec.")
-    known = len(run.known)
     if errors:
         return Outcome(2, [*lines, f"KOPIA WZORCA: LUKA SPRAWDZENIA ({len(gaps)})"])
-    if failures or (strict and known):
-        count = len(failures) + (known if strict else 0)
-        return Outcome(1, [*lines, f"KOPIA WZORCA: NOWE NARUSZENIE ({count})"])
+    if failures:
+        return Outcome(1, [*lines, f"KOPIA WZORCA: NOWE NARUSZENIE ({len(failures)})"])
     if gaps:
         return Outcome(2, [*lines, f"KOPIA WZORCA: LUKA SPRAWDZENIA ({len(gaps)})"])
-    return Outcome(0, [*lines, f"KOPIA WZORCA OK, ZNANE USTALENIA: {known}" if known else "KOPIA WZORCA OK"])
+    return Outcome(0, [*lines, "KOPIA WZORCA OK"])
 
 
 def _property(
@@ -838,23 +933,23 @@ def _leaves(group: BaseExceptionGroup[BaseException] | None) -> Iterator[BaseExc
 def _longest_example(template: Template) -> Case:
     """One Rozliczenie pracownika with the most Wiersze danych in scope: it crosses every reachable chunk start."""
 
-    row = ("syntetyczne miasto",) + (None,) * 12 + (1,) + (None,) * (DATA_COLUMNS - 14)
+    row = _data_row(("syntetyczne miasto",) + (None,) * 12 + (1,) + (None,) * (DATA_COLUMNS - 14))
     return Case(template, ((row,) * template.max_rows,))
 
 
-def _known_finding_example(template: Template) -> Case | None:
-    """Smallest case of the known finding: up to the first row of the Wzorzec without a cell in A, left empty."""
+def _missing_cells_example(template: Template) -> Case | None:
+    """Empty A and B up to the first row of the Wzorzec without a cell in A, which the copy has to add to the XML."""
 
     last = FIRST_DATA_ROW + template.max_rows - 1
     gaps = [row for row in range(FIRST_DATA_ROW, min(template.last_row, last) + 1) if (row, 1) not in template.cells]
     if not gaps:
         return None
-    rows = [(None, None, "x") + (None,) * (DATA_COLUMNS - 3)] * (gaps[0] - FIRST_DATA_ROW + 1)
+    rows = [_data_row((None, None, "x") + (None,) * (DATA_COLUMNS - 3))] * (gaps[0] - FIRST_DATA_ROW + 1)
     return Case(template, (tuple(rows),))
 
 
-def _value_rows() -> tuple[ExcelRow, ...]:
-    """The value-type rows of the owner test, plus Windows line ends, as a fixed first example."""
+def _value_rows() -> tuple[DataRow, ...]:
+    """The value-type and Wyróżnienia rows of the owner tests, plus Windows line ends, as a fixed first example."""
 
     values: list[Any] = [None] * DATA_COLUMNS
     for letter, value in {
@@ -874,7 +969,10 @@ def _value_rows() -> tuple[ExcelRow, ...]:
         "R": "koniec linii Windows\r\ni sam\r",
     }.items():
         values[column_index_from_string(letter) - 1] = value
-    return (tuple(values), ("tylko miasto",) + (None,) * (DATA_COLUMNS - 1))
+    yellow = Highlights(PatternFill(fill_type="solid", fgColor="FFFFFF00"), Color("FFFF0000"), bold=True, italic=True)
+    theme_fill = Highlights(PatternFill(fill_type="solid", fgColor=Color(theme=5, tint=0.4)), Color(theme=1))
+    marked = {column_index_from_string(letter) - 1: cell for letter, cell in {"A": yellow, "G": theme_fill, "N": yellow, "AT": yellow}.items()}
+    return (_data_row(tuple(values), marked), _data_row(("tylko miasto",) + (None,) * (DATA_COLUMNS - 1)))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -882,8 +980,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--examples", type=int, default=DEFAULT_EXAMPLES, help="Przykłady Hypothesis (domyślnie %(default)s).")
     parser.add_argument("--seed", type=int, help="Losowe przykłady z tego ziarna zamiast stałych (głębsze sprawdzenie).")
     parser.add_argument("--no-shrink", action="store_true", help="Bez zmniejszania kontrprzykładu (szybciej, dla mutacji).")
-    parser.add_argument("--wzorzec", type=Path, help="Dodatkowo prawdziwy Wzorzec rozliczenia pracownika (tylko odczyt).")
-    parser.add_argument("--strict", action="store_true", help="Znane ustalenia też są naruszeniem.")
+    parser.add_argument("--wzorzec", type=Path, help="Prawdziwy Wzorzec rozliczenia pracownika zamiast syntetycznych (tylko odczyt).")
     args = parser.parse_args(argv)
     # openpyxl warns about generated numbers too large for a date in a date-formatted column; both paths
     # write them the same, and the gate compares what openpyxl reads.
@@ -892,7 +989,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not module.is_relative_to(SOURCE_ROOT.resolve()):
         print(f"KOPIA WZORCA: LUKA SPRAWDZENIA (1): rozliczenia importuje się z {module}, nie z {SOURCE_ROOT}")
         return 2
-    outcome = run_check(args.examples, args.seed, not args.no_shrink, args.wzorzec, args.strict)
+    outcome = run_check(args.examples, args.seed, not args.no_shrink, args.wzorzec)
     print("\n".join(outcome.lines))
     return outcome.exit_code
 

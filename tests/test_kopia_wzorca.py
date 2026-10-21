@@ -1,9 +1,9 @@
 """Rozliczenie pracownika z kopii Wzorca (ADR 0008) jest takie, jak zapisane przez openpyxl, dla generowanych Wierszy danych.
 
-Test właściciel zapisu w ``test_workbook_files.py`` sprawdza wybrane wartości. Granice
-kawałków kompresji, nietypowe teksty i liczby oraz kilka Rozliczeń pracowników z jednego
-wczytanego Wzorca sprawdza skrypt skilla ``verify-kopia-wzorca`` na prawdziwym
-``template_copy.py``. Reguły, zakres, znane ustalenia i postępowanie przy porażce opisuje
+Test właściciel zapisu w ``test_workbook_files.py`` sprawdza wybrane wartości i Wyróżnienia.
+Granice kawałków kompresji, nietypowe teksty i liczby, generowane Wyróżnienia oraz kilka
+Rozliczeń pracowników z jednego wczytanego Wzorca sprawdza skrypt skilla ``verify-kopia-wzorca``
+na prawdziwym ``template_copy.py``. Reguły, zakres i postępowanie przy porażce opisuje
 ``.agents/skills/verify-kopia-wzorca/SKILL.md``.
 """
 
@@ -31,7 +31,7 @@ def _load_checker() -> ModuleType:
     return module
 
 
-# 60 przykładów na każdy z dwóch Wzorców: ~30 s na Macu M4 Max, kilka razy dłużej na runnerze Windows.
+# 60 przykładów na każdy z dwóch Wzorców: ~65 s na Macu M4 Max, kilka razy dłużej na runnerze Windows.
 @pytest.mark.timeout(600)
 def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_dla_generowanych_wierszy_danych() -> None:
     checker = _load_checker()

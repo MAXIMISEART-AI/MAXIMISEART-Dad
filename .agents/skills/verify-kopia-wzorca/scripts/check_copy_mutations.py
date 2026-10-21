@@ -61,14 +61,20 @@ MUTATIONS = (
     Mutation(
         "data bez formatu daty",
         "data zlecenia pokazuje się jako liczba seryjna",
-        "if not is_date_format(styles.number_format(style)):",
-        "if False:",
+        "date_format = None if is_date_format(styles.number_format(template_style)) else _date_format(value)",
+        "date_format = None",
     ),
     Mutation(
         "pusta wartość nie czyści zer Wzorca",
         "pusta ilość z Pliku zbiorczego zostaje w Rozliczeniu pracownika zerem z Wzorca",
-        'if existing is not None and existing.endswith(b"/>"):',
+        'if style == template_style and existing is not None and existing.endswith(b"/>"):',
         "if existing is not None:",
+    ),
+    Mutation(
+        "Wyróżnienia bez wypełnienia",
+        "wypełnienie komórki z Pliku zbiorczego nie przechodzi do Rozliczenia pracownika",
+        'xf = _with_id(xf, b"fillId", fill_id, b"applyFill")',
+        "pass",
     ),
     Mutation(
         "15 cyfr znaczących zamiast 16",
