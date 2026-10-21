@@ -137,7 +137,7 @@ finding happened (`Slad(...)` adds the tag to `slady`, and `Znane` checks it):
 
 Each was traced back to the code at the sync commit.
 
-1. **`reset`** (config `git`): `git reset --keep` in `_roll_back` fails, and
+1. **`reset`** (config `git`, #210): `git reset --keep` in `_roll_back` fails, and
    the clone stays on the new commit. In Centrum (after `pip_install` returns
    `False` or `_Git.changed` raises), `GitFailed` becomes
    `NIEOCZEKIWANY_BLAD`, and the new version has no libraries.
@@ -146,7 +146,7 @@ Each was traced back to the code at the sync commit.
    start Centrum stops on the missing library. In the guardian
    (`_rolled_back`), the new version that would not start stays, and Dad sees
    the dialog.
-2. **`kopiowanie`**: after `git merge --ff-only` has removed Dad's file, the
+2. **`kopiowanie`** (#211): after `git merge --ff-only` has removed Dad's file, the
    `finally` of `_DadFiles.set_aside` raises `OSError` on `copy2`. That
    exception leaves `update()` before the `try` that calls `_roll_back`, so
    the clone stays on the new commit without Dad's file. ADR 0009 says a
@@ -154,14 +154,14 @@ Each was traced back to the code at the sync commit.
    in the other `finally` blocks (after a refused merge, or in `_roll_back` in
    Centrum or the guardian) leaves the repository's sample in place of Dad's
    file. TLC may print any of these, because they are equally short.
-3. **`bez_opiekuna`** (config `nieudany-start`): #196's rollback runs only
+3. **`bez_opiekuna`** (config `nieudany-start`, #212): #196's rollback runs only
    once the guardian has started the new version. When
    `restart_guardian.launch` raises, the old Centrum keeps running and reports
    the update as done. When the old Centrum does not release the port within
    `PORT_TIMEOUT_S`, `main` returns 1 before it starts anything. Either way
    nobody checks the new version, and one that will not start stays in the
    clone for Dad's next start.
-4. **`wylaczenie`**: the computer switches off anywhere from
+4. **`wylaczenie`** (#213): the computer switches off anywhere from
    `git checkout HEAD --` to the end of the guardian's rollback
    (`OknoWylaczenia`). The shortest case is between `git merge --ff-only` and
    the end of `pip_install` (up to `_INSTALL_TIMEOUT_S`, 15 minutes): the
