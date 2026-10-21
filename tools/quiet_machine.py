@@ -47,7 +47,7 @@ BUSY_COMMANDS = (
     "drive_centrum.py",
     "chrome-headless-shell",
     "run_verification.py",
-    "check_mutations.py",
+    "_mutations.py",
 )
 
 

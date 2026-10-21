@@ -19,7 +19,7 @@ potomnymi, a kopie są usuwane.
 
 Plik JSON to lista ``{"nazwa", "zmiany": [[plik, kotwica, zamiana], ...]}`` z opcjonalnym
 ``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``. Skrypty
-``check_*mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``.
+``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``.
 """
 
 from __future__ import annotations
