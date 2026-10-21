@@ -74,7 +74,7 @@ before you trust a verdict. With an outdated model the check passes on code it
 no longer describes.
 
 1. Read the diff of the covered files since the sync commit
-   (`git diff 0e3a773130dd -- <covered files>`). For each hunk, find its row in
+   (`git diff <sync commit> -- <covered files>`). For each hunk, find its row in
    the table.
 2. Change the matching actions so that one action stays one indivisible step
    of the code. Keep the comment that names the code. TLA+ strings must be
