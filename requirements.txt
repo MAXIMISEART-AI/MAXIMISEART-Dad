@@ -6,3 +6,4 @@ uvicorn>=0.54
 pytest>=8.0
 pytest-timeout>=2.4
 httpx2>=2.14
+hypothesis>=6.170

@@ -16,10 +16,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "pytest-timeout>=2.4", "httpx2>=2.14"]
+test = ["pytest>=8.0", "pytest-timeout>=2.4", "httpx2>=2.14", "hypothesis>=6.170"]
 dev = [
     "fastapi==0.146.0",
     "httpx2==2.14.0",
+    "hypothesis==6.170.5",
     "mypy==2.0.0",
     "playwright==1.64.0",
     "pydantic==2.14.1",
@@ -53,6 +54,7 @@ include = [
     "tools/**/*.py",
     ".agents/skills/verify-rozliczenia/scripts/*.py",
     ".agents/skills/verify-publikacja-plikow-okresu/scripts/*.py",
+    ".agents/skills/verify-kopia-wzorca/scripts/*.py",
     ".agents/skills/verify-centrum-rozliczen/scripts/**/*.py",
 ]
 extend-exclude = [".claude"]
@@ -70,6 +72,7 @@ files = [
     "tools",
     ".agents/skills/verify-rozliczenia/scripts",
     ".agents/skills/verify-publikacja-plikow-okresu/scripts",
+    ".agents/skills/verify-kopia-wzorca/scripts",
     ".agents/skills/verify-centrum-rozliczen/scripts",
 ]
 mypy_path = "src"
