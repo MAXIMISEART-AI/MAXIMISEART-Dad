@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import importlib.util
+import itertools
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+from types import ModuleType
 from typing import Any
 
+import pytest
+
+from rozliczenia.centrum import run_view
 from rozliczenia.preparation_process import PROCESS as PREPARATION
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore
 
@@ -23,6 +29,7 @@ from tests.fixtures.settlement import PERIOD, SOURCE_NAME, make_fixture, make_pr
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "uruchom_proces.py"
 WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
+DETACHED_VIEW_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 
 
 def _completed(*arguments: str | Path) -> subprocess.CompletedProcess[str]:
@@ -45,19 +52,32 @@ def _run(*arguments: str | Path) -> tuple[int, dict[str, Any]]:
     return completed.returncode, json.loads(completed.stdout)
 
 
-def _settlement(tmp_path: Path, source: Path, config: Path, *extra: str) -> tuple[int, dict[str, Any]]:
-    return _run(
+def _script(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    spec = importlib.util.spec_from_file_location("uruchom_proces", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _settlement_arguments(tmp_path: Path, source: Path, config: Path, *extra: str) -> list[str]:
+    return [
         "settlement",
         "--source",
-        source,
+        str(source),
         "--config",
-        config,
+        str(config),
         "--worker-template",
-        tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
+        str(tmp_path / "Wzorzec rozliczenia pracownika.xlsx"),
         "--metrics",
-        tmp_path / "metrics.jsonl",
+        str(tmp_path / "metrics.jsonl"),
         *extra,
-    )
+    ]
+
+
+def _settlement(tmp_path: Path, source: Path, config: Path, *extra: str) -> tuple[int, dict[str, Any]]:
+    return _run(*_settlement_arguments(tmp_path, source, config, *extra))
 
 
 def _preparation(fixture: PreparationFixture, *extra: str) -> tuple[int, dict[str, Any]]:
@@ -111,6 +131,44 @@ def test_przebieg_rozliczen_ok_konczy_kodem_0_z_podsumowaniem_karty_uruchomienia
     assert (record["mode"], record["result"], record["total_duration_ms"]) == ("RUN", "OK", result["total_duration_ms"])
     assert (result["metrics_saved"], result["notices"]) == (True, [])
     assert str(tmp_path) not in json.dumps(result)
+
+
+@pytest.mark.parametrize(("good_views", "phase_states"), [(0, set()), (1, {"pending"})])
+def test_awaria_podgladu_postepu_odlacza_go_bez_tekstu_wyjatku_i_bez_zmiany_wyniku(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    good_views: int,
+    phase_states: set[str],
+) -> None:
+    source, target, config = make_fixture(tmp_path)
+    secret = "Jan Kowalski /Users/klient/Rejestr.xlsx"
+    shown = run_view.ProcessView.progress
+    calls = itertools.count()
+
+    def broken_after_good_views(view: Any, *args: Any, **kwargs: Any) -> Any:
+        if next(calls) < good_views:
+            return shown(view, *args, **kwargs)
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(run_view.ProcessView, "progress", broken_after_good_views)
+
+    exit_code = _script(monkeypatch).main(_settlement_arguments(tmp_path, source, config))
+    stdout, stderr = capsys.readouterr()
+    result = json.loads(stdout)
+
+    assert secret not in stdout + stderr
+    assert stderr == ""
+    assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
+    assert result["notices"] == [DETACHED_VIEW_NOTICE]
+    assert {phase["state"] for phase in result["progress"]["phases"]} == phase_states
+    assert [(figure["label"], figure["value"]) for figure in result["summary"]["figures"]] == [
+        ("Zapisane szablony", 2),
+        ("Puste szablony", 1),
+    ]
+    assert len(list(target.iterdir())) == 3
+    [record] = MetricsStore(tmp_path / "metrics.jsonl", COUNTER_NAMES).read()
+    assert (record["result"], result["metrics_saved"]) == ("OK", True)
 
 
 def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_kodem_2_z_kodem_ostrzezenia(tmp_path: Path) -> None:

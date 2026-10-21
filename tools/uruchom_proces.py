@@ -24,7 +24,8 @@ Na stdout trafia jeden obiekt JSON (UTF-8, ``ProcessResult``):
   trzema częściami Komunikatu;
 - ``stop``: przy Zatrzymaniu jego rodzaj (``stop``, ``unexpected``,
   ``after_engine``) i Komunikat z kodem i trzema częściami, inaczej ``null``;
-- ``progress``: ostatni stan postępu w kształcie kontraktu (``contract.Progress``);
+- ``progress``: ostatni stan postępu w kształcie kontraktu (``contract.Progress``),
+  który widok zdołał zbudować; awaria widoku odłącza podgląd z ostrzeżeniem w ``notices``;
 - ``total_duration_ms``: ``Czas uruchomienia``;
 - ``notices``: ostrzeżenia rdzenia (niezapisane metryki, odłączony podgląd);
 - ``metrics_saved``: rekord metryk trafił do pliku metryk.
@@ -42,7 +43,7 @@ import argparse
 from collections.abc import Callable, Sequence
 from pathlib import Path
 import sys
-from typing import Literal, NoReturn, TypeVar
+from typing import Generic, Literal, NoReturn, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -59,7 +60,7 @@ from rozliczenia.domain import ProgressEvent, SettlementSummary  # noqa: E402
 from rozliczenia.message import Message  # noqa: E402
 from rozliczenia.preparation_process import PreparationInputs  # noqa: E402
 from rozliczenia.process_run import Finished, Process, ProcessInputs, run_process  # noqa: E402
-from rozliczenia.progress import ProgressProjection, ProgressSnapshot  # noqa: E402
+from rozliczenia.progress import ProgressSnapshot  # noqa: E402
 from rozliczenia.settlement_process import SettlementInputs  # noqa: E402
 
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
@@ -96,23 +97,30 @@ class ProcessResult(_Model):
     metrics_saved: bool
 
 
-class _Unattended:
+class _Unattended(Generic[SummaryT]):
     continue_hint = "uruchom proces w Centrum rozliczeń i przy decyzji wybierz „Kontynuuj”"
 
-    def __init__(self, snapshot: ProgressSnapshot) -> None:
-        self.snapshot = snapshot
+    def __init__(self, view: run_view.ProcessView[SummaryT], *, dry_run: bool) -> None:
+        self._view = view
+        self._dry_run = dry_run
+        self.progress = contract.Progress(
+            phases=[], template_total=0, templates_completed=0, current_worker=None, figures=[]
+        )
 
     def confirm(self, decision: Decision) -> bool:
         return False
 
     def start_progress(self, snapshot: ProgressSnapshot, *, title: str, shows_templates: bool) -> None:
-        self.snapshot = snapshot
+        self._show(snapshot)
 
     def show_progress(self, snapshot: ProgressSnapshot, event: ProgressEvent) -> None:
-        self.snapshot = snapshot
+        self._show(snapshot)
 
     def stop_progress(self) -> None:
         pass
+
+    def _show(self, snapshot: ProgressSnapshot) -> None:
+        self.progress = self._view.progress(snapshot, dry_run=self._dry_run)
 
 
 def _conduct(
@@ -123,7 +131,7 @@ def _conduct(
     metrics: Path,
 ) -> tuple[ProcessResult, int]:
     dry_run = inputs.dry_run
-    unattended = _Unattended(ProgressProjection("DRY-RUN" if dry_run else "RUN", inputs.period).snapshot)
+    unattended = _Unattended(view, dry_run=dry_run)
 
     def finished_view(_inputs: InputsT, summary: SummaryT) -> tuple[contract.RunSummary, list[CodedMessage]]:
         return view.summary(summary, dry_run=dry_run), [CodedMessage.of(warning) for warning in warnings(inputs, summary)]
@@ -136,7 +144,7 @@ def _conduct(
         summary=summary,
         warnings=coded_warnings,
         stop=None if isinstance(ending, Finished) else StopResult(kind=ending.kind, message=CodedMessage.of(ending.message)),
-        progress=view.progress(unattended.snapshot, dry_run=dry_run),
+        progress=unattended.progress,
         total_duration_ms=outcome.total_duration_ms,
         notices=list(outcome.notices),
         metrics_saved=outcome.metrics_saved,
