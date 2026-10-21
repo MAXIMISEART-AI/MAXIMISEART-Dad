@@ -104,6 +104,14 @@ jobs:
             throw "Mutation check failed (exit code $LASTEXITCODE)"
           }
 
+      - name: Prove the one-run-at-a-time check fails on broken variants
+        shell: pwsh
+        run: |
+          python .agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "Mutation check failed (exit code $LASTEXITCODE)"
+          }
+
       - name: Prove the template copy check fails on broken variants
         shell: pwsh
         run: |
