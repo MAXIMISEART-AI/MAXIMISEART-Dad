@@ -459,7 +459,7 @@ def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(
     previous = centrum.log_path.read_text(encoding="utf-8")
     centrum.log_path.write_text(
         UNEXPECTED_LOG_ENTRY.replace("2026-09-16T10", "2026-09-15T10")
-        + "2026-09-16T09:00:00+02:00 start port=47811 wersja=0.1.0 konsola=nie\n"
+        + "2026-09-16T09:00:00+02:00 start port=47811 wersja=3c1d0a9 konsola=nie\n"
         + previous,
         encoding="utf-8",
     )

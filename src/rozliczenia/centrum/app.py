@@ -42,7 +42,7 @@ from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.timing import server_timing, timing_router
 from rozliczenia.centrum.tool_freshness import ToolFreshness
-from rozliczenia.centrum.version import SERVICE, tool_version
+from rozliczenia.centrum.version import SERVICE
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 _LOCAL_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
@@ -108,10 +108,6 @@ def create_app(
     async def refused(request: Request, refusal: Refusal) -> Response:
         return _problem(refusal.status_code, refusal.message)
 
-    @app.get("/api/health", operation_id="getHealth")
-    def health() -> Health:
-        return Health(service=SERVICE, version=tool_version())
-
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
@@ -121,6 +117,13 @@ def create_app(
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
+    # Commit kodu, który działa w tym Centrum; klon przesunięty później nie zmienia tożsamości działającego Centrum.
+    running_commit = surroundings.tool_freshness.local()
+
+    @app.get("/api/health", operation_id="getHealth")
+    def health() -> Health:
+        return Health(service=SERVICE, commit=running_commit)
+
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
     reports = Reports(
         settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock

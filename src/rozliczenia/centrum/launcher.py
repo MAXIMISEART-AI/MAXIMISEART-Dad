@@ -1,10 +1,10 @@
 """Start Centrum rozliczeń: skrót „Centrum rozliczeń” (``pythonw``, bez konsoli) albo ``run_centrum.py`` z konsolą.
 
 Jedno Centrum na komputerze: gdy port jest zajęty, ``health`` rozstrzyga, czy
-to własne Centrum tej samej wersji (wtedy tylko otwiera kartę), Centrum innej
-wersji, czy inny program. Każdy błąd startu kończy się komunikatem w trzech
-częściach: bez konsoli w natywnym okienku, z konsolą w konsoli, a fakt trafia
-do dziennika Centrum. Przy imporcie moduł używa tylko biblioteki
+to własne Centrum z tego samego commitu narzędzia (wtedy tylko otwiera kartę),
+Centrum innej wersji, czy inny program. Każdy błąd startu kończy się
+komunikatem w trzech częściach: bez konsoli w natywnym okienku, z konsolą w
+konsoli, a fakt trafia do dziennika Centrum. Przy imporcie moduł używa tylko biblioteki
 standardowej, więc brak FastAPI albo uvicorn też staje się takim komunikatem.
 """
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from dataclasses import dataclass
 import json
 import urllib.request
 import webbrowser
@@ -20,7 +21,7 @@ from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum import start_problems
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import has_console, show_start_problem
-from rozliczenia.centrum.version import SERVICE
+from rozliczenia.centrum.version import SERVICE, tool_commit, version_label
 from rozliczenia.message import Message
 
 DEFAULT_PORT = 47811
@@ -52,7 +53,6 @@ def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
         from rozliczenia.centrum.server import listen_locally, serve
         from rozliczenia.settings import default_settings_path
         from rozliczenia.centrum.shutdown import Shutdown
-        from rozliczenia.centrum.version import tool_version
     except ModuleNotFoundError as missing:
         return _refuse(start_problems.missing_library(missing.name or "?"), port, log)
 
@@ -60,16 +60,16 @@ def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
     try:
         listener = listen_locally(port)
     except OSError:
-        running = _running_centrum_version(url)
-        if running == tool_version():
+        running = _running_centrum(url)
+        if running is None:
+            return _refuse(start_problems.port_taken(port), port, log)
+        if running.commit == tool_commit():
             log.already_running(port=port)
             _say(f"Centrum rozliczeń już działa: {url}")
             open_tab(url)
             return 0
-        if running is None:
-            return _refuse(start_problems.port_taken(port), port, log)
         open_tab(url)  # tata widzi starą kartę z przyciskiem „Zamknij Centrum rozliczeń”
-        return _refuse(start_problems.other_version_running(port, running), port, log)
+        return _refuse(start_problems.other_version_running(port, version_label(running.commit)), port, log)
 
     def announce(address: str) -> None:
         _say(f"Centrum rozliczeń działa: {address}")
@@ -80,8 +80,13 @@ def _start(port: int, log: CentrumLog, *, browser: bool) -> int:
     return serve(app, listener=listener, on_ready=announce, shutdown=shutdown, log=log)
 
 
-def _running_centrum_version(url: str) -> str | None:
-    """Wersja Centrum, które odpowiada na tym adresie; ``None``, gdy odpowiada coś innego albo nic."""
+@dataclass(frozen=True)
+class _RunningCentrum:
+    commit: str | None
+
+
+def _running_centrum(url: str) -> _RunningCentrum | None:
+    """Centrum, które odpowiada na tym adresie, z commitem, z którego wystartowało; ``None``, gdy odpowiada coś innego albo nic."""
 
     direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # serwer proxy nie widzi 127.0.0.1 taty
     try:
@@ -91,8 +96,8 @@ def _running_centrum_version(url: str) -> str | None:
         return None
     if not isinstance(health, dict) or health.get("service") != SERVICE:
         return None
-    version = health.get("version")
-    return version if isinstance(version, str) else None
+    commit = health.get("commit")
+    return _RunningCentrum(commit if isinstance(commit, str) else None)
 
 
 def _refuse(problem: Message, port: int, log: CentrumLog) -> int:

@@ -115,10 +115,12 @@ export const zFigure = z.object({
 
 /**
  * Health
+ *
+ * Tożsamość Centrum dla launchera: commit narzędzia, z którego Centrum wystartowało; ``None`` poza klonem Gita.
  */
 export const zHealth = z.object({
     service: z.literal('centrum-rozliczen'),
-    version: z.string()
+    commit: z.string().nullable()
 });
 
 /**
@@ -807,11 +809,6 @@ export const zConfiguration = z.object({
 /**
  * Successful Response
  */
-export const zGetHealthResponse = zHealth;
-
-/**
- * Successful Response
- */
 export const zGetSettingsResponse = zSettings;
 
 /**
@@ -852,6 +849,11 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
+
+/**
+ * Successful Response
+ */
+export const zGetHealthResponse = zHealth;
 
 /**
  * Successful Response

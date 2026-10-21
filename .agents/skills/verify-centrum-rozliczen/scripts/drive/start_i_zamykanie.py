@@ -8,13 +8,12 @@ import shutil
 import socket
 import subprocess
 import sys
-import tomllib
 import urllib.parse
 import urllib.request
 
 from playwright.sync_api import Page, Request, Response, expect
 
-from drive.common import REPO_ROOT, Run
+from drive.common import REPO_ROOT, Run, repo_commit
 
 # Every click on the shortcut opens one more tab; the browser keeps at most 6 connections to Centrum for all tabs.
 _SHORTCUT_TABS = 7
@@ -33,14 +32,18 @@ _TO_FRONT = """() => {
 
 
 def _copy_tool(run: Run) -> Path:
-    """A copy of the tool inside the run root, so the real launcher logs there and never in Dad's ``logs``."""
+    """A copy of the tool inside the run root, so the real launcher logs there and never in Dad's ``logs``.
+
+    Its ``.git/HEAD`` names the served Centrum's commit: the copy is the same version of the tool.
+    """
 
     tool = run.root / "narzedzie"
     if not tool.exists():
         tool.mkdir()
-        for name in ("run_centrum.py", "pyproject.toml"):
-            shutil.copy2(REPO_ROOT / name, tool)
+        shutil.copy2(REPO_ROOT / "run_centrum.py", tool)
         shutil.copytree(REPO_ROOT / "src", tool / "src", ignore=shutil.ignore_patterns("__pycache__"))
+        (tool / ".git").mkdir()
+        (tool / ".git" / "HEAD").write_text(repo_commit() + "\n", encoding="utf-8")
     return tool
 
 
@@ -105,9 +108,9 @@ def drive_start_and_close(run: Run, page: Page) -> None:
 
     run.step(feature, "start-gotowosc")
     health = run.api("/api/health", "start-health")
-    with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
-        version = str(tomllib.load(stream)["project"]["version"])
-    run.check(health == {"service": "centrum-rozliczen", "version": version}, "health names Centrum rozliczeń and its version")
+    run.check(
+        health == {"service": "centrum-rozliczen", "commit": repo_commit()}, "health names Centrum rozliczeń and its commit"
+    )
     run.check(_log_events(served_log)[:1] == ["start"], "the Centrum log starts with a start entry")
     run.check(f"port={port}" in served_log.read_text(encoding="utf-8"), "the start entry names the port")
 

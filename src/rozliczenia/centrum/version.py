@@ -63,6 +63,12 @@ def short_commit(commit: str) -> str:
     return commit[:_SHORT_COMMIT]
 
 
+def version_label(commit: str | None) -> str:
+    """Wersja narzędzia w komunikacie startu i dzienniku Centrum: skrót commitu albo „nieznana” poza klonem Gita."""
+
+    return "nieznana" if commit is None else short_commit(commit)
+
+
 def commit_since(commit: str, root: Path = TOOL_ROOT) -> date | None:
     """Dzień, od którego narzędzie w ``root`` jest na ``commit``: data ostatniego wpisu reflogu ``HEAD``.
 

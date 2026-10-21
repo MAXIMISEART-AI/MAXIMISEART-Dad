@@ -273,6 +273,8 @@ export type HttpValidationError = {
 
 /**
  * Health
+ *
+ * Tożsamość Centrum dla launchera: commit narzędzia, z którego Centrum wystartowało; ``None`` poza klonem Gita.
  */
 export type Health = {
     /**
@@ -280,9 +282,9 @@ export type Health = {
      */
     service: 'centrum-rozliczen';
     /**
-     * Version
+     * Commit
      */
-    version: string;
+    commit: string | null;
 };
 
 /**
@@ -1302,22 +1304,6 @@ export type WorkersUnreadable = {
     message: Message;
 };
 
-export type GetHealthData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/health';
-};
-
-export type GetHealthResponses = {
-    /**
-     * Successful Response
-     */
-    200: Health;
-};
-
-export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
-
 export type GetSettingsData = {
     body?: never;
     path?: never;
@@ -1452,6 +1438,22 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
+
+export type GetHealthData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/health';
+};
+
+export type GetHealthResponses = {
+    /**
+     * Successful Response
+     */
+    200: Health;
+};
+
+export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
 
 export type GetRunSetupData = {
     body?: never;

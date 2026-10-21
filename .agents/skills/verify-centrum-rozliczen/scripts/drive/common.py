@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from fnmatch import fnmatchcase
 import json
 from pathlib import Path
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -32,6 +33,14 @@ REPEAT_SETTLE_MS = 300
 
 class DriveFailure(Exception):
     pass
+
+
+def repo_commit() -> str:
+    """The checkout's ``HEAD`` commit as Git reports it, independent of how Centrum reads ``.git``."""
+
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 class Run:

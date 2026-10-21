@@ -39,8 +39,10 @@ NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, object]] = {404: {"model": Prob
 
 
 class Health(_Model):
+    """Tożsamość Centrum dla launchera: commit narzędzia, z którego Centrum wystartowało; ``None`` poza klonem Gita."""
+
     service: Literal["centrum-rozliczen"]
-    version: str
+    commit: str | None
 
 
 class Closing(_Model):
