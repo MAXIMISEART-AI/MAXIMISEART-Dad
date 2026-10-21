@@ -112,6 +112,14 @@ jobs:
             throw "Mutation check failed (exit code $LASTEXITCODE)"
           }
 
+      - name: Prove the template copy check fails on broken variants
+        shell: pwsh
+        run: |
+          python .agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "Template copy mutation check failed (exit code $LASTEXITCODE)"
+          }
+
   e2e:
     name: E2E (Python ${{ matrix.python-version }})
     runs-on: windows-latest

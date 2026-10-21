@@ -65,6 +65,12 @@ def _steps() -> list[Step]:
             "check_runs_mutations.py",
             (python, ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py"),
         ),
+        Step(
+            "mutacje kopii Wzorca",
+            "mutations",
+            "verify-kopia-wzorca/scripts/check_copy_mutations.py",
+            (python, ".agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py"),
+        ),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), FRONTEND),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), FRONTEND)
