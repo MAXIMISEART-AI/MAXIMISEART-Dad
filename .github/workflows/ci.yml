@@ -84,6 +84,8 @@ jobs:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
     name: Mutation checks
     runs-on: windows-latest
+    # tools/mutacje_skilli.py limits each script to 20 min; this catches a hang in the runner itself.
+    timeout-minutes: 45
     env:
       PYTHONUTF8: '1'
     steps:
@@ -97,7 +99,12 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
       - name: Prove each verify skill's check fails on broken variants
-        run: python tools/mutacje_skilli.py
+        shell: pwsh
+        run: |
+          python tools/mutacje_skilli.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "Mutation checks failed (exit code $LASTEXITCODE)"
+          }
 
   e2e:
     name: E2E (Python ${{ matrix.python-version }})
