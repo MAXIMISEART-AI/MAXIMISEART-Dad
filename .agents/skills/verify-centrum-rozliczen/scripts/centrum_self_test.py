@@ -137,7 +137,12 @@ def _check_machine_lock(errors: list[str]) -> None:
 
         def machine(busy: list[str] | None = None) -> QuietMachine:
             return QuietMachine(
-                directory, timeout_s=0.3, poll_s=0.05, busy_processes=lambda: busy or [], report_every_s=None
+                directory,
+                quiet_timeout_s=0.3,
+                measurement_timeout_s=0.3,
+                poll_s=0.05,
+                busy_processes=lambda: busy or [],
+                report_every_s=None,
             )
 
         dead_pid = 2**22 + 12345  # far above any live pid on the test machine
@@ -157,7 +162,9 @@ def _check_machine_lock(errors: list[str]) -> None:
             polled.set()
             return ["pytest"]
 
-        waiting = QuietMachine(directory, timeout_s=1, poll_s=0.05, busy_processes=pytest_running, report_every_s=None)
+        waiting = QuietMachine(
+            directory, quiet_timeout_s=1, poll_s=0.05, busy_processes=pytest_running, report_every_s=None
+        )
         measuring = threading.Thread(target=held, args=(waiting.measurement(),))
         measuring.start()
         polled.wait(timeout=1)
@@ -170,7 +177,7 @@ def _check_machine_lock(errors: list[str]) -> None:
             return []
 
         racing = QuietMachine(
-            directory, timeout_s=0.3, poll_s=0.05, busy_processes=run_registers_after_first_look, report_every_s=None
+            directory, quiet_timeout_s=0.3, poll_s=0.05, busy_processes=run_registers_after_first_look, report_every_s=None
         )
         cases["a measurement backs off when a run registers as it takes the lock"] = not held(racing.measurement())
         late_run.unlink()

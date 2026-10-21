@@ -23,8 +23,8 @@ kodem 1 tylko wtedy, gdy mediana czasu ściany przekracza budżet.
 
 ``measure`` trzyma maszynę jak pomiar ``wydajnosc`` weryfikacji Centrum
 (``tools/quiet_machine.py``): czeka najwyżej 3 minuty na cichy procesor i mierzy sam, a
-inne weryfikacje Centrum i ``freeze`` czekają, dopóki mierzy. ``freeze`` obciąża procesor,
-więc zajmuje maszynę jak każdy inny przebieg. Wewnątrz obie komendy trzymają wyłączną
+inne weryfikacje Centrum i ``freeze`` czekają, dopóki mierzy, najwyżej 15 minut. ``freeze``
+obciąża procesor, więc zajmuje maszynę jak każdy inny przebieg. Wewnątrz obie komendy trzymają wyłączną
 blokadę pliku obok folderu wyników referencyjnych (``--reference-dir`` ``reference`` →
 ``reference.lock``): pomiary ze wspólnym folderem, np. oficjalne pomiary z kilku worktree,
 nigdy nie biegną naraz. Czekanie na maszynę opisują linie ``MASZYNA ZAJĘTA | …``, na
