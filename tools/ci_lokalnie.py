@@ -60,24 +60,7 @@ def _steps() -> list[Step]:
         # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
         Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32")),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto")),
-        Step(
-            "mutacje publikacji",
-            "mutations",
-            "check_mutations.py",
-            (python, ".agents/skills/verify-publikacja-plikow-okresu/scripts/check_mutations.py"),
-        ),
-        Step(
-            "mutacje jednego Uruchomienia naraz",
-            "mutations",
-            "check_runs_mutations.py",
-            (python, ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/check_runs_mutations.py"),
-        ),
-        Step(
-            "mutacje kopii Wzorca",
-            "mutations",
-            "verify-kopia-wzorca/scripts/check_copy_mutations.py",
-            (python, ".agents/skills/verify-kopia-wzorca/scripts/check_copy_mutations.py"),
-        ),
+        Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py")),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), FRONTEND),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), FRONTEND)
