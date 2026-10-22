@@ -240,6 +240,7 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     worker_folder = write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa", "Jan Próbny"])
     (worker_folder / "~$Rozliczenie 22_28_09_2026 - Anna Testowa.xlsx").touch()
     (worker_folder / "Rozliczenie 22_28_09_2026 -.xlsx").touch()
+    (worker_folder / "Rozliczenie 22_28_09_2026 - .xlsx").touch()
     write_period_files(periods, "29_05_10_2026")
     (periods / "15_21_09_2026").mkdir()
     (periods / "Archiwum").mkdir()
@@ -304,6 +305,7 @@ def test_w_ukladzie_folderow_taty_tablica_okresow_widzi_tygodnie_ze_wszystkich_m
     write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa"])
     (inea(root, "09_Wrzesień_2026") / "28_30_09_2026 tylko dawid").mkdir()
     (inea(root, "12_Grudzień_2025", year=2025) / "16_22_12_2025").mkdir()
+    (root / "Rozliczenia 26" / "10_Październik_2026" / "INEA" / "20_26_10_2026").mkdir(parents=True)
 
     rows = board_rows(app)
 

@@ -7,6 +7,7 @@ import itertools
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from types import ModuleType
@@ -29,7 +30,7 @@ from tests.fixtures.preparation import (
 )
 from rozliczenia.preparation_register import read_register
 from rozliczenia.workbook_files import read_data_rows
-from tests.fixtures.settlement import PERIOD, SOURCE_NAME, link_order_numbers, make_fixture, make_preview_fixture
+from tests.fixtures.settlement import PERIOD, SOURCE_NAME, link_order_numbers, make_fixture, make_preview_fixture, write_template
 from tests.fixtures.workbooks import hyperlinks
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "uruchom_proces.py"
@@ -37,9 +38,9 @@ WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
 DETACHED_VIEW_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 
 
-def _completed(*arguments: str | Path) -> subprocess.CompletedProcess[str]:
+def _completed(*arguments: str | Path, script: Path = SCRIPT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *map(str, arguments)],
+        [sys.executable, str(script), *map(str, arguments)],
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -50,8 +51,8 @@ def _completed(*arguments: str | Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _run(*arguments: str | Path) -> tuple[int, dict[str, Any]]:
-    completed = _completed(*arguments)
+def _run(*arguments: str | Path, script: Path = SCRIPT) -> tuple[int, dict[str, Any]]:
+    completed = _completed(*arguments, script=script)
     assert completed.stderr == ""
     assert "Traceback" not in completed.stdout
     return completed.returncode, json.loads(completed.stdout)
@@ -323,3 +324,36 @@ def test_bledne_argumenty_koncza_sie_kodem_1_bez_wyniku_json(tmp_path: Path) -> 
     assert (completed.returncode, completed.stdout) == (1, "")
     assert "--source" in completed.stderr
     assert not (tmp_path / "metrics.jsonl").exists()
+
+
+def test_bez_podanych_plikow_oba_procesy_czytaja_konfiguracje_wykonawcow_i_wzorce_z_folderu_config_narzedzia(
+    tmp_path: Path,
+) -> None:
+    tool = tmp_path / "narzedzie"
+    shutil.copytree(SCRIPT.parents[1] / "src", tool / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    (tool / "tools").mkdir()
+    script = Path(shutil.copy(SCRIPT, tool / "tools"))
+    preparation = make_preparation_fixture(tool)  # w config/ Konfiguracja wykonawców i oba Wzorce Przygotowania
+    write_template(tool / "config" / "Wzorzec rozliczenia pracownika.xlsx")
+    source, _target, _config = make_fixture(tmp_path / "okresy")
+
+    settled = _run("settlement", "--source", source, "--dry-run", script=script)
+    prepared = _run(
+        "preparation",
+        "--register",
+        preparation.register_path,
+        "--periods-directory",
+        preparation.periods_directory,
+        "--period",
+        PERIOD,
+        "--dry-run",
+        script=script,
+    )
+
+    assert (settled[0], settled[1]["stop"]) == (0, None)
+    assert settled[1]["summary"]["file_plan"] == [
+        {"file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "rows": 2},
+        {"file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "rows": 1},
+        {"file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "rows": 0},
+    ]
+    assert (prepared[0], prepared[1]["stop"]) == (0, None)
