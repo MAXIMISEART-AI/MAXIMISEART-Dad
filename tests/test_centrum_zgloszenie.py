@@ -57,6 +57,7 @@ def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path, 
     [report] = centrum.surroundings.report_box.sent
     assert {"title": report.title, "body": report.body} == preview
     assert centrum.surroundings.report_box.keys == [KEY]
+    assert f"zgloszenie-wyslane proces=preparation okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -83,27 +84,59 @@ def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_
     centrum.fixture.collective_template_path.unlink()
     stopped = run_to_end(centrum, dry_run=True)
 
-    report = diagnose(centrum, stopped["run"]["id"])["report"]
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
 
+    report = diagnosis["report"]
     assert report["title"] == "BRAK_WZORCA: Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku."
     body = report["body"]
     stop = stopped["result"]["stops"][0]
     for line in (
-        "- Kod: BRAK_WZORCA",
-        f"- Co się stało: {stop['what']}",
-        f"- Gdzie: {stop['where']}",
-        f"- Co zrobić: {stop['action']}",
-        "- Proces: Przygotowanie pliku zbiorczego",
-        f"- Okres: {PERIOD}",
-        "- Tryb: DRY-RUN",
-        f"- Commit: {TOOL_COMMIT}",
         "| Wzorzec rozliczenia wewnętrznego | przeszło | Wzorzec rozliczenia wewnętrznego.xlsx przechodzi Sprawdzanie. |",
         f"| Wzorzec pliku zbiorczego | nie przeszło | {stop['what']} |",
         "| Folder okresu | przeszło | Folderu 08_14_09_2026 jeszcze nie ma. |",
     ):
         assert line in body.splitlines()
+    fingerprint = re.search(r"^- Odcisk problemu: ([0-9a-f]{16})$", body, re.MULTILINE)
+    assert fingerprint is not None
     log_lines = centrum.log_path.read_text(encoding="utf-8").splitlines()
-    assert log_lines[-2] in body  # ostatnie wpisy dziennika do Diagnozy włącznie z końcem Uruchomienia
+    diagnosed = next(index for index, line in enumerate(log_lines) if line.split(" ", 2)[1] == "diagnoza")
+    results = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
+    assert body.splitlines() == [
+        "Zgłoszenie z Centrum rozliczeń.",
+        "",
+        "## Komunikat",
+        "",
+        "- Kod: BRAK_WZORCA",
+        f"- Co się stało: {stop['what']}",
+        f"- Gdzie: {stop['where']}",
+        f"- Co zrobić: {stop['action']}",
+        "",
+        "## Uruchomienie procesu",
+        "",
+        "- Proces: Przygotowanie pliku zbiorczego",
+        f"- Okres: {PERIOD}",
+        "- Tryb: DRY-RUN",
+        "",
+        "## Narzędzie",
+        "",
+        f"- Commit: {TOOL_COMMIT}",
+        f"- Odcisk problemu: {fingerprint[1]}",
+        "",
+        "## Diagnoza",
+        "",
+        f"Wyjaśnienie: BRAK_WZORCA · {stop['what']}",
+        "",
+        "| Sprawdzenie | Wynik | Szczegóły |",
+        "| --- | --- | --- |",
+        *(f"| {check['label']} | {results[check['state']]} | {check['detail']} |" for check in diagnosis["checks"]),
+        "",
+        "## Dziennik Centrum rozliczeń",
+        "",
+        "```text",
+        *log_lines[:diagnosed],
+        "```",
+    ]
+    assert body.endswith("```\n")
 
 
 def test_zgloszenie_nie_ma_tresci_wierszy_wyjatku_pelnych_sciezek_ani_klucza(
@@ -214,6 +247,8 @@ def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysy
     }
     assert unsent_files(centrum) == {name: f"# {preview['title']}\n\n{preview['body']}"}
     assert centrum.surroundings.report_box.sent == []
+    log = centrum.log_path.read_text(encoding="utf-8")
+    assert f"zgloszenie-zapisane proces=preparation okres={PERIOD} kod=ZGLOSZENIE_BEZ_KLUCZA" in log
 
     with_key(centrum)
     again = send(centrum, run_id)
@@ -306,6 +341,19 @@ def test_wyslanie_jest_raz_na_zatrzymanie_a_wynik_uruchomienia_pokazuje_potwierd
     assert first == second == {"state": "sent"}
     assert len(centrum.surroundings.report_box.keys) == 1
     assert current_report(centrum) == {"state": "sent"}
+
+
+def test_ponowna_diagnoza_po_wyslaniu_pokazuje_wyslane_zgloszenie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum, monkeypatch)
+    diagnose(centrum, run_id)
+    send(centrum, run_id)
+
+    diagnose(centrum, run_id)
+
+    assert (current_report(centrum), send(centrum, run_id)) == ({"state": "sent"}, {"state": "sent"})
+    assert len(centrum.surroundings.report_box.sent) == 1
 
 
 def test_wyslane_zgloszenie_czeka_na_naprawe_takze_po_restarcie_centrum(
@@ -402,7 +450,7 @@ def test_otwarte_zgloszenie_wyslane_spoza_tego_komputera_tez_czeka_na_naprawe(
     assert current_report(centrum) == WAITING
     assert send(centrum, again) == WAITING
     assert len(centrum.surroundings.report_box.sent) == 1
-    assert "zgloszenie-czeka proces=preparation" in centrum.log_path.read_text(encoding="utf-8")
+    assert f"zgloszenie-czeka proces=preparation okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
 def test_inny_komunikat_wysyla_sie_osobno_obok_otwartego_zgloszenia(

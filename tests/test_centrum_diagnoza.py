@@ -12,7 +12,7 @@ import pytest
 
 from rozliczenia import preparation_files, preparation_register
 
-from tests.fixtures.centrum import FakeGitHub, view_timing
+from tests.fixtures.centrum import FakeGitHub, finished_view, view_timing, views_until
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -26,6 +26,7 @@ from tests.fixtures.preparation import (
     INTERNAL_SETTLEMENT_NAME,
     PERIOD,
     REGISTER_HEADERS,
+    incomplete_period_rows,
     month_periods_folder,
     write_register,
 )
@@ -186,6 +187,37 @@ def test_diagnoza_nieznanego_uruchomienia_jest_odrzucona(tmp_path: Path) -> None
     refused = centrum.client.post("/api/runs/nieznane/diagnosis")
 
     assert (refused.status_code, refused.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
+
+
+def test_diagnoza_i_zgloszenie_poprzedniego_uruchomienia_sa_odrzucone_w_trakcie_i_po_nastepnym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path, incomplete_period_rows())
+    previous = stopped_for_maks(centrum, monkeypatch)
+    centrum.start(dry_run=False)
+    next_run = views_until(centrum.client, "awaiting_decision")[-1]["run"]["id"]
+
+    def refusals() -> list[tuple[int, object]]:
+        responses = [centrum.client.post(f"/api/runs/{previous}/{action}") for action in ("diagnosis", "report")]
+        return [(response.status_code, response.json()) for response in responses]
+
+    during = refusals()
+    centrum.client.post(f"/api/runs/{next_run}/decision", json={"answer": "abort"})
+    finished_view(centrum.client)
+
+    assert during == refusals() == [(404, {"message": "Nie ma takiego Uruchomienia procesu."})] * 2
+
+
+def test_diagnoza_i_zgloszenie_uruchomienia_bez_zatrzymania_sa_odrzucone(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    view = run_to_end(centrum, dry_run=True)
+    assert view["result"]["ending"] == "finished"
+
+    refused = [centrum.client.post(f"/api/runs/{view['run']['id']}/{action}") for action in ("diagnosis", "report")]
+
+    assert [(response.status_code, response.json()) for response in refused] == [
+        (409, {"message": "Diagnoza jest przy Zatrzymaniu do Maksa albo przy powtórce tego samego Komunikatu."})
+    ] * 2
 
 
 def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_onedrive_rejestr_wzorce_folder_okresu_aktualnosc_i_dziennik(
