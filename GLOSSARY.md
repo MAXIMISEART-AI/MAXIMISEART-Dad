@@ -271,6 +271,8 @@ Kto usuwa przyczynę Zatrzymania: „dla taty”, gdy Komunikat mówi, co zrobi�
 albo „do Maksa”, gdy bezwarunkowo każe przekazać go osobie utrzymującej
 narzędzie. Nieoczekiwany wyjątek jest zawsze „do Maksa”. Powtórka zmienia
 Zatrzymanie „dla taty” w takie, przy którym Centrum proponuje Diagnozę.
+Rekord metryk zapisuje rodzaj bez Powtórki, a Historia pokazuje Zatrzymanie
+„do Maksa” jako błąd.
 
 ## Powtórka
 
