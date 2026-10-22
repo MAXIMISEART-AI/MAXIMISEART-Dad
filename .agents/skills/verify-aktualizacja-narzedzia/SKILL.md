@@ -66,11 +66,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `78a0764` (2026-10-22: the shortcut clicked while the guardian
-runs, `SkrotWTrakcie` and `SkrotOddajePort`, and its effect on `OpiekunPort`,
-`OpiekunStart`, `OpiekunPortStara`, `OpiekunStartStara`; the covered files did
-not change since `e8fb049`). At this commit every row above was checked against
-the code.
+Sync commit: `38253d6` (2026-10-22: Centrum started by the guardian waits for
+the port of a shortcut clicked during the restart, `OpiekunStart` and
+`OpiekunStartStara`, #246; only `launcher.py` changed since `78a0764`). At this
+commit every row above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,
