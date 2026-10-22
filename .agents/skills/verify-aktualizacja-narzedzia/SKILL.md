@@ -52,9 +52,9 @@ model action is one indivisible step of this code:
 | `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back` (`_Journal.read` and `rev-parse HEAD` first), called by `ToolClone.update` through `_moved_back` or by `tool_updates.py` `ToolUpdates._moved_back` through `ToolClone.roll_back` (`cofa = "centrum"`), by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`, or `"opiekun_bez_portu"` when the port was never released), by `launcher._roll_back` through `ToolClone.roll_back` (`cofa = "skrot"`), or by `ToolClone.update` before fetching through `_moved_back` (`cofa = "klik"`) |
 | `KoniecDziennika` | `tool_update.py` `_Journal.end` at the end of `_roll_back` and in `ToolClone.update` after a refusal; for `cofa = "skrot"` also `launcher._roll_back` (`write_result`) and `subprocess.call(restart_from_disk)` in `launcher._start`; for `cofa = "klik"` `ToolClone.update` goes on to `rev-parse HEAD` and the fetch |
 | `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart` (`ToolClone.leased_to_guardian` around `restart_guardian.launch`: it writes the lease and removes it when `launch` raises), and `_moved_back` when either raises |
-| `OpiekunPort`, `OpiekunStart` | `restart_guardian.py` `main`: `_port_released` (waits while a shortcut holds the port), `write_result` (ok), `_start_centrum` (`run_centrum.py --bez-okienek`, which skips the journal), `_answers(new, …, after)`, then `_stop` and `_rolled_back`; without the port straight to `_rolled_back`. `OpiekunStart` is the moment the new Centrum calls `launcher.listen_locally`: when a shortcut holds the port, it ends with `PORT_ZAJETY` (`running_centrum` gets no answer) and `_answers` returns False as soon as `centrum.poll()` sees the process gone |
+| `OpiekunPort`, `OpiekunStart` | `restart_guardian.py` `main`: `_port_released` (waits while a shortcut holds the port), `write_result` (ok), `_start_centrum` (`run_centrum.py --bez-okienek`, which skips the journal), `_answers(new, …, after)`, then `_stop` and `_rolled_back`; without the port straight to `_rolled_back`. `OpiekunStart` is the moment the new Centrum takes the port in `launcher._listen_when_released`: with `--bez-okienek` it retries `listen_locally` for `_SHORTCUT_HOLDS_PORT_S`, so it waits while a shortcut holds the port (#246) |
 | `OpiekunKoniec` | `restart_guardian.py` `main`: `ToolClone.confirm_update` after `_answers(new, …, after)` |
-| `OpiekunPortStara`, `OpiekunStartStara` | `restart_guardian.py` `main` after a successful rollback of a version that did not answer: `_port_released` (fails while a Centrum started from the shortcut holds the port), `_start_centrum`, `_answers(…, before)` (also answered by that Centrum), or the dialog `not_started_after_update` |
+| `OpiekunPortStara`, `OpiekunStartStara` | `restart_guardian.py` `main` after a successful rollback of a version that did not answer: `_port_released` (fails while a Centrum started from the shortcut holds the port), `_start_centrum` (with `--bez-okienek`, so the old version waits for the shortcut's port like the new one), `_answers(…, before)` (also answered by that Centrum), or the dialog `not_started_after_update` |
 | `Wylacz` | none: the computer switches off; the journal and its copy stay on disk |
 | `DzierzawaMija` | none: `GUARDIAN_LEASE_S` passes after `lease_to_guardian` (`InterruptedUpdate.guardian_may_run`) |
 | `Skrot` | `launcher.py` `_start` from the shortcut while nothing runs, as one step: `listen_locally`, `ToolClone.interrupted_update`, then the Komunikat `update_finishing` while `guardian_may_run`, `launcher._roll_back`, or the normal start (only "does it start") |
@@ -146,7 +146,7 @@ guardian's rollback meets every other failure too.
 | `kopiowanie` | the above without git + `shutil.copy2` of Dad's file or a write of `stan.json` raises `OSError` | passes |
 | `nieudany-start` | `zwykle-awarie` + the new version does not answer in `START_TIMEOUT_S` | passes |
 | `wylaczenie` | `nieudany-start` + the computer switches off at any step | passes |
-| `skrot-w-trakcie` | `nieudany-start` + Dad clicks the desktop shortcut up to twice (`MaxSkrotowWTrakcie = 2`) while the guardian runs | breaks `OpiekunCofaTylkoNieudana`, known finding `skrot_zajmuje_port` |
+| `skrot-w-trakcie` | `nieudany-start` + Dad clicks the desktop shortcut up to twice (`MaxSkrotowWTrakcie = 2`) while the guardian runs | passes |
 
 Every configuration checks the invariants `TataMaDzialajacaWersje` and
 `OpiekunCofaTylkoNieudana` and the liveness property `Postep`, under the
@@ -169,30 +169,17 @@ checks it).
 
 ## Known findings
 
-- `skrot_zajmuje_port` (`skrot-w-trakcie`): Dad clicks the desktop shortcut
-  while the guardian restarts Centrum, and the guardian rolls back a new
-  version that works. Counterexample in the code's words:
-  1. Dad clicks `Zaktualizuj narzędzie`; the update merges and installs, and
-     `ToolUpdates._restart` launches the guardian and closes Centrum.
-  2. `restart_guardian.main`: `_port_released` sees port 47811 free.
-  3. Dad clicks the shortcut (the card says Centrum is restarting).
-     `launcher._start` binds the port in `listen_locally` and reads the
-     journal with its lease.
-  4. The new Centrum (`run_centrum.py --bez-okienek`) calls `listen_locally`,
-     gets `OSError`, gets no `health` answer from the shortcut, and exits with
-     `PORT_ZAJETY` (no dialog).
-  5. `_answers` sees the process gone and returns False; the guardian calls
-     `_stop` and `_rolled_back`, writes `NOWA_WERSJA_NIE_WYSTARTOWALA`, and
-     starts the old version.
-
-  End: Dad has the old version, a card saying the new one did not start, and
-  a Zgłoszenie for Maks; the update is lost although it worked. Dad's tool
-  still starts and his file is intact, so `TataMaDzialajacaWersje` holds.
-  Code: `launcher.py` `_start` (binds before it reads the journal),
-  `restart_guardian.py` `main` and `_answers`. Nothing is filed for it yet.
+None.
 
 Fixed:
 
+- #246 (`skrot_zajmuje_port`, `skrot-w-trakcie`): Dad clicked the desktop
+  shortcut while the guardian restarted Centrum. The shortcut held the port
+  between `listen_locally` and `listener.close()`, the new Centrum ended with
+  `PORT_ZAJETY`, and the guardian rolled back a version that works. Centrum
+  started with `--bez-okienek` now retries `listen_locally` for
+  `_SHORTCUT_HOLDS_PORT_S` (10 s); the old version after a rollback starts
+  the same way.
 - #212 (`bez_opiekuna`): Centrum rolls the clone back when
   `restart_guardian.launch` raises, and the guardian rolls it back when the
   port is not released, then shows the dialog.
@@ -270,6 +257,13 @@ Assumed, and not checked:
   the Zgłoszenia key, the log, metrics, period files) are not modelled. Git
   does not touch them, and when the new version would overwrite one, `merge`
   refuses.
+- A shortcut clicked while the guardian runs gives the port back within
+  `_SHORTCUT_HOLDS_PORT_S` (10 s), because between `listen_locally` and
+  `listener.close()` it only reads the journal on the local disk. The model
+  lets `OpiekunStart` and `OpiekunStartStara` wait for it without a limit. A
+  shortcut process that stalls longer brings `skrot_zajmuje_port` back. No
+  promise checks the wait in `OpiekunStartStara`: without it the old version
+  ends with `PORT_ZAJETY` and Dad sees the dialog, but his tool still starts.
 - A shortcut whose `listen_locally` fails only asks `running_centrum` and
   changes nothing on disk, so the model leaves it out. Its wrong Komunikaty
   are not checked: `PORT_ZAJETY` when Centrum is still starting and does not

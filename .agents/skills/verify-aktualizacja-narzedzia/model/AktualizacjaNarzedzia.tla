@@ -65,7 +65,7 @@ dysk == <<head, plikTaty, kopia, biblioteki, dziennik, dzierzawa>>
 nowa == <<nowaUsuwaPlikTaty, nowaZmieniaWymagania, nowaStartuje>>
 vars == <<dysk, nowa, centrum, pc, klikniecia, krok, slady, cofa, skrot, skrotyWTrakcie>>
 
-ZnaneZnaleziska == {"skrot_zajmuje_port"}
+ZnaneZnaleziska == {}
 
 Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie",
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
@@ -382,26 +382,19 @@ OpiekunPort ==
 \* _start_centrum (run_centrum.py --bez-okienek: skrót bez cofania), potem _answers. Gdy nowa
 \* wersja nie odpowie: _stop, write_result z NOWA_WERSJA_NIE_WYSTARTOWALA i _rolled_back, czyli
 \* ToolClone.roll_back -> _roll_back.
-\* Akcja to chwila, w której nowe Centrum woła launcher.listen_locally. Gdy port trzyma skrót,
-\* bind rzuca OSError, running_centrum nie dostaje odpowiedzi (skrót nie odpowiada na HTTP),
-\* nowe Centrum kończy się z PORT_ZAJETY (bez okienka), a _answers widzi koniec procesu
-\* (centrum.poll() is not None) i od razu zwraca False.
+\* Akcja to chwila, w której nowe Centrum zajmuje port w launcher._listen_when_released. Gdy
+\* port trzyma skrót, Centrum z --bez-okienek ponawia listen_locally przez _SHORTCUT_HOLDS_PORT_S,
+\* a skrót oddaje port po odczycie dziennika z terminem opiekuna (SkrotOddajePort), więc akcja
+\* czeka na skrot = "brak" (#246).
 OpiekunStart ==
     /\ pc = "opiekun_start"
-    /\ \/ /\ skrot = "brak"
-          /\ Startuje(head)
+    /\ skrot = "brak"
+    /\ \/ /\ Startuje(head)
           /\ centrum' = head
           /\ Idz("opiekun_koniec", "restart_guardian.main: nowa wersja odpowiada na /api/health")
-       \/ /\ skrot = "brak"
-          /\ ~Startuje(head)
+       \/ /\ ~Startuje(head)
           /\ UNCHANGED centrum
           /\ Cofaj("opiekun", "restart_guardian.main: nowa wersja nie odpowiada w START_TIMEOUT_S; _stop, potem _rolled_back")
-       \/ /\ skrot = "ma_port"
-          /\ UNCHANGED <<centrum, skrot, skrotyWTrakcie>>
-          /\ pc' = "cofanie_usun"
-          /\ cofa' = "opiekun"
-          /\ slady' = slady \cup {"skrot_zajmuje_port"}
-          /\ krok' = "restart_guardian.main: nowa wersja nie zajmuje portu, ktory trzyma skrot (listen_locally: OSError, PORT_ZAJETY); _answers widzi koniec procesu, _stop, potem _rolled_back"
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
 
 \* ToolClone.confirm_update: aktualizacja skończona, dziennik znika (_Journal.end).
@@ -427,18 +420,18 @@ OpiekunPortStara ==
           /\ Idz("opiekun_start_stara", "restart_guardian.main: port zwolniony po cofnieciu")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 
-\* Gdy port trzyma skrót, stara wersja kończy się z PORT_ZAJETY jak nowa w OpiekunStart. Gdy
-\* trzyma go Centrum ze skrotu w tej samej wersji, stara kończy się (już działa), a _answers(before)
-\* dostaje odpowiedź od tamtego Centrum.
+\* Stara wersja też startuje z --bez-okienek, więc jak nowa w OpiekunStart czeka, aż skrót odda
+\* port. Gdy skrót bez dziennika został na porcie z Centrum w tej samej wersji, stara po
+\* _SHORTCUT_HOLDS_PORT_S kończy się (już działa), a _answers(before) dostaje odpowiedź od tamtego
+\* Centrum.
 OpiekunStartStara ==
     /\ pc = "opiekun_start_stara"
+    /\ skrot = "brak"
     /\ centrum' = CASE centrum /= "brak" -> centrum
-                    [] skrot = "ma_port" -> "brak"
                     [] Startuje(head) -> head
                     [] OTHER -> "brak"
     /\ Idz("spoczynek",
            CASE centrum /= "brak" -> "restart_guardian.main: stara wersja juz dziala (Centrum ze skrotu odpowiada)"
-             [] skrot = "ma_port" -> "restart_guardian.main: stara wersja nie zajmuje portu, ktory trzyma skrot; opiekun pokazuje okienko"
              [] Startuje(head) -> "restart_guardian.main: stara wersja odpowiada, karta pokaze NOWA_WERSJA_NIE_WYSTARTOWALA"
              [] OTHER -> "restart_guardian.main: stara wersja nie odpowiada, opiekun pokazuje okienko")
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
