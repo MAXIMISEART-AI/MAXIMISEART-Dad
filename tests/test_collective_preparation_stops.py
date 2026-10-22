@@ -8,7 +8,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 import pytest
 
 from rozliczenia.message import StopError
@@ -582,16 +582,17 @@ def test_failed_save_of_plik_zbiorczy_leaves_no_period_file(
     fixture = make_preparation_fixture(tmp_path)
     if period_directory_exists:
         fixture.period_directory.mkdir()
-    real_save = workbook_files.save_workbook
+    real_write = workbook_files._write_atomically
     saved: list[str] = []
 
-    def save_first_then_fail(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+    # Obie drogi zapisu Pliku zbiorczego (kopia Wzorca i openpyxl) kończą się atomowym zapisem pliku.
+    def save_first_then_fail(target: Path, write: Callable[[Path], None]) -> None:
         if target.name == COLLECTIVE_FILE_NAME:
             raise failure
         saved.append(target.name)
-        real_save(workbook, target, external_links_from=external_links_from)
+        real_write(target, write)
 
-    monkeypatch.setattr(workbook_files, "save_workbook", save_first_then_fail)
+    monkeypatch.setattr(workbook_files, "_write_atomically", save_first_then_fail)
 
     error = stop_preparation(fixture)
 

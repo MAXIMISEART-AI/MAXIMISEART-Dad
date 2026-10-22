@@ -96,8 +96,8 @@ Odrzucone kierunki:
   Wzorzec poprawny jako XML, ale semantycznie odrzucany przez openpyxl, nie
   jest już zatrzymywany w Sprawdzaniu. Do decyzji trzeba wrócić, jeśli taki
   Wzorzec się pojawi. Przygotowanie pliku zbiorczego
-  nadal zapisuje oba pliki okresu przez openpyxl; jego wspinaczka to osobna
-  decyzja.
+  zapisuje Rozliczenie wewnętrzne przez openpyxl, a Plik zbiorczy od
+  2026-10-22 tą samą kopią (sekcja niżej).
 - Bramka poprawności traktuje nazwę arkusza w apostrofach i bez nich w nazwie
   zdefiniowanej jako to samo odwołanie: openpyxl dodaje apostrofy, kopia
   zostawia definicję z Wzorca.
@@ -188,3 +188,47 @@ są Wyróżnieniem, więc nie przechodzą z Pliku zbiorczego.
 Adres Hiperłącza to treść wiersza (np. numer sprawy klienta). `Hyperlink` nie
 pokazuje go w `repr`, a żaden Komunikat, Zdarzenie przebiegu, rekord metryk ani
 Zgłoszenie go nie zawiera.
+
+## Zmiana z 2026-10-22: Plik zbiorczy z kopii Wzorca
+
+Po wczytaniu Wzorca pliku zbiorczego w Sprawdzaniu i Planowaniu tylko w
+zarysie (#263) największym kosztem Przygotowania pliku zbiorczego zostało
+Zapisywanie: pełne wczytanie i zapis tego samego Wzorca przez openpyxl, 4,1 s
+z 8,3 s całego Przygotowania na kopii danych taty (M4 Max). Wzorzec pliku zbiorczego ma ten sam
+kształt co Wzorzec rozliczenia pracownika (~10 tys. sformatowanych wierszy, ~50
+tys. wspólnych formuł), więc Plik zbiorczy powstaje teraz tą samą kopią
+(`workbook_files.CollectiveFileTemplate`, układ `SheetLayout(collective_file=True)`).
+
+Kopia wpisuje komórki A:K Wierszy danych tak jak dotąd zapis przez openpyxl
+(`preparation_files._write_period_file`), z trzema dodatkami tylko dla Pliku
+zbiorczego:
+
+- format liczby każdej wpisanej komórki to format komórki Rejestru zleceń
+  (`Row.number_formats`), dopisany do `xl/styles.xml` jak format daty;
+  Rozliczenie pracownika nadal ma formaty liczb Wzorca;
+- element `autoFilter` arkusza obejmuje kolumny niepustego nagłówka od wiersza
+  17 do ostatniego wpisanego wiersza, bez warunków filtrów Wzorca, a nazwa
+  `_xlnm._FilterDatabase` arkusza w `xl/workbook.xml` dostaje ten sam zakres;
+- wpisana komórka bez własnego stylu w wierszu albo kolumnie ze stylem to
+  `UnsupportedShape`: Excel i dawna droga dają jej styl wiersza albo kolumny,
+  czego kopia nie odtwarza.
+
+Wzorzec bez `autoFilter` albo bez nazwy `_xlnm._FilterDatabase`, z
+nagłówkiem, którego kolumn nie da się dopasować do kolumn Rejestru, i każdy
+kształt spoza kopii z decyzji wyżej idzie dawną drogą przez openpyxl. Brak
+Wzorca, otwarcie w Excelu i nieczytelny plik zatrzymują Zapisywanie tymi
+samymi Komunikatami co dotąd.
+
+Wynik na kopiach danych taty (M4 Max, 8 par naprzemiennie na scenariusz):
+Zapisywanie 4,1 s → 0,6 s, całe Przygotowanie 8,3 s → 4,7 s (nowy Rejestr) i
+9,5 s → 5,9 s (stary), max RSS 383 → 192–208 MB. W 31 okresach z obu
+Rejestrów Plik zbiorczy z kopii i z openpyxl nie różnią się w żadnej kategorii bramki
+`tools/porownanie_rozliczen.py`, mają ten sam autofiltr, a Przebieg rozliczeń
+na każdym z nich daje te same Rozliczenia pracowników. Plik zbiorczy z kopii
+ma ~1,5 MB zamiast ~2,9 MB, zachowuje wspólne formuły i `calcChain` oraz
+nieaktywne ustawienia ochrony arkusza Wzorca (`sheetProtection`,
+`protectedRanges`), które openpyxl pomijał. Bajty części zip różnią się od
+zapisu przez openpyxl, tak jak w Rozliczeniu pracownika.
+
+Test właściciel: `tests/test_plik_zbiorczy_kopia_wzorca.py` porównuje Plik
+zbiorczy z obu dróg na syntetycznych Wzorcach, także kształtu Wzorców taty.
