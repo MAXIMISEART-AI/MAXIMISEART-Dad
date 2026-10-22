@@ -337,6 +337,7 @@ którego nie udało się usunąć, w Folderze okresu został wskazany plik.
 |---|---|
 | „Rejestr zleceń jest otwarty w Excelu” | Zapisz i zamknij Rejestr zleceń, potem uruchom ponownie. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z folderu Rejestru pozostawiony plik `~$ZLECENIA INTERMAX OD 08_11_2021.xlsx`. |
 | „Nie znaleziono Rejestru zleceń” | W `Ustawieniach` na stronie `Okresy` wskaż właściwy plik Rejestru zleceń i uruchom ponownie. |
+| „Nie można teraz odczytać Rejestru zleceń” | Nie poprawiaj Rejestru. Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy Rejestr otwiera się w Excelu. Zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można odczytać Rejestru zleceń” | Sprawdź, czy Rejestr otwiera się w Excelu i jest zapisany jako `.xlsx`. Zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „nie znaleziono arkusza ze zleceniami” | Sprawdź, czy w `Ustawieniach` wskazano plik Rejestru zleceń. Pierwszy wiersz arkusza ze zleceniami musi mieć wszystkie nagłówki wymienione w komunikacie. |
 | „W Rejestrze zleceń brakuje” | Dopisz albo popraw wymieniony nagłówek w pierwszym wierszu arkusza ze zleceniami. Zapisz i zamknij Rejestr, uruchom ponownie. |
@@ -435,6 +436,7 @@ komunikat o niepokazanym podsumowaniu: wtedy rozliczenia pracowników już są.
 |---|---|
 | „Nie znaleziono Pliku zbiorczego tego okresu” | Sprawdź, czy Plik zbiorczy leży w Folderze okresu pod nazwą `Rozliczenie {okres} - zbiorcze.xlsx`. Jeśli okresu nie przygotowano, najpierw przygotuj plik zbiorczy. |
 | „Plik zbiorczy jest otwarty w Excelu” | Zapisz i zamknij Plik zbiorczy, potem kliknij `Uruchom ponownie`. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z Folderu okresu pozostawiony plik `~$` z nazwą Pliku zbiorczego. |
+| „Nie można teraz odczytać Pliku zbiorczego” | Nie poprawiaj Pliku zbiorczego. Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy plik otwiera się w Excelu. Zamknij go i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Plik zbiorczy nie nadaje się do Przebiegu rozliczeń” | Dalsza część komunikatu mówi, co jest nie tak (np. plik nie otwiera się w Excelu albo nie ma nagłówka WYKONAWCA). Popraw Plik zbiorczy, zapisz go, zamknij i uruchom ponownie. |
 | „Folder rozliczeń pracowników tego okresu już istnieje” | Rozliczenia pracowników tego okresu już są; narzędzie ich nie nadpisze. Sprawdź, czy wybrano właściwy okres. Żeby utworzyć je od nowa, najpierw przenieś ten folder poza Folder okresu. |
 | „Konfiguracja wykonawców jest niepoprawna” | Przekaż komunikat osobie utrzymującej narzędzie. |

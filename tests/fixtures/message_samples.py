@@ -73,6 +73,7 @@ PREPARATION_SAMPLES: Samples = {
     "template_with_merged_cells": [lambda: messages.template_with_merged_cells(TEMPLATE, "Sheet1", "B19:C20")],
     "register_missing": [lambda: messages.register_missing(REGISTER)],
     "register_open_in_excel": [lambda: messages.register_open_in_excel(REGISTER)],
+    "register_inaccessible": [lambda: messages.register_inaccessible(REGISTER)],
     "register_unreadable": [lambda: messages.register_unreadable(REGISTER)],
     "register_without_headers": [
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE"]),
@@ -138,6 +139,7 @@ SETTLEMENT_SAMPLES: Samples = {
             SOURCE, "Plik Rozliczenie wew. jest poza zakresem tego procesu."
         )
     ],
+    "collective_file_inaccessible": [lambda: settlement_messages.collective_file_inaccessible(SOURCE)],
     "collective_file_unreadable": [lambda: settlement_messages.collective_file_unreadable(SOURCE)],
     "collective_file_without_worker_header": [
         lambda: settlement_messages.collective_file_without_worker_header(SOURCE)

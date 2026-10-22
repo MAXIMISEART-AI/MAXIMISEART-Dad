@@ -43,11 +43,10 @@ def project(events: list[ProgressEvent]) -> ProgressProjection:
     return projection
 
 
-def ended(worker_name: str, index: int, total: int, status: WorkerStatus = "ZAPISANO", rows: int = 1) -> WorkerEnded:
+def ended(worker_name: str, index: int, status: WorkerStatus = "ZAPISANO", rows: int = 1) -> WorkerEnded:
     return WorkerEnded(
         worker_name,
         template_index=index,
-        template_total=total,
         status=status,
         rows=rows,
         elapsed_ms=20 + index,
@@ -59,15 +58,13 @@ def test_projection_reduces_failed_przetworzenie_szablonu_pracownika_without_cou
     projection = project(
         [
             *until_saving(2),
-            WorkerStarted("Adrian Testowy", template_index=1, template_total=2, elapsed_ms=10),
-            ended("Adrian Testowy", 1, 2, rows=2),
-            WorkerStarted("Darek Fikcyjny", template_index=2, template_total=2, elapsed_ms=12),
+            WorkerStarted("Adrian Testowy", template_index=1, elapsed_ms=10),
+            ended("Adrian Testowy", 1, rows=2),
+            WorkerStarted("Darek Fikcyjny", template_index=2, elapsed_ms=12),
         ]
     )
 
-    failed = WorkerFailed(
-        "Darek Fikcyjny", template_index=2, template_total=2, elapsed_ms=25, phase_elapsed_ms=5
-    )
+    failed = WorkerFailed("Darek Fikcyjny", template_index=2, elapsed_ms=25, phase_elapsed_ms=5)
     snapshot = projection.update(failed)
 
     assert snapshot.phase_states[ProgressPhase.SAVING] is PhaseState.FAILED
@@ -84,21 +81,19 @@ def test_projection_reduces_complete_przebieg_rozliczen_to_one_snapshot() -> Non
     projection = project(
         [
             *until_saving(2, issue_count=1),
-            WorkerStarted("Adrian Testowy", template_index=1, template_total=2, elapsed_ms=9),
+            WorkerStarted("Adrian Testowy", template_index=1, elapsed_ms=9),
             WorkerEnded(
                 "Adrian Testowy",
                 template_index=1,
-                template_total=2,
                 status="ZAPISANO",
                 rows=2,
                 elapsed_ms=12,
                 issue_count=1,
             ),
-            WorkerStarted("Darek Fikcyjny", template_index=2, template_total=2, elapsed_ms=13),
+            WorkerStarted("Darek Fikcyjny", template_index=2, elapsed_ms=13),
             WorkerEnded(
                 "Darek Fikcyjny",
                 template_index=2,
-                template_total=2,
                 status="PUSTY_SZABLON",
                 rows=0,
                 elapsed_ms=14,
@@ -107,7 +102,7 @@ def test_projection_reduces_complete_przebieg_rozliczen_to_one_snapshot() -> Non
         ]
     )
 
-    snapshot = projection.update(PhaseEnded(ProgressPhase.SAVING, elapsed_ms=16, phase_elapsed_ms=7, template_total=2))
+    snapshot = projection.update(PhaseEnded(ProgressPhase.SAVING, elapsed_ms=16, phase_elapsed_ms=7))
 
     assert all(state is PhaseState.COMPLETED for state in snapshot.phase_states.values())
     assert snapshot.template_total == 2

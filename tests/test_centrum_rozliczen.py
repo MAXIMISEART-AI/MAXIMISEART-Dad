@@ -242,9 +242,11 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     worker_folder = write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa", "Jan Próbny"])
     (worker_folder / "~$Rozliczenie 22_28_09_2026 - Anna Testowa.xlsx").touch()
     (worker_folder / "Rozliczenie 22_28_09_2026 -.xlsx").touch()
+    (worker_folder / "Rozliczenie 22_28_09_2026 - .xlsx").touch()
     write_period_files(periods, "29_05_10_2026")
     (periods / "15_21_09_2026").mkdir()
     (periods / "Archiwum").mkdir()
+    (periods / "00_01_01_0001").mkdir()
     (periods / ".13_19_10_2026.staging-abc").mkdir()
     (periods / "notatki.txt").touch()
 
@@ -275,8 +277,11 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     ]
 
 
-def with_dad_layout(tmp_path: Path) -> tuple[Centrum, Path]:
-    """Centrum z folderem okresów ``Załączniki`` w układzie folderów taty: Rozliczenia {rok}\\{miesiąc}\\INEA."""
+def with_dad_layout(tmp_path: Path, chosen_month: str | None = None) -> tuple[Centrum, Path]:
+    """Centrum w układzie folderów taty ``Załączniki``: Rozliczenia {rok}\\{miesiąc}\\INEA.
+
+    Folder okresów to ``Załączniki`` albo, z ``chosen_month``, folder ``INEA`` tego miesiąca.
+    """
 
     root = tmp_path / "Załączniki"
     for month in ("12_Grudzień_2025",):
@@ -285,7 +290,7 @@ def with_dad_layout(tmp_path: Path) -> tuple[Centrum, Path]:
         (root / "Rozliczenia 2026" / month / "INEA").mkdir(parents=True)
     (root / "Rozliczenia 2026" / "Nowe rozliczenia wzór od 01_2026" / "Podpisane").mkdir(parents=True)
     app = centrum(tmp_path)
-    app.platform.chosen_folders.append(root)
+    app.platform.chosen_folders.append(root if chosen_month is None else inea(root, chosen_month))
     app.client.post("/api/settings/periods-directory/choose")
     return app, root
 
@@ -305,6 +310,7 @@ def test_w_ukladzie_folderow_taty_tablica_okresow_widzi_tygodnie_ze_wszystkich_m
     write_worker_settlements(ready, "22_28_09_2026", ["Anna Testowa"])
     (inea(root, "09_Wrzesień_2026") / "28_30_09_2026 tylko dawid").mkdir()
     (inea(root, "12_Grudzień_2025", year=2025) / "16_22_12_2025").mkdir()
+    (root / "Rozliczenia 26" / "10_Październik_2026" / "INEA" / "20_26_10_2026").mkdir(parents=True)
 
     rows = board_rows(app)
 
@@ -319,6 +325,23 @@ def test_w_ukladzie_folderow_taty_tablica_okresow_widzi_tygodnie_ze_wszystkich_m
     assert app.client.get("/api/periods").json()["last_prepared_period"] == "06_12_10_2026"
 
 
+def test_w_ukladzie_folderow_taty_tablica_okresow_z_folderu_inea_miesiaca_widzi_tygodnie_wszystkich_miesiecy(
+    tmp_path: Path,
+) -> None:
+    app, root = with_dad_layout(tmp_path, "10_Październik_2026")
+    write_period_files(inea(root, "09_Wrzesień_2026"), "22_28_09_2026")
+    write_period_files(inea(root, "10_Październik_2026"), "06_12_10_2026")
+    write_period_files(inea(root, "11_Listopad_2026"), "27_02_11_2026")
+
+    rows = board_rows(app)
+
+    assert [row["token"] for row in rows if row["status"] == "collective_file_prepared"] == [
+        "27_02_11_2026",
+        "06_12_10_2026",
+        "22_28_09_2026",
+    ]
+
+
 def test_w_ukladzie_folderow_taty_pliki_okresu_otwieraja_sie_z_folderu_miesiaca(tmp_path: Path) -> None:
     app, root = with_dad_layout(tmp_path)
     period_folder = write_period_files(inea(root, "10_Październik_2026"), "06_12_10_2026")
@@ -329,8 +352,11 @@ def test_w_ukladzie_folderow_taty_pliki_okresu_otwieraja_sie_z_folderu_miesiaca(
     assert app.platform.opened == [period_folder / "Rozliczenie 06_12_10_2026 - zbiorcze.xlsx"]
 
 
-def test_w_ukladzie_folderow_taty_tydzien_w_dwoch_miesiacach_nie_jest_otwierany(tmp_path: Path) -> None:
-    app, root = with_dad_layout(tmp_path)
+@pytest.mark.parametrize("chosen_month", [None, "10_Październik_2026"], ids=["zalaczniki", "inea-pazdziernika"])
+def test_w_ukladzie_folderow_taty_tydzien_w_dwoch_miesiacach_nie_jest_otwierany(
+    tmp_path: Path, chosen_month: str | None
+) -> None:
+    app, root = with_dad_layout(tmp_path, chosen_month)
     write_period_files(inea(root, "09_Wrzesień_2026"), "29_05_10_2026")
     write_period_files(inea(root, "10_Październik_2026"), "29_05_10_2026")
 

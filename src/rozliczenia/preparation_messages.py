@@ -190,6 +190,23 @@ def register_open_in_excel(register_path: Path) -> Message:
     )
 
 
+def register_inaccessible(register_path: Path) -> Message:
+    """System nie oddał bajtów Rejestru zleceń (np. zajęty przez inny program albo OneDrive bez sieci); to nie uszkodzenie."""
+
+    return Message(
+        code="NIEDOSTEPNY_REJESTR",
+        what=(
+            "Nie można teraz odczytać Rejestru zleceń. Plik może być zajęty przez inny program "
+            "albo czekać na pobranie z OneDrive. Nie utworzono żadnego pliku."
+        ),
+        where=file_label(register_path),
+        action=(
+            "Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy Rejestr zleceń otwiera się w Excelu. "
+            "Zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
+        ),
+    )
+
+
 def register_unreadable(register_path: Path) -> Message:
     """Rejestr zleceń nie daje się odczytać jako skoroszyt .xlsx."""
 

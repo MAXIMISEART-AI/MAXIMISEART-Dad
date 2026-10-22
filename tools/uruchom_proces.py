@@ -32,7 +32,7 @@ Na stdout trafia jeden obiekt JSON (UTF-8, ``ProcessResult``):
 
 JSON nie zawiera tekstu wyjątku ani śladu wywołań.
 
-Kod wyjścia to ``Outcome.exit_code``: 0 OK, 2 Wymaga sprawdzenia, 1 Zatrzymanie.
+Kod wyjścia to 0 OK, 2 Wymaga sprawdzenia, 1 Zatrzymanie.
 Błędne argumenty też kończą się kodem 1, bez JSON, z opisem użycia na stderr,
 żeby literówka nigdy nie wyglądała jak wynik Wymaga sprawdzenia.
 """
@@ -63,6 +63,7 @@ from rozliczenia.settlement_process import SettlementInputs  # noqa: E402
 
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT")
+_EXIT_CODES = {"OK": 0, "WYMAGA_SPRAWDZENIA": 2, "BLAD_KRYTYCZNY": 1}
 
 class _Model(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -107,16 +108,7 @@ class _Unattended:
     def confirm(self, decision: Decision) -> bool:
         return False
 
-    def start_progress(self, snapshot: ProgressSnapshot) -> None:
-        self._show(snapshot)
-
     def show_progress(self, snapshot: ProgressSnapshot) -> None:
-        self._show(snapshot)
-
-    def stop_progress(self) -> None:
-        pass
-
-    def _show(self, snapshot: ProgressSnapshot) -> None:
         self.progress = self._progress_view(snapshot)
 
 
@@ -145,7 +137,7 @@ def _conduct(
         notices=list(outcome.notices),
         metrics_saved=outcome.metrics_saved,
     )
-    return result, outcome.exit_code
+    return result, _EXIT_CODES[outcome.result]
 
 
 def _settle(args: argparse.Namespace) -> tuple[ProcessResult, int]:
