@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+import itertools
+import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
 import pytest
+
+from tests.fixtures.git_repo import commit, git
 
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "praca_w_toku.py"
 
@@ -33,24 +40,27 @@ def _commit(cwd: Path, path: str, content: str, message: str) -> None:
     _git(cwd, "commit", "-m", message)
 
 
-def _report(cwd: Path, *args: str, gh_answer: str | None = None) -> str:
-    """Raport bez GitHuba albo z ``gh``, który na każde wywołanie odpowiada ``gh_answer``."""
+def _fake_gh(directory: Path, answer: str, code: int = 0) -> str:
+    """``PATH`` z ``gh``, który na każde wywołanie wypisuje ``answer`` i kończy się kodem ``code``."""
 
-    env, mode = dict(os.environ), ["--lokalnie"]
-    if gh_answer is not None:
-        fake = cwd.parent / "gh-na-niby"
-        fake.mkdir(exist_ok=True)
-        (fake / "odpowiedz.json").write_text(gh_answer, encoding="utf-8")
-        if os.name == "nt":
-            (fake / "gh.cmd").write_text(f'@type "{fake / "odpowiedz.json"}"\n', encoding="utf-8")
-        else:
-            (fake / "gh").write_text(f"#!/bin/sh\ncat '{fake / 'odpowiedz.json'}'\n", encoding="utf-8")
-            (fake / "gh").chmod(0o755)
-        env["PATH"], mode = f"{fake}{os.pathsep}{env['PATH']}", []
+    fake = directory / "gh-na-niby"
+    fake.mkdir(exist_ok=True)
+    (fake / "odpowiedz.json").write_text(answer, encoding="utf-8")
+    if os.name == "nt":
+        (fake / "gh.cmd").write_text(f'@type "{fake / "odpowiedz.json"}"\n@exit /b {code}\n', encoding="utf-8")
+    else:
+        (fake / "gh").write_text(f"#!/bin/sh\ncat '{fake / 'odpowiedz.json'}'\nexit {code}\n", encoding="utf-8")
+        (fake / "gh").chmod(0o755)
+    return f"{fake}{os.pathsep}{os.environ['PATH']}"
+
+
+def _report(cwd: Path, *args: str, path: str | None = None) -> str:
+    """Raport bez GitHuba albo z ``gh`` szukanym w ``path``."""
+
     completed = subprocess.run(
-        [sys.executable, str(TOOL), *mode, *args],
+        [sys.executable, str(TOOL), *(["--lokalnie"] if path is None else []), *args],
         cwd=cwd,
-        env=env,
+        env=dict(os.environ) if path is None else {**os.environ, "PATH": path},
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -125,7 +135,7 @@ def test_przeniesienie_naklada_sie_stara_sciezka(checkouts: dict[str, Path]) -> 
 
     github_only = '[{"number": 9, "headRefName": "fix/zdalna", "title": "", "body": "", "files": [{"path": "wspolny.py"}]}]'
 
-    lines = _report(moving, "--nakladania", gh_answer=github_only).splitlines()
+    lines = _report(moving, "--nakladania", path=_fake_gh(moving.parent, github_only)).splitlines()
 
     assert "wspolny.py" in next(line for line in lines if line.startswith("- fix/opiekun"))
     assert "- fix/zdalna (PR #9): wspolny.py" in lines
@@ -148,14 +158,34 @@ def test_odlaczony_head_liczy_sie_tylko_z_wlasnym_commitem_innym_niz_merge(check
 
 
 def test_zly_ksztalt_odpowiedzi_gh_to_raport_bez_githuba(checkouts: dict[str, Path]) -> None:
-    report = _report(checkouts["current"], "--issue", "7", gh_answer="[{}]")
+    report = _report(checkouts["current"], "--issue", "7", path=_fake_gh(checkouts["current"].parent, "[{}]"))
 
     assert "GITHUB POMINIĘTY" in report
     assert "fix/opiekun" in report  # praca lokalna nadal w raporcie
 
 
+@pytest.mark.parametrize("gh", ["brak", "pada"])
+def test_bez_odpowiedzi_gh_raport_jak_lokalnie(checkouts: dict[str, Path], gh: str) -> None:
+    current = checkouts["current"]
+    if gh == "brak":
+        path = os.pathsep.join(
+            folder
+            for folder in os.environ["PATH"].split(os.pathsep)
+            if not any((Path(folder) / name).exists() for name in ("gh", "gh.exe"))
+        )
+        if shutil.which("git", path=path) is None:
+            pytest.skip("gh leży w tym samym folderze co git")
+    else:
+        path = _fake_gh(current.parent, "[]", code=4)
+
+    skipped, *report = _report(current, path=path).splitlines()
+
+    assert skipped == ("GITHUB POMINIĘTY | brak gh" if gh == "brak" else "GITHUB POMINIĘTY | gh: kod 4")
+    assert report == _report(current).splitlines()[1:]
+
+
 def test_zly_ksztalt_tresci_zgloszenia_to_raport_bez_githuba(checkouts: dict[str, Path]) -> None:
-    report = _report(checkouts["current"], "--issue", "7", gh_answer="[]")
+    report = _report(checkouts["current"], "--issue", "7", path=_fake_gh(checkouts["current"].parent, "[]"))
 
     assert report.count("GITHUB POMINIĘTY") == 1
     assert "fix/opiekun" in report  # praca lokalna nadal w raporcie
@@ -171,3 +201,229 @@ def test_odlaczony_head_z_samym_merge_liczy_sie_z_niezacommitowanymi_plikami(che
 
     # inny.py niezacommitowany po obu stronach, wspolny.py z commita fix/opiekun, który niesie merge
     assert f"- odłączony HEAD {owner.resolve()}: inny.py, wspolny.py" in lines
+
+
+@dataclass(frozen=True)
+class _Commit:
+    name: str
+    files: frozenset[str]
+    merge: bool = False
+    on_remote: bool = False
+
+
+@dataclass(frozen=True)
+class _Checkout:
+    """Linia pracy w świecie testu: commity spoza ``main`` i niezacommitowane pliki, jak je zbudowano."""
+
+    branch: str | None
+    path: Path | None
+    commits: frozenset[_Commit]
+    dirty: frozenset[str] = frozenset()
+    pr: int | None = None
+    pr_files: frozenset[str] = frozenset()
+
+    def changed(self, other: _Checkout) -> frozenset[str]:
+        """Pliki zmieniane we własnych commitach (bez wspólnych z ``other``) albo niezacommitowane."""
+
+        return frozenset().union(*(commit.files for commit in self.commits - other.commits)) | self.dirty
+
+
+_REMOTE = _Commit("zdalna", frozenset({"zdalny.py"}), on_remote=True)
+_MERGE = _Commit("merge", frozenset(), merge=True)
+_UNFETCHED = _Commit("niepobrana", frozenset({"pr-plik.py"}))
+_GITHUB_ONLY = (
+    _Checkout("zdalna", None, frozenset({_REMOTE}), pr=9, pr_files=_REMOTE.files),
+    _Checkout("niepobrana", None, frozenset({_UNFETCHED}), pr=10, pr_files=_UNFETCHED.files),
+)
+_PULL_REQUESTS = {
+    "inny-g-wlasny-czysty": (8, {"wspolny.py", "tylko-w-pr.py"}),
+    "ja": (7, {"wspolny.py"}),
+    **{side.branch or "": (side.pr, side.pr_files) for side in _GITHUB_ONLY},
+}
+
+
+def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> list[str]:
+    """Raport ze specyfikacji w docstringu narzędzia, wyliczony z modelu świata, nie z Gita."""
+
+    on_branches = {commit for side in world if side.branch is not None for commit in side.commits}
+
+    def in_progress(side: _Checkout) -> bool:
+        if side.dirty or (side.branch is not None and side.commits):
+            return True
+        own = [c for c in side.commits if not (c.merge or c.on_remote or c in on_branches)]
+        return side.branch is None and bool(own)
+
+    others = [side for side in world if side is not me and in_progress(side)] + (list(_GITHUB_ONLY) if github else [])
+    lines = ["GITHUB POMINIĘTY | --lokalnie"] if not github else []
+    lines.append(f"PRACA W TOKU | inne: {len(others)} | odniesienie: {me.path} ({me.branch or 'odłączony HEAD'})")
+    overlaps = []
+    for side in others:
+        parts = [side.branch or "odłączony HEAD"]
+        parts += [f"PR #{side.pr}"] if github and side.pr is not None else []
+        files = frozenset().union(*(commit.files for commit in side.commits)) | side.dirty
+        if side in _GITHUB_ONLY:
+            parts += ["tylko na GitHubie", f"niezacommitowane 0, pliki {len(side.pr_files)}"]
+        else:
+            ahead, unpushed = len(side.commits), len([c for c in side.commits if not c.on_remote])
+            files |= side.pr_files if github else frozenset()
+            parts += [str(side.path) if side.path else "bez worktree"]
+            parts += [f"przed origin/main {ahead}, niewypchnięte {unpushed}, niezacommitowane {len(side.dirty)}, pliki {len(files)}"]
+            parts += ["praca"] if any(not c.merge for c in side.commits) else []
+        lines.append("- " + " | ".join(parts))
+        shared = me.changed(side) & side.changed(me)
+        if shared:
+            name = side.branch or f"odłączony HEAD {side.path}"
+            pr = f" (PR #{side.pr})" if github and side.pr is not None else ""
+            overlaps.append(f"- {name}{pr}: {', '.join(sorted(shared))}")
+    lines += ["NAKŁADANIA | pliki zmieniane tu i w innej pracy w toku", *overlaps] if overlaps else ["NAKŁADANIA | brak"]
+    return sorted(lines)
+
+
+def _world(tmp_path: Path) -> list[_Checkout]:
+    """Worktree w każdej kombinacji: HEAD dołączony albo odłączony × commity × niezacommitowane pliki, plus rebase i bisect."""
+
+    origin, main = tmp_path / "origin.git", tmp_path / "main"
+    git(tmp_path, "init", "--quiet", "--bare", "--initial-branch", "main", str(origin))
+    git(tmp_path, "clone", "--quiet", str(origin), str(main))
+    for name in ("wspolny.py", "szkic.py", "przenoszony.py", "zdalny.py", "rebasowany.py"):
+        (main / name).write_text("x = 0\n", encoding="utf-8")
+    commit(main, "start")
+    git(main, "push", "--quiet", "--set-upstream", "origin", "main")
+    git(main, "switch", "--quiet", "--create", "zdalna")
+    (main / "zdalny.py").write_text("x = 1\n", encoding="utf-8")
+    commit(main, "praca")
+    git(main, "push", "--quiet", "origin", "zdalna")
+    git(main, "switch", "--quiet", "--create", "zdalna-druga", "main")
+    (main / "zdalny.py").write_text("x = 2\n", encoding="utf-8")
+    commit(main, "praca")
+    git(main, "push", "--quiet", "origin", "zdalna-druga")
+    git(main, "switch", "--quiet", "main")
+    git(main, "branch", "--quiet", "--delete", "--force", "zdalna", "zdalna-druga")
+
+    def worktree(name: str, attached: bool, start: str = "main") -> Path:
+        path = tmp_path / name
+        git(main, "worktree", "add", "--quiet", *(["-b", name] if attached else ["--detach"]), str(path), start)
+        return path.resolve()
+
+    def write(path: Path, files: frozenset[str]) -> None:
+        for name in files:
+            (path / name).write_text(f"x = '{path.name}'\n", encoding="utf-8")
+
+    world = []
+    for attached, commits, dirty in itertools.product(
+        (True, False), ("brak", "wlasny", "przeniesienie", "merge", "na-remote"), ("czysty", "zmiana", "przeniesienie")
+    ):
+        name = f"inny-{'g' if attached else 'o'}-{commits}-{dirty}"
+        path = worktree(name, attached, "origin/zdalna" if commits == "na-remote" else "main")
+        made: frozenset[_Commit] = frozenset()
+        moved = "przenoszony.py"
+        if commits == "wlasny":
+            own = _Commit(name, frozenset({"wspolny.py"}))
+            write(path, own.files)
+            commit(path, "praca")
+            made = frozenset({own})
+        elif commits == "przeniesienie":
+            moved = f"{name}.py"
+            git(path, "mv", "przenoszony.py", moved)
+            commit(path, "praca")
+            made = frozenset({_Commit(name, frozenset({"przenoszony.py", moved}))})
+        elif commits == "merge":
+            git(path, "merge", "--quiet", "--no-ff", "--no-edit", "origin/zdalna")
+            made = frozenset({_REMOTE, _MERGE})
+        elif commits == "na-remote":
+            made = frozenset({_REMOTE})
+        changed: frozenset[str] = frozenset()
+        if dirty == "zmiana":
+            changed = frozenset({"szkic.py"})
+            write(path, changed)
+        elif dirty == "przeniesienie":
+            changed = frozenset({moved, f"{name}-brudny.py"})
+            (path / moved).rename(path / f"{name}-brudny.py")
+        pr, pr_files = _PULL_REQUESTS.get(name, (None, set()))
+        world.append(_Checkout(name if attached else None, path, made, changed, pr, frozenset(pr_files)))
+
+    pushed = worktree("tylko-na-remote", False, "origin/zdalna-druga")
+    world.append(_Checkout(None, pushed, frozenset({_Commit("zdalna-druga", frozenset({"zdalny.py"}), on_remote=True)})))
+
+    sandbox = worktree("piaskownica", False, "inny-g-wlasny-czysty")
+    world.append(_Checkout(None, sandbox, next(side for side in world if side.branch == "inny-g-wlasny-czysty").commits))
+
+    without = worktree("bez-worktree", True)
+    write(without, frozenset({"wspolny.py"}))
+    commit(without, "praca")
+    git(main, "worktree", "remove", str(without))
+    world.append(_Checkout("bez-worktree", None, frozenset({_Commit("bez-worktree", frozenset({"wspolny.py"}))})))
+
+    deleted = worktree("usuniety", True)
+    write(deleted, frozenset({"wspolny.py"}))
+    commit(deleted, "praca")
+    shutil.rmtree(deleted)
+    world.append(_Checkout("usuniety", None, frozenset({_Commit("usuniety", frozenset({"wspolny.py"}))})))
+
+    rebasing, rebasing_detached = worktree("rebasuje", True), worktree("rebasuje-odlaczony", False)
+    rebased = _Commit("rebasuje", frozenset({"wspolny.py", "rebasowany.py"}))
+    for path in (rebasing, rebasing_detached):
+        write(path, rebased.files)
+        commit(path, "praca")
+    world.append(_Checkout("rebasuje", rebasing, frozenset({rebased}), rebased.files))
+    # Odłączony HEAD w trakcie rebase stoi na nowym main, a jego commit zna już tylko reflog.
+    world.append(_Checkout(None, rebasing_detached, frozenset(), rebased.files))
+
+    bisecting = worktree("szuka", True)
+    searched = []
+    for number in ("jeden", "dwa", "trzy"):
+        write(bisecting, frozenset({f"szuka-{number}.py"}))
+        commit(bisecting, "praca")
+        searched.append(_Commit(f"szuka-{number}", frozenset({f"szuka-{number}.py"})))
+    git(bisecting, "bisect", "start", "szuka", "origin/main")
+    world.append(_Checkout("szuka", bisecting, frozenset(searched)))
+
+    mine_dirty = frozenset({"szkic.py", "przenoszony.py", "nowy plik ł.py"})
+    for name, attached in (("ja", True), ("ja-odlaczony", False)):
+        path = worktree(name, attached)
+        mine = _Commit(name, frozenset({"wspolny.py", "zdalny.py"}))
+        write(path, mine.files)
+        commit(path, "praca")
+        write(path, mine_dirty)
+        pr, pr_files = _PULL_REQUESTS.get(name, (None, set()))
+        world.append(_Checkout(name if attached else None, path, frozenset({mine}), mine_dirty, pr, frozenset(pr_files)))
+
+    stacked = worktree("ja-na-zdalnej", True, "origin/zdalna")
+    write(stacked, frozenset({"wspolny.py"}))
+    commit(stacked, "praca")
+    write(stacked, frozenset({"szkic.py"}))
+    stacked_commits = frozenset({_REMOTE, _Commit("ja-na-zdalnej", frozenset({"wspolny.py"}))})
+    world.append(_Checkout("ja-na-zdalnej", stacked, stacked_commits, frozenset({"szkic.py"})))
+
+    (main / "rebasowany.py").write_text("x = 'main'\n", encoding="utf-8")
+    commit(main, "nowy main")
+    git(main, "push", "--quiet", "origin", "main")
+    for path in (rebasing, rebasing_detached):
+        with pytest.raises(subprocess.CalledProcessError):
+            git(path, "rebase", "origin/main")  # konflikt w rebasowany.py zatrzymuje rebase
+    return world
+
+
+def test_raport_zgodny_ze_specyfikacja_w_kazdym_stanie_repozytorium(tmp_path: Path) -> None:
+    world = _world(tmp_path)
+    answer = json.dumps(
+        [
+            {"number": pr, "headRefName": branch, "title": "", "body": "", "files": [{"path": p} for p in sorted(files)]}
+            for branch, (pr, files) in _PULL_REQUESTS.items()
+        ]
+    )
+    github = _fake_gh(tmp_path, answer)
+    by_name = {side.path.name: (side, side.path) for side in world if side.path is not None}
+    runs = {"ja": github, "ja-odlaczony": None, "ja-na-zdalnej": github, "rebasuje": None, "szuka": None}
+
+    with ThreadPoolExecutor() as pool:
+        reports = dict(zip(runs, pool.map(lambda run: _report(by_name[run[0]][1], path=run[1]), runs.items())))
+
+    mismatches = []
+    for name, report in reports.items():
+        expected = _expected_report(by_name[name][0], world, github=runs[name] is not None)
+        actual = sorted(report.splitlines())
+        mismatches += [f"{name}: brak {line}" for line in expected if line not in actual]
+        mismatches += [f"{name}: nadmiar {line}" for line in actual if line not in expected]
+
+    assert not mismatches, "\n".join(mismatches)
