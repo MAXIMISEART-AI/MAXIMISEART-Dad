@@ -394,9 +394,9 @@ def _world(tmp_path: Path) -> list[_Checkout]:
     stacked = worktree("ja-na-zdalnej", True, "origin/zdalna")
     write(stacked, frozenset({"wspolny.py"}))
     commit(stacked, "praca")
-    write(stacked, frozenset({"szkic.py"}))
+    write(stacked, frozenset({"szkic.py", "zdalny.py"}))
     stacked_commits = frozenset({_REMOTE, _Commit("ja-na-zdalnej", frozenset({"wspolny.py"}))})
-    world.append(_Checkout("ja-na-zdalnej", stacked, stacked_commits, frozenset({"szkic.py"})))
+    world.append(_Checkout("ja-na-zdalnej", stacked, stacked_commits, frozenset({"szkic.py", "zdalny.py"})))
 
     # PR #9 idzie dalej po zbudowaniu na nim ja-na-zdalnej: jego nowy commit zmienia szkic.py, tu niezacommitowany.
     git(main, "switch", "--quiet", "--create", "zdalna", "origin/zdalna")

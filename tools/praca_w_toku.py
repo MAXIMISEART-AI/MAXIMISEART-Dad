@@ -297,7 +297,7 @@ def _shared(root: Path, mine: frozenset[str], mine_dirty: frozenset[str], item: 
         pushed = f"refs/remotes/origin/{item.branch}"
         if _git_fails(root, "rev-parse", "--verify", "--quiet", pushed):
             return mine & item.files
-        return (_own_files(root, "HEAD", pushed) | mine_dirty) & item.files
+        return (_own_files(root, "HEAD", pushed) | mine_dirty) & _own_files(root, pushed, "HEAD")
     return (_own_files(root, "HEAD", item.head) | mine_dirty) & (_own_files(root, item.head, "HEAD") | item.dirty)
 
 
