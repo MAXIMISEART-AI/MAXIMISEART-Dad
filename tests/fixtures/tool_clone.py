@@ -163,13 +163,17 @@ def _published(directory: Path, publisher: Path) -> ToolRepository:
     return ToolRepository(publisher, origin, clone)
 
 
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+        return port
+
+
 def unreachable_origin() -> str:
     """Adres HTTP na tym komputerze, pod którym nikt nie słucha: jak GitHub bez internetu."""
 
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    return f"http://127.0.0.1:{port}/MAXIMISEART-Dad.git"
+    return f"http://127.0.0.1:{free_port()}/MAXIMISEART-Dad.git"
 
 
 class _LoginRequired(BaseHTTPRequestHandler):

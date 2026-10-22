@@ -85,8 +85,8 @@ def _hanging_ci_lokalnie(checkout: Path) -> list[Path]:
     return [checkout / "ci.pid", checkout / "potomek.pid"]
 
 
-def _wait_for(condition: Callable[[], bool], seconds: float) -> bool:
-    deadline = time.monotonic() + seconds
+def _wait_for(condition: Callable[[], bool]) -> bool:
+    deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if condition():
             return True
@@ -115,7 +115,7 @@ def _start_push(checkout: Path) -> subprocess.Popen[str]:
 
 
 def _started_ci(pid_files: list[Path]) -> list[int]:
-    assert _wait_for(lambda: all(path.exists() and path.read_text().strip() for path in pid_files), 15)
+    assert _wait_for(lambda: all(path.exists() and path.read_text().strip() for path in pid_files))
     return [int(path.read_text()) for path in pid_files]
 
 
@@ -233,7 +233,7 @@ def test_ci_lokalnie_nie_przezywa_przerwanego_pushu(checkout: Path, stop: str) -
         os.kill(-push.pid, signal.SIGTERM if stop.startswith("SIGTERM") else signal.SIGINT)
     push.wait(timeout=10)
 
-    assert _wait_for(lambda: not any(_alive(pid) for pid in started), 15), stop
+    assert _wait_for(lambda: not any(_alive(pid) for pid in started)), stop
 
 
 def test_drugi_push_z_tego_checkoutu_nie_uruchamia_drugiego_ci_lokalnie(checkout: Path) -> None:

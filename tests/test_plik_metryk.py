@@ -10,8 +10,7 @@ import pytest
 
 from rozliczenia import preparation_process, settlement_process
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore, metric_record
-
-PERIOD = "08_14_09_2026"
+from tests.fixtures.preparation import PERIOD
 
 
 def completed_record() -> dict[str, Any]:

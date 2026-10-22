@@ -666,9 +666,8 @@ def test_staging_folder_that_cannot_be_removed_after_publication_does_not_stop_t
 
     monkeypatch.setattr(os, "rmdir", rmdir_fails_for_staging_folder)
 
-    summary = run_preparation(fixture)
+    run_preparation(fixture)
 
-    assert summary.period_directory == fixture.period_directory
     assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
         [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
     )

@@ -73,7 +73,7 @@ py -3 .agents\skills\verify-kopia-wzorca\scripts\check_template_copy.py
 ```
 
 On macOS or Linux use `.venv/bin/python` instead of `py -3`. It needs the repo's test
-dependencies (`hypothesis` is in `requirements.txt` and the `test`/`dev` extras), takes about
+dependencies (`hypothesis` is in `requirements.txt` and the `dev` extra), takes about
 65 s on a Mac M4 Max when it passes and runs in CI as `tests/test_kopia_wzorca.py`. Most of that
 is the openpyxl reference, which copies the font and fill of every written cell. A failing run
 spends up to a minute more shrinking the counterexample (`SHRINK_SECONDS`). In a worktree,
