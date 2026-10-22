@@ -120,6 +120,12 @@ def _active_worksheet(workbook: Workbook) -> Worksheet:
     return sheet
 
 
+def completed_activities(number: int) -> str:
+    """CZYNNOŚCI ZREALIZOWANE; order 2 has two lines, so its Wiersz danych wraps and Excel makes it taller."""
+
+    return "montaż\ndemontaż" if number == 2 else "montaż"
+
+
 def _order(number: int, started: datetime, worker: str, successful: str) -> dict[str, object]:
     """One synthetic order; every free-text value carries the unique ``PREP-SYN-`` marker."""
 
@@ -135,7 +141,7 @@ def _order(number: int, started: datetime, worker: str, successful: str) -> dict
         "WYKONAWCA": worker,
         "NUMER UMOWY": f"PREP-SYN-OR-{number}",
         "SKUTECZNE": successful,
-        "CZYNNOŚCI ZREALIZOWANE": "montaż",
+        "CZYNNOŚCI ZREALIZOWANE": completed_activities(number),
         "ZWROT": f"PREP-SYN-ZWROT-{number}",
         "UWAGI": f"PREP-SYN-UWAGA-{number}",
     }

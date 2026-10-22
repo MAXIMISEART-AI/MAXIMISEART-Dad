@@ -15,6 +15,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from create_preparation_fixture import completed_activities
 from wynik_uruchomienia import (
     check_metrics,
     contract,
@@ -92,7 +93,7 @@ def _internal_row(number: int, started: datetime, worker: str, successful: str) 
         worker,
         f"PREP-SYN-OR-{number}",
         successful,
-        "montaż",
+        completed_activities(number),
         None,
         None,
     )
@@ -112,7 +113,7 @@ def _collective_row(number: int, started: datetime, worker: str, successful: str
         worker,
         f"PREP-SYN-OR-{number}",
         successful,
-        "montaż",
+        completed_activities(number),
     )
 
 

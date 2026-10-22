@@ -1,6 +1,6 @@
 ---
 name: verify-skoroszyty-w-excelu
-description: Verify in real Microsoft Excel for Mac (AppleScript) that the files of MAXIMISEART-Dad's processes open without a dialog, keep their external link, formulas and Wyróżnienia, and that a Gotowość typed and saved in Excel reaches the Rozliczenia pracowników; use after changes to how workbooks are written or read, external links, Wyróżnienia, the Wzorce, or Gotowość. Local only: needs this Mac's Excel.
+description: Verify in real Microsoft Excel for Mac (AppleScript) that the files of MAXIMISEART-Dad's processes open without a dialog, keep their external link, formulas, Wyróżnienia and Wygląd Wiersza danych (row heights Excel auto-fits, DATA as in the Plik zbiorczy), and that a Gotowość typed and saved in Excel reaches the Rozliczenia pracowników; use after changes to how workbooks are written or read, external links, Wyróżnienia, the Wzorce, or Gotowość. Local only: needs this Mac's Excel.
 ---
 
 # Verify skoroszyty w Excelu
@@ -27,7 +27,7 @@ From the repository root, after `tools/setup_worktree.py` in a worktree:
 ```
 
 One command runs the whole path. It ends with `VERIFY OK | wzorce=prawdziwe |
-steps=24 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
+steps=28 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
 Maks's Mac with Excel 16.114 it took 2:56 with Dad's Wzorce and 77 s with
 `syntetyczne`.
 

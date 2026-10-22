@@ -58,6 +58,9 @@ HIGHLIGHTS = {
     ("PREP-SYN-ZL-4", "wykonawca"): (0xFFFFFF, 0x000000, False, True),
 }
 ROW_MARKER = "PREP-SYN-"
+# CZYNNOŚCI ZREALIZOWANE of order 2 has two lines (create_preparation_fixture.completed_activities); every other
+# Wiersz danych has one.
+TWO_LINE_ORDER = "PREP-SYN-ZL-2"
 
 
 class VerificationFailure(RuntimeError):
@@ -258,7 +261,7 @@ class Layout:
 def _layout(path: Path) -> Layout:
     headers = [cell.text.strip().casefold() for cell in excel.read(path, f"A{HEADER_ROW}:AT{HEADER_ROW}")[0]]
     columns: dict[str, int] = {}
-    for name in ("numer zl.", "adres", "wykonawca"):
+    for name in ("numer zl.", "adres", "wykonawca", "data"):
         expect(headers.count(name) == 1, f"{path.name}: header {name.upper()} not found once in row {HEADER_ROW}")
         columns[name] = headers.index(name) + 1
     return Layout(columns)
@@ -327,7 +330,25 @@ def _check_highlights(path: Path, rows: dict[str, int], layout: Layout, *, label
     return checked
 
 
-def period_files_open(run: Run, collective_reference: tuple[list[str], list[str]]) -> tuple[Path, Layout]:
+def _check_row_look(path: Path, rows: dict[str, int], layout: Layout, *, label: str) -> tuple[float, dict[str, str]]:
+    """Excel auto-fits the Wiersze danych: one line at the sheet's standard height, the two-line row taller.
+
+    Returns the standard height and the DATA of every order as Excel shows it in its number format.
+    """
+
+    standard = excel.standard_height(path)
+    heights = {order: excel.row_heights(path, row, row)[0] for order, row in rows.items()}
+    tall = [str(rows[order]) for order, height in heights.items() if order != TWO_LINE_ORDER and height != standard]
+    expect(not tall, f"{label}: rows {', '.join(tall)} with one line are not {standard} pt high")
+    if TWO_LINE_ORDER in rows:
+        expect(heights[TWO_LINE_ORDER] > standard, f"{label}: row {rows[TWO_LINE_ORDER]} with two lines is not taller")
+    date = column_letter(layout.columns["data"])
+    return standard, {order: excel.shown_text(path, f"{date}{row}") for order, row in rows.items()}
+
+
+def period_files_open(
+    run: Run, collective_reference: tuple[list[str], list[str]]
+) -> tuple[Path, Layout, dict[str, str]]:
     """Feature otwarcie-plikow-okresu: both period files open in Excel without a dialog; the Plik zbiorczy stays open."""
 
     feature = "otwarcie-plikow-okresu"
@@ -351,8 +372,10 @@ def period_files_open(run: Run, collective_reference: tuple[list[str], list[str]
     run.step(feature, "plik-zbiorczy-formuly", f"rows={len(rows)}")
     highlights = _check_highlights(collective, rows, layout, label="Plik zbiorczy")
     run.step(feature, "plik-zbiorczy-wyroznienia", f"cells={highlights}")
+    standard, dates = _check_row_look(collective, rows, layout, label="Plik zbiorczy")
+    run.step(feature, "plik-zbiorczy-wyglad-wiersza", f"rows={len(rows)} | one_line_pt={standard}")
     run.observe("otwarcie:plik-zbiorczy", {"open_seconds": seconds, "links": len(links), "rows": len(rows)})
-    return collective, layout
+    return collective, layout, dates
 
 
 def _entries(index: int, order: str) -> dict[int, str]:
@@ -424,6 +447,7 @@ def worker_files(
     expected: dict[str, list[excel.Cell]],
     expected_links: dict[str, RowLinks],
     worker_reference: tuple[list[str], list[str]],
+    collective_dates: dict[str, str],
 ) -> None:
     """Feature rozliczenia-pracownikow-w-excelu: every Rozliczenie pracownika opens and shows the Gotowość."""
 
@@ -458,6 +482,10 @@ def worker_files(
             run.step(feature, "formuly", worker)
             highlights = _check_highlights(path, rows, layout, label=label)
             run.step(feature, "wyroznienia", f"{worker} | cells={highlights}")
+            standard, dates = _check_row_look(path, rows, layout, label=label)
+            differing_dates = [str(rows[order]) for order in rows if dates[order] != collective_dates[order]]
+            expect(not differing_dates, f"{label}: DATA in rows {', '.join(differing_dates)} shows otherwise than in the Plik zbiorczy")
+            run.step(feature, "wyglad-wiersza", f"{worker} | one_line_pt={standard} | data_as_plik_zbiorczy=true")
             run.observe(f"rozliczenie:{worker}", {"open_seconds": seconds, "rows": len(rows), "highlights": highlights})
         finally:
             excel.close(path)
@@ -568,10 +596,10 @@ def main(argv: list[str] | None = None) -> int:
             started_excel = excel.launch()
         collective_reference = _reference(run, TEMPLATE_NAMES[1])
         worker_reference = _reference(run, TEMPLATE_NAMES[2])
-        collective, layout = period_files_open(run, collective_reference)
+        collective, layout, collective_dates = period_files_open(run, collective_reference)
         expected, expected_links = readiness(run, collective, layout)
         settlement(run)
-        worker_files(run, expected, expected_links, worker_reference)
+        worker_files(run, expected, expected_links, worker_reference, collective_dates)
         if args.kontrola_naprawy:
             repair_control(run)
     except (VerificationFailure, excel.ExcelError, subprocess.SubprocessError, OSError) as exc:
