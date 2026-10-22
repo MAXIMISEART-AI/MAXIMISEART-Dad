@@ -1,12 +1,12 @@
 import type * as React from "react"
 import { ClockIcon, FileSpreadsheetIcon, ListChecksIcon } from "lucide-react"
 
-import { getMetrics, type PeriodRow } from "@/api/centrum"
+import type { Metrics, PeriodRow } from "@/api/centrum"
 import { otherResults, RunResultBadge } from "@/components/run-result-badge"
 import { StatStrip, type Stat } from "@/components/stat-strip"
 import { Skeleton } from "@/components/ui/skeleton"
 import { dateTime } from "@/lib/format"
-import { useResource } from "@/lib/use-resource"
+import type { Resource } from "@/lib/use-resource"
 
 /**
  * Najważniejsze liczby na stronie głównej: ostatni przygotowany okres (wskazany przez serwer w Tablicy
@@ -15,11 +15,12 @@ import { useResource } from "@/lib/use-resource"
 export function PeriodStats({
   periods,
   lastPrepared,
+  metrics,
 }: {
   periods: ReadonlyArray<PeriodRow>
   lastPrepared: string | null
+  metrics: Resource<Metrics>
 }) {
-  const { resource: metrics } = useResource(getMetrics)
   const prepared = periods.find((period) => period.token === lastPrepared)
 
   const preparedStat: Stat = {
