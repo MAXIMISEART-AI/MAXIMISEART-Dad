@@ -1,13 +1,10 @@
 """Zatrzymanie Uruchomienia procesu w Centrum: rodzaj, odcisk problemu i pamięć powtórki.
 
-Rodzaj Zatrzymania wynika z treści Komunikatu z katalogu procesu, bez osobnej
-listy (``Message.reports_to_maintainer``): Komunikat, który bezwarunkowo każe
-przekazać go osobie utrzymującej narzędzie, jest „do Maksa”, tak jak każde
-zakończenie inne niż własne zatrzymanie procesu (nieoczekiwany wyjątek, błąd po
-silniku). Każdy inny jest „dla taty”, aż wróci identyczny: ten sam odcisk
-problemu w następnym Uruchomieniu tego samego procesu to powtórka. Przy
-Zatrzymaniu „do Maksa” i powtórce Centrum proponuje Diagnozę
-(``diagnosis_offer``); przy nieoczekiwanym wyjątku zaczyna ją od razu.
+Rodzaj Zatrzymania „dla taty” albo „do Maksa” rozstrzyga ``Stop.stop_kind``,
+ta sama reguła co w rekordzie metryk. Centrum dokłada do niej powtórkę:
+Zatrzymanie „dla taty” z tym samym odciskiem problemu w następnym Uruchomieniu
+tego samego procesu. Przy Zatrzymaniu „do Maksa” i powtórce Centrum proponuje
+Diagnozę (``diagnosis_offer``); przy nieoczekiwanym wyjątku zaczyna ją od razu.
 
 Pamięć ostatniego Zatrzymania każdego procesu jest tylko w pamięci serwera,
 więc restart Centrum ją zeruje.
@@ -75,7 +72,7 @@ class StopMemory:
 
         if stop is None:
             return None
-        if stop.kind != "stop" or stop.message.reports_to_maintainer:
+        if stop.stop_kind == "for_maks":
             return "for_maks"
         with self._lock:
             previous = self._last.get(process)

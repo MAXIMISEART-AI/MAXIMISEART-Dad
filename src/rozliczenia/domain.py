@@ -25,6 +25,8 @@ class ProgressProtocolError(ValueError):
 PHASES = tuple(phase.value for phase in ProgressPhase)
 WorkerStatus = Literal["ZAPISANO", "PUSTY_SZABLON", "PLAN"]
 """Wynik Przetworzenia Szablonu pracownika; szablonu, którego nie da się bezpiecznie zapisać, nie ma w wynikach."""
+StopKind = Literal["for_tata", "for_maks"]
+"""Rodzaj Zatrzymania: przyczynę usuwa tata według Komunikatu (``for_tata``) albo Maks (``for_maks``)."""
 
 
 @dataclass(frozen=True)
