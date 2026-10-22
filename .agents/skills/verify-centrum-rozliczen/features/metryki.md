@@ -35,7 +35,7 @@ no metrics files mean an empty state, not an error.
 Preconditions:
 
 - Centrum is served for this run with `DOCTOR OK`; the doctor also confirms the server reads this run's metrics files (`<root>/metrics/`), not Dad's history next to the tool. If the folder okresów is not set yet, the drive sets it through `Wskaż folder okresów` (see `ustawienia.md`).
-- The fixture's history is mostly in metrics schema 1, as Dad's older records are; the two Przebieg rozliczeń stops of `2026-09-17T15:40Z` („do Maksa”, `BLAD_NIEOCZEKIWANY`) and `2026-10-01T15:40Z` („dla taty”, `PLIK_ZBIORCZY_OTWARTY`) are schema 2 records with `stop`, and the Przygotowanie stop of `2026-08-25` is a schema 1 record without a kind.
+- The fixture's history is in metrics schema 2: completed runs have `stop: null`, and the two Przebieg rozliczeń stops of `2026-09-17T15:40Z` („do Maksa”, `BLAD_NIEOCZEKIWANY`) and `2026-10-01T15:40Z` („dla taty”, `PLIK_ZBIORCZY_OTWARTY`) carry their `stop`. The Przygotowanie stop of `2026-08-25` is an old schema 1 record without a kind, as Dad's older records are.
 - `fixture.json` → `metrics` names both files, the number of valid records (`runs`), the oldest record, and the interrupted run's period and measured phase times. The Przygotowanie file also holds a record with Przebieg rozliczeń counters, and the Przebieg file ends with a torn line; both must be skipped.
 - The browser context uses the time zone `Europe/Warsaw`, so dates read as on Dad's computer (`06.10.2026, 08:21` for `06:21Z`).
 

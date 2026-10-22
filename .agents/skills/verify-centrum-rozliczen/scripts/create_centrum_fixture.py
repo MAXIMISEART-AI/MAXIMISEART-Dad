@@ -69,11 +69,11 @@ SETTLEMENT_COUNTERS = {
     "skipped": 0,
     "issues": 0,
 }
-# Synthetic history as the core writes it, mostly in Dad's older metrics schema (schema_version 1):
+# Synthetic history as the core writes it (metrics schema_version 2):
 # (started_at UTC, mode, period, result, phase times in ms; the total is their sum).
 MetricRun = tuple[str, str, str, str, tuple[int, int, int, int]]
-# Stops recorded in schema_version 2, which carries the Rodzaj Zatrzymania and the Komunikat code;
-# the BLAD_KRYTYCZNY of 2026-08-25 stays a schema_version 1 record without them.
+# The stops' Rodzaj Zatrzymania and Komunikat code by started_at. A stop missing here, the BLAD_KRYTYCZNY of
+# 2026-08-25, is an old schema_version 1 record written before records carried them.
 RECORDED_STOPS: dict[str, dict[str, str]] = {
     "2026-09-17T15:40:00+00:00": {"kind": "for_maks", "code": "BLAD_NIEOCZEKIWANY"},
     "2026-10-01T15:40:00+00:00": {"kind": "for_tata", "code": "PLIK_ZBIORCZY_OTWARTY"},
@@ -228,7 +228,7 @@ def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object
     started_at, mode, period, result, phases = run
     completed = result != "BLAD_KRYTYCZNY"
     record: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "started_at": started_at,
         "mode": mode,
         "period": period,
@@ -238,9 +238,11 @@ def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object
         "phase_durations_ms": dict(zip(PHASES, phases)),
         "counters": counters if completed else dict.fromkeys(counters, 0),
     }
-    if started_at in RECORDED_STOPS:
-        record.update(schema_version=2, stop=RECORDED_STOPS[started_at])
-    return record
+    if completed:
+        return record | {"stop": None}
+    if started_at not in RECORDED_STOPS:
+        return record | {"schema_version": 1}
+    return record | {"stop": RECORDED_STOPS[started_at]}
 
 
 def _metrics(root: Path) -> dict[str, object]:

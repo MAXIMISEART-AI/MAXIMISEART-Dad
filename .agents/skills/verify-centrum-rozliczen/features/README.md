@@ -21,10 +21,13 @@ feature file as the recipe.
 - `<root>/Załączniki` holds Dad's layout for `uklad-folderow-taty`: weeks in
   `Rozliczenia 2026\{miesiąc}\INEA` of September, October, and November, with
   `06_12_10_2026` and `29_05_10_2026` prepared in October.
-- `<root>/metrics/` holds both metrics files in the metrics schema: 16 valid
+- `<root>/metrics/` holds both metrics files in the metrics schema: 18 valid
   synthetic Uruchomienia procesu (Przygotowanie pliku zbiorczego: 6 completed
-  RUN, 1 interrupted RUN, 3 DRY-RUN; Przebieg rozliczeń: 5 RUN, one of them
-  WYMAGA_SPRAWDZENIA, 1 DRY-RUN) and one record per file that the reader skips.
+  RUN, 1 RUN stopped in an old schema-1 record without its Rodzaj Zatrzymania,
+  3 completed DRY-RUN; Przebieg rozliczeń: 5 completed RUN, one of them
+  WYMAGA_SPRAWDZENIA, 1 RUN stopped „do Maksa” with `BLAD_NIEOCZEKIWANY`, 1 RUN
+  stopped „dla taty” with `PLIK_ZBIORCZY_OTWARTY`, 1 DRY-RUN) and one record
+  per file that the reader skips.
 - The synthetic Rejestr zleceń has four orders in `06_12_10_2026`, the last on
   Saturday, so a RUN of Przygotowanie pliku zbiorczego asks about an
   incomplete period; its order cells carry the row marker.
