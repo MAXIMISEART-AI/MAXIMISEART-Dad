@@ -20,11 +20,12 @@ from rozliczenia.settings import SettingsStore
 from rozliczenia.period_folder import (
     PeriodFolder,
     PeriodFolderLookupError,
+    PeriodFolders,
     PeriodStatus,
-    find_period_folders,
     locate_period_folder,
     month_folder_label,
     period_status_label,
+    scan_period_folders,
 )
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
 
@@ -75,7 +76,7 @@ def read_board(periods_directory: Path | None, today: date) -> contract.PeriodBo
     if not periods_directory.is_dir():
         return contract.BoardMissing(state="missing", name=periods_directory.name)
     last_complete = last_complete_period(today)
-    folders = {folder.period: folder for folder in find_period_folders(periods_directory)}
+    folders = {folder.period: folder for folder in scan_period_folders(periods_directory).found()}
     folders.setdefault(last_complete, PeriodFolder(periods_directory, last_complete))
     newest_first = sorted(folders.values(), key=lambda folder: folder.period.tuesday, reverse=True)
     rows = [_row(folder, last_complete=folder.period == last_complete) for folder in newest_first]
@@ -86,7 +87,7 @@ def read_board(periods_directory: Path | None, today: date) -> contract.PeriodBo
     )
 
 
-def observed_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
+def observed_period_folder(folders: PeriodFolders, period: SettlementPeriod) -> PeriodFolder:
     """Folder okresu do pokazania Statusu okresu; brak albo kilka miejsc nie jest tu zatrzymaniem.
 
     Gdy Folderu okresu nie ma, obserwacja dotyczy nieistniejącego folderu w
@@ -95,9 +96,9 @@ def observed_period_folder(periods_directory: Path, period: SettlementPeriod) ->
     """
 
     try:
-        return locate_period_folder(periods_directory, period)
+        return folders.locate(period)
     except PeriodFolderLookupError as error:
-        return PeriodFolder(error.locations[0] if error.locations else periods_directory, period)
+        return PeriodFolder(error.locations[0] if error.locations else folders.periods_directory, period)
 
 
 def requested_period(token: str) -> SettlementPeriod:

@@ -4,7 +4,8 @@ Wiele sesji pracuje naraz, każda w swoim git worktree, i nie widzą się nawzaj
 czyta: worktree (``git worktree list``), lokalne gałęzie z commitami spoza ``origin/main``,
 niezacommitowane pliki każdego worktree i otwarte PR-y z GitHuba (``gh``). Odłączony HEAD liczy się
 z niezacommitowanymi plikami albo z commitem innym niż merge, którego nie ma żadna gałąź ani remote
-(inaczej to piaskownica albo przegląd). Przeniesienie pliku liczy się jako zmiana starej i nowej ścieżki.
+(inaczej to piaskownica albo przegląd). Worktree w trakcie rebase albo bisect gałęzi pracuje na tej gałęzi,
+tak jak uznaje git. Przeniesienie pliku liczy się jako zmiana starej i nowej ścieżki.
 
 Drukuje jedną linię na każdą inną pracę w toku, potem nakładania: pliki, które bieżący checkout i
 inna praca zmieniają każdy we własnych commitach albo niezacommitowanych. Commity wspólne obu stron
@@ -90,11 +91,11 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, subprocess.CalledProcessError):
         print("BŁĄD: uruchom w checkoucie repozytorium git.", file=sys.stderr)
         return 2
-    if subprocess.run(["git", "rev-parse", "--verify", "--quiet", BASE], cwd=root, capture_output=True).returncode:
+    if _git_fails(root, "rev-parse", "--verify", "--quiet", BASE):
         print(f"PRACA W TOKU POMINIĘTA | brak {BASE}, nie ma z czym porównać")
         return 0
 
-    branch = _git(root, "branch", "--show-current").strip() or None
+    branch = _git(root, "branch", "--show-current").strip() or _busy_branch(root)
     mine_dirty = _dirty(root)
     others = [item for item in _local_work(root) if item.worktree != root and (branch is None or item.branch != branch)]
     issue_body = ""
@@ -175,8 +176,27 @@ def _worktrees(root: Path) -> list[_Worktree]:
         if "bare" in fields or not path.is_dir():
             continue
         branch = fields.get("branch")
-        trees.append(_Worktree(path.resolve(), branch.removeprefix("refs/heads/") if branch else None, fields["HEAD"]))
+        branch = branch.removeprefix("refs/heads/") if branch else _busy_branch(path)
+        trees.append(_Worktree(path.resolve(), branch, fields["HEAD"]))
     return trees
+
+
+def _busy_branch(worktree: Path) -> str | None:
+    """Gałąź, którą odłączony HEAD worktree przebudowuje (rebase) albo przeszukuje (bisect)."""
+
+    try:
+        state = Path(_git(worktree, "rev-parse", "--absolute-git-dir").strip())
+    except (OSError, subprocess.CalledProcessError):
+        return None  # inna sesja właśnie usunęła ten worktree
+    for name in ("rebase-merge/head-name", "rebase-apply/head-name", "BISECT_START"):
+        try:
+            branch = (state / name).read_text(encoding="utf-8").strip().removeprefix("refs/heads/")
+        except OSError:
+            continue
+        # Rebase odłączonego HEAD zapisuje "detached HEAD", a bisect z odłączonego HEAD hash commita.
+        if not _git_fails(worktree, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"):
+            return branch
+    return None
 
 
 def _with_pull_requests(
@@ -270,10 +290,14 @@ def _shared(root: Path, mine: frozenset[str], mine_dirty: frozenset[str], item: 
     """Pliki, które zmienia ten checkout i ``item``, każdy we własnych commitach albo niezacommitowanych.
 
     Gałąź zbudowana na innej niesie jej commity; liczą się tylko commity, których druga strona nie ma.
+    Gałąź PR tylko na GitHubie ma swoje commity lokalnie w gałęzi zdalnej ``origin``, jeśli ją pobrano.
     """
 
     if item.head is None:
-        return mine & item.files
+        pushed = f"refs/remotes/origin/{item.branch}"
+        if _git_fails(root, "rev-parse", "--verify", "--quiet", pushed):
+            return mine & item.files
+        return (_own_files(root, "HEAD", pushed) | mine_dirty) & item.files
     return (_own_files(root, "HEAD", item.head) | mine_dirty) & (_own_files(root, item.head, "HEAD") | item.dirty)
 
 
@@ -325,6 +349,10 @@ def _git(cwd: Path, *args: str) -> str:
         check=True,
     )
     return completed.stdout
+
+
+def _git_fails(cwd: Path, *args: str) -> bool:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=TIMEOUT_S).returncode != 0
 
 
 def _gh(root: Path, *args: str) -> Any:

@@ -142,14 +142,13 @@ class MetricsStore:
                     final_line_start = content.rfind(b"\n", 0, last_newline) + 1
                     final_line = content[final_line_start:last_newline].rstrip(b"\r")
                     has_newline = True
+                # Urwany zapis to linia, która nie jest JSON-em; pełny rekord innej wersji narzędzia zostaje.
                 try:
-                    final_record = json.loads(final_line.decode("utf-8"))
+                    json.loads(final_line.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError):
-                    final_record = None
-                if not _is_valid_record(final_record, self.counter_names):
                     stream.truncate(final_line_start)
-                elif not has_newline:
-                    separator = b"\n"
+                else:
+                    separator = b"" if has_newline else b"\n"
                 stream.seek(0, os.SEEK_END)
             stream.write(separator + serialized)
             stream.flush()
