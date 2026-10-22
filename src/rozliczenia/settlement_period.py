@@ -59,7 +59,7 @@ def parse_period_token(token: str) -> SettlementPeriod:
     _, monday_day, month, year = (int(part) for part in token.split("_"))
     try:
         period = SettlementPeriod(date(year, month, monday_day) - timedelta(days=6))
-    except ValueError:
+    except (ValueError, OverflowError):
         period = None
     if period is None or period.token != token:
         raise ValueError("Token okresu nie opisuje okresu od wtorku do poniedziałku.")

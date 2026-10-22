@@ -300,6 +300,8 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
         # Na przełomie miesięcy i lat miesiąc i rok tokenu są z poniedziałku, nie z wtorku.
         "27_02_10_2026",
         "29_04_12_2026",
+        # Wtorek przed poniedziałkiem 1-6 stycznia roku 1 leży przed najwcześniejszą datą Pythona.
+        "00_01_01_0001",
     ],
 )
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
