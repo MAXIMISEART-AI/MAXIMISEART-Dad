@@ -21,7 +21,7 @@ import time
 import pytest
 
 from tests.fixtures.git_repo import commit, git
-from tests.fixtures.potomne import TOOLS, beating, potomne, with_grandchild
+from tests.fixtures.potomne import TOOLS, beating, potomne, wait_for, with_grandchild, worktrees
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="sesje, grupy procesów i sygnały są tylko na POSIX")
 OWN_TREE_OR_COPY = re.compile(
@@ -37,16 +37,6 @@ def _repository(path: Path) -> Path:
     commit(path, "baza")
     (path / "plik.txt").write_text("w checkoucie\n", encoding="utf-8")
     return path
-
-
-def _worktrees(repo: Path) -> int:
-    return git(repo, "worktree", "list", "--porcelain").count("worktree ")
-
-
-def _wait_for(condition: Callable[[], bool], seconds: float = 60) -> None:
-    deadline = time.monotonic() + seconds
-    while not condition() and time.monotonic() < deadline:
-        time.sleep(0.05)
 
 
 def test_potomek_trzymajacy_wyjscie_ginie_z_koncem_polecenia_a_wynik_jest_pelny(tmp_path: Path) -> None:
@@ -90,7 +80,7 @@ def test_stop_konczy_trwajace_polecenie_a_nowe_nie_biegnie(tmp_path: Path) -> No
 
     thread = threading.Thread(target=running)
     thread.start()
-    _wait_for(beats.exists)
+    wait_for(beats.exists)
     stop.set()
     thread.join(timeout=10)
 
@@ -154,14 +144,14 @@ def test_kopia_commitu_ma_jego_drzewo_i_znika_z_blokiem(tmp_path: Path, ending: 
     seen: tuple[str, int] | None = None
 
     with contextlib.suppress(RuntimeError), potomne.commit_copy(repo, "HEAD") as copy:
-        seen = ((copy / "plik.txt").read_text(encoding="utf-8"), _worktrees(repo))
+        seen = ((copy / "plik.txt").read_text(encoding="utf-8"), len(worktrees(repo)))
         if ending == "zablokowana kopia":
             git(repo, "worktree", "lock", str(copy))
         if ending == "wyjątek":
             raise RuntimeError
 
     assert seen == ("w commicie\n", 2)
-    assert (copy.exists(), _worktrees(repo)) == (False, 1)
+    assert (copy.exists(), len(worktrees(repo))) == (False, 1)
 
 
 def test_nieudana_kopia_commitu_niesie_komunikat_gita(tmp_path: Path) -> None:
@@ -172,7 +162,7 @@ def test_nieudana_kopia_commitu_niesie_komunikat_gita(tmp_path: Path) -> None:
 
     said = raised.value.stderr.strip()
     assert said and said in str(raised.value)
-    assert _worktrees(repo) == 1
+    assert len(worktrees(repo)) == 1
 
 
 # Atrapa gita zapisuje początek i koniec każdego polecenia, które zmienia .git/worktrees; ``add`` trwa sekundę dłużej.
@@ -223,7 +213,7 @@ def test_kopie_commitu_z_wielu_watkow_nie_zmieniaja_worktree_naraz(tmp_path: Pat
         seen.append((copy / "plik.txt").read_text(encoding="utf-8"))
         second = threading.Thread(target=second_copy)
         second.start()
-        _wait_for(lambda: log.read_text(encoding="utf-8").count("start add") == 2, 30)
+        wait_for(lambda: log.read_text(encoding="utf-8").count("start add") == 2, 30)
     second.join(timeout=60)
 
     assert seen == ["w commicie\n", "w commicie\n"]
@@ -265,15 +255,15 @@ def test_zabite_narzedzie_nie_zostawia_drzewa_ani_kopii(tmp_path: Path, stop: st
         start_new_session=sys.platform != "win32",
     )
     try:
-        _wait_for(beats.exists)
+        wait_for(beats.exists)
         assert beats.exists(), "narzędzie nie uruchomiło polecenia"
 
         TOOL_STOPS[stop](tool)
         tool.wait(timeout=20)
-        _wait_for(lambda: not any(scratch.iterdir()), seconds=20)
+        wait_for(lambda: not any(scratch.iterdir()), seconds=20)
 
         assert not beating(beats)
-        assert (list(scratch.iterdir()), _worktrees(repo)) == ([], 1)
+        assert (list(scratch.iterdir()), len(worktrees(repo))) == ([], 1)
     finally:
         tool.kill()
         tool.wait()
