@@ -51,7 +51,7 @@ def _browser_recorder(run: Run) -> tuple[Path, Path]:
     """Stands in for the browser (``BROWSER``) and appends each opened address to ``browser.txt``."""
 
     record = run.root / "browser.txt"
-    if os.name == "nt":
+    if sys.platform == "win32":
         recorder = run.root / "browser.cmd"
         recorder.write_text(f'@echo %~1>>"{record}"\r\n', encoding="utf-8")
     else:

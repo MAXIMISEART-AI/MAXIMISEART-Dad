@@ -15,7 +15,6 @@ Włącza też bramę ``tools/hooks/pre-push`` (``core.hooksPath``, wspólne dla 
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -48,11 +47,11 @@ def main(argv: list[str] | None = None) -> int:
         print("BŁĄD: bez uv uruchom skrypt Pythonem 3.11 albo nowszym.", file=sys.stderr)
         return 1
     else:
-        venv.EnvBuilder(with_pip=True, symlinks=os.name != "nt").create(VENV)  # jak ``python -m venv``
+        venv.EnvBuilder(with_pip=True, symlinks=sys.platform != "win32").create(VENV)  # jak ``python -m venv``
         _run([str(_venv_python()), "-m", "pip", "install", "--disable-pip-version-check", "-e", EXTRAS])
 
     # Na Windows `#!/usr/bin/env python3` w sh z Git for Windows trafia zwykle na alias Microsoft Store.
-    if os.name != "nt":
+    if sys.platform != "win32":
         _gate_pushes()
 
     imported = _imported_package_directory()
@@ -83,7 +82,7 @@ def _gate_pushes() -> None:
 
 
 def _venv_python() -> Path:
-    return VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return VENV / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
 
 def _imported_package_directory() -> Path:

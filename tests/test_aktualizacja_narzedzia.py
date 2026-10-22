@@ -495,7 +495,7 @@ def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
 def _executable(directory: Path, script: Path) -> Path:
     """Polecenie ``git`` w ``directory``, które uruchamia skrypt Pythona ``script`` z argumentami Gita."""
 
-    if os.name == "nt":
+    if sys.platform == "win32":
         git = directory / "git.cmd"
         git.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
     else:

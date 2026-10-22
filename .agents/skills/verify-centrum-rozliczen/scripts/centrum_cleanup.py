@@ -51,7 +51,7 @@ def _stop_server(root: Path) -> str:
     url, pid = str(server["url"]), int(server["pid"])
     if not _answers_as_centrum(url):
         return "recorded server already stopped"
-    if os.name == "nt":
+    if sys.platform == "win32":
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, check=False)
     else:
         os.kill(pid, signal.SIGTERM)

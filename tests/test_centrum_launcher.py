@@ -33,7 +33,7 @@ def _browser_recorder(directory: Path) -> tuple[Path, Path]:
     """Program podstawiony jako przeglądarka (zmienna ``BROWSER``), który zapisuje otwierany adres."""
 
     record = directory / "otwarte-adresy.txt"
-    if os.name == "nt":
+    if sys.platform == "win32":
         recorder = directory / "przegladarka.cmd"
         recorder.write_text(f'@echo %~1>>"{record}"\r\n', encoding="utf-8")
     else:
@@ -88,7 +88,7 @@ def _started(command: list[str], runtime: Path, environment: dict[str, str]) -> 
     try:
         yield console
     finally:
-        if os.name == "nt":
+        if sys.platform == "win32":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
         else:
             process.terminate()
@@ -244,7 +244,7 @@ def _windowless(runtime: Path, port: int) -> list[str]:
     """Polecenie skrótu: na Windows prawdziwy ``pythonw.exe``, gdzie indziej Python bez ``sys.stdout`` i ``sys.stderr``."""
 
     script = str(runtime / "run_centrum.py")
-    if os.name == "nt":
+    if sys.platform == "win32":
         return [str(Path(sys.executable).with_name("pythonw.exe")), script, "--port", str(port)]
     # Tak widzi świat kod pod pythonw: strumienie konsoli to None.
     simulated = f"import runpy, sys; sys.stdout = sys.stderr = None; runpy.run_path({script!r}, run_name='__main__')"
@@ -295,7 +295,7 @@ def _read_shortcut(link: Path) -> dict[str, str]:
     return shortcut
 
 
-@pytest.mark.skipif(os.name != "nt", reason="The desktop shortcut and pythonw.exe are Windows-only.")
+@pytest.mark.skipif(sys.platform != "win32", reason="The desktop shortcut and pythonw.exe are Windows-only.")
 def test_krok_instalacji_tworzy_skrot_ktory_uruchamia_centrum_przez_pythonw(tmp_path: Path) -> None:
     runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     desktop = tmp_path / "pulpit"

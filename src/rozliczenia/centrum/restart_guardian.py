@@ -213,7 +213,7 @@ def _windowless_python() -> str:
     """``pythonw.exe`` obok tego Pythona w Windows (bez okna konsoli, jak skrót); gdzie indziej ten sam Python."""
 
     windowless = Path(sys.executable).with_name("pythonw.exe")
-    return str(windowless) if os.name == "nt" and windowless.is_file() else sys.executable
+    return str(windowless) if sys.platform == "win32" and windowless.is_file() else sys.executable
 
 
 def _detached(command: list[str], cwd: Path) -> subprocess.Popen[bytes]:
@@ -226,7 +226,7 @@ def _detached(command: list[str], cwd: Path) -> subprocess.Popen[bytes]:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=_DETACHED,
-        start_new_session=os.name != "nt",
+        start_new_session=sys.platform != "win32",
     )
 
 
@@ -236,7 +236,7 @@ def _port_released(port: int) -> bool:
     deadline = time.monotonic() + PORT_TIMEOUT_S
     while True:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            if os.name != "nt":
+            if sys.platform != "win32":
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 probe.bind((_HOST, port))

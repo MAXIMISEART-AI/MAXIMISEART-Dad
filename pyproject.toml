@@ -60,7 +60,12 @@ extend-exclude = [".claude"]
 
 [tool.ruff.lint]
 # Szeroki except tylko z wpisem do dziennika albo ponownym rzuceniem.
-extend-select = ["BLE001", "S110"]
+extend-select = ["BLE001", "S110", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Mypy w CI sprawdza kod dla Windows i dla macOS/Linuksa, ale gałąź pod os.name widzi na obu, więc
+# odrzuca w niej API drugiego systemu (os.killpg, signal.SIGKILL w f7a2261 i d0008d3).
+"os.name".msg = 'sprawdzaj system przez sys.platform == "win32": mypy zawęża gałęzie tylko po sys.platform'
 
 [tool.mypy]
 strict = true

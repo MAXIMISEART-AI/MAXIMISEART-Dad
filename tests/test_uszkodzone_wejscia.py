@@ -20,6 +20,7 @@ from pathlib import Path
 import random
 import shutil
 import subprocess
+import sys
 import zipfile
 from typing import Any
 
@@ -126,7 +127,7 @@ def _file_instead_of_folder(path: Path) -> None:
 
 
 def _inaccessible(path: Path) -> None:
-    if os.name == "nt":  # chmod w Windows zmienia tylko atrybut „tylko do odczytu”
+    if sys.platform == "win32":  # chmod w Windows zmienia tylko atrybut „tylko do odczytu”
         subprocess.run(["icacls", str(path), "/deny", f"{os.environ['USERNAME']}:(RD)"], check=True, capture_output=True)
     else:
         path.chmod(0)
@@ -135,7 +136,7 @@ def _inaccessible(path: Path) -> None:
 
 
 def _readable_again(path: Path) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         subprocess.run(["icacls", str(path), "/remove:d", os.environ["USERNAME"]], check=True, capture_output=True)
     else:
         path.chmod(0o755)

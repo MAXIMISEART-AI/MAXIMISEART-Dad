@@ -166,7 +166,7 @@ class _Commands:
             stderr=subprocess.DEVNULL,
             text=True,
             encoding="utf-8",
-            start_new_session=os.name != "nt",
+            start_new_session=sys.platform != "win32",
         )
 
     def report(self, line: str) -> None:
@@ -201,7 +201,7 @@ class _Commands:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                start_new_session=os.name != "nt",
+                start_new_session=sys.platform != "win32",
             )
             self._running.add(process)
             self.report(f"+polecenie {process.pid}")
