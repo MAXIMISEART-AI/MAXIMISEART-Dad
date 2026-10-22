@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from types import MappingProxyType
 from typing import Callable, TypeVar
@@ -19,8 +19,8 @@ from .domain import (
     ProgressPhase,
     ProgressProtocolError,
     WorkerEnded,
-    WorkerEvent,
     WorkerFailed,
+    WorkerResult,
     WorkerStarted,
 )
 
@@ -41,6 +41,12 @@ def _zero(result: object) -> int:
     return 0
 
 
+def _no_templates(result: object) -> Sequence[str]:
+    """Etap bez Szablonów pracownika."""
+
+    return ()
+
+
 def _count(value: int, label: str) -> int:
     if type(value) is not int or value < 0:
         raise ProgressProtocolError(f"{label} musi być nieujemną liczbą całkowitą.")
@@ -54,15 +60,16 @@ class PhaseRunner:
     ``plan`` i ``save``. Sekwencer wysyła ``PhaseStarted``, ``PhaseEnded`` albo
     jedno ``PhaseFailed`` każdego etapu oraz zdarzenia pośrednie:
     ``IssueCountReady`` po Odczycie danych i ``PlanReady`` po Planowaniu.
-    ``PhaseEnded`` Zapisywania dostaje liczbę Szablonów pracownika z planu.
+    W Zapisywaniu ``each_template`` prowadzi po kolei Szablony pracownika
+    Wykonawców z planu i wysyła ich zdarzenia.
 
     Funkcje liczące są czystymi funkcjami wyniku etapu; sekwencer wywołuje je
     przed END. Liczba problemów jest łączna dla uruchomienia, a pominięta w
     Planowaniu oznacza wartość z Odczytu danych.
 
-    Sekwencer jest jedynym miejscem, które sprawdza kolejność Zdarzeń
-    przebiegu: etapów i Szablonów pracownika w Zapisywaniu. Pomyłka to
-    ``ProgressProtocolError`` w miejscu wywołania, także bez obserwatora.
+    Sekwencer jest jedynym nadawcą Zdarzeń przebiegu i jedynym miejscem, które
+    sprawdza kolejność etapów. Pomyłka to ``ProgressProtocolError`` w miejscu
+    wywołania, także bez obserwatora.
 
     Zegar uruchomienia startuje przy utworzeniu. Awaria obserwatora odłącza go
     do końca uruchomienia i nie zmienia wyniku etapów. Czas etapu jest
@@ -81,10 +88,8 @@ class PhaseRunner:
         # sekwencer nie wysyła drugiego FAILED etapu.
         self._worker_failure_reported = False
         self._issue_count = 0
-        self._template_total = 0
+        self._templates: Sequence[str] = ()
         self._templates_completed = 0
-        # Szablon pracownika, który się rozpoczął i jeszcze nie zakończył: (Wykonawca, pozycja).
-        self._active_worker: tuple[str, int] | None = None
         self._durations_ms: dict[ProgressPhase, int] = {}
 
     def check(self, operation: Callable[[], ResultT]) -> ResultT:
@@ -111,61 +116,70 @@ class PhaseRunner:
         self,
         operation: Callable[[], ResultT],
         *,
-        template_total: Callable[[ResultT], int] = _zero,
+        templates: Callable[[ResultT], Sequence[str]] = _no_templates,
         issue_count: Callable[[ResultT], int] | None = None,
     ) -> ResultT:
-        """Planowanie, a po nim ``PlanReady``."""
+        """Planowanie, a po nim ``PlanReady``; ``templates`` to Wykonawcy Szablonów pracownika po kolei."""
 
         def record_counts(result: ResultT) -> None:
             if issue_count is not None:
                 self._record_issue_count(issue_count(result))
-            self._template_total = _count(template_total(result), "Liczba Szablonów pracownika")
+            self._templates = tuple(templates(result))
 
         result = self._run_phase(ProgressPhase.PLANNING, operation, record_counts)
-        self._emit(PlanReady(elapsed_ms=self.elapsed_ms(), template_total=self._template_total, issue_count=self._issue_count))
+        self._emit(PlanReady(elapsed_ms=self.elapsed_ms(), template_total=len(self._templates), issue_count=self._issue_count))
         return result
 
     def save(self, operation: Callable[[], ResultT]) -> ResultT:
-        """Zapisywanie; END ma liczbę Szablonów pracownika z planu, a wszystkie muszą się zakończyć."""
+        """Zapisywanie; kończy się dopiero po ``each_template`` przez wszystkie Szablony pracownika z planu."""
 
         def every_template_ended(_result: ResultT) -> None:
-            if self._active_worker is not None or self._templates_completed != self._template_total:
+            if self._templates_completed != len(self._templates):
                 raise ProgressProtocolError(
-                    f"Zapisywanie kończy się po {self._templates_completed} z {self._template_total} Szablonów pracownika."
+                    f"Zapisywanie kończy się po {self._templates_completed} z {len(self._templates)} Szablonów pracownika."
                 )
 
         return self._run_phase(ProgressPhase.SAVING, operation, every_template_ended)
 
-    def notify(self, event: WorkerEvent) -> None:
-        """Przekazuje obserwatorowi zdarzenie Szablonu pracownika z trwającego Zapisywania.
+    def each_template(self, settle: Callable[[str], WorkerResult]) -> list[WorkerResult]:
+        """W trwającym Zapisywaniu przetwarza po kolei Szablon pracownika każdego Wykonawcy z planu.
 
-        Szablony pracownika idą po kolei od 1 do liczby z planu; zakończenie albo
-        przerwanie dotyczy szablonu, który się rozpoczął.
+        Wysyła ``WorkerStarted``, wywołuje ``settle`` i wysyła ``WorkerEnded``.
+        Wyjątek z ``settle`` to ``WorkerFailed`` zamiast ``PhaseFailed``
+        Zapisywania; przechodzi dalej bez zmian.
         """
 
-        if not isinstance(event, (WorkerStarted, WorkerEnded, WorkerFailed)):
-            raise ProgressProtocolError(f"Zdarzenie {type(event).__name__} wysyła tylko sekwencer etapów.")
         if self._active_phase is not ProgressPhase.SAVING:
-            raise ProgressProtocolError("Zdarzenie wykonawcy jest dozwolone tylko w trakcie Zapisywania.")
-        if event.template_total != self._template_total:
-            raise ProgressProtocolError("Zdarzenie wykonawcy ma inną liczbę Szablonów pracownika niż plan.")
-        position = (event.worker_name, event.template_index)
-        if isinstance(event, WorkerStarted):
-            if self._active_worker is not None:
-                raise ProgressProtocolError("Nie można rozpocząć drugiego Szablonu pracownika przed zakończeniem pierwszego.")
-            if event.template_index != self._templates_completed + 1:
-                raise ProgressProtocolError("Zdarzenie rozpoczęcia musi wskazywać następny Szablon pracownika.")
-            self._active_worker = position
-        else:
-            if self._active_worker != position:
-                raise ProgressProtocolError("Zdarzenie nie pasuje do bieżącego Szablonu pracownika.")
-            self._active_worker = None
-            if isinstance(event, WorkerEnded):
-                self._record_issue_count(event.issue_count)
-                self._templates_completed = event.template_index
-            else:
+            raise ProgressProtocolError("Szablony pracownika przetwarza się tylko w trakcie Zapisywania.")
+        results: list[WorkerResult] = []
+        for template_index, worker_name in enumerate(self._templates, start=1):
+            self._emit(WorkerStarted(worker_name, template_index=template_index, elapsed_ms=self.elapsed_ms()))
+            try:
+                result = settle(worker_name)
+            except Exception:
                 self._worker_failure_reported = True
-        self._emit(event)
+                self._emit(
+                    WorkerFailed(
+                        worker_name,
+                        template_index=template_index,
+                        elapsed_ms=self.elapsed_ms(),
+                        phase_elapsed_ms=self.phase_elapsed_ms(),
+                    )
+                )
+                raise
+            results.append(result)
+            self._templates_completed += 1
+            self._emit(
+                WorkerEnded(
+                    worker_name,
+                    template_index=template_index,
+                    status=result.status,
+                    rows=result.rows,
+                    elapsed_ms=self.elapsed_ms(),
+                    issue_count=self._issue_count,
+                )
+            )
+        return results
 
     @contextmanager
     def paused(self) -> Iterator[None]:
@@ -223,14 +237,7 @@ class PhaseRunner:
         phase_elapsed_ms = self.phase_elapsed_ms()
         self._durations_ms[phase] = phase_elapsed_ms
         self._active_phase = None
-        self._emit(
-            PhaseEnded(
-                phase,
-                elapsed_ms=self.elapsed_ms(),
-                phase_elapsed_ms=phase_elapsed_ms,
-                template_total=self._template_total if phase is ProgressPhase.SAVING else 0,
-            )
-        )
+        self._emit(PhaseEnded(phase, elapsed_ms=self.elapsed_ms(), phase_elapsed_ms=phase_elapsed_ms))
         return result
 
     def _record_issue_count(self, issue_count: int) -> None:
