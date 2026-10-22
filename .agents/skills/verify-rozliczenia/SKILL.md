@@ -157,8 +157,9 @@ explicitly, so no run reads `config/`. Its ordered stages are:
    every `NUMER ZL.` cell, preserved formulas/formatting, an empty worker
    workbook, and an unchanged Wzorzec rozliczenia pracownika.
 5. For `existing`, `locked`, or `unmapped`, require exit code `1`, the stop's
-   Komunikat code, and no partial output (or an existing folder left
-   unchanged).
+   Komunikat code, no partial output (or an existing folder left unchanged),
+   and a metrics record whose `stop` is `{"kind": "for_tata", "code": <the
+   stop's code>}`: each of these stops is one Dad removes himself.
 6. Invoke cleanup in `finally`, then run the mechanical self-test against the
    retained evidence.
 
