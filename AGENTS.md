@@ -28,6 +28,7 @@ Gdy operator Cię poprawi, popraw błąd i dopisz tu regułę. Jeśli reguła ju
 |---|---|
 | Plik albo folder taty w złym stanie (uszkodzony, z BOM, w UTF-16, bez dostępu) daje Komunikat, który go nazywa. Plik bez dostępu jest „niedostępny”, nie „uszkodzony”. Skoroszyt czytaj przez `_file_bytes` (`workbook_files.py`), a folder okresu przez `reading` (`period_folder.py`). | `tests/test_uszkodzone_wejscia.py`: każda kombinacja pliku, uszkodzenia i operacji kontraktu Centrum. Nowa operacja, której nie ma w `ENTRIES` ani w `NOT_SWEPT` (z powodem), wywraca test |
 | System sprawdzaj przez `sys.platform == "win32"`. | ruff `TID251` (`pyproject.toml`) oraz mypy dla obu systemów w `tools/ci_lokalnie.py` |
+| Polecenie narzędzia z `tools/`, które trwa albo uruchamia własne procesy, uruchamiaj przez `potomne.run`, a kopię commitu twórz przez `potomne.commit_copy` ([`tools/potomne.py`](tools/potomne.py)): giną razem z narzędziem, także zabitym przez SIGKILL. | `tests/test_potomne.py`: test struktury odrzuca w `tools/` poza `potomne.py` `killpg`, `taskkill`, `start_new_session`, grupy procesów, `CreateJobObject` i `git worktree add`; polecenie przez zwykłe `subprocess.run` łapie tylko przegląd |
 | Numer ADR jest unikalny i zgadza się z nagłówkiem pliku. | `tests/test_adr.py` |
 | Moduł testów importuje pomocniki tylko z `tests/fixtures`. | `tests/test_struktura_testow.py` |
 | Po zmianie modeli serwera wygeneruj kontrakt Centrum na nowo. | zadanie CI `Frontend`, krok „Require the committed contract and build to be fresh” |

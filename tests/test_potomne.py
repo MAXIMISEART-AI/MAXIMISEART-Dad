@@ -10,6 +10,7 @@ from collections.abc import Callable
 import contextlib
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -22,6 +23,10 @@ from tests.fixtures.git_repo import commit, git
 from tests.fixtures.potomne import TOOLS, beating, potomne, with_grandchild
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="sesje, grupy procesów i sygnały są tylko na POSIX")
+OWN_TREE_OR_COPY = re.compile(
+    r"killpg|taskkill|start_new_session|process_group|setsid|setpgid|setpgrp|CreateJobObject|CREATE_NEW_PROCESS_GROUP"
+    r"|[\"']worktree[\"'],\s*[\"']add[\"']"
+)
 
 
 def _repository(path: Path) -> Path:
@@ -231,3 +236,16 @@ def test_bez_straznika_narzedzie_przerywa_zamiast_dzialac_bez_sprzatania(tmp_pat
     )
 
     assert answered.stdout.splitlines() == ["run OSError True", "commit_copy OSError True"], answered.stderr
+
+
+def test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne() -> None:
+    sources = [path for path in TOOLS.rglob("*.py") if path != TOOLS / "potomne.py"]
+
+    found = [
+        f"{path.relative_to(TOOLS.parent).as_posix()}:{number}: {line.strip()}"
+        for path in sorted(sources)
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if OWN_TREE_OR_COPY.search(line)
+    ]
+
+    assert found == [], "polecenie, które trwa, i kopię commitu narzędzie uruchamia przez potomne.run i potomne.commit_copy"
