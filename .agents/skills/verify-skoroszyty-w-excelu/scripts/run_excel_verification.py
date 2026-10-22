@@ -62,9 +62,9 @@ ROW_MARKER = "PREP-SYN-"
 # (verify-rozliczenia: create_preparation_fixture.ORDER_CONTENT, assert_preparation.EXPECTED_QUANTITIES).
 QUANTITIES = {
     "PREP-SYN-ZL-2": {"O": 1, "P": 1, "Q": 1, "S": 3, "T": 1, "V": 1, "Z": 1},
-    "PREP-SYN-ZL-4": {"O": 1, "S": 2, "V": 1, "AG": 1, "AO": 1},
+    "PREP-SYN-ZL-4": {"N": 45, "O": 1, "S": 2, "V": 1, "AG": 1, "AI": 1, "AO": 1},
     "PREP-SYN-ZL-7": {},
-    "PREP-SYN-ZL-6": {"T": 1, "V": 1},
+    "PREP-SYN-ZL-6": {"N": 45, "T": 1, "V": 1},
 }
 QUANTITY_SUMS_ROW = 15
 # CZYNNOŚCI ZREALIZOWANE of order 2 has two lines (create_preparation_fixture.completed_activities); every other

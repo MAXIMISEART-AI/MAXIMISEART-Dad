@@ -10,7 +10,7 @@ Centrum it runs as `tools/uruchom_proces.py preparation`.
 - `preparation-plan` dry-run reports order counts, skipped empty rows, orders per day, and both file names in `summary` and its warnings in `warnings`, and records the period in its metrics; it creates neither file nor the Folder okresu.
 - `preparation-internal` writes every period order (successful or not) in Rejestr order to the Rozliczenie wewnętrzne, with `zwrot`/`UWAGI` empty; the Rejestr columns AKCJE, ZWROT and UWAGI reach neither period file.
 - `preparation-collective` writes every Zlecenie skuteczne to `A:K` from row 18 of the Plik zbiorczy, leaving rates, sums, formulas, and sheets from the Wzorzec.
-- `preparation-quantities` writes the non-zero Ilości usług from the Reguły ilości (ADR 0012) into `N:AP` of every Zlecenie skuteczne, in the Wzorzec cell's look; every other `N:AP` cell keeps the Wzorzec value (its zeros) and the Rozliczenie wewnętrzne gets none. The fixture covers a router with TV devices and printing (`u` in UMOWA), `gateway wifi6extra`, `prewencja` (no quantities) and an unknown component (only V and T).
+- `preparation-quantities` writes the non-zero Ilości usług from the Reguły ilości (ADR 0012) into `N:AP` of every Zlecenie skuteczne, in the Wzorzec cell's look; every other `N:AP` cell keeps the Wzorzec value (its zeros) and the Rozliczenie wewnętrzne gets none. The fixture covers a router with TV devices and printing (`u` in UMOWA), `gateway wifi6extra` with a Saturday usterka (AI and N = 45), `prewencja` (no quantities) and a Monday-evening usterka with an unknown component (only V, T and N = 45).
 - `preparation-formatting` carries fill, font colour, bold, italic, and number format (dates included) from the Rejestr; widths and frozen header from the Wzorzec; the Wygląd Wiersza danych in `A:M` of the Rozliczenie wewnętrzne and `A:L` of the Plik zbiorczy (font face/size of the header cell, left and centre alignment, wrapping only for text with a line break, thin borders, no stored row height; `zwrot`/`UWAGI` too, though empty); ADRES of the Plik zbiorczy always yellow; autofilter covers header plus data rows.
 - `preparation-hyperlinks` gives every written cell the Hiperłącze of its Rejestr cell (the order in the company app behind `NUMER ZL.`) in both period files; a written cell without one keeps no Wzorzec hyperlink, and the address never reaches the JSON result, metrics or evidence.
 - `preparation-links` keeps every `xl/externalLinks/*` part of the Wzorzec pliku zbiorczego byte-identical.
@@ -38,7 +38,7 @@ Preconditions:
   - merged Wzorzec cells in the rows orders will fill, which stop the run in Planowanie;
   - the "too few zero rows" warning, which still writes both files;
   - the row-style font fallback (`test_cells_without_own_style_take_wzorzec_row_font_before_column_font`);
-  - every line of Dad's instruction about devices, new combinations, spelling variants, rows settled from the description and unknown components (`tests/test_ilosci_uslug.py`).
+  - every line of Dad's instruction, the 45 zł usterka surcharge around 17:00 and on Saturday, piece counts from `CZYNNOŚCI` for instalacja ręczna and wizja, new combinations, spelling variants, rows settled from the description and unknown components (`tests/test_ilosci_uslug.py`).
 
   `tests/test_instrukcja_taty.py` keeps Dad's "komunikat → co zrobić" table in step with the message catalog.
 

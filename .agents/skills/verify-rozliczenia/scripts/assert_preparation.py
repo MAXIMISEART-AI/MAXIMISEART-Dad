@@ -134,9 +134,9 @@ EXPECTED_COLLECTIVE_ROWS = (
 # Ilości usług of rows 18..21 (orders 2, 4, 7, 6) from the Reguły ilości; every other N:AP cell keeps the Wzorzec 0.
 EXPECTED_QUANTITIES: tuple[dict[str, int], ...] = (
     {"O": 1, "P": 1, "Q": 1, "S": 3, "T": 1, "V": 1, "Z": 1},
-    {"O": 1, "S": 2, "V": 1, "AG": 1, "AO": 1},
+    {"N": 45, "O": 1, "S": 2, "V": 1, "AG": 1, "AI": 1, "AO": 1},
     {},
-    {"T": 1, "V": 1},
+    {"N": 45, "T": 1, "V": 1},
 )
 EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
 EXPECTED_COLLECTIVE_ORDER_NUMBERS = tuple(row[5] for row in EXPECTED_COLLECTIVE_ROWS)
