@@ -99,7 +99,7 @@ def read_sheet_hyperlinks(archive: zipfile.ZipFile, sheet_title: str) -> SheetHy
     Zepsuty XML bloku albo relacji to ``ElementTree.ParseError``, brakująca część skoroszytu ``KeyError``.
     """
 
-    part = _sheet_part(archive, sheet_title)
+    part = sheet_part(archive, sheet_title)
     xml = archive.read(part)
     root = _ROOT.search(xml)
     block = _BLOCK.search(xml, max(xml.rfind(b"sheetData"), 0))
@@ -137,7 +137,7 @@ def _bounds(reference: str) -> tuple[int, int, int, int] | None:
     return min_column or 1, min_row or 1, max_column or _LAST_COLUMN, max_row or _LAST_ROW
 
 
-def _sheet_part(archive: zipfile.ZipFile, title: str) -> str:
+def sheet_part(archive: zipfile.ZipFile, title: str) -> str:
     """Część zip arkusza o nazwie ``title`` według ``workbook.xml`` i jego relacji."""
 
     package = ElementTree.fromstring(archive.read("_rels/.rels"))
