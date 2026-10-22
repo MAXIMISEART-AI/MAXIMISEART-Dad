@@ -13,6 +13,8 @@ Po ``CI LOKALNIE OK`` pełnego przebiegu (bez ``--tylko``) na czystym checkoucie
 ``$(git rev-parse --git-dir)/ci-lokalnie-ok``: brama ``tools/hooks/pre-push`` przepuszcza wtedy push
 tego drzewa bez ponownego przebiegu.
 
+Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez SIGKILL (``tools/potomne.py``).
+
     py -3 tools/ci_lokalnie.py                  # Windows
     .venv/bin/python tools/ci_lokalnie.py       # macOS i Linux
     .venv/bin/python tools/ci_lokalnie.py --kazdy-commit
@@ -24,14 +26,16 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
+import threading
 import time
 
 from mutacje import environment
+import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 # Wygenerowany kontrakt i zbudowany frontend muszą zgadzać się ze źródłami (u taty nie ma Node).
@@ -98,17 +102,7 @@ def _clean_tree() -> str | None:
 
 
 def _run(step: Step, root: Path) -> tuple[bool, str]:
-    completed = subprocess.run(
-        step.command,
-        cwd=step.cwd,
-        env={**environment(root), "PYTHON": sys.executable},
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    completed = potomne.run(step.command, cwd=step.cwd, env={**environment(root), "PYTHON": sys.executable})
     output = completed.stdout + completed.stderr
     if step.command[:2] == ("git", "status"):
         stale = completed.stdout.strip()
@@ -156,24 +150,34 @@ def _check_every_commit(base: str, jobs: set[str], *, fail_fast: bool) -> int:
     if _git("status", "--porcelain", "--untracked-files=no"):
         print("UWAGA: niezacommitowane zmiany nie są sprawdzane", flush=True)
     failed = []
-    _git("worktree", "prune")
-    with tempfile.TemporaryDirectory(prefix="commit-", ignore_cleanup_errors=True) as scratch:
-        for commit in commits:
-            print(f"== {_git('log', '-1', '--format=%h %s', commit)}", flush=True)
-            if _git("diff", "--name-only", commit, "HEAD", "--", "pyproject.toml", "requirements.txt"):
-                print("UWAGA: zależności różnią się od HEAD, a .venv jest zainstalowane z HEAD", flush=True)
-            tree = Path(scratch) / commit
-            _git("worktree", "add", "--quiet", "--detach", str(tree), commit)
-            try:
-                if steps := _check(tree, jobs, fail_fast=fail_fast):
-                    failed.append(f"{commit[:7]} ({', '.join(steps)})")
-            finally:
-                _git("worktree", "remove", "--force", str(tree))
+    for commit in commits:
+        print(f"== {_git('log', '-1', '--format=%h %s', commit)}", flush=True)
+        if _git("diff", "--name-only", commit, "HEAD", "--", "pyproject.toml", "requirements.txt"):
+            print("UWAGA: zależności różnią się od HEAD, a .venv jest zainstalowane z HEAD", flush=True)
+        with potomne.commit_copy(ROOT, commit) as tree:
+            if steps := _check(tree, jobs, fail_fast=fail_fast):
+                failed.append(f"{commit[:7]} ({', '.join(steps)})")
     if failed:
         print(f"COMMITY FAIL | {'; '.join(failed)}")
         return 1
     print(f"COMMITY OK ({len(commits)})")
     return 0
+
+
+def _end_with_parent() -> None:
+    """``os._exit`` z wątku pomija ``finally``: trwający krok i kopie commitów sprząta strażnik z ``tools/potomne.py``.
+
+    Na Windows ``os.getppid`` nie zmienia się po śmierci rodzica, ale tam brama nie jest włączona.
+    """
+
+    parent = os.getppid()
+
+    def watch() -> None:
+        while os.getppid() == parent:
+            time.sleep(1)
+        os._exit(1)
+
+    threading.Thread(target=watch, daemon=True).start()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -192,7 +196,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Zakończ po pierwszym nieudanym kroku (brama pre-push: nieudany push odpowiada szybko).",
     )
+    parser.add_argument(
+        "--z-rodzicem",
+        action="store_true",
+        help="Zakończ, gdy zniknie proces, który uruchomił ci_lokalnie (brama pre-push: git push).",
+    )
     args = parser.parse_args(argv)
+    if args.z_rodzicem:
+        _end_with_parent()
     steps = _steps(ROOT)
     known = {step.job for step in steps}
     if args.kroki_ci:
@@ -207,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = _check(ROOT, jobs, fail_fast=args.do_pierwszego_bledu)
     try:
         overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
-        subprocess.run(overlaps, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
+        potomne.run(overlaps, cwd=ROOT, timeout=120, echo=True)
     except (OSError, subprocess.TimeoutExpired) as error:
         print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
     if failed:

@@ -6,12 +6,13 @@ opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
 
 ``tools/ci_lokalnie.py`` po udanym przebiegu na czystym checkoucie zapisuje drzewo HEAD w pieczątce
 ``$(git rev-parse --git-dir)/ci-lokalnie-ok``, więc push tego drzewa przechodzi od razu. Bez pieczątki
-brama uruchamia ``tools/ci_lokalnie.py --do-pierwszego-bledu`` Pythonem z ``.venv`` checkoutu. Włącza ją
-``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
+brama staje się ``tools/ci_lokalnie.py --do-pierwszego-bledu --z-rodzicem`` Pythonem z ``.venv`` checkoutu
+(``execve``). Włącza ją ``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym
+checkoutu.
 
-Przebieg nie przeżywa pushu: brama kończy ``ci_lokalnie`` razem z jego procesami, gdy proces ``git push``
-zniknie albo gdy dostanie SIGTERM, SIGHUP lub SIGINT. Gdy SIGKILL zabije bramę razem z grupą ``git push``
-(limit czasu agenta), robi to za nią strażnik. Drugi push z tego samego checkoutu w trakcie przebiegu kończy
+Przebieg nie przeżywa pushu: ``ci_lokalnie`` jest tym samym procesem w grupie ``git push``, więc sygnał do
+grupy pushu (SIGKILL od limitu czasu agenta) trafia prosto w nie, a jego kroki giną z nim. ``--z-rodzicem``
+kończy przebieg, gdy zniknie sam ``git push``. Drugi push z tego samego checkoutu w trakcie przebiegu kończy
 się od razu, bez równoległego ``ci_lokalnie`` na tym samym drzewie.
 """
 
@@ -20,30 +21,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
-from types import FrameType
 
 STAMP = "ci-lokalnie-ok"
 LOCK = "ci-lokalnie.lock"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 VENV_PYTHON = Path(".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
-COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--do-pierwszego-bledu")
+COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--do-pierwszego-bledu", "--z-rodzicem")
 RUNS_CI = (
     "uruchamiam tools/ci_lokalnie.py: czysty przebieg 4-8 min zależnie od obciążenia Maca, przy błędzie koniec"
     " na pierwszym nieudanym kroku (ruff po kilku sekundach); po udanym przebiegu przed pushem push przechodzi od razu"
 )
-# Strażnik w osobnej sesji zabija grupę ci_lokalnie, gdy potok od bramy zamknie się bez sygnału końca, czyli gdy
-# bramę zabił SIGKILL, który nie uruchamia finally. Ten sam co w tools/mutacje_skilli.py.
-GUARD = '''import os, signal, sys
-group = sys.stdin.buffer.readline()
-if group and not sys.stdin.buffer.read(1):
-    try:
-        os.killpg(int(group), signal.SIGKILL)
-    except OSError:
-        pass
-'''
 
 
 @dataclass(frozen=True)
@@ -98,46 +87,15 @@ def _run_ci(environment: dict[str, str]) -> int:
         return subprocess.run(COMMAND, env=environment, stdin=subprocess.DEVNULL, check=False).returncode
     import fcntl
 
-    # Otwarty plik trzyma zamek do końca bramy; ci_lokalnie go nie dziedziczy.
     lock = (Path(_git("rev-parse", "--git-dir")) / LOCK).open("w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         print("pre-push: inny push z tego checkoutu już uruchomił ci_lokalnie; poczekaj na jego wynik.", flush=True)
         return 1
-
-    def stop(signum: int, _frame: FrameType | None) -> None:
-        raise SystemExit(128 + signum)
-
-    for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
-        signal.signal(signum, stop)
-    push = os.getppid()
-    guard = subprocess.Popen([sys.executable, "-c", GUARD], stdin=subprocess.PIPE, start_new_session=True)
-    assert guard.stdin is not None
-    # Własna grupa procesów: pytest, npm i ich potomkowie kończą się razem z ci_lokalnie.
-    ci = subprocess.Popen(COMMAND, env=environment, stdin=subprocess.DEVNULL, start_new_session=True)
-    guard.stdin.write(f"{ci.pid}\n".encode())
-    guard.stdin.flush()
-    try:
-        while True:
-            try:
-                return ci.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                if os.getppid() != push:
-                    return 1
-    finally:
-        for signum in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(ci.pid, signum)
-                ci.wait(timeout=5)
-            # macOS odpowiada EPERM, gdy w grupie zostały same zombie.
-            except (ProcessLookupError, PermissionError):
-                break
-            except subprocess.TimeoutExpired:
-                pass
-        guard.stdin.write(b".")
-        guard.stdin.close()
-        guard.wait()
+    # Python zamyka deskryptory przy execve (PEP 446), a zamek ma trwać do końca ci_lokalnie.
+    os.set_inheritable(lock.fileno(), True)
+    os.execve(COMMAND[0], COMMAND, environment)
 
 
 if __name__ == "__main__":

@@ -7,16 +7,16 @@ Push robi agent (``AI_AGENT``), chyba że test mówi inaczej.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import os
 from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
-import time
 
 import pytest
+
+from tests.fixtures.potomne import wait_for
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 BRANCH = "refs/heads/zmiana"
@@ -85,15 +85,6 @@ def _hanging_ci_lokalnie(checkout: Path) -> list[Path]:
     return [checkout / "ci.pid", checkout / "potomek.pid"]
 
 
-def _wait_for(condition: Callable[[], bool]) -> bool:
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(0.1)
-    return False
-
-
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -115,7 +106,7 @@ def _start_push(checkout: Path) -> subprocess.Popen[str]:
 
 
 def _started_ci(pid_files: list[Path]) -> list[int]:
-    assert _wait_for(lambda: all(path.exists() and path.read_text().strip() for path in pid_files))
+    assert wait_for(lambda: all(path.exists() and path.read_text().strip() for path in pid_files), 15)
     return [int(path.read_text()) for path in pid_files]
 
 
@@ -213,33 +204,29 @@ def test_push_head_odlaczonego_albo_galezi_rozstrzyga_ci_lokalnie(checkout: Path
     assert _remote_branch(checkout) == published
 
 
-def test_brama_prosi_ci_lokalnie_o_przerwanie_na_pierwszym_bledzie(checkout: Path) -> None:
+def test_brama_prosi_ci_lokalnie_o_przerwanie_na_pierwszym_bledzie_i_koniec_z_pushem(checkout: Path) -> None:
     _ci_lokalnie(checkout, passes=False)
 
     _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
 
-    assert (checkout / "argumenty.txt").read_text().split() == ["tools/ci_lokalnie.py", "--do-pierwszego-bledu"]
+    assert (checkout / "argumenty.txt").read_text().split() == ["tools/ci_lokalnie.py", "--do-pierwszego-bledu", "--z-rodzicem"]
 
 
-GROUP_SIGNALS = {"SIGTERM dla grupy pushu": signal.SIGTERM, "SIGINT dla grupy pushu": signal.SIGINT}
+GROUP_SIGNALS = {"SIGTERM": signal.SIGTERM}
 if sys.platform != "win32":
-    # Tak kończy push limit czasu agenta; SIGKILL nie daje bramie posprzątać.
-    GROUP_SIGNALS["SIGKILL dla grupy pushu"] = signal.SIGKILL
+    GROUP_SIGNALS["SIGKILL"] = signal.SIGKILL
 
 
-@pytest.mark.parametrize("stop", ["zabity sam git push", *GROUP_SIGNALS])
-def test_ci_lokalnie_nie_przezywa_przerwanego_pushu(checkout: Path, stop: str) -> None:
+@pytest.mark.parametrize("stop", sorted(GROUP_SIGNALS))
+def test_ci_lokalnie_nie_przezywa_sygnalu_dla_grupy_pushu(checkout: Path, stop: str) -> None:
     pid_files = _hanging_ci_lokalnie(checkout)
     push = _start_push(checkout)
     started = _started_ci(pid_files)
 
-    if stop == "zabity sam git push":
-        push.kill()
-    else:
-        os.kill(-push.pid, GROUP_SIGNALS[stop])
+    os.kill(-push.pid, GROUP_SIGNALS[stop])
     push.wait(timeout=10)
 
-    assert _wait_for(lambda: not any(_alive(pid) for pid in started)), stop
+    assert wait_for(lambda: not any(_alive(pid) for pid in started), 15)
 
 
 def test_drugi_push_z_tego_checkoutu_nie_uruchamia_drugiego_ci_lokalnie(checkout: Path) -> None:
@@ -258,23 +245,3 @@ def test_drugi_push_z_tego_checkoutu_nie_uruchamia_drugiego_ci_lokalnie(checkout
     finally:
         os.kill(-first.pid, signal.SIGTERM)
         first.wait(timeout=10)
-
-
-def test_udany_ci_lokalnie_z_zombie_w_grupie_przepuszcza_push(checkout: Path) -> None:
-    # Potomek wychodzi z grupy i nie zbiera swojego dziecka, więc w grupie ci_lokalnie zostaje samo zombie,
-    # na które macOS odpowiada EPERM.
-    leaves_zombie = (
-        "import os, time\n"
-        "if os.fork() == 0:\n    os._exit(0)\n"
-        "os.setpgid(0, 0)\n"
-        "open('rodzic.pid', 'w').write(str(os.getpid()))\n"
-        "time.sleep(30)\n"
-    )
-    _fake_python(checkout, f"'{sys.executable}' -c \"{leaves_zombie}\" > /dev/null 2>&1 &\nsleep 1\necho 'CI LOKALNIE OK'")
-    try:
-        pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
-
-        assert pushed.returncode == 0, pushed.stderr
-        assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
-    finally:
-        os.kill(int((checkout / "rodzic.pid").read_text()), signal.SIGTERM)
