@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from rozliczenia.worker_config import WorkerConfigError, load_worker_mapping, normalize_text
 
@@ -95,10 +96,6 @@ def test_konfiguracja_wykonawcow_ktora_nie_jest_yaml(tmp_path: Path) -> None:
             "Konfiguracja zawiera powtórzony identyfikator pracownika.",
         ),
         (
-            "schema_version: 1\nworkers:\n  a: ../poza\n",
-            "Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.",
-        ),
-        (
             f"schema_version: 1\nworkers:\n  a: {'X' * 223}\n",
             "Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.",
         ),
@@ -119,7 +116,6 @@ def test_konfiguracja_wykonawcow_ktora_nie_jest_yaml(tmp_path: Path) -> None:
         "pusty-identyfikator",
         "pusta-nazwa",
         "powtorzony-identyfikator",
-        "nazwa-nieprawidlowa-dla-pliku",
         "nazwa-za-dluga-dla-pliku",
         "dwa-identyfikatory-na-jedna-nazwe",
     ],
@@ -129,3 +125,16 @@ def test_zlamana_regula_konfiguracji_wykonawcow_ma_szczegol(tmp_path: Path, cont
         load_worker_mapping(write_config(tmp_path, content))
 
     assert (raised.value.reason, raised.value.detail) == ("invalid", detail)
+
+
+@pytest.mark.parametrize("name", ["../poza", "a\\b", "a:b", "a*b", "a?b", 'a"b', "a<b", "a>b", "a|b", "a\tb", "Kowalski."])
+def test_nazwa_wykonawcy_niedozwolona_w_nazwie_pliku_w_windows_lamie_konfiguracje(tmp_path: Path, name: str) -> None:
+    content = yaml.safe_dump({"schema_version": 1, "workers": {"a": name}}, allow_unicode=True)
+
+    with pytest.raises(WorkerConfigError) as raised:
+        load_worker_mapping(write_config(tmp_path, content))
+
+    assert (raised.value.reason, raised.value.detail) == (
+        "invalid",
+        "Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.",
+    )

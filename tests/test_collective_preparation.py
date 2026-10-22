@@ -957,6 +957,7 @@ def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_
         None,
         register_order(2, datetime(2026, 9, 12, 23, 59), successful="nie"),
         register_order(3, datetime(2026, 9, 10, 9, 0)),
+        register_order(4, datetime(2026, 9, 10, 15, 30)),
     ]
     fixture = make_preparation_fixture(tmp_path, rows)
 
@@ -973,7 +974,7 @@ def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_
     assert plan.orders_per_day == {
         date(2026, 9, 8): 1,
         date(2026, 9, 9): 0,
-        date(2026, 9, 10): 1,
+        date(2026, 9, 10): 2,
         date(2026, 9, 11): 0,
         date(2026, 9, 12): 1,
         date(2026, 9, 13): 0,
