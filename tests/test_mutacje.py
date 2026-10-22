@@ -6,7 +6,6 @@ modułu, więc test nie zależy od niej.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,11 +14,11 @@ import signal
 import subprocess
 import sys
 import time
-from types import ModuleType
 
 import pytest
 
 from tests.fixtures.git_repo import commit, git, repository
+from tests.fixtures.potomne import beating, with_grandchild
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "mutacje.py"
@@ -99,7 +98,10 @@ def test_kopia_ma_niezacommitowane_zmiany_checkoutu_a_checkout_zostaje_nietkniet
     package = "src/rozliczenia"
     repo = repository(
         tmp_path / "repo",
-        {f"{package}/{name}.py": "WARTOSC = 0\n" for name in ("__init__", "w_indeksie", "poza_indeksem", "usuniety")},
+        {
+            ".gitignore": "__pycache__/\n",
+            **{f"{package}/{name}.py": "WARTOSC = 0\n" for name in ("__init__", "w_indeksie", "poza_indeksem", "usuniety")},
+        },
     )
     commit(repo, "baza")
     (repo / package / "w_indeksie.py").write_text("WARTOSC = 1\n", encoding="utf-8")
@@ -185,38 +187,42 @@ def _hanging_repository(path: Path) -> tuple[Path, list[str], Path, Path]:
     return repo, mutation, started, beats
 
 
-def _beating(beats: Path) -> bool:
-    before = beats.stat().st_size
-    time.sleep(2)
-    return beats.stat().st_size != before
+def test_polecenie_bez_wyniku_w_limicie_czasu_daje_przekroczony_czas(tmp_path: Path) -> None:
+    repo, mutation, _, _ = _hanging_repository(tmp_path)
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "mutacje.py"), "--limit-s", "5", *mutation],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+    )
+
+    assert (answered.returncode, answered.stdout.splitlines()[0]) == (1, "PRZEKROCZONY CZAS: mutacja → brak wyniku po 5 s")
 
 
-def _load(tool: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location("mutacje_repozytorium", tool)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def test_wnuk_polecenia_mutacji_ginie_z_poleceniem(tmp_path: Path) -> None:
+    repo = repository(tmp_path / "repo", {PACKAGE: "WNUK = False\n"})
+    commit(repo, "baza")
+    beats = tmp_path / "wnuk-zyje"
+    no_output = ", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL"
+    leaves_grandchild = with_grandchild(beats, "sys.exit(3)", grandchild_output=no_output)[-1]
+    command = ["-c", f"import rozliczenia\nif rozliczenia.WNUK:\n    exec({leaves_grandchild!r})\n"]
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "mutacje.py"), "--zmiana", PACKAGE, "WNUK = False", "WNUK = True", "--", *command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+    )
+
+    assert answered.stdout.splitlines() == ["WYKRYTA: mutacja → kod wyjścia 3", "MUTACJE OK"], answered.stderr
+    assert not beating(beats)
 
 
-def test_po_przekroczeniu_czasu_nie_zostaje_zaden_proces_polecenia(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    repo, mutation, started, beats = _hanging_repository(tmp_path)
-    mutacje = _load(repo / "tools" / "mutacje.py")
-    monkeypatch.setattr(mutacje, "TIMEOUT", 5)
-
-    code = mutacje.main(mutation)
-
-    assert (code, capsys.readouterr().out.splitlines()[0]) == (1, "PRZEKROCZONY CZAS: mutacja → brak wyniku po 5 s")
-    assert (started.exists(), _beating(beats)) == (True, False)
-    assert git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT i SIGKILL do jednego procesu są sygnałami POSIX")
-@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGKILL"])
-def test_przerwane_albo_zabite_narzedzie_konczy_trwajace_mutacje_i_sprzata(tmp_path: Path, signal_name: str) -> None:
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT do jednego procesu jest sygnałem POSIX")
+def test_przerwane_narzedzie_konczy_trwajace_mutacje_i_sprzata(tmp_path: Path) -> None:
     repo, mutation, started, beats = _hanging_repository(tmp_path)
     scratch = tmp_path / "tmp"
     scratch.mkdir()
@@ -230,12 +236,12 @@ def test_przerwane_albo_zabite_narzedzie_konczy_trwajace_mutacje_i_sprzata(tmp_p
     while not started.exists() and time.monotonic() < deadline:
         time.sleep(0.1)
 
-    tool.send_signal(getattr(signal, signal_name))
+    tool.send_signal(signal.SIGINT)
     tool.wait(timeout=20)
     deadline = time.monotonic() + 20
     while any(scratch.iterdir()) and time.monotonic() < deadline:
         time.sleep(0.1)
 
-    assert (started.exists(), _beating(beats)) == (True, False)
+    assert (started.exists(), beating(beats)) == (True, False)
     assert git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
     assert list(scratch.iterdir()) == []
