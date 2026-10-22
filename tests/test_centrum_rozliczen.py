@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
@@ -436,6 +438,38 @@ def test_status_okresu_odzwierciedla_zmiany_na_dysku_przy_kazdym_odczycie(tmp_pa
     )
     assert prepared["internal_settlement_exists"] is True
     assert ready["worker_settlement_count"] == 1
+
+
+def test_odczyt_tablicy_okresow_nie_sprawdza_osobno_kazdego_rozliczenia_pracownika(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Folder okresów taty leży w OneDrive, gdzie każde sprawdzenie pliku z osobna jest drogie.
+    app, periods = with_periods_directory(tmp_path)
+    worker_folder = write_worker_settlements(
+        write_period_files(periods, "29_05_10_2026"), "29_05_10_2026", ["Anna Testowa"]
+    )
+    checked: list[object] = []
+    stat = os.stat
+
+    def counted_stat(path: str | os.PathLike[str], *args: Any, **kwargs: Any) -> os.stat_result:
+        checked.append(path)
+        return stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", counted_stat)
+
+    def checks_and_count() -> tuple[int, object]:
+        checked.clear()
+        count = next(row for row in board_rows(app) if row["token"] == "29_05_10_2026")["worker_settlement_count"]
+        return len(checked), count
+
+    checks_and_count()  # pierwsze żądanie dokańcza leniwe importy
+    one_worker = checks_and_count()
+    for number in range(20):
+        (worker_folder / f"Rozliczenie 29_05_10_2026 - Wykonawca {number}.xlsx").touch()
+    many_workers = checks_and_count()
+
+    assert (one_worker[1], many_workers[1]) == (1, 21)
+    assert many_workers[0] == one_worker[0]
 
 
 def test_pliki_i_foldery_okresu_otwieraja_sie_jednym_kliknieciem(tmp_path: Path) -> None:
