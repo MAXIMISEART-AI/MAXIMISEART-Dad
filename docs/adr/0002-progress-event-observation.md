@@ -128,3 +128,8 @@ nadal się czytają. Ich Zatrzymanie nie ma rodzaju i Centrum liczy je jako
 zatrzymane, bez zgadywania wstecz. Starsza wersja narzędzia, np. po cofniętej
 Aktualizacji narzędzia, pomija rekordy wersji 2 przy odczycie i nie obcina ich
 przy dopisywaniu.
+
+Odrzucone kierunki: nowy wynik obok `BLAD_KRYTYCZNY` zmieniłby kod wyjścia i
+kontrakt skryptu dla maszyn. Dwa płaskie pola, rodzaj i kod, pozwalałyby na
+rodzaj bez kodu albo kod bez rodzaju; jedno pole `stop` jest albo `null`, albo
+ma oba.
