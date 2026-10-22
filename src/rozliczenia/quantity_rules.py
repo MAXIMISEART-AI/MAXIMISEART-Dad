@@ -6,7 +6,8 @@ Przygotowanie pliku zbiorczego i Kontrola ilości.
 ``URZĄDZENIA`` są czytane jako składniki po normalizacji: małe litery, przecinki jak spacje, zwinięte spacje,
 bez ``xg`` (także doklejonego, ``nokia zteXG``). Składnik może mieć krotność ``n*`` (``3*fut``, ``2* fut``).
 Ilości powstają ze złożenia składników, więc nowa kombinacja znanych składników nie wymaga nowej reguły. Nowy
-składnik to nowy wpis w ``_COMPONENTS``.
+składnik to nowy wpis w ``_COMPONENTS``. Od składników zależą też liczba sztuk z ``CZYNNOŚCI`` (instalacja ręczna,
+wizja) i dodatek za usterkę po godzinach według dnia i godziny ``DATA``.
 """
 
 from __future__ import annotations
@@ -78,7 +79,7 @@ class FromDescription:
 
 @dataclass(frozen=True)
 class WithoutRule:
-    """``URZĄDZENIA`` mają składnik, którego Reguły ilości nie znają: tylko ilości niezależne od ``URZĄDZENIA``."""
+    """``URZĄDZENIA`` mają składnik, którego Reguły ilości nie znają: tylko V, T i dodatek za usterkę po godzinach."""
 
     quantities: Quantities
 
@@ -161,11 +162,11 @@ def evaluate(order: OrderContent) -> RuleResult:
     quantities = Counter({_Q.V: 1})
     if _first_word(order.contract) == _PRINTING_CONTRACT:
         quantities[_Q.T] = 1
-    components = _components(words)
-    if components is None:
-        return WithoutRule(_nonzero(quantities))
+    components, all_known = _components(words)
     if _is_late(order.started) and any(component.kind is _Kind.FAULT for component, _ in components):
         quantities[_Q.N] = _LATE_FAULT_SURCHARGE
+    if not all_known:
+        return WithoutRule(_nonzero(quantities))
     return ServiceQuantities(_nonzero({**quantities, **_device_quantities(components, _pieces(order.activities))}))
 
 
@@ -191,10 +192,11 @@ def _pieces(activities: object) -> int:
     return int(counted[1]) if counted else 1
 
 
-def _components(words: list[str]) -> list[tuple[_Component, int]] | None:
-    """Składniki z krotnością, najdłuższe dopasowanie od lewej; ``None``, gdy któregoś słowa nie ma w regułach."""
+def _components(words: list[str]) -> tuple[list[tuple[_Component, int]], bool]:
+    """Znane składniki z krotnością, najdłuższe dopasowanie od lewej, i czy Reguły ilości znają każde słowo."""
 
     found: list[tuple[_Component, int]] = []
+    all_known = True
     position = 0
     while position < len(words):
         counted = _COUNTED.fullmatch(words[position])
@@ -206,8 +208,9 @@ def _components(words: list[str]) -> list[tuple[_Component, int]] | None:
                 position += length
                 break
         else:
-            return None
-    return found
+            all_known = False
+            position += 1
+    return found, all_known
 
 
 def _device_quantities(components: list[tuple[_Component, int]], pieces: int) -> Counter[QuantityColumn]:

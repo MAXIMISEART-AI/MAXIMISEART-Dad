@@ -129,7 +129,7 @@ CONTRACTS: list[tuple[str | None, int]] = [
 ]
 # Zlecenia rozliczane z opisu: bez żadnych ilości, także bez V i T.
 FROM_DESCRIPTION: list[str | None] = ["prewencja", "Prewencja", "Niedostępność Usług", None, "   "]
-# Składnik, którego Reguły ilości nie znają: tylko V i T, reszta dla taty.
+# Składnik, którego Reguły ilości nie znają: tylko V, T i N, reszta dla taty.
 WITHOUT_RULE: list[str] = ["dekoder", "przeniesienie", "nokia zte przeniesienie", "nokia zte 2x fut", "zte", "prewencja fut"]
 
 
@@ -157,6 +157,10 @@ CASES: list[Case] = [
     Case("prewencja", "u", {}, started=datetime(2026, 9, 12, 9, 0)),
     *(Case(devices, "u", {"V": 1, "T": 1}) for devices in WITHOUT_RULE),
     Case("dekoder", "pr", {"V": 1}),
+    Case("usterka przeniesienie", "u", {"N": 45, "V": 1, "T": 1}, started=datetime(2026, 9, 8, 18, 0)),
+    Case("2*przeniesienie usterka wew", "pr", {"N": 45, "V": 1}, started=datetime(2026, 9, 12, 8, 0)),
+    Case("przeniesienie", "u", {"V": 1, "T": 1}, started=datetime(2026, 9, 8, 18, 0)),
+    Case("usterka przeniesienie", "u", {"V": 1, "T": 1}, started=datetime(2026, 9, 8, 16, 0)),
 ]
 
 
