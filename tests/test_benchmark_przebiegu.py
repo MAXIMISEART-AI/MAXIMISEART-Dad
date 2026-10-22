@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import signal
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,6 +28,7 @@ from tests.fixtures.benchmark import (
     WORKER_TEMPLATE,
     write_templates,
 )
+from tests.fixtures.potomne import wait_for
 from tests.fixtures.settlement import write_mapping
 
 RECORD_FIELDS = {
@@ -555,3 +560,47 @@ def test_pomiar_z_wynikiem_referencyjnym_w_formacie_terminala_konczy_sie_polecen
     assert "freeze --commit" in measured.stderr
     assert str(result_path.parent) in measured.stderr
     assert not journal.exists()
+
+
+def _settlement_runs(mirror: Path) -> dict[int, str]:
+    listed = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,command="], capture_output=True, text=True, check=True).stdout
+    processes = (line.strip().split(" ", 1) for line in listed.splitlines() if line.strip())
+    return {int(pid): command for pid, command in processes if "uruchom_proces.py settlement" in command and str(mirror) in command}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="ps i SIGSTOP są tylko na POSIX")
+def test_zabity_benchmark_nie_zostawia_wstrzymanego_przebiegu_ani_kopii_commitu(tmp_path: Path) -> None:
+    mirror = tmp_path / "lustro"
+    freeze = start_benchmark(
+        "freeze",
+        "--commit",
+        "HEAD",
+        "--scenario",
+        "maly-tydzien",
+        "--templates-dir",
+        str(write_templates(tmp_path / "wzorce")),
+        "--config",
+        str(write_mapping(tmp_path / "worker_mapping.yaml")),
+        "--mirror-dir",
+        str(mirror),
+        "--reference-dir",
+        str(tmp_path / "referencje"),
+    )
+    try:
+        assert wait_for(lambda: bool(_settlement_runs(mirror)), 120), "freeze nie uruchomił Przebiegu rozliczeń"
+        [(pid, command)] = _settlement_runs(mirror).items()
+        copy = Path(re.findall(r"(\S+)/tools/uruchom_proces\.py", command)[0])
+        if sys.platform != "win32":
+            os.kill(pid, signal.SIGSTOP)
+
+        freeze.kill()
+        freeze.wait(timeout=20)
+        wait_for(lambda: not _settlement_runs(mirror) and not copy.exists(), 20)
+
+        assert (_settlement_runs(mirror), copy.exists()) == ({}, False)
+    finally:
+        freeze.kill()
+        freeze.wait()
+        for pid in _settlement_runs(mirror):
+            if sys.platform != "win32":
+                os.kill(pid, signal.SIGKILL)
