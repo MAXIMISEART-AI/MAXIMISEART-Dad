@@ -688,8 +688,12 @@ def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_plik
     [
         (f"{PERIOD}/Rozliczenie wew. {PERIOD}.xlsx", "Plik Rozliczenie wew. jest poza zakresem tego procesu."),
         (f"INEA/{SOURCE_NAME}", f"Folder pliku musi nazywać się tak samo jak okres: {PERIOD}."),
+        (
+            f"{PERIOD}/Rozliczenie {PERIOD} zbiorcze.xlsx",
+            "Wybierz plik nazwany dokładnie: Rozliczenie {dd}_{dd}_{mm}_{rrrr} - zbiorcze.xlsx.",
+        ),
     ],
-    ids=["rozliczenie_wewnetrzne", "folder_nazwany_inaczej_niz_okres"],
+    ids=["rozliczenie_wewnetrzne", "folder_nazwany_inaczej_niz_okres", "nazwa_inna_niz_plik_zbiorczy"],
 )
 def test_rozliczenie_wewnetrzne_albo_plik_zbiorczy_poza_folderem_okresu_zatrzymuje_przebieg_rozliczen(
     tmp_path: Path, source: str, detail: str
@@ -711,7 +715,11 @@ def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozl
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
+    assert (raised.value.message.code, raised.value.message.what) == (
+        "ZLY_PLIK_ZBIORCZY",
+        f"{UNFIT_COLLECTIVE_FILE_PREFIX} Okres {NOT_A_PERIOD} w nazwie pliku nie jest okresem od wtorku do poniedziałku "
+        "(przykład okresu: 08_14_09_2026).",
+    )
     assert not target_directory.exists()
     assert [path.name for path in source_path.parent.iterdir()] == [source_path.name]
 
