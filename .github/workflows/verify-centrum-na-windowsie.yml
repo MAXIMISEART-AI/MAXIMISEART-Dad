@@ -36,7 +36,8 @@ on:
 permissions:
   contents: read
 
-# A newer push to a pull request replaces its older run; a run on main (push or dispatch) is never cancelled.
+# A newer push to a pull request cancels its running run. Other runs are never cancelled once they run; GitHub still
+# replaces a waiting run with a newer one of the same event and branch.
 concurrency:
   group: verify-centrum-na-windowsie-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
