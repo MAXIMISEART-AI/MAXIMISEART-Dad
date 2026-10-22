@@ -44,7 +44,13 @@ from rozliczenia.centrum.stops import ProblemFingerprint
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
-from rozliczenia.period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
+from rozliczenia.period_folder import (
+    PeriodFolder,
+    PeriodFolderLookupError,
+    PeriodFolderUnreadable,
+    locate_period_folder,
+    reading,
+)
 from rozliczenia.settings import Settings, SettingsStore
 from rozliczenia.settlement_period import SettlementPeriod, parse_period_token
 
@@ -167,9 +173,10 @@ class _Computer:
         if not isinstance(folder, PeriodFolder):
             return ()
         workers = folder.worker_settlements
-        worker_files = sorted(
-            path for path in (workers.iterdir() if workers.is_dir() else ()) if not path.name.startswith("~$")
-        )
+        with reading(folder.directory):
+            worker_files = sorted(
+                path for path in (workers.iterdir() if workers.is_dir() else ()) if not path.name.startswith("~$")
+            )
         return (folder.internal_settlement, folder.collective_file, *worker_files)
 
     @cached_property
@@ -193,12 +200,17 @@ class _Check:
     def results(self, computer: _Computer) -> list[CheckResult]:
         """Wyniki sprawdzenia; gdy samo się nie uda, „nie sprawdzono” pod jego nazwą, bez treści wyjątku.
 
+        Folder, którego nie da się odczytać, nie jest porażką sprawdzenia, tylko przyczyną: oba procesy
+        wyjaśniają ją Komunikatem Przygotowania, jak odszukanie Folderu okresu.
+
         Typ wyjątku trafia do dziennika Centrum od razu, więc ostatnie wpisy dziennika w Diagnozie i
         Zgłoszeniu już go mają.
         """
 
         try:
             return self.run(computer, self.label)
+        except PeriodFolderUnreadable as unreadable:
+            return [CheckResult.failed(self.label, preparation_messages.folder_unreadable(unreadable.folder))]
         except Exception as failure:  # noqa: BLE001 - granica sprawdzenia: typ wyjątku trafia do dziennika Centrum
             computer.log.unexpected_failure(failure, where=f"Diagnoza: {self.label}")
             return [CheckResult.not_checked(self.label, _NOT_CHECKED_UNEXPECTED)]
@@ -324,9 +336,9 @@ def _period_folder(computer: _Computer, label: str) -> list[CheckResult]:
         # Przebieg rozliczeń nie ma Komunikatu o odszukaniu (w Centrum start wymaga Folderu okresu),
         # więc oba procesy wyjaśniają Komunikatem Przygotowania: założyć albo zostawić jeden Folder okresu.
         return [CheckResult.failed(label, preparation_messages.period_folder_lookup_problem(folder))]
-    if computer.process == "settlement" and not folder.collective_file.is_file():
-        return [CheckResult.failed(label, settlement_messages.collective_file_missing(folder.collective_file))]
     observed = folder.observe()
+    if computer.process == "settlement" and not observed.collective_file_exists:
+        return [CheckResult.failed(label, settlement_messages.collective_file_missing(folder.collective_file))]
     present = [
         _PERIOD_FILE_LABELS[name]
         for name, exists in (

@@ -25,7 +25,7 @@ from . import preparation_messages as messages
 from .decision import Conversation, Decision
 from .domain import ProgressObserver, ProgressPhase
 from .message import Message, StopError
-from .period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
+from .period_folder import PeriodFolder, PeriodFolderLookupError, PeriodFolderUnreadable, locate_period_folder
 from .phase_runner import PhaseRunner
 from .settlement_period import SettlementPeriod, parse_period_token
 from .worker_config import WorkerConfigError, load_worker_mapping
@@ -91,6 +91,8 @@ def _locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> 
         return locate_period_folder(periods_directory, period)
     except PeriodFolderLookupError as exc:
         raise StopError(messages.period_folder_lookup_problem(exc)) from exc
+    except PeriodFolderUnreadable as exc:
+        raise StopError(messages.folder_unreadable(exc.folder)) from exc
 
 
 def _incomplete_period_decision(plan: PreparationSummary) -> Decision | None:

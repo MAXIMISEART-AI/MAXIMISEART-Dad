@@ -4,7 +4,8 @@ Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``
 ``runs_router``, ``diagnosis_router``, ``reports_router``, ``metrics_router``, ``configuration_router``,
 ``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
-zamienia odmowy (``contract.Refusal``) na bezpieczne odpowiedzi ``Problem``,
+zamienia odmowy (``contract.Refusal``) i folder okresów, którego nie da się odczytać, na bezpieczne
+odpowiedzi ``Problem``,
 nieoczekiwany wyjątek na wpis w dzienniku Centrum i odpowiedź bez treści wyjątku,
 a każdej odpowiedzi API dodaje czas obsługi w ``Server-Timing`` (``timing``).
 """
@@ -47,6 +48,7 @@ from rozliczenia.centrum import restart_guardian
 from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
 from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
 from rozliczenia.centrum.version import SERVICE, short_commit
+from rozliczenia.period_folder import PeriodFolderUnreadable
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 _LOCAL_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
@@ -113,6 +115,14 @@ def create_app(
     @app.exception_handler(Refusal)
     async def refused(request: Request, refusal: Refusal) -> Response:
         return _problem(refusal.status_code, refusal.message)
+
+    @app.exception_handler(PeriodFolderUnreadable)
+    async def unreadable_folder(request: Request, unreadable: PeriodFolderUnreadable) -> Response:
+        return _problem(
+            500,
+            f"Nie udało się odczytać folderu {unreadable.folder.name}. "
+            "Sprawdź, czy otwiera się w Eksploratorze plików i czy OneDrive działa, potem odśwież kartę.",
+        )
 
     # Każdy start Centrum ma własny identyfikator: karta po aktualizacji rozpozna po nim nowe Centrum.
     instance = uuid.uuid4().hex
