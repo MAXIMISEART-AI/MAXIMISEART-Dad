@@ -16,8 +16,6 @@ import zipfile
 from openpyxl import load_workbook
 import pytest
 
-from rozliczenia import preparation_files
-
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
 from tests.fixtures.preparation import (
     PreparationFixture,
@@ -27,7 +25,13 @@ from tests.fixtures.preparation import (
     run_preparation,
     write_collective_template,
 )
-from tests.fixtures.workbooks import active_worksheet, external_link_parts, leave_data_row_leftovers
+from tests.fixtures.workbooks import (
+    active_worksheet,
+    external_link_parts,
+    has_xml_comment,
+    leave_data_row_leftovers,
+    refused_by_copy,
+)
 
 
 def _synthetic(tmp_path: Path) -> PreparationFixture:
@@ -129,16 +133,15 @@ def _cells(path: Path) -> dict[str, object]:
     ],
 )
 def test_plik_zbiorczy_z_kopii_wzorca_jest_taki_jak_z_openpyxl(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_fixture: Callable[[Path], PreparationFixture], copied: bool
+    tmp_path: Path, make_fixture: Callable[[Path], PreparationFixture], copied: bool
 ) -> None:
     (tmp_path / "kopia").mkdir()
     (tmp_path / "openpyxl").mkdir()
     by_copy = make_fixture(tmp_path / "kopia")
     by_openpyxl = make_fixture(tmp_path / "openpyxl")
+    refused_by_copy(by_openpyxl.collective_template_path)
     run_preparation(by_copy)
-    with monkeypatch.context() as patch:
-        patch.setattr(preparation_files, "_written_as_copy", lambda *_: False)
-        run_preparation(by_openpyxl)
+    run_preparation(by_openpyxl)
 
     created, reference = by_copy.collective_file_path, by_openpyxl.collective_file_path
     with zipfile.ZipFile(created) as archive:
@@ -146,6 +149,8 @@ def test_plik_zbiorczy_z_kopii_wzorca_jest_taki_jak_z_openpyxl(
     with zipfile.ZipFile(by_copy.collective_template_path) as archive:
         template_has_calc_chain = "xl/calcChain.xml" in archive.namelist()
 
+    assert not has_xml_comment(reference)
     assert _cells(created) == _cells(reference)
     assert external_link_parts(created) == external_link_parts(reference)
     assert keeps_template_calc_chain == (copied and template_has_calc_chain)
+

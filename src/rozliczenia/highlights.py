@@ -8,10 +8,11 @@ pracownika. Wyróżnienia zastępują wygląd komórki Wzorca w całości: komó
 Wyróżnień, także brakująca w Pliku zbiorczym, daje komórkę bez wypełnienia, z
 kolorem automatycznym, bez pogrubienia i bez kursywy.
 
-Typ odczytuje ``workbook_files.read_data_rows``; obie drogi zapisu Rozliczenia
-pracownika (``template_copy`` i openpyxl w ``workbook_files``) nakładają go na
-czcionkę i wypełnienie komórki Wzorca tymi samymi metodami, więc dają ten sam
-wynik.
+Przygotowanie pliku zbiorczego przenosi je tak samo z komórek Rejestru zleceń do
+obu plików okresu. Oba odczyty (Pliku zbiorczego i Rejestru w ``workbook_files``)
+tworzą typ przez ``Highlights.of``, więc ten sam wygląd komórki daje tę samą wartość,
+a obie drogi zapisu (``template_copy`` i openpyxl w ``workbook_files``) nakładają
+go tymi samymi metodami, więc dają ten sam wynik.
 """
 
 from __future__ import annotations

@@ -9,10 +9,11 @@ from .domain import WorkerResult
 from .workbook_files import (
     WORKER_HEADER,
     DataRow,
+    Layout,
     Problem,
+    TemplateFile,
     WorkbookError,
     WorkbookSaveError,
-    WorkerSettlementTemplate,
 )
 
 
@@ -47,14 +48,14 @@ class WorkerTemplateValidationError(Exception):
         self.problem: WorkerTemplateProblem = problem
 
 
-def validate_worker_template(path: Path) -> WorkerSettlementTemplate:
+def validate_worker_template(path: Path) -> TemplateFile:
     """Sprawdza Wzorzec rozliczenia pracownika bez modyfikowania jego zawartości.
 
     Zwraca Wzorzec wczytany przy Sprawdzaniu; Przebieg rozliczeń tworzy z niego
     Rozliczenia pracowników bez ponownego wczytywania.
     """
 
-    template = WorkerSettlementTemplate(path)
+    template = TemplateFile(path, Layout.WORKER_SETTLEMENT)
     try:
         template.check()
     except WorkbookError as error:
@@ -77,7 +78,7 @@ def _validation_error(path: Path, error: WorkbookError) -> WorkerTemplateValidat
 
 def process_template(
     worker_name: str,
-    template: WorkerSettlementTemplate,
+    template: TemplateFile,
     target_path: Path,
     rows: Iterable[DataRow],
 ) -> WorkerResult:
@@ -90,7 +91,7 @@ def process_template(
 
     rows = list(rows)
     try:
-        template.create_settlement(target_path, rows)
+        template.create(target_path, rows)
     except WorkbookError as error:
         if error.problem in _UNUSABLE_TEMPLATE:
             raise TemplateWriteError(f"Szablon {_UNUSABLE_TEMPLATE[error.problem]}: {target_path.name}.") from error

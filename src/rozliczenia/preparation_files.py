@@ -14,33 +14,33 @@ import os
 import tempfile
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final, cast
+from typing import Final
 
-from openpyxl.cell.cell import Cell
 from openpyxl.styles import Color, PatternFill
 from openpyxl.styles.fills import Fill
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.filters import AutoFilter
-from openpyxl.worksheet.worksheet import Worksheet
 
-from . import workbook_files
-from .highlights import PLAIN, Highlights
-from .hyperlinks import Hyperlink
 from . import preparation_messages as messages
 from .message import Message, StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import PeriodOrder
-from .preparation_register import ADDRESS, COLUMNS, Column, RegisterCell, header_columns, is_blank
-from .row_look import GENERAL, wraps
-from .workbook_files import Layout, Problem, TemplateOutline, TemplateSheet, WorkbookError
-from .worker_config import normalize_text
+from .preparation_register import ADDRESS, COLUMNS, Column
+from .workbook_files import (
+    DataRow,
+    Layout,
+    MergedCells,
+    MissingHeader,
+    Problem,
+    TemplateFile,
+    WorkbookError,
+    WorkbookSaveError,
+)
 
 # Wypełnienie komórek kolumny pliku okresu bez względu na Wyróżnienie w Rejestrze: w plikach taty ADRES Pliku
 # zbiorczego jest zawsze żółty.
 _FIXED_FILLS: Final[Mapping[Layout, Mapping[Column, Fill]]] = {
-    Layout.COLLECTIVE: {
+    Layout.COLLECTIVE_FILE: {
         ADDRESS: PatternFill(patternType="solid", fgColor=Color(rgb="FFFFFF00"), bgColor=Color(indexed=64)),
     },
 }
@@ -67,21 +67,15 @@ class PeriodFiles:
 def check_internal_template(template_path: Path) -> None:
     """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki."""
 
-    _outline(template_path, Layout.INTERNAL)
+    with _template_stops(template_path):
+        _template(template_path, Layout.INTERNAL_SETTLEMENT).check()
 
 
 def check_collective_template(template_path: Path) -> None:
     """Wzorzec pliku zbiorczego jak ``check_internal_template`` i z WYKONAWCA w H17."""
 
-    outline, _ = _outline(template_path, Layout.COLLECTIVE)
-    try:
-        outline.check_worker_header()
-    except WorkbookError as exc:
-        if exc.worker_column is None:
-            raise StopError(
-                messages.template_without_header(template_path, outline.title, outline.header_row, "WYKONAWCA")
-            ) from exc
-        raise StopError(messages.template_with_worker_outside_h(template_path, outline.title, exc.worker_column)) from exc
+    with _template_stops(template_path):
+        _template(template_path, Layout.COLLECTIVE_FILE).check()
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:
@@ -103,12 +97,10 @@ def plan_period_files(files: PeriodFiles, order_count: int, successful_count: in
     Wzorca pliku zbiorczego nie wydłużamy, więc za mało wierszy z zerami to ostrzeżenie.
     """
 
-    internal, positions = _outline(files.internal_template, Layout.INTERNAL)
-    _ensure_rows_writable(files.internal_template, internal, _written_columns(Layout.INTERNAL, positions), order_count)
-    collective, positions = _outline(files.collective_template, Layout.COLLECTIVE)
-    _ensure_rows_writable(
-        files.collective_template, collective, _written_columns(Layout.COLLECTIVE, positions), successful_count
-    )
+    with _template_stops(files.internal_template):
+        _template(files.internal_template, Layout.INTERNAL_SETTLEMENT).plan(order_count)
+    with _template_stops(files.collective_template):
+        collective = _template(files.collective_template, Layout.COLLECTIVE_FILE).plan(successful_count)
     if successful_count <= collective.zero_row_count:
         return []
     return [
@@ -116,7 +108,7 @@ def plan_period_files(files: PeriodFiles, order_count: int, successful_count: in
             files.folder.collective_file.name,
             successful_count,
             collective.zero_row_count,
-            collective.data_row(collective.zero_row_count),
+            collective.first_row_without_zeros,
         )
     ]
 
@@ -143,41 +135,27 @@ def write_period_files(
             staged_directory = Path(staging) / folder.directory.name
             staged_directory.mkdir()
             internal_name, collective_name = files.filenames
-            _write_period_file(files.internal_template, Layout.INTERNAL, staged_directory / internal_name, orders)
+            _write_period_file(files.internal_template, Layout.INTERNAL_SETTLEMENT, staged_directory / internal_name, orders)
             _write_period_file(
-                files.collective_template,
-                Layout.COLLECTIVE,
-                staged_directory / collective_name,
-                successful_orders,
-                recalculate_on_open=True,
+                files.collective_template, Layout.COLLECTIVE_FILE, staged_directory / collective_name, successful_orders
             )
             _publish(staged_directory, files)
-    except (OSError, workbook_files.WorkbookSaveError) as exc:
+    except (OSError, WorkbookSaveError) as exc:
         raise StopError(messages.write_failed(folder.directory)) from exc
 
 
-def _outline(template_path: Path, layout: Layout) -> tuple[TemplateOutline, list[int]]:
-    """Wzorzec do Sprawdzania i Planowania z kolumnami ``COLUMNS``; problem z otwarciem wzorca to zatrzymanie.
+def _template(template_path: Path, layout: Layout) -> TemplateFile:
+    """Wzorzec pliku okresu z kolumnami ``COLUMNS`` pod ich nagłówkami docelowymi."""
 
-    Zły układ tłumaczy ``check_collective_template``, bo zna arkusz.
-    """
-
-    try:
-        outline = workbook_files.read_template_outline(template_path, layout)
-    except WorkbookError as error:
-        raise _template_stop(template_path, error) from error
-    return outline, _target_columns(template_path, outline.title, outline.header_row, outline.header)
+    return TemplateFile(template_path, layout, [column.target_header for column in COLUMNS])
 
 
 @contextmanager
-def _file_from_template(
-    template_path: Path, layout: Layout, target: Path, *, recalculate_on_open: bool
-) -> Iterator[tuple[TemplateSheet, list[int]]]:
-    """Plik z Wzorca z kolumnami ``COLUMNS``, zapisany pod ``target`` przy wyjściu z bloku."""
+def _template_stops(template_path: Path) -> Iterator[None]:
+    """Wzorzec, którego nie da się użyć, to zatrzymanie z Komunikatem Przygotowania."""
 
     try:
-        with workbook_files.file_from_template(template_path, target, layout, recalculate=recalculate_on_open) as sheet:
-            yield sheet, _target_columns(template_path, sheet.title, sheet.header_row, sheet.header())
+        yield
     except WorkbookError as error:
         raise _template_stop(template_path, error) from error
 
@@ -187,141 +165,34 @@ def _template_stop(template_path: Path, error: WorkbookError) -> StopError:
         return StopError(messages.template_missing(template_path))
     if error.problem is Problem.OPEN_IN_EXCEL:
         return StopError(messages.template_open_in_excel(template_path))
+    fault = error.fault
+    if isinstance(fault, MissingHeader) and fault.found_in is not None:
+        return StopError(messages.template_with_worker_outside_h(template_path, fault.sheet, fault.found_in))
+    if isinstance(fault, MissingHeader):
+        return StopError(messages.template_without_header(template_path, fault.sheet, fault.row, fault.header))
+    if isinstance(fault, MergedCells):
+        return StopError(messages.template_with_merged_cells(template_path, fault.sheet, fault.cells))
     return StopError(messages.template_unreadable(template_path))
 
 
-def _target_columns(template_path: Path, sheet_title: str, header_row: int, header: Sequence[object]) -> list[int]:
-    """Kolumny wzorca dla ``COLUMNS``, rozpoznane wyłącznie po nagłówku docelowym."""
-
-    columns = header_columns(header)
-    positions: list[int] = []
-    for column in COLUMNS:
-        position = columns.get(normalize_text(column.target_header))
-        if position is None:
-            raise StopError(
-                messages.template_without_header(template_path, sheet_title, header_row, column.target_header)
-            )
-        positions.append(position)
-    return positions
-
-
-def _written_columns(layout: Layout, positions: Sequence[int]) -> range:
-    """Kolumny zapisanego Wiersza danych od A: kolumny wyglądu, a gdy nagłówek Wzorca leży dalej, także do niego."""
-
-    return range(1, max(layout.look_columns, *positions) + 1)
-
-
-def _ensure_rows_writable(template_path: Path, sheet: TemplateOutline | TemplateSheet, columns: range, row_count: int) -> None:
-    """Zatrzymanie, gdy komórki, do których trafią zlecenia albo Wygląd Wiersza danych, są scalone we wzorcu."""
-
-    if row_count == 0:
-        return
-    first_row, last_row = sheet.data_row(0), sheet.data_row(row_count - 1)
-    for merged in sheet.merged_ranges:
-        overlaps_rows = merged.min_row <= last_row and merged.max_row >= first_row
-        if overlaps_rows and merged.min_col <= columns[-1] and merged.max_col >= columns[0]:
-            raise StopError(messages.template_with_merged_cells(template_path, sheet.title, merged.coord))
-
-
-def _highlights(cell: RegisterCell, column: Column, fills: Mapping[Column, Fill]) -> Highlights:
-    """Wyróżnienia komórki Rejestru w pliku okresu; ``fills`` zastępują wypełnienie wskazanych kolumn."""
-
-    cell_format = cell.format
-    return Highlights(fills.get(column, cell_format.fill), cell_format.color, cell_format.bold, cell_format.italic)
-
-
-def _set_autofilter(sheet: Worksheet, header_row: int, order_count: int) -> None:
-    """Autofiltr na nagłówek i faktyczne wiersze danych; zakres zapisany we wzorcu jest ignorowany."""
-
-    header_columns_present = [
-        column for column, cell in enumerate(sheet[header_row], start=1) if not is_blank(cell.value)
-    ]
-    first_column = get_column_letter(min(header_columns_present))
-    last_column = get_column_letter(max(header_columns_present))
-    sheet.auto_filter = AutoFilter(ref=f"{first_column}{header_row}:{last_column}{header_row + order_count}")
-
-
-def _written_as_copy(
-    template_path: Path, target: Path, orders: Sequence[PeriodOrder], fills: Mapping[Column, Fill]
-) -> bool:
-    """Plik zbiorczy kopią Wzorca (ADR 0008), jak Rozliczenia pracowników; ``False``: kształt dla openpyxl.
-
-    Wynik ma te same wartości, Wygląd Wiersza danych, Hiperłącza i autofiltr co zapis przez openpyxl,
-    a formuły, ``calcChain`` i reszta Wzorca zostają bajt w bajt.
-    """
-
-    try:
-        template = workbook_files.CollectiveFileTemplate.read(template_path)
-    except WorkbookError as error:
-        raise _template_stop(template_path, error) from error
-    if template is None:
-        return False
-    columns = header_columns(template.header)
-    positions = [columns.get(normalize_text(column.target_header)) for column in COLUMNS]
-    if sorted(position or 0 for position in positions) != list(range(1, len(COLUMNS) + 1)):
-        return False  # zatrzymanie z nazwą arkusza zgłasza droga przez openpyxl
-    return template.create(target, [_collective_row(order, cast(list[int], positions), fills) for order in orders])
-
-
-def _collective_row(
-    order: PeriodOrder, positions: Sequence[int], fills: Mapping[Column, Fill]
-) -> workbook_files.CollectiveFileRow:
-    values: list[object] = [None] * len(positions)
-    highlights = [PLAIN] * len(positions)
-    hyperlinks: dict[int, Hyperlink] = {}
-    number_formats = [GENERAL] * len(positions)
-    for column, position, cell in zip(COLUMNS, positions, order.row.cells, strict=True):
-        values[position - 1] = cell.value
-        highlights[position - 1] = _highlights(cell, column, fills)
-        number_formats[position - 1] = cell.format.number_format
-        if cell.hyperlink is not None:
-            hyperlinks[position] = cell.hyperlink
-    return workbook_files.CollectiveFileRow(tuple(values), tuple(highlights), hyperlinks, tuple(number_formats))
-
-
-def _write_period_file(
-    template_path: Path,
-    layout: Layout,
-    target: Path,
-    orders: Sequence[PeriodOrder],
-    *,
-    recalculate_on_open: bool = False,
-) -> None:
-    """Plik z Wzorca ze zleceniami od pierwszego wiersza danych; odwołania zewnętrzne zostają 1:1.
-
-    Każda komórka kolumn wyglądu dostaje Wygląd Wiersza danych; komórka bez wartości z Rejestru (np. ``zwrot``)
-    sam wygląd, a jej treść zostaje z Wzorca. Zapisana komórka ma Hiperłącze komórki Rejestru albo żadne:
-    hiperłącze komórki Wzorca nie zostaje.
-    """
+def _write_period_file(template_path: Path, layout: Layout, target: Path, orders: Sequence[PeriodOrder]) -> None:
+    """Plik z Wzorca ze zleceniami od pierwszego Wiersza danych (ADR 0008)."""
 
     fills = _FIXED_FILLS.get(layout, {})
-    if layout is Layout.COLLECTIVE and _written_as_copy(template_path, target, orders, fills):
-        return
+    with _template_stops(template_path):
+        _template(template_path, layout).create(target, [_with_fills(order.row, fills) for order in orders])
 
-    with _file_from_template(template_path, layout, target, recalculate_on_open=recalculate_on_open) as (sheet, positions):
-        columns = _written_columns(layout, positions)
-        _ensure_rows_writable(template_path, sheet, columns, len(orders))
-        look = sheet.row_look(columns[-1])
-        for index, order in enumerate(orders):
-            number = sheet.data_row(index)
-            sheet.fit_height(number)
-            sources = {position: (column, cell) for column, position, cell in zip(COLUMNS, positions, order.row.cells)}
-            for position in columns:
-                cell = sheet.worksheet.cell(number, position)
-                if not isinstance(cell, Cell):  # scalona komórka; wykluczona przez _ensure_rows_writable
-                    raise StopError(messages.template_with_merged_cells(template_path, sheet.title, cell.coordinate))
-                if position not in sources:
-                    look.cell(position, PLAIN, GENERAL, wrapped=False).apply(cell)
-                    continue
-                column, register_cell = sources[position]
-                link = register_cell.hyperlink
-                # Przed wartością: openpyxl wpisuje adres jako wartość pustej komórki.
-                cell.hyperlink = None if link is None else link.address
-                cell.value = register_cell.value  # type: ignore[assignment]
-                highlights = _highlights(register_cell, column, fills)
-                wrapped = wraps(register_cell.value)
-                look.cell(position, highlights, register_cell.format.number_format, wrapped=wrapped).apply(cell)
-        _set_autofilter(sheet.worksheet, sheet.header_row, len(orders))
+
+def _with_fills(row: DataRow, fills: Mapping[Column, Fill]) -> DataRow:
+    """Wiersz Rejestru z wypełnieniem ``fills`` w ich kolumnach zamiast wypełnienia z Rejestru."""
+
+    if not fills:
+        return row
+    highlights = tuple(
+        highlights if column not in fills else replace(highlights, fill=fills[column])
+        for column, highlights in zip(COLUMNS, row.highlights, strict=True)
+    )
+    return replace(row, highlights=highlights)
 
 
 def _publish(staged_directory: Path, files: PeriodFiles) -> None:

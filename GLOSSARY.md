@@ -149,9 +149,10 @@ Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
 
 ## Wiersz danych
 
-Wiersz od 18. w dół (w Rozliczeniu wewnętrznym od 2.) zawierający dane
-wejściowe pracy. Formuły i techniczne wartości szablonu nie są same w sobie
-wierszami danych.
+Wiersz pod nagłówkiem z danymi wejściowymi pracy: w Pliku zbiorczym, Szablonach
+pracowników i ich Wzorcach od 18. w dół, w Rozliczeniu wewnętrznym od 2.; wiersz
+Rejestru zleceń ze zleceniem staje się Wierszem danych obu plików okresu.
+Formuły i techniczne wartości szablonu nie są same w sobie wierszami danych.
 
 ## Wygląd Wiersza danych
 
