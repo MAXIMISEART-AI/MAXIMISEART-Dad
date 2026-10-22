@@ -312,12 +312,12 @@ def periods_directory_missing(periods_directory: Path) -> Message:
     )
 
 
-def folder_unreadable(folder: Path) -> Message:
+def folder_inaccessible(folder: Path) -> Message:
     """Folderu okresów albo Folderu okresu nie da się odczytać, np. brak dostępu albo OneDrive nie działa."""
 
     return Message(
-        code="NIECZYTELNY_FOLDER",
-        what="Nie można odczytać folderu. Nie utworzono żadnego pliku.",
+        code="NIEDOSTEPNY_FOLDER",
+        what="Nie można teraz odczytać folderu. Nie utworzono żadnego pliku.",
         where=folder_label(folder),
         action="Sprawdź, czy folder otwiera się w Eksploratorze plików i czy OneDrive działa, potem uruchom ponownie.",
     )

@@ -46,8 +46,8 @@ from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import (
     PeriodFolder,
+    PeriodFolderInaccessible,
     PeriodFolderLookupError,
-    PeriodFolderUnreadable,
     locate_period_folder,
     reading,
 )
@@ -209,8 +209,8 @@ class _Check:
 
         try:
             return self.run(computer, self.label)
-        except PeriodFolderUnreadable as unreadable:
-            return [CheckResult.failed(self.label, preparation_messages.folder_unreadable(unreadable.folder))]
+        except PeriodFolderInaccessible as inaccessible:
+            return [CheckResult.failed(self.label, preparation_messages.folder_inaccessible(inaccessible.folder))]
         except Exception as failure:  # noqa: BLE001 - granica sprawdzenia: typ wyjątku trafia do dziennika Centrum
             computer.log.unexpected_failure(failure, where=f"Diagnoza: {self.label}")
             return [CheckResult.not_checked(self.label, _NOT_CHECKED_UNEXPECTED)]

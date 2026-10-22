@@ -24,7 +24,7 @@ sam układ liczony od folderu nad ``Rozliczenia {rok}``, więc brakujący Folder
 okresu nie powstaje w złym miesiącu.
 
 Folder, którego nie da się odczytać (brak dostępu, OneDrive nie działa), to
-``PeriodFolderUnreadable`` z tym folderem, a nie wyjątek systemu plików.
+``PeriodFolderInaccessible`` z tym folderem, a nie wyjątek systemu plików.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ class PeriodFolderLookupError(Exception):
         self.locations = locations
 
 
-class PeriodFolderUnreadable(Exception):
+class PeriodFolderInaccessible(Exception):
     """Folderu ``folder`` (folderu okresów, folderu miesiąca albo Folderu okresu) nie da się odczytać."""
 
     def __init__(self, folder: Path) -> None:
@@ -96,12 +96,12 @@ class PeriodFolderUnreadable(Exception):
 
 @contextmanager
 def reading(folder: Path) -> Iterator[None]:
-    """Odczyt zawartości ``folder``; błąd systemu plików staje się ``PeriodFolderUnreadable``."""
+    """Odczyt zawartości ``folder``; błąd systemu plików staje się ``PeriodFolderInaccessible``."""
 
     try:
         yield
     except OSError as error:
-        raise PeriodFolderUnreadable(folder) from error
+        raise PeriodFolderInaccessible(folder) from error
 
 
 @dataclass(frozen=True)
@@ -191,7 +191,7 @@ class PeriodFolder:
 
 
 def _listing(directory: Path) -> list[os.DirEntry[str]] | None:
-    """Wpisy folderu z jednego listowania; ``None``, gdy folderu nie ma, ``PeriodFolderUnreadable``, gdy jest nieczytelny.
+    """Wpisy folderu z jednego listowania; ``None``, gdy folderu nie ma, ``PeriodFolderInaccessible``, gdy jest niedostępny.
 
     Folder okresów taty leży w OneDrive, gdzie każdy osobny ``stat`` otwiera
     plik, a listowanie od razu podaje, czy wpis jest plikiem czy folderem.

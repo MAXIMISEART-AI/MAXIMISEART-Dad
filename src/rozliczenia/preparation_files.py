@@ -86,7 +86,7 @@ def ensure_period_files_absent(files: PeriodFiles) -> None:
             if target.exists() or target.is_symlink():
                 raise StopError(messages.period_file_exists(folder.directory, target.name))
     except OSError as exc:
-        raise StopError(messages.folder_unreadable(folder.directory)) from exc
+        raise StopError(messages.folder_inaccessible(folder.directory)) from exc
 
 
 def plan_period_files(files: PeriodFiles, order_count: int, successful_count: int) -> list[Message]:

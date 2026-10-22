@@ -215,13 +215,13 @@ def is_open_in_excel(path: Path) -> bool:
 def ensure_available(path: Path) -> None:
     """Skoroszyt jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``.
 
-    Folder, którego nie da się odczytać (np. brak dostępu), czyni skoroszyt nieczytelnym.
+    Folder, którego nie da się odczytać (np. brak dostępu), czyni skoroszyt niedostępnym, a nie uszkodzonym.
     """
 
     try:
         found, open_in_excel = path.is_file(), is_open_in_excel(path)
     except OSError as exc:
-        raise WorkbookError(path, Problem.UNREADABLE) from exc
+        raise WorkbookError(path, Problem.INACCESSIBLE) from exc
     if not found:
         raise WorkbookError(path, Problem.MISSING)
     if open_in_excel:

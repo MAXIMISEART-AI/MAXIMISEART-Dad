@@ -48,7 +48,7 @@ from rozliczenia.centrum import restart_guardian
 from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
 from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
 from rozliczenia.centrum.version import SERVICE, short_commit
-from rozliczenia.period_folder import PeriodFolderUnreadable
+from rozliczenia.period_folder import PeriodFolderInaccessible
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 _LOCAL_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
@@ -116,11 +116,11 @@ def create_app(
     async def refused(request: Request, refusal: Refusal) -> Response:
         return _problem(refusal.status_code, refusal.message)
 
-    @app.exception_handler(PeriodFolderUnreadable)
-    async def unreadable_folder(request: Request, unreadable: PeriodFolderUnreadable) -> Response:
+    @app.exception_handler(PeriodFolderInaccessible)
+    async def inaccessible_folder(request: Request, inaccessible: PeriodFolderInaccessible) -> Response:
         return _problem(
             500,
-            f"Nie udało się odczytać folderu {unreadable.folder.name}. "
+            f"Nie udało się odczytać folderu {inaccessible.folder.name}. "
             "Sprawdź, czy otwiera się w Eksploratorze plików i czy OneDrive działa, potem odśwież kartę.",
         )
 

@@ -119,7 +119,7 @@ def _file_instead_of_folder(path: Path) -> None:
     path.write_bytes(b"")
 
 
-def _unreadable(path: Path) -> None:
+def _inaccessible(path: Path) -> None:
     if os.name == "nt":  # chmod w Windows zmienia tylko atrybut „tylko do odczytu”
         subprocess.run(["icacls", str(path), "/deny", f"{os.environ['USERNAME']}:(RD)"], check=True, capture_output=True)
     else:
@@ -146,7 +146,7 @@ DAMAGES: dict[str, tuple[tuple[str, ...], Callable[[Path], None]]] = {
     "zip_bez_arkusza": ((XLSX,), _without_sheets),
     "katalog_zamiast_pliku": ((TEXT, LINES, XLSX), _folder_instead_of_file),
     "plik_zamiast_folderu": ((FOLDER,), _file_instead_of_folder),
-    "bez_odczytu": ((TEXT, LINES, XLSX, FOLDER), _unreadable),
+    "bez_odczytu": ((TEXT, LINES, XLSX, FOLDER), _inaccessible),
 }
 
 
@@ -351,7 +351,7 @@ def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
     shutil.copytree(world_template, world.root)
     client = _remembering_choices(world)
     periods = world.path("folder_okresow")
-    _unreadable(periods)
+    _inaccessible(periods)
     try:
         board = client.get("/api/periods")
         preview = client.post("/api/runs", json={"process": "preparation", "period": PERIOD, "dry_run": True})
@@ -366,6 +366,6 @@ def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
     assert "folderu Załączniki" in board.json()["message"]
     assert preview.status_code == 200
     assert stopped["stop_kind"] == "for_tata"
-    assert stopped["stops"][0]["what"].startswith("Nie można odczytać folderu.")
+    assert stopped["stops"][0]["what"].startswith("Nie można teraz odczytać folderu.")
     assert stopped["stops"][0]["where"].endswith("Załączniki")
     assert diagnosis["explanation"] == stopped["stops"][0]
