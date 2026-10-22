@@ -32,7 +32,13 @@ from tests.fixtures.preparation import (
     write_register,
     write_register_sheet,
 )
-from tests.fixtures.workbooks import cut_sheet_after_data_rows, rewrite_parts, without_sheet, without_styles
+from tests.fixtures.workbooks import (
+    break_row_far_below_data_rows,
+    cut_sheet_after_data_rows,
+    rewrite_parts,
+    without_sheet,
+    without_styles,
+)
 
 
 def input_snapshot(fixture: PreparationFixture) -> dict[Path, bytes]:
@@ -376,17 +382,18 @@ def test_wzorzec_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path, templa
 @WZORCE
 @pytest.mark.parametrize(
     "damage",
-    [lambda path: path.write_bytes(b"uszkodzony wzorzec"), without_styles],
-    ids=["nie-skoroszyt", "bez-styles-xml"],
+    [lambda path: path.write_bytes(b"uszkodzony wzorzec"), without_styles, break_row_far_below_data_rows],
+    ids=["nie-skoroszyt", "bez-styles-xml", "zepsuty-wiersz-daleko-pod-danymi"],
 )
+@pytest.mark.parametrize("dry_run", [False, True])
 def test_damaged_wzorzec_stops_before_reading_rejestr(
-    tmp_path: Path, template_name: str, damage: Callable[[Path], object]
+    tmp_path: Path, template_name: str, damage: Callable[[Path], object], dry_run: bool
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     damage(template_path(fixture, template_name))
     fixture.register_path.write_bytes(b"uszkodzony Rejestr")
 
-    error = stop_preparation(fixture)
+    error = stop_preparation(fixture, dry_run=dry_run)
 
     assert error.message.code == "USZKODZONY_WZORZEC"
     assert error.message.text == (

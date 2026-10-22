@@ -32,8 +32,8 @@ from rozliczenia.workbook_files import (
     WorkbookSaveError,
     WorkerSettlementTemplate,
     file_from_template,
-    open_template,
     read_data_rows,
+    read_template_outline,
     read_workbook,
     save_workbook,
 )
@@ -50,6 +50,7 @@ from tests.fixtures.workbooks import (
     active_worksheet,
     add_external_link_fixture,
     break_empty_data_row,
+    break_row_far_below_data_rows,
     cut_sheet_after_data_rows,
     cut_sheet_after_sheet_data,
     external_link_parts,
@@ -87,8 +88,7 @@ def _read_with_format(path: Path) -> None:
 
 
 def _check_template(path: Path) -> None:
-    with open_template(path, Layout.COLLECTIVE):
-        pass
+    read_template_outline(path, Layout.COLLECTIVE)
 
 
 def _file_from_template(path: Path) -> None:
@@ -127,6 +127,7 @@ DAMAGES: dict[str, Callable[[Path], None]] = {
     "uciety-xml-arkusza": cut_sheet_after_data_rows,
     "xml-arkusza-uciety-za-wierszami-danych": cut_sheet_after_sheet_data,
     "zepsuty-pusty-wiersz-danych": break_empty_data_row,
+    "zepsuty-wiersz-daleko-pod-danymi": break_row_far_below_data_rows,
     "bez-styles-xml": without_styles,
     "bez-arkusza": without_sheet,
 }
@@ -193,8 +194,7 @@ def move_worker_header(path: Path, cell: str | None) -> None:
 
 
 def _check_worker_header(path: Path) -> None:
-    with open_template(path, Layout.COLLECTIVE) as sheet:
-        sheet.check_worker_header()
+    read_template_outline(path, Layout.COLLECTIVE).check_worker_header()
 
 
 HEADER_CHECKS: dict[str, Callable[[Path], object]] = {

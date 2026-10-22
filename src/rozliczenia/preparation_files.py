@@ -32,7 +32,7 @@ from .message import Message, StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS, CellFormat, header_columns, is_blank
-from .workbook_files import Layout, Problem, TemplateSheet, WorkbookError
+from .workbook_files import Layout, Problem, TemplateOutline, TemplateSheet, WorkbookError
 from .worker_config import normalize_text
 
 
@@ -57,24 +57,21 @@ class PeriodFiles:
 def check_internal_template(template_path: Path) -> None:
     """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki."""
 
-    with _template(template_path, Layout.INTERNAL):
-        pass
+    _outline(template_path, Layout.INTERNAL)
 
 
 def check_collective_template(template_path: Path) -> None:
     """Wzorzec pliku zbiorczego jak ``check_internal_template`` i z WYKONAWCA w H17."""
 
-    with _template(template_path, Layout.COLLECTIVE) as (sheet, _):
-        try:
-            sheet.check_worker_header()
-        except WorkbookError as exc:
-            if exc.worker_column is None:
-                raise StopError(
-                    messages.template_without_header(template_path, sheet.title, sheet.header_row, "WYKONAWCA")
-                ) from exc
+    outline, _ = _outline(template_path, Layout.COLLECTIVE)
+    try:
+        outline.check_worker_header()
+    except WorkbookError as exc:
+        if exc.worker_column is None:
             raise StopError(
-                messages.template_with_worker_outside_h(template_path, sheet.title, exc.worker_column)
+                messages.template_without_header(template_path, outline.title, outline.header_row, "WYKONAWCA")
             ) from exc
+        raise StopError(messages.template_with_worker_outside_h(template_path, outline.title, exc.worker_column)) from exc
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:
@@ -96,20 +93,18 @@ def plan_period_files(files: PeriodFiles, order_count: int, successful_count: in
     Wzorca pliku zbiorczego nie wydłużamy, więc za mało wierszy z zerami to ostrzeżenie.
     """
 
-    with _template(files.internal_template, Layout.INTERNAL) as (sheet, positions):
-        _ensure_rows_writable(files.internal_template, sheet, positions, order_count)
-    with _template(files.collective_template, Layout.COLLECTIVE) as (sheet, positions):
-        _ensure_rows_writable(files.collective_template, sheet, positions, successful_count)
-        zero_row_count = sheet.zero_row_count()
-        first_row_without_zeros = sheet.data_row(zero_row_count)
-    if successful_count <= zero_row_count:
+    internal, positions = _outline(files.internal_template, Layout.INTERNAL)
+    _ensure_rows_writable(files.internal_template, internal, positions, order_count)
+    collective, positions = _outline(files.collective_template, Layout.COLLECTIVE)
+    _ensure_rows_writable(files.collective_template, collective, positions, successful_count)
+    if successful_count <= collective.zero_row_count:
         return []
     return [
         messages.too_few_zero_rows(
             files.folder.collective_file.name,
             successful_count,
-            zero_row_count,
-            first_row_without_zeros,
+            collective.zero_row_count,
+            collective.data_row(collective.zero_row_count),
         )
     ]
 
@@ -149,29 +144,38 @@ def write_period_files(
         raise StopError(messages.write_failed(folder.directory)) from exc
 
 
-@contextmanager
-def _template(
-    template_path: Path, layout: Layout, target: Path | None = None, *, recalculate_on_open: bool = False
-) -> Iterator[tuple[TemplateSheet, list[int]]]:
-    """Wzorzec z kolumnami ``COLUMNS``; problem z otwarciem wzorca to zatrzymanie.
+def _outline(template_path: Path, layout: Layout) -> tuple[TemplateOutline, list[int]]:
+    """Wzorzec do Sprawdzania i Planowania z kolumnami ``COLUMNS``; problem z otwarciem wzorca to zatrzymanie.
 
-    Z ``target`` to plik z Wzorca zapisany pod ``target`` przy wyjściu z bloku.
     Zły układ tłumaczy ``check_collective_template``, bo zna arkusz.
     """
 
     try:
-        with (
-            workbook_files.open_template(template_path, layout)
-            if target is None
-            else workbook_files.file_from_template(template_path, target, layout, recalculate=recalculate_on_open)
-        ) as sheet:
+        outline = workbook_files.read_template_outline(template_path, layout)
+    except WorkbookError as error:
+        raise _template_stop(template_path, error) from error
+    return outline, _target_columns(template_path, outline.title, outline.header_row, outline.header)
+
+
+@contextmanager
+def _file_from_template(
+    template_path: Path, layout: Layout, target: Path, *, recalculate_on_open: bool
+) -> Iterator[tuple[TemplateSheet, list[int]]]:
+    """Plik z Wzorca z kolumnami ``COLUMNS``, zapisany pod ``target`` przy wyjściu z bloku."""
+
+    try:
+        with workbook_files.file_from_template(template_path, target, layout, recalculate=recalculate_on_open) as sheet:
             yield sheet, _target_columns(template_path, sheet.title, sheet.header_row, sheet.header())
     except WorkbookError as error:
-        if error.problem is Problem.MISSING:
-            raise StopError(messages.template_missing(template_path)) from error
-        if error.problem is Problem.OPEN_IN_EXCEL:
-            raise StopError(messages.template_open_in_excel(template_path)) from error
-        raise StopError(messages.template_unreadable(template_path)) from error
+        raise _template_stop(template_path, error) from error
+
+
+def _template_stop(template_path: Path, error: WorkbookError) -> StopError:
+    if error.problem is Problem.MISSING:
+        return StopError(messages.template_missing(template_path))
+    if error.problem is Problem.OPEN_IN_EXCEL:
+        return StopError(messages.template_open_in_excel(template_path))
+    return StopError(messages.template_unreadable(template_path))
 
 
 def _target_columns(template_path: Path, sheet_title: str, header_row: int, header: Sequence[object]) -> list[int]:
@@ -190,14 +194,14 @@ def _target_columns(template_path: Path, sheet_title: str, header_row: int, head
 
 
 def _ensure_rows_writable(
-    template_path: Path, sheet: TemplateSheet, positions: Sequence[int], row_count: int
+    template_path: Path, sheet: TemplateOutline | TemplateSheet, positions: Sequence[int], row_count: int
 ) -> None:
     """Zatrzymanie, gdy komórki, do których trafią zlecenia, są scalone we wzorcu."""
 
     if row_count == 0:
         return
     first_row, last_row = sheet.data_row(0), sheet.data_row(row_count - 1)
-    for merged in sheet.worksheet.merged_cells.ranges:
+    for merged in sheet.merged_ranges:
         overlaps_rows = merged.min_row <= last_row and merged.max_row >= first_row
         if overlaps_rows and any(merged.min_col <= position <= merged.max_col for position in positions):
             raise StopError(messages.template_with_merged_cells(template_path, sheet.title, merged.coord))
@@ -262,7 +266,7 @@ def _write_period_file(
     Zapisana komórka ma Hiperłącze komórki Rejestru albo żadne: hiperłącze komórki Wzorca nie zostaje.
     """
 
-    with _template(template_path, layout, target, recalculate_on_open=recalculate_on_open) as (sheet, positions):
+    with _file_from_template(template_path, layout, target, recalculate_on_open=recalculate_on_open) as (sheet, positions):
         _ensure_rows_writable(template_path, sheet, positions, len(orders))
         for index, order in enumerate(orders):
             for position, register_cell in zip(positions, order.row.cells):
