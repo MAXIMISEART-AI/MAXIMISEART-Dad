@@ -35,6 +35,11 @@ TLA_URL = "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools
 TLA_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 
 PASSES, VIOLATES = "przechodzi", "narusza"
+# Niezmienniki obietnicy, każdy z wariantem ``…PozaZnanymi`` w modelu, i ich zdanie dla czytelnika.
+PROMISES = {
+    "TataMaDzialajacaWersje": "tata zostaje bez wersji, która startuje, albo bez swojego pliku w config/.",
+    "OpiekunCofaTylkoNieudana": "opiekun cofa nową wersję, która by wystartowała.",
+}
 _STATE = re.compile(r"^State \d+: ")
 _STUTTERING = re.compile(r"^State \d+: Stuttering")
 _BACK = re.compile(r"^Back to state (\d+): ")
@@ -185,16 +190,15 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
     """Werdykt TLC dla konfiguracji ``name``, z opowiedzianym kontrprzykładem; ``None`` przy błędzie modelu.
 
     ``forgiven`` to znane znaleziska z ``model/oczekiwane.json``; gdy są, przebieg
-    sprawdza ``TataMaDzialajacaWersjePozaZnanymi`` i ``PostepPozaZnanymi`` z
-    ``Wybaczone`` równym im.
+    sprawdza warianty ``…PozaZnanymi`` każdej obietnicy z ``PROMISES`` i
+    ``PostepPozaZnanymi`` z ``Wybaczone`` równym im.
     """
 
     config = (MODEL / f"{name}.cfg").read_text(encoding="utf-8")
     if forgiven:
         tags = ", ".join(f'"{tag}"' for tag in sorted(forgiven))
-        config = config.replace(
-            " TataMaDzialajacaWersje\n", " TataMaDzialajacaWersjePozaZnanymi\n"
-        )
+        for promise in PROMISES:
+            config = re.sub(rf" {promise}\b", f" {promise}PozaZnanymi", config)
         config = config.replace(" Postep\n", " PostepPozaZnanymi\n")
         config = config.replace("Wybaczone = {}", f"Wybaczone = {{{tags}}}")
     # TLC zapisuje ślady i stany obok specyfikacji, więc działa na kopii w katalogu tymczasowym.
@@ -231,6 +235,8 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
         return None
     if invariant == _LIVENESS:
         print("   naruszony Postep: dziennik „Aktualizacja w toku” zostaje na zawsze.")
+    elif (promise := invariant.removesuffix("PozaZnanymi")) in PROMISES:
+        print(f"   naruszone {promise}: {PROMISES[promise]}")
     _tell(_trace(output))
     if invariant == "TypeOK":
         print(
