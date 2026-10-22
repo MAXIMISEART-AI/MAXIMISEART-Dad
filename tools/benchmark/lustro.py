@@ -281,12 +281,12 @@ def run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRun
 
 
 def _prepared(preparation: _ChildRun) -> bool:
-    """Plik zbiorczy lustra powstał: wynik OK albo wymagający sprawdzenia tylko z powodu ostrzeżeń ilości."""
+    """Plik zbiorczy lustra powstał: wynik OK albo wymagający sprawdzenia z powodu ostrzeżeń ilości."""
 
     if preparation.exit_code != _NEEDS_REVIEW_EXIT:
         return preparation.exit_code == 0
     warnings = json.loads(preparation.stdout)["warnings"]
-    return {warning["code"] for warning in warnings} <= QUANTITY_WARNINGS
+    return bool({warning["code"] for warning in warnings} & QUANTITY_WARNINGS)
 
 
 def ensure_mirror(

@@ -101,8 +101,8 @@ the same setting fixes it.
    into `<run root>/okres`.
 2. The doctor.
 3. Przygotowanie pliku zbiorczego through `tools/uruchom_proces.py
-   preparation` (JSON result, exit `2` Wymaga sprawdzenia with only the Ilości
-   usług warnings, `QUANTITY_WARNINGS`).
+   preparation` (JSON result, exit `2` Wymaga sprawdzenia for the Ilości usług
+   warnings, `QUANTITY_WARNINGS`).
 4. Both Wzorce opened in Excel as the reference: their link names and the R1C1
    formulas of `AU18:AY18`.
 5. [Otwarcie plików okresu](features/otwarcie-plikow-okresu.md).

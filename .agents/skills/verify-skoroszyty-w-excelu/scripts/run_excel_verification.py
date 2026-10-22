@@ -246,8 +246,8 @@ def preparation(run: Run) -> None:
     assert isinstance(result, dict)
     codes = {warning["code"] for warning in result["warnings"]}
     expect(
-        result["result"] == "WYMAGA_SPRAWDZENIA" and codes <= QUANTITY_WARNINGS,
-        "Przygotowanie did not end Wymaga sprawdzenia with only the Ilości usług warnings",
+        result["result"] == "WYMAGA_SPRAWDZENIA" and bool(codes & QUANTITY_WARNINGS),
+        "Przygotowanie did not end Wymaga sprawdzenia for the Ilości usług warnings",
     )
     expect(run.collective_file.is_file() and run.internal_file.is_file(), "Przygotowanie left no period files")
 

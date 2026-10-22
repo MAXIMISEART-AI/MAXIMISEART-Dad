@@ -28,8 +28,8 @@ from .worker_config import WorkerConfigError
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
 TEMPLATE_MISSING = "BRAK_WZORCA"
 TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"
-# Ostrzeżenia ilości: Plik zbiorczy z nimi wymaga sprawdzenia, a skrypty, które czekają na Przygotowanie bez uwag,
-# przyjmują wynik wymagający sprawdzenia, gdy jedynym powodem są te ostrzeżenia.
+# Ostrzeżenia ilości: tylko z ich powodu zapisany Plik zbiorczy wymaga sprawdzenia, więc skrypty, które czekają
+# na Przygotowanie bez uwag, przyjmują taki wynik.
 UNKNOWN_DEVICES = "NIEZNANE_URZADZENIA"
 ROWS_FROM_DESCRIPTION = "WIERSZE_Z_OPISU"
 COLUMNS_FROM_DESCRIPTION = "KOLUMNY_Z_OPISU"
