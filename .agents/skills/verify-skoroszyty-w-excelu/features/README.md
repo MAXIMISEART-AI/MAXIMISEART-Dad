@@ -48,6 +48,6 @@ gets its sub-feature here and its `run.step` in the runner in the same change.
 ## Features
 
 - [Otwarcie plików okresu](./otwarcie-plikow-okresu.md) covers the Rozliczenie wewnętrzne and the Plik zbiorczy opening without a dialog, the Plik zbiorczy's external link, its formulas without errors, and its Wyróżnienia.
-- [Gotowość w Excelu](./gotowosc-w-excelu.md) covers typing quantities, a charge and remarks into `N:AT` of three Wiersze danych, Excel calculating the amounts, saving and closing without a lock left, and the link surviving Excel's save.
-- [Rozliczenia pracowników w Excelu](./rozliczenia-pracownikow-w-excelu.md) covers each Rozliczenie pracownika opening without a dialog after Przebieg rozliczeń read Excel's Plik zbiorczy, its link, its Wiersze danych equal to the Plik zbiorczy in `A:AT`, its formulas and amounts, and its Wyróżnienia.
+- [Gotowość w Excelu](./gotowosc-w-excelu.md) covers typing quantities, a charge and remarks into `N:AT` of three Wiersze danych, Excel calculating the amounts, saving and closing without a lock left, and the link and the `NUMER ZL.` Hiperłącza surviving Excel's save.
+- [Rozliczenia pracowników w Excelu](./rozliczenia-pracownikow-w-excelu.md) covers each Rozliczenie pracownika opening without a dialog after Przebieg rozliczeń read Excel's Plik zbiorczy, its link, its Wiersze danych equal to the Plik zbiorczy in `A:AT`, its Hiperłącza from Excel's save, its formulas and amounts, and its Wyróżnienia.
 - [Okno naprawy](./okno-naprawy.md) covers the run stopping on Excel's repair dialog for a workbook with a broken external link; opt-in with `--kontrola-naprawy`, one click.

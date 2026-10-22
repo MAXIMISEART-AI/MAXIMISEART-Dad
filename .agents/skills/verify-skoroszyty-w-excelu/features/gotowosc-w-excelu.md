@@ -3,13 +3,15 @@
 Dad fills the Plik zbiorczy in Excel: quantities in `N:AP`, the customer charge
 and its description, a remark amount and the remarks in `AQ:AT`. Excel
 calculates the amounts as he types. He saves and closes the file, which leaves
-no `~$` lock, and the link to the Słownik is still in the file Excel wrote.
+no `~$` lock, and the link to the Słownik and the Hiperłącze of each order
+number are still in the file Excel wrote.
 
 ## Sub-features
 
 - `wpisy`: typed `N:AT` in the rows of `PREP-SYN-ZL-2`, `-7` and `-6` holds exactly the typed numbers and texts, and `AU` of each shows a positive amount Excel calculated.
 - `zapis-i-zamkniecie`: Excel saves (`saved` is true) and closes the Plik zbiorczy, and its `~$` lock is gone.
 - `lacze-po-zapisie`: the saved file was last written by `Microsoft Macintosh Excel` (`docProps/app.xml`) and still has `xl/externalLinks/externalLink*.xml`.
+- `hiperlacza-po-zapisie`: every Wiersz danych keeps in Excel's saved bytes the `A:AT` Hiperłącza Przygotowanie wrote, and `NUMER ZL.` of each has one.
 
 ## How to get to it (user POV)
 
@@ -23,6 +25,7 @@ Preconditions: the Plik zbiorczy is open on the desk from `otwarcie-plikow-okres
 - **Remember.** `excel.read("A<r>:AT<r>")` of all four rows is what each Rozliczenie pracownika must show later.
 - **Save and close.** `excel.save`, then `excel.close`, which waits for `~$` to disappear.
 - **Inspect the bytes.** The desk copy differs from the Folder okresu's, `docProps/app.xml` names `Microsoft Macintosh Excel`, the zip has an external link part. Copy it back into the Folder okresu; `excel.json` records its SHA-256.
+- **Hiperłącza.** openpyxl reads `A:AT` hyperlinks of the four rows from Przygotowanie's file before typing and from Excel's saved copy after; they are equal (`rows=4 | column=F`). openpyxl, not Excel and not the tool's own reader, so the check depends on neither.
 
 ## Gotchas
 
@@ -30,3 +33,4 @@ Preconditions: the Plik zbiorczy is open on the desk from `otwarcie-plikow-okres
 - Each entry recalculates every formula of the workbook. `type_row` enters a whole row in one call; typed cell by cell, the synthetic Wzorce's first row ran past the 60 s call limit.
 - Numbers are entered through `formula` with a decimal point (`25.5`), Excel's English input, so the system locale does not change them. Dad types `25,5`; that parsing is his locale's and is not covered here.
 - Excel rewrites the external link part on save (its size changes); compare its presence, not its bytes.
+- Before Excel's save, `NUMER ZL.` without a Hiperłącze fails the step, so an empty fixture cannot make the comparison pass.

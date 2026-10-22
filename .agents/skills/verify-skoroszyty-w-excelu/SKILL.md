@@ -15,6 +15,8 @@ showing `#N/D`, a Gotowość that Przebieg rozliczeń does not carry over.
 Excel for Mac stands in for Dad's Excel for Windows. What it cannot prove:
 Windows-only dialogs (Protected View, Windows links prompts), Dad's locale
 parsing typed text (`25,5`), and his real Słownik behind the external link.
+The Hiperłącza of `NUMER ZL.` are checked in the bytes Excel saved and
+Przebieg rozliczeń wrote, not as Excel shows them or opens them on a click.
 
 ## Launch
 
@@ -25,7 +27,7 @@ From the repository root, after `tools/setup_worktree.py` in a worktree:
 ```
 
 One command runs the whole path. It ends with `VERIFY OK | wzorce=prawdziwe |
-steps=20 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
+steps=24 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
 Maks's Mac with Excel 16.114 it took 2:56 with Dad's Wzorce and 77 s with
 `syntetyczne`.
 

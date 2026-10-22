@@ -10,6 +10,7 @@ Wzorzec's formulas calculating the amounts, and the Rejestr's Wyróżnienia.
 
 - `bez-okna`: each of the three Rozliczenia pracowników opens in Excel with no dialog.
 - `wiersze-a-at`: the Wiersze danych are the Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, and each row's `A:AT` in Excel equals that row of the Plik zbiorczy after Gotowość.
+- `hiperlacza`: each Wiersz danych has in the file Przebieg wrote the `A:AT` Hiperłącza of its row in the Plik zbiorczy Excel saved.
 - `formuly`: every Wiersz danych has the R1C1 formulas of `AU18:AY18` of the Wzorzec rozliczenia pracownika, `AU:AX` shows no error, and the rows Dad filled show a positive amount in `AU`.
 - `wyroznienia`: Adrian Testowy's `PREP-SYN-ZL-2` keeps the yellow ADRES with bold dark red text, Kamil Syntetyczny's `PREP-SYN-ZL-4` the italic WYKONAWCA; Darek Fikcyjny has none (`cells=0`).
 
@@ -25,6 +26,7 @@ Preconditions: `gotowosc-w-excelu` passed and Przebieg rozliczeń ended `OK` wit
 - **Open.** For Adrian Testowy, Darek Fikcyjny, Kamil Syntetyczny: copy the file to the desk, `excel.open_file`. `STEP … bez-okna | <Wykonawca> | open_seconds=…`.
 - **Link.** `excel.link_names` equals the Wzorzec rozliczenia pracownika's list.
 - **Rows.** `NUMER ZL.` from row 18 gives exactly `-2, -7` (Adrian), `-6` (Darek), `-4` (Kamil). Each row's `excel.read("A:AT")` equals the remembered Plik zbiorczy row cell by cell; a difference names the columns.
+- **Hiperłącza.** openpyxl reads `A:AT` hyperlinks of each row in the Folder okresu's file; they equal those `gotowosc-w-excelu` read from Excel's save.
 - **Formulas.** As in `otwarcie-plikow-okresu`, against the worker Wzorzec's reference; `AU` above zero in the filled rows.
 - **Wyróżnienia.** `excel.fill` as in `otwarcie-plikow-okresu`, for the cells whose order is in this file.
 - **Close.** `excel.close` in `finally`, also after a failed check.

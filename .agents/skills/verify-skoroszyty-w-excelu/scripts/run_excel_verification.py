@@ -24,6 +24,8 @@ import time
 import uuid
 import zipfile
 
+import openpyxl
+
 import excel
 
 
@@ -292,6 +294,28 @@ def _check_formulas(path: Path, rows: dict[str, int], reference: list[str], *, l
         expect(errors is None, f"{label}: Excel shows errors in {errors}")
 
 
+# (address, location) of one cell Hiperłącze, keyed by column letter within A:AT.
+RowLinks = dict[str, tuple[str | None, str | None]]
+
+
+def _hyperlinks(path: Path, rows: dict[str, int]) -> dict[str, RowLinks]:
+    """Hiperłącza in A:AT of each order's row, as the file's bytes hold them (openpyxl, not Excel, not the tool's reader)."""
+
+    workbook = openpyxl.load_workbook(path)
+    try:
+        sheet = workbook.worksheets[0]
+        return {
+            order: {
+                cell.column_letter: (cell.hyperlink.target, cell.hyperlink.location)
+                for cell in sheet[f"A{row}:AT{row}"][0]
+                if cell.hyperlink is not None
+            }
+            for order, row in rows.items()
+        }
+    finally:
+        workbook.close()
+
+
 def _check_highlights(path: Path, rows: dict[str, int], layout: Layout, *, label: str) -> int:
     checked = 0
     for (order, header), expected in HIGHLIGHTS.items():
@@ -351,11 +375,15 @@ def _matches(cell: excel.Cell, typed: str) -> bool:
     return cell.kind == "n" and cell.number == number
 
 
-def readiness(run: Run, collective: Path, layout: Layout) -> dict[str, list[excel.Cell]]:
-    """Feature gotowosc-w-excelu: type N:AT like Dad, save and close in Excel; returns A:AT of every order."""
+def readiness(run: Run, collective: Path, layout: Layout) -> tuple[dict[str, list[excel.Cell]], dict[str, RowLinks]]:
+    """Feature gotowosc-w-excelu: type N:AT like Dad, save and close in Excel; returns A:AT and Hiperłącza of every order."""
 
     feature = "gotowosc-w-excelu"
     rows = _order_rows(collective, layout)
+    links_before = _hyperlinks(run.collective_file, rows)
+    order_letter = column_letter(layout.order)
+    unlinked = [str(rows[order]) for order, links in links_before.items() if order_letter not in links]
+    expect(not unlinked, f"Przygotowanie left NUMER ZL. without its Rejestr Hiperłącze in rows {', '.join(unlinked)}")
     for index, order in enumerate(FILLED_ORDERS):
         entries = _entries(index, order)
         excel.type_row(collective, f"N{rows[order]}:AT{rows[order]}", [entries[column] for column in INPUT_COLUMNS])
@@ -380,14 +408,23 @@ def readiness(run: Run, collective: Path, layout: Layout) -> dict[str, list[exce
     expect("Microsoft Macintosh Excel" in application, "the Plik zbiorczy was not last saved by Excel")
     expect(bool(link_parts), "Excel's save dropped the external link of the Plik zbiorczy")
     run.step(feature, "lacze-po-zapisie", f"external_link_parts={len(link_parts)}")
+    links_after = _hyperlinks(collective, rows)
+    changed = [str(rows[order]) for order in rows if links_after[order] != links_before[order]]
+    expect(not changed, f"Excel's save changed the Hiperłącza of the Plik zbiorczy in rows {', '.join(changed)}")
+    run.step(feature, "hiperlacza-po-zapisie", f"rows={len(rows)} | column={order_letter}")
     # Dad saves in his Folder okresu; the desk copy goes back byte for byte.
     shutil.copyfile(collective, run.collective_file)
     digest = hashlib.sha256(run.collective_file.read_bytes()).hexdigest()
     run.observe("gotowosc", {"rows_typed": len(FILLED_ORDERS), "saved_by": "Microsoft Macintosh Excel", "external_link_parts": len(link_parts), "sha256": digest})
-    return expected
+    return expected, links_after
 
 
-def worker_files(run: Run, expected: dict[str, list[excel.Cell]], worker_reference: tuple[list[str], list[str]]) -> None:
+def worker_files(
+    run: Run,
+    expected: dict[str, list[excel.Cell]],
+    expected_links: dict[str, RowLinks],
+    worker_reference: tuple[list[str], list[str]],
+) -> None:
     """Feature rozliczenia-pracownikow-w-excelu: every Rozliczenie pracownika opens and shows the Gotowość."""
 
     feature = "rozliczenia-pracownikow-w-excelu"
@@ -410,6 +447,10 @@ def worker_files(run: Run, expected: dict[str, list[excel.Cell]], worker_referen
                 ]
                 expect(not differing, f"{label} row {row} differs from the Plik zbiorczy in {','.join(differing)}")
             run.step(feature, "wiersze-a-at", f"{worker} | rows={len(rows)}")
+            links = _hyperlinks(run.worker_file(worker), rows)
+            unequal = [str(row) for order, row in rows.items() if links[order] != expected_links[order]]
+            expect(not unequal, f"{label} rows {', '.join(unequal)} lack the Hiperłącza of the Plik zbiorczy Excel saved")
+            run.step(feature, "hiperlacza", f"{worker} | rows={len(rows)}")
             _check_formulas(path, rows, worker_reference[1], label=label)
             for order in set(rows).intersection(FILLED_ORDERS):
                 amount = excel.read(path, CALCULATED.format(row=rows[order]))[0][0]
@@ -528,9 +569,9 @@ def main(argv: list[str] | None = None) -> int:
         collective_reference = _reference(run, TEMPLATE_NAMES[1])
         worker_reference = _reference(run, TEMPLATE_NAMES[2])
         collective, layout = period_files_open(run, collective_reference)
-        expected = readiness(run, collective, layout)
+        expected, expected_links = readiness(run, collective, layout)
         settlement(run)
-        worker_files(run, expected, worker_reference)
+        worker_files(run, expected, expected_links, worker_reference)
         if args.kontrola_naprawy:
             repair_control(run)
     except (VerificationFailure, excel.ExcelError, subprocess.SubprocessError, OSError) as exc:
