@@ -9,16 +9,19 @@ Skrypt skilla bierze te argumenty tylko z ``Parser`` (pilnuje tego ``tests/test_
 - ``--variant``: lista wariantów, także jako jeden argument ``"existing locked"`` albo ``"--variant existing"``.
 
 Katalog runu zakłada ``create_run_root`` ze znacznikiem ``.katalog-runu``. Sprzątanie i kroki, które piszą do runu,
-wymagają znacznika, więc literówka w ``--root`` nie skasuje ani nie zmieni cudzego katalogu.
+wymagają znacznika albo pustego katalogu, więc literówka w ``--root`` nie skasuje ani nie zmieni cudzego katalogu.
+Sprzątanie usuwa znacznik ostatni, więc po przerwanym sprzątaniu następne wciąż rozpozna run.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import shutil
+import stat
 import sys
 from typing import Any
 
@@ -127,11 +130,35 @@ def create_run_root(root: Path) -> Path:
 
 
 def require_run_root(root: Path) -> Path:
-    if not (root / MARKER).is_file():
+    if not (root / MARKER).is_file() and (not root.is_dir() or any(root.iterdir())):
         raise RunRootError(f"{root} nie ma znacznika {MARKER}: nie założyła go fixture skilla")
     return root
 
 
 def remove_run_root(root: Path) -> None:
-    if root.exists():
-        shutil.rmtree(require_run_root(root))
+    if not root.exists():
+        return
+    for entry in require_run_root(root).iterdir():
+        if entry.name != MARKER:
+            _remove(entry)
+    (root / MARKER).unlink(missing_ok=True)
+    root.rmdir()
+
+
+def _remove(path: Path) -> None:
+    if not path.is_dir() or path.is_symlink():
+        try:
+            path.unlink()
+        except PermissionError:
+            _writable_then_retry(os.unlink, str(path), None)
+    elif sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_writable_then_retry)
+    else:
+        shutil.rmtree(path, onerror=_writable_then_retry)
+
+
+def _writable_then_retry(function: Callable[..., Any], path: str, _: object) -> None:
+    """Git na Windowsie zapisuje obiekty tylko do odczytu; usuwanie przechodzi po zdjęciu tej blokady."""
+
+    os.chmod(path, stat.S_IRWXU)
+    function(path)

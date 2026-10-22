@@ -6,10 +6,13 @@ Kontrakt trzyma ``tools/skrypt_skilla.py``. Test struktury pada, gdy skrypt skil
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from datetime import date
+import os
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 
@@ -84,6 +87,64 @@ def test_sprzatanie_nie_usuwa_katalogu_ktorego_nie_utworzyla_fixture(tmp_path: P
 
     assert done.returncode == 1, done.stdout + done.stderr
     assert (foreign / "wazne.txt").read_text(encoding="utf-8") == "zostaje\n"
+
+
+class _NtfsOrder:
+    """NTFS listuje katalog w kolejności nazw, więc ``.katalog-runu`` przed resztą."""
+
+    def __init__(self, entries: Iterator[os.DirEntry[str]]) -> None:
+        self._entries = sorted(entries, key=lambda entry: entry.name)
+        close = getattr(entries, "close", None)
+        if close is not None:
+            close()
+
+    def __enter__(self) -> _NtfsOrder:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        pass
+
+    def __iter__(self) -> Iterator[os.DirEntry[str]]:
+        return iter(self._entries)
+
+    def close(self) -> None:
+        pass
+
+
+def test_przerwane_sprzatanie_zostawia_znacznik_a_ponowne_konczy_prace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = skrypt_skilla.create_run_root(tmp_path / "run")
+    (root / "dane").mkdir()
+    (root / "dane" / "zablokowany.txt").write_text("otwarty w innym procesie\n", encoding="utf-8")
+    (root / "wynik.json").write_text("{}\n", encoding="utf-8")
+    scandir, unlink = os.scandir, os.unlink
+
+    def locked(path: Any, *arguments: Any, **options: Any) -> None:
+        if os.fsdecode(path).endswith("zablokowany.txt"):
+            raise PermissionError(13, "plik otwarty w innym procesie", os.fsdecode(path))
+        unlink(path, *arguments, **options)
+
+    monkeypatch.setattr(os, "scandir", lambda *arguments: _NtfsOrder(scandir(*arguments)))
+    monkeypatch.setattr(os, "unlink", locked)
+    with pytest.raises(OSError):
+        skrypt_skilla.remove_run_root(root)
+    monkeypatch.undo()
+
+    assert (root / skrypt_skilla.MARKER).is_file()
+    done = _script(CLEANUPS[0], "--root", str(root), cwd=tmp_path)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert not root.exists()
+
+
+def test_sprzatanie_usuwa_pusty_katalog_po_usunietym_znaczniku(tmp_path: Path) -> None:
+    left = tmp_path / "run"
+    left.mkdir()
+
+    done = _script(CLEANUPS[0], "--root", str(left), cwd=tmp_path)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert not left.exists()
 
 
 def test_fixture_nie_pisze_do_niepustego_katalogu(tmp_path: Path) -> None:

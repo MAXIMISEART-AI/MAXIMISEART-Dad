@@ -9,37 +9,23 @@ Git and pip below it), never by process name. Closes the Explorer windows on the
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import os
 from pathlib import Path
-import shutil
-import stat
 import sys
 import time
-from typing import Any
 
 import windows_desktop
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser, RunRootError, require_run_root  # noqa: E402
-
-
-def _writable_then_retry(function: Callable[..., Any], path: str, _: object) -> None:
-    """Git's objects are read-only on Windows; ``rmtree`` removes them once they are writable."""
-
-    os.chmod(path, stat.S_IWRITE)
-    function(path)
+from skrypt_skilla import Parser, RunRootError, remove_run_root, require_run_root  # noqa: E402
 
 
 def _remove(root: Path) -> bool:
     deadline = time.monotonic() + 30
     while root.exists():
         try:
-            if sys.version_info >= (3, 12):
-                shutil.rmtree(root, onexc=_writable_then_retry)
-            else:
-                shutil.rmtree(root, onerror=_writable_then_retry)
+            remove_run_root(root)
         except OSError:
             if time.monotonic() > deadline:
                 return False
