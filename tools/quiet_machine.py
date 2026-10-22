@@ -49,6 +49,9 @@ BUSY_COMMANDS = (
     "run_verification.py",
     "_mutations.py",
 )
+# Programs that do that work. A shell (``zsh -c "… && pytest"``) or another wrapper only names it while it waits,
+# and the program it starts is listed on its own.
+WORKING_PROGRAMS = ("python", "chrome-headless-shell")
 
 
 class MachineBusy(Exception):
@@ -86,7 +89,10 @@ def _owner(path: Path) -> int:
 
 
 def busy_commands() -> list[str]:
-    """Running commands from ``BUSY_COMMANDS`` other than this process and its ancestors (``ps``; none on Windows)."""
+    """Commands from ``BUSY_COMMANDS`` run by ``WORKING_PROGRAMS`` other than this process and its ancestors.
+
+    Read from ``ps``; none on Windows.
+    """
 
     if sys.platform == "win32":
         return []
@@ -104,7 +110,13 @@ def busy_commands() -> list[str]:
         own.add(pid)
         pid = parents.get(pid, 0)
     return sorted(
-        {fragment for pid, command in commands.items() if pid not in own for fragment in BUSY_COMMANDS if fragment in command}
+        {
+            fragment
+            for pid, command in commands.items()
+            if pid not in own and Path(command.split(None, 1)[0]).name.lower().startswith(WORKING_PROGRAMS)
+            for fragment in BUSY_COMMANDS
+            if fragment in command
+        }
     )
 
 
