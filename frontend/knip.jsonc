@@ -4,8 +4,6 @@
   "ignoreIssues": {
     // generated
     "src/api/generated/**": ["exports", "types", "duplicates"],
-    // registry
-    "src/components/ui/**": ["exports", "types", "duplicates"],
     // vendored
     "tools/oxlint/anti-slop/**": ["exports", "types"]
   }

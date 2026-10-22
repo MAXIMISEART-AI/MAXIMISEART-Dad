@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { toast } from "@/components/ui/toast"
 
-export type ReportState = NonNullable<RunOutcome["report"]>
+type ReportState = NonNullable<RunOutcome["report"]>
 
 /**
  * Zgłoszenie do Maksa (przy Zatrzymaniu albo nieudanej Aktualizacji narzędzia): podgląd i „Wyślij do Maksa”,

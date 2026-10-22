@@ -12,7 +12,6 @@
     "duplicates": "jscpd",
     "rules": "node scripts/rules.mjs",
     "build": "tsc -b && vite build",
-    "check": "npm run typecheck && npm run lint && npm run rules && npm run unused && npm run duplicates",
     "regen": "npm run contract && npm run build"
   },
   "dependencies": {
