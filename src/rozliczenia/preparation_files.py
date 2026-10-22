@@ -78,9 +78,12 @@ def ensure_period_files_absent(files: PeriodFiles) -> None:
     """Nienadpisywanie: żaden z dwóch plików okresu nie istnieje jeszcze w Folderze okresu."""
 
     folder = files.folder
-    for target in (folder.internal_settlement, folder.collective_file):
-        if target.exists() or target.is_symlink():
-            raise StopError(messages.period_file_exists(folder.directory, target.name))
+    try:
+        for target in (folder.internal_settlement, folder.collective_file):
+            if target.exists() or target.is_symlink():
+                raise StopError(messages.period_file_exists(folder.directory, target.name))
+    except OSError as exc:
+        raise StopError(messages.folder_inaccessible(folder.directory)) from exc
 
 
 def plan_period_files(files: PeriodFiles, order_count: int, successful_count: int) -> list[Message]:

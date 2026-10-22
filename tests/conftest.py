@@ -90,7 +90,7 @@ def regula_prywatnosci_centrum_rozliczen(
     leaks += [
         f"dziennik Centrum: {line}"
         for log_path in log_paths
-        if log_path.exists()
+        if log_path.is_file()
         for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         if _leaks_in_text(line, roots)
     ]

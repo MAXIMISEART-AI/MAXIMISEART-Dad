@@ -94,25 +94,26 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("failing", "error"),
     [
-        PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process"),
-        OSError(errno.EIO, "The cloud file provider is not running"),
+        ("read_bytes", PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process")),
+        ("read_bytes", OSError(errno.EIO, "The cloud file provider is not running")),
+        ("is_file", PermissionError(errno.EACCES, "Permission denied")),
     ],
-    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci"],
+    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci", "folder-bez-dostepu"],
 )
 def test_rejestr_zlecen_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, error: OSError
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    read_bytes = Path.read_bytes
+    original = getattr(Path, failing)
 
-    def blocked(path: Path) -> bytes:
+    def blocked(path: Path) -> object:
         if path == fixture.register_path:
             raise error
-        return read_bytes(path)
+        return original(path)
 
-    monkeypatch.setattr(Path, "read_bytes", blocked)
+    monkeypatch.setattr(Path, failing, blocked)
 
     with pytest.raises(StopError) as raised:
         run_preparation(fixture)
