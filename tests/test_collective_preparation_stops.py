@@ -23,6 +23,7 @@ from tests.fixtures.preparation import (
     REGISTER_HEADERS,
     PreparationFixture,
     RegisterRow,
+    default_register_rows,
     make_dad_layout_fixture,
     make_preparation_fixture,
     month_periods_folder,
@@ -31,7 +32,7 @@ from tests.fixtures.preparation import (
     write_register,
     write_register_sheet,
 )
-from tests.fixtures.workbooks import cut_sheet_after_data_rows, without_sheet, without_styles
+from tests.fixtures.workbooks import cut_sheet_after_data_rows, rewrite_parts, without_sheet, without_styles
 
 
 def input_snapshot(fixture: PreparationFixture) -> dict[Path, bytes]:
@@ -298,6 +299,31 @@ def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path, damage: Call
         "Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, "
         "zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
     )
+
+
+def break_tag_of_row_2(data: bytes) -> bytes:
+    end = data.index(b"</row>", data.index(b'<row r="2"'))
+    return data[:end] + b"</wiersz>" + data[end + len(b"</row>") :]
+
+
+def text_instead_of_number_in_date_of_row_2(data: bytes) -> bytes:
+    value = data.index(b"<v>", data.index(b'<c r="C2"')) + len(b"<v>")
+    return data[:value] + b"brak" + data[data.index(b"</v>", value) :]
+
+
+@pytest.mark.parametrize(
+    "damage", [break_tag_of_row_2, text_instead_of_number_in_date_of_row_2], ids=["zly-znacznik", "tekst-zamiast-liczby-w-dacie"]
+)
+def test_rejestr_damaged_in_row_of_earlier_period_stops_as_damaged(
+    tmp_path: Path, damage: Callable[[bytes], bytes]
+) -> None:
+    fixture = make_preparation_fixture(tmp_path, [register_order(1, datetime(2025, 3, 4, 8, 0)), *default_register_rows()])
+    # ZLECENIA jest za arkuszem lista; wiersz 2 to zlecenie z 2025 r., daleko przed okresem.
+    rewrite_parts(fixture.register_path, lambda name, data: damage(data) if name == "xl/worksheets/sheet2.xml" else data)
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "USZKODZONY_REJESTR"
 
 
 WZORCE = pytest.mark.parametrize(

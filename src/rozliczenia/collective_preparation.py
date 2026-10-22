@@ -167,7 +167,7 @@ def prepare_collective_file(
 
     files, worker_mapping = phases.check(check_inputs)
     folder = files.folder
-    register = phases.read(lambda: preparation_register.read_register(register_path))
+    register = phases.read(lambda: preparation_register.read_register(register_path, folder.period))
 
     def plan_orders() -> tuple[preparation_plan.Plan, list[Message]]:
         plan = preparation_plan.plan_period_orders(register_path, register, folder.period, config_path, worker_mapping)
