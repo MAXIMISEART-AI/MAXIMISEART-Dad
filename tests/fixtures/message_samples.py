@@ -88,6 +88,7 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.period_orders_in_many_sheets(REGISTER, ["ZLECENIA", "ZLECENIA 2"], PERIOD)
     ],
     "periods_directory_missing": [lambda: messages.periods_directory_missing(PERIODS)],
+    "folder_inaccessible": [lambda: messages.folder_inaccessible(PERIODS)],
     "period_folder_lookup_problem": [
         lambda: messages.period_folder_lookup_problem(PeriodFolderLookupError(DAD_PERIODS, PARSED_PERIOD, ())),
         lambda: messages.period_folder_lookup_problem(
