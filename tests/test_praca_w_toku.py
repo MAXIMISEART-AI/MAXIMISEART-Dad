@@ -164,6 +164,26 @@ def test_zly_ksztalt_odpowiedzi_gh_to_raport_bez_githuba(checkouts: dict[str, Pa
     assert "fix/opiekun" in report  # praca lokalna nadal w raporcie
 
 
+@pytest.mark.parametrize("gh", ["brak", "pada"])
+def test_bez_odpowiedzi_gh_raport_jak_lokalnie(checkouts: dict[str, Path], gh: str) -> None:
+    current = checkouts["current"]
+    if gh == "brak":
+        path = os.pathsep.join(
+            folder
+            for folder in os.environ["PATH"].split(os.pathsep)
+            if not any((Path(folder) / name).exists() for name in ("gh", "gh.exe"))
+        )
+        if shutil.which("git", path=path) is None:
+            pytest.skip("gh leży w tym samym folderze co git")
+    else:
+        path = _fake_gh(current.parent, "[]", code=4)
+
+    skipped, *report = _report(current, path=path).splitlines()
+
+    assert skipped == ("GITHUB POMINIĘTY | brak gh" if gh == "brak" else "GITHUB POMINIĘTY | gh: kod 4")
+    assert report == _report(current).splitlines()[1:]
+
+
 def test_zly_ksztalt_tresci_zgloszenia_to_raport_bez_githuba(checkouts: dict[str, Path]) -> None:
     report = _report(checkouts["current"], "--issue", "7", path=_fake_gh(checkouts["current"].parent, "[]"))
 
