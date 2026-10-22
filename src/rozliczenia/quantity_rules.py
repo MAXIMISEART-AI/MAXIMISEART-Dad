@@ -24,6 +24,7 @@ from typing import Final
 class QuantityColumn(StrEnum):
     """Kolumna Ilości usług Pliku zbiorczego, w której Reguły ilości coś wpisują."""
 
+    N = "N"
     O = "O"  # noqa: E741  (litera kolumny Pliku zbiorczego)
     P = "P"
     Q = "Q"
@@ -31,9 +32,14 @@ class QuantityColumn(StrEnum):
     T = "T"
     V = "V"
     Z = "Z"
+    AE = "AE"
     AG = "AG"
+    AI = "AI"
     AK = "AK"
+    AM = "AM"
+    AN = "AN"
     AO = "AO"
+    AP = "AP"
 
 
 Quantities = Mapping[QuantityColumn, int]
@@ -101,6 +107,8 @@ _Q = QuantityColumn
 _NOKIA_ROUTER = _Component({_Q.O: 1, _Q.Z: 1}, _Kind.ROUTER)
 _GATEWAY = _Component({_Q.O: 1}, _Kind.ROUTER, with_extender={_Q.AO: 1})
 _TV = _Component({}, _Kind.TV)
+_FAULT = _Component({_Q.AI: 1})
+_MANUAL_INSTALLATION = _Component({_Q.AN: 1})
 
 # Klucze po normalizacji jak ``URZĄDZENIA``. Urządzenia TV nie mają własnych ilości: przy routerze pierwsze idzie
 # do P (TV), a pozostałe do Q (multiroom); bez routera wszystkie do Q.
@@ -115,6 +123,13 @@ _COMPONENTS: Final[Mapping[str, _Component]] = {
     "globo": _TV,
     "stb2": _TV,
     "wifi6extra": _Component({_Q.AG: 1}, _Kind.EXTENDER),
+    "usterka": _FAULT,
+    "usterka hurt": _FAULT,
+    "usterka wew": _FAULT,
+    "gniazdo": _Component({_Q.AE: 1, _Q.AP: 1}),
+    "zmiana instalacji w lokalu abonenta": _Component({_Q.AM: 1}),
+    "instalacja ręczna": _MANUAL_INSTALLATION,
+    "wizja": _MANUAL_INSTALLATION,
 }
 _LONGEST_COMPONENT = max(len(name.split()) for name in _COMPONENTS)
 _FROM_DESCRIPTION: Final = frozenset({"prewencja", "niedostępność usług"})
