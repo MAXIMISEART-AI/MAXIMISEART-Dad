@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any, NoReturn
@@ -200,3 +201,17 @@ def _strings_shown_to_browser(value: object, *, echoed_request: bool) -> Iterato
 
 def _leaks_in_text(text: str, roots: tuple[str, ...]) -> bool:
     return "Traceback" in text or any(root in text for root in roots)
+
+
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
+    """``-n auto`` bierze połowę wolnych rdzeni, bo kilku agentów naraz na jednym laptopie przegrzewa go po 16 workerów każdy.
+
+    Load average to średnia z minuty, a agenci startują razem, więc połowa wolnych zostawia miejsce następnym.
+    ``None`` zostawia liczbę xdistowi: jawną ``PYTEST_XDIST_AUTO_NUM_WORKERS`` albo wszystkie rdzenie. Windows nie ma
+    load average, a CI biegnie na Windowsie, gdzie runner z nikim się nie dzieli.
+    """
+
+    if os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS") or sys.platform == "win32":
+        return None
+    cores = os.cpu_count() or 1
+    return max(1, int(cores - os.getloadavg()[0]) // 2)
