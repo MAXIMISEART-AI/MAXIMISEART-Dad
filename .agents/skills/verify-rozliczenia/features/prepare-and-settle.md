@@ -40,6 +40,6 @@ Preconditions:
 ## Gotchas
 
 - Before this variant the synthetic Plik zbiorczy of `default` had empty `O:AT`, so cutting the copy into a Szablon pracownika down to `A:N` still passed (found at #76). The Gotowość entries make `chain` fail with the columns named; keep them non-zero in every column of `N:AT`.
-- The Gotowość step saves through the same external-link-preserving save as the processes, then checks every other cell and every `xl/externalLinks/*` part itself; Excel, which Dad uses, keeps them too.
+- The Gotowość step saves through the same external-link-preserving save as the processes, then checks every other cell and every `xl/externalLinks/*` part itself. Excel keeps an external link only while a formula uses it, as in Dad's Wzorce; it drops the unused link of this variant's synthetic Wzorce on save. `verify-skoroszyty-w-excelu` covers Gotowość saved by the real Excel.
 - Przebieg rozliczeń copies `A:AT` by position, not by header, so the check compares positions; the real Wzorzec rozliczenia pracownika has `GODZINA` where the Wzorzec pliku zbiorczego has `MIASTO`.
 - The two processes keep separate metrics histories with different counters; never point both at one metrics file.
