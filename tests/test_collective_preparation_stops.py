@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
+import errno
 import os
 from pathlib import Path
 
@@ -83,6 +84,35 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
         "pozostawiony plik ~$ZLECENIA INTERMAX OD 08_11_2021.xlsx i uruchom ponownie."
     )
     assert lock_file.exists()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process"),
+        OSError(errno.EIO, "The cloud file provider is not running"),
+    ],
+    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci"],
+)
+def test_rejestr_zlecen_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    read_bytes = Path.read_bytes
+
+    def blocked(path: Path) -> bytes:
+        if path == fixture.register_path:
+            raise error
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", blocked)
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(fixture)
+
+    assert raised.value.message.code == "NIEDOSTEPNY_REJESTR"
+    assert "uszkodzony" not in raised.value.message.text
+    assert list(fixture.periods_directory.iterdir()) == []
 
 
 @pytest.mark.parametrize(

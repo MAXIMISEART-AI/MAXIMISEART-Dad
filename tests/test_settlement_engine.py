@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 from pathlib import Path
@@ -390,6 +391,35 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     )
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process"),
+        OSError(errno.EIO, "The cloud file provider is not running"),
+    ],
+    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci"],
+)
+def test_plik_zbiorczy_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    read_bytes = Path.read_bytes
+
+    def blocked(path: Path) -> bytes:
+        if path == source_path:
+            raise error
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", blocked)
+
+    with pytest.raises(StopError) as stop:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert stop.value.message.code == "NIEDOSTEPNY_PLIK_ZBIORCZY"
+    assert "uszkodzony" not in stop.value.message.text
+    assert not target_directory.exists()
 
 
 def test_plik_zbiorczy_otwarty_w_excelu_zatrzymuje_przebieg_rozliczen_i_zostawia_plik_blokady(tmp_path: Path) -> None:
