@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from collections.abc import Sequence
 from datetime import date, timedelta
@@ -12,6 +13,8 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
+from rozliczenia.centrum import app
+from rozliczenia.centrum.app import STATIC_DIRECTORY
 from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.reports import REPORT_KEY_FILE, SENT_REPORTS_FILE, UNSENT_DIRECTORY
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
@@ -40,6 +43,26 @@ def test_ten_sam_serwer_podaje_zbudowane_centrum_bez_node(tmp_path: Path) -> Non
     assert response.status_code == 200
     assert "<title>Centrum rozliczeń</title>" in response.text
     assert response.headers["cache-control"] == "no-cache"
+
+
+def test_po_aktualizacji_narzedzia_przegladarka_dostaje_nowy_pakiet_pod_ta_sama_nazwa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    static = tmp_path / "static"
+    shutil.copytree(STATIC_DIRECTORY, static)
+    monkeypatch.setattr(app, "STATIC_DIRECTORY", static)
+    client = centrum(tmp_path).client
+    page = client.get("/")
+    bundle = client.get("/assets/index.js")
+
+    unchanged = client.get("/assets/index.js", headers={"If-None-Match": bundle.headers["etag"]})
+    (static / "assets" / "index.js").write_bytes(b"console.log('po aktualizacji')\n")
+    updated = client.get("/assets/index.js", headers={"If-None-Match": bundle.headers["etag"]})
+
+    assert '<script type="module" crossorigin src="/assets/index.js">' in page.text
+    assert {page.headers["cache-control"], bundle.headers["cache-control"]} == {"no-cache"}
+    assert (unchanged.status_code, unchanged.content) == (304, b"")
+    assert (updated.status_code, updated.content) == (200, b"console.log('po aktualizacji')\n")
 
 
 def test_zadanie_z_obcym_naglowkiem_host_jest_odrzucone(tmp_path: Path) -> None:

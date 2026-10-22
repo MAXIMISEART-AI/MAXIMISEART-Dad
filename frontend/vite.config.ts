@@ -18,6 +18,14 @@ export default defineConfig({
     emptyOutDir: true,
     // Serwowane z dysku taty, nie z sieci: jeden pakiet bez dzielenia jest prostszy i wystarczająco szybki.
     chunkSizeWarningLimit: 1024,
+    // Stałe nazwy zamiast hasha, żeby gałęzie scalały te same pliki; świeżość u taty daje ETag (`_Frontend` w app.py).
+    rolldownOptions: {
+      output: {
+        entryFileNames: "assets/[name].js",
+        chunkFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name][extname]",
+      },
+    },
   },
   server: {
     // `npm run dev` obok działającego `run_centrum.py --no-browser`: API idzie do serwera Centrum,

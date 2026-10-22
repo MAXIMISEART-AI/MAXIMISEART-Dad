@@ -186,12 +186,15 @@ def _problem(status_code: int, message: str) -> Response:
 
 
 class _Frontend(StaticFiles):
-    """Zbudowany frontend: pliki z hashem w nazwie są stałe, ``index.html`` zawsze świeży po ``git pull``."""
+    """Zbudowany frontend: przeglądarka sprawdza każdy plik przy każdym użyciu (ETag), bo nazwy plików są stałe.
+
+    Bez ``Cache-Control`` przeglądarka mogłaby po Aktualizacji narzędzia brać stary ``assets/index.js`` z pamięci
+    bez pytania serwera (heurystyczna świeżość z ``Last-Modified``, RFC 9111 §4.2.2).
+    """
 
     async def get_response(self, path: str, scope: MutableMapping[str, Any]) -> Response:
         response = await super().get_response(path, scope)
-        immutable = path.startswith("assets/")
-        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
+        response.headers["Cache-Control"] = "no-cache"
         return response
 
 
