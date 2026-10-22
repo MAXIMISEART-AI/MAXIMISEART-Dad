@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -13,6 +12,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from wynik_uruchomienia import Link, ProcessResult, check_metrics, contract, figures, finish, hyperlinks, load_result
+from skrypt_skilla import Parser
 
 
 PERIOD = "08_14_09_2026"
@@ -295,8 +295,8 @@ def _assert_existing_output(root: Path, result_path: Path | None, expected_stop:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root of a settlement fixture")
     parser.add_argument(
         "--expect",
         choices=("dry-run", "run", "no-publish", "existing-output"),
@@ -306,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-what", help="text the stop's Komunikat must contain in what happened")
     parser.add_argument("--result", type=Path, help="evidence JSON of the process step")
     args = parser.parse_args(argv)
-    root = args.root.expanduser().resolve()
+    root = args.root
     result_path = args.result.expanduser().resolve() if args.result else None
     try:
         if args.expect == "dry-run":

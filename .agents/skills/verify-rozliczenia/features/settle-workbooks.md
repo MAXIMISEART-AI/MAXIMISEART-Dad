@@ -23,7 +23,7 @@ workbook, and leaves a worker with no rows empty.
 
 Preconditions:
 
-- Run the one-command orchestrator from the repository root.
+- Run the one-command orchestrator.
 - Its default fixture contains mapped rows for Adrian Testowy and Darek Fikcyjny and no rows for Kamil Syntetyczny. The output folder is absent before the run.
 
 - **Run the proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The dry-run and write both return `0` for the default fixture.

@@ -8,12 +8,16 @@ or writes a file.
 
 from __future__ import annotations
 
-import argparse
+from argparse import RawDescriptionHelpFormatter
 from pathlib import Path
 import sys
 import zipfile
 
 import excel
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser  # noqa: E402
 
 
 PERIOD = "08_14_09_2026"
@@ -88,11 +92,11 @@ def check(root: Path, desk: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, type=Path)
+    parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
+    parser.add_root("run root of this Excel run")
     parser.add_argument("--desk", required=True, type=Path, help="this run's directory inside Excel's container")
     args = parser.parse_args(argv)
-    problems = check(args.root.expanduser().resolve(), args.desk.expanduser().resolve())
+    problems = check(args.root, args.desk.expanduser().resolve())
     for problem in problems:
         print(f"DOCTOR FAIL | {problem}")
     if problems:

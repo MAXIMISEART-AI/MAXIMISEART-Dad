@@ -139,6 +139,8 @@ def _worktree(tmp_path: Path, name: str) -> Path:
 
     root = tmp_path / name
     shutil.copytree(SKILL_SCRIPTS, root / ".agents" / "skills" / "verify-skoroszyty-w-excelu" / "scripts")
+    (root / "tools").mkdir()
+    shutil.copy(SKILL_SCRIPTS.parents[3] / "tools" / "skrypt_skilla.py", root / "tools")
     return root
 
 

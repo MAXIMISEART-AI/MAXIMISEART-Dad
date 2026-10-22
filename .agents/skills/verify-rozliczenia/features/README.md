@@ -9,10 +9,10 @@ contract model `ProcessResult`.
 
 ## Baseline preconditions
 
-- Run from the repository root on Windows PowerShell.
+- Run on Windows PowerShell, from any directory.
 - Python 3.11 or newer and `requirements.txt` are installed.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`; it creates fresh roots and runs the doctor before driving.
-- Use `--variant existing`, `--variant locked`, or `--variant unmapped` for the corresponding publication and safety-gate proof.
+- Use `--variant existing`, `locked`, or `unmapped` for the corresponding publication and safety-gate proof; `--variant` takes several at once.
 - Use `--variant preparation` for Przygotowanie pliku zbiorczego.
 - Use `--variant preparation-real-templates` locally when `config/` holds the real Wzorce; it is outside CI and `--variant all`, and prints `VERIFY SKIP` without them.
 - Use `--variant chain` for the whole path from Rejestr zleceń through both processes to the Rozliczenia pracowników; `--variant chain-real-templates` is its local-only twin on the three real Wzorce, with the same skip rule.
@@ -29,7 +29,7 @@ contract model `ProcessResult`.
   and verifies that it writes metrics but creates no destination folder or
   output workbook. The real run creates and atomically publishes all worker
   workbooks from the Wzorzec rozliczenia pracownika.
-- Keep evidence in `.verification\evidence\`; cleanup may remove only `.verification\runs\`.
+- Evidence stays in `<run dir>\evidence\` (`--run-dir`, default `.verification`); cleanup removes only a run root that a fixture created.
 
 ## Proof and skip reporting
 

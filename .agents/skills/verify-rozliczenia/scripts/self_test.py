@@ -17,6 +17,9 @@ REPO_ROOT = SCRIPT.parents[4]
 FEATURES_ROOT = SKILL_ROOT / "features"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
 HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+from skrypt_skilla import VERIFICATION, create_run_root, new_run  # noqa: E402
 
 REQUIRED_FRONTMATTER = ("name", "description")
 REQUIRED_MAP_HEADINGS = (
@@ -164,13 +167,12 @@ def _check_evidence(errors: list[str], evidence_root: Path) -> None:
 
 
 def _check_cleanup_preserves_evidence(errors: list[str]) -> None:
-    run_root = REPO_ROOT / ".verification" / "runs" / f"self-test-{uuid.uuid4().hex}"
-    evidence_root = REPO_ROOT / ".verification" / "evidence" / f"self-test-{uuid.uuid4().hex}"
+    run = new_run(VERIFICATION, f"self-test-{uuid.uuid4().hex}")
+    run_root, evidence_root = run.root, run.evidence
     evidence_file = evidence_root / "proof.txt"
     marker = "dowod zachowany: ŻÓŁĆ\n".encode("utf-8")
     try:
-        run_root.mkdir(parents=True)
-        evidence_root.mkdir(parents=True)
+        create_run_root(run_root)
         (run_root / "disposable.txt").write_text("scratch\n", encoding="utf-8")
         evidence_file.write_bytes(marker)
         cleanup = SCRIPTS_ROOT / "cleanup.py"

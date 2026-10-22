@@ -2,40 +2,24 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
-import shutil
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
-
-
-def _safe_root(value: str) -> Path:
-    root = Path(value).expanduser().resolve()
-    parent = (_repo_root() / ".verification" / "runs").resolve()
-    try:
-        root.relative_to(parent)
-    except ValueError as exc:
-        raise ValueError(f"Cleanup root must be below {parent}") from exc
-    if root == parent:
-        raise ValueError("Refusing to remove the whole runs directory")
-    return root
+from skrypt_skilla import Parser, remove_run_root  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root a fixture of this skill created")
     args = parser.parse_args(argv)
     try:
-        root = _safe_root(args.root)
-        if root.exists():
-            shutil.rmtree(root)
+        remove_run_root(args.root)
     except (OSError, ValueError) as exc:
         print(f"CLEANUP FAILED: {exc}", file=sys.stderr)
         return 1
-    print(f"CLEANUP OK | removed={root}")
+    print(f"CLEANUP OK | removed={args.root}")
     return 0
 
 

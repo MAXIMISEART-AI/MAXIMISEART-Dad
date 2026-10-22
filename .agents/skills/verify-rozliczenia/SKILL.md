@@ -21,25 +21,26 @@ the real Wzorce from `config/`.
 
 ## Launch
 
-Run the proof from the repository root in PowerShell:
+Run the proof in PowerShell, from any directory:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py
 ```
 
-The runner creates unique scratch and evidence directories, sets UTF-8
+The runner creates a scratch run root in `<run dir>\runs\<id>` and evidence in
+`<run dir>\evidence\<id>`. The run dir is `.verification` of the checkout, or
+any path given with `--run-dir`, e.g. a folder under `~/.t3/notes/<run>/`. It sets UTF-8
 environment variables, creates the synthetic fixture, runs the doctor, drives
 the machine script through dry-run and write modes, checks the JSON results and
 workbook side effects, and cleans the scratch directory in `finally`. A successful run prints
 `VERIFY OK`, an evidence path, and `scratch_removed=true`. The default fixture
 contains only mapped synthetic workers, so dry-run and write both return `0`.
 
-Use these variants for publication and safety-gate features:
+Use these variants for publication and safety-gate features. `--variant`
+takes one or more variants and runs them in order:
 
 ```powershell
-py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing
-py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant locked
-py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant unmapped
+py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant existing locked unmapped
 ```
 
 `existing` creates a conflicting output folder after the doctor and dry-run, then
@@ -195,7 +196,7 @@ dry-run warns with `BRAK_MAPOWANIA` and the real run stops with
 
 ## Evidence
 
-Evidence is written under `.verification\evidence\` and survives cleanup. Each
+Evidence is written under `<run dir>\evidence\` and survives cleanup. Each
 Uruchomienie procesu leaves `<step>.json` with the command, exit code, JSON
 result, and stderr, and `<step>-metrics.jsonl`, the metrics file right after
 that step. Every other step leaves `<step>.txt` with its command, stdout,
@@ -241,13 +242,13 @@ file names and invariant failures, never the offending row value.
 ## Cleanup
 
 The runner owns cleanup and invokes `cleanup.py` from a `finally` block after
-both successful and failed workflow stages. It removes only the unique run root
-under `.verification\runs\`; it never removes evidence. Do not kill processes
-by name.
+both successful and failed workflow stages. It removes only a run root that a
+fixture created, marked by its `.katalog-runu` file; it never removes evidence.
+Do not kill processes by name.
 
 If the runner itself is force-terminated before its `finally` block executes,
 run the primitive against the abandoned run root discovered under
-`.verification\runs\`:
+`<run dir>\runs\`:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"
@@ -296,7 +297,7 @@ already performs both checks and prints `scratch_removed=true`.
   Hiperłącza, and external-link readers. Alone it checks one evidence file and
   names the fields that do not match the contract, never their values.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\wynik_uruchomienia.py --result "$evidenceRoot\run.json"`.
-- `scripts/cleanup.py` removes only a run root below `.verification\runs\`.
+- `scripts/cleanup.py` removes only a run root that a fixture created.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.
 - `scripts/self_test.py` checks the skill package and evidence hygiene.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\self_test.py --evidence-root "$evidenceRoot"`.
