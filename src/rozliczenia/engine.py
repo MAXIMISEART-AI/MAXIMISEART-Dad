@@ -7,15 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import collective_file, settlement_files, settlement_messages, template_settlement, workbook_files
-from .domain import (
-    Issue,
-    ProgressObserver,
-    SettlementSummary,
-    WorkerEnded,
-    WorkerFailed,
-    WorkerResult,
-    WorkerStarted,
-)
+from .domain import Issue, ProgressObserver, SettlementSummary, WorkerResult
 from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner
@@ -97,8 +89,9 @@ def run_settlements(
 ) -> SettlementSummary:
     """Uruchamia pełny proces z ochroną przed błędną lokalizacją i duplikacją.
 
-    Ten moduł tylko sekwencjonuje cztery etapy i prowadzi pętlę po Szablonach
-    pracowników ze zdarzeniami Wykonawców. Konfiguracja wykonawców jest w
+    Ten moduł tylko sekwencjonuje cztery etapy i rozlicza Szablon pracownika
+    jednego Wykonawcy; pętlę po nich ze zdarzeniami Wykonawców prowadzi
+    sekwencer etapów. Konfiguracja wykonawców jest w
     ``worker_config``, a folder tymczasowy, Nienadpisywanie i publikacja
     Folderu rozliczeń pracowników w ``settlement_files``.
     """
@@ -107,7 +100,6 @@ def run_settlements(
     source_path = source_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
     worker_template_path = (worker_template_path or default_worker_template_path()).expanduser().resolve()
-    notify = phases.notify
 
     def check_inputs() -> tuple[PeriodFolder, dict[str, str], WorkerSettlementTemplate]:
         try:
@@ -139,67 +131,27 @@ def run_settlements(
     summary = SettlementSummary(folder.period.token, source_path, target_directory, issues=list(source_issues))
     rows_by_target, plan_issues = phases.plan(
         lambda: _plan_rows(source_path, mapping, rows_by_worker, source_issues, dry_run=dry_run),
-        template_total=lambda _planned: len(worker_names),
+        templates=lambda _planned: worker_names,
         issue_count=lambda planned: len(source_issues) + len(planned[1]),
     )
     summary.issues.extend(plan_issues)
 
+    def settle(directory: Path, worker_name: str) -> WorkerResult:
+        target_path = directory / folder.worker_settlement(worker_name).name
+        rows = rows_by_target.get(normalize_text(worker_name), [])
+        if dry_run:
+            return WorkerResult(worker_name, target_path, len(rows), "PLAN" if rows else "PUSTY_SZABLON")
+        try:
+            return template_settlement.process_template(worker_name, worker_template, target_path, rows)
+        except StopError:
+            raise
+        except WorkbookError as exc:
+            raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
+        except Exception as exc:
+            raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
+
     def save_templates(directory: Path) -> list[WorkerResult]:
-        results: list[WorkerResult] = []
-        for template_index, worker_name in enumerate(worker_names, start=1):
-            target_path = directory / folder.worker_settlement(worker_name).name
-            notify(
-                WorkerStarted(
-                    worker_name,
-                    template_index=template_index,
-                    template_total=len(worker_names),
-                    elapsed_ms=phases.elapsed_ms(),
-                )
-            )
-            rows = rows_by_target.get(normalize_text(worker_name), [])
-            try:
-                if dry_run:
-                    result = WorkerResult(
-                        worker_name,
-                        target_path,
-                        len(rows),
-                        "PLAN" if rows else "PUSTY_SZABLON",
-                    )
-                else:
-                    result = template_settlement.process_template(
-                        worker_name,
-                        worker_template,
-                        target_path,
-                        rows,
-                    )
-            except Exception as exc:
-                notify(
-                    WorkerFailed(
-                        worker_name,
-                        template_index=template_index,
-                        template_total=len(worker_names),
-                        elapsed_ms=phases.elapsed_ms(),
-                        phase_elapsed_ms=phases.phase_elapsed_ms(),
-                    )
-                )
-                if isinstance(exc, StopError):
-                    raise
-                if isinstance(exc, WorkbookError):
-                    raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
-                raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
-            results.append(result)
-            notify(
-                WorkerEnded(
-                    worker_name,
-                    template_index=template_index,
-                    template_total=len(worker_names),
-                    status=result.status,
-                    rows=result.rows,
-                    elapsed_ms=phases.elapsed_ms(),
-                    issue_count=len(summary.issues),
-                )
-            )
-        return results
+        return phases.each_template(lambda worker_name: settle(directory, worker_name))
 
     def save_all() -> None:
         if dry_run:

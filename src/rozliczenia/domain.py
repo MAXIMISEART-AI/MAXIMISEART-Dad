@@ -55,12 +55,11 @@ class PhaseStarted:
 
 @dataclass(frozen=True)
 class PhaseEnded:
-    """Etap się zakończył; END Zapisywania ma liczbę Szablonów pracownika z planu."""
+    """Etap się zakończył."""
 
     phase: ProgressPhase
     elapsed_ms: int
     phase_elapsed_ms: int
-    template_total: int = 0
 
 
 @dataclass(frozen=True)
@@ -93,11 +92,10 @@ class PlanReady:
 
 @dataclass(frozen=True)
 class WorkerStarted:
-    """Przetworzenie Szablonu pracownika ``template_index`` z ``template_total`` się rozpoczęło."""
+    """Przetworzenie Szablonu pracownika ``template_index`` (od 1, po kolei z planu) się rozpoczęło."""
 
     worker_name: str
     template_index: int
-    template_total: int
     elapsed_ms: int
     phase: ClassVar[ProgressPhase] = ProgressPhase.SAVING
 
@@ -108,7 +106,6 @@ class WorkerEnded:
 
     worker_name: str
     template_index: int
-    template_total: int
     status: WorkerStatus
     rows: int
     elapsed_ms: int
@@ -122,17 +119,15 @@ class WorkerFailed:
 
     worker_name: str
     template_index: int
-    template_total: int
     elapsed_ms: int
     phase_elapsed_ms: int
     phase: ClassVar[ProgressPhase] = ProgressPhase.SAVING
 
 
-WorkerEvent = WorkerStarted | WorkerEnded | WorkerFailed
-"""Zdarzenie przebiegu, które proces zgłasza sam w trakcie Zapisywania."""
-
-ProgressEvent = PhaseStarted | PhaseEnded | PhaseFailed | IssueCountReady | PlanReady | WorkerEvent
-"""Zdarzenie przebiegu (GLOSSARY); każdy rodzaj ma tylko swoje pola, a kolejność sprawdza ``PhaseRunner``."""
+ProgressEvent = (
+    PhaseStarted | PhaseEnded | PhaseFailed | IssueCountReady | PlanReady | WorkerStarted | WorkerEnded | WorkerFailed
+)
+"""Zdarzenie przebiegu (GLOSSARY); każdy rodzaj ma tylko swoje pola, a wysyła je tylko ``PhaseRunner``."""
 
 ProgressObserver = Callable[[ProgressEvent], None]
 

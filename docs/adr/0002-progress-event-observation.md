@@ -4,6 +4,8 @@
 
 Zaakceptowana. Zmieniona 2026-10-20: Zdarzenia przebiegu są osobnymi typami, a
 kolejność sprawdza tylko sekwencer etapów (patrz „Zmiana z 2026-10-20”).
+Zmieniona 2026-10-22: sekwencer sam prowadzi Szablony pracownika i jest jedynym
+nadawcą wszystkich Zdarzeń przebiegu (patrz „Zmiana z 2026-10-22”).
 [ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa adaptery plain i Rich
 oraz CLI: jedynym podglądem postępu jest Centrum rozliczeń, a projekcja zwraca
 sam snapshot bez faktów, które czytał tylko terminal.
@@ -32,12 +34,14 @@ silnika. Uruchomienie CLI zawsze obserwuje postęp.
 Protokół etapów należy do sekwencera etapów (`PhaseRunner`), wspólnego dla
 Przebiegu rozliczeń i Przygotowania pliku zbiorczego. Proces wywołuje cztery
 nazwane etapy i podaje tylko wartości; zdarzenia etapów oraz pośrednie
-`IssueCountReady` i `PlanReady` wysyła sekwencer w stałej kolejności. Proces
-przekazuje przez sekwencer tylko zdarzenia Szablonów pracownika z trwającego
-Zapisywania. Sekwencer jest jedynym miejscem, które sprawdza kolejność: etapów,
-Szablonów pracownika (po kolei od 1 do liczby z planu, zakończenie pasuje do
-rozpoczęcia) i to, że Zapisywanie kończy się po wszystkich Szablonach
-pracownika. Pomyłka to błąd kodu: sekwencer zgłasza `ProgressProtocolError` w
+`IssueCountReady` i `PlanReady` wysyła sekwencer w stałej kolejności. Planowanie
+podaje Wykonawców Szablonów pracownika, a w trwającym Zapisywaniu sekwencer
+(`each_template`) przeprowadza po kolei każdy z nich: wysyła `WorkerStarted`,
+wywołuje rozliczenie jednego Szablonu pracownika przez proces i wysyła
+`WorkerEnded` albo `WorkerFailed`. Sekwencer jest jedynym miejscem, które
+sprawdza kolejność: etapów, Szablonów pracownika tylko w Zapisywaniu i to, że
+Zapisywanie kończy się po wszystkich Szablonach pracownika z planu. Pomyłka to
+błąd kodu: sekwencer zgłasza `ProgressProtocolError` w
 miejscu wywołania, także bez obserwatora, zamiast traktować go jak awarię
 obserwatora. Projekcja redukuje zdarzenia bez ponownego sprawdzania.
 
@@ -91,3 +95,13 @@ fabrykami i osobnym powiadomieniem projekcji. Kontrola kolejności Szablonów
 pracownika przechodzi do sekwencera, a projekcja tylko redukuje. Odrzucony
 kierunek: zostawienie projekcji jako drugiej kontroli. Testy projekcji musiałyby
 budować zdarzenia, których sekwencer nigdy nie wyśle.
+
+## Zmiana z 2026-10-22
+
+Proces budował zdarzenia Szablonów pracownika sam (pozycja, liczba z planu,
+czasy, liczba problemów), a sekwencer sprawdzał, czy pasują do jego stanu. Teraz
+sekwencer bierze Wykonawców z planu i sam prowadzi pętlę, więc zdarzenie poza
+kolejnością, z inną liczbą Szablonów albo z zakończeniem innego Wykonawcy nie
+może powstać. Znika też pole liczby Szablonów pracownika w `PhaseEnded` i
+zdarzeniach Szablonów: projekcja czyta tę liczbę tylko z `PlanReady`.
+Tłumaczenie wyjątku Szablonu pracownika na Komunikat zostaje w procesie.

@@ -61,16 +61,12 @@ ViewT = TypeVar("ViewT")
 class Interlocutor(Conversation, Protocol):
     """Rozmówca Uruchomienia procesu: Decyzja taty w trakcie silnika i podgląd postępu.
 
-    Podgląd dostaje wyłącznie niemutowalne snapshoty i neutralne powiadomienia
-    jedynej projekcji postępu (ADR 0002). Wyjątek z metody podglądu odłącza
-    go na resztę Uruchomienia bez wpływu na wynik.
+    Podgląd dostaje wyłącznie niemutowalne snapshoty jedynej projekcji postępu
+    (ADR 0002): pusty na starcie, potem po każdym Zdarzeniu przebiegu. Wyjątek z
+    ``show_progress`` odłącza go na resztę Uruchomienia bez wpływu na wynik.
     """
 
-    def start_progress(self, snapshot: ProgressSnapshot) -> None: ...
-
     def show_progress(self, snapshot: ProgressSnapshot) -> None: ...
-
-    def stop_progress(self) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -150,10 +146,6 @@ class Outcome(Generic[ViewT]):
     def result(self) -> Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]:
         return self.ending.result if isinstance(self.ending, Finished) else "BLAD_KRYTYCZNY"
 
-    @property
-    def exit_code(self) -> int:
-        return {"OK": 0, "WYMAGA_SPRAWDZENIA": 2, "BLAD_KRYTYCZNY": 1}[self.result]
-
 
 @dataclass
 class _Clock:
@@ -204,7 +196,7 @@ class _Observation:
 
     def start(self) -> None:
         try:
-            self._interlocutor.start_progress(self.projection.snapshot)
+            self._interlocutor.show_progress(self.projection.snapshot)
         except Exception:  # noqa: BLE001 - ADR 0002: awaria podglądu odłącza go, rdzeń zgłasza to neutralną linią
             self.failed = True
 
@@ -218,12 +210,6 @@ class _Observation:
             self.failed = True
             raise
 
-    def stop(self) -> None:
-        try:
-            self._interlocutor.stop_progress()
-        except Exception:  # noqa: BLE001 - ADR 0002: awaria podglądu odłącza go, rdzeń zgłasza to neutralną linią
-            self.failed = True
-
 
 def _stop_from(error: Exception, process: Process[Any, Any]) -> Stop:
     """Własne zatrzymanie procesu z jego Komunikatem; każdy inny wyjątek to Komunikat nieoczekiwanego błędu."""
@@ -234,7 +220,7 @@ def _stop_from(error: Exception, process: Process[Any, Any]) -> Stop:
 
 
 # Budowa podsumowania i widoku rozmówcy odroczona do chwili po pomiarze Czasu
-# uruchomienia i zatrzymaniu podglądu, żeby jej czas się nie liczył, a linie szły pod podglądem.
+# uruchomienia, żeby jej czas się nie liczył.
 _DeferredSummary = Callable[[], tuple[Finished, ViewT]]
 
 
@@ -251,9 +237,6 @@ def _run_engine(
         summary = process.execute(inputs, observation, conversation)
     except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
         return _stop_from(error, process)
-    except BaseException:
-        observation.stop()
-        raise
     return lambda: (process.finished(summary), view(inputs, summary))
 
 
@@ -294,7 +277,6 @@ def run_process(
 
     engine_outcome = _run_engine(process, inputs, observation, _ClockedConversation(interlocutor, clock), view)
     total_duration_ms = clock.elapsed_ms()
-    observation.stop()
     ending, shown = _build_summary(
         engine_outcome, not_shown=process.plan_not_shown if dry_run else process.summary_not_shown
     )
