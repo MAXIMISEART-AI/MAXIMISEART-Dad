@@ -230,9 +230,10 @@ class _Checkout:
 
 _REMOTE = _Commit("zdalna", frozenset({"zdalny.py"}), on_remote=True)
 _MERGE = _Commit("merge", frozenset(), merge=True)
+_REMOTE_LATER = _Commit("zdalna-dalej", frozenset({"szkic.py"}), on_remote=True)
 _UNFETCHED = _Commit("niepobrana", frozenset({"pr-plik.py"}))
 _GITHUB_ONLY = (
-    _Checkout("zdalna", None, frozenset({_REMOTE}), pr=9, pr_files=_REMOTE.files),
+    _Checkout("zdalna", None, frozenset({_REMOTE, _REMOTE_LATER}), pr=9, pr_files=_REMOTE.files | _REMOTE_LATER.files),
     _Checkout("niepobrana", None, frozenset({_UNFETCHED}), pr=10, pr_files=_UNFETCHED.files),
 )
 _PULL_REQUESTS = {
@@ -280,7 +281,7 @@ def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> lis
 
 
 def _world(tmp_path: Path) -> list[_Checkout]:
-    """Worktree w każdej kombinacji: HEAD dołączony albo odłączony × commity × niezacommitowane pliki, plus rebase i bisect."""
+    """Worktree w każdej kombinacji: HEAD dołączony albo odłączony × commity × niezacommitowane pliki, plus rebase obu backendów i bisect."""
 
     origin, main = tmp_path / "origin.git", tmp_path / "main"
     git(tmp_path, "init", "--quiet", "--bare", "--initial-branch", "main", str(origin))
@@ -361,11 +362,13 @@ def _world(tmp_path: Path) -> list[_Checkout]:
     world.append(_Checkout("usuniety", None, frozenset({_Commit("usuniety", frozenset({"wspolny.py"}))})))
 
     rebasing, rebasing_detached = worktree("rebasuje", True), worktree("rebasuje-odlaczony", False)
+    rebasing_apply = worktree("rebasuje-apply", True)
     rebased = _Commit("rebasuje", frozenset({"wspolny.py", "rebasowany.py"}))
-    for path in (rebasing, rebasing_detached):
+    for path in (rebasing, rebasing_detached, rebasing_apply):
         write(path, rebased.files)
         commit(path, "praca")
     world.append(_Checkout("rebasuje", rebasing, frozenset({rebased}), rebased.files))
+    world.append(_Checkout("rebasuje-apply", rebasing_apply, frozenset({_Commit("rebasuje-apply", rebased.files)}), rebased.files))
     # Odłączony HEAD w trakcie rebase stoi na nowym main, a jego commit zna już tylko reflog.
     world.append(_Checkout(None, rebasing_detached, frozenset(), rebased.files))
 
@@ -395,12 +398,20 @@ def _world(tmp_path: Path) -> list[_Checkout]:
     stacked_commits = frozenset({_REMOTE, _Commit("ja-na-zdalnej", frozenset({"wspolny.py"}))})
     world.append(_Checkout("ja-na-zdalnej", stacked, stacked_commits, frozenset({"szkic.py"})))
 
+    # PR #9 idzie dalej po zbudowaniu na nim ja-na-zdalnej: jego nowy commit zmienia szkic.py, tu niezacommitowany.
+    git(main, "switch", "--quiet", "--create", "zdalna", "origin/zdalna")
+    write(main, _REMOTE_LATER.files)
+    commit(main, "praca")
+    git(main, "push", "--quiet", "origin", "zdalna")
+    git(main, "switch", "--quiet", "main")
+    git(main, "branch", "--quiet", "--delete", "--force", "zdalna")
+
     (main / "rebasowany.py").write_text("x = 'main'\n", encoding="utf-8")
     commit(main, "nowy main")
     git(main, "push", "--quiet", "origin", "main")
-    for path in (rebasing, rebasing_detached):
+    for path, backend in ((rebasing, "--merge"), (rebasing_detached, "--merge"), (rebasing_apply, "--apply")):
         with pytest.raises(subprocess.CalledProcessError):
-            git(path, "rebase", "origin/main")  # konflikt w rebasowany.py zatrzymuje rebase
+            git(path, "rebase", backend, "origin/main")  # konflikt w rebasowany.py zatrzymuje rebase
     return world
 
 
