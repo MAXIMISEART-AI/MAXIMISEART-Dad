@@ -221,7 +221,13 @@ def test_brama_prosi_ci_lokalnie_o_przerwanie_na_pierwszym_bledzie(checkout: Pat
     assert (checkout / "argumenty.txt").read_text().split() == ["tools/ci_lokalnie.py", "--do-pierwszego-bledu"]
 
 
-@pytest.mark.parametrize("stop", ["zabity sam git push", "SIGTERM dla grupy pushu", "SIGINT dla grupy pushu"])
+GROUP_SIGNALS = {"SIGTERM dla grupy pushu": signal.SIGTERM, "SIGINT dla grupy pushu": signal.SIGINT}
+if sys.platform != "win32":
+    # Tak kończy push limit czasu agenta; SIGKILL nie daje bramie posprzątać.
+    GROUP_SIGNALS["SIGKILL dla grupy pushu"] = signal.SIGKILL
+
+
+@pytest.mark.parametrize("stop", ["zabity sam git push", *GROUP_SIGNALS])
 def test_ci_lokalnie_nie_przezywa_przerwanego_pushu(checkout: Path, stop: str) -> None:
     pid_files = _hanging_ci_lokalnie(checkout)
     push = _start_push(checkout)
@@ -230,7 +236,7 @@ def test_ci_lokalnie_nie_przezywa_przerwanego_pushu(checkout: Path, stop: str) -
     if stop == "zabity sam git push":
         push.kill()
     else:
-        os.kill(-push.pid, signal.SIGTERM if stop.startswith("SIGTERM") else signal.SIGINT)
+        os.kill(-push.pid, GROUP_SIGNALS[stop])
     push.wait(timeout=10)
 
     assert _wait_for(lambda: not any(_alive(pid) for pid in started)), stop

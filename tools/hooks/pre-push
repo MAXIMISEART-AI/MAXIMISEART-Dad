@@ -10,8 +10,9 @@ brama uruchamia ``tools/ci_lokalnie.py --do-pierwszego-bledu`` Pythonem z ``.ven
 ``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
 
 Przebieg nie przeżywa pushu: brama kończy ``ci_lokalnie`` razem z jego procesami, gdy proces ``git push``
-zniknie (np. zabity po limicie czasu agenta) albo gdy dostanie SIGTERM, SIGHUP lub SIGINT. Drugi push z tego
-samego checkoutu w trakcie przebiegu kończy się od razu, bez równoległego ``ci_lokalnie`` na tym samym drzewie.
+zniknie albo gdy dostanie SIGTERM, SIGHUP lub SIGINT. Gdy SIGKILL zabije bramę razem z grupą ``git push``
+(limit czasu agenta), robi to za nią strażnik. Drugi push z tego samego checkoutu w trakcie przebiegu kończy
+się od razu, bez równoległego ``ci_lokalnie`` na tym samym drzewie.
 """
 
 from __future__ import annotations
@@ -33,6 +34,16 @@ RUNS_CI = (
     "uruchamiam tools/ci_lokalnie.py: czysty przebieg 4-8 min zależnie od obciążenia Maca, przy błędzie koniec"
     " na pierwszym nieudanym kroku (ruff po kilku sekundach); po udanym przebiegu przed pushem push przechodzi od razu"
 )
+# Strażnik w osobnej sesji zabija grupę ci_lokalnie, gdy potok od bramy zamknie się bez sygnału końca, czyli gdy
+# bramę zabił SIGKILL, który nie uruchamia finally. Ten sam co w tools/mutacje_skilli.py.
+GUARD = '''import os, signal, sys
+group = sys.stdin.buffer.readline()
+if group and not sys.stdin.buffer.read(1):
+    try:
+        os.killpg(int(group), signal.SIGKILL)
+    except OSError:
+        pass
+'''
 
 
 @dataclass(frozen=True)
@@ -101,8 +112,12 @@ def _run_ci(environment: dict[str, str]) -> int:
     for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(signum, stop)
     push = os.getppid()
+    guard = subprocess.Popen([sys.executable, "-c", GUARD], stdin=subprocess.PIPE, start_new_session=True)
+    assert guard.stdin is not None
     # Własna grupa procesów: pytest, npm i ich potomkowie kończą się razem z ci_lokalnie.
     ci = subprocess.Popen(COMMAND, env=environment, stdin=subprocess.DEVNULL, start_new_session=True)
+    guard.stdin.write(f"{ci.pid}\n".encode())
+    guard.stdin.flush()
     try:
         while True:
             try:
@@ -120,6 +135,10 @@ def _run_ci(environment: dict[str, str]) -> int:
                 break
             except subprocess.TimeoutExpired:
                 pass
+        guard.stdin.write(b".")
+        guard.stdin.close()
+        guard.wait()
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
