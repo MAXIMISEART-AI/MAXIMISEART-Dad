@@ -22,13 +22,17 @@ okres w dwóch miesiącach to ``PeriodFolderLookupError``. Folder okresów
 wskazany wewnątrz ``Rozliczenia {rok}`` (np. ``INEA`` jednego miesiąca) to ten
 sam układ liczony od folderu nad ``Rozliczenia {rok}``, więc brakujący Folder
 okresu nie powstaje w złym miesiącu.
+
+Folder, którego nie da się odczytać (brak dostępu, OneDrive nie działa), to
+``PeriodFolderInaccessible`` z tym folderem, a nie wyjątek systemu plików.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -80,6 +84,24 @@ class PeriodFolderLookupError(Exception):
         self.periods_directory = periods_directory
         self.period = period
         self.locations = locations
+
+
+class PeriodFolderInaccessible(Exception):
+    """Folderu ``folder`` (folderu okresów, folderu miesiąca albo Folderu okresu) nie da się odczytać."""
+
+    def __init__(self, folder: Path) -> None:
+        super().__init__(folder.name)
+        self.folder = folder
+
+
+@contextmanager
+def reading(folder: Path) -> Iterator[None]:
+    """Odczyt zawartości ``folder``; błąd systemu plików staje się ``PeriodFolderInaccessible``."""
+
+    try:
+        yield
+    except OSError as error:
+        raise PeriodFolderInaccessible(folder) from error
 
 
 @dataclass(frozen=True)
@@ -169,17 +191,18 @@ class PeriodFolder:
 
 
 def _listing(directory: Path) -> list[os.DirEntry[str]] | None:
-    """Wpisy folderu z jednego listowania; ``None``, gdy folderu nie ma.
+    """Wpisy folderu z jednego listowania; ``None``, gdy folderu nie ma, ``PeriodFolderInaccessible``, gdy jest niedostępny.
 
     Folder okresów taty leży w OneDrive, gdzie każdy osobny ``stat`` otwiera
     plik, a listowanie od razu podaje, czy wpis jest plikiem czy folderem.
     """
 
-    try:
-        with os.scandir(directory) as entries:
-            return list(entries)
-    except (FileNotFoundError, NotADirectoryError):
-        return None
+    with reading(directory):
+        try:
+            with os.scandir(directory) as entries:
+                return list(entries)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
 
 
 def _exists(listed: Mapping[str, os.DirEntry[str]], path: Path, *, directory: bool) -> bool:
