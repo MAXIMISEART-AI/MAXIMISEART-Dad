@@ -8,7 +8,7 @@ workbook, and leaves a worker with no rows empty.
 
 - `settle-map` maps each `WYKONAWCA` identifier, compared without case, extra spaces, or non-breaking spaces, to its configured worker name, which names the workbook.
 - `settle-copy` writes source values into `A:AT` starting at row 18.
-- `settle-highlights` gives every written `A:AT` cell the Wyróżnienia of its Plik zbiorczy cell (fill, font color, bold, italic); font face and size, number format, and borders stay from the Wzorzec rozliczenia pracownika. A source cell without Wyróżnienia clears them, as Przygotowanie does from the Rejestr.
+- `settle-highlights` gives every written `A:AT` cell the Wyróżnienia of its Plik zbiorczy cell (fill, font color, bold, italic). `A:L` get the Wygląd Wiersza danych: font face and size of the Wzorzec's header cell, left and centre alignment, wrapping only for text with a line break, thin borders, the number format of the Plik zbiorczy cell and no stored row height; in `M:AT` font face and size, number format, and borders stay from the Wzorzec rozliczenia pracownika. A source cell without Wyróżnienia clears them, as Przygotowanie does from the Rejestr.
 - `settle-hyperlinks` gives every written `A:AT` cell the Hiperłącze of its Plik zbiorczy cell (an external address, e.g. the order in the company app behind `NUMER ZL.`); a Wzorzec hyperlink in a written Wiersz danych is replaced or cleared, and the address never reaches the JSON result, metrics or evidence.
 - `settle-preserve` keeps the template `AU` formulas and structure.
 - `settle-empty` leaves a mapped worker with no rows as `PUSTY_SZABLON`.

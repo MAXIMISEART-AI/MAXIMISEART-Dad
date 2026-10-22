@@ -15,7 +15,16 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from wynik_uruchomienia import check_metrics, contract, external_link_parts, figures, finish, hyperlinks, load_result
+from wynik_uruchomienia import (
+    check_metrics,
+    contract,
+    external_link_parts,
+    figures,
+    finish,
+    hyperlinks,
+    load_result,
+    look_mismatches,
+)
 
 
 PERIOD = "08_14_09_2026"
@@ -207,6 +216,9 @@ def _check_internal_settlement(path: Path, errors: list[str]) -> None:
             errors.append("Rozliczenie wewnętrzne lost italic or the Rejestr date format")
         if sheet.auto_filter.ref != "A1:M6" or sheet.freeze_panes != "A2" or sheet.column_dimensions["A"].width != 10:
             errors.append("Rozliczenie wewnętrzne autofilter or Wzorzec layout is wrong")
+        look = look_mismatches(sheet, 1, range(2, 2 + len(EXPECTED_INTERNAL_ROWS)), 13)
+        if look:
+            errors.append(f"Rozliczenie wewnętrzne: Wygląd Wiersza danych differs: {'; '.join(look)}")
     finally:
         workbook.close()
 
@@ -231,6 +243,12 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
             errors.append("Plik zbiorczy lost Wzorzec rates, sums, sheets or header formatting")
         if sheet["B18"].fill.fgColor.rgb != "FFFFFF00" or sheet.auto_filter.ref != "A17:AP21":
             errors.append("Plik zbiorczy lost a Rejestr highlight or has a wrong autofilter")
+        written_rows = range(18, 18 + len(EXPECTED_COLLECTIVE_ROWS))
+        look = look_mismatches(sheet, 17, written_rows, 12)
+        if look:
+            errors.append(f"Plik zbiorczy: Wygląd Wiersza danych differs: {'; '.join(look)}")
+        if {sheet.cell(row, 2).fill.fgColor.rgb for row in written_rows} != {"FFFFFF00"}:
+            errors.append("Plik zbiorczy: ADRES is not yellow in every Wiersz danych")
     finally:
         workbook.close()
 
@@ -247,11 +265,6 @@ def _target_positions(sheet: Worksheet, header_row: int, label: str, errors: lis
     if len(positions) != len(TARGET_HEADERS):
         errors.append(f"{label}: Wzorzec lacks {len(TARGET_HEADERS) - len(positions)} target headers in row {header_row}")
     return positions
-
-
-def _font_label(sheet: Worksheet, row: int, column: int) -> str:
-    font = sheet.cell(row, column).font
-    return f"{font.name} {font.sz}"
 
 
 def _cell_values(workbook: Workbook, skipped: set[tuple[int, int]]) -> dict[tuple[str, int, int], object]:
@@ -274,10 +287,11 @@ def _check_real_template_file(
     *,
     label: str,
     header_row: int,
+    look_columns: int,
     order_numbers: tuple[object, ...],
     errors: list[str],
 ) -> None:
-    """Rows routed by header, data font equal to the header font, and the rest of the Wzorzec unchanged.
+    """Rows routed by header, the Wygląd Wiersza danych in A..``look_columns``, and the rest of the Wzorzec unchanged.
 
     Messages name columns and fonts only, never a cell value of the Wzorzec or the Rejestr.
     """
@@ -301,14 +315,9 @@ def _check_real_template_file(
             if routed != order_numbers or after != template_sheet.cell(first_row + len(order_numbers), order_column).value:
                 errors.append(f"{label}: NUMER ZL. does not hold exactly the expected orders from row {first_row}")
 
-        font_mismatches = []
-        for column in positions.values():
-            expected = _font_label(sheet, header_row, column)
-            fonts = {_font_label(sheet, row, column) for row in written_rows}
-            if fonts != {expected}:
-                font_mismatches.append(f"{get_column_letter(column)} {', '.join(sorted(fonts))} vs header {expected}")
-        if font_mismatches:
-            errors.append(f"{label}: data font differs from the header font: {'; '.join(font_mismatches)}")
+        look = look_mismatches(sheet, header_row, written_rows, look_columns)
+        if look:
+            errors.append(f"{label}: Wygląd Wiersza danych differs: {'; '.join(look)}")
 
         expected_values = _cell_values(template_book, written)
         actual_values = _cell_values(output_book, written)
@@ -372,6 +381,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     period_directory / INTERNAL_NAME,
                     label="Rozliczenie wewnętrzne",
                     header_row=1,
+                    look_columns=13,
                     order_numbers=EXPECTED_INTERNAL_ORDER_NUMBERS,
                     errors=errors,
                 )
@@ -380,6 +390,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     period_directory / COLLECTIVE_NAME,
                     label="Plik zbiorczy",
                     header_row=17,
+                    look_columns=12,
                     order_numbers=EXPECTED_COLLECTIVE_ORDER_NUMBERS,
                     errors=errors,
                 )
@@ -407,7 +418,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
     return finish(
         errors,
         f"ASSERT OK | process=przygotowanie | mode=run | templates={templates} | workbooks_checked=2 | "
-        "formatting_preserved=true | hyperlinks_from_rejestr=NUMER ZL. | external_links_preserved=true | "
+        "formatting_preserved=true | row_look=A:M,A:L | hyperlinks_from_rejestr=NUMER ZL. | external_links_preserved=true | "
         "inputs_unchanged=true",
     )
 

@@ -21,7 +21,17 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from wynik_uruchomienia import Link, check_metrics, contract, external_link_parts, figures, finish, hyperlinks, load_result
+from wynik_uruchomienia import (
+    Link,
+    check_metrics,
+    contract,
+    external_link_parts,
+    figures,
+    finish,
+    hyperlinks,
+    load_result,
+    look_mismatches,
+)
 
 
 PERIOD = "08_14_09_2026"
@@ -29,6 +39,7 @@ HEADER_ROW = 17
 FIRST_DATA_ROW = 18
 INPUT_COLUMNS = 11  # A:K
 COPIED_COLUMNS = 46  # A:AT
+LOOK_COLUMNS = 12  # A:L: Wygląd Wiersza danych, with the number format of the Plik zbiorczy cell
 READINESS_COLUMNS = range(13, 46)  # N:AT as 0-based tuple indices
 ROW_MARKER = "PREP-SYN-"
 INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
@@ -170,7 +181,8 @@ def _data_rows(sheet: Worksheet) -> list[tuple[int, Row]]:
 
 
 def _looks(sheet: Worksheet, in_file: set[tuple[int, int]], number: int) -> Looks:
-    """Wyróżnienia of A:AT in row ``number``: fill, font color, bold, italic; a cell not ``in_file`` has none.
+    """Wyróżnienia of A:AT in row ``number``: fill, font color, bold, italic, and in A:L the number format; a cell
+    not ``in_file`` has none.
 
     ``in_file`` is taken right after loading: reading a row through openpyxl adds its missing cells to the sheet.
     """
@@ -183,7 +195,8 @@ def _looks(sheet: Worksheet, in_file: set[tuple[int, int]], number: int) -> Look
         cell = sheet.cell(number, column)
         fill_type = getattr(cell.fill, "fill_type", None)
         fill = (fill_type, cell.fill.fgColor if fill_type else None)
-        looks.append((*fill, cell.font.color, bool(cell.font.b), bool(cell.font.i)))
+        number_format = (cell.number_format,) if column <= LOOK_COLUMNS else ()
+        looks.append((*fill, cell.font.color, bool(cell.font.b), bool(cell.font.i), *number_format))
     return tuple(looks)
 
 
@@ -245,11 +258,16 @@ def _check_worker_file(
                 errors.append(f"{name}: row {number} differs from the Plik zbiorczy in {', '.join(differing[:8])}")
             unlike = [get_column_letter(index + 1) for index, look in enumerate(_looks(sheet, in_file, number)) if look != looks[index]]
             if unlike:
-                errors.append(f"{name}: row {number} lacks the Wyróżnienia of the Plik zbiorczy in {', '.join(unlike[:8])}")
+                errors.append(
+                    f"{name}: row {number} lacks the Wyróżnienia or number format of the Plik zbiorczy in {', '.join(unlike[:8])}"
+                )
             elif expected[order_index] in readiness_orders and any(
                 actual[index] in (None, 0) for index in READINESS_COLUMNS
             ):
                 errors.append(f"{name}: row {number} lacks the Gotowość entries in N:AT")
+        look = look_mismatches(sheet, HEADER_ROW, written, LOOK_COLUMNS)
+        if look:
+            errors.append(f"{name}: Wygląd Wiersza danych differs: {'; '.join(look)}")
         if workbook.sheetnames != template.sheetnames or _cell_values(workbook, written) != _cell_values(
             template, written
         ):
@@ -367,7 +385,8 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
     return finish(
         errors,
         f"ASSERT OK | process=przebieg | source=przygotowanie | mode=run | workbooks_checked={len(expected_files)} | "
-        "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | hyperlinks_equal_plik_zbiorczy=A:AT | "
+        "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | number_formats_equal_plik_zbiorczy=A:L | "
+        "row_look=A:L | hyperlinks_equal_plik_zbiorczy=A:AT | "
         "hyperlinks_from_rejestr=NUMER ZL. | "
         "readiness_carried=true | unsuccessful_absent=true | "
         "wzorzec_preserved=true | external_links_preserved=true | inputs_unchanged=true",
