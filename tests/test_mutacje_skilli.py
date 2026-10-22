@@ -45,6 +45,19 @@ def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _start(root: Path) -> subprocess.Popen[str]:
+    (root / "tools").mkdir(exist_ok=True)
+    shutil.copy(TOOL, root / "tools" / TOOL.name)
+    return subprocess.Popen(
+        [sys.executable, str(root / "tools" / TOOL.name)],
+        cwd=root,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+
+
 def test_skrypty_z_werdyktem_przechodza(tmp_path: Path) -> None:
     _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING}, "py -3 scripts\\check_a_mutations.py")
 
@@ -115,6 +128,31 @@ def test_skrypt_po_limicie_czasu_daje_fail_a_kolejne_dalej_ruszaja(tmp_path: Pat
     final = result.stdout.splitlines()[-1]
     assert ".agents/skills/verify-a/scripts/check_a_mutations.py" in final
     assert "verify-b" not in final
+
+
+def test_wyjscie_skryptu_mutacji_widac_w_trakcie_jego_pracy(tmp_path: Path) -> None:
+    seen = tmp_path / "linia-widziana"
+    script = (
+        "import pathlib, sys, time\n"
+        "print('WYKRYTA: pierwsza', flush=True)\n"
+        "deadline = time.monotonic() + 20\n"
+        f"while not pathlib.Path({str(seen)!r}).exists():\n"
+        "    if time.monotonic() > deadline:\n"
+        "        sys.exit(3)\n"
+        "    time.sleep(0.05)\n" + PASSING
+    )
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": script})
+
+    runner = _start(tmp_path)
+    assert runner.stdout is not None
+    lines = []
+    for line in runner.stdout:
+        lines.append(line.rstrip("\n"))
+        if line.startswith("WYKRYTA: pierwsza"):
+            seen.touch()
+    runner.wait(timeout=30)
+
+    assert (runner.returncode, lines[-1]) == (0, "MUTACJE SKILLI OK"), lines
 
 
 def _leaves_child(marker: Path, escape: bool) -> str:
