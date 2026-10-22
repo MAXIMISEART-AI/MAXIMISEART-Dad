@@ -21,7 +21,7 @@ the real Wzorce from `config/`.
 
 ## Launch
 
-Run the proof in PowerShell, from any directory:
+Run the proof in PowerShell from the repository root (the script path is relative to it):
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py

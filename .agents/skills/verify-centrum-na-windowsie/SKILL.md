@@ -27,7 +27,7 @@ to `main` that touches the files in the description. A dispatch needs the workfl
 and pass its run with `--run` (`gh run list --workflow verify-centrum-na-windowsie.yml --branch <branch>`).
 
 On a Windows machine (a disposable one: the run installs `requirements.txt` into this Python, as Dad's
-installation does), from any directory, with the `dev` extras and Chromium installed
+installation does), from the repository root, with the `dev` extras and Chromium installed
 (`py -3 -m pip install -e ".[dev]"`, `py -3 -m playwright install chromium`):
 
 ```powershell

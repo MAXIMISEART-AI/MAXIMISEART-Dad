@@ -9,7 +9,7 @@ contract model `ProcessResult`.
 
 ## Baseline preconditions
 
-- Run on Windows PowerShell, from any directory.
+- Run on Windows PowerShell from the repository root; `--root` and `--run-dir` can point anywhere.
 - Python 3.11 or newer and `requirements.txt` are installed.
 - Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`; it creates fresh roots and runs the doctor before driving.
 - Use `--variant existing`, `locked`, or `unmapped` for the corresponding publication and safety-gate proof; `--variant` takes several at once.

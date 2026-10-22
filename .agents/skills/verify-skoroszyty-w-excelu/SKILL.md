@@ -20,7 +20,7 @@ Przebieg rozliczeń wrote, not as Excel shows them or opens them on a click.
 
 ## Launch
 
-From any directory, after `tools/setup_worktree.py` in a worktree:
+From the repository root, after `tools/setup_worktree.py` in a worktree:
 
 ```bash
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/run_excel_verification.py

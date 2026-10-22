@@ -13,7 +13,7 @@ server's answer and the files on disk.
 
 ## Launch
 
-Run from any directory (Windows: `py -3`; macOS/Linux: `.venv/bin/python`):
+Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`); `--run-dir` can point anywhere:
 
 ```powershell
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
