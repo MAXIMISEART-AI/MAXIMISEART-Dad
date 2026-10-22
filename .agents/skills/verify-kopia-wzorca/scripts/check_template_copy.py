@@ -30,7 +30,6 @@ One Hypothesis example is one Przebieg rozliczeń: one ``WorkerSettlementTemplat
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import shutil
 import sys
@@ -48,8 +47,7 @@ from typing import Any
 from xml.etree import ElementTree
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-# check_copy_mutations.py points this at a mutated copy of src; otherwise the checkout's own src is checked.
-SOURCE_ROOT = Path(os.environ.get("VERIFY_KOPIA_SRC", REPO_ROOT / "src"))
+SOURCE_ROOT = REPO_ROOT / "src"
 sys.path[:0] = [str(SOURCE_ROOT), str(REPO_ROOT / "tools"), str(REPO_ROOT)]
 
 from hypothesis import HealthCheck, Phase, example, given, seed, settings  # noqa: E402
