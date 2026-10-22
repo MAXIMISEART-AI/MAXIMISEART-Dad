@@ -30,8 +30,11 @@ def record(
     result: str = "OK",
     total: int = 1000,
     phases: tuple[int, int, int, int] = (100, 200, 300, 400),
+    stop: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    return {
+    """Rekord wersji 1 (bez rodzaju Zatrzymania), a z ``stop`` rekord wersji 2 przerwanego Uruchomienia."""
+
+    v1 = {
         "schema_version": 1,
         "started_at": started_at,
         "mode": mode,
@@ -42,6 +45,7 @@ def record(
         "phase_durations_ms": dict(zip(("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"), phases)),
         "counters": counters if result != "BLAD_KRYTYCZNY" else dict.fromkeys(counters, 0),
     }
+    return v1 if stop is None else {**v1, "schema_version": 2, "result": "BLAD_KRYTYCZNY", "completed": False, "stop": stop}
 
 
 def preparation(started_at: str, **fields: Any) -> dict[str, object]:
@@ -104,6 +108,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
                 {"phase": "Zapisywanie", "duration_ms": 400},
             ],
             "origin": "cmd",
+            "stop_kind": None,
         },
         {
             "process": "preparation",
@@ -120,6 +125,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
                 {"phase": "Zapisywanie", "duration_ms": 400},
             ],
             "origin": "cmd",
+            "stop_kind": None,
         },
         {
             "process": "settlement",
@@ -136,6 +142,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
                 {"phase": "Zapisywanie", "duration_ms": 400},
             ],
             "origin": "cmd",
+            "stop_kind": None,
         },
     ]
 
@@ -182,12 +189,12 @@ def test_p50_i_p95_dopiero_od_pieciu_ukonczonych_obserwacji_tego_samego_trybu(tm
                 {"phase": "Zapisywanie", "p50_ms": 0, "p95_ms": 0},
             ],
         },
-        "results": {"ok": 5, "needs_review": 0, "critical": 0},
+        "results": {"ok": 5, "needs_review": 0, "stopped": 0, "failed": 0},
     }
     # Cztery ukończone DRY-RUN i jedno przerwane to za mało: przerwane nie jest ukończoną obserwacją.
     dry_run = statistics(body, "preparation", "DRY-RUN")
     assert (dry_run["completed_runs"], dry_run["percentiles"]) == (4, None)
-    assert dry_run["results"] == {"ok": 4, "needs_review": 0, "critical": 1}
+    assert dry_run["results"] == {"ok": 4, "needs_review": 0, "stopped": 1, "failed": 0}
     assert statistics(body, "settlement", "RUN")["percentiles"] is None
 
 
@@ -203,8 +210,31 @@ def test_wymaga_sprawdzenia_jest_ukonczona_obserwacja_i_osobnym_wynikiem(tmp_pat
     run = statistics(metrics(app), "settlement", "RUN")
 
     assert run["completed_runs"] == 5
-    assert run["results"] == {"ok": 3, "needs_review": 2, "critical": 1}
+    assert run["results"] == {"ok": 3, "needs_review": 2, "stopped": 1, "failed": 0}
     assert run["percentiles"] is not None
+
+
+def test_zatrzymanie_dla_taty_i_stary_rekord_bez_rodzaju_to_zatrzymane_a_do_maksa_to_blad(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+    write_lines(
+        app.metrics.preparation,
+        preparation("2026-10-06T08:00:00+00:00", result="BLAD_KRYTYCZNY"),
+        preparation("2026-10-07T08:00:00+00:00", stop={"kind": "for_tata", "code": "ZLE_SKUTECZNE"}),
+        preparation("2026-10-08T08:00:00+00:00", stop={"kind": "for_maks", "code": "BLAD_NIEOCZEKIWANY"}),
+        preparation("2026-10-09T08:00:00+00:00"),
+    )
+
+    body = metrics(app)
+
+    assert [(run["result"], run["stop_kind"]) for run in runs_of(body)] == [
+        ("OK", None),
+        ("BLAD_KRYTYCZNY", "for_maks"),
+        ("BLAD_KRYTYCZNY", "for_tata"),
+        ("BLAD_KRYTYCZNY", None),
+    ]
+    expected = {"ok": 1, "needs_review": 0, "stopped": 2, "failed": 1}
+    assert statistics(body, "preparation", "RUN")["results"] == expected
+    assert body["recent"] == {"weeks": 8, "results": expected}
 
 
 def test_niepoprawne_rekordy_metryk_sa_pomijane(tmp_path: Path) -> None:
@@ -238,7 +268,7 @@ def test_rozklad_wynikow_z_ostatnich_osmiu_tygodni_obejmuje_oba_procesy(tmp_path
 
     recent = metrics(app)["recent"]
 
-    assert recent == {"weeks": 8, "results": {"ok": 1, "needs_review": 1, "critical": 1}}
+    assert recent == {"weeks": 8, "results": {"ok": 1, "needs_review": 1, "stopped": 1, "failed": 0}}
 
 
 def test_rekord_zapisany_spoza_centrum_pojawia_sie_bez_restartu_centrum(tmp_path: Path) -> None:

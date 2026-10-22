@@ -22,7 +22,6 @@ const SCHEMAS_OUTSIDE_UI = new Map([
 const FIELDS_OUTSIDE_UI = new Map([
   ["Health.service", "czyta je launcher Centrum (launcher.py), nie przeglądarka"],
   ["RunEvent.sequence", "numer zdarzenia strumienia SSE, nie treść dla taty"],
-  ["RunOutcome.stop_kind", "rodzaj Zatrzymania z widoku wyniku (spec #153); przeglądarka pokazuje, co z niego wynika: RunOutcome.diagnosis"],
 ])
 
 // Pliki, które wolno rozgałęziać po nazwie procesu; każdy z uzasadnieniem.

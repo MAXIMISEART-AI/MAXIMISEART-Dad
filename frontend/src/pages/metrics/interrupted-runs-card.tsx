@@ -1,4 +1,4 @@
-import { OctagonXIcon } from "lucide-react"
+import { CircleStopIcon, OctagonXIcon } from "lucide-react"
 
 import type { ProcessRun } from "@/api/centrum"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { dateTime, seconds } from "@/lib/format"
-import { isStopped, measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
+import { isFailure, isStopped, measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
 
 /** Przerwane Uruchomienia procesu obu procesów z czasami etapów zmierzonymi do przerwania. */
 export function InterruptedRunsCard({
@@ -34,7 +34,7 @@ export function InterruptedRunsCard({
       <CardHeader>
         <CardTitle id="przerwane">Przerwane</CardTitle>
         <CardAction>
-          <Badge variant="destructive" className="tabular-nums">
+          <Badge variant="outline" className="tabular-nums">
             {interrupted.length}
           </Badge>
         </CardAction>
@@ -44,7 +44,11 @@ export function InterruptedRunsCard({
           {interrupted.map((run) => (
             <Item key={`${run.process}-${run.started_at}`} variant="muted" size="sm">
               <ItemMedia variant="icon">
-                <OctagonXIcon className="text-destructive" />
+                {isFailure(run) ? (
+                  <OctagonXIcon className="text-destructive" />
+                ) : (
+                  <CircleStopIcon className="text-muted-foreground" />
+                )}
               </ItemMedia>
               <ItemContent>
                 <ItemTitle className="tabular-nums">

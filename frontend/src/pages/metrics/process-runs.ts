@@ -28,3 +28,13 @@ export function phaseDuration(run: ProcessRun, phase: string): number {
 export function isStopped(run: ProcessRun): boolean {
   return run.result === "BLAD_KRYTYCZNY"
 }
+
+/** Zatrzymanie „do Maksa”, także nieoczekiwany wyjątek: jedyne przerwane, które Historia pokazuje jako błąd. */
+export function isFailure(run: ProcessRun): boolean {
+  return run.stop_kind === "for_maks"
+}
+
+/** Słowo przerwanego: `błąd` przy Zatrzymaniu „do Maksa”, `zatrzymano` przy każdym innym, także bez rodzaju. */
+export function stopWord(run: ProcessRun): string {
+  return isFailure(run) ? "błąd" : "zatrzymano"
+}

@@ -1996,6 +1996,21 @@
               "centrum"
             ],
             "title": "Origin"
+          },
+          "stop_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "for_tata",
+                  "for_maks"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Kind"
           }
         },
         "additionalProperties": false,
@@ -2009,10 +2024,11 @@
           "result",
           "total_duration_ms",
           "phase_durations",
-          "origin"
+          "origin",
+          "stop_kind"
         ],
         "title": "ProcessRun",
-        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło\nrekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn."
+        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło\nrekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.\n``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego\nrekordu, który rodzaju nie zapisał."
       },
       "ProcessSetup": {
         "properties": {
@@ -2322,9 +2338,13 @@
             "type": "integer",
             "title": "Needs Review"
           },
-          "critical": {
+          "stopped": {
             "type": "integer",
-            "title": "Critical"
+            "title": "Stopped"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
           }
         },
         "additionalProperties": false,
@@ -2332,9 +2352,11 @@
         "required": [
           "ok",
           "needs_review",
-          "critical"
+          "stopped",
+          "failed"
         ],
-        "title": "ResultCounts"
+        "title": "ResultCounts",
+        "description": "Wyniki Uruchomień procesu; przerwane dzielą się na ``stopped`` i ``failed``.\n\n``stopped``: Zatrzymania „dla taty” i przerwane ze starych rekordów bez rodzaju. ``failed``: Zatrzymania\n„do Maksa”, także nieoczekiwany wyjątek."
       },
       "RunAwaitingDecision": {
         "properties": {
