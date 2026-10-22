@@ -34,6 +34,15 @@ def _seconds(duration_ms: int) -> str:
     return f"{tenths // 10},{tenths % 10} s"
 
 
+def _other_results(results: dict[str, int]) -> str:
+    """The note under the OK count: ``3 do sprawdzenia · 2 zatrzymane · 1 błąd``, with Polish plural of „błąd”."""
+
+    failed = results["failed"]
+    last, tens = failed % 10, failed % 100
+    word = "błąd" if failed == 1 else "błędy" if 2 <= last <= 4 and not 12 <= tens <= 14 else "błędów"
+    return f"{results['needs_review']} do sprawdzenia · {results['stopped']} zatrzymane · {failed} {word}"
+
+
 def _local(started_at: str) -> str:
     """The UI's date text in Dad's time zone (``06.10.2026, 08:21``)."""
 
@@ -69,7 +78,7 @@ def drive_metrics(run: Run, page: Page) -> None:
     results = recent["results"]
     recent_card = stats.get_by_role("group", name=f"Ostatnie {recent['weeks']} tygodni")
     expect(recent_card).to_contain_text(f"{results['ok']} OK")
-    expect(recent_card).to_contain_text(f"{results['needs_review']} do sprawdzenia · {results['critical']} zatrzymane")
+    expect(recent_card).to_contain_text(_other_results(results))
     run.check(True, "Okresy shows the last prepared period, the last Uruchomienie procesu and the recent results")
     run.capture(page, "20-metryki-karty-okresow")
 
@@ -90,7 +99,7 @@ def drive_metrics(run: Run, page: Page) -> None:
     expect(strip.get_by_role("group", name="P95")).to_contain_text(_seconds(percentiles["p95_ms"]))
     counts = preparation_run["results"]
     expect(strip.get_by_role("group", name="Wyniki")).to_contain_text(f"{counts['ok']} OK")
-    expect(strip.get_by_role("group", name="Wyniki")).to_contain_text(f"{counts['critical']} zatrzymane")
+    expect(strip.get_by_role("group", name="Wyniki")).to_contain_text(_other_results(counts))
     run.check(True, "the strip shows the server's P50/P95 and result counts for Przygotowanie RUN")
 
     run.step(feature, "metryki-wykres")
@@ -173,6 +182,9 @@ def drive_metrics(run: Run, page: Page) -> None:
     run.check(True, "the history sorts by time, filters by process and shows older runs on demand")
     run.capture(page, "25-metryki-historia-filtry")
 
+    run.step(feature, "metryki-rodzaj-zatrzymania")
+    _drive_stop_kinds(run, page, runs)
+
     run.step(feature, "metryki-nowy-rekord-spoza-centrum")
     completed = subprocess.run(
         [sys.executable, str(REPO_ROOT / "tools" / "uruchom_proces.py"), "preparation",
@@ -187,6 +199,12 @@ def drive_metrics(run: Run, page: Page) -> None:
         completed.returncode == 1 and result["stop"]["message"]["code"] == "BRAK_REJESTRU" and result["metrics_saved"],
         "the machine script stopped (no Rejestr zleceń) and wrote its metrics record",
     )
+    last_record = json.loads(Path(fixture_metrics["preparation"]).read_text(encoding="utf-8").splitlines()[-1])
+    run.check(
+        (last_record["schema_version"], last_record["result"], last_record["stop"])
+        == (2, "BLAD_KRYTYCZNY", {"kind": "for_tata", "code": "BRAK_REJESTRU"}),
+        f"the record carries the Rodzaj Zatrzymania and the Komunikat code only: {last_record['stop']}",
+    )
     after = run.api("/api/metrics", "metryki-spoza-centrum")["runs"]
     assert isinstance(after, list)
     run.check(len(after) == len(runs) + 1, "the next read includes the record from outside Centrum without restarting it")
@@ -194,7 +212,7 @@ def drive_metrics(run: Run, page: Page) -> None:
     newest = history_rows(page).nth(1)
     expect(newest).to_contain_text(_local(after[0]["started_at"]))
     expect(newest).to_contain_text(LAST_COMPLETE)
-    expect(newest).to_contain_text("Zatrzymano")
+    expect(newest.locator("[data-slot=badge]", has_text="Zatrzymano")).to_have_attribute("data-variant", "outline")
     expect(newest).to_contain_text(".cmd")
     run.check(True, "the reloaded page shows the DRY-RUN from outside Centrum as the newest Uruchomienie procesu")
     run.capture(page, "26-metryki-nowy-rekord-spoza-centrum")
@@ -229,9 +247,31 @@ def _measured(phases: list[str], shown: list[dict[str, Any]]) -> list[str]:
     return [phase for phase in phases if any(_phase_ms(entry, phase) > 0 for entry in shown)]
 
 
+def _stop_word(entry: dict[str, Any]) -> str:
+    """„błąd” for a stop „do Maksa”, „zatrzymano” for every other stop, also an old one without a kind."""
+
+    return "błąd" if entry["stop_kind"] == "for_maks" else "zatrzymano"
+
+
 def _bar_title(entry: dict[str, Any]) -> str:
-    stopped = " · zatrzymano" if entry["result"] == "BLAD_KRYTYCZNY" else ""
+    stopped = f" · {_stop_word(entry)}" if entry["result"] == "BLAD_KRYTYCZNY" else ""
     return f"{_local(entry['started_at'])} · okres {entry['period']}{stopped}"
+
+
+def _drive_stop_kinds(run: Run, page: Page, runs: list[dict[str, Any]]) -> None:
+    """Historia: a stop „dla taty” and an old one without a kind are a calm outlined „Zatrzymano”, „do Maksa” a red „Błąd”."""
+
+    stops = [entry for entry in runs if entry["result"] == "BLAD_KRYTYCZNY"]
+    kinds = {entry["stop_kind"] for entry in stops}
+    run.check(kinds == {"for_tata", "for_maks", None}, f"the fixture has every kind of stop: {sorted(map(str, kinds))}")
+    rows = history_rows(page)
+    expect(rows).to_have_count(1 + min(20, len(runs)))
+    for entry in stops:
+        row = rows.filter(has_text=_local(entry["started_at"])).filter(has_text=entry["period"])
+        word, variant = ("Błąd", "destructive") if entry["stop_kind"] == "for_maks" else ("Zatrzymano", "outline")
+        expect(row.locator("[data-slot=badge]", has_text=word)).to_have_attribute("data-variant", variant)
+    run.check(True, "Historia: „Zatrzymano” outlined for „dla taty” and the old record, „Błąd” red for „do Maksa”")
+    run.capture(page, "2b-metryki-rodzaj-zatrzymania")
 
 
 def _bar_name(entry: dict[str, Any], measured: list[str]) -> str:

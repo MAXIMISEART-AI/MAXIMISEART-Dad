@@ -69,9 +69,15 @@ SETTLEMENT_COUNTERS = {
     "skipped": 0,
     "issues": 0,
 }
-# Synthetic history in the metrics schema (schema_version 1), as the core writes it:
+# Synthetic history as the core writes it, mostly in Dad's older metrics schema (schema_version 1):
 # (started_at UTC, mode, period, result, phase times in ms; the total is their sum).
 MetricRun = tuple[str, str, str, str, tuple[int, int, int, int]]
+# Stops recorded in schema_version 2, which carries the Rodzaj Zatrzymania and the Komunikat code;
+# the BLAD_KRYTYCZNY of 2026-08-25 stays a schema_version 1 record without them.
+RECORDED_STOPS: dict[str, dict[str, str]] = {
+    "2026-09-17T15:40:00+00:00": {"kind": "for_maks", "code": "BLAD_NIEOCZEKIWANY"},
+    "2026-10-01T15:40:00+00:00": {"kind": "for_tata", "code": "PLIK_ZBIORCZY_OTWARTY"},
+}
 PREPARATION_RUNS: tuple[MetricRun, ...] = (
     ("2026-08-25T06:15:00+00:00", "RUN", "18_24_08_2026", "BLAD_KRYTYCZNY", (400, 1300, 0, 0)),
     ("2026-09-01T06:21:00+00:00", "RUN", "25_31_08_2026", "OK", (300, 7100, 900, 2500)),
@@ -87,9 +93,11 @@ PREPARATION_RUNS: tuple[MetricRun, ...] = (
 SETTLEMENT_RUNS: tuple[MetricRun, ...] = (
     ("2026-09-03T15:46:00+00:00", "RUN", "25_31_08_2026", "OK", (500, 3100, 700, 8000)),
     ("2026-09-10T15:46:00+00:00", "RUN", "01_07_09_2026", "OK", (500, 3000, 700, 7600)),
+    ("2026-09-17T15:40:00+00:00", "RUN", "08_14_09_2026", "BLAD_KRYTYCZNY", (500, 3100, 700, 1200)),
     ("2026-09-17T15:46:00+00:00", "RUN", "08_14_09_2026", "WYMAGA_SPRAWDZENIA", (500, 3200, 800, 7600)),
     ("2026-09-24T15:40:00+00:00", "DRY-RUN", "15_21_09_2026", "OK", (500, 2100, 700, 0)),
     ("2026-09-24T15:46:00+00:00", "RUN", "15_21_09_2026", "OK", (400, 2900, 700, 7100)),
+    ("2026-10-01T15:40:00+00:00", "RUN", "22_28_09_2026", "BLAD_KRYTYCZNY", (500, 0, 0, 0)),
     ("2026-10-01T15:46:00+00:00", "RUN", "22_28_09_2026", "OK", (500, 3400, 800, 8000)),
 )
 WORKER_IDS = ("wykonawca.a", "wykonawca.b", "wykonawca.c")
@@ -219,7 +227,7 @@ def _collective_file(path: Path, workers: tuple[str, ...]) -> None:
 def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object]:
     started_at, mode, period, result, phases = run
     completed = result != "BLAD_KRYTYCZNY"
-    return {
+    record: dict[str, object] = {
         "schema_version": 1,
         "started_at": started_at,
         "mode": mode,
@@ -230,6 +238,9 @@ def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object
         "phase_durations_ms": dict(zip(PHASES, phases)),
         "counters": counters if completed else dict.fromkeys(counters, 0),
     }
+    if started_at in RECORDED_STOPS:
+        record.update(schema_version=2, stop=RECORDED_STOPS[started_at])
+    return record
 
 
 def _metrics(root: Path) -> dict[str, object]:
