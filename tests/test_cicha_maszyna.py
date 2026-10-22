@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+import uuid
 
 import pytest
 
@@ -82,3 +89,50 @@ def test_pomiar_ustepuje_przebiegowi_ktory_zarejestrowal_sie_gdy_pomiar_bral_blo
         with racing.measurement():
             pass
     assert not (tmp_path / "pomiar.lock").exists()
+
+
+@contextmanager
+def proces(argv: list[str], fragment: str, executable: str | None = None) -> Iterator[None]:
+    """Działa, dopóki trwa blok; ``ps`` widzi już jego własną linię poleceń z ``fragment``, a nie rodzica sprzed exec."""
+
+    process = subprocess.Popen(argv, executable=executable)
+    try:
+        deadline = time.monotonic() + 10
+        while fragment not in subprocess.run(
+            ["ps", "-o", "command=", "-p", str(process.pid)], capture_output=True, text=True, check=False
+        ).stdout:
+            assert time.monotonic() < deadline, f"ps nie pokazał procesu {argv}"
+            time.sleep(0.05)
+        yield
+    finally:
+        process.kill()
+        process.wait()
+
+
+@pytest.fixture
+def praca(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Fragment pracy, którego nie ma w żadnym innym procesie na maszynie, więc inne wątki nie mieszają się do testu."""
+
+    fragment = f"praca-{uuid.uuid4().hex}"
+    monkeypatch.setattr(quiet_machine, "BUSY_COMMANDS", (fragment,))
+    return fragment
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="na Windows maszyna nie czyta procesów z ps")
+def test_powloka_czekajaca_na_swoja_kolej_nie_zajmuje_maszyny(praca: str) -> None:
+    with proces(["sh", "-c", f"sleep 60; echo {praca}"], praca):
+        assert quiet_machine.busy_commands() == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="na Windows maszyna nie czyta procesów z ps")
+def test_python_wykonujacy_prace_zajmuje_maszyne(praca: str) -> None:
+    with proces([sys.executable, "-c", "import time; time.sleep(60)", praca], praca):
+        assert quiet_machine.busy_commands() == [praca]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="na Windows maszyna nie czyta procesów z ps")
+def test_przegladarka_zajmuje_maszyne(praca: str) -> None:
+    browser = f"/{praca}/chrome-headless-shell"
+
+    with proces([browser, "60"], praca, executable=shutil.which("sleep")):
+        assert quiet_machine.busy_commands() == [praca]
