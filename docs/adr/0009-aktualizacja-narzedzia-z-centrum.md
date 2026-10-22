@@ -2,7 +2,7 @@
 
 ## Status
 
-Proponowana. Zmienia trzy zdania
+Zaakceptowana. Zmienia trzy zdania
 [ADR 0004](0004-centrum-rozliczen-adapter.md) i trzy
 [ADR 0007](0007-zgloszenia-do-maksa-w-prywatnym-repo.md):
 
