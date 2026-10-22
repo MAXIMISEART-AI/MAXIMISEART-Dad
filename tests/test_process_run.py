@@ -15,6 +15,7 @@ import pytest
 
 from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
+from rozliczenia.message import REPORT_TO_MAINTAINER, Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.process_run import Finished, Outcome, Process, Stop, run_process
 
@@ -22,6 +23,7 @@ from tests.fixtures.fake_process import (
     ENDINGS,
     METRICS_WARNING,
     PERIOD,
+    SECRET,
     Durations,
     Inputs,
     asking_between_planning_and_saving,
@@ -79,8 +81,30 @@ def test_core_closes_every_ending_with_a_message(tmp_path: Path, dry_run: bool) 
         "view": ("after_engine", not_shown, None),
     }
     assert [
-        (record["result"], record["completed"], record["counters"]) for record in records(tmp_path / "metrics.jsonl")
-    ] == [("BLAD_KRYTYCZNY", False, {"items": 0})] * 4
+        (record["result"], record["completed"], record["counters"], record["stop"])
+        for record in records(tmp_path / "metrics.jsonl")
+    ] == [
+        ("BLAD_KRYTYCZNY", False, {"items": 0}, {"kind": "for_tata", "code": own.message.code}),
+        ("BLAD_KRYTYCZNY", False, {"items": 0}, {"kind": "for_maks", "code": ENDINGS["unexpected_failure"].code}),
+        ("BLAD_KRYTYCZNY", False, {"items": 0}, {"kind": "for_maks", "code": not_shown.code}),
+        ("BLAD_KRYTYCZNY", False, {"items": 0}, {"kind": "for_maks", "code": not_shown.code}),
+    ]
+
+
+def test_rekord_metryk_zatrzymania_do_maksa_ma_rodzaj_i_kod_bez_tresci_komunikatu(tmp_path: Path) -> None:
+    to_maks = Message("ZLA_KONFIGURACJA", SECRET, "Proces testowy", REPORT_TO_MAINTAINER)
+
+    def stop_to_maks(_inputs: Inputs, _observer: ProgressObserver, _conversation: Conversation) -> NoReturn:
+        raise StopError(to_maks)
+
+    run_core(fake_process(execute=stop_to_maks), tmp_path / "metrics.jsonl")
+    run_core(fake_process(), tmp_path / "metrics.jsonl")
+
+    assert [record["stop"] for record in records(tmp_path / "metrics.jsonl")] == [
+        {"kind": "for_maks", "code": "ZLA_KONFIGURACJA"},
+        None,
+    ]
+    assert SECRET not in (tmp_path / "metrics.jsonl").read_text(encoding="utf-8")
 
 
 def test_zatrzymanie_zapisuje_rekord_z_okresem_zerowymi_licznikami_i_czasami_etapow_ktore_sie_wykonaly(

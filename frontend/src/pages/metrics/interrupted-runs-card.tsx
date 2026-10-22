@@ -1,6 +1,7 @@
-import { OctagonXIcon } from "lucide-react"
+import { CircleStopIcon, OctagonXIcon } from "lucide-react"
 
 import type { ProcessRun } from "@/api/centrum"
+import { isFailure } from "@/components/run-result-badge"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -34,7 +35,7 @@ export function InterruptedRunsCard({
       <CardHeader>
         <CardTitle id="przerwane">Przerwane</CardTitle>
         <CardAction>
-          <Badge variant="destructive" className="tabular-nums">
+          <Badge variant="outline" className="tabular-nums">
             {interrupted.length}
           </Badge>
         </CardAction>
@@ -44,7 +45,11 @@ export function InterruptedRunsCard({
           {interrupted.map((run) => (
             <Item key={`${run.process}-${run.started_at}`} variant="muted" size="sm">
               <ItemMedia variant="icon">
-                <OctagonXIcon className="text-destructive" />
+                {isFailure(run) ? (
+                  <OctagonXIcon className="text-destructive" />
+                ) : (
+                  <CircleStopIcon className="text-muted-foreground" />
+                )}
               </ItemMedia>
               <ItemContent>
                 <ItemTitle className="tabular-nums">

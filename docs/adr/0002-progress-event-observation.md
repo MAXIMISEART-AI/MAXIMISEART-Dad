@@ -8,7 +8,9 @@ Zmieniona 2026-10-22: sekwencer sam prowadzi Szablony pracownika i jest jedynym
 nadawcą wszystkich Zdarzeń przebiegu (patrz „Zmiana z 2026-10-22”).
 [ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa adaptery plain i Rich
 oraz CLI: jedynym podglądem postępu jest Centrum rozliczeń, a projekcja zwraca
-sam snapshot bez faktów, które czytał tylko terminal.
+sam snapshot bez faktów, które czytał tylko terminal. Zmieniona 2026-10-22:
+rekord przerwanego Uruchomienia procesu niesie Rodzaj Zatrzymania i kod
+Komunikatu (patrz „Zmiana z 2026-10-22: rodzaj Zatrzymania w metrykach”).
 
 ## Decyzja
 
@@ -105,3 +107,29 @@ kolejnością, z inną liczbą Szablonów albo z zakończeniem innego Wykonawcy 
 może powstać. Znika też pole liczby Szablonów pracownika w `PhaseEnded` i
 zdarzeniach Szablonów: projekcja czyta tę liczbę tylko z `PlanReady`.
 Tłumaczenie wyjątku Szablonu pracownika na Komunikat zostaje w procesie.
+
+## Zmiana z 2026-10-22: rodzaj Zatrzymania w metrykach
+
+Każde Zatrzymanie trafiało do metryk jako `BLAD_KRYTYCZNY` bez niczego więcej,
+więc zwykła poprawka danych przez tatę (np. braki w `SKUTECZNE` znalezione w
+podglądzie) wyglądała w Historii tak samo jak błąd narzędzia (#216).
+
+Schemat metryk ma teraz wersję 2 z polem `stop`. Rekord przerwanego
+Uruchomienia procesu ma w nim Rodzaj Zatrzymania (`for_tata` albo `for_maks`,
+to samo słownictwo co Centrum, bez Powtórki) i kod Komunikatu; każdy inny
+rekord ma `stop` równe `null`. Rodzaj rozstrzyga jedna reguła rdzenia
+(`Stop.stop_kind`), ta sama, z której korzysta Centrum. Treść Komunikatu nie
+trafia do rekordu (ADR 0004), a kod musi pasować do wzorca kodów katalogów,
+więc nie przeniesie ścieżki ani danych klienta.
+
+Wynik nadal nazywa się `BLAD_KRYTYCZNY`, a skrypt dla maszyn kończy się kodem
+1 przy każdym Zatrzymaniu: rozróżnienie niesie nowe pole. Rekordy wersji 1
+nadal się czytają. Ich Zatrzymanie nie ma rodzaju i Centrum liczy je jako
+zatrzymane, bez zgadywania wstecz. Starsza wersja narzędzia, np. po cofniętej
+Aktualizacji narzędzia, pomija rekordy wersji 2 przy odczycie i nie obcina ich
+przy dopisywaniu.
+
+Odrzucone kierunki: nowy wynik obok `BLAD_KRYTYCZNY` zmieniłby kod wyjścia i
+kontrakt skryptu dla maszyn. Dwa płaskie pola, rodzaj i kod, pozwalałyby na
+rodzaj bez kodu albo kod bez rodzaju; jedno pole `stop` jest albo `null`, albo
+ma oba.

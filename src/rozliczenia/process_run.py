@@ -25,10 +25,10 @@ from typing import Any, Generic, Literal, Protocol, TypeVar
 
 from .call_trace import CallTrace
 from .decision import Conversation, Decision
-from .domain import ProgressEvent, ProgressObserver, ProgressPhase
+from .domain import ProgressEvent, ProgressObserver, ProgressPhase, StopKind
 from .message import Message, StopError
 from .progress import ProgressProjection, ProgressSnapshot
-from .telemetry import MetricsStore, metric_record
+from .telemetry import MetricsStore, RecordedStop, metric_record
 
 __all__ = [
     "Finished",
@@ -87,6 +87,18 @@ class Stop:
     kind: Literal["stop", "unexpected", "after_engine"]
     message: Message
     trace: CallTrace | None = field(default=None, compare=False, repr=False)
+
+    @property
+    def stop_kind(self) -> StopKind:
+        """Rodzaj Zatrzymania, ten sam w metrykach i w Centrum.
+
+        „Do Maksa”: Komunikat bezwarunkowo każe przekazać go osobie utrzymującej
+        narzędzie (``Message.reports_to_maintainer``) albo zakończenie nie jest
+        własnym zatrzymaniem procesu (nieoczekiwany wyjątek, błąd po silniku).
+        Każde inne jest „dla taty”.
+        """
+
+        return "for_maks" if self.kind != "stop" or self.message.reports_to_maintainer else "for_tata"
 
 
 @dataclass(frozen=True)
@@ -282,6 +294,7 @@ def run_process(
     )
 
     finished = ending if isinstance(ending, Finished) else None
+    stop = None if isinstance(ending, Finished) else RecordedStop(kind=ending.stop_kind, code=ending.message.code)
     record = metric_record(
         mode=mode,
         period=inputs.period,
@@ -292,6 +305,7 @@ def run_process(
         ),
         result=finished.result if finished else "BLAD_KRYTYCZNY",
         counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
+        stop=stop,
     )
     notices: list[str] = []
     try:

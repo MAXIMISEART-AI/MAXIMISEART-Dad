@@ -50,7 +50,7 @@ export function PeriodStats({
 
   const [latest] = metrics.data.runs
   const { recent } = metrics.data
-  const latestValue: React.ReactNode = latest === undefined ? "–" : <RunResultBadge result={latest.result} />
+  const latestValue: React.ReactNode = latest === undefined ? "–" : <RunResultBadge run={latest} />
 
   return (
     <StatStrip

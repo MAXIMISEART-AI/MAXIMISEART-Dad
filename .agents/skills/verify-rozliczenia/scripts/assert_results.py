@@ -121,6 +121,19 @@ def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str
     check_metrics(root / "metrics.jsonl", root, period=PERIOD, expected=expected, row_content=_ROW_CONTENT, errors=errors)
 
 
+def _check_stop_metrics(root: Path, expected_stop: str, errors: list[str]) -> None:
+    """The stopped run's record carries the Rodzaj Zatrzymania and the Komunikat code, never its text.
+
+    Every stopping variant stops „dla taty”: an existing output folder, a locked Wzorzec, an unknown WYKONAWCA.
+    """
+
+    records = [json.loads(line) for line in (root / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
+    last = records[-1] if records else {}
+    expected = (2, "BLAD_KRYTYCZNY", False, {"kind": "for_tata", "code": expected_stop})
+    if (last.get("schema_version"), last.get("result"), last.get("completed"), last.get("stop")) != expected:
+        errors.append(f"stopped run's metrics record is not {expected}")
+
+
 def _check_progress(progress: contract.Progress, errors: list[str]) -> None:
     if [(phase.phase, phase.state) for phase in progress.phases] != [(phase, "completed") for phase in PHASES]:
         errors.append("run progress does not complete the four stages in order")
@@ -257,9 +270,10 @@ def _assert_no_publish(root: Path, result_path: Path | None, expected_stop: str,
     if list(period_directory.glob(f".{target_directory.name}.staging-*")):
         errors.append("failed run left a staging directory")
     _check_stop(load_result(result_path, _ROW_CONTENT, errors), expected_stop, expected_what, errors)
+    _check_stop_metrics(root, expected_stop, errors)
     return finish(
         errors,
-        "ASSERT OK | mode=no-publish | output_folder_absent=true | inputs_unchanged=true",
+        "ASSERT OK | mode=no-publish | output_folder_absent=true | inputs_unchanged=true | stop_recorded=true",
     )
 
 
@@ -273,9 +287,10 @@ def _assert_existing_output(root: Path, result_path: Path | None, expected_stop:
     if {path.name for path in target_directory.iterdir()} != {sentinel.name}:
         errors.append("existing output folder gained or lost files")
     _check_stop(load_result(result_path, _ROW_CONTENT, errors), expected_stop, expected_what, errors)
+    _check_stop_metrics(root, expected_stop, errors)
     return finish(
         errors,
-        "ASSERT OK | mode=existing-output | existing_folder_unchanged=true",
+        "ASSERT OK | mode=existing-output | existing_folder_unchanged=true | stop_recorded=true",
     )
 
 

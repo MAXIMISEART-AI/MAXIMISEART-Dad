@@ -86,6 +86,20 @@ def test_identyczny_komunikat_przy_ponownym_uruchomieniu_to_powtorka(tmp_path: P
     assert (again["stop_kind"], again["diagnosis"]) == ("repeated", "on_request")
 
 
+def test_powtorka_trafia_do_historii_metryk_jako_zatrzymanie_dla_taty(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    register_lock = lock(centrum.fixture.register_path)
+    first, repeated = stop_of(centrum), stop_of(centrum)
+    register_lock.unlink()
+    centrum.fixture.internal_template_path.unlink()
+    for_maks = stop_of(centrum)
+
+    runs = centrum.client.get("/api/metrics").json()["runs"]
+
+    assert [result["stop_kind"] for result in (first, repeated, for_maks)] == ["for_tata", "repeated", "for_maks"]
+    assert [run["stop_kind"] for run in runs] == ["for_maks", "for_tata", "for_tata"]
+
+
 def test_inny_komunikat_przy_ponownym_uruchomieniu_nie_jest_powtorka(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     register_lock = lock(centrum.fixture.register_path)

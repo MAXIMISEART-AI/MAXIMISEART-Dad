@@ -96,6 +96,8 @@ def _run(
         ],
         # Rekord metryk nie mówi, skąd wystartował (schemat bez zmian); Centrum pamięta swoje Uruchomienia samo.
         origin="centrum" if (process, record["started_at"]) in centrum_started else "cmd",
+        # Rekord wersji 1 nie ma ``stop``: rodzaju jego Zatrzymania nie zgadujemy.
+        stop_kind=stop["kind"] if (stop := record.get("stop")) else None,
     )
 
 
@@ -126,11 +128,16 @@ def _statistics(
 
 
 def _results(runs: Iterable[contract.ProcessRun]) -> contract.ResultCounts:
-    results = [run.result for run in runs]
+    """Przerwane bez rodzaju (stary rekord) liczą się jako zatrzymane, nie jako błąd."""
+
+    counted = list(runs)
+    results = [run.result for run in counted]
+    failed = sum(run.stop_kind == "for_maks" for run in counted)
     return contract.ResultCounts(
         ok=results.count("OK"),
         needs_review=results.count("WYMAGA_SPRAWDZENIA"),
-        critical=results.count("BLAD_KRYTYCZNY"),
+        stopped=results.count("BLAD_KRYTYCZNY") - failed,
+        failed=failed,
     )
 
 

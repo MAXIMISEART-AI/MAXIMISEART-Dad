@@ -183,7 +183,7 @@ function RunRow({ run }: { run: ProcessRun }) {
       </TableCell>
       <TableCell className="tabular-nums">{run.period}</TableCell>
       <TableCell>
-        <RunResultBadge result={run.result} />
+        <RunResultBadge run={run} />
       </TableCell>
       <TableCell className="text-right tabular-nums">{seconds(run.total_duration_ms)}</TableCell>
     </TableRow>

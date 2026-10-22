@@ -1,11 +1,16 @@
-import { CircleCheckIcon, OctagonXIcon, TriangleAlertIcon } from "lucide-react"
+import { CircleCheckIcon, CircleStopIcon, OctagonXIcon, TriangleAlertIcon } from "lucide-react"
 
 import type { ProcessRun, ResultCounts } from "@/api/centrum"
 import { Badge } from "@/components/ui/badge"
 
-// Wynik Uruchomienia procesu zawsze z ikoną i słowem, nigdy samym kolorem.
-export function RunResultBadge({ result }: { result: ProcessRun["result"] }) {
-  switch (result) {
+/** Zatrzymanie „do Maksa”, także nieoczekiwany wyjątek: jedyne przerwane, które Centrum pokazuje jako błąd. */
+export function isFailure(run: Pick<ProcessRun, "stop_kind">): boolean {
+  return run.stop_kind === "for_maks"
+}
+
+// Wynik Uruchomienia procesu zawsze z ikoną i słowem, nigdy samym kolorem. Czerwień tylko przy Zatrzymaniu „do Maksa”.
+export function RunResultBadge({ run }: { run: Pick<ProcessRun, "result" | "stop_kind"> }) {
+  switch (run.result) {
     case "OK":
       return (
         <Badge variant="secondary">
@@ -21,21 +26,32 @@ export function RunResultBadge({ result }: { result: ProcessRun["result"] }) {
         </Badge>
       )
     case "BLAD_KRYTYCZNY":
-      return (
+      return isFailure(run) ? (
         <Badge variant="destructive">
           <OctagonXIcon data-icon="inline-start" />
+          Błąd
+        </Badge>
+      ) : (
+        <Badge variant="outline">
+          <CircleStopIcon data-icon="inline-start" className="text-muted-foreground" />
           Zatrzymano
         </Badge>
       )
     default: {
-      const unhandled: never = result
+      const unhandled: never = run.result
 
       return unhandled
     }
   }
 }
 
-/** `3 do sprawdzenia · 1 zatrzymane`: dopisek pod liczbą wyników OK. */
+const PLURAL = new Intl.PluralRules("pl-PL")
+
+const FAILED_FORMS: Partial<Record<Intl.LDMLPluralRule, string>> = { one: "błąd", few: "błędy" }
+
+/** `3 do sprawdzenia · 2 zatrzymane · 1 błąd`: dopisek pod liczbą wyników OK. */
 export function otherResults(results: ResultCounts): string {
-  return `${results.needs_review} do sprawdzenia · ${results.critical} zatrzymane`
+  const failed = FAILED_FORMS[PLURAL.select(results.failed)] ?? "błędów"
+
+  return `${results.needs_review} do sprawdzenia · ${results.stopped} zatrzymane · ${results.failed} ${failed}`
 }

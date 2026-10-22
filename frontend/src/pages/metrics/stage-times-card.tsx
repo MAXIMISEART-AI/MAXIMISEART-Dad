@@ -1,6 +1,7 @@
 import { TimerOffIcon } from "lucide-react"
 
 import type { Percentiles, ProcessRun } from "@/api/centrum"
+import { isFailure } from "@/components/run-result-badge"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import {
@@ -14,7 +15,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { dateTime, seconds } from "@/lib/format"
-import { isStopped, measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
+import { isStopped, measuredPhases, phaseDuration, stopWord } from "@/pages/metrics/process-runs"
 import { StageTimesChart } from "@/pages/metrics/stage-times-chart"
 
 // Ostatnie Uruchomienia procesu na wykresie; starsze są w historii.
@@ -101,7 +102,9 @@ function StageTimesTable({
           <TableRow key={run.started_at}>
             <TableCell className="tabular-nums">
               {dateTime(run.started_at)}
-              {isStopped(run) ? <span className="text-destructive"> ✕ zatrzymano</span> : null}
+              {isStopped(run) ? (
+                <span className={isFailure(run) ? "text-destructive" : "text-muted-foreground"}> ✕ {stopWord(run)}</span>
+              ) : null}
             </TableCell>
             <TableCell className="tabular-nums">{run.period}</TableCell>
             {phases.map((phase) => (

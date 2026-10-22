@@ -8,13 +8,14 @@ import os
 from pathlib import Path
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypedDict, get_args
 
-from .domain import PHASES, ProgressPhase
+from .domain import PHASES, ProgressPhase, StopKind
 from .settlement_period import PERIOD_TOKEN_PATTERN
 
 
-METRICS_SCHEMA_VERSION = 1
+# Wersja 2 dodaje ``stop``: Rodzaj Zatrzymania i kod Komunikatu przerwanego Uruchomienia procesu.
+METRICS_SCHEMA_VERSION = 2
 MINIMUM_STATISTIC_SAMPLES = 5
 METRIC_MODES = frozenset({"RUN", "DRY-RUN"})
 METRIC_RESULTS = frozenset({"OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"})
@@ -24,7 +25,10 @@ COUNTER_NAMES = frozenset(
 # Okres w rekordzie, gdy tokenu nie udało się ustalić.
 UNKNOWN_PERIOD = "nieznany"
 PERIOD_PATTERN = re.compile(rf"^(?:{PERIOD_TOKEN_PATTERN}|{UNKNOWN_PERIOD})$")
-RECORD_FIELDS = frozenset(
+STOP_KINDS = frozenset(get_args(StopKind))
+# Kod Komunikatu, nigdy jego treść (ADR 0004): wielkie litery, cyfry i podkreślenia, bez ścieżek i danych klientów.
+STOP_CODE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+_V1_FIELDS = frozenset(
     {
         "schema_version",
         "started_at",
@@ -37,6 +41,15 @@ RECORD_FIELDS = frozenset(
         "counters",
     }
 )
+# Pola rekordu każdej czytanej wersji schematu; stare rekordy zostają w historii taty.
+_FIELDS_BY_VERSION = {1: _V1_FIELDS, METRICS_SCHEMA_VERSION: _V1_FIELDS | {"stop"}}
+
+
+class RecordedStop(TypedDict):
+    """Zatrzymanie w rekordzie metryk: Rodzaj Zatrzymania i kod Komunikatu, bez jego treści."""
+
+    kind: StopKind
+    code: str
 
 
 def metric_record(
@@ -48,11 +61,13 @@ def metric_record(
     phase_durations_ms: Mapping[ProgressPhase, int],
     result: str,
     counters: Mapping[str, int],
+    stop: RecordedStop | None,
 ) -> dict[str, Any]:
     """Rekord jednego Uruchomienia procesu w schemacie sprawdzanym przez ``MetricsStore``.
 
-    Rekord z wynikiem ``BLAD_KRYTYCZNY`` jest niezakończony. Okres spoza wzorca
-    okresu trafia jako ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms.
+    Rekord z wynikiem ``BLAD_KRYTYCZNY`` jest niezakończony i ma ``stop``; każdy
+    inny ma ``stop`` równe ``None``. Okres spoza wzorca okresu trafia jako
+    ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms.
     """
 
     return {
@@ -65,6 +80,7 @@ def metric_record(
         "total_duration_ms": total_duration_ms,
         "phase_durations_ms": {phase: phase_durations_ms.get(ProgressPhase(phase), 0) for phase in PHASES},
         "counters": dict(counters),
+        "stop": stop,
     }
 
 
@@ -72,10 +88,22 @@ def _is_nonnegative_int(value: object) -> bool:
     return type(value) is int and value >= 0
 
 
-def _is_valid_record(record: object, counter_names: frozenset[str] = COUNTER_NAMES) -> bool:
-    if not isinstance(record, dict) or set(record) != RECORD_FIELDS:
+def _is_valid_stop(stop: object, result: object) -> bool:
+    if result != "BLAD_KRYTYCZNY":
+        return stop is None
+    if not isinstance(stop, dict) or set(stop) != {"kind", "code"}:
         return False
-    if type(record["schema_version"]) is not int or record["schema_version"] != METRICS_SCHEMA_VERSION:
+    kind, code = stop["kind"], stop["code"]
+    return isinstance(kind, str) and kind in STOP_KINDS and isinstance(code, str) and bool(STOP_CODE_PATTERN.fullmatch(code))
+
+
+def _is_valid_record(record: object, counter_names: frozenset[str] = COUNTER_NAMES) -> bool:
+    if not isinstance(record, dict):
+        return False
+    version = record.get("schema_version")
+    if type(version) is not int or _FIELDS_BY_VERSION.get(version) != frozenset(record):
+        return False
+    if version != 1 and not _is_valid_stop(record["stop"], record["result"]):
         return False
     started_at = record["started_at"]
     if not isinstance(started_at, str):
@@ -116,6 +144,8 @@ class MetricsStore:
 
     Każdy proces ma własną historię i własny zestaw liczników; domyślny zestaw
     to liczniki Przebiegu rozliczeń. Rekordy z innym zestawem są odrzucane.
+    ``read`` zwraca też rekordy wersji 1, które nie mają ``stop``: nie wiadomo,
+    jakiego rodzaju było ich Zatrzymanie.
     """
 
     def __init__(self, path: Path, counter_names: frozenset[str] = COUNTER_NAMES):

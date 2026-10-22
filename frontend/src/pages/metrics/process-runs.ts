@@ -1,4 +1,5 @@
 import type { Process, ProcessRun } from "@/api/centrum"
+import { isFailure } from "@/components/run-result-badge"
 import type { FilterOption } from "@/components/segmented-filter"
 
 export type Mode = ProcessRun["mode"]
@@ -27,4 +28,9 @@ export function phaseDuration(run: ProcessRun, phase: string): number {
 /** Uruchomienie zatrzymane (przerwane): w metrykach ma wynik `BLAD_KRYTYCZNY`, z czasami etapów do zatrzymania. */
 export function isStopped(run: ProcessRun): boolean {
   return run.result === "BLAD_KRYTYCZNY"
+}
+
+/** Słowo przerwanego: `błąd` przy Zatrzymaniu „do Maksa”, `zatrzymano` przy każdym innym, także bez rodzaju. */
+export function stopWord(run: ProcessRun): string {
+  return isFailure(run) ? "błąd" : "zatrzymano"
 }

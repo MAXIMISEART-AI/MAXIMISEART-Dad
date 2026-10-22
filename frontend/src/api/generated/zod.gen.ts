@@ -285,6 +285,8 @@ export const zProblem = z.object({
  *
  * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
  * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
+ * ``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego
+ * rekordu, który rodzaju nie zapisał.
  */
 export const zProcessRun = z.object({
     process: z.enum(['preparation', 'settlement']),
@@ -299,7 +301,8 @@ export const zProcessRun = z.object({
     ]),
     total_duration_ms: z.int(),
     phase_durations: z.array(zPhaseDuration),
-    origin: z.enum(['cmd', 'centrum'])
+    origin: z.enum(['cmd', 'centrum']),
+    stop_kind: z.enum(['for_tata', 'for_maks']).nullable()
 });
 
 /**
@@ -486,11 +489,17 @@ export const zReportWaiting = z.object({
 
 /**
  * ResultCounts
+ *
+ * Wyniki Uruchomień procesu; przerwane dzielą się na ``stopped`` i ``failed``.
+ *
+ * ``stopped``: Zatrzymania „dla taty” i przerwane ze starych rekordów bez rodzaju. ``failed``: Zatrzymania
+ * „do Maksa”, także nieoczekiwany wyjątek.
  */
 export const zResultCounts = z.object({
     ok: z.int(),
     needs_review: z.int(),
-    critical: z.int()
+    stopped: z.int(),
+    failed: z.int()
 });
 
 /**

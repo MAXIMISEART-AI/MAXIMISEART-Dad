@@ -629,6 +629,8 @@ export type Problem = {
  *
  * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
  * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
+ * ``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego
+ * rekordu, który rodzaju nie zapisał.
  */
 export type ProcessRun = {
     /**
@@ -667,6 +669,10 @@ export type ProcessRun = {
      * Origin
      */
     origin: 'cmd' | 'centrum';
+    /**
+     * Stop Kind
+     */
+    stop_kind: 'for_tata' | 'for_maks' | null;
 };
 
 /**
@@ -884,6 +890,11 @@ export type ReportWaiting = {
 
 /**
  * ResultCounts
+ *
+ * Wyniki Uruchomień procesu; przerwane dzielą się na ``stopped`` i ``failed``.
+ *
+ * ``stopped``: Zatrzymania „dla taty” i przerwane ze starych rekordów bez rodzaju. ``failed``: Zatrzymania
+ * „do Maksa”, także nieoczekiwany wyjątek.
  */
 export type ResultCounts = {
     /**
@@ -895,9 +906,13 @@ export type ResultCounts = {
      */
     needs_review: number;
     /**
-     * Critical
+     * Stopped
      */
-    critical: number;
+    stopped: number;
+    /**
+     * Failed
+     */
+    failed: number;
 };
 
 /**
