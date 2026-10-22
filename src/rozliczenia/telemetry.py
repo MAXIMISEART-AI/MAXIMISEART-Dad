@@ -61,7 +61,7 @@ def metric_record(
     phase_durations_ms: Mapping[ProgressPhase, int],
     result: str,
     counters: Mapping[str, int],
-    stop: RecordedStop | None = None,
+    stop: RecordedStop | None,
 ) -> dict[str, Any]:
     """Rekord jednego Uruchomienia procesu w schemacie sprawdzanym przez ``MetricsStore``.
 

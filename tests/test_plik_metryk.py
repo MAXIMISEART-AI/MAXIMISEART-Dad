@@ -23,6 +23,7 @@ def completed_record() -> dict[str, Any]:
         phase_durations_ms={},
         result="OK",
         counters=dict.fromkeys(COUNTER_NAMES, 1),
+        stop=None,
     )
 
 
