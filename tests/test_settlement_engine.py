@@ -341,22 +341,49 @@ def test_kazde_rozliczenie_pracownika_takze_puste_ma_szerokosci_kolumn_wzorca_ro
             workbook.close()
 
 
-def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
-    tmp_path: Path,
+def with_unmapped_worker(source_path: Path) -> None:
+    write_source(source_path, include_unmapped=True)
+
+
+def with_workers(source_path: Path, workers: dict[int, str | None]) -> None:
+    """Zmienia WYKONAWCĘ (kolumna H) w podanych Wierszach danych Pliku zbiorczego."""
+
+    workbook = load_workbook(source_path)
+    try:
+        sheet = active_worksheet(workbook)
+        for row, worker in workers.items():
+            sheet.cell(row, 8).value = worker
+        workbook.save(source_path)
+    finally:
+        workbook.close()
+
+
+def with_data_row_without_worker(source_path: Path) -> None:
+    with_workers(source_path, {20: None})
+
+
+@pytest.mark.parametrize(
+    ("damage", "code"),
+    [(with_unmapped_worker, "NIEZNANY_WYKONAWCA"), (with_data_row_without_worker, "WIERSZE_BEZ_WYKONAWCY")],
+    ids=["wykonawca-bez-mapowania", "wiersz-danych-bez-wykonawcy"],
+)
+def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
+    tmp_path: Path, damage: Callable[[Path], None], code: str
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    write_source(source_path, include_unmapped=True)
+    damage(source_path)
 
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert raised.value.message.code == "NIEZNANY_WYKONAWCA"
+    assert (raised.value.message.code, raised.value.message.where) == (code, f"plik {SOURCE_NAME}, folder {PERIOD}, kolumna H")
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
-def test_dry_run_does_not_write(tmp_path: Path) -> None:
+def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wykonawcy_z_konfiguracji(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
+    with_workers(source_path, {18: "andrzej.nieznany2", 20: None})  # nieznany Wykonawca w pierwszym wierszu, przed znanymi
 
     summary = run_settlements(
         source_path,
@@ -365,8 +392,12 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
         worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
     )
 
-    assert summary.planned_count == 2
-    assert summary.empty_count == 1
+    assert [issue.code for issue in summary.issues] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    assert [(result.worker_name, result.status, result.rows) for result in summary.results] == [
+        ("Adrian Testowy", "PUSTY_SZABLON", 0),
+        ("Darek Fikcyjny", "PLAN", 1),
+        ("Kamil Syntetyczny", "PUSTY_SZABLON", 0),
+    ]
     assert not target_directory.exists()
 
 
