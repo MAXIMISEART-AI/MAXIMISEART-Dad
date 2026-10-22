@@ -493,6 +493,7 @@ def test_wzorzec_with_rejestr_header_instead_of_its_own_stops(
     [
         ("Wzorzec rozliczenia wewnętrznego.xlsx", "C5:D5", "Arkusz1"),  # 4. zlecenie okresu
         ("Wzorzec pliku zbiorczego.xlsx", "B19:C20", "Sheet1"),  # 2. i 3. Zlecenie skuteczne
+        ("Wzorzec pliku zbiorczego.xlsx", "U19:V19", "Sheet1"),  # Ilości usług 2. Zlecenia skutecznego
     ],
 )
 @pytest.mark.parametrize("dry_run", [False, True])

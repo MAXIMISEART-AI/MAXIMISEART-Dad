@@ -200,6 +200,8 @@ class _Rules:
     period_file: bool
     """Plik okresu z Przygotowania: Sprawdzanie z zarysu Wzorca, wygląd w każdej zapisanej kolumnie i autofiltr
     zawsze idą razem. Inaczej Szablon pracownika: Wzorzec bez danych, sprawdzany też przed każdym plikiem."""
+    quantity_columns: range = range(0)
+    """Kolumny, do których trafiają Ilości usług Wiersza danych (``DataRow.quantities``)."""
 
 
 class Layout(Enum):
@@ -221,11 +223,13 @@ class Layout(Enum):
         _INPUT_COLUMNS[-1],
         worker_header=True,
         copy=SheetLayout(
-            HEADER_ROW, FIRST_DATA_ROW, _INPUT_COLUMNS[-1], _INPUT_COLUMNS[-1], _LOOK_COLUMNS[-1], collective_file=True
+            HEADER_ROW, FIRST_DATA_ROW, _INPUT_COLUMNS[-1], _INPUT_COLUMNS[-1], _LOOK_COLUMNS[-1], collective_file=True,
+            quantity_columns=QUANTITY_COLUMNS,
         ),
         recalculate=True,
         look_columns=_LOOK_COLUMNS[-1],
         period_file=True,
+        quantity_columns=QUANTITY_COLUMNS,
     )
     INTERNAL_SETTLEMENT = _Rules(
         1,
@@ -256,6 +260,12 @@ class DataRow:
     number_formats: tuple[str, ...]
     """Formaty liczb komórek po pozycji; trafiają do kolumn wyglądu pliku z Wzorca."""
     hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
+    quantities: Mapping[int, int] = field(default_factory=dict)
+    """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: kolumna (od 1) → liczba różna od zera.
+
+    Trafiają do komórki Wzorca z jej wyglądem, bez Wyróżnień; reszta kolumn ilości zostaje jak we Wzorcu.
+    Odczyt Pliku zbiorczego ma ilości w ``values``.
+    """
 
     @property
     def worker(self) -> _ExcelCellValue:
@@ -814,7 +824,7 @@ def _ensure_unmerged(
     if row_count == 0:
         return
     first_row, last_row = rules.first_data_row, rules.first_data_row + row_count - 1
-    last_column = _last_written_column(rules, columns)
+    last_column = max(_last_written_column(rules, columns), rules.quantity_columns.stop - 1)
     for merged in merged_ranges:
         if merged.min_row <= last_row and merged.max_row >= first_row and merged.min_col <= last_column:
             raise WorkbookError(path, Problem.LAYOUT, MergedCells(sheet, merged.coord))
@@ -840,6 +850,7 @@ def _placed(rows: Sequence[DataRow], columns: Sequence[int]) -> Sequence[DataRow
             tuple(row.highlights[index] for index in order),
             tuple(row.number_formats[index] for index in order),
             {columns[position - 1]: link for position, link in row.hyperlinks.items()},
+            row.quantities,
         )
         for row in rows
     ]
@@ -878,6 +889,8 @@ def _write_rows(sheet: Worksheet, rules: _Rules, rows: Sequence[DataRow], column
             else:
                 cell.font = highlights.font_over(cast(Font, copy(cell.font)))
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
+        for column, quantity in row.quantities.items():
+            sheet.cell(number, column).value = quantity
     if rules.period_file:
         _set_autofilter(sheet, rules.header_row, len(rows))
 

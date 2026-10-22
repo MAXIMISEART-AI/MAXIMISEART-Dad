@@ -16,7 +16,8 @@ from pathlib import Path
 
 from . import preparation_messages as messages
 from .message import Message, StopError
-from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterSheet, cell_value
+from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, SUCCESSFUL, WORKER, RegisterSheet, cell_value
+from .quantity_rules import OrderContent, RuleResult, evaluate
 from .settlement_period import SettlementPeriod
 from .workbook_files import DataRow, is_blank
 from .worker_config import normalize_text
@@ -40,6 +41,18 @@ class PeriodOrder:
     @property
     def is_successful(self) -> bool:
         return normalize_text(cell_value(self.row, SUCCESSFUL)) == _SUCCESSFUL_VALUE
+
+    @property
+    def rule_result(self) -> RuleResult:
+        """Reguły ilości zastosowane do treści zlecenia."""
+
+        content = OrderContent(
+            contract=cell_value(self.row, CONTRACT),
+            devices=cell_value(self.row, DEVICES),
+            activities=cell_value(self.row, ACTIVITIES),
+            started=self.started,
+        )
+        return evaluate(content)
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,8 @@ Komunikatem dla taty, a wynik nie zawiera danych klientów.
 Ten moduł sekwencjonuje cztery etapy i między Planowaniem a Zapisywaniem
 składa Decyzję taty o niepełnym okresie. Odczyt Rejestru zleceń jest w
 ``preparation_register``, wybór zleceń okresu i reguły zleceń w
-``preparation_plan``, a wzorce i zapis plików okresu w ``preparation_files``.
+``preparation_plan``, Ilości usług zleceń w ``quantity_rules``, a wzorce i zapis plików okresu w
+``preparation_files``.
 """
 
 from __future__ import annotations

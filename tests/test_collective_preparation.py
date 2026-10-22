@@ -143,6 +143,19 @@ def test_rejestr_in_old_layout_still_fills_both_period_files(tmp_path: Path) -> 
     ]
 
 
+def with_drive_to_every_order(
+    rows: list[tuple[object, ...]], *, first_column: int, orders: int
+) -> list[tuple[object, ...]]:
+    """Wiersze Wzorca od ``first_column`` z 1 w V (dojazd) w pierwszych ``orders`` wierszach.
+
+    Domyślne zlecenia mają ``URZĄDZENIA`` ``dekoder``, którego Reguły ilości nie znają, i UMOWA bez druku, więc
+    dostają tylko V.
+    """
+
+    drive = 22 - first_column
+    return [row[:drive] + (1,) + row[drive + 1 :] if index < orders else row for index, row in enumerate(rows)]
+
+
 def test_plik_zbiorczy_keeps_wzorzec_rows_1_to_17_quantities_and_formulas(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
@@ -152,8 +165,8 @@ def test_plik_zbiorczy_keeps_wzorzec_rows_1_to_17_quantities_and_formulas(tmp_pa
     assert cell_values(created, min_row=1, max_row=17, min_col=1, max_col=47) == cell_values(
         template, min_row=1, max_row=17, min_col=1, max_col=47
     )
-    assert cell_values(created, min_row=18, max_row=30, min_col=12, max_col=47) == cell_values(
-        template, min_row=18, max_row=30, min_col=12, max_col=47
+    assert cell_values(created, min_row=18, max_row=30, min_col=12, max_col=47) == with_drive_to_every_order(
+        cell_values(template, min_row=18, max_row=30, min_col=12, max_col=47), first_column=12, orders=3
     )
     assert cell_values(created, min_row=18, max_row=18, min_col=14, max_col=14) == [(0,)]
     assert cell_values(created, min_row=18, max_row=18, min_col=47, max_col=47) == [("=N18*$N$1",)]
@@ -188,8 +201,8 @@ def test_przygotowanie_na_syntetycznych_wzorcach_ksztaltu_taty_wypelnia_pliki_ok
     assert cell_values(created, min_row=1, max_row=17, min_col=1, max_col=51) == cell_values(
         template, min_row=1, max_row=17, min_col=1, max_col=51
     )
-    assert cell_values(created, min_row=18, max_row=21, min_col=14, max_col=51) == cell_values(
-        template, min_row=18, max_row=21, min_col=14, max_col=51
+    assert cell_values(created, min_row=18, max_row=21, min_col=14, max_col=51) == with_drive_to_every_order(
+        cell_values(template, min_row=18, max_row=21, min_col=14, max_col=51), first_column=14, orders=3
     )
     assert external_link_parts(created) == external_link_parts(template)
     def filled_rows(path: Path) -> int:

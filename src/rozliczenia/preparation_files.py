@@ -20,6 +20,7 @@ from typing import Final
 
 from openpyxl.styles import Color, PatternFill
 from openpyxl.styles.fills import Fill
+from openpyxl.utils import column_index_from_string
 
 from . import preparation_messages as messages
 from .message import Message, StopError
@@ -180,7 +181,18 @@ def _write_period_file(template_path: Path, layout: Layout, target: Path, orders
 
     fills = _FIXED_FILLS.get(layout, {})
     with _template_stops(template_path):
-        _template(template_path, layout).create(target, [_with_fills(order.row, fills) for order in orders])
+        _template(template_path, layout).create(
+            target, [_with_quantities(_with_fills(order.row, fills), order, layout) for order in orders]
+        )
+
+
+def _with_quantities(row: DataRow, order: PeriodOrder, layout: Layout) -> DataRow:
+    """Wiersz Pliku zbiorczego z Ilościami usług zlecenia; Rozliczenie wewnętrzne nie ma kolumn ilości."""
+
+    if layout is not Layout.COLLECTIVE_FILE:
+        return row
+    quantities = order.rule_result.quantities
+    return replace(row, quantities={column_index_from_string(column): value for column, value in quantities.items()})
 
 
 def _with_fills(row: DataRow, fills: Mapping[Column, Fill]) -> DataRow:
