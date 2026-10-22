@@ -255,9 +255,11 @@ czterech stron w kolorze automatycznym i format liczby komórki źródłowej
 bez wartości źródłowej (`zwrot` i `UWAGI` Rozliczenia wewnętrznego, L Pliku
 zbiorczego) dostaje sam wygląd z formatem ogólnym, a jej treść zostaje z
 Wzorca. Wpisany wiersz nie ma zapisanej wysokości (`ht`, `customHeight`), więc
-Excel dopasowuje ją do treści. ADRES Pliku zbiorczego ma zawsze żółte
-wypełnienie (w plikach taty 419 z 419 komórek), także gdy w Rejestrze ma inny
-kolor; Rozliczenie pracownika dostaje je zwykłym przeniesieniem Wyróżnień.
+Excel dopasowuje ją do treści. ADRES Pliku zbiorczego bierze Wyróżnienia z
+komórki ADRES tego zlecenia w Rejestrze, jak każda inna kolumna; Rozliczenie
+pracownika dostaje je zwykłym przeniesieniem Wyróżnień. Pierwsza wersja tej
+zmiany dawała mu zawsze żółte wypełnienie (w plikach taty 419 z 419 komórek),
+także gdy w Rejestrze miał inny kolor albo żaden; tata poprawił to 2026-10-22.
 Kolumny za kolumnami wyglądu (M:AT Rozliczenia pracownika) zostają jak w zmianie
 z 2026-10-21. Ochrona i styl nazwany komórki Wzorca zostają.
 

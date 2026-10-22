@@ -189,8 +189,7 @@ do plików okresu, a z Pliku zbiorczego do Rozliczeń pracowników. Wyróżnieni
 zastępują wygląd komórki wzorca w całości: komórka bez Wyróżnień daje komórkę
 bez wypełnienia, z kolorem automatycznym, bez pogrubienia i bez kursywy. Krój i
 rozmiar czcionki nie są Wyróżnieniem i pochodzą z wzorca (Wygląd Wiersza
-danych). Wyjątek: ADRES w Pliku zbiorczym ma zawsze żółte wypełnienie, bez
-względu na wypełnienie w Rejestrze.
+danych).
 _Avoid_: formatowanie (szersze: obejmuje też krój, obramowania i formaty liczb)
 
 ## Hiperłącze
