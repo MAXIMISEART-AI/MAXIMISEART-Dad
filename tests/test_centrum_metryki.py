@@ -21,6 +21,9 @@ SETTLEMENT_COUNTERS = {
 }
 
 
+FOR_TATA = {"kind": "for_tata", "code": "ZLE_SKUTECZNE"}
+
+
 def record(
     started_at: str,
     *,
@@ -32,20 +35,27 @@ def record(
     phases: tuple[int, int, int, int] = (100, 200, 300, 400),
     stop: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    """Rekord wersji 1 (bez rodzaju Zatrzymania), a z ``stop`` rekord wersji 2 przerwanego Uruchomienia."""
+    """Rekord w schemacie metryk 2, jak zapisuje go rdzeń; ze ``stop`` rekord przerwanego Uruchomienia."""
 
-    v1 = {
-        "schema_version": 1,
+    stopped = stop is not None
+    return {
+        "schema_version": 2,
         "started_at": started_at,
         "mode": mode,
         "period": period,
-        "completed": result != "BLAD_KRYTYCZNY",
-        "result": result,
+        "completed": not stopped,
+        "result": "BLAD_KRYTYCZNY" if stopped else result,
         "total_duration_ms": total,
         "phase_durations_ms": dict(zip(("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"), phases)),
-        "counters": counters if result != "BLAD_KRYTYCZNY" else dict.fromkeys(counters, 0),
+        "counters": dict.fromkeys(counters, 0) if stopped else counters,
+        "stop": stop,
     }
-    return v1 if stop is None else {**v1, "schema_version": 2, "result": "BLAD_KRYTYCZNY", "completed": False, "stop": stop}
+
+
+def old(new_record: dict[str, object]) -> dict[str, object]:
+    """Ten sam rekord w schemacie metryk 1, sprzed Rodzaju Zatrzymania w rekordzie."""
+
+    return {key: value for key, value in new_record.items() if key != "stop"} | {"schema_version": 1}
 
 
 def preparation(started_at: str, **fields: Any) -> dict[str, object]:
@@ -170,7 +180,7 @@ def test_p50_i_p95_dopiero_od_pieciu_ukonczonych_obserwacji_tego_samego_trybu(tm
             for day, total in zip(range(1, 6), (5000, 1000, 4000, 2000, 3000))
         ),
         *(preparation(f"2026-09-1{day}T08:00:00+00:00", mode="DRY-RUN") for day in range(4)),
-        preparation("2026-09-20T08:00:00+00:00", mode="DRY-RUN", result="BLAD_KRYTYCZNY"),
+        preparation("2026-09-20T08:00:00+00:00", mode="DRY-RUN", stop=FOR_TATA),
     )
 
     body = metrics(app)
@@ -204,7 +214,7 @@ def test_wymaga_sprawdzenia_jest_ukonczona_obserwacja_i_osobnym_wynikiem(tmp_pat
         app.metrics.settlement,
         *(settlement(f"2026-09-0{day}T08:00:00+00:00") for day in range(1, 4)),
         *(settlement(f"2026-09-1{day}T08:00:00+00:00", result="WYMAGA_SPRAWDZENIA") for day in range(2)),
-        settlement("2026-09-20T08:00:00+00:00", result="BLAD_KRYTYCZNY"),
+        settlement("2026-09-20T08:00:00+00:00", stop=FOR_TATA),
     )
 
     run = statistics(metrics(app), "settlement", "RUN")
@@ -218,8 +228,8 @@ def test_zatrzymanie_dla_taty_i_stary_rekord_bez_rodzaju_to_zatrzymane_a_do_maks
     app = centrum(tmp_path)
     write_lines(
         app.metrics.preparation,
-        preparation("2026-10-06T08:00:00+00:00", result="BLAD_KRYTYCZNY"),
-        preparation("2026-10-07T08:00:00+00:00", stop={"kind": "for_tata", "code": "ZLE_SKUTECZNE"}),
+        old(preparation("2026-10-06T08:00:00+00:00", stop=FOR_TATA)),
+        preparation("2026-10-07T08:00:00+00:00", stop=FOR_TATA),
         preparation("2026-10-08T08:00:00+00:00", stop={"kind": "for_maks", "code": "BLAD_NIEOCZEKIWANY"}),
         preparation("2026-10-09T08:00:00+00:00"),
     )
@@ -245,7 +255,7 @@ def test_niepoprawne_rekordy_metryk_sa_pomijane(tmp_path: Path) -> None:
         "{nie json",
         preparation("2026-09-02T08:00:00"),  # czas bez strefy
         preparation("2026-09-03T08:00:00+00:00", total=True),
-        {**preparation("2026-09-04T08:00:00+00:00"), "schema_version": 2},
+        {**preparation("2026-09-04T08:00:00+00:00"), "schema_version": 3},
         settlement("2026-09-05T08:00:00+00:00"),  # liczniki Przebiegu rozliczeń w pliku Przygotowania
         '{"schema_version":1,"started_at":"2026-09-06T08:00:00+00:00","mode":"RUN"',
     )
@@ -262,7 +272,7 @@ def test_rozklad_wynikow_z_ostatnich_osmiu_tygodni_obejmuje_oba_procesy(tmp_path
         app.metrics.preparation,
         preparation("2026-08-23T12:00:00+00:00"),  # przed ostatnimi ośmioma tygodniami
         preparation("2026-08-25T12:00:00+00:00"),
-        preparation("2026-10-06T12:00:00+00:00", result="BLAD_KRYTYCZNY"),
+        preparation("2026-10-06T12:00:00+00:00", stop=FOR_TATA),
     )
     write_lines(app.metrics.settlement, settlement("2026-10-01T12:00:00+00:00", result="WYMAGA_SPRAWDZENIA"))
 
@@ -275,7 +285,7 @@ def test_rekord_zapisany_spoza_centrum_pojawia_sie_bez_restartu_centrum(tmp_path
     app = centrum(tmp_path)
     assert metrics(app)["runs"] == []
 
-    write_lines(app.metrics.preparation, preparation("2026-09-15T08:00:00+00:00", mode="DRY-RUN", result="BLAD_KRYTYCZNY"))
+    write_lines(app.metrics.preparation, preparation("2026-09-15T08:00:00+00:00", mode="DRY-RUN", stop=FOR_TATA))
 
     [run] = runs_of(metrics(app))
     assert (run["process"], run["mode"], run["period"], run["result"], run["origin"]) == (
