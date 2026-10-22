@@ -608,6 +608,8 @@ def _verify(variant: str, templates_directory: Path, run_dir: Path) -> int:
                 str(HELPER_DIRECTORY / "self_test.py"),
                 "--evidence-root",
                 str(evidence_root),
+                "--run-dir",
+                str(run_dir),
             ],
             evidence_root,
             self_test_environment,

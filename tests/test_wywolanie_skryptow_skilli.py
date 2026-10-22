@@ -24,16 +24,21 @@ CLEANUPS = (
     SKILLS / "verify-rozliczenia" / "scripts" / "cleanup.py",
     SKILLS / "verify-centrum-rozliczen" / "scripts" / "centrum_cleanup.py",
 )
-CONTRACT_OPTIONS = {"--root", "--run-dir", "--variant"}
+CONTRACT_NAMES = {"root", "run_dir", "variant", "wariant", "katalog_runu"}
 CWD_CALLS = {"chdir", "getcwd", "cwd"}
 
 # Pliki otwartych PR-ów innych wątków przejdą na Parser po ich merge'u. Po terminie przypadek znów pada.
 OPEN_PR_UNTIL = date(2026, 10, 29)
 OPEN_PR = {
-    "verify-centrum-rozliczen/scripts/serve_centrum.py": "#282 zmienia ten plik; --root z Parser po jego merge'u",
+    ("verify-centrum-rozliczen/scripts/serve_centrum.py", "add_argument(--root)"): "#282 zmienia ten plik",
 }
-NOT_A_RUN = {
-    "verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py": "pamięć podręczna narzędzi modelu TLA+, nie run",
+OUTSIDE_CONTRACT = {
+    ("verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py", "'.verification'"): (
+        "pamięć podręczna narzędzi modelu TLA+, nie run"
+    ),
+    ("verify-centrum-rozliczen/scripts/create_centrum_fixture.py", "add_argument(--wariant)"): (
+        "dane fixture, które runner wybiera dla funkcji wydajnosc; jedna wartość, nie lista wariantów weryfikacji"
+    ),
 }
 
 
@@ -48,30 +53,41 @@ def _script(script: Path, *arguments: str, cwd: Path) -> subprocess.CompletedPro
     )
 
 
-def _own_contract(path: Path) -> list[str]:
+def _contract_argument(call: ast.Call) -> str | None:
+    options = [str(argument.value) for argument in call.args if isinstance(argument, ast.Constant)]
+    dests = [str(keyword.value.value) for keyword in call.keywords if keyword.arg == "dest" and isinstance(keyword.value, ast.Constant)]
+    names = {option.lstrip("-").replace("-", "_") for option in options} | set(dests)
+    if not names & CONTRACT_NAMES:
+        return None
+    return f"add_argument({', '.join([*options, *(f'dest={dest}' for dest in dests)])})"
+
+
+def _own_contract(path: Path) -> list[tuple[int, str]]:
     found = []
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument":
-            options = {argument.value for argument in node.args if isinstance(argument, ast.Constant)} & CONTRACT_OPTIONS
-            found += [f"{node.lineno}: add_argument({option})" for option in sorted(map(str, options))]
+            if argument := _contract_argument(node):
+                found.append((node.lineno, argument))
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             if node.value == ".verification" or node.value.startswith((".verification/", ".verification\\")):
-                found.append(f"{node.lineno}: {node.value!r}")
+                found.append((node.lineno, repr(node.value)))
         elif isinstance(node, ast.Attribute) and node.attr in CWD_CALLS:
-            found.append(f"{node.lineno}: .{node.attr}")
+            found.append((node.lineno, f".{node.attr}"))
+        elif isinstance(node, ast.alias) and node.name == "VERIFICATION":
+            found.append((node.lineno, "VERIFICATION poza add_run_dir"))
     return found
 
 
 def test_skrypty_skilli_biora_katalog_runu_warianty_i_sciezki_tylko_z_parsera() -> None:
     found = {
-        path.relative_to(SKILLS).as_posix(): lines
+        (path.relative_to(SKILLS).as_posix(), what): line
         for path in sorted(SKILLS.glob("*/scripts/**/*.py"))
-        if (lines := _own_contract(path))
+        for line, what in _own_contract(path)
     }
-    allowed = {**NOT_A_RUN, **(OPEN_PR if date.today() <= OPEN_PR_UNTIL else {})}
+    allowed = {**OUTSIDE_CONTRACT, **(OPEN_PR if date.today() <= OPEN_PR_UNTIL else {})}
 
-    assert {path: lines for path, lines in found.items() if path not in allowed} == {}, (
-        "--root, --run-dir i --variant dodają metody skrypt_skilla.Parser, katalog domyślny to skrypt_skilla.VERIFICATION, "
+    assert sorted(f"{path}:{line}: {what}" for (path, what), line in found.items() if (path, what) not in allowed) == [], (
+        "--root, --run-dir i --variant dodają metody skrypt_skilla.Parser, katalog przebiegu przychodzi z add_run_dir, "
         "a skrypt nie zależy od bieżącego katalogu"
     )
     assert sorted(set(allowed) - set(found)) == [], "wyjątek bez znaleziska: usuń go"
@@ -145,6 +161,22 @@ def test_sprzatanie_usuwa_pusty_katalog_po_usunietym_znaczniku(tmp_path: Path) -
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert not left.exists()
+
+
+def test_self_test_pisze_probe_sprzatania_do_podanego_katalogu_przebiegu(tmp_path: Path) -> None:
+    evidence = tmp_path / "dowody"
+    evidence.mkdir()
+    (evidence / "wynik.txt").write_text("VERIFY OK\n", encoding="utf-8")
+    run_dir = tmp_path / "przebieg"
+
+    done = _script(
+        SKILLS / "verify-rozliczenia" / "scripts" / "self_test.py",
+        *("--evidence-root", str(evidence), "--run-dir", str(run_dir)),
+        cwd=tmp_path,
+    )
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert sorted(path.name for path in run_dir.iterdir()) == ["evidence", "runs"]
 
 
 def test_fixture_nie_pisze_do_niepustego_katalogu(tmp_path: Path) -> None:
