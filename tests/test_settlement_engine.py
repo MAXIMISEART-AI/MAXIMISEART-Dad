@@ -645,6 +645,45 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     assert worker_template_path.read_bytes() == worker_template_before
 
 
+@pytest.mark.parametrize("onedrive_holds_files", [False, True], ids=["folder-tymczasowy-usuniety", "onedrive-trzyma-pliki"])
+def test_nieudana_publikacja_folderu_rozliczen_pracownikow_zatrzymuje_kodem_publikacji(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, onedrive_holds_files: bool
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    staging_prefix = f".{target_directory.name}.staging-"
+    real_rename, real_unlink = os.rename, os.unlink
+    publication_failed = False
+
+    def rename_fails_for_staging_folder(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        nonlocal publication_failed
+        if Path(source).name.startswith(staging_prefix):
+            publication_failed = True
+            raise PermissionError("wymuszony: Windows nie zmienia nazwy folderu z otwartym plikiem")
+        real_rename(source, target)
+
+    def unlink_fails_while_onedrive_holds_files(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if onedrive_holds_files and publication_failed:
+            raise PermissionError("wymuszony: plik trzyma OneDrive")
+        real_unlink(path, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "rename", rename_fails_for_staging_folder)
+    monkeypatch.setattr(os, "unlink", unlink_fails_while_onedrive_holds_files)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    message = raised.value.message
+    assert message.code == "BLAD_PUBLIKACJI"
+    assert not target_directory.exists()
+    staging_left = [path.name for path in target_directory.parent.glob(f"{staging_prefix}*")]
+    if onedrive_holds_files:
+        assert len(staging_left) == 1
+        assert staging_left[0] in message.action
+        assert "Nie utworzono żadnego pliku pracownika." not in message.what
+    else:
+        assert staging_left == []
+
+
 def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(complete_run: tuple[Path, Path, Path, Path]) -> None:
     source_path, target_directory, config_path, worker_template_path = complete_run
     sentinel = target_directory / "existing.txt"
