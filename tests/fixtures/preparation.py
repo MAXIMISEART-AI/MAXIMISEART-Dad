@@ -144,6 +144,7 @@ class Highlight:
 DEFAULT_REGISTER_HIGHLIGHTS: dict[tuple[int, str], Highlight] = {
     (4, "AKCJE"): Highlight(fill="FF00B050", bold=True),
     (4, "ADRES"): Highlight(fill="FFFFFF00", color="FFC00000", bold=True),
+    (9, "ADRES"): Highlight(fill="FF00B0F0"),
     (9, "WYKONAWCA"): Highlight(italic=True),
 }
 
