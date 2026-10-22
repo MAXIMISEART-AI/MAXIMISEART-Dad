@@ -9,7 +9,6 @@ Git and pip below it), never by process name. Closes the Explorer windows on the
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Callable
 import os
 from pathlib import Path
@@ -20,6 +19,10 @@ import time
 from typing import Any
 
 import windows_desktop
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser, RunRootError, require_run_root  # noqa: E402
 
 
 def _writable_then_retry(function: Callable[..., Any], path: str, _: object) -> None:
@@ -49,6 +52,10 @@ def cleanup(root: Path) -> str:
         return "CLEANUP FAIL | this skill drives Windows only"
     if not root.is_dir():
         return f"CLEANUP OK | stopped=[] | removed=true | {root} did not exist"
+    try:
+        require_run_root(root)
+    except RunRootError as error:
+        return f"CLEANUP FAIL | {error}"
     own = {os.getpid(), os.getppid()}
     stopped = []
     for _ in range(3):  # the guardian may start a Centrum while the first pass stops it
@@ -70,9 +77,9 @@ def cleanup(root: Path) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True)
-    verdict = cleanup(parser.parse_args(argv).root.resolve())
+    parser = Parser(description=__doc__)
+    parser.add_root("run root of this Windows run")
+    verdict = cleanup(parser.parse_args(argv).root)
     print(verdict, flush=True)
     return 0 if verdict.startswith("CLEANUP OK") else 1
 

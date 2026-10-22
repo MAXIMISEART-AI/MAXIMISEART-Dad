@@ -11,12 +11,16 @@ procesu is the fixture's, not one from Dad's history).
 
 from __future__ import annotations
 
-import argparse
+from argparse import RawDescriptionHelpFormatter
 from datetime import datetime
 import json
 from pathlib import Path
 import sys
 import urllib.request
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser  # noqa: E402
 
 
 def _get(url: str) -> tuple[int, bytes]:
@@ -58,10 +62,9 @@ def check(root: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, help="Run root of the served Centrum.")
-    args = parser.parse_args(argv)
-    problems = check(Path(args.root))
+    parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
+    parser.add_root("run root of the served Centrum")
+    problems = check(parser.parse_args(argv).root)
     if problems:
         for problem in problems:
             print(f"DOCTOR FAIL | {problem}", file=sys.stderr)
