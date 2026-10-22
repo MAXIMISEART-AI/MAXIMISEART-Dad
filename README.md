@@ -368,19 +368,6 @@ Zmianę, która może zmienić szybkość frontendu, mierzy przed i po funkcja
 baseline'em; poza `all`, kilka minut na spokojnym CPU, opis w
 [`features/wydajnosc.md`](.agents/skills/verify-centrum-rozliczen/features/wydajnosc.md)).
 
-## Naprawa plików zapisanych starą wersją
-
-Jeśli wcześniejsze uruchomienie pokazało w Excelu komunikat o naprawie
-odwołania zewnętrznego, zamknij Excel i uruchom jednorazowo tryb kontrolny:
-
-```powershell
-py -3 tools\repair_external_links.py --directory "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026" --reference "C:\Dane\08_14_09_2026\Rozliczenie pracowników 08_14_09_2026\Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx"
-```
-
-Jeśli lista plików jest poprawna, dodaj `--apply`. Narzędzie zapisze kopie w
-`_backup_przed_naprawa_linkow` i zmieni wyłącznie części ZIP odpowiedzialne za
-odwołania zewnętrzne, nie komórki ani formuły.
-
 ## Zakres poza pierwszą wersją
 
 Synchronizacja OneDrive, współbieżna edycja przez innych użytkowników oraz

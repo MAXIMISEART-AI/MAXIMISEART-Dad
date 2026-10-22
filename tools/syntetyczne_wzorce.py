@@ -52,8 +52,6 @@ WORKER_TEMPLATE = default_worker_template_path().name
 COLLECTIVE_TEMPLATE = default_collective_template_path().name
 INTERNAL_TEMPLATE = default_internal_template_path().name
 WORKER_CONFIG = default_config_path().name
-# Zmiana kształtu albo treści wygenerowanych plików podnosi wersję (benchmark trzyma je pod nią).
-GENERATOR_VERSION = 2
 
 # Wiersze danych Wzorca taty: 18..10093.
 FULL_DATA_ROWS = 10_076
