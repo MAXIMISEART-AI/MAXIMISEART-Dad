@@ -239,7 +239,7 @@ def test_bez_straznika_narzedzie_przerywa_zamiast_dzialac_bez_sprzatania(tmp_pat
 
 
 def test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne() -> None:
-    sources = [path for path in TOOLS.rglob("*.py") if path != TOOLS / "potomne.py"]
+    sources = [path for path in [*TOOLS.rglob("*.py"), TOOLS / "hooks" / "pre-push"] if path != TOOLS / "potomne.py"]
 
     found = [
         f"{path.relative_to(TOOLS.parent).as_posix()}:{number}: {line.strip()}"
