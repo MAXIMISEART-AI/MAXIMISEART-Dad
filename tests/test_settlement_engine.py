@@ -25,7 +25,6 @@ from rozliczenia.domain import (
     WorkerResult,
     WorkerStarted,
 )
-from rozliczenia.centrum.stops import StopMemory
 from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.process_run import Stop
@@ -867,11 +866,10 @@ def test_ponowna_nieudana_publikacja_z_folderem_tymczasowym_jest_powtorka(
         with pytest.raises(StopError) as raised:
             run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
         stops.append(Stop("stop", raised.value.message))
-    memory = StopMemory()
-    memory.remember("settlement", stops[0])
 
     assert len(list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))) == 2
-    assert memory.kind("settlement", stops[1]) == "repeated"
+    assert stops[1].message == stops[0].message
+    assert stops[1].stop_kind == "for_tata"
 
 
 def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(complete_run: tuple[Path, Path, Path, Path]) -> None:

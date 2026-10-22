@@ -12,7 +12,7 @@ Wzorzec's formulas calculating the amounts, and the Rejestr's Wyróżnienia.
 - `wiersze-a-at`: the Wiersze danych are the Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, and each row's `A:AT` in Excel equals that row of the Plik zbiorczy after Gotowość.
 - `hiperlacza`: each Wiersz danych has in the file Przebieg wrote the `A:AT` Hiperłącza of its row in the Plik zbiorczy Excel saved.
 - `formuly`: every Wiersz danych has the R1C1 formulas of `AU18:AY18` of the Wzorzec rozliczenia pracownika, `AU:AX` shows no error, and the rows Dad filled show a positive amount in `AU`.
-- `wyroznienia`: Adrian Testowy's `PREP-SYN-ZL-2` keeps the yellow ADRES with bold dark red text, Kamil Syntetyczny's `PREP-SYN-ZL-4` the italic WYKONAWCA; Darek Fikcyjny has none (`cells=0`).
+- `wyroznienia`: each file shows the Plik zbiorczy's Wyróżnienia of its own orders: Adrian Testowy the yellow ADRES with bold dark red text of `PREP-SYN-ZL-2` and the plain ADRES of `-7` (`cells=2`), Kamil Syntetyczny the blue ADRES and italic WYKONAWCA of `-4` (`cells=2`), Darek Fikcyjny the plain ADRES of `-6` (`cells=1`).
 - `wyglad-wiersza`: rows with one line are the sheet's standard height and Adrian Testowy's two-line `PREP-SYN-ZL-2` is taller; DATA shows the same text as in the Plik zbiorczy (its number format, not the Wzorzec's).
 
 ## How to get to it (user POV)

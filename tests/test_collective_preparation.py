@@ -496,20 +496,23 @@ def test_highlights_from_rejestr_reach_both_files_and_plain_cells_get_none(tmp_p
 
     run_preparation(fixture)
 
-    # Zlecenie 2: ADRES wyróżniony; zlecenie 4: WYKONAWCA kursywą; reszta bez wyróżnień.
-    assert cell_formats(fixture.internal_settlement_path, ["C2", "H4", "B2", "C3", "H2"]) == {
+    # Zlecenie 2: ADRES żółty, pogrubiony, czerwoną czcionką; zlecenie 4: ADRES niebieski, WYKONAWCA kursywą;
+    # zlecenie 6 i reszta bez wyróżnień.
+    assert cell_formats(fixture.internal_settlement_path, ["C2", "C4", "H4", "B2", "C3", "C5", "H2"]) == {
         "C2": ("FFFFFF00", "FFC00000", True, False),
+        "C4": ("FF00B0F0", None, False, False),
         "H4": (None, None, False, True),
         "B2": (None, None, False, False),
         "C3": (None, None, False, False),
+        "C5": (None, None, False, False),
         "H2": (None, None, False, False),
     }
-    # ADRES (B) Pliku zbiorczego jest zawsze żółty, z kolorem czcionki, pogrubieniem i kursywą z Rejestru.
-    assert cell_formats(fixture.collective_file_path, ["B18", "H19", "A18", "B19", "H18"]) == {
+    assert cell_formats(fixture.collective_file_path, ["B18", "B19", "H19", "A18", "B20", "H18"]) == {
         "B18": ("FFFFFF00", "FFC00000", True, False),
+        "B19": ("FF00B0F0", None, False, False),
         "H19": (None, None, False, True),
         "A18": (None, None, False, False),
-        "B19": ("FFFFFF00", None, False, False),
+        "B20": (None, None, False, False),
         "H18": (None, None, False, False),
     }
 

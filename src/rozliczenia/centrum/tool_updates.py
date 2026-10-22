@@ -22,12 +22,14 @@ from pathlib import Path
 import shutil
 import tempfile
 import threading
+from typing import Final
+import uuid
 
 from fastapi import APIRouter, Request
 
 from rozliczenia.centrum import contract, restart_guardian, update_messages
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.reports import NO_FAILED_UPDATE, Reports
+from rozliczenia.centrum.reports import Draft, Reports, UpdateReport
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.shutdown import Shutdown
@@ -47,6 +49,8 @@ from rozliczenia.centrum.tool_update import (
 
 # Porażki, po których tata sam klika „Zaktualizuj narzędzie” jeszcze raz; każdą inną przejmuje Maks.
 _RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED, ROLLBACK_FAILED})
+# Odmowa „Wyślij do Maksa”, gdy ostatnia Aktualizacja narzędzia nie zawiodła.
+_NO_FAILED_UPDATE: Final = "Zgłoszenie powstaje po nieudanej aktualizacji narzędzia."
 
 GuardianLauncher = Callable[[Path, Restart], object]
 """Uruchamia opiekuna ponownego startu z kopii (``restart_guardian.launch``); w testach podstawiany."""
@@ -63,8 +67,7 @@ class ToolUpdates:
     (``guardian``) i zamyka się (``shutdown``); miejsca „jedno naraz” już nie
     zwalnia. Opiekun zostawia wynik w ``result_file``, a nowe Centrum odczytuje
     go raz przy starcie: zapisuje koniec aktualizacji w dzienniku, usuwa plik i
-    pokazuje wynik karcie. ``reports`` przygotowuje i wysyła Zgłoszenie nieudanej
-    aktualizacji.
+    pokazuje wynik karcie.
     """
 
     def __init__(
@@ -89,6 +92,7 @@ class ToolUpdates:
         self._result_file = result_file
         self._lock = threading.Lock()
         self._view: contract.ToolUpdate = contract.ToolUpdateIdle(state="idle")
+        self._draft: Draft | None = None
         self._after_restart()
 
     def current(self) -> contract.ToolUpdate:
@@ -131,15 +135,15 @@ class ToolUpdates:
         if view is not None:
             self._view = view
             return
-        failed = self._failed(result)
-        self._view = failed
+        failed, draft = self._failed(result)
+        self._view, self._draft = failed, draft
         threading.Thread(
-            target=self._ask_box_after_restart, args=(failed,), name="zgloszenie-aktualizacji", daemon=True
+            target=self._ask_box_after_restart, args=(failed, draft), name="zgloszenie-aktualizacji", daemon=True
         ).start()
 
-    def _ask_box_after_restart(self, failed: contract.ToolUpdateFailed) -> None:
+    def _ask_box_after_restart(self, failed: contract.ToolUpdateFailed, draft: Draft) -> None:
         try:
-            state = self._reports.update_report_state()
+            state = self._reports.ask(draft)
         except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="stan Zgłoszenia aktualizacji przy starcie")
             return
@@ -151,6 +155,7 @@ class ToolUpdates:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
         restarting = False
         view: contract.ToolUpdate | None = None
+        draft: Draft | None = None
         try:
             result, guardian = self._result(clone, before, work)
             if result.before is None:  # bez Gita commit zna tylko Centrum
@@ -164,9 +169,10 @@ class ToolUpdates:
                     result = self._moved_back(clone, result)
             if not restarting:
                 self._finished(result)
-                view = _view_of(result) or self._failed(result).model_copy(
-                    update={"report": self._reports.update_report_state()}
-                )
+                view = _view_of(result)
+                if view is None:
+                    failed, draft = self._failed(result)
+                    view = failed.model_copy(update={"report": self._reports.ask(draft)})
         finally:
             if not restarting:
                 shutil.rmtree(work, ignore_errors=True)
@@ -175,7 +181,7 @@ class ToolUpdates:
                 with self._lock:
                     self._runs.end_update()
                     if view is not None:
-                        self._view = view
+                        self._view, self._draft = view, draft
 
     def _result(self, clone: ToolClone, before: str | None, work: Path) -> tuple[UpdateResult, Path | None]:
         try:
@@ -218,27 +224,29 @@ class ToolUpdates:
             result=result.code, before=result.before, after=result.after, installed=result.installed
         )
 
-    def _failed(self, result: UpdateResult) -> contract.ToolUpdateFailed:
-        """Komunikat porażki z podglądem Zgłoszenia i ostatnim znanym stanem; ``aktualizacja-koniec`` jest już w dzienniku."""
+    def _failed(self, result: UpdateResult) -> tuple[contract.ToolUpdateFailed, Draft]:
+        """Komunikat porażki z podglądem Zgłoszenia; ``aktualizacja-koniec`` jest już w dzienniku, więc podgląd go ma."""
 
         message = update_messages.message_of(result.code)
-        draft, report = self._reports.draft_update(result, message)
-        return contract.ToolUpdateFailed(
+        source = UpdateReport.of(result, message, self._log)
+        draft = self._reports.draft(uuid.uuid4().hex, source)
+        failed = contract.ToolUpdateFailed(
             state="failed",
             message=contract.Message.of(message),
             next_action="retry" if message.code in _RETRIED_BY_TATA else "report",
-            report=report,
-            draft=draft,
+            report=self._reports.state(source.fingerprint),
+            draft=draft.view,
         )
+        return failed, draft
 
     def send_report(self) -> contract.ReportState:
         """„Wyślij do Maksa” przy nieudanej aktualizacji; ``contract.Refusal``, gdy ostatnia aktualizacja nie zawiodła."""
 
         with self._lock:
-            failed = self._view
-        if not isinstance(failed, contract.ToolUpdateFailed):
-            raise contract.Refusal(409, NO_FAILED_UPDATE)
-        state = self._reports.send_update()
+            failed, draft = self._view, self._draft
+        if not isinstance(failed, contract.ToolUpdateFailed) or draft is None:
+            raise contract.Refusal(409, _NO_FAILED_UPDATE)
+        state = self._reports.send(draft)
         with self._lock:
             if self._view is failed:
                 self._view = failed.model_copy(update={"report": state})

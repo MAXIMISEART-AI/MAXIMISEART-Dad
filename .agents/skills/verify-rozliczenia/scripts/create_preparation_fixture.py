@@ -88,6 +88,8 @@ COLLECTIVE_ZERO_ROWS = 6
 REGISTER_DATE_FORMAT = "dd.mm.yyyy hh:mm"
 HIGHLIGHT_FILL = "FFFFFF00"
 HIGHLIGHT_COLOR = "FFC00000"
+# ADRES of order 4: neither yellow nor plain, so the Plik zbiorczy shows it only when it copies the Rejestr.
+ADDRESS_FILL = "FF00B0F0"
 # Hiperłącze in NUMER ZL. of every ZLECENIA order, like the link to the order in the company app; the Rejestr
 # row number ends the address. The PREP-SYN- marker makes self_test.py reject an address leaking into evidence.
 ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
@@ -183,6 +185,7 @@ def _write_register(path: Path) -> None:
     highlighted = sheet.cell(4, adres_column)
     highlighted.font = Font(name="Arial", size=8, color=HIGHLIGHT_COLOR, bold=True)
     highlighted.fill = PatternFill(fill_type="solid", fgColor=HIGHLIGHT_FILL)
+    sheet.cell(9, adres_column).fill = PatternFill(fill_type="solid", fgColor=ADDRESS_FILL)
     worker_column = REGISTER_HEADERS.index("WYKONAWCA") + 1
     sheet.cell(9, worker_column).font = Font(name="Arial", size=8, italic=True)
     order_column = REGISTER_HEADERS.index("NUMER ZL.") + 1
