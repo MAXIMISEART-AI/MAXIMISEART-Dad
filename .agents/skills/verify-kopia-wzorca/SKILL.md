@@ -51,7 +51,7 @@ The check holds that copy to five rules, for any Wiersze danych:
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `SYNC`** (Wygląd Wiersza danych, 2026-10-22):
+Coverage, confirmed at **sync commit `d3ba226`** (Wygląd Wiersza danych, 2026-10-22):
 
 | Code | What the check covers |
 | --- | --- |
@@ -69,7 +69,7 @@ Run the check when a diff touches any of these. To see whether the covered code 
 sync commit:
 
 ```bash
-git diff --stat SYNC -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py
+git diff --stat d3ba226 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
