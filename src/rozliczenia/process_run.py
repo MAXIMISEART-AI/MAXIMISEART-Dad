@@ -28,7 +28,7 @@ from .decision import Conversation, Decision
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase, StopKind
 from .message import Message, StopError
 from .progress import ProgressProjection, ProgressSnapshot
-from .telemetry import MetricsStore, metric_record
+from .telemetry import MetricsStore, RecordedStop, metric_record
 
 __all__ = [
     "Finished",
@@ -294,6 +294,7 @@ def run_process(
     )
 
     finished = ending if isinstance(ending, Finished) else None
+    stop = None if isinstance(ending, Finished) else RecordedStop(kind=ending.stop_kind, code=ending.message.code)
     record = metric_record(
         mode=mode,
         period=inputs.period,
@@ -304,6 +305,7 @@ def run_process(
         ),
         result=finished.result if finished else "BLAD_KRYTYCZNY",
         counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
+        stop=stop,
     )
     notices: list[str] = []
     try:

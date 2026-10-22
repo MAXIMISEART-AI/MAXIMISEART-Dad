@@ -418,6 +418,7 @@ def test_uruchom_bez_podgladu_i_podglad_wymagajacy_sprawdzenia_nie_sa_udanym_pod
             phase_durations_ms={},
             result="BLAD_KRYTYCZNY",
             counters=dict.fromkeys(preparation_process.PROCESS.counter_names, 0),
+            stop={"kind": "for_tata", "code": "ZLE_SKUTECZNE"},
         )
     )
 
