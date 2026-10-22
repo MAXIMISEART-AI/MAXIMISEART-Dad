@@ -46,7 +46,7 @@ def _fake_gh(directory: Path, answer: str, code: int = 0) -> str:
     fake = directory / "gh-na-niby"
     fake.mkdir(exist_ok=True)
     (fake / "odpowiedz.json").write_text(answer, encoding="utf-8")
-    if os.name == "nt":
+    if sys.platform == "win32":
         (fake / "gh.cmd").write_text(f'@type "{fake / "odpowiedz.json"}"\n@exit /b {code}\n', encoding="utf-8")
     else:
         (fake / "gh").write_text(f"#!/bin/sh\ncat '{fake / 'odpowiedz.json'}'\nexit {code}\n", encoding="utf-8")

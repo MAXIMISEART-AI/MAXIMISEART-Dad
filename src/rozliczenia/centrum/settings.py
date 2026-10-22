@@ -9,11 +9,15 @@ from fastapi import APIRouter
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.platform import Platform
-from rozliczenia.settings import Settings, SettingsStore
+from rozliczenia.settings import Settings, SettingsStore, Theme
 
 _REGISTER_DIALOG = "Wybierz plik Rejestru zleceń"
 _REGISTER_FILETYPES = (("Rejestr zleceń Excel", "ZLECENIA*.xlsx"), ("Excel", "*.xlsx"))
 _PERIODS_DIALOG = "Wybierz folder okresów (np. Załączniki albo INEA)"
+_NOT_SAVED = (
+    "Nie udało się zapisać Ustawień taty w folderze config. Sprawdź, czy folder otwiera się w Eksploratorze "
+    "plików, nie jest tylko do odczytu i czy OneDrive działa, potem spróbuj ponownie."
+)
 
 
 def settings_router(store: SettingsStore, platform: Platform) -> APIRouter:
@@ -28,20 +32,31 @@ def settings_router(store: SettingsStore, platform: Platform) -> APIRouter:
         chosen = platform.choose_file(_REGISTER_DIALOG, _REGISTER_FILETYPES)
         if chosen is None:
             return contract.Choice(settings=describe(store.load()))
-        return contract.Choice(settings=describe(store.update(register=chosen)))
+        return contract.Choice(settings=_saved(store, register=chosen))
 
     @router.post("/periods-directory/choose", operation_id="choosePeriodsDirectory")
     def choose_periods_directory() -> contract.Choice:
         chosen = platform.choose_folder(_PERIODS_DIALOG)
         if chosen is None:
             return contract.Choice(settings=describe(store.load()))
-        return contract.Choice(settings=describe(store.update(periods_directory=chosen)))
+        return contract.Choice(settings=_saved(store, periods_directory=chosen))
 
     @router.put("/theme", operation_id="changeTheme")
     def change_theme(change: contract.ThemeChange) -> contract.Settings:
-        return describe(store.update(theme=change.theme))
+        return _saved(store, theme=change.theme)
 
     return router
+
+
+def _saved(
+    store: SettingsStore, *, register: Path | None = None, periods_directory: Path | None = None, theme: Theme | None = None
+) -> contract.Settings:
+    """Ustawienia po zapisie zmiany; folder config, do którego nie da się pisać, to odmowa z własnym tekstem."""
+
+    try:
+        return describe(store.update(register=register, periods_directory=periods_directory, theme=theme))
+    except OSError:
+        raise contract.Refusal(500, _NOT_SAVED) from None
 
 
 def describe(settings: Settings) -> contract.Settings:

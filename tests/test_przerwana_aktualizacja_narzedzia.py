@@ -61,7 +61,7 @@ def _shortcut(clone: Path, port: int) -> Iterator[subprocess.Popen[str]]:
         text=True,
         encoding="utf-8",
         errors="replace",
-        start_new_session=os.name != "nt",
+        start_new_session=sys.platform != "win32",
     )
     try:
         yield process

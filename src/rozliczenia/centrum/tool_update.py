@@ -584,7 +584,7 @@ class _Git:
                 stdout=output,
                 stderr=errors,
                 creationflags=_NO_WINDOW,
-                start_new_session=os.name != "nt",
+                start_new_session=sys.platform != "win32",
             )
             try:
                 returncode = process.wait(timeout=timeout_s)

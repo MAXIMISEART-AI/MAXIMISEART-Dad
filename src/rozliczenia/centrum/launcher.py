@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 import functools
-import os
 import socket
 import subprocess
 import sys
@@ -150,7 +149,7 @@ def listen_locally(port: int) -> socket.socket:
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        if os.name != "nt":  # na Windows SO_REUSEADDR pozwoliłby przejąć port działającego programu
+        if sys.platform != "win32":  # na Windows SO_REUSEADDR pozwoliłby przejąć port działającego programu
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind((_HOST, port))
         listener.listen()  # kolejne uruchomienie czeka na health, zamiast dostać odmowę połączenia

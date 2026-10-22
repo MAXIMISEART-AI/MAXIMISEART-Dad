@@ -19,3 +19,17 @@
 - Uruchamianie narzędzia przez człowieka: użyj [`README.md`](README.md).
 - Issues i specyfikacje: użyj [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 - Triage: użyj [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
+
+## Reguły i co ich pilnuje
+
+Gdy operator Cię poprawi, popraw błąd i dopisz tu regułę. Jeśli reguła już tu była, a nic jej nie pilnowało, to błąd się powtórzył: w tej samej zmianie dodaj sprawdzenie, które go łapie. Wyjątek zapisz na linii, której dotyczy, z powodem, terminem i zgodą Maksa (wzór: `KNOWN` w `tests/test_uszkodzone_wejscia.py`).
+
+| Reguła | Co jej pilnuje |
+|---|---|
+| Plik albo folder taty w złym stanie (uszkodzony, z BOM, w UTF-16, bez dostępu) daje Komunikat, który go nazywa. Plik bez dostępu jest „niedostępny”, nie „uszkodzony”. Skoroszyt czytaj przez `_file_bytes` (`workbook_files.py`), a folder okresu przez `reading` (`period_folder.py`). | `tests/test_uszkodzone_wejscia.py`: każda kombinacja pliku, uszkodzenia i operacji kontraktu Centrum. Nowa operacja, której nie ma w `ENTRIES` ani w `NOT_SWEPT` (z powodem), wywraca test |
+| System sprawdzaj przez `sys.platform == "win32"`. | ruff `TID251` (`pyproject.toml`) oraz mypy dla obu systemów w `tools/ci_lokalnie.py` |
+| Numer ADR jest unikalny i zgadza się z nagłówkiem pliku. | `tests/test_adr.py` |
+| Moduł testów importuje pomocniki tylko z `tests/fixtures`. | `tests/test_struktura_testow.py` |
+| Po zmianie modeli serwera wygeneruj kontrakt Centrum na nowo. | zadanie CI `Frontend`, krok „Require the committed contract and build to be fresh” |
+| Opis PR obiecuje tylko tyle, ile potwierdzają mutacje z `tools/mutacje.py`. | nic: decyduje osąd (dwa przeglądy z 2026-10-21 i 2026-10-22) |
+| Test czeka na stan Centrum albo mierzy czas zegarem testu, nigdy stałą liczbą milisekund. | nic: decyduje osąd (f17b7fe, 2e08a85) |

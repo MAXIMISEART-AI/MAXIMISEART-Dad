@@ -28,7 +28,7 @@ from types import FrameType
 STAMP = "ci-lokalnie-ok"
 LOCK = "ci-lokalnie.lock"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
-VENV_PYTHON = Path(".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
+VENV_PYTHON = Path(".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
 COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--do-pierwszego-bledu")
 RUNS_CI = (
     "uruchamiam tools/ci_lokalnie.py: czysty przebieg 4-8 min zależnie od obciążenia Maca, przy błędzie koniec"

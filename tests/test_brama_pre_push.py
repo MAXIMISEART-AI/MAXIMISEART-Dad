@@ -23,7 +23,7 @@ BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 
 pytestmark = pytest.mark.skipif(
-    os.name == "nt",
+    sys.platform == "win32",
     reason="Atrapa .venv/bin/python to skrypt sh, a tools/setup_worktree.py nie włącza bramy na Windows.",
 )
 

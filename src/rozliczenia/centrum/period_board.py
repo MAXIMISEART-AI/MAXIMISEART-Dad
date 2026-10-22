@@ -25,6 +25,7 @@ from rozliczenia.period_folder import (
     locate_period_folder,
     month_folder_label,
     period_status_label,
+    reading,
     scan_period_folders,
 )
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period, parse_period_token
@@ -154,7 +155,9 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
             "period_folder": folder.directory,
             "worker_settlements_folder": folder.worker_settlements,
         }[request.target]
-        if not path.exists():
+        with reading(folder.directory):
+            exists = path.exists()
+        if not exists:
             raise contract.Refusal(404, f"{_TARGET_LABELS[request.target]} okresu {token} jeszcze nie istnieje.")
         platform.open_path(path)
         return contract.Opened(name=path.name)

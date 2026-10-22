@@ -5,6 +5,8 @@ zbiorczy, Konfiguracja wykonawców, Ustawienia, metryki, dziennik i pliki Zgłos
 a każdy przypadek dostaje jego kopię z jednym uszkodzonym plikiem albo folderem.
 Ogólny Komunikat to 500 „nieoczekiwany błąd”, Uruchomienie zakończone nieoczekiwanym wyjątkiem
 albo sprawdzenie Diagnozy „nieoczekiwany błąd”. Odmowa 500 z własnym tekstem jest zamierzona.
+Plik albo folder bez dostępu jest niedostępny: żaden Komunikat nie nazywa go uszkodzonym.
+Wejścia to operacje kontraktu Centrum; operacja spoza macierzy ma w ``NOT_SWEPT`` powód.
 """
 
 from __future__ import annotations
@@ -18,10 +20,12 @@ from pathlib import Path
 import random
 import shutil
 import subprocess
+import sys
 import zipfile
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from rozliczenia.centrum import run_view
@@ -38,6 +42,9 @@ from tests.fixtures.settlement import write_source, write_template
 
 TODAY = date(2026, 9, 16)
 SETTLEMENT_PERIOD = "01_07_09_2026"
+# Słowo Komunikatu o zepsutym pliku; plik bez dostępu jest cały i tata nie ma go naprawiać w Excelu.
+# Spacja odróżnia je od ścieżek tmp_path, które zawierają nazwę testu.
+DAMAGED = " uszkodzon"
 GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie."
 DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 
@@ -120,7 +127,7 @@ def _file_instead_of_folder(path: Path) -> None:
 
 
 def _inaccessible(path: Path) -> None:
-    if os.name == "nt":  # chmod w Windows zmienia tylko atrybut „tylko do odczytu”
+    if sys.platform == "win32":  # chmod w Windows zmienia tylko atrybut „tylko do odczytu”
         subprocess.run(["icacls", str(path), "/deny", f"{os.environ['USERNAME']}:(RD)"], check=True, capture_output=True)
     else:
         path.chmod(0)
@@ -129,7 +136,7 @@ def _inaccessible(path: Path) -> None:
 
 
 def _readable_again(path: Path) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         subprocess.run(["icacls", str(path), "/remove:d", os.environ["USERNAME"]], check=True, capture_output=True)
     else:
         path.chmod(0o755)
@@ -157,10 +164,13 @@ class World:
     def path(self, name: str) -> Path:
         return self.root / FILES[name][0]
 
-    def client(self) -> TestClient:
+    def app(self) -> FastAPI:
         log = CentrumLog(self.path("dziennik_centrum"))
-        platform = FakePlatform(chosen_files=[self.path("rejestr")], chosen_folders=[self.path("folder_okresow")])
-        app = create_app(
+        # Drugie wskazanie dostaje wejście chooseRegister albo choosePeriodsDirectory po _remembering_choices.
+        platform = FakePlatform(
+            chosen_files=[self.path("rejestr")] * 2, chosen_folders=[self.path("folder_okresow")] * 2
+        )
+        return create_app(
             settings_path=self.path("ustawienia"),
             platform=platform,
             log=log,
@@ -179,7 +189,9 @@ class World:
             cloud_files=FakeOneDrive().cloud_files(),
             report_box=GitHubReportBox(transport=_offline_like_urllib),
         )
-        return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+
+    def client(self) -> TestClient:
+        return TestClient(self.app(), base_url=CENTRUM, headers={"Origin": CENTRUM})
 
 
 def _remembering_choices(world: World) -> TestClient:
@@ -227,9 +239,11 @@ def _build(root: Path) -> None:
 
 
 Problems = list[str]
+Seen = list[tuple[str, str]]  # (wejście, tekst odpowiedzi): to, co tata zobaczyłby w Centrum
 
 
-def _http(response: Any, where: str) -> Problems:
+def _http(response: Any, where: str, seen: Seen) -> Problems:
+    seen.append((where, response.text))
     if response.status_code < 500:
         return []
     body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
@@ -238,41 +252,48 @@ def _http(response: Any, where: str) -> Problems:
     return []
 
 
-def _route(method: str, path: str) -> Callable[[TestClient], Problems]:
-    def call(client: TestClient) -> Problems:
-        return _http(client.request(method, path), f"{method} {path}")
+@dataclass(frozen=True)
+class Entry:
+    operations: tuple[str, ...]  # operationId kontraktu Centrum, które wejście wywołuje
+    call: Callable[[TestClient, Seen], Problems]
 
-    return call
+
+def _route(operation: str, method: str, path: str, body: object = None) -> Entry:
+    def call(client: TestClient, seen: Seen) -> Problems:
+        return _http(client.request(method, path, json=body), operation, seen)
+
+    return Entry((operation,), call)
 
 
-def _preview(process: str, period: str) -> Callable[[TestClient], Problems]:
-    def call(client: TestClient) -> Problems:
+def _preview(process: str, period: str) -> Entry:
+    def call(client: TestClient, seen: Seen) -> Problems:
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
-        problems = _http(started, "startRun")
+        problems = _http(started, "startRun", seen)
         if started.status_code != 200:
             return problems
         result = finished_view(client)["result"]
+        seen.append(("Podgląd bez zapisu", json.dumps(result, ensure_ascii=False)))
         if result["ending"] in ("unexpected", "after_engine"):
             problems.append(f"Podgląd bez zapisu: ogólny Komunikat ({result['ending']})")
-        return problems + _http(client.get("/api/runs/current"), "getCurrentRun")
+        return problems + _http(client.get("/api/runs/current"), "getCurrentRun", seen)
 
-    return call
+    return Entry(("startRun", "streamRunEvents", "getCurrentRun"), call)
 
 
-def _diagnosis(process: str, period: str, *, report: bool) -> Callable[[TestClient], Problems]:
-    def call(client: TestClient) -> Problems:
+def _diagnosis(process: str, period: str, *, report: bool) -> Entry:
+    def call(client: TestClient, seen: Seen) -> Problems:
         run_id = _run_with_diagnosis(client, process, period)
         if run_id is None:
             return []
         diagnosis = client.post(f"/api/runs/{run_id}/diagnosis")
-        problems = _http(diagnosis, "diagnoseRun")
+        problems = _http(diagnosis, "diagnoseRun", seen)
         if DIAGNOSIS_UNEXPECTED in diagnosis.text:
             problems.append("Diagnoza: sprawdzenie zakończone nieoczekiwanym błędem")
         if report and diagnosis.status_code == 200:
-            problems += _http(client.post(f"/api/runs/{run_id}/report"), "reportRun")
+            problems += _http(client.post(f"/api/runs/{run_id}/report"), "reportRun", seen)
         return problems
 
-    return call
+    return Entry(("startRun", "streamRunEvents", "diagnoseRun") + (("reportRun",) if report else ()), call)
 
 
 def _run_with_diagnosis(client: TestClient, process: str, period: str) -> str | None:
@@ -286,29 +307,65 @@ def _run_with_diagnosis(client: TestClient, process: str, period: str) -> str | 
     return None
 
 
-ENTRIES: dict[str, Callable[[TestClient], Problems]] = {
-    "getSettings": _route("GET", "/api/settings"),
-    "getPeriodBoard": _route("GET", "/api/periods"),
-    "getRunSetup": _route("GET", "/api/runs/setup"),
-    "getMetrics": _route("GET", "/api/metrics"),
-    "getConfiguration": _route("GET", "/api/configuration"),
-    "getRepairNotice": _route("GET", "/api/reports/repair"),
+VIEW_TIMING = {"kind": "navigation", "page": "okresy", "ready_ms": 120, "fcp_ms": None, "skeleton_ms": 40, "requests": []}
+ENTRIES: dict[str, Entry] = {
+    "getSettings": _route("getSettings", "GET", "/api/settings"),
+    "chooseRegister": _route("chooseRegister", "POST", "/api/settings/register/choose"),
+    "choosePeriodsDirectory": _route("choosePeriodsDirectory", "POST", "/api/settings/periods-directory/choose"),
+    "changeTheme": _route("changeTheme", "PUT", "/api/settings/theme", {"theme": "light"}),
+    "getPeriodBoard": _route("getPeriodBoard", "GET", "/api/periods"),
+    "openPeriodPath": _route(
+        "openPeriodPath", "POST", f"/api/periods/{SETTLEMENT_PERIOD}/open", {"target": "collective_file"}
+    ),
+    "getRunSetup": _route("getRunSetup", "GET", "/api/runs/setup"),
+    "getMetrics": _route("getMetrics", "GET", "/api/metrics"),
+    "getConfiguration": _route("getConfiguration", "GET", "/api/configuration"),
+    "getRepairNotice": _route("getRepairNotice", "GET", "/api/reports/repair"),
+    "getToolUpdate": _route("getToolUpdate", "GET", "/api/tool-update"),
+    "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
     "podglad[przygotowanie]": _preview("preparation", PERIOD),
     "podglad[przebieg]": _preview("settlement", SETTLEMENT_PERIOD),
     "diagnoza[przygotowanie]": _diagnosis("preparation", PERIOD, report=True),
     "diagnoza[przebieg]": _diagnosis("settlement", SETTLEMENT_PERIOD, report=False),
 }
 DIAGNOSIS_ENTRIES = ("diagnoza[przygotowanie]", "diagnoza[przebieg]")
+# Operacja kontraktu poza macierzą i powód; nowa operacja trafia do ENTRIES albo tutaj.
+NOT_SWEPT: dict[str, str] = {
+    "getHealth": "tożsamość Centrum, nie czyta plików taty",
+    "decideRun": "Decyzja taty tylko wznawia Uruchomienie, którego odczyty sprawdzają podglądy",
+    "startToolUpdate": "aktualizacja zmienia katalog narzędzia, nie pliki taty (test_centrum_aktualizacja)",
+    "reportToolUpdate": "wymaga nieudanej aktualizacji; klucz i wysłane Zgłoszenia sprawdza reportRun",
+    "closeCentrum": "kończy Centrum testu",
+}
+
+
+# Znane przypadki: powód, termin i zgoda Maksa. Po terminie przypadek znów pada, a naprawiony pada od razu (strict).
+KNOWN_UNTIL = date(2026, 10, 29)
+KNOWN: dict[tuple[str, str, str], str] = {
+    (entry, "bez_odczytu", template): (
+        "Wzorzec bez dostępu nazwany uszkodzonym: workbook_files czyta jego bajty z pominięciem _file_bytes. "
+        "Poprawka u właściciela refactor/jeden-zapis-wierszy-danych; zgoda Maksa 2026-10-22"
+    )
+    for entry in ("getConfiguration", "podglad[przygotowanie]", "diagnoza[przygotowanie]")
+    for template in ("wzorzec_wewnetrzny", "wzorzec_zbiorczy")
+}
 
 
 def _cases() -> list[Any]:
     return [
-        pytest.param(entry, damage, name, id=f"{entry}-{damage}-{name}")
+        pytest.param(entry, damage, name, id=f"{entry}-{damage}-{name}", marks=_known(entry, damage, name))
         for entry in ENTRIES
         for damage, (kinds, _) in DAMAGES.items()
         for name, (_, kind) in FILES.items()
         if kind in kinds
     ]
+
+
+def _known(entry: str, damage: str, name: str) -> tuple[pytest.MarkDecorator, ...]:
+    reason = KNOWN.get((entry, damage, name))
+    if reason is None or date.today() > KNOWN_UNTIL:
+        return ()
+    return (pytest.mark.xfail(strict=True, reason=reason),)
 
 
 @pytest.fixture(scope="session")
@@ -331,13 +388,25 @@ def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
     DAMAGES[damage][1](target)
     if entry in DIAGNOSIS_ENTRIES:
         monkeypatch.setattr(run_view.ProcessView, "summary", _summary_not_shown)
+    seen: Seen = []
     try:
-        problems = ENTRIES[entry](client)
+        problems = ENTRIES[entry].call(client, seen)
     finally:
         if damage == "bez_odczytu":
             _readable_again(target)
+    if damage == "bez_odczytu":
+        problems += [f"{where}: niedostępny nazwany uszkodzonym" for where, text in seen if DAMAGED in text]
 
     assert problems == []
+
+
+def test_macierz_obejmuje_kazda_operacje_kontraktu_centrum(tmp_path: Path) -> None:
+    contract = World(tmp_path).app().openapi()
+    operations = {operation["operationId"] for methods in contract["paths"].values() for operation in methods.values()}
+    swept = {operation for entry in ENTRIES.values() for operation in entry.operations}
+
+    assert operations - swept - NOT_SWEPT.keys() == set(), "dodaj wejście do ENTRIES albo powód do NOT_SWEPT"
+    assert (swept | NOT_SWEPT.keys()) - operations == set(), "ENTRIES albo NOT_SWEPT ma operację spoza kontraktu"
 
 
 def _summary_not_shown(*args: object, **kwargs: object) -> Any:
