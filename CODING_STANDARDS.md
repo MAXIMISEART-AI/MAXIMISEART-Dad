@@ -64,6 +64,11 @@ their contents.
   `CI LOKALNIE OK`. The `pre-push` hook enforces it for agent pushes; a green run on a clean,
   committed checkout makes the next push instant. Before real files are used,
   run a preview without saving (`Podgląd bez zapisu`).
+- Before pushing a branch of several commits, run
+  `tools/ci_lokalnie.py --kazdy-commit`: each commit passes ruff, mypy and
+  pytest in its own worktree.
+- Prove that a new test or check fails on the broken code it guards with
+  `tools/mutacje.py`. It mutates a copy of the checkout, never the checkout.
 
 ## Frontend
 

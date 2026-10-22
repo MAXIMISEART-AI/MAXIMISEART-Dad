@@ -139,7 +139,7 @@ is the code that made the call. Then sort it into one of three cases:
 ## After changing the checker or an intended change to the publication code
 
 Prove the check can still fail. This applies the broken variants to a temporary
-copy of `src`, never to the checkout:
+copy of the checkout (`tools/mutacje.py`), never to the checkout:
 
 ```powershell
 py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\check_publication_mutations.py

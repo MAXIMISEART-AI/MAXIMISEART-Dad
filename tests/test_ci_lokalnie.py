@@ -1,7 +1,8 @@
 """``tools/ci_lokalnie.py`` odtwarza lokalnie te same polecenia co CI, więc nie może się z nim rozjechać.
 
 Każde polecenie z zadań CI, które narzędzie odtwarza, ma w nim swój krok, a każdy krok narzędzia ma
-swoje polecenie w CI. Zadanie CI, którego narzędzie nie odtwarza, ma wskazane miejsce, które je zastępuje.
+swoje polecenie w CI. Zadanie CI, którego narzędzie nie odtwarza, ma wskazane miejsce, które je zastępuje. ``--kazdy-commit``
+wskazuje każdy commit gałęzi, na którym krok pada, także gdy HEAD przechodzi.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from types import ModuleType
 
 import pytest
 import yaml
+
+from tests.fixtures.git_repo import commit, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "ci_lokalnie.py"
@@ -65,7 +68,8 @@ def test_kazde_polecenie_odtwarzanych_zadan_ma_krok_i_odwrotnie() -> None:
     assert without_command == []
 
 
-def _load_tool() -> ModuleType:
+def _load_tool(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    monkeypatch.syspath_prepend(str(TOOL.parent))
     spec = importlib.util.spec_from_file_location("ci_lokalnie", TOOL)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -78,16 +82,79 @@ def _load_tool() -> ModuleType:
 def test_do_pierwszego_bledu_pomija_kroki_po_pierwszym_nieudanym(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], fail_fast: bool
 ) -> None:
-    tool = _load_tool()
+    tool = _load_tool(monkeypatch)
     second_ran = tmp_path / "drugi-krok"
     steps = [
-        tool.Step("pierwszy", "ruff", "", (sys.executable, "-c", "raise SystemExit(1)")),
-        tool.Step("drugi", "mypy", "", (sys.executable, "-c", f"open({str(second_ran)!r}, 'w')")),
+        tool.Step("pierwszy", "ruff", "", (sys.executable, "-c", "raise SystemExit(1)"), tmp_path),
+        tool.Step("drugi", "mypy", "", (sys.executable, "-c", f"open({str(second_ran)!r}, 'w')"), tmp_path),
     ]
-    monkeypatch.setattr(tool, "_steps", lambda: steps)
+    monkeypatch.setattr(tool, "_steps", lambda root: steps)
 
     returned = tool.main(["--do-pierwszego-bledu"] if fail_fast else [])
 
     assert returned == 1
     assert "CI LOKALNIE FAIL | pierwszy" in capsys.readouterr().out
     assert second_ran.exists() != fail_fast
+
+
+def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(tmp_path: Path) -> None:
+    repo = repository(tmp_path / "repo", {"tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
+    base = commit(repo, "baza")
+    (repo / "tests" / "test_zepsuty.py").write_text("def test_zepsuty() -> None:\n    assert False\n", encoding="utf-8")
+    broken = commit(repo, "zepsuty test")
+    (repo / "tests" / "test_zepsuty.py").unlink()
+    head = commit(repo, "bez zepsutego testu")
+    tool = [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest"]
+
+    every_commit = subprocess.run([*tool, "--kazdy-commit", base], capture_output=True, text=True, encoding="utf-8")
+    only_head = subprocess.run(tool, capture_output=True, text=True, encoding="utf-8")
+
+    assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK")
+    assert (every_commit.returncode, every_commit.stdout.splitlines()[-1]) == (1, f"COMMITY FAIL | {broken[:7]} (pytest)")
+    assert (git(repo, "rev-parse", "HEAD"), git(repo, "worktree", "list", "--porcelain").count("worktree ")) == (head, 1)
+
+
+def test_kazdy_commit_przechodzi_gdy_kazdy_commit_przechodzi(tmp_path: Path) -> None:
+    repo = repository(tmp_path / "repo", {"tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
+    base = commit(repo, "baza")
+    for name in ("drugi", "trzeci"):
+        (repo / "tests" / f"test_{name}.py").write_text(f"def test_{name}() -> None:\n    pass\n", encoding="utf-8")
+        commit(repo, name)
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest", "--kazdy-commit", base],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "COMMITY OK (2)")
+
+
+def test_kazdy_commit_od_nieistniejacej_bazy_nazywa_baze_bez_tracebacku(tmp_path: Path) -> None:
+    repo = repository(tmp_path / "repo", {"tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
+    commit(repo, "baza")
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--kazdy-commit", "nie-ma-takiej-bazy"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert (answered.returncode, answered.stdout.splitlines()[-1:]) == (1, ["COMMITY FAIL | nieznana baza nie-ma-takiej-bazy"])
+    assert "Traceback" not in answered.stderr
+
+
+def test_przebieg_tylko_czesci_zadan_nie_zostawia_pieczatki_dla_bramy_pre_push(tmp_path: Path) -> None:
+    repo = repository(
+        tmp_path / "repo", {".gitignore": "__pycache__/\n", "tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"}
+    )
+    commit(repo, "baza")
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest"], capture_output=True, text=True, encoding="utf-8"
+    )
+
+    assert answered.stdout.splitlines()[-1] == "CI LOKALNIE OK"
+    assert not (repo / git(repo, "rev-parse", "--git-dir") / "ci-lokalnie-ok").exists()

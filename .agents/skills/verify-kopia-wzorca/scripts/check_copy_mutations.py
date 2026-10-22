@@ -1,161 +1,126 @@
 """Show that check_template_copy.py fails on broken variants of the template copy.
 
-Each mutation is applied to a copy of ``src`` in a temporary directory, never to
-the checkout. The checker then runs against that copy, without shrinking, and must
-end with ``KOPIA WZORCA: NOWE NARUSZENIE``. A mutation whose anchor text is no
-longer in ``template_copy.py`` exactly once is reported as NIEAKTUALNA: update it
-to the new code.
+Each mutation runs on its own copy of the checkout (``tools/mutacje.py``) with the
+checker, without shrinking, and must end with ``KOPIA WZORCA: NOWE NARUSZENIE``. A
+mutation whose anchor text is no longer in ``template_copy.py`` exactly once is
+reported as NIEAKTUALNA: update it to the new code.
 """
 
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
-import sys
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from pathlib import Path
+import sys
 
-SCRIPTS = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPTS.parents[3]
-VERIFIED = Path("rozliczenia") / "template_copy.py"
-CHECKER = SCRIPTS / "check_template_copy.py"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+from mutacje import Edit, Mutation, check_all  # noqa: E402
+
+VERIFIED = Path("src/rozliczenia/template_copy.py")
+CHECKER = (".agents/skills/verify-kopia-wzorca/scripts/check_template_copy.py", "--no-shrink")
 EXPECTED = "KOPIA WZORCA: NOWE NARUSZENIE"
-
-
-@dataclass(frozen=True)
-class Mutation:
-    name: str
-    harm: str
-    anchor: str
-    replacement: str
-
 
 MUTATIONS = (
     Mutation(
         "CRC arkusza tylko z początku",
+        (Edit(VERIFIED, "crc = zlib.crc32(piece, crc)", "crc = crc"),),
+        CHECKER,
         "Excel i openpyxl odrzucają Rozliczenie pracownika jako uszkodzony plik",
-        "crc = zlib.crc32(piece, crc)",
-        "crc = crc",
+        EXPECTED,
     ),
     Mutation(
         "kawałki kompresji bez pełnego opróżnienia",
+        (Edit(VERIFIED, "compressor.flush(zlib.Z_FINISH if last else zlib.Z_FULL_FLUSH)", "compressor.flush(zlib.Z_FINISH if last else zlib.Z_SYNC_FLUSH)"),),
+        CHECKER,
         "kawałek sięga wstecz do bajtów Wzorca, których po podmianie już nie ma: arkusz jest uszkodzony",
-        "compressor.flush(zlib.Z_FINISH if last else zlib.Z_FULL_FLUSH)",
-        "compressor.flush(zlib.Z_FINISH if last else zlib.Z_SYNC_FLUSH)",
+        EXPECTED,
     ),
     Mutation(
         "zgubiony kawałek za podmienionymi wierszami",
+        (Edit(VERIFIED, "*self._chunks[chunk:-1]", "*self._chunks[chunk + 1 : -1]"),),
+        CHECKER,
         "z Rozliczenia pracownika znika 64 wierszy Wzorca z formułami",
-        "*self._chunks[chunk:-1]",
-        "*self._chunks[chunk + 1 : -1]",
+        EXPECTED,
     ),
     Mutation(
         "dimension bez wpisanych wierszy",
+        (Edit(VERIFIED, "max(max_row or 1, last_row),", "max_row or 1,"),),
+        CHECKER,
         "zakres arkusza nie obejmuje Wierszy danych za sformatowanymi wierszami Wzorca",
-        "max(max_row or 1, last_row),",
-        "max_row or 1,",
+        EXPECTED,
     ),
     Mutation(
         "data bez formatu daty",
+        (Edit(VERIFIED, "date_format = None if is_date_format(styles.number_format(template_style)) else _date_format(value)", "date_format = None"),),
+        CHECKER,
         "data zlecenia pokazuje się jako liczba seryjna",
-        "date_format = None if is_date_format(styles.number_format(template_style)) else _date_format(value)",
-        "date_format = None",
+        EXPECTED,
     ),
     Mutation(
         "pusta wartość nie czyści zer Wzorca",
+        (Edit(VERIFIED, 'if style == template_style and existing is not None and existing.endswith(b"/>"):', "if existing is not None:"),),
+        CHECKER,
         "pusta ilość z Pliku zbiorczego zostaje w Rozliczeniu pracownika zerem z Wzorca",
-        'if style == template_style and existing is not None and existing.endswith(b"/>"):',
-        "if existing is not None:",
+        EXPECTED,
     ),
     Mutation(
         "Wyróżnienia bez wypełnienia",
+        (Edit(VERIFIED, 'xf = _with_id(xf, b"fillId", fill_id, b"applyFill")', "pass"),),
+        CHECKER,
         "wypełnienie komórki z Pliku zbiorczego nie przechodzi do Rozliczenia pracownika",
-        'xf = _with_id(xf, b"fillId", fill_id, b"applyFill")',
-        "pass",
+        EXPECTED,
     ),
     Mutation(
         "15 cyfr znaczących zamiast 16",
+        (Edit(VERIFIED, '"%.16g"', '"%.15g"'),),
+        CHECKER,
         "ilości i kwoty są zaokrąglone inaczej niż przy zapisie przez openpyxl",
-        '"%.16g"',
-        '"%.15g"',
+        EXPECTED,
     ),
     Mutation(
         "xml:space tylko przy spacji na początku",
+        (Edit(VERIFIED, "if text != text.strip() else", "if text != text.lstrip() else"),),
+        CHECKER,
         "Excel ucina spacje na końcu tekstu",
-        "if text != text.strip() else",
-        "if text != text.lstrip() else",
+        EXPECTED,
     ),
     Mutation(
         "& bez escapowania",
+        (Edit(VERIFIED, 'text.replace("&", "&amp;")', "text"),),
+        CHECKER,
         "tekst z & daje niepoprawny XML i plik, którego Excel nie otworzy",
-        'text.replace("&", "&amp;")',
-        "text",
+        EXPECTED,
     ),
     Mutation(
         "<hyperlinks> za pageMargins",
+        (Edit(VERIFIED, '        "dataValidations",\n    }', '        "dataValidations",\n        "pageMargins",\n    }'),),
+        CHECKER,
         "blok Hiperłączy poza kolejnością schematu arkusza: Excel proponuje naprawę pliku i usuwa Hiperłącza",
-        '        "dataValidations",\n    }',
-        '        "dataValidations",\n        "pageMargins",\n    }',
+        EXPECTED,
     ),
     Mutation(
         "rId Wzorca użyty ponownie",
+        (Edit(VERIFIED, "self._first = max(numbers) + 1", "self._first = 1"),),
+        CHECKER,
         "numer zlecenia otwiera rysunek komentarza Wzorca zamiast zlecenia, a Excel proponuje naprawę pliku",
-        "self._first = max(numbers) + 1",
-        "self._first = 1",
+        EXPECTED,
     ),
     Mutation(
         "Hiperłącze o wiersz dalej",
+        (Edit(VERIFIED, 'b"%d" % (first_row + index), link)', 'b"%d" % (first_row + index + 1), link)'),),
+        CHECKER,
         "numer zlecenia otwiera zlecenie z wiersza wyżej",
-        'b"%d" % (first_row + index), link)',
-        'b"%d" % (first_row + index + 1), link)',
+        EXPECTED,
     ),
     Mutation(
         "& w adresie Hiperłącza bez escapowania",
+        (Edit(VERIFIED, "html.escape(text, quote=True)", "text"),),
+        CHECKER,
         "relacje arkusza są niepoprawnym XML i plik się nie otwiera",
-        "html.escape(text, quote=True)",
-        "text",
+        EXPECTED,
     ),
 )
 
 
-def run_mutation(mutation: Mutation) -> tuple[bool, str]:
-    with tempfile.TemporaryDirectory(prefix="kopia-wzorca-mutacja-") as scratch:
-        source = Path(scratch) / "src"
-        shutil.copytree(REPO_ROOT / "src", source, ignore=shutil.ignore_patterns("__pycache__", "*.egg-info"))
-        verified = source / VERIFIED
-        code = verified.read_text(encoding="utf-8")
-        if code.count(mutation.anchor) != 1:
-            return False, "NIEAKTUALNA: kotwicy nie ma dokładnie raz w template_copy.py"
-        verified.write_text(code.replace(mutation.anchor, mutation.replacement), encoding="utf-8")
-        environment = {**os.environ, "VERIFY_KOPIA_SRC": str(source), "PYTHONUTF8": "1"}
-        completed = subprocess.run(
-            [sys.executable, str(CHECKER), "--no-shrink"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=environment,
-            timeout=600,
-            check=False,
-        )
-    lines = completed.stdout.strip().splitlines()
-    last = lines[-1] if lines else completed.stderr.strip()[-300:]
-    return last.startswith(EXPECTED), last
-
-
-def main() -> int:
-    failures = 0
-    with ThreadPoolExecutor() as pool:
-        results = list(pool.map(run_mutation, MUTATIONS))
-    for mutation, (caught, last) in zip(MUTATIONS, results, strict=True):
-        failures += not caught
-        verdict = "WYKRYTA" if caught else "NIEWYKRYTA"
-        print(f"{verdict}: {mutation.name} ({mutation.harm}) → {last}", flush=True)
-    print("MUTACJE OK" if not failures else f"MUTACJE: {failures} bez oczekiwanego wyniku")
-    return 1 if failures else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(check_all(MUTATIONS))
