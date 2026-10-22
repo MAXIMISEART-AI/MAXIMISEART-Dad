@@ -213,3 +213,73 @@ def test_przerwane_ci_lokalnie_nie_zostawia_krokow_ani_kopii_commitow(tmp_path: 
     finally:
         started.kill()
         started.wait()
+
+
+NPM_RUN_CONTRACT = (
+    "from pathlib import Path; contract = Path('frontend/src/api/openapi.json'); contract.parent.mkdir(parents=True, exist_ok=True);"
+    " contract.write_text(Path('frontend/zrodlo.txt').read_text().upper())"
+)
+CONTRACT = "frontend/src/api/openapi.json"
+
+
+def _edit_source(repo: Path, line: int, text: str) -> None:
+    source = repo / "frontend" / "zrodlo.txt"
+    lines = source.read_text(encoding="utf-8").splitlines()
+    lines[line] = text
+    source.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    subprocess.run([sys.executable, "-c", NPM_RUN_CONTRACT], cwd=repo, check=True)
+
+
+def _generated_repository(path: Path) -> Path:
+    repo = repository(path, {".gitattributes": (ROOT / ".gitattributes").read_text(encoding="utf-8"), "frontend/zrodlo.txt": "a\nb\nc\nd\ne\n"})
+    _edit_source(repo, 0, "a")
+    commit(repo, "baza")
+    return repo
+
+
+def _frontend_check(tool: ModuleType, repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], str]:
+    regenerate = tool.Step("npm run contract", "frontend", "", (sys.executable, "-c", NPM_RUN_CONTRACT), repo)
+    fresh = next(step for step in tool._steps(repo) if step.command[:2] == ("git", "status"))
+    monkeypatch.setattr(tool, "_steps", lambda root: [regenerate, fresh])
+    return tool._check(repo, {"frontend"}), fresh.name
+
+
+def test_scalenie_bez_konfliktu_zostawia_nieaktualny_kontrakt_a_ci_lokalnie_kaze_go_odtworzyc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = _generated_repository(tmp_path / "repo")
+    monkeypatch.syspath_prepend(str(TOOL.parent))
+    spec = importlib.util.spec_from_file_location("setup_worktree", TOOL.parent / "setup_worktree.py")
+    assert spec is not None and spec.loader is not None
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    monkeypatch.setattr(setup, "ROOT", repo)
+    setup._merge_generated()
+    git(repo, "checkout", "--quiet", "-b", "druga")
+    _edit_source(repo, 4, "druga")
+    commit(repo, "druga gałąź")
+    git(repo, "checkout", "--quiet", "-")
+    _edit_source(repo, 0, "pierwsza")
+    commit(repo, "pierwsza gałąź")
+
+    git(repo, "merge", "--quiet", "--no-edit", "druga")
+    tool = _load_tool(monkeypatch)
+    stale, step = _frontend_check(tool, repo, monkeypatch)
+    reported = capsys.readouterr().out
+    commit(repo, "odtworzony kontrakt")
+    fresh, _ = _frontend_check(tool, repo, monkeypatch)
+
+    assert (stale, fresh) == ([step], [])
+    assert CONTRACT in reported and "npm run regen" in reported
+
+
+def test_aktualny_niezacommitowany_kontrakt_jest_uwaga_a_nie_porazka(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = _generated_repository(tmp_path / "repo")
+    _edit_source(repo, 2, "przed commitem")
+
+    failed, _ = _frontend_check(_load_tool(monkeypatch), repo, monkeypatch)
+
+    assert failed == []
+    assert f"niezacommitowane:\n M {CONTRACT}" in capsys.readouterr().out

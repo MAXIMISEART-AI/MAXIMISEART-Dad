@@ -24,7 +24,9 @@ Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -40,6 +42,11 @@ import potomne
 ROOT = Path(__file__).resolve().parents[1]
 # Wygenerowany kontrakt i zbudowany frontend muszą zgadzać się ze źródłami (u taty nie ma Node).
 GENERATED = ("frontend/src/api", "src/rozliczenia/centrum/static")
+STALE = (
+    "Kontrakt albo build nie zgadzał się ze źródłami; ci_lokalnie odtworzył je tak jak 'npm run regen' we frontend/,"
+    " więc zacommituj zmienione pliki. Po scaleniu albo rebase to oczekiwane: merge=wygenerowane w .gitattributes"
+    " zostawia w nich wersję bieżącego HEAD."
+)
 JOBS_ELSEWHERE = {
     "e2e": "skill verify-rozliczenia: .agents/skills/verify-rozliczenia/scripts/run_verification.py --variant all",
     "timing": "tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
@@ -79,7 +86,7 @@ def _steps(root: Path) -> list[Step]:
             for script in ("contract", "typecheck", "lint", "rules", "unused", "duplicates", "build")
         ),
         Step(
-            "kontrakt i build zacommitowane",
+            "kontrakt i build zgodne ze źródłami",
             "frontend",
             f"git status --porcelain -- {' '.join(GENERATED)}",
             ("git", "status", "--porcelain", "--", *GENERATED),
@@ -101,30 +108,52 @@ def _clean_tree() -> str | None:
     return None if _git("status", "--porcelain") else _git("rev-parse", "HEAD^{tree}")
 
 
-def _run(step: Step, root: Path) -> tuple[bool, str]:
+def _generated_hashes(root: Path) -> dict[str, str]:
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *GENERATED],
+        cwd=root,
+        capture_output=True,
+        check=True,
+    ).stdout.decode("utf-8")
+    files = (root / name for name in listed.split("\0") if name)
+    return {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in files if path.is_file()}
+
+
+def _fresh(root: Path, before_regeneration: Mapping[str, str], uncommitted: str) -> tuple[bool, str]:
+    """Aktualne, ale niezacommitowane pliki generowane to stan przed commitem, nie błąd, więc kończą się uwagą."""
+
+    before, after = before_regeneration, _generated_hashes(root)
+    if changed := sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name)):
+        return False, "\n".join(changed) + "\n" + STALE
+    if uncommitted.strip():
+        print(f"UWAGA: kontrakt i build są aktualne, ale niezacommitowane:\n{uncommitted.rstrip()}", flush=True)
+    return True, ""
+
+
+def _run(step: Step, root: Path, before_regeneration: Mapping[str, str]) -> tuple[bool, str]:
     completed = potomne.run(step.command, cwd=step.cwd, env={**environment(root), "PYTHON": sys.executable})
-    output = completed.stdout + completed.stderr
-    if step.command[:2] == ("git", "status"):
-        stale = completed.stdout.strip()
-        hint = "\nUruchom 'npm run contract' i 'npm run build' we frontend/ i zacommituj wynik."
-        return completed.returncode == 0 and not stale, stale + hint
-    return completed.returncode == 0, output
+    if step.command[:2] == ("git", "status") and completed.returncode == 0:
+        return _fresh(root, before_regeneration, completed.stdout)
+    return completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def _check(root: Path, jobs: set[str], *, fail_fast: bool = False) -> list[str]:
     """Uruchamia kroki wybranych zadań w ``root``; zwraca nazwy kroków, które padły."""
 
     failed: list[str] = []
+    before_regeneration: dict[str, str] | None = None
     for step in _steps(root):
         if failed and fail_fast:
             break
         if step.job not in jobs:
             continue
+        if step.job == "frontend" and before_regeneration is None:
+            before_regeneration = _generated_hashes(root)
         if step.name == "npm ci" and _dependencies_fresh(step.cwd):
             print(f"POMINIĘTO {step.name} (node_modules z bieżącego package-lock.json)", flush=True)
             continue
         started = time.monotonic()
-        passed, output = _run(step, root)
+        passed, output = _run(step, root, before_regeneration or {})
         elapsed = time.monotonic() - started
         print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({elapsed:.0f} s)", flush=True)
         if not passed:

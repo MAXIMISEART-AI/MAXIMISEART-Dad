@@ -278,7 +278,8 @@ jobs:
           stale="$(git status --porcelain -- frontend/src/api src/rozliczenia/centrum/static)"
           if [ -n "$stale" ]; then
             echo "$stale"
-            echo "Run 'npm run contract' and 'npm run build' in frontend/ and commit the result."
+            echo "The committed contract or build does not match its sources. Run 'npm run regen' in frontend/ and commit the result."
+            echo "After a merge or rebase this is expected: merge=wygenerowane in .gitattributes keeps the current HEAD's copy of generated files."
             exit 1
           fi
 

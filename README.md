@@ -353,7 +353,9 @@ npm run build      # build do src/rozliczenia/centrum/static/
 
 - Zmiana kontraktu API to zmiana modeli Pydantic w `src/rozliczenia/centrum/contract.py`,
   potem `npm run regen` (kontrakt i build); `frontend/src/api/` i `static/` są generowane.
-- Konflikt scalania w plikach generowanych: weź dowolną stronę, `npm run regen`, commit.
+- Scalenie i rebase zostawiają w plikach generowanych wersję bieżącego HEAD bez konfliktu
+  (`merge=wygenerowane` w `.gitattributes`, sterownik ustawia `tools/setup_worktree.py`),
+  więc po nich `npm run regen` i commit; bez tego `tools/ci_lokalnie.py` i CI padają z tym poleceniem.
 - Nowy proces w Uruchomieniach: opis procesu `process_run.Process` w module
   procesu (wzór: `settlement_process.PROCESS`), klasa spełniająca
   `runs.ProcessEntry` (wzór: `SettlementEntry`), klucz w `contract.ProcessKey`
