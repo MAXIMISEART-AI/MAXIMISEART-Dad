@@ -9,7 +9,7 @@ import errno
 import os
 from pathlib import Path
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 import pytest
 
 from rozliczenia.message import StopError
@@ -32,7 +32,13 @@ from tests.fixtures.preparation import (
     write_register,
     write_register_sheet,
 )
-from tests.fixtures.workbooks import cut_sheet_after_data_rows, rewrite_parts, without_sheet, without_styles
+from tests.fixtures.workbooks import (
+    break_row_far_below_data_rows,
+    cut_sheet_after_data_rows,
+    rewrite_parts,
+    without_sheet,
+    without_styles,
+)
 
 
 def input_snapshot(fixture: PreparationFixture) -> dict[Path, bytes]:
@@ -88,25 +94,26 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("failing", "error"),
     [
-        PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process"),
-        OSError(errno.EIO, "The cloud file provider is not running"),
+        ("read_bytes", PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process")),
+        ("read_bytes", OSError(errno.EIO, "The cloud file provider is not running")),
+        ("is_file", PermissionError(errno.EACCES, "Permission denied")),
     ],
-    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci"],
+    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci", "folder-bez-dostepu"],
 )
 def test_rejestr_zlecen_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, error: OSError
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    read_bytes = Path.read_bytes
+    original = getattr(Path, failing)
 
-    def blocked(path: Path) -> bytes:
+    def blocked(path: Path) -> object:
         if path == fixture.register_path:
             raise error
-        return read_bytes(path)
+        return original(path)
 
-    monkeypatch.setattr(Path, "read_bytes", blocked)
+    monkeypatch.setattr(Path, failing, blocked)
 
     with pytest.raises(StopError) as raised:
         run_preparation(fixture)
@@ -375,17 +382,18 @@ def test_wzorzec_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path, templa
 @WZORCE
 @pytest.mark.parametrize(
     "damage",
-    [lambda path: path.write_bytes(b"uszkodzony wzorzec"), without_styles],
-    ids=["nie-skoroszyt", "bez-styles-xml"],
+    [lambda path: path.write_bytes(b"uszkodzony wzorzec"), without_styles, break_row_far_below_data_rows],
+    ids=["nie-skoroszyt", "bez-styles-xml", "zepsuty-wiersz-daleko-pod-danymi"],
 )
+@pytest.mark.parametrize("dry_run", [False, True])
 def test_damaged_wzorzec_stops_before_reading_rejestr(
-    tmp_path: Path, template_name: str, damage: Callable[[Path], object]
+    tmp_path: Path, template_name: str, damage: Callable[[Path], object], dry_run: bool
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     damage(template_path(fixture, template_name))
     fixture.register_path.write_bytes(b"uszkodzony Rejestr")
 
-    error = stop_preparation(fixture)
+    error = stop_preparation(fixture, dry_run=dry_run)
 
     assert error.message.code == "USZKODZONY_WZORZEC"
     assert error.message.text == (
@@ -632,16 +640,17 @@ def test_failed_save_of_plik_zbiorczy_leaves_no_period_file(
     fixture = make_preparation_fixture(tmp_path)
     if period_directory_exists:
         fixture.period_directory.mkdir()
-    real_save = workbook_files.save_workbook
+    real_write = workbook_files._write_atomically
     saved: list[str] = []
 
-    def save_first_then_fail(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+    # Obie drogi zapisu Pliku zbiorczego (kopia Wzorca i openpyxl) kończą się atomowym zapisem pliku.
+    def save_first_then_fail(target: Path, write: Callable[[Path], None]) -> None:
         if target.name == COLLECTIVE_FILE_NAME:
             raise failure
         saved.append(target.name)
-        real_save(workbook, target, external_links_from=external_links_from)
+        real_write(target, write)
 
-    monkeypatch.setattr(workbook_files, "save_workbook", save_first_then_fail)
+    monkeypatch.setattr(workbook_files, "_write_atomically", save_first_then_fail)
 
     error = stop_preparation(fixture)
 

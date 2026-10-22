@@ -3,8 +3,8 @@
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
 zbiorczy (``read_data_rows``, z Wyróżnieniami i Hiperłączami komórek), Rejestr zleceń
 (``read_workbook``, z formatem i Hiperłączami komórek), Wzorce do Sprawdzania i dla
-Przygotowania pliku zbiorczego (``open_template``, ``file_from_template``) oraz Wzorzec rozliczenia
-pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
+Przygotowania pliku zbiorczego (``read_template_outline``, ``CollectiveFileTemplate``, ``file_from_template``)
+oraz Wzorzec rozliczenia pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
 pracowników (``WorkerSettlementTemplate``). Otwarcie
 sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
 ``WorkbookError`` z powodem. Moduł nie zna Komunikatów: proces tłumaczy powód
@@ -22,6 +22,7 @@ narzędzi benchmarku w ``tools/``, żeby nie powtarzały układu.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import zipfile
 import zlib
@@ -34,8 +35,10 @@ from decimal import Decimal
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
+from types import MappingProxyType
 from typing import IO, TypeVar, cast
 from xml.etree.ElementTree import ParseError
+from xml.parsers import expat
 from xml.parsers.expat import ExpatError
 
 from openpyxl import load_workbook
@@ -46,13 +49,14 @@ from openpyxl.styles.fonts import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet.cell_range import CellRange, MultiCellRange
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .dated_rows import rows_dated_between
 from .highlights import Highlights
-from .hyperlinks import Hyperlink, read_sheet_hyperlinks
+from .hyperlinks import Hyperlink, read_sheet_hyperlinks, sheet_part
 from .input_rows import rows_with_input
 from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
 
@@ -93,6 +97,14 @@ _WORKER_SETTLEMENT_LAYOUT = SheetLayout(
     input_columns=_INPUT_COLUMNS[-1],
     data_columns=DATA_ROW_COLUMNS[-1],
 )
+_COLLECTIVE_FILE_LAYOUT = SheetLayout(
+    header_row=HEADER_ROW,
+    first_data_row=FIRST_DATA_ROW,
+    input_columns=_INPUT_COLUMNS[-1],
+    data_columns=_INPUT_COLUMNS[-1],
+    collective_file=True,
+)
+_TEMPLATE_NUMBER_FORMATS: Mapping[int, str] = MappingProxyType({})
 
 
 _ExcelCellValue = (
@@ -191,6 +203,22 @@ class DataRow:
     hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
     """Hiperłącza komórek A:AT z wartością: kolumna od 1 → Hiperłącze."""
 
+    @property
+    def number_formats(self) -> Mapping[int, str]:
+        """Rozliczenie pracownika ma formaty liczb Wzorca rozliczenia pracownika."""
+
+        return _TEMPLATE_NUMBER_FORMATS
+
+
+@dataclass(frozen=True)
+class CollectiveFileRow:
+    """Wiersz danych Pliku zbiorczego z Przygotowania: wartości, Wyróżnienia, Hiperłącza i formaty liczb A:K z Rejestru."""
+
+    values: tuple[object, ...]
+    highlights: tuple[Highlights, ...]
+    hyperlinks: Mapping[int, Hyperlink]
+    number_formats: Mapping[int, str]
+
 
 @dataclass(frozen=True)
 class FormattedCell:
@@ -213,11 +241,18 @@ def is_open_in_excel(path: Path) -> bool:
 
 
 def ensure_available(path: Path) -> None:
-    """Skoroszyt jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``."""
+    """Skoroszyt jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``.
 
-    if not path.is_file():
+    Folder, którego nie da się odczytać (np. brak dostępu), czyni skoroszyt niedostępnym, a nie uszkodzonym.
+    """
+
+    try:
+        found, open_in_excel = path.is_file(), is_open_in_excel(path)
+    except OSError as exc:
+        raise WorkbookError(path, Problem.INACCESSIBLE) from exc
+    if not found:
         raise WorkbookError(path, Problem.MISSING)
-    if is_open_in_excel(path):
+    if open_in_excel:
         raise WorkbookError(path, Problem.OPEN_IN_EXCEL)
 
 
@@ -495,10 +530,9 @@ class TemplateSheet:
 
         return self._rows.first_data_row + index
 
-    def check_worker_header(self) -> None:
-        """Nagłówek WYKONAWCA w H17; inaczej ``WorkbookError`` ze złym układem."""
-
-        _check_worker_header(self._path, self.header())
+    @property
+    def merged_ranges(self) -> tuple[CellRange, ...]:
+        return tuple(self.worksheet.merged_cells.ranges)
 
     def has_input_data(self) -> bool:
         """Wiersze danych mają wartość w A:K; formuły Wzorca nie są danymi."""
@@ -507,21 +541,6 @@ class TemplateSheet:
             if any(_is_value(self.worksheet.cell(row, column)) for column in _INPUT_COLUMNS):
                 return True
         return False
-
-    def zero_row_count(self) -> int:
-        """Liczba kolejnych Wierszy danych z zerami w kolumnach ilości N:AP."""
-
-        count = 0
-        for values in self.worksheet.iter_rows(
-            min_row=self._rows.first_data_row,
-            min_col=QUANTITY_COLUMNS[0],
-            max_col=QUANTITY_COLUMNS[-1],
-            values_only=True,
-        ):
-            if not any(_is_zero(value) for value in values):
-                break
-            count += 1
-        return count
 
     def write_data_rows(self, rows: Sequence[DataRow]) -> None:
         """Wpisuje Wiersze danych z ich Wyróżnieniami i Hiperłączami po pozycji kolumn A:AT od pierwszego Wiersza danych.
@@ -549,15 +568,110 @@ def _is_zero(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0
 
 
-@contextmanager
-def open_template(path: Path, layout: Layout) -> Iterator[TemplateSheet]:
-    """Wzorzec do sprawdzenia; niczego nie zapisuje."""
+@dataclass(frozen=True)
+class TemplateOutline:
+    """Wzorzec Przygotowania pliku zbiorczego w tym, czego potrzebują Sprawdzanie i Planowanie.
 
-    workbook = _load(path)
+    ``merged_ranges`` to scalenia aktywnego arkusza w kolejności, w jakiej daje je openpyxl.
+    """
+
+    path: Path
+    layout: Layout
+    title: str
+    header: tuple[object, ...]
+    """Wartości wiersza nagłówka od kolumny A."""
+    merged_ranges: tuple[CellRange, ...]
+    zero_row_count: int
+    """Liczba kolejnych Wierszy danych z zerami w kolumnach ilości N:AP."""
+
+    @property
+    def header_row(self) -> int:
+        return self.layout.value.header_row
+
+    def data_row(self, index: int) -> int:
+        """Numer wiersza arkusza ``index``-tego (od 0) Wiersza danych."""
+
+        return self.layout.value.first_data_row + index
+
+    def check_worker_header(self) -> None:
+        """Nagłówek WYKONAWCA w H17; inaczej ``WorkbookError`` ze złym układem."""
+
+        _check_worker_header(self.path, self.header)
+
+
+def read_template_outline(path: Path, layout: Layout) -> TemplateOutline:
+    """Wzorzec do sprawdzenia bez wczytania każdej komórki; niczego nie zapisuje.
+
+    Pełne wczytanie Wzorca pliku zbiorczego przez openpyxl trwa ~2 s, a Sprawdzanie i Planowanie
+    potrzebują tylko nagłówka, scaleń i wierszy z zerami. openpyxl czyta więc tylko te wiersze, a reszta
+    arkusza jest sprawdzana tak, żeby Wzorzec, którego pełne wczytanie by się nie udało, był nieczytelny.
+    """
+
+    ensure_available(path)
+    with _unreadable_as_error(path):
+        content = path.read_bytes()
+    workbook = _open(path, BytesIO(content), read_only=True)
     try:
-        yield _template_sheet(path, workbook, layout)
+        sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
+        rows = layout.value
+        header = next(
+            _classified(
+                path,
+                sheet.iter_rows(
+                    min_row=rows.header_row, max_row=rows.header_row, max_col=rows.last_header_column, values_only=True
+                ),
+            ),
+            (),
+        )
+        zero_row_count = 0
+        for values in _classified(
+            path,
+            sheet.iter_rows(
+                min_row=rows.first_data_row,
+                min_col=QUANTITY_COLUMNS[0],
+                max_col=QUANTITY_COLUMNS[-1],
+                values_only=True,
+            ),
+        ):
+            if not any(_is_zero(value) for value in values):
+                break
+            zero_row_count += 1
+        with _unreadable_as_error(path):
+            # openpyxl nie daje liczby stylów komórek inaczej niż przez atrybut prywatny.
+            cell_style_count = len(workbook._cell_styles)  # type: ignore[attr-defined]
+            merged_ranges = _merged_ranges(content, sheet.title, cell_style_count)
+        return TemplateOutline(path, layout, sheet.title, header, merged_ranges, zero_row_count)
     finally:
         workbook.close()
+
+
+_MERGE_CELL = "http://schemas.openxmlformats.org/spreadsheetml/2006/main mergeCell"
+_CELL_OR_ROW_STYLE = re.compile(rb'<(?:[\w.-]+:)?(?:c|row)\s[^>]*?\bs="([0-9]+)"')
+_COLUMN_STYLE = re.compile(rb'<(?:[\w.-]+:)?col\s[^>]*?\bstyle="([0-9]+)"')
+
+
+def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> tuple[CellRange, ...]:
+    """Scalenia arkusza z bloku ``<mergeCells>`` za ``</sheetData>``.
+
+    Arkusz musi dać się wczytać w całości jak przy pełnym wczytaniu przez openpyxl: zepsuty XML to
+    ``ExpatError``, a styl komórki, wiersza albo kolumny spoza stylów skoroszytu ``IndexError``.
+    """
+
+    with zipfile.ZipFile(BytesIO(content)) as archive:
+        xml = archive.read(sheet_part(archive, sheet_title))
+    styles = [int(index) for pattern in (_CELL_OR_ROW_STYLE, _COLUMN_STYLE) for index in set(pattern.findall(xml))]
+    if max(styles, default=0) >= cell_style_count:
+        raise IndexError(f"styl {max(styles)} spoza {cell_style_count} stylów skoroszytu")
+    references: list[str] = []
+    parser = expat.ParserCreate(namespace_separator=" ")
+    # Obsługa elementów dopiero za danymi arkusza: wywołanie Pythona dla każdej z ~500 tys. komórek kosztuje.
+    tail = max(xml.rfind(b"sheetData"), 0)
+    parser.Parse(xml[:tail], False)
+    parser.StartElementHandler = lambda name, attributes: (
+        references.append(attributes["ref"]) if name == _MERGE_CELL else None
+    )
+    parser.Parse(xml[tail:], True)
+    return tuple(MultiCellRange([CellRange(reference) for reference in references]).ranges)
 
 
 @contextmanager
@@ -578,6 +692,51 @@ def file_from_template(template: Path, target: Path, layout: Layout, *, recalcul
         save_workbook(workbook, target, external_links_from=template)
     finally:
         workbook.close()
+
+
+class CollectiveFileTemplate:
+    """Wzorzec pliku zbiorczego wczytany jako bajty do zapisu Pliku zbiorczego kopią (ADR 0008).
+
+    Kopia zmienia tylko wpisane komórki A:K Wierszy danych, autofiltr i style, które te komórki dopisują.
+    Wzorzec, którego kształtu kopia nie obsługuje, zapisuje ``file_from_template`` przez openpyxl.
+    """
+
+    def __init__(self, path: Path, template_copy: TemplateCopy) -> None:
+        self._path = path
+        self._copy = template_copy
+
+    @classmethod
+    def read(cls, path: Path) -> CollectiveFileTemplate | None:
+        """``WorkbookError``, gdy Wzorca brak, jest otwarty w Excelu albo nieczytelny; ``None``: kształt dla openpyxl."""
+
+        ensure_available(path)
+        if path.suffix.lower() not in _WORKBOOK_SUFFIXES:
+            raise WorkbookError(path, Problem.UNREADABLE)
+        with _unreadable_as_error(path):
+            content = path.read_bytes()
+        try:
+            return cls(path, TemplateCopy.of(content, _COLLECTIVE_FILE_LAYOUT))
+        except UnsupportedShape:
+            return None
+
+    @property
+    def header(self) -> list[object]:
+        """Wartości wiersza nagłówka w kolumnach A:K."""
+
+        return self._copy.header
+
+    def create(self, target: Path, rows: Sequence[CollectiveFileRow]) -> bool:
+        """Zapisuje atomowo Plik zbiorczy z ``rows`` od wiersza 18; ``False``: wiersze wymagają drogi przez openpyxl.
+
+        Nieudany zapis to ``WorkbookSaveError``; ``target`` wtedy nie powstaje.
+        """
+
+        try:
+            package = self._copy.with_rows(rows)
+        except (UnsupportedShape, InvalidValue):
+            return False
+        _write_atomically(target, _package_writer(package, target))
+        return True
 
 
 class WorkerSettlementTemplate:

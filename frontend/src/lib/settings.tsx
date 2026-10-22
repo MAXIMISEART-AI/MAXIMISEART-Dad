@@ -22,6 +22,8 @@ export type PickedPath = { [Key in keyof Settings]: Settings[Key] extends PathSe
 
 type SettingsContextValue = {
   settings: Resource<Settings>
+  /** Rośnie przy każdym wskazaniu innego folderu okresów albo Rejestru zleceń: klucz treści czytanej z tych plików. */
+  filesVersion: number
   theme: Theme
   /** Plik, którego okno wyboru jest teraz otwarte; dopóki jest, żaden przycisk nie otwiera drugiego. */
   picker: PickedPath | null
@@ -74,6 +76,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const { resource: settings, replace } = useResource(getSettings)
   const [firstPaintTheme] = React.useState<Theme>(currentTheme)
   const [chosenTheme, setChosenTheme] = React.useState<Theme | null>(null)
+  const [filesVersion, setFilesVersion] = React.useState(0)
   const savedTheme = settings.state === "ready" ? settings.data.theme : null
   const theme = chosenTheme ?? savedTheme ?? firstPaintTheme
 
@@ -95,6 +98,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       // Ostatnie dane stron pochodzą z poprzednich plików, więc nie mogą się pokazać jako bieżące.
       if (files(chosen) !== files(settings)) {
         forgetLastReads()
+        setFilesVersion((version) => version + 1)
       }
 
       replace(chosen)
@@ -105,6 +109,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const value = React.useMemo<SettingsContextValue>(
     () => ({
       settings,
+      filesVersion,
       theme,
       picker,
       choose: (path) => {
@@ -128,7 +133,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         changeTheme(next).then((saved) => replace({ state: "ready", data: saved }), showFailure)
       },
     }),
-    [settings, theme, picker, remember, replace]
+    [settings, filesVersion, theme, picker, remember, replace]
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
