@@ -611,7 +611,7 @@ def _look_divergences(template: Template, path: Path, rows: Sequence[DataRow]) -
         for column in range(1, LOOK_COLUMNS + 1):
             cell = sheet.cell(number, column)
             value = row.values[column - 1]
-            wraps = isinstance(value, str) and "\n" in value
+            wraps = isinstance(value, str) and ("\n" in value or "\r" in value)  # Excel czyta \r w tekście jako koniec linii
             sides = [
                 (side.style, side.color.indexed if side.color is not None else None)
                 for side in (cell.border.left, cell.border.right, cell.border.top, cell.border.bottom)
@@ -1066,7 +1066,7 @@ def run_check(
         errors: list[str] = []
         for template in templates:
             # Each Wzorzec gets its own Hypothesis run with the full budget of examples.
-            explicit = [Case(template, (_value_rows(),)), _longest_example(template)]
+            explicit = [Case(template, (_value_rows(),)), _longest_example(template), *_carriage_return_examples(template)]
             missing_cells = _missing_cells_example(template)
             if missing_cells is not None:
                 explicit.append(missing_cells)
@@ -1166,6 +1166,18 @@ def _longest_example(template: Template) -> Case:
     values = ("syntetyczne miasto",) + (None,) * 4 + ("ZL-SYN-1",) + (None,) * 7 + (1,) + (None,) * (DATA_COLUMNS - 14)
     row = _data_row(values, links={ORDER_NUMBER - 1: EDGE_ADDRESSES[0]})
     return Case(template, ((row,) * template.max_rows,))
+
+
+def _carriage_return_examples(template: Template) -> list[Case]:
+    """Text with a lone ``\\r`` in a look column after an empty Rozliczenie pracownika: Excel reads it as a line break.
+
+    Counterexamples from CI: A18='\\r' on ``maly`` and B18='x\\rxD&' on ``syntetyczny``.
+    """
+
+    return [
+        Case(template, ((), (_data_row(("\r",) + (None,) * (DATA_COLUMNS - 1)),))),
+        Case(template, ((), (_data_row((None, "x\rxD&") + (None,) * (DATA_COLUMNS - 2)),))),
+    ]
 
 
 def _missing_cells_example(template: Template) -> Case | None:
