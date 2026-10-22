@@ -12,9 +12,15 @@ import pytest
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "praca_w_toku.py"
 
 
+@pytest.fixture(autouse=True)
+def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 def _git(cwd: Path, *args: str) -> None:
     subprocess.run(
-        ["git", "-c", "user.name=Sesja", "-c", "user.email=sesja@example.invalid", "-c", "commit.gpgsign=false", *args],
+        ["git", "-c", "user.name=Sesja", "-c", "user.email=sesja@example.invalid", *args],
         cwd=cwd,
         capture_output=True,
         check=True,
