@@ -217,10 +217,10 @@ def test_plan_ktorego_nie_da_sie_pokazac_to_zatrzymanie_po_silniku_z_tym_samym_w
     source, _target, config = make_preview_fixture(tmp_path)
     secret = "Jan Kowalski /Users/klient/Rejestr.xlsx"
 
-    def broken_summary(*args: Any, **kwargs: Any) -> Any:
+    def broken_view(*args: Any, **kwargs: Any) -> Any:
         raise RuntimeError(secret)
 
-    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
+    monkeypatch.setattr(run_view.ProcessView, "shown", broken_view)
 
     exit_code = _script(monkeypatch).main(_settlement_arguments(tmp_path, source, config, "--dry-run"))
     stdout, stderr = capsys.readouterr()

@@ -130,11 +130,11 @@ def test_wynik_ktorego_nie_da_sie_pokazac_to_niepokazane_podsumowanie_z_tym_samy
 ) -> None:
     centrum = settling_centrum(tmp_path)
 
-    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
+    def broken_view(*args: object, **kwargs: object) -> NoReturn:
         raise ValueError("synthetic summary failure SYN-001")
 
     # Psuje widok wyniku Centrum, nie rdzeń procesu: tylko tak test widzi, że karta oddaje widok do osłony rdzenia.
-    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
+    monkeypatch.setattr(run_view.ProcessView, "shown", broken_view)
 
     result = run_to_end(centrum, dry_run=False)["result"]
 

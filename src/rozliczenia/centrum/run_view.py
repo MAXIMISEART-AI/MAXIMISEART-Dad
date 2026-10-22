@@ -26,6 +26,14 @@ SummaryT = TypeVar("SummaryT")
 
 
 @dataclass(frozen=True)
+class Shown:
+    """Wynik zakończonego procesu: podsumowanie albo plan w kształcie kontraktu i ostrzeżenia z kodami Komunikatów."""
+
+    summary: contract.RunSummary
+    warnings: tuple[Message, ...]
+
+
+@dataclass(frozen=True)
 class ProcessView(Generic[InputsT, SummaryT]):
     """Widok Uruchomienia jednego procesu: deklaracja procesu, liczby na żywo i wynik w kształcie kontraktu.
 
@@ -57,15 +65,10 @@ class ProcessView(Generic[InputsT, SummaryT]):
             figures=self._figures(snapshot, dry_run),
         )
 
-    def summary(self, summary: SummaryT, *, dry_run: bool) -> contract.RunSummary:
-        """Liczby i szczegóły wyniku podglądu bez zapisu albo zapisu."""
+    def shown(self, inputs: InputsT, summary: SummaryT) -> Shown:
+        """Wynik zakończonego procesu; rdzeń woła go w swojej osłonie (``run_process(view=...)``)."""
 
-        return self._summary(summary, dry_run)
-
-    def warnings(self, inputs: InputsT, summary: SummaryT) -> list[Message]:
-        """Ostrzeżenia zakończonego procesu."""
-
-        return list(self._warnings(inputs, summary))
+        return Shown(self._summary(summary, inputs.dry_run), tuple(self._warnings(inputs, summary)))
 
 
 def _count(label: str, value: int) -> contract.Figure:

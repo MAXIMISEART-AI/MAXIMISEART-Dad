@@ -117,19 +117,14 @@ def _conduct(
     inputs: InputsT,
     metrics: Path,
 ) -> tuple[ProcessResult, int]:
-    dry_run = inputs.dry_run
-    unattended = _Unattended(lambda snapshot: view.progress(snapshot, dry_run=dry_run))
-
-    def finished_view(inputs: InputsT, summary: SummaryT) -> tuple[contract.RunSummary, list[CodedMessage]]:
-        return view.summary(summary, dry_run=dry_run), [CodedMessage.of(warning) for warning in view.warnings(inputs, summary)]
-
-    outcome = run_process(process, inputs, unattended, view=finished_view, metrics_path=metrics)
-    summary, coded_warnings = outcome.view or (None, [])
+    unattended = _Unattended(lambda snapshot: view.progress(snapshot, dry_run=inputs.dry_run))
+    outcome = run_process(process, inputs, unattended, view=view.shown, metrics_path=metrics)
+    shown = outcome.view
     ending = outcome.ending
     result = ProcessResult(
         result=outcome.result,
-        summary=summary,
-        warnings=coded_warnings,
+        summary=None if shown is None else shown.summary,
+        warnings=[] if shown is None else [CodedMessage.of(warning) for warning in shown.warnings],
         stop=None if isinstance(ending, Finished) else StopResult(kind=ending.kind, message=CodedMessage.of(ending.message)),
         progress=unattended.progress,
         total_duration_ms=outcome.total_duration_ms,
