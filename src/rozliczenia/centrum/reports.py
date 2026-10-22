@@ -11,9 +11,9 @@ dziennika, bez ścieżek i bez wyjścia Gita. Ścieżki są już skrócone w
 Komunikatach, szczegółach sprawdzeń i ramkach śladu; treści wierszy, treści
 wyjątków ani klucza Zgłoszenie nie ma (ADR 0007).
 
-Źródło Zgłoszenia (Zatrzymanie w ``stops``, nieudana Aktualizacja narzędzia)
-trzyma swój podgląd (``Reports.draft``), a „Wyślij do Maksa” wysyła dokładnie
-ten podgląd (``Reports.send``), najwyżej raz na jego klucz.
+Źródło Zgłoszenia (Zatrzymanie w ``stops``, nieudana Aktualizacja narzędzia w
+``tool_updates``) trzyma swój podgląd (``Reports.draft``), a „Wyślij do Maksa”
+wysyła dokładnie ten podgląd (``Reports.send``), najwyżej raz na jego klucz.
 """
 
 from __future__ import annotations
@@ -60,10 +60,6 @@ SEARCH_DEADLINE_S: Final = 3.0
 
 # Zgłoszenie nieudanej Aktualizacji narzędzia ma tyle ostatnich wpisów dziennika co Zgłoszenie z Diagnozy.
 _UPDATE_LOG_ENTRIES: Final = 20
-# Podgląd Zgłoszenia aktualizacji jest jeden na Centrum, jak sama aktualizacja.
-_UPDATE_KEY: Final = "aktualizacja-narzedzia"
-# Odmowa „Wyślij do Maksa”, gdy ostatnia Aktualizacja narzędzia nie zawiodła.
-NO_FAILED_UPDATE: Final = "Zgłoszenie powstaje po nieudanej aktualizacji narzędzia."
 
 _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
@@ -408,7 +404,6 @@ class Reports:
         # Blokada chroni tylko stan w pamięci i pliki stanu; pytania do skrzynki idą bez niej.
         self._lock = threading.Lock()
         self._changed = threading.Condition(self._lock)
-        self._update_draft: Draft | None = None  # z ostatniej nieudanej Aktualizacji narzędzia
         self._sent_drafts: set[str] = set()  # ``Draft.key`` podglądów wysłanych w tej pracy Centrum
         self._sending: set[str] = set()  # ``Draft.key`` podglądów, które właśnie idą do skrzynki
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
@@ -436,35 +431,6 @@ class Reports:
             if draft.key in self._sent_drafts:
                 return contract.ReportSent(state="sent")
             return self._state_of(draft.report.fingerprint)
-
-    def draft_update(self, result: UpdateResult, message: Message) -> tuple[contract.ReportDraft, contract.ReportState]:
-        """Zgłoszenie nieudanej Aktualizacji narzędzia, które wyśle „Wyślij do Maksa”, i ostatni znany stan.
-
-        Skrzynki nie pyta (start Centrum po cofnięciu nie czeka na sieć); pyta ją ``update_report_state``.
-        """
-
-        draft = self.draft(_UPDATE_KEY, UpdateReport.of(result, message, self._log))
-        with self._lock:
-            self._update_draft = draft
-            self._sent_drafts.discard(_UPDATE_KEY)  # nowa porażka: jej Zgłoszenie jeszcze nie wyszło
-            state = self._state_of(draft.report.fingerprint)
-        return draft.view, state
-
-    def update_report_state(self) -> contract.ReportState:
-        """Stan Zgłoszenia ostatniej nieudanej Aktualizacji narzędzia po pytaniu skrzynki (``ask``)."""
-
-        with self._lock:
-            draft = self._update_draft
-        return contract.ReportReady(state="ready") if draft is None else self.ask(draft)
-
-    def send_update(self) -> contract.ReportState:
-        """Wysyła podgląd z ostatniej nieudanej Aktualizacji narzędzia, tak samo jak ``send``."""
-
-        with self._lock:
-            draft = self._update_draft
-        if draft is None:
-            raise contract.Refusal(409, NO_FAILED_UPDATE)
-        return self.send(draft)
 
     def send(self, draft: Draft) -> contract.ReportState:
         """Wysyła ``draft`` najwyżej raz na ``draft.key``, chyba że skrzynka ma już otwarte Zgłoszenie tego problemu.
