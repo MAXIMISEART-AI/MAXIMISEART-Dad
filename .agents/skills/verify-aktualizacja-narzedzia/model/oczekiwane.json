@@ -13,5 +13,10 @@
   },
   "wylaczenie": {
     "wynik": "przechodzi"
+  },
+  "skrot-w-trakcie": {
+    "wynik": "narusza",
+    "wybacz": "skrot_zajmuje_port",
+    "znalezisko": "tata klika skrót, gdy opiekun startuje nową wersję; skrót trzyma port, nowa wersja kończy się z PORT_ZAJETY, a opiekun cofa wersję, która działa"
   }
 }

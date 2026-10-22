@@ -15,6 +15,10 @@
 (* src/rozliczenia/centrum/: tool_update.py, tool_updates.py,              *)
 (* restart_guardian.py (z cofaniem nowej wersji, która nie wystartuje),   *)
 (* launcher.py (cofanie przerwanej aktualizacji przy starcie skrótu).      *)
+(*                                                                         *)
+(* Druga obietnica (OpiekunCofaTylkoNieudana): opiekun cofa nową wersję    *)
+(* tylko wtedy, gdy ona naprawdę nie startuje, także gdy tata w trakcie    *)
+(* ponownego startu kliknie skrót na pulpicie.                             *)
 (***************************************************************************)
 EXTENDS Naturals
 
@@ -28,6 +32,7 @@ CONSTANTS
     AwariaKopiowania,   \* shutil.copy2 pliku taty albo zapis stan.json rzuca OSError (dysk, antywirus, OneDrive)
     NieudanyStart,      \* nowa wersja nie odpowiada w START_TIMEOUT_S, choć ma swoje biblioteki
     Wylaczenie,         \* komputer gaśnie albo proces ginie w dowolnym kroku
+    MaxSkrotowWTrakcie, \* ile razy tata klika skrót na pulpicie, gdy opiekun ponownego startu działa
     Wybaczone           \* znane znaleziska, które TataMaDzialajacaWersjePozaZnanymi pomija (oczekiwane.json)
 
 VARIABLES
@@ -48,6 +53,8 @@ VARIABLES
     klikniecia,
     krok,          \* ostatni krok, słowami kodu: z nich składa się kontrprzykład
     slady,         \* awarie znanych znalezisk, które już się zdarzyły (ZnaneZnaleziska)
+    skrot,         \* skrót kliknięty w trakcie pracy opiekuna: "ma_port" od listen_locally do listener.close(), inaczej "brak"
+    skrotyWTrakcie,\* ile razy tata kliknął skrót, gdy opiekun działał
     cofa           \* kto woła _roll_back: "centrum" (ToolClone.update, ToolUpdates._moved_back), "klik"
                    \* (ToolClone.update przed pobraniem, gdy zastaje dziennik bez terminu opiekuna), "opiekun"
                    \* (restart_guardian._rolled_back po nowej wersji, która nie odpowiada) albo "opiekun_bez_portu"
@@ -56,9 +63,9 @@ VARIABLES
 
 dysk == <<head, plikTaty, kopia, biblioteki, dziennik, dzierzawa>>
 nowa == <<nowaUsuwaPlikTaty, nowaZmieniaWymagania, nowaStartuje>>
-vars == <<dysk, nowa, centrum, pc, klikniecia, krok, slady, cofa>>
+vars == <<dysk, nowa, centrum, pc, klikniecia, krok, slady, cofa, skrot, skrotyWTrakcie>>
 
-ZnaneZnaleziska == {}
+ZnaneZnaleziska == {"skrot_zajmuje_port"}
 
 Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie",
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
@@ -79,6 +86,8 @@ TypeOK ==
     /\ klikniecia \in 0..MaxKlikniec
     /\ slady \subseteq ZnaneZnaleziska
     /\ cofa \in {"centrum", "klik", "opiekun", "opiekun_bez_portu", "skrot"}
+    /\ skrot \in {"brak", "ma_port"}
+    /\ skrotyWTrakcie \in 0..MaxSkrotowWTrakcie
 
 \* Czy wersja wystartuje ze skrótu taty (run_centrum.py z klonu). Założenie: stara
 \* wersja startuje z każdymi bibliotekami, bo requirements.txt ma tylko dolne granice
@@ -105,6 +114,13 @@ Znane == Wybaczone \cap slady /= {}
 
 TataMaDzialajacaWersjePozaZnanymi == TataMaDzialajacaWersje \/ Znane
 
+\* Opiekun cofa klon (cofa = "opiekun") tylko wtedy, gdy wersja, na której klon stoi,
+\* naprawdę nie wystartuje. Sprawdzane w chwili wejścia w _roll_back, zanim klon się ruszy.
+OpiekunCofaTylkoNieudana ==
+    pc = "cofanie_usun" /\ cofa = "opiekun" => ~Startuje(head)
+
+OpiekunCofaTylkoNieudanaPozaZnanymi == OpiekunCofaTylkoNieudana \/ Znane
+
 
 \* --- Start ------------------------------------------------------------------
 
@@ -124,17 +140,20 @@ Init ==
     /\ krok = "Centrum dziala w starej wersji"
     /\ slady = {}
     /\ cofa = "centrum"
+    /\ skrot = "brak"
+    /\ skrotyWTrakcie = 0
 
-Idz(nastepny, opis) == pc' = nastepny /\ krok' = opis /\ slady' = slady /\ cofa' = cofa
+\* Kroki kodu aktualizacji i opiekuna nie ruszają skrótu klikniętego w trakcie (skrot).
+Idz(nastepny, opis) == pc' = nastepny /\ krok' = opis /\ slady' = slady /\ cofa' = cofa /\ skrot' = skrot /\ skrotyWTrakcie' = skrotyWTrakcie
 
 \* Krok awarii znanego znaleziska: zostawia jej ślad dla Znane.
-Slad(nastepny, opis, slad) == pc' = nastepny /\ krok' = opis /\ slady' = slady \cup {slad} /\ cofa' = cofa
+Slad(nastepny, opis, slad) == pc' = nastepny /\ krok' = opis /\ slady' = slady \cup {slad} /\ cofa' = cofa /\ skrot' = skrot /\ skrotyWTrakcie' = skrotyWTrakcie
 
 \* Wejście w _roll_back; ``kto`` decyduje, co dzieje się po nim.
-Cofaj(kto, opis) == pc' = "cofanie_usun" /\ krok' = opis /\ slady' = slady /\ cofa' = kto
+Cofaj(kto, opis) == pc' = "cofanie_usun" /\ krok' = opis /\ slady' = slady /\ cofa' = kto /\ skrot' = skrot /\ skrotyWTrakcie' = skrotyWTrakcie
 
 \* Klon się nie przesunął, a pliki taty są z powrotem: ToolClone.update usuwa dziennik.
-PoOdmowie(opis) == pc' = "koniec_dziennika" /\ krok' = opis /\ slady' = slady /\ cofa' = "centrum"
+PoOdmowie(opis) == pc' = "koniec_dziennika" /\ krok' = opis /\ slady' = slady /\ cofa' = "centrum" /\ skrot' = skrot /\ skrotyWTrakcie' = skrotyWTrakcie
 
 \* --- ToolUpdates.start, ToolUpdates._result ----------------------------------
 
@@ -350,24 +369,39 @@ Restart ==
 
 \* _port_released, potem write_result(ok). Bez portu main od razu woła _rolled_back
 \* (ToolClone.roll_back -> _roll_back), a po nim pokazuje okienko i niczego nie startuje.
+\* _port_released próbuje co _POLL_S przez PORT_TIMEOUT_S, a skrót trzyma port przez chwilę,
+\* więc opiekun czeka, aż skrót go odda (skrot = "brak").
 OpiekunPort ==
     /\ pc = "opiekun_port"
     /\ \/ /\ AwariaOpiekuna
           /\ Cofaj("opiekun_bez_portu", "restart_guardian.main: port nie zwolniony w PORT_TIMEOUT_S; _rolled_back bez startu nowej wersji")
-       \/ Idz("opiekun_start", "restart_guardian.main: port zwolniony")
+       \/ /\ skrot = "brak"
+          /\ Idz("opiekun_start", "restart_guardian.main: port zwolniony")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 
 \* _start_centrum (run_centrum.py --bez-okienek: skrót bez cofania), potem _answers. Gdy nowa
 \* wersja nie odpowie: _stop, write_result z NOWA_WERSJA_NIE_WYSTARTOWALA i _rolled_back, czyli
 \* ToolClone.roll_back -> _roll_back.
+\* Akcja to chwila, w której nowe Centrum woła launcher.listen_locally. Gdy port trzyma skrót,
+\* bind rzuca OSError, running_centrum nie dostaje odpowiedzi (skrót nie odpowiada na HTTP),
+\* nowe Centrum kończy się z PORT_ZAJETY (bez okienka), a _answers widzi koniec procesu
+\* (centrum.poll() is not None) i od razu zwraca False.
 OpiekunStart ==
     /\ pc = "opiekun_start"
-    /\ \/ /\ Startuje(head)
+    /\ \/ /\ skrot = "brak"
+          /\ Startuje(head)
           /\ centrum' = head
           /\ Idz("opiekun_koniec", "restart_guardian.main: nowa wersja odpowiada na /api/health")
-       \/ /\ ~Startuje(head)
+       \/ /\ skrot = "brak"
+          /\ ~Startuje(head)
           /\ UNCHANGED centrum
           /\ Cofaj("opiekun", "restart_guardian.main: nowa wersja nie odpowiada w START_TIMEOUT_S; _stop, potem _rolled_back")
+       \/ /\ skrot = "ma_port"
+          /\ UNCHANGED <<centrum, skrot, skrotyWTrakcie>>
+          /\ pc' = "cofanie_usun"
+          /\ cofa' = "opiekun"
+          /\ slady' = slady \cup {"skrot_zajmuje_port"}
+          /\ krok' = "restart_guardian.main: nowa wersja nie zajmuje portu, ktory trzyma skrot (listen_locally: OSError, PORT_ZAJETY); _answers widzi koniec procesu, _stop, potem _rolled_back"
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
 
 \* ToolClone.confirm_update: aktualizacja skończona, dziennik znika (_Journal.end).
@@ -381,20 +415,32 @@ OpiekunKoniec ==
 
 \* Po udanym cofnięciu: _port_released, potem _start_centrum i _answers(before).
 \* Każda porażka kończy się okienkiem not_started_after_update.
+\* Port po cofnięciu może trzymać Centrum, które skrót uruchomił, gdy dziennika już nie było.
 OpiekunPortStara ==
     /\ pc = "opiekun_port_stara"
     /\ \/ /\ AwariaOpiekuna
           /\ Idz("spoczynek", "restart_guardian.main: port nie zwolniony po cofnieciu, opiekun pokazuje okienko")
-       \/ Idz("opiekun_start_stara", "restart_guardian.main: port zwolniony po cofnieciu")
+       \/ /\ centrum /= "brak"
+          /\ Idz("spoczynek", "restart_guardian.main: port po cofnieciu trzyma Centrum ze skrotu, opiekun pokazuje okienko")
+       \/ /\ centrum = "brak"
+          /\ skrot = "brak"
+          /\ Idz("opiekun_start_stara", "restart_guardian.main: port zwolniony po cofnieciu")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 
+\* Gdy port trzyma skrót, stara wersja kończy się z PORT_ZAJETY jak nowa w OpiekunStart. Gdy
+\* trzyma go Centrum ze skrotu w tej samej wersji, stara kończy się (już działa), a _answers(before)
+\* dostaje odpowiedź od tamtego Centrum.
 OpiekunStartStara ==
     /\ pc = "opiekun_start_stara"
-    /\ centrum' = IF Startuje(head) THEN head ELSE "brak"
+    /\ centrum' = CASE centrum /= "brak" -> centrum
+                    [] skrot = "ma_port" -> "brak"
+                    [] Startuje(head) -> head
+                    [] OTHER -> "brak"
     /\ Idz("spoczynek",
-           IF Startuje(head)
-           THEN "restart_guardian.main: stara wersja odpowiada, karta pokaze NOWA_WERSJA_NIE_WYSTARTOWALA"
-           ELSE "restart_guardian.main: stara wersja nie odpowiada, opiekun pokazuje okienko")
+           CASE centrum /= "brak" -> "restart_guardian.main: stara wersja juz dziala (Centrum ze skrotu odpowiada)"
+             [] skrot = "ma_port" -> "restart_guardian.main: stara wersja nie zajmuje portu, ktory trzyma skrot; opiekun pokazuje okienko"
+             [] Startuje(head) -> "restart_guardian.main: stara wersja odpowiada, karta pokaze NOWA_WERSJA_NIE_WYSTARTOWALA"
+             [] OTHER -> "restart_guardian.main: stara wersja nie odpowiada, opiekun pokazuje okienko")
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
 
 \* --- Poza kodem aktualizacji ----------------------------------------------------
@@ -405,45 +451,89 @@ Wylacz ==
     /\ Wylaczenie
     /\ pc /= "spoczynek"
     /\ centrum' = "brak"
-    /\ Idz("spoczynek", "komputer gasnie w tym kroku")
-    /\ UNCHANGED <<dysk, nowa, klikniecia>>
+    /\ skrot' = "brak"
+    /\ pc' = "spoczynek"
+    /\ krok' = "komputer gasnie w tym kroku"
+    /\ UNCHANGED <<dysk, nowa, klikniecia, slady, cofa, skrotyWTrakcie>>
 
 \* Mija GUARDIAN_LEASE_S od zapisu opiekun_do. Założenie (Scope): opiekun kończy się przed tym
 \* terminem, więc termin mija dopiero wtedy, gdy nic już nie działa.
+\* Skrót trzyma port przez ułamek sekundy, a termin to 10 minut, więc nie mija w tej chwili.
 DzierzawaMija ==
     /\ pc = "spoczynek"
+    /\ skrot = "brak"
     /\ dzierzawa = "wazna"
     /\ dzierzawa' = "brak"
     /\ krok' = "mija termin opiekuna (GUARDIAN_LEASE_S)"
-    /\ UNCHANGED <<head, plikTaty, kopia, biblioteki, dziennik, nowa, centrum, pc, klikniecia, slady, cofa>>
+    /\ UNCHANGED <<head, plikTaty, kopia, biblioteki, dziennik, nowa, centrum, pc, klikniecia, slady, cofa, skrot, skrotyWTrakcie>>
 
 \* Tata uruchamia Centrum skrótem z pulpitu (launcher._start z klonu). Skrót zajmuje port
 \* (listen_locally) i czyta dziennik (ToolClone.interrupted_update), zanim wczyta biblioteki.
+\* Gdy nic nie działa, nikt inny nie walczy o port, więc cały start skrótu to jeden krok.
 Skrot ==
     /\ pc = "spoczynek"
     /\ centrum = "brak"
+    /\ skrot = "brak"
     /\ \/ /\ dziennik = "brak"
           /\ Startuje(head)
           /\ centrum' = head
           /\ krok' = "tata uruchamia Centrum skrotem z pulpitu"
-          /\ UNCHANGED <<dysk, nowa, pc, klikniecia, slady, cofa>>
+          /\ UNCHANGED <<dysk, nowa, pc, klikniecia, slady, cofa, skrot, skrotyWTrakcie>>
        \/ /\ dziennik = "w_toku"
           /\ dzierzawa = "wazna"
           /\ krok' = "skrot: dziennik z terminem opiekuna, Komunikat AKTUALIZACJA_SIE_KONCZY"
-          /\ UNCHANGED <<dysk, nowa, centrum, pc, klikniecia, slady, cofa>>
+          /\ UNCHANGED <<dysk, nowa, centrum, pc, klikniecia, slady, cofa, skrot, skrotyWTrakcie>>
        \/ /\ dziennik = "w_toku"
           /\ dzierzawa = "brak"
           /\ Cofaj("skrot", "skrot: dziennik 'Aktualizacja w toku', launcher._roll_back przed startem")
           /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 
-\* Kroki kodu: Centrum, opiekun i skrót, który cofa.
+\* Opiekun ponownego startu działa (od Restart do jego ostatniego kroku), a port jest wolny:
+\* stare Centrum już się zamknęło, a nowe jeszcze go nie zajęło.
+DzialaOpiekun ==
+    \/ pc \in {"opiekun_port", "opiekun_start", "opiekun_koniec", "opiekun_port_stara", "opiekun_start_stara"}
+    \/ /\ pc \in {"cofanie_usun", "cofanie_reset", "cofanie_przywroc", "koniec_dziennika"}
+       /\ cofa \in {"opiekun", "opiekun_bez_portu"}
+
+\* Tata klika skrót, gdy opiekun działa (karta pokazuje ponowny start): launcher._start
+\* z klonu (bez --bez-okienek) zajmuje wolny port w listen_locally. Gdy port trzyma
+\* Centrum, bind rzuca, a skrót tylko pyta health: nic na dysku się nie zmienia, więc tego
+\* przypadku model nie opisuje.
+SkrotWTrakcie ==
+    /\ DzialaOpiekun
+    /\ centrum = "brak"
+    /\ skrot = "brak"
+    /\ skrotyWTrakcie < MaxSkrotowWTrakcie
+    /\ skrot' = "ma_port"
+    /\ skrotyWTrakcie' = skrotyWTrakcie + 1
+    /\ krok' = "tata klika skrot w trakcie ponownego startu: launcher._start zajmuje port (listen_locally)"
+    /\ UNCHANGED <<dysk, nowa, centrum, pc, klikniecia, slady, cofa>>
+
+\* launcher._start po listen_locally: ToolClone.interrupted_update i guardian_may_run. Z terminem
+\* opiekuna listener.close() i Komunikat update_finishing. Bez dziennika (opiekun już go usunął
+\* po cofnięciu) skrót startuje Centrum i zostaje na porcie. Dziennik bez terminu nie zdarza się,
+\* póki opiekun działa (DzierzawaMija).
+SkrotOddajePort ==
+    /\ skrot = "ma_port"
+    /\ skrot' = "brak"
+    /\ \/ /\ dziennik = "w_toku"
+          /\ dzierzawa = "wazna"
+          /\ UNCHANGED centrum
+          /\ krok' = "skrot: dziennik z terminem opiekuna, listener.close(), Komunikat AKTUALIZACJA_SIE_KONCZY"
+       \/ /\ dziennik = "brak"
+          /\ centrum' = IF Startuje(head) THEN head ELSE centrum
+          /\ krok' = "skrot: dziennika juz nie ma, Centrum ze skrotu startuje i zostaje na porcie"
+    /\ UNCHANGED <<dysk, nowa, pc, klikniecia, slady, cofa, skrotyWTrakcie>>
+
+\* Kroki kodu: Centrum, opiekun i skrót, który cofa albo oddaje port.
 Program ==
     \/ Pobranie \/ KopiaPlikow \/ CheckoutHead \/ Scalanie
     \/ PrzywroceniePoOdmowie \/ PrzywroceniePoScaleniu \/ Instalacja \/ InstalacjaKoniec
     \/ CofanieUsun \/ CofanieReset \/ CofaniePrzywroc \/ KoniecDziennika
     \/ Restart \/ OpiekunPort \/ OpiekunStart \/ OpiekunKoniec \/ OpiekunPortStara \/ OpiekunStartStara
+    \/ SkrotOddajePort
 
-Next == Program \/ Klik \/ Wylacz \/ DzierzawaMija \/ Skrot
+Next == Program \/ Klik \/ Wylacz \/ DzierzawaMija \/ Skrot \/ SkrotWTrakcie
 
 \* Działający kod robi następny krok, tata klika, póki Centrum działa i ma kliknięcia albo dziennik
 \* jest w toku, uruchamia skrót, póki Centrum nie działa, a termin opiekuna kiedyś mija, także gdy
