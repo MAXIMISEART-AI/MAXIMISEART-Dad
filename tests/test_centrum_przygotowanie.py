@@ -182,16 +182,20 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
 
 
 def test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk(tmp_path: Path) -> None:
-    centrum, view = awaiting_decision(tmp_path)
+    centrum = preparing_centrum(tmp_path, incomplete_period_rows())
     waited_ms = 1500
 
+    started = time.perf_counter()
+    centrum.start(dry_run=False)
+    view = views_until(centrum.client, "awaiting_decision")[-1]
     time.sleep(waited_ms / 1000)
     decide(centrum, view, "continue")
     views = views_until(centrum.client, "finished")
+    not_waiting_ms = (time.perf_counter() - started) * 1000 - waited_ms
 
     [record] = centrum.metric_records()
-    assert record["total_duration_ms"] < waited_ms
-    assert all(shown_time(view) < waited_ms for view in views if view["state"] == "running")
+    assert record["total_duration_ms"] <= not_waiting_ms
+    assert all(shown_time(view) <= not_waiting_ms for view in views if view["state"] == "running")
 
 
 def shown_time(view: dict[str, Any]) -> int:

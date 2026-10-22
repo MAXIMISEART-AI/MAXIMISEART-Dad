@@ -232,3 +232,50 @@ zapisu przez openpyxl, tak jak w Rozliczeniu pracownika.
 
 Test właściciel: `tests/test_plik_zbiorczy_kopia_wzorca.py` porównuje Plik
 zbiorczy z obu dróg na syntetycznych Wzorcach, także kształtu Wzorców taty.
+
+## Zmiana z 2026-10-22: Wygląd Wiersza danych
+
+Każda wpisana komórka brała dotąd krój i rozmiar czcionki, wyrównanie,
+zawijanie, obramowanie i (w Rozliczeniu pracownika) format liczby z komórki
+Wzorca w tym samym wierszu. Wzorce taty mają w Wierszach danych resztki
+formatowania: w wierszach 18–31 zawijanie i wyrównanie do góry, od 32 inne
+wyrównanie, a Wzorzec rozliczenia wewnętrznego zapisaną wysokość 14 pkt w ~170
+wierszach. Na prawdziwych Wzorcach i Rejestrze (tydzień 29.09–05.10.2026)
+wiersze 18–31 miały w Excelu podwójną wysokość, wiersze od 32 tekst na środku,
+a DATA w Rozliczeniu pracownika pokazywała `#####` (format Wzorca
+`yyyy-mm-dd h:mm:ss`).
+
+Teraz komórki kolumn wyglądu (A:M Rozliczenia wewnętrznego, A:L Pliku
+zbiorczego i Rozliczenia pracownika) dostają Wygląd Wiersza danych
+(`row_look.RowLook`), jak w plikach, które tata robił ręcznie: krój i rozmiar
+czcionki komórki nagłówka tej kolumny we Wzorcu, Wyróżnienia, wyrównanie do
+lewej i do środka, zawijanie tylko tekstu z końcem linii, cienkie obramowanie z
+czterech stron w kolorze automatycznym i format liczby komórki źródłowej
+(Rejestru, a w Rozliczeniu pracownika Pliku zbiorczego). Komórka kolumny wyglądu
+bez wartości źródłowej (`zwrot` i `UWAGI` Rozliczenia wewnętrznego, L Pliku
+zbiorczego) dostaje sam wygląd z formatem ogólnym, a jej treść zostaje z
+Wzorca. Wpisany wiersz nie ma zapisanej wysokości (`ht`, `customHeight`), więc
+Excel dopasowuje ją do treści. ADRES Pliku zbiorczego ma zawsze żółte
+wypełnienie (w plikach taty 419 z 419 komórek), także gdy w Rejestrze ma inny
+kolor; Rozliczenie pracownika dostaje je zwykłym przeniesieniem Wyróżnień.
+Kolumny za kolumnami wyglądu (M:AT Rozliczenia pracownika) zostają jak w zmianie
+z 2026-10-21. Ochrona i styl nazwany komórki Wzorca zostają.
+
+Wszystkie drogi zapisu biorą wygląd z jednego `RowLook.cell`: openpyxl dla
+Rozliczenia wewnętrznego, Pliku zbiorczego i Rozliczenia pracownika (droga
+zapasowa) i kopia Wzorca. Kopia dopisuje brakujące obramowania do
+`xl/styles.xml` tak jak czcionki i wypełnienia, a element `alignment` w stylu
+komórki zastępuje; styl równy istniejącemu w Wzorcu albo już dopisanemu jest
+używany ponownie. Wyjątek kopii Pliku zbiorczego dla komórki bez własnego stylu
+w wierszu albo kolumnie ze stylem (sekcja wyżej) znika, bo każda komórka kolumn
+wyglądu dostaje teraz pełny styl; Wzorzec ze stylem wiersza idzie kopią. Tak samo
+znika nadawanie takiej komórce stylu wiersza albo kolumny w drodze przez openpyxl.
+
+Odrzucony kierunek z 2026-10-21 („przeniesienie całego stylu komórki Pliku
+zbiorczego”) zostaje odrzucony: krój, rozmiar i obramowanie nie przechodzą z
+Pliku zbiorczego, tylko wynikają z reguły i z nagłówka Wzorca rozliczenia
+pracownika. Z Pliku zbiorczego przechodzi teraz dodatkowo tylko format liczby.
+
+Kontrola `verify-kopia-wzorca` ma piątą regułę `WYGLAD_WIERSZA`, wyprowadzoną z
+reguły, a nie z kodu, bo błąd wspólny obu dróg zapisu nie byłby widoczny w
+porównaniu kopii z openpyxl.

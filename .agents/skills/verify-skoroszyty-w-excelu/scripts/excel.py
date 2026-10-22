@@ -419,6 +419,58 @@ return ({{(item 1 of ic) * 65536 + (item 2 of ic) * 256 + (item 3 of ic), (item 
     return int(interior), int(font), bold == "true", italic == "true"
 
 
+def row_heights(path: Path, first: int, last: int, *, sheet: int = 1) -> list[float]:
+    """Height in points of rows ``first``..``last`` as Excel lays them out, after its own auto-fit."""
+
+    output = _osascript(
+        f"""
+set wb to findBook(item 1 of argv)
+set hs to {{}}
+tell application "Microsoft Excel"
+  set ws to worksheet {sheet} of wb
+  repeat with r from ({first}) to ({last})
+    set end of hs to (row height of row r of ws) as text
+  end repeat
+end tell
+set AppleScript's text item delimiters to (character id 31)
+return hs as text
+""",
+        str(path),
+    )
+    return [float(height.replace(",", ".")) for height in output.split(SEPARATOR_CELL)]
+
+
+def standard_height(path: Path, *, sheet: int = 1) -> float:
+    """Height in points of a row with one line of text in the sheet's default font, as Excel computes it."""
+
+    output = _osascript(
+        f"""
+set wb to findBook(item 1 of argv)
+tell application "Microsoft Excel"
+  return (standard height of worksheet {sheet} of wb) as text
+end tell
+""",
+        str(path),
+    )
+    return float(output.replace(",", "."))
+
+
+def shown_text(path: Path, address: str, *, sheet: int = 1) -> str:
+    """The value of one cell as text in its number format (Excel's ``string value``; a too narrow column's ``#####``
+    does not show here)."""
+
+    return _osascript(
+        f"""
+set wb to findBook(item 1 of argv)
+tell application "Microsoft Excel"
+  return string value of range (item 2 of argv) of worksheet {sheet} of wb
+end tell
+""",
+        str(path),
+        address,
+    )
+
+
 def type_row(path: Path, address: str, texts: list[str], *, sheet: int = 1) -> None:
     """Enter one row of cells like typing them: Excel parses each text itself, then recalculates once.
 

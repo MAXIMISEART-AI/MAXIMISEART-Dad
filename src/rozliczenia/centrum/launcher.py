@@ -6,8 +6,11 @@ Centrum innej wersji, czy inny program. Każdy błąd startu kończy się
 komunikatem w trzech częściach: bez konsoli w natywnym okienku, z konsolą w
 konsoli, a fakt trafia do dziennika Centrum. Ponowny start po Aktualizacji narzędzia (``--bez-okienek``)
 nie pokazuje okienka, tylko zapisuje fakt w dzienniku: tata widzi wtedy jeden
-Komunikat, w karcie. Przy imporcie moduł używa tylko biblioteki
-standardowej, więc brak FastAPI albo uvicorn też staje się takim komunikatem.
+Komunikat, w karcie. Takie Centrum przez 10 sekund ponawia zajęcie portu,
+bo skrót kliknięty w trakcie ponownego startu trzyma go tylko do odczytu
+dziennika: opiekun nie cofa przez to wersji, która działa. Przy imporcie moduł
+używa tylko biblioteki standardowej, więc brak FastAPI albo uvicorn też staje
+się takim komunikatem.
 
 Skrót, który zajmie port i zastanie dziennik „Aktualizacja w toku”, kończy
 Aktualizację narzędzia przerwaną wyłączeniem komputera: cofa klon do wersji
@@ -49,6 +52,8 @@ DEFAULT_PORT = 47811
 LOG_PATH = TOOL_ROOT / "logs" / "centrum-rozliczen.log"
 _HEALTH_TIMEOUT_S = 5  # drugie kliknięcie skrótu może trafić na Centrum, które jeszcze startuje
 _HOST = "127.0.0.1"  # wyłącznie ten komputer (ADR 0004)
+_SHORTCUT_HOLDS_PORT_S = 10  # skrót kliknięty w trakcie ponownego startu oddaje port po odczycie dziennika (#246)
+_POLL_S = 0.1
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -93,7 +98,7 @@ def _start(
 
     url = f"http://{_HOST}:{port}/"
     try:
-        listener = listen_locally(port)
+        listener = _listen_when_released(port, wait_s=_SHORTCUT_HOLDS_PORT_S if started_by_guardian else 0)
     except OSError:
         running = running_centrum(port, timeout_s=_HEALTH_TIMEOUT_S)
         if running is None:
@@ -153,6 +158,19 @@ def listen_locally(port: int) -> socket.socket:
         listener.close()
         raise
     return listener
+
+
+def _listen_when_released(port: int, *, wait_s: float) -> socket.socket:
+    """``listen_locally`` ponawiane przez ``wait_s``; ``OSError``, gdy port jest dalej zajęty."""
+
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            return listen_locally(port)
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise
+        time.sleep(_POLL_S)
 
 
 def _roll_back(interrupted: InterruptedUpdate) -> None:
