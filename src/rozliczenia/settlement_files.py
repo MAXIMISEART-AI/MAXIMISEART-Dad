@@ -4,13 +4,16 @@ Rozliczenia pracowników powstają w folderze tymczasowym obok Pliku zbiorczego,
 w Folderze okresu. Gotowy folder tymczasowy staje się Folderem rozliczeń
 pracowników jedną zmianą nazwy. Nienadpisywanie jest sprawdzane przed startem
 Przebiegu rozliczeń i ponownie tuż przed publikacją. Po nieudanym zapisie nie
-zostaje ani folder tymczasowy, ani niepełny Folder rozliczeń pracowników.
+zostaje niepełny Folder rozliczeń pracowników. Folder tymczasowy, którego nie da
+się usunąć (np. trzyma jego pliki OneDrive), zostaje, a Komunikat podaje początek
+jego nazwy.
 
 Publikacja Przygotowania pliku zbiorczego jest osobna (``preparation_files``).
 """
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 from collections.abc import Callable
 from dataclasses import replace
@@ -37,21 +40,28 @@ def write_worker_settlements(
 
     ``write`` dostaje folder tymczasowy i zwraca wyniki z plikami w nim. Wynik
     to te same wyniki z plikami w opublikowanym Folderze rozliczeń pracowników.
-    Błąd zapisu zatrzymuje Przebieg rozliczeń Komunikatem bez publikacji.
+    Błąd zapisu zatrzymuje Przebieg rozliczeń Komunikatem bez publikacji. Gdy
+    folderu tymczasowego nie da się potem usunąć, Komunikat podaje początek jego nazwy.
     """
 
+    staging_prefix = f".{target_directory.name}.staging-"
     try:
-        with tempfile.TemporaryDirectory(
-            prefix=f".{target_directory.name}.staging-",
-            dir=target_directory.parent,
-        ) as staging_name:
-            staging_directory = Path(staging_name)
-            results = write(staging_directory)
-            ensure_worker_settlements_absent(target_directory)
-            try:
-                staging_directory.rename(target_directory)
-            except OSError as exc:
-                raise StopError(settlement_messages.publish_failed(target_directory)) from exc
-            return [replace(result, output_file=target_directory / result.output_file.name) for result in results]
+        staging_directory = Path(tempfile.mkdtemp(prefix=staging_prefix, dir=target_directory.parent))
     except OSError as exc:
         raise StopError(settlement_messages.write_failed(target_directory)) from exc
+    try:
+        try:
+            results = write(staging_directory)
+            ensure_worker_settlements_absent(target_directory)
+        except OSError as exc:
+            raise StopError(settlement_messages.write_failed(target_directory)) from exc
+        try:
+            staging_directory.rename(target_directory)
+        except OSError as exc:
+            raise StopError(settlement_messages.publish_failed(target_directory)) from exc
+    except BaseException as error:
+        shutil.rmtree(staging_directory, ignore_errors=True)
+        if isinstance(error, StopError) and staging_directory.exists():
+            raise StopError(settlement_messages.staging_left(error.message, staging_prefix)) from error
+        raise
+    return [replace(result, output_file=target_directory / result.output_file.name) for result in results]

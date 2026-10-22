@@ -65,7 +65,8 @@ _Avoid_: Placeholder
 ## Przygotowanie pliku zbiorczego
 
 Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
-wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy. Oba pliki
+wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy z Ilościami usług
+wyznaczonymi przez Reguły ilości. Oba pliki
 powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym zapisie nie da
 się usunąć pliku, który już trafił do Folderu okresu, Zatrzymanie wskazuje ten
 plik. Uruchamiany osobno od Przebiegu rozliczeń.
@@ -149,6 +150,22 @@ Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
 
 Wiersz od 18. w dół zawierający dane wejściowe pracy. Formuły i techniczne
 wartości szablonu nie są same w sobie wierszami danych.
+
+## Ilości usług
+
+Liczby w kolumnach `N:AP` Wiersza danych Pliku zbiorczego: ile razy Wykonawca
+wykonał przy zleceniu daną pozycję cennika. Wartość pozycji to jej ilość razy
+koszt z wiersza 14. Dodatek 45 zł za usterkę po 17:00 albo w sobotę tata
+zapisuje jako ilość 45 w pozycji o koszcie 1 zł.
+_Avoid_: cyfry, zera i jedynki, kolumny
+
+## Reguły ilości
+
+Zasady taty, które z treści zlecenia (`UMOWA`, `URZĄDZENIA`, `CZYNNOŚCI`,
+`DATA`) wyznaczają Ilości usług. Należą do taty: zmiany zgłasza Maksowi. Ilości
+wynikające z opisu technika (`CZYNNOŚCI ZREALIZOWANE`) nie są Regułami ilości,
+bo wpisuje je tata.
+_Avoid_: scenariusze rozliczeń, instrukcja
 
 ## Wyróżnienie
 
@@ -300,10 +317,18 @@ je zamknie, a problem wraca, powstaje nowe z odnośnikiem do poprzedniego.
 
 ## Skrzynka Zgłoszeń
 
-Miejsce, do którego trafiają Zgłoszenia i w którym Maks je zamyka: prywatne
-repozytorium Zgłoszeń. Centrum pyta ją o otwarte Zgłoszenie odcisku problemu i
-o stan wysłanych Zgłoszeń.
+Miejsce, do którego trafiają Zgłoszenia i Kontrole ilości i w którym Maks je
+zamyka: prywatne repozytorium Zgłoszeń. Centrum pyta ją o otwarte Zgłoszenie
+odcisku problemu i o stan wysłanych Zgłoszeń.
 _Avoid_: issue tracker, publiczne issue
+
+## Kontrola ilości
+
+Porównanie Ilości usług, które dają Reguły ilości, z Ilościami usług w Pliku
+zbiorczym, z którego tata uruchomił Przebieg rozliczeń. Pokazuje Maksowi, co
+tata musiał poprawić albo dopisać ręcznie. Jeden okres ma jedną Kontrolę
+ilości w Skrzynce Zgłoszeń, a tata jej nie wysyła ani nie ogląda.
+_Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), raport różnic
 
 ## Powiadomienie o naprawie
 

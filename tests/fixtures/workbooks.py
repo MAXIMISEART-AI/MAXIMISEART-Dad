@@ -136,6 +136,25 @@ def cut_sheet_after_sheet_data(path: Path) -> None:
     )
 
 
+def break_row_far_below_data_rows(path: Path) -> None:
+    """XML arkusza jest zepsuty dopiero w wierszu 10000, daleko pod Wierszami danych i wierszami z zerami.
+
+    Puste wiersze przed nim odsuwają uszkodzenie o ponad 16 KB XML: openpyxl tylko do odczytu parsuje
+    arkusz porcjami tej wielkości, więc uszkodzenie w pierwszej porcji wyszłoby już przy wierszu nagłówka.
+    """
+
+    padding = b"".join(b'<row r="%d"/>' % number for number in range(5000, 7000))
+    broken_row = b'<row r="10000"><c r="A10000"><v>1</v></wiersz></row>'
+
+    def change(name: str, data: bytes) -> bytes:
+        if name != "xl/worksheets/sheet1.xml":
+            return data
+        data = re.sub(rb'(<dimension ref="[A-Z]+[0-9]+:[A-Z]+)[0-9]+"', rb'\g<1>10000"', data)  # jak zapisuje Excel
+        return data.replace(b"</sheetData>", padding + broken_row + b"</sheetData>")
+
+    rewrite_parts(path, change)
+
+
 def rewrite_parts(path: Path, change: Callable[[str, bytes], bytes | None]) -> None:
     """Przepisuje części archiwum .xlsx; ``None`` usuwa część."""
 

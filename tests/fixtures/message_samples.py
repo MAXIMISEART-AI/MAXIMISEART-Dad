@@ -162,6 +162,19 @@ SETTLEMENT_SAMPLES: Samples = {
     "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
     "worker_files_not_copied": [lambda: settlement_messages.worker_files_not_copied(WORKER_TEMPLATE)],
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
+    "staging_left": [
+        lambda: settlement_messages.staging_left(
+            settlement_messages.publish_failed(WORKER_SETTLEMENTS), f".{WORKER_SETTLEMENTS.name}.staging-"
+        ),
+        lambda: settlement_messages.staging_left(
+            settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy"),
+            f".{WORKER_SETTLEMENTS.name}.staging-",
+        ),
+        lambda: settlement_messages.staging_left(
+            settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS),
+            f".{WORKER_SETTLEMENTS.name}.staging-",
+        ),
+    ],
     "write_failed": [lambda: settlement_messages.write_failed(WORKER_SETTLEMENTS)],
     "unexpected_failure": [settlement_messages.unexpected_failure],
     "summary_not_shown": [settlement_messages.summary_not_shown],
