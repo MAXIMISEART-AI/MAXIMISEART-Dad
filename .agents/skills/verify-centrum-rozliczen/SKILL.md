@@ -82,7 +82,7 @@ update Centrum restarts itself: the restart guardian runs the clone's `run_centr
 run's scripted Centrum again on the same port (it rewrites `server.json`), waiting first while
 `<root>/pacing/ponowny-start-ms.txt` exists. When the new version does not answer, the guardian moves the clone back and starts the old version's shim the same way. The adapter is the production boundary for those actions; the real
 Windows and macOS adapters are covered by `tests/test_centrum_launcher.py` (real
-process, real browser opening) and by hand.
+process, real browser opening), on Windows end to end by `verify-centrum-na-windowsie`, and by hand.
 
 Instances are isolated by port and run root, so two runs can proceed side by
 side. Drive only a Centrum this run started. Dad's own Centrum (port `47811`,
