@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 from concurrent.futures import ThreadPoolExecutor
 import json
 import re
@@ -58,9 +59,18 @@ def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path, 
     assert centrum.surroundings.report_box.keys == [KEY]
 
 
-def test_klucz_zapisany_z_bom_wysyla_zgloszenie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "content",
+    [
+        codecs.BOM_UTF8 + (KEY + "\r\n").encode("utf-8"),  # Notatnik, PowerShell 5.1: Set-Content -Encoding UTF8
+        codecs.BOM_UTF16_LE + (KEY + "\r\n").encode("utf-16-le"),  # PowerShell 5.1: > albo Out-File
+        codecs.BOM_UTF16_BE + (KEY + "\r\n").encode("utf-16-be"),  # Notatnik: UTF-16 BE
+    ],
+    ids=["utf-8-bom", "utf-16-le", "utf-16-be"],
+)
+def test_klucz_zapisany_z_bom_wysyla_zgloszenie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: bytes) -> None:
     centrum = preparing_centrum(tmp_path)
-    with_key(centrum).write_text(KEY + "\r\n", encoding="utf-8-sig")  # PowerShell 5.1: Set-Content -Encoding UTF8
+    with_key(centrum).write_bytes(content)
     run_id = stopped_for_maks(centrum, monkeypatch)
     diagnose(centrum, run_id)
 
