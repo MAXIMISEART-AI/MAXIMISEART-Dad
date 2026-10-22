@@ -11,11 +11,11 @@ import sys
 import zipfile
 
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from create_preparation_fixture import completed_activities
+from create_preparation_fixture import completed_activities, order_contract, order_devices
 from wynik_uruchomienia import (
     check_metrics,
     contract,
@@ -86,8 +86,8 @@ def _internal_row(number: int, started: datetime, worker: str, successful: str) 
         started,
         "PREP-SYN-MIASTO",
         f"PREP-SYN-ADRES-{number}",
-        f"PREP-SYN-UM-{number}",
-        "dekoder",
+        order_contract(number),
+        order_devices(number),
         "instalacja",
         f"PREP-SYN-ZL-{number}",
         worker,
@@ -105,8 +105,8 @@ def _collective_row(number: int, started: datetime, worker: str, successful: str
     return (
         "PREP-SYN-MIASTO",
         f"PREP-SYN-ADRES-{number}",
-        f"PREP-SYN-UM-{number}",
-        "dekoder",
+        order_contract(number),
+        order_devices(number),
         "instalacja",
         f"PREP-SYN-ZL-{number}",
         started,
@@ -130,6 +130,13 @@ EXPECTED_COLLECTIVE_ROWS = (
     _collective_row(4, datetime(2026, 9, 12, 12, 0), "kamil.syntetyczny", " Tak "),
     _collective_row(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),
     _collective_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),
+)
+# Ilości usług of rows 18..21 (orders 2, 4, 7, 6) from the Reguły ilości; every other N:AP cell keeps the Wzorzec 0.
+EXPECTED_QUANTITIES: tuple[dict[str, int], ...] = (
+    {"O": 1, "P": 1, "Q": 1, "S": 3, "T": 1, "V": 1, "Z": 1},
+    {"O": 1, "S": 2, "V": 1, "AG": 1, "AO": 1},
+    {},
+    {"T": 1, "V": 1},
 )
 EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
 EXPECTED_COLLECTIVE_ORDER_NUMBERS = tuple(row[5] for row in EXPECTED_COLLECTIVE_ROWS)
@@ -230,10 +237,18 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
         sheet = _sheet(workbook.active)
         if _rows(sheet, 18, 22, 11) != [*EXPECTED_COLLECTIVE_ROWS, (None,) * 11]:
             errors.append("Plik zbiorczy does not hold exactly the Zlecenia skuteczne from row 18")
-        quantities = [value for row in sheet.iter_rows(min_row=18, max_row=23, min_col=14, max_col=42, values_only=True) for value in row]
+        quantities = [
+            {get_column_letter(column): sheet.cell(row, column).value for column in range(14, 43)} for row in range(18, 24)
+        ]
+        expected = [
+            {get_column_letter(column): rules.get(get_column_letter(column), 0) for column in range(14, 43)}
+            for rules in (*EXPECTED_QUANTITIES, {}, {})
+        ]
+        if quantities != expected:
+            errors.append("Plik zbiorczy N:AP is not the Ilości usług from the Reguły ilości over the Wzorzec zeros")
         formulas = [sheet.cell(row, 47).value for row in range(18, 24)]
-        if any(value != 0 for value in quantities) or formulas != [f"=N{row}*$N$1" for row in range(18, 24)]:
-            errors.append("Plik zbiorczy changed the Wzorzec quantities N:AP or formulas")
+        if formulas != [f"=N{row}*$N$1" for row in range(18, 24)]:
+            errors.append("Plik zbiorczy changed the Wzorzec formulas")
         if (
             sheet["N1"].value != 17.5
             or sheet["N16"].value != "=SUM(N18:N40)"
@@ -291,8 +306,11 @@ def _check_real_template_file(
     look_columns: int,
     order_numbers: tuple[object, ...],
     errors: list[str],
+    quantities: tuple[dict[str, int], ...] = (),
 ) -> None:
     """Rows routed by header, the Wygląd Wiersza danych in A..``look_columns``, and the rest of the Wzorzec unchanged.
+
+    ``quantities`` are the Ilości usług of the written rows by column letter; they replace the Wzorzec value.
 
     Messages name columns and fonts only, never a cell value of the Wzorzec or the Rejestr.
     """
@@ -321,6 +339,9 @@ def _check_real_template_file(
             errors.append(f"{label}: Wygląd Wiersza danych differs: {'; '.join(look)}")
 
         expected_values = _cell_values(template_book, written)
+        for row, row_quantities in zip(written_rows, quantities):
+            for letter, value in row_quantities.items():
+                expected_values[(template_sheet.title, row, column_index_from_string(letter))] = value
         actual_values = _cell_values(output_book, written)
         changed = sorted(
             key for key in expected_values.keys() | actual_values.keys() if expected_values.get(key) != actual_values.get(key)
@@ -394,6 +415,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     look_columns=12,
                     order_numbers=EXPECTED_COLLECTIVE_ORDER_NUMBERS,
                     errors=errors,
+                    quantities=EXPECTED_QUANTITIES,
                 )
             for template, output, label, header_row, register_rows in (
                 (INTERNAL_TEMPLATE, INTERNAL_NAME, "Rozliczenie wewnętrzne", 1, EXPECTED_INTERNAL_REGISTER_ROWS),

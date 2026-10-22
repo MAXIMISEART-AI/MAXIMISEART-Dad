@@ -126,6 +126,25 @@ def completed_activities(number: int) -> str:
     return "montaż\ndemontaż" if number == 2 else "montaż"
 
 
+# Order number -> first word of UMOWA and URZĄDZENIA, so that the Plik zbiorczy rows get Ilości usług from the
+# Reguły ilości (2: router with two TV devices and printing, 4: gateway with wifi6extra, 6: unknown component with
+# printing, 7: prewencja, settled from the description).
+ORDER_CONTENT: dict[int, tuple[str, str]] = {
+    2: ("u", "nokia zte  2*fut"),
+    4: ("pr", "gateway wifi6extra"),
+    6: ("U", "dekoder"),
+    7: ("u", "prewencja"),
+}
+
+
+def order_contract(number: int) -> str:
+    return f"{ORDER_CONTENT.get(number, ('pr', ''))[0]} PREP-SYN-UM-{number}"
+
+
+def order_devices(number: int) -> str:
+    return ORDER_CONTENT.get(number, ("", "nokia"))[1]
+
+
 def _order(number: int, started: datetime, worker: str, successful: str) -> dict[str, object]:
     """One synthetic order; every free-text value carries the unique ``PREP-SYN-`` marker."""
 
@@ -134,8 +153,8 @@ def _order(number: int, started: datetime, worker: str, successful: str) -> dict
         "DATA GODZ. POCZ.": started,
         "MIASTO": "PREP-SYN-MIASTO",
         "ADRES": f"PREP-SYN-ADRES-{number}",
-        "UMOWA": f"PREP-SYN-UM-{number}",
-        "URZĄDZENIA": "dekoder",
+        "UMOWA": order_contract(number),
+        "URZĄDZENIA": order_devices(number),
         "CZYNNOŚCI": "instalacja",
         "NUMER ZL.": f"PREP-SYN-ZL-{number}",
         "WYKONAWCA": worker,
