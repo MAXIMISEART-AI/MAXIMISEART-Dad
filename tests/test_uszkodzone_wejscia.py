@@ -1,0 +1,371 @@
+"""Uszkodzony plik taty, który czyta Centrum rozliczeń, nie kończy się ogólnym Komunikatem.
+
+Macierz: plik × uszkodzenie × wejście Centrum. Świat taty (Rejestr zleceń, trzy Wzorce, Plik
+zbiorczy, Konfiguracja wykonawców, Ustawienia, metryki, dziennik i pliki Zgłoszeń) powstaje raz,
+a każdy przypadek dostaje jego kopię z jednym uszkodzonym plikiem albo folderem.
+Ogólny Komunikat to 500 „nieoczekiwany błąd”, Uruchomienie zakończone nieoczekiwanym wyjątkiem
+albo sprawdzenie Diagnozy „nieoczekiwany błąd”. Odmowa 500 z własnym tekstem jest zamierzona.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date
+import json
+import os
+from pathlib import Path
+import random
+import shutil
+import subprocess
+import zipfile
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from rozliczenia.centrum import run_view
+from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.report_box import GitHubReportBox, HttpRequest, HttpResponse
+from rozliczenia.centrum.shutdown import Shutdown
+
+from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, finished_view
+from tests.fixtures.preparation import PERIOD, write_collective_template, write_internal_template, write_register
+from tests.fixtures.settlement import write_source, write_template
+
+TODAY = date(2026, 9, 16)
+SETTLEMENT_PERIOD = "01_07_09_2026"
+GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie."
+DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
+
+TEXT, LINES, XLSX, FOLDER = "tekst", "wiersze", "xlsx", "folder"
+FILES: dict[str, tuple[str, str]] = {
+    "ustawienia": ("config/centrum-ustawienia.yaml", TEXT),
+    "konfiguracja_wykonawcow": ("config/worker_mapping.yaml", TEXT),
+    "klucz_zgloszen": ("config/zgloszenia-klucz.txt", TEXT),
+    "wyslane_zgloszenia": ("config/zgloszenia-wyslane.json", TEXT),
+    "uruchomienia_centrum": ("config/centrum-uruchomienia.jsonl", LINES),
+    "dziennik_centrum": ("logs/centrum-rozliczen.log", LINES),
+    "metryki_przygotowania": (".przygotowanie-pliku-zbiorczego-metrics.jsonl", LINES),
+    "metryki_przebiegu": (".rozliczenia-metrics.jsonl", LINES),
+    "rejestr": ("ZLECENIA INTERMAX OD 08_11_2021.xlsx", XLSX),
+    "wzorzec_wewnetrzny": ("config/Wzorzec rozliczenia wewnętrznego.xlsx", XLSX),
+    "wzorzec_zbiorczy": ("config/Wzorzec pliku zbiorczego.xlsx", XLSX),
+    "wzorzec_pracownika": ("config/Wzorzec rozliczenia pracownika.xlsx", XLSX),
+    "plik_zbiorczy": (f"Załączniki/{SETTLEMENT_PERIOD}/Rozliczenie {SETTLEMENT_PERIOD} - zbiorcze.xlsx", XLSX),
+    "folder_okresow": ("Załączniki", FOLDER),
+    "folder_okresu": (f"Załączniki/{SETTLEMENT_PERIOD}", FOLDER),
+    "folder_okresu_przygotowania": (f"Załączniki/{PERIOD}", FOLDER),
+    "folder_zgloszen": ("config/zgloszenia", FOLDER),
+}
+
+
+def _empty(path: Path) -> None:
+    path.write_bytes(b"")
+
+
+def _bom(path: Path) -> None:
+    path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+
+
+def _ansi(path: Path) -> None:
+    path.write_bytes(path.read_text(encoding="utf-8").encode("cp1250"))
+
+
+def _truncated(path: Path) -> None:
+    data = path.read_bytes()
+    path.write_bytes(data[: len(data) // 2])
+
+
+def _torn_last_line(path: Path) -> None:
+    data = path.read_bytes().rstrip(b"\n")
+    start = data.rfind(b"\n") + 1
+    multibyte = next((index for index, byte in enumerate(data[start:]) if byte >= 0xC0), None)
+    path.write_bytes(data[: start + (multibyte + 1 if multibyte is not None else max(1, (len(data) - start) // 2))])
+
+
+def _random_bytes(path: Path) -> None:
+    path.write_bytes(random.Random(path.name).randbytes(4096))
+
+
+def _rewrite_zip(path: Path, change: Callable[[str, bytes], bytes | None]) -> None:
+    with zipfile.ZipFile(path) as source:
+        entries = [(entry.filename, source.read(entry)) for entry in source.infolist()]
+    with zipfile.ZipFile(path, "w") as damaged:
+        for name, data in entries:
+            changed = change(name, data)
+            if changed is not None:
+                damaged.writestr(name, changed)
+
+
+def _truncated_sheet_xml(path: Path) -> None:
+    _rewrite_zip(path, lambda name, data: data[: len(data) // 2] if name.startswith("xl/worksheets/") else data)
+
+
+def _without_sheets(path: Path) -> None:
+    _rewrite_zip(path, lambda name, data: None if name.startswith("xl/worksheets/") else data)
+
+
+def _folder_instead_of_file(path: Path) -> None:
+    path.unlink()
+    path.mkdir()
+
+
+def _file_instead_of_folder(path: Path) -> None:
+    shutil.rmtree(path)
+    path.write_bytes(b"")
+
+
+def _unreadable(path: Path) -> None:
+    if os.name == "nt":  # chmod w Windows zmienia tylko atrybut „tylko do odczytu”
+        subprocess.run(["icacls", str(path), "/deny", f"{os.environ['USERNAME']}:(RD)"], check=True, capture_output=True)
+    else:
+        path.chmod(0)
+    with pytest.raises(PermissionError):
+        os.listdir(path) if path.is_dir() else path.open("rb").close()
+
+
+def _readable_again(path: Path) -> None:
+    if os.name == "nt":
+        subprocess.run(["icacls", str(path), "/remove:d", os.environ["USERNAME"]], check=True, capture_output=True)
+    else:
+        path.chmod(0o755)
+
+
+DAMAGES: dict[str, tuple[tuple[str, ...], Callable[[Path], None]]] = {
+    "pusty": ((TEXT, LINES, XLSX), _empty),
+    "bom": ((TEXT, LINES), _bom),
+    "ansi": ((TEXT, LINES), _ansi),
+    "uciety": ((TEXT, LINES, XLSX), _truncated),
+    "urwana_linia": ((LINES,), _torn_last_line),
+    "losowe_bajty": ((TEXT, LINES, XLSX), _random_bytes),
+    "xlsx_uciety_xml": ((XLSX,), _truncated_sheet_xml),
+    "zip_bez_arkusza": ((XLSX,), _without_sheets),
+    "katalog_zamiast_pliku": ((TEXT, LINES, XLSX), _folder_instead_of_file),
+    "plik_zamiast_folderu": ((FOLDER,), _file_instead_of_folder),
+    "bez_odczytu": ((TEXT, LINES, XLSX, FOLDER), _unreadable),
+}
+
+
+@dataclass
+class World:
+    root: Path
+
+    def path(self, name: str) -> Path:
+        return self.root / FILES[name][0]
+
+    def client(self) -> TestClient:
+        log = CentrumLog(self.path("dziennik_centrum"))
+        platform = FakePlatform(chosen_files=[self.path("rejestr")], chosen_folders=[self.path("folder_okresow")])
+        app = create_app(
+            settings_path=self.path("ustawienia"),
+            platform=platform,
+            log=log,
+            shutdown=Shutdown(log),
+            today=lambda: TODAY,
+            configuration_files=ConfigurationFiles(
+                worker_config=self.path("konfiguracja_wykonawcow"),
+                internal_template=self.path("wzorzec_wewnetrzny"),
+                collective_template=self.path("wzorzec_zbiorczy"),
+                worker_template=self.path("wzorzec_pracownika"),
+            ),
+            metrics_files=MetricsFiles(
+                preparation=self.path("metryki_przygotowania"), settlement=self.path("metryki_przebiegu")
+            ),
+            tool_freshness=FakeGitHub().freshness(),
+            cloud_files=FakeOneDrive().cloud_files(),
+            report_box=GitHubReportBox(transport=_offline_like_urllib),
+        )
+        return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+
+
+def _remembering_choices(world: World) -> TestClient:
+    """Centrum, w którym tata wskazał Rejestr zleceń i folder okresów tej kopii świata."""
+
+    client = world.client()
+    assert client.post("/api/settings/register/choose").status_code == 200
+    assert client.post("/api/settings/periods-directory/choose").status_code == 200
+    return client
+
+
+def _offline_like_urllib(request: HttpRequest) -> HttpResponse:
+    for name, value in request.headers.items():
+        f"{name}: {value}".encode("latin-1")  # http.client.putheader koduje nagłówki w latin-1
+    raise OSError("brak sieci u taty")
+
+
+def _build(root: Path) -> None:
+    world = World(root)
+    world.path("folder_okresu").mkdir(parents=True)
+    world.path("folder_okresu_przygotowania").mkdir()
+    world.path("folder_zgloszen").mkdir(parents=True)
+    write_register(world.path("rejestr"))
+    write_internal_template(world.path("wzorzec_wewnetrzny"))
+    write_collective_template(world.path("wzorzec_zbiorczy"))
+    write_template(world.path("wzorzec_pracownika"))
+    write_source(world.path("plik_zbiorczy"), include_unmapped=False)
+    world.path("konfiguracja_wykonawcow").write_text(
+        "# Wykonawcy zespołu z Łodzi\nschema_version: 1\nworkers:\n"
+        "  adrian.testowy: Adrian Testowy\n  dariusz.fikcyjny2: Darek Fikcyjny\n  kamil.syntetyczny: Kamil Syntetyczny\n",
+        encoding="utf-8",
+    )
+    world.path("klucz_zgloszen").write_text("github_pat_SYNTETYCZNY123\n", encoding="utf-8")
+    world.path("wyslane_zgloszenia").write_text(
+        json.dumps([{"fingerprint": "syntetyczny-ślad", "number": 7, "commit": None, "state": "open"}]) + "\n",
+        encoding="utf-8",
+    )
+    client = _remembering_choices(world)
+    for process, period in (("preparation", PERIOD), ("settlement", SETTLEMENT_PERIOD)):
+        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
+        assert started.status_code == 200, started.json()
+        assert finished_view(client)["result"]["ending"] == "finished"
+    for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum"):
+        assert world.path(name).stat().st_size > 0, name
+
+
+Problems = list[str]
+
+
+def _http(response: Any, where: str) -> Problems:
+    if response.status_code < 500:
+        return []
+    body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+    if body.get("message") == GENERIC_500:
+        return [f"{where}: ogólne 500"]
+    return []
+
+
+def _route(method: str, path: str) -> Callable[[TestClient], Problems]:
+    def call(client: TestClient) -> Problems:
+        return _http(client.request(method, path), f"{method} {path}")
+
+    return call
+
+
+def _preview(process: str, period: str) -> Callable[[TestClient], Problems]:
+    def call(client: TestClient) -> Problems:
+        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
+        problems = _http(started, "startRun")
+        if started.status_code != 200:
+            return problems
+        result = finished_view(client)["result"]
+        if result["ending"] in ("unexpected", "after_engine"):
+            problems.append(f"Podgląd bez zapisu: ogólny Komunikat ({result['ending']})")
+        return problems + _http(client.get("/api/runs/current"), "getCurrentRun")
+
+    return call
+
+
+def _diagnosis(process: str, period: str, *, report: bool) -> Callable[[TestClient], Problems]:
+    def call(client: TestClient) -> Problems:
+        run_id = _run_with_diagnosis(client, process, period)
+        if run_id is None:
+            return []
+        diagnosis = client.post(f"/api/runs/{run_id}/diagnosis")
+        problems = _http(diagnosis, "diagnoseRun")
+        if DIAGNOSIS_UNEXPECTED in diagnosis.text:
+            problems.append("Diagnoza: sprawdzenie zakończone nieoczekiwanym błędem")
+        if report and diagnosis.status_code == 200:
+            problems += _http(client.post(f"/api/runs/{run_id}/report"), "reportRun")
+        return problems
+
+    return call
+
+
+def _run_with_diagnosis(client: TestClient, process: str, period: str) -> str | None:
+    for _ in range(2):  # drugi raz to Powtórka, gdy pierwsze Zatrzymanie jest „dla taty”
+        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
+        if started.status_code != 200:
+            return None
+        view = finished_view(client)
+        if view["result"]["diagnosis"] is not None:
+            return str(view["run"]["id"])
+    return None
+
+
+ENTRIES: dict[str, Callable[[TestClient], Problems]] = {
+    "getSettings": _route("GET", "/api/settings"),
+    "getPeriodBoard": _route("GET", "/api/periods"),
+    "getRunSetup": _route("GET", "/api/runs/setup"),
+    "getMetrics": _route("GET", "/api/metrics"),
+    "getConfiguration": _route("GET", "/api/configuration"),
+    "getRepairNotice": _route("GET", "/api/reports/repair"),
+    "podglad[przygotowanie]": _preview("preparation", PERIOD),
+    "podglad[przebieg]": _preview("settlement", SETTLEMENT_PERIOD),
+    "diagnoza[przygotowanie]": _diagnosis("preparation", PERIOD, report=True),
+    "diagnoza[przebieg]": _diagnosis("settlement", SETTLEMENT_PERIOD, report=False),
+}
+DIAGNOSIS_ENTRIES = ("diagnoza[przygotowanie]", "diagnoza[przebieg]")
+
+
+def _cases() -> list[Any]:
+    return [
+        pytest.param(entry, damage, name, id=f"{entry}-{damage}-{name}")
+        for entry in ENTRIES
+        for damage, (kinds, _) in DAMAGES.items()
+        for name, (_, kind) in FILES.items()
+        if kind in kinds
+    ]
+
+
+@pytest.fixture(scope="session")
+def world_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.mktemp("swiat-taty")
+    _build(root)
+    return root
+
+
+@pytest.mark.parametrize(("entry", "damage", "name"), _cases())
+def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
+    world_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str, damage: str, name: str
+) -> None:
+    world = World(tmp_path / "swiat")
+    shutil.copytree(world_template, world.root)
+    client = _remembering_choices(world)
+    target = world.path(name)
+    if damage == "ansi" and target.read_text(encoding="utf-8").isascii():
+        pytest.skip("ANSI nie zmienia pliku bez polskich znaków")
+    DAMAGES[damage][1](target)
+    if entry in DIAGNOSIS_ENTRIES:
+        monkeypatch.setattr(run_view.ProcessView, "summary", _summary_not_shown)
+    try:
+        problems = ENTRIES[entry](client)
+    finally:
+        if damage == "bez_odczytu":
+            _readable_again(target)
+
+    assert problems == []
+
+
+def _summary_not_shown(*args: object, **kwargs: object) -> Any:
+    raise ValueError("syntetyczne Zatrzymanie „do Maksa”, żeby była Diagnoza")
+
+
+def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
+    world_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = World(tmp_path / "swiat")
+    shutil.copytree(world_template, world.root)
+    client = _remembering_choices(world)
+    periods = world.path("folder_okresow")
+    _unreadable(periods)
+    try:
+        board = client.get("/api/periods")
+        preview = client.post("/api/runs", json={"process": "preparation", "period": PERIOD, "dry_run": True})
+        stopped = finished_view(client)["result"]
+        monkeypatch.setattr(run_view.ProcessView, "summary", _summary_not_shown)
+        run_id = _run_with_diagnosis(client, "preparation", PERIOD)
+        diagnosis = client.post(f"/api/runs/{run_id}/diagnosis").json()
+    finally:
+        _readable_again(periods)
+
+    assert board.status_code == 500
+    assert "folderu Załączniki" in board.json()["message"]
+    assert preview.status_code == 200
+    assert stopped["stop_kind"] == "for_tata"
+    assert stopped["stops"][0]["what"].startswith("Nie można odczytać folderu.")
+    assert stopped["stops"][0]["where"].endswith("Załączniki")
+    assert diagnosis["explanation"] == stopped["stops"][0]
