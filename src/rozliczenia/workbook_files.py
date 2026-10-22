@@ -50,6 +50,7 @@ from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
+from .dated_rows import rows_dated_between
 from .highlights import Highlights
 from .hyperlinks import Hyperlink, read_sheet_hyperlinks
 from .input_rows import rows_with_input
@@ -118,6 +119,8 @@ class Problem(Enum):
 
     MISSING = "brak pliku"
     OPEN_IN_EXCEL = "otwarty w Excelu"
+    INACCESSIBLE = "niedostępny"
+    """Plik jest cały, ale system nie oddał jego bajtów, np. zajęty przez inny program albo OneDrive bez sieci."""
     UNREADABLE = "nieczytelny"
     LAYOUT = "zły układ"
     HAS_DATA = "zawiera dane"
@@ -231,6 +234,15 @@ def _unreadable_as_error(path: Path) -> Iterator[None]:
         raise WorkbookError(path, Problem.UNREADABLE) from exc
 
 
+def _file_bytes(path: Path) -> bytes:
+    """Bajty skoroszytu z dysku; błąd systemu plików to ``Problem.INACCESSIBLE``, nie uszkodzenie."""
+
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise WorkbookError(path, Problem.INACCESSIBLE) from exc
+
+
 def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
     """Elementy leniwego odczytu openpyxl; klasyfikowane jest tylko pobranie elementu."""
 
@@ -289,8 +301,9 @@ def read_data_rows(path: Path) -> list[DataRow]:
     """
 
     ensure_available(path)
+    content = _file_bytes(path)
     with _unreadable_as_error(path):
-        content = rows_with_input(path.read_bytes(), _INPUT_COLUMNS[-1])
+        content = rows_with_input(content, _INPUT_COLUMNS[-1])
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
@@ -339,12 +352,16 @@ class _HighlightsReader:
 
 
 class ReadSheet:
-    """Arkusz skoroszytu otwartego tylko do odczytu; każdy odczyt komórek jest klasyfikowany."""
+    """Arkusz skoroszytu otwartego tylko do odczytu; każdy odczyt komórek jest klasyfikowany.
 
-    def __init__(self, path: Path, content: bytes, sheet: Worksheet) -> None:
+    ``rows`` to zakres wierszy danych arkusza zawężonego przez ``ReadWorkbook.narrowed``; ``None``: wszystkie wiersze.
+    """
+
+    def __init__(self, path: Path, content: bytes, sheet: Worksheet, rows: range | None = None) -> None:
         self._path = path
         self._content = content
         self._sheet = sheet
+        self._rows = rows
 
     @property
     def title(self) -> str:
@@ -355,20 +372,28 @@ class ReadSheet:
 
     def formatted_rows(
         self, min_row: int, columns: Sequence[int]
-    ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
-        """Wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami i Hiperłączami, od ``min_row`` w dół."""
+    ) -> Iterator[tuple[int, tuple[object, ...], tuple[FormattedCell, ...]]]:
+        """Numer wiersza, wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami i Hiperłączami, od ``min_row`` w dół.
+
+        W arkuszu zawężonym tylko wiersze z jego zakresu.
+        """
 
         return _classified(self._path, self._formatted_rows(min_row, columns))
 
     def _formatted_rows(
         self, min_row: int, columns: Sequence[int]
-    ) -> Iterator[tuple[tuple[object, ...], tuple[FormattedCell, ...]]]:
+    ) -> Iterator[tuple[int, tuple[object, ...], tuple[FormattedCell, ...]]]:
+        max_row = None
+        if self._rows is not None:
+            min_row, max_row = max(min_row, self._rows.start), self._rows.stop - 1
+            if min_row > max_row:
+                return
         with zipfile.ZipFile(BytesIO(self._content)) as archive:
             links = read_sheet_hyperlinks(archive, self.title)
-        for number, cells in enumerate(self._sheet.iter_rows(min_row=min_row), start=min_row):
+        for number, cells in enumerate(self._sheet.iter_rows(min_row=min_row, max_row=max_row), start=min_row):
             values = tuple(getattr(cell, "value", None) for cell in cells)
             row_links = links.row(number, values)
-            yield values, tuple(
+            yield number, values, tuple(
                 _formatted(cells[column - 1], row_links.get(column)) if column <= len(cells) else _EMPTY_CELL
                 for column in columns
             )
@@ -387,16 +412,39 @@ def _formatted(cell: object, hyperlink: Hyperlink | None) -> FormattedCell:
 class ReadWorkbook:
     """Skoroszyt otwarty tylko do odczytu, np. Rejestr zleceń."""
 
-    def __init__(self, path: Path, content: bytes, workbook: Workbook) -> None:
+    def __init__(self, path: Path, content: bytes, workbook: Workbook, ranges: Mapping[str, range] | None = None) -> None:
         self._path = path
         self._content = content
         self._workbook = workbook
+        self._ranges = ranges or {}
 
     def sheets(self) -> Iterator[ReadSheet]:
         with _unreadable_as_error(self._path):
             worksheets = list(self._workbook.worksheets)
         for sheet in worksheets:
-            yield ReadSheet(self._path, self._content, cast(Worksheet, sheet))
+            yield ReadSheet(self._path, self._content, cast(Worksheet, sheet), self._ranges.get(sheet.title))
+
+    @contextmanager
+    def narrowed(self, date_columns: Mapping[str, int], start: datetime, end: datetime) -> Iterator[ReadWorkbook]:
+        """Ten skoroszyt z arkuszami ``date_columns`` (tytuł → kolumna daty od 1) zawężonymi do dat z [``start``, ``end``).
+
+        Arkusz zawężony czyta tylko wiersze od pierwszego do ostatniego, którego
+        data może leżeć w przedziale (``dated_rows``); wartości, formaty i
+        Hiperłącza tych wierszy są takie jak przy odczycie całego arkusza.
+        """
+
+        # Liczba dni od początku systemu dat skoroszytu (1900 albo 1904), z dniem zapasu z obu stron: openpyxl
+        # zaokrągla część dnia do milisekund. Wiersz zakresu z datą spoza przedziału czytający i tak pomija.
+        day = timedelta(days=1)
+        epoch = self._workbook.epoch
+        low, high = (start - day - epoch) / day, (end + day - epoch) / day
+        with _unreadable_as_error(self._path):
+            content, ranges = rows_dated_between(self._content, date_columns, low, high)
+        workbook = _open(self._path, BytesIO(content), read_only=True)
+        try:
+            yield ReadWorkbook(self._path, content, workbook, ranges)
+        finally:
+            workbook.close()
 
 
 @contextmanager
@@ -407,8 +455,7 @@ def read_workbook(path: Path) -> Iterator[ReadWorkbook]:
     """
 
     ensure_available(path)
-    with _unreadable_as_error(path):
-        content = path.read_bytes()
+    content = _file_bytes(path)
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         yield ReadWorkbook(path, content, workbook)
