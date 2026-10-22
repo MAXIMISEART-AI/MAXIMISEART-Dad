@@ -50,6 +50,23 @@ def collective_file_open(source: Path) -> Message:
     )
 
 
+def collective_file_inaccessible(source: Path) -> Message:
+    """System nie oddał bajtów Pliku zbiorczego (np. zajęty przez inny program albo OneDrive bez sieci); to nie uszkodzenie."""
+
+    return Message(
+        code="NIEDOSTEPNY_PLIK_ZBIORCZY",
+        what=(
+            "Nie można teraz odczytać Pliku zbiorczego. Plik może być zajęty przez inny program "
+            f"albo czekać na pobranie z OneDrive. {_NOTHING_CREATED}"
+        ),
+        where=file_label(source),
+        action=(
+            "Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy Plik zbiorczy otwiera się w Excelu. "
+            f"Zamknij go i uruchom ponownie. Jeśli błąd wraca, {REPORT_TO_MAINTAINER.lower()}"
+        ),
+    )
+
+
 def collective_file_invalid(source: Path, detail: str) -> Message:
     """Nazwa, folder albo układ Pliku zbiorczego.
 

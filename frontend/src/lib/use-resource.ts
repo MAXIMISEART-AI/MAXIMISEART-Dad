@@ -10,6 +10,8 @@ export type Resource<T> =
 
 type Load<T> = () => Promise<T>
 
+type ReturnSignal = "focus" | "visible"
+
 type LastRead = { data: unknown; read: number }
 
 // Ostatnie dane każdego odczytu, pod funkcją odczytu z `@/api/centrum`. To tylko kopia ostatniej odpowiedzi
@@ -72,7 +74,8 @@ export function useResource<T>(load: Load<T>) {
     const request = ++reads
 
     latest.current = request
-    load().then(
+
+    return load().then(
       (data) => request === latest.current && show(request, { state: "ready", data }),
       (failure: Error) =>
         request === latest.current && show(request, { state: "failed", message: failureMessage(failure) })
@@ -80,18 +83,41 @@ export function useResource<T>(load: Load<T>) {
   }, [load, show])
 
   React.useEffect(() => {
+    // Powrót do karty daje `visibilitychange` i `focus`, w dowolnej kolejności. Gdy odczyt po jednym z nich
+    // jest jeszcze w drodze, drugi należy do tego samego powrotu i nie czyta drugi raz.
+    let returning: { signal: ReturnSignal; read: Promise<unknown> } | undefined
+
+    const readOnReturn = (signal: ReturnSignal) => {
+      if (returning !== undefined && returning.signal !== signal) {
+        return
+      }
+
+      const current = { signal, read: reload() }
+
+      returning = current
+      current.read.finally(() => {
+        if (returning === current) {
+          returning = undefined
+        }
+      })
+    }
+
+    const reloadOnFocus = () => readOnReturn("focus")
+
     const reloadWhenVisible = () => {
       if (document.visibilityState === "visible") {
-        reload()
+        readOnReturn("visible")
+      } else {
+        returning = undefined
       }
     }
 
     reload()
-    window.addEventListener("focus", reload)
+    window.addEventListener("focus", reloadOnFocus)
     document.addEventListener("visibilitychange", reloadWhenVisible)
 
     return () => {
-      window.removeEventListener("focus", reload)
+      window.removeEventListener("focus", reloadOnFocus)
       document.removeEventListener("visibilitychange", reloadWhenVisible)
     }
   }, [reload])

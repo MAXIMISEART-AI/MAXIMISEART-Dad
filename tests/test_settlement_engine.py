@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import tempfile
@@ -341,22 +342,49 @@ def test_kazde_rozliczenie_pracownika_takze_puste_ma_szerokosci_kolumn_wzorca_ro
             workbook.close()
 
 
-def test_wykonawca_bez_mapowania_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
-    tmp_path: Path,
+def with_unmapped_worker(source_path: Path) -> None:
+    write_source(source_path, include_unmapped=True)
+
+
+def with_workers(source_path: Path, workers: dict[int, str | None]) -> None:
+    """Zmienia WYKONAWCĘ (kolumna H) w podanych Wierszach danych Pliku zbiorczego."""
+
+    workbook = load_workbook(source_path)
+    try:
+        sheet = active_worksheet(workbook)
+        for row, worker in workers.items():
+            sheet.cell(row, 8).value = worker
+        workbook.save(source_path)
+    finally:
+        workbook.close()
+
+
+def with_data_row_without_worker(source_path: Path) -> None:
+    with_workers(source_path, {20: None})
+
+
+@pytest.mark.parametrize(
+    ("damage", "code"),
+    [(with_unmapped_worker, "NIEZNANY_WYKONAWCA"), (with_data_row_without_worker, "WIERSZE_BEZ_WYKONAWCY")],
+    ids=["wykonawca-bez-mapowania", "wiersz-danych-bez-wykonawcy"],
+)
+def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
+    tmp_path: Path, damage: Callable[[Path], None], code: str
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    write_source(source_path, include_unmapped=True)
+    damage(source_path)
 
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert raised.value.message.code == "NIEZNANY_WYKONAWCA"
+    assert (raised.value.message.code, raised.value.message.where) == (code, f"plik {SOURCE_NAME}, folder {PERIOD}, kolumna H")
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
-def test_dry_run_does_not_write(tmp_path: Path) -> None:
+def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wykonawcy_z_konfiguracji(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
+    with_workers(source_path, {18: "andrzej.nieznany2", 20: None})  # nieznany Wykonawca w pierwszym wierszu, przed znanymi
 
     summary = run_settlements(
         source_path,
@@ -365,8 +393,12 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
         worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
     )
 
-    assert summary.planned_count == 2
-    assert summary.empty_count == 1
+    assert [issue.code for issue in summary.issues] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    assert [(result.worker_name, result.status, result.rows) for result in summary.results] == [
+        ("Adrian Testowy", "PUSTY_SZABLON", 0),
+        ("Darek Fikcyjny", "PLAN", 1),
+        ("Kamil Syntetyczny", "PUSTY_SZABLON", 0),
+    ]
     assert not target_directory.exists()
 
 
@@ -391,6 +423,36 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     )
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
+@pytest.mark.parametrize(
+    ("failing", "error"),
+    [
+        ("read_bytes", PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process")),
+        ("read_bytes", OSError(errno.EIO, "The cloud file provider is not running")),
+        ("is_file", PermissionError(errno.EACCES, "Permission denied")),
+    ],
+    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci", "folder-bez-dostepu"],
+)
+def test_plik_zbiorczy_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, error: OSError
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    original = getattr(Path, failing)
+
+    def blocked(path: Path) -> object:
+        if path == source_path:
+            raise error
+        return original(path)
+
+    monkeypatch.setattr(Path, failing, blocked)
+
+    with pytest.raises(StopError) as stop:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert stop.value.message.code == "NIEDOSTEPNY_PLIK_ZBIORCZY"
+    assert "uszkodzony" not in stop.value.message.text
+    assert not target_directory.exists()
 
 
 def test_plik_zbiorczy_otwarty_w_excelu_zatrzymuje_przebieg_rozliczen_i_zostawia_plik_blokady(tmp_path: Path) -> None:
@@ -789,8 +851,12 @@ def test_brak_wzorca_rozliczenia_pracownika_podpowiada_zmiane_nazwy_starego_plik
     [
         (f"{PERIOD}/Rozliczenie wew. {PERIOD}.xlsx", "Plik Rozliczenie wew. jest poza zakresem tego procesu."),
         (f"INEA/{SOURCE_NAME}", f"Folder pliku musi nazywać się tak samo jak okres: {PERIOD}."),
+        (
+            f"{PERIOD}/Rozliczenie {PERIOD} zbiorcze.xlsx",
+            "Wybierz plik nazwany dokładnie: Rozliczenie {dd}_{dd}_{mm}_{rrrr} - zbiorcze.xlsx.",
+        ),
     ],
-    ids=["rozliczenie_wewnetrzne", "folder_nazwany_inaczej_niz_okres"],
+    ids=["rozliczenie_wewnetrzne", "folder_nazwany_inaczej_niz_okres", "nazwa_inna_niz_plik_zbiorczy"],
 )
 def test_rozliczenie_wewnetrzne_albo_plik_zbiorczy_poza_folderem_okresu_zatrzymuje_przebieg_rozliczen(
     tmp_path: Path, source: str, detail: str
@@ -812,7 +878,11 @@ def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozl
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert raised.value.message.code == "ZLY_PLIK_ZBIORCZY"
+    assert (raised.value.message.code, raised.value.message.what) == (
+        "ZLY_PLIK_ZBIORCZY",
+        f"{UNFIT_COLLECTIVE_FILE_PREFIX} Okres {NOT_A_PERIOD} w nazwie pliku nie jest okresem od wtorku do poniedziałku "
+        "(przykład okresu: 08_14_09_2026).",
+    )
     assert not target_directory.exists()
     assert [path.name for path in source_path.parent.iterdir()] == [source_path.name]
 

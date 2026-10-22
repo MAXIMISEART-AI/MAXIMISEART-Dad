@@ -190,6 +190,23 @@ def register_open_in_excel(register_path: Path) -> Message:
     )
 
 
+def register_inaccessible(register_path: Path) -> Message:
+    """System nie oddał bajtów Rejestru zleceń (np. zajęty przez inny program albo OneDrive bez sieci); to nie uszkodzenie."""
+
+    return Message(
+        code="NIEDOSTEPNY_REJESTR",
+        what=(
+            "Nie można teraz odczytać Rejestru zleceń. Plik może być zajęty przez inny program "
+            "albo czekać na pobranie z OneDrive. Nie utworzono żadnego pliku."
+        ),
+        where=file_label(register_path),
+        action=(
+            "Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy Rejestr zleceń otwiera się w Excelu. "
+            "Zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
+        ),
+    )
+
+
 def register_unreadable(register_path: Path) -> Message:
     """Rejestr zleceń nie daje się odczytać jako skoroszyt .xlsx."""
 
@@ -292,6 +309,17 @@ def periods_directory_missing(periods_directory: Path) -> Message:
             "Wybierz istniejący folder okresów, w którym są foldery poprzednich tygodni, "
             "i uruchom ponownie."
         ),
+    )
+
+
+def folder_inaccessible(folder: Path) -> Message:
+    """Folderu okresów albo Folderu okresu nie da się odczytać, np. brak dostępu albo OneDrive nie działa."""
+
+    return Message(
+        code="NIEDOSTEPNY_FOLDER",
+        what="Nie można teraz odczytać folderu. Nie utworzono żadnego pliku.",
+        where=folder_label(folder),
+        action="Sprawdź, czy folder otwiera się w Eksploratorze plików i czy OneDrive działa, potem uruchom ponownie.",
     )
 
 

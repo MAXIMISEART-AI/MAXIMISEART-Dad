@@ -22,11 +22,17 @@ okres w dwóch miesiącach to ``PeriodFolderLookupError``. Folder okresów
 wskazany wewnątrz ``Rozliczenia {rok}`` (np. ``INEA`` jednego miesiąca) to ten
 sam układ liczony od folderu nad ``Rozliczenia {rok}``, więc brakujący Folder
 okresu nie powstaje w złym miesiącu.
+
+Folder, którego nie da się odczytać (brak dostępu, OneDrive nie działa), to
+``PeriodFolderInaccessible`` z tym folderem, a nie wyjątek systemu plików.
 """
 
 from __future__ import annotations
 
+import os
 import re
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -78,6 +84,24 @@ class PeriodFolderLookupError(Exception):
         self.periods_directory = periods_directory
         self.period = period
         self.locations = locations
+
+
+class PeriodFolderInaccessible(Exception):
+    """Folderu ``folder`` (folderu okresów, folderu miesiąca albo Folderu okresu) nie da się odczytać."""
+
+    def __init__(self, folder: Path) -> None:
+        super().__init__(folder.name)
+        self.folder = folder
+
+
+@contextmanager
+def reading(folder: Path) -> Iterator[None]:
+    """Odczyt zawartości ``folder``; błąd systemu plików staje się ``PeriodFolderInaccessible``."""
+
+    try:
+        yield
+    except OSError as error:
+        raise PeriodFolderInaccessible(folder) from error
 
 
 @dataclass(frozen=True)
@@ -137,13 +161,17 @@ class PeriodFolder:
         return self.worker_settlements / _WORKER_SETTLEMENT.format(token=self.period.token, worker=worker_name)
 
     def observe(self) -> PeriodFolderObservation:
-        """Jeden odczyt plików Folderu okresu, który może nie istnieć."""
+        """Jeden odczyt plików Folderu okresu, który może nie istnieć: listowanie jego i Folderu rozliczeń pracowników."""
 
-        has_worker_settlements = self.worker_settlements.is_dir()
+        entries = _listing(self.directory)
+        if entries is None:
+            return PeriodFolderObservation(False, False, False, False, 0)
+        listed = {entry.name: entry for entry in entries}
+        has_worker_settlements = _exists(listed, self.worker_settlements, directory=True)
         return PeriodFolderObservation(
-            period_folder_exists=self.directory.is_dir(),
-            internal_settlement_exists=self.internal_settlement.is_file(),
-            collective_file_exists=self.collective_file.is_file(),
+            period_folder_exists=True,
+            internal_settlement_exists=_exists(listed, self.internal_settlement, directory=False),
+            collective_file_exists=_exists(listed, self.collective_file, directory=False),
             worker_settlements_folder_exists=has_worker_settlements,
             worker_settlement_count=self._count_worker_settlements() if has_worker_settlements else 0,
         )
@@ -154,12 +182,40 @@ class PeriodFolder:
         prefix, suffix = _WORKER_SETTLEMENT.format(token=self.period.token, worker="\0").split("\0")
         return sum(
             1
-            for entry in self.worker_settlements.iterdir()
-            if entry.is_file()
-            and entry.name.startswith(prefix)
+            for entry in _listing(self.worker_settlements) or ()
+            if entry.name.startswith(prefix)
             and entry.name.endswith(suffix)
             and len(entry.name) > len(prefix) + len(suffix)
+            and entry.is_file()
         )
+
+
+def _listing(directory: Path) -> list[os.DirEntry[str]] | None:
+    """Wpisy folderu z jednego listowania; ``None``, gdy folderu nie ma, ``PeriodFolderInaccessible``, gdy jest niedostępny.
+
+    Folder okresów taty leży w OneDrive, gdzie każdy osobny ``stat`` otwiera
+    plik, a listowanie od razu podaje, czy wpis jest plikiem czy folderem.
+    """
+
+    with reading(directory):
+        try:
+            with os.scandir(directory) as entries:
+                return list(entries)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+
+
+def _exists(listed: Mapping[str, os.DirEntry[str]], path: Path, *, directory: bool) -> bool:
+    """Czy ``path`` jest folderem (``directory``) albo plikiem, według listowania folderu nad nim.
+
+    Nazwy spoza listowania pyta system plików: Windows i macOS nie rozróżniają
+    wielkości liter, a macOS postaci Unicode, więc plik może mieć inną nazwę.
+    """
+
+    entry = listed.get(path.name)
+    if entry is None:
+        return path.is_dir() if directory else path.is_file()
+    return entry.is_dir() if directory else entry.is_file()
 
 
 def collective_file_name(period: SettlementPeriod) -> str:
@@ -206,37 +262,33 @@ def _month_periods_folders(periods_directory: Path) -> list[Path]:
     Puste w układzie płaskim i gdy folderu okresów nie ma.
     """
 
-    if not periods_directory.is_dir():
-        return []
-    years = sorted(entry for entry in periods_directory.iterdir() if entry.is_dir() and _YEAR_FOLDER.fullmatch(entry.name))
+    years = sorted(
+        Path(entry.path)
+        for entry in _listing(periods_directory) or ()
+        if entry.is_dir() and _YEAR_FOLDER.fullmatch(entry.name)
+    )
     return [
         month / _MONTH_PERIODS_FOLDER
         for year in years
-        for month in sorted(year.iterdir())
+        for month in sorted(Path(entry.path) for entry in _listing(year) or () if entry.is_dir())
         if (month / _MONTH_PERIODS_FOLDER).is_dir()
     ]
 
 
-def _layout_root(periods_directory: Path) -> Path:
-    """Folder, od którego liczy się układ folderów okresów.
+def _layout(periods_directory: Path) -> tuple[Path, list[Path]]:
+    """Folder, od którego liczy się układ folderów okresów, i jego foldery ``INEA`` miesięcy.
 
     Folder okresów wewnątrz ``Rozliczenia {rok}`` (np. ``INEA`` jednego miesiąca)
     oznacza folder nad ``Rozliczenia {rok}``, gdy ten ma foldery ``INEA``
     miesięcy. Inaczej to sam folder okresów.
     """
 
-    if _month_periods_folders(periods_directory):
-        return periods_directory
+    if month_folders := _month_periods_folders(periods_directory):
+        return periods_directory, month_folders
     for directory in (periods_directory, *periods_directory.parents):
-        if _YEAR_FOLDER.fullmatch(directory.name) and _month_periods_folders(directory.parent):
-            return directory.parent
-    return periods_directory
-
-
-def _period_folder_parents(periods_directory: Path) -> list[Path]:
-    """Foldery, w których leżą Foldery okresu: sam folder okresów i foldery ``INEA`` miesięcy."""
-
-    return [periods_directory, *_month_periods_folders(periods_directory)]
+        if _YEAR_FOLDER.fullmatch(directory.name) and (month_folders := _month_periods_folders(directory.parent)):
+            return directory.parent, month_folders
+    return periods_directory, []
 
 
 def month_folder_label(periods_directory: Path, month_periods_folder: Path) -> str:
@@ -248,41 +300,67 @@ def month_folder_label(periods_directory: Path, month_periods_folder: Path) -> s
     return "\\".join(month_periods_folder.relative_to(periods_directory).parts) or periods_directory.name
 
 
-def locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
-    """Folder okresu ``period`` w istniejącym folderze okresów.
+@dataclass(frozen=True)
+class PeriodFolders:
+    """Foldery okresu z jednego listowania układu folderu okresów ``periods_directory``.
 
-    W układzie płaskim Folder okresu może jeszcze nie istnieć. W układzie
-    folderów taty musi istnieć dokładnie w jednym miejscu; inaczej
-    ``PeriodFolderLookupError`` z folderem okresów liczonym od ``_layout_root``.
+    ``layout_root`` to folder, od którego liczy się układ (``_layout``).
+    ``locations`` podaje dla okresu foldery, w których leży jego Folder okresu:
+    najpierw ``layout_root``, potem foldery ``INEA`` w kolejności lat i miesięcy.
     """
 
-    periods_directory = _layout_root(periods_directory)
-    month_folders = _month_periods_folders(periods_directory)
-    found = tuple(parent for parent in (periods_directory, *month_folders) if (parent / period.token).is_dir())
-    if len(found) == 1:
-        return PeriodFolder(found[0], period)
-    if found or month_folders:
-        raise PeriodFolderLookupError(periods_directory, period, found)
-    return PeriodFolder(periods_directory, period)
+    periods_directory: Path
+    layout_root: Path
+    has_month_folders: bool
+    locations: Mapping[SettlementPeriod, tuple[Path, ...]]
+
+    def locate(self, period: SettlementPeriod) -> PeriodFolder:
+        """Folder okresu ``period``.
+
+        W układzie płaskim Folder okresu może jeszcze nie istnieć. W układzie
+        folderów taty musi istnieć dokładnie w jednym miejscu; inaczej
+        ``PeriodFolderLookupError`` z folderem okresów ``layout_root``.
+        """
+
+        found = self.locations.get(period, ())
+        if len(found) == 1:
+            return PeriodFolder(found[0], period)
+        if found or self.has_month_folders:
+            raise PeriodFolderLookupError(self.layout_root, period, found)
+        return PeriodFolder(self.layout_root, period)
+
+    def found(self) -> list[PeriodFolder]:
+        """Istniejące Foldery okresu; okres z Folderem okresu w kilku miejscach występuje raz, w pierwszym z nich."""
+
+        return [PeriodFolder(parents[0], period) for period, parents in self.locations.items()]
 
 
-def find_period_folders(periods_directory: Path) -> list[PeriodFolder]:
-    """Foldery okresu w istniejącym folderze okresów: tylko foldery, których nazwa jest tokenem okresu.
+def scan_period_folders(periods_directory: Path) -> PeriodFolders:
+    """Foldery okresu w folderze okresów: tylko foldery, których nazwa jest tokenem okresu."""
 
-    Okres z Folderem okresu w kilku miejscach występuje raz, w pierwszym z nich.
-    """
-
-    folders: dict[SettlementPeriod, PeriodFolder] = {}
-    for parent in _period_folder_parents(_layout_root(periods_directory)):
-        for entry in parent.iterdir():
+    layout_root, month_folders = _layout(periods_directory)
+    locations: dict[SettlementPeriod, list[Path]] = {}
+    for parent in (layout_root, *month_folders):
+        for entry in _listing(parent) or ():
             if not entry.is_dir():
                 continue
             try:
                 period = parse_period_token(entry.name)
             except ValueError:
                 continue
-            folders.setdefault(period, PeriodFolder(parent, period))
-    return list(folders.values())
+            locations.setdefault(period, []).append(parent)
+    return PeriodFolders(
+        periods_directory,
+        layout_root,
+        bool(month_folders),
+        {period: tuple(parents) for period, parents in locations.items()},
+    )
+
+
+def locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
+    """Folder okresu ``period`` w istniejącym folderze okresów (``PeriodFolders.locate``)."""
+
+    return scan_period_folders(periods_directory).locate(period)
 
 
 def check_worker_name(worker_name: str) -> WorkerNameCheck:

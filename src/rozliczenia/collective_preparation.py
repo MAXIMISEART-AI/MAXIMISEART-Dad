@@ -25,7 +25,7 @@ from . import preparation_messages as messages
 from .decision import Conversation, Decision
 from .domain import ProgressObserver, ProgressPhase
 from .message import Message, StopError
-from .period_folder import PeriodFolder, PeriodFolderLookupError, locate_period_folder
+from .period_folder import PeriodFolder, PeriodFolderInaccessible, PeriodFolderLookupError, locate_period_folder
 from .phase_runner import PhaseRunner
 from .settlement_period import SettlementPeriod, parse_period_token
 from .worker_config import WorkerConfigError, load_worker_mapping
@@ -91,6 +91,8 @@ def _locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> 
         return locate_period_folder(periods_directory, period)
     except PeriodFolderLookupError as exc:
         raise StopError(messages.period_folder_lookup_problem(exc)) from exc
+    except PeriodFolderInaccessible as exc:
+        raise StopError(messages.folder_inaccessible(exc.folder)) from exc
 
 
 def _incomplete_period_decision(plan: PreparationSummary) -> Decision | None:
@@ -167,7 +169,7 @@ def prepare_collective_file(
 
     files, worker_mapping = phases.check(check_inputs)
     folder = files.folder
-    register = phases.read(lambda: preparation_register.read_register(register_path))
+    register = phases.read(lambda: preparation_register.read_register(register_path, folder.period))
 
     def plan_orders() -> tuple[preparation_plan.Plan, list[Message]]:
         plan = preparation_plan.plan_period_orders(register_path, register, folder.period, config_path, worker_mapping)
