@@ -106,7 +106,7 @@ received.
 
 Not covered: Zatrzymania and errors inside the engine (`_Run.work`'s `except`
 path), `tools/uruchom_proces.py` or a second Centrum process on another port,
-Windows logoff, the SSE stream, `stopped`/`show_report`, more tabs or clicks than
+Windows logoff, the SSE stream, Diagnoza and Zgłoszenie (`diagnose`/`send_report`), more tabs or clicks than
 above, and what Aktualizacja narzędzia does to the clone (the
 [`verify-aktualizacja-narzedzia`](../verify-aktualizacja-narzedzia/SKILL.md) model
 covers it). When another action that must not run during an Uruchomienie lands,

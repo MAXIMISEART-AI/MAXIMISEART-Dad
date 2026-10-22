@@ -30,16 +30,12 @@ from functools import cached_property
 from pathlib import Path
 from typing import Final, Literal
 
-from fastapi import APIRouter
-
 from rozliczenia import preparation_messages, preparation_register, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
 from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
-from rozliczenia.centrum.reports import Reports
-from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
@@ -50,7 +46,7 @@ from rozliczenia.period_folder import (
     locate_period_folder,
     reading,
 )
-from rozliczenia.settings import Settings, SettingsStore
+from rozliczenia.settings import Settings
 from rozliczenia.settlement_period import SettlementPeriod, parse_period_token
 
 CheckState = Literal["passed", "failed", "not_checked"]
@@ -435,28 +431,3 @@ def diagnose(
     for check in _CHECKS[process]:
         checks.extend(check.results(computer))
     return Diagnosis(tuple(checks), computer.log_entries)
-
-
-def diagnosis_router(
-    host: RunHost,
-    store: SettingsStore,
-    configuration: ConfigurationFiles,
-    log: CentrumLog,
-    surroundings: Surroundings,
-    reports: Reports,
-) -> APIRouter:
-    router = APIRouter(prefix="/api/runs", tags=["uruchomienia"])
-
-    @router.post("/{run_id}/diagnosis", operation_id="diagnoseRun", responses=contract.NOT_FOUND_OR_CONFLICT)
-    def run_diagnosis(run_id: str) -> contract.Diagnosis:
-        stopped = host.stopped(run_id)
-        info = stopped.info
-        diagnosis = diagnose(
-            info.process, info.period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
-        )
-        log.diagnosed(process=info.process, period=info.period, cause=diagnosis.explanation.code)
-        draft, state = reports.draft(stopped, diagnosis)
-        host.show_report(run_id, state)
-        return diagnosis.view(stopped.stop.message, draft)
-
-    return router

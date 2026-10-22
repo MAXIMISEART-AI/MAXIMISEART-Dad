@@ -463,8 +463,10 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             metrics_saved=True,
         )
 
-    def no_report_state(_: object) -> contract.ReportState:
-        raise ModelGap("report_state przy Zatrzymaniu; model kończy każde Uruchomienie sukcesem")
+    class NoStops:
+        def ended(self, info: object, stop: object) -> None:
+            if stop is not None:
+                raise ModelGap("Zatrzymanie w Stops.ended; model kończy każde Uruchomienie sukcesem")
 
     # Each verified file sees its own stand-ins; the originals come back after the schedule.
     patches = [
@@ -480,7 +482,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
         log = LogSteps(scheduler)
         # Wired as in create_app (app.py): RunHost, then Shutdown.refuse_while(runs.shutdown_refusal).
         stopper = shutdown.Shutdown(log)  # type: ignore[arg-type]
-        host = runs.RunHost(log, CentrumRunsSteps(scheduler), no_report_state)  # type: ignore[arg-type]
+        host = runs.RunHost(log, CentrumRunsSteps(scheduler), NoStops())  # type: ignore[arg-type]
         stopper.refuse_while(host.shutdown_refusal)
         lock = getattr(host, "_lock", None)
         world = World(
