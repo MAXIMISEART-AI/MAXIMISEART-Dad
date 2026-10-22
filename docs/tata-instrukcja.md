@@ -427,8 +427,11 @@ gdzie (pinezka) i co zrobić (klucz). Komunikaty są w tabeli niżej.
 
 ### Komunikat w Centrum rozliczeń → co zrobić
 
-Po każdym zatrzymaniu nie powstał żaden plik pracownika. Wyjątkiem jest
+Po każdym zatrzymaniu nie powstał Folder rozliczeń pracowników. Wyjątkiem jest
 komunikat o niepokazanym podsumowaniu: wtedy rozliczenia pracowników już są.
+Jeśli komunikat mówi, że pliki pracowników zostały w folderze tymczasowym,
+najpierw usuń z Folderu okresu folder, który wskazuje (jego nazwa zaczyna się
+kropką i ma w sobie `.staging-`). To nie jest Folder rozliczeń pracowników.
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
@@ -444,7 +447,7 @@ komunikat o niepokazanym podsumowaniu: wtedy rozliczenia pracowników już są.
 | „ma dane, ale nie ma wykonawcy w kolumnie H” | Problem z podglądu (wynik wymaga sprawdzenia). Wpisz WYKONAWCĘ we wskazanym wierszu albo wyczyść wiersz, jeśli jest zbędny. |
 | „Nie udało się przygotować skoroszytu pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
-| „Nie można opublikować gotowego Folderu rozliczeń pracowników” | Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie można opublikować gotowego Folderu rozliczeń pracowników” | Jeśli komunikat prosi o usunięcie folderu tymczasowego, usuń go z Folderu okresu; gdy się nie daje, odczekaj chwilę. Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można przygotować Folderu rozliczeń pracowników” | Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Wystąpił nieoczekiwany błąd” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania” | Nie uruchamiaj ponownie: folder rozliczeń pracowników już jest. Sprawdź Folder okresu i przekaż komunikat osobie utrzymującej narzędzie. |

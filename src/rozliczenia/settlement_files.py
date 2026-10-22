@@ -12,6 +12,7 @@ Publikacja Przygotowania pliku zbiorczego jest osobna (``preparation_files``).
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 from collections.abc import Callable
 from dataclasses import replace
@@ -38,28 +39,29 @@ def write_worker_settlements(
 
     ``write`` dostaje folder tymczasowy i zwraca wyniki z plikami w nim. Wynik
     to te same wyniki z plikami w opublikowanym Folderze rozliczeń pracowników.
-    Błąd zapisu zatrzymuje Przebieg rozliczeń Komunikatem bez publikacji.
+    Błąd zapisu zatrzymuje Przebieg rozliczeń Komunikatem bez publikacji. Gdy
+    folderu tymczasowego nie da się potem usunąć, Komunikat go wskazuje.
     """
 
     try:
-        with tempfile.TemporaryDirectory(
-            prefix=f".{target_directory.name}.staging-",
-            dir=target_directory.parent,
-            ignore_cleanup_errors=True,
-        ) as staging_name:
-            staging_directory = Path(staging_name)
-            results = write(staging_directory)
-            ensure_worker_settlements_absent(target_directory)
-            try:
-                staging_directory.rename(target_directory)
-            except OSError as exc:
-                publish_error = exc
-            else:
-                return [replace(result, output_file=target_directory / result.output_file.name) for result in results]
+        staging_directory = Path(
+            tempfile.mkdtemp(prefix=f".{target_directory.name}.staging-", dir=target_directory.parent)
+        )
     except OSError as exc:
         raise StopError(settlement_messages.write_failed(target_directory)) from exc
-    if staging_directory.exists():
-        raise StopError(
-            settlement_messages.publish_failed_with_staging_left(target_directory, staging_directory.name)
-        ) from publish_error
-    raise StopError(settlement_messages.publish_failed(target_directory)) from publish_error
+    try:
+        try:
+            results = write(staging_directory)
+            ensure_worker_settlements_absent(target_directory)
+        except OSError as exc:
+            raise StopError(settlement_messages.write_failed(target_directory)) from exc
+        try:
+            staging_directory.rename(target_directory)
+        except OSError as exc:
+            raise StopError(settlement_messages.publish_failed(target_directory)) from exc
+    except BaseException as error:
+        shutil.rmtree(staging_directory, ignore_errors=True)
+        if isinstance(error, StopError) and staging_directory.exists():
+            raise StopError(settlement_messages.staging_left(error.message, staging_directory.name)) from error
+        raise
+    return [replace(result, output_file=target_directory / result.output_file.name) for result in results]

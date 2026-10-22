@@ -8,6 +8,7 @@ pliku, folder okresu, kolumnę albo Wykonawcę z konfiguracji wykonawców.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Final
 
@@ -17,6 +18,7 @@ from .workbook_files import WORKER_HEADER
 from .worker_config import WorkerConfigError
 
 _NOTHING_CREATED: Final = "Nie utworzono żadnego pliku pracownika."
+_STAGING_LEFT: Final = "Pliki pracowników zostały w folderze tymczasowym, którego nie udało się usunąć."
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
@@ -88,7 +90,7 @@ def worker_settlements_exist(target_directory: Path) -> Message:
         where=folder_label(target_directory),
         action=(
             "Sprawdź, czy wybrano właściwy okres. Rozliczenia pracowników tego okresu już są w Folderze okresu. "
-            "Jeśli trzeba je utworzyć od nowa, najpierw przenieś ten folder poza Folder okresu i uruchom ponownie."
+            "Jeśli trzeba je utworzyć od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu i uruchom ponownie."
         ),
     )
 
@@ -173,29 +175,28 @@ def publish_failed(target_directory: Path) -> Message:
     )
 
 
-def publish_failed_with_staging_left(target_directory: Path, staging_name: str) -> Message:
-    """Publikacja nie powiodła się, a folderu tymczasowego z gotowymi plikami nie udało się usunąć."""
-
-    return Message(
-        code="BLAD_PUBLIKACJI",
-        what=(
-            "Nie można opublikować gotowego Folderu rozliczeń pracowników. Gotowe pliki pracowników zostały "
-            "w folderze tymczasowym, którego nie udało się usunąć."
-        ),
-        where=folder_label(target_directory),
-        action=(
-            f"Usuń z Folderu okresu folder {staging_name}, bo nie jest Folderem rozliczeń pracowników. "
-            f"Jeśli nie daje się go usunąć, odczekaj chwilę. {_RETRY}"
-        ),
-    )
-
-
 def write_failed(target_directory: Path) -> Message:
     return Message(
         code="BLAD_ZAPISU",
         what=f"Nie można przygotować Folderu rozliczeń pracowników. {_NOTHING_CREATED}",
         where=folder_label(target_directory),
         action=f"Sprawdź, czy Folder okresu jest dostępny. {_RETRY}",
+    )
+
+
+def staging_left(message: Message, staging_name: str) -> Message:
+    """Zatrzymanie ``message``, po którym w Folderze okresu został folder tymczasowy z plikami pracowników.
+
+    Folderu nie dało się usunąć, np. bo jego pliki trzyma OneDrive.
+    """
+
+    return replace(
+        message,
+        what=message.what.replace(_NOTHING_CREATED, _STAGING_LEFT),
+        action=(
+            f"Usuń z Folderu okresu folder {staging_name}, bo nie jest Folderem rozliczeń pracowników. "
+            f"Jeśli nie daje się go usunąć, odczekaj chwilę. {message.action}"
+        ),
     )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from pathlib import Path
 import time
 from collections.abc import Callable, Iterable
@@ -645,43 +646,104 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     assert worker_template_path.read_bytes() == worker_template_before
 
 
-@pytest.mark.parametrize("onedrive_holds_files", [False, True], ids=["folder-tymczasowy-usuniety", "onedrive-trzyma-pliki"])
-def test_nieudana_publikacja_folderu_rozliczen_pracownikow_zatrzymuje_kodem_publikacji(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, onedrive_holds_files: bool
-) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
-    staging_prefix = f".{target_directory.name}.staging-"
-    real_rename, real_unlink = os.rename, os.unlink
-    publication_failed = False
+def fail_renaming_staging_folder(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
+    real_rename = os.rename
 
-    def rename_fails_for_staging_folder(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
-        nonlocal publication_failed
-        if Path(source).name.startswith(staging_prefix):
-            publication_failed = True
+    def rename(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(source).name.startswith(f".{target_directory.name}.staging-"):
             raise PermissionError("wymuszony: Windows nie zmienia nazwy folderu z otwartym plikiem")
         real_rename(source, target)
 
-    def unlink_fails_while_onedrive_holds_files(path: str | os.PathLike[str], **kwargs: object) -> None:
-        if onedrive_holds_files and publication_failed:
-            raise PermissionError("wymuszony: plik trzyma OneDrive")
+    monkeypatch.setattr(os, "rename", rename)
+
+
+def fail_saving_second_worker_file(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
+    real_replace = os.replace
+    saved: list[str] = []
+
+    def replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).suffix == ".xlsx":
+            saved.append(Path(target).name)
+            if len(saved) == 2:
+                raise OSError("wymuszony: zapis drugiego pliku pracownika")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def create_worker_settlements_folder_while_saving(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
+    real_mkstemp = tempfile.mkstemp
+
+    def mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
+        if not target_directory.exists():
+            target_directory.mkdir()
+            (target_directory / "existing.txt").write_text("zachowaj", encoding="utf-8")
+        return real_mkstemp(*args, **kwargs)  # type: ignore[call-overload,no-any-return]
+
+    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+
+
+def test_nieudana_publikacja_folderu_rozliczen_pracownikow_zatrzymuje_kodem_publikacji(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    fail_renaming_staging_folder(monkeypatch, target_directory)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert raised.value.message.code == "BLAD_PUBLIKACJI"
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (fail_renaming_staging_folder, "BLAD_PUBLIKACJI"),
+        (fail_saving_second_worker_file, "BLAD_SZABLONU_PRACOWNIKA"),
+        (create_worker_settlements_folder_while_saving, "FOLDER_ROZLICZEN_ISTNIEJE"),
+    ],
+    ids=["publikacja", "zapis-drugiego-pracownika", "folder-rozliczen-powstal-w-trakcie"],
+)
+@pytest.mark.parametrize("refuses_permission_change", [False, True], ids=["usuwanie", "usuwanie-i-zmiana-uprawnien"])
+def test_zatrzymanie_wskazuje_folder_tymczasowy_trzymany_przez_onedrive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Callable[[pytest.MonkeyPatch, Path], None],
+    code: str,
+    refuses_permission_change: bool,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    worker_file_prefix = f"Rozliczenie {PERIOD} - "
+    real_unlink, real_chmod = os.unlink, os.chmod
+
+    def unlink(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if Path(path).name.startswith(worker_file_prefix):
+            raise PermissionError("wymuszony: plik pracownika trzyma OneDrive")
         real_unlink(path, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(os, "rename", rename_fails_for_staging_folder)
-    monkeypatch.setattr(os, "unlink", unlink_fails_while_onedrive_holds_files)
+    def chmod(path: str | os.PathLike[str], mode: int, **kwargs: object) -> None:
+        if refuses_permission_change:
+            raise PermissionError("wymuszony: OneDrive nie pozwala zmienić uprawnień")
+        real_chmod(path, mode, **kwargs)  # type: ignore[arg-type]
+
+    failure(monkeypatch, target_directory)
+    monkeypatch.setattr(os, "unlink", unlink)
+    monkeypatch.setattr(os, "chmod", chmod)
 
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     message = raised.value.message
-    assert message.code == "BLAD_PUBLIKACJI"
-    assert not target_directory.exists()
-    staging_left = [path.name for path in target_directory.parent.glob(f"{staging_prefix}*")]
-    if onedrive_holds_files:
-        assert len(staging_left) == 1
-        assert staging_left[0] in message.action
-        assert "Nie utworzono żadnego pliku pracownika." not in message.what
-    else:
-        assert staging_left == []
+    staging_left = list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+    assert message.code == code
+    assert len(staging_left) == 1
+    assert any(staging_left[0].iterdir())
+    assert f"folder {staging_left[0].name}" in message.action
+    assert "folderze tymczasowym" in message.what
+    assert "Nie utworzono żadnego pliku pracownika." not in message.what
+    assert not target_directory.exists() or [path.name for path in target_directory.iterdir()] == ["existing.txt"]
 
 
 def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(complete_run: tuple[Path, Path, Path, Path]) -> None:
