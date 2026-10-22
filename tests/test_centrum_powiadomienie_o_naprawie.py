@@ -14,11 +14,11 @@ from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 
 
-def sent_report(centrum: PreparingCentrum, monkeypatch: pytest.MonkeyPatch) -> None:
+def sent_report(centrum: PreparingCentrum) -> None:
     """Zgłoszenie „do Maksa” wysłane z tego komputera, z kluczem wpisanym przez Maksa; skrzynka daje mu numer 1."""
 
     (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     assert centrum.client.post(f"/api/runs/{run_id}/diagnosis").status_code == 200
     assert centrum.client.post(f"/api/runs/{run_id}/report").json() == {"state": "sent"}
 
@@ -31,11 +31,9 @@ def repaired(centrum: PreparingCentrum) -> bool:
     return bool(answer["repaired"])
 
 
-def test_zamkniete_zgloszenie_z_biezacej_wersji_daje_powiadomienie_a_otwarte_nie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zamkniete_zgloszenie_z_biezacej_wersji_daje_powiadomienie_a_otwarte_nie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    sent_report(centrum, monkeypatch)
+    sent_report(centrum)
     box = centrum.surroundings.report_box
 
     assert repaired(centrum) is False
@@ -47,11 +45,9 @@ def test_zamkniete_zgloszenie_z_biezacej_wersji_daje_powiadomienie_a_otwarte_nie
     assert box.asked == [[1], [1]]
 
 
-def test_skrzynka_jest_pytana_przy_starcie_i_najwyzej_raz_na_10_minut(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_skrzynka_jest_pytana_przy_starcie_i_najwyzej_raz_na_10_minut(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    sent_report(centrum, monkeypatch)
+    sent_report(centrum)
     box, clock = centrum.surroundings.report_box, centrum.surroundings.clock
 
     repaired(centrum)
@@ -73,11 +69,9 @@ def test_skrzynka_jest_pytana_przy_starcie_i_najwyzej_raz_na_10_minut(
     assert len(box.asked) == 3
 
 
-def test_zamkniete_zgloszenie_nie_jest_pytane_ponownie_a_powiadomienie_zostaje_po_restarcie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zamkniete_zgloszenie_nie_jest_pytane_ponownie_a_powiadomienie_zostaje_po_restarcie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    sent_report(centrum, monkeypatch)
+    sent_report(centrum)
     box = centrum.surroundings.report_box
     box.close(1)
     assert repaired(centrum) is True
@@ -89,9 +83,9 @@ def test_zamkniete_zgloszenie_nie_jest_pytane_ponownie_a_powiadomienie_zostaje_p
     assert box.asked == [[1]]
 
 
-def test_po_aktualizacji_narzedzia_powiadomienie_znika(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_po_aktualizacji_narzedzia_powiadomienie_znika(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    sent_report(centrum, monkeypatch)
+    sent_report(centrum)
     centrum.surroundings.report_box.close(1)
     assert repaired(centrum) is True
 
@@ -103,10 +97,10 @@ def test_po_aktualizacji_narzedzia_powiadomienie_znika(tmp_path: Path, monkeypat
 
 @pytest.mark.parametrize("failure", [Unreachable(), Refused()], ids=["brak-sieci", "odmowa"])
 def test_porazka_zapytania_przechodzi_po_cichu_z_ostatnim_znanym_stanem(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Refused | Unreachable
+    tmp_path: Path, failure: Refused | Unreachable
 ) -> None:
     centrum = preparing_centrum(tmp_path)
-    sent_report(centrum, monkeypatch)
+    sent_report(centrum)
     box = centrum.surroundings.report_box
     box.close(1)
     box.states_failure = failure
@@ -117,27 +111,23 @@ def test_porazka_zapytania_przechodzi_po_cichu_z_ostatnim_znanym_stanem(
     assert centrum.log_path.read_text(encoding="utf-8") == log_before
 
 
-def test_bez_wyslanych_zgloszen_albo_klucza_skrzynka_nie_jest_pytana(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_bez_wyslanych_zgloszen_albo_klucza_skrzynka_nie_jest_pytana(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     box = centrum.surroundings.report_box
 
     assert repaired(centrum) is False
     assert box.asked == []
 
-    sent_report(centrum, monkeypatch)
+    sent_report(centrum)
     (tmp_path / "config" / "zgloszenia-klucz.txt").unlink()
 
     assert repaired(centrum) is False
     assert box.asked == []
 
 
-def test_przy_starcie_centrum_skrzynka_jest_pytana_w_tle_przed_wejsciem_na_okresy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_przy_starcie_centrum_skrzynka_jest_pytana_w_tle_przed_wejsciem_na_okresy(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    sent_report(centrum, monkeypatch)
+    sent_report(centrum)
     box = centrum.surroundings.report_box
     box.close(1)
     centrum.restart()
