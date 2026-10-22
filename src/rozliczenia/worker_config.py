@@ -14,6 +14,7 @@ from typing import Literal
 
 import yaml
 
+from . import TOOL_ROOT
 from .period_folder import check_worker_name
 
 __all__ = [
@@ -51,7 +52,7 @@ def normalize_text(value: object) -> str:
 def default_config_path() -> Path:
     """Wskazuje Konfigurację wykonawców w katalogu konfiguracji."""
 
-    return Path(__file__).resolve().parents[2] / "config" / "worker_mapping.yaml"
+    return TOOL_ROOT / "config" / "worker_mapping.yaml"
 
 
 def load_worker_mapping(config_path: Path) -> dict[str, str]:

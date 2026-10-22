@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import collective_preparation
+from . import TOOL_ROOT, collective_preparation
 from . import preparation_messages as messages
 from .collective_preparation import (
     PreparationSummary,
@@ -29,7 +29,7 @@ _COUNTERS = frozenset({"period_orders", "successful_orders", "skipped_empty_rows
 def default_metrics_path() -> Path:
     """Osobna lokalna historia metryk, obok historii Przebiegu rozliczeń."""
 
-    return Path(__file__).resolve().parents[2] / ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
+    return TOOL_ROOT / ".przygotowanie-pliku-zbiorczego-metrics.jsonl"
 
 
 @dataclass(frozen=True)

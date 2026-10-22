@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fixtures.tool_clone import copy_centrum_runtime
+from tests.fixtures.tool_clone import copy_centrum_runtime, free_port
 
 COMMIT = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
 UPDATED_COMMIT = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
@@ -27,13 +27,6 @@ def _check_out(runtime: Path, commit: str) -> None:
 
     (runtime / ".git").mkdir(exist_ok=True)
     (runtime / ".git" / "HEAD").write_text(commit + "\n", encoding="utf-8")
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port: int = probe.getsockname()[1]
-        return port
 
 
 def _browser_recorder(directory: Path) -> tuple[Path, Path]:
@@ -64,8 +57,8 @@ def _health(port: int, *, timeout_s: float = 30) -> dict[str, object]:
             time.sleep(0.1)
 
 
-def _wait_for_line(path: Path, *, timeout_s: float = 10) -> str:
-    deadline = time.monotonic() + timeout_s
+def _wait_for_line(path: Path) -> str:
+    deadline = time.monotonic() + 10
     while not path.exists() or not path.read_text(encoding="utf-8").strip():
         assert time.monotonic() < deadline, "Przeglądarka nie dostała adresu Centrum."
         time.sleep(0.1)
@@ -122,10 +115,10 @@ def _launch_again(runtime: Path, port: int, environment: dict[str, str]) -> subp
     )
 
 
-def _opened_addresses(path: Path, count: int, *, timeout_s: float = 10) -> list[str]:
+def _opened_addresses(path: Path, count: int) -> list[str]:
     """Adresy otwarte w przeglądarce, gdy jest ich już ``count``."""
 
-    deadline = time.monotonic() + timeout_s
+    deadline = time.monotonic() + 10
     while True:
         addresses = path.read_text(encoding="utf-8").split() if path.exists() else []
         if len(addresses) >= count:
@@ -138,7 +131,7 @@ def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path:
     runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     _check_out(runtime, COMMIT)
     browser, opened = _browser_recorder(tmp_path)
-    port = _free_port()
+    port = free_port()
     environment = _environment(browser)
 
     with _started(
@@ -162,7 +155,7 @@ def test_ponowne_uruchomienie_po_przesunieciu_klonu_rozpoznaje_centrum_innej_wer
     runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     _check_out(runtime, COMMIT)
     browser, opened = _browser_recorder(tmp_path)
-    port = _free_port()
+    port = free_port()
     environment = _environment(browser)
 
     with _started(
@@ -224,7 +217,7 @@ def _close(port: int) -> dict[str, object]:
 def test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku(tmp_path: Path) -> None:
     runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     browser, _ = _browser_recorder(tmp_path)
-    port = _free_port()
+    port = free_port()
     process = subprocess.Popen(
         [sys.executable, str(runtime / "run_centrum.py"), "--port", str(port), "--no-browser"],
         cwd=runtime,
@@ -261,7 +254,7 @@ def _windowless(runtime: Path, port: int) -> list[str]:
 def test_centrum_bez_konsoli_startuje_rozpoznaje_sie_i_zamyka(tmp_path: Path) -> None:
     runtime = copy_centrum_runtime(tmp_path / "narzedzie")
     browser, opened = _browser_recorder(tmp_path)
-    port = _free_port()
+    port = free_port()
     environment = _environment(browser)
     first = subprocess.Popen(_windowless(runtime, port), cwd=runtime, env=environment)
     try:
@@ -329,7 +322,7 @@ def test_krok_instalacji_tworzy_skrot_ktory_uruchamia_centrum_przez_pythonw(tmp_
     assert Path(shortcut["WorkingDirectory"]) == runtime
     assert (Path(icon), index) == (runtime / "src" / "rozliczenia" / "centrum" / "centrum-rozliczen.ico", "0")
 
-    port = _free_port()
+    port = free_port()
     process = subprocess.Popen(
         [str(target), shortcut["Arguments"].strip('"'), "--port", str(port)],
         cwd=shortcut["WorkingDirectory"],

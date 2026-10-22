@@ -122,13 +122,7 @@ def cut_sheet_after_data_rows(path: Path, sheet_part: str = "xl/worksheets/sheet
     Początek arkusza, np. WYKONAWCA w H17, daje się odczytać; błąd wychodzi dopiero przy dalszym czytaniu.
     """
 
-    with zipfile.ZipFile(path) as source:
-        members = [(info, source.read(info.filename)) for info in source.infolist()]
-    with zipfile.ZipFile(path, "w") as target:
-        for info, data in members:
-            if info.filename == sheet_part:
-                data = data[: data.rindex(b"</sheetData>")]
-            target.writestr(info, data)
+    rewrite_parts(path, lambda name, data: data[: data.rindex(b"</sheetData>")] if name == sheet_part else data)
 
 
 def cut_sheet_after_sheet_data(path: Path) -> None:
@@ -154,11 +148,11 @@ def rewrite_parts(path: Path, change: Callable[[str, bytes], bytes | None]) -> N
                 target.writestr(info, changed)
 
 
-def break_empty_data_row(path: Path, sheet_part: str = "xl/worksheets/sheet1.xml") -> None:
+def break_empty_data_row(path: Path) -> None:
     """XML arkusza jest zepsuty w środku: wiersz 18, bez danych w A:K, kończy się złym znacznikiem."""
 
     def change(name: str, data: bytes) -> bytes:
-        if name != sheet_part:
+        if name != "xl/worksheets/sheet1.xml":
             return data
         start = data.index(b'<row r="18"')
         end = data.index(b"</row>", start)
@@ -167,14 +161,14 @@ def break_empty_data_row(path: Path, sheet_part: str = "xl/worksheets/sheet1.xml
     rewrite_parts(path, change)
 
 
-def replace_cells(path: Path, cells: dict[str, str], sheet_part: str = "xl/worksheets/sheet1.xml") -> None:
-    """Podmienia istniejące komórki arkusza ``sheet_part`` na podany XML, np. jak zapisałby je Excel.
+def replace_cells(path: Path, cells: dict[str, str]) -> None:
+    """Podmienia istniejące komórki arkusza ``xl/worksheets/sheet1.xml`` na podany XML, np. jak zapisałby je Excel.
 
     Klucz to adres komórki (``A18``), wartość to cały element ``<c>``; komórka musi już być w arkuszu.
     """
 
     def change(name: str, data: bytes) -> bytes:
-        if name != sheet_part:
+        if name != "xl/worksheets/sheet1.xml":
             return data
         for reference, cell in cells.items():
             pattern = rb'<c r="' + reference.encode("ascii") + rb'"(?:[^>]*?/>|[^>]*?>.*?</c>)'

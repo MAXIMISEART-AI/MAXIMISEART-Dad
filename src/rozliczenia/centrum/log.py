@@ -37,8 +37,8 @@ class CentrumLog:
 
         self._write("juz-dziala", port=port)
 
-    def start_failed(self, code: str, *, port: int, **facts: str) -> None:
-        self._write("blad-startu", kod=code, port=port, **facts)
+    def start_failed(self, code: str, *, port: int) -> None:
+        self._write("blad-startu", kod=code, port=port)
 
     def shutdown_requested(self) -> None:
         self._write("zamkniecie", z="karta Centrum")

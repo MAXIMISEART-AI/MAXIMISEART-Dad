@@ -36,11 +36,11 @@ class CallTrace:
     frames: tuple[CallFrame, ...]
 
     @classmethod
-    def of(cls, error: BaseException, *, root: Path = TOOL_ROOT) -> CallTrace:
+    def of(cls, error: BaseException) -> CallTrace:
         frames = tuple(
             CallFrame(file, frame.lineno or 0, frame.name)
             for frame in traceback.extract_tb(error.__traceback__)
-            if (file := _tool_file(frame.filename, root)) is not None
+            if (file := _tool_file(frame.filename, TOOL_ROOT)) is not None
         )
         return cls(_type_name(type(error)), frames)
 

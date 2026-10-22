@@ -486,7 +486,6 @@ class _Sheet:
         first = bisect_left(self._numbers, layout.first_data_row)
         self._data_start = self._rows[first].start if first < len(self._rows) else data_end
         self._first_data_index = first
-        self._data_end = data_end
         self.has_input_data = _writable_data_rows_have_input(xml, self._data_start, data_end, layout)
         """Jak ``TemplateSheet.has_input_data``: niepusta wartość bez formuły w kolumnach danych wejściowych."""
         self._links_at, self._links_open, self._links_prefix = _hyperlinks_place(xml, data_end)
