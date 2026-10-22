@@ -1,7 +1,7 @@
 import { cn } from "cn"
 import { FolderSearchIcon, FolderXIcon } from "lucide-react"
 
-import { getPeriodBoard, type PeriodBoard } from "@/api/centrum"
+import { getMetrics, getPeriodBoard, type Metrics, type PeriodBoard } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -17,8 +17,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { useContentEntrance } from "@/lib/content-entrance"
-import { filesIdentity, useSettings } from "@/lib/settings"
-import { useResource } from "@/lib/use-resource"
+import { useSettings } from "@/lib/settings"
+import { useResource, type Resource } from "@/lib/use-resource"
 import { FileSettingsCard } from "@/pages/periods/file-settings-card"
 import { NextStepCard } from "@/pages/periods/next-step-card"
 import { PeriodBoardTable } from "@/pages/periods/period-board-table"
@@ -26,19 +26,32 @@ import { PeriodStats } from "@/pages/periods/period-stats"
 import { RepairNotice } from "@/pages/periods/repair-notice"
 
 export function PeriodsPage() {
-  const { settings } = useSettings()
-  const entrance = useContentEntrance(settings.state === "loading")
+  const { filesVersion } = useSettings()
 
   return (
     <>
       <PageHeader title="Okresy" />
       <RepairNotice />
+      {/* Nowe pliki taty to nowy odczyt Tablicy okresów; zmiana motywu nim nie jest. */}
+      <PeriodsContent key={filesVersion} />
+    </>
+  )
+}
+
+/** Tablica okresów i metryki czytają się od razu, razem z Ustawieniami taty, a nie po kolei po nich. */
+function PeriodsContent() {
+  const { settings } = useSettings()
+  const { resource: board, reload } = useResource(getPeriodBoard)
+  const { resource: metrics } = useResource(getMetrics)
+  const entrance = useContentEntrance(settings.state === "loading")
+
+  return (
+    <>
       {settings.state === "loading" ? <PeriodsSkeleton /> : null}
       {settings.state === "failed" ? <Failure message={settings.message} /> : null}
       {settings.state === "ready" ? (
         <div className={cn(entrance, "flex flex-col gap-6")}>
-          {/* Nowe pliki taty to nowy odczyt Tablicy okresów; zmiana motywu nim nie jest. */}
-          <PeriodBoardSection key={filesIdentity(settings.data)} />
+          <PeriodBoardSection board={board} metrics={metrics} reload={reload} />
           <FileSettingsCard settings={settings.data} />
         </div>
       ) : null}
@@ -46,16 +59,22 @@ export function PeriodsPage() {
   )
 }
 
-function PeriodBoardSection() {
-  const { resource: board, reload } = useResource(getPeriodBoard)
-
+function PeriodBoardSection({
+  board,
+  metrics,
+  reload,
+}: {
+  board: Resource<PeriodBoard>
+  metrics: Resource<Metrics>
+  reload: () => void
+}) {
   switch (board.state) {
     case "loading":
       return <PeriodsSkeleton />
     case "failed":
       return <Failure message={board.message} />
     case "ready":
-      return <BoardContent board={board.data} reload={reload} />
+      return <BoardContent board={board.data} metrics={metrics} reload={reload} />
     default: {
       const unhandled: never = board
 
@@ -64,7 +83,15 @@ function PeriodBoardSection() {
   }
 }
 
-function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => void }) {
+function BoardContent({
+  board,
+  metrics,
+  reload,
+}: {
+  board: PeriodBoard
+  metrics: Resource<Metrics>
+  reload: () => void
+}) {
   switch (board.state) {
     case "not_set":
       return (
@@ -102,7 +129,7 @@ function BoardContent({ board, reload }: { board: PeriodBoard; reload: () => voi
       return (
         <>
           {lastComplete === undefined ? null : <NextStepCard period={lastComplete} />}
-          <PeriodStats periods={board.periods} lastPrepared={board.last_prepared_period} />
+          <PeriodStats periods={board.periods} lastPrepared={board.last_prepared_period} metrics={metrics} />
           <PeriodBoardTable periods={board.periods} onStale={reload} />
         </>
       )
