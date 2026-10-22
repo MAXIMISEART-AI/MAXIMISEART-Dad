@@ -16,7 +16,17 @@ import time
 
 import pytest
 
-from rozliczenia.centrum.tool_update import JournalKept, ToolClone, UpdateResult, find_git
+from rozliczenia.centrum import tool_update
+from rozliczenia.centrum.tool_update import (
+    JOURNAL,
+    GitFailed,
+    InterruptedUpdate,
+    JournalKept,
+    ToolClone,
+    UpdateResult,
+    find_git,
+    read_result,
+)
 
 from tests.fixtures.tool_clone import (
     FIRST_VERSION,
@@ -673,5 +683,198 @@ def test_gdy_plik_taty_nie_wroci_po_odmowie_przesuniecia_wynik_mowi_to_wprost_a_
     clone.roll_back()
 
     assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=None)
+    assert repository.head() == before
+    assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+
+
+def journal_state(repository: ToolRepository) -> Path:
+    return repository.clone / "config" / JOURNAL / "stan.json"
+
+
+@pytest.mark.parametrize(
+    "damaged",
+    [
+        '{"format": 1, "przed": "',
+        "[]",
+        '{"format": 2, "przed": "{before}", "po": "{after}"}',
+        '{"format": 1, "przed": null, "po": "{after}"}',
+    ],
+    ids=["urwany", "nie-obiekt", "nieznany-format", "bez-commitu-przed"],
+)
+def test_nieczytelny_dziennik_aktualizacji_w_toku_zostaje_nietkniety_a_klon_bez_zmian(
+    repository: ToolRepository, tmp_path: Path, damaged: str
+) -> None:
+    before = repository.head()
+    newest = moved_with_new_requirements(repository)
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
+    assert clone.update().code == "ok"
+    journal_state(repository).write_text(damaged.replace("{before}", before).replace("{after}", newest), encoding="utf-8")
+    damaged_journal = journal_state(repository).read_bytes()
+    unchanged = repository.state()
+
+    with pytest.raises(JournalKept):
+        clone.interrupted_update()
+    with pytest.raises(JournalKept):
+        clone.update()
+    with pytest.raises(JournalKept):
+        clone.roll_back()
+
+    assert repository.state() == unchanged
+    assert journal_state(repository).read_bytes() == damaged_journal
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,
+        "nie json",
+        "[]",
+        '"ok"',
+        '{"wynik": 1, "przed": null, "po": null}',
+        '{"wynik": "ok", "przed": 5, "po": null}',
+        '{"wynik": "ok", "przed": null, "po": ["abc"]}',
+    ],
+    ids=["brak-pliku", "nie-json", "lista", "napis", "kod-liczba", "przed-liczba", "po-lista"],
+)
+def test_wynik_aktualizacji_nieczytelny_albo_niepelny_jest_pomijany(tmp_path: Path, content: str | None) -> None:
+    result = tmp_path / "config" / tool_update.RESULT_FILE
+    if content is not None:
+        result.parent.mkdir(parents=True)
+        result.write_text(content, encoding="utf-8")
+
+    assert read_result(result) is None
+
+
+def test_wyjatek_instalatora_przy_nieudanym_cofnieciu_daje_wynik_cofniecie_nieudane_a_dziennik_czeka_na_kolejna_probe(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    newest = moved_with_new_requirements(repository)
+    lock = repository.clone / ".git" / "index.lock"
+
+    def installer_failing_with_index_locked(requirements: Path) -> bool:
+        lock.touch()
+        raise RuntimeError("instalator się wysypał")
+
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=installer_failing_with_index_locked)
+
+    result = clone.update()
+
+    assert result == UpdateResult("COFNIECIE_NIEUDANE", before=before, after=newest, installed=True)
+    assert repository.head() == newest
+    assert clone.interrupted_update() == InterruptedUpdate(before, newest)
+    lock.unlink()
+    clone.roll_back()
+    assert_back_before_click(repository, before)
+
+
+def git_failing_on(tmp_path: Path, *words: str) -> Path:
+    """Prawdziwy Git, w którym polecenie ze wszystkimi ``words`` kończy się błędem i niczego nie zmienia."""
+
+    real = shutil.which("git")
+    assert real is not None
+    script = tmp_path / "git_z_bledem.py"
+    script.write_text(
+        "import subprocess, sys\n"
+        f"if all(word in sys.argv for word in {list(words)!r}):\n"
+        "    sys.exit(128)\n"
+        f"sys.exit(subprocess.call([{real!r}, *sys.argv[1:]]))\n",
+        encoding="utf-8",
+    )
+    return _executable(tmp_path, script)
+
+
+def test_gdy_git_nie_odlozy_pliku_taty_przed_przesunieciem_klon_i_plik_taty_zostaja_bez_dziennika(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    (repository.clone / "config" / "worker_mapping.yaml").write_text(REAL_NAMES, encoding="utf-8")
+    repository.publish({".gitignore": "config/worker_mapping.yaml\n"}, untrack=("config/worker_mapping.yaml",))
+    unchanged = repository.state()
+    git = git_failing_on(tmp_path, "checkout")
+    clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git)
+
+    with pytest.raises(GitFailed):
+        clone.update()
+
+    assert repository.state() == unchanged
+    assert clone.interrupted_update() is None
+
+
+def test_gdy_git_nie_porowna_wymagan_klon_wraca_sprzed_klikniecia_bez_instalacji(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    moved_with_new_requirements(repository)
+    git = git_failing_on(tmp_path, "diff", "--quiet")
+    installer = FakeInstaller()
+    clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git, install=installer)
+
+    with pytest.raises(GitFailed):
+        clone.update()
+
+    assert_back_before_click(repository, before)
+    assert installer.installed == []
+    assert clone.interrupted_update() is None
+
+
+def git_whose_fetch_stalls(tmp_path: Path, commit: str, heartbeat: Path) -> Path:
+    """Git, którego pobranie stoi, a jego pomocnik dopisuje do ``heartbeat``, dopóki żyje (najwyżej pół minuty).
+
+    Poza pobraniem odpowiada jak klon na `main` na commicie ``commit``.
+    """
+
+    helper = f"import time\nfor _ in range(600):\n    open({str(heartbeat)!r}, 'a').write('.')\n    time.sleep(0.05)\n"
+    script = tmp_path / "git_ze_stojacym_pobraniem.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        f"COMMIT = {commit!r}\n"
+        "args = [arg for index, arg in enumerate(sys.argv[1:]) if arg != '-c' and sys.argv[index] != '-c']\n"
+        "command = args[2] if args[:1] == ['-C'] else args[0]\n"
+        "if command == 'fetch':\n"
+        f"    subprocess.Popen([sys.executable, '-c', {helper!r}])\n"
+        "    time.sleep(60)\n"
+        "print('main' if command == 'symbolic-ref' else COMMIT)\n",
+        encoding="utf-8",
+    )
+    return _executable(tmp_path, script)
+
+
+def test_pobranie_ktore_stoi_po_limicie_czasu_konczy_sie_brakiem_polaczenia_bez_procesow_gita(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_update, "_FETCH_TIMEOUT_S", 2.0)
+    commit = "1" * 40
+    heartbeat = tmp_path / "pomocnik-zyje"
+    git = git_whose_fetch_stalls(tmp_path, commit, heartbeat)
+
+    result = ToolClone(tmp_path, origin="https://example.invalid/narzedzie.git", find_git=lambda: git).update()
+    time.sleep(0.5)
+    beats = heartbeat.read_text(encoding="utf-8")
+    time.sleep(0.5)
+
+    assert result == UpdateResult("BRAK_POLACZENIA", before=commit, after=None)
+    assert beats
+    assert heartbeat.read_text(encoding="utf-8") == beats
+
+
+def test_klikniecie_w_trakcie_ponownego_startu_nie_zastepuje_dziennika_aktualizacji_nowsza_wersja(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    newest = moved_with_new_requirements(repository)
+    clone = ToolClone(repository.clone, origin=str(repository.origin), install=FakeInstaller())
+    assert clone.update().code == "ok"
+    with clone.leased_to_guardian():
+        pass
+    repository.publish({"src/narzedzie.py": "WERSJA = 3\n"})
+
+    with pytest.raises(JournalKept):
+        clone.update()
+
+    assert repository.head() == newest
+    interrupted = clone.interrupted_update()
+    assert interrupted is not None
+    assert (interrupted.before, interrupted.after) == (before, newest)
+    clone.roll_back()
     assert repository.head() == before
     assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
