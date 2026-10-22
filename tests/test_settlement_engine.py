@@ -664,6 +664,28 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
     assert [(type(event), event.template_index) for event in failed] == [(WorkerFailed, 1)]
 
 
+def test_wzorzec_rozliczenia_pracownika_ze_scaleniem_w_wierszach_danych_zatrzymuje_zapisywanie(
+    complete_run: tuple[Path, Path, Path, Path],
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = complete_run
+    workbook = load_workbook(worker_template_path)
+    try:
+        active_worksheet(workbook).merge_cells("A18:B18")
+        workbook.save(worker_template_path)
+    finally:
+        workbook.close()
+    worker_template_before = worker_template_path.read_bytes()
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+    assert raised.value.message.what == FIRST_WORKER_FILE_FAILED
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+    assert worker_template_path.read_bytes() == worker_template_before
+
+
 @pytest.mark.parametrize(
     ("failing_phase", "code"),
     [(ProgressPhase.CHECKING, "ZLY_WZORZEC_PRACOWNIKA"), (ProgressPhase.SAVING, "BLAD_KOPII_WZORCA")],

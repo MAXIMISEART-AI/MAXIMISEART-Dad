@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from copy import copy
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -44,6 +45,7 @@ from tests.fixtures.benchmark import (
     WORKER_TEMPLATE,
     write_synthetic_templates,
     zip_part,
+    zip_part_names,
 )
 from tests.fixtures.porownanie import compare_worker_settlements, renumber_cell_styles
 from tests.fixtures.workbooks import (
@@ -54,7 +56,9 @@ from tests.fixtures.workbooks import (
     cut_sheet_after_data_rows,
     cut_sheet_after_sheet_data,
     external_link_parts,
+    has_xml_comment,
     hyperlinks,
+    refused_by_copy,
     replace_cells,
     rewrite_parts,
     without_sheet,
@@ -434,16 +438,18 @@ def test_rozliczenie_pracownika_z_wzorca_zachowuje_wspolne_formuly_calcchain_i_f
 
 
 def _settlement_folders(tmp_path: Path, template_path: Path, rows: list[DataRow]) -> tuple[Path, Path]:
-    """Rozliczenie pracownika z ``WorkerSettlementTemplate`` i plik z Wzorca zapisany przez openpyxl, każdy w swoim folderze."""
+    """Rozliczenie pracownika z kopii Wzorca i to samo z jego bliźniaka drogą openpyxl, każde w swoim folderze."""
 
     created = tmp_path / "rozliczenie"
     expected = tmp_path / "przez-openpyxl"
     created.mkdir()
     expected.mkdir()
+    twin = refused_by_copy(Path(shutil.copy(template_path, tmp_path / f"bliźniak {template_path.name}")))
     name = "Rozliczenie - Wykonawca.xlsx"
     WorkerSettlementTemplate(template_path).create_settlement(created / name, rows)
-    with file_from_template(template_path, expected / name, Layout.COLLECTIVE, recalculate=True) as sheet:
-        sheet.write_data_rows(rows)
+    WorkerSettlementTemplate(twin).create_settlement(expected / name, rows)
+    assert not has_xml_comment(expected / name)
+    assert ("xl/calcChain.xml" in zip_part_names(created / name)) == ("xl/calcChain.xml" in zip_part_names(template_path))
     return created, expected
 
 

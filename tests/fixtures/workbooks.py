@@ -238,6 +238,28 @@ def without_sheet(path: Path) -> None:
     )
 
 
+def refused_by_copy(path: Path) -> Path:
+    """Bliźniak Wzorca, którego kopia (ADR 0008) nie przyjmuje: komentarz XML w danych każdego arkusza.
+
+    openpyxl pomija komentarz, więc z bliźniaka plik powstaje drogą openpyxl, a z oryginału kopią.
+    """
+
+    rewrite_parts(
+        path,
+        lambda name, data: data.replace(b"<sheetData>", b"<sheetData><!-- openpyxl -->", 1)
+        if name.startswith("xl/worksheets/")
+        else data,
+    )
+    return path
+
+
+def has_xml_comment(path: Path) -> bool:
+    """Arkusz skoroszytu ma komentarz XML: kopia Wzorca go zachowuje, openpyxl nie zapisuje."""
+
+    with zipfile.ZipFile(path) as archive:
+        return any(b"<!--" in archive.read(name) for name in archive.namelist() if name.startswith("xl/worksheets/"))
+
+
 def hyperlinks(path: Path) -> dict[str, str]:
     """Hiperłącza aktywnego arkusza tak, jak otwiera je Excel: adres komórki → adres (z ``#miejsce``)."""
 
