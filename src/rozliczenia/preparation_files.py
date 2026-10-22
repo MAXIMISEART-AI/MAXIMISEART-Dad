@@ -14,7 +14,7 @@ import os
 import tempfile
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, cast
 
@@ -27,14 +27,13 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from . import workbook_files
 from .highlights import PLAIN, Highlights
-from .hyperlinks import Hyperlink
 from . import preparation_messages as messages
 from .message import Message, StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import PeriodOrder
-from .preparation_register import ADDRESS, COLUMNS, Column, RegisterCell, header_columns, is_blank
+from .preparation_register import ADDRESS, COLUMNS, Column, header_columns, is_blank
 from .row_look import GENERAL, wraps
-from .workbook_files import Layout, Problem, TemplateOutline, TemplateSheet, WorkbookError
+from .workbook_files import DataRow, Layout, Problem, TemplateOutline, TemplateSheet, WorkbookError
 from .worker_config import normalize_text
 
 # Wypełnienie komórek kolumny pliku okresu bez względu na Wyróżnienie w Rejestrze: w plikach taty ADRES Pliku
@@ -223,11 +222,11 @@ def _ensure_rows_writable(template_path: Path, sheet: TemplateOutline | Template
             raise StopError(messages.template_with_merged_cells(template_path, sheet.title, merged.coord))
 
 
-def _highlights(cell: RegisterCell, column: Column, fills: Mapping[Column, Fill]) -> Highlights:
-    """Wyróżnienia komórki Rejestru w pliku okresu; ``fills`` zastępują wypełnienie wskazanych kolumn."""
+def _highlights(row: DataRow, index: int, fills: Mapping[Column, Fill]) -> Highlights:
+    """Wyróżnienia ``index``-tej (od 0) komórki wiersza Rejestru w pliku okresu; ``fills`` zastępują wypełnienie kolumn."""
 
-    cell_format = cell.format
-    return Highlights(fills.get(column, cell_format.fill), cell_format.color, cell_format.bold, cell_format.italic)
+    fill = fills.get(COLUMNS[index])
+    return row.highlights[index] if fill is None else replace(row.highlights[index], fill=fill)
 
 
 def _set_autofilter(sheet: Worksheet, header_row: int, order_count: int) -> None:
@@ -263,20 +262,18 @@ def _written_as_copy(
     return template.create(target, [_collective_row(order, cast(list[int], positions), fills) for order in orders])
 
 
-def _collective_row(
-    order: PeriodOrder, positions: Sequence[int], fills: Mapping[Column, Fill]
-) -> workbook_files.CollectiveFileRow:
-    values: list[object] = [None] * len(positions)
-    highlights = [PLAIN] * len(positions)
-    hyperlinks: dict[int, Hyperlink] = {}
-    number_formats = [GENERAL] * len(positions)
-    for column, position, cell in zip(COLUMNS, positions, order.row.cells, strict=True):
-        values[position - 1] = cell.value
-        highlights[position - 1] = _highlights(cell, column, fills)
-        number_formats[position - 1] = cell.format.number_format
-        if cell.hyperlink is not None:
-            hyperlinks[position] = cell.hyperlink
-    return workbook_files.CollectiveFileRow(tuple(values), tuple(highlights), hyperlinks, tuple(number_formats))
+def _collective_row(order: PeriodOrder, positions: Sequence[int], fills: Mapping[Column, Fill]) -> DataRow:
+    """Wiersz Rejestru z komórkami w kolumnach ``positions`` Wzorca, od A."""
+
+    row = order.row
+    by_column = sorted(range(len(positions)), key=positions.__getitem__)
+    return DataRow(
+        row.number,
+        tuple(row.values[index] for index in by_column),
+        tuple(_highlights(row, index, fills) for index in by_column),
+        tuple(row.number_formats[index] for index in by_column),
+        {positions[position - 1]: link for position, link in row.hyperlinks.items()},
+    )
 
 
 def _write_period_file(
@@ -305,7 +302,8 @@ def _write_period_file(
         for index, order in enumerate(orders):
             number = sheet.data_row(index)
             sheet.fit_height(number)
-            sources = {position: (column, cell) for column, position, cell in zip(COLUMNS, positions, order.row.cells)}
+            row = order.row
+            sources = {position: index for index, position in enumerate(positions)}
             for position in columns:
                 cell = sheet.worksheet.cell(number, position)
                 if not isinstance(cell, Cell):  # scalona komórka; wykluczona przez _ensure_rows_writable
@@ -313,14 +311,13 @@ def _write_period_file(
                 if position not in sources:
                     look.cell(position, PLAIN, GENERAL, wrapped=False).apply(cell)
                     continue
-                column, register_cell = sources[position]
-                link = register_cell.hyperlink
+                index = sources[position]
+                link = row.hyperlinks.get(index + 1)
                 # Przed wartością: openpyxl wpisuje adres jako wartość pustej komórki.
                 cell.hyperlink = None if link is None else link.address
-                cell.value = register_cell.value  # type: ignore[assignment]
-                highlights = _highlights(register_cell, column, fills)
-                wrapped = wraps(register_cell.value)
-                look.cell(position, highlights, register_cell.format.number_format, wrapped=wrapped).apply(cell)
+                cell.value = row.values[index]
+                highlights = _highlights(row, index, fills)
+                look.cell(position, highlights, row.number_formats[index], wrapped=wraps(row.values[index])).apply(cell)
         _set_autofilter(sheet.worksheet, sheet.header_row, len(orders))
 
 

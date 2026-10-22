@@ -402,7 +402,7 @@ def _data_row(
     cells = marked or {}
     hyperlinks = {index + 1: Hyperlink(address) for index, address in (links or {}).items()}
     highlights = tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS))
-    return DataRow(FIRST_DATA_ROW, values[7], values, highlights, number_formats or _source_formats(values), hyperlinks)
+    return DataRow(FIRST_DATA_ROW, values, highlights, number_formats or _source_formats(values), hyperlinks)
 
 
 # Number formats a Plik zbiorczy cell can carry: built-in ones, Dad's date format, and custom codes with quotes,

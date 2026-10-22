@@ -14,16 +14,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from openpyxl.styles.colors import Color
-from openpyxl.styles.fills import Fill
 from openpyxl.utils import get_column_letter
 
 from . import preparation_messages as messages
 from . import workbook_files
-from .hyperlinks import Hyperlink
 from .message import StopError
 from .settlement_period import SettlementPeriod
-from .workbook_files import FormattedCell, Problem, ReadWorkbook, WorkbookError
+from .workbook_files import DataRow, Problem, ReadWorkbook, WorkbookError
 from .worker_config import normalize_text
 
 
@@ -73,45 +70,12 @@ COLUMNS: tuple[Column, ...] = (
 
 
 @dataclass(frozen=True)
-class CellFormat:
-    """Wyróżnienia i format liczby komórki Rejestru przenoszone do plików okresu.
-
-    Krój i rozmiar czcionki celowo nie są tu przechowywane: pochodzą z nagłówka Wzorca (Wygląd Wiersza danych).
-    """
-
-    fill: Fill | None
-    color: Color | None
-    bold: bool
-    italic: bool
-    number_format: str
-
-
-@dataclass(frozen=True)
-class RegisterCell:
-    """Wartość komórki Rejestru z jej Wyróżnieniami i Hiperłączem."""
-
-    value: object
-    format: CellFormat
-    hyperlink: Hyperlink | None
-
-
-@dataclass(frozen=True)
-class RegisterRow:
-    """Wiersz Rejestru z danymi; ``cells`` w kolejności ``COLUMNS``."""
-
-    row_number: int
-    cells: tuple[RegisterCell, ...]
-
-    def value(self, column: Column) -> object:
-        return self.cells[COLUMNS.index(column)].value
-
-
-@dataclass(frozen=True)
 class RegisterSheet:
     """Arkusz ze zleceniami: wiersze z danymi i numery całkowicie pustych wierszy z odczytanego zakresu."""
 
     name: str
-    rows: tuple[RegisterRow, ...]
+    rows: tuple[DataRow, ...]
+    """Wiersze z danymi; pozycje w kolejności ``COLUMNS``."""
     empty_rows: tuple[int, ...]
     _positions: tuple[int, ...]  # numery kolumn ``COLUMNS`` w arkuszu (od 1)
 
@@ -119,6 +83,12 @@ class RegisterSheet:
         """Litera kolumny arkusza z nagłówkiem ``column``, np. ``L`` dla ``SKUTECZNE``."""
 
         return get_column_letter(self._positions[COLUMNS.index(column)])
+
+
+def cell_value(row: DataRow, column: Column) -> object:
+    """Wartość komórki Rejestru pod nagłówkiem ``column`` w wierszu ``row``."""
+
+    return row.values[COLUMNS.index(column)]
 
 
 def is_blank(value: object) -> bool:
@@ -172,19 +142,6 @@ def _register_stop(register_path: Path, error: WorkbookError) -> StopError:
     if error.problem is Problem.INACCESSIBLE:
         return StopError(messages.register_inaccessible(register_path))
     return StopError(messages.register_unreadable(register_path))
-
-
-def _cell_format(cell: FormattedCell) -> CellFormat:
-    """Wyróżnienia komórki Rejestru; brakująca komórka nie ma żadnych."""
-
-    font = cell.font
-    return CellFormat(
-        fill=cell.fill,
-        color=font.color if font is not None else None,
-        bold=bool(font.b) if font is not None else False,
-        italic=bool(font.i) if font is not None else False,
-        number_format=cell.number_format or "General",
-    )
 
 
 def _register_position(column: Column, columns: dict[str, int]) -> int | None:
@@ -248,16 +205,12 @@ def _read_register_sheets(workbook: ReadWorkbook, positions: dict[str, list[int]
         if sheet.title not in positions:
             continue
         columns = positions[sheet.title]
-        rows: list[RegisterRow] = []
+        rows: list[DataRow] = []
         empty_rows: list[int] = []
-        for row_number, values, cells in sheet.formatted_rows(min_row=2, columns=columns):
-            if all(is_blank(value) for value in values):
-                empty_rows.append(row_number)
+        for whole_row, row in sheet.data_rows(min_row=2, columns=columns):
+            if all(is_blank(cell) for cell in whole_row):
+                empty_rows.append(row.number)
                 continue
-            rows.append(
-                RegisterRow(
-                    row_number, tuple(RegisterCell(cell.value, _cell_format(cell), cell.hyperlink) for cell in cells)
-                )
-            )
+            rows.append(row)
         sheets.append(RegisterSheet(sheet.title, tuple(rows), tuple(empty_rows), tuple(columns)))
     return sheets

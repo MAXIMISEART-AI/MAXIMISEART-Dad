@@ -203,42 +203,27 @@ class Layout(Enum):
 
 @dataclass(frozen=True)
 class DataRow:
-    """Wiersz danych Pliku zbiorczego: numer wiersza, surowa wartość WYKONAWCA, wartości A:AT, Wyróżnienia i Hiperłącza."""
+    """Wiersz danych: wartości komórek po kolei, ich Wyróżnienia, formaty liczb i Hiperłącza.
+
+    Daje go odczyt Pliku zbiorczego (pozycje to kolumny A:AT, formaty liczb kolumn wyglądu A:L) i odczyt
+    Rejestru zleceń (pozycje w kolejności ``preparation_register.COLUMNS``, czyli kolumn A:K Pliku
+    zbiorczego, z formatem liczby każdej). ``number`` to numer wiersza w pliku, z którego go odczytano.
+    Klucze ``hyperlinks`` to pozycje od 1; Hiperłącze ma tylko komórka z wartością.
+    """
 
     number: int
-    worker: _ExcelCellValue
     values: ExcelRow
     highlights: tuple[Highlights, ...]
-    """Wyróżnienia komórek A:AT, po pozycji jak ``values``."""
+    """Wyróżnienia komórek po pozycji jak ``values``."""
     number_formats: tuple[str, ...]
-    """Formaty liczb komórek kolumn wyglądu A:L, po pozycji; trafiają do Rozliczenia pracownika."""
+    """Formaty liczb komórek po pozycji; trafiają do kolumn wyglądu pliku z Wzorca."""
     hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
-    """Hiperłącza komórek A:AT z wartością: kolumna od 1 → Hiperłącze."""
 
+    @property
+    def worker(self) -> _ExcelCellValue:
+        """Surowa wartość WYKONAWCA: kolumna H Pliku zbiorczego, w Rejestrze ósma przenoszona kolumna."""
 
-@dataclass(frozen=True)
-class CollectiveFileRow:
-    """Wiersz danych Pliku zbiorczego z Przygotowania: wartości, Wyróżnienia, Hiperłącza i formaty liczb A:K z Rejestru."""
-
-    values: tuple[object, ...]
-    highlights: tuple[Highlights, ...]
-    hyperlinks: Mapping[int, Hyperlink]
-    number_formats: tuple[str, ...]
-    """Po pozycji jak ``values``."""
-
-
-@dataclass(frozen=True)
-class FormattedCell:
-    """Wartość komórki z wyróżnieniami i Hiperłączem odczytanymi przy otwarciu; brakująca komórka ma same ``None``."""
-
-    value: object
-    font: Font | None
-    fill: Fill | None
-    number_format: str | None
-    hyperlink: Hyperlink | None
-
-
-_EMPTY_CELL = FormattedCell(None, None, None, None, None)
+        return self.values[_WORKER_COLUMN - 1]
 
 
 def is_open_in_excel(path: Path) -> bool:
@@ -373,11 +358,7 @@ def read_data_rows(path: Path) -> list[DataRow]:
             with _unreadable_as_error(path):
                 row_highlights = tuple(highlights.of(cell) for cell in cells[:last_column])
                 number_formats = tuple(getattr(cell, "number_format", None) or GENERAL for cell in cells[: _LOOK_COLUMNS[-1]])
-            rows.append(
-                DataRow(
-                    number, values[_WORKER_COLUMN - 1], values, row_highlights, number_formats, links.row(number, values)
-                )
-            )
+            rows.append(DataRow(number, values, row_highlights, number_formats, links.row(number, values)))
     finally:
         workbook.close()
     return rows
@@ -417,19 +398,16 @@ class ReadSheet:
     def values(self, min_row: int, max_row: int | None = None) -> Iterator[tuple[object, ...]]:
         return _classified(self._path, self._sheet.iter_rows(min_row=min_row, max_row=max_row, values_only=True))
 
-    def formatted_rows(
-        self, min_row: int, columns: Sequence[int]
-    ) -> Iterator[tuple[int, tuple[object, ...], tuple[FormattedCell, ...]]]:
-        """Numer wiersza, wartości całego wiersza i komórki ``columns`` (od 1) z wyróżnieniami i Hiperłączami, od ``min_row`` w dół.
+    def data_rows(self, min_row: int, columns: Sequence[int]) -> Iterator[tuple[tuple[object, ...], DataRow]]:
+        """Wartości całego wiersza i Wiersz danych z komórek ``columns`` (od 1) po kolei, od ``min_row`` w dół.
 
-        W arkuszu zawężonym tylko wiersze z jego zakresu.
+        Wyróżnienia czyta ta sama reguła co w Pliku zbiorczym (``Highlights.of``), a format liczby każdej
+        komórki to jej format, ogólny dla brakującej. W arkuszu zawężonym tylko wiersze z jego zakresu.
         """
 
-        return _classified(self._path, self._formatted_rows(min_row, columns))
+        return _classified(self._path, self._data_rows(min_row, columns))
 
-    def _formatted_rows(
-        self, min_row: int, columns: Sequence[int]
-    ) -> Iterator[tuple[int, tuple[object, ...], tuple[FormattedCell, ...]]]:
+    def _data_rows(self, min_row: int, columns: Sequence[int]) -> Iterator[tuple[tuple[object, ...], DataRow]]:
         max_row = None
         if self._rows is not None:
             min_row, max_row = max(min_row, self._rows.start), self._rows.stop - 1
@@ -437,23 +415,18 @@ class ReadSheet:
                 return
         with zipfile.ZipFile(BytesIO(self._content)) as archive:
             links = read_sheet_hyperlinks(archive, self.title)
+        highlights = _HighlightsReader()
         for number, cells in enumerate(self._sheet.iter_rows(min_row=min_row, max_row=max_row), start=min_row):
             values = tuple(getattr(cell, "value", None) for cell in cells)
             row_links = links.row(number, values)
-            yield number, values, tuple(
-                _formatted(cells[column - 1], row_links.get(column)) if column <= len(cells) else _EMPTY_CELL
-                for column in columns
+            picked = [cells[column - 1] if column <= len(cells) else None for column in columns]
+            yield values, DataRow(
+                number,
+                tuple(getattr(cell, "value", None) for cell in picked),
+                tuple(highlights.of(cell) for cell in picked),
+                tuple(getattr(cell, "number_format", None) or GENERAL for cell in picked),
+                {position: row_links[column] for position, column in enumerate(columns, start=1) if column in row_links},
             )
-
-
-def _formatted(cell: object, hyperlink: Hyperlink | None) -> FormattedCell:
-    return FormattedCell(
-        value=getattr(cell, "value", None),
-        font=getattr(cell, "font", None),
-        fill=getattr(cell, "fill", None),
-        number_format=getattr(cell, "number_format", None),
-        hyperlink=hyperlink,
-    )
 
 
 class ReadWorkbook:
@@ -759,7 +732,7 @@ class CollectiveFileTemplate:
 
         return self._copy.header
 
-    def create(self, target: Path, rows: Sequence[CollectiveFileRow]) -> bool:
+    def create(self, target: Path, rows: Sequence[DataRow]) -> bool:
         """Zapisuje atomowo Plik zbiorczy z ``rows`` od wiersza 18; ``False``: wiersze wymagają drogi przez openpyxl.
 
         Nieudany zapis to ``WorkbookSaveError``; ``target`` wtedy nie powstaje.

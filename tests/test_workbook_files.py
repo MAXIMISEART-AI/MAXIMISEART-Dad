@@ -88,7 +88,7 @@ def styled_template(path: Path) -> Path:
 def _read_with_format(path: Path) -> None:
     with read_workbook(path) as workbook:
         for sheet in workbook.sheets():
-            list(sheet.formatted_rows(min_row=1, columns=range(1, 15)))
+            list(sheet.data_rows(min_row=1, columns=range(1, 15)))
 
 
 def _check_template(path: Path) -> None:
@@ -467,7 +467,7 @@ def _data_row(values: ExcelRow, **highlights: Highlights) -> DataRow:
     for letter, cell in highlights.items():
         cells[_column_index(letter) - 1] = cell
     number_formats = tuple("m/d/yy h:mm" if isinstance(value, (date, time)) else "General" for value in values[:12])
-    return DataRow(18, values[7], values, tuple(cells), number_formats)
+    return DataRow(18, values, tuple(cells), number_formats)
 
 
 def _column_index(letter: str) -> int:
