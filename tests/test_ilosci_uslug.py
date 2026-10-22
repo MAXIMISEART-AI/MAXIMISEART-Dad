@@ -100,6 +100,22 @@ PIECES: list[tuple[str, str, int]] = [
     ("wizja", "instalacja", 1),
     ("Instalacja  Ręczna", "2 SZT.", 2),
 ]
+# Dodatek 45 zł (N = 45) za usterkę pon–pt od 17:00 albo w sobotę, z godziny w DATA. Okres 08–14.09.2026 zaczyna się
+# we wtorek; w niedzielę firma nie pracuje.
+FAULT = {"AI": 1}
+LATE: list[tuple[str, datetime, dict[str, int]]] = [
+    ("usterka", datetime(2026, 9, 8, 16, 0), FAULT),
+    ("usterka", datetime(2026, 9, 8, 16, 59), FAULT),
+    ("usterka", datetime(2026, 9, 8, 17, 0), FAULT | {"N": 45}),
+    ("usterka hurt", datetime(2026, 9, 11, 23, 30), FAULT | {"N": 45}),
+    ("usterka wew", datetime(2026, 9, 14, 18, 0), FAULT | {"N": 45}),
+    ("usterka", datetime(2026, 9, 12, 8, 0), FAULT | {"N": 45}),
+    ("usterka hurt", datetime(2026, 9, 12, 0, 0), FAULT | {"N": 45}),
+    ("usterka", datetime(2026, 9, 13, 10, 0), FAULT),
+    ("usterka, gniazdo", datetime(2026, 9, 12, 10, 0), FAULT | {"AE": 1, "AP": 1, "N": 45}),
+    ("gniazdo", datetime(2026, 9, 12, 8, 0), {"AE": 1, "AP": 1}),
+    ("nokia zte", datetime(2026, 9, 9, 19, 0), {"O": 1, "S": 1, "Z": 1}),
+]
 # Druk dokumentów (T) z pierwszego słowa UMOWA.
 CONTRACTS: list[tuple[str | None, int]] = [
     ("u", 1),
@@ -136,7 +152,9 @@ CASES: list[Case] = [
         for contract, t in CONTRACTS
     ),
     *(Case(devices, "pr", {"AN": pieces, "V": pieces}, activities) for devices, activities, pieces in PIECES),
+    *(Case(devices, "pr", quantities | {"V": 1}, started=started) for devices, started, quantities in LATE),
     *(Case(devices, "u", {}) for devices in FROM_DESCRIPTION),
+    Case("prewencja", "u", {}, started=datetime(2026, 9, 12, 9, 0)),
     *(Case(devices, "u", {"V": 1, "T": 1}) for devices in WITHOUT_RULE),
     Case("dekoder", "pr", {"V": 1}),
 ]

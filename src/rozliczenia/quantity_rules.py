@@ -15,7 +15,7 @@ import re
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, time
 from enum import Enum, StrEnum, auto
 from types import MappingProxyType
 from typing import Final
@@ -90,6 +90,8 @@ class _Kind(Enum):
     ROUTER = auto()
     TV = auto()
     EXTENDER = auto()
+    FAULT = auto()
+    """Usterka: po godzinach dostaje dodatek 45 zł."""
     PIECES = auto()
     """Składnik liczony w sztukach z ``CZYNNOŚCI`` zamiast krotności ``n*``."""
     OTHER = auto()
@@ -112,7 +114,7 @@ _Q = QuantityColumn
 _NOKIA_ROUTER = _Component({_Q.O: 1, _Q.Z: 1}, _Kind.ROUTER)
 _GATEWAY = _Component({_Q.O: 1}, _Kind.ROUTER, with_extender={_Q.AO: 1})
 _TV = _Component({}, _Kind.TV)
-_FAULT = _Component({_Q.AI: 1})
+_FAULT = _Component({_Q.AI: 1}, _Kind.FAULT)
 _MANUAL_INSTALLATION = _Component({_Q.AN: 1, _Q.V: 1}, _Kind.PIECES)
 
 # Klucze po normalizacji jak ``URZĄDZENIA``. Urządzenia TV nie mają własnych ilości: przy routerze pierwsze idzie
@@ -136,6 +138,10 @@ _COMPONENTS: Final[Mapping[str, _Component]] = {
     "instalacja ręczna": _MANUAL_INSTALLATION,
     "wizja": _MANUAL_INSTALLATION,
 }
+# Dodatek 45 zł za usterkę, w N jako ilość pozycji o koszcie 1 zł: dzień tygodnia (0 = poniedziałek) → godzina
+# ``DATA``, od której się należy. W niedziele i święta firma nie pracuje.
+_LATE_FAULT_FROM: Final[Mapping[int, time]] = {**dict.fromkeys(range(5), time(17)), 5: time.min}
+_LATE_FAULT_SURCHARGE: Final = 45
 _LONGEST_COMPONENT = max(len(name.split()) for name in _COMPONENTS)
 _FROM_DESCRIPTION: Final = frozenset({"prewencja", "niedostępność usług"})
 
@@ -158,6 +164,8 @@ def evaluate(order: OrderContent) -> RuleResult:
     components = _components(words)
     if components is None:
         return WithoutRule(_nonzero(quantities))
+    if _is_late(order.started) and any(component.kind is _Kind.FAULT for component, _ in components):
+        quantities[_Q.N] = _LATE_FAULT_SURCHARGE
     return ServiceQuantities(_nonzero({**quantities, **_device_quantities(components, _pieces(order.activities))}))
 
 
@@ -169,6 +177,11 @@ def _words(devices: object) -> list[str]:
 def _first_word(contract: object) -> str:
     words = ("" if contract is None else str(contract)).casefold().split()
     return words[0] if words else ""
+
+
+def _is_late(started: datetime) -> bool:
+    late_from = _LATE_FAULT_FROM.get(started.weekday())
+    return late_from is not None and started.time() >= late_from
 
 
 def _pieces(activities: object) -> int:
