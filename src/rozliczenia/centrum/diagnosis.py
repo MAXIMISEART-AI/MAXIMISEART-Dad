@@ -39,8 +39,7 @@ from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
 from rozliczenia.centrum.reports import Reports
-from rozliczenia.centrum.runs import RunHost, StoppedRun
-from rozliczenia.centrum.stops import ProblemFingerprint
+from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
@@ -86,7 +85,6 @@ class CheckResult:
 class Diagnosis:
     """Wynik Diagnozy: sprawdzenia po kolei i ostatnie wpisy dziennika Centrum od jego startu."""
 
-    stopped: StoppedRun
     checks: tuple[CheckResult, ...]
     log_entries: tuple[str, ...]
 
@@ -114,15 +112,11 @@ class Diagnosis:
             return "report"
         return "update" if cause.code == NEWER_TOOL_VERSION else "rerun"
 
-    def view(self, report: contract.ReportDraft) -> contract.Diagnosis:
-        """Widok Diagnozy z podglądem Zgłoszenia ``report``, które wyśle „Wyślij do Maksa”."""
-
-        process, explanation = self.stopped.info.process, self.explanation
-        # Ten sam Komunikat co Zatrzymanie to ten sam odcisk problemu: kod i trzy części.
-        same = ProblemFingerprint.of(process, explanation) == ProblemFingerprint.of(process, self.stopped.stop.message)
+    def view(self, stop: Message, report: contract.ReportDraft) -> contract.Diagnosis:
+        explanation = self.explanation
         return contract.Diagnosis(
             explanation=contract.Message.of(explanation),
-            confirms_stop=same,
+            confirms_stop=explanation == stop,
             next_action=self.next_action,
             update_proposal=self.proposes_update,
             checks=[contract.DiagnosisCheck(label=check.label, state=check.state, detail=check.detail) for check in self.checks],
@@ -426,22 +420,21 @@ _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
 
 
 def diagnose(
-    stopped: StoppedRun,
+    process: contract.ProcessKey,
+    period: str,
     *,
     settings: Settings,
     configuration: ConfigurationFiles,
     log: CentrumLog,
     surroundings: Surroundings,
 ) -> Diagnosis:
-    """Wszystkie sprawdzenia procesu Zatrzymania, tylko do odczytu."""
+    """Wszystkie sprawdzenia procesu ``process`` dla tokenu okresu ``period``, tylko do odczytu."""
 
-    info = stopped.info
-    period = parse_period_token(info.period)
-    computer = _Computer(info.process, period, settings, configuration, log, surroundings)
+    computer = _Computer(process, parse_period_token(period), settings, configuration, log, surroundings)
     checks: list[CheckResult] = []
-    for check in _CHECKS[info.process]:
+    for check in _CHECKS[process]:
         checks.extend(check.results(computer))
-    return Diagnosis(stopped, tuple(checks), computer.log_entries)
+    return Diagnosis(tuple(checks), computer.log_entries)
 
 
 def diagnosis_router(
@@ -457,12 +450,13 @@ def diagnosis_router(
     @router.post("/{run_id}/diagnosis", operation_id="diagnoseRun", responses=contract.NOT_FOUND_OR_CONFLICT)
     def run_diagnosis(run_id: str) -> contract.Diagnosis:
         stopped = host.stopped(run_id)
+        info = stopped.info
         diagnosis = diagnose(
-            stopped, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
+            info.process, info.period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
         )
-        log.diagnosed(process=stopped.info.process, period=stopped.info.period, cause=diagnosis.explanation.code)
-        draft, state = reports.draft(diagnosis)
+        log.diagnosed(process=info.process, period=info.period, cause=diagnosis.explanation.code)
+        draft, state = reports.draft(stopped, diagnosis)
         host.show_report(run_id, state)
-        return diagnosis.view(draft)
+        return diagnosis.view(stopped.stop.message, draft)
 
     return router

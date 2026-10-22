@@ -71,13 +71,14 @@ _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
 
 
-def report_of(diagnosis: Diagnosis, *, commit: str | None, previous: int | None = None) -> Report:
-    """Zgłoszenie Zatrzymania z wynikiem Diagnozy; tytuł to kod Komunikatu i „Co się stało”.
+def report_of(
+    stopped: StoppedRun, diagnosis: Diagnosis, *, commit: str | None, previous: int | None = None
+) -> Report:
+    """Zgłoszenie Zatrzymania ``stopped`` z wynikiem Diagnozy; tytuł to kod Komunikatu i „Co się stało”.
 
     ``previous`` to numer wcześniejszego Zgłoszenia tego samego problemu, które Maks już zamknął.
     """
 
-    stopped = diagnosis.stopped
     info, message = stopped.info, stopped.stop.message
     fingerprint = ProblemFingerprint.of(info.process, message).digest
     explanation = diagnosis.explanation
@@ -367,18 +368,17 @@ class Reports:
 
         return self._state_of(fingerprint.digest)
 
-    def draft(self, diagnosis: Diagnosis) -> tuple[contract.ReportDraft, contract.ReportState]:
-        """Zgłoszenie z Diagnozy, które wyśle „Wyślij do Maksa” w tym Uruchomieniu, i stan po pytaniu skrzynki.
+    def draft(self, stopped: StoppedRun, diagnosis: Diagnosis) -> tuple[contract.ReportDraft, contract.ReportState]:
+        """Zgłoszenie z Diagnozy Zatrzymania ``stopped``, które wyśle „Wyślij do Maksa”, i stan po pytaniu skrzynki.
 
         Gdy ten problem był już zgłoszony z tego komputera, Zgłoszenie ma odnośnik do ostatniego z nich.
         """
 
-        stopped = diagnosis.stopped
         info = stopped.info
         fingerprint = ProblemFingerprint.of(info.process, stopped.stop.message).digest
         self._ask_box(fingerprint)
         previous = self._sent.find(fingerprint)
-        report = report_of(diagnosis, commit=self._commit(), previous=previous.number if previous else None)
+        report = report_of(stopped, diagnosis, commit=self._commit(), previous=previous.number if previous else None)
         file_name = f"Zgłoszenie {stopped.stop.message.code} {info.period}.md"
         with self._lock:
             self._draft = _Draft(info.id, report, file_name, _ReportLog.of_run(self._log, info.process, info.period))
