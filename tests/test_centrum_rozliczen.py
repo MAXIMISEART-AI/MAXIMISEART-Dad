@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -63,6 +64,13 @@ def test_po_aktualizacji_narzedzia_przegladarka_dostaje_nowy_pakiet_pod_ta_sama_
     assert {page.headers["cache-control"], bundle.headers["cache-control"]} == {"no-cache"}
     assert (unchanged.status_code, unchanged.content) == (304, b"")
     assert (updated.status_code, updated.content) == (200, b"console.log('po aktualizacji')\n")
+
+
+def test_kontrakt_ma_trasy_i_schematy_po_kolei_wiec_dwie_nowe_trasy_nie_zmieniaja_tego_samego_miejsca() -> None:
+    contract = json.loads((ROOT / "frontend" / "src" / "api" / "openapi.json").read_text(encoding="utf-8"))
+    schemas = contract["components"]["schemas"]
+
+    assert (list(contract["paths"]), list(schemas)) == (sorted(contract["paths"]), sorted(schemas))
 
 
 def test_zadanie_z_obcym_naglowkiem_host_jest_odrzucone(tmp_path: Path) -> None:
