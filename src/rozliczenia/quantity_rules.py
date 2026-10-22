@@ -90,12 +90,17 @@ class _Kind(Enum):
     ROUTER = auto()
     TV = auto()
     EXTENDER = auto()
+    PIECES = auto()
+    """Składnik liczony w sztukach z ``CZYNNOŚCI`` zamiast krotności ``n*``."""
     OTHER = auto()
 
 
 @dataclass(frozen=True)
 class _Component:
-    """Składnik ``URZĄDZENIA``: jego ilości na sztukę i rodzaj, od którego zależą ilości całego zlecenia."""
+    """Składnik ``URZĄDZENIA``: jego ilości na sztukę i rodzaj, od którego zależą ilości całego zlecenia.
+
+    Ilości składnika zastępują ilości niezależne od ``URZĄDZENIA`` w tej samej kolumnie (V instalacji ręcznej).
+    """
 
     quantities: Mapping[QuantityColumn, int]
     kind: _Kind = _Kind.OTHER
@@ -108,7 +113,7 @@ _NOKIA_ROUTER = _Component({_Q.O: 1, _Q.Z: 1}, _Kind.ROUTER)
 _GATEWAY = _Component({_Q.O: 1}, _Kind.ROUTER, with_extender={_Q.AO: 1})
 _TV = _Component({}, _Kind.TV)
 _FAULT = _Component({_Q.AI: 1})
-_MANUAL_INSTALLATION = _Component({_Q.AN: 1})
+_MANUAL_INSTALLATION = _Component({_Q.AN: 1, _Q.V: 1}, _Kind.PIECES)
 
 # Klucze po normalizacji jak ``URZĄDZENIA``. Urządzenia TV nie mają własnych ilości: przy routerze pierwsze idzie
 # do P (TV), a pozostałe do Q (multiroom); bez routera wszystkie do Q.
@@ -137,6 +142,7 @@ _FROM_DESCRIPTION: Final = frozenset({"prewencja", "niedostępność usług"})
 _SEPARATORS = re.compile(r"[\s,]+")
 _MULTIPLIER = re.compile(r"\s*\*\s*")
 _COUNTED = re.compile(r"([1-9][0-9]*)\*(.+)")
+_PIECES = re.compile(r"([1-9][0-9]*)\s*szt", re.IGNORECASE)
 _PRINTING_CONTRACT = "u"
 
 
@@ -152,7 +158,7 @@ def evaluate(order: OrderContent) -> RuleResult:
     components = _components(words)
     if components is None:
         return WithoutRule(_nonzero(quantities))
-    return ServiceQuantities(_nonzero(quantities + _device_quantities(components)))
+    return ServiceQuantities(_nonzero({**quantities, **_device_quantities(components, _pieces(order.activities))}))
 
 
 def _words(devices: object) -> list[str]:
@@ -163,6 +169,13 @@ def _words(devices: object) -> list[str]:
 def _first_word(contract: object) -> str:
     words = ("" if contract is None else str(contract)).casefold().split()
     return words[0] if words else ""
+
+
+def _pieces(activities: object) -> int:
+    """Liczba sztuk z ``CZYNNOŚCI`` (``6 szt``, ``7szt``); bez liczby 1."""
+
+    counted = _PIECES.search("" if activities is None else str(activities))
+    return int(counted[1]) if counted else 1
 
 
 def _components(words: list[str]) -> list[tuple[_Component, int]] | None:
@@ -184,12 +197,13 @@ def _components(words: list[str]) -> list[tuple[_Component, int]] | None:
     return found
 
 
-def _device_quantities(components: list[tuple[_Component, int]]) -> Counter[QuantityColumn]:
+def _device_quantities(components: list[tuple[_Component, int]], pieces: int) -> Counter[QuantityColumn]:
     quantities: Counter[QuantityColumn] = Counter()
     count_of = Counter[_Kind]()
     for component, count in components:
         count_of[component.kind] += count
-        quantities.update({column: value * count for column, value in component.quantities.items()})
+        per_order = pieces if component.kind is _Kind.PIECES else count
+        quantities.update({column: value * per_order for column, value in component.quantities.items()})
     if count_of[_Kind.EXTENDER]:
         for component, count in components:
             quantities.update({column: value * count for column, value in component.with_extender.items()})
@@ -203,5 +217,5 @@ def _device_quantities(components: list[tuple[_Component, int]]) -> Counter[Quan
     return quantities
 
 
-def _nonzero(quantities: Counter[QuantityColumn]) -> Quantities:
+def _nonzero(quantities: Mapping[QuantityColumn, int]) -> Quantities:
     return MappingProxyType({column: value for column, value in quantities.items() if value})

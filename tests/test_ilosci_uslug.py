@@ -91,6 +91,15 @@ NEW_COMBINATIONS: list[tuple[str, dict[str, int]]] = [
     ("nokia zte  4*fut, 2*wifi6extra", {"O": 1, "P": 1, "Z": 1, "Q": 3, "AG": 2, "S": 7}),
     ("TECHNICOLOR", {"O": 1, "S": 1, "Z": 1, "AK": 1}),
 ]
+# Instalacja ręczna i wizja: liczba sztuk z CZYNNOŚCI w AN i V, bez liczby 1.
+PIECES: list[tuple[str, str, int]] = [
+    ("instalacja ręczna", "6 szt", 6),
+    ("instalacja ręczna", "instalacja 7szt", 7),
+    ("instalacja ręczna", "instalacja", 1),
+    ("wizja", "6 szt", 6),
+    ("wizja", "instalacja", 1),
+    ("Instalacja  Ręczna", "2 SZT.", 2),
+]
 # Druk dokumentów (T) z pierwszego słowa UMOWA.
 CONTRACTS: list[tuple[str | None, int]] = [
     ("u", 1),
@@ -126,6 +135,7 @@ CASES: list[Case] = [
         Case("nokia zte", contract, {"O": 1, "S": 1, "Z": 1, "V": 1} | ({"T": 1} if t else {}))
         for contract, t in CONTRACTS
     ),
+    *(Case(devices, "pr", {"AN": pieces, "V": pieces}, activities) for devices, activities, pieces in PIECES),
     *(Case(devices, "u", {}) for devices in FROM_DESCRIPTION),
     *(Case(devices, "u", {"V": 1, "T": 1}) for devices in WITHOUT_RULE),
     Case("dekoder", "pr", {"V": 1}),
