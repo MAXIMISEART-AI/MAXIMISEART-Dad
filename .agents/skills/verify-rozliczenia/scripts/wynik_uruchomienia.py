@@ -19,6 +19,7 @@ import sys
 from typing import Any
 import zipfile
 
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import ValidationError
 
@@ -110,6 +111,38 @@ def hyperlinks(sheet: Worksheet) -> dict[tuple[int, int], Link]:
         for coordinate, cell in sheet._cells.items()
         if cell.hyperlink is not None
     }
+
+
+def look_mismatches(sheet: Worksheet, header_row: int, written_rows: range, look_columns: int) -> list[str]:
+    """Wygląd Wiersza danych of every written cell in A..``look_columns``, named by column and property only.
+
+    Font face and size of the header cell, left and centre alignment, wrapping only for text with a line break,
+    a thin automatic border on four sides, and no stored height on a written row.
+    """
+
+    found: set[str] = set()
+    for row in written_rows:
+        dimension = sheet.row_dimensions.get(row)
+        if dimension is not None and dimension.ht is not None:
+            found.add("stored row height")
+        for column in range(1, look_columns + 1):
+            cell = sheet.cell(row, column)
+            letter = get_column_letter(column)
+            face, header_face = _face(sheet, row, column), _face(sheet, header_row, column)
+            if face != header_face:
+                found.add(f"{letter} font {face} vs header {header_face}")
+            wraps = isinstance(cell.value, str) and "\n" in cell.value
+            if (cell.alignment.horizontal, cell.alignment.vertical, bool(cell.alignment.wrap_text)) != ("left", "center", wraps):
+                found.add(f"{letter} alignment")
+            sides = (cell.border.left, cell.border.right, cell.border.top, cell.border.bottom)
+            if any(side.style != "thin" or side.color is None or side.color.indexed != 64 for side in sides):
+                found.add(f"{letter} border")
+    return sorted(found)
+
+
+def _face(sheet: Worksheet, row: int, column: int) -> str:
+    font = sheet.cell(row, column).font
+    return f"{font.name} {font.sz}"
 
 
 def external_link_parts(path: Path) -> dict[str, bytes]:

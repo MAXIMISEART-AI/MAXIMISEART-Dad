@@ -5,17 +5,22 @@ Wiersze danych into the bytes of the Wzorzec rozliczenia pracownika instead of l
 workbook with openpyxl. This checker generates Wiersze danych with Hypothesis (every value type a cell
 can hold, edge texts and numbers, Wyróżnienia, Hiperłącza, row counts on both sides of each compression chunk boundary), writes
 them through the real ``WorkerSettlementTemplate.create_settlement()`` and, as the reference, through
-the old openpyxl path (``file_from_template`` + ``write_data_rows``), and checks four rules:
+the old openpyxl path (``file_from_template`` + ``write_data_rows``), and checks five rules:
 
 - WIERNA_KOPIA: the two files are the same for what Dad sees in Excel, as judged by the benchmark's
   correctness gate (``tools/porownanie_rozliczen.py``): values, formulas, resolved styles with Wyróżnienia,
   Hiperłącza, merges, dimensions, defined names, external links and recalculation flags.
 - TA_SAMA_ODMOWA: the copy refuses a value exactly when the openpyxl path refuses it, and a refusal
   leaves no file.
+- WYGLAD_WIERSZA: every cell A:L of a written Wiersz danych has the Wygląd Wiersza danych, derived here from the
+  rule and not from the code: font face and size of the Wzorzec's header cell in row 17, left and centre alignment,
+  wrapping exactly for text with a line break, a thin automatic border on four sides and the number format of the
+  Plik zbiorczy cell; a written row stores no height.
 - NIETKNIETY_WZORZEC: what ADR 0008 says stays byte for byte stays: every zip part except the sheet,
-  ``xl/workbook.xml`` (only ``calcPr``), ``xl/styles.xml`` (only appended fonts, fills and styles) and the sheet
-  relationships (only appended relationships of Hiperłącza, or a new part at the end when the Wzorzec has none),
-  every sheet row outside the written Wiersze danych apart from one inserted ``<hyperlinks>``, and the cells right
+  ``xl/workbook.xml`` (only ``calcPr``), ``xl/styles.xml`` (only appended number formats, fonts, fills, borders and
+  styles) and the sheet relationships (only appended relationships of Hiperłącza, or a new part at the end when the
+  Wzorzec has none), every sheet row outside the written Wiersze danych apart from one inserted ``<hyperlinks>``,
+  the row attributes of written rows apart from the removed height (``ht``, ``customHeight``), and the cells right
   of AT in the written rows.
 - KSZTALT_EXCELA: the file has the shape Excel needs and openpyxl does not check when reading it:
   valid zip CRCs, rows and cells in ascending order with matching references, ``dimension`` covering
@@ -77,7 +82,9 @@ SHEET_RELS = "xl/worksheets/_rels/sheet1.xml.rels"
 CONTENT_TYPES = "[Content_Types].xml"
 ORDER_NUMBER = 6  # F, NUMER ZL.: the column whose Hiperłącza Dad clicks
 FIRST_DATA_ROW = workbook_files.FIRST_DATA_ROW
+HEADER_ROW = workbook_files.HEADER_ROW
 DATA_COLUMNS = workbook_files.DATA_ROW_COLUMNS[-1]  # AT
+LOOK_COLUMNS = 12  # A:L: the columns with the Wygląd Wiersza danych
 ROWS_PER_CHUNK = 64  # Excel's shared-formula block and the copy's compression chunk (``_ROWS_PER_CHUNK``)
 DEFAULT_EXAMPLES = 60
 # Hypothesis shrinks a counterexample for up to 300 s; a minute gives a short story here and keeps a failing run cheap.
@@ -135,14 +142,16 @@ class StyleList:
         return self.block.sub(b"", styles, count=1)
 
 
-NUM_FMTS, FONTS, FILLS, CELL_XFS = (
+NUM_FMTS, FONTS, FILLS, BORDERS, CELL_XFS = (
     StyleList.of("numFmts", "numFmt"),
     StyleList.of("fonts", "font"),
     StyleList.of("fills", "fill"),
+    StyleList.of("borders", "border"),
     StyleList.of("cellXfs", "xf"),
 )
-STYLE_LISTS = (NUM_FMTS, FONTS, FILLS, CELL_XFS)
-_XF_ID = {name: re.compile(rb'\s%b="(\d+)"' % name.encode()) for name in ("numFmtId", "fontId", "fillId")}
+STYLE_LISTS = (NUM_FMTS, FONTS, FILLS, BORDERS, CELL_XFS)
+_XF_ID = {name: re.compile(rb'\s%b="(\d+)"' % name.encode()) for name in ("numFmtId", "fontId", "fillId", "borderId")}
+_ROW_HEIGHT = re.compile(rb'\s(?:ht|customHeight)="[^"]*"')
 
 
 # --- Wzorce ----------------------------------------------------------------------------------------
@@ -160,6 +169,7 @@ class Template:
     chunk_rows: tuple[int, ...]  # sheet rows within reach where a compressed chunk of the copy starts
     last_row: int  # last row of the sheet XML
     max_rows: int  # bound on Wiersze danych per Rozliczenie pracownika
+    header_faces: tuple[tuple[str | None, float | None], ...]  # font face and size of A17:L17, the Wygląd's source
 
     @classmethod
     def of(cls, name: str, description: str, path: Path, max_rows: int | None = None) -> Template:
@@ -172,7 +182,14 @@ class Template:
         bound = max_rows if max_rows is not None else max(last_row - FIRST_DATA_ROW + 1, 0) + 10
         # Chunk starts a Rozliczenie pracownika within the bound can reach; later ones only hold Wzorzec rows.
         chunk_rows = tuple(row for row in data_rows[::ROWS_PER_CHUNK] if row <= FIRST_DATA_ROW + bound)
-        return cls(name, description, path, content, cells, chunk_rows, last_row, bound)
+        workbook = load_workbook(path)
+        header = workbook.active
+        faces = tuple(
+            (header.cell(HEADER_ROW, column).font.name, header.cell(HEADER_ROW, column).font.sz)  # type: ignore[union-attr]
+            for column in range(1, LOOK_COLUMNS + 1)
+        )
+        workbook.close()
+        return cls(name, description, path, content, cells, chunk_rows, last_row, bound, faces)
 
     def interesting_counts(self) -> list[int]:
         """Row counts whose last written row is right before, on, or right after a chunk start or the sheet end."""
@@ -375,13 +392,46 @@ def addresses() -> st.SearchStrategy[str]:
 
 
 def _data_row(
-    values: ExcelRow, marked: dict[int, Highlights] | None = None, links: dict[int, str] | None = None
+    values: ExcelRow,
+    marked: dict[int, Highlights] | None = None,
+    links: dict[int, str] | None = None,
+    number_formats: tuple[str, ...] | None = None,
 ) -> DataRow:
     """A Wiersz danych of 46 values (A:AT); cells missing from ``marked`` have no Wyróżnienia, ``links`` maps index → address."""
 
     cells = marked or {}
     hyperlinks = {index + 1: Hyperlink(address) for index, address in (links or {}).items()}
-    return DataRow(FIRST_DATA_ROW, values[7], values, tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS)), hyperlinks)
+    highlights = tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS))
+    return DataRow(FIRST_DATA_ROW, values[7], values, highlights, number_formats or _source_formats(values), hyperlinks)
+
+
+# Number formats a Plik zbiorczy cell can carry: built-in ones, Dad's date format, and custom codes with quotes,
+# colours and XML specials that the copy has to escape in ``xl/styles.xml``.
+NUMBER_FORMATS = (
+    "General",
+    "@",
+    "0.00",
+    "m/d/yy h:mm",
+    "yyyy-mm-dd h:mm:ss",
+    'dd.mm.yyyy "godz." hh:mm',
+    '#,##0.00 "zł";[Red]-#,##0.00 "zł"',
+    '"<&>" 0',
+)
+
+
+def number_formats() -> st.SearchStrategy[tuple[str, ...] | None]:
+    """Number formats of A:L of one row; ``None`` (most rows) as reading a Plik zbiorczy written by Przygotowanie gives."""
+
+    return st.one_of(st.none(), st.none(), st.lists(st.sampled_from(NUMBER_FORMATS), min_size=LOOK_COLUMNS, max_size=LOOK_COLUMNS).map(tuple))
+
+
+def _source_formats(values: ExcelRow) -> tuple[str, ...]:
+    """Number formats of the look columns A:L as reading a Plik zbiorczy gives them: a date format on dates."""
+
+    return tuple(
+        "m/d/yy h:mm" if isinstance(value, (date, datetime, time, timedelta)) else "General"
+        for value in values[:LOOK_COLUMNS]
+    )
 
 
 @st.composite
@@ -399,7 +449,8 @@ def data_rows(draw: st.DrawFn) -> DataRow:
     for index in links:
         if values.get(index) in (None, ""):
             values[index] = f"ZL-SYN-{index}"
-    return _data_row(tuple(values.get(index) for index in range(DATA_COLUMNS)), marked, links)  # type: ignore[misc]
+    formats = draw(number_formats())
+    return _data_row(tuple(values.get(index) for index in range(DATA_COLUMNS)), marked, links, formats)  # type: ignore[misc]
 
 
 def _highlighted(rows: Sequence[DataRow]) -> bool:
@@ -532,8 +583,48 @@ def check_settlement(
             return [Divergence("KSZTALT_EXCELA", f"pliku nie da się przeczytać: {type(exc).__name__}: {exc}")]
         if shape:
             return shape
-        return _gate_divergences(copy.path, reference.path) + _untouched_divergences(template, copy.path, len(rows))
-    return _gate_divergences(copy.path, reference.path)
+        return (
+            _gate_divergences(copy.path, reference.path)
+            + _look_divergences(template, copy.path, rows)
+            + _untouched_divergences(template, copy.path, len(rows))
+        )
+    return _gate_divergences(copy.path, reference.path) + _look_divergences(template, copy.path, rows)
+
+
+def _look_divergences(template: Template, path: Path, rows: Sequence[DataRow]) -> list[Divergence]:
+    """WYGLAD_WIERSZA: A:L of every written row look as the rule says, and the row stores no height."""
+
+    workbook = load_workbook(path)
+    sheet = workbook.active
+    assert sheet is not None
+    thin = [("thin", 64)] * 4
+    found: list[str] = []
+    for index, row in enumerate(rows):
+        number = FIRST_DATA_ROW + index
+        dimension = sheet.row_dimensions.get(number)
+        if dimension is not None and dimension.ht is not None:
+            found.append(f"wiersz {number} ma zapisaną wysokość {dimension.ht}")
+        for column in range(1, LOOK_COLUMNS + 1):
+            cell = sheet.cell(number, column)
+            value = row.values[column - 1]
+            wraps = isinstance(value, str) and "\n" in value
+            sides = [
+                (side.style, side.color.indexed if side.color is not None else None)
+                for side in (cell.border.left, cell.border.right, cell.border.top, cell.border.bottom)
+            ]
+            actual = (
+                (cell.font.name, cell.font.sz),
+                (cell.alignment.horizontal, cell.alignment.vertical, bool(cell.alignment.wrap_text)),
+                sides,
+                cell.number_format,
+            )
+            expected = (template.header_faces[column - 1], ("left", "center", wraps), thin, row.number_formats[column - 1])
+            if actual != expected:
+                found.append(f"{cell.coordinate} {_value_text(actual)} zamiast {_value_text(expected)}")
+    workbook.close()
+    if not found:
+        return []
+    return [Divergence("WYGLAD_WIERSZA", f"{len(found)} komórek albo wierszy: {'; '.join(found[:CELL_DIFFERENCES_SHOWN])}")]
 
 
 def _gate_divergences(copy: Path, reference: Path) -> list[Divergence]:
@@ -692,7 +783,7 @@ def _sheet_untouched(before: bytes, after: bytes, written: int) -> list[Divergen
             continue
         row_before = before[slice(*rows_before[number])]
         row_after = after[slice(*rows_after[number])]
-        if _start_tag(row_before) != _start_tag(row_after):
+        if _ROW_HEIGHT.sub(b"", _start_tag(row_before)) != _start_tag(row_after):
             found.append(Divergence("NIETKNIETY_WZORZEC", f"atrybuty wiersza {number} zmienione"))
             break
         if _cells_right_of_data(row_before) != _cells_right_of_data(row_after):
@@ -808,13 +899,14 @@ def _styles_shape(styles: bytes, sheet: bytes) -> list[Divergence]:
     if len(formats) != len(set(formats)):
         found.append(Divergence("KSZTALT_EXCELA", "powtórzony numFmtId"))
     xfs = CELL_XFS.entries(styles)
-    fonts, fills = len(FONTS.entries(styles)), len(FILLS.entries(styles))
+    fonts, fills, borders = len(FONTS.entries(styles)), len(FILLS.entries(styles)), len(BORDERS.entries(styles))
     for position, xf in enumerate(xfs):
         tag = xf[: xf.index(b">")]
         ids = {name: int(match.group(1)) for name, pattern in _XF_ID.items() if (match := pattern.search(tag))}
         if (
             ids.get("fontId", 0) >= fonts
             or ids.get("fillId", 0) >= fills
+            or ids.get("borderId", 0) >= borders
             or ids.get("numFmtId", 0) >= _FIRST_CUSTOM_FORMAT and ids["numFmtId"] not in formats
         ):
             found.append(Divergence("KSZTALT_EXCELA", f"styl komórki {position} wskazuje brakującą pozycję: {ids}"))

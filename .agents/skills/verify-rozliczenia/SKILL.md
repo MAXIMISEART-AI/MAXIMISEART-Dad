@@ -66,9 +66,11 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant pr
 ```
 
 It drives the same synthetic Rejestr into byte copies of both real Wzorce and
-checks that the copies stay byte-identical, that every written data cell has
-its header's font face and size, that every Wzorzec cell outside the written
-rows is unchanged, and that `xl/externalLinks/*` stay byte-identical. The
+checks that the copies stay byte-identical, that every written Wiersz danych
+has the Wygląd Wiersza danych in A:M (Rozliczenie wewnętrzne) and A:L (Plik
+zbiorczy): its header's font face and size, left and centre alignment,
+wrapping only for text with a line break, a thin automatic border and no
+stored row height, that every Wzorzec cell value outside the written rows is unchanged, and that `xl/externalLinks/*` stay byte-identical. The
 Wzorce are git-ignored, so CI and `--variant all` leave this variant out. In a
 worktree the runner reads the main checkout's `config/` itself;
 `--templates-dir` overrides that. Without both Wzorce the runner prints
@@ -87,8 +89,9 @@ quantities into `N:AP` and charges and remarks into `AQ:AT` of three Wiersze
 danych of the resulting Plik zbiorczy, then Przebieg rozliczeń on that file
 (dry-run, then write). It checks that every Rozliczenie pracownika holds only
 its Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, with `A:AT` equal to
-the Plik zbiorczy row, Gotowość entries included, and with the Wyróżnienia and
-Hiperłącza of the Plik zbiorczy cells; every `NUMER ZL.` cell keeps the
+the Plik zbiorczy row, Gotowość entries included, with the Wyróżnienia and
+Hiperłącza of the Plik zbiorczy cells, and in A:L with their number format and
+the Wygląd Wiersza danych; every `NUMER ZL.` cell keeps the
 Hiperłącze of its Rejestr cell. `chain-real-templates` runs
 the same path on byte copies of all three real Wzorce, including the Wzorzec
 rozliczenia pracownika; like `preparation-real-templates` it is local only,

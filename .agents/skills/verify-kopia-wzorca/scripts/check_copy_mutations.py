@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO_ROOT / "tools"))
 from mutacje import Edit, Mutation, check_all  # noqa: E402
 
 VERIFIED = Path("src/rozliczenia/template_copy.py")
+ROW_LOOK = Path("src/rozliczenia/row_look.py")
 CHECKER = (".agents/skills/verify-kopia-wzorca/scripts/check_template_copy.py", "--no-shrink")
 EXPECTED = "KOPIA WZORCA: NOWE NARUSZENIE"
 
@@ -58,7 +59,7 @@ MUTATIONS = (
     ),
     Mutation(
         "pusta wartość nie czyści zer Wzorca",
-        (Edit(VERIFIED, 'if style == template_style and existing is not None and existing.endswith(b"/>"):', "if existing is not None:"),),
+        (Edit(VERIFIED, 'if empty_style == template_style and existing is not None and existing.endswith(b"/>"):', "if existing is not None:"),),
         CHECKER,
         "pusta ilość z Pliku zbiorczego zostaje w Rozliczeniu pracownika zerem z Wzorca",
         EXPECTED,
@@ -68,6 +69,41 @@ MUTATIONS = (
         (Edit(VERIFIED, 'xf = _with_id(xf, b"fillId", fill_id, b"applyFill")', "pass"),),
         CHECKER,
         "wypełnienie komórki z Pliku zbiorczego nie przechodzi do Rozliczenia pracownika",
+        EXPECTED,
+    ),
+    Mutation(
+        "obramowanie Wzorca w kolumnach wyglądu",
+        (Edit(VERIFIED, 'xf = _with_id(xf, b"borderId", border_id, b"applyBorder")', "pass"),),
+        CHECKER,
+        "Wiersze danych bez obramowania komórek, jak w resztkach formatowania Wzorca",
+        EXPECTED,
+    ),
+    Mutation(
+        "format liczby Wzorca w kolumnach wyglądu",
+        (Edit(VERIFIED, "if self.number_format(style) != look.number_format:", "if False:"),),
+        CHECKER,
+        "DATA w Rozliczeniu pracownika ma format Wzorca i pokazuje #####",
+        EXPECTED,
+    ),
+    Mutation(
+        "wysokość wiersza Wzorca zostaje",
+        (Edit(VERIFIED, 'start_tag = _HEIGHT.sub(b"", start_tag)', "start_tag = start_tag"),),
+        CHECKER,
+        "wpisany wiersz ma wysokość z Wzorca i Excel nie dopasowuje jej do treści",
+        EXPECTED,
+    ),
+    Mutation(
+        "zawijanie każdego tekstu",
+        (Edit(ROW_LOOK, 'return isinstance(value, str) and "\\n" in value', "return isinstance(value, str)"),),
+        CHECKER,
+        "obie drogi zawijają każdy tekst, więc wiersze bez końca linii są w Excelu wyższe",
+        EXPECTED,
+    ),
+    Mutation(
+        "rozmiar czcionki nie z nagłówka",
+        (Edit(ROW_LOOK, "sz=font.sz,", "sz=(font.sz or 11) + 1,"),),
+        CHECKER,
+        "obie drogi piszą Wiersze danych inną czcionką niż nagłówek Wzorca",
         EXPECTED,
     ),
     Mutation(

@@ -1,8 +1,9 @@
 """Wyróżnienia komórki: wypełnienie, kolor czcionki, pogrubienie i kursywa.
 
 Przebieg rozliczeń przenosi je z każdej komórki A:AT Wiersza danych Pliku
-zbiorczego do tej samej komórki Rozliczenia pracownika. Krój i rozmiar czcionki,
-format liczby, obramowanie, wyrównanie i ochrona zostają z Wzorca rozliczenia
+zbiorczego do tej samej komórki Rozliczenia pracownika. W kolumnach A:L są częścią
+Wyglądu Wiersza danych (``row_look``); w dalszych krój i rozmiar czcionki, format
+liczby, obramowanie, wyrównanie i ochrona zostają z Wzorca rozliczenia
 pracownika. Wyróżnienia zastępują wygląd komórki Wzorca w całości: komórka bez
 Wyróżnień, także brakująca w Pliku zbiorczym, daje komórkę bez wypełnienia, z
 kolorem automatycznym, bez pogrubienia i bez kursywy.
