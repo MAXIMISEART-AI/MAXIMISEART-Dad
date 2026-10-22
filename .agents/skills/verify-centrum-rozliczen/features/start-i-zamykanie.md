@@ -44,7 +44,7 @@ Preconditions:
 
 - Run this feature last: after `zamykanie` the server is gone, and cleanup reports `recorded server already stopped`, which is expected.
 - `--feature start-i-zamykanie` alone works on a fresh run; no settings are needed.
-- The shortcut path (`pythonw`, no console) shows start messages in a native dialog that Playwright cannot click. This skill drives the console path of the same launcher; the windowless path is covered by `tests/test_centrum_launcher.py` (a simulated `pythonw` on macOS/Linux, the real `pythonw.exe` and the `.lnk` on Windows) and by hand.
+- The shortcut path (`pythonw`, no console) shows start messages in a native dialog that Playwright cannot click. This skill drives the console path of the same launcher; the windowless path is covered by `tests/test_centrum_launcher.py` (a simulated `pythonw` on macOS/Linux, the real `pythonw.exe` and the `.lnk` on Windows) and end to end on Windows, with the native window, by `verify-centrum-na-windowsie`.
 - The foreign-program step waits up to 5 seconds: the launcher gives a program that accepts the connection but never answers `health` that long before deciding it is not Centrum.
 - Headless Chromium reports every tab as `visible`, so without the harness's visibility switch every tab keeps its stream and the seventh tab never loads; that is the bug this step guards against, not a harness fault. A real browser hides background tabs and the tabs of a minimised window; 6 or more Centrum tabs visible at once (separate windows side by side) would still exhaust the connections.
 - Name the buttons exactly: `Zamknij Centrum rozliczeń` (sidebar) and `Zamknij Centrum` (dialog) differ only by the last word.
