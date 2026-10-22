@@ -118,6 +118,8 @@ class Problem(Enum):
 
     MISSING = "brak pliku"
     OPEN_IN_EXCEL = "otwarty w Excelu"
+    INACCESSIBLE = "niedostępny"
+    """Plik jest cały, ale system nie oddał jego bajtów, np. zajęty przez inny program albo OneDrive bez sieci."""
     UNREADABLE = "nieczytelny"
     LAYOUT = "zły układ"
     HAS_DATA = "zawiera dane"
@@ -231,6 +233,15 @@ def _unreadable_as_error(path: Path) -> Iterator[None]:
         raise WorkbookError(path, Problem.UNREADABLE) from exc
 
 
+def _file_bytes(path: Path) -> bytes:
+    """Bajty skoroszytu z dysku; błąd systemu plików to ``Problem.INACCESSIBLE``, nie uszkodzenie."""
+
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise WorkbookError(path, Problem.INACCESSIBLE) from exc
+
+
 def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
     """Elementy leniwego odczytu openpyxl; klasyfikowane jest tylko pobranie elementu."""
 
@@ -289,8 +300,9 @@ def read_data_rows(path: Path) -> list[DataRow]:
     """
 
     ensure_available(path)
+    content = _file_bytes(path)
     with _unreadable_as_error(path):
-        content = rows_with_input(path.read_bytes(), _INPUT_COLUMNS[-1])
+        content = rows_with_input(content, _INPUT_COLUMNS[-1])
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
@@ -407,8 +419,7 @@ def read_workbook(path: Path) -> Iterator[ReadWorkbook]:
     """
 
     ensure_available(path)
-    with _unreadable_as_error(path):
-        content = path.read_bytes()
+    content = _file_bytes(path)
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         yield ReadWorkbook(path, content, workbook)

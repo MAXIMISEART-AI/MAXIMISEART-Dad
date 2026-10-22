@@ -37,6 +37,8 @@ def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
         return StopError(settlement_messages.collective_file_missing(source_path))
     if error.problem is Problem.OPEN_IN_EXCEL:
         return StopError(settlement_messages.collective_file_open(source_path))
+    if error.problem is Problem.INACCESSIBLE:
+        return StopError(settlement_messages.collective_file_inaccessible(source_path))
     if error.problem is Problem.LAYOUT:
         return StopError(settlement_messages.collective_file_without_worker_header(source_path))
     return StopError(settlement_messages.collective_file_unreadable(source_path))

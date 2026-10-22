@@ -156,6 +156,8 @@ def _register_stop(register_path: Path, error: WorkbookError) -> StopError:
         return StopError(messages.register_missing(register_path))
     if error.problem is Problem.OPEN_IN_EXCEL:
         return StopError(messages.register_open_in_excel(register_path))
+    if error.problem is Problem.INACCESSIBLE:
+        return StopError(messages.register_inaccessible(register_path))
     return StopError(messages.register_unreadable(register_path))
 
 
