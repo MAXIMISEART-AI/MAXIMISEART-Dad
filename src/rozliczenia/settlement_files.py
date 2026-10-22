@@ -4,7 +4,8 @@ Rozliczenia pracowników powstają w folderze tymczasowym obok Pliku zbiorczego,
 w Folderze okresu. Gotowy folder tymczasowy staje się Folderem rozliczeń
 pracowników jedną zmianą nazwy. Nienadpisywanie jest sprawdzane przed startem
 Przebiegu rozliczeń i ponownie tuż przed publikacją. Po nieudanym zapisie nie
-zostaje ani folder tymczasowy, ani niepełny Folder rozliczeń pracowników.
+zostaje niepełny Folder rozliczeń pracowników. Folder tymczasowy, którego nie da
+się usunąć (np. trzyma jego pliki OneDrive), zostaje, a Komunikat go wskazuje.
 
 Publikacja Przygotowania pliku zbiorczego jest osobna (``preparation_files``).
 """
@@ -44,6 +45,7 @@ def write_worker_settlements(
         with tempfile.TemporaryDirectory(
             prefix=f".{target_directory.name}.staging-",
             dir=target_directory.parent,
+            ignore_cleanup_errors=True,
         ) as staging_name:
             staging_directory = Path(staging_name)
             results = write(staging_directory)
@@ -51,7 +53,13 @@ def write_worker_settlements(
             try:
                 staging_directory.rename(target_directory)
             except OSError as exc:
-                raise StopError(settlement_messages.publish_failed(target_directory)) from exc
-            return [replace(result, output_file=target_directory / result.output_file.name) for result in results]
+                publish_error = exc
+            else:
+                return [replace(result, output_file=target_directory / result.output_file.name) for result in results]
     except OSError as exc:
         raise StopError(settlement_messages.write_failed(target_directory)) from exc
+    if staging_directory.exists():
+        raise StopError(
+            settlement_messages.publish_failed_with_staging_left(target_directory, staging_directory.name)
+        ) from publish_error
+    raise StopError(settlement_messages.publish_failed(target_directory)) from publish_error

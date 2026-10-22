@@ -159,6 +159,11 @@ SETTLEMENT_SAMPLES: Samples = {
     "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
     "worker_files_not_copied": [lambda: settlement_messages.worker_files_not_copied(WORKER_TEMPLATE)],
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
+    "publish_failed_with_staging_left": [
+        lambda: settlement_messages.publish_failed_with_staging_left(
+            WORKER_SETTLEMENTS, f".{WORKER_SETTLEMENTS.name}.staging-k3x7tq9a"
+        )
+    ],
     "write_failed": [lambda: settlement_messages.write_failed(WORKER_SETTLEMENTS)],
     "unexpected_failure": [settlement_messages.unexpected_failure],
     "summary_not_shown": [settlement_messages.summary_not_shown],

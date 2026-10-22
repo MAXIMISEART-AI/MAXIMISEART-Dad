@@ -173,6 +173,23 @@ def publish_failed(target_directory: Path) -> Message:
     )
 
 
+def publish_failed_with_staging_left(target_directory: Path, staging_name: str) -> Message:
+    """Publikacja nie powiodła się, a folderu tymczasowego z gotowymi plikami nie udało się usunąć."""
+
+    return Message(
+        code="BLAD_PUBLIKACJI",
+        what=(
+            "Nie można opublikować gotowego Folderu rozliczeń pracowników. Gotowe pliki pracowników zostały "
+            "w folderze tymczasowym, którego nie udało się usunąć."
+        ),
+        where=folder_label(target_directory),
+        action=(
+            f"Usuń z Folderu okresu folder {staging_name}, bo nie jest Folderem rozliczeń pracowników. "
+            f"Jeśli nie daje się go usunąć, odczekaj chwilę. {_RETRY}"
+        ),
+    )
+
+
 def write_failed(target_directory: Path) -> Message:
     return Message(
         code="BLAD_ZAPISU",
