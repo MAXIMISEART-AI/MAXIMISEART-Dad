@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import engine, settlement_messages
+from . import TOOL_ROOT, engine, settlement_messages
 from .decision import Conversation
 from .domain import ProgressObserver, SettlementSummary
 from .engine import default_worker_template_path
@@ -20,7 +20,7 @@ from .worker_config import default_config_path
 
 
 def default_metrics_path() -> Path:
-    return Path(__file__).resolve().parents[2] / ".rozliczenia-metrics.jsonl"
+    return TOOL_ROOT / ".rozliczenia-metrics.jsonl"
 
 
 def _period_label(source: Path) -> str:

@@ -10,8 +10,7 @@ import pytest
 
 from rozliczenia import preparation_process, settlement_process
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore, metric_record
-
-PERIOD = "08_14_09_2026"
+from tests.fixtures.preparation import PERIOD
 
 
 def completed_record() -> dict[str, Any]:
@@ -54,6 +53,25 @@ def test_plik_metryk_naprawia_ucieta_ostatnia_linie(tmp_path: Path, torn: bytes)
 
     assert [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines()] == [record, record]
     assert metrics_path.read_bytes().endswith(b"\n")
+
+
+@pytest.mark.parametrize("line_end", [b"\n", b""], ids=["z-koncem-linii", "bez-konca-linii"])
+def test_plik_metryk_zachowuje_pelny_rekord_innej_wersji_narzedzia(tmp_path: Path, line_end: bytes) -> None:
+    metrics_path = tmp_path / "metrics.jsonl"
+    record = completed_record()
+    other_version = {**record, "counters": {**record["counters"], "nowy_licznik": 3}}
+    MetricsStore(metrics_path).append(record)
+    with metrics_path.open("ab") as stream:
+        stream.write(json.dumps(other_version).encode("utf-8") + line_end)
+
+    MetricsStore(metrics_path).append(record)
+
+    assert [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines()] == [
+        record,
+        other_version,
+        record,
+    ]
+    assert MetricsStore(metrics_path).read() == [record, record]
 
 
 def test_przygotowanie_ma_wlasna_historie_metryk_obok_przebiegu_rozliczen() -> None:

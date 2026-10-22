@@ -39,8 +39,8 @@ def lock(path: Path) -> Path:
     return lock_file
 
 
-def stop_of(centrum: PreparingCentrum, *, dry_run: bool = True) -> dict[str, object]:
-    result = run_to_end(centrum, dry_run=dry_run)["result"]
+def stop_of(centrum: PreparingCentrum) -> dict[str, object]:
+    result = run_to_end(centrum, dry_run=True)["result"]
     assert result["ending"] != "finished", result
     return dict(result)
 

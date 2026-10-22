@@ -213,7 +213,6 @@ def test_summary_reports_counts_and_file_names_without_client_data(tmp_path: Pat
 
     summary = run_preparation(fixture)
 
-    assert summary.period == PERIOD
     assert summary.period_order_count == 4
     assert summary.successful_order_count == 3
     assert summary.skipped_empty_rows == 5
@@ -240,9 +239,8 @@ def test_existing_empty_folder_okresu_is_allowed(tmp_path: Path) -> None:
 def test_in_dad_layout_period_files_go_to_folder_okresu_found_in_its_month(tmp_path: Path) -> None:
     fixture = make_dad_layout_fixture(tmp_path)
 
-    summary = run_preparation(fixture)
+    run_preparation(fixture)
 
-    assert summary.period_directory == fixture.period_directory
     assert fixture.period_directory.parent.parent.name == "09_Wrzesień_2026"
     assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
         [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
@@ -258,9 +256,8 @@ def test_in_dad_layout_folder_okresow_chosen_inside_another_month_finds_folder_o
     august = fixture.periods_directory / "Rozliczenia 2026" / "08_Sierpień_2026" / "INEA"
     chosen = ([august, *august.parents])[levels_up]
 
-    summary = run_preparation(replace(fixture, periods_directory=chosen))
+    run_preparation(replace(fixture, periods_directory=chosen))
 
-    assert summary.period_directory == fixture.period_directory
     assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
         [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
     )
@@ -303,6 +300,8 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
         # Na przełomie miesięcy i lat miesiąc i rok tokenu są z poniedziałku, nie z wtorku.
         "27_02_10_2026",
         "29_04_12_2026",
+        # Wtorek przed poniedziałkiem 1-6 stycznia roku 1 leży przed najwcześniejszą datą Pythona.
+        "00_01_01_0001",
     ],
 )
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
@@ -364,7 +363,6 @@ def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: P
 
     summary = run_preparation(fixture, dry_run=True)
 
-    assert summary.period == PERIOD
     assert summary.period_order_count == 4
     assert summary.successful_order_count == 3
     assert summary.skipped_empty_rows == 5
@@ -621,16 +619,16 @@ class SheetLayout:
     freeze_panes: str | None
 
 
-def sheet_layout(path: Path, *, header_row: int, max_col: int) -> SheetLayout:
+def sheet_layout(path: Path, *, header_row: int) -> SheetLayout:
     workbook = load_workbook(path)
     try:
         sheet = active_worksheet(workbook)
         return SheetLayout(
-            widths=column_widths(sheet, max_col),
+            widths=column_widths(sheet, 47),
             heights=[sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
             header=[
                 (cell.value, cell.font.name, cell.font.sz, cell.font.b, cell.fill.fgColor.rgb)
-                for cell in sheet[header_row][:max_col]
+                for cell in sheet[header_row][:47]
             ],
             freeze_panes=sheet.freeze_panes,
         )
@@ -648,12 +646,12 @@ def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind:
         template, created, header_row = fixture.internal_template_path, fixture.internal_settlement_path, 1
     else:
         template, created, header_row = fixture.collective_template_path, fixture.collective_file_path, 17
-    expected = sheet_layout(template, header_row=header_row, max_col=47)
+    expected = sheet_layout(template, header_row=header_row)
     assert expected.freeze_panes == f"A{header_row + 1}"
     # Szerokości Wzorca, łącznie z jego bardzo wąskimi kolumnami.
     leading = range(1, max(TEMPLATE_NARROW_COLUMN_WIDTHS) + 1)
     assert expected.widths[: len(leading)] == [template_column_width(column) for column in leading]
-    assert sheet_layout(created, header_row=header_row, max_col=47) == expected
+    assert sheet_layout(created, header_row=header_row) == expected
 
 
 def test_plik_zbiorczy_columns_outside_a_to_k_keep_wzorzec_formatting(tmp_path: Path) -> None:

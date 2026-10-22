@@ -15,7 +15,6 @@ import json
 import os
 from pathlib import Path
 import signal
-import socket
 import subprocess
 import sys
 import threading
@@ -28,7 +27,7 @@ import pytest
 from rozliczenia.centrum import tool_update
 
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
-from tests.fixtures.tool_clone import REPOSITORY_ROOT, FakeInstaller, ToolRepository, centrum_tool_repository
+from tests.fixtures.tool_clone import REPOSITORY_ROOT, FakeInstaller, ToolRepository, centrum_tool_repository, free_port
 
 DAD_MAPPING = "schema_version: 1\nworkers:\n  wykonawca.a: Wykonawca Syntetyczny A\n"
 SAMPLE_MAPPING = "schema_version: 1\nworkers:\n  przyklad: Przykładowy Wykonawca\n"
@@ -40,13 +39,6 @@ MAPPING = "config/worker_mapping.yaml"
 def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port: int = probe.getsockname()[1]
-        return port
 
 
 def _get(port: int, path: str) -> dict[str, Any]:
@@ -154,7 +146,7 @@ def test_po_wylaczeniu_komputera_w_trakcie_instalacji_bibliotek_skrot_wraca_do_p
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository, installer=pip_never_finishes))
     _update_until(centrum, lambda view: view.get("step") == "installing")
     switched_off = repository.head()
-    port = _free_port()
+    port = free_port()
 
     with _shortcut(repository.clone, port) as shortcut:
         health = _health(shortcut, port)
@@ -179,7 +171,7 @@ def test_skrot_w_trakcie_ponownego_startu_po_aktualizacji_nie_rusza_klonu_i_pros
     newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository))
     _update_until(centrum, lambda view: view.get("step") == "restarting")
-    port = _free_port()
+    port = free_port()
 
     with _shortcut(repository.clone, port) as shortcut:
         code, console = _refusal(shortcut, port)
@@ -199,7 +191,7 @@ def test_gdy_opiekun_nie_skonczyl_aktualizacji_przed_wylaczeniem_skrot_po_jego_t
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository))
     _update_until(centrum, lambda view: view.get("step") == "restarting")
     switched_off = repository.head()
-    port = _free_port()
+    port = free_port()
 
     with _shortcut(repository.clone, port) as shortcut:
         health = _health(shortcut, port)

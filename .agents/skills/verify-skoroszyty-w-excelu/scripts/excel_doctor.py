@@ -1,0 +1,106 @@
+"""Read-only check that this Mac's Excel and this run's fixture are worth driving.
+
+    .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/excel_doctor.py --root RUN_ROOT --desk DESK
+
+Prints ``DOCTOR OK`` or one ``DOCTOR FAIL`` line per problem. It never starts Excel, opens a workbook,
+or writes a file.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+import zipfile
+
+import excel
+
+
+PERIOD = "08_14_09_2026"
+WORKBOOK_NAMES = (
+    "Wzorzec pliku zbiorczego.xlsx",
+    "Wzorzec rozliczenia pracownika.xlsx",
+    f"Rozliczenie wew. {PERIOD}.xlsx",
+    f"Rozliczenie {PERIOD} - zbiorcze.xlsx",
+    f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx",
+    f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx",
+    f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx",
+)
+LINKED_TEMPLATES = ("Wzorzec pliku zbiorczego.xlsx", "Wzorzec rozliczenia pracownika.xlsx")
+
+
+def _used_link(template: Path) -> bool:
+    """The Wzorzec has an ``xl/externalLinks`` part and a formula that uses it, like Dad's Słownik lookups.
+
+    Excel drops a link no formula uses when it saves, so an unused link proves nothing about Dad's files.
+    """
+
+    with zipfile.ZipFile(template) as archive:
+        names = archive.namelist()
+        if not any(name.startswith("xl/externalLinks/externalLink") for name in names):
+            return False
+        return any(
+            b"[1]" in archive.read(name)
+            for name in names
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        )
+
+
+def check(root: Path, desk: Path) -> list[str]:
+    problems: list[str] = []
+    if sys.platform != "darwin":
+        problems.append("this skill drives Excel for Mac; run it on macOS")
+    if sys.version_info < (3, 11):
+        problems.append("Python 3.11 or newer is required")
+    version = excel.installed_version()
+    if version is None:
+        problems.append("Microsoft Excel is not installed in /Applications")
+    if not desk.is_relative_to(excel.DESK.parent):
+        problems.append(f"the desk must be inside Excel's container {excel.DESK.parent}")
+    elif not excel.DESK.parent.is_dir():
+        problems.append("Excel's container does not exist; start Excel once by hand")
+    elif desk.exists() and any(desk.iterdir()):
+        problems.append("the desk already holds files of another run")
+    fixture = root / "okres"
+    for name in LINKED_TEMPLATES:
+        template = fixture / "config" / name
+        if not template.is_file():
+            problems.append(f"fixture lacks config/{name}")
+        elif not _used_link(template):
+            problems.append(f"config/{name} has no external link used by a formula")
+    for relative in ("ZLECENIA INTERMAX OD 08_11_2021.xlsx", "config/worker_mapping.yaml", "INEA"):
+        if not (fixture / relative).exists():
+            problems.append(f"fixture lacks {relative}")
+    if (fixture / "INEA" / PERIOD).exists():
+        problems.append(f"Folder okresu {PERIOD} already exists before Przygotowanie")
+    if excel.running():
+        try:
+            open_names = {Path(path).name for path in excel.open_paths()}
+        except excel.ExcelDialog as exc:
+            problems.append(f"Excel shows a dialog or does not answer: {exc}; dialogs: {excel.dialogs() or 'none on screen'}")
+        except excel.ExcelError as exc:
+            problems.append(f"Excel fails AppleScript: {exc}")
+        else:
+            clashes = sorted(open_names.intersection(WORKBOOK_NAMES))
+            if clashes:
+                problems.append(f"Excel already holds a workbook named like this run's: {', '.join(clashes)}")
+    return problems
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--desk", required=True, type=Path, help="this run's directory inside Excel's container")
+    args = parser.parse_args(argv)
+    problems = check(args.root.expanduser().resolve(), args.desk.expanduser().resolve())
+    for problem in problems:
+        print(f"DOCTOR FAIL | {problem}")
+    if problems:
+        return 1
+    state = "running" if excel.running() else "not running (the run starts it)"
+    print(f"DOCTOR OK | excel={excel.installed_version()} {state} | links_used_by_formulas=true")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

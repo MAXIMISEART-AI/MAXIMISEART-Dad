@@ -18,6 +18,7 @@ wyjścia Gita.
 
 from __future__ import annotations
 
+import codecs
 import json
 import threading
 from collections.abc import Callable, Mapping
@@ -575,7 +576,10 @@ class Reports:
         """Klucz do Zgłoszeń z lokalnego pliku; ``None``, gdy pliku nie ma albo jest pusty."""
 
         try:
-            key = self._key_file.read_text(encoding="utf-8-sig").strip()  # Notatnik i PowerShell 5.1 dopisują BOM
+            content = self._key_file.read_bytes()
+            # Notatnik dopisuje BOM UTF-8, a ``>`` i ``Out-File`` w PowerShell 5.1 zapisują UTF-16 z BOM.
+            encoding = "utf-16" if content.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
+            key = content.decode(encoding).strip()
         except (OSError, UnicodeError):
             return None
         return key or None

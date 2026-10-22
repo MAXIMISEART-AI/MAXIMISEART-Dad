@@ -1,4 +1,4 @@
-"""Tworzy własne ``.venv`` checkoutu albo worktree z dodatkami ``dev`` i ``test``.
+"""Tworzy własne ``.venv`` checkoutu albo worktree z dodatkiem ``dev``.
 
 ``.venv`` głównego checkoutu instaluje edytowalnie ``src`` głównego checkoutu,
 więc pytest i skrypty weryfikacyjne uruchomione nim z worktree mogą po cichu
@@ -25,7 +25,7 @@ import venv
 
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / ".venv"
-EXTRAS = ".[dev,test]"
+EXTRAS = ".[dev]"
 HOOKS = "tools/hooks"
 MINIMUM_PYTHON = (3, 11)  # requires-python z pyproject.toml
 SUPPORTED = sys.version_info >= MINIMUM_PYTHON

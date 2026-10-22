@@ -214,15 +214,11 @@ def write_register(
     rows: list[RegisterRow] | None = None,
     *,
     headers: tuple[str, ...] = REGISTER_HEADERS,
-    highlights: Mapping[tuple[int, str], Highlight] | None = None,
 ) -> Path:
     """Zapisuje Rejestr zleceń: arkusz-wabik ``lista`` i arkusz danych ``ZLECENIA`` (``write_register_sheet``).
 
     Bez jawnych ``rows`` stosowane są ``DEFAULT_REGISTER_HIGHLIGHTS``.
     """
-
-    if highlights is None:
-        highlights = DEFAULT_REGISTER_HIGHLIGHTS if rows is None else {}
 
     workbook = Workbook()
     decoy = active_worksheet(workbook)
@@ -233,7 +229,7 @@ def write_register(
         workbook.create_sheet("ZLECENIA"),
         rows if rows is not None else default_register_rows(),
         headers=headers,
-        highlights=highlights,
+        highlights=DEFAULT_REGISTER_HIGHLIGHTS if rows is None else {},
     )
     workbook.save(path)
     return path
@@ -418,22 +414,22 @@ def make_preparation_fixture(tmp_path: Path, rows: list[RegisterRow] | None = No
     )
 
 
-def month_periods_folder(periods_directory: Path, month: str, year: int = 2026) -> Path:
+def month_periods_folder(periods_directory: Path, month: str) -> Path:
     """Folder ``INEA`` miesiąca w układzie folderów taty, np. ``Rozliczenia 2026\\09_Wrzesień_2026\\INEA``."""
 
-    folder = periods_directory / f"Rozliczenia {year}" / month / "INEA"
+    folder = periods_directory / "Rozliczenia 2026" / month / "INEA"
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
 
-def make_dad_layout_fixture(tmp_path: Path, rows: list[RegisterRow] | None = None) -> PreparationFixture:
+def make_dad_layout_fixture(tmp_path: Path) -> PreparationFixture:
     """Jak ``make_preparation_fixture``, ale folder okresów ``Załączniki`` ma układ folderów taty.
 
     Folder okresu 08_14_09_2026 leży w ``Rozliczenia 2026\\09_Wrzesień_2026\\INEA``, obok
     folderu sierpnia i folderów, które nie są Folderami okresu.
     """
 
-    fixture = make_preparation_fixture(tmp_path, rows)
+    fixture = make_preparation_fixture(tmp_path)
     periods_directory = tmp_path / "Załączniki"
     september = month_periods_folder(periods_directory, "09_Wrzesień_2026")
     (september / PERIOD).mkdir()

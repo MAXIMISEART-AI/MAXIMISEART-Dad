@@ -34,8 +34,8 @@ class Inputs:
     dry_run: bool = False
 
 
-def stop_error(what: str, where: str = "Proces testowy", action: str = "Uruchom ponownie.") -> StopError:
-    return StopError(Message(code="ZATRZYMANIE", what=what, where=where, action=action))
+def stop_error(what: str) -> StopError:
+    return StopError(Message(code="ZATRZYMANIE", what=what, where="Proces testowy", action="Uruchom ponownie."))
 
 
 def all_phases(observer: ProgressObserver, before_save: Callable[[], None] = lambda: None) -> Durations:

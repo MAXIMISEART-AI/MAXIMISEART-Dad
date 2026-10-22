@@ -6,7 +6,6 @@ Uruchamiane przez ``npm run contract`` w ``frontend/``; wynik trafia do
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
@@ -17,6 +16,7 @@ from typing import get_args
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 FRONTEND_SOURCE = ROOT / "frontend" / "src"
+OUTPUT = FRONTEND_SOURCE / "api" / "openapi.json"
 
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.contract import ApiOperation  # noqa: E402
@@ -68,9 +68,6 @@ class _NoPlatform:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "frontend" / "src" / "api" / "openapi.json")
-    args = parser.parse_args()
     log = CentrumLog(Path(os.devnull))  # eksport nie obsługuje żądań, więc niczego nie zapisuje
     app = create_app(
         settings_path=ROOT / "config" / "centrum-ustawienia.yaml",
@@ -85,8 +82,7 @@ def main() -> int:
         print("\n".join(problems), file=sys.stderr)
         return 1
     document = json.dumps(contract, ensure_ascii=False, indent=2) + "\n"
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(document.encode("utf-8"))
+    OUTPUT.write_bytes(document.encode("utf-8"))
     return 0
 
 

@@ -20,7 +20,7 @@ from datetime import date
 from pathlib import Path
 from types import MappingProxyType
 
-from . import preparation_files, preparation_plan, preparation_register
+from . import TOOL_ROOT, preparation_files, preparation_plan, preparation_register
 from . import preparation_messages as messages
 from .decision import Conversation, Decision
 from .domain import ProgressObserver, ProgressPhase
@@ -49,8 +49,6 @@ class PreparationSummary:
     ostatniego zlecenia okresu.
     """
 
-    period: str
-    period_directory: Path
     internal_settlement_file: Path
     collective_file: Path
     period_order_count: int
@@ -72,13 +70,13 @@ class PreparationSummary:
 def default_internal_template_path() -> Path:
     """Wzorzec rozliczenia wewnętrznego w katalogu konfiguracji obok Wzorca rozliczenia pracownika."""
 
-    return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia wewnętrznego.xlsx"
+    return TOOL_ROOT / "config" / "Wzorzec rozliczenia wewnętrznego.xlsx"
 
 
 def default_collective_template_path() -> Path:
     """Wzorzec pliku zbiorczego w katalogu konfiguracji obok Wzorca rozliczenia pracownika."""
 
-    return Path(__file__).resolve().parents[2] / "config" / "Wzorzec pliku zbiorczego.xlsx"
+    return TOOL_ROOT / "config" / "Wzorzec pliku zbiorczego.xlsx"
 
 
 def _parse_period(token: str) -> SettlementPeriod:
@@ -179,8 +177,6 @@ def prepare_collective_file(
 
     plan, warnings = phases.plan(plan_orders, issue_count=lambda planned: len(planned[1]))
     summary = PreparationSummary(
-        period=period,
-        period_directory=folder.directory,
         internal_settlement_file=folder.internal_settlement,
         collective_file=folder.collective_file,
         period_order_count=len(plan.orders),

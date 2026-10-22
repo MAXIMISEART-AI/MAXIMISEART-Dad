@@ -243,6 +243,7 @@ def test_tablica_okresow_pokazuje_status_okresu_kazdego_folderu_okresu_od_najnow
     write_period_files(periods, "29_05_10_2026")
     (periods / "15_21_09_2026").mkdir()
     (periods / "Archiwum").mkdir()
+    (periods / "00_01_01_0001").mkdir()
     (periods / ".13_19_10_2026.staging-abc").mkdir()
     (periods / "notatki.txt").touch()
 

@@ -83,9 +83,6 @@ class CellFormat:
     number_format: str
 
 
-PLAIN_CELL = CellFormat(fill=None, color=None, bold=False, italic=False, number_format="General")
-
-
 @dataclass(frozen=True)
 class RegisterCell:
     """Wartość komórki Rejestru z jej Wyróżnieniami i Hiperłączem."""
@@ -171,7 +168,7 @@ def _cell_format(cell: FormattedCell) -> CellFormat:
         color=font.color if font is not None else None,
         bold=bool(font.b) if font is not None else False,
         italic=bool(font.i) if font is not None else False,
-        number_format=cell.number_format or PLAIN_CELL.number_format,
+        number_format=cell.number_format or "General",
     )
 
 

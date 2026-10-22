@@ -1,0 +1,160 @@
+"""One Windows run's world: Dad's synthetic files, the tool's versions on a local "origin", and the boundaries.
+
+``prepare`` writes, under the run root:
+
+- ``dane/``: the synthetic folder okresów ``INEA``, Rejestr zleceń and Dad's ``config/`` (konfiguracja wykonawców and
+  the three Wzorce) from ``verify-centrum-rozliczen``'s fixture;
+- ``wydawca/`` and ``origin.git``: three versions of the tool. ``first`` is this checkout as it is now (tracked and
+  untracked files, ignored ones left out), so a run proves the working tree, not the last commit. ``newest`` changes
+  ``requirements.txt`` (a comment only, so pip installs nothing new), which makes the update install libraries.
+  ``not_starting``, one version after ``newest``, has a ``run_centrum.py`` that fails at once. The origin's
+  ``main`` starts on ``first``; the drive moves it;
+- ``przegladarka.cmd``: Dad's browser, which only records the address Centrum opens in ``otwarte-adresy.txt``;
+- ``windows.json``: these facts for the drive, doctor and cleanup.
+
+The tool itself (the clone in a folder with spaces and Polish letters) is made by ``instalacja``, as Maks installs it.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+from typing import Any
+
+SCRIPTS = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPTS.parents[3]
+sys.path.insert(0, str(SCRIPTS.parent.parent / "verify-centrum-rozliczen" / "scripts"))
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+import create_centrum_fixture  # noqa: E402
+from rozliczenia.centrum.launcher import DEFAULT_PORT  # noqa: E402
+from rozliczenia.centrum.tool_update import GITHUB_REPOSITORY  # noqa: E402
+
+PORT = DEFAULT_PORT
+URL = f"http://127.0.0.1:{PORT}/"
+FACTS = "windows.json"
+# The tool lives on Dad's C: in his user folder, whose name has a space and a Polish letter. ``ó`` is in both Dad's
+# code page (1250) and the English runner's (1252), so the stand-in can write it where Windows uses the code page.
+TOOL_FOLDER = Path("Users") / "Józef Kowalski" / "MAXIMISEART-Dad"
+SHORTCUT = "Centrum rozliczeń.lnk"
+_NEW_REQUIREMENT_LINE = "# verify-centrum-na-windowsie: nowa wersja zmienia wymagania\n"
+_NOT_STARTING = 'raise ImportError("verify-centrum-na-windowsie: ta wersja Centrum nie startuje")\n'
+
+
+def git(directory: Path, *args: str, machine: bool = False) -> str:
+    """Git of the harness, with a synthetic author and without the machine's configuration.
+
+    ``machine`` is Git as Maks and Centrum run it on this computer, with its own configuration.
+    """
+
+    environment = os.environ if machine else os.environ | {
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_COUNT": "0",
+        "GIT_AUTHOR_NAME": "Maks Syntetyczny",
+        "GIT_AUTHOR_EMAIL": "maks@example.invalid",
+        "GIT_COMMITTER_NAME": "Maks Syntetyczny",
+        "GIT_COMMITTER_EMAIL": "maks@example.invalid",
+    }
+    result = subprocess.run(
+        ["git", "-C", str(directory), *args],
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _checkout_files() -> list[str]:
+    listed = git(REPO_ROOT, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    return sorted({name for name in listed.split("\0") if name and (REPO_ROOT / name).is_file()})
+
+
+def _publish_versions(publisher: Path, origin: Path) -> dict[str, str]:
+    for name in _checkout_files():
+        target = publisher / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / name, target)
+    git(publisher, "init", "--quiet", "--initial-branch", "main")
+    git(publisher, "config", "core.autocrlf", "false")
+    git(publisher, "add", "--all")
+    git(publisher, "commit", "--quiet", "-m", "Wersja z checkoutu")
+    first = git(publisher, "rev-parse", "HEAD")
+    with (publisher / "requirements.txt").open("a", encoding="utf-8", newline="\n") as requirements:
+        requirements.write(_NEW_REQUIREMENT_LINE)
+    git(publisher, "commit", "--quiet", "--all", "-m", "Nowa wersja: zmienione wymagania")
+    newest = git(publisher, "rev-parse", "HEAD")
+    (publisher / "run_centrum.py").write_text(_NOT_STARTING, encoding="utf-8")
+    git(publisher, "commit", "--quiet", "--all", "-m", "Wersja, której Centrum nie startuje")
+    not_starting = git(publisher, "rev-parse", "HEAD")
+    git(origin.parent, "init", "--quiet", "--bare", "--initial-branch", "main", origin.name)
+    git(publisher, "push", "--quiet", str(origin), f"{first}:refs/heads/main", f"{not_starting}:refs/heads/nie-startuje")
+    return {"first": first, "newest": newest, "not_starting": not_starting}
+
+
+def prepare(root: Path) -> dict[str, Any]:
+    """Writes the run's world under ``root`` (which must not exist) and returns its facts."""
+
+    root.mkdir(parents=True)
+    data = create_centrum_fixture.create(root / "dane")
+    origin = root / "origin.git"
+    versions = _publish_versions(root / "wydawca", origin)
+    recorder, opened = root / "przegladarka.cmd", root / "otwarte-adresy.txt"
+    recorder.write_text(f'@echo %~1>>"{opened}"\r\n', encoding="utf-8")
+    configuration, board = data["configuration"], data["board"]
+    assert isinstance(configuration, dict) and isinstance(board, list)
+    facts: dict[str, Any] = {
+        "root": str(root),
+        "tool": str(root / TOOL_FOLDER),
+        "desktop": str(root / "Pulpit"),
+        "shortcut": str(root / "Pulpit" / SHORTCUT),
+        "origin": str(origin),
+        "versions": versions,
+        "browser": str(recorder),
+        "opened": str(opened),
+        "periods_directory": data["periods_directory"],
+        "order_register": data["order_register"],
+        "dad_config": [str(Path(path)) for path in configuration.values()],
+        "board": [row[0] for row in board],
+        "url": URL,
+        "port": PORT,
+    }
+    (root / FACTS).write_text(json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8")
+    return facts
+
+
+def load(root: Path) -> dict[str, Any]:
+    facts = json.loads((root / FACTS).read_text(encoding="utf-8"))
+    assert isinstance(facts, dict)
+    return facts
+
+
+def boundaries(facts: dict[str, Any]) -> dict[str, str]:
+    """Environment that Centrum, started from the shortcut, inherits: Dad's browser and GitHub, both local.
+
+    Git rewrites the tool's fixed GitHub address to the run's origin (``url.<origin>.insteadOf``), so Aktualizacja
+    narzędzia runs its production code and only the network endpoint is local.
+    """
+
+    return {
+        "BROWSER": facts["browser"],
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": f"url.{Path(facts['origin']).as_posix()}.insteadOf",
+        "GIT_CONFIG_VALUE_0": GITHUB_REPOSITORY,
+    }
+
+
+def move_main(facts: dict[str, Any], version: str) -> None:
+    """The origin's ``main`` (GitHub's, as Centrum sees it) moves to ``version`` (a key of ``versions``)."""
+
+    origin = Path(facts["origin"])
+    git(origin, "update-ref", "refs/heads/main", facts["versions"][version])
