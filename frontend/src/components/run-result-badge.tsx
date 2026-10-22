@@ -3,6 +3,11 @@ import { CircleCheckIcon, CircleStopIcon, OctagonXIcon, TriangleAlertIcon } from
 import type { ProcessRun, ResultCounts } from "@/api/centrum"
 import { Badge } from "@/components/ui/badge"
 
+/** Zatrzymanie „do Maksa”, także nieoczekiwany wyjątek: jedyne przerwane, które Centrum pokazuje jako błąd. */
+export function isFailure(run: Pick<ProcessRun, "stop_kind">): boolean {
+  return run.stop_kind === "for_maks"
+}
+
 // Wynik Uruchomienia procesu zawsze z ikoną i słowem, nigdy samym kolorem. Czerwień tylko przy Zatrzymaniu „do Maksa”.
 export function RunResultBadge({ run }: { run: Pick<ProcessRun, "result" | "stop_kind"> }) {
   switch (run.result) {
@@ -21,7 +26,7 @@ export function RunResultBadge({ run }: { run: Pick<ProcessRun, "result" | "stop
         </Badge>
       )
     case "BLAD_KRYTYCZNY":
-      return run.stop_kind === "for_maks" ? (
+      return isFailure(run) ? (
         <Badge variant="destructive">
           <OctagonXIcon data-icon="inline-start" />
           Błąd

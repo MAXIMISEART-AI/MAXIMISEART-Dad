@@ -1,6 +1,7 @@
 import { CircleStopIcon, OctagonXIcon } from "lucide-react"
 
 import type { ProcessRun } from "@/api/centrum"
+import { isFailure } from "@/components/run-result-badge"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -13,7 +14,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { dateTime, seconds } from "@/lib/format"
-import { isFailure, isStopped, measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
+import { isStopped, measuredPhases, phaseDuration } from "@/pages/metrics/process-runs"
 
 /** Przerwane Uruchomienia procesu obu procesów z czasami etapów zmierzonymi do przerwania. */
 export function InterruptedRunsCard({
