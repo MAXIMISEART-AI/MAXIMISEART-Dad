@@ -11,6 +11,7 @@ import contextlib
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -160,7 +161,73 @@ def test_kopia_commitu_ma_jego_drzewo_i_znika_z_blokiem(tmp_path: Path, ending: 
             raise RuntimeError
 
     assert seen == ("w commicie\n", 2)
-    assert (copy.parent.exists(), _worktrees(repo)) == (False, 1)
+    assert (copy.exists(), _worktrees(repo)) == (False, 1)
+
+
+def test_nieudana_kopia_commitu_niesie_komunikat_gita(tmp_path: Path) -> None:
+    repo = _repository(tmp_path / "repo")
+
+    with pytest.raises(subprocess.CalledProcessError) as raised, potomne.commit_copy(repo, "nie-ma-takiego-commitu"):
+        pass
+
+    said = raised.value.stderr.strip()
+    assert said and said in str(raised.value)
+    assert _worktrees(repo) == 1
+
+
+# Atrapa gita zapisuje początek i koniec każdego polecenia, które zmienia .git/worktrees; ``add`` trwa sekundę dłużej.
+WORKTREE_LOG = """#!/bin/sh
+case "$1 $2" in
+"worktree add"|"worktree remove"|"worktree prune")
+  echo "start $2" >> "$SHIM_LOG"
+  if [ "$2" = add ]; then sleep 1; fi
+  "$SHIM_GIT" "$@"; code=$?
+  echo "end $2" >> "$SHIM_LOG"
+  exit $code;;
+esac
+exec "$SHIM_GIT" "$@"
+"""
+
+
+def _overlapping(log: list[str]) -> list[str]:
+    running: list[str] = []
+    found = []
+    for line in log:
+        state, command = line.split()
+        if state == "end":
+            running.remove(command)
+            continue
+        if running:
+            found.append(f"{command} w trakcie {', '.join(running)}")
+        running.append(command)
+    return found
+
+
+@POSIX_ONLY
+def test_kopie_commitu_z_wielu_watkow_nie_zmieniaja_worktree_naraz(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _repository(tmp_path / "repo")
+    log, shim = tmp_path / "git.log", tmp_path / "atrapa" / "git"
+    shim.parent.mkdir()
+    shim.write_text(WORKTREE_LOG, encoding="utf-8")
+    shim.chmod(0o755)
+    monkeypatch.setenv("SHIM_GIT", str(shutil.which("git")))
+    monkeypatch.setenv("SHIM_LOG", str(log))
+    monkeypatch.setenv("PATH", f"{shim.parent}{os.pathsep}{os.environ['PATH']}")
+    seen: list[str] = []
+
+    def second_copy() -> None:
+        with potomne.commit_copy(repo, "HEAD") as copy:
+            seen.append((copy / "plik.txt").read_text(encoding="utf-8"))
+
+    with potomne.commit_copy(repo, "HEAD") as copy:
+        seen.append((copy / "plik.txt").read_text(encoding="utf-8"))
+        second = threading.Thread(target=second_copy)
+        second.start()
+        _wait_for(lambda: log.read_text(encoding="utf-8").count("start add") == 2, 30)
+    second.join(timeout=60)
+
+    assert seen == ["w commicie\n", "w commicie\n"]
+    assert _overlapping(log.read_text(encoding="utf-8").splitlines()) == []
 
 
 def _kill(tool: subprocess.Popen[bytes]) -> None:

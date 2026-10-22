@@ -51,11 +51,18 @@ _DRAIN_S = 5.0
 _POLL_S = 0.1
 # Na Windows pliki zabitych procesów zwalniają się z opóźnieniem, więc usuwanie kopii trochę ponawia.
 _RELEASE_S = 10.0
-_COPY = "kopia"
+# ``git worktree prune`` i ``remove`` z jednego wątku usuwają katalogi ``.git/worktrees``, które ``add`` z innego
+# wątku właśnie zakłada, i ``add`` pada. Równoległe mutacje robią kopie naraz, więc te polecenia idą po kolei.
+_WORKTREES = threading.Lock()
 
 
 class Stopped(Exception):
     """Wołający ustawił ``stop``: drzewo polecenia już nie żyje."""
+
+
+class _GitFailed(subprocess.CalledProcessError):
+    def __str__(self) -> str:
+        return f"{super().__str__()}\n{self.stderr.strip()}"
 
 
 def run(
@@ -110,16 +117,19 @@ def commit_copy(repo: Path, commit: str) -> Iterator[Path]:
 
     repo = repo.resolve()
     guard = _guard()
-    scratch = Path(tempfile.mkdtemp(prefix="kopia-commitu-"))
+    copy = Path(tempfile.mkdtemp(prefix="kopia-commitu-"))
     try:
-        guard.report("+", "kopia", str(scratch), str(repo))
+        guard.report("+", "kopia", str(copy), str(repo))
         # Przez run: strażnik zabija przerwane ``worktree add``, zanim usunie kopię, którą ono jeszcze wypełnia.
-        run(["git", "worktree", "add", "--quiet", "--detach", str(scratch / _COPY), commit], cwd=repo).check_returncode()
-        yield scratch / _COPY
+        with _WORKTREES:
+            added = run(["git", "worktree", "add", "--quiet", "--detach", str(copy), commit], cwd=repo)
+        if added.returncode:
+            raise _GitFailed(added.returncode, added.args, added.stdout, added.stderr)
+        yield copy
     finally:
-        _remove_copy(repo, scratch)
+        _remove_copy(repo, copy)
         with suppress(OSError):
-            guard.report("-", "kopia", str(scratch), str(repo))
+            guard.report("-", "kopia", str(copy), str(repo))
 
 
 def _wait(process: subprocess.Popen[str], timeout: float, stop: threading.Event | None) -> None:
@@ -286,17 +296,21 @@ def _guard() -> _Guard:
         return _guard_started
 
 
-def _remove_copy(repo: Path, scratch: Path) -> None:
+def _remove_copy(repo: Path, copy: Path) -> None:
     # Drugie --force usuwa też worktree zablokowane przez ``worktree add`` zabite w trakcie.
-    subprocess.run(
-        ["git", "worktree", "remove", "--force", "--force", str(scratch / _COPY)], cwd=repo, capture_output=True, check=False
-    )
+    with _WORKTREES:
+        removed = subprocess.run(
+            ["git", "worktree", "remove", "--force", "--force", str(copy)], cwd=repo, capture_output=True, check=False
+        )
+    if removed.returncode == 0:
+        return
     deadline = time.monotonic() + (_RELEASE_S if sys.platform == "win32" else 0)
-    shutil.rmtree(scratch, ignore_errors=True)
-    while scratch.exists() and time.monotonic() < deadline:
+    shutil.rmtree(copy, ignore_errors=True)
+    while copy.exists() and time.monotonic() < deadline:
         time.sleep(_POLL_S)
-        shutil.rmtree(scratch, ignore_errors=True)
-    subprocess.run(["git", "worktree", "prune"], cwd=repo, capture_output=True, check=False)
+        shutil.rmtree(copy, ignore_errors=True)
+    with _WORKTREES:
+        subprocess.run(["git", "worktree", "prune"], cwd=repo, capture_output=True, check=False)
 
 
 def _guard_main() -> None:
