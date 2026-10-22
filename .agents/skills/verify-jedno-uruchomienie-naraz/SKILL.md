@@ -40,11 +40,11 @@ after a new version, until the restart guardian has started and
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `e8fb049`.** At this commit the checker was confirmed to describe
+**Sync commit: `4cec718`.** At this commit the checker was confirmed to describe
 the covered code. To see whether it needs another look:
 
 ```bash
-git log --oneline e8fb049..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
+git log --oneline 4cec718..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
@@ -106,7 +106,7 @@ received.
 
 Not covered: Zatrzymania and errors inside the engine (`_Run.work`'s `except`
 path), `tools/uruchom_proces.py` or a second Centrum process on another port,
-Windows logoff, the SSE stream, `stopped`/`show_report`, more tabs or clicks than
+Windows logoff, the SSE stream, Diagnoza and Zgłoszenie (`diagnose`/`send_report`), more tabs or clicks than
 above, and what Aktualizacja narzędzia does to the clone (the
 [`verify-aktualizacja-narzedzia`](../verify-aktualizacja-narzedzia/SKILL.md) model
 covers it). When another action that must not run during an Uruchomienie lands,

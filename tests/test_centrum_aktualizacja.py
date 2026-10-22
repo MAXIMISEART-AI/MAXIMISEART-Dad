@@ -417,19 +417,56 @@ def test_zgloszenie_nieudanej_aktualizacji_ma_te_same_fakty_co_dziennik(tmp_path
     assert {"title": report.title, "body": report.body} == preview
     assert report.title == "INNA_GALAZ: Nie zaktualizowano narzędzia: na tym komputerze jest inna gałąź narzędzia niż main."
     body = report.body
-    assert "- Kod: INNA_GALAZ\n" in body
-    assert f"- Co zrobić: {TO_MAKS}\n" in body
-    assert (
-        f"## Aktualizacja narzędzia\n\n- Wynik: INNA_GALAZ\n- Commit przed: {before}\n- Commit po: brak\n"
-        "- Biblioteki instalowane: nie\n"
-    ) in body
+    fingerprint = re.search(r"^- Odcisk problemu: ([0-9a-f]{16})$", body, re.MULTILINE)
+    assert fingerprint is not None
+    head, log_block = body.split("## Dziennik Centrum rozliczeń\n")
+    assert head.splitlines() == [
+        "Zgłoszenie z Centrum rozliczeń.",
+        "",
+        "## Komunikat",
+        "",
+        "- Kod: INNA_GALAZ",
+        "- Co się stało: Nie zaktualizowano narzędzia: na tym komputerze jest inna gałąź narzędzia niż main.",
+        "- Gdzie: narzędzie na tym komputerze",
+        f"- Co zrobić: {TO_MAKS}",
+        "",
+        "## Aktualizacja narzędzia",
+        "",
+        "- Wynik: INNA_GALAZ",
+        f"- Commit przed: {before}",
+        "- Commit po: brak",
+        "- Biblioteki instalowane: nie",
+        "",
+        "## Narzędzie",
+        "",
+        f"- Odcisk problemu: {fingerprint[1]}",
+        "",
+    ]
     log = centrum.log_path.read_text(encoding="utf-8").splitlines()
     started = next(line for line in log if " aktualizacja-start " in line)
     finished = next(line for line in log if " aktualizacja-koniec " in line)
-    assert f"```text\n{started}\n{finished}\n```" in body
+    assert log_block.startswith("\n```text\n") and log_block.endswith(f"\n{started}\n{finished}\n```\n")
     assert re.search(r"fatal|error:|hint:|proba-maksa|origin\.git", body) is None
     assert centrum.client.get("/api/tool-update").json()["report"] == {"state": "sent"}
     assert "zgloszenie-wyslane z=aktualizacja numer=1" in centrum.log_path.read_text(encoding="utf-8")
+
+
+def test_druga_nieudana_aktualizacja_wysyla_wlasne_zgloszenie(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    with github_out_of_reach(repository):
+        update_until_done(centrum)
+        assert send_report(centrum) == {"state": "sent"}
+        box.close(1)
+
+        again = update_until_done(centrum)
+        state = send_report(centrum)
+
+    assert (again["report"], state) == ({"state": "ready"}, {"state": "sent"})
+    assert [report.title.split(":")[0] for report in box.sent] == ["BRAK_POLACZENIA"] * 2
+    assert "- Poprzednie Zgłoszenie: #1" in box.sent[1].body.splitlines()
 
 
 def test_zgloszenie_bez_nieudanej_aktualizacji_jest_odrzucone(tmp_path: Path) -> None:

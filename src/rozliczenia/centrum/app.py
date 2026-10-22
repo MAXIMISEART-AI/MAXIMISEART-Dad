@@ -1,7 +1,7 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``runs_router``, ``diagnosis_router``, ``reports_router``, ``metrics_router``, ``configuration_router``,
+``runs_router``, ``repair_router``, ``metrics_router``, ``configuration_router``,
 ``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) i folder okresów, którego nie da się odczytać, na bezpieczne
@@ -28,13 +28,13 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.diagnosis import Surroundings, diagnosis_router
+from rozliczenia.centrum.diagnosis import Surroundings, diagnose
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.reports import Reports, repair_router, reports_router
+from rozliczenia.centrum.reports import Reports, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import RunHost, runs_router
@@ -42,6 +42,7 @@ from rozliczenia.centrum.settings import settings_router
 from rozliczenia.settings import SettingsStore
 from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
+from rozliczenia.centrum.stops import Stops
 from rozliczenia.centrum.timing import server_timing, timing_router
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum import restart_guardian
@@ -145,7 +146,14 @@ def create_app(
         settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock
     )
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
-    runs = RunHost(log, centrum_runs, reports.state)
+    stops = Stops(
+        reports,
+        lambda process, period: diagnose(
+            process, period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
+        ),
+        log,
+    )
+    runs = RunHost(log, centrum_runs, stops)
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie
     # opiekun ponownego startu zostawia wynik obok Ustawień taty, a to Centrum odczytuje go teraz, raz.
@@ -162,8 +170,6 @@ def create_app(
     preparation = PreparationEntry(store, configuration, metrics.preparation, today)
     settlement = SettlementEntry(store, configuration, metrics.settlement, today)
     app.include_router(runs_router(runs, [preparation, settlement]))
-    app.include_router(diagnosis_router(runs, store, configuration, log, surroundings, reports))
-    app.include_router(reports_router(runs, reports))
     app.include_router(repair_router(reports))
     app.include_router(metrics_router(metrics, today, centrum_runs))
     app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
