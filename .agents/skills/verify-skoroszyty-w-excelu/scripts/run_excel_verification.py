@@ -58,6 +58,15 @@ HIGHLIGHTS = {
     ("PREP-SYN-ZL-4", "wykonawca"): (0xFFFFFF, 0x000000, False, True),
 }
 ROW_MARKER = "PREP-SYN-"
+# Ilości usług Przygotowanie writes from the Reguły ilości for the fixture's URZĄDZENIA and UMOWA
+# (verify-rozliczenia: create_preparation_fixture.ORDER_CONTENT, assert_preparation.EXPECTED_QUANTITIES).
+QUANTITIES = {
+    "PREP-SYN-ZL-2": {"O": 1, "P": 1, "Q": 1, "S": 3, "T": 1, "V": 1, "Z": 1},
+    "PREP-SYN-ZL-4": {"O": 1, "S": 2, "V": 1, "AG": 1, "AO": 1},
+    "PREP-SYN-ZL-7": {},
+    "PREP-SYN-ZL-6": {"T": 1, "V": 1},
+}
+QUANTITY_SUMS_ROW = 15
 # CZYNNOŚCI ZREALIZOWANE of order 2 has two lines (create_preparation_fixture.completed_activities); every other
 # Wiersz danych has one.
 TWO_LINE_ORDER = "PREP-SYN-ZL-2"
@@ -346,6 +355,22 @@ def _check_row_look(path: Path, rows: dict[str, int], layout: Layout, *, label: 
     return standard, {order: excel.shown_text(path, f"{date}{row}") for order, row in rows.items()}
 
 
+def _check_quantities(path: Path, rows: dict[str, int], *, label: str) -> int:
+    """Excel holds the Ilości usług in N:AP of every order and row 15 sums them; returns the non-zero cells."""
+
+    letters = [column_letter(column) for column in QUANTITY_COLUMNS]
+    span = f"{letters[0]}{{row}}:{letters[-1]}{{row}}"
+    for order, quantities in QUANTITIES.items():
+        cells = excel.read(path, span.format(row=rows[order]))[0]
+        held = {letter: cell.number for letter, cell in zip(letters, cells, strict=True) if not cell.empty and cell.number}
+        expect(held == quantities, f"{label}: row {rows[order]} holds other Ilości usług in {', '.join(sorted(held.keys() ^ quantities.keys())) or 'N:AP'}")
+    sums = excel.read(path, span.format(row=QUANTITY_SUMS_ROW))[0]
+    expected = {letter: sum(quantities.get(letter, 0) for quantities in QUANTITIES.values()) for letter in letters}
+    wrong = [letter for letter, cell in zip(letters, sums, strict=True) if cell.kind != "n" or cell.number != expected[letter]]
+    expect(not wrong, f"{label}: row {QUANTITY_SUMS_ROW} does not sum the Ilości usług in {', '.join(wrong)}")
+    return sum(len(quantities) for quantities in QUANTITIES.values())
+
+
 def period_files_open(
     run: Run, collective_reference: tuple[list[str], list[str]]
 ) -> tuple[Path, Layout, dict[str, str]]:
@@ -370,6 +395,8 @@ def period_files_open(
     expect(expected_orders <= set(rows), "Plik zbiorczy lacks Zlecenia skuteczne of the Rejestr")
     _check_formulas(collective, rows, collective_reference[1], label="Plik zbiorczy")
     run.step(feature, "plik-zbiorczy-formuly", f"rows={len(rows)}")
+    quantities = _check_quantities(collective, rows, label="Plik zbiorczy")
+    run.step(feature, "plik-zbiorczy-ilosci", f"cells={quantities} | sums_row={QUANTITY_SUMS_ROW}")
     highlights = _check_highlights(collective, rows, layout, label="Plik zbiorczy")
     run.step(feature, "plik-zbiorczy-wyroznienia", f"cells={highlights}")
     standard, dates = _check_row_look(collective, rows, layout, label="Plik zbiorczy")

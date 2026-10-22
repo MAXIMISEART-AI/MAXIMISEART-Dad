@@ -27,7 +27,7 @@ From the repository root, after `tools/setup_worktree.py` in a worktree:
 ```
 
 One command runs the whole path. It ends with `VERIFY OK | wzorce=prawdziwe |
-steps=28 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
+steps=29 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
 Maks's Mac with Excel 16.114 it took 2:56 with Dad's Wzorce and 77 s with
 `syntetyczne`.
 

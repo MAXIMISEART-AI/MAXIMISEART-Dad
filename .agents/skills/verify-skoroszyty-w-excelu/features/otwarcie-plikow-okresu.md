@@ -12,6 +12,7 @@ its amounts, and the Rejestr's Wyróżnienia show as they were.
 - `plik-zbiorczy-bez-okna`: the Plik zbiorczy opens in Excel with no dialog.
 - `plik-zbiorczy-lacze`: Excel lists the same external workbook for the Plik zbiorczy as for the Wzorzec pliku zbiorczego.
 - `plik-zbiorczy-formuly`: every Wiersz danych has the R1C1 formulas of `AU18:AY18` of the Wzorzec, and `AU:AX` shows no error.
+- `plik-zbiorczy-ilosci`: Excel holds the Ilości usług Przygotowanie wrote from the Reguły ilości in `N:AP` of the four Zlecenia skuteczne (none for `prewencja`, only V and T for the unknown component), and the sums of row 15 of the Wzorzec count them.
 - `plik-zbiorczy-wyroznienia`: ADRES of `PREP-SYN-ZL-2` is yellow with bold dark red text and WYKONAWCA of `PREP-SYN-ZL-4` is italic, as in the Rejestr.
 - `plik-zbiorczy-wyglad-wiersza`: Excel auto-fits the Wiersze danych (Wygląd Wiersza danych, no stored height): every row with one line is exactly the sheet's standard height, and the row of `PREP-SYN-ZL-2`, whose CZYNNOŚCI ZREALIZOWANE has two lines, is taller.
 
@@ -28,6 +29,7 @@ Preconditions: the Baseline in `README.md`; both Wzorce were opened as the refer
 - **Plik zbiorczy.** Copy it to the desk and open it; it stays open for `gotowosc-w-excelu`.
 - **Link.** `excel.link_names` equals the Wzorzec pliku zbiorczego's list (`links=1`).
 - **Rows and formulas.** Headers of row 17 give `NUMER ZL.`, `ADRES`, `WYKONAWCA`; the four Zlecenia skuteczne are in rows 18–21. For each, `excel.formulas_r1c1("AU:AY")` equals the reference and `excel.error_cells("AU:AX")` is none.
+- **Ilości usług.** `excel.read` of `N:AP` of each order's row gives exactly `QUANTITIES` of `run_excel_verification.py` as non-zero numbers, and `N15:AP15` their column sums (`cells=14 | sums_row=15`).
 - **Wyróżnienia.** `excel.fill` of the two cells gives interior, font color, bold, italic: `(0xFFFF00, 0xC00000, True, False)` and `(0xFFFFFF, 0x000000, False, True)` (`cells=2`).
 - **Wygląd Wiersza danych.** `excel.row_heights` of each order's row against `excel.standard_height`; `excel.shown_text` of DATA is remembered for `rozliczenia-pracownikow-w-excelu`. `STEP … plik-zbiorczy-wyglad-wiersza | rows=4 | one_line_pt=…`.
 
