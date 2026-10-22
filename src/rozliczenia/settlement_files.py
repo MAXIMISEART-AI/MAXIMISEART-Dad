@@ -5,7 +5,8 @@ w Folderze okresu. Gotowy folder tymczasowy staje się Folderem rozliczeń
 pracowników jedną zmianą nazwy. Nienadpisywanie jest sprawdzane przed startem
 Przebiegu rozliczeń i ponownie tuż przed publikacją. Po nieudanym zapisie nie
 zostaje niepełny Folder rozliczeń pracowników. Folder tymczasowy, którego nie da
-się usunąć (np. trzyma jego pliki OneDrive), zostaje, a Komunikat go wskazuje.
+się usunąć (np. trzyma jego pliki OneDrive), zostaje, a Komunikat podaje początek
+jego nazwy.
 
 Publikacja Przygotowania pliku zbiorczego jest osobna (``preparation_files``).
 """
@@ -40,13 +41,12 @@ def write_worker_settlements(
     ``write`` dostaje folder tymczasowy i zwraca wyniki z plikami w nim. Wynik
     to te same wyniki z plikami w opublikowanym Folderze rozliczeń pracowników.
     Błąd zapisu zatrzymuje Przebieg rozliczeń Komunikatem bez publikacji. Gdy
-    folderu tymczasowego nie da się potem usunąć, Komunikat go wskazuje.
+    folderu tymczasowego nie da się potem usunąć, Komunikat podaje początek jego nazwy.
     """
 
+    staging_prefix = f".{target_directory.name}.staging-"
     try:
-        staging_directory = Path(
-            tempfile.mkdtemp(prefix=f".{target_directory.name}.staging-", dir=target_directory.parent)
-        )
+        staging_directory = Path(tempfile.mkdtemp(prefix=staging_prefix, dir=target_directory.parent))
     except OSError as exc:
         raise StopError(settlement_messages.write_failed(target_directory)) from exc
     try:
@@ -62,6 +62,6 @@ def write_worker_settlements(
     except BaseException as error:
         shutil.rmtree(staging_directory, ignore_errors=True)
         if isinstance(error, StopError) and staging_directory.exists():
-            raise StopError(settlement_messages.staging_left(error.message, staging_directory.name)) from error
+            raise StopError(settlement_messages.staging_left(error.message, staging_prefix)) from error
         raise
     return [replace(result, output_file=target_directory / result.output_file.name) for result in results]

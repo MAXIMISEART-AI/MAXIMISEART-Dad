@@ -25,8 +25,10 @@ from rozliczenia.domain import (
     WorkerResult,
     WorkerStarted,
 )
+from rozliczenia.centrum.stops import StopMemory
 from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
+from rozliczenia.process_run import Stop
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.workbook_files import DataRow, Layout, WorkerSettlementTemplate, file_from_template, read_data_rows
@@ -759,24 +761,7 @@ def test_nieudana_publikacja_folderu_rozliczen_pracownikow_zatrzymuje_kodem_publ
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
-@pytest.mark.parametrize(
-    ("failure", "code"),
-    [
-        (fail_renaming_staging_folder, "BLAD_PUBLIKACJI"),
-        (fail_saving_second_worker_file, "BLAD_SZABLONU_PRACOWNIKA"),
-        (create_worker_settlements_folder_while_saving, "FOLDER_ROZLICZEN_ISTNIEJE"),
-    ],
-    ids=["publikacja", "zapis-drugiego-pracownika", "folder-rozliczen-powstal-w-trakcie"],
-)
-@pytest.mark.parametrize("refuses_permission_change", [False, True], ids=["usuwanie", "usuwanie-i-zmiana-uprawnien"])
-def test_zatrzymanie_wskazuje_folder_tymczasowy_trzymany_przez_onedrive(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    failure: Callable[[pytest.MonkeyPatch, Path], None],
-    code: str,
-    refuses_permission_change: bool,
-) -> None:
-    source_path, target_directory, config_path = make_fixture(tmp_path)
+def hold_worker_files_like_onedrive(monkeypatch: pytest.MonkeyPatch, refuses_permission_change: bool) -> None:
     worker_file_prefix = f"Rozliczenie {PERIOD} - "
     real_unlink, real_chmod = os.unlink, os.chmod
 
@@ -790,22 +775,68 @@ def test_zatrzymanie_wskazuje_folder_tymczasowy_trzymany_przez_onedrive(
             raise PermissionError("wymuszony: OneDrive nie pozwala zmienić uprawnień")
         real_chmod(path, mode, **kwargs)  # type: ignore[arg-type]
 
-    failure(monkeypatch, target_directory)
     monkeypatch.setattr(os, "unlink", unlink)
     monkeypatch.setattr(os, "chmod", chmod)
+
+
+@pytest.mark.parametrize(
+    ("failure", "code", "original_action"),
+    [
+        (fail_renaming_staging_folder, "BLAD_PUBLIKACJI", "Sprawdź, czy Folder okresu jest dostępny."),
+        (fail_saving_second_worker_file, "BLAD_SZABLONU_PRACOWNIKA", "Uruchom ponownie."),
+        (
+            create_worker_settlements_folder_while_saving,
+            "FOLDER_ROZLICZEN_ISTNIEJE",
+            "przenieś Folder rozliczeń pracowników poza Folder okresu",
+        ),
+    ],
+    ids=["publikacja", "zapis-drugiego-pracownika", "folder-rozliczen-powstal-w-trakcie"],
+)
+@pytest.mark.parametrize("refuses_permission_change", [False, True], ids=["usuwanie", "usuwanie-i-zmiana-uprawnien"])
+def test_zatrzymanie_wskazuje_folder_tymczasowy_trzymany_przez_onedrive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Callable[[pytest.MonkeyPatch, Path], None],
+    code: str,
+    original_action: str,
+    refuses_permission_change: bool,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    failure(monkeypatch, target_directory)
+    hold_worker_files_like_onedrive(monkeypatch, refuses_permission_change)
 
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
     message = raised.value.message
-    staging_left = list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+    staging_prefix = f".{target_directory.name}.staging-"
+    staging_left = list(target_directory.parent.glob(f"{staging_prefix}*"))
     assert message.code == code
     assert len(staging_left) == 1
     assert any(staging_left[0].iterdir())
-    assert f"folder {staging_left[0].name}" in message.action
-    assert "folderze tymczasowym" in message.what
+    assert f"zaczyna się od {staging_prefix}" in message.action
+    assert original_action in message.action
+    assert "folder tymczasowy" in message.what
     assert "Nie utworzono żadnego pliku pracownika." not in message.what
     assert not target_directory.exists() or [path.name for path in target_directory.iterdir()] == ["existing.txt"]
+
+
+def test_ponowna_nieudana_publikacja_z_folderem_tymczasowym_jest_powtorka(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    fail_renaming_staging_folder(monkeypatch, target_directory)
+    hold_worker_files_like_onedrive(monkeypatch, refuses_permission_change=False)
+    stops: list[Stop] = []
+    for _ in range(2):
+        with pytest.raises(StopError) as raised:
+            run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+        stops.append(Stop("stop", raised.value.message))
+    memory = StopMemory()
+    memory.remember("settlement", stops[0])
+
+    assert len(list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))) == 2
+    assert memory.kind("settlement", stops[1]) == "repeated"
 
 
 def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(complete_run: tuple[Path, Path, Path, Path]) -> None:

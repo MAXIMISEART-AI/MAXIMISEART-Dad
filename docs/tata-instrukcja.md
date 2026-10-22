@@ -431,9 +431,9 @@ gdzie (pinezka) i co zrobić (klucz). Komunikaty są w tabeli niżej.
 
 Po każdym zatrzymaniu nie powstał Folder rozliczeń pracowników. Wyjątkiem jest
 komunikat o niepokazanym podsumowaniu: wtedy rozliczenia pracowników już są.
-Jeśli komunikat mówi, że pliki pracowników zostały w folderze tymczasowym,
-najpierw usuń z Folderu okresu folder, który wskazuje (jego nazwa zaczyna się
-kropką i ma w sobie `.staging-`). To nie jest Folder rozliczeń pracowników.
+Jeśli komunikat mówi, że został folder tymczasowy, najpierw usuń z Folderu
+okresu każdy folder, którego nazwa zaczyna się tak, jak podaje komunikat
+(kropką, z `.staging-` na końcu). To nie są Foldery rozliczeń pracowników.
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
@@ -441,7 +441,7 @@ kropką i ma w sobie `.staging-`). To nie jest Folder rozliczeń pracowników.
 | „Plik zbiorczy jest otwarty w Excelu” | Zapisz i zamknij Plik zbiorczy, potem kliknij `Uruchom ponownie`. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z Folderu okresu pozostawiony plik `~$` z nazwą Pliku zbiorczego. |
 | „Nie można teraz odczytać Pliku zbiorczego” | Nie poprawiaj Pliku zbiorczego. Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy plik otwiera się w Excelu. Zamknij go i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Plik zbiorczy nie nadaje się do Przebiegu rozliczeń” | Dalsza część komunikatu mówi, co jest nie tak (np. plik nie otwiera się w Excelu albo nie ma nagłówka WYKONAWCA). Popraw Plik zbiorczy, zapisz go, zamknij i uruchom ponownie. |
-| „Folder rozliczeń pracowników tego okresu już istnieje” | Rozliczenia pracowników tego okresu już są; narzędzie ich nie nadpisze. Sprawdź, czy wybrano właściwy okres. Żeby utworzyć je od nowa, najpierw przenieś ten folder poza Folder okresu. |
+| „Folder rozliczeń pracowników tego okresu już istnieje” | Rozliczenia pracowników tego okresu już są; narzędzie ich nie nadpisze. Sprawdź, czy wybrano właściwy okres. Żeby utworzyć je od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu. |
 | „Konfiguracja wykonawców jest niepoprawna” | Przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można użyć Wzorca rozliczenia pracownika” | Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania i uruchom ponownie. Jeśli komunikat prosi o zmianę nazwy `placeholder.xlsx`, zrób to jak w części „Gdy pojawi się problem” niżej. W innym wypadku przekaż komunikat osobie utrzymującej narzędzie. |
 | „W Pliku zbiorczym jest WYKONAWCA, którego nie ma w konfiguracji wykonawców” | Uruchom `Podgląd bez zapisu`, żeby zobaczyć problemy. Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy. Zapisz, zamknij i uruchom ponownie. |
@@ -450,7 +450,7 @@ kropką i ma w sobie `.staging-`). To nie jest Folder rozliczeń pracowników.
 | „ma dane, ale nie ma wykonawcy w kolumnie H” | Problem z podglądu (wynik wymaga sprawdzenia). Wpisz WYKONAWCĘ we wskazanym wierszu albo wyczyść wiersz, jeśli jest zbędny. |
 | „Nie udało się przygotować skoroszytu pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
-| „Nie można opublikować gotowego Folderu rozliczeń pracowników” | Jeśli komunikat prosi o usunięcie folderu tymczasowego, usuń go z Folderu okresu; gdy się nie daje, odczekaj chwilę. Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie można opublikować gotowego Folderu rozliczeń pracowników” | Jeśli komunikat prosi o usunięcie folderów tymczasowych, usuń je z Folderu okresu; gdy się nie dają, odczekaj chwilę. Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można przygotować Folderu rozliczeń pracowników” | Sprawdź, czy Folder okresu jest dostępny, i kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Wystąpił nieoczekiwany błąd” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania” | Nie uruchamiaj ponownie: folder rozliczeń pracowników już jest. Sprawdź Folder okresu i przekaż komunikat osobie utrzymującej narzędzie. |

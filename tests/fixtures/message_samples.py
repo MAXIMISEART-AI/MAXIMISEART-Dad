@@ -164,15 +164,15 @@ SETTLEMENT_SAMPLES: Samples = {
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
     "staging_left": [
         lambda: settlement_messages.staging_left(
-            settlement_messages.publish_failed(WORKER_SETTLEMENTS), f".{WORKER_SETTLEMENTS.name}.staging-k3x7tq9a"
+            settlement_messages.publish_failed(WORKER_SETTLEMENTS), f".{WORKER_SETTLEMENTS.name}.staging-"
         ),
         lambda: settlement_messages.staging_left(
             settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy"),
-            f".{WORKER_SETTLEMENTS.name}.staging-k3x7tq9a",
+            f".{WORKER_SETTLEMENTS.name}.staging-",
         ),
         lambda: settlement_messages.staging_left(
             settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS),
-            f".{WORKER_SETTLEMENTS.name}.staging-k3x7tq9a",
+            f".{WORKER_SETTLEMENTS.name}.staging-",
         ),
     ],
     "write_failed": [lambda: settlement_messages.write_failed(WORKER_SETTLEMENTS)],
