@@ -197,6 +197,43 @@ def _guardian_in_background(restart: Restart, dialogs: list[tuple[str, str]]) ->
     return thread, exits
 
 
+def test_skrot_klikniety_w_trakcie_ponownego_startu_nie_cofa_nowej_wersji_ktora_dziala(tmp_path: Path) -> None:
+    repository = centrum_tool_repository(tmp_path / "repozytoria")
+    before = repository.head()
+    started = tmp_path / "nowa-wersja-startuje"
+    run_centrum = (repository.publisher / "run_centrum.py").read_text(encoding="utf-8")
+    # Między startem procesu nowej wersji a zajęciem portu mija 1,5 s, więc skrót zdąży zająć port przed nią.
+    slow_start = f"from pathlib import Path; Path({str(started)!r}).touch()\nimport time; time.sleep(1.5)\n"
+    newest = repository.publish({"run_centrum.py": slow_start + run_centrum})
+    assert ToolClone(repository.clone, origin=str(repository.origin)).update().code == UPDATED
+    work = tmp_path / "praca"
+    work.mkdir()
+    port = _free_port()
+    dialogs: list[tuple[str, str]] = []
+    restart = Restart(port, before, newest, repository.clone, repository.clone / "config" / RESULT_FILE, False, work)
+    try:
+        guardian, exits = _guardian_in_background(restart, dialogs)
+        deadline = time.monotonic() + 60
+        while not started.exists():
+            assert time.monotonic() < deadline, "Opiekun nie uruchomił nowej wersji."
+            time.sleep(0.05)
+        # Skrót trzyma port od listen_locally do listener.close() po odczycie dziennika; tu ta chwila trwa 3 s.
+        with socket.socket() as shortcut:
+            shortcut.bind(("127.0.0.1", port))
+            shortcut.listen()
+            time.sleep(3)
+        guardian.join(timeout=90)
+        health = _health(port, timeout_s=5)
+    finally:
+        _close_if_running(port)
+
+    assert exits == [0]
+    assert dialogs == []
+    assert repository.head() == newest
+    assert health["commit"] == newest[:7]
+    assert ToolClone(repository.clone).interrupted_update() is None
+
+
 def _broken_version(repository: ToolRepository, dialogs: Path) -> dict[str, str]:
     """Nowa wersja z błędem importu: brakuje jej biblioteki, a jak pod ``pythonw`` nie ma konsoli.
 
