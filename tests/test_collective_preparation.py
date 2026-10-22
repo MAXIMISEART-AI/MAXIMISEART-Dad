@@ -43,8 +43,6 @@ from tests.fixtures.preparation import (
     make_preparation_fixture,
     register_order,
     template_column_width,
-    write_collective_template,
-    write_internal_template,
     write_register,
 )
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
@@ -502,11 +500,12 @@ def test_highlights_from_rejestr_reach_both_files_and_plain_cells_get_none(tmp_p
         "C3": (None, None, False, False),
         "H2": (None, None, False, False),
     }
+    # ADRES (B) Pliku zbiorczego jest zawsze żółty, z kolorem czcionki, pogrubieniem i kursywą z Rejestru.
     assert cell_formats(fixture.collective_file_path, ["B18", "H19", "A18", "B19", "H18"]) == {
         "B18": ("FFFFFF00", "FFC00000", True, False),
         "H19": (None, None, False, True),
         "A18": (None, None, False, False),
-        "B19": (None, None, False, False),
+        "B19": ("FFFFFF00", None, False, False),
         "H18": (None, None, False, False),
     }
 
@@ -559,41 +558,6 @@ def test_hiperlacze_wzorca_w_zapisanym_wierszu_znika_a_poza_nim_zostaje(tmp_path
     }
 
 
-def data_fonts(path: Path, *, min_row: int, max_row: int, max_col: int) -> set[tuple[object, object]]:
-    workbook = load_workbook(path)
-    try:
-        sheet = active_worksheet(workbook)
-        return {
-            (cell.font.name, cell.font.sz)
-            for row in sheet.iter_rows(min_row=min_row, max_row=max_row, max_col=max_col)
-            for cell in row
-        }
-    finally:
-        workbook.close()
-
-
-def test_data_rows_take_font_face_and_size_from_wzorzec_not_rejestr(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-
-    run_preparation(fixture)
-
-    # Rejestr: Arial 8; wzorce: Calibri 10.
-    assert data_fonts(fixture.internal_settlement_path, min_row=2, max_row=5, max_col=11) == {("Calibri", 10)}
-    assert data_fonts(fixture.collective_file_path, min_row=18, max_row=20, max_col=11) == {("Calibri", 10)}
-
-
-def test_cells_without_own_style_take_wzorzec_row_font_before_column_font(tmp_path: Path) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    write_internal_template(fixture.internal_template_path, row_style=True)
-    write_collective_template(fixture.collective_template_path, row_style=True)
-
-    run_preparation(fixture)
-
-    # Wiersze danych wzorców: styl wiersza Calibri 10; kolumny: Calibri 11; komórki bez własnego stylu.
-    assert data_fonts(fixture.internal_settlement_path, min_row=2, max_row=5, max_col=11) == {("Calibri", 10)}
-    assert data_fonts(fixture.collective_file_path, min_row=18, max_row=20, max_col=11) == {("Calibri", 10)}
-
-
 def test_data_column_keeps_date_format_from_rejestr(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
@@ -628,7 +592,7 @@ def sheet_layout(path: Path, *, header_row: int) -> SheetLayout:
         sheet = active_worksheet(workbook)
         return SheetLayout(
             widths=column_widths(sheet, 47),
-            heights=[sheet.row_dimensions[row].height for row in range(1, header_row + 6)],
+            heights=[sheet.row_dimensions[row].height for row in range(1, header_row + 1)],
             header=[
                 (cell.value, cell.font.name, cell.font.sz, cell.font.b, cell.fill.fgColor.rgb)
                 for cell in sheet[header_row][:47]
@@ -657,7 +621,7 @@ def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind:
     assert sheet_layout(created, header_row=header_row) == expected
 
 
-def test_plik_zbiorczy_columns_outside_a_to_k_keep_wzorzec_formatting(tmp_path: Path) -> None:
+def test_plik_zbiorczy_columns_outside_a_to_l_keep_wzorzec_formatting(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
     run_preparation(fixture)
@@ -668,7 +632,7 @@ def test_plik_zbiorczy_columns_outside_a_to_k_keep_wzorzec_formatting(tmp_path: 
             sheet = active_worksheet(workbook)
             return [
                 (cell.coordinate, cell.fill.fill_type, cell.fill.fgColor.rgb, cell.number_format, cell.font.name)
-                for row in sheet.iter_rows(min_row=18, max_row=24, min_col=12, max_col=47)
+                for row in sheet.iter_rows(min_row=18, max_row=24, min_col=13, max_col=47)
                 for cell in row
             ]
         finally:
@@ -843,9 +807,10 @@ def test_period_orders_after_register_history_keep_values_highlights_and_hyperli
         "ZL-SYN-004",
     ]
     assert hyperlinks(fixture.collective_file_path) == {"F18": links[32], "F19": links[40]}
-    assert cell_formats(fixture.collective_file_path, ["B18", "B19"]) == {
-        "B18": (None, None, False, False),
-        "B19": ("FFFFFF00", None, False, False),
+    assert cell_formats(fixture.internal_settlement_path, ["C2", "C3", "C4"]) == {
+        "C2": (None, None, False, False),
+        "C3": (None, None, False, False),
+        "C4": ("FFFFFF00", None, False, False),
     }
 
 

@@ -13,7 +13,7 @@ na Komunikat ze swojego katalogu.
 Moduł jest właścicielem układu arkusza Pliku zbiorczego, wspólnego dla Wzorca
 pliku zbiorczego, Wzorca rozliczenia pracownika i Szablonów pracowników:
 nagłówek w wierszu 17 z WYKONAWCA w H, Wiersze danych od 18, dane wejściowe
-A:K, ilości N:AP i kolumny Wiersza danych A:AT. Publiczne są etykieta komórki
+A:K, kolumny wyglądu A:L (``row_look``), ilości N:AP i kolumny Wiersza danych A:AT. Publiczne są etykieta komórki
 nagłówka ``WORKER_HEADER`` do treści Komunikatów oraz wiersze i kolumny układu
 (``HEADER_ROW``, ``FIRST_DATA_ROW``, ``QUANTITY_COLUMNS``, ``DATA_ROW_COLUMNS``) dla
 narzędzi benchmarku w ``tools/``, żeby nie powtarzały układu.
@@ -35,7 +35,6 @@ from decimal import Decimal
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
-from types import MappingProxyType
 from typing import IO, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 from xml.parsers import expat
@@ -58,6 +57,7 @@ from .dated_rows import rows_dated_between
 from .highlights import Highlights
 from .hyperlinks import Hyperlink, read_sheet_hyperlinks, sheet_part
 from .input_rows import rows_with_input
+from .row_look import GENERAL, RowLook, wraps
 from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
 
 
@@ -89,6 +89,8 @@ HEADER_ROW = 17
 FIRST_DATA_ROW = 18
 _WORKER_COLUMN = 8  # H
 _INPUT_COLUMNS = range(1, 12)  # A:K: nagłówki w wierszu 17 i dane wejściowe Wiersza danych
+_LOOK_COLUMNS = range(1, 13)  # A:L: kolumny wyglądu Wiersza danych
+_INTERNAL_LOOK_COLUMNS = range(1, 14)  # A:M Rozliczenia wewnętrznego, z ``zwrot`` i ``UWAGI``
 QUANTITY_COLUMNS = range(14, 43)  # N:AP
 DATA_ROW_COLUMNS = range(1, 47)  # A:AT: kopiowane z Pliku zbiorczego do Szablonu pracownika
 _WORKER_SETTLEMENT_LAYOUT = SheetLayout(
@@ -96,15 +98,16 @@ _WORKER_SETTLEMENT_LAYOUT = SheetLayout(
     first_data_row=FIRST_DATA_ROW,
     input_columns=_INPUT_COLUMNS[-1],
     data_columns=DATA_ROW_COLUMNS[-1],
+    look_columns=_LOOK_COLUMNS[-1],
 )
 _COLLECTIVE_FILE_LAYOUT = SheetLayout(
     header_row=HEADER_ROW,
     first_data_row=FIRST_DATA_ROW,
     input_columns=_INPUT_COLUMNS[-1],
     data_columns=_INPUT_COLUMNS[-1],
+    look_columns=_LOOK_COLUMNS[-1],
     collective_file=True,
 )
-_TEMPLATE_NUMBER_FORMATS: Mapping[int, str] = MappingProxyType({})
 
 
 _ExcelCellValue = (
@@ -180,15 +183,22 @@ class _Rows:
     header_row: int
     first_data_row: int
     last_header_column: int | None  # ``None``: cały wiersz nagłówka
+    look_columns: int  # kolumny wyglądu Wiersza danych od A
 
 
 class Layout(Enum):
     """Układ arkusza Wzorca: gdzie jest nagłówek i od którego wiersza są Wiersze danych."""
 
-    COLLECTIVE = _Rows(HEADER_ROW, FIRST_DATA_ROW, _INPUT_COLUMNS[-1])
+    COLLECTIVE = _Rows(HEADER_ROW, FIRST_DATA_ROW, _INPUT_COLUMNS[-1], _LOOK_COLUMNS[-1])
     """Plik zbiorczy, Wzorzec pliku zbiorczego i Wzorzec rozliczenia pracownika."""
-    INTERNAL = _Rows(header_row=1, first_data_row=2, last_header_column=None)
+    INTERNAL = _Rows(header_row=1, first_data_row=2, last_header_column=None, look_columns=_INTERNAL_LOOK_COLUMNS[-1])
     """Rozliczenie wewnętrzne i jego Wzorzec."""
+
+    @property
+    def look_columns(self) -> int:
+        """Kolumny wyglądu Wiersza danych od A (``row_look``)."""
+
+        return self.value.look_columns
 
 
 @dataclass(frozen=True)
@@ -200,14 +210,10 @@ class DataRow:
     values: ExcelRow
     highlights: tuple[Highlights, ...]
     """Wyróżnienia komórek A:AT, po pozycji jak ``values``."""
+    number_formats: tuple[str, ...]
+    """Formaty liczb komórek kolumn wyglądu A:L, po pozycji; trafiają do Rozliczenia pracownika."""
     hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
     """Hiperłącza komórek A:AT z wartością: kolumna od 1 → Hiperłącze."""
-
-    @property
-    def number_formats(self) -> Mapping[int, str]:
-        """Rozliczenie pracownika ma formaty liczb Wzorca rozliczenia pracownika."""
-
-        return _TEMPLATE_NUMBER_FORMATS
 
 
 @dataclass(frozen=True)
@@ -217,7 +223,8 @@ class CollectiveFileRow:
     values: tuple[object, ...]
     highlights: tuple[Highlights, ...]
     hyperlinks: Mapping[int, Hyperlink]
-    number_formats: Mapping[int, str]
+    number_formats: tuple[str, ...]
+    """Po pozycji jak ``values``."""
 
 
 @dataclass(frozen=True)
@@ -365,7 +372,12 @@ def read_data_rows(path: Path) -> list[DataRow]:
                 continue
             with _unreadable_as_error(path):
                 row_highlights = tuple(highlights.of(cell) for cell in cells[:last_column])
-            rows.append(DataRow(number, values[_WORKER_COLUMN - 1], values, row_highlights, links.row(number, values)))
+                number_formats = tuple(getattr(cell, "number_format", None) or GENERAL for cell in cells[: _LOOK_COLUMNS[-1]])
+            rows.append(
+                DataRow(
+                    number, values[_WORKER_COLUMN - 1], values, row_highlights, number_formats, links.row(number, values)
+                )
+            )
     finally:
         workbook.close()
     return rows
@@ -542,22 +554,43 @@ class TemplateSheet:
                 return True
         return False
 
+    def row_look(self, columns: int | None = None) -> RowLook:
+        """Wygląd Wierszy danych z czcionek nagłówka; ``columns``: kolumny wyglądu od A, domyślnie te z układu."""
+
+        last_column = columns or self._rows.look_columns
+        header_row = self._rows.header_row
+        return RowLook([cast(Font, self.worksheet.cell(header_row, column).font) for column in range(1, last_column + 1)])
+
+    def fit_height(self, row: int) -> None:
+        """Wiersz bez zapisanej wysokości: Excel dopasuje ją do treści."""
+
+        dimension = self.worksheet.row_dimensions.get(row)  # bez tworzenia wymiaru, którego nie ma we Wzorcu
+        if dimension is not None:
+            dimension.ht = None
+
     def write_data_rows(self, rows: Sequence[DataRow]) -> None:
         """Wpisuje Wiersze danych z ich Wyróżnieniami i Hiperłączami po pozycji kolumn A:AT od pierwszego Wiersza danych.
 
-        Krój i rozmiar czcionki, format liczby, obramowanie, wyrównanie i ochrona zostają z komórki Wzorca;
-        hiperłącze komórki Wzorca zastępuje Hiperłącze z Wiersza danych albo żadne.
+        Kolumny wyglądu A:L dostają Wygląd Wiersza danych (``row_look``) z formatem liczby z Pliku zbiorczego. W
+        kolumnach M:AT krój i rozmiar czcionki, format liczby, obramowanie, wyrównanie i ochrona zostają z komórki
+        Wzorca. Hiperłącze komórki Wzorca zastępuje Hiperłącze z Wiersza danych albo żadne.
         """
 
+        look = self.row_look()
         for index, row in enumerate(rows):
+            number = self.data_row(index)
+            self.fit_height(number)
             for column, value, highlights in zip(DATA_ROW_COLUMNS, row.values, row.highlights, strict=True):
-                cell = self.worksheet.cell(self.data_row(index), column)
+                cell = self.worksheet.cell(number, column)
                 link = row.hyperlinks.get(column)
                 # Przed wartością: openpyxl wpisuje adres jako wartość pustej komórki.
                 cell.hyperlink = None if link is None else link.address
                 cell.value = value
-                cell.font = highlights.font_over(cast(Font, copy(cell.font)))
-                cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
+                if column <= look.columns:
+                    look.cell(column, highlights, row.number_formats[column - 1], wrapped=wraps(value)).apply(cell)
+                else:
+                    cell.font = highlights.font_over(cast(Font, copy(cell.font)))
+                    cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
 
 
 def _is_value(cell: Cell | MergedCell) -> bool:
@@ -697,7 +730,8 @@ def file_from_template(template: Path, target: Path, layout: Layout, *, recalcul
 class CollectiveFileTemplate:
     """Wzorzec pliku zbiorczego wczytany jako bajty do zapisu Pliku zbiorczego kopią (ADR 0008).
 
-    Kopia zmienia tylko wpisane komórki A:K Wierszy danych, autofiltr i style, które te komórki dopisują.
+    Kopia zmienia tylko wpisane Wiersze danych (wartości A:K i Wygląd Wiersza danych A:L), autofiltr i style, które
+    te komórki dopisują.
     Wzorzec, którego kształtu kopia nie obsługuje, zapisuje ``file_from_template`` przez openpyxl.
     """
 

@@ -202,12 +202,12 @@ def highlights(cell: Cell) -> tuple[object, ...]:
 
 
 def template_look(cell: Cell) -> tuple[object, ...]:
-    """Wygląd komórki, który zostaje z Wzorca: krój i rozmiar czcionki, obramowanie, format liczby."""
+    """Krój i rozmiar czcionki, obramowanie i format liczby komórki."""
 
     return (cell.font.name, cell.font.sz, cell.border.left.style, cell.number_format)
 
 
-def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego_i_czcionke_wzorca(
+def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego_i_wyglad_wiersza_danych(
     complete_run: tuple[Path, Path, Path, Path],
 ) -> None:
     source_path, target_directory, config_path, worker_template_path = complete_run
@@ -224,11 +224,14 @@ def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego
         Font(name="Times New Roman", sz=9, color="FF00AA55", b=True, i=True),
         PatternFill(fill_type="solid", fgColor="FF0000FF"),
     )
-    style_cells({"B18": template_cell, "A19": template_cell, "C18": template_cell})(worker_template_path)
+    style_cells({"B18": template_cell, "A19": template_cell, "C18": template_cell, "N18": template_cell})(
+        worker_template_path
+    )
     workbook = load_workbook(worker_template_path)
     try:
-        active_worksheet(workbook)["B18"].border = Border(left=Side(style="thin"))
-        active_worksheet(workbook)["B18"].number_format = "@"
+        for coordinate in ("B18", "N18"):
+            active_worksheet(workbook)[coordinate].border = Border(left=Side(style="dashed"))
+            active_worksheet(workbook)[coordinate].number_format = "@"
         workbook.save(worker_template_path)
     finally:
         workbook.close()
@@ -237,16 +240,19 @@ def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego
     try:
         template = active_worksheet(template_workbook)
         source = active_worksheet(source_workbook)
-        expected_template_looks = {cell: template_look(template[cell]) for cell in ("A19", "B18", "C18", "N18")}
+        header_font = (template["B17"].font.name, template["B17"].font.sz)
+        expected_template_look = template_look(template["N18"])
         # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego: wiersze 18 i 20.
         expected_highlights = {
             written: highlights(source[read]) for written, read in (("A19", "A20"), ("B18", "B18"), ("N18", "N18"))
         }
+        source_formats = {written: source[read].number_format for written, read in (("A19", "A20"), ("B18", "B18"))}
     finally:
         template_workbook.close()
         source_workbook.close()
     assert expected_highlights["B18"] == ("solid", Color("FFFFFF00"), Color("FFFF0000"), True, True)
     assert expected_highlights["A19"][:2] == (None, None)
+    assert header_font != ("Times New Roman", 9)
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
@@ -257,7 +263,13 @@ def test_wiersze_danych_rozliczenia_pracownika_maja_wyroznienia_pliku_zbiorczego
         assert {cell: highlights(written[cell]) for cell in expected_highlights} == expected_highlights
         # Komórki C18 nie ma w Pliku zbiorczym: bez Wyróżnień.
         assert highlights(written["C18"]) == (None, None, None, False, False)
-        assert {cell: template_look(written[cell]) for cell in expected_template_looks} == expected_template_looks
+        # A:L: Wygląd Wiersza danych z czcionką nagłówka Wzorca i formatem liczby z Pliku zbiorczego; N poza nim.
+        assert {cell: template_look(written[cell]) for cell in ("A19", "B18", "C18")} == {
+            "A19": (*header_font, "thin", source_formats["A19"]),
+            "B18": (*header_font, "thin", source_formats["B18"]),
+            "C18": (*header_font, "thin", "General"),
+        }
+        assert template_look(written["N18"]) == expected_template_look
     finally:
         written_workbook.close()
 

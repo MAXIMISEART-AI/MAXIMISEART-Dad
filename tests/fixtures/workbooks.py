@@ -11,13 +11,40 @@ from collections.abc import Callable
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font
 from openpyxl.worksheet.worksheet import Worksheet
+
+# Resztki formatowania w Wierszach danych Wzorców taty (wiersze 18–31 i od 32 w dół): inny krój, zawijanie,
+# wyrównanie, brak obramowania, nietypowy format daty i własna wysokość wiersza.
+LEFTOVER_FONT = Font(name="Arial", size=12)
+LEFTOVER_ALIGNMENT = Alignment(horizontal="center", vertical="top", wrap_text=True)
+LEFTOVER_DATE_FORMAT = "yyyy-mm-dd h:mm:ss"
+LEFTOVER_ROW_HEIGHT = 30.0
 
 
 def active_worksheet(workbook: Workbook) -> Worksheet:
     sheet = workbook.active
     assert isinstance(sheet, Worksheet)
     return sheet
+
+
+def leave_data_row_leftovers(path: Path, *, first_row: int, rows: int, columns: int) -> None:
+    """Wiersze danych Wzorca od ``first_row`` z resztkami formatowania w kolumnach A..``columns``."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        for row in range(first_row, first_row + rows):
+            sheet.row_dimensions[row].height = LEFTOVER_ROW_HEIGHT
+            for column in range(1, columns + 1):
+                cell = sheet.cell(row, column)
+                cell.font = LEFTOVER_FONT
+                cell.alignment = LEFTOVER_ALIGNMENT
+                cell.border = Border()
+                cell.number_format = LEFTOVER_DATE_FORMAT
+        workbook.save(path)
+    finally:
+        workbook.close()
 
 
 def column_widths(sheet: Worksheet, max_col: int) -> list[float | None]:

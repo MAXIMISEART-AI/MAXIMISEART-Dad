@@ -36,8 +36,9 @@ Rejestrze, który tata uzupełnia, a nie trzeci stan zlecenia.
 
 Skoroszyt `Rozliczenie wew. {okres}.xlsx` zawierający wszystkie zlecenia
 jednego okresu rozliczeniowego z Rejestru zleceń, skuteczne i nieskuteczne, w
-kolejności z Rejestru, bez pustych wierszy. Zachowuje formatowanie, do którego
-tata jest przyzwyczajony.
+kolejności z Rejestru, bez pustych wierszy. Ma formatowanie Wzorca rozliczenia
+wewnętrznego, a zlecenia Wygląd Wiersza danych, do którego tata jest
+przyzwyczajony.
 
 ## Wzorzec rozliczenia wewnętrznego
 
@@ -93,8 +94,8 @@ dla Przebiegu rozliczeń i Przygotowania pliku zbiorczego.
 
 Skoroszyt przygotowany dla konkretnego wykonawcy na podstawie Wzorca
 rozliczenia pracownika. Zachowuje jego strukturę, formuły, stawki i
-formatowanie; jedynie Wiersze danych mają Wyróżnienia i Hiperłącza z Pliku
-zbiorczego.
+formatowanie; jedynie Wiersze danych mają Wygląd Wiersza danych oraz
+Wyróżnienia i Hiperłącza z Pliku zbiorczego.
 Zawiera dane tylko z własnego okresu i może pozostać pusty, jeśli wykonawca nie
 ma wierszy w Pliku zbiorczym.
 
@@ -148,8 +149,21 @@ Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
 
 ## Wiersz danych
 
-Wiersz od 18. w dół zawierający dane wejściowe pracy. Formuły i techniczne
-wartości szablonu nie są same w sobie wierszami danych.
+Wiersz od 18. w dół (w Rozliczeniu wewnętrznym od 2.) zawierający dane
+wejściowe pracy. Formuły i techniczne wartości szablonu nie są same w sobie
+wierszami danych.
+
+## Wygląd Wiersza danych
+
+Wygląd każdej komórki zapisanego Wiersza danych w kolumnach A:M Rozliczenia
+wewnętrznego i A:L Pliku zbiorczego oraz Rozliczenia pracownika, taki jak w
+plikach, które tata robił ręcznie: krój i rozmiar czcionki nagłówka tej kolumny
+we wzorcu, Wyróżnienia, wyrównanie do lewej i do środka wysokości, zawijanie
+tylko tekstu z końcem linii, cienkie obramowanie z czterech stron i format
+liczby komórki, z której pochodzi wartość. Wiersz nie ma stałej wysokości.
+Resztki formatowania wzorca w tych komórkach nie zostają; kolumny dalej mają
+wygląd wzorca.
+_Avoid_: styl wiersza, formatowanie wiersza
 
 ## Ilości usług
 
@@ -174,7 +188,9 @@ czcionki, pogrubienie i kursywa. Przechodzi razem z wartością z Rejestru zlece
 do plików okresu, a z Pliku zbiorczego do Rozliczeń pracowników. Wyróżnienia
 zastępują wygląd komórki wzorca w całości: komórka bez Wyróżnień daje komórkę
 bez wypełnienia, z kolorem automatycznym, bez pogrubienia i bez kursywy. Krój i
-rozmiar czcionki nie są Wyróżnieniem i zawsze pochodzą z wzorca.
+rozmiar czcionki nie są Wyróżnieniem i pochodzą z wzorca (Wygląd Wiersza
+danych). Wyjątek: ADRES w Pliku zbiorczym ma zawsze żółte wypełnienie, bez
+względu na wypełnienie w Rejestrze.
 _Avoid_: formatowanie (szersze: obejmuje też krój, obramowania i formaty liczb)
 
 ## Hiperłącze

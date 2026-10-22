@@ -1,7 +1,7 @@
 """Plik zbiorczy z kopii Wzorca (ADR 0008) jest taki sam jak zapisany przez openpyxl.
 
 Test właściciel drogi kopii w Przygotowaniu pliku zbiorczego: obie drogi zapisu dają te same
-wartości, Wyróżnienia, formaty liczb, Hiperłącza, scalenia, autofiltr i odwołania zewnętrzne.
+wartości, Wygląd Wiersza danych, Hiperłącza, wysokości wierszy, scalenia, autofiltr i odwołania zewnętrzne.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from tests.fixtures.preparation import (
     run_preparation,
     write_collective_template,
 )
-from tests.fixtures.workbooks import active_worksheet, external_link_parts
+from tests.fixtures.workbooks import active_worksheet, external_link_parts, leave_data_row_leftovers
 
 
 def _synthetic(tmp_path: Path) -> PreparationFixture:
@@ -49,6 +49,12 @@ def _linked(tmp_path: Path) -> PreparationFixture:
 def _row_style(tmp_path: Path) -> PreparationFixture:
     fixture = make_preparation_fixture(tmp_path)
     write_collective_template(fixture.collective_template_path, row_style=True)
+    return fixture
+
+
+def _leftovers(tmp_path: Path) -> PreparationFixture:
+    fixture = make_preparation_fixture(tmp_path)
+    leave_data_row_leftovers(fixture.collective_template_path, first_row=18, rows=6, columns=12)
     return fixture
 
 
@@ -96,8 +102,10 @@ def _cells(path: Path) -> dict[str, object]:
             for cell in row
         }
         names = {name: str(value.attr_text) for name, value in sheet.defined_names.items()}
+        heights = {row: dimension.ht for row, dimension in sheet.row_dimensions.items()}
         return {
             **cells,
+            "wysokosci": heights,
             "autofiltr": sheet.auto_filter.ref,
             "scalenia": sorted(str(merged) for merged in sheet.merged_cells.ranges),
             "nazwy arkusza": names,
@@ -115,7 +123,8 @@ def _cells(path: Path) -> dict[str, object]:
         pytest.param(_linked, True, id="hiperlacza"),
         pytest.param(make_dad_layout_fixture, True, id="uklad-taty"),
         pytest.param(_synthetic, True, id="wzorce-ksztaltu-taty"),
-        pytest.param(_row_style, False, id="styl-wiersza-przez-openpyxl"),
+        pytest.param(_row_style, True, id="styl-wiersza"),
+        pytest.param(_leftovers, True, id="resztki-formatowania-wzorca"),
         pytest.param(_filter_name_ref_error, False, id="nazwa-filtra-ref-przez-openpyxl"),
     ],
 )

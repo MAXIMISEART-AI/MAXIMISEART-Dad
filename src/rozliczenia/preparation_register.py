@@ -54,12 +54,13 @@ class Column:
 
 
 DATE = Column("DATA GODZ. POCZ.", "DATA")
+ADDRESS = Column("ADRES", "ADRES")
 WORKER = Column("WYKONAWCA", "WYKONAWCA")
 SUCCESSFUL = Column("SKUTECZNE", "SKUTECZNE")
 COLUMNS: tuple[Column, ...] = (
     DATE,
     Column("MIASTO", "MIASTO"),
-    Column("ADRES", "ADRES"),
+    ADDRESS,
     Column("UMOWA", "UMOWA"),
     Column("URZĄDZENIA", "URZĄDZENIA"),
     Column("CZYNNOŚCI", "CZYNNOŚCI"),
@@ -73,9 +74,9 @@ COLUMNS: tuple[Column, ...] = (
 
 @dataclass(frozen=True)
 class CellFormat:
-    """Wyróżnienia komórki Rejestru przenoszone do plików okresu.
+    """Wyróżnienia i format liczby komórki Rejestru przenoszone do plików okresu.
 
-    Krój i rozmiar czcionki celowo nie są tu przechowywane: pochodzą z wzorca.
+    Krój i rozmiar czcionki celowo nie są tu przechowywane: pochodzą z nagłówka Wzorca (Wygląd Wiersza danych).
     """
 
     fill: Fill | None

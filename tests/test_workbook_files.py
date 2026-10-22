@@ -460,7 +460,8 @@ def _data_row(values: ExcelRow, **highlights: Highlights) -> DataRow:
     cells = [PLAIN] * 46
     for letter, cell in highlights.items():
         cells[_column_index(letter) - 1] = cell
-    return DataRow(18, values[7], values, tuple(cells))
+    number_formats = tuple("m/d/yy h:mm" if isinstance(value, (date, time)) else "General" for value in values[:12])
+    return DataRow(18, values[7], values, tuple(cells), number_formats)
 
 
 def _column_index(letter: str) -> int:
@@ -557,7 +558,7 @@ def _highlights(cell: Any) -> tuple[object, ...]:
 
 
 @pytest.mark.parametrize("template", ["maly", "z-powtorzona-czcionka", "syntetyczny"])
-def test_rozliczenie_pracownika_ma_wyroznienia_wierszy_danych_i_czcionke_wzorca_jak_plik_z_wzorca(
+def test_rozliczenie_pracownika_ma_wyroznienia_wierszy_danych_i_czcionke_naglowka_wzorca_jak_plik_z_wzorca(
     tmp_path: Path, template: str
 ) -> None:
     if template == "syntetyczny":
@@ -581,8 +582,9 @@ def test_rozliczenie_pracownika_ma_wyroznienia_wierszy_danych_i_czcionke_wzorca_
         assert _highlights(written["N18"]) == (None, None, Color(theme=1), False, True)
         assert _highlights(written["A19"]) == (None, None, None, False, False)
         assert (written["G18"].value, is_date_format(written["G18"].number_format)) == (datetime(2026, 9, 8), True)
+        # A w kolumnach wyglądu: krój nagłówka A17; N poza nimi: krój komórki Wzorca.
         assert [(written[cell].font.name, written[cell].font.sz) for cell in ("A18", "N18", "A19")] == [
-            (wzorzec[cell].font.name, wzorzec[cell].font.sz) for cell in ("A18", "N18", "A19")
+            (wzorzec[cell].font.name, wzorzec[cell].font.sz) for cell in ("A17", "N18", "A17")
         ]
     finally:
         saved.close()
@@ -601,8 +603,22 @@ def test_pusta_komorka_bez_wlasnego_stylu_za_wierszami_wzorca_ma_styl_kolumny_ja
     assert set(compare_worker_settlements(expected, created).values()) == {0}
 
 
+def _row_styles(path: Path, row: int, columns: range) -> dict[str, str | None]:
+    """Numer stylu (atrybut ``s``) każdej komórki wiersza ``row`` w kolumnach ``columns`` w XML arkusza."""
+
+    found = re.search(rf'<row r="{row}"[^>]*?(?:/>|>(.*?)</row>)', zip_part(path, "xl/worksheets/sheet1.xml"), re.S)
+    assert found is not None
+    cells = re.finditer(r'<c r="([A-Z]+)\d+"([^>]*?)/?>', found.group(1) or "")
+    styles = {cell.group(1): re.search(r'\ss="(\d+)"', cell.group(2)) for cell in cells}
+    return {
+        letter: None if style is None else style.group(1)
+        for letter, style in styles.items()
+        if _column_index(letter) in columns
+    }
+
+
 @pytest.mark.parametrize("template", ["maly", "syntetyczny"])
-def test_wyroznienia_takie_jak_we_wzorcu_zostawiaja_style_wzorca_bez_zmian(tmp_path: Path, template: str) -> None:
+def test_wyroznienia_takie_jak_we_wzorcu_zostawiaja_style_wzorca_poza_kolumnami_wygladu(tmp_path: Path, template: str) -> None:
     if template == "maly":
         template_path = linked_template(tmp_path / "Wzorzec.xlsx")
     else:
@@ -622,7 +638,9 @@ def test_wyroznienia_takie_jak_we_wzorcu_zostawiaja_style_wzorca_bez_zmian(tmp_p
 
     WorkerSettlementTemplate(template_path).create_settlement(target, [_data_row(_row(A="syntetyczne miasto", N=2), **same)])
 
-    assert zip_part(target, "xl/styles.xml") == zip_part(template_path, "xl/styles.xml")
+    beyond_look = range(13, 47)  # M:AT
+    assert _row_styles(target, 18, beyond_look) == _row_styles(template_path, 18, beyond_look)
+    assert _row_styles(template_path, 18, beyond_look)
 
 
 # Adresy, które aplikacja firmowa może dać w Rejestrze zleceń: znaki specjalne XML, fragment, spacje na brzegach, polskie znaki.
