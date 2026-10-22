@@ -213,7 +213,7 @@ def staging_left(message: Message, staging_prefix: str) -> Message:
         message,
         what=message.what.replace(_NOTHING_CREATED, _STAGING_LEFT),
         action=(
-            f"Usuń z Folderu okresu każdy folder, którego nazwa zaczyna się od {staging_prefix}. "
+            f"Usuń z Folderu okresu każdy folder, którego nazwa zaczyna się od „{staging_prefix}”. "
             "To foldery tymczasowe, nie Folder rozliczeń pracowników. "
             f"Jeśli któregoś nie daje się usunąć, odczekaj chwilę. {message.action}"
         ),

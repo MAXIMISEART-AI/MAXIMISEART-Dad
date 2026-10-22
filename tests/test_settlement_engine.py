@@ -814,7 +814,7 @@ def test_zatrzymanie_wskazuje_folder_tymczasowy_trzymany_przez_onedrive(
     assert message.code == code
     assert len(staging_left) == 1
     assert any(staging_left[0].iterdir())
-    assert f"zaczyna się od {staging_prefix}" in message.action
+    assert f"zaczyna się od „{staging_prefix}”" in message.action
     assert original_action in message.action
     assert "folder tymczasowy" in message.what
     assert "Nie utworzono żadnego pliku pracownika." not in message.what
