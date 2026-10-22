@@ -50,6 +50,11 @@ SUMMARY: dict[str, Any] = {
     ],
     "file_plan": None,
 }
+# Domyślny syntetyczny Rejestr ma w URZĄDZENIA tylko urządzenia nieznane Regułom ilości.
+QUANTITY_WARNINGS_WHERE = [
+    f"plik {COLLECTIVE_FILE_NAME}, wiersze 18, 19, 20",
+    f"plik {COLLECTIVE_FILE_NAME}, kolumny Y, AB, AD, AJ, AK, AL i AM",
+]
 
 
 def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu(tmp_path: Path) -> None:
@@ -67,7 +72,8 @@ def test_podglad_bez_zapisu_pokazuje_plan_i_nie_tworzy_plikow_ani_folderu_okresu
     assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "run")
     assert result["headline"] == "Podgląd gotowy · nic nie zapisano"
     assert result["summary"] == SUMMARY
-    assert (result["stops"], result["warnings"]) == ([], [])
+    assert result["stops"] == []
+    assert [warning["where"] for warning in result["warnings"]] == QUANTITY_WARNINGS_WHERE
     assert [(figure["label"], figure["unit"]) for figure in finished["progress"]["figures"]] == [
         ("Ostrzeżenia", "count"),
         ("Czas uruchomienia", "ms"),
@@ -84,9 +90,10 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
     result = finished_view(centrum.client)["result"]
     board = centrum.client.get("/api/periods").json()
 
-    assert (result["result"], result["next_action"]) == ("OK", "open_period_folder")
-    assert result["headline"] == "Plik zbiorczy przygotowany"
+    assert (result["result"], result["next_action"]) == ("WYMAGA_SPRAWDZENIA", "open_period_folder")
+    assert result["headline"] == "Plik zbiorczy przygotowany · wymaga sprawdzenia"
     assert result["summary"] == SUMMARY
+    assert [warning["where"] for warning in result["warnings"]] == QUANTITY_WARNINGS_WHERE
     assert sorted(path.name for path in centrum.fixture.period_directory.iterdir()) == [
         COLLECTIVE_FILE_NAME,
         INTERNAL_SETTLEMENT_NAME,
@@ -94,7 +101,11 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
     [row] = [row for row in board["periods"] if row["token"] == PERIOD]
     assert row["status_label"] == "Plik zbiorczy przygotowany"
     [record] = centrum.metric_records()
-    assert (record["mode"], record["result"], record["counters"]["successful_orders"]) == ("RUN", "OK", 3)
+    assert (record["mode"], record["result"], record["counters"]["successful_orders"]) == (
+        "RUN",
+        "WYMAGA_SPRAWDZENIA",
+        3,
+    )
 
 
 def awaiting_decision(tmp_path: Path) -> tuple[PreparingCentrum, dict[str, Any]]:
@@ -151,8 +162,9 @@ def test_kontynuuj_przy_niepelnym_okresie_publikuje_pliki_z_ostrzezeniem(tmp_pat
     result = finished_view(centrum.client)["result"]
 
     assert (decided.status_code, decided.json()["state"]) == (200, "running")
-    assert (result["result"], result["ending"]) == ("OK", "finished")
-    assert [warning["what"] for warning in result["warnings"]] == [view["decision"]["message"]["what"]]
+    assert (result["result"], result["ending"]) == ("WYMAGA_SPRAWDZENIA", "finished")
+    assert [warning["what"] for warning in result["warnings"]][:1] == [view["decision"]["message"]["what"]]
+    assert len(result["warnings"]) == 3
     assert result["summary"]["counts"] == {"title": "Zlecenia na dzień", "counts": INCOMPLETE_ORDERS_PER_DAY}
     assert centrum.fixture.collective_file_path.is_file()
     assert centrum.fixture.internal_settlement_path.is_file()
@@ -282,12 +294,12 @@ def test_strumien_pokazuje_etapy_po_kolei_z_licznikami_i_decyzja_miedzy_planowan
         ("running", (completed, completed, pending, pending), labels, 0),
         ("running", (completed, completed, running, pending), labels, 0),
         ("running", (completed, completed, completed, pending), labels, 0),
-        ("running", (completed, completed, completed, pending), labels, 1),
-        ("awaiting_decision", (completed, completed, completed, pending), labels, 1),
-        ("running", (completed, completed, completed, pending), labels, 1),
-        ("running", (completed, completed, completed, running), labels, 1),
-        ("running", (completed, completed, completed, completed), labels, 1),
-        ("finished", (completed, completed, completed, completed), labels, 1),
+        ("running", (completed, completed, completed, pending), labels, 3),
+        ("awaiting_decision", (completed, completed, completed, pending), labels, 3),
+        ("running", (completed, completed, completed, pending), labels, 3),
+        ("running", (completed, completed, completed, running), labels, 3),
+        ("running", (completed, completed, completed, completed), labels, 3),
+        ("finished", (completed, completed, completed, completed), labels, 3),
     ]
 
 
@@ -540,11 +552,11 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
 
     assert (running["state"], running["progress_stale"]) == ("running", True)
     assert finished["progress_stale"] is True
-    assert (result["result"], result["ending"]) == ("OK", "finished")
+    assert (result["result"], result["ending"]) == ("WYMAGA_SPRAWDZENIA", "finished")
     assert result["notices"] == ["Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."]
     assert centrum.fixture.collective_file_path.is_file()
     [record] = centrum.metric_records()
-    assert (record["result"], record["completed"]) == ("OK", True)
+    assert (record["result"], record["completed"]) == ("WYMAGA_SPRAWDZENIA", True)
 
 
 def test_zamkniecie_centrum_w_trakcie_uruchomienia_procesu_jest_odrzucone(tmp_path: Path) -> None:
@@ -577,7 +589,7 @@ def test_dziennik_centrum_ma_poczatek_i_koniec_uruchomienia_z_wynikiem_bez_danyc
     events = [line.split(" ", 1)[1] for line in log.splitlines()]
     assert events == [
         f"uruchomienie-start proces=preparation tryb=RUN okres={PERIOD}",
-        f"uruchomienie-koniec proces=preparation tryb=RUN okres={PERIOD} wynik=OK koniec=finished",
+        f"uruchomienie-koniec proces=preparation tryb=RUN okres={PERIOD} wynik=WYMAGA_SPRAWDZENIA koniec=finished",
     ]
     assert "SYN-" not in log
     assert str(centrum.fixture.periods_directory) not in log

@@ -165,7 +165,8 @@ def test_adres_hiperlacza_z_rejestru_nie_trafia_do_wyniku_przygotowania_ani_metr
 
     outputs = [_completed(*_preparation_arguments(fixture, *mode)) for mode in (("--dry-run",), ())]
 
-    assert [completed.returncode for completed in outputs] == [0, 0]
+    # Zapis z ostrzeżeniami ilości wymaga sprawdzenia (kod 2), podgląd z tymi samymi ostrzeżeniami jest OK.
+    assert [completed.returncode for completed in outputs] == [0, 2]
     assert hyperlinks(fixture.collective_file_path) == {"F18": links[4], "F19": links[9], "F20": links[13]}
     for completed in outputs:
         assert sentinel not in completed.stdout + completed.stderr
@@ -307,7 +308,8 @@ def test_podglad_przygotowania_pliku_zbiorczego_pokazuje_plan_bez_plikow_okresu(
 
     exit_code, result = _preparation(fixture, "--dry-run")
 
-    assert (exit_code, result["result"], result["stop"], result["warnings"]) == (0, "OK", None, [])
+    assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
+    assert [warning["code"] for warning in result["warnings"]] == ["NIEZNANE_URZADZENIA", "KOLUMNY_Z_OPISU"]
     figures = {figure["label"]: figure["value"] for figure in result["summary"]["figures"]}
     assert (figures["Zlecenia okresu"], figures["Zlecenia skuteczne"]) == (4, 3)
     assert result["summary"]["files"] == [

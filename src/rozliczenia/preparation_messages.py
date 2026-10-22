@@ -28,6 +28,14 @@ from .worker_config import WorkerConfigError
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
 TEMPLATE_MISSING = "BRAK_WZORCA"
 TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"
+# Ostrzeżenia ilości: Plik zbiorczy z nimi wymaga sprawdzenia, a skrypty, które czekają na Przygotowanie bez uwag,
+# przyjmują wynik wymagający sprawdzenia, gdy jedynym powodem są te ostrzeżenia.
+UNKNOWN_DEVICES = "NIEZNANE_URZADZENIA"
+ROWS_FROM_DESCRIPTION = "WIERSZE_Z_OPISU"
+COLUMNS_FROM_DESCRIPTION = "KOLUMNY_Z_OPISU"
+QUANTITY_WARNINGS: Final = frozenset({UNKNOWN_DEVICES, ROWS_FROM_DESCRIPTION, COLUMNS_FROM_DESCRIPTION})
+# Kolumny Ilości usług, których Reguły ilości nie wyznaczają z opisu technika (CZYNNOŚCI ZREALIZOWANE).
+_DESCRIPTION_COLUMNS: Final = ("Y", "AB", "AD", "AJ", "AK", "AL", "AM")
 
 # Napisy Decyzji taty o niepełnym okresie; jej Komunikat to ``incomplete_period``, odmowa ``incomplete_period_refused``.
 INCOMPLETE_PERIOD_TITLE: Final = "Ostrzeżenie: niepełny okres"
@@ -349,7 +357,7 @@ _LISTED_ROWS = 10
 
 
 def _rows_label(row_numbers: Sequence[int]) -> str:
-    """Numery wierszy Rejestru; przy długiej liście tylko pierwsze i liczba pozostałych."""
+    """Numery wierszy; przy długiej liście tylko pierwsze i liczba pozostałych."""
 
     if len(row_numbers) == 1:
         return f"wiersz {row_numbers[0]}"
@@ -517,6 +525,55 @@ def too_few_zero_rows(
         action=(
             "Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
             "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
+        ),
+    )
+
+
+def unknown_devices(collective_filename: str, row_numbers: Sequence[int]) -> Message:
+    """Ostrzeżenie: Reguły ilości nie znają składnika ``URZĄDZENIA``, więc wiersz ma tylko ilości od niego niezależne."""
+
+    return Message(
+        code=UNKNOWN_DEVICES,
+        what=(
+            "Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało "
+            "tylko ilości niezależne od urządzeń (V, T i N)."
+        ),
+        where=f"plik {collective_filename}, {_rows_label(row_numbers)}",
+        action=(
+            "Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe "
+            "urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie."
+        ),
+    )
+
+
+def rows_from_description(collective_filename: str, row_numbers: Sequence[int]) -> Message:
+    """Ostrzeżenie: wiersze rozliczane z opisu (prewencja, niedostępność usług, puste ``URZĄDZENIA``) bez ilości."""
+
+    return Message(
+        code=ROWS_FROM_DESCRIPTION,
+        what=(
+            "Te wiersze Pliku zbiorczego rozlicza się z opisu technika (prewencja, niedostępność usług albo puste "
+            "URZĄDZENIA), więc narzędzie nie wpisało w nich żadnych ilości."
+        ),
+        where=f"plik {collective_filename}, {_rows_label(row_numbers)}",
+        action=(
+            "Wpisz ilości w tych wierszach według opisu technika w CZYNNOŚCI ZREALIZOWANE przed Przebiegiem "
+            "rozliczeń."
+        ),
+    )
+
+
+def columns_from_description(collective_filename: str) -> Message:
+    """Ostrzeżenie zawsze po Planowaniu: kolumn z opisu technika Reguły ilości nie wypełniają."""
+
+    columns = ", ".join(_DESCRIPTION_COLUMNS[:-1]) + f" i {_DESCRIPTION_COLUMNS[-1]}"
+    return Message(
+        code=COLUMNS_FROM_DESCRIPTION,
+        what="Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.",
+        where=f"plik {collective_filename}, kolumny {columns}",
+        action=(
+            "Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed "
+            "Przebiegiem rozliczeń."
         ),
     )
 

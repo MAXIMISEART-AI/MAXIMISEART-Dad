@@ -113,6 +113,15 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.too_few_zero_rows(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", 7, 6, 24),
         lambda: messages.too_few_zero_rows(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", 9, 6, 24),
     ],
+    "unknown_devices": [
+        lambda: messages.unknown_devices(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [19]),
+        lambda: messages.unknown_devices(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", list(range(18, 30))),
+    ],
+    "rows_from_description": [
+        lambda: messages.rows_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [20]),
+        lambda: messages.rows_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [20, 21, 23]),
+    ],
+    "columns_from_description": [lambda: messages.columns_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx")],
     "incomplete_period": [
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],

@@ -52,8 +52,8 @@ def execute(_inputs: Inputs, observer: ProgressObserver, _conversation: Conversa
     return all_phases(observer)
 
 
-def finished_with(result: str) -> Callable[[Durations], Finished]:
-    def finished(durations: Durations) -> Finished:
+def finished_with(result: str) -> Callable[[Inputs, Durations], Finished]:
+    def finished(_inputs: Inputs, durations: Durations) -> Finished:
         return Finished(
             result=result,  # type: ignore[arg-type]  # parametr testu: "OK" albo "WYMAGA_SPRAWDZENIA"
             counters={"items": 1},
