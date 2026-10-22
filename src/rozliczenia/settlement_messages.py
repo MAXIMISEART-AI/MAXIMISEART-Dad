@@ -8,6 +8,7 @@ pliku, folder okresu, kolumnę albo Wykonawcę z konfiguracji wykonawców.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Final
 
@@ -17,6 +18,7 @@ from .workbook_files import WORKER_HEADER
 from .worker_config import WorkerConfigError
 
 _NOTHING_CREATED: Final = "Nie utworzono żadnego pliku pracownika."
+_STAGING_LEFT: Final = "W Folderze okresu został folder tymczasowy, którego nie udało się usunąć."
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
@@ -105,7 +107,7 @@ def worker_settlements_exist(target_directory: Path) -> Message:
         where=folder_label(target_directory),
         action=(
             "Sprawdź, czy wybrano właściwy okres. Rozliczenia pracowników tego okresu już są w Folderze okresu. "
-            "Jeśli trzeba je utworzyć od nowa, najpierw przenieś ten folder poza Folder okresu i uruchom ponownie."
+            "Jeśli trzeba je utworzyć od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu i uruchom ponownie."
         ),
     )
 
@@ -196,6 +198,25 @@ def write_failed(target_directory: Path) -> Message:
         what=f"Nie można przygotować Folderu rozliczeń pracowników. {_NOTHING_CREATED}",
         where=folder_label(target_directory),
         action=f"Sprawdź, czy Folder okresu jest dostępny. {_RETRY}",
+    )
+
+
+def staging_left(message: Message, staging_prefix: str) -> Message:
+    """Zatrzymanie ``message``, po którym w Folderze okresu został folder tymczasowy.
+
+    Folderu nie dało się usunąć, np. bo jego pliki trzyma OneDrive. Komunikat
+    podaje stały początek nazwy, a nie losową nazwę folderu, żeby ten sam
+    problem w kolejnym Uruchomieniu miał ten sam odcisk problemu (Powtórka).
+    """
+
+    return replace(
+        message,
+        what=message.what.replace(_NOTHING_CREATED, _STAGING_LEFT),
+        action=(
+            f"Usuń z Folderu okresu każdy folder, którego nazwa zaczyna się od „{staging_prefix}”. "
+            "To foldery tymczasowe, nie Folder rozliczeń pracowników. "
+            f"Jeśli któregoś nie daje się usunąć, odczekaj chwilę. {message.action}"
+        ),
     )
 
 

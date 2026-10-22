@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import os
 import shutil
+import tempfile
 from pathlib import Path
 import time
 from collections.abc import Callable, Iterable
@@ -24,8 +25,10 @@ from rozliczenia.domain import (
     WorkerResult,
     WorkerStarted,
 )
+from rozliczenia.centrum.stops import StopMemory
 from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
+from rozliczenia.process_run import Stop
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
 from rozliczenia.workbook_files import DataRow, Layout, WorkerSettlementTemplate, file_from_template, read_data_rows
@@ -705,6 +708,135 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
     assert sorted(path.name for path in target_directory.parent.iterdir()) == [SOURCE_NAME]
     assert worker_template_path.read_bytes() == worker_template_before
+
+
+def fail_renaming_staging_folder(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
+    real_rename = os.rename
+
+    def rename(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(source).name.startswith(f".{target_directory.name}.staging-"):
+            raise PermissionError("wymuszony: Windows nie zmienia nazwy folderu z otwartym plikiem")
+        real_rename(source, target)
+
+    monkeypatch.setattr(os, "rename", rename)
+
+
+def fail_saving_second_worker_file(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
+    real_replace = os.replace
+    saved: list[str] = []
+
+    def replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).suffix == ".xlsx":
+            saved.append(Path(target).name)
+            if len(saved) == 2:
+                raise OSError("wymuszony: zapis drugiego pliku pracownika")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def create_worker_settlements_folder_while_saving(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
+    real_mkstemp = tempfile.mkstemp
+
+    def mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
+        if not target_directory.exists():
+            target_directory.mkdir()
+            (target_directory / "existing.txt").write_text("zachowaj", encoding="utf-8")
+        return real_mkstemp(*args, **kwargs)  # type: ignore[call-overload,no-any-return]
+
+    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+
+
+def test_nieudana_publikacja_folderu_rozliczen_pracownikow_zatrzymuje_kodem_publikacji(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    fail_renaming_staging_folder(monkeypatch, target_directory)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert raised.value.message.code == "BLAD_PUBLIKACJI"
+    assert not target_directory.exists()
+    assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
+def hold_worker_files_like_onedrive(monkeypatch: pytest.MonkeyPatch, refuses_permission_change: bool) -> None:
+    worker_file_prefix = f"Rozliczenie {PERIOD} - "
+    real_unlink, real_chmod = os.unlink, os.chmod
+
+    def unlink(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if Path(path).name.startswith(worker_file_prefix):
+            raise PermissionError("wymuszony: plik pracownika trzyma OneDrive")
+        real_unlink(path, **kwargs)  # type: ignore[arg-type]
+
+    def chmod(path: str | os.PathLike[str], mode: int, **kwargs: object) -> None:
+        if refuses_permission_change:
+            raise PermissionError("wymuszony: OneDrive nie pozwala zmienić uprawnień")
+        real_chmod(path, mode, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    monkeypatch.setattr(os, "chmod", chmod)
+
+
+@pytest.mark.parametrize(
+    ("failure", "code", "original_action"),
+    [
+        (fail_renaming_staging_folder, "BLAD_PUBLIKACJI", "Sprawdź, czy Folder okresu jest dostępny."),
+        (fail_saving_second_worker_file, "BLAD_SZABLONU_PRACOWNIKA", "Uruchom ponownie."),
+        (
+            create_worker_settlements_folder_while_saving,
+            "FOLDER_ROZLICZEN_ISTNIEJE",
+            "przenieś Folder rozliczeń pracowników poza Folder okresu",
+        ),
+    ],
+    ids=["publikacja", "zapis-drugiego-pracownika", "folder-rozliczen-powstal-w-trakcie"],
+)
+@pytest.mark.parametrize("refuses_permission_change", [False, True], ids=["usuwanie", "usuwanie-i-zmiana-uprawnien"])
+def test_zatrzymanie_wskazuje_folder_tymczasowy_trzymany_przez_onedrive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Callable[[pytest.MonkeyPatch, Path], None],
+    code: str,
+    original_action: str,
+    refuses_permission_change: bool,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    failure(monkeypatch, target_directory)
+    hold_worker_files_like_onedrive(monkeypatch, refuses_permission_change)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    message = raised.value.message
+    staging_prefix = f".{target_directory.name}.staging-"
+    staging_left = list(target_directory.parent.glob(f"{staging_prefix}*"))
+    assert message.code == code
+    assert len(staging_left) == 1
+    assert any(staging_left[0].iterdir())
+    assert f"zaczyna się od „{staging_prefix}”" in message.action
+    assert original_action in message.action
+    assert "folder tymczasowy" in message.what
+    assert "Nie utworzono żadnego pliku pracownika." not in message.what
+    assert not target_directory.exists() or [path.name for path in target_directory.iterdir()] == ["existing.txt"]
+
+
+def test_ponowna_nieudana_publikacja_z_folderem_tymczasowym_jest_powtorka(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    fail_renaming_staging_folder(monkeypatch, target_directory)
+    hold_worker_files_like_onedrive(monkeypatch, refuses_permission_change=False)
+    stops: list[Stop] = []
+    for _ in range(2):
+        with pytest.raises(StopError) as raised:
+            run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+        stops.append(Stop("stop", raised.value.message))
+    memory = StopMemory()
+    memory.remember("settlement", stops[0])
+
+    assert len(list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))) == 2
+    assert memory.kind("settlement", stops[1]) == "repeated"
 
 
 def test_folder_rozliczen_pracownikow_utworzony_w_trakcie_zapisywania_nie_jest_nadpisywany(complete_run: tuple[Path, Path, Path, Path]) -> None:
