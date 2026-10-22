@@ -30,7 +30,9 @@ from tests.fixtures.workbooks import (
     external_link_parts,
     has_xml_comment,
     leave_data_row_leftovers,
+    marked_for_copy,
     refused_by_copy,
+    written_by_copy,
 )
 
 
@@ -139,7 +141,8 @@ def test_plik_zbiorczy_z_kopii_wzorca_jest_taki_jak_z_openpyxl(
     (tmp_path / "openpyxl").mkdir()
     by_copy = make_fixture(tmp_path / "kopia")
     by_openpyxl = make_fixture(tmp_path / "openpyxl")
-    refused_by_copy(by_openpyxl.collective_template_path)
+    marked_for_copy(by_copy.collective_template_path)
+    refused_by_copy(marked_for_copy(by_openpyxl.collective_template_path))
     run_preparation(by_copy)
     run_preparation(by_openpyxl)
 
@@ -149,6 +152,7 @@ def test_plik_zbiorczy_z_kopii_wzorca_jest_taki_jak_z_openpyxl(
     with zipfile.ZipFile(by_copy.collective_template_path) as archive:
         template_has_calc_chain = "xl/calcChain.xml" in archive.namelist()
 
+    assert written_by_copy(created) == copied
     assert not has_xml_comment(reference)
     assert _cells(created) == _cells(reference)
     assert external_link_parts(created) == external_link_parts(reference)

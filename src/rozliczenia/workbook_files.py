@@ -1,14 +1,14 @@
 """Skoroszyty na dysku: otwarcie z jedną klasyfikacją uszkodzeń, układ arkusza i plik z Wzorca.
 
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
-zbiorczy (``read_data_rows``, z Wyróżnieniami i Hiperłączami komórek), Rejestr zleceń
-(``read_workbook``, z formatem i Hiperłączami komórek), Wzorce do Sprawdzania i dla
-Przygotowania pliku zbiorczego (``read_template_outline``, ``CollectiveFileTemplate``, ``file_from_template``)
-oraz Wzorzec rozliczenia pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
-pracowników (``WorkerSettlementTemplate``). Otwarcie
-sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
-``WorkbookError`` z powodem. Moduł nie zna Komunikatów: proces tłumaczy powód
-na Komunikat ze swojego katalogu.
+zbiorczy (``read_data_rows``) i Rejestr zleceń (``read_workbook``) dają Wiersze
+danych z Wyróżnieniami, formatami liczb i Hiperłączami komórek (``DataRow``), a
+Wzorzec każdego z trzech plików (``Layout``: Rozliczenie pracownika, Plik zbiorczy,
+Rozliczenie wewnętrzne) jest sprawdzany, planowany i wypełniany Wierszami danych
+przez ``TemplateFile``. Otwarcie sprawdza dostępność i klasyfikuje każde
+uszkodzenie, a problem zgłasza jako ``WorkbookError`` z powodem, przy złym układzie
+z jego miejscem. Moduł nie zna Komunikatów: proces tłumaczy powód na Komunikat ze
+swojego katalogu.
 
 Moduł jest właścicielem układu arkusza Pliku zbiorczego, wspólnego dla Wzorca
 pliku zbiorczego, Wzorca rozliczenia pracownika i Szablonów pracowników:
@@ -46,7 +46,7 @@ from openpyxl.cell.rich_text import CellRichText
 from openpyxl.styles.fills import Fill
 from openpyxl.styles.fonts import Font
 from openpyxl.utils import get_column_letter
-from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.utils.exceptions import IllegalCharacterError, InvalidFileException
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.cell_range import CellRange, MultiCellRange
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
@@ -206,31 +206,42 @@ class Layout(Enum):
     """Plik, który powstaje z Wzorca, i wszystko, czym jego zapis różni się od pozostałych."""
 
     WORKER_SETTLEMENT = _Rules(
-        HEADER_ROW,
-        FIRST_DATA_ROW,
-        _INPUT_COLUMNS[-1],
+        header_row=HEADER_ROW,
+        first_data_row=FIRST_DATA_ROW,
+        last_header_column=_INPUT_COLUMNS[-1],
         worker_header=True,
-        copy=SheetLayout(HEADER_ROW, FIRST_DATA_ROW, _INPUT_COLUMNS[-1], DATA_ROW_COLUMNS[-1], _LOOK_COLUMNS[-1]),
+        copy=SheetLayout(
+            header_row=HEADER_ROW,
+            first_data_row=FIRST_DATA_ROW,
+            input_columns=_INPUT_COLUMNS[-1],
+            data_columns=DATA_ROW_COLUMNS[-1],
+            look_columns=_LOOK_COLUMNS[-1],
+        ),
         recalculate=True,
         look_columns=_LOOK_COLUMNS[-1],
         period_file=False,
     )
     COLLECTIVE_FILE = _Rules(
-        HEADER_ROW,
-        FIRST_DATA_ROW,
-        _INPUT_COLUMNS[-1],
+        header_row=HEADER_ROW,
+        first_data_row=FIRST_DATA_ROW,
+        last_header_column=_INPUT_COLUMNS[-1],
         worker_header=True,
         copy=SheetLayout(
-            HEADER_ROW, FIRST_DATA_ROW, _INPUT_COLUMNS[-1], _INPUT_COLUMNS[-1], _LOOK_COLUMNS[-1], collective_file=True
+            header_row=HEADER_ROW,
+            first_data_row=FIRST_DATA_ROW,
+            input_columns=_INPUT_COLUMNS[-1],
+            data_columns=_INPUT_COLUMNS[-1],
+            look_columns=_LOOK_COLUMNS[-1],
+            collective_file=True,
         ),
         recalculate=True,
         look_columns=_LOOK_COLUMNS[-1],
         period_file=True,
     )
     INTERNAL_SETTLEMENT = _Rules(
-        1,
-        2,
-        None,
+        header_row=1,
+        first_data_row=2,
+        last_header_column=None,
         worker_header=False,
         copy=None,
         recalculate=False,
@@ -259,7 +270,7 @@ class DataRow:
 
     @property
     def worker(self) -> _ExcelCellValue:
-        """Surowa wartość WYKONAWCA: kolumna H Pliku zbiorczego, w Rejestrze ósma przenoszona kolumna."""
+        """Surowa wartość WYKONAWCA z kolumny H Pliku zbiorczego."""
 
         return self.values[_WORKER_COLUMN - 1]
 
@@ -690,7 +701,7 @@ class TemplateFile:
         danych (``row_look``), a dalej Wyróżnienia na czcionce i wypełnieniu komórki Wzorca. Formuły,
         ``calcChain`` kopii, reszta formatowania i ``xl/externalLinks/*`` zostają z Wzorca. ``WorkbookError``,
         gdy Wzorca nie da się już użyć, brak nagłówka albo komórki zapisu pliku okresu są scalone;
-        ``WorkbookSaveError``, gdy zapis się nie uda. W obu przypadkach ``target`` nie powstaje.
+        ``WorkbookSaveError``, gdy zapis się nie uda, także przez znak niedozwolony w XML. W obu przypadkach ``target`` nie powstaje.
         """
 
         if not self._read_for_files:
@@ -742,7 +753,8 @@ class TemplateFile:
 
     @contextmanager
     def _openpyxl_workbook(self) -> Iterator[Workbook]:
-        """Dawna droga (ADR 0008): pełne wczytanie Wzorca przez openpyxl z jego klasyfikacją uszkodzeń."""
+        """Pełne wczytanie Wzorca przez openpyxl z jego klasyfikacją uszkodzeń: jedyna droga Rozliczenia wewnętrznego,
+        a dla pozostałych Wzorców droga, gdy kopia nie przyjmuje ich kształtu (ADR 0008)."""
 
         workbook = _open(self.path, BytesIO(self._loaded()), read_only=False)
         try:
@@ -759,7 +771,10 @@ class TemplateFile:
                 _ensure_unmerged(self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules, columns, len(rows))
             else:
                 self._check_settlement_template(sheet.title, header, self._has_input_data(sheet))
-            _write_rows(sheet, self._rules, rows, columns)
+            try:
+                _write_rows(sheet, self._rules, rows, columns)
+            except IllegalCharacterError as exc:
+                raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
             if self._rules.recalculate:
                 _request_full_recalculation(workbook)
             _save_atomically(workbook, target, _read_external_link_parts(BytesIO(self._loaded()), self.path.name))
@@ -781,8 +796,7 @@ class TemplateFile:
     def _check_settlement_template(self, sheet: str, header: Sequence[object], has_input_data: bool) -> None:
         """Kontrole Szablonu pracownika na Wzorcu: WYKONAWCA w H17, potem brak wartości w Wierszach danych."""
 
-        if self._rules.worker_header:
-            _check_worker_header(self.path, sheet, header)
+        _check_worker_header(self.path, sheet, header)
         if has_input_data:
             raise WorkbookError(self.path, Problem.HAS_DATA)
 
@@ -943,21 +957,14 @@ def _request_full_recalculation(workbook: Workbook) -> None:
         calculation.forceFullCalc = True
 
 
-def save_workbook(
-    workbook: Workbook,
-    target: Path,
-    *,
-    external_links_from: Path | None = None,
-) -> None:
-    """Atomowo zapisuje skoroszyt, zachowując 1:1 jego odwołania zewnętrzne.
+def save_workbook(workbook: Workbook, target: Path) -> None:
+    """Atomowo zapisuje skoroszyt pod istniejący ``target``, zachowując 1:1 jego odwołania zewnętrzne.
 
-    openpyxl nie zapisuje wiernie części ``xl/externalLinks/*``, więc są one
-    kopiowane bajtowo z ``external_links_from`` (domyślnie z ``target``, który
-    musi wtedy istnieć). ``target`` zmienia się dopiero po udanym zapisie całości.
+    openpyxl nie zapisuje wiernie części ``xl/externalLinks/*``, więc są one kopiowane bajtowo z
+    ``target``. ``target`` zmienia się dopiero po udanym zapisie całości.
     """
 
-    links_source = external_links_from if external_links_from is not None else target
-    _save_atomically(workbook, target, _read_external_link_parts(links_source, links_source.name))
+    _save_atomically(workbook, target, _read_external_link_parts(target, target.name))
 
 
 def _read_external_link_parts(source: Path | IO[bytes], name: str) -> _ExternalLinkParts:

@@ -238,19 +238,53 @@ def without_sheet(path: Path) -> None:
     )
 
 
+_REFUSED = b"<!-- openpyxl -->"
+_COPIED = b"<!-- kopia -->"
+
+
+def _rewrite_worksheets(path: Path, change: Callable[[bytes], bytes]) -> None:
+    """Zmienia XML każdego arkusza; każdy musi się zmienić, więc znacznik trafia też do aktywnego."""
+
+    unchanged: list[str] = []
+
+    def each(name: str, data: bytes) -> bytes:
+        if not (name.startswith("xl/worksheets/") and name.endswith(".xml")):
+            return data
+        changed = change(data)
+        if changed == data:
+            unchanged.append(name)
+        return changed
+
+    rewrite_parts(path, each)
+    assert not unchanged, f"arkusze bez znacznika w {path.name}: {unchanged}"
+
+
 def refused_by_copy(path: Path) -> Path:
     """Bliźniak Wzorca, którego kopia (ADR 0008) nie przyjmuje: komentarz XML w danych każdego arkusza.
 
-    openpyxl pomija komentarz, więc z bliźniaka plik powstaje drogą openpyxl, a z oryginału kopią.
+    openpyxl pomija komentarz, więc z bliźniaka plik powstaje drogą openpyxl.
     """
 
-    rewrite_parts(
-        path,
-        lambda name, data: data.replace(b"<sheetData>", b"<sheetData><!-- openpyxl -->", 1)
-        if name.startswith("xl/worksheets/")
-        else data,
-    )
+    def change(data: bytes) -> bytes:
+        empty = re.sub(rb"<sheetData\s*/>", b"<sheetData>" + _REFUSED + b"</sheetData>", data, count=1)
+        return empty if empty != data else data.replace(b"<sheetData>", b"<sheetData>" + _REFUSED, 1)
+
+    _rewrite_worksheets(path, change)
     return path
+
+
+def marked_for_copy(path: Path) -> Path:
+    """Wzorzec ze znacznikiem za danymi każdego arkusza: kopia przepisuje go bajt w bajt, openpyxl pomija."""
+
+    _rewrite_worksheets(path, lambda data: data.replace(b"</worksheet>", _COPIED + b"</worksheet>", 1))
+    return path
+
+
+def written_by_copy(path: Path) -> bool:
+    """Plik z Wzorca oznaczonego ``marked_for_copy`` powstał kopią, a nie drogą openpyxl."""
+
+    with zipfile.ZipFile(path) as archive:
+        return any(_COPIED in archive.read(name) for name in archive.namelist() if name.startswith("xl/worksheets/"))
 
 
 def has_xml_comment(path: Path) -> bool:

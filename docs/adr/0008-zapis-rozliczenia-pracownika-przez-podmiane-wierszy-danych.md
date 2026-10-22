@@ -323,10 +323,13 @@ Skutki dla plików:
   wypełnienia. W Excelu obie wyglądają tak samo.
 - Rozliczenie wewnętrzne i Plik zbiorczy drogą openpyxl: to, co widać w Excelu,
   bez zmian, z tym samym wyjątkiem.
-- Wartość, której nie da się zapisać w XML, zatrzymuje zapis Pliku zbiorczego
-  tak jak zapis Rozliczenia pracownika (`WorkbookSaveError`), zamiast iść drogą
-  openpyxl, która kończyła się nieoczekiwanym wyjątkiem. Odczyt Rejestru przez
-  openpyxl takich wartości nie daje.
+- Znak niedozwolony w XML zatrzymuje zapis każdego pliku z Wzorca tym samym
+  błędem `WorkbookSaveError` na obu drogach. Dotąd kopia Pliku zbiorczego
+  wracała wtedy do openpyxl, a droga openpyxl (zawsze w Rozliczeniu
+  wewnętrznym) kończyła się nieoczekiwanym wyjątkiem. Przygotowanie zatrzymuje
+  się teraz z `BLAD_ZAPISU`, Przebieg rozliczeń jak dotąd z
+  `BLAD_SZABLONU_PRACOWNIKA`. Odczyt Rejestru i Pliku zbiorczego przez openpyxl
+  takich wartości nie daje.
 
 Na kopiach danych taty (31 okresów z obu Rejestrów, wszystkie, z których
 Przygotowanie zapisuje pliki) Pliki zbiorcze i Rozliczenia pracowników po tej
