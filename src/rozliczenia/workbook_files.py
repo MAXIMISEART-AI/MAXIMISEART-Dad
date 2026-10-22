@@ -3,8 +3,8 @@
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
 zbiorczy (``read_data_rows``, z Wyróżnieniami i Hiperłączami komórek), Rejestr zleceń
 (``read_workbook``, z formatem i Hiperłączami komórek), Wzorce do Sprawdzania i dla
-Przygotowania pliku zbiorczego (``read_template_outline``, ``file_from_template``) oraz Wzorzec rozliczenia
-pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
+Przygotowania pliku zbiorczego (``read_template_outline``, ``CollectiveFileTemplate``, ``file_from_template``)
+oraz Wzorzec rozliczenia pracownika, który Przebieg rozliczeń sprawdza i z którego tworzy Rozliczenia
 pracowników (``WorkerSettlementTemplate``). Otwarcie
 sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
 ``WorkbookError`` z powodem. Moduł nie zna Komunikatów: proces tłumaczy powód
@@ -35,6 +35,7 @@ from decimal import Decimal
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
+from types import MappingProxyType
 from typing import IO, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 from xml.parsers import expat
@@ -96,6 +97,14 @@ _WORKER_SETTLEMENT_LAYOUT = SheetLayout(
     input_columns=_INPUT_COLUMNS[-1],
     data_columns=DATA_ROW_COLUMNS[-1],
 )
+_COLLECTIVE_FILE_LAYOUT = SheetLayout(
+    header_row=HEADER_ROW,
+    first_data_row=FIRST_DATA_ROW,
+    input_columns=_INPUT_COLUMNS[-1],
+    data_columns=_INPUT_COLUMNS[-1],
+    collective_file=True,
+)
+_TEMPLATE_NUMBER_FORMATS: Mapping[int, str] = MappingProxyType({})
 
 
 _ExcelCellValue = (
@@ -193,6 +202,22 @@ class DataRow:
     """Wyróżnienia komórek A:AT, po pozycji jak ``values``."""
     hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
     """Hiperłącza komórek A:AT z wartością: kolumna od 1 → Hiperłącze."""
+
+    @property
+    def number_formats(self) -> Mapping[int, str]:
+        """Rozliczenie pracownika ma formaty liczb Wzorca rozliczenia pracownika."""
+
+        return _TEMPLATE_NUMBER_FORMATS
+
+
+@dataclass(frozen=True)
+class CollectiveFileRow:
+    """Wiersz danych Pliku zbiorczego z Przygotowania: wartości, Wyróżnienia, Hiperłącza i formaty liczb A:K z Rejestru."""
+
+    values: tuple[object, ...]
+    highlights: tuple[Highlights, ...]
+    hyperlinks: Mapping[int, Hyperlink]
+    number_formats: Mapping[int, str]
 
 
 @dataclass(frozen=True)
@@ -667,6 +692,51 @@ def file_from_template(template: Path, target: Path, layout: Layout, *, recalcul
         save_workbook(workbook, target, external_links_from=template)
     finally:
         workbook.close()
+
+
+class CollectiveFileTemplate:
+    """Wzorzec pliku zbiorczego wczytany jako bajty do zapisu Pliku zbiorczego kopią (ADR 0008).
+
+    Kopia zmienia tylko wpisane komórki A:K Wierszy danych, autofiltr i style, które te komórki dopisują.
+    Wzorzec, którego kształtu kopia nie obsługuje, zapisuje ``file_from_template`` przez openpyxl.
+    """
+
+    def __init__(self, path: Path, template_copy: TemplateCopy) -> None:
+        self._path = path
+        self._copy = template_copy
+
+    @classmethod
+    def read(cls, path: Path) -> CollectiveFileTemplate | None:
+        """``WorkbookError``, gdy Wzorca brak, jest otwarty w Excelu albo nieczytelny; ``None``: kształt dla openpyxl."""
+
+        ensure_available(path)
+        if path.suffix.lower() not in _WORKBOOK_SUFFIXES:
+            raise WorkbookError(path, Problem.UNREADABLE)
+        with _unreadable_as_error(path):
+            content = path.read_bytes()
+        try:
+            return cls(path, TemplateCopy.of(content, _COLLECTIVE_FILE_LAYOUT))
+        except UnsupportedShape:
+            return None
+
+    @property
+    def header(self) -> list[object]:
+        """Wartości wiersza nagłówka w kolumnach A:K."""
+
+        return self._copy.header
+
+    def create(self, target: Path, rows: Sequence[CollectiveFileRow]) -> bool:
+        """Zapisuje atomowo Plik zbiorczy z ``rows`` od wiersza 18; ``False``: wiersze wymagają drogi przez openpyxl.
+
+        Nieudany zapis to ``WorkbookSaveError``; ``target`` wtedy nie powstaje.
+        """
+
+        try:
+            package = self._copy.with_rows(rows)
+        except (UnsupportedShape, InvalidValue):
+            return False
+        _write_atomically(target, _package_writer(package, target))
+        return True
 
 
 class WorkerSettlementTemplate:

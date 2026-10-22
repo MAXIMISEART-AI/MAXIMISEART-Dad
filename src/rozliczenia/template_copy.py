@@ -1,7 +1,8 @@
 """Kopia skoroszytu Wzorca z podmienionymi Wierszami danych, bez wczytywania przez openpyxl (ADR 0008).
 
-Moduł jest szczegółem ``workbook_files.WorkerSettlementTemplate`` i nikt poza nim
-go nie używa. ``TemplateCopy.of`` czyta bajty Wzorca raz: rozpakowuje części zip,
+Moduł jest szczegółem ``workbook_files.WorkerSettlementTemplate`` i
+``workbook_files.CollectiveFileTemplate`` i nikt poza nimi go nie używa.
+``TemplateCopy.of`` czyta bajty Wzorca raz: rozpakowuje części zip,
 sprawdza, że każda część XML jest poprawnym XML-em, indeksuje wiersze XML
 aktywnego arkusza i liczy kontrole Szablonu pracownika (nagłówek, dane w
 Wierszach danych); na tym opiera się Sprawdzanie Wzorca. Arkusz jest kompresowany
@@ -23,6 +24,9 @@ składa z tego jedną kopię:
   gotowe kawałki z pierwszej kopii;
 - ``calcPr`` w ``xl/workbook.xml`` dostaje ``calcMode="auto"``, ``fullCalcOnLoad="1"``
   i ``forceFullCalc="1"``, jak przy zapisie przez openpyxl;
+- Plik zbiorczy (``SheetLayout.collective_file``) dostaje też format liczby każdej wpisanej
+  komórki z wiersza (``Row.number_formats``), element ``autoFilter`` na nagłówek i wpisane
+  wiersze oraz ten sam zakres w nazwie ``_xlnm._FilterDatabase`` w ``xl/workbook.xml``;
 - Hiperłącza wpisanych komórek trafiają do jednego bloku ``<hyperlinks>`` w miejscu,
   które wyznacza mu schemat arkusza, a ich relacje są dopisywane na końcu relacji
   arkusza pod numerami ``rId`` za najwyższym we Wzorcu; Wzorzec bez relacji arkusza
@@ -31,9 +35,10 @@ składa z tego jedną kopię:
 
 Wzorzec, którego kształtu ten moduł nie obsługuje (np. formuła w kolumnach Wiersza
 danych, scalenie w Wierszach danych, własne hiperłącza arkusza, XML z prefiksami albo
-bez atrybutów ``r``, uszkodzona część XML), zgłasza ``UnsupportedShape``; tak samo
-wartość, której typu moduł nie zapisuje. Wtedy ``workbook_files`` sprawdza Wzorzec i tworzy Rozliczenie
-pracownika dawną drogą przez openpyxl, z jej klasyfikacją uszkodzeń.
+bez atrybutów ``r``, uszkodzona część XML, a w Pliku zbiorczym brak autofiltra albo
+wpisana komórka bez stylu w wierszu lub kolumnie ze stylem), zgłasza ``UnsupportedShape``;
+tak samo wartość, której typu moduł nie zapisuje. Wtedy ``workbook_files`` sprawdza Wzorzec
+i tworzy plik dawną drogą przez openpyxl, z jej klasyfikacją uszkodzeń.
 Wartość, której nie da się zapisać w ogóle (znak niedozwolony w XML, data ze
 strefą czasową), to ``InvalidValue``.
 """
@@ -69,7 +74,7 @@ from openpyxl.styles.numbers import (
 )
 from openpyxl.styles.fills import Fill, PatternFill
 from openpyxl.styles.fonts import Font
-from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
+from openpyxl.utils.cell import absolute_coordinate, column_index_from_string, get_column_letter, range_boundaries
 from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, to_excel
 
 from .highlights import Highlights
@@ -213,6 +218,11 @@ class Row(Protocol):
         """Kolumna od 1 → Hiperłącze; tylko komórki z wartością."""
         ...
 
+    @property
+    def number_formats(self) -> Mapping[int, str]:
+        """Kolumna od 1 → format liczby, który zastępuje format komórki Wzorca; bez wpisu format zostaje z Wzorca."""
+        ...
+
 
 @dataclass(frozen=True)
 class SheetLayout:
@@ -222,6 +232,9 @@ class SheetLayout:
     first_data_row: int
     input_columns: int
     data_columns: int
+    collective_file: bool = False
+    """Plik zbiorczy z Przygotowania: autofiltr obejmuje nagłówek i wpisane wiersze, a wpisana komórka bez stylu
+    dostaje styl wiersza albo kolumny, czego kopia nie robi (``UnsupportedShape``)."""
 
 
 class TemplateCopy:
@@ -233,11 +246,13 @@ class TemplateCopy:
         sheet: _Sheet,
         styles: _Styles,
         sheet_rels: _SheetRels,
+        filter_name: _FilterName | None,
         header: list[object],
         has_input_data: bool,
     ) -> None:
-        self._parts = parts  # ``None``: miejsce arkusza albo stylów, składanych dla każdej kopii
+        self._parts = parts  # ``None``: miejsce arkusza, stylów albo skoroszytu, składanych dla każdej kopii
         self._sheet = sheet
+        self._filter_name = filter_name
         self._styles = styles
         self._sheet_rels = sheet_rels
         self.header = header
@@ -256,12 +271,12 @@ class TemplateCopy:
         links = self._sheet.links(rows)
         rels_part, ids = self._sheet_rels.with_links([link for _, link in links])
         styles = _StyleAdditions(self._styles)
-        sheet_part = self._sheet.with_rows(rows, styles, self._sheet.hyperlinks(links, ids))
-        styles_part = self._styles.part(styles)
-        parts = [
-            part if part is not None else sheet_part if index == self._sheet.index else styles_part
-            for index, part in enumerate(self._parts)
-        ]
+        filter_ref = self._sheet.filter_ref(len(rows))
+        sheet_part = self._sheet.with_rows(rows, styles, self._sheet.hyperlinks(links, ids), filter_ref)
+        assembled = {self._sheet.index: sheet_part, self._styles.index: self._styles.part(styles)}
+        if self._filter_name is not None and filter_ref is not None:
+            assembled[self._filter_name.index] = self._filter_name.part(filter_ref)
+        parts = [part if part is not None else assembled[index] for index, part in enumerate(self._parts)]
         if rels_part is not None:
             if self._sheet_rels.index is None:
                 parts.append(rels_part)
@@ -286,7 +301,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     workbook_name = _office_document(plain)
     workbook_rels = _relationships(plain, workbook_name)
     workbook_xml = plain[workbook_name]
-    sheet_name, date1904 = _active_sheet(workbook_xml, workbook_rels)
+    sheet_name, sheet_position, date1904 = _active_sheet(workbook_xml, workbook_rels)
     styles_name = _target_of_type(workbook_rels, "/styles")
     strings_name = _target_of_type(workbook_rels, "/sharedStrings")
     if styles_name is None or styles_name not in plain:
@@ -297,6 +312,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     rels_name = posixpath.join(folder, "_rels", f"{name}.rels")
     sheet_index = styles_index = -1
     rels_index: int | None = None
+    filter_name: _FilterName | None = None
     parts: list[_Part | None] = []
     for index, info in enumerate(infos):
         if info.filename == rels_name:
@@ -307,6 +323,9 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         elif info.filename == styles_name:
             styles_index = index
             parts.append(None)
+        elif info.filename == workbook_name and layout.collective_file:
+            filter_name = _FilterName(info, index, _with_full_recalculation(workbook_xml), sheet_position)
+            parts.append(None)
         elif info.filename == workbook_name:
             parts.append(_compressed_part(info, _with_full_recalculation(workbook_xml)))
         else:
@@ -314,14 +333,16 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     if sheet_index < 0:
         raise UnsupportedShape("sheet")
     sheet = _Sheet(infos[sheet_index], sheet_index, plain[sheet_name], layout, epoch=MAC_EPOCH if date1904 else WINDOWS_EPOCH)
-    styles = _Styles(infos[styles_index], plain[styles_name], _raw_part(content, infos[styles_index]))
+    if layout.collective_file:
+        sheet.read_filter_columns(shared_strings)
+    styles = _Styles(infos[styles_index], styles_index, plain[styles_name], _raw_part(content, infos[styles_index]))
     if rels_index is None:
         sheet_rels = _SheetRels(
             zipfile.ZipInfo(rels_name, infos[sheet_index].date_time), None, None, _rels_content_type(plain)
         )
     else:
         sheet_rels = _SheetRels(infos[rels_index], rels_index, plain[rels_name], True)
-    return TemplateCopy(parts, sheet, styles, sheet_rels, sheet.header(shared_strings), sheet.has_input_data)
+    return TemplateCopy(parts, sheet, styles, sheet_rels, filter_name, sheet.header(shared_strings), sheet.has_input_data)
 
 
 def _rels_content_type(plain: dict[str, bytes]) -> bool:
@@ -369,8 +390,8 @@ def _target_of_type(relationships: dict[str, tuple[str, str]], suffix: str) -> s
     return next((target for kind, target in relationships.values() if kind.endswith(suffix)), None)
 
 
-def _active_sheet(workbook_xml: bytes, relationships: dict[str, tuple[str, str]]) -> tuple[str, bool]:
-    """Część zip aktywnego arkusza (tak jak ``workbook.active`` w openpyxl) i czy skoroszyt liczy daty od 1904."""
+def _active_sheet(workbook_xml: bytes, relationships: dict[str, tuple[str, str]]) -> tuple[str, int, bool]:
+    """Część zip aktywnego arkusza (tak jak ``workbook.active`` w openpyxl), jego pozycja i czy daty liczą się od 1904."""
 
     root = ElementTree.fromstring(workbook_xml)
     view = root.find(f"{_MAIN}bookViews/{_MAIN}workbookView")
@@ -384,7 +405,7 @@ def _active_sheet(workbook_xml: bytes, relationships: dict[str, tuple[str, str]]
         raise UnsupportedShape("chartsheet")
     properties = root.find(f"{_MAIN}workbookPr")
     date1904 = properties is not None and properties.get("date1904", "0").lower() in ("1", "true")
-    return target, date1904
+    return target, active, date1904
 
 
 def _shared_strings(xml: bytes) -> list[str]:
@@ -419,6 +440,35 @@ def _with_full_recalculation(workbook_xml: bytes) -> bytes:
     rendered += [flag + b'="' + value + b'"' for flag, value in _CALC_FLAGS if flag not in names]
     tag = b"<" + found.group(1) + b"calcPr " + b" ".join(rendered) + (b"/>" if found.group(3) else b">")
     return workbook_xml[: found.start()] + tag + workbook_xml[found.end() :]
+
+
+_FILTER_DATABASE = re.compile(
+    rb'<(?:[\w.-]+:)?definedName\b[^>]*\bname="_xlnm\._FilterDatabase"[^>]*>([^<]*)</(?:[\w.-]+:)?definedName>'
+)
+_LOCAL_SHEET = re.compile(rb'\blocalSheetId="(\d+)"')
+_ABSOLUTE_RANGE = re.compile(rb"\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?")
+
+
+class _FilterName:
+    """``xl/workbook.xml`` Pliku zbiorczego: nazwa ``_xlnm._FilterDatabase`` aktywnego arkusza idzie za autofiltrem."""
+
+    def __init__(self, info: zipfile.ZipInfo, index: int, xml: bytes, sheet_position: int) -> None:
+        self._info = info
+        self.index = index
+        self._xml = xml
+        for found in _FILTER_DATABASE.finditer(xml):
+            local = _LOCAL_SHEET.search(found.group(0))
+            if local is not None and int(local.group(1)) == sheet_position and b"!" in found.group(1):
+                if not _ABSOLUTE_RANGE.fullmatch(found.group(1), found.group(1).rindex(b"!") + 1):
+                    break  # np. ``#REF!``: nazwę naprawi dawna droga przez openpyxl
+                self._range = (found.start(1) + found.group(1).rindex(b"!") + 1, found.end(1))
+                return
+        raise UnsupportedShape("filter name")
+
+    def part(self, reference: str) -> _Part:
+        start, end = self._range
+        absolute = absolute_coordinate(reference).encode("ascii")
+        return _compressed_part(self._info, self._xml[:start] + absolute + self._xml[end:])
 
 
 def _dos_stamp(info: zipfile.ZipInfo) -> tuple[int, int]:
@@ -489,10 +539,18 @@ class _Sheet:
         self.has_input_data = _writable_data_rows_have_input(xml, self._data_start, data_end, layout)
         """Jak ``TemplateSheet.has_input_data``: niepusta wartość bez formuły w kolumnach danych wejściowych."""
         self._links_at, self._links_open, self._links_prefix = _hyperlinks_place(xml, data_end)
-        # Ostatni kawałek zaczyna się w miejscu bloku Hiperłączy, więc kopia z nimi kompresuje tylko ogon arkusza.
+        self._filter: tuple[int, int, bytes] | None = None
+        self._filter_columns = (1, 1)
+        self._column_styles: list[tuple[int, int]] = []
+        if layout.collective_file:
+            self._filter = _autofilter(xml, data_end, self._links_at)
+            self._column_styles = _column_styles(xml, data_start)
+        # Ostatni kawałek zaczyna się w miejscu bloku Hiperłączy, więc kopia z nimi kompresuje tylko ogon arkusza;
+        # przedostatni w Pliku zbiorczym od autofiltra, który zmienia się w każdej kopii.
         self._boundaries = [
             self._data_start,
             *(row.start for row in self._rows[first + _ROWS_PER_CHUNK :: _ROWS_PER_CHUNK]),
+            *([self._filter[0]] if self._filter is not None else []),
             self._links_at,
         ]
         self._chunks: list[bytes] | None = None  # dopiero przy pierwszej kopii: Sprawdzanie ich nie potrzebuje
@@ -510,6 +568,31 @@ class _Sheet:
             if column <= self._layout.input_columns:
                 values[column - 1] = _header_value(cell.group(3), cell.group(4), shared_strings)
         return values
+
+    def read_filter_columns(self, shared_strings: list[str]) -> None:
+        """Kolumny autofiltra Pliku zbiorczego: od pierwszej do ostatniej niepustej komórki wiersza nagłówka."""
+
+        position = bisect_left(self._numbers, self._layout.header_row)
+        if position == len(self._rows) or self._rows[position].number != self._layout.header_row:
+            raise UnsupportedShape("header row")
+        row = self._rows[position]
+        columns = []
+        for cell in _CELL.finditer(self._xml, row.start, row.end):
+            value = _header_value(cell.group(3), cell.group(4), shared_strings)
+            if value is not None and not (isinstance(value, str) and not value.strip()):
+                columns.append(_column(cell.group(1)))
+        if not columns:
+            raise UnsupportedShape("header row")
+        self._filter_columns = (min(columns), max(columns))
+
+    def filter_ref(self, row_count: int) -> str | None:
+        """Zakres autofiltra Pliku zbiorczego: nagłówek i wpisane wiersze; ``None``: autofiltr zostaje z Wzorca."""
+
+        if self._filter is None:
+            return None
+        first, last = self._filter_columns
+        header_row = self._layout.header_row
+        return f"{get_column_letter(first)}{header_row}:{get_column_letter(last)}{header_row + row_count}"
 
     def links(self, rows: Sequence[Row]) -> list[tuple[bytes, Hyperlink]]:
         """Hiperłącza wpisywanych komórek kolumn Wiersza danych: adres komórki → Hiperłącze, wierszami."""
@@ -533,7 +616,7 @@ class _Sheet:
         )
         return self._links_open + entries + b"</hyperlinks>"
 
-    def with_rows(self, rows: Sequence[Row], styles: _StyleAdditions, hyperlinks: bytes) -> _Part:
+    def with_rows(self, rows: Sequence[Row], styles: _StyleAdditions, hyperlinks: bytes, filter_ref: str | None) -> _Part:
         xml = self._xml
         first_row = self._layout.first_data_row
         last_row = first_row + len(rows) - 1
@@ -556,12 +639,20 @@ class _Sheet:
             tail_compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
             tail = tail_compressor.compress(hyperlinks + xml[links_at:]) + tail_compressor.flush()
         compressed = [compressor.compress(head) + compressor.flush(zlib.Z_SYNC_FLUSH), *self._chunks[chunk:-1], tail]
+        middle: tuple[bytes | memoryview, ...] = (memoryview(xml)[tail_start:links_at],)
+        if self._filter is not None and filter_ref is not None:
+            # Przedostatni kawałek zaczyna się od autofiltra (granica z ``__init__``) i sięga do bloku Hiperłączy.
+            start, end, element = self._filter
+            filtered = element.replace(b"{ref}", filter_ref.encode("ascii")) + xml[end:links_at]
+            filter_compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
+            compressed[-2] = filter_compressor.compress(filtered) + filter_compressor.flush(zlib.Z_FULL_FLUSH)
+            middle = (memoryview(xml)[tail_start:start], filtered)
         crc = zlib.crc32(head)
-        for piece in (memoryview(xml)[tail_start:links_at], hyperlinks, memoryview(xml)[links_at:]):
+        for piece in (*middle, hyperlinks, memoryview(xml)[links_at:]):
             crc = zlib.crc32(piece, crc)
         name, flags = _encoded_name(self._info.filename)
         dos_time, dos_date = _dos_stamp(self._info)
-        size = len(head) + len(xml) - tail_start + len(hyperlinks)
+        size = len(head) + sum(len(piece) for piece in middle) + len(hyperlinks) + len(xml) - links_at
         return _Part(name, flags, zipfile.ZIP_DEFLATED, dos_time, dos_date, crc, size, compressed)
 
     def _prefix(self, last_row: int | None) -> bytes:
@@ -590,24 +681,38 @@ class _Sheet:
             start_tag, cells = _split_row(self._xml[row.start : row.end], number)
         suffix = b"%d" % number
         columns = self._layout.data_columns
+        number_formats = data.number_formats
+        row_style = self._layout.collective_file and _STYLE.search(start_tag) is not None
         written: list[tuple[int, bytes]] = []
         for column, (value, highlights) in enumerate(
             zip(data.values[:columns], data.highlights[:columns], strict=True), start=1
         ):
+            existing = cells.get(column)
+            if self._layout.collective_file and _unstyled(existing):
+                if row_style or any(first <= column <= last for first, last in self._column_styles):
+                    raise UnsupportedShape("row or column style")
             reference = self._letters[column - 1] + suffix
-            written.append((column, self._cell(reference, cells.get(column), value, highlights, styles)))
+            written.append(
+                (column, self._cell(reference, existing, value, highlights, number_formats.get(column), styles))
+            )
         kept = [(column, cell) for column, cell in cells.items() if column > len(written)]
         return start_tag + b"".join(cell for _, cell in sorted(written + kept)) + b"</row>"
 
     def _cell(
-        self, reference: bytes, existing: bytes | None, value: object, highlights: Highlights, styles: _StyleAdditions
+        self,
+        reference: bytes,
+        existing: bytes | None,
+        value: object,
+        highlights: Highlights,
+        number_format: str | None,
+        styles: _StyleAdditions,
     ) -> bytes:
         style_match = _STYLE.search(existing[: existing.index(b">")]) if existing is not None else None
         template_style = int(style_match.group(1)) if style_match else None
         if isinstance(value, str) and value[:_MAX_TEXT] == "":
             value = None
         if value is None:
-            style = styles.style(template_style, None, highlights)
+            style = styles.style(template_style, number_format, highlights)
             if style == template_style and existing is not None and existing.endswith(b"/>"):
                 return existing
             if style is None and existing is None:
@@ -618,10 +723,10 @@ class _Sheet:
                 raise InvalidValue("strefa czasowa")
             date_format = None if is_date_format(styles.number_format(template_style)) else _date_format(value)
             serial: float = to_excel(value, self._epoch)  # type: ignore[no-untyped-call]
-            style = styles.style(template_style, date_format, highlights)
+            style = styles.style(template_style, number_format if number_format is not None else date_format, highlights)
             return _cell_xml(reference, style, b"n", b"<v>" + _number(serial) + b"</v>")
         kind, content = _value_xml(value)
-        return _cell_xml(reference, styles.style(template_style, None, highlights), kind, content)
+        return _cell_xml(reference, styles.style(template_style, number_format, highlights), kind, content)
 
 
 def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, layout: SheetLayout) -> bool:
@@ -689,6 +794,50 @@ def _hyperlinks_place(xml: bytes, data_end: int) -> tuple[int, bytes, bytes]:
     if bound is not None:
         return position, b"<hyperlinks>", bound.group(1)
     return position, b'<hyperlinks xmlns:r="' + _OFFICE_REL.encode() + b'">', b"r"
+
+
+def _unstyled(cell: bytes | None) -> bool:
+    """Komórka bez stylu w rozumieniu openpyxl (brak ``s`` albo ``s="0"``): dostaje styl wiersza albo kolumny."""
+
+    if cell is None:
+        return True
+    style = _STYLE.search(cell, 0, cell.index(b">"))
+    return style is None or style.group(1) == b"0"
+
+
+_AUTOFILTER = re.compile(rb"<autoFilter\b([^>]*?)(/?)>")
+_REF = re.compile(rb'\sref="[^"]*"')
+_COLUMNS_BLOCK = re.compile(rb"<cols>(.*?)</cols>", re.S)
+_COLUMN = re.compile(rb"<col\b([^>]*?)/?>")
+
+
+def _autofilter(xml: bytes, data_end: int, links_at: int) -> tuple[int, int, bytes]:
+    """Miejsce elementu ``autoFilter`` za ``sheetData`` i jego nowa postać z ``{ref}`` w miejscu zakresu.
+
+    Jak ``AutoFilter(ref=…)`` w openpyxl: warunki filtrów Wzorca nie zostają. Wzorzec bez autofiltra
+    to ``UnsupportedShape``.
+    """
+
+    found = _AUTOFILTER.search(xml, data_end, links_at)
+    if found is None:
+        raise UnsupportedShape("autofilter")
+    end = found.end() if found.group(2) else xml.index(b"</autoFilter>", found.end()) + len(b"</autoFilter>")
+    attributes = _REF.sub(b"", found.group(1))
+    return found.start(), end, b'<autoFilter ref="{ref}"' + attributes + b"/>"
+
+
+def _column_styles(xml: bytes, data_start: int) -> list[tuple[int, int]]:
+    """Zakresy kolumn ze stylem w ``cols``: komórka bez stylu dostaje w nich styl kolumny."""
+
+    block = _COLUMNS_BLOCK.search(xml, 0, data_start)
+    if block is None:
+        return []
+    ranges = []
+    for column in _COLUMN.finditer(block.group(1)):
+        attributes = {match.group(1): match.group(2) or match.group(3) or b"" for match in _ATTRIBUTE.finditer(column.group(1))}
+        if attributes.get(b"style", b"0") != b"0":
+            ranges.append((int(attributes[b"min"]), int(attributes[b"max"])))
+    return ranges
 
 
 def _compressed_chunks(xml: bytes, boundaries: list[int]) -> list[bytes]:
@@ -872,8 +1021,9 @@ class _Styles:
     Czcionki i wypełnienia z nałożonymi Wyróżnieniami są liczone raz na Wzorzec, wspólnie dla wszystkich kopii.
     """
 
-    def __init__(self, info: zipfile.ZipInfo, xml: bytes, unchanged: _Part) -> None:
+    def __init__(self, info: zipfile.ZipInfo, index: int, xml: bytes, unchanged: _Part) -> None:
         self._info = info
+        self.index = index
         self.xml = xml
         cell_xfs = _CELL_XFS.search(xml)
         if cell_xfs is None:
@@ -1006,19 +1156,19 @@ class _StyleAdditions:
         number = self._styles.format_id(style)
         return self._styles.custom_formats.get(number) or BUILTIN_FORMATS.get(number, "General")
 
-    def style(self, style: int | None, date_format: str | None, highlights: Highlights) -> int | None:
-        """Styl wpisanej komórki: styl Wzorca ``style`` z formatem ``date_format`` (``None``: bez zmiany) i Wyróżnieniami."""
+    def style(self, style: int | None, number_format: str | None, highlights: Highlights) -> int | None:
+        """Styl wpisanej komórki: styl Wzorca ``style`` z formatem ``number_format`` (``None``: bez zmiany) i Wyróżnieniami."""
 
-        key = (style, date_format, highlights)
+        key = (style, number_format, highlights)
         if key not in self._added:
-            self._added[key] = self._resolved(style, date_format, highlights)
+            self._added[key] = self._resolved(style, number_format, highlights)
         return self._added[key]
 
-    def _resolved(self, style: int | None, date_format: str | None, highlights: Highlights) -> int | None:
+    def _resolved(self, style: int | None, number_format: str | None, highlights: Highlights) -> int | None:
         base = self._styles.xf(style)
         xf = base
-        if date_format is not None:
-            xf = _with_id(xf, b"numFmtId", self._format_id(date_format), b"applyNumberFormat")
+        if number_format is not None and self.number_format(style) != number_format:
+            xf = _with_id(xf, b"numFmtId", self._format_id(number_format), b"applyNumberFormat")
         font = self._styles.font_over(_xf_id(xf, _FONT_ID), highlights)
         if font is not None:
             font_id = _id(self._styles.font_ids, len(self._styles.fonts), self.fonts, font)

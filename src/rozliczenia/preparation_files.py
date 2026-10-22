@@ -27,6 +27,8 @@ from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from . import workbook_files
+from .highlights import PLAIN, Highlights
+from .hyperlinks import Hyperlink
 from . import preparation_messages as messages
 from .message import Message, StopError
 from .period_folder import PeriodFolder
@@ -253,6 +255,41 @@ def _set_autofilter(sheet: Worksheet, header_row: int, order_count: int) -> None
     sheet.auto_filter = AutoFilter(ref=f"{first_column}{header_row}:{last_column}{header_row + order_count}")
 
 
+def _written_as_copy(template_path: Path, target: Path, orders: Sequence[PeriodOrder]) -> bool:
+    """Plik zbiorczy kopią Wzorca (ADR 0008), jak Rozliczenia pracowników; ``False``: kształt dla openpyxl.
+
+    Wynik ma te same wartości, Wyróżnienia, formaty liczb, Hiperłącza i autofiltr co zapis przez openpyxl,
+    a formuły, ``calcChain`` i reszta Wzorca zostają bajt w bajt.
+    """
+
+    try:
+        template = workbook_files.CollectiveFileTemplate.read(template_path)
+    except WorkbookError as error:
+        raise _template_stop(template_path, error) from error
+    if template is None:
+        return False
+    columns = header_columns(template.header)
+    positions = [columns.get(normalize_text(column.target_header)) for column in COLUMNS]
+    if sorted(position or 0 for position in positions) != list(range(1, len(COLUMNS) + 1)):
+        return False  # zatrzymanie z nazwą arkusza zgłasza droga przez openpyxl
+    return template.create(target, [_collective_row(order, cast(list[int], positions)) for order in orders])
+
+
+def _collective_row(order: PeriodOrder, positions: Sequence[int]) -> workbook_files.CollectiveFileRow:
+    values: list[object] = [None] * len(positions)
+    highlights = [PLAIN] * len(positions)
+    hyperlinks: dict[int, Hyperlink] = {}
+    number_formats: dict[int, str] = {}
+    for position, cell in zip(positions, order.row.cells, strict=True):
+        values[position - 1] = cell.value
+        cell_format = cell.format
+        highlights[position - 1] = Highlights(cell_format.fill, cell_format.color, cell_format.bold, cell_format.italic)
+        number_formats[position] = cell_format.number_format
+        if cell.hyperlink is not None:
+            hyperlinks[position] = cell.hyperlink
+    return workbook_files.CollectiveFileRow(tuple(values), tuple(highlights), hyperlinks, number_formats)
+
+
 def _write_period_file(
     template_path: Path,
     layout: Layout,
@@ -265,6 +302,9 @@ def _write_period_file(
 
     Zapisana komórka ma Hiperłącze komórki Rejestru albo żadne: hiperłącze komórki Wzorca nie zostaje.
     """
+
+    if layout is Layout.COLLECTIVE and _written_as_copy(template_path, target, orders):
+        return
 
     with _file_from_template(template_path, layout, target, recalculate_on_open=recalculate_on_open) as (sheet, positions):
         _ensure_rows_writable(template_path, sheet, positions, len(orders))
