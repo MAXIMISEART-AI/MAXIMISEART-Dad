@@ -143,8 +143,10 @@ powstają razem albo żaden.
   starszej kopii. Oba zapisy jednej kolumny naraz to powtórzony nagłówek.
   Wzorzec z nagłówkiem w zapisie Rejestru zamiast własnego oznacza zatrzymanie.
 - Plik zbiorczy (`Rozliczenie {okres} - zbiorcze.xlsx`) zawiera każde Zlecenie
-  skuteczne w `A:K` od wiersza 18, bez przerw. Wiersze 1–17, kolumny ilości
-  `N:AP`, formuły i odwołania zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
+  skuteczne w `A:K` od wiersza 18, bez przerw, a w `N:AP` jego Ilości usług
+  według Reguł ilości (ADR 0012), tylko różne od zera i w wyglądzie komórki
+  wzorca. Pozostałe komórki `N:AP` (np. zera), wiersze 1–17, formuły i odwołania
+  zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
   openpyxl nie zapisuje wyników formuł, więc Plik zbiorczy, tak jak Szablony
   pracowników, prosi Excela o przeliczenie formuł przy otwarciu.
 - Wypełnienia, kolory czcionki, pogrubienia, kursywa i formaty dat przechodzą z
@@ -376,5 +378,4 @@ automatyczne wykrywanie gotowości po samym zapisie pliku są poza zakresem.
 Poza zakresem Przygotowania pliku zbiorczego są też:
 
 - połączenie Przygotowania pliku zbiorczego i Przebiegu rozliczeń w jeden
-  proces działający w tle;
-- automatyczne uzupełnianie ilości 0/1 w kolumnach `N:AP` Pliku zbiorczego.
+  proces działający w tle.
