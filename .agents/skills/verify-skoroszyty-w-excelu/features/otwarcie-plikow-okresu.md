@@ -12,7 +12,7 @@ its amounts, and the Rejestr's Wyróżnienia show as they were.
 - `plik-zbiorczy-bez-okna`: the Plik zbiorczy opens in Excel with no dialog.
 - `plik-zbiorczy-lacze`: Excel lists the same external workbook for the Plik zbiorczy as for the Wzorzec pliku zbiorczego.
 - `plik-zbiorczy-formuly`: every Wiersz danych has the R1C1 formulas of `AU18:AY18` of the Wzorzec, and `AU:AX` shows no error.
-- `plik-zbiorczy-wyroznienia`: ADRES of `PREP-SYN-ZL-2` is yellow with bold dark red text and WYKONAWCA of `PREP-SYN-ZL-4` is italic, as in the Rejestr.
+- `plik-zbiorczy-wyroznienia`: as in the Rejestr, ADRES of `PREP-SYN-ZL-2` is yellow with bold dark red text, ADRES of `PREP-SYN-ZL-4` blue, ADRES of `PREP-SYN-ZL-7` and `PREP-SYN-ZL-6` without fill, and WYKONAWCA of `PREP-SYN-ZL-4` italic.
 - `plik-zbiorczy-wyglad-wiersza`: Excel auto-fits the Wiersze danych (Wygląd Wiersza danych, no stored height): every row with one line is exactly the sheet's standard height, and the row of `PREP-SYN-ZL-2`, whose CZYNNOŚCI ZREALIZOWANE has two lines, is taller.
 
 ## How to get to it (user POV)
@@ -28,7 +28,7 @@ Preconditions: the Baseline in `README.md`; both Wzorce were opened as the refer
 - **Plik zbiorczy.** Copy it to the desk and open it; it stays open for `gotowosc-w-excelu`.
 - **Link.** `excel.link_names` equals the Wzorzec pliku zbiorczego's list (`links=1`).
 - **Rows and formulas.** Headers of row 17 give `NUMER ZL.`, `ADRES`, `WYKONAWCA`; the four Zlecenia skuteczne are in rows 18–21. For each, `excel.formulas_r1c1("AU:AY")` equals the reference and `excel.error_cells("AU:AX")` is none.
-- **Wyróżnienia.** `excel.fill` of the two cells gives interior, font color, bold, italic: `(0xFFFF00, 0xC00000, True, False)` and `(0xFFFFFF, 0x000000, False, True)` (`cells=2`).
+- **Wyróżnienia.** `excel.fill` gives interior, font color, bold, italic: ADRES `(0xFFFF00, 0xC00000, True, False)` (`-2`), `(0x00B0F0, 0x000000, False, False)` (`-4`), `(0xFFFFFF, 0x000000, False, False)` (`-7`, `-6`), and WYKONAWCA `(0xFFFFFF, 0x000000, False, True)` (`-4`) (`cells=5`).
 - **Wygląd Wiersza danych.** `excel.row_heights` of each order's row against `excel.standard_height`; `excel.shown_text` of DATA is remembered for `rozliczenia-pracownikow-w-excelu`. `STEP … plik-zbiorczy-wyglad-wiersza | rows=4 | one_line_pt=…`.
 
 ## Gotchas

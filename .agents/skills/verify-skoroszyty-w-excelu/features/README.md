@@ -13,7 +13,8 @@ this index before driving, then the feature file as the recipe.
   skuteczne `PREP-SYN-ZL-2`, `-4`, `-7`, `-6` in Plik zbiorczy order
   (Adrian Testowy twice, Kamil Syntetyczny, Darek Fikcyjny); `-3` is a
   Zlecenie nieskuteczne. Wyróżnienia: ADRES of `-2` yellow with bold dark red
-  text, WYKONAWCA of `-4` italic.
+  text, ADRES of `-4` blue, WYKONAWCA of `-4` italic; ADRES of `-7` and `-6`
+  none.
 - The Wzorce are Dad's (`prawdziwe`) or of his shape (`syntetyczne`): header
   row 17, Wiersze danych from 18, Dad's input in `N:AT`, formulas in `AU:AY`,
   `AY` looking up the Słownik through the one external link.

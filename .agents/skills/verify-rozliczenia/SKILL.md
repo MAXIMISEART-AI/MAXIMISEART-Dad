@@ -70,7 +70,7 @@ checks that the copies stay byte-identical, that every written Wiersz danych
 has the Wygląd Wiersza danych in A:M (Rozliczenie wewnętrzne) and A:L (Plik
 zbiorczy): its header's font face and size, left and centre alignment,
 wrapping only for text with a line break, a thin automatic border and no
-stored row height, that every Wzorzec cell value outside the written rows is unchanged, and that `xl/externalLinks/*` stay byte-identical. The
+stored row height, that every written ADRES has the fill of that order's ADRES in the Rejestr, that every Wzorzec cell value outside the written rows is unchanged, and that `xl/externalLinks/*` stay byte-identical. The
 Wzorce are git-ignored, so CI and `--variant all` leave this variant out. In a
 worktree the runner reads the main checkout's `config/` itself;
 `--templates-dir` overrides that. Without both Wzorce the runner prints
