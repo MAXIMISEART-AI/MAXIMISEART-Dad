@@ -8,13 +8,14 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-from typing import Any
 import zipfile
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
+
+from wynik_uruchomienia import check_metrics, contract, external_link_parts, figures, finish, hyperlinks, load_result
 
 
 PERIOD = "08_14_09_2026"
@@ -23,16 +24,16 @@ COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 ROW_MARKER = "PREP-SYN-"
 ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
 EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_rows": 4, "warnings": 0}
-EXPECTED_SUMMARY = {
-    "figures": [
-        {"label": "Zlecenia okresu", "value": 5, "unit": "count"},
-        {"label": "Zlecenia skuteczne", "value": 4, "unit": "count"},
-        {"label": "Pominięte puste wiersze", "value": 4, "unit": "count"},
+EXPECTED_SUMMARY = contract.RunSummary(
+    figures=[
+        contract.Figure(label="Zlecenia okresu", value=5, unit="count"),
+        contract.Figure(label="Zlecenia skuteczne", value=4, unit="count"),
+        contract.Figure(label="Pominięte puste wiersze", value=4, unit="count"),
     ],
-    "counts": {
-        "title": "Zlecenia na dzień",
-        "counts": [
-            {"label": label, "count": count}
+    counts=contract.CountGroup(
+        title="Zlecenia na dzień",
+        counts=[
+            contract.Count(label=label, count=count)
             for label, count in (
                 ("wt 08.09.2026", 1),
                 ("śr 09.09.2026", 1),
@@ -43,13 +44,13 @@ EXPECTED_SUMMARY = {
                 ("pon 14.09.2026", 1),
             )
         ],
-    },
-    "files": [
-        {"name": INTERNAL_NAME, "kind": "internal_settlement"},
-        {"name": COLLECTIVE_NAME, "kind": "collective_file"},
+    ),
+    files=[
+        contract.PeriodFile(name=INTERNAL_NAME, kind="internal_settlement"),
+        contract.PeriodFile(name=COLLECTIVE_NAME, kind="collective_file"),
     ],
-    "file_plan": None,
-}
+    file_plan=None,
+)
 INTERNAL_TEMPLATE = Path("config") / "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE = Path("config") / "Wzorzec pliku zbiorczego.xlsx"
 # Target headers the process fills; a real Wzorzec may order them differently.
@@ -151,48 +152,26 @@ def _unchanged_inputs(root: Path) -> list[str]:
 
 
 def _check_result(result_path: Path | None, errors: list[str]) -> None:
-    if result_path is None or not result_path.is_file():
-        errors.append("process step evidence is missing")
+    result = load_result(result_path, (ROW_MARKER,), errors)
+    if result is None:
         return
-    text = result_path.read_text(encoding="utf-8")
-    if ROW_MARKER in text:
-        errors.append("process result contains Rejestr row content")
-    result: Any = json.loads(text)["result"]
-    if not isinstance(result, dict):
-        errors.append("process step printed no JSON result")
-        return
-    if result["result"] != "OK" or result["stop"] is not None or result["warnings"] != []:
+    if result.result != "OK" or result.stop is not None or result.warnings != []:
         errors.append("result is not OK without warnings")
-    if result["summary"] != EXPECTED_SUMMARY:
+    if result.summary != EXPECTED_SUMMARY:
         errors.append("summary does not match the synthetic Rejestr")
-    if {figure["label"]: figure["value"] for figure in result["progress"]["figures"]}.get("Ostrzeżenia") != 0:
+    if dict(figures(result.progress.figures)).get("Ostrzeżenia") != 0:
         errors.append("progress does not report 0 Ostrzeżenia")
-    if result["metrics_saved"] is not True:
-        errors.append("result reports its metrics record as not saved")
 
 
 def _check_metrics(root: Path, metrics: Path, modes: list[str], errors: list[str]) -> None:
-    content = metrics.read_text(encoding="utf-8") if metrics.is_file() else ""
-    records = [json.loads(line) for line in content.splitlines() if line.strip()]
-    if [record.get("mode") for record in records] != modes:
-        errors.append(f"metrics history does not contain exactly the modes {modes}")
+    """Every record is a completed OK run of the period, with the counters of the synthetic Rejestr."""
+
+    records = check_metrics(
+        metrics, root, period=PERIOD, expected=[(mode, "OK") for mode in modes], row_content=(ROW_MARKER,), errors=errors
+    )
     for record in records:
-        if record.get("period") != PERIOD or record.get("completed") is not True or record.get("result") != "OK":
-            errors.append("metrics record is not a completed OK run of the period")
         if record.get("counters") != EXPECTED_COUNTERS:
             errors.append("metrics counters do not match the synthetic Rejestr")
-    root_spellings = (str(root), json.dumps(str(root))[1:-1])
-    if ROW_MARKER in content or any(spelling in content for spelling in root_spellings):
-        errors.append("metrics contain row content or a filesystem path")
-
-
-def _finish(errors: list[str], success_message: str) -> int:
-    if errors:
-        for error in errors:
-            print(f"ASSERT FAIL: {error}", file=sys.stderr)
-        return 1
-    print(success_message)
-    return 0
 
 
 def _assert_dry_run(root: Path, metrics: Path, result_path: Path | None) -> int:
@@ -202,7 +181,7 @@ def _assert_dry_run(root: Path, metrics: Path, result_path: Path | None) -> int:
         errors.append(f"dry-run created entries in the periods directory: {leftovers}")
     _check_result(result_path, errors)
     _check_metrics(root, metrics, ["DRY-RUN"], errors)
-    return _finish(
+    return finish(
         errors,
         "ASSERT OK | process=przygotowanie | mode=dry-run | period_folder_absent=true | "
         "inputs_unchanged=true | plan_reported=true | rows_hidden=true",
@@ -254,11 +233,6 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
             errors.append("Plik zbiorczy lost a Rejestr highlight or has a wrong autofilter")
     finally:
         workbook.close()
-
-
-def _external_link_parts(path: Path) -> dict[str, bytes]:
-    with zipfile.ZipFile(path) as archive:
-        return {name: archive.read(name) for name in archive.namelist() if name.startswith("xl/externalLinks/")}
 
 
 def _target_positions(sheet: Worksheet, header_row: int, label: str, errors: list[str]) -> dict[str, int]:
@@ -349,16 +323,6 @@ def _check_real_template_file(
         output_book.close()
 
 
-def _hyperlinks(sheet: Worksheet) -> dict[tuple[int, int], tuple[object, object]]:
-    """(row, column) -> (address, location) of every cell hyperlink; reads only cells stored in the file."""
-
-    return {
-        coordinate: (cell.hyperlink.target, cell.hyperlink.location)
-        for coordinate, cell in sheet._cells.items()
-        if cell.hyperlink is not None
-    }
-
-
 def _check_hyperlinks(
     template: Path, output: Path, *, label: str, header_row: int, register_rows: tuple[int, ...], errors: list[str]
 ) -> None:
@@ -374,10 +338,10 @@ def _check_hyperlinks(
         positions = _target_positions(template_sheet, header_row, label, [])
         first_row = header_row + 1
         written = {(first_row + index, column) for index in range(len(register_rows)) for column in positions.values()}
-        expected = {cell: link for cell, link in _hyperlinks(template_sheet).items() if cell not in written}
+        expected = {cell: link for cell, link in hyperlinks(template_sheet).items() if cell not in written}
         order_column = positions.get("NUMER ZL.", 0)
         expected |= {(first_row + index, order_column): (f"{ORDER_LINK}{row}", None) for index, row in enumerate(register_rows)}
-        actual = _hyperlinks(_sheet(output_book.active))
+        actual = hyperlinks(_sheet(output_book.active))
         differing = sorted(cell for cell in expected.keys() | actual.keys() if expected.get(cell) != actual.get(cell))
         if differing:
             where = ", ".join(f"{get_column_letter(column)}{row}" for row, column in differing[:5])
@@ -431,16 +395,16 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     register_rows=register_rows,
                     errors=errors,
                 )
-                template_links = _external_link_parts(root / template)
-                if _external_link_parts(period_directory / output) != template_links:
+                template_links = external_link_parts(root / template)
+                if external_link_parts(period_directory / output) != template_links:
                     errors.append(f"{output} xl/externalLinks parts differ from the Wzorzec")
-            if not _external_link_parts(root / COLLECTIVE_TEMPLATE):
+            if not external_link_parts(root / COLLECTIVE_TEMPLATE):
                 errors.append("Wzorzec pliku zbiorczego has no xl/externalLinks parts to preserve")
         except (OSError, ValueError, KeyError, zipfile.BadZipFile):
             errors.append("one or both period files cannot be read")
     _check_result(result_path, errors)
     _check_metrics(root, metrics, ["DRY-RUN", "RUN"], errors)
-    return _finish(
+    return finish(
         errors,
         f"ASSERT OK | process=przygotowanie | mode=run | templates={templates} | workbooks_checked=2 | "
         "formatting_preserved=true | hyperlinks_from_rejestr=NUMER ZL. | external_links_preserved=true | "

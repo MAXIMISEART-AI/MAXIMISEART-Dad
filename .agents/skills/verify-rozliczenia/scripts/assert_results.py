@@ -7,10 +7,12 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
+
+from wynik_uruchomienia import Link, ProcessResult, check_metrics, contract, figures, finish, hyperlinks, load_result
 
 
 PERIOD = "08_14_09_2026"
@@ -18,8 +20,9 @@ ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=SYNTHETIC-LINK&tw=1&wiers
 WORKERS = ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
 PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
 FILE_PLAN = [
-    {"file": f"Rozliczenie {PERIOD} - {worker}.xlsx", "rows": rows} for worker, rows in zip(WORKERS, (2, 1, 0))
+    contract.WorkerFile(file=f"Rozliczenie {PERIOD} - {worker}.xlsx", rows=rows) for worker, rows in zip(WORKERS, (2, 1, 0))
 ]
+ORDER_COLUMN = 6  # F
 
 
 class WorkbookSnapshot(NamedTuple):
@@ -62,20 +65,21 @@ def _read_input_row(path: Path, row_number: int) -> tuple[object, ...]:
         workbook.close()
 
 
-def _hyperlinks(path: Path) -> dict[str, str | None]:
+def _hyperlinks(path: Path) -> dict[tuple[int, int], Link]:
     workbook = load_workbook(path)
     try:
         sheet = workbook.active
         if not isinstance(sheet, Worksheet):
             raise ValueError("Workbook does not contain an active worksheet")
-        return {
-            cell.coordinate: cell.hyperlink.target
-            for row in sheet.iter_rows()
-            for cell in row
-            if cell.hyperlink is not None
-        }
+        return hyperlinks(sheet)
     finally:
         workbook.close()
+
+
+def _order_links(rows: dict[int, int]) -> dict[tuple[int, int], Link]:
+    """Expected Hiperłącza of a worker workbook: its row -> the Plik zbiorczy row the order came from."""
+
+    return {(row, ORDER_COLUMN): (f"{ORDER_LINK}{source_row}", None) for row, source_row in rows.items()}
 
 
 def _expected_source_row(worker_id: str, marker: str, quantity: int) -> tuple[object, ...]:
@@ -114,68 +118,29 @@ _ROW_CONTENT = ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3", "SYNTH
 
 
 def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str]) -> None:
-    """Expect one completed record per (mode, result), with no row content or path."""
-
-    metrics = root / "metrics.jsonl"
-    content = metrics.read_text(encoding="utf-8") if metrics.is_file() else ""
-    records = [json.loads(line) for line in content.splitlines() if line.strip()]
-    if [(record.get("mode"), record.get("result")) for record in records] != expected:
-        errors.append(f"metrics history does not contain exactly {expected}")
-    for record in records:
-        if record.get("period") != PERIOD or record.get("completed") is not True:
-            errors.append("metrics record is not a completed run of the period")
-    root_spellings = (str(root), json.dumps(str(root))[1:-1])
-    if any(value in content for value in _ROW_CONTENT) or any(spelling in content for spelling in root_spellings):
-        errors.append("metrics contain row content or a filesystem path")
+    check_metrics(root / "metrics.jsonl", root, period=PERIOD, expected=expected, row_content=_ROW_CONTENT, errors=errors)
 
 
-def _figures(figures: list[dict[str, Any]]) -> list[tuple[str, int]]:
-    return [(figure["label"], figure["value"]) for figure in figures]
-
-
-def _load_result(path: Path | None, errors: list[str]) -> dict[str, Any]:
-    if path is None or not path.is_file():
-        errors.append("process step evidence is missing")
-        return {"progress": {}}
-    text = path.read_text(encoding="utf-8")
-    if any(value in text for value in _ROW_CONTENT):
-        errors.append("process result contains source row content")
-    result = json.loads(text)["result"]
-    if not isinstance(result, dict):
-        errors.append("process step printed no JSON result")
-        return {"progress": {}}
-    if result["metrics_saved"] is not True:
-        errors.append("process result reports its metrics record as not saved")
-    return result
-
-
-def _check_progress(progress: dict[str, Any], errors: list[str]) -> None:
-    if [(phase["phase"], phase["state"]) for phase in progress.get("phases", [])] != [
-        (phase, "completed") for phase in PHASES
-    ]:
+def _check_progress(progress: contract.Progress, errors: list[str]) -> None:
+    if [(phase.phase, phase.state) for phase in progress.phases] != [(phase, "completed") for phase in PHASES]:
         errors.append("run progress does not complete the four stages in order")
-    if (progress.get("template_total"), progress.get("templates_completed")) != (3, 3) or _figures(
-        progress.get("figures", [])
-    ) != [("Wiersze danych", 3), ("Zapisane szablony", 2), ("Puste szablony", 1), ("Problemy", 0)]:
+    if (progress.template_total, progress.templates_completed) != (3, 3) or figures(progress.figures) != [
+        ("Wiersze danych", 3),
+        ("Zapisane szablony", 2),
+        ("Puste szablony", 1),
+        ("Problemy", 0),
+    ]:
         errors.append("run progress does not report 3/3 templates with two written and one empty")
 
 
-def _check_stop(result: dict[str, Any], expected_stop: str, expected_what: str | None, errors: list[str]) -> None:
-    message = (result.get("stop") or {}).get("message", {})
-    code = message.get("code")
-    if result.get("result") != "BLAD_KRYTYCZNY" or result.get("summary") is not None or code != expected_stop:
-        errors.append(f"run did not stop with {expected_stop} (stopped with {code})")
-    elif expected_what is not None and expected_what not in message.get("what", ""):
+def _check_stop(result: ProcessResult | None, expected_stop: str, expected_what: str | None, errors: list[str]) -> None:
+    if result is None:
+        return
+    stop = result.stop
+    if result.result != "BLAD_KRYTYCZNY" or result.summary is not None or stop is None or stop.message.code != expected_stop:
+        errors.append(f"run did not stop with {expected_stop} (stopped with {stop.message.code if stop else None})")
+    elif expected_what is not None and expected_what not in stop.message.what:
         errors.append(f"{expected_stop} does not say: {expected_what}")
-
-
-def _finish_assertion(errors: list[str], success_message: str) -> int:
-    if errors:
-        for error in errors:
-            print(f"ASSERT FAIL: {error}", file=sys.stderr)
-        return 1
-    print(success_message)
-    return 0
 
 
 def _assert_dry_run(root: Path, result_path: Path | None) -> int:
@@ -185,30 +150,31 @@ def _assert_dry_run(root: Path, result_path: Path | None) -> int:
     errors = _unchanged_inputs(root, manifest)
     if target_directory.exists():
         errors.append("dry-run created the target directory")
-    result = _load_result(result_path, errors)
+    result = load_result(result_path, _ROW_CONTENT, errors)
     unmapped = bool(manifest.get("include_unmapped"))
-    expected_summary = {
-        "figures": [
-            {"label": "Wiersze danych", "value": 3, "unit": "count"},
-            {"label": "Planowane szablony", "value": 2, "unit": "count"},
-            {"label": "Puste szablony", "value": 1, "unit": "count"},
+    expected_summary = contract.RunSummary(
+        figures=[
+            contract.Figure(label="Wiersze danych", value=3, unit="count"),
+            contract.Figure(label="Planowane szablony", value=2, unit="count"),
+            contract.Figure(label="Puste szablony", value=1, unit="count"),
         ],
-        "counts": None,
-        "files": [],
-        "file_plan": FILE_PLAN,
-    }
-    if result.get("result") != ("WYMAGA_SPRAWDZENIA" if unmapped else "OK") or result.get("stop") is not None:
-        errors.append("dry-run result is not the expected finished result")
-    if result.get("summary") != expected_summary:
-        errors.append("dry-run plan does not list every worker file with its rows")
-    if [warning["code"] for warning in result.get("warnings", [])] != (["BRAK_MAPOWANIA"] if unmapped else []):
-        errors.append("dry-run warnings do not match the unmapped workers")
-    problems = dict(_figures(result["progress"].get("figures", []))).get("Problemy")
-    if problems != (1 if unmapped else 0):
-        errors.append(f"dry-run reports {problems} Problemy")
+        counts=None,
+        files=[],
+        file_plan=FILE_PLAN,
+    )
+    if result is not None:
+        if result.result != ("WYMAGA_SPRAWDZENIA" if unmapped else "OK") or result.stop is not None:
+            errors.append("dry-run result is not the expected finished result")
+        if result.summary != expected_summary:
+            errors.append("dry-run plan does not list every worker file with its rows")
+        if [warning.code for warning in result.warnings] != (["BRAK_MAPOWANIA"] if unmapped else []):
+            errors.append("dry-run warnings do not match the unmapped workers")
+        problems = dict(figures(result.progress.figures)).get("Problemy")
+        if problems != (1 if unmapped else 0):
+            errors.append(f"dry-run reports {problems} Problemy")
     _check_metrics(root, [("DRY-RUN", "WYMAGA_SPRAWDZENIA" if unmapped else "OK")], errors)
 
-    return _finish_assertion(
+    return finish(
         errors,
         "ASSERT OK | mode=dry-run | output_folder_absent=true | "
         "inputs_unchanged=true | rows_hidden=true | metrics_safe=true",
@@ -249,35 +215,31 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
         ):
             errors.append("worker rows were not routed or the empty workbook was changed")
         if (
-            _hyperlinks(adrian_file) != {"F18": f"{ORDER_LINK}18", "F19": f"{ORDER_LINK}20"}
-            or _hyperlinks(darek_file) != {"F18": f"{ORDER_LINK}19"}
+            _hyperlinks(adrian_file) != _order_links({18: 18, 19: 20})
+            or _hyperlinks(darek_file) != _order_links({18: 19})
             or _hyperlinks(kamil_file) != {}
         ):
             errors.append("order number hyperlinks of the Plik zbiorczy did not reach the worker workbooks")
     except (OSError, ValueError, KeyError):
         errors.append("one or more published workbooks cannot be read")
 
-    result = _load_result(result_path, errors)
-    expected_summary = {
-        "figures": [
-            {"label": "Zapisane szablony", "value": 2, "unit": "count"},
-            {"label": "Puste szablony", "value": 1, "unit": "count"},
+    result = load_result(result_path, _ROW_CONTENT, errors)
+    expected_summary = contract.RunSummary(
+        figures=[
+            contract.Figure(label="Zapisane szablony", value=2, unit="count"),
+            contract.Figure(label="Puste szablony", value=1, unit="count"),
         ],
-        "counts": None,
-        "files": [],
-        "file_plan": FILE_PLAN,
-    }
-    if (
-        result.get("result") != "OK"
-        or result.get("stop") is not None
-        or result.get("warnings") != []
-        or result.get("summary") != expected_summary
-    ):
-        errors.append("run result does not report a successful complete run")
-    _check_progress(result["progress"], errors)
+        counts=None,
+        files=[],
+        file_plan=FILE_PLAN,
+    )
+    if result is not None:
+        if result.result != "OK" or result.stop is not None or result.warnings != [] or result.summary != expected_summary:
+            errors.append("run result does not report a successful complete run")
+        _check_progress(result.progress, errors)
     _check_metrics(root, [("DRY-RUN", "OK"), ("RUN", "OK")], errors)
 
-    return _finish_assertion(
+    return finish(
         errors,
         "ASSERT OK | mode=run | workbooks_checked=3 | "
         "formulas_preserved=true | hyperlinks_equal_plik_zbiorczy=F | worker_template_unchanged=true | "
@@ -294,8 +256,8 @@ def _assert_no_publish(root: Path, result_path: Path | None, expected_stop: str,
         errors.append("failed run published the target directory")
     if list(period_directory.glob(f".{target_directory.name}.staging-*")):
         errors.append("failed run left a staging directory")
-    _check_stop(_load_result(result_path, errors), expected_stop, expected_what, errors)
-    return _finish_assertion(
+    _check_stop(load_result(result_path, _ROW_CONTENT, errors), expected_stop, expected_what, errors)
+    return finish(
         errors,
         "ASSERT OK | mode=no-publish | output_folder_absent=true | inputs_unchanged=true",
     )
@@ -310,8 +272,8 @@ def _assert_existing_output(root: Path, result_path: Path | None, expected_stop:
         errors.append("existing output folder was changed")
     if {path.name for path in target_directory.iterdir()} != {sentinel.name}:
         errors.append("existing output folder gained or lost files")
-    _check_stop(_load_result(result_path, errors), expected_stop, expected_what, errors)
-    return _finish_assertion(
+    _check_stop(load_result(result_path, _ROW_CONTENT, errors), expected_stop, expected_what, errors)
+    return finish(
         errors,
         "ASSERT OK | mode=existing-output | existing_folder_unchanged=true",
     )

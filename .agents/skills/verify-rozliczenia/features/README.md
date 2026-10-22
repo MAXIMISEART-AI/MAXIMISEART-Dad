@@ -4,7 +4,8 @@ This is the maintained source for verifying the user-facing MAXIMISEART-Dad
 processes through the machine script `tools/uruchom_proces.py` (`settlement`
 for Przebieg rozliczeń, `preparation` for Przygotowanie pliku zbiorczego). Dad
 starts them in Centrum rozliczeń; the script runs the same core outside Centrum
-and prints the Centrum contract as JSON, which the assertions read.
+and prints the Centrum contract as JSON, which the assertions read as its
+contract model `ProcessResult`.
 
 ## Baseline preconditions
 

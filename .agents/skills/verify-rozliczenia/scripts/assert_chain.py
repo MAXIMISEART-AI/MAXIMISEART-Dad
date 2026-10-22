@@ -14,13 +14,14 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-from typing import Any
 import zipfile
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
+
+from wynik_uruchomienia import Link, check_metrics, contract, external_link_parts, figures, finish, hyperlinks, load_result
 
 
 PERIOD = "08_14_09_2026"
@@ -46,7 +47,8 @@ REGISTER_ROWS_OF_ORDERS = {"PREP-SYN-ZL-2": 4, "PREP-SYN-ZL-4": 9, "PREP-SYN-ZL-
 EXPECTED_ROWS = sum(len(orders) for orders in EXPECTED_WORKER_ORDERS.values())
 TEMPLATES = len(EXPECTED_WORKER_ORDERS)
 FILE_PLAN = [
-    {"file": f"Rozliczenie {PERIOD} - {name}.xlsx", "rows": len(orders)} for name, orders in EXPECTED_WORKER_ORDERS.items()
+    contract.WorkerFile(file=f"Rozliczenie {PERIOD} - {name}.xlsx", rows=len(orders))
+    for name, orders in EXPECTED_WORKER_ORDERS.items()
 ]
 PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
 UNSUCCESSFUL_ORDER = "PREP-SYN-ZL-3"  # Darek's NIE order, present only in the Rozliczenie wewnętrzne
@@ -76,7 +78,6 @@ INPUTS = (
 
 Row = tuple[object, ...]
 Looks = tuple[tuple[object, ...], ...]
-Link = tuple[object, object]
 PLAIN_LOOK = (None, None, None, False, False)
 
 
@@ -104,49 +105,13 @@ def _unchanged_inputs(root: Path, errors: list[str]) -> None:
 
 
 def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str]) -> None:
-    metrics = root / "settlement-metrics.jsonl"
-    content = metrics.read_text(encoding="utf-8") if metrics.is_file() else ""
-    records = [json.loads(line) for line in content.splitlines() if line.strip()]
-    if [(record.get("mode"), record.get("result")) for record in records] != expected:
-        errors.append(f"settlement metrics history does not contain exactly {expected}")
+    records = check_metrics(
+        root / "settlement-metrics.jsonl", root, period=PERIOD, expected=expected, row_content=(ROW_MARKER,), errors=errors
+    )
     for record in records:
         counters = record.get("counters") or {}
-        if record.get("period") != PERIOD or record.get("completed") is not True:
-            errors.append("settlement metrics record is not a completed run of the period")
         if (counters.get("templates_total"), counters.get("rows")) != (TEMPLATES, EXPECTED_ROWS):
             errors.append("settlement metrics counters do not match the Plik zbiorczy")
-    root_spellings = (str(root), json.dumps(str(root))[1:-1])
-    if ROW_MARKER in content or any(spelling in content for spelling in root_spellings):
-        errors.append("settlement metrics contain row content or a filesystem path")
-
-
-def _result(path: Path | None, errors: list[str]) -> dict[str, Any]:
-    if path is None or not path.is_file():
-        errors.append("process step evidence is missing")
-        return {"progress": {}}
-    text = path.read_text(encoding="utf-8")
-    if ROW_MARKER in text:
-        errors.append("process result contains row content")
-    result = json.loads(text)["result"]
-    if not isinstance(result, dict):
-        errors.append("process step printed no JSON result")
-        return {"progress": {}}
-    if result["metrics_saved"] is not True:
-        errors.append("process result reports its metrics record as not saved")
-    return result
-
-
-def _figures(figures: list[dict[str, Any]]) -> list[tuple[str, int]]:
-    return [(figure["label"], figure["value"]) for figure in figures]
-
-
-def _finish(errors: list[str], success_message: str) -> int:
-    if errors:
-        for error in errors:
-            print(f"ASSERT FAIL: {error}", file=sys.stderr)
-        return 1
-    print(success_message)
-    return 0
 
 
 def _assert_dry_run(root: Path, result_path: Path | None) -> int:
@@ -155,24 +120,25 @@ def _assert_dry_run(root: Path, result_path: Path | None) -> int:
     period_directory = root / "INEA" / PERIOD
     if sorted(path.name for path in period_directory.iterdir()) != sorted([INTERNAL_NAME, COLLECTIVE_NAME]):
         errors.append("dry-run added entries to the Folder okresu")
-    result = _result(result_path, errors)
-    if result.get("result") != "OK" or result.get("stop") is not None or result.get("warnings") != []:
-        errors.append("dry-run result is not OK without warnings")
-    if result.get("summary") != {
-        "figures": [
-            {"label": "Wiersze danych", "value": EXPECTED_ROWS, "unit": "count"},
-            {"label": "Planowane szablony", "value": TEMPLATES, "unit": "count"},
-            {"label": "Puste szablony", "value": 0, "unit": "count"},
-        ],
-        "counts": None,
-        "files": [],
-        "file_plan": FILE_PLAN,
-    }:
-        errors.append("dry-run plan does not list every Wykonawca's file with its Zlecenia skuteczne")
-    if dict(_figures(result["progress"].get("figures", []))).get("Problemy") != 0:
-        errors.append("dry-run reports Problemy")
+    result = load_result(result_path, (ROW_MARKER,), errors)
+    if result is not None:
+        if result.result != "OK" or result.stop is not None or result.warnings != []:
+            errors.append("dry-run result is not OK without warnings")
+        if result.summary != contract.RunSummary(
+            figures=[
+                contract.Figure(label="Wiersze danych", value=EXPECTED_ROWS, unit="count"),
+                contract.Figure(label="Planowane szablony", value=TEMPLATES, unit="count"),
+                contract.Figure(label="Puste szablony", value=0, unit="count"),
+            ],
+            counts=None,
+            files=[],
+            file_plan=FILE_PLAN,
+        ):
+            errors.append("dry-run plan does not list every Wykonawca's file with its Zlecenia skuteczne")
+        if dict(figures(result.progress.figures)).get("Problemy") != 0:
+            errors.append("dry-run reports Problemy")
     _check_metrics(root, [("DRY-RUN", "OK")], errors)
-    return _finish(
+    return finish(
         errors,
         "ASSERT OK | process=przebieg | source=przygotowanie | mode=dry-run | output_folder_absent=true | "
         "inputs_unchanged=true | plan_reported=true | rows_hidden=true",
@@ -221,16 +187,6 @@ def _looks(sheet: Worksheet, in_file: set[tuple[int, int]], number: int) -> Look
     return tuple(looks)
 
 
-def _hyperlinks(sheet: Worksheet) -> dict[tuple[int, int], Link]:
-    """(row, column) -> (address, location) of every cell hyperlink; reads only cells stored in the file."""
-
-    return {
-        coordinate: (cell.hyperlink.target, cell.hyperlink.location)
-        for coordinate, cell in sheet._cells.items()
-        if cell.hyperlink is not None
-    }
-
-
 def _row_links(links: dict[tuple[int, int], Link], number: int) -> dict[int, Link]:
     return {column: link for (row, column), link in links.items() if row == number and column <= COPIED_COLUMNS}
 
@@ -253,11 +209,6 @@ def _cell_values(workbook: Workbook, skipped_rows: range) -> dict[tuple[str, int
     }
 
 
-def _external_link_parts(path: Path) -> dict[str, bytes]:
-    with zipfile.ZipFile(path) as archive:
-        return {name: archive.read(name) for name in archive.namelist() if name.startswith("xl/externalLinks/")}
-
-
 def _check_worker_file(
     name: str,
     path: Path,
@@ -274,7 +225,7 @@ def _check_worker_file(
     try:
         sheet = _sheet(workbook)
         in_file = set(sheet._cells)
-        links = _hyperlinks(sheet)
+        links = hyperlinks(sheet)
         data_rows = _data_rows(sheet)
         written = range(FIRST_DATA_ROW, FIRST_DATA_ROW + len(expected_rows))
         if [number for number, _ in data_rows] != list(written):
@@ -303,11 +254,11 @@ def _check_worker_file(
             template, written
         ):
             errors.append(f"{name}: cells outside the Wiersze danych differ from the Wzorzec rozliczenia pracownika")
-        if _outside_rows(links, written) != _outside_rows(_hyperlinks(_sheet(template)), written):
+        if _outside_rows(links, written) != _outside_rows(hyperlinks(_sheet(template)), written):
             errors.append(f"{name}: hyperlinks outside the Wiersze danych differ from the Wzorzec rozliczenia pracownika")
     finally:
         workbook.close()
-    if _external_link_parts(path) != template_links:
+    if external_link_parts(path) != template_links:
         errors.append(f"{name}: xl/externalLinks parts differ from the Wzorzec rozliczenia pracownika")
 
 
@@ -322,7 +273,7 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
     try:
         collective_sheet = _sheet(collective)
         collective_in_file = set(collective_sheet._cells)
-        collective_hyperlinks = _hyperlinks(collective_sheet)
+        collective_hyperlinks = hyperlinks(collective_sheet)
         order_index = _order_column(collective_sheet) - 1
         numbered_rows = _data_rows(collective_sheet)
         collective_rows = [values for _, values in numbered_rows]
@@ -346,7 +297,7 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
         errors.append("Plik zbiorczy lacks the Gotowość entries in N:AT")
 
     template_path = root / WORKER_TEMPLATE
-    template_links = _external_link_parts(template_path)
+    template_links = external_link_parts(template_path)
     template = load_workbook(template_path, data_only=False, keep_links=True)
     try:
         for name, orders in EXPECTED_WORKER_ORDERS.items():
@@ -390,31 +341,30 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
     else:
         _check_worker_files(root, period_directory, target_directory, errors)
 
-    result = _result(result_path, errors)
-    progress = result["progress"]
-    if [(phase["phase"], phase["state"]) for phase in progress.get("phases", [])] != [
-        (phase, "completed") for phase in PHASES
-    ]:
-        errors.append("run progress does not complete the four stages in order")
-    if (
-        result.get("result") != "OK"
-        or result.get("stop") is not None
-        or result.get("warnings") != []
-        or result.get("summary")
-        != {
-            "figures": [
-                {"label": "Zapisane szablony", "value": TEMPLATES, "unit": "count"},
-                {"label": "Puste szablony", "value": 0, "unit": "count"},
-            ],
-            "counts": None,
-            "files": [],
-            "file_plan": FILE_PLAN,
-        }
-        or (progress.get("template_total"), progress.get("templates_completed")) != (TEMPLATES, TEMPLATES)
-    ):
-        errors.append("run result does not report a complete run with every template written")
+    result = load_result(result_path, (ROW_MARKER,), errors)
+    if result is not None:
+        progress = result.progress
+        if [(phase.phase, phase.state) for phase in progress.phases] != [(phase, "completed") for phase in PHASES]:
+            errors.append("run progress does not complete the four stages in order")
+        if (
+            result.result != "OK"
+            or result.stop is not None
+            or result.warnings != []
+            or result.summary
+            != contract.RunSummary(
+                figures=[
+                    contract.Figure(label="Zapisane szablony", value=TEMPLATES, unit="count"),
+                    contract.Figure(label="Puste szablony", value=0, unit="count"),
+                ],
+                counts=None,
+                files=[],
+                file_plan=FILE_PLAN,
+            )
+            or (progress.template_total, progress.templates_completed) != (TEMPLATES, TEMPLATES)
+        ):
+            errors.append("run result does not report a complete run with every template written")
     _check_metrics(root, [("DRY-RUN", "OK"), ("RUN", "OK")], errors)
-    return _finish(
+    return finish(
         errors,
         f"ASSERT OK | process=przebieg | source=przygotowanie | mode=run | workbooks_checked={len(expected_files)} | "
         "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | hyperlinks_equal_plik_zbiorczy=A:AT | "

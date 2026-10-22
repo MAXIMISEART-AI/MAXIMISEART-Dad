@@ -176,7 +176,10 @@ preparation steps above under a `preparation-` prefix with their own
 --expect dry-run`, `settlement` on the same file, then `assert_chain.py --expect
 run`. Every run requires exit code `0`.
 
-The assertions read the contract fields Dad sees on the Uruchomienie card:
+The assertions read the result through the contract model it is printed
+from (`ProcessResult` in `tools/uruchom_proces.py`), never as a raw dict, so a
+field renamed or dropped in the contract fails the proof instead of passing it
+unchecked. They check the contract fields Dad sees on the Uruchomienie card:
 `result`, the plan or summary in `summary` (figures, `file_plan`, period
 files, Zlecenia na dzień), `warnings` and `stop` by their Komunikat `code`,
 and `progress` (the four stages completed in order, Szablony pracowników
@@ -284,6 +287,11 @@ already performs both checks and prints `scratch_removed=true`.
   Wyróżnienia and Hiperłącza, the Rejestr Hiperłącze in `NUMER ZL.`, Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
   pracownika, unchanged inputs and period files, the JSON result, and metrics.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_chain.py --root "$runRoot" --expect run --result "$evidenceRoot\settlement-run.json"`.
+- `scripts/wynik_uruchomienia.py` is what the three `assert_*.py` share: it
+  loads a step's JSON result as `ProcessResult` and holds the metrics,
+  Hiperłącza, and external-link readers. Alone it checks one evidence file and
+  names the fields that do not match the contract, never their values.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\wynik_uruchomienia.py --result "$evidenceRoot\run.json"`.
 - `scripts/cleanup.py` removes only a run root below `.verification\runs\`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.
 - `scripts/self_test.py` checks the skill package and evidence hygiene.
