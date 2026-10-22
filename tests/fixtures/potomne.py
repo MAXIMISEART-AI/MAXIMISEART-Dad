@@ -5,9 +5,12 @@ Na Windows ``os.kill(pid, 0)`` nie sprawdza procesu, tylko wysyła mu Ctrl+C (``
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import sys
 import time
+
+from tests.fixtures.git_repo import git
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "tools"
@@ -15,7 +18,7 @@ sys.path.insert(0, str(TOOLS))
 
 import potomne  # noqa: E402
 
-__all__ = ["TOOLS", "beating", "potomne", "with_grandchild"]
+__all__ = ["TOOLS", "beating", "potomne", "wait_for", "with_grandchild", "worktrees"]
 
 GRANDCHILD = "import sys, time\nwhile True:\n    open(sys.argv[1], 'a').write('.')\n    time.sleep(0.1)\n"
 
@@ -41,3 +44,15 @@ def beating(beats: Path) -> bool:
     before = beats.stat().st_size
     time.sleep(2)
     return beats.stat().st_size != before
+
+
+def wait_for(condition: Callable[[], bool], seconds: float = 60) -> bool:
+    deadline = time.monotonic() + seconds
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return condition()
+
+
+def worktrees(repo: Path) -> list[Path]:
+    listed = git(repo, "worktree", "list", "--porcelain").splitlines()
+    return [Path(line.removeprefix("worktree ")) for line in listed if line.startswith("worktree ")]
