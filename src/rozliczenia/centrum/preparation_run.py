@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any, Final
 
 from rozliczenia.centrum import contract, run_view
@@ -17,9 +16,11 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import observed_period_folder, requested_period
 from rozliczenia.centrum.runs import PreparedRun
+from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.settings import Settings, SettingsStore
 from rozliczenia.period_folder import PeriodFolders, period_status_label, scan_period_folders
-from rozliczenia.preparation_process import PROCESS, PreparationInputs
+from rozliczenia.preparation_process import PreparationInputs
+from rozliczenia.process_run import Process
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.telemetry import MetricsStore
 
@@ -34,7 +35,7 @@ class PreparationEntry:
 
     store: SettingsStore
     configuration: ConfigurationFiles
-    metrics_path: Path
+    process: Process[PreparationInputs, PreparationSummary]
     today: Callable[[], date]
 
     @property
@@ -45,11 +46,11 @@ class PreparationEntry:
         settings = self.store.load()
         last_complete = last_complete_period(self.today())
         periods = [SettlementPeriod(last_complete.tuesday - timedelta(weeks=week)) for week in range(_CHOSEN_WEEKS)]
-        previewed = previewed_periods(MetricsStore(self.metrics_path, PROCESS.counter_names))
+        previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
         folders = scan_period_folders(settings.periods_directory) if settings.periods_directory is not None else None
         return contract.ProcessSetup(
             process=_KEY,
-            title=PROCESS.name,
+            title=self.process.name,
             creates="Rozliczenie wewnętrzne i Plik zbiorczy",
             reminder=_VIEW.reminder,
             confirms_readiness=_VIEW.confirms_readiness,
@@ -80,9 +81,9 @@ class PreparationEntry:
         return PreparedRun(
             key=_KEY,
             period=period,
-            process=PROCESS,
+            process=self.process,
             inputs=inputs,
-            metrics_path=self.metrics_path,
+            metrics_path=self.process.metrics_path(),
             done="Plik zbiorczy przygotowany",
             view=_VIEW,
         )

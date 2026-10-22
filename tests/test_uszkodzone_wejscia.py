@@ -32,11 +32,10 @@ from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.report_box import GitHubReportBox, HttpRequest, HttpResponse
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, finished_view
+from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, MetricsPaths, finished_view
 from tests.fixtures.preparation import PERIOD, write_collective_template, write_internal_template, write_register
 from tests.fixtures.settlement import write_source, write_template
 
@@ -182,9 +181,7 @@ class World:
                 collective_template=self.path("wzorzec_zbiorczy"),
                 worker_template=self.path("wzorzec_pracownika"),
             ),
-            metrics_files=MetricsFiles(
-                preparation=self.path("metryki_przygotowania"), settlement=self.path("metryki_przebiegu")
-            ),
+            processes=MetricsPaths(self.path("metryki_przygotowania"), self.path("metryki_przebiegu")).processes(),
             tool_freshness=FakeGitHub().freshness(),
             cloud_files=FakeOneDrive().cloud_files(),
             report_box=GitHubReportBox(transport=_offline_like_urllib),

@@ -5,17 +5,18 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
 
+from rozliczenia import preparation_process, settlement_process
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
     FindOutcome,
     Refused,
@@ -162,12 +163,26 @@ class FakeOneDrive:
         return CloudFiles(read_attributes=self.attributes)
 
 
+@dataclass(frozen=True)
+class MetricsPaths:
+    """Pliki metryk obu procesów w Centrum testu zamiast historii z katalogu narzędzia."""
+
+    preparation: Path
+    settlement: Path
+
+    def processes(self) -> Processes:
+        return Processes(
+            preparation=replace(preparation_process.PROCESS, metrics_path=lambda: self.preparation),
+            settlement=replace(settlement_process.PROCESS, metrics_path=lambda: self.settlement),
+        )
+
+
 @dataclass
 class Centrum:
     client: TestClient
     platform: FakePlatform
     settings_path: Path
-    metrics: MetricsFiles
+    metrics: MetricsPaths
     log_path: Path
     report_box: FakeReportBox
 
@@ -176,8 +191,7 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     platform = FakePlatform()
     report_box = FakeReportBox()
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
-    # Pliki metryk obu procesów w katalogu testu, nigdy historia z katalogu narzędzia.
-    metrics = MetricsFiles(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
+    metrics = MetricsPaths(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
     log = CentrumLog(log_path)
     app = create_app(
@@ -186,7 +200,7 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         log=log,
         shutdown=Shutdown(log),
         today=lambda: today,
-        metrics_files=metrics,
+        processes=metrics.processes(),
         tool_freshness=FakeGitHub().freshness(),
         cloud_files=FakeOneDrive().cloud_files(),
         report_box=report_box,

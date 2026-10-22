@@ -484,10 +484,13 @@ _STREAM_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 class ProcessEntry(Protocol):
-    """Proces, który Centrum umie uruchomić: co pokazać przed startem i jak przygotować Uruchomienie."""
+    """Proces, który Centrum umie uruchomić: jego rdzeń, co pokazać przed startem i jak przygotować Uruchomienie."""
 
     @property
     def key(self) -> contract.ProcessKey: ...
+
+    @property
+    def process(self) -> Process[Any, Any]: ...
 
     def setup(self) -> contract.ProcessSetup: ...
 

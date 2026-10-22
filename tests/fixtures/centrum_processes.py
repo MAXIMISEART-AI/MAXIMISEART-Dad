@@ -23,7 +23,6 @@ from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
@@ -36,6 +35,7 @@ from tests.fixtures.centrum import (
     FakeOneDrive,
     FakePlatform,
     FakeReportBox,
+    MetricsPaths,
     finished_view,
 )
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
@@ -106,7 +106,7 @@ def _client(
     tmp_path: Path,
     platform: FakePlatform,
     configuration: ConfigurationFiles,
-    metrics: MetricsFiles,
+    metrics: MetricsPaths,
     surroundings: Surroundings,
 ) -> TestClient:
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
@@ -118,7 +118,7 @@ def _client(
         shutdown=Shutdown(log),
         today=lambda: TODAY,
         configuration_files=configuration,
-        metrics_files=metrics,
+        processes=metrics.processes(),
         tool_freshness=surroundings.tool_freshness(),
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
@@ -163,8 +163,8 @@ def _preparation_client(
     return _client(tmp_path, platform, configuration, _metrics(tmp_path), surroundings)
 
 
-def _metrics(tmp_path: Path) -> MetricsFiles:
-    return MetricsFiles(
+def _metrics(tmp_path: Path) -> MetricsPaths:
+    return MetricsPaths(
         preparation=tmp_path / ".przygotowanie-pliku-zbiorczego-metrics.jsonl",
         settlement=tmp_path / ".rozliczenia-metrics.jsonl",
     )
