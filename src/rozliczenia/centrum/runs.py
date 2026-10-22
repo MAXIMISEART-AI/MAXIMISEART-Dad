@@ -308,7 +308,7 @@ class RunHost:
 class _Run:
     """Jedno Uruchomienie procesu i jednocześnie jego rozmówca w rdzeniu (``Interlocutor``).
 
-    Metody podglądu zamieniają snapshot projekcji na widok i publikują go.
+    ``show_progress`` zamienia snapshot projekcji na widok i publikuje go.
     Wyjątek przy tym oznacza, że podgląd przestał się aktualizować: widok
     dostaje ``progress_stale``, a rdzeń odłącza podgląd bez wpływu na wynik.
     """
@@ -395,16 +395,7 @@ class _Run:
     # Podgląd postępu. Każde powiadomienie odświeża widok
     # na żywo; przeglądarka dostaje nowy widok tylko wtedy, gdy zmieniło się to, co pokazuje.
 
-    def start_progress(self, snapshot: ProgressSnapshot) -> None:
-        self._show(snapshot)
-
     def show_progress(self, snapshot: ProgressSnapshot) -> None:
-        self._show(snapshot)
-
-    def stop_progress(self) -> None:
-        """Widok końcowy publikuje ``work`` razem z wynikiem."""
-
-    def _show(self, snapshot: ProgressSnapshot) -> None:
         try:
             progress = self._prepared.progress_view(snapshot)
         except Exception:

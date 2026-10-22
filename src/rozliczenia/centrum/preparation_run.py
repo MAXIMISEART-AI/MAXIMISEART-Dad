@@ -18,7 +18,7 @@ from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import observed_period_folder, requested_period
 from rozliczenia.centrum.runs import PreparedRun
 from rozliczenia.settings import Settings, SettingsStore
-from rozliczenia.period_folder import period_status_label
+from rozliczenia.period_folder import PeriodFolders, period_status_label, scan_period_folders
 from rozliczenia.preparation_process import PROCESS, PreparationInputs
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.telemetry import MetricsStore
@@ -46,6 +46,7 @@ class PreparationEntry:
         last_complete = last_complete_period(self.today())
         periods = [SettlementPeriod(last_complete.tuesday - timedelta(weeks=week)) for week in range(_CHOSEN_WEEKS)]
         previewed = previewed_periods(MetricsStore(self.metrics_path, PROCESS.counter_names))
+        folders = scan_period_folders(settings.periods_directory) if settings.periods_directory is not None else None
         return contract.ProcessSetup(
             process=_KEY,
             title=PROCESS.name,
@@ -54,7 +55,7 @@ class PreparationEntry:
             confirms_readiness=_VIEW.confirms_readiness,
             preview_hint=_VIEW.preview_hint,
             periods=[
-                _choice(settings, period, last_complete=period == last_complete, previewed=period.token in previewed)
+                _choice(folders, period, last_complete=period == last_complete, previewed=period.token in previewed)
                 for period in periods
             ],
             preselected_period=last_complete.token,
@@ -97,14 +98,9 @@ def _blocker(settings: Settings) -> str | None:
 
 
 def _choice(
-    settings: Settings, period: SettlementPeriod, *, last_complete: bool, previewed: bool
+    folders: PeriodFolders | None, period: SettlementPeriod, *, last_complete: bool, previewed: bool
 ) -> contract.PeriodChoice:
-    periods_directory = settings.periods_directory
-    status = (
-        observed_period_folder(periods_directory, period).observe().status
-        if periods_directory is not None
-        else "no_period_files"
-    )
+    status = observed_period_folder(folders, period).observe().status if folders is not None else "no_period_files"
     return contract.PeriodChoice(
         token=period.token,
         tuesday=period.tuesday,

@@ -34,7 +34,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = ["--strict-config"]
+# Z -n wolny worker zabiera testy z kolejki zajętego. Przy domyślnym --dist load kolejka workera z długim testem
+# (kopia Wzorca, ~65 s) czeka na niego, a inne workery już stoją: pełny pytest -n 4 trwa wtedy ~1,5 raza dłużej.
+addopts = ["--strict-config", "--dist", "worksteal"]
 # Najwolniejszy test trwa kilka sekund; zawieszony test kończy się błędem zamiast blokować przebieg.
 timeout = 120
 

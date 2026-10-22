@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
+import errno
 import os
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from tests.fixtures.preparation import (
     REGISTER_HEADERS,
     PreparationFixture,
     RegisterRow,
+    default_register_rows,
     make_dad_layout_fixture,
     make_preparation_fixture,
     month_periods_folder,
@@ -33,6 +35,7 @@ from tests.fixtures.preparation import (
 from tests.fixtures.workbooks import (
     break_row_far_below_data_rows,
     cut_sheet_after_data_rows,
+    rewrite_parts,
     without_sheet,
     without_styles,
 )
@@ -88,6 +91,35 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
         "pozostawiony plik ~$ZLECENIA INTERMAX OD 08_11_2021.xlsx i uruchom ponownie."
     )
     assert lock_file.exists()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process"),
+        OSError(errno.EIO, "The cloud file provider is not running"),
+    ],
+    ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci"],
+)
+def test_rejestr_zlecen_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    read_bytes = Path.read_bytes
+
+    def blocked(path: Path) -> bytes:
+        if path == fixture.register_path:
+            raise error
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", blocked)
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(fixture)
+
+    assert raised.value.message.code == "NIEDOSTEPNY_REJESTR"
+    assert "uszkodzony" not in raised.value.message.text
+    assert list(fixture.periods_directory.iterdir()) == []
 
 
 @pytest.mark.parametrize(
@@ -273,6 +305,31 @@ def test_damaged_rejestr_zlecen_stops_without_files(tmp_path: Path, damage: Call
         "Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, "
         "zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie."
     )
+
+
+def break_tag_of_row_2(data: bytes) -> bytes:
+    end = data.index(b"</row>", data.index(b'<row r="2"'))
+    return data[:end] + b"</wiersz>" + data[end + len(b"</row>") :]
+
+
+def text_instead_of_number_in_date_of_row_2(data: bytes) -> bytes:
+    value = data.index(b"<v>", data.index(b'<c r="C2"')) + len(b"<v>")
+    return data[:value] + b"brak" + data[data.index(b"</v>", value) :]
+
+
+@pytest.mark.parametrize(
+    "damage", [break_tag_of_row_2, text_instead_of_number_in_date_of_row_2], ids=["zly-znacznik", "tekst-zamiast-liczby-w-dacie"]
+)
+def test_rejestr_damaged_in_row_of_earlier_period_stops_as_damaged(
+    tmp_path: Path, damage: Callable[[bytes], bytes]
+) -> None:
+    fixture = make_preparation_fixture(tmp_path, [register_order(1, datetime(2025, 3, 4, 8, 0)), *default_register_rows()])
+    # ZLECENIA jest za arkuszem lista; wiersz 2 to zlecenie z 2025 r., daleko przed okresem.
+    rewrite_parts(fixture.register_path, lambda name, data: damage(data) if name == "xl/worksheets/sheet2.xml" else data)
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "USZKODZONY_REJESTR"
 
 
 WZORCE = pytest.mark.parametrize(

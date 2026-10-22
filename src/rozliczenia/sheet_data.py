@@ -1,12 +1,12 @@
 """Wiersze ``<sheetData>`` arkusza w kształcie, który zapisują Excel i openpyxl.
 
-Moduł jest szczegółem ``input_rows`` i ``template_copy`` i nikt poza nimi go nie
-używa. Oba czytają XML arkusza bez parsera, po granicach wierszy, więc oba
-przyjmują tylko ten sam kształt: jeden ``<sheetData>``, każdy wiersz i każda
-komórka z ``r`` jako pierwszym atrybutem, wiersze rosnąco po numerze i bez
-komentarzy ani CDATA w danych arkusza. Inny kształt to ``IrregularSheetData``:
-``input_rows`` zostawia wtedy arkusz w całości, a ``template_copy`` oddaje zapis
-openpyxl.
+Moduł jest szczegółem ``input_rows``, ``dated_rows`` i ``template_copy`` i nikt
+poza nimi go nie używa. Wszystkie czytają XML arkusza bez parsera, po granicach
+wierszy, więc przyjmują tylko ten sam kształt: jeden ``<sheetData>``, każdy
+wiersz i każda komórka z ``r`` jako pierwszym atrybutem, wiersze rosnąco po
+numerze i bez komentarzy ani CDATA w danych arkusza. Inny kształt to
+``IrregularSheetData``: ``input_rows`` i ``dated_rows`` zostawiają wtedy arkusz
+w całości, a ``template_copy`` oddaje zapis openpyxl.
 """
 
 from __future__ import annotations

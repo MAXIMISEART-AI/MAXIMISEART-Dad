@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import time
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill
+from openpyxl.utils.datetime import CALENDAR_MAC_1904
 import pytest
 
 from rozliczenia.domain import (
@@ -45,7 +48,7 @@ from tests.fixtures.preparation import (
     write_register,
 )
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
-from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts, hyperlinks
+from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts, hyperlinks, rewrite_parts
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import cell_values, collective_row, incomplete_period_fixture, run_preparation
 from tests.fixtures.interlocutor import Tata
@@ -300,6 +303,8 @@ def test_nienadpisywanie_stops_when_period_file_exists(tmp_path: Path, existing_
         # Na przełomie miesięcy i lat miesiąc i rok tokenu są z poniedziałku, nie z wtorku.
         "27_02_10_2026",
         "29_04_12_2026",
+        # Wtorek przed poniedziałkiem 1-6 stycznia roku 1 leży przed najwcześniejszą datą Pythona.
+        "00_01_01_0001",
     ],
 )
 def test_invalid_period_token_stops_before_reading_rejestr(tmp_path: Path, token: str) -> None:
@@ -764,6 +769,151 @@ def test_rows_without_date_outside_period_orders_do_not_stop(tmp_path: Path) -> 
     assert summary.skipped_empty_rows == 1
 
 
+def earlier_orders(count: int, first_number: int) -> list[RegisterRow]:
+    """Zlecenia z 2025 r., jak historia Rejestru zleceń sprzed okresu."""
+
+    return [register_order(first_number + index, datetime(2025, 3, 4, 8, 0) + timedelta(days=index)) for index in range(count)]
+
+
+def without_date(number: int, value: object) -> dict[str, object]:
+    return register_order(number, datetime(2026, 9, 9, 8, 0)) | {"DATA GODZ. POCZ.": value}
+
+
+@pytest.mark.parametrize("value", ["09.09.2026 08:00", "=DATE(2026,9,9)+TIME(8,0,0)"], ids=["tekst", "formula"])
+def test_row_without_date_between_period_orders_separated_by_other_periods_stops(tmp_path: Path, value: str) -> None:
+    rows: list[RegisterRow] = [
+        *earlier_orders(20, 100),
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        *earlier_orders(5, 200),
+        without_date(90, value),
+        *earlier_orders(5, 300),
+        register_order(3, datetime(2026, 9, 14, 8, 0)),  # spóźnione zlecenie okresu
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    error = stop_message(fixture)
+
+    assert error.message.code == "WIERSZ_BEZ_DATY"
+    assert error.message.where == f"plik {REGISTER_NAME}, arkusz ZLECENIA, wiersz 28"
+
+
+def test_rows_without_date_next_to_period_orders_after_register_history_do_not_stop(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        *earlier_orders(20, 100),
+        without_date(90, "08.09.2026 07:00"),
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        None,
+        register_order(3, datetime(2026, 9, 10, 8, 0)),
+        without_date(91, "10.09.2026 09:00"),
+        *earlier_orders(5, 200),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+
+    summary = run_preparation(fixture)
+
+    assert (summary.period_order_count, summary.skipped_empty_rows) == (2, 1)
+
+
+def test_period_orders_after_register_history_keep_values_highlights_and_hyperlinks_of_their_rows(
+    tmp_path: Path,
+) -> None:
+    rows: list[RegisterRow] = [
+        *earlier_orders(30, 100),
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        None,
+        register_order(3, datetime(2026, 9, 10, 8, 0), successful="nie"),
+        *earlier_orders(5, 200),
+        register_order(4, datetime(2026, 9, 14, 18, 0)),
+        *earlier_orders(3, 300),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+    links = link_register_order_numbers(fixture.register_path, "https://przyklad.invalid/zlecenie?caseId=SYN-")
+    workbook = load_workbook(fixture.register_path)
+    workbook["ZLECENIA"]["E40"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    workbook.save(fixture.register_path)
+    workbook.close()
+
+    summary = run_preparation(fixture)
+
+    # Wiersze Rejestru: historia 2–31, zlecenia okresu 32, 34 i 40 (ADRES w E, NUMER ZL. w I).
+    assert (summary.period_order_count, summary.successful_order_count, summary.skipped_empty_rows) == (3, 2, 1)
+    assert [row[6] for row in sheet_rows(fixture.internal_settlement_path, min_row=2, max_col=13)] == [
+        "ZL-SYN-002",
+        "ZL-SYN-003",
+        "ZL-SYN-004",
+    ]
+    assert hyperlinks(fixture.collective_file_path) == {"F18": links[32], "F19": links[40]}
+    assert cell_formats(fixture.collective_file_path, ["B18", "B19"]) == {
+        "B18": (None, None, False, False),
+        "B19": ("FFFFFF00", None, False, False),
+    }
+
+
+def iso_dates(workbook: Workbook) -> None:
+    workbook.iso_dates = True
+
+
+def mac_1904_dates(workbook: Workbook) -> None:
+    workbook.epoch = CALENDAR_MAC_1904
+
+
+@pytest.mark.parametrize("dates", [mac_1904_dates, iso_dates], ids=["system-dat-1904", "daty-tekstem-iso"])
+def test_rejestr_with_other_date_notation_gives_same_period_files(
+    tmp_path: Path, dates: Callable[[Workbook], None]
+) -> None:
+    rows = [*earlier_orders(10, 100), *default_register_rows(), *earlier_orders(3, 200)]
+    (tmp_path / "1900").mkdir()
+    (tmp_path / "zapis").mkdir()
+    expected_fixture = make_preparation_fixture(tmp_path / "1900", rows)
+    fixture = make_preparation_fixture(tmp_path / "zapis", rows)
+    workbook = load_workbook(fixture.register_path)
+    dates(workbook)
+    workbook.save(fixture.register_path)
+    workbook.close()
+
+    expected = run_preparation(expected_fixture)
+    summary = run_preparation(fixture)
+
+    assert (summary.period_order_count, summary.successful_order_count, summary.skipped_empty_rows) == (
+        expected.period_order_count,
+        expected.successful_order_count,
+        expected.skipped_empty_rows,
+    )
+    assert summary.period_order_count == 4
+    for path, expected_path in (
+        (fixture.internal_settlement_path, expected_fixture.internal_settlement_path),
+        (fixture.collective_file_path, expected_fixture.collective_file_path),
+    ):
+        assert sheet_rows(path, min_row=1, max_col=13) == sheet_rows(expected_path, min_row=1, max_col=13)
+
+
+def test_shared_formula_from_register_history_reaches_period_order(tmp_path: Path) -> None:
+    rows: list[RegisterRow] = [
+        *earlier_orders(10, 100),
+        register_order(2, datetime(2026, 9, 8, 8, 0)),
+        register_order(3, datetime(2026, 9, 10, 8, 0)),
+    ]
+    fixture = make_preparation_fixture(tmp_path, rows)
+    workbook = load_workbook(fixture.register_path)
+    for row in (2, 12, 13):
+        workbook["ZLECENIA"].cell(row, 13).value = f"=N{row}"
+    workbook.save(fixture.register_path)
+    workbook.close()
+
+    def share(name: str, data: bytes) -> bytes:
+        if name != "xl/worksheets/sheet2.xml":
+            return data
+        # Jak Excel: formuła główna w wierszu 2, w wierszach okresu tylko odwołanie do niej.
+        data = data.replace(b"<f>N2</f>", b'<f t="shared" ref="M2:M13" si="0">N2</f>')
+        return data.replace(b"<f>N12</f>", b'<f t="shared" si="0"/>').replace(b"<f>N13</f>", b'<f t="shared" si="0"/>')
+
+    rewrite_parts(fixture.register_path, share)
+
+    run_preparation(fixture)
+
+    assert [row[10] for row in sheet_rows(fixture.internal_settlement_path, min_row=2, max_col=13)] == ["=N12", "=N13"]
+
+
 def test_period_without_orders_stops(tmp_path: Path) -> None:
     rows: list[RegisterRow] = [
         register_order(1, datetime(2026, 9, 7, 15, 0)),
@@ -957,6 +1107,7 @@ def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_
         None,
         register_order(2, datetime(2026, 9, 12, 23, 59), successful="nie"),
         register_order(3, datetime(2026, 9, 10, 9, 0)),
+        register_order(4, datetime(2026, 9, 10, 15, 30)),
     ]
     fixture = make_preparation_fixture(tmp_path, rows)
 
@@ -973,7 +1124,7 @@ def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_
     assert plan.orders_per_day == {
         date(2026, 9, 8): 1,
         date(2026, 9, 9): 0,
-        date(2026, 9, 10): 1,
+        date(2026, 9, 10): 2,
         date(2026, 9, 11): 0,
         date(2026, 9, 12): 1,
         date(2026, 9, 13): 0,
