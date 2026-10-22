@@ -1,6 +1,6 @@
 ---
 name: verify-kopia-wzorca
-description: Check with generated Wiersze danych that every Rozliczenie pracownika written by the template copy (ADR 0008, `template_copy.py`) is the file the old openpyxl path would write, keeps the rest of the Wzorzec byte for byte, and has the shape Excel needs. Use when a change touches `src/rozliczenia/template_copy.py`, `src/rozliczenia/sheet_data.py`, `src/rozliczenia/highlights.py`, `src/rozliczenia/row_look.py`, `src/rozliczenia/hyperlinks.py`, `WorkerSettlementTemplate` or `TemplateSheet.write_data_rows` in `src/rozliczenia/workbook_files.py`, `tools/porownanie_rozliczen.py`, or when `tests/test_kopia_wzorca.py` fails.
+description: Check with generated Wiersze danych that every Rozliczenie pracownika written by the template copy (ADR 0008, `template_copy.py`) is the file the old openpyxl path would write, keeps the rest of the Wzorzec byte for byte, and has the shape Excel needs. Use when a change touches `src/rozliczenia/template_copy.py`, `src/rozliczenia/sheet_data.py`, `src/rozliczenia/highlights.py`, `src/rozliczenia/row_look.py`, `src/rozliczenia/hyperlinks.py`, `TemplateFile` or `_write_rows` in `src/rozliczenia/workbook_files.py`, `tools/porownanie_rozliczen.py`, or when `tests/test_kopia_wzorca.py` fails.
 ---
 
 # Verify kopia Wzorca
@@ -13,7 +13,7 @@ bytes of the Wzorzec rozliczenia pracownika and splices the Wiersze danych into 
 The check holds that copy to five rules, for any Wiersze danych:
 
 - **WIERNA_KOPIA**: the Rozliczenie pracownika from the copy matches the file the old openpyxl path
-  writes (`file_from_template` + `write_data_rows`) in everything Dad sees in Excel, as judged by
+  writes (`TemplateFile.create` on a twin of the Wzorzec the copy refuses) in everything Dad sees in Excel, as judged by
   the benchmark's correctness gate `tools/porownanie_rozliczen.py`: values, formulas, resolved
   styles (with the Wyróżnienia: fill, font color, bold, italic), Hiperłącza (address and location of every cell's
   hyperlink, not its relationship id), merges, row and column dimensions, defined names, external links,
@@ -60,10 +60,10 @@ Coverage, confirmed at **sync commit `d3ba226`** (Wygląd Wiersza danych, 2026-1
 | `src/rozliczenia/highlights.py` (`Highlights.of`, `font_over`, `fill_over`) | Wyróżnienia both paths lay over the Wzorzec's font and fill |
 | `src/rozliczenia/row_look.py` (`RowLook`, `CellLook`, `wraps`) | Wygląd Wiersza danych both paths give A:L; judged by WYGLAD_WIERSZA |
 | `src/rozliczenia/hyperlinks.py` (`Hyperlink`) | the Hiperłącze both paths write; its reader `read_sheet_hyperlinks` is covered by pytest (`tests/test_hiperlacza_pliku_zbiorczego.py`), not here |
-| `src/rozliczenia/workbook_files.py`: `WorkerSettlementTemplate` (`check`, `create_settlement`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_write_atomically`, `_package_writer` | the real entry point; which path it takes |
-| `src/rozliczenia/workbook_files.py`: `file_from_template`, `TemplateSheet.write_data_rows`, `row_look`, `fit_height`, `_request_full_recalculation`, `save_workbook` | the reference (old openpyxl path) |
+| `src/rozliczenia/workbook_files.py`: `TemplateFile` (`check`, `create`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_placed`, `_write_atomically`, `_package_writer` | the real entry point; which path it takes |
+| `src/rozliczenia/workbook_files.py`: `TemplateFile._create_with_openpyxl`, `_write_rows`, `_ensure_unmerged`, `_request_full_recalculation`, `_save_atomically` | the reference (old openpyxl path) |
 | `tools/porownanie_rozliczen.py` (`compare_worker_settlements` and its per-cell helpers, `_hyperlink` among them) | the judge for WIERNA_KOPIA |
-| `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`) | the Wzorce under test |
+| `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`, `refused_by_copy`) | the Wzorce under test and the twin the copy refuses |
 
 Run the check when a diff touches any of these. To see whether the covered code moved since the
 sync commit:
@@ -110,7 +110,7 @@ Options:
 
 ## How it works and what it covers
 
-One Hypothesis example is one Przebieg rozliczeń: one `WorkerSettlementTemplate` is loaded and
+One Hypothesis example is one Przebieg rozliczeń: one `TemplateFile` is loaded and
 checked once, then 1 to 3 Rozliczenia pracowników are made from it in a row, as `run_settlements()`
 does for its workers. That catches state carried from one copy to the next, such as the
 compressed chunks cached at the first copy. Each Wzorzec below gets its own Hypothesis run with the
@@ -120,7 +120,7 @@ Rozliczenie pracownika with the most Wiersze danych in scope, each with a Hiper�
 every reachable chunk start and writes the sheet tail with `<hyperlinks>`), and empty A and B up
 to the first row whose A cell the Wzorzec XML lacks (row 139 of `syntetyczny`), which the copy has
 to add. Each Rozliczenie
-pracownika is written by the real `create_settlement()` and, separately, by the openpyxl path from the same Wzorzec, then judged.
+pracownika is written by the real `TemplateFile.create()` and, separately, by the openpyxl path from the Wzorzec's twin (an XML comment in its sheet data makes the copy refuse it; openpyxl skips the comment), then judged.
 
 | Wzorzec | Shape | Wiersze danych per Rozliczenie pracownika |
 | --- | --- | --- |

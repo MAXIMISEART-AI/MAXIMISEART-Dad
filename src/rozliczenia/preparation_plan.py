@@ -16,9 +16,9 @@ from pathlib import Path
 
 from . import preparation_messages as messages
 from .message import Message, StopError
-from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterSheet, cell_value, is_blank
+from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterSheet, cell_value
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow
+from .workbook_files import DataRow, is_blank
 from .worker_config import normalize_text
 
 _SUCCESSFUL_VALUE = "tak"

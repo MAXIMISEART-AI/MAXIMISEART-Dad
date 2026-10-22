@@ -31,7 +31,7 @@ from rozliczenia.message import StopError
 from rozliczenia.process_run import Stop
 from rozliczenia.progress import PhaseState, ProgressProjection
 import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import DataRow, Layout, WorkerSettlementTemplate, file_from_template, read_data_rows
+from rozliczenia.workbook_files import DataRow, Layout, TemplateFile, read_data_rows
 from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
@@ -40,6 +40,7 @@ from tests.fixtures.workbooks import (
     column_widths,
     cut_sheet_after_data_rows,
     hyperlinks,
+    refused_by_copy,
     without_sheet,
 )
 from tests.fixtures.settlement import (
@@ -319,8 +320,8 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
     adrian = f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
     # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
     adrian_rows = [row for row in read_data_rows(source_path) if row.number in (18, 20)]
-    with file_from_template(worker_template_path, expected_directory / adrian, Layout.COLLECTIVE, recalculate=True) as sheet:
-        sheet.write_data_rows(adrian_rows)
+    twin = refused_by_copy(Path(shutil.copy(worker_template_path, tmp_path / "bliźniak Wzorca.xlsx")))
+    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(expected_directory / adrian, adrian_rows)
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
@@ -967,7 +968,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     def fail_on_second_save(
         worker_name: str,
-        template: WorkerSettlementTemplate,
+        template: TemplateFile,
         path: Path,
         rows: Iterable[DataRow],
     ) -> WorkerResult:
@@ -1046,7 +1047,7 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     projection = ProgressProjection()
     save_s = 0.05
 
-    def fail_save(worker_name: str, template: WorkerSettlementTemplate, path: Path, rows: Iterable[DataRow]) -> WorkerResult:
+    def fail_save(worker_name: str, template: TemplateFile, path: Path, rows: Iterable[DataRow]) -> WorkerResult:
         time.sleep(save_s)
         raise template_settlement.TemplateWriteError("synthetic failure")
 

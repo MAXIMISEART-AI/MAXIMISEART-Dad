@@ -1,7 +1,6 @@
 """Kopia skoroszytu Wzorca z podmienionymi Wierszami danych, bez wczytywania przez openpyxl (ADR 0008).
 
-Moduł jest szczegółem ``workbook_files.WorkerSettlementTemplate`` i
-``workbook_files.CollectiveFileTemplate`` i nikt poza nimi go nie używa.
+Moduł jest szczegółem ``workbook_files.TemplateFile`` i nikt poza nim go nie używa.
 ``TemplateCopy.of`` czyta bajty Wzorca raz: rozpakowuje części zip,
 sprawdza, że każda część XML jest poprawnym XML-em, indeksuje wiersze XML
 aktywnego arkusza i liczy kontrole Szablonu pracownika (nagłówek, dane w
@@ -20,7 +19,7 @@ składa z tego jedną kopię:
 - w arkuszu zmieniają się tylko wiersze od pierwszego Wiersza danych do ostatniego
   wpisanego: komórki kolumn Wiersza danych dostają wartości, a kolumn wyglądu Wygląd
   Wiersza danych, za nimi Wyróżnienia na stylu Wzorca, tak jak przy wpisaniu przez openpyxl
-  (``TemplateSheet.write_data_rows``); wpisany wiersz traci zapisaną wysokość (``ht``,
+  (``workbook_files._write_rows``); wpisany wiersz traci zapisaną wysokość (``ht``,
   ``customHeight``), a pozostałe komórki, w tym formuły, wspólne formuły i style, zostają
   bajt w bajt; kompresowany jest tylko początek arkusza do granicy kawałka za ostatnim
   wpisanym wierszem, reszta to gotowe kawałki z pierwszej kopii;
@@ -257,6 +256,7 @@ class TemplateCopy:
         styles: _Styles,
         sheet_rels: _SheetRels,
         filter_name: _FilterName | None,
+        title: str,
         header: list[object],
         has_input_data: bool,
         look: RowLook,
@@ -267,6 +267,8 @@ class TemplateCopy:
         self._filter_name = filter_name
         self._styles = styles
         self._sheet_rels = sheet_rels
+        self.title = title
+        """Nazwa aktywnego arkusza."""
         self.header = header
         """Wartości wiersza nagłówka w kolumnach danych wejściowych (od A), jak do sprawdzenia WYKONAWCA."""
         self.has_input_data = has_input_data
@@ -313,7 +315,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     workbook_name = _office_document(plain)
     workbook_rels = _relationships(plain, workbook_name)
     workbook_xml = plain[workbook_name]
-    sheet_name, sheet_position, date1904 = _active_sheet(workbook_xml, workbook_rels)
+    sheet_name, sheet_title, sheet_position, date1904 = _active_sheet(workbook_xml, workbook_rels)
     styles_name = _target_of_type(workbook_rels, "/styles")
     strings_name = _target_of_type(workbook_rels, "/sharedStrings")
     if styles_name is None or styles_name not in plain:
@@ -356,7 +358,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         sheet_rels = _SheetRels(infos[rels_index], rels_index, plain[rels_name], True)
     look = RowLook([styles.font(style) for style in sheet.header_styles()])
     return TemplateCopy(
-        parts, sheet, styles, sheet_rels, filter_name, sheet.header(shared_strings), sheet.has_input_data, look
+        parts, sheet, styles, sheet_rels, filter_name, sheet_title, sheet.header(shared_strings), sheet.has_input_data, look
     )
 
 
@@ -405,8 +407,8 @@ def _target_of_type(relationships: dict[str, tuple[str, str]], suffix: str) -> s
     return next((target for kind, target in relationships.values() if kind.endswith(suffix)), None)
 
 
-def _active_sheet(workbook_xml: bytes, relationships: dict[str, tuple[str, str]]) -> tuple[str, int, bool]:
-    """Część zip aktywnego arkusza (tak jak ``workbook.active`` w openpyxl), jego pozycja i czy daty liczą się od 1904."""
+def _active_sheet(workbook_xml: bytes, relationships: dict[str, tuple[str, str]]) -> tuple[str, str, int, bool]:
+    """Część zip aktywnego arkusza (tak jak ``workbook.active`` w openpyxl), jego nazwa, pozycja i czy daty liczą się od 1904."""
 
     root = ElementTree.fromstring(workbook_xml)
     view = root.find(f"{_MAIN}bookViews/{_MAIN}workbookView")
@@ -420,7 +422,7 @@ def _active_sheet(workbook_xml: bytes, relationships: dict[str, tuple[str, str]]
         raise UnsupportedShape("chartsheet")
     properties = root.find(f"{_MAIN}workbookPr")
     date1904 = properties is not None and properties.get("date1904", "0").lower() in ("1", "true")
-    return target, active, date1904
+    return target, sheet.get("name", ""), active, date1904
 
 
 def _shared_strings(xml: bytes) -> list[str]:
@@ -555,7 +557,7 @@ class _Sheet:
         self._data_start = self._rows[first].start if first < len(self._rows) else data_end
         self._first_data_index = first
         self.has_input_data = _writable_data_rows_have_input(xml, self._data_start, data_end, layout)
-        """Jak ``TemplateSheet.has_input_data``: niepusta wartość bez formuły w kolumnach danych wejściowych."""
+        """Jak sprawdzenie Wzorca rozliczenia pracownika przez openpyxl: niepusta wartość bez formuły w kolumnach danych wejściowych."""
         self._links_at, self._links_open, self._links_prefix = _hyperlinks_place(xml, data_end)
         self._filter: tuple[int, int, bytes] | None = None
         self._filter_columns = (1, 1)

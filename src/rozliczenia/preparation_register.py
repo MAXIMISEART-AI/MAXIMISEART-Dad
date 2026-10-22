@@ -20,7 +20,7 @@ from . import preparation_messages as messages
 from . import workbook_files
 from .message import StopError
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow, Problem, ReadWorkbook, WorkbookError
+from .workbook_files import DataRow, Problem, ReadWorkbook, WorkbookError, header_columns, is_blank
 from .worker_config import normalize_text
 
 
@@ -89,20 +89,6 @@ def cell_value(row: DataRow, column: Column) -> object:
     """Wartość komórki Rejestru pod nagłówkiem ``column`` w wierszu ``row``."""
 
     return row.values[COLUMNS.index(column)]
-
-
-def is_blank(value: object) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip())
-
-
-def header_columns(values: Sequence[object]) -> dict[str, int]:
-    """Mapuje znormalizowane nagłówki na numery kolumn (od 1)."""
-
-    return {
-        normalize_text(value): column
-        for column, value in enumerate(values, start=1)
-        if not is_blank(value)
-    }
 
 
 def ensure_register_available(register_path: Path) -> None:
