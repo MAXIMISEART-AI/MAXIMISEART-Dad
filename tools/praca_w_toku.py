@@ -15,8 +15,9 @@ Raport informuje i nie blokuje: kod wyjścia 0, inny tylko przy błędnym użyci
 Ostatnia linia mówi, czy gałąź bieżącego checkoutu aktualizować z ``origin/main`` (rebase albo merge):
 ``AKTUALIZACJA: potrzebna``, gdy ``git merge-tree`` widzi konflikt albo gałąź i ``origin/main`` zmieniają
 od bazy scalenia ten sam plik, inaczej ``AKTUALIZACJA: niepotrzebna``. Liczą się commity, nie
-niezacommitowane pliki. Werdykt nie pobiera ``origin/main``. ``git merge-tree`` dodaje do bazy obiektów
-tylko nieosiągalne obiekty scalenia, które usuwa ``git gc``.
+niezacommitowane pliki. Werdykt nie pobiera ``origin/main``; gdy żaden fetch w tym repozytorium nie
+potwierdził go w ostatniej godzinie, dopisuje to. ``git merge-tree`` dodaje do bazy obiektów tylko
+nieosiągalne obiekty scalenia, które usuwa ``git gc``.
 
     py -3 tools/praca_w_toku.py                  # Windows
     python3 tools/praca_w_toku.py                # macOS i Linux
@@ -38,11 +39,13 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any
 
 BASE = "origin/main"
 SUBJECTS = 3
 TIMEOUT_S = 30
+FRESH_FETCH_S = 3600
 ISSUE_REFERENCE = re.compile(r"#(\d+)\b")
 PR_REFERENCE = re.compile(r"(?:#|/pull/)(\d+)\b")
 BRANCH_NUMBER = re.compile(r"(?:^|/)(\d{1,5})(?=$|[/_-])")
@@ -349,7 +352,31 @@ def _update_verdict(root: Path, branch: str | None) -> str:
         verdict = f"potrzebna (bez konfliktu, wspólne pliki: {', '.join(shared)})"
     else:
         verdict = "niepotrzebna (bez konfliktu, bez wspólnych plików)"
-    return f"AKTUALIZACJA: {verdict}"
+    return f"AKTUALIZACJA: {verdict}{_fetch_note(root)}"
+
+
+def _fetch_note(root: Path) -> str:
+    """Pusto, gdy fetch w ostatniej godzinie potwierdził lokalny ``origin/main``; inaczej wiek ostatniego takiego."""
+
+    seen = f"{_git(root, 'rev-parse', BASE).strip()}\t"
+    main_branch = f"\tbranch '{BASE.partition('/')[2]}' of "
+    common = (root / _git(root, "rev-parse", "--git-common-dir").strip()).resolve()
+    # FETCH_HEAD ma każdy worktree osobno, a origin/main jest wspólny dla wszystkich.
+    confirmed = []
+    for fetch_head in [common / "FETCH_HEAD", *common.glob("worktrees/*/FETCH_HEAD")]:
+        try:
+            lines = fetch_head.read_text(encoding="utf-8", errors="replace").splitlines()
+            fetched = fetch_head.stat().st_mtime
+        except OSError:
+            continue
+        if any(line.startswith(seen) and main_branch in line for line in lines):
+            confirmed.append(fetched)
+    if not confirmed:
+        return f" | {BASE} bez śladu fetch, odśwież: git fetch origin"
+    age = time.time() - max(confirmed)
+    if age < FRESH_FETCH_S:
+        return ""
+    return f" | {BASE} z fetch sprzed {int(age // 3600)} h, odśwież: git fetch origin"
 
 
 def _files(root: Path, ref: str, since: str = BASE) -> frozenset[str]:

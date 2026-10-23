@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -263,6 +264,36 @@ def test_aktualizacja_z_main_tylko_przy_konflikcie_albo_wspolnym_pliku(
     assert _report(branch, "--aktualizacja") == f"{verdict}\n"
 
 
+@pytest.mark.parametrize(
+    ("fetch", "note"),
+    [
+        pytest.param("w innym worktree", "", id="w innym worktree"),
+        pytest.param("sprzed 3 h", " | origin/main z fetch sprzed 3 h, odśwież: git fetch origin", id="sprzed 3 h"),
+        pytest.param("brak", " | origin/main bez śladu fetch, odśwież: git fetch origin", id="brak"),
+        pytest.param(
+            "z adresu, bez origin/main", " | origin/main bez śladu fetch, odśwież: git fetch origin", id="z adresu, bez origin/main"
+        ),
+    ],
+)
+def test_werdykt_mowi_gdy_zaden_fetch_nie_potwierdzil_origin_main_w_ostatniej_godzinie(
+    tmp_path: Path, fetch: str, note: str
+) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    coordinator = tmp_path / "koordynator"
+    _git(main, "worktree", "add", "--detach", str(coordinator), "origin/main")
+    if fetch == "w innym worktree":
+        _git(coordinator, "fetch")
+    elif fetch == "sprzed 3 h":
+        _git(main, "fetch")
+        hours_ago = time.time() - 3 * 3600 - 60
+        os.utime(main / ".git" / "FETCH_HEAD", (hours_ago, hours_ago))
+    elif fetch == "z adresu, bez origin/main":
+        _merged_on_github(tmp_path, {"inny.py": "x = 2\n"})
+        _git(coordinator, "fetch", str(tmp_path / "origin.git"), "main")
+
+    assert _report(branch, "--aktualizacja") == f"{NIEPOTRZEBNA}{note}\n"
+
+
 def test_gdy_git_nie_scali_galezi_z_main_werdykt_jest_nieznany(tmp_path: Path) -> None:
     main, branch = _branch_from_main(tmp_path)
     _git(branch, "switch", "--orphan", "feat/bez-historii")
@@ -350,7 +381,7 @@ def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> lis
     lines += ["NAKŁADANIA | pliki zmieniane tu i w innej pracy w toku", *overlaps] if overlaps else ["NAKŁADANIA | brak"]
     clash = sorted(frozenset().union(*(commit.files for commit in me.commits)) & _MAIN_LATER.files)
     verdict = f"potrzebna (konflikt w: {', '.join(clash)})" if clash else "niepotrzebna (bez konfliktu, bez wspólnych plików)"
-    lines.append(f"AKTUALIZACJA: {verdict}")
+    lines.append(f"AKTUALIZACJA: {verdict} | origin/main bez śladu fetch, odśwież: git fetch origin")
     return sorted(lines)
 
 
