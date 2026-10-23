@@ -3,8 +3,8 @@
 Jedna operacja, ``ToolClone.update``, robi to, co Maks zrobiłby ręcznie
 (ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` i tagi
 Wydań (ADR 0014) ze stałego adresu publicznego repozytorium i przesuwa klon
-tylko do przodu, na commit najnowszego Wydania, które leży na `main`
-(``newest_on_main``). Lokalna gałąź klonu to dalej `main`.
+tylko do przodu, na commit najnowszego Wydania, który był czubkiem `main`
+(``newest_on_main``, ``_main_tips``). Lokalna gałąź klonu to dalej `main`.
 Pliki taty w ``config/``, które nowa wersja usuwa albo przestaje śledzić,
 zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``). Gdy nowa
 wersja zmienia ``requirements.txt``, biblioteki instaluje ten sam Python, w
@@ -335,7 +335,8 @@ class ToolClone:
         fetch_failure = run.fetch(self.origin)
         if fetch_failure is not None:
             return UpdateResult(fetch_failure, before, None)
-        newest = newest_on_main(_release_commits(run), lambda commit: run.is_ancestor(commit, _FETCHED_MAIN))
+        tips = _main_tips(run)
+        newest = newest_on_main(_release_commits(run), lambda commit: commit in tips)
         after, skipped = newest.commit, newest.skipped
         if after is None or run.is_ancestor(after, before):
             return UpdateResult(UP_TO_DATE, before, before, skipped=skipped)
@@ -478,6 +479,16 @@ def contains_commit(root: Path, ancestor: str, descendant: str) -> bool:
         return _Git(git, root).is_ancestor(ancestor, descendant)
     except (GitFailed, OSError, subprocess.SubprocessError):
         return False
+
+
+def _main_tips(run: _Git) -> frozenset[str]:
+    """Commity, które były czubkiem pobranego `main`: jego linia pierwszych rodziców.
+
+    Commit z gałęzi wciągniętej do `main` zwykłym merge'em leży na `main`, ale nigdy nie był jego czubkiem, więc
+    tag Wydania na nim (założony, zanim gałąź weszła do `main`) nie jest Wydaniem z `main`.
+    """
+
+    return frozenset(run.output("rev-list", "--first-parent", _FETCHED_MAIN).split())
 
 
 def _release_commits(run: _Git) -> dict[str, str]:

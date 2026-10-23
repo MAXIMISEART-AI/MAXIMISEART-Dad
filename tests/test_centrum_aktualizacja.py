@@ -178,6 +178,26 @@ def test_pominiete_wydanie_spoza_main_zostawia_slad_w_dzienniku_centrum(tmp_path
     assert tool_on_configuration(centrum)["freshness"] == "current"
 
 
+def test_udana_aktualizacja_z_pominietym_wydaniem_spoza_main_zostawia_slad_takze_po_ponownym_starcie(
+    tmp_path: Path,
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    git(repository.publisher, "checkout", "--quiet", "-b", "agent")
+    git(repository.publisher, "commit", "--quiet", "--allow-empty", "--message", "Zmiana spoza main")
+    repository.release(tag="v0.9.0")
+    update_until_done(centrum)
+    [restart] = centrum.surroundings.restarts
+    write_result(restart.result, UpdateResult(UPDATED, restart.before, restart.after, restart.installed))
+
+    centrum.restart()
+
+    assert repository.head() == newest
+    assert log_entries(centrum, "aktualizacja-pominiete-wydania") == ["tagi=v0.9.0"]
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
+
+
 def test_przed_kliknieciem_nie_ma_aktualizacji(tmp_path: Path) -> None:
     centrum, _ = updating_centrum(tmp_path)
 

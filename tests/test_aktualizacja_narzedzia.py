@@ -192,6 +192,28 @@ def test_wyzsze_wydanie_spoza_main_jest_pominiete_a_tata_dostaje_najnowsze_wydan
     assert repository.read("src/narzedzie.py") == "WERSJA = 2\n"
 
 
+def test_uspiony_tag_z_galezi_wciagnietej_do_main_merge_em_nie_jest_wydaniem(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    dormant = off_main_commit(repository)
+    repository.release(dormant, tag="v0.9.0")
+    git(repository.publisher, "merge", "--quiet", "--no-ff", "--no-edit", "agent")
+    git(repository.publisher, "push", "--quiet", "origin", "main")
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=before, after=before, installed=False, skipped=("v0.9.0",))
+    assert repository.state() == unchanged
+    assert readme_installation_release(repository, tmp_path / "instalacja-przed") == before
+
+    merged = git(repository.origin, "rev-parse", f"{repository.release()}^{{commit}}")
+
+    assert update(repository).after == merged
+    assert readme_installation_release(repository, tmp_path / "instalacja-po") == merged
+
+
 def test_same_wydania_spoza_main_to_jak_bez_wydan(repository: ToolRepository, tmp_path: Path) -> None:
     git(repository.origin, "tag", "--delete", "v0.1.0")
     repository.release(off_main_commit(repository), tag="v0.2.0")
@@ -1129,15 +1151,22 @@ README = Path(__file__).resolve().parents[1] / "README.md"
 
 
 def readme_installation_release(repository: ToolRepository, directory: Path) -> str | None:
-    """Commit, na którym stanęłaby nowa instalacja według README: jego ``git tag`` i wzorzec ``-cmatch``."""
+    """Commit, na którym stanęłaby nowa instalacja według README: jego ``git rev-list``, ``git tag`` i ``-cmatch``."""
 
     text = README.read_text(encoding="utf-8")
+    tips_command = re.search(r"\$czubki = git (.+)$", text, re.MULTILINE)
     listing = re.search(r"\$wydanie = git (tag [^|]+)\|", text)
     pattern = re.search(r"-cmatch '([^']+)'", text)
-    assert listing is not None and pattern is not None
+    assert tips_command is not None and listing is not None and pattern is not None
+    assert "$czubki -contains" in text
     git(directory.parent, "clone", "--quiet", str(repository.origin), str(directory))
-    tags = [tag for tag in git(directory, *listing[1].replace('"', "").split()).split() if re.fullmatch(pattern[1], tag)]
-    return git(directory, "rev-parse", f"{tags[0]}^{{commit}}") if tags else None
+    tips = set(git(directory, *tips_command[1].split()).split())
+    commits = [
+        git(directory, "rev-parse", f"{tag}^{{commit}}")
+        for tag in git(directory, *listing[1].replace('"', "").split()).split()
+        if re.fullmatch(pattern[1], tag)
+    ]
+    return next((commit for commit in commits if commit in tips), None)
 
 
 def test_klon_na_nowszym_commicie_main_niz_wydanie_jest_aktualny_takze_w_aktualnosci(
