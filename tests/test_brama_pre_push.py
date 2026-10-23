@@ -20,6 +20,8 @@ from tests.fixtures.potomne import wait_for
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 WORK_IN_PROGRESS = HOOK.parents[1] / "praca_w_toku.py"
+SKILLS_FOR_CHANGE = ("skille_dla_zmiany.py", "mutacje_skilli.py")
+SKILL = "---\nname: verify-kod\ndescription: kod\npilnuje:\n  - kod/*\n---\n"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 # Wpisy, którymi conftest (``git_bez_konserwacji_w_tle``) wyłącza gitowi konserwację w tle.
@@ -77,11 +79,11 @@ def checkout(tmp_path: Path) -> Path:
 
 
 def _venv_python(checkout: Path, body: str) -> None:
-    """Atrapa ``.venv/bin/python``: ``body`` zamiast ``ci_lokalnie``, a ``tools/praca_w_toku.py`` prawdziwym Pythonem."""
+    """Atrapa ``.venv/bin/python``: ``body`` zamiast ``ci_lokalnie``, a narzędzia linii przed krokami prawdziwym Pythonem."""
 
     python = checkout / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True, exist_ok=True)
-    real = f'if [ "$1" = tools/praca_w_toku.py ]; then exec "{sys.executable}" "$@"; fi'
+    real = f'case "$1" in tools/praca_w_toku.py|tools/skille_dla_zmiany.py) exec "{sys.executable}" "$@";; esac'
     python.write_text(f"#!/bin/sh\n{real}\n{body}\n", encoding="utf-8")
     python.chmod(0o755)
 
@@ -179,6 +181,7 @@ def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Pa
     assert pushed.returncode == 0, pushed.stderr
     assert "pre-push" not in pushed.stderr + pushed.stdout
     assert "AKTUALIZACJA" not in pushed.stderr + pushed.stdout
+    assert "SKILLE VERIFY" not in pushed.stderr + pushed.stdout
     assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
 
 
@@ -221,6 +224,69 @@ def test_nieudany_werdykt_aktualizacji_nie_zmienia_wyniku_pushu(checkout: Path, 
     lines = (pushed.stdout + pushed.stderr).splitlines()
     assert [line for line in lines if line.startswith("AKTUALIZACJA: ")] == [
         next(line for line in lines if line.startswith(f"AKTUALIZACJA: nieznana {reason}"))
+    ], lines
+
+
+def _with_skills_for_change(checkout: Path, *, main: bool) -> None:
+    """Narzędzie skilli i skill ``verify-kod`` pilnujący ``kod/*`` w checkoucie, z ``main``: ``origin/main`` na tym commicie."""
+
+    for name in SKILLS_FOR_CHANGE:
+        shutil.copy2(HOOK.parents[1] / name, checkout / "tools" / name)
+    (checkout / ".agents" / "skills" / "verify-kod").mkdir(parents=True)
+    (checkout / ".agents" / "skills" / "verify-kod" / "SKILL.md").write_text(SKILL, encoding="utf-8")
+    commit(checkout, "skill")
+    if main:
+        assert _git(checkout, "push", "-q", "origin", "HEAD:refs/heads/main", agent=None).returncode == 0
+
+
+def _skills_lines(checkout: Path, changed: str) -> list[str]:
+    (checkout / changed).write_text("x = 1\n", encoding="utf-8")
+    commit(checkout, "zmiana")
+    _stub_ci_lokalnie(checkout, passes=True)
+
+    pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
+
+    assert pushed.returncode == 0, pushed.stdout + pushed.stderr
+    return [line for line in (pushed.stdout + pushed.stderr).splitlines() if line.startswith("SKILLE VERIFY: ")]
+
+
+@pytest.mark.parametrize(("changed", "line"), [("kod/nowy.py", "SKILLE VERIFY: verify-kod"), ("inny.txt", "SKILLE VERIFY: brak")])
+def test_push_agenta_drukuje_skille_dla_zmiany(checkout: Path, changed: str, line: str) -> None:
+    _with_skills_for_change(checkout, main=True)
+
+    assert _skills_lines(checkout, changed) == [line]
+
+
+def test_push_agenta_bez_origin_main_drukuje_powod_nieznanych_skilli(checkout: Path) -> None:
+    _with_skills_for_change(checkout, main=False)
+
+    [line] = _skills_lines(checkout, "kod/nowy.py")
+
+    assert line.startswith("SKILLE VERIFY: nieznane (git diff: fatal: "), line
+
+
+BROKEN_SKILLS = {
+    "narzędzie pada": ('raise SystemExit("skille: zepsute")\n', "SKILLE VERIFY: nieznane (tools/skille_dla_zmiany.py: skille: zepsute)"),
+    "narzędzie wisi": ("import time\ntime.sleep(60)\n", "SKILLE VERIFY: nieznane (TimeoutExpired: "),
+}
+
+
+@pytest.mark.parametrize(
+    ("broken", "passes"), [("narzędzie pada", True), ("narzędzie pada", False), ("narzędzie wisi", True)]
+)
+def test_nieudane_skille_dla_zmiany_nie_zmieniaja_wyniku_pushu(checkout: Path, broken: str, passes: bool) -> None:
+    text, line = BROKEN_SKILLS[broken]
+    (checkout / "tools" / "skille_dla_zmiany.py").write_text(text, encoding="utf-8")
+    head = commit(checkout, "zepsute skille")
+    _stub_ci_lokalnie(checkout, passes=passes)
+
+    pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
+
+    assert (pushed.returncode == 0) == passes, pushed.stdout + pushed.stderr
+    assert _remote_branch(checkout) == (head if passes else "")
+    lines = (pushed.stdout + pushed.stderr).splitlines()
+    assert [found for found in lines if found.startswith("SKILLE VERIFY: ")] == [
+        next(found for found in lines if found.startswith(line))
     ], lines
 
 

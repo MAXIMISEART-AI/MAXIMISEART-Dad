@@ -1,6 +1,9 @@
 ---
 name: verify-rozliczenia
 description: Verify MAXIMISEART-Dad's processes (Przebieg rozliczeń, Przygotowanie pliku zbiorczego) through the machine script `tools/uruchom_proces.py`, each alone and chained from Rejestr zleceń to Rozliczenia pracowników, with synthetic Excel files, workbook side-effect checks, and retained evidence; use after process, workbook, or safety-rule changes.
+pilnuje:
+  - src/*.py
+  - tools/uruchom_proces.py
 ---
 
 # Verify rozliczenia
