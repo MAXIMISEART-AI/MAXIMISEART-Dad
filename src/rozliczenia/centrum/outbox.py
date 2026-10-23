@@ -42,11 +42,12 @@ QUEUE_DIRECTORY: Final = "kolejka"
 SCHEMA_VERSION: Final = 1
 # Miejsce w komentarzu na nagłówek części i wiersz rozpoznawczy, ponad tekst bloków.
 _FRAME_RESERVE: Final = 2_000
-_LABELS: Final = frozenset(get_args(Label))
 
 Frame = Callable[[int, int, str], str]
 """Komentarz części ``k`` z ``n`` z jej tekstu."""
 Closed = Literal["new_issue", "reuse"]
+_LABELS: Final = frozenset(get_args(Label))
+_CLOSED: Final = frozenset(get_args(Closed))
 
 
 @dataclass(frozen=True)
@@ -163,7 +164,7 @@ def _parse(text: str) -> _Queued | None:
         thread = document["thread"]
         if document["schema_version"] != SCHEMA_VERSION or thread["label"] not in _LABELS:
             return None
-        if thread["closed"] not in ("new_issue", "reuse"):
+        if thread["closed"] not in _CLOSED:
             return None
         post = Post(
             PeriodThread(thread["label"], _string(thread["line"]), thread["closed"], _string(thread["title"])),
@@ -370,8 +371,9 @@ class Outbox:
                 continue
             outcome = _deliver(post, self._box, key)
             if not isinstance(outcome, Delivered):
-                cause: Literal["odmowa", "brak-sieci"] = "odmowa" if isinstance(outcome, Refused) else "brak-sieci"
-                self._log.box_post_waiting(label=label, period=period, cause=cause)
+                self._log.box_post_waiting(
+                    label=label, period=period, cause="odmowa" if isinstance(outcome, Refused) else "brak-sieci"
+                )
                 return
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
             with self._lock:
