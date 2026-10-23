@@ -1,8 +1,7 @@
-"""Brama ``tools/hooks/pre-push``: push agenta z HEAD przechodzi tylko po ``CI LOKALNIE OK`` albo z pieczątką jego drzewa.
+"""Brama ``tools/hooks/pre-push``: push agenta, który wysyła HEAD, przechodzi tylko po ruff i mypy dla obu systemów.
 
-Każdy test robi prawdziwy ``git push`` do tymczasowego repozytorium bare. ``tools/ci_lokalnie.py`` zastępuje
-atrapa ``.venv/bin/python``, która od razu kończy się werdyktem, więc testy nie uruchamiają pełnego CI.
-Push robi agent (``AI_AGENT``), chyba że test mówi inaczej.
+Każdy test robi prawdziwy ``git push`` do tymczasowego repozytorium bare. Test kroków bramy uruchamia prawdziwe
+``tools/ci_lokalnie.py`` na małym kodzie, a pozostałe atrapę ``.venv/bin/python``.
 """
 
 from __future__ import annotations
@@ -16,11 +15,13 @@ import sys
 
 import pytest
 
+from tests.fixtures.git_repo import commit, repository
 from tests.fixtures.potomne import wait_for
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
+TYPE_ERROR_ONLY_IF = 'import sys\n\nif {}:\n    LICZBA: int = "tekst"\n'
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
@@ -53,35 +54,41 @@ def _git(cwd: Path, *args: str, agent: str | None = "claude-code") -> subprocess
 
 @pytest.fixture
 def checkout(tmp_path: Path) -> Path:
-    remote, checkout = tmp_path / "zdalne.git", tmp_path / "checkout"
+    remote = tmp_path / "zdalne.git"
     _git(tmp_path, "init", "-q", "--bare", str(remote))
-    _git(tmp_path, "init", "-q", str(checkout))
+    checkout = repository(
+        tmp_path / "checkout",
+        {
+            ".gitignore": ".venv/\n__pycache__/\n",
+            "pyproject.toml": '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nfiles = ["kod"]\n',
+            "kod/__init__.py": "",
+            "tools/praca_w_toku.py": 'print("NAKŁADANIA | atrapa")\n',
+        },
+    )
     (checkout / "tools" / "hooks").mkdir(parents=True)
     shutil.copy2(HOOK, checkout / "tools" / "hooks" / "pre-push")
-    (checkout / ".gitignore").write_text(".venv/\n", encoding="utf-8")
-    _git(checkout, "add", "-A")
-    _git(checkout, "commit", "-q", "-m", "start")
+    commit(checkout, "start")
     _git(checkout, "config", "core.hooksPath", "tools/hooks")
     _git(checkout, "remote", "add", "origin", str(remote))
     return checkout
 
 
-def _fake_python(checkout: Path, body: str) -> None:
+def _venv_python(checkout: Path, body: str) -> None:
     python = checkout / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True, exist_ok=True)
-    python.write_text(f"#!/bin/sh\necho \"$@\" > argumenty.txt\n{body}\n", encoding="utf-8")
+    python.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
     python.chmod(0o755)
 
 
-def _ci_lokalnie(checkout: Path, *, passes: bool) -> None:
+def _stub_ci_lokalnie(checkout: Path, *, passes: bool) -> None:
     verdict = "CI LOKALNIE OK" if passes else "CI LOKALNIE FAIL | ruff"
-    _fake_python(checkout, f"echo '{verdict}'\nexit {0 if passes else 1}")
+    _venv_python(checkout, f"echo '{verdict}'\nexit {0 if passes else 1}")
 
 
 def _hanging_ci_lokalnie(checkout: Path) -> list[Path]:
     """Atrapa, która wisi z procesem potomnym jak pytest pod ci_lokalnie; zwraca pliki z PID-ami obu."""
 
-    _fake_python(checkout, "sleep 120 &\necho $! > potomek.pid\necho $$ > ci.pid\nwait")
+    _venv_python(checkout, "sleep 120 &\necho $! > potomek.pid\necho $$ > ci.pid\nwait")
     return [checkout / "ci.pid", checkout / "potomek.pid"]
 
 
@@ -110,58 +117,36 @@ def _started_ci(pid_files: list[Path]) -> list[int]:
     return [int(path.read_text()) for path in pid_files]
 
 
-def _stamp_head_tree(checkout: Path) -> None:
-    git_dir = checkout / _git(checkout, "rev-parse", "--git-dir").stdout.strip()
-    tree = _git(checkout, "rev-parse", "HEAD^{tree}").stdout.strip()
-    (git_dir / "ci-lokalnie-ok").write_text(tree, encoding="utf-8")
-
-
 def _remote_branch(checkout: Path) -> str:
     return _git(checkout, "ls-remote", "origin", BRANCH).stdout.split("\t")[0]
 
 
-@pytest.mark.parametrize("passes", [True, False])
-def test_push_head_bez_pieczatki_rozstrzyga_ci_lokalnie(checkout: Path, passes: bool) -> None:
-    _ci_lokalnie(checkout, passes=passes)
+@pytest.mark.parametrize(
+    ("change", "passes"),
+    [
+        pytest.param({"kod/test_pada.py": "def test_pada() -> None:\n    assert False\n"}, True, id="pytest pada"),
+        pytest.param({"kod/nieuzywany.py": "import os\n"}, False, id="błąd ruff"),
+        pytest.param({"kod/tylko_windows.py": TYPE_ERROR_ONLY_IF.format('sys.platform == "win32"')}, False, id="błąd mypy tylko na Windows"),
+        pytest.param({"kod/poza_windows.py": TYPE_ERROR_ONLY_IF.format('sys.platform != "win32"')}, False, id="błąd mypy poza Windows"),
+    ],
+)
+def test_push_head_rozstrzygaja_ruff_i_mypy_dla_obu_systemow(checkout: Path, change: dict[str, str], passes: bool) -> None:
+    _venv_python(checkout, f'exec "{sys.executable}" "$@"')
+    for name, text in change.items():
+        (checkout / name).write_text(text, encoding="utf-8")
+    head = commit(checkout, "zmiana")
 
     pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
 
-    assert (pushed.returncode == 0) == passes
-    assert "CI LOKALNIE" in pushed.stderr + pushed.stdout
-    head = _git(checkout, "rev-parse", "HEAD").stdout.strip()
+    assert (pushed.returncode == 0) == passes, pushed.stdout + pushed.stderr
     assert _remote_branch(checkout) == (head if passes else "")
+    assert "NAKŁADANIA" not in pushed.stdout + pushed.stderr
 
 
-@pytest.mark.parametrize("untracked", [False, True])
-def test_push_drzewa_z_pieczatka_przechodzi_bez_ci_lokalnie(checkout: Path, untracked: bool) -> None:
-    _ci_lokalnie(checkout, passes=False)
-    _stamp_head_tree(checkout)
-    if untracked:
-        (checkout / "szkic.py").write_text("", encoding="utf-8")
-
-    pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
-
-    assert pushed.returncode == 0, pushed.stderr
-    assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
-
-
-def test_pieczatka_innego_drzewa_nie_przepuszcza_pushu(checkout: Path) -> None:
-    _ci_lokalnie(checkout, passes=False)
-    _stamp_head_tree(checkout)
-    (checkout / "nowy.txt").write_text("zmiana drzewa", encoding="utf-8")
-    _git(checkout, "add", "nowy.txt")
-    _git(checkout, "commit", "-q", "-m", "nowe drzewo")
-
-    pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
-
-    assert pushed.returncode != 0
-    assert _remote_branch(checkout) == ""
-
-
-def test_usuniecie_galezi_przechodzi_bez_ci_lokalnie(checkout: Path) -> None:
-    _ci_lokalnie(checkout, passes=True)
+def test_usuniecie_galezi_przechodzi_bez_sprawdzania(checkout: Path) -> None:
+    _stub_ci_lokalnie(checkout, passes=True)
     assert _git(checkout, "push", "origin", f"HEAD:{BRANCH}").returncode == 0
-    _ci_lokalnie(checkout, passes=False)
+    _stub_ci_lokalnie(checkout, passes=False)
 
     deleted = _git(checkout, "push", "origin", "--delete", BRANCH)
 
@@ -177,8 +162,8 @@ def test_push_bez_venv_jest_odrzucony_ze_wskazaniem_setup_worktree(checkout: Pat
     assert _remote_branch(checkout) == ""
 
 
-def test_push_czlowieka_przechodzi_bez_ci_lokalnie_i_bez_komunikatu(checkout: Path) -> None:
-    _ci_lokalnie(checkout, passes=False)
+def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Path) -> None:
+    _stub_ci_lokalnie(checkout, passes=False)
 
     pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}", agent=None)
 
@@ -187,15 +172,32 @@ def test_push_czlowieka_przechodzi_bez_ci_lokalnie_i_bez_komunikatu(checkout: Pa
     assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
 
 
+def test_push_z_samym_claudecode_rozstrzyga_brama(checkout: Path) -> None:
+    _stub_ci_lokalnie(checkout, passes=False)
+
+    pushed = subprocess.run(
+        ["git", "push", "origin", f"HEAD:{BRANCH}"],
+        cwd=checkout,
+        env=_environment(None) | {"CLAUDECODE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert pushed.returncode != 0
+    assert "CI LOKALNIE FAIL" in pushed.stdout + pushed.stderr
+    assert _remote_branch(checkout) == ""
+
+
 @pytest.mark.parametrize("detached", [False, True])
-def test_push_head_odlaczonego_albo_galezi_rozstrzyga_ci_lokalnie(checkout: Path, detached: bool) -> None:
+def test_push_head_odlaczonego_albo_galezi_rozstrzyga_brama(checkout: Path, detached: bool) -> None:
     _git(checkout, "checkout", "-q", "-b", "zmiana")
     _git(checkout, "push", "-q", "origin", "zmiana", agent=None)
     published = _git(checkout, "rev-parse", "HEAD").stdout.strip()
     _git(checkout, "commit", "-q", "--allow-empty", "-m", "nowy commit")
     if detached:
         _git(checkout, "checkout", "-q", "--detach")
-    _ci_lokalnie(checkout, passes=False)
+    _stub_ci_lokalnie(checkout, passes=False)
 
     pushed = _git(checkout, "push", "origin", "HEAD:zmiana" if detached else "zmiana")
 
@@ -204,21 +206,13 @@ def test_push_head_odlaczonego_albo_galezi_rozstrzyga_ci_lokalnie(checkout: Path
     assert _remote_branch(checkout) == published
 
 
-def test_brama_prosi_ci_lokalnie_o_przerwanie_na_pierwszym_bledzie_i_koniec_z_pushem(checkout: Path) -> None:
-    _ci_lokalnie(checkout, passes=False)
-
-    _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
-
-    assert (checkout / "argumenty.txt").read_text().split() == ["tools/ci_lokalnie.py", "--do-pierwszego-bledu", "--z-rodzicem"]
-
-
 GROUP_SIGNALS = {"SIGTERM": signal.SIGTERM}
 if sys.platform != "win32":
     GROUP_SIGNALS["SIGKILL"] = signal.SIGKILL
 
 
 @pytest.mark.parametrize("stop", sorted(GROUP_SIGNALS))
-def test_ci_lokalnie_nie_przezywa_sygnalu_dla_grupy_pushu(checkout: Path, stop: str) -> None:
+def test_sprawdzenie_nie_przezywa_sygnalu_dla_grupy_pushu(checkout: Path, stop: str) -> None:
     pid_files = _hanging_ci_lokalnie(checkout)
     push = _start_push(checkout)
     started = _started_ci(pid_files)
@@ -227,21 +221,3 @@ def test_ci_lokalnie_nie_przezywa_sygnalu_dla_grupy_pushu(checkout: Path, stop: 
     push.wait(timeout=10)
 
     assert wait_for(lambda: not any(_alive(pid) for pid in started), 15)
-
-
-def test_drugi_push_z_tego_checkoutu_nie_uruchamia_drugiego_ci_lokalnie(checkout: Path) -> None:
-    pid_files = _hanging_ci_lokalnie(checkout)
-    first = _start_push(checkout)
-    try:
-        started = _started_ci(pid_files)
-        for path in pid_files:
-            path.unlink()
-
-        second = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
-
-        assert second.returncode != 0
-        assert not any(path.exists() for path in pid_files)
-        assert all(_alive(pid) for pid in started)
-    finally:
-        os.kill(-first.pid, signal.SIGTERM)
-        first.wait(timeout=10)
