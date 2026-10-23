@@ -249,7 +249,7 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|")
 
 
-def _replace_atomically(path: Path, text: str) -> None:
+def replace_atomically(path: Path, text: str) -> None:
     """Zapisuje ``text`` jako ``path`` przez plik tymczasowy w tym samym folderze.
 
     Nieudany zapis (``OSError``) nie zostawia pustego ani urwanego pliku i nie niszczy poprzedniej treści.
@@ -319,7 +319,7 @@ class SentReports:
 
     def _write(self, reports: list[SentReport]) -> None:
         try:
-            _replace_atomically(self._path, json.dumps([asdict(report) for report in reports], indent=2) + "\n")
+            replace_atomically(self._path, json.dumps([asdict(report) for report in reports], indent=2) + "\n")
         except OSError as failure:
             self._log.unexpected_failure(failure, where="stan wysłanych Zgłoszeń")
 
@@ -497,7 +497,7 @@ class Reports:
             else report_messages.box_unreachable(saved)
         )
         try:
-            _replace_atomically(saved, f"# {draft.report.title}\n\n{draft.report.body}")
+            replace_atomically(saved, f"# {draft.report.title}\n\n{draft.report.body}")
         except OSError as failure:  # np. folder Zgłoszeń niedostępny: treść zostaje tylko w podglądzie Diagnozy
             self._log.unexpected_failure(failure, where="zapis niewysłanego Zgłoszenia")
             draft.logged.not_saved(unsent.code)

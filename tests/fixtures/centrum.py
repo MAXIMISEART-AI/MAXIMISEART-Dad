@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -93,7 +93,8 @@ class FakeReportBox:
     ``search_hold`` to skrzynka, która na pytanie o otwarte Zgłoszenie odpowiada
     dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
     mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
-    z zakładaniem issue.
+    z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy.
+    ``wait_until`` czeka na wysyłkę w tle.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
@@ -107,30 +108,41 @@ class FakeReportBox:
     searching: threading.Event = field(default_factory=threading.Event)
     open_hold: threading.Event | None = None
     opening: threading.Event = field(default_factory=threading.Event)
-    _lock: threading.Lock = field(default_factory=threading.Lock)
+    comment_outcomes: list[CommentOutcome] = field(default_factory=list)
+    _changed: threading.Condition = field(default_factory=threading.Condition)
+
+    def wait_until(self, condition: Callable[[FakeReportBox], bool], seconds: float = 30) -> bool:
+        """Czeka, aż skrzynka dostanie to, czego test oczekuje (wysyłka w tle); ``False`` po ``seconds``."""
+
+        with self._changed:
+            return self._changed.wait_for(lambda: condition(self), seconds)
 
     @property
     def sent(self) -> list[FakeIssue]:
         return self.issues_with(REPORT_LABEL)
 
     def issues_with(self, label: Label) -> list[FakeIssue]:
-        with self._lock:
+        with self._changed:
             return [issue for issue in self.issues if issue.label == label]
 
     def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
         self.opening.set()
         if self.open_hold is not None:
             self.open_hold.wait()
-        with self._lock:
+        with self._changed:
             self.keys.append(key)
             outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.issues) + 1)
             if isinstance(outcome, Sent):
                 self.issues.append(FakeIssue(outcome.number, label, title, body))
+            self._changed.notify_all()
         return outcome
 
     def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
-        with self._lock:
+        with self._changed:
             self.keys.append(key)
+            self._changed.notify_all()
+            if self.comment_outcomes:
+                return self.comment_outcomes.pop(0)
             issue = next((issue for issue in self.issues if issue.number == number), None)
             if issue is None:
                 return Refused()
