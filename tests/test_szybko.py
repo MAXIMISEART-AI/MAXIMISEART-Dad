@@ -40,7 +40,7 @@ BASE_FILES = {
     "tools/narzedzie.py": "print('wynik')\n",
     "tests/test_narzedzie.py": (
         "from pathlib import Path\nimport subprocess\nimport sys\n\n"
-        "TOOL = Path(__file__).resolve().parents[1] / 'tools' / 'narzedzie.py'\n\n\n"
+        "TOOL = Path(Path(__file__).resolve().parents[1], 'tools', 'narzedzie.py')\n\n\n"
         "def test_narzedzie() -> None:\n"
         "    done = subprocess.run([sys.executable, str(TOOL)], capture_output=True, text=True, check=True)\n"
         "    assert done.stdout == 'wynik\\n'\n"
