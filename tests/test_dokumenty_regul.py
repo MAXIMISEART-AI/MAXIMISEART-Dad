@@ -26,7 +26,7 @@ def _lines_broken_mid_sentence(text: str) -> Iterator[int]:
 
     lines = text.splitlines()
     fenced = False
-    for number, (line, following) in enumerate(zip(lines, [*lines[1:], ""]), start=1):
+    for number, (line, following) in enumerate(zip(lines, [*lines[1:], ""], strict=True), start=1):
         if line.lstrip().startswith(FENCE):
             fenced = not fenced
         elif (
