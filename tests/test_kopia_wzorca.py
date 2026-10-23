@@ -32,22 +32,25 @@ def _load_checker() -> ModuleType:
     return module
 
 
-# Każdy Wzorzec ma osobny przebieg Hypothesis, więc osobna część testu sprawdza te same przykłady, a xdist rozkłada części.
-WZORCE = ("syntetyczny", "maly")
+# Części testu, które xdist rozkłada: każda porównuje co n-ty przykład swojego Wzorca, a pokrycie liczy ze wszystkich.
+# Każdy Wzorzec ma osobny przebieg Hypothesis z tymi samymi przykładami w każdej części.
+CZESCI = {"syntetyczny": 4, "maly": 1}
 
 
-# 60 przykładów na Wzorzec: ~65 s obu na Macu M4 Max, kilka razy dłużej na runnerze Windows.
+# 60 przykładów na Wzorzec: ~90 s wszystkich części razem, najdłuższa ~22 s, na Macu M4 Max; kilka razy dłużej na runnerze Windows.
 @pytest.mark.timeout(600)
-@pytest.mark.parametrize("wzorzec", WZORCE)
-def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_dla_generowanych_wierszy_danych(wzorzec: str) -> None:
+@pytest.mark.parametrize(("wzorzec", "czesc"), [(wzorzec, czesc) for wzorzec, czesci in CZESCI.items() for czesc in range(czesci)])
+def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_dla_generowanych_wierszy_danych(
+    wzorzec: str, czesc: int
+) -> None:
     checker = _load_checker()
-    assert sorted(WZORCE) == sorted(checker.SYNTHETIC_TEMPLATES), "każdy Wzorzec checkera ma swoją część testu"
+    assert sorted(CZESCI) == sorted(checker.SYNTHETIC_TEMPLATES), "każdy Wzorzec checkera ma swoje części testu"
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
         # Hypothesis warns about the size of a shrunk counterexample's repr; the checker prints its own story.
         warnings.filterwarnings("ignore", message="Generating overly large repr")
-        outcome = checker.run_check(template_names=(wzorzec,))
+        outcome = checker.run_check(template_names=(wzorzec,), part=(czesc, CZESCI[wzorzec]))
 
     assert outcome.exit_code == 0, "\n".join(outcome.lines)
 
@@ -77,3 +80,29 @@ def test_kopia_wzorca_sprawdza_te_same_przyklady_niezaleznie_od_modulow_wczytany
 
     assert len(alone) > 2 * checker.DEFAULT_EXAMPLES
     assert checked == alone
+
+
+def test_czesci_kopii_wzorca_porownuja_razem_kazde_rozliczenie_pracownika_raz_i_licza_pokrycie_ze_wszystkich(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checker = _load_checker()
+    compared: list[str] = []
+
+    def reference(twin: Path, target: Path, rows: object) -> None:
+        compared.append(re.sub(r" object at 0x[0-9a-f]+", "", repr(rows)))
+
+    monkeypatch.setattr(checker, "_write_with_openpyxl", reference)
+    monkeypatch.setattr(checker, "check_settlement", lambda *args: [])
+
+    def run(part: tuple[int, int]) -> tuple[list[str], list[str]]:
+        compared.clear()
+        lines = checker.run_check(examples=10, shrink=False, template_names=("maly",), part=part).lines
+        return sorted(compared), [line for line in lines if line.startswith("Wzorzec maly:")]
+
+    whole, coverage = run((0, 1))
+    parts = [run((part, 3)) for part in range(3)]
+
+    assert len(whole) > 10
+    assert sorted(rows for found, _ in parts for rows in found) == whole
+    assert all(len(found) < len(whole) for found, _ in parts)
+    assert [lines for _, lines in parts] == [coverage] * 3
