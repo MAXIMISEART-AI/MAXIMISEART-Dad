@@ -195,3 +195,46 @@ def test_workflow_promocji_czeka_na_ci_z_pushu_do_main() -> None:
 
     assert promotion[True]["workflow_run"]["workflows"] == [ci["name"]]
     assert ci[True]["push"]["branches"] == ["main"]
+
+
+def test_stabilna_przesunieta_przez_inny_run_miedzy_pobraniem_a_pushem_nie_cofa_sie(
+    repositories: Repositories, tmp_path: Path
+) -> None:
+    # Ruch przed ogłoszeniem refów pushu: tylko push bez force odmawia tu sam, serwer nie ma czego odrzucić.
+    first, older, newer = repositories.main
+    repositories.set_stabilna(first)
+    moved = tmp_path / "inny-run-przesunal"
+    hook = repositories.checkout / ".git" / "hooks" / "reference-transaction"
+    hook.write_text(
+        "#!/bin/sh\n"
+        '[ "$1" = committed ] || exit 0\n'
+        "grep -q ' refs/promuj-stabilna/stabilna$' || exit 0\n"
+        f'[ -e "{moved.as_posix()}" ] && exit 0\n'
+        f'touch "{moved.as_posix()}"\n'
+        f'GIT_DIR="{repositories.origin.as_posix()}" git update-ref refs/heads/stabilna {newer}\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    hook.chmod(0o755)
+
+    result = promote(repositories, older)
+
+    assert result.returncode == 0, result.stderr
+    assert moved.exists()
+    assert repositories.stabilna() == newer
+
+
+def test_promocja_biegnie_tylko_po_udanym_runie_ci_z_pushu_i_tylko_ona_pisze() -> None:
+    # Bez tych warunków tata dostałby commit z czerwonego CI albo z runu PR.
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "stabilna.yml").read_text(encoding="utf-8")
+    )
+    (job,) = workflow["jobs"].values()
+    condition = " ".join(job["if"].split())
+
+    assert "github.event.workflow_run.conclusion == 'success'" in condition
+    assert "github.event.workflow_run.event == 'push'" in condition
+    assert " || " not in condition and "!" not in condition
+    assert workflow[True]["workflow_run"]["branches"] == ["main"]
+    assert workflow["permissions"] == {}
+    assert job["permissions"] == {"contents": "write"}
