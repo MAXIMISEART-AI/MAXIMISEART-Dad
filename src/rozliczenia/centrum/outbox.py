@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final, Literal, assert_never, get_args
 
+from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
     COMMENT_LIMIT,
@@ -39,7 +40,6 @@ from rozliczenia.centrum.report_box import (
     Unreachable,
     find_issue,
 )
-from rozliczenia.centrum.reports import replace_atomically
 
 QUEUE_DIRECTORY: Final = "kolejka"
 SCHEMA_VERSION: Final = 2
@@ -47,11 +47,12 @@ SCHEMA_VERSION: Final = 2
 _PERIOD_THREAD_SCHEMA: Final = 1
 # Miejsce w komentarzu na nagłówek części i wiersz rozpoznawczy, ponad tekst bloków.
 _FRAME_RESERVE: Final = 2_000
-_LABELS: Final = frozenset(get_args(Label))
 
 Frame = Callable[[int, int, str], str]
 """Komentarz części ``k`` z ``n`` z jej tekstu."""
 Closed = Literal["new_issue", "reuse"]
+_LABELS: Final = frozenset(get_args(Label))
+_CLOSED: Final = frozenset(get_args(Closed))
 
 
 @dataclass(frozen=True)
@@ -196,7 +197,7 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
         return None
     if kind == "new_issue":
         return NewIssue(entry["label"], _string(entry["title"]))
-    if kind != "period_thread" or entry["closed"] not in ("new_issue", "reuse"):
+    if kind != "period_thread" or entry["closed"] not in _CLOSED:
         return None
     return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
 
@@ -462,8 +463,9 @@ class Outbox:
                 continue
             outcome = _deliver(post, self._box, key)
             if not isinstance(outcome, Delivered):
-                cause: Literal["odmowa", "brak-sieci"] = "odmowa" if isinstance(outcome, Refused) else "brak-sieci"
-                self._log.box_post_waiting(label=label, period=period, cause=cause)
+                self._log.box_post_waiting(
+                    label=label, period=period, cause="odmowa" if isinstance(outcome, Refused) else "brak-sieci"
+                )
                 return
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
             self._on_delivered(post, outcome.number)

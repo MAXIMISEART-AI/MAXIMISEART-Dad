@@ -9,7 +9,6 @@ Konfiguracja wykonawców albo scenariusz dają inne lustro.
 from __future__ import annotations
 
 import hashlib
-import json
 import random
 import shutil
 import subprocess
@@ -27,7 +26,6 @@ from openpyxl.worksheet.worksheet import Worksheet
 from benchmark import ROOT, SCRIPT, BenchmarkError
 import potomne
 from rozliczenia.period_folder import PeriodFolder, collective_file_name
-from rozliczenia.preparation_messages import QUANTITY_WARNINGS
 from rozliczenia.settlement_period import parse_period_token
 from rozliczenia.workbook_files import DATA_ROW_COLUMNS, QUANTITY_COLUMNS, read_data_rows, save_workbook
 from rozliczenia.worker_config import WorkerConfigError, load_worker_mapping
@@ -62,8 +60,9 @@ MONTH_FOLDER = "10_Październik_2026"
 
 
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
-# Kod wyjścia Skryptu dla maszyn dla wyniku wymagającego sprawdzenia.
-_NEEDS_REVIEW_EXIT = 2
+# Kody wyjścia Skryptu dla maszyn, po których Plik zbiorczy lustra powstał: OK i wynik wymagający sprawdzenia, którym
+# Przygotowanie kończy zapis tylko z powodu ostrzeżeń ilości (preparation_process._finished).
+_PREPARED_EXITS = (0, 2)
 
 
 # Zmiana sposobu generowania lustra zmienia jego odcisk, więc stare lustro nie zostanie użyte.
@@ -275,15 +274,6 @@ def run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRun
     return _ChildRun(completed.returncode, spawned_at, wall_ms, completed.stdout)
 
 
-def _prepared(preparation: _ChildRun) -> bool:
-    """Plik zbiorczy lustra powstał: wynik OK albo wymagający sprawdzenia z powodu ostrzeżeń ilości."""
-
-    if preparation.exit_code != _NEEDS_REVIEW_EXIT:
-        return preparation.exit_code == 0
-    warnings = json.loads(preparation.stdout)["warnings"]
-    return bool({warning["code"] for warning in warnings} & QUANTITY_WARNINGS)
-
-
 def ensure_mirror(
     mirrors: Path, scenario_name: str, config: Path, templates: Mapping[str, Path]
 ) -> tuple[Path, bool]:
@@ -320,7 +310,7 @@ def ensure_mirror(
                 ],
                 mirrors / "ostatni-blad-przygotowania.txt",
             )
-        if not _prepared(preparation):
+        if preparation.exit_code not in _PREPARED_EXITS:
             raise BenchmarkError(
                 f"Przygotowanie pliku zbiorczego lustra zakończyło się kodem {preparation.exit_code}; "
                 f"wyjście w {mirrors / 'ostatni-blad-przygotowania.txt'}."

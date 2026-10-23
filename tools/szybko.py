@@ -66,6 +66,7 @@ STRUCTURE = (
     "tests/test_potomne.py::test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run",
     "tests/test_skille_dla_zmiany.py::test_agents_md_nie_wymienia_skilli_verify",
     "tests/test_skille_dla_zmiany.py::test_kazdy_skill_verify_deklaruje_pilnuje",
+    "tests/test_skrypty_bez_instalacji.py",
     "tests/test_struktura_testow.py",
     "tests/test_systemowy_python.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",

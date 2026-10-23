@@ -20,10 +20,10 @@ from typing import Final
 from fastapi import APIRouter
 
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import NewIssue, Outbox, Post
 from rozliczenia.centrum.report_box import Label
-from rozliczenia.centrum.reports import replace_atomically
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
 
