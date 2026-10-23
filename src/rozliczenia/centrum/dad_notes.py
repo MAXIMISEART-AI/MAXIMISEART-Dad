@@ -24,8 +24,7 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import NewIssue, Outbox, Post
-from rozliczenia.centrum.report_box import Closure, Label
-from rozliczenia.centrum.reports import closure_json, read_closure
+from rozliczenia.centrum.report_box import Closure, Label, closure_json, read_closure
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
 

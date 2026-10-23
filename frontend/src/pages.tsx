@@ -8,6 +8,15 @@ import { NotificationsPage } from "@/pages/notifications/notifications-page"
 import { PeriodsPage } from "@/pages/periods/periods-page"
 import { RunsPage } from "@/pages/runs/runs-page"
 
+// Widok Powiadomienia, do którego prowadzi dzwonek w nagłówku; bez pozycji w menu.
+export const NOTIFICATIONS_PAGE = {
+  id: "powiadomienia",
+  title: "Powiadomienia",
+  icon: BellIcon,
+  Content: NotificationsPage,
+  menu: false,
+} as const
+
 /**
  * Strony Centrum. Nowa strona to nowy wpis: menu, adres `#/<id>` i treść biorą się stąd. Strona z `menu: false`
  * (Powiadomienia, otwierane dzwonkiem) nie ma pozycji w menu. Kolejność wpisów to kolejność w menu; pierwszy wpis
@@ -18,7 +27,7 @@ export const PAGES = [
   { id: "uruchomienia", title: "Uruchomienia", icon: PlayIcon, Content: RunsPage, menu: true },
   { id: "metryki", title: "Metryki", icon: ChartColumnIcon, Content: MetricsPage, menu: true },
   { id: "konfiguracja", title: "Konfiguracja", icon: SlidersHorizontalIcon, Content: ConfigurationPage, menu: true },
-  { id: "powiadomienia", title: "Powiadomienia", icon: BellIcon, Content: NotificationsPage, menu: false },
+  NOTIFICATIONS_PAGE,
 ] as const satisfies ReadonlyArray<{
   // Identyfikator strony z kontraktu: pod nim pomiar widoku trafia do dziennika Centrum.
   id: ViewTiming["page"]
@@ -27,9 +36,6 @@ export const PAGES = [
   Content: React.ComponentType
   menu: boolean
 }>
-
-/** Strona Powiadomienia, do której prowadzi dzwonek w nagłówku. */
-export const NOTIFICATIONS_PAGE = PAGES[4]
 
 export type Page = (typeof PAGES)[number]
 

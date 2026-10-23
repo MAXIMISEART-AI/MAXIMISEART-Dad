@@ -248,12 +248,7 @@ def _issue(entry: object) -> Issue | None:
 def _closure(entry: dict[str, object]) -> Closure:
     """Zamknięcie z ``state_reason`` i ``closed_at``; nieznany powód albo nieczytelny czas to ``None``."""
 
-    reason, closed_at = entry.get("state_reason"), entry.get("closed_at")
-    try:
-        at = datetime.fromisoformat(closed_at) if isinstance(closed_at, str) else None
-    except ValueError:
-        at = None
-    return Closure(close_reason(reason), at if at is not None and at.tzinfo is not None else None)
+    return Closure(close_reason(entry.get("state_reason")), read_moment(entry.get("closed_at")))
 
 
 def close_reason(value: object) -> CloseReason | None:
@@ -272,3 +267,31 @@ def _json(body: bytes) -> object:
         return json.loads(body)
     except ValueError:
         return None
+
+
+def closure_json(closure: Closure | None) -> dict[str, str | None] | None:
+    """Zamknięcie issue w pliku stanu taty: ``null`` dla otwartego."""
+
+    if closure is None:
+        return None
+    return {"reason": closure.reason, "at": None if closure.at is None else closure.at.isoformat()}
+
+
+def read_closure(value: object) -> Closure | None:
+    """Zamknięcie z pliku stanu taty; wszystko poza obiektem to otwarte issue, a skrzynka i tak powie, jak jest."""
+
+    if not isinstance(value, dict):
+        return None
+    return Closure(close_reason(value.get("reason")), read_moment(value.get("at")))
+
+
+def read_moment(value: object) -> datetime | None:
+    """Czas ze strefą z GitHuba albo z pliku stanu taty; brak, czas bez strefy albo nieczytelny to ``None``."""
+
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None

@@ -5,7 +5,10 @@ import { useResource, type Resource } from "@/lib/use-resource"
 
 type NotificationsValue = {
   notifications: Resource<Notifications>
-  /** Tata zobaczył te Powiadomienia; odpowiedź serwera zastępuje listę, więc kropka na dzwonku gaśnie od razu. */
+  /**
+   * Tata zobaczył te Powiadomienia; odpowiedź serwera zastępuje listę, więc kropka na dzwonku gaśnie od razu. Odczyt
+   * po niej przynosi to, co odpowiedź skrzynki mogła zmienić w międzyczasie (zastąpiony odczyt przepada).
+   */
   markRead: (ids: ReadonlyArray<string>) => void
 }
 
@@ -29,9 +32,12 @@ export function NotificationsProvider({ page, children }: { page: string; childr
 
   const markRead = React.useCallback(
     (ids: ReadonlyArray<string>) => {
-      markNotificationsRead(ids).then((data) => replace({ state: "ready", data }), () => undefined)
+      markNotificationsRead(ids).then((data) => {
+        replace({ state: "ready", data })
+        reload()
+      }, () => undefined)
     },
-    [replace]
+    [replace, reload]
   )
 
   const value = React.useMemo(() => ({ notifications: resource, markRead }), [resource, markRead])

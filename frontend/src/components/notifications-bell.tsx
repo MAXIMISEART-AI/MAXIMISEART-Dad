@@ -8,7 +8,7 @@ import { NOTIFICATIONS_PAGE, pageHref } from "@/pages"
 /** Dzwonek w nagłówku: prowadzi do widoku Powiadomienia, czerwona kropka znaczy nowe Powiadomienia. */
 export function NotificationsBell({ current }: { current: boolean }) {
   const { notifications } = useNotifications()
-  const fresh = notifications.state === "ready" && notifications.data.unread > 0
+  const unread = notifications.state === "ready" && notifications.data.unread > 0
 
   return (
     <Tooltip>
@@ -18,7 +18,7 @@ export function NotificationsBell({ current }: { current: boolean }) {
             variant="ghost"
             size="icon"
             nativeButton={false}
-            aria-label={fresh ? "Powiadomienia, są nowe" : "Powiadomienia"}
+            aria-label={unread ? "Powiadomienia, są nowe" : "Powiadomienia"}
             aria-current={current ? "page" : undefined}
             className="relative aria-[current=page]:bg-muted"
             render={<a href={pageHref(NOTIFICATIONS_PAGE)} />}
@@ -26,7 +26,7 @@ export function NotificationsBell({ current }: { current: boolean }) {
         }
       >
         <BellIcon />
-        {fresh ? (
+        {unread ? (
           <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive ring-2 ring-background" aria-hidden />
         ) : null}
       </TooltipTrigger>

@@ -42,8 +42,10 @@ from rozliczenia.centrum.report_box import (
     ReportBox,
     SendOutcome,
     Sent,
-    close_reason,
+    closure_json,
     find_issue,
+    read_closure,
+    read_moment,
 )
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
@@ -291,6 +293,10 @@ class SentReports:
         self._remembered: list[SentReport] = []
 
     def all(self) -> list[SentReport]:
+        with self._lock:
+            return self._all()
+
+    def _all(self) -> list[SentReport]:
         stored = self._read()
         known = {sent.number for sent in stored}
         return stored + [sent for sent in self._remembered if sent.number not in known]
@@ -302,7 +308,7 @@ class SentReports:
 
     def add(self, sent: SentReport) -> None:
         with self._lock:
-            reports = [*self.all(), sent]
+            reports = [*self._all(), sent]
             self._remembered.append(sent)
             self._write(reports)
 
@@ -314,7 +320,7 @@ class SentReports:
 
         with self._lock:
             self._remembered = [marked(sent) for sent in self._remembered]
-            self._write([marked(sent) for sent in self.all()])
+            self._write([marked(sent) for sent in self._all()])
 
     def _write(self, reports: list[SentReport]) -> None:
         try:
@@ -359,34 +365,6 @@ def _sent_report(entry: object) -> SentReport | None:
         read_moment(entry.get("sent_at")),
         read_closure(entry.get("closure")),
     )
-
-
-def closure_json(closure: Closure | None) -> dict[str, str | None] | None:
-    """Zamknięcie issue w pliku stanu taty: ``null`` dla otwartego."""
-
-    if closure is None:
-        return None
-    return {"reason": closure.reason, "at": None if closure.at is None else closure.at.isoformat()}
-
-
-def read_closure(value: object) -> Closure | None:
-    """Zamknięcie z pliku stanu taty; wszystko poza obiektem to otwarte issue, a skrzynka i tak powie, jak jest."""
-
-    if not isinstance(value, dict):
-        return None
-    return Closure(close_reason(value.get("reason")), read_moment(value.get("at")))
-
-
-def read_moment(value: object) -> datetime | None:
-    """Czas ze strefą z pliku stanu taty; brak, czas bez strefy albo nieczytelny to ``None``."""
-
-    if not isinstance(value, str):
-        return None
-    try:
-        moment = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    return moment if moment.tzinfo is not None else None
 
 
 @dataclass(frozen=True)
