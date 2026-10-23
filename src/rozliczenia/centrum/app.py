@@ -169,7 +169,6 @@ def create_app(
             process, period, settings=store.load(), configuration=configuration
         ),
         cloud_files=surroundings.cloud_files,
-        log=log,
     )
     runs = RunHost(
         log,

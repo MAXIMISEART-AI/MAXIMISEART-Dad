@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import re
 from typing import Any
@@ -152,7 +153,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
         == [(worker, "ZAPISANO", count) for worker, count in zip(workers, rows, strict=True)],
         "the Logi of the written Przebieg rozliczeń list every Wykonawca in order with outcome ZAPISANO and its rows",
     )
-    durations = [template["duration_ms"] for template in templates]
+    durations = [template["duration_ms"] for template in templates] or [None]
     run.check(
         all(isinstance(duration, int) for duration in durations) and durations[0] >= TEMPLATE_PACING_MS,
         f"each Szablon pracownika has its time; the first, paced {TEMPLATE_PACING_MS} ms (harness), took {durations[0]} ms",
@@ -160,7 +161,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "logi-kazde-uruchomienie")
     ended = _ended_in_centrum_log(run)
-    records = sorted(_records(run).values(), key=lambda record: str(record["started_at"]))
+    records = sorted(_records(run).values(), key=lambda record: datetime.fromisoformat(record["started_at"]))
     run.check(
         [(record["process"], record["mode"], record["period"], record["result"], record["ending"]) for record in records]
         == ended,
@@ -174,7 +175,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
     _nothing_about_logs(run, page, "Uruchomienia after a reload")
     texts = [path.read_text(encoding="utf-8") for path in sorted((run.root / LOGS).glob("*.json"))]
     run.check(
-        not any(str(run.root) in text or ROW_MARKER in text for text in texts),
+        not any(json.dumps(str(run.root))[1:-1] in text or ROW_MARKER in text for text in texts),
         "no file of Logi holds a path in the run root or workbook row content",
     )
     files = [logged["name"] for record in records for logged in record["environment"]["files"] or []]

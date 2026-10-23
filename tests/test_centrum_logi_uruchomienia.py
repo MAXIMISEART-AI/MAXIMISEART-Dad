@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 import json
 from pathlib import Path
 import re
@@ -45,7 +46,13 @@ def records(centrum: AnyCentrum) -> list[dict[str, Any]]:
     """Logi po kolei od startu; nazwy plików mają start z dokładnością do sekundy."""
 
     loaded = [json.loads(path.read_text(encoding="utf-8")) for path in log_files(centrum)]
-    return sorted(loaded, key=lambda record: str(record["started_at"]))
+    return sorted(loaded, key=lambda record: datetime.fromisoformat(record["started_at"]))
+
+
+def in_json(path: Path) -> str:
+    """Ścieżka tak, jak stoi w tekście pliku JSON (w Windows z podwojonym ``\\``)."""
+
+    return json.dumps(str(path))[1:-1]
 
 
 def card_messages(view: dict[str, Any]) -> list[dict[str, str]]:
@@ -233,7 +240,7 @@ def test_kazda_droga_zakonczenia_w_obu_trybach_daje_jeden_plik_logow_z_wynikiem_
     assert (record["trace"] or {}).get("exception_type") == ending.trace
     text = path.read_text(encoding="utf-8")
     assert "SYN-" not in text
-    assert str(tmp_path) not in text and str(tmp_path.resolve()) not in text
+    assert in_json(tmp_path) not in text and in_json(tmp_path.resolve()) not in text
 
 
 def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wierszami_i_czasem(tmp_path: Path) -> None:
@@ -294,7 +301,7 @@ def test_srodowisko_ma_system_python_i_pliki_procesu_z_rozmiarem_i_onedrive(tmp_
     ]
 
 
-def test_pliki_procesu_ktorych_nie_da_sie_wyliczyc_daja_logi_bez_plikow_i_typ_bledu_w_dzienniku(
+def test_pliki_procesu_ktorych_nie_da_sie_wyliczyc_daja_logi_bez_plikow_bez_nieoczekiwanego_wyjatku_w_dzienniku(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = settling_centrum(tmp_path)
@@ -309,9 +316,7 @@ def test_pliki_procesu_ktorych_nie_da_sie_wyliczyc_daja_logi_bez_plikow_i_typ_bl
     [record] = records(centrum)
     assert record["environment"]["files"] is None
     assert (record["result"], view["result"]["result"]) == ("OK", "OK")
-    assert 'nieoczekiwany-wyjatek typ=PeriodFolderInaccessible miejsce="Logi Uruchomienia: pliki"' in (
-        centrum.log_path.read_text(encoding="utf-8")
-    )
+    assert "nieoczekiwany-wyjatek" not in centrum.log_path.read_text(encoding="utf-8")
 
 
 def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_pelnych_sciezek(tmp_path: Path) -> None:
@@ -332,7 +337,7 @@ def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_p
     ]
     texts = [path.read_text(encoding="utf-8") for path in log_files(centrum)]
     assert len(texts) == 3
-    forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", str(tmp_path), str(tmp_path.resolve()))
+    forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
     assert [marker for marker in forbidden if any(marker in text for text in texts)] == []
     assert sum("Adrian Testowy" in text for text in texts) == 2, "Wykonawca z Konfiguracji w obu wynikach z planem"
 

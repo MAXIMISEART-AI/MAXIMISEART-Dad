@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from functools import cache
 from pathlib import Path
 import platform
 from typing import Final, Literal
@@ -26,7 +27,6 @@ from pydantic import BaseModel, ConfigDict
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.cloud_files import CloudFiles
-from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.reports import replace_atomically
 from rozliczenia.centrum.runs import EndedRun
 from rozliczenia.centrum.tool_freshness import CommitSource
@@ -82,7 +82,7 @@ class Environment(_Record):
     system: str
     python: str
     files: list[LoggedFile] | None
-    """``None``: plików procesu nie dało się wyliczyć (np. Folder okresu niedostępny); typ błędu jest w dzienniku."""
+    """``None``: plików procesu nie dało się wyliczyć (np. Folder okresu niedostępny)."""
 
 
 class Tool(_Record):
@@ -95,7 +95,7 @@ class RunLog(_Record):
     """Logi jednego Uruchomienia procesu z Centrum; kształt tego modelu to schemat pliku JSON.
 
     ``duration_ms`` to Czas uruchomienia bez czekania na Decyzję taty; ``started_at`` i ``ended_at`` to zegar ścienny.
-    ``issue_count``, ``templates`` i ``duration_ms`` są puste, gdy rdzeń nie oddał wyniku (ostatnia siatka adaptera).
+    ``issue_count``, ``templates`` i ``duration_ms`` są puste tylko wtedy, gdy sam rdzeń (``run_process``) rzucił wyjątek.
     """
 
     schema_version: Literal[1]
@@ -174,16 +174,12 @@ class RunLogs:
     """Logi Uruchomienia każdego Uruchomienia procesu z Centrum (``runs.AfterRun``) w katalogu ``directory``."""
 
     def __init__(
-        self, directory: Path, *, commit: CommitSource, files: ProcessFiles, cloud_files: CloudFiles, log: CentrumLog
+        self, directory: Path, *, commit: CommitSource, files: ProcessFiles, cloud_files: CloudFiles
     ) -> None:
         self._directory = directory
         self._commit = commit
         self._files = files
         self._cloud = cloud_files
-        self._log = log
-        # Nigdy platform.node(): nazwa komputera nie należy do Logów.
-        self._system = platform.platform()
-        self._python = platform.python_version()
 
     def run_ended(self, run: EndedRun) -> None:
         record = RunLog.of(run, tool=Tool(wydanie=None, commit=self._commit()), environment=self._environment(run))
@@ -192,12 +188,12 @@ class RunLogs:
     def _environment(self, run: EndedRun) -> Environment:
         try:
             paths = self._files(run.info.process, run.info.period)
-        except (OSError, PeriodFolderInaccessible) as failure:
-            self._log.unexpected_failure(failure, where="Logi Uruchomienia: pliki")
+        except (OSError, PeriodFolderInaccessible):
+            # Niedostępny folder to stan komputera taty, nie nieoczekiwany wyjątek: bez wpisu, który Diagnoza by zgłosiła.
             files = None
         else:
             files = [self._file(path) for path in paths]
-        return Environment(system=self._system, python=self._python, files=files)
+        return Environment(system=_system(), python=platform.python_version(), files=files)
 
     def _file(self, path: Path) -> LoggedFile:
         try:
@@ -206,3 +202,10 @@ class RunLogs:
             size = None
         online_only = self._cloud.online_only(path) if self._cloud.checked and size is not None else None
         return LoggedFile(name=path.name, size=size, online_only=online_only)
+
+
+@cache
+def _system() -> str:
+    """System raz na pracę Centrum, przy pierwszych Logach, nie przy starcie; nigdy ``platform.node()`` (nazwa komputera)."""
+
+    return platform.platform()
