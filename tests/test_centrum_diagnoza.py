@@ -609,6 +609,30 @@ def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyc
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
 
 
+@pytest.mark.parametrize(
+    ("github", "offered", "diagnosis_offer"),
+    [
+        (FakeGitHub(release=NEWER_MAIN), True, ("update", False)),
+        (FakeGitHub(), False, ("report", False)),
+        (FakeGitHub(release=None), False, ("report", False)),
+        (FakeGitHub(release=NO_RELEASE), False, ("report", False)),
+        (FakeGitHub(tool_commit=None), False, ("report", False)),
+    ],
+    ids=["nowsze-wydanie", "aktualna", "brak-sieci", "bez-wydania", "bez-gita"],
+)
+def test_konfiguracja_i_diagnoza_proponuja_aktualizacje_tylko_przy_nowszym_wydaniu(
+    tmp_path: Path, github: FakeGitHub, offered: bool, diagnosis_offer: tuple[str, bool]
+) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=github))
+    run_id = stopped_for_maks(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+    configuration = centrum.client.get("/api/configuration").json()
+
+    assert configuration["update_offered"] is offered
+    assert (diagnosis["next_action"], diagnosis["update_proposal"]) == diagnosis_offer
+
+
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_nie_zmienia_wyjasnienia(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(release=None)))
     lock(centrum.fixture.register_path)
