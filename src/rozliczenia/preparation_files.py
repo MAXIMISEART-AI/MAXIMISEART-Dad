@@ -2,9 +2,10 @@
 
 Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we
 wzorcach (Planowanie), i zapisuje Rozliczenie wewnętrzne oraz Plik zbiorczy
-razem do Folderu okresu (Zapisywanie). Każdy problem ze wzorcem jest typowanym
-zatrzymaniem ``StopError``. Moduł wewnętrzny Przygotowania pliku
-zbiorczego; operacją publiczną pozostaje
+razem do Folderu okresu (Zapisywanie). Sprawdzanie zgłasza problem ze wzorcem
+jako ``WorkbookError``, który tłumaczy wejście (Przygotowanie albo Konfiguracja
+Centrum rozliczeń); Planowanie i Zapisywanie zatrzymują się ``StopError``. Moduł
+wewnętrzny Przygotowania pliku zbiorczego; operacją publiczną pozostaje
 ``collective_preparation.prepare_collective_file()``.
 """
 
@@ -48,17 +49,15 @@ class PeriodFiles:
 
 
 def check_internal_template(template_path: Path) -> None:
-    """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki."""
+    """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki; inaczej ``WorkbookError``."""
 
-    with _template_stops(template_path):
-        _template(template_path, Layout.INTERNAL_SETTLEMENT).check()
+    _template(template_path, Layout.INTERNAL_SETTLEMENT).check()
 
 
 def check_collective_template(template_path: Path) -> None:
     """Wzorzec pliku zbiorczego jak ``check_internal_template`` i z WYKONAWCA w H17."""
 
-    with _template_stops(template_path):
-        _template(template_path, Layout.COLLECTIVE_FILE).check()
+    _template(template_path, Layout.COLLECTIVE_FILE).check()
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:

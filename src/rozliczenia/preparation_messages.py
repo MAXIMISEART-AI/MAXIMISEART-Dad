@@ -25,7 +25,7 @@ from .workbook_files import WORKER_HEADER
 from .workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
 from .worker_config import WorkerConfigError
 
-# Kody czytane poza katalogiem: decyzja o niepełnym okresie i problemy Wzorców w Konfiguracji Centrum.
+# Kod czytany poza katalogiem: decyzja o niepełnym okresie. Kody Wzorców czyta tylko ten katalog.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
 TEMPLATE_MISSING = "BRAK_WZORCA"
 TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"

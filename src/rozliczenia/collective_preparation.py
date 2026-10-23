@@ -28,6 +28,7 @@ from .message import Message, StopError
 from .period_folder import PeriodFolder, PeriodFolderInaccessible, PeriodFolderLookupError, locate_period_folder
 from .phase_runner import PhaseRunner
 from .settlement_period import SettlementPeriod, parse_period_token
+from .workbook_files import WorkbookError
 from .worker_config import WorkerConfigError, load_worker_mapping
 
 __all__ = [
@@ -151,8 +152,11 @@ def prepare_collective_file(
     def check_inputs() -> tuple[preparation_files.PeriodFiles, dict[str, str]]:
         settlement_period = _parse_period(period)
         preparation_register.ensure_register_available(register_path)
-        preparation_files.check_internal_template(internal_template)
-        preparation_files.check_collective_template(collective_template)
+        try:
+            preparation_files.check_internal_template(internal_template)
+            preparation_files.check_collective_template(collective_template)
+        except WorkbookError as error:
+            raise StopError(messages.template_unusable(error.path, error)) from error
         if not periods_directory.is_dir():
             raise StopError(messages.periods_directory_missing(periods_directory))
         files = preparation_files.PeriodFiles(

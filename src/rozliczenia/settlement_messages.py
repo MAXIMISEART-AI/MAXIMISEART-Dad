@@ -22,6 +22,7 @@ _STAGING_LEFT: Final = "W Folderze okresu został folder tymczasowy, którego ni
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
+_LEGACY_WORKER_TEMPLATE_NAME: Final = "placeholder.xlsx"
 
 
 def collective_file_unusable(source: Path, error: WorkbookError) -> Message:
@@ -141,9 +142,24 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
     )
 
 
-def worker_template_invalid(template_path: Path, detail: str) -> Message:
-    """Wzorzec rozliczenia pracownika nie przeszedł Sprawdzania; ``detail`` to ``WorkerTemplateValidationError.message``."""
+def worker_template_unusable(template_path: Path, error: WorkbookError) -> Message:
+    """Wzorzec rozliczenia pracownika nie przeszedł Sprawdzania; ``error`` mówi dlaczego."""
 
+    match error.problem:
+        case Problem.MISSING:
+            detail = f"Nie znaleziono Wzorca rozliczenia pracownika: {template_path.name}."
+            if template_path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
+                detail += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{template_path.name}”."
+        case Problem.OPEN_IN_EXCEL:
+            detail = "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
+        case Problem.LAYOUT:
+            detail = f"Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}."
+        case Problem.HAS_DATA:
+            detail = "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór."
+        case Problem.INACCESSIBLE | Problem.UNREADABLE:
+            detail = "Nie można odczytać Wzorca rozliczenia pracownika."
+        case _:
+            assert_never(error.problem)
     return Message(
         code="ZLY_WZORZEC_PRACOWNIKA",
         what=f"Nie można użyć Wzorca rozliczenia pracownika. {detail}",
@@ -192,7 +208,21 @@ def worker_file_failed(target_directory: Path, worker_name: str) -> Message:
     )
 
 
-def worker_files_not_copied(template_path: Path) -> Message:
+def worker_template_unusable_in_saving(
+    template_path: Path, target_directory: Path, worker_name: str, error: WorkbookError
+) -> Message:
+    """Wzorzec rozliczenia pracownika zmieniony po Sprawdzaniu, przy skoroszycie pracownika ``worker_name``."""
+
+    match error.problem:
+        case Problem.LAYOUT | Problem.HAS_DATA:
+            return worker_file_failed(target_directory, worker_name)
+        case Problem.MISSING | Problem.OPEN_IN_EXCEL | Problem.INACCESSIBLE | Problem.UNREADABLE:
+            return _worker_files_not_copied(template_path)
+        case _:
+            assert_never(error.problem)
+
+
+def _worker_files_not_copied(template_path: Path) -> Message:
     return Message(
         code="BLAD_KOPII_WZORCA",
         what=f"Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. {_NOTHING_CREATED}",

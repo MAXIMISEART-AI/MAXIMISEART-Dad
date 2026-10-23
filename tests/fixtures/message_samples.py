@@ -19,7 +19,6 @@ from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
 from rozliczenia.settlement_period import parse_period_token
-from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
 from rozliczenia.workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
 from rozliczenia.worker_config import WorkerConfigError
 
@@ -45,16 +44,6 @@ INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfigurac
 ABOVE_CONFIG = frozenset({"Wspolne", "Narzedzie"})
 
 Samples = Mapping[str, Sequence[Callable[[], Message]]]
-
-
-def _missing_worker_template_detail() -> str:
-    """Treść ze Sprawdzania Wzorca rozliczenia pracownika, którego nie ma pod ścieżką ``WORKER_TEMPLATE``."""
-
-    try:
-        validate_worker_template(WORKER_TEMPLATE)
-    except WorkerTemplateValidationError as error:
-        return error.message
-    raise AssertionError("Sprawdzanie przyjęło nieistniejący Wzorzec rozliczenia pracownika.")
 
 
 # Każda fabryka katalogu z przykładowymi argumentami; warianty liczby pojedynczej i mnogiej osobno.
@@ -160,16 +149,23 @@ SETTLEMENT_SAMPLES: Samples = {
         lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
-    "worker_template_invalid": [
-        lambda: settlement_messages.worker_template_invalid(
-            WORKER_TEMPLATE, "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
-        ),
-        lambda: settlement_messages.worker_template_invalid(WORKER_TEMPLATE, _missing_worker_template_detail()),
+    "worker_template_unusable": [
+        partial(settlement_messages.worker_template_unusable, WORKER_TEMPLATE, WorkbookError(WORKER_TEMPLATE, problem))
+        for problem in Problem
+    ],
+    "worker_template_unusable_in_saving": [
+        partial(
+            settlement_messages.worker_template_unusable_in_saving,
+            WORKER_TEMPLATE,
+            WORKER_SETTLEMENTS,
+            "Wykonawca Testowy",
+            WorkbookError(WORKER_TEMPLATE, problem),
+        )
+        for problem in Problem
     ],
     "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
     "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
     "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
-    "worker_files_not_copied": [lambda: settlement_messages.worker_files_not_copied(WORKER_TEMPLATE)],
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
     "staging_left": [
         lambda: settlement_messages.staging_left(

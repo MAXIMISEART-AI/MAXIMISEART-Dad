@@ -13,7 +13,6 @@ pilnuje:
   - src/rozliczenia/collective_file.py
   - src/rozliczenia/preparation_register.py
   - src/rozliczenia/preparation_files.py
-  - src/rozliczenia/template_settlement.py
   - tools/syntetyczne_wzorce.py
   - requirements.txt
 ---
