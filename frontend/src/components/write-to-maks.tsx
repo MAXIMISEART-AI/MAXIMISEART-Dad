@@ -18,6 +18,9 @@ const TITLE_MAX_LENGTH = zDadNoteRequest.shape.title.toJSONSchema().maxLength
 
 const BODY_MAX_LENGTH = zDadNoteRequest.shape.body.toJSONSchema().maxLength
 
+// Szkic dopiero po krótkiej przerwie w pisaniu: zapytanie na każdy klawisz zapychałoby pomiar widoku.
+const DRAFT_PAUSE_MS = 150
+
 const ANSWERS: Record<DadNoteState["state"], { icon: LucideIcon; tone: string; text: string }> = {
   sent: { icon: CircleCheckIcon, tone: "text-success", text: "Uwaga wysłana do Maksa." },
   waiting: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
@@ -57,7 +60,7 @@ function DadNoteForm({ close }: { close: () => void }) {
   const [body, setBody] = React.useState("")
   const [sending, setSending] = React.useState(false)
   const [answer, setAnswer] = React.useState<DadNoteState | null>(null)
-  const draft = useDraft(title, body)
+  const { draft, current } = useDraft(title, body)
 
   if (answer !== null) {
     return <Answer state={answer} close={close} />
@@ -105,7 +108,7 @@ function DadNoteForm({ close }: { close: () => void }) {
       </Field>
       <Preview draft={draft} />
       <DialogFooter>
-        <Button type="submit" disabled={title.trim() === "" || sending}>
+        <Button type="submit" disabled={title.trim() === "" || !current || sending}>
           {sending ? <Spinner data-icon="inline-start" /> : <SendIcon data-icon="inline-start" />}
           Wyślij
         </Button>
@@ -114,32 +117,40 @@ function DadNoteForm({ close }: { close: () => void }) {
   )
 }
 
+type Drafted = { title: string; body: string; draft: DadNoteDraft }
+
 /**
  * Szkic issue od serwera dla tego, co tata właśnie napisał. Poprzedni szkic zostaje na ekranie, dopóki nie
- * przyjdzie nowszy, a odpowiedź na tekst, który tata już zmienił, przepada. Szkic, który nie przyszedł, nie
- * zmienia ekranu: przy „Wyślij” tata i tak dostanie odmowę serwera.
+ * przyjdzie nowszy, a odpowiedź na tekst, który tata już zmienił, przepada. `current` mówi, czy szkic na ekranie
+ * jest z pól, które teraz wyśle „Wyślij”: bez tego tata mógłby wysłać coś innego, niż widzi w „Maks dostanie”.
  */
-function useDraft(title: string, body: string): DadNoteDraft | null {
-  const [draft, setDraft] = React.useState<DadNoteDraft | null>(null)
+function useDraft(title: string, body: string) {
+  const [drafted, setDrafted] = React.useState<Drafted | null>(null)
 
   React.useEffect(() => {
-    let current = true
+    let wanted = true
 
-    draftDadNote({ title, body }).then(
-      (next) => {
-        if (current) {
-          setDraft(next)
-        }
-      },
-      () => undefined
-    )
+    const pause = window.setTimeout(() => {
+      draftDadNote({ title, body }).then(
+        (draft) => {
+          if (wanted) {
+            setDrafted({ title, body, draft })
+          }
+        },
+        () => undefined
+      )
+    }, DRAFT_PAUSE_MS)
 
     return () => {
-      current = false
+      wanted = false
+      window.clearTimeout(pause)
     }
   }, [title, body])
 
-  return draft
+  return {
+    draft: drafted?.draft ?? null,
+    current: drafted !== null && drafted.title === title && drafted.body === body,
+  }
 }
 
 /** „Maks dostanie”: tytuł i treść issue dokładnie tak, jak złożył je serwer. */
