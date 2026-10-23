@@ -5,6 +5,27 @@
     "version": "kontrakt"
   },
   "paths": {
+    "/api/configuration": {
+      "get": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Configuration",
+        "operationId": "getConfiguration",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "summary": "Health",
@@ -23,103 +44,30 @@
         }
       }
     },
-    "/api/settings": {
+    "/api/metrics": {
       "get": {
         "tags": [
-          "ustawienia"
+          "metryki"
         ],
-        "summary": "Read",
-        "operationId": "getSettings",
+        "summary": "Metrics",
+        "operationId": "getMetrics",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Settings"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/settings/register/choose": {
-      "post": {
-        "tags": [
-          "ustawienia"
-        ],
-        "summary": "Choose Register",
-        "operationId": "chooseRegister",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Choice"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/settings/periods-directory/choose": {
-      "post": {
-        "tags": [
-          "ustawienia"
-        ],
-        "summary": "Choose Periods Directory",
-        "operationId": "choosePeriodsDirectory",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Choice"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/settings/theme": {
-      "put": {
-        "tags": [
-          "ustawienia"
-        ],
-        "summary": "Change Theme",
-        "operationId": "changeTheme",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ThemeChange"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Settings"
+                  "$ref": "#/components/schemas/Metrics"
                 }
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "500": {
+            "description": "Internal Server Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -239,20 +187,20 @@
         }
       }
     },
-    "/api/runs/setup": {
+    "/api/reports/repair": {
       "get": {
         "tags": [
-          "uruchomienia"
+          "zgloszenia"
         ],
-        "summary": "Setup",
-        "operationId": "getRunSetup",
+        "summary": "Repair Notice",
+        "operationId": "getRepairNotice",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RunSetup"
+                  "$ref": "#/components/schemas/RepairNotice"
                 }
               }
             }
@@ -388,6 +336,48 @@
         }
       }
     },
+    "/api/runs/events": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Events",
+        "operationId": "streamRunEvents",
+        "responses": {
+          "200": {
+            "description": "Strumień SSE; każde pole `data` to `RunEvent` (JSON).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEvent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/setup": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Setup",
+        "operationId": "getRunSetup",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunSetup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/decision": {
       "post": {
         "tags": [
@@ -476,27 +466,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/runs/events": {
-      "get": {
-        "tags": [
-          "uruchomienia"
-        ],
-        "summary": "Events",
-        "operationId": "streamRunEvents",
-        "responses": {
-          "200": {
-            "description": "Strumień SSE; każde pole `data` to `RunEvent` (JSON).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunEvent"
                 }
               }
             }
@@ -651,20 +620,20 @@
         }
       }
     },
-    "/api/reports/repair": {
+    "/api/settings": {
       "get": {
         "tags": [
-          "zgloszenia"
+          "ustawienia"
         ],
-        "summary": "Repair Notice",
-        "operationId": "getRepairNotice",
+        "summary": "Read",
+        "operationId": "getSettings",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RepairNotice"
+                  "$ref": "#/components/schemas/Settings"
                 }
               }
             }
@@ -672,30 +641,82 @@
         }
       }
     },
-    "/api/metrics": {
-      "get": {
+    "/api/settings/periods-directory/choose": {
+      "post": {
         "tags": [
-          "metryki"
+          "ustawienia"
         ],
-        "summary": "Metrics",
-        "operationId": "getMetrics",
+        "summary": "Choose Periods Directory",
+        "operationId": "choosePeriodsDirectory",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Metrics"
+                  "$ref": "#/components/schemas/Choice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/register/choose": {
+      "post": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Choose Register",
+        "operationId": "chooseRegister",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Choice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/theme": {
+      "put": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Change Theme",
+        "operationId": "changeTheme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThemeChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
                 }
               }
             }
           },
-          "500": {
-            "description": "Internal Server Error",
+          "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Problem"
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -703,20 +724,30 @@
         }
       }
     },
-    "/api/configuration": {
-      "get": {
+    "/api/shutdown": {
+      "post": {
         "tags": [
-          "konfiguracja"
+          "centrum"
         ],
-        "summary": "Configuration",
-        "operationId": "getConfiguration",
+        "summary": "Close",
+        "operationId": "closeCentrum",
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Configuration"
+                  "$ref": "#/components/schemas/Closing"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -865,37 +896,6 @@
                       "saved": "#/components/schemas/ReportSaved"
                     }
                   }
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/shutdown": {
-      "post": {
-        "tags": [
-          "centrum"
-        ],
-        "summary": "Close",
-        "operationId": "closeCentrum",
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Closing"
                 }
               }
             }
