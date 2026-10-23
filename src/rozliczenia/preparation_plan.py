@@ -16,8 +16,9 @@ from pathlib import Path
 
 from . import preparation_messages as messages
 from .message import Message, StopError
-from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterRow, RegisterSheet, is_blank
+from .preparation_register import DATE, SUCCESSFUL, WORKER, RegisterSheet, cell_value
 from .settlement_period import SettlementPeriod
+from .workbook_files import DataRow, is_blank
 from .worker_config import normalize_text
 
 _SUCCESSFUL_VALUE = "tak"
@@ -29,16 +30,16 @@ _BLANK_WORKER_LABEL = "(pusty)"
 class PeriodOrder:
     """Zlecenie okresu: wiersz Rejestru i jego data z ``DATA GODZ. POCZ.``."""
 
-    row: RegisterRow
+    row: DataRow
     started: datetime
 
     @property
     def row_number(self) -> int:
-        return self.row.row_number
+        return self.row.number
 
     @property
     def is_successful(self) -> bool:
-        return normalize_text(self.row.value(SUCCESSFUL)) == _SUCCESSFUL_VALUE
+        return normalize_text(cell_value(self.row, SUCCESSFUL)) == _SUCCESSFUL_VALUE
 
 
 @dataclass(frozen=True)
@@ -74,9 +75,9 @@ def plan_period_orders(
     orders: list[PeriodOrder] = []
     undated_rows: list[int] = []
     for row in register.rows:
-        started = _order_date(row.value(DATE))
+        started = _order_date(cell_value(row, DATE))
         if started is None:
-            undated_rows.append(row.row_number)
+            undated_rows.append(row.number)
         elif period.start <= started < period.end:
             orders.append(PeriodOrder(row, started))
     if not orders:
@@ -111,8 +112,8 @@ def _order_date(value: object) -> datetime | None:
     return None
 
 
-def _in_period(row: RegisterRow, period: SettlementPeriod) -> bool:
-    started = _order_date(row.value(DATE))
+def _in_period(row: DataRow, period: SettlementPeriod) -> bool:
+    started = _order_date(cell_value(row, DATE))
     return started is not None and period.start <= started < period.end
 
 
@@ -122,7 +123,7 @@ def _check_successful_values(register_path: Path, register: RegisterSheet, order
     empty_rows: list[int] = []
     other_values: list[messages.CellContent] = []
     for order in orders:
-        value = order.row.value(SUCCESSFUL)
+        value = cell_value(order.row, SUCCESSFUL)
         if normalize_text(value) in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE):
             continue
         if is_blank(value):
@@ -155,7 +156,7 @@ def _unknown_workers(
 
     unknown: dict[str, tuple[str, list[int]]] = {}
     for order in orders:
-        worker = order.row.value(WORKER)
+        worker = cell_value(order.row, WORKER)
         key = normalize_text(worker)
         if not order.is_successful or key in worker_mapping:
             continue

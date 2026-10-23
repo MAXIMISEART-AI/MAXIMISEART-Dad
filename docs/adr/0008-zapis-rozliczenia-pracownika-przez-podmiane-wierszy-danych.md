@@ -281,3 +281,75 @@ pracownika. Z Pliku zbiorczego przechodzi teraz dodatkowo tylko format liczby.
 Kontrola `verify-kopia-wzorca` ma piątą regułę `WYGLAD_WIERSZA`, wyprowadzoną z
 reguły, a nie z kodu, bo błąd wspólny obu dróg zapisu nie byłby widoczny w
 porównaniu kopii z openpyxl.
+
+## Zmiana z 2026-10-22: jeden Wiersz danych i jeden zapis trzech plików z Wzorca
+
+Po zmianach wyżej Wiersze danych trafiały do Wzorca trzema drogami z trzema
+kształtami wiersza: `DataRow` Przebiegu rozliczeń, `CollectiveFileRow` kopii
+Pliku zbiorczego i komórki Rejestru z `CellFormat` w zapisie przez openpyxl.
+Wyróżnienia komórek Rejestru powstawały z pominięciem normalizacji pustego
+wypełnienia z `Highlights.of`, więc ten sam wygląd mógł dać dwie różne wartości
+`Highlights`. Przygotowanie samo liczyło kolumny pod nagłówkami, scalenia,
+kolumny Wyglądu Wiersza danych, wysokość wiersza, autofiltr i kolejność
+Hiperłącza przed wartością, a zapis Rozliczenia pracownika przez openpyxl
+powtarzał część tych reguł osobno.
+
+Teraz:
+
+- Każdy plik z Wzorca powstaje przez `workbook_files.TemplateFile` w jednym z
+  trzech układów (`Layout`): Rozliczenie pracownika, Plik zbiorczy, Rozliczenie
+  wewnętrzne. `check()` to Sprawdzanie, `plan()` to Planowanie, a `create()`
+  zapisuje plik. Układ wyznacza wiersz nagłówka i pierwszy Wiersz danych,
+  nagłówek WYKONAWCA w H17, kolumny wyglądu, flagi przeliczania, autofiltr,
+  kontrolę Szablonu pracownika i to, czy plik może powstać kopią. Rozliczenie
+  wewnętrzne nadal powstaje tylko przez openpyxl. Wybór między kopią a openpyxl
+  i reguły kopii z decyzji wyżej się nie zmieniają.
+- Wiersz danych ma jeden kształt (`DataRow`): wartości komórek po kolei, ich
+  Wyróżnienia, formaty liczb i Hiperłącza. Odczyt Pliku zbiorczego daje go z
+  formatami liczb kolumn wyglądu A:L, odczyt Rejestru zleceń z formatem liczby
+  każdej przenoszonej komórki.
+- Wyróżnienia komórek Rejestru są czytane tą samą regułą co komórek Pliku
+  zbiorczego (`Highlights.of`: wypełnienie bez wzoru to brak wypełnienia).
+- Przygotowanie podaje tylko nagłówki docelowe kolumn Rejestru. Kolumny pod
+  nagłówkami i scalenia w komórkach zapisu liczy `TemplateFile` z tego samego
+  wczytania Wzorca, z którego powstaje plik, a zły układ zgłasza z miejscem
+  (`MissingHeader`, `MergedCells`). Przygotowanie tłumaczy go na te same
+  Komunikaty co dotąd.
+
+Skutki dla plików:
+
+- Rozliczenia pracowników: bez zmian, bajt w bajt.
+- Plik zbiorczy z kopii: bez zmian, bajt w bajt, z jednym wyjątkiem: komórka
+  Rejestru z wypełnieniem bez wzoru, ale z kolorem innym niż domyślny, dostaje
+  puste wypełnienie, takie jak komórka bez Wyróżnień, zamiast kopii tego
+  wypełnienia. W Excelu obie wyglądają tak samo.
+- Rozliczenie wewnętrzne i Plik zbiorczy drogą openpyxl: to, co widać w Excelu,
+  bez zmian, z tym samym wyjątkiem.
+- Znak niedozwolony w XML zatrzymuje zapis każdego pliku z Wzorca tym samym
+  błędem `WorkbookSaveError` na obu drogach. Dotąd kopia Pliku zbiorczego
+  wracała wtedy do openpyxl, a droga openpyxl (zawsze w Rozliczeniu
+  wewnętrznym) kończyła się nieoczekiwanym wyjątkiem. Przygotowanie zatrzymuje
+  się teraz z `BLAD_ZAPISU`, Przebieg rozliczeń jak dotąd z
+  `BLAD_SZABLONU_PRACOWNIKA`. Odczyt Rejestru i Pliku zbiorczego przez openpyxl
+  takich wartości nie daje.
+
+Na kopiach danych taty (31 okresów z obu Rejestrów, wszystkie, z których
+Przygotowanie zapisuje pliki) Pliki zbiorcze i Rozliczenia pracowników po tej
+zmianie mają te same bajty co przed nią (31 i 837 plików; wyjątek wyżej nie
+wystąpił), a Rozliczenie wewnętrzne nie różni się w żadnej kategorii bramki
+`tools/porownanie_rozliczen.py`.
+
+Odrzucone kierunki:
+
+- **Rozliczenie wewnętrzne kopią Wzorca.** To zmiana wydajności z własnym
+  pomiarem, nie ujednolicenie. Tabela `Layout` pozwala ją zrobić osobno.
+- **Wiersz jako krotka komórek** (wartość, Wyróżnienia, Hiperłącze i format
+  liczby w jednym obiekcie). Kopia i oba odczyty pracują kolumnami; obiekt na
+  komórkę to dziesiątki tysięcy obiektów więcej przy każdym odczycie Pliku
+  zbiorczego.
+
+Testy właściciele: `tests/test_workbook_files.py` (Rozliczenie pracownika) i
+`tests/test_plik_zbiorczy_kopia_wzorca.py` (Plik zbiorczy) porównują plik z
+kopii z plikiem z bliźniaka tego samego Wzorca z komentarzem XML w danych
+arkusza, którego kopia nie przyjmuje, więc powstaje drogą openpyxl. Żaden test
+nie podmienia wnętrza modułu, żeby wybrać drogę.

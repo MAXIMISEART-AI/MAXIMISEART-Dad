@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Brama pre-push: push agenta, który wysyła HEAD, przechodzi dopiero po ``CI LOKALNIE OK`` na jego drzewie.
+"""Brama pre-push: push agenta, który wysyła HEAD, przechodzi po ruff i mypy dla obu systemów.
 
 Push człowieka przechodzi bez sprawdzania i bez słowa. Agenta rozpoznaje zmienna ``AI_AGENT`` (Claude Code,
 opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
 
-``tools/ci_lokalnie.py`` po udanym przebiegu na czystym checkoucie zapisuje drzewo HEAD w pieczątce
-``$(git rev-parse --git-dir)/ci-lokalnie-ok``, więc push tego drzewa przechodzi od razu. Bez pieczątki
-brama staje się ``tools/ci_lokalnie.py --do-pierwszego-bledu --z-rodzicem`` Pythonem z ``.venv`` checkoutu
-(``execve``). Włącza ją ``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym
-checkoutu.
+Kroki bierze z ``tools/ci_lokalnie.py``, uruchomionego Pythonem z ``.venv`` checkoutu. Włącza ją
+``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
 
-Przebieg nie przeżywa pushu: ``ci_lokalnie`` jest tym samym procesem w grupie ``git push``, więc sygnał do
-grupy pushu (SIGKILL od limitu czasu agenta) trafia prosto w nie, a jego kroki giną z nim. ``--z-rodzicem``
-kończy przebieg, gdy zniknie sam ``git push``. Drugi push z tego samego checkoutu w trakcie przebiegu kończy
-się od razu, bez równoległego ``ci_lokalnie`` na tym samym drzewie.
+Przed krokami drukuje dwie linie, które tylko informują: werdykt ``tools/praca_w_toku.py --aktualizacja``, czy
+aktualizować gałąź z ``origin/main``, i skille ``verify-*`` do załadowania z ``tools/skille_dla_zmiany.py``. Gdy
+narzędzie się nie uda, brama drukuje ``AKTUALIZACJA: nieznana (…)`` albo ``SKILLE VERIFY: nieznane (…)``, a wynik
+pushu się nie zmienia.
+
+Hook biegnie systemowym Pythonem (na Macu 3.9), więc ten plik i ``tools/potomne.py`` ruff sprawdza pod 3.9
+(``per-file-target-version`` w ``pyproject.toml``).
 """
 
 from __future__ import annotations
@@ -24,30 +24,40 @@ from pathlib import Path
 import subprocess
 import sys
 
-STAMP = "ci-lokalnie-ok"
-LOCK = "ci-lokalnie.lock"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 VENV_PYTHON = Path(".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
-COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--do-pierwszego-bledu", "--z-rodzicem")
-RUNS_CI = (
-    "uruchamiam tools/ci_lokalnie.py: czysty przebieg 4-8 min zależnie od obciążenia Maca, przy błędzie koniec"
-    " na pierwszym nieudanym kroku (ruff po kilku sekundach); po udanym przebiegu przed pushem push przechodzi od razu"
-)
+COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--tylko", "ruff,mypy", "--do-pierwszego-bledu")
+NOTE_TIMEOUT_S = 5
+CHECKS = "sprawdzam ruff i mypy (macOS i Windows) przez tools/ci_lokalnie.py; resztę sprawdza CI na GitHubie"
 
 
 @dataclass(frozen=True)
 class Decision:
     message: str
-    runs_ci: bool
+    checks: bool
 
 
-HUMAN = Decision("", runs_ci=False)
-NOT_HEAD = Decision("push nie wysyła HEAD (usunięcie gałęzi albo inna gałąź), więc bez sprawdzania", runs_ci=False)
-STAMPED = Decision("ci_lokalnie przeszło już na drzewie HEAD, push bez ponownego sprawdzania", runs_ci=False)
-CLEAN = Decision(RUNS_CI, runs_ci=True)
+HUMAN = Decision("", checks=False)
+NOT_HEAD = Decision("push nie wysyła HEAD (usunięcie gałęzi albo inna gałąź), więc bez sprawdzania", checks=False)
+CLEAN = Decision(CHECKS, checks=True)
 DIRTY = Decision(
-    f"{RUNS_CI}; checkout ma niezacommitowane zmiany, więc werdykt dotyczy drzewa roboczego, nie tylko wysyłanego commitu",
-    runs_ci=True,
+    f"{CHECKS}; checkout ma niezacommitowane zmiany, więc werdykt dotyczy drzewa roboczego, nie tylko wysyłanego commitu",
+    checks=True,
+)
+
+
+@dataclass(frozen=True)
+class Note:
+    """Linia narzędzia, którą brama drukuje przed krokami: ostatnia linia wyjścia, gdy zaczyna się od ``prefix``."""
+
+    command: tuple[str, ...]
+    prefix: str
+    unknown: str
+
+
+NOTES = (
+    Note((str(VENV_PYTHON), "tools/praca_w_toku.py", "--aktualizacja"), "AKTUALIZACJA: ", "nieznana"),
+    Note((str(VENV_PYTHON), "tools/skille_dla_zmiany.py"), "SKILLE VERIFY: ", "nieznane"),
 )
 
 
@@ -60,11 +70,23 @@ def _decide(pushed: set[str]) -> Decision:
         return HUMAN
     if _git("rev-parse", "HEAD") not in pushed:
         return NOT_HEAD
-    stamp = Path(_git("rev-parse", "--git-dir")) / STAMP
-    # Pieczątka mówi, że to drzewo przeszło na czystym checkoucie, więc zmiany obok niego nie mają znaczenia.
-    if stamp.exists() and stamp.read_text(encoding="utf-8").strip() == _git("rev-parse", "HEAD^{tree}"):
-        return STAMPED
     return DIRTY if _git("status", "--porcelain") else CLEAN
+
+
+def _print_note(note: Note) -> None:
+    try:
+        import potomne
+
+        done = potomne.run(note.command, cwd=Path.cwd(), timeout=NOTE_TIMEOUT_S)
+    except Exception as error:  # noqa: BLE001 - linia tylko informuje, więc żaden błąd narzędzia nie zmienia wyniku pushu
+        reason = f"{type(error).__name__}: {error}"
+    else:
+        last = (done.stdout.strip().splitlines() or [""])[-1]
+        if last.startswith(note.prefix):
+            print(last, flush=True)
+            return
+        reason = f"{note.command[1]}: " + (done.stderr.strip().splitlines() or [f"kod {done.returncode}"])[-1]
+    print(f"{note.prefix}{note.unknown} ({reason})", flush=True)
 
 
 def main() -> int:
@@ -72,30 +94,20 @@ def main() -> int:
     decision = _decide(pushed)
     if decision.message:
         print(f"pre-push: {decision.message}.", flush=True)
-    if not decision.runs_ci:
+    if not decision.checks:
         return 0
     if not VENV_PYTHON.exists():
         print("pre-push: brak .venv; utwórz je przez tools/setup_worktree.py i ponów push.", flush=True)
         return 1
-    # Zmienne GIT_* hooka (np. GIT_CONFIG_PARAMETERS z `git -c`) zmieniłyby repozytoria tworzone przez testy.
-    environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
-    return _run_ci(environment)
-
-
-def _run_ci(environment: dict[str, str]) -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    for note in NOTES:
+        _print_note(note)
     if sys.platform == "win32":  # tools/setup_worktree.py nie włącza bramy na Windows
-        return subprocess.run(COMMAND, env=environment, stdin=subprocess.DEVNULL, check=False).returncode
-    import fcntl
+        import potomne
 
-    lock = (Path(_git("rev-parse", "--git-dir")) / LOCK).open("w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("pre-push: inny push z tego checkoutu już uruchomił ci_lokalnie; poczekaj na jego wynik.", flush=True)
-        return 1
-    # Python zamyka deskryptory przy execve (PEP 446), a zamek ma trwać do końca ci_lokalnie.
-    os.set_inheritable(lock.fileno(), True)
-    os.execve(COMMAND[0], COMMAND, environment)
+        return potomne.run(COMMAND, cwd=Path.cwd(), echo=True).returncode
+    # Hook staje się ci_lokalnie, więc sygnał dla samego hooka też kończy sprawdzenie.
+    os.execv(COMMAND[0], COMMAND)
 
 
 if __name__ == "__main__":

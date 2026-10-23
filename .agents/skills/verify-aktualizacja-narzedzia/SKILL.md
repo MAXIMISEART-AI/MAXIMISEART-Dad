@@ -1,6 +1,11 @@
 ---
 name: verify-aktualizacja-narzedzia
 description: Model-check with TLA+ (TLC) that Aktualizacja narzędzia leaves Dad with a version that starts and with his own file in `config/`, and that the restart guardian rolls back only a new version that really does not start, under every order of failures - fetch, git, pip, file copy, restart guardian, a new version that will not start, the computer switching off, and Dad clicking the desktop shortcut during the restart. Use when a change touches `ToolClone.update`, `_DadFiles`, `_Journal`, `_roll_back`, `ToolUpdates._update` or `_restart`, `restart_guardian.main`, or the start in `launcher._start` in `src/rozliczenia/centrum/`, or when fixing #196.
+pilnuje:
+  - src/rozliczenia/centrum/tool_update.py
+  - src/rozliczenia/centrum/tool_updates.py
+  - src/rozliczenia/centrum/restart_guardian.py
+  - src/rozliczenia/centrum/launcher.py
 ---
 
 # Verify Aktualizacja narzędzia (TLA+)

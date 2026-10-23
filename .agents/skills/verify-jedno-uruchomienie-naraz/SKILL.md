@@ -1,6 +1,12 @@
 ---
 name: verify-jedno-uruchomienie-naraz
 description: Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu or Aktualizacja narzędzia at a time and never closes during one (also while it waits for Dad's Decyzja), under every interleaving of browser tabs, Dad and the server. Use when a change touches `RunHost` or `_Run` in `src/rozliczenia/centrum/runs.py`, `Shutdown` in `shutdown.py`, `stop_when_asked` in `server.py`, the `refuse_while` wiring in `app.py`, `ToolUpdates.start` or `_update` in `tool_updates.py`, adds another action that must wait for a running Uruchomienie, or `test_jedno_uruchomienie_naraz` fails.
+pilnuje:
+  - src/rozliczenia/centrum/runs.py
+  - src/rozliczenia/centrum/shutdown.py
+  - src/rozliczenia/centrum/server.py
+  - src/rozliczenia/centrum/app.py
+  - src/rozliczenia/centrum/tool_updates.py
 ---
 
 # Verify jedno Uruchomienie naraz
@@ -59,7 +65,7 @@ do not matter here: the checker replaces the engine with fixed steps.
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\explore_runs.py
 ```
 
-On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 8 s on a
+On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 5 s on a
 Mac and runs in CI as `tests/test_jedno_uruchomienie_naraz.py`. In a worktree the
 script checks the worktree's own `src`.
 
@@ -148,7 +154,7 @@ requests, `wątek Uruchomienie n` is the thread `RunHost.start` spawned,
 
 Prove the check can still fail. This applies broken variants to a temporary copy
 of `src`, never to the checkout, each in the one scope that catches it (about
-2 minutes on a Mac):
+45 s on a Mac):
 
 ```powershell
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutations.py

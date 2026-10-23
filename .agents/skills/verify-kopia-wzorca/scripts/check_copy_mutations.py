@@ -94,9 +94,16 @@ MUTATIONS = (
     ),
     Mutation(
         "zawijanie każdego tekstu",
-        (Edit(ROW_LOOK, 'return isinstance(value, str) and "\\n" in value', "return isinstance(value, str)"),),
+        (Edit(ROW_LOOK, 'return isinstance(value, str) and ("\\n" in value or "\\r" in value)', "return isinstance(value, str)"),),
         CHECKER,
         "obie drogi zawijają każdy tekst, więc wiersze bez końca linii są w Excelu wyższe",
+        EXPECTED,
+    ),
+    Mutation(
+        "\\r nie zawija tekstu",
+        (Edit(ROW_LOOK, 'return isinstance(value, str) and ("\\n" in value or "\\r" in value)', 'return isinstance(value, str) and "\\n" in value'),),
+        CHECKER,
+        "tekst z końcem linii Windows z Rejestru zostaje w Excelu bez zawijania",
         EXPECTED,
     ),
     Mutation(

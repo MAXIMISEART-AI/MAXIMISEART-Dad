@@ -182,6 +182,7 @@ def test_przebieg_z_drugiego_worktree_nie_startuje_gdy_pierwszy_steruje_excelem(
             text=True,
             env=environment,
             timeout=60,
+            check=False,
         )
     finally:
         holder.communicate("")

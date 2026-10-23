@@ -108,10 +108,10 @@ def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(t
     head = commit(repo, "bez zepsutego testu")
     tool = [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest"]
 
-    every_commit = subprocess.run([*tool, "--kazdy-commit", base], capture_output=True, text=True, encoding="utf-8")
-    only_head = subprocess.run(tool, capture_output=True, text=True, encoding="utf-8")
+    every_commit = subprocess.run([*tool, "--kazdy-commit", base], capture_output=True, text=True, encoding="utf-8", check=False)
+    only_head = subprocess.run(tool, capture_output=True, text=True, encoding="utf-8", check=False)
 
-    assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK")
+    assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK | tylko pytest")
     assert (every_commit.returncode, every_commit.stdout.splitlines()[-1]) == (1, f"COMMITY FAIL | {broken[:7]} (pytest)")
     assert "test_zepsuty.py::test_zepsuty" in every_commit.stdout
     assert (git(repo, "rev-parse", "HEAD"), git(repo, "worktree", "list", "--porcelain").count("worktree ")) == (head, 1)
@@ -129,6 +129,7 @@ def test_kazdy_commit_przechodzi_gdy_kazdy_commit_przechodzi(tmp_path: Path) -> 
         capture_output=True,
         text=True,
         encoding="utf-8",
+        check=False,
     )
 
     assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "COMMITY OK (2)")
@@ -143,24 +144,11 @@ def test_kazdy_commit_od_nieistniejacej_bazy_nazywa_baze_bez_tracebacku(tmp_path
         capture_output=True,
         text=True,
         encoding="utf-8",
+        check=False,
     )
 
     assert (answered.returncode, answered.stdout.splitlines()[-1:]) == (1, ["COMMITY FAIL | nieznana baza nie-ma-takiej-bazy"])
     assert "Traceback" not in answered.stderr
-
-
-def test_przebieg_tylko_czesci_zadan_nie_zostawia_pieczatki_dla_bramy_pre_push(tmp_path: Path) -> None:
-    repo = repository(
-        tmp_path / "repo", {".gitignore": "__pycache__/\n", "tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"}
-    )
-    commit(repo, "baza")
-
-    answered = subprocess.run(
-        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest"], capture_output=True, text=True, encoding="utf-8"
-    )
-
-    assert answered.stdout.splitlines()[-1] == "CI LOKALNIE OK"
-    assert not (repo / git(repo, "rev-parse", "--git-dir") / "ci-lokalnie-ok").exists()
 
 
 def _hanging_repository(path: Path, beats: Path) -> tuple[Path, str]:
@@ -174,25 +162,10 @@ def _hanging_repository(path: Path, beats: Path) -> tuple[Path, str]:
     return repo, base
 
 
-PARENT = "import subprocess, sys, time; subprocess.Popen(sys.argv[1:]); time.sleep(600)"
-
-
-@pytest.mark.parametrize(
-    "stop",
-    [
-        "SIGKILL ci_lokalnie",
-        pytest.param(
-            "zniknięty rodzic",
-            marks=pytest.mark.skipif(sys.platform == "win32", reason="na Windows rodzic procesu się nie zmienia"),
-        ),
-    ],
-)
-def test_przerwane_ci_lokalnie_nie_zostawia_krokow_ani_kopii_commitow(tmp_path: Path, stop: str) -> None:
+def test_przerwane_ci_lokalnie_nie_zostawia_krokow_ani_kopii_commitow(tmp_path: Path) -> None:
     beats = tmp_path / "wnuk-zyje"
     repo, base = _hanging_repository(tmp_path / "repo", beats)
     command = [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest", "--kazdy-commit", base]
-    if stop == "zniknięty rodzic":
-        command = [sys.executable, "-c", PARENT, *command, "--z-rodzicem"]
     started = subprocess.Popen(
         command,
         cwd=repo,
@@ -213,73 +186,3 @@ def test_przerwane_ci_lokalnie_nie_zostawia_krokow_ani_kopii_commitow(tmp_path: 
     finally:
         started.kill()
         started.wait()
-
-
-NPM_RUN_CONTRACT = (
-    "from pathlib import Path; contract = Path('frontend/src/api/openapi.json'); contract.parent.mkdir(parents=True, exist_ok=True);"
-    " contract.write_text(Path('frontend/zrodlo.txt').read_text().upper())"
-)
-CONTRACT = "frontend/src/api/openapi.json"
-
-
-def _edit_source(repo: Path, line: int, text: str) -> None:
-    source = repo / "frontend" / "zrodlo.txt"
-    lines = source.read_text(encoding="utf-8").splitlines()
-    lines[line] = text
-    source.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    subprocess.run([sys.executable, "-c", NPM_RUN_CONTRACT], cwd=repo, check=True)
-
-
-def _generated_repository(path: Path) -> Path:
-    repo = repository(path, {".gitattributes": (ROOT / ".gitattributes").read_text(encoding="utf-8"), "frontend/zrodlo.txt": "a\nb\nc\nd\ne\n"})
-    _edit_source(repo, 0, "a")
-    commit(repo, "baza")
-    return repo
-
-
-def _frontend_check(tool: ModuleType, repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], str]:
-    regenerate = tool.Step("npm run contract", "frontend", "", (sys.executable, "-c", NPM_RUN_CONTRACT), repo)
-    fresh = next(step for step in tool._steps(repo) if step.command[:2] == ("git", "status"))
-    monkeypatch.setattr(tool, "_steps", lambda root: [regenerate, fresh])
-    return tool._check(repo, {"frontend"}), fresh.name
-
-
-def test_scalenie_bez_konfliktu_zostawia_nieaktualny_kontrakt_a_ci_lokalnie_kaze_go_odtworzyc(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    repo = _generated_repository(tmp_path / "repo")
-    monkeypatch.syspath_prepend(str(TOOL.parent))
-    spec = importlib.util.spec_from_file_location("setup_worktree", TOOL.parent / "setup_worktree.py")
-    assert spec is not None and spec.loader is not None
-    setup = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(setup)
-    monkeypatch.setattr(setup, "ROOT", repo)
-    setup._merge_generated()
-    git(repo, "checkout", "--quiet", "-b", "druga")
-    _edit_source(repo, 4, "druga")
-    commit(repo, "druga gałąź")
-    git(repo, "checkout", "--quiet", "-")
-    _edit_source(repo, 0, "pierwsza")
-    commit(repo, "pierwsza gałąź")
-
-    git(repo, "merge", "--quiet", "--no-edit", "druga")
-    tool = _load_tool(monkeypatch)
-    stale, step = _frontend_check(tool, repo, monkeypatch)
-    reported = capsys.readouterr().out
-    commit(repo, "odtworzony kontrakt")
-    fresh, _ = _frontend_check(tool, repo, monkeypatch)
-
-    assert (stale, fresh) == ([step], [])
-    assert CONTRACT in reported and "npm run regen" in reported
-
-
-def test_aktualny_niezacommitowany_kontrakt_jest_uwaga_a_nie_porazka(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    repo = _generated_repository(tmp_path / "repo")
-    _edit_source(repo, 2, "przed commitem")
-
-    failed, _ = _frontend_check(_load_tool(monkeypatch), repo, monkeypatch)
-
-    assert failed == []
-    assert f"niezacommitowane:\n M {CONTRACT}" in capsys.readouterr().out

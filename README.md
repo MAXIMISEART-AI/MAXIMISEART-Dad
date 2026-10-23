@@ -282,11 +282,9 @@ Check formatowania nie jest wymagany. Wszystkie zadania CI poza E2E i Timing
 guard (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) uruchamia naraz
 `.venv/bin/python tools/ci_lokalnie.py` (Windows: `py -3 tools/ci_lokalnie.py`).
 Na macOS i Linuksie `tools/setup_worktree.py` włącza bramę `tools/hooks/pre-push`:
-push agenta (zmienna `AI_AGENT` albo `CLAUDECODE`) przechodzi dopiero po
-`CI LOKALNIE OK`, a push człowieka bez sprawdzania. Udany przebieg na czystym
-checkoucie zostawia pieczątkę drzewa, więc push zaraz po nim nie powtarza sprawdzeń.
-Brama kończy przebieg na pierwszym nieudanym kroku i razem z przerwanym pushem, a drugi
-push z tego samego checkoutu w trakcie przebiegu odrzuca od razu.
+push agenta (zmienna `AI_AGENT` albo `CLAUDECODE`) przechodzi po ruff i mypy dla obu
+systemów (`tools/ci_lokalnie.py --tylko ruff,mypy`), a push człowieka bez sprawdzania.
+Pełne sprawdzenie robi CI na GitHubie.
 
 W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
 (macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
@@ -355,7 +353,7 @@ npm run build      # build do src/rozliczenia/centrum/static/
   potem `npm run regen` (kontrakt i build); `frontend/src/api/` i `static/` są generowane.
 - Scalenie i rebase zostawiają w plikach generowanych wersję bieżącego HEAD bez konfliktu
   (`merge=wygenerowane` w `.gitattributes`, sterownik ustawia `tools/setup_worktree.py`),
-  więc po nich `npm run regen` i commit; bez tego `tools/ci_lokalnie.py` i CI padają z tym poleceniem.
+  więc po nich `npm run regen` i commit; bez tego CI i `tools/ci_lokalnie.py` padają.
 - Nowy proces w Uruchomieniach: opis procesu `process_run.Process` w module
   procesu (wzór: `settlement_process.PROCESS`), klasa spełniająca
   `runs.ProcessEntry` (wzór: `SettlementEntry`), klucz w `contract.ProcessKey`

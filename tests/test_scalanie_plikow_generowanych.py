@@ -1,0 +1,52 @@
+"""Kontrakt i build scalają się bez konfliktu: ``merge=wygenerowane`` z ``.gitattributes`` i sterownik z ``tools/setup_worktree.py``."""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+from tests.fixtures.git_repo import commit, git, repository
+
+ROOT = Path(__file__).resolve().parents[1]
+GENERATED = (
+    "frontend/src/api/openapi.json",
+    "frontend/src/api/generated/types.gen.ts",
+    "src/rozliczenia/centrum/static/assets/index.js",
+)
+
+
+def _write(repo: Path, text: str) -> None:
+    for name in GENERATED:
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_bytes(text.encode())
+
+
+def _set_up_merge_driver(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.syspath_prepend(str(ROOT / "tools"))
+    spec = importlib.util.spec_from_file_location("setup_worktree", ROOT / "tools" / "setup_worktree.py")
+    assert spec is not None and spec.loader is not None
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    monkeypatch.setattr(setup, "ROOT", repo)
+    setup._merge_generated()
+
+
+def test_scalenie_dwoch_galezi_zostawia_w_plikach_generowanych_wersje_head_bez_konfliktu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = repository(tmp_path / "repo", {".gitattributes": (ROOT / ".gitattributes").read_text(encoding="utf-8")})
+    _write(repo, "baza\n")
+    commit(repo, "baza")
+    _set_up_merge_driver(repo, monkeypatch)
+    git(repo, "checkout", "--quiet", "-b", "druga")
+    _write(repo, "druga\n")
+    commit(repo, "druga gałąź")
+    git(repo, "checkout", "--quiet", "-")
+    _write(repo, "pierwsza\n")
+    commit(repo, "pierwsza gałąź")
+
+    git(repo, "merge", "--quiet", "--no-edit", "druga")
+
+    assert {name: (repo / name).read_bytes() for name in GENERATED} == dict.fromkeys(GENERATED, b"pierwsza\n")
