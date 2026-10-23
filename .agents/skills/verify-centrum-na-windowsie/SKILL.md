@@ -154,7 +154,7 @@ Then confirm the evidence directory still exists.
 - `scripts/run_windows_verification.py [--feature …]`: the one-command orchestrator on Windows.
 - `scripts/windows_doctor.py --root <run root>`: the read-only doctor.
 - `scripts/windows_cleanup.py --root <run root>`: stop and remove one run.
-- `scripts/windows_tool.py`: the run's world (`prepare`, `boundaries`, `move_main`), imported by the drive.
+- `scripts/windows_tool.py`: the run's world (`prepare`, `boundaries`, `release`), imported by the drive.
 - `scripts/windows_desktop.py`: native windows, processes, port owner, screenshots, imported by the drive.
 
 Read `features/README.md` before choosing a feature, and keep the map honest with

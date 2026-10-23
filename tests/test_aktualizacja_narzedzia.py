@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import time
@@ -17,6 +18,7 @@ import time
 import pytest
 
 from rozliczenia.centrum import tool_update
+from rozliczenia.centrum.tool_freshness import ToolFreshness, releases_from
 from rozliczenia.centrum.tool_update import (
     JOURNAL,
     GitFailed,
@@ -34,6 +36,8 @@ from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
     FakeInstaller,
     ToolRepository,
+    git,
+    github_api_of,
     origin_asking_for_login,
     tool_repository,
     unreachable_origin,
@@ -55,7 +59,7 @@ def update(repository: ToolRepository) -> UpdateResult:
     return ToolClone(repository.clone, origin=str(repository.origin)).update()
 
 
-def test_aktualizacja_przesuwa_klon_do_przodu_na_najnowszy_main(repository: ToolRepository, tmp_path: Path) -> None:
+def test_aktualizacja_przesuwa_klon_do_przodu_na_najnowsze_wydanie(repository: ToolRepository, tmp_path: Path) -> None:
     before = repository.head()
     newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
 
@@ -73,6 +77,227 @@ def test_klon_na_najnowszym_commicie_jest_juz_aktualny(repository: ToolRepositor
 
     assert result == UpdateResult("AKTUALNA", before=current, after=current, installed=False)
     assert repository.head() == current
+
+
+def test_wydanie_z_tagiem_z_opisem_przesuwa_klon_na_commit_tagu(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    repository.release(annotated=True)
+
+    assert update(repository) == UpdateResult("ok", before=before, after=newest, installed=False)
+    assert repository.head() == newest
+
+
+def test_zmiana_na_main_spoza_wydania_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    unreleased = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    unchanged = repository.state()
+
+    waiting = update(repository)
+
+    assert waiting == UpdateResult("AKTUALNA", before=before, after=before, installed=False)
+    assert repository.state() == unchanged
+
+    repository.release()
+
+    assert update(repository) == UpdateResult("ok", before=before, after=unreleased, installed=False)
+    assert repository.read("src/narzedzie.py") == "WERSJA = 2\n"
+
+
+def test_najnowsze_wydanie_to_najwyzszy_numer_a_nie_ostatni_tag_alfabetycznie(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    tenth = repository.publish({"src/narzedzie.py": "WERSJA = 10\n"}, released=False)
+    repository.release(tag="v0.10.0")
+    repository.publish({"src/narzedzie.py": "WERSJA = 9\n"}, released=False)
+    repository.release(tag="v0.9.0")
+
+    assert update(repository) == UpdateResult("ok", before=before, after=tenth, installed=False)
+    assert repository.read("src/narzedzie.py") == "WERSJA = 10\n"
+
+
+def test_wydanie_na_starszym_commicie_niz_klon_nie_cofa_wersji(repository: ToolRepository, tmp_path: Path) -> None:
+    first = repository.head()
+    current = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
+    repository.release(first, tag="v0.5.0")
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=current, after=current, installed=False)
+    assert repository.state() == unchanged
+
+
+@pytest.mark.parametrize("released", [True, False], ids=["main-to-wydanie", "main-nowszy-niz-wydanie"])
+def test_przejscie_z_wersji_pobierajacej_main_konczy_sie_na_wydaniu_albo_nowszym_i_dalej_idzie_po_wydaniach(
+    repository: ToolRepository, tmp_path: Path, released: bool
+) -> None:
+    from_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=released)
+    # Ostatnia aktualizacja wersją sprzed ADR 0014: pobranie `main` i przesunięcie do przodu, bez patrzenia na Wydania.
+    repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
+    unchanged = repository.state()
+
+    after_transition = update(repository)
+
+    assert after_transition == UpdateResult("AKTUALNA", before=from_main, after=from_main, installed=False)
+    assert repository.state() == unchanged
+
+    repository.publish({"src/narzedzie.py": "WERSJA = 3\n"}, released=False)
+    assert update(repository) == UpdateResult("AKTUALNA", before=from_main, after=from_main, installed=False)
+
+    newest = repository.release()
+
+    assert update(repository) == UpdateResult(
+        "ok", before=from_main, after=git(repository.origin, "rev-parse", f"{newest}^{{commit}}"), installed=False
+    )
+
+
+def test_bez_wydania_na_githubie_narzedzie_jest_aktualne_a_klon_zostaje_bez_zmian(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    git(repository.origin, "tag", "--delete", "v0.1.0")
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=before, after=before, installed=False)
+    assert repository.state() == unchanged
+
+
+def off_main_commit(repository: ToolRepository) -> str:
+    """Commit, który zna tylko tag: ktoś założył go z gałęzi od pierwszego Wydania, która nie weszła do `main`."""
+
+    git(repository.publisher, "checkout", "--quiet", "-b", "agent", "v0.1.0")
+    (repository.publisher / "src" / "narzedzie.py").write_text("WERSJA = 666\n", encoding="utf-8")
+    git(repository.publisher, "commit", "--quiet", "--all", "--message", "Zmiana spoza main")
+    commit = git(repository.publisher, "rev-parse", "HEAD")
+    git(repository.publisher, "checkout", "--quiet", "main")
+    return commit
+
+
+def test_wyzsze_wydanie_spoza_main_jest_pominiete_a_tata_dostaje_najnowsze_wydanie_na_main(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    on_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.release(off_main_commit(repository), tag="v9.0.0")
+
+    result = update(repository)
+
+    assert result == UpdateResult("ok", before=before, after=on_main, installed=False, skipped=("v9.0.0",))
+    assert repository.read("src/narzedzie.py") == "WERSJA = 2\n"
+
+
+def test_uspiony_tag_z_galezi_wciagnietej_do_main_merge_em_nie_jest_wydaniem(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    before = repository.head()
+    dormant = off_main_commit(repository)
+    repository.release(dormant, tag="v0.9.0")
+    git(repository.publisher, "merge", "--quiet", "--no-ff", "--no-edit", "agent")
+    git(repository.publisher, "push", "--quiet", "origin", "main")
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=before, after=before, installed=False, skipped=("v0.9.0",))
+    assert repository.state() == unchanged
+    assert readme_installation_release(repository, tmp_path / "instalacja-przed") == before
+
+    merged = git(repository.origin, "rev-parse", f"{repository.release()}^{{commit}}")
+
+    assert update(repository).after == merged
+    assert readme_installation_release(repository, tmp_path / "instalacja-po") == merged
+
+
+def test_same_wydania_spoza_main_to_jak_bez_wydan(repository: ToolRepository, tmp_path: Path) -> None:
+    git(repository.origin, "tag", "--delete", "v0.1.0")
+    repository.release(off_main_commit(repository), tag="v0.2.0")
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=before, after=before, installed=False, skipped=("v0.2.0",))
+    assert repository.state() == unchanged
+
+
+def test_wydanie_przesuniete_na_githubie_poza_main_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
+    released = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    blocked = repository.state()
+    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
+    assert update(repository).code == "ZMIANY_NA_KOMPUTERZE"
+    repository.in_clone("checkout", "--quiet", "--", "src/narzedzie.py")
+    assert repository.state() == blocked
+    tag = git(repository.origin, "tag", "--points-at", released)
+    git(repository.publisher, "tag", "--force", tag, off_main_commit(repository))
+    git(repository.publisher, "push", "--quiet", "--force", "origin", f"refs/tags/{tag}")
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=blocked[0], after=blocked[0], installed=False, skipped=(tag,))
+    assert repository.state() == blocked
+
+
+def test_po_force_pushu_main_na_githubie_aktualizacja_dalej_pobiera_i_idzie_tylko_do_przodu(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    first = repository.head()
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    assert update(repository) == UpdateResult("AKTUALNA", before=first, after=first, installed=False)
+    git(repository.publisher, "reset", "--quiet", "--hard", first)
+    (repository.publisher / "src" / "narzedzie.py").write_text("WERSJA = 3\n", encoding="utf-8")
+    git(repository.publisher, "commit", "--quiet", "--all", "--message", "Przepisany main")
+    git(repository.publisher, "push", "--quiet", "--force", "origin", "main")
+    rewritten = git(repository.publisher, "rev-parse", "HEAD")
+    repository.release()
+
+    result = update(repository)
+
+    assert result == UpdateResult("ok", before=first, after=rewritten, installed=False)
+    assert repository.read("src/narzedzie.py") == "WERSJA = 3\n"
+
+
+def test_blad_gita_przy_sprawdzaniu_czy_wydanie_lezy_na_main_nie_uchodzi_za_wydanie_spoza_main(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    unchanged = repository.state()
+    clone = ToolClone(repository.clone, origin=str(repository.origin), find_git=lambda: git_failing_on(tmp_path, "merge-base"))
+
+    with pytest.raises(GitFailed):
+        clone.update()
+    assert repository.state() == unchanged
+
+
+def test_tag_wydania_na_obiekcie_innym_niz_commit_nie_jest_wydaniem(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    on_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    git(repository.publisher, "tag", "v9.0.0", "HEAD^{tree}")
+    git(repository.publisher, "push", "--quiet", "origin", "refs/tags/v9.0.0")
+
+    assert update(repository) == UpdateResult("ok", before=before, after=on_main, installed=False)
+
+
+def test_wydanie_wycofane_z_githuba_nie_trafia_do_taty_z_wczesniejszego_pobrania(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    released = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
+    assert update(repository).code == "ZMIANY_NA_KOMPUTERZE"
+    repository.in_clone("checkout", "--quiet", "--", "src/narzedzie.py")
+    git(repository.origin, "tag", "--delete", git(repository.origin, "tag", "--points-at", released))
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=before, after=before, installed=False)
+    assert repository.state() == unchanged
 
 
 def test_bez_gita_na_komputerze_aktualizacja_konczy_sie_brakiem_gita_a_klon_zostaje_bez_zmian(
@@ -476,7 +701,7 @@ def test_kolejne_klikniecie_przy_aktualizacji_w_toku_nie_gubi_pliku_taty(
 def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
     """Git, którego pomocnik (jak ``git-remote-https`` przy pobraniu) zostaje po nim z jego wyjściem otwartym na minutę.
 
-    Odpowiada jak klon na `main` już na najnowszym commicie ``commit``.
+    Odpowiada jak klon na `main` już na commicie ``commit`` najnowszego Wydania.
     """
 
     script = tmp_path / "git_z_pomocnikiem.py"
@@ -487,7 +712,7 @@ def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
         "command = args[2] if args[:1] == ['-C'] else args[0]\n"
         "if command == 'fetch':\n"
         "    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-        "print('main' if command == 'symbolic-ref' else COMMIT)\n",
+        "print({'symbolic-ref': 'main', 'for-each-ref': f'v0.1.0 commit {COMMIT}'}.get(command, COMMIT))\n",
         encoding="utf-8",
     )
     return _executable(tmp_path, script)
@@ -876,3 +1101,84 @@ def test_klikniecie_w_trakcie_ponownego_startu_nie_zastepuje_dziennika_aktualiza
     clone.roll_back()
     assert repository.head() == before
     assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
+
+
+def layout_off_main_above(repository: ToolRepository) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.release(off_main_commit(repository), tag="v0.3.0")
+
+
+def layout_number_above_order(repository: ToolRepository) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 10\n"}, released=False)
+    repository.release(tag="v0.10.0", annotated=True)
+    repository.publish({"src/narzedzie.py": "WERSJA = 9\n"}, released=False)
+    repository.release(tag="v0.9.0")
+    repository.release(tag="v1.0.0-rc1")
+
+
+def layout_only_off_main(repository: ToolRepository) -> None:
+    git(repository.origin, "tag", "--delete", "v0.1.0")
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    repository.release(off_main_commit(repository), tag="v0.2.0")
+
+
+def layout_unreleased_main(repository: ToolRepository) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [layout_off_main_above, layout_number_above_order, layout_only_off_main, layout_unreleased_main],
+    ids=["wyzsze-spoza-main", "numer-a-kolejnosc", "tylko-spoza-main", "main-bez-wydania"],
+)
+def test_aktualnosc_z_api_githuba_i_aktualizacja_wybieraja_to_samo_wydanie(
+    repository: ToolRepository, tmp_path: Path, layout: Callable[[ToolRepository], None]
+) -> None:
+    layout(repository)
+    with github_api_of(repository.origin) as api:
+        answer = releases_from(api, timeout_s=5)
+    installed = readme_installation_release(repository, tmp_path / "instalacja")
+
+    result = update(repository)
+
+    assert answer is not None
+    assert repository.head() == (answer.newest or result.before)
+    assert result.code in ("ok", "AKTUALNA")
+    assert installed == answer.newest
+
+
+README = Path(__file__).resolve().parents[1] / "README.md"
+
+
+def readme_installation_release(repository: ToolRepository, directory: Path) -> str | None:
+    """Commit, na którym stanęłaby nowa instalacja według README: jego ``git rev-list``, ``git tag`` i ``-cmatch``."""
+
+    text = README.read_text(encoding="utf-8")
+    tips_command = re.search(r"\$czubki = git (.+)$", text, re.MULTILINE)
+    listing = re.search(r"\$wydanie = git (tag [^|]+)\|", text)
+    pattern = re.search(r"-cmatch '([^']+)'", text)
+    assert tips_command is not None and listing is not None and pattern is not None
+    assert "$czubki -contains" in text
+    git(directory.parent, "clone", "--quiet", str(repository.origin), str(directory))
+    tips = set(git(directory, *tips_command[1].split()).split())
+    commits = [
+        git(directory, "rev-parse", f"{tag}^{{commit}}")
+        for tag in git(directory, *listing[1].replace('"', "").split()).split()
+        if re.fullmatch(pattern[1], tag)
+    ]
+    return next((commit for commit in commits if commit in tips), None)
+
+
+def test_klon_na_nowszym_commicie_main_niz_wydanie_jest_aktualny_takze_w_aktualnosci(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
+    on_release = ToolFreshness.of_clone(repository.clone, repository.github_releases)
+
+    assert on_release.judge() == "current"
+
+    repository.release()
+    repository.publish({"src/narzedzie.py": "WERSJA = 3\n"})
+
+    assert ToolFreshness.of_clone(repository.clone, repository.github_releases).judge() == "newer"

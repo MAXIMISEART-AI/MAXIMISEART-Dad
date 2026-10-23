@@ -348,14 +348,7 @@ NOT_SWEPT: dict[str, str] = {
 
 # Znane przypadki: powód, termin i zgoda Maksa. Po terminie przypadek znów pada, a naprawiony pada od razu (strict).
 KNOWN_UNTIL = date(2026, 10, 29)
-KNOWN: dict[tuple[str, str, str], str] = {
-    (entry, "bez_odczytu", template): (
-        "Wzorzec bez dostępu nazwany uszkodzonym: workbook_files czyta jego bajty z pominięciem _file_bytes. "
-        "Poprawka u właściciela refactor/jeden-zapis-wierszy-danych; zgoda Maksa 2026-10-22"
-    )
-    for entry in ("getConfiguration", "podglad[przygotowanie]", "diagnoza[przygotowanie]")
-    for template in ("wzorzec_wewnetrzny", "wzorzec_zbiorczy")
-}
+KNOWN: dict[tuple[str, str, str], str] = {}
 
 
 def _cases() -> list[Any]:

@@ -101,14 +101,24 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
     ],
     ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci", "folder-bez-dostepu"],
 )
-def test_rejestr_zlecen_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, error: OSError
+@pytest.mark.parametrize(
+    ("unavailable", "code"),
+    [
+        ("register_path", "NIEDOSTEPNY_REJESTR"),
+        ("internal_template_path", "NIEDOSTEPNY_WZORZEC"),
+        ("collective_template_path", "NIEDOSTEPNY_WZORZEC"),
+    ],
+    ids=["rejestr", "wzorzec-wewnetrzny", "wzorzec-zbiorczy"],
+)
+def test_plik_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unavailable: str, code: str, failing: str, error: OSError
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     original = getattr(Path, failing)
+    unavailable_path = getattr(fixture, unavailable)
 
     def blocked(path: Path) -> object:
-        if path == fixture.register_path:
+        if path == unavailable_path:
             raise error
         return original(path)
 
@@ -117,7 +127,7 @@ def test_rejestr_zlecen_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
     with pytest.raises(StopError) as raised:
         run_preparation(fixture)
 
-    assert raised.value.message.code == "NIEDOSTEPNY_REJESTR"
+    assert raised.value.message.code == code
     assert "uszkodzony" not in raised.value.message.text
     assert list(fixture.periods_directory.iterdir()) == []
 

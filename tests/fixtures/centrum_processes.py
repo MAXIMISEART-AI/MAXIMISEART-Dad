@@ -41,7 +41,7 @@ from tests.fixtures.centrum import (
 )
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
-from tests.fixtures.tool_clone import FakeInstaller, ToolRepository, git
+from tests.fixtures.tool_clone import FakeInstaller, ToolRepository
 
 # Środa po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
@@ -87,7 +87,7 @@ class Surroundings:
 
     ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu. ``tool`` to
     narzędzie jako prawdziwy klon z lokalnym „origin” zamiast GitHuba: wtedy
-    commit narzędzia i `main` pochodzą z tych repozytoriów, a Aktualizacja
+    commit narzędzia i najnowsze Wydanie pochodzą z tych repozytoriów, a Aktualizacja
     narzędzia przesuwa ten klon. ``update_hold`` zatrzymuje każdą Aktualizację
     narzędzia na jej początku, dopóki test jej nie puści (``set``), a
     ``installer`` instaluje biblioteki zamiast pip. Opiekun ponownego startu po udanej
@@ -110,7 +110,7 @@ class Surroundings:
         tool = self.tool
         if tool is None:
             return self.github.freshness()
-        return ToolFreshness.of_clone(tool.clone, lambda: git(tool.origin, "rev-parse", "main"))
+        return ToolFreshness.of_clone(tool.clone, tool.github_releases)
 
     def tool_update(self) -> ToolClone | None:
         tool, hold = self.tool, self.update_hold

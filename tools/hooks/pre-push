@@ -4,6 +4,10 @@
 Push człowieka przechodzi bez sprawdzania i bez słowa. Agenta rozpoznaje zmienna ``AI_AGENT`` (Claude Code,
 opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
 
+Push agenta, który wysyła tag ``refs/tags/v*``, brama odrzuca, zanim cokolwiek sprawdzi: tag Wydania trafia do
+taty (ADR 0014), a agenci pushują z konta Maksa, więc GitHub ich nie odróżni. Tag Wydania wypycha tylko narzędzie
+Wydań (#316), które ustawia ``MAXIMISEART_WYDANIE=1``; żaden agent nie ustawia tej zmiennej sam.
+
 Kroki bierze z ``tools/ci_lokalnie.py``, uruchomionego Pythonem z ``.venv`` checkoutu. Włącza ją
 ``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
 
@@ -37,6 +41,8 @@ class Decision:
     checks: bool
 
 
+RELEASE_OVERRIDE = "MAXIMISEART_WYDANIE"
+RELEASE_TAGS = "refs/tags/v"
 HUMAN = Decision("", checks=False)
 NOT_HEAD = Decision("push nie wysyła HEAD (usunięcie gałęzi albo inna gałąź), więc bez sprawdzania", checks=False)
 CLEAN = Decision(CHECKS, checks=True)
@@ -90,8 +96,13 @@ def _print_note(note: Note) -> None:
 
 
 def main() -> int:
-    pushed = {line.split()[1] for line in sys.stdin if line.strip()}
-    decision = _decide(pushed)
+    refs = [line.split() for line in sys.stdin if line.strip()]
+    agent = any(os.environ.get(marker) for marker in AGENT_MARKERS)
+    tags = [remote_ref for _, _, remote_ref, _ in refs if remote_ref.startswith(RELEASE_TAGS)]
+    if agent and tags and os.environ.get(RELEASE_OVERRIDE) != "1":
+        print(f"pre-push: agent nie wypycha tagów Wydania ({', '.join(tags)}); robi to tylko narzędzie Wydań.", flush=True)
+        return 1
+    decision = _decide({local_sha for _, local_sha, _, _ in refs})
     if decision.message:
         print(f"pre-push: {decision.message}.", flush=True)
     if not decision.checks:
