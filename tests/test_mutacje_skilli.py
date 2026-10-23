@@ -373,3 +373,24 @@ def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawd
 
     assert scripts
     assert unread == {script.parents[1].name: [] for script in scripts}
+
+
+def test_czesci_uruchamiaja_kazdy_skrypt_dokladnie_raz(tmp_path: Path) -> None:
+    for skill in ("verify-a", "verify-b", "verify-c"):
+        _skill(tmp_path, skill, {f"check_{skill[-1]}_mutations.py": PASSING})
+
+    parts = [_run(tmp_path, "--czesc", f"{number}/2") for number in (1, 2)]
+
+    ran = [line.split()[1] for part in parts for line in part.stdout.splitlines() if line.startswith("OK   ")]
+    assert [part.stdout.splitlines()[-1] for part in parts] == ["MUTACJE SKILLI OK"] * 2
+    assert sorted(ran) == [f".agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "abc"]
+
+
+@pytest.mark.parametrize("part", ["0/2", "3/2", "1", "a/b"])
+def test_czesc_spoza_zakresu_jest_bledem_wywolania(tmp_path: Path, part: str) -> None:
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING})
+
+    result = _run(tmp_path, "--czesc", part)
+
+    assert result.returncode == 2
+    assert "OK   " not in result.stdout

@@ -101,10 +101,15 @@ jobs:
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
     # A pull request runs only the scripts whose verdict its changes can alter; a push to main runs them all.
-    name: Mutation checks
+    # Each part runs every third script: side by side on one runner they exceed their time limits.
+    name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest
     # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
     env:
       PYTHONUTF8: '1'
     steps:
@@ -124,9 +129,9 @@ jobs:
         shell: pwsh
         run: |
           if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            python tools/mutacje_skilli.py --zmiany-od HEAD^1
+            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3 --zmiany-od HEAD^1
           } else {
-            python tools/mutacje_skilli.py
+            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3
           }
           if ($LASTEXITCODE -ne 0) {
             throw "Mutation checks failed (exit code $LASTEXITCODE)"

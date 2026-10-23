@@ -21,6 +21,8 @@ także w funkcji) oraz infrastruktura mutacji: ten runner z importami i ``INFRAS
 czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zawęża selekcji poniżej
 nich. Skrypt, którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z
 repozytorium, kod się nie parsuje), biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
+Z ``--czesc K/N`` biegnie co N-ty skrypt od K-tego (w kolejności nazw), więc N zadań CI dzieli
+skrypty bez listy w ``ci.yml``.
 
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
@@ -59,6 +61,13 @@ IMPORT_ROOTS = (ROOT / "src", ROOT / "tools", ROOT)
 
 def _name(path: Path) -> str:
     return path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path.as_posix()
+
+
+def _part(text: str) -> tuple[int, int]:
+    number, _, count = text.partition("/")
+    if not (number.isdigit() and count.isdigit() and 1 <= int(number) <= int(count)):
+        raise argparse.ArgumentTypeError(f"część K/N z 1 <= K <= N, nie {text!r}")
+    return int(number), int(count)
 
 
 def _git(*arguments: str) -> list[str]:
@@ -225,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--limit-s", type=float, default=LIMIT_S, help="Limit czasu jednego skryptu w sekundach.")
     parser.add_argument("--zmiany-od", metavar="REF", help="Tylko skrypty, których werdykt mogą zmienić zmiany od REF.")
+    parser.add_argument("--czesc", metavar="K/N", type=_part, help="Tylko co N-ty skrypt od K-tego.")
     args = parser.parse_args(argv)
     scripts = sorted(SKILLS.glob(f"*/scripts/{PATTERN}"))
     failed = _lost(scripts)
@@ -234,8 +244,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"MUTACJE SKILLI FAIL | brak skryptów .agents/skills/*/scripts/{PATTERN}")
         return 1
     changed = None if args.zmiany_od is None else _changed(args.zmiany_od)
+    number, count = args.czesc or (1, 1)
     # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.
-    for script in scripts:
+    for script in scripts[number - 1 :: count]:
         name = _name(script)
         runs, why = (True, "") if changed is None else _why_run(script, changed)
         if not runs:
