@@ -79,7 +79,7 @@ Wzorce are git-ignored, so CI and `--variant all` leave this variant out. In a
 worktree the runner reads the main checkout's `config/` itself;
 `--templates-dir` overrides that. Without both Wzorce the runner prints
 `VERIFY SKIP` and exits `0`; report that as a skip, never as a proof.
-A list with a skipped variant ends with `VERIFY SKIP | ok=… | skipped=…`, never `VERIFY OK`.
+A list with a skipped variant and no failed one ends with `VERIFY SKIP | ok=… | skipped=…`, never `VERIFY OK`; a failed variant makes it `VERIFY FAIL`.
 
 Use this variant after changes to either process, to the Plik zbiorczy layout,
 or to the hand-over between the processes:
