@@ -211,6 +211,29 @@ def test_awaria_podgladu_postepu_odlacza_go_bez_tekstu_wyjatku_i_bez_zmiany_wyni
     assert (record["result"], result["metrics_saved"]) == ("OK", True)
 
 
+def test_plan_ktorego_nie_da_sie_pokazac_to_zatrzymanie_po_silniku_z_tym_samym_wynikiem_co_w_metrykach(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source, _target, config = make_preview_fixture(tmp_path)
+    secret = "Jan Kowalski /Users/klient/Rejestr.xlsx"
+
+    def broken_view(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(run_view.ProcessView, "shown", broken_view)
+
+    exit_code = _script(monkeypatch).main(_settlement_arguments(tmp_path, source, config, "--dry-run"))
+    stdout, stderr = capsys.readouterr()
+    result = json.loads(stdout)
+
+    assert secret not in stdout + stderr
+    assert stderr == ""
+    assert (exit_code, result["result"], result["summary"], result["warnings"]) == (1, "BLAD_KRYTYCZNY", None, [])
+    assert (result["stop"]["kind"], result["stop"]["message"]["code"]) == ("after_engine", "BLAD_PLANU")
+    [record] = MetricsStore(tmp_path / "metrics.jsonl", COUNTER_NAMES).read()
+    assert (record["mode"], record["result"]) == ("DRY-RUN", "BLAD_KRYTYCZNY")
+
+
 def test_nieudany_zapis_metryk_jest_ostrzezeniem_bez_zmiany_wyniku(tmp_path: Path) -> None:
     source, target, config = make_fixture(tmp_path)
     not_a_folder = tmp_path / "plik zamiast folderu"

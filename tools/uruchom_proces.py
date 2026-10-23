@@ -53,7 +53,6 @@ sys.path.insert(0, str(ROOT / "src"))
 from rozliczenia import preparation_process, settlement_process  # noqa: E402
 from rozliczenia.centrum import contract, run_view  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
-from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
 from rozliczenia.decision import Decision  # noqa: E402
 from rozliczenia.message import Message  # noqa: E402
 from rozliczenia.preparation_process import PreparationInputs  # noqa: E402
@@ -118,19 +117,14 @@ def _conduct(
     inputs: InputsT,
     metrics: Path,
 ) -> tuple[ProcessResult, int]:
-    dry_run = inputs.dry_run
-    unattended = _Unattended(lambda snapshot: view.progress(snapshot, dry_run=dry_run))
-
-    def finished_view(inputs: InputsT, summary: SummaryT) -> tuple[contract.RunSummary, list[CodedMessage]]:
-        return view.summary(summary, dry_run=dry_run), [CodedMessage.of(warning) for warning in view.warnings(inputs, summary)]
-
-    outcome = run_process(process, inputs, unattended, view=finished_view, metrics_path=metrics)
-    summary, coded_warnings = outcome.view or (None, [])
+    unattended = _Unattended(lambda snapshot: view.progress(snapshot, dry_run=inputs.dry_run))
+    outcome = run_process(process, inputs, unattended, view=view.shown, metrics_path=metrics)
+    shown = outcome.view
     ending = outcome.ending
     result = ProcessResult(
         result=outcome.result,
-        summary=summary,
-        warnings=coded_warnings,
+        summary=None if shown is None else shown.summary,
+        warnings=[] if shown is None else [CodedMessage.of(warning) for warning in shown.warnings],
         stop=None if isinstance(ending, Finished) else StopResult(kind=ending.kind, message=CodedMessage.of(ending.message)),
         progress=unattended.progress,
         total_duration_ms=outcome.total_duration_ms,
@@ -168,7 +162,6 @@ class _Parser(argparse.ArgumentParser):
 
 def _parser() -> argparse.ArgumentParser:
     files = ConfigurationFiles.default()
-    metrics = MetricsFiles.default()
     parser = _Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     processes = parser.add_subparsers(required=True, metavar="PROCES")
 
@@ -178,7 +171,9 @@ def _parser() -> argparse.ArgumentParser:
     settlement.add_argument(
         "--worker-template", type=Path, default=files.worker_template, help="Wzorzec rozliczenia pracownika."
     )
-    settlement.add_argument("--metrics", type=Path, default=metrics.settlement, help="Plik metryk JSONL.")
+    settlement.add_argument(
+        "--metrics", type=Path, default=settlement_process.PROCESS.metrics_path(), help="Plik metryk JSONL."
+    )
     settlement.add_argument("--dry-run", action="store_true", help="Podgląd bez zapisu.")
     settlement.set_defaults(run=_settle)
 
@@ -193,7 +188,9 @@ def _parser() -> argparse.ArgumentParser:
     preparation.add_argument(
         "--collective-template", type=Path, default=files.collective_template, help="Wzorzec pliku zbiorczego."
     )
-    preparation.add_argument("--metrics", type=Path, default=metrics.preparation, help="Plik metryk JSONL.")
+    preparation.add_argument(
+        "--metrics", type=Path, default=preparation_process.PROCESS.metrics_path(), help="Plik metryk JSONL."
+    )
     preparation.add_argument("--dry-run", action="store_true", help="Podgląd bez zapisu.")
     preparation.set_defaults(run=_prepare)
     return parser

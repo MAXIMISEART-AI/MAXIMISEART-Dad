@@ -30,7 +30,7 @@ def cause_not_found() -> Message:
 
 
 def newer_tool_version() -> Message:
-    """Commit narzędzia u taty różni się od `main` na GitHubie: poprawka mogła już trafić do narzędzia."""
+    """Commit narzędzia u taty nie zawiera najnowszego Wydania na GitHubie: poprawka mogła już trafić do narzędzia."""
 
     return Message(
         code=NEWER_TOOL_VERSION,

@@ -12,11 +12,20 @@ inna praca zmieniają każdy we własnych commitach albo niezacommitowanych. Com
 (gałąź zbudowana na innej) się nie liczą. Bieżący checkout to ten, w którym skrypt uruchomiono.
 Raport informuje i nie blokuje: kod wyjścia 0, inny tylko przy błędnym użyciu.
 
+Ostatnia linia mówi, czy gałąź bieżącego checkoutu aktualizować z ``origin/main`` (rebase albo merge):
+``AKTUALIZACJA: potrzebna``, gdy ``git merge-tree`` widzi konflikt albo gałąź i ``origin/main`` zmieniają
+od bazy scalenia ten sam plik, inaczej ``AKTUALIZACJA: niepotrzebna``. Liczą się commity, nie
+niezacommitowane pliki. W trakcie rebase odłączonego HEAD werdykt dotyczy commitu sprzed rebase.
+Werdykt nie pobiera ``origin/main``: podaje commit ``origin/main``, z którym porównał, a gdy żaden fetch
+w tym repozytorium nie potwierdził go w ostatniej godzinie, dopisuje to. ``git merge-tree`` dodaje do bazy
+obiektów tylko nieosiągalne obiekty scalenia, które usuwa ``git gc``.
+
     py -3 tools/praca_w_toku.py                  # Windows
     python3 tools/praca_w_toku.py                # macOS i Linux
     python3 tools/praca_w_toku.py --issue 212    # przed startem zgłoszenia #212
     python3 tools/praca_w_toku.py --lokalnie     # bez GitHuba
     python3 tools/praca_w_toku.py --nakladania   # tylko nakładania (drukuje je tools/ci_lokalnie.py)
+    python3 tools/praca_w_toku.py --aktualizacja # tylko werdykt aktualizacji, w ułamku sekundy
 """
 
 from __future__ import annotations
@@ -31,11 +40,13 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any
 
 BASE = "origin/main"
 SUBJECTS = 3
 TIMEOUT_S = 30
+FRESH_FETCH_S = 3600
 ISSUE_REFERENCE = re.compile(r"#(\d+)\b")
 PR_REFERENCE = re.compile(r"(?:#|/pull/)(\d+)\b")
 BRANCH_NUMBER = re.compile(r"(?:^|/)(\d{1,5})(?=$|[/_-])")
@@ -82,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue", type=int, metavar="N", help="Tylko praca nad zgłoszeniem #N albo PR, którego dotyczy.")
     parser.add_argument("--lokalnie", action="store_true", help="Bez wywołań gh.")
     parser.add_argument("--nakladania", action="store_true", help="Tylko sekcja nakładań.")
+    parser.add_argument("--aktualizacja", action="store_true", help="Tylko werdykt, czy aktualizować z origin/main.")
     args = parser.parse_args(argv)
     if isinstance(sys.stdout, io.TextIOWrapper):
         # Tematy commitów mogą mieć znaki spoza strony kodowej konsoli Windows.
@@ -92,10 +104,13 @@ def main(argv: list[str] | None = None) -> int:
         print("BŁĄD: uruchom w checkoucie repozytorium git.", file=sys.stderr)
         return 2
     if _git_fails(root, "rev-parse", "--verify", "--quiet", BASE):
-        print(f"PRACA W TOKU POMINIĘTA | brak {BASE}, nie ma z czym porównać")
+        print(f"AKTUALIZACJA: nieznana (brak {BASE})" if args.aktualizacja else f"PRACA W TOKU POMINIĘTA | brak {BASE}, nie ma z czym porównać")
         return 0
 
     branch = _git(root, "branch", "--show-current").strip() or _busy_branch(root)
+    if args.aktualizacja:
+        print(_update_verdict(root, branch))
+        return 0
     mine_dirty = _dirty(root)
     others = [item for item in _local_work(root) if item.worktree != root and (branch is None or item.branch != branch)]
     issue_body = ""
@@ -124,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
     mine = _files(root, "HEAD") | mine_dirty
     for line in _overlaps([(item, _shared(root, mine, mine_dirty, item)) for item in others]):
         print(line)
+    if not args.nakladania:
+        print(_update_verdict(root, branch))
     return 0
 
 
@@ -313,8 +330,73 @@ def _overlaps(shared: list[tuple[WorkInProgress, frozenset[str]]]) -> list[str]:
     return lines
 
 
-def _files(root: Path, ref: str) -> frozenset[str]:
-    return frozenset(_git(root, "diff", "--no-renames", "--name-only", "-z", f"{BASE}...{ref}").split("\0")) - {""}
+def _update_verdict(root: Path, branch: str | None) -> str:
+    """Q9: gałąź aktualizuje się z ``origin/main`` tylko przy konflikcie albo pliku zmienionym po obu stronach."""
+
+    ref = f"refs/heads/{branch}" if branch is not None else _before_rebase(root) or "HEAD"
+    merged = subprocess.run(
+        ["git", "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", ref, BASE],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=TIMEOUT_S,
+        check=False,
+    )
+    if merged.returncode not in (0, 1):
+        reason = (merged.stderr.strip().splitlines() or [f"kod {merged.returncode}"])[0]
+        verdict = f"nieznana (git merge-tree: {reason})"
+    elif conflicts := sorted(set(merged.stdout.split("\0")[1:]) - {""}):
+        verdict = f"potrzebna (konflikt w: {', '.join(conflicts)})"
+    elif shared := sorted(_files(root, ref) & _files(root, BASE, since=ref)):
+        verdict = f"potrzebna (bez konfliktu, wspólne pliki: {', '.join(shared)})"
+    else:
+        verdict = "niepotrzebna (bez konfliktu, bez wspólnych plików)"
+    return f"AKTUALIZACJA: {verdict}{_base_note(root)}"
+
+
+def _before_rebase(root: Path) -> str | None:
+    """Commit sprzed rebase odłączonego HEAD: w trakcie HEAD stoi na nowym ``origin/main``."""
+
+    state = Path(_git(root, "rev-parse", "--absolute-git-dir").strip())
+    for name in ("rebase-merge/orig-head", "rebase-apply/orig-head"):
+        try:
+            return (state / name).read_text(encoding="utf-8").strip() or None
+        except OSError:
+            continue
+    return None
+
+
+def _base_note(root: Path) -> str:
+    """Commit ``origin/main``, z którym werdykt porównał, i wiek fetch, gdy żaden nie potwierdził go w ostatniej godzinie."""
+
+    seen, short = _git(root, "log", "-1", "--format=%H%n%h", BASE).split()
+    main_branch = f"\tbranch '{BASE.partition('/')[2]}' of "
+    common = (root / _git(root, "rev-parse", "--git-common-dir").strip()).resolve()
+    # FETCH_HEAD ma każdy worktree osobno, a origin/main jest wspólny dla wszystkich.
+    confirmed = []
+    for fetch_head in [common / "FETCH_HEAD", *common.glob("worktrees/*/FETCH_HEAD")]:
+        try:
+            lines = fetch_head.read_text(encoding="utf-8", errors="replace").splitlines()
+            fetched = fetch_head.stat().st_mtime
+        except OSError:
+            continue
+        if any(line.startswith(f"{seen}\t") and main_branch in line for line in lines):
+            confirmed.append(fetched)
+    compared = f" | {BASE} {short}"
+    if not confirmed:
+        return f"{compared} bez śladu fetch, odśwież: git fetch origin"
+    age = time.time() - max(confirmed)
+    if age < FRESH_FETCH_S:
+        return compared
+    return f"{compared} z fetch sprzed {int(age // 3600)} h, odśwież: git fetch origin"
+
+
+def _files(root: Path, ref: str, since: str = BASE) -> frozenset[str]:
+    """Pliki, które ``ref`` zmienia od bazy scalenia z ``since``."""
+
+    return frozenset(_git(root, "diff", "--no-renames", "--name-only", "-z", f"{since}...{ref}").split("\0")) - {""}
 
 
 def _own_files(root: Path, ref: str, other: str) -> frozenset[str]:
@@ -352,7 +434,7 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 def _git_fails(cwd: Path, *args: str) -> bool:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=TIMEOUT_S).returncode != 0
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=TIMEOUT_S, check=False).returncode != 0
 
 
 def _gh(root: Path, *args: str) -> Any:

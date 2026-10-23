@@ -8,7 +8,8 @@
   untracked files, ignored ones left out), so a run proves the working tree, not the last commit. ``newest`` changes
   ``requirements.txt`` (a comment only, so pip installs nothing new), which makes the update install libraries.
   ``not_starting``, one version after ``newest``, has a ``run_centrum.py`` that fails at once. The origin's
-  ``main`` starts on ``first``; the drive moves it;
+  ``main`` and the only Wydanie ``v0.1.0`` start on ``first``; the drive moves the Wydanie and keeps ``main`` on
+  ``not_starting``;
 - ``przegladarka.cmd``: Dad's browser, which only records the address Centrum opens in ``otwarte-adresy.txt``;
 - ``windows.json``: these facts for the drive, doctor and cleanup.
 
@@ -28,11 +29,12 @@ from typing import Any
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
 sys.path.insert(0, str(SCRIPTS.parent.parent / "verify-centrum-rozliczen" / "scripts"))
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
 
 import create_centrum_fixture  # noqa: E402
 from rozliczenia.centrum.launcher import DEFAULT_PORT  # noqa: E402
 from rozliczenia.centrum.tool_update import GITHUB_REPOSITORY  # noqa: E402
+from skrypt_skilla import create_run_root  # noqa: E402
 
 PORT = DEFAULT_PORT
 URL = f"http://127.0.0.1:{PORT}/"
@@ -97,14 +99,14 @@ def _publish_versions(publisher: Path, origin: Path) -> dict[str, str]:
     git(publisher, "commit", "--quiet", "--all", "-m", "Wersja, której Centrum nie startuje")
     not_starting = git(publisher, "rev-parse", "HEAD")
     git(origin.parent, "init", "--quiet", "--bare", "--initial-branch", "main", origin.name)
-    git(publisher, "push", "--quiet", str(origin), f"{first}:refs/heads/main", f"{not_starting}:refs/heads/nie-startuje")
+    git(publisher, "push", "--quiet", str(origin), f"{first}:refs/heads/main", f"{first}:refs/tags/v0.1.0", f"{not_starting}:refs/heads/nie-startuje")
     return {"first": first, "newest": newest, "not_starting": not_starting}
 
 
 def prepare(root: Path) -> dict[str, Any]:
     """Writes the run's world under ``root`` (which must not exist) and returns its facts."""
 
-    root.mkdir(parents=True)
+    create_run_root(root)
     data = create_centrum_fixture.create(root / "dane")
     origin = root / "origin.git"
     versions = _publish_versions(root / "wydawca", origin)
@@ -153,8 +155,16 @@ def boundaries(facts: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def move_main(facts: dict[str, Any], version: str) -> None:
-    """The origin's ``main`` (GitHub's, as Centrum sees it) moves to ``version`` (a key of ``versions``)."""
+def release(facts: dict[str, Any], version: str) -> None:
+    """The origin's only Wydanie (Centrum updates to the newest one) is ``version``, a key of ``versions``.
+
+    A real Wydanie never moves; the harness withdraws every tag and tags ``v0.1.0`` again. ``main`` moves to
+    ``not_starting``, ahead of every version and in no Wydanie: a Centrum that took ``main`` would fail the run.
+    """
 
     origin = Path(facts["origin"])
-    git(origin, "update-ref", "refs/heads/main", facts["versions"][version])
+    tags = git(origin, "tag", "--list", "v*").split()
+    if tags:
+        git(origin, "tag", "--delete", *tags)
+    git(origin, "tag", "v0.1.0", facts["versions"][version])
+    git(origin, "update-ref", "refs/heads/main", facts["versions"]["not_starting"])

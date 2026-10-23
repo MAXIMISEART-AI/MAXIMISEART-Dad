@@ -9,7 +9,6 @@ Wzorce. Messages name workers, rows, and columns, never a cell value.
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -32,6 +31,7 @@ from wynik_uruchomienia import (
     load_result,
     look_mismatches,
 )
+from skrypt_skilla import Parser
 
 
 PERIOD = "08_14_09_2026"
@@ -248,8 +248,9 @@ def _check_worker_file(
             errors.append(f"{name}: holds a Zlecenie nieskuteczne")
         if [values[order_index] for values in actual_rows] != [values[order_index] for values in expected_rows]:
             errors.append(f"{name}: orders differ from its Zlecenia skuteczne in Plik zbiorczy order")
+        # A missing or extra row already failed the row-number check above; compare the rows both files have.
         for number, (actual, expected, looks, row_links) in enumerate(
-            zip(actual_rows, expected_rows, expected_looks, expected_links), start=FIRST_DATA_ROW
+            zip(actual_rows, expected_rows, expected_looks, expected_links, strict=False), start=FIRST_DATA_ROW
         ):
             if _row_links(links, number) != row_links:
                 errors.append(f"{name}: row {number} lacks the Hiperłącza of the Plik zbiorczy")
@@ -302,9 +303,10 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
         collective.close()
     if not highlighted:
         errors.append("Plik zbiorczy has no filled cell in its Wiersze danych, so the Wyróżnienia check proves nothing")
-    if {values[order_index]: links.get(order_index + 1) for values, links in zip(collective_rows, collective_links)} != {
-        order: (f"{ORDER_LINK}{row}", None) for order, row in REGISTER_ROWS_OF_ORDERS.items()
-    }:
+    if {
+        values[order_index]: links.get(order_index + 1)
+        for values, links in zip(collective_rows, collective_links, strict=True)
+    } != {order: (f"{ORDER_LINK}{row}", None) for order, row in REGISTER_ROWS_OF_ORDERS.items()}:
         errors.append("Plik zbiorczy NUMER ZL. cells lack the Hiperłącze of their Rejestr cell")
     if UNSUCCESSFUL_ORDER in {values[order_index] for values in collective_rows}:
         errors.append("Plik zbiorczy holds a Zlecenie nieskuteczne")
@@ -321,10 +323,10 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
         for name, orders in EXPECTED_WORKER_ORDERS.items():
             expected_rows = [values for values in collective_rows if values[order_index] in orders]
             expected_looks = [
-                looks for values, looks in zip(collective_rows, collective_looks) if values[order_index] in orders
+                looks for values, looks in zip(collective_rows, collective_looks, strict=True) if values[order_index] in orders
             ]
             expected_links = [
-                links for values, links in zip(collective_rows, collective_links) if values[order_index] in orders
+                links for values, links in zip(collective_rows, collective_links, strict=True) if values[order_index] in orders
             ]
             if tuple(values[order_index] for values in expected_rows) != orders:
                 errors.append(f"Plik zbiorczy does not hold the Zlecenia skuteczne of {name} in Rejestr order")
@@ -394,12 +396,12 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root of a chain fixture")
     parser.add_argument("--expect", choices=("dry-run", "run"), required=True)
     parser.add_argument("--result", type=Path, help="evidence JSON of the Przebieg rozliczeń step")
     args = parser.parse_args(argv)
-    root = args.root.expanduser().resolve()
+    root = args.root
     result_path = args.result.expanduser().resolve() if args.result else None
     try:
         if args.expect == "dry-run":

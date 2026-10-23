@@ -18,13 +18,19 @@ OTHER = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
 
 
 def _git(directory: Path, *arguments: str, when: str = SWITCHED) -> None:
-    subprocess.run(
-        ["git", "-c", "user.name=Maks", "-c", "user.email=maks@example.invalid", *arguments],
-        cwd=directory,
-        env=os.environ | {"GIT_COMMITTER_DATE": when},
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            ["git", "-c", "user.name=Maks", "-c", "user.email=maks@example.invalid", *arguments],
+            cwd=directory,
+            env=os.environ | {"GIT_COMMITTER_DATE": when},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+    except subprocess.CalledProcessError as failed:
+        failed.add_note(failed.stderr)
+        raise
 
 
 def _clone(root: Path) -> str:
@@ -79,7 +85,7 @@ def test_narzedzie_poza_klonem_gita_nie_ma_dnia(tmp_path: Path) -> None:
 def test_centrum_zostaje_przy_wersji_ze_startu_po_przesunieciu_klonu(tmp_path: Path) -> None:
     clone = tmp_path / "narzedzie"
     started_on = _clone(clone)
-    running = ToolFreshness.of_clone(clone, main=lambda: None)
+    running = ToolFreshness.of_clone(clone, release=lambda: None)
     _git(clone, "commit", "--quiet", "--allow-empty", "--message", "nowa wersja", when="2026-10-20T09:00:00+02:00")
 
     assert tool_commit(clone) != started_on

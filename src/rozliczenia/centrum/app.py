@@ -30,14 +30,15 @@ from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
+from rozliczenia.centrum.metrics import metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
 from rozliczenia.centrum.reports import Reports, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
-from rozliczenia.centrum.runs import RunHost, runs_router
+from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
 from rozliczenia.settings import SettingsStore
 from rozliczenia.centrum.settlement_run import SettlementEntry
@@ -63,7 +64,7 @@ def create_app(
     log: CentrumLog,
     shutdown: Shutdown,
     today: Callable[[], date] = date.today,
-    metrics_files: MetricsFiles | None = None,
+    processes: Processes | None = None,
     configuration_files: ConfigurationFiles | None = None,
     tool_freshness: ToolFreshness | None = None,
     cloud_files: CloudFiles | None = None,
@@ -135,8 +136,8 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
-    metrics = metrics_files or MetricsFiles.default()
     configuration = configuration_files or ConfigurationFiles.default()
+    processes = processes or Processes.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
@@ -167,11 +168,13 @@ def create_app(
         guardian=guardian or (lambda copy, restart: restart_guardian.launch(copy, restart)),
         result_file=settings_path.parent / RESULT_FILE,
     )
-    preparation = PreparationEntry(store, configuration, metrics.preparation, today)
-    settlement = SettlementEntry(store, configuration, metrics.settlement, today)
-    app.include_router(runs_router(runs, [preparation, settlement]))
+    entries: list[ProcessEntry] = [
+        PreparationEntry(store, configuration, processes.preparation, today),
+        SettlementEntry(store, configuration, processes.settlement, today),
+    ]
+    app.include_router(runs_router(runs, entries))
     app.include_router(repair_router(reports))
-    app.include_router(metrics_router(metrics, today, centrum_runs))
+    app.include_router(metrics_router({entry.key: entry.process for entry in entries}, today, centrum_runs))
     app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
@@ -186,12 +189,15 @@ def _problem(status_code: int, message: str) -> Response:
 
 
 class _Frontend(StaticFiles):
-    """Zbudowany frontend: pliki z hashem w nazwie są stałe, ``index.html`` zawsze świeży po ``git pull``."""
+    """Zbudowany frontend: przeglądarka sprawdza każdy plik przy każdym użyciu (ETag), bo nazwy plików są stałe.
+
+    Bez ``Cache-Control`` przeglądarka mogłaby po Aktualizacji narzędzia brać stary ``assets/index.js`` z pamięci
+    bez pytania serwera (heurystyczna świeżość z ``Last-Modified``, RFC 9111 §4.2.2).
+    """
 
     async def get_response(self, path: str, scope: MutableMapping[str, Any]) -> Response:
         response = await super().get_response(path, scope)
-        immutable = path.startswith("assets/")
-        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
+        response.headers["Cache-Control"] = "no-cache"
         return response
 
 

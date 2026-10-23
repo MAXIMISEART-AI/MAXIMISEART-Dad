@@ -138,7 +138,7 @@ def _java() -> str:
         ]
         if (
             subprocess.run(
-                [sys.executable, "-m", "pip", "--version"], capture_output=True
+                [sys.executable, "-m", "pip", "--version"], capture_output=True, check=False
             ).returncode
             != 0
         ):
@@ -225,6 +225,7 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
             text=True,
             encoding="utf-8",
             errors="replace",
+            check=False,
         )
     output = result.stdout + result.stderr
     if "No error has been found" in output:
@@ -312,6 +313,7 @@ def _warn_about_drift() -> None:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     if diff.returncode != 0:
         print(

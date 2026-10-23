@@ -88,5 +88,4 @@ MUTATIONS = (
 
 
 if __name__ == "__main__":
-    # One after another: side by side on CI's four vCPUs, the explorers' interleavings wait for a core past the timeout.
-    raise SystemExit(check_all(MUTATIONS, parallel=False))
+    raise SystemExit(check_all(MUTATIONS))

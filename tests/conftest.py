@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any, NoReturn
@@ -11,14 +12,29 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from fastapi.testclient import TestClient  # noqa: E402  (po ścieżce do src)
-from starlette.types import ASGIApp, Message, Receive, Scope, Send  # noqa: E402
+from fastapi.testclient import TestClient
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from rozliczenia.centrum import report_box, restart_guardian, tool_freshness  # noqa: E402
-from rozliczenia.centrum.tool_update import ToolClone  # noqa: E402
-from rozliczenia.centrum.log import CentrumLog  # noqa: E402
+from rozliczenia.centrum import report_box, restart_guardian, tool_freshness
+from rozliczenia.centrum.tool_update import ToolClone
+from rozliczenia.centrum.log import CentrumLog
 
 _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
+
+
+@pytest.fixture(autouse=True)
+def git_bez_konserwacji_w_tle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Od Gita 2.54 ``git maintenance run --auto`` po ``commit`` wykonuje też ``git worktree prune``.
+
+    Poza Windowsem ta konserwacja biegnie odłączona w tle. Usuwa wtedy katalog ``.git/worktrees/<nazwa>``, który
+    ``git worktree add`` z następnego kroku testu właśnie zakłada, i ``add`` kończy się kodem 128. Wpis działa w gicie
+    ze środowiskiem testu, ale nie w ``receive-pack`` repozytorium bare, do którego test pushuje: tam nie ma worktree.
+    """
+
+    entry = int(os.environ.get("GIT_CONFIG_COUNT", "0"))
+    monkeypatch.setenv(f"GIT_CONFIG_KEY_{entry}", "maintenance.auto")
+    monkeypatch.setenv(f"GIT_CONFIG_VALUE_{entry}", "false")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", str(entry + 1))
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +44,7 @@ def bez_githuba(monkeypatch: pytest.MonkeyPatch) -> None:
     def github_in_test() -> str | None:
         raise AssertionError("Test Centrum sięga do GitHuba; podstaw tool_freshness w create_app.")
 
-    monkeypatch.setattr(tool_freshness, "github_main_commit", github_in_test)
+    monkeypatch.setattr(tool_freshness, "github_releases", github_in_test)
 
 
 @pytest.fixture(autouse=True)

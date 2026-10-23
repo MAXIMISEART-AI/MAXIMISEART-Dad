@@ -10,7 +10,7 @@ from typing import Any, NoReturn
 from fastapi.testclient import TestClient
 import pytest
 
-from rozliczenia import engine, settlement_process
+from rozliczenia import settlement_process
 from rozliczenia.centrum import run_view
 from rozliczenia.telemetry import MetricsStore
 
@@ -103,15 +103,9 @@ def test_w_ukladzie_folderow_taty_okres_bez_folderu_okresu_jest_odrzucony(tmp_pa
     )
 
 
-def test_nieoczekiwany_wyjatek_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_nieoczekiwany_wyjatek_pokazuje_komunikat_z_katalogu_bez_tekstu_wyjatku(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
-        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
-
-    monkeypatch.setattr(engine, "run_settlements", fail_unexpectedly)
+    centrum.engines.fail_engine = True
 
     result = run_to_end(centrum, dry_run=False)["result"]
     shown = json.dumps(result, ensure_ascii=False)
@@ -136,10 +130,11 @@ def test_wynik_ktorego_nie_da_sie_pokazac_to_niepokazane_podsumowanie_z_tym_samy
 ) -> None:
     centrum = settling_centrum(tmp_path)
 
-    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
+    def broken_view(*args: object, **kwargs: object) -> NoReturn:
         raise ValueError("synthetic summary failure SYN-001")
 
-    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
+    # Psuje widok wyniku Centrum, nie rdzeń procesu: tylko tak test widzi, że karta oddaje widok do osłony rdzenia.
+    monkeypatch.setattr(run_view.ProcessView, "shown", broken_view)
 
     result = run_to_end(centrum, dry_run=False)["result"]
 
@@ -205,10 +200,10 @@ def test_strumien_pokazuje_liczniki_szablonow_pracownikow_na_biezaco(tmp_path: P
 
     labels = ["Wiersze danych", "Zapisane szablony", "Puste szablony", "Problemy"]
     assert seen == [
-        list(zip(labels, [0, 0, 0, 0])),
-        list(zip(labels, [2, 1, 0, 0])),
-        list(zip(labels, [3, 2, 0, 0])),
-        list(zip(labels, [3, 2, 1, 0])),
+        list(zip(labels, [0, 0, 0, 0], strict=True)),
+        list(zip(labels, [2, 1, 0, 0], strict=True)),
+        list(zip(labels, [3, 2, 0, 0], strict=True)),
+        list(zip(labels, [3, 2, 1, 0], strict=True)),
     ]
 
 

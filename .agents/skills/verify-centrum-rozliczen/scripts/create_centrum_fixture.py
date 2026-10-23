@@ -32,7 +32,6 @@ Wykonawcy, and 258 more synthetic records in both metrics files.
 
 from __future__ import annotations
 
-import argparse
 from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
@@ -45,6 +44,10 @@ import sys
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser, create_run_root
 
 # Dad's "today" for the run: Monday 19.10.2026, so the last complete period is 06_12_10_2026,
 # whose Folder okresu deliberately does not exist.
@@ -185,7 +188,7 @@ def _configuration(config: Path) -> dict[str, str]:
     worker_config = config / "worker_mapping.yaml"
     worker_config.write_text(
         yaml.safe_dump(
-            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, WORKERS))}, allow_unicode=True, sort_keys=False
+            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, WORKERS, strict=True))}, allow_unicode=True, sort_keys=False
         ),
         encoding="utf-8",
     )
@@ -235,7 +238,7 @@ def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object
         "completed": completed,
         "result": result,
         "total_duration_ms": sum(phases),
-        "phase_durations_ms": dict(zip(PHASES, phases)),
+        "phase_durations_ms": dict(zip(PHASES, phases, strict=True)),
         "counters": counters if completed else dict.fromkeys(counters, 0),
     }
     if completed:
@@ -452,7 +455,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
 
     The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
     update after #161 on Dad's computer. One version later (``libraries``, on the origin's branch
-    ``biblioteki`` until the drive makes it `main`) needs a library whose installation fails. Another
+    ``biblioteki`` until the drive makes it the Wydanie) needs a library whose installation fails. Another
     one after the newest (``not_starting``, on the branch ``nie-startuje``) has a Centrum that does not start.
     """
 
@@ -471,6 +474,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
     (publisher / ".gitignore").write_text(f"{WORKER_MAPPING}\n", encoding="utf-8")
     newest = _publish(publisher, 2, "Nowa wersja narzędzia", untrack=(WORKER_MAPPING,))
     _git(publisher, "push", "--quiet", str(origin), "main")
+    _git(origin, "tag", "v0.1.0", newest)
     (publisher / "requirements.txt").write_text(UNINSTALLABLE_REQUIREMENTS, encoding="utf-8")
     libraries = _publish(publisher, 3, "Wersja z nową biblioteką")
     _git(publisher, "push", "--quiet", str(origin), "main:biblioteki")
@@ -490,7 +494,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
 
 
 def create(root: Path, variant: str | None = None) -> dict[str, object]:
-    root.mkdir(parents=True)
+    create_run_root(root)
     (root / "config").mkdir()
     configuration = _configuration(root / "config")
     (root / "picker").mkdir()
@@ -549,15 +553,15 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, help="Run root below .verification/runs; must not exist yet.")
+    parser = Parser(description=__doc__)
+    parser.add_root("run root to create; absent or empty")
     parser.add_argument(
         "--wariant", choices=(YEAR_OF_WORK,), help="rok-pracy: add a year of Dad's work for wydajnosc (see above)."
     )
     args = parser.parse_args(argv)
     try:
-        fixture = create(Path(args.root), args.wariant)
-    except (OSError, subprocess.CalledProcessError) as exc:
+        fixture = create(args.root, args.wariant)
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
     print(f"FIXTURE OK | root={args.root} | today={fixture['today']} | variant={args.wariant or 'podstawowy'}")

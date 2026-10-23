@@ -7,32 +7,19 @@ never killed. Processes are never killed by name.
 
 from __future__ import annotations
 
-import argparse
+from argparse import RawDescriptionHelpFormatter
 import json
 import os
 from pathlib import Path
-import shutil
 import signal
 import subprocess
 import sys
 import time
 import urllib.request
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
-
-
-def _safe_root(value: str) -> Path:
-    root = Path(value).expanduser().resolve()
-    parent = (_repo_root() / ".verification" / "runs").resolve()
-    try:
-        root.relative_to(parent)
-    except ValueError as exc:
-        raise ValueError(f"Cleanup root must be below {parent}") from exc
-    if root == parent:
-        raise ValueError("Refusing to remove the whole runs directory")
-    return root
+from skrypt_skilla import Parser, remove_run_root, require_run_root
 
 
 def _answers_as_centrum(url: str) -> bool:
@@ -64,14 +51,12 @@ def _stop_server(root: Path) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, help="Run root below .verification/runs.")
-    args = parser.parse_args(argv)
+    parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
+    parser.add_root("run root create_centrum_fixture.py created")
+    root = parser.parse_args(argv).root
     try:
-        root = _safe_root(args.root)
-        stopped = _stop_server(root) if root.exists() else "no run root"
-        if root.exists():
-            shutil.rmtree(root)
+        stopped = _stop_server(require_run_root(root)) if root.exists() else "no run root"
+        remove_run_root(root)
     except (OSError, ValueError) as exc:
         print(f"CLEANUP FAILED: {exc}", file=sys.stderr)
         return 1

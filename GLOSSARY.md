@@ -331,11 +331,32 @@ Komunikat Zatrzymania razem z wynikiem Diagnozy, wysłany z Centrum rozliczeń
 do Maksa. Jeden odcisk problemu ma najwyżej jedno otwarte Zgłoszenie; gdy Maks
 je zamknie, a problem wraca, powstaje nowe z odnośnikiem do poprzedniego.
 
+## Logi Uruchomienia
+
+Pełny, bezpieczny obraz jednego Uruchomienia procesu z Centrum rozliczeń:
+wynik, Komunikaty, podsumowanie, przebieg etapów i Szablonów pracownika oraz
+wersja narzędzia. Mówią wprost, czy był to podgląd, w którym nic nie
+zapisano, czy Uruchomienie z zapisem. Zostają na komputerze taty także po
+zamknięciu Centrum i trafiają same do Skrzynki Zgłoszeń, gdzie wszystkie
+Uruchomienia jednego okresu są w jednym miejscu. Nie zawierają adresów,
+numerów zleceń ani numerów umów. Tata ich nie wysyła ani nie ogląda.
+_Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), dziennik Centrum, raport
+
+## Uwaga taty
+
+Własny tekst taty do Maksa z tytułem, który tata pisze z dowolnego widoku
+Centrum rozliczeń i przed wysłaniem do Skrzynki Zgłoszeń widzi w całości.
+Powiadomienia nazywają ją tym tytułem, nie numerem. Jest ogólna, o całym
+narzędziu, albo przypięta do jednego Uruchomienia procesu, i wtedy prowadzi do
+jego Logów Uruchomienia. Każda Uwaga taty to osobna sprawa, którą Maks
+zamyka.
+_Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), feedback, komentarz
+
 ## Skrzynka Zgłoszeń
 
-Miejsce, do którego trafiają Zgłoszenia i Kontrole ilości i w którym Maks je
-zamyka: prywatne repozytorium Zgłoszeń. Centrum pyta ją o otwarte Zgłoszenie
-odcisku problemu i o stan wysłanych Zgłoszeń.
+Miejsce, do którego trafiają Zgłoszenia, Kontrole ilości, Logi Uruchomienia i
+Uwagi taty i w którym Maks je zamyka: prywatne repozytorium Zgłoszeń. Centrum
+pyta ją o otwarte Zgłoszenie odcisku problemu i o stan wysłanych Zgłoszeń.
 _Avoid_: issue tracker, publiczne issue
 
 ## Kontrola ilości
@@ -346,11 +367,23 @@ tata musiał poprawić albo dopisać ręcznie. Jeden okres ma jedną Kontrolę
 ilości w Skrzynce Zgłoszeń, a tata jej nie wysyła ani nie ogląda.
 _Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), raport różnic
 
-## Powiadomienie o naprawie
+## Powiadomienie
 
-Zdanie na stronie Okresy, że Maks zamknął Zgłoszenie wysłane z wersji
-narzędzia, która nadal działa u taty, więc trzeba zaktualizować narzędzie.
-Ma przycisk aktualizacji i znika samo, gdy Centrum wystartuje w nowej wersji.
+Fakt dla taty o jego Zgłoszeniach, Uwagach taty i wersjach narzędzia, pokazany
+w widoku Powiadomienia w Centrum rozliczeń, do którego prowadzi dzwonek.
+Nieprzeczytane Powiadomienie zapala kropkę na dzwonku; wejście do widoku
+oznacza wszystkie jako przeczytane. Uwagi techniczne z karty Uruchomienia, np.
+o niezapisanych metrykach, nie są Powiadomieniami.
+_Avoid_: notyfikacja, alert
+
+## Powiadomienie o nowej wersji
+
+Powiadomienie o Wydaniu nowszym od wersji taty: jego numer, notka „Co nowego”
+i Uwagi taty oraz Zgłoszenia, które rozwiązuje. Ma przycisk Aktualizacji
+narzędzia, dopóki tata nie przejdzie na to Wydanie albo nowsze. Sprawę, którą
+Maks rozwiązał przed Wydaniem, osobne Powiadomienie nazywa rozwiązaną, z
+dopiskiem, że będzie w następnej wersji.
+_Avoid_: Powiadomienie o naprawie
 
 ## Wersja narzędzia
 
@@ -359,20 +392,28 @@ taty. Karta `Narzędzie` w Konfiguracji pokazuje jego skrót i dzień, od które
 narzędzie jest na tym commicie; Zgłoszenie podaje pełny commit.
 _Avoid_: numer wersji z `pyproject.toml`
 
+## Wydanie
+
+Wersja narzędzia, którą Maks świadomie ogłasza tacie: numer, np. `0.2.0`, i
+krótka notka „Co nowego” dla taty. Jedno Wydanie zbiera wszystkie zmiany od
+poprzedniego, a nie każdą naprawę z osobna. Tylko Wydanie może trafić na
+komputer taty; zmiany, które nie weszły do żadnego Wydania, u taty nie działają.
+_Avoid_: release, deploy, `main`
+
 ## Aktualizacja narzędzia
 
-Przejście narzędzia na komputerze taty na jego najnowszą wersję, które
-tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
-zostawia poprzednią wersję; pliki taty pozostają nietknięte.
+Przejście narzędzia na komputerze taty na najnowsze Wydanie, które tata zleca
+jednym przyciskiem w Centrum rozliczeń. Przycisk jest tylko wtedy, gdy jest
+Wydanie nowsze od wersji taty. Udaje się w całości albo zostawia poprzednią
+wersję; pliki taty pozostają nietknięte.
 _Avoid_: upgrade, git pull, instalacja
 
 ## Aktualność narzędzia
 
-Czy narzędzie na komputerze taty jest w najnowszej wersji, czyli czy jego
-commit to `main` publicznego repozytorium: `Aktualna`, `Jest nowsza wersja`
-albo `Nie sprawdzono` (bez internetu). Pokazuje ją Konfiguracja i sprawdza
-Diagnoza; nowsza wersja jest przyczyną Zatrzymania tylko wtedy, gdy Diagnoza
-nie znalazła innej.
+Czy narzędzie na komputerze taty jest na najnowszym Wydaniu: `Aktualna`,
+`Jest nowsza wersja` albo `Nie sprawdzono` (bez internetu). Pokazuje ją
+Konfiguracja i sprawdza Diagnoza; nowsza wersja jest przyczyną Zatrzymania
+tylko wtedy, gdy Diagnoza nie znalazła innej.
 _Avoid_: świeżość, freshness
 
 ## Ponowny start Centrum

@@ -5,7 +5,8 @@ więc pytest i skrypty weryfikacyjne uruchomione nim z worktree mogą po cichu
 sprawdzać kod z ``main``. Ten skrypt tworzy ``.venv`` w checkoucie, w którym
 leży, instaluje go edytowalnie i sprawdza, że ``rozliczenia`` importuje się z
 jego ``src``. Używa ``uv``, gdy jest dostępne, a bez niego ``venv`` i ``pip``.
-Włącza też bramę ``tools/hooks/pre-push`` (``core.hooksPath``, wspólne dla wszystkich worktree).
+Włącza też bramę ``tools/hooks/pre-push`` (``core.hooksPath``) i sterownik scalania plików generowanych
+(``merge=wygenerowane`` w ``.gitattributes``); oba siedzą w konfiguracji repozytorium, wspólnej dla wszystkich worktree.
 
     py -3 tools/setup_worktree.py              # Windows
     python3 tools/setup_worktree.py            # macOS i Linux
@@ -55,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     # Na Windows `#!/usr/bin/env python3` w sh z Git for Windows trafia zwykle na alias Microsoft Store.
     if sys.platform != "win32":
         _gate_pushes()
+    _merge_generated()
 
     imported = _imported_package_directory()
     expected = ROOT / "src" / "rozliczenia"
@@ -69,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
 def _gate_pushes() -> None:
     """Ustawia ``core.hooksPath`` na bramę pre-push i ostrzega o hookach, które przestają działać."""
 
-    configured = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True)
+    configured = subprocess.run(
+        ["git", "config", "--get", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True, check=False
+    )
     if configured.stdout.strip() == HOOKS:
         return
     hooks_path = subprocess.run(
@@ -81,6 +85,11 @@ def _gate_pushes() -> None:
         print(f"UWAGA: core.hooksPath={HOOKS} wyłącza hooki z {current}: {', '.join(disabled)}.", file=sys.stderr)
     _run(["git", "config", "core.hooksPath", HOOKS])
     print(f"OK: push sprawdza {HOOKS}/pre-push.")
+
+
+def _merge_generated() -> None:
+    _run(["git", "config", "merge.wygenerowane.name", "plik generowany: wersja bieżącego HEAD, potem npm run regen"])
+    _run(["git", "config", "merge.wygenerowane.driver", "true"])
 
 
 def _venv_python() -> Path:

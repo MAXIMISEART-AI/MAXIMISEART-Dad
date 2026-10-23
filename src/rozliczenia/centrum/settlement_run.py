@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 from typing import Any, Final
 
 from rozliczenia.centrum import contract, run_view
@@ -19,10 +18,12 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import located_period_folder, read_board, requested_period
 from rozliczenia.centrum.runs import PreparedRun
+from rozliczenia.domain import SettlementSummary
 from rozliczenia.settings import SettingsStore
 from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
-from rozliczenia.settlement_process import PROCESS, SettlementInputs
+from rozliczenia.process_run import Process
+from rozliczenia.settlement_process import SettlementInputs
 from rozliczenia.telemetry import MetricsStore
 
 _KEY: Final[contract.ProcessKey] = "settlement"
@@ -36,7 +37,7 @@ class SettlementEntry:
 
     store: SettingsStore
     configuration: ConfigurationFiles
-    metrics_path: Path
+    process: Process[SettlementInputs, SettlementSummary]
     today: Callable[[], date]
 
     @property
@@ -51,10 +52,10 @@ class SettlementEntry:
             (row.token for row in rows if row.last_complete),
             rows[0].token if rows else last_complete_period(self.today()).token,
         )
-        previewed = previewed_periods(MetricsStore(self.metrics_path, PROCESS.counter_names))
+        previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
         return contract.ProcessSetup(
             process=_KEY,
-            title=PROCESS.name,
+            title=self.process.name,
             creates="Rozliczenia pracowników",
             reminder=_VIEW.reminder,
             confirms_readiness=_VIEW.confirms_readiness,
@@ -80,9 +81,8 @@ class SettlementEntry:
         return PreparedRun(
             key=_KEY,
             period=period.token,
-            process=PROCESS,
+            process=self.process,
             inputs=inputs,
-            metrics_path=self.metrics_path,
             done="Rozliczenia pracowników gotowe",
             view=_VIEW,
         )

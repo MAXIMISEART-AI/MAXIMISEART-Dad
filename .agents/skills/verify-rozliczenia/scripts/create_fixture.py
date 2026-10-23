@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -12,6 +11,10 @@ import yaml
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser, create_run_root
 
 
 PERIOD = "08_14_09_2026"
@@ -25,31 +28,11 @@ WORKERS = {
 }
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
-
-
-def _run_parent() -> Path:
-    return (_repo_root() / ".verification" / "runs").resolve()
-
-
 def _active_worksheet(workbook: Workbook) -> Worksheet:
     sheet = workbook.active
     if not isinstance(sheet, Worksheet):
         raise ValueError("Workbook does not contain an active worksheet")
     return sheet
-
-
-def _safe_run_root(value: str) -> Path:
-    root = Path(value).expanduser().resolve()
-    parent = _run_parent()
-    try:
-        root.relative_to(parent)
-    except ValueError as exc:
-        raise ValueError(f"Fixture root must be below {parent}") from exc
-    if root == parent:
-        raise ValueError("Fixture root must be a child of the runs directory")
-    return root
 
 
 def _write_template(path: Path) -> None:
@@ -122,15 +105,12 @@ def _write_fixture(root: Path, *, include_unmapped: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=str, required=True)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root to create; absent or empty")
     parser.add_argument("--include-unmapped", action="store_true")
     args = parser.parse_args(argv)
     try:
-        root = _safe_run_root(args.root)
-        if root.exists() and any(root.iterdir()):
-            raise ValueError(f"Fixture root is not empty: {root}")
-        root.mkdir(parents=True, exist_ok=False)
+        root = create_run_root(args.root)
         _write_fixture(root, include_unmapped=args.include_unmapped)
     except (OSError, ValueError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)

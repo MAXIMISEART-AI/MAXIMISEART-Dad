@@ -1,6 +1,23 @@
 ---
 name: verify-centrum-na-windowsie
 description: Verify Centrum rozliczeń on Windows the way Dad installs, starts and updates it - the tool cloned into a user folder with a space and a Polish letter, the desktop shortcut and pythonw.exe without a console, the native start-problem window, the native tkinter pickers, Explorer, and Aktualizacja narzędzia with the restart guardian - on GitHub's windows-latest runner (or any Windows machine), with desktop screenshots, the Centrum log and process facts as evidence. Use after changes to `launcher.py`, `platform.py`, `shortcut.py`, `restart_guardian.py`, `tool_update.py`, `tool_updates.py`, `version.py`, `start_problems.py`, `server.py`, `shutdown.py`, `centrum/settings.py`, `run_centrum.py`, `install_centrum_shortcut.py` or `requirements.txt`, or when something works on the Mac but may not on Dad's Windows.
+pilnuje:
+  - src/rozliczenia/centrum/launcher.py
+  - src/rozliczenia/centrum/platform.py
+  - src/rozliczenia/centrum/shortcut.py
+  - src/rozliczenia/centrum/centrum-rozliczen.ico
+  - src/rozliczenia/centrum/start_problems.py
+  - src/rozliczenia/centrum/restart_guardian.py
+  - src/rozliczenia/centrum/tool_update.py
+  - src/rozliczenia/centrum/tool_updates.py
+  - src/rozliczenia/centrum/version.py
+  - src/rozliczenia/centrum/server.py
+  - src/rozliczenia/centrum/shutdown.py
+  - src/rozliczenia/centrum/settings.py
+  - run_centrum.py
+  - install_centrum_shortcut.py
+  - requirements.txt
+  - .github/workflows/verify-centrum-na-windowsie.yml
 ---
 
 # Verify Centrum rozliczeń na Windowsie
@@ -44,7 +61,7 @@ The runner refuses to start (`VERIFY FAIL | preflight`) off Windows, without the
 Pythons are not Dad's), or while anything listens on Dad's port `47811`. The port is fixed in the shortcut, so
 **one run per machine**, and never on a computer whose own Centrum is running.
 
-It creates `.verification/runs/windows-<id>` (`windows_tool.prepare`): Dad's synthetic folder okresów `INEA`,
+It creates `<run dir>/runs/windows-<id>` (`windows_tool.prepare`; `--run-dir`, default `.verification`): Dad's synthetic folder okresów `INEA`,
 Rejestr zleceń and `config/` from `verify-centrum-rozliczen`'s fixture, and a bare "origin" with three versions of
 the tool built from this checkout's working tree (tracked and untracked files): `first`, `newest` (only
 `requirements.txt` changes, so the update installs libraries with nothing new to fetch) and `not_starting`. The
@@ -92,9 +109,9 @@ region `Narzędzie`; dialog `Zaktualizowano` in region `Notifications`. Recipes 
 
 ## Evidence
 
-`.verification/evidence/windows-<id>/` survives cleanup; on GitHub it is the artifact
+`<run dir>/evidence/windows-<id>/` survives cleanup; on GitHub it is the artifact
 `verify-centrum-na-windowsie-<run id>-<attempt>`, which `run_on_github.py` downloads to
-`.verification/evidence/github-<run id>/`:
+`<run dir>/evidence/github-<run id>/`:
 
 - `drive.txt`: every `STEP <feature> | <id>`, harness step (`harness:`), check (`ok:`), the log lines of each update,
   and the verdict; `doctor-*.txt`, `cleanup.txt`;
@@ -121,8 +138,9 @@ Proof standards:
 
 The runner calls `scripts/windows_cleanup.py` in `finally`. It stops only processes whose command line contains the
 run root (Centrum from the run's tool, the restart guardian, Git and pip below them), closes Explorer windows on the
-run's folders, and removes the run root (making Git's read-only objects writable first). It never kills by process
-name and never touches the evidence. After a runner that was itself killed:
+run's folders, and removes the run root (making Git's read-only objects writable first). It refuses a directory that
+`windows_tool.prepare` did not create (no `.katalog-runu` file). It never kills by process name and never touches the
+evidence. After a runner that was itself killed:
 
 ```powershell
 py -3 .agents\skills\verify-centrum-na-windowsie\scripts\windows_cleanup.py --root "$runRoot"
@@ -136,7 +154,7 @@ Then confirm the evidence directory still exists.
 - `scripts/run_windows_verification.py [--feature …]`: the one-command orchestrator on Windows.
 - `scripts/windows_doctor.py --root <run root>`: the read-only doctor.
 - `scripts/windows_cleanup.py --root <run root>`: stop and remove one run.
-- `scripts/windows_tool.py`: the run's world (`prepare`, `boundaries`, `move_main`), imported by the drive.
+- `scripts/windows_tool.py`: the run's world (`prepare`, `boundaries`, `release`), imported by the drive.
 - `scripts/windows_desktop.py`: native windows, processes, port owner, screenshots, imported by the drive.
 
 Read `features/README.md` before choosing a feature, and keep the map honest with

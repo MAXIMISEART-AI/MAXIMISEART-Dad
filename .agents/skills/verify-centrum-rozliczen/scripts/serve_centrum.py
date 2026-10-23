@@ -15,7 +15,7 @@ the production boundary for Dad's computer, is scripted:
 The Diagnoza's two boundaries beyond Dad's files are scripted too, so the
 verification never reaches GitHub and checks OneDrive on every system:
 
-- the commit of `main` on GitHub is the tool's own commit (up to date) unless
+- the commit of the newest Wydanie on GitHub is the tool's own commit (up to date) unless
   ``<root>/github/main-commit.txt`` names another one; while
   ``<root>/github/brak-sieci`` exists there is no network. The tool is the
   run's synthetic clone ``<root>/aktualizacja/klon``: its own commit is the
@@ -83,6 +83,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import replace
 from datetime import date
 import json
 import os
@@ -94,13 +95,14 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from rozliczenia import preparation_register, template_settlement  # noqa: E402
+from rozliczenia import preparation_process, preparation_register, settlement_process, template_settlement  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
-from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
+from rozliczenia.centrum.processes import Processes  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
     LABEL,
     FindOutcome,
@@ -115,11 +117,12 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
 from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
 from rozliczenia.centrum.server import serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
-from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
+from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness  # noqa: E402
 from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
 from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
 from rozliczenia.workbook_files import DataRow, TemplateFile  # noqa: E402
+from skrypt_skilla import Parser  # noqa: E402
 
 
 class ScriptedPlatform:
@@ -200,13 +203,13 @@ def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
         commit = local_commit()
         return None if commit is None else commit_since(commit, clone)
 
-    def main_commit() -> str | None:
+    def releases() -> GitHubReleases | None:
         if (root / "github" / "brak-sieci").exists():
             return None
         chosen = root / "github" / "main-commit.txt"
-        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit()
+        return GitHubReleases(chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit())
 
-    return ToolFreshness(local=local_commit, since=since, main=main_commit)
+    return ToolFreshness(local=local_commit, since=since, release=releases)
 
 
 def _scripted_clock(root: Path) -> Callable[[], float]:
@@ -284,15 +287,17 @@ def _fail_register_reading(root: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, help="Run root created by create_centrum_fixture.py.")
+    parser = Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_root("Run root created by create_centrum_fixture.py.")
     parser.add_argument("--port", type=int, required=True, help="Free port on 127.0.0.1.")
     args = parser.parse_args(argv)
-    root = Path(args.root).resolve()
+    root = args.root
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
-    metrics = MetricsFiles(
-        preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
+    metrics = fixture["metrics"]
+    processes = Processes(
+        preparation=replace(preparation_process.PROCESS, metrics_path=lambda: Path(metrics["preparation"])),
+        settlement=replace(settlement_process.PROCESS, metrics_path=lambda: Path(metrics["settlement"])),
     )
     configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
     clone = Path(fixture["tool"]["clone"])
@@ -308,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         log=log,
         shutdown=shutdown,
         today=lambda: today,
-        metrics_files=metrics,
+        processes=processes,
         configuration_files=ConfigurationFiles(**configuration),
         tool_freshness=_scripted_github(root, clone),
         cloud_files=_scripted_onedrive(root),

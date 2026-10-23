@@ -12,7 +12,7 @@ import pytest
 
 from rozliczenia import preparation_files, preparation_register
 
-from tests.fixtures.centrum import FakeGitHub, finished_view, view_timing, views_until
+from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, view_timing, views_until
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -64,13 +64,9 @@ def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path
     assert (result["stop_kind"], result["diagnosis"]) == ("for_maks", "on_request")
 
 
-def test_nieoczekiwany_wyjatek_jest_do_maksa_a_diagnoza_zaczyna_sie_sama(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nieoczekiwany_wyjatek_jest_do_maksa_a_diagnoza_zaczyna_sie_sama(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
-        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
-
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+    centrum.engines.fail_engine = True
 
     result = stop_of(centrum)
 
@@ -156,11 +152,9 @@ def check_states(diagnosis: dict[str, Any]) -> dict[str, str]:
     return {check["label"]: check["state"] for check in diagnosis["checks"]}
 
 
-def test_diagnoza_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_diagnoza_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
 
     diagnosis = diagnose(centrum, run_id)
 
@@ -189,11 +183,9 @@ def test_diagnoza_nieznanego_uruchomienia_jest_odrzucona(tmp_path: Path) -> None
     assert (refused.status_code, refused.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
 
 
-def test_diagnoza_i_zgloszenie_poprzedniego_uruchomienia_sa_odrzucone_w_trakcie_i_po_nastepnym(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_diagnoza_i_zgloszenie_poprzedniego_uruchomienia_sa_odrzucone_w_trakcie_i_po_nastepnym(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path, incomplete_period_rows())
-    previous = stopped_for_maks(centrum, monkeypatch)
+    previous = stopped_for_maks(centrum)
     centrum.start(dry_run=False)
     next_run = views_until(centrum.client, "awaiting_decision")[-1]["run"]["id"]
 
@@ -221,10 +213,10 @@ def test_diagnoza_i_zgloszenie_uruchomienia_bez_zatrzymania_sa_odrzucone(tmp_pat
 
 
 def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_onedrive_rejestr_wzorce_folder_okresu_aktualnosc_i_dziennik(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path
 ) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
 
     checks = diagnose(centrum, run_id)["checks"]
 
@@ -313,13 +305,12 @@ def test_zatrzymanie_do_maksa_bez_wzorca_wyjasnia_brak_wzorca(tmp_path: Path) ->
 )
 def test_diagnoza_wyjasnia_pierwszym_sprawdzeniem_ktore_nie_przeszlo(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     break_computer: Callable[[PreparingCentrum], object],
     label: str,
     what: str | None,
 ) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     break_computer(centrum)
 
     diagnosis = diagnose(centrum, run_id)
@@ -331,11 +322,9 @@ def test_diagnoza_wyjasnia_pierwszym_sprawdzeniem_ktore_nie_przeszlo(
         assert next(check["detail"] for check in diagnosis["checks"] if check["label"] == label) == what
 
 
-def test_folder_okresu_w_kilku_miesiacach_wyjasnia_ktory_zostawic(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_folder_okresu_w_kilku_miesiacach_wyjasnia_ktory_zostawic(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     for month in ("08_Sierpień_2026", "09_Wrzesień_2026"):
         (month_periods_folder(centrum.fixture.periods_directory, month) / PERIOD).mkdir()
 
@@ -347,9 +336,9 @@ def test_folder_okresu_w_kilku_miesiacach_wyjasnia_ktory_zostawic(
     assert (diagnosis["next_action"], check_states(diagnosis)["Pliki okresu w Excelu"]) == ("rerun", "not_checked")
 
 
-def test_plik_okresu_otwarty_w_excelu_wyjasnia_jak_go_zamknac(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plik_okresu_otwarty_w_excelu_wyjasnia_jak_go_zamknac(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     centrum.fixture.period_directory.mkdir()
     centrum.fixture.internal_settlement_path.touch()
     lock(centrum.fixture.internal_settlement_path)
@@ -370,11 +359,9 @@ def test_plik_okresu_otwarty_w_excelu_wyjasnia_jak_go_zamknac(tmp_path: Path, mo
     )
 
 
-def test_rozliczenie_pracownika_otwarte_w_excelu_wyjasnia_jak_je_zamknac(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rozliczenie_pracownika_otwarte_w_excelu_wyjasnia_jak_je_zamknac(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     centrum.worker_settlements.mkdir()
     worker_file = centrum.worker_settlements / "Rozliczenie Wykonawca Testowy A.xlsx"
     worker_file.touch()
@@ -393,16 +380,11 @@ UNEXPECTED_LOG_ENTRY = "2026-09-16T10:00:00+02:00 nieoczekiwany-wyjatek typ=KeyE
 
 
 def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_a_dziennik_tylko_go_wymienia(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path
 ) -> None:
     centrum = preparing_centrum(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
-        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
-
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+    centrum.engines.fail_engine = True
     stopped = run_to_end(centrum, dry_run=True)
-    monkeypatch.undo()
     with centrum.log_path.open("a", encoding="utf-8") as log:
         log.write(UNEXPECTED_LOG_ENTRY)
 
@@ -440,7 +422,7 @@ def test_wyjatek_przy_sprawdzaniu_jednego_wzorca_nie_ukrywa_wyniku_drugiego(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
 
     def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
         raise RuntimeError("nieprzewidziany błąd przy SYN-001")
@@ -460,11 +442,9 @@ def test_wyjatek_przy_sprawdzaniu_jednego_wzorca_nie_ukrywa_wyniku_drugiego(
     )
 
 
-def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_wypieraja_go_z_dziennika_w_diagnozie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_wypieraja_go_z_dziennika_w_diagnozie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     with centrum.log_path.open("a", encoding="utf-8") as log:
         log.write(UNEXPECTED_LOG_ENTRY)
     for _ in range(30):  # tata przeklikuje strony: każdy gotowy widok to wpis pomiaru
@@ -479,11 +459,9 @@ def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_wypieraja_go_z_dziennika_
     )
 
 
-def test_urwany_znak_w_dzienniku_nie_blokuje_diagnozy_a_nieoczekiwany_wyjatek_jest_wymieniony(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_urwany_znak_w_dzienniku_nie_blokuje_diagnozy_a_nieoczekiwany_wyjatek_jest_wymieniony(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     with centrum.log_path.open("ab") as log:  # zapis „ł” urwany po pierwszym bajcie, np. przy utracie zasilania
         log.write("2026-09-16T09:59:00+02:00 przebieg-start proces=przygotowanie ".encode() + "ł".encode()[:1] + b"\n")
         log.write(UNEXPECTED_LOG_ENTRY.encode())
@@ -497,11 +475,9 @@ def test_urwany_znak_w_dzienniku_nie_blokuje_diagnozy_a_nieoczekiwany_wyjatek_je
     )
 
 
-def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     previous = centrum.log_path.read_text(encoding="utf-8")
     centrum.log_path.write_text(
         UNEXPECTED_LOG_ENTRY.replace("2026-09-16T10", "2026-09-15T10")
@@ -515,11 +491,9 @@ def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(
     assert check(diagnosis, "Dziennik Centrum rozliczeń") == ("passed", "Ostatnie wpisy od startu Centrum: 3.")
 
 
-def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
 
     passing = diagnose(centrum, run_id)
     centrum.collective_file.unlink()
@@ -540,11 +514,9 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(
     assert missing["explanation"]["what"] == "Nie znaleziono Pliku zbiorczego tego okresu. Nie utworzono żadnego pliku pracownika."
 
 
-def test_diagnoza_przebiegu_wyjasnia_zly_wzorzec_rozliczenia_pracownika(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_diagnoza_przebiegu_wyjasnia_zly_wzorzec_rozliczenia_pracownika(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     centrum.configuration.worker_template.write_bytes(b"to nie jest skoroszyt")
 
     diagnosis = diagnose(centrum, run_id)
@@ -553,9 +525,9 @@ def test_diagnoza_przebiegu_wyjasnia_zly_wzorzec_rozliczenia_pracownika(
     assert diagnosis["explanation"]["where"] == "plik Wzorzec rozliczenia pracownika.xlsx, folder config"
 
 
-def test_diagnoza_niczego_nie_zmienia_w_plikach_taty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_diagnoza_niczego_nie_zmienia_w_plikach_taty(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     centrum.fixture.period_directory.mkdir()
     centrum.fixture.internal_settlement_path.write_bytes(b"syntetyczny plik okresu")
     lock(centrum.fixture.register_path)
@@ -592,7 +564,7 @@ NEWER = {
 def test_rejestr_otwarty_w_excelu_przy_nowszej_wersji_wyjasnia_rejestr_a_aktualizacje_tylko_proponuje(
     tmp_path: Path,
 ) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=NEWER_MAIN)))
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(release=NEWER_MAIN)))
     lock(centrum.fixture.register_path)
     stop_of(centrum)
     repeated = run_to_end(centrum, dry_run=True)
@@ -605,10 +577,10 @@ def test_rejestr_otwarty_w_excelu_przy_nowszej_wersji_wyjasnia_rejestr_a_aktuali
 
 
 def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narzedzie_przyciskiem(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path
 ) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=NEWER_MAIN)))
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(release=NEWER_MAIN)))
+    run_id = stopped_for_maks(centrum)
 
     diagnosis = diagnose(centrum, run_id)
 
@@ -619,16 +591,17 @@ def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narz
 @pytest.mark.parametrize(
     ("github", "detail"),
     [
-        (FakeGitHub(main=None), "Nie sprawdzono: brak połączenia z GitHubem."),
+        (FakeGitHub(release=None), "Nie sprawdzono: brak połączenia z GitHubem."),
         (FakeGitHub(tool_commit=None), "Nie sprawdzono: narzędzie na tym komputerze nie ma commitu Gita."),
+        (FakeGitHub(release=NO_RELEASE), "Nie sprawdzono: na GitHubie nie ma jeszcze żadnego Wydania."),
     ],
-    ids=["brak-sieci", "bez-gita"],
+    ids=["brak-sieci", "bez-gita", "bez-wydania"],
 )
 def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyczyna(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github: FakeGitHub, detail: str
+    tmp_path: Path, github: FakeGitHub, detail: str
 ) -> None:
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=github))
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
 
     diagnosis = diagnose(centrum, run_id)
 
@@ -637,7 +610,7 @@ def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyc
 
 
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_nie_zmienia_wyjasnienia(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=None)))
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(release=None)))
     lock(centrum.fixture.register_path)
     stop_of(centrum)
     repeated = run_to_end(centrum, dry_run=True)
@@ -662,11 +635,9 @@ def online_only(centrum: PreparingCentrum | SettlingCentrum, path: Path) -> None
     onedrive.online_only.add(path)
 
 
-def test_rejestr_tylko_w_chmurze_wyjasnia_jak_zachowac_go_na_komputerze(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rejestr_tylko_w_chmurze_wyjasnia_jak_zachowac_go_na_komputerze(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     online_only(centrum, centrum.fixture.register_path)
 
     diagnosis = diagnose(centrum, run_id)
@@ -689,10 +660,10 @@ def test_rejestr_tylko_w_chmurze_wyjasnia_jak_zachowac_go_na_komputerze(
     ids=["rejestr", "wzorzec"],
 )
 def test_plik_tylko_w_chmurze_ktorego_nie_da_sie_otworzyc_wyjasnia_onedrive_a_nie_odczyt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cloud_file: Callable[[PreparingCentrum], Path]
+    tmp_path: Path, cloud_file: Callable[[PreparingCentrum], Path]
 ) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     path = cloud_file(centrum)
     online_only(centrum, path)
     path.write_bytes(b"bez kopii na komputerze OneDrive nie oddaje skoroszytu")
@@ -706,11 +677,9 @@ def test_plik_tylko_w_chmurze_ktorego_nie_da_sie_otworzyc_wyjasnia_onedrive_a_ni
     }
 
 
-def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     passing = diagnose(centrum, run_id)
     online_only(centrum, centrum.collective_file)
 
@@ -721,9 +690,9 @@ def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(
     assert diagnosis["explanation"]["where"] == f"plik Rozliczenie {PERIOD} - zbiorcze.xlsx, folder {PERIOD}"
 
 
-def test_pliki_tylko_w_chmurze_sprawdza_tylko_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pliki_tylko_w_chmurze_sprawdza_tylko_windows(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(onedrive=None))
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
 
     diagnosis = diagnose(centrum, run_id)
 
