@@ -13,7 +13,7 @@ nie trafia do dziennika Centrum: tylko etykieta, okres, numer issue i przyczyna 
 Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
 ``NewIssue`` zawsze zakłada nowe issue tak samo, bez wiersza rozpoznawczego. Kto czeka na wynik (Uwaga taty),
-dostaje numer issue przez ``delivered`` i może poczekać na dostarczenie przez ``wait_delivered``.
+dostaje numer issue przez ``on_delivered`` i może poczekać na dostarczenie przez ``wait_delivered``.
 """
 
 from __future__ import annotations
@@ -333,7 +333,7 @@ class Outbox:
 
     Każdy plik ma jednego autora (``post``, nowa nazwa) i jednego czytelnika, który go oznacza i usuwa (wątek
     ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie, i
-    adresy dostarczonych wysyłek; zbiory nazw plików zna tylko ten jeden wątek. ``delivered`` dostaje każdą
+    adresy dostarczonych wysyłek; zbiory nazw plików zna tylko ten jeden wątek. ``on_delivered`` dostaje każdą
     wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik dostanie znacznik.
     """
 
@@ -344,13 +344,13 @@ class Outbox:
         key: Callable[[], str | None],
         log: CentrumLog,
         *,
-        delivered: Callable[[Post, int], None] = lambda _post, _number: None,
+        on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
     ) -> None:
         self._directory = directory
         self._box = box
         self._key = key
         self._log = log
-        self._on_delivered = delivered
+        self._on_delivered = on_delivered
         self._sequence = itertools.count(1)
         self._lock = threading.Lock()  # tylko _draining, _again i _first_comments; nigdy na czas skrzynki ani pliku
         self._changed = threading.Condition(self._lock)
@@ -363,10 +363,10 @@ class Outbox:
     def resume(self) -> None:
         """Przy starcie Centrum: usuwa pozostałości urwanego zapisu i wysyła w tle wszystko, co czeka.
 
-        Woła go ``lifespan`` przed przyjęciem pierwszego zapytania HTTP. Wysyłkę tworzy tylko Uruchomienie, które
-        startuje z zapytania, a wątek wysyłki rusza dopiero tutaj, więc żaden ``*.tmp`` nie ma teraz autora: każdy
-        został po zapisie przerwanym w poprzedniej pracy Centrum (np. utrata zasilania). Plik ``.json`` obok niego,
-        jeśli jest, ma pełną treść sprzed tego zapisu. Start nie czeka na skrzynkę: pyta ją tylko wątek w tle.
+        Woła go ``lifespan`` przed przyjęciem pierwszego zapytania HTTP. Wysyłkę tworzy tylko zapytanie HTTP
+        (Uruchomienie albo „Wyślij” Uwagi taty), a wątek wysyłki rusza dopiero tutaj, więc żaden ``*.tmp`` nie ma
+        teraz autora: każdy został po zapisie przerwanym w poprzedniej pracy Centrum (np. utrata zasilania). Plik
+        ``.json`` obok niego, jeśli jest, ma pełną treść sprzed tego zapisu. Start nie czeka na skrzynkę: pyta ją tylko wątek w tle.
         """
 
         with suppress(OSError):

@@ -160,7 +160,7 @@ def create_app(
         box,
         lambda: read_report_key(config),
         log,
-        delivered=notes.delivered,
+        on_delivered=notes.delivered,
     )
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     stops = Stops(

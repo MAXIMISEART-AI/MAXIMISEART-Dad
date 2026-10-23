@@ -111,8 +111,14 @@ def test_wysylka_do_nowego_issue_wraca_z_pliku_kolejki_taka_sama() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["{", "[]", '{"schema_version": 2}', post(["x"]).to_json().replace('"kontrola-ilosci"', '"inna-etykieta"')],
-    ids=["urwany", "nie-obiekt", "nowszy-schemat", "nieznana-etykieta"],
+    [
+        "{",
+        "[]",
+        '{"schema_version": 2}',
+        post(["x"]).to_json().replace('"schema_version": 2', '"schema_version": 3'),
+        post(["x"]).to_json().replace('"kontrola-ilosci"', '"inna-etykieta"'),
+    ],
+    ids=["urwany", "nie-obiekt", "bez-celu", "nowszy-schemat", "nieznana-etykieta"],
 )
 def test_plik_kolejki_nieznany_albo_uszkodzony_nie_jest_wysylka(text: str) -> None:
     assert Post.from_json(text) is None

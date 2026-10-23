@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 import pytest
 
+from rozliczenia.centrum.dad_notes import DELIVERY_WAIT_S
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 
 from tests.fixtures.centrum import TOOL_COMMIT, Centrum, FakeIssue, centrum
@@ -121,10 +123,13 @@ def test_uwaga_bez_skrzynki_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_ce
     if outcome is not None:
         started.report_box.outcomes.append(outcome)
 
+    asked_at = time.monotonic()
     response = started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY})
 
     assert response.status_code == 200
     assert response.json() == {"state": "waiting"}
+    # Odpowiedź przychodzi z końcem nieudanej próby wysyłki, a nie po całym czasie czekania na skrzynkę.
+    assert time.monotonic() - asked_at < DELIVERY_WAIT_S
     assert started.report_box.issues == []
     [waiting] = queued(tmp_path)
     [note] = notes(tmp_path)
