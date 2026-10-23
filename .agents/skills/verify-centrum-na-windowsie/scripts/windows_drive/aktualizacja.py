@@ -65,6 +65,11 @@ def _click_update(run: Run, page: Page) -> tuple[dict[str, object], int]:
     page.goto(run.url + "#/konfiguracja")
     page.reload()
     card = page.get_by_role("region", name="Narzędzie", exact=True)
+    expect(
+        card,
+        "the button needs the real GitHub API to name a Wydanie the run's clone lacks (ADR 0014, #319); "
+        "`Nie sprawdzono` means no network or GitHub's hourly limit",
+    ).to_contain_text("Jest nowsza wersja")
     expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
     page.evaluate(f"{MARKER} = true")
     card.get_by_role("button", name=BUTTON, exact=True).click()
