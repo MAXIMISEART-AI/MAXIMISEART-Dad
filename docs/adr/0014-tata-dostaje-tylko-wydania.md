@@ -34,14 +34,18 @@ commicie `main` z zielonym CI. Wydanie powstaje tylko na prośbę Maksa. To
 moment na `verify-*` na prawdziwych plikach taty i na jedną notkę „Co nowego”
 zamiast każdej naprawy z osobna.
 
-- **Najnowsze Wydanie** to tag z najwyższym numerem, którego commit leży na
-  `main` (`tool_update.newest_on_main`). Liczy się numer, nie porządek
+- **Najnowsze Wydanie** to tag z najwyższym numerem, którego commit był
+  czubkiem `main`, czyli leży na linii pierwszych rodziców `main`
+  (`tool_update.newest_on_main`, `_main_tips`). Commit z gałęzi wciągniętej do
+  `main` zwykłym merge'em leży na `main`, ale nigdy nie był jego czubkiem, więc
+  uśpiony tag na nim (założony na gałęzi agenta) nie staje się Wydaniem. Liczy się numer, nie porządek
   alfabetyczny (`v0.10.0` jest nowsze niż `v0.9.0`). Tag z dopiskiem
   (`v1.0.0-rc1`), tag innego kształtu i tag na obiekcie innym niż commit nie są
   Wydaniami. Wyższe Wydanie spoza `main` (tag założony z gałęzi agenta) jest
   pominięte i nie zatrzymuje niższego Wydania na `main`; same Wydania spoza
   `main` to tak, jakby Wydań nie było. Ten sam wybór robią Aktualizacja
-  narzędzia, Aktualność narzędzia i instalacja z README.
+  narzędzia i instalacja z README; Aktualność narzędzia z jednym wyjątkiem
+  (niżej).
 - **Dowolny MAJOR.** #315 mówi o `v0.MINOR.PATCH`, ale kod przyjmuje każdy
   MAJOR. Gdyby kiedyś powstało `v1.0.0`, kod tylko z `v0` zostawiłby tatę na
   zawsze na ostatnim `v0`. Zabłąkany `v1.0.0` na `main` trafiłby do taty, tak
@@ -54,7 +58,7 @@ zamiast każdej naprawy z osobna.
   cofa wersji: klon, który już zawiera ten commit (także na nowszym commicie
   `main`), i GitHub bez Wydania na `main` to `AKTUALNA`, klon bez zmian.
   Pominięte Wydania spoza `main` dziennik Centrum zapisuje jako
-  `aktualizacja-pominiete-wydania`. Błąd Gita przy sprawdzaniu, czy Wydanie
+  `aktualizacja-pominiete-wydania`, jeszcze przed ponownym startem. Błąd Gita przy sprawdzaniu, czy Wydanie
   leży na `main`, kończy aktualizację z nieoczekiwanego powodu, a nie
   pominięciem.
 - **Aktualność narzędzia.** Diagnoza i Konfiguracja pytają API GitHuba o listę
@@ -69,6 +73,14 @@ zamiast każdej naprawy z osobna.
   Konfiguracja pamięta każdą odpowiedź, także „brak Wydania”, przez 10 minut,
   a brak odpowiedzi przez minutę: zwykle dwa pytania co 10 minut przy limicie
   60 na godzinę bez logowania.
+
+  Kompromis: API bez logowania mówi w jednym pytaniu tylko, czy commit leży na
+  `main` (osiągalny), a nie, czy był jego czubkiem. Linię pierwszych rodziców
+  trzeba by przejść commit po commicie, setki pytań na tydzień zmian. Aktualność
+  sprawdza więc osiągalność. Różni się od aktualizacji tylko przy uśpionym tagu
+  wciągniętym do `main` merge'em: Aktualność pokaże wtedy `Jest nowsza wersja`,
+  a aktualizacja odpowie `Masz najnowszą wersję.` i zapisze pominięcie w
+  dzienniku Centrum. Takiemu tagowi zapobiega brama pre-push i narzędzie Wydań.
 - **Tworzenie Wydania** (osobna zmiana, #316) sprawdza, że commit leży na
   `main` i ma zielone `Required CI status`, i dopiero wtedy zakłada tag i
   Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o
@@ -85,9 +97,11 @@ ręcznie. Ochrona ma trzy warstwy:
 
 - **Centrum pomija Wydanie spoza `main`** (wyżej). Tej warstwy nie omija ręczny
   tag z gałęzi agenta i pilnują jej testy w `tests/test_aktualizacja_narzedzia.py`.
-- **Brama pre-push odrzuca push agenta z `refs/tags/v*`.** Tag Wydania wypycha
-  tylko narzędzie Wydań, które ustawia `MAXIMISEART_WYDANIE=1`. Reguła i jej
-  strażnik są w tabeli `AGENTS.md`; `--no-verify` łapie tylko przegląd.
+- **Brama pre-push odrzuca push agenta z `refs/tags/v*`.** Tag Wydania i
+  GitHub Release tworzy tylko narzędzie Wydań, które ustawia
+  `MAXIMISEART_WYDANIE=1`. Reguła i jej strażnik są w tabeli `AGENTS.md`.
+  Granica strażnika: brama widzi tylko `git push`; `--no-verify`,
+  `gh release create`, `gh api` i stronę GitHuba łapie tylko przegląd.
 - **Tagi Wydań się nie zmieniają.** Ruleset dla tagów `v*` bez listy wyjątków
   blokuje ich przesunięcie i usunięcie, także adminowi. Niezmienne Wydania
   GitHuba (`immutable-releases`, dostępne w tym repozytorium, dziś wyłączone)
@@ -106,7 +120,9 @@ zrewertował, trafią do taty. Gdyby to było potrzebne, Centrum może pytać AP
   Wydania na nim albo przed nim Aktualność mówi `Aktualna`.
 - Pierwsze Wydanie `v0.1.0` powstaje na commicie merge'a po zielonym CI. Tag
   przed merge'em nie jest potrzebny: bez Wydania tata widzi prawdziwe `Nie
-  sprawdzono`, a `Masz najnowszą wersję.` przy kliknięciu.
+  sprawdzono`, a `Masz najnowszą wersję.` przy kliknięciu. Od merge'a do
+  potwierdzenia u taty nic nie wchodzi do `main`: stara wersja bierze `main` z
+  chwili kliknięcia, więc nowy commit trafiłby do taty bez Wydania.
 - Okno ryzyka: od merge'a do zielonego CI na jego commicie Diagnoza starej
   wersji dalej proponuje aktualizację, a stara wersja bierze `main` bez
   sprawdzenia CI. Gdy tata kliknie w tym oknie, a CI na tym commicie padnie,
