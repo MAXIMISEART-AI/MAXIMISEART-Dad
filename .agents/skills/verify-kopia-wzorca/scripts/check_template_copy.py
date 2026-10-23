@@ -60,6 +60,7 @@ sys.path[:0] = [str(SOURCE_ROOT), str(REPO_ROOT / "tools"), str(REPO_ROOT)]
 from hypothesis import HealthCheck, Phase, example, given, seed, settings  # noqa: E402
 from hypothesis import strategies as st  # noqa: E402
 from hypothesis.internal.conjecture import engine as hypothesis_engine  # noqa: E402
+from hypothesis.internal.cache import LRUCache  # noqa: E402
 from hypothesis.internal.conjecture import providers as hypothesis_providers  # noqa: E402
 from hypothesis.internal.constants_ast import Constants  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
@@ -1090,8 +1091,12 @@ def run_check(
             test = _property(run, template, explicit, examples, random_seed, phases)
             try:
                 # Hypothesis draws about one value in forty from the literals of the non-test modules loaded in the
-                # process; without them the test alone and the full pytest check the same examples (#288).
-                with mock.patch.object(hypothesis_providers, "_get_local_constants", Constants):
+                # process and keeps the ones it may draw in a cache shared by every Hypothesis run in the process.
+                # Without both the test alone and the full pytest check the same examples (#288).
+                with (
+                    mock.patch.object(hypothesis_providers, "_get_local_constants", Constants),
+                    mock.patch.object(hypothesis_providers, "CONSTANTS_CACHE", LRUCache(1024)),
+                ):
                     test()
             except Violation as violation:
                 failures.append(violation)
