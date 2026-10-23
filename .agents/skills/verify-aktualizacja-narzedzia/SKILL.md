@@ -66,7 +66,7 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `8463954` (2026-10-23, ADR 0014: `ToolClone.update` fetches
+Sync commit: `4a4d550` (2026-10-23, ADR 0014: `ToolClone.update` fetches
 `stabilna` instead of `main`; a clone that already contains it and a GitHub
 without that branch both end in `AKTUALNA` with the clone unchanged, the same
 outcome as `head = "nowa"` in `Pobranie`, so only its comments and strings
