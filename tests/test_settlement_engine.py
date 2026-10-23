@@ -316,7 +316,7 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
     expected_directory.mkdir()
     adrian = f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
     # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
-    adrian_rows = [row for row in read_data_rows(source_path) if row.number in (18, 20)]
+    adrian_rows = [row for row in read_data_rows(source_path).rows if row.number in (18, 20)]
     twin = refused_by_copy(Path(shutil.copy(worker_template_path, tmp_path / "bliźniak Wzorca.xlsx")))
     TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(expected_directory / adrian, adrian_rows)
 

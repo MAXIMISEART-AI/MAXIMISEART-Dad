@@ -37,6 +37,12 @@ opisu technika.
   niedostępność usług, puste `URZĄDZENIA`) zostają bez ilości. Uruchomienie
   kończy się wynikiem wymagającym sprawdzenia. Ostrzeżenia podają numery obu
   rodzajów wierszy i przypominają o kolumnach z opisu technika.
+- **Sprawdzenia wymaga zapisany Plik zbiorczy, a nie podgląd.** Przypomnienie
+  o kolumnach z opisu technika jest zawsze, więc każde Przygotowanie z zapisem
+  wymaga sprawdzenia. Podgląd bez zapisu pokazuje te same ostrzeżenia, ale
+  kończy się wynikiem OK: tacie zostaje `Uruchom`, a podgląd liczy się jako
+  udany. Ostrzeżeń ilości nie da się usunąć przed zapisem, bo dotyczą pliku,
+  który dopiero powstanie.
 - **Plik wygląda tak, jakby wypełnił go tata.** Zera zostają tylko tam, gdzie
   ma je Wzorzec pliku zbiorczego. Komórki wypełnione przez narzędzie nie są
   oznaczane, bo Wyróżnienia przechodzą do Rozliczeń pracowników.

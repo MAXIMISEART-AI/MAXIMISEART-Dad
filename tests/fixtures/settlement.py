@@ -6,6 +6,8 @@ budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -100,6 +102,43 @@ def write_source(path: Path, *, include_unmapped: bool = True) -> None:
         sheet.cell(row_number, 6).value = order_number
         sheet.cell(row_number, 8).value = worker
         sheet.cell(row_number, 14).value = row_number - 17
+    workbook.save(path)
+
+
+CellValue = str | int | float | datetime | date | None
+
+# Nagłówki A17:K17 Wzorca pliku zbiorczego taty, pod którymi Przygotowanie zapisuje kolumny wejścia.
+COLLECTIVE_HEADERS = (
+    "MIASTO",
+    "ADRES",
+    "UMOWA",
+    "URZĄDZENIA",
+    "CZYNNOŚCI",
+    "NUMER ZL.",
+    "DATA",
+    "WYKONAWCA",
+    "NUMER UMOWY/ZLECENIA ORANGE",
+    "SKUTECZNE",
+    "CZYNNOŚCI ZREALIZOWANE",
+)
+
+
+def write_quantity_source(path: Path, rows: Sequence[Mapping[str, CellValue]]) -> None:
+    """Plik zbiorczy z nagłówkami A17:K17 Wzorca i Wierszami danych od 18: litera kolumny → wartość.
+
+    Bez podanej wartości wiersz ma syntetyczne MIASTO, ADRES, NUMER ZL. i SKUTECZNE oraz Wykonawcę
+    ``adrian.testowy``, więc Przebieg z zapisem kończy się wynikiem.
+    """
+
+    workbook = Workbook()
+    sheet = active_worksheet(workbook)
+    sheet.title = "Sheet1"
+    for column, header in enumerate(COLLECTIVE_HEADERS, start=1):
+        sheet.cell(17, column).value = header
+    for number, cells in enumerate(rows, start=18):
+        defaults: dict[str, CellValue] = {"A": "POZNAŃ", "B": f"syntetyczny adres {number}", "F": f"#{number}", "H": "adrian.testowy", "J": "tak"}
+        for letter, value in {**defaults, **cells}.items():
+            sheet[f"{letter}{number}"] = value
     workbook.save(path)
 
 

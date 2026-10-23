@@ -42,7 +42,7 @@ From the repository root, after `tools/setup_worktree.py` in a worktree:
 ```
 
 One command runs the whole path. It ends with `VERIFY OK | wzorce=prawdziwe |
-steps=28 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
+steps=29 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
 Maks's Mac with Excel 16.114 it took 2:56 with Dad's Wzorce and 77 s with
 `syntetyczne`.
 
@@ -116,7 +116,8 @@ the same setting fixes it.
    into `<run root>/okres`.
 2. The doctor.
 3. Przygotowanie pliku zbiorczego through `tools/uruchom_proces.py
-   preparation` (JSON result, exit `0`).
+   preparation` (JSON result, exit `2` Wymaga sprawdzenia: Przygotowanie ends a
+   write so only for the Ilości usług warnings).
 4. Both Wzorce opened in Excel as the reference: their link names and the R1C1
    formulas of `AU18:AY18`.
 5. [Otwarcie plików okresu](features/otwarcie-plikow-okresu.md).

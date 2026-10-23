@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -18,9 +18,14 @@ from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
-    FindOutcome,
+    REPORT_LABEL,
+    REPOSITORY,
+    CommentOutcome,
+    Commented,
+    Issue,
+    IssuesOutcome,
+    Label,
     Refused,
-    Report,
     SendOutcome,
     Sent,
     StatesOutcome,
@@ -67,46 +72,97 @@ class FakePlatform:
 
 
 @dataclass
-class FakeReportBox:
-    """Skrzynka Zgłoszeń zastąpiona zapisem wysłanych Zgłoszeń i przygotowanymi wynikami wysyłki.
+class FakeIssue:
+    """Issue fałszywej skrzynki: etykieta, tytuł i treść, jak je założyło Centrum."""
 
-    Bez przygotowanego wyniku każde Zgłoszenie dostaje kolejny numer issue i jest
-    otwarte (``open``: odcisk problemu → numer), dopóki Maks nie zamknie jego
-    numeru (``close``). ``search_failure`` to odmowa albo brak połączenia przy
-    każdym pytaniu o otwarte Zgłoszenie, ``states_failure`` to porażka każdego
+    number: int
+    label: Label
+    title: str
+    body: str
+    comments: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FakeReportBox:
+    """Skrzynka Zgłoszeń zastąpiona zapisem założonych issue i przygotowanymi wynikami.
+
+    Bez przygotowanego wyniku (``outcomes``, po jednym na każde zakładane issue) każde
+    issue dostaje kolejny numer i jest otwarte, dopóki Maks nie zamknie jego numeru
+    (``close``); komentarz do issue, którego nie ma, to odmowa jak 404 GitHuba. ``sent`` to Zgłoszenia (etykieta ``zgloszenie``), a ``issues_with``
+    issue innej etykiety. ``search_failure`` to odmowa albo brak połączenia przy
+    każdym pytaniu o issue z etykietą, ``states_failure`` to porażka każdego
     zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
-    ``search_hold`` to skrzynka, która na pytanie o otwarte Zgłoszenie odpowiada
+    ``search_hold`` to skrzynka, która na pytanie o issue z etykietą odpowiada
     dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
-    mówi, że takie pytanie już trwa.
+    mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
+    z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy.
+    ``wait_until`` czeka na wysyłkę w tle.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
-    sent: list[Report] = field(default_factory=list)
+    issues: list[FakeIssue] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
-    open: dict[str, int] = field(default_factory=dict)
     closed: set[int] = field(default_factory=set)
     search_failure: Refused | Unreachable | None = None
     states_failure: Refused | Unreachable | None = None
     asked: list[list[int]] = field(default_factory=list)
     search_hold: threading.Event | None = None
     searching: threading.Event = field(default_factory=threading.Event)
+    open_hold: threading.Event | None = None
+    opening: threading.Event = field(default_factory=threading.Event)
+    comment_outcomes: list[CommentOutcome] = field(default_factory=list)
+    _changed: threading.Condition = field(default_factory=threading.Condition)
 
-    def send(self, report: Report, *, key: str) -> SendOutcome:
-        self.keys.append(key)
-        outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.sent) + 1)
-        if isinstance(outcome, Sent):
-            self.sent.append(report)
-            self.open[report.fingerprint] = outcome.number
+    def wait_until(self, condition: Callable[[FakeReportBox], bool], seconds: float = 30) -> bool:
+        """Czeka, aż skrzynka dostanie to, czego test oczekuje (wysyłka w tle); ``False`` po ``seconds``."""
+
+        with self._changed:
+            return self._changed.wait_for(lambda: condition(self), seconds)
+
+    @property
+    def sent(self) -> list[FakeIssue]:
+        return self.issues_with(REPORT_LABEL)
+
+    def issues_with(self, label: Label) -> list[FakeIssue]:
+        with self._changed:
+            return [issue for issue in self.issues if issue.label == label]
+
+    def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
+        self.opening.set()
+        if self.open_hold is not None:
+            self.open_hold.wait()
+        with self._changed:
+            self.keys.append(key)
+            outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.issues) + 1)
+            if isinstance(outcome, Sent):
+                self.issues.append(FakeIssue(outcome.number, label, title, body))
+            self._changed.notify_all()
         return outcome
 
-    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+    def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
+        with self._changed:
+            self.keys.append(key)
+            self._changed.notify_all()
+            if self.comment_outcomes:
+                return self.comment_outcomes.pop(0)
+            issue = next((issue for issue in self.issues if issue.number == number), None)
+            if issue is None:
+                return Refused()
+            issue.comments.append(body)
+            comment_id = sum(len(issue.comments) for issue in self.issues)
+        return Commented(comment_id, f"https://github.com/{REPOSITORY}/issues/{number}#issuecomment-{comment_id}")
+
+    def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         self.searching.set()
         if self.search_hold is not None:
             self.search_hold.wait()
         if self.search_failure is not None:
             return self.search_failure
-        number = self.open.get(fingerprint)
-        return None if number is None or number in self.closed else number
+        return tuple(
+            Issue(issue.number, issue.body)
+            for issue in self.issues_with(label)
+            if include_closed or issue.number not in self.closed
+        )
 
     def close(self, number: int) -> None:
         self.closed.add(number)

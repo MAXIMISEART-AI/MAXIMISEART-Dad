@@ -34,14 +34,22 @@ the same run root and port: the restarted Centrum keeps every scripted boundary
 and rewrites ``server.json`` with its own pid.
 
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
-directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
-``<number>.json`` with its title, body, label, and ``state`` (``open``; the
+directory, ``<root>/skrzynka-zgloszen/``: each issue Centrum opens (a Zgłoszenie
+Dad sends, or a Kontrola ilości Centrum sends by itself) becomes
+``<number>.json`` with its title, body, label, comments, and ``state`` (``open``; the
 drive may edit it to ``closed``, which Centrum reads as Maks closing the
-Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file whose body
-has its fingerprint line. The key is never written there. While
+Zgłoszenie). Asked for the issues with a label, the skrzynka lists the files
+with that label, only the ``open`` ones unless closed issues are asked for too;
+Centrum takes the newest one whose body has its exact line (the fingerprint
+line of a Zgłoszenie's problem, or the period line of a Kontrola ilości, which
+then goes into that file's ``comments``). The key is never written
+there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 Each question about the state of sent Zgłoszenia appends its numbers to
-``<root>/skrzynka-zgloszen-zapytania.jsonl``.
+``<root>/skrzynka-zgloszen-zapytania.jsonl``. While ``<root>/pacing/skrzynka-ms.txt``
+exists, the skrzynka waits that many milliseconds before it opens an issue, like
+GitHub over a slow connection, so the drive can see that Centrum starts without
+waiting for the Kontrole ilości it sends again at start.
 
 Centrum asks the skrzynka for the state of sent Zgłoszenia at most once per 10
 minutes of its monotonic clock; ``<root>/zegar/przesuniecie-min.txt`` moves that
@@ -104,15 +112,17 @@ from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.processes import Processes  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
-    LABEL,
-    FindOutcome,
+    CommentOutcome,
+    Commented,
+    Issue,
+    IssuesOutcome,
     IssueState,
-    Report,
+    Label,
+    Refused,
     SendOutcome,
     Sent,
     StatesOutcome,
     Unreachable,
-    fingerprint_line,
 )
 from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
 from rozliczenia.centrum.server import serve  # noqa: E402
@@ -157,28 +167,48 @@ class FileReportBox:
 
     def __init__(self, directory: Path) -> None:
         self._directory = directory
+        self._pacing = directory.parent / "pacing" / "skrzynka-ms.txt"
         self._lock = threading.Lock()
 
-    def send(self, report: Report, *, key: str) -> SendOutcome:
+    def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
+        if self._pacing.exists():
+            time.sleep(int(self._pacing.read_text(encoding="utf-8")) / 1000)
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
         with self._lock:
             self._directory.mkdir(parents=True, exist_ok=True)
             number = len(list(self._directory.glob("*.json"))) + 1
-            issue = {"number": number, "title": report.title, "body": report.body, "labels": [LABEL], "state": "open"}
+            issue = {"number": number, "title": title, "body": body, "labels": [label], "state": "open"}
             (self._directory / f"{number}.json").write_text(
                 json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
         return Sent(number)
 
-    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+    def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
+        """The comment goes into the issue's own file, so numbering by ``*.json`` stays the issue count."""
+
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
-        line = fingerprint_line(fingerprint)
+        path = self._directory / f"{number}.json"
+        with self._lock:
+            if not path.is_file():
+                return Refused()
+            issue = json.loads(path.read_text(encoding="utf-8"))
+            issue["comments"] = [*issue.get("comments", []), body]
+            path.write_text(json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            comment_id = len(issue["comments"])
+        return Commented(comment_id, f"{path.as_uri()}#komentarz-{comment_id}")
+
+    def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
+        if (self._directory / "brak-sieci").exists():
+            return Unreachable()
         with self._lock:
             issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
-        found = [issue["number"] for issue in issues if issue["state"] == "open" and line in issue["body"].splitlines()]
-        return min(found, default=None)
+        return tuple(
+            Issue(issue["number"], issue["body"])
+            for issue in issues
+            if issue["labels"] == [label] and (include_closed or issue["state"] == "open")
+        )
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
         with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:

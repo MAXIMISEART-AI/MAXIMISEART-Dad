@@ -59,9 +59,16 @@ def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation
     )
 
 
-def _finished(summary: PreparationSummary) -> Finished:
+def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finished:
+    """Zapisany Plik zbiorczy z ostrzeżeniami ilości wymaga sprawdzenia: tata uzupełnia go przed Przebiegiem rozliczeń.
+
+    Podgląd bez zapisu nic nie tworzy, więc z tymi samymi ostrzeżeniami kończy się wynikiem OK i prowadzi do zapisu.
+    Pozostałe ostrzeżenia nie zmieniają wyniku.
+    """
+
+    to_complete = any(warning.code in messages.QUANTITY_WARNINGS for warning in summary.warnings)
     return Finished(
-        result="OK",
+        result="WYMAGA_SPRAWDZENIA" if to_complete and not inputs.dry_run else "OK",
         counters={
             "period_orders": summary.period_order_count,
             "successful_orders": summary.successful_order_count,

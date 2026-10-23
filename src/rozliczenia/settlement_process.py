@@ -59,7 +59,7 @@ def _execute(
     )
 
 
-def _finished(summary: SettlementSummary) -> Finished:
+def _finished(_inputs: SettlementInputs, summary: SettlementSummary) -> Finished:
     return Finished(
         result="OK" if summary.ok else "WYMAGA_SPRAWDZENIA",
         counters={

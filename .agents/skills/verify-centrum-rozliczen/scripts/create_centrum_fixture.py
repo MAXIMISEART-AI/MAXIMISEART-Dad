@@ -139,6 +139,9 @@ ORDERS = (
     (datetime(2026, 10, 8, 12, 0), "wykonawca.b", "tak"),
     (datetime(2026, 10, 10, 9, 30), "wykonawca.c", "tak"),
 )
+# URZĄDZENIA by order number; every other order's URZĄDZENIA is its row marker, a device the Reguły ilości do not
+# know. Plik zbiorczy rows 18 and 20 (orders 2 and 5) warn about the unknown device, row 19 (order 4) about prewencja.
+DEVICES = {4: "prewencja"}
 # What Przygotowanie pliku zbiorczego of LAST_COMPLETE reports for these orders (orders per day from Tuesday).
 EXPECTED_PREPARATION = {
     "period_order_count": 4,
@@ -160,6 +163,7 @@ def _register(path: Path) -> None:
         content = f"{ROW_MARKER}-{number:03d}"
         values: dict[str, object] = dict.fromkeys(REGISTER_HEADERS, content)
         values.update({"DATA GODZ. POCZ.": started, "WYKONAWCA": worker, "SKUTECZNE": successful})
+        values["URZĄDZENIA"] = DEVICES.get(number, content)
         sheet.append([values[header] for header in REGISTER_HEADERS])
     workbook.save(path)
 
