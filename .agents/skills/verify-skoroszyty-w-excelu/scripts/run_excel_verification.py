@@ -33,6 +33,12 @@ SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 OTHER_SKILL = REPO_ROOT / ".agents" / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = REPO_ROOT / "tools" / "uruchom_proces.py"
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from rozliczenia.preparation_messages import QUANTITY_WARNINGS  # noqa: E402
+
+# Exit code of the machine script for Wymaga sprawdzenia.
+NEEDS_REVIEW_EXIT = 2
 PERIOD = "08_14_09_2026"
 TEMPLATE_NAMES = (
     "Wzorzec rozliczenia wewnętrznego.xlsx",
@@ -148,7 +154,9 @@ def _environment() -> dict[str, str]:
     return environment
 
 
-def _python(run: Run, name: str, arguments: list[str], *, json_output: bool = False) -> object:
+def _python(
+    run: Run, name: str, arguments: list[str], *, json_output: bool = False, accepted_exits: tuple[int, ...] = (0,)
+) -> object:
     """Run a helper or the process script with this Python; record its output and exit code as evidence."""
 
     completed = subprocess.run(
@@ -166,7 +174,7 @@ def _python(run: Run, name: str, arguments: list[str], *, json_output: bool = Fa
     else:
         text = f"exit_code={completed.returncode}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         (run.evidence / f"{name}.txt").write_text(text, encoding="utf-8")
-    if completed.returncode != 0:
+    if completed.returncode not in accepted_exits:
         print(completed.stdout + completed.stderr, file=sys.stderr)
         raise VerificationFailure(f"{name} exited {completed.returncode}")
     return record.get("result")
@@ -232,8 +240,15 @@ def preparation(run: Run) -> None:
             "--metrics", str(run.root / "przygotowanie-metrics.jsonl"),
         ],
         json_output=True,
+        accepted_exits=(0, NEEDS_REVIEW_EXIT),
     )
-    expect(isinstance(result, dict) and result.get("result") == "OK", "Przygotowanie did not end OK")
+    expect(isinstance(result, dict), "Przygotowanie printed no result")
+    assert isinstance(result, dict)
+    codes = {warning["code"] for warning in result["warnings"]}
+    expect(
+        result["result"] == "WYMAGA_SPRAWDZENIA" and bool(codes & QUANTITY_WARNINGS),
+        "Przygotowanie did not end Wymaga sprawdzenia for the Ilości usług warnings",
+    )
     expect(run.collective_file.is_file() and run.internal_file.is_file(), "Przygotowanie left no period files")
 
 

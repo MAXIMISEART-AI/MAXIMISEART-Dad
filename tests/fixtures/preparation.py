@@ -6,7 +6,7 @@ budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -20,8 +20,10 @@ from rozliczenia.collective_preparation import (
     PreparationSummary,
     prepare_collective_file,
 )
+from rozliczenia import preparation_messages
 from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
+from rozliczenia.message import Message
 from tests.fixtures.settlement import write_mapping
 from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture
 
@@ -502,3 +504,9 @@ def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
     """Okres 08_14_09_2026, w którym ostatnie zlecenie jest z soboty."""
 
     return make_preparation_fixture(tmp_path, incomplete_period_rows())
+
+
+def other_warnings(warnings: Sequence[Message]) -> list[Message]:
+    """Ostrzeżenia Przygotowania bez ostrzeżeń ilości, które ma każdy okres (``tests/test_ostrzezenia_ilosci.py``)."""
+
+    return [warning for warning in warnings if warning.code not in preparation_messages.QUANTITY_WARNINGS]

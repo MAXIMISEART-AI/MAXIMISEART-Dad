@@ -123,8 +123,8 @@ class Process(Generic[InputsT, SummaryT]):
     Komunikaty zakończeń z tego samego katalogu (``unexpected_failure``,
     ``plan_not_shown``, ``summary_not_shown``) rdzeń dołącza do każdego innego
     zatrzymania, więc żaden rozmówca nie dobiera treści sam. ``finished`` to
-    czysta funkcja faktów zakończonego procesu. ``metrics_path`` to domyślny
-    plik metryk procesu.
+    czysta funkcja faktów zakończonego procesu z jego wejścia i podsumowania.
+    ``metrics_path`` to domyślny plik metryk procesu.
     """
 
     name: str
@@ -132,7 +132,7 @@ class Process(Generic[InputsT, SummaryT]):
     metrics_path: Callable[[], Path]
     metrics_failure_tail: str
     execute: Callable[[InputsT, ProgressObserver, Conversation], SummaryT]
-    finished: Callable[[SummaryT], Finished]
+    finished: Callable[[InputsT, SummaryT], Finished]
     unexpected_failure: Message
     plan_not_shown: Message
     summary_not_shown: Message
@@ -249,7 +249,7 @@ def _run_engine(
         summary = process.execute(inputs, observation, conversation)
     except Exception as error:  # noqa: BLE001 - granica procesu: _stop_from rozróżnia błąd typowany od nieoczekiwanego
         return _stop_from(error, process)
-    return lambda: (process.finished(summary), view(inputs, summary))
+    return lambda: (process.finished(inputs, summary), view(inputs, summary))
 
 
 def _build_summary(

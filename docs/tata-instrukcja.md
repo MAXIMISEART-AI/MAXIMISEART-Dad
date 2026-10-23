@@ -278,7 +278,8 @@ Rejestr zleceń i folder okresów wskazujesz raz w `Ustawieniach` na stronie
    okresu?` z liczbami `Zlecenia na dzień`. Kliknij `Kontynuuj` albo `Przerwij
    bez zapisu`. Okienko czeka na Ciebie także po odświeżeniu albo ponownym
    otwarciu karty.
-5. Wynik `Plik zbiorczy przygotowany` oznacza, że oba pliki powstały razem.
+5. Wynik `Plik zbiorczy przygotowany · wymaga sprawdzenia` oznacza, że oba
+   pliki powstały razem, a ostrzeżenia pod nim mówią, co uzupełnić.
    Przycisk `Folder okresu` otwiera folder z nimi, a na stronie `Okresy` okres
    ma Status `Plik zbiorczy przygotowany`.
 
@@ -294,18 +295,19 @@ uruchomienie dostaje komunikat, że trwa już Uruchomienie procesu. Zakładka
 
 ### Co sprawdzić po zakończeniu
 
-- Wynik `Plik zbiorczy przygotowany` oznacza, że oba pliki powstały razem.
-  Zatrzymanie oznacza, że nie powstał żaden plik. Wtedy znajdź komunikat w
-  tabeli poniżej. Jedyny wyjątek to komunikat, że pliki okresu powstały, ale
-  nie udało się pokazać podsumowania.
+- Wynik `Plik zbiorczy przygotowany · wymaga sprawdzenia` oznacza, że oba
+  pliki powstały razem. Zatrzymanie oznacza, że nie powstał żaden plik. Wtedy
+  znajdź komunikat w tabeli poniżej. Jedyny wyjątek to komunikat, że pliki
+  okresu powstały, ale nie udało się pokazać podsumowania.
 - Sprawdź podsumowanie: `Zlecenia okresu`, `Zlecenia skuteczne`,
   `Pominięte puste wiersze` i `Zlecenia na dzień`. Dzień z liczbą `0` może
   oznaczać brakujący eksport.
 - `Pominięte puste wiersze` to wszystkie całkowicie puste wiersze Rejestru od
   pierwszego do ostatniego zlecenia okresu, także te między zleceniami innych
   tygodni. Nie trafiają do żadnego pliku.
-- Liczba `Ostrzeżenia` większa od `0` oznacza, że pliki powstały, ale coś
-  wymaga uwagi. Każde ostrzeżenie jest opisane w tabeli poniżej.
+- Liczba `Ostrzeżenia` to ostrzeżenia pod wynikiem: pliki powstały, ale coś
+  wymaga uwagi, co najmniej kolumny z opisu technika. Każde ostrzeżenie jest
+  opisane w tabeli poniżej.
 - W Folderze okresu (np. `INEA\08_14_09_2026`) są dwa nowe pliki:
   `Rozliczenie wew. {okres}.xlsx` i `Rozliczenie {okres} - zbiorcze.xlsx`.
 - Rozliczenie wewnętrzne ma wszystkie zlecenia okresu, skuteczne i
@@ -369,12 +371,20 @@ którego nie udało się usunąć, w Folderze okresu został wskazany plik.
 #### Ostrzeżenia
 
 Ostrzeżenie nie zatrzymuje procesu. Ostrzeżenie o niepełnym okresie pojawia
-się przed zapisem w okienku `Kontynuować mimo niepełnego okresu?`. Ostrzeżenie
-o wierszach z zerami pojawia się w podsumowaniu, gdy pliki już powstały.
+się przed zapisem w okienku `Kontynuować mimo niepełnego okresu?`. Pozostałe
+ostrzeżenia są pod wynikiem, a podgląd bez zapisu pokazuje je zawsze takie same
+jak zapis. Ostrzeżenia o ilościach do uzupełnienia wskazują numery wierszy
+Pliku zbiorczego, a nie Rejestru zleceń. Przypomnienie o kolumnach z opisu
+technika jest zawsze, więc wynik zapisu to `Plik zbiorczy przygotowany ·
+wymaga sprawdzenia`: pliki powstały, a Ty uzupełniasz Plik zbiorczy przed
+Przebiegiem rozliczeń.
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „Rejestr zleceń może nie mieć jeszcze wszystkich zleceń tego okresu” | Sprawdź `Zlecenia na dzień`. Jeśli brakuje zleceń z końca tygodnia, kliknij `Przerwij bez zapisu`, uzupełnij eksport w Rejestrze, zapisz go, zamknij i uruchom ponownie. Jeśli w te dni naprawdę nie było zleceń, kliknij `Kontynuuj`. |
+| „Narzędzie nie zna urządzenia z kolumny URZĄDZENIA” | W tych wierszach narzędzie wpisało tylko V, T i N. Uzupełnij pozostałe ilości ręcznie. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie. |
+| „rozlicza się z opisu technika” | Prewencja, niedostępność usług albo puste `URZĄDZENIA`: narzędzie nie wpisało w tych wierszach żadnych ilości. Wpisz je według `CZYNNOŚCI ZREALIZOWANE`. |
+| „Ilości, które wynikają z opisu technika” | Przypomnienie przy każdym Przygotowaniu. W kolumnach Y, AB, AD, AJ, AK, AL i AM uzupełnij ilości według `CZYNNOŚCI ZREALIZOWANE` w każdym wierszu. |
 | „Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości” | Pliki powstały. We wskazanych wierszach Pliku zbiorczego wpisz ilości ręcznie. Jeśli zdarza się to często, poproś osobę utrzymującą narzędzie o dodanie wierszy z zerami we Wzorcu pliku zbiorczego. |
 
 ## Przebieg rozliczeń

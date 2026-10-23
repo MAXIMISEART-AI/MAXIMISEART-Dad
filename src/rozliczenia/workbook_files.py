@@ -632,8 +632,10 @@ def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> t
 
 @dataclass(frozen=True)
 class TemplatePlan:
-    """Planowanie Wierszy danych we Wzorcu: ile kolejnych Wierszy danych ma zera w N:AP i który wiersz jest za nimi."""
+    """Planowanie Wierszy danych we Wzorcu: wiersze, do których trafią, ile kolejnych Wierszy danych ma zera w N:AP
+    i który wiersz jest za nimi."""
 
+    data_rows: range
     zero_row_count: int
     first_row_without_zeros: int
 
@@ -691,7 +693,10 @@ class TemplateFile:
         outline = _read_outline(self.path, self._rules)
         columns = _columns(self.path, outline.title, self._rules, outline.header, self._headers)
         _ensure_unmerged(self.path, outline.title, outline.merged_ranges, self._rules, columns, row_count)
-        return TemplatePlan(outline.zero_row_count, self._rules.first_data_row + outline.zero_row_count)
+        first_row = self._rules.first_data_row
+        return TemplatePlan(
+            range(first_row, first_row + row_count), outline.zero_row_count, first_row + outline.zero_row_count
+        )
 
     def create(self, target: Path, rows: Sequence[DataRow]) -> None:
         """Zapisuje atomowo pod ``target`` plik z Wzorca z ``rows`` od pierwszego Wiersza danych.

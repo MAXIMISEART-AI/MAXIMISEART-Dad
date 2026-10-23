@@ -244,7 +244,9 @@ Na stdout trafia jeden obiekt JSON w kształcie kontraktu Centrum: wynik,
 podsumowanie z karty Uruchomienia, ostrzeżenia i Zatrzymanie z kodem
 Komunikatu, ostatni stan postępu, `Czas uruchomienia` i informacja o zapisie
 metryk. Pełny opis pól jest w opisie skryptu (`--help`). Kody wyjścia: `0` OK,
-`2` Wymaga sprawdzenia, `1` Zatrzymanie albo błędne argumenty.
+`2` Wymaga sprawdzenia, `1` Zatrzymanie albo błędne argumenty. Przygotowanie z
+zapisem kończy się kodem `2`, bo ma zawsze ostrzeżenia o ilościach do
+uzupełnienia; podgląd bez zapisu z tymi samymi ostrzeżeniami kończy się kodem `0`.
 
 ## Testy
 

@@ -9,8 +9,8 @@ Komunikatem dla taty, a wynik nie zawiera danych klientów.
 Ten moduł sekwencjonuje cztery etapy i między Planowaniem a Zapisywaniem
 składa Decyzję taty o niepełnym okresie. Odczyt Rejestru zleceń jest w
 ``preparation_register``, wybór zleceń okresu i reguły zleceń w
-``preparation_plan``, Ilości usług zleceń w ``quantity_rules``, a wzorce i zapis plików okresu w
-``preparation_files``.
+``preparation_plan``, Ilości usług zleceń w ``quantity_rules`` (wyznaczane w Planowaniu, więc podgląd bez zapisu
+ma te same ostrzeżenia ilości co zapis), a wzorce i zapis plików okresu w ``preparation_files``.
 """
 
 from __future__ import annotations
@@ -174,8 +174,8 @@ def prepare_collective_file(
 
     def plan_orders() -> tuple[preparation_plan.Plan, list[Message]]:
         plan = preparation_plan.plan_period_orders(register_path, register, folder.period, config_path, worker_mapping)
-        warnings = preparation_files.plan_period_files(files, len(plan.orders), len(plan.successful_orders))
-        warnings.extend(preparation_plan.period_warnings(register_path, plan))
+        warnings = preparation_plan.period_warnings(register_path, plan)
+        warnings.extend(preparation_files.plan_period_files(files, len(plan.orders), plan.collective_rows))
         return plan, warnings
 
     plan, warnings = phases.plan(plan_orders, issue_count=lambda planned: len(planned[1]))
@@ -183,7 +183,7 @@ def prepare_collective_file(
         internal_settlement_file=folder.internal_settlement,
         collective_file=folder.collective_file,
         period_order_count=len(plan.orders),
-        successful_order_count=len(plan.successful_orders),
+        successful_order_count=len(plan.collective_rows),
         skipped_empty_rows=plan.skipped_empty_rows,
         orders_per_day=plan.orders_per_day,
         warnings=warnings,
@@ -198,7 +198,7 @@ def prepare_collective_file(
 
     def save_both() -> None:
         if not dry_run:
-            preparation_files.write_period_files(files, plan.orders, plan.successful_orders)
+            preparation_files.write_period_files(files, plan.orders, plan.collective_rows)
 
     phases.save(save_both)
     return replace(summary, phase_durations_ms=phases.durations_ms())

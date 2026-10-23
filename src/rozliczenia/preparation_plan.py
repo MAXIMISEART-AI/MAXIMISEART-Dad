@@ -1,4 +1,4 @@
-"""Wybór zleceń okresu i reguły zleceń w Przygotowaniu pliku zbiorczego (etap Planowanie).
+"""Wybór zleceń okresu, reguły zleceń i Reguły ilości w Przygotowaniu pliku zbiorczego (etap Planowanie).
 
 Zakres okresu w Rejestrze to wiersze od pierwszego do ostatniego zlecenia
 okresu w arkuszu ze zleceniami. W tym zakresie wiersz z danymi bez poprawnej
@@ -42,24 +42,33 @@ class PeriodOrder:
     def is_successful(self) -> bool:
         return normalize_text(cell_value(self.row, SUCCESSFUL)) == _SUCCESSFUL_VALUE
 
-    @property
-    def rule_result(self) -> RuleResult:
-        """Reguły ilości zastosowane do treści zlecenia."""
 
+@dataclass(frozen=True)
+class CollectiveRow:
+    """Wiersz danych Pliku zbiorczego: Zlecenie skuteczne i wynik Reguł ilości dla jego treści."""
+
+    order: PeriodOrder
+    rule_result: RuleResult
+
+    @classmethod
+    def of(cls, order: PeriodOrder) -> CollectiveRow:
         content = OrderContent(
-            contract=cell_value(self.row, CONTRACT),
-            devices=cell_value(self.row, DEVICES),
-            activities=cell_value(self.row, ACTIVITIES),
-            started=self.started,
+            contract=cell_value(order.row, CONTRACT),
+            devices=cell_value(order.row, DEVICES),
+            activities=cell_value(order.row, ACTIVITIES),
+            started=order.started,
         )
-        return evaluate(content)
+        return cls(order, evaluate(content))
 
 
 @dataclass(frozen=True)
 class Plan:
+    """Plan okresu; ``collective_rows`` to Zlecenia skuteczne w kolejności Rejestru, tak jak trafią do Pliku zbiorczego."""
+
     period: SettlementPeriod
     sheet: str
     orders: list[PeriodOrder]
+    collective_rows: list[CollectiveRow]
     skipped_empty_rows: int
 
     @property
@@ -70,10 +79,6 @@ class Plan:
             counts[order.started.date()] += 1
         return counts
 
-    @property
-    def successful_orders(self) -> list[PeriodOrder]:
-        return [order for order in self.orders if order.is_successful]
-
 
 def plan_period_orders(
     register_path: Path,
@@ -82,7 +87,7 @@ def plan_period_orders(
     config_path: Path,
     worker_mapping: Mapping[str, str],
 ) -> Plan:
-    """Wybiera zlecenia okresu po dacie, w kolejności Rejestru, i sprawdza reguły zleceń."""
+    """Wybiera zlecenia okresu po dacie, w kolejności Rejestru, sprawdza reguły zleceń i stosuje Reguły ilości."""
 
     register = _period_sheet(register_path, sheets, period)
     orders: list[PeriodOrder] = []
@@ -104,7 +109,8 @@ def plan_period_orders(
     if unknown_workers:
         raise StopError(messages.unknown_workers(register_path, register.name, config_path, unknown_workers))
     skipped_empty_rows = sum(1 for row in register.empty_rows if first_row < row < last_row)
-    return Plan(period, register.name, orders, skipped_empty_rows)
+    collective_rows = [CollectiveRow.of(order) for order in orders if order.is_successful]
+    return Plan(period, register.name, orders, collective_rows, skipped_empty_rows)
 
 
 def period_warnings(register_path: Path, plan: Plan) -> list[Message]:
