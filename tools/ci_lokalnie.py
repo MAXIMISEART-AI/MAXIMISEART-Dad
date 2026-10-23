@@ -65,7 +65,8 @@ def _steps(root: Path) -> list[Step]:
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check"), root),
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy"), root),
         # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
-        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32"), root),
+        # Własny cache, bo zmiana --platform unieważnia wspólny i oba kroki sprawdzałyby za każdym razem całość.
+        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
