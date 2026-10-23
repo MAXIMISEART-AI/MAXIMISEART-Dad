@@ -32,6 +32,9 @@ OUTSIDE_TIMING = {
     "streamRunEvents": "strumień SSE (EventSource) otwarty przez całe życie karty, nie zapytanie z odpowiedzią",
     "recordViewTiming": "sam pomiar widoku, wysyłany po pomiarze; odpowiedź 204 bez treści",
     "getCurrentRun": "przeglądarka bierze bieżące Uruchomienie ze strumienia; trasę czytają testy i weryfikacja",
+    # Gdy okno „Napisz do Maksa” zawoła je przez `call`, sprawdzenie niżej każe przenieść je do ApiOperation.
+    "draftDadNote": "serwer Uwagi taty jest przed oknem „Napisz do Maksa” (#318); przeglądarka jeszcze go nie woła",
+    "sendDadNote": "serwer Uwagi taty jest przed oknem „Napisz do Maksa” (#318); przeglądarka jeszcze go nie woła",
 }
 # `call(zSchemat, "operacja", …)` w kodzie przeglądarki.
 BROWSER_CALL = re.compile(r"\bcall\(\s*\w+,\s*\"(\w+)\"")

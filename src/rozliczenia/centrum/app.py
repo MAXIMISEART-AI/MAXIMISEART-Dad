@@ -1,8 +1,8 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
-``runs_router``, ``repair_router``, ``metrics_router``, ``configuration_router``,
-``tool_update_router``, ``shutdown_router``, ``timing_router``);
+``runs_router``, ``repair_router``, ``dad_notes_router``, ``metrics_router``,
+``configuration_router``, ``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) i folder okresów, którego nie da się odczytać, na bezpieczne
 odpowiedzi ``Problem``,
@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
+from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, dad_notes_router
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router
@@ -79,7 +80,8 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienie o naprawie: pierwsze pytanie skrzynki przy starcie, nie dopiero przy wejściu na Okresy.
         reports.check_repairs_in_background()
-        # Kontrole ilości, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
+        # Kontrole ilości i Uwagi taty, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza),
+        # wychodzą w tle.
         outbox.resume()
         yield
 
@@ -150,8 +152,16 @@ def create_app(
     config = settings_path.parent
     box = report_box or GitHubReportBox()
     reports = Reports(config, box, log, surroundings.tool_freshness.local, clock=clock)
-    # Kontrola ilości po Przebiegu rozliczeń: w kolejce obok niewysłanych Zgłoszeń, wysyłana w tle (ADR 0013).
-    outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
+    # Kontrola ilości po Przebiegu rozliczeń i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle
+    # (ADR 0013, ADR 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty.
+    notes = DadNotes(config / DAD_NOTES_FILE, log)
+    outbox = Outbox(
+        config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
+        box,
+        lambda: read_report_key(config),
+        log,
+        delivered=notes.delivered,
+    )
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     stops = Stops(
         reports,
@@ -182,6 +192,7 @@ def create_app(
     ]
     app.include_router(runs_router(runs, entries))
     app.include_router(repair_router(reports))
+    app.include_router(dad_notes_router(notes, outbox, surroundings.tool_freshness.local))
     app.include_router(metrics_router({entry.key: entry.process for entry in entries}, today, centrum_runs))
     app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
     app.include_router(tool_update_router(updates))
