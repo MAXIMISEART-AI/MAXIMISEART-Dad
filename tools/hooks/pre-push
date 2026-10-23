@@ -9,6 +9,9 @@ Kroki bierze z ``tools/ci_lokalnie.py``, uruchomionego Pythonem z ``.venv`` chec
 
 Przed krokami drukuje werdykt ``tools/praca_w_toku.py --aktualizacja``, czy aktualizować gałąź z ``origin/main``.
 Werdykt tylko informuje: gdy się nie uda, brama drukuje ``AKTUALIZACJA: nieznana (…)``, a wynik pushu się nie zmienia.
+
+Hook biegnie systemowym Pythonem (na Macu 3.9), więc ten plik i ``tools/potomne.py`` ruff sprawdza pod 3.9
+(``per-file-target-version`` w ``pyproject.toml``).
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 VENV_PYTHON = Path(".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
 COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--tylko", "ruff,mypy", "--do-pierwszego-bledu")
 UPDATE_VERDICT = (str(VENV_PYTHON), "tools/praca_w_toku.py", "--aktualizacja")
-UPDATE_VERDICT_TIMEOUT_S = 10
+UPDATE_VERDICT_TIMEOUT_S = 5
 CHECKS = "sprawdzam ruff i mypy (macOS i Windows) przez tools/ci_lokalnie.py; resztę sprawdza CI na GitHubie"
 
 
@@ -59,15 +62,15 @@ def _print_update_verdict() -> None:
         import potomne
 
         done = potomne.run(UPDATE_VERDICT, cwd=Path.cwd(), timeout=UPDATE_VERDICT_TIMEOUT_S)
-    except (ImportError, OSError, subprocess.TimeoutExpired) as error:
-        reason = str(error)
+    except Exception as error:  # noqa: BLE001 - werdykt tylko informuje, więc żaden jego błąd nie zmienia wyniku pushu
+        reason = f"{type(error).__name__}: {error}"
     else:
         last = (done.stdout.strip().splitlines() or [""])[-1]
         if done.returncode == 0 and last.startswith("AKTUALIZACJA: "):
             print(last, flush=True)
             return
-        reason = (done.stderr.strip().splitlines() or [f"kod {done.returncode}"])[-1]
-    print(f"AKTUALIZACJA: nieznana (tools/praca_w_toku.py: {reason})", flush=True)
+        reason = "tools/praca_w_toku.py: " + (done.stderr.strip().splitlines() or [f"kod {done.returncode}"])[-1]
+    print(f"AKTUALIZACJA: nieznana ({reason})", flush=True)
 
 
 def main() -> int:

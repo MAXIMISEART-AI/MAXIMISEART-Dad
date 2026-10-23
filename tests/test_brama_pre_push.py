@@ -166,7 +166,10 @@ def test_push_bez_venv_jest_odrzucony_ze_wskazaniem_setup_worktree(checkout: Pat
     assert _remote_branch(checkout) == ""
 
 
-def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Path) -> None:
+@pytest.mark.parametrize("potomne_py", ["działa", "z błędem składni"])
+def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Path, potomne_py: str) -> None:
+    if potomne_py == "z błędem składni":
+        (checkout / "tools" / "potomne.py").write_text("def (\n", encoding="utf-8")
     _stub_ci_lokalnie(checkout, passes=False)
 
     pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}", agent=None)
@@ -192,9 +195,20 @@ def test_push_agenta_drukuje_werdykt_aktualizacji_z_main(checkout: Path) -> None
     assert [line for line in lines if line.startswith("AKTUALIZACJA: ")][0].startswith("AKTUALIZACJA: niepotrzebna"), lines
 
 
-@pytest.mark.parametrize("passes", [True, False])
-def test_nieudany_werdykt_aktualizacji_nie_zmienia_wyniku_pushu(checkout: Path, passes: bool) -> None:
-    (checkout / "tools" / "praca_w_toku.py").write_text('raise SystemExit("git: zepsuty")\n', encoding="utf-8")
+BROKEN_VERDICTS = {
+    "werdykt pada": ("tools/praca_w_toku.py", 'raise SystemExit("git: zepsuty")\n', "(tools/praca_w_toku.py: git: zepsuty)"),
+    "potomne.py z błędem składni": ("tools/potomne.py", "def (\n", "(SyntaxError: "),
+    "werdykt wisi": ("tools/praca_w_toku.py", "import time\ntime.sleep(60)\n", "(TimeoutExpired: "),
+}
+
+
+@pytest.mark.parametrize(
+    ("broken", "passes"),
+    [("werdykt pada", True), ("werdykt pada", False), ("potomne.py z błędem składni", True), ("werdykt wisi", True)],
+)
+def test_nieudany_werdykt_aktualizacji_nie_zmienia_wyniku_pushu(checkout: Path, broken: str, passes: bool) -> None:
+    path, text, reason = BROKEN_VERDICTS[broken]
+    (checkout / path).write_text(text, encoding="utf-8")
     head = commit(checkout, "zepsuty werdykt")
     _stub_ci_lokalnie(checkout, passes=passes)
 
@@ -202,7 +216,10 @@ def test_nieudany_werdykt_aktualizacji_nie_zmienia_wyniku_pushu(checkout: Path, 
 
     assert (pushed.returncode == 0) == passes, pushed.stdout + pushed.stderr
     assert _remote_branch(checkout) == (head if passes else "")
-    assert "AKTUALIZACJA: nieznana (tools/praca_w_toku.py: git: zepsuty)" in (pushed.stdout + pushed.stderr).splitlines()
+    lines = (pushed.stdout + pushed.stderr).splitlines()
+    assert [line for line in lines if line.startswith("AKTUALIZACJA: ")] == [
+        next(line for line in lines if line.startswith(f"AKTUALIZACJA: nieznana {reason}"))
+    ], lines
 
 
 def test_push_z_samym_claudecode_rozstrzyga_brama(checkout: Path) -> None:
