@@ -34,27 +34,41 @@ commicie `main` z zielonym CI. Wydanie powstaje tylko na prośbę Maksa. To
 moment na `verify-*` na prawdziwych plikach taty i na jedną notkę „Co nowego”
 zamiast każdej naprawy z osobna.
 
-- **Najnowsze Wydanie.** To tag z najwyższym numerem
-  (`tool_update.newest_release`), nie ostatni tag w porządku alfabetycznym
-  (`v0.10.0` jest nowsze niż `v0.9.0`). Inne tagi nie są Wydaniami. Ten sam
-  wybór robi Aktualizacja i Aktualność narzędzia.
-- **Aktualizacja narzędzia.** `ToolClone.update` pobiera `main` i tagi `v*` do
-  własnej przestrzeni refów klonu (`refs/wydania/`, z `--prune`, więc tag
-  usunięty albo przesunięty na GitHubie nie zostaje u taty). Przesuwa lokalną
-  `main` taty tylko do przodu, na commit najnowszego Wydania. Aktualizacja
-  nigdy nie cofa wersji:
-  - klon, który zawiera już commit najnowszego Wydania, jest `AKTUALNA` i
-    zostaje bez zmian, także gdy stoi na nowszym commicie `main`;
-  - GitHub bez żadnego Wydania to `AKTUALNA`;
-  - Wydanie, którego commitu nie ma na pobranym `main`, to
-    `WYDANIE_SPOZA_MAIN` z Komunikatem „przekaż Maksowi”, a klon zostaje bez
-    zmian.
+- **Najnowsze Wydanie** to tag z najwyższym numerem, którego commit leży na
+  `main` (`tool_update.newest_on_main`). Liczy się numer, nie porządek
+  alfabetyczny (`v0.10.0` jest nowsze niż `v0.9.0`). Tag z dopiskiem
+  (`v1.0.0-rc1`), tag innego kształtu i tag na obiekcie innym niż commit nie są
+  Wydaniami. Wyższe Wydanie spoza `main` (tag założony z gałęzi agenta) jest
+  pominięte i nie zatrzymuje niższego Wydania na `main`; same Wydania spoza
+  `main` to tak, jakby Wydań nie było. Ten sam wybór robią Aktualizacja
+  narzędzia, Aktualność narzędzia i instalacja z README.
+- **Dowolny MAJOR.** #315 mówi o `v0.MINOR.PATCH`, ale kod przyjmuje każdy
+  MAJOR. Gdyby kiedyś powstało `v1.0.0`, kod tylko z `v0` zostawiłby tatę na
+  zawsze na ostatnim `v0`. Zabłąkany `v1.0.0` na `main` trafiłby do taty, tak
+  jak każdy ręczny tag na `main`; przed nim chroni brama pre-push (niżej).
+- **Aktualizacja narzędzia.** `ToolClone.update` pobiera `main` (z `+`, więc
+  force-push `main` na GitHubie nie psuje pobrania) i tagi `v*` do własnej
+  przestrzeni refów klonu (`refs/wydania/`, z `--prune`, więc tag usunięty
+  albo przesunięty na GitHubie nie zostaje u taty). Przesuwa lokalną `main`
+  taty tylko do przodu, na commit najnowszego Wydania. Aktualizacja nigdy nie
+  cofa wersji: klon, który już zawiera ten commit (także na nowszym commicie
+  `main`), i GitHub bez Wydania na `main` to `AKTUALNA`, klon bez zmian.
+  Pominięte Wydania spoza `main` dziennik Centrum zapisuje jako
+  `aktualizacja-pominiete-wydania`. Błąd Gita przy sprawdzaniu, czy Wydanie
+  leży na `main`, kończy aktualizację z nieoczekiwanego powodu, a nie
+  pominięciem.
 - **Aktualność narzędzia.** Diagnoza i Konfiguracja pytają API GitHuba o listę
-  tagów (`tags?per_page=100`, wszystkie strony, najwyżej 10) i porównują commit
-  narzędzia z commitem najnowszego Wydania. Bez Wydania albo bez pełnej listy
-  Aktualność to `Nie sprawdzono`. Konfiguracja dalej pamięta odpowiedź przez 10
-  minut, a brak odpowiedzi przez minutę (limit 60 pytań na godzinę bez
-  logowania); jedna strona to jedno pytanie.
+  tagów (`tags?per_page=100`, wszystkie strony, najwyżej 10) i o to, czy commit
+  najwyższego Wydania leży na `main` (`compare/<commit>...main` ze stroną bez
+  commitów i plików, kilkanaście kB; najwyżej 5 Wydań po kolei). Narzędzie jest
+  `Aktualna`, gdy jego commit zawiera commit najnowszego Wydania: sprawdza to
+  `git merge-base --is-ancestor` w klonie taty, bez pytania API. Narzędzie na
+  nowszym commicie `main` niż Wydanie jest więc aktualne. Brak odpowiedzi to
+  `Nie sprawdzono` z „brak połączenia z GitHubem”, a GitHub bez Wydania na
+  `main` to `Nie sprawdzono` z „na GitHubie nie ma jeszcze żadnego Wydania”.
+  Konfiguracja pamięta każdą odpowiedź, także „brak Wydania”, przez 10 minut,
+  a brak odpowiedzi przez minutę: zwykle dwa pytania co 10 minut przy limicie
+  60 na godzinę bez logowania.
 - **Tworzenie Wydania** (osobna zmiana, #316) sprawdza, że commit leży na
   `main` i ma zielone `Required CI status`, i dopiero wtedy zakłada tag i
   Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o
@@ -66,39 +80,39 @@ zamiast każdej naprawy z osobna.
 ### Ochrona przed tagiem założonym ręcznie
 
 Agenci pracują na tym samym koncie GitHuba co Maks (admin), więc żadne
-uprawnienie nie odróżni tagu z tworzenia Wydania od tagu założonego ręcznie.
-Ochrona ma dwie warstwy:
+uprawnienie GitHuba nie odróżni tagu z tworzenia Wydania od tagu założonego
+ręcznie. Ochrona ma trzy warstwy:
 
-- **Centrum odrzuca Wydanie spoza `main`.** Commit najnowszego Wydania musi być
-  przodkiem pobranego `main`, inaczej `WYDANIE_SPOZA_MAIN`. To jedyna warstwa,
-  której nie ominie ręczny tag z gałęzi agenta, i jedyna, którą da się
-  sprawdzić testem (`tests/test_aktualizacja_narzedzia.py`: tag spoza `main`
-  i tag przesunięty na GitHubie poza `main`).
-- **Tagi Wydań się nie zmieniają.** Ruleset dla tagów `v*` bez listy
-  wyjątków blokuje ich przesunięcie i usunięcie, także adminowi. Niezmienne
-  Wydania GitHuba (`immutable-releases`, dostępne w tym repozytorium, dziś
-  wyłączone) robią to samo dla tagów z Wydaniem na GitHubie. Wybiera Maks.
-  Żadne z nich nie blokuje założenia nowego tagu.
+- **Centrum pomija Wydanie spoza `main`** (wyżej). Tej warstwy nie omija ręczny
+  tag z gałęzi agenta i pilnują jej testy w `tests/test_aktualizacja_narzedzia.py`.
+- **Brama pre-push odrzuca push agenta z `refs/tags/v*`.** Tag Wydania wypycha
+  tylko narzędzie Wydań, które ustawia `MAXIMISEART_WYDANIE=1`. Reguła i jej
+  strażnik są w tabeli `AGENTS.md`; `--no-verify` łapie tylko przegląd.
+- **Tagi Wydań się nie zmieniają.** Ruleset dla tagów `v*` bez listy wyjątków
+  blokuje ich przesunięcie i usunięcie, także adminowi. Niezmienne Wydania
+  GitHuba (`immutable-releases`, dostępne w tym repozytorium, dziś wyłączone)
+  robią to samo tylko dla tagów z Wydaniem na GitHubie. Wybiera Maks.
 
-Nie chroni: tag ręcznie założony na commicie `main` bez zielonego CI (np. na
-`main` zaraz po merge'u) trafi do taty. Gdyby to było potrzebne, Centrum może
-pytać API o `Required CI status` commitu przed przesunięciem klonu.
+Nie chroni: tag na commicie `main` bez zielonego CI, który ominie bramę
+(`--no-verify`, push spoza agenta), i tag na commicie, który `main` potem
+zrewertował, trafią do taty. Gdyby to było potrzebne, Centrum może pytać API o
+`Required CI status` commitu przed przesunięciem klonu.
 
 ## Przejście
 
 - Wersja u taty sprzed tej zmiany pobiera `main`. Jej ostatnia aktualizacja
   bierze `main` z chwili kliknięcia. Dopiero wersja, którą przyniesie, pobiera
-  Wydania.
-- Gdy po tej aktualizacji tata stoi na commicie `main` nowszym niż najnowsze
-  Wydanie, `Zaktualizuj narzędzie` odpowiada `Masz najnowszą wersję.`, a
-  Konfiguracja i Diagnoza pokazują `Jest nowsza wersja`, bo porównują równość
-  commitów, a nie przodków. Trwa to do następnego Wydania.
-- Dlatego kolejność: `v0.1.0` na zielonym commicie `main` przed merge'em (bez
-  niego Aktualność u taty pokazywałaby `Nie sprawdzono`), po merge'u i
-  zielonym CI Wydanie `v0.2.0` na commicie merge'a, nic więcej do `main`,
-  dopóki tata nie kliknie. Tata staje wtedy dokładnie na `v0.2.0`.
-- Nowa instalacja u taty: `git clone`, potem `git reset --hard` na najnowszy
-  tag Wydania (README).
+  Wydania. Tata staje więc na commicie merge'a albo nowszym, a od pierwszego
+  Wydania na nim albo przed nim Aktualność mówi `Aktualna`.
+- Pierwsze Wydanie `v0.1.0` powstaje na commicie merge'a po zielonym CI. Tag
+  przed merge'em nie jest potrzebny: bez Wydania tata widzi prawdziwe `Nie
+  sprawdzono`, a `Masz najnowszą wersję.` przy kliknięciu.
+- Okno ryzyka: od merge'a do zielonego CI na jego commicie Diagnoza starej
+  wersji dalej proponuje aktualizację, a stara wersja bierze `main` bez
+  sprawdzenia CI. Gdy tata kliknie w tym oknie, a CI na tym commicie padnie,
+  tata zostaje na nim do następnego Wydania, bo nowy kod nie cofa.
+- Nowa instalacja u taty: `git clone`, potem `git reset --hard` na najnowsze
+  Wydanie wybrane jak w Centrum (README).
 
 ## Konsekwencje
 
@@ -108,7 +122,7 @@ pytać API o `Required CI status` commitu przed przesunięciem klonu.
   kliknie aktualizację z Powiadomienia i dostanie `Masz najnowszą wersję.`.
 - Zielone, ale zepsute Wydanie naprawia się tylko do przodu: nowym Wydaniem z
   revertem. Usunięcie tagu nie cofa taty, bo aktualizacja nigdy nie cofa.
-- Nazwy `v*` i schemat numeru są umową z kodem u taty.
+- Schemat `v*.*.*` i reguła „najwyższy numer na `main`” są umową z kodem u taty.
 
 ## Odrzucone warianty
 
@@ -121,5 +135,11 @@ pytać API o `Required CI status` commitu przed przesunięciem klonu.
   zmiana od razu u taty.
 - Najnowszy tag według porządku alfabetycznego albo daty: `v0.10.0` przegrałby
   z `v0.9.0`, a data tagu mówi, kiedy go założono, nie co zawiera.
+- Najwyższy tag w ogóle, z odmową, gdy nie leży na `main` (poprzednia wersja
+  tego ADR): jeden zabłąkany tag zatrzymywał każde niższe Wydanie, a przy
+  zakazie usuwania tagów nie dało się go zdjąć.
+- Aktualność przez równość commitów: tata na nowszym commicie `main` niż
+  Wydanie widział `Jest nowsza wersja`, a aktualizacja odpowiadała `Masz
+  najnowszą wersję.`.
 - Lokalna gałąź taty na tagu (odłączony `HEAD`): `INNA_GALAZ` zmieniłaby
   znaczenie, a commit narzędzia czyta się dziś z gałęzi.
