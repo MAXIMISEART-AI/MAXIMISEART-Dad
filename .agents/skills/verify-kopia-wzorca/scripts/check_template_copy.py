@@ -50,6 +50,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from unittest import mock
 from xml.etree import ElementTree
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -59,6 +60,9 @@ sys.path[:0] = [str(SOURCE_ROOT), str(REPO_ROOT / "tools"), str(REPO_ROOT)]
 from hypothesis import HealthCheck, Phase, example, given, seed, settings  # noqa: E402
 from hypothesis import strategies as st  # noqa: E402
 from hypothesis.internal.conjecture import engine as hypothesis_engine  # noqa: E402
+from hypothesis.internal.cache import LRUCache  # noqa: E402
+from hypothesis.internal.conjecture import providers as hypothesis_providers  # noqa: E402
+from hypothesis.internal.constants_ast import Constants  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
 from openpyxl.cell.rich_text import CellRichText, TextBlock  # noqa: E402
 from openpyxl.cell.text import InlineFont  # noqa: E402
@@ -202,33 +206,41 @@ class Template:
         return sorted(count for count in counts if 0 <= count <= self.max_rows)
 
 
-def build_templates(directory: Path, real_template: Path | None) -> list[Template]:
-    """The synthetic Wzorce, or only Dad's real Wzorzec when it is given."""
+SYNTHETIC_TEMPLATES = ("syntetyczny", "maly")
+
+
+def build_templates(directory: Path, real_template: Path | None, names: Sequence[str] = SYNTHETIC_TEMPLATES) -> list[Template]:
+    """The synthetic Wzorce in ``names``, or only Dad's real Wzorzec when it is given."""
 
     if real_template is not None:
         copied = directory / "wzorzec-taty.xlsx"
         shutil.copyfile(real_template, copied)
         return [Template.of("wzorzec-taty", f"prawdziwy Wzorzec: {real_template.name}", copied, max_rows=700)]
-    synthetic = directory / "syntetyczny.xlsx"
-    write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
-    small = directory / "maly.xlsx"
-    write_template(small)
-    add_external_link_fixture(small)
-    templates = [
-        Template.of(
-            "syntetyczny",
-            "kształt Wzorca taty z tools/syntetyczne_wzorce.py, 200 Wierszy danych: wspólne formuły, calcChain, "
-            "link zewnętrzny, komentarz z relacjami arkusza rId1 i rId2, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
-            synthetic,
-            max_rows=260,
-        ),
-        Template.of(
-            "maly",
-            "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz, bez relacji arkusza",
-            small,
-            max_rows=80,
-        ),
-    ]
+    templates = []
+    if "syntetyczny" in names:
+        synthetic = directory / "syntetyczny.xlsx"
+        write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
+        templates.append(
+            Template.of(
+                "syntetyczny",
+                "kształt Wzorca taty z tools/syntetyczne_wzorce.py, 200 Wierszy danych: wspólne formuły, calcChain, "
+                "link zewnętrzny, komentarz z relacjami arkusza rId1 i rId2, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
+                synthetic,
+                max_rows=260,
+            )
+        )
+    if "maly" in names:
+        small = directory / "maly.xlsx"
+        write_template(small)
+        add_external_link_fixture(small)
+        templates.append(
+            Template.of(
+                "maly",
+                "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz, bez relacji arkusza",
+                small,
+                max_rows=80,
+            )
+        )
     return templates
 
 
@@ -513,10 +525,12 @@ def _attempt(target: Path, write: Callable[[], None]) -> Attempt:
     return Attempt(target, None)
 
 
-def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow]) -> None:
-    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(
-        target, [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
-    )
+def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow], via_copy: bool) -> None:
+    """The reference; it gets the text an XML reader reads (``_xml_line_ends``) only when the copy wrote the file."""
+
+    if via_copy:
+        rows = [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
+    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(target, rows)
     if has_xml_comment(target):
         raise AssertionError("bliźniak Wzorca poszedł kopią: wzorzec porównania nie jest drogą openpyxl")
 
@@ -528,7 +542,8 @@ def _xml_line_ends(value: Any) -> Any:
     Windows every ``\\n`` is written as ``\\r\\n`` and a raw ``\\r\\n`` in a value comes back as two line
     breaks. The copy writes bytes and is the same on every system. Giving the reference the text an XML
     reader would read anyway keeps the reference independent of the system; the copy still gets the raw
-    ``\\r``, so dropping or mangling it would still be a divergence.
+    ``\\r``, so dropping or mangling it would still be a divergence. When the copy itself takes the old path,
+    the reference gets the raw text as well: both are openpyxl, and its Windows quirk is not checked.
     """
 
     if isinstance(value, str):
@@ -953,7 +968,9 @@ class Run:
                 fallbacks = len(self.routes.fallbacks)
                 copy = _attempt(copy_folder / name, lambda: worker.create(copy_folder / name, rows))
                 via_copy = len(self.routes.fallbacks) == fallbacks
-                reference = _attempt(reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows))
+                reference = _attempt(
+                    reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows, via_copy)
+                )
                 route = "odmowa" if copy.refusal else "kopia" if via_copy else "droga openpyxl"
                 statistics.settlements[route] += 1
                 if copy.refusal:
@@ -1053,13 +1070,14 @@ def run_check(
     random_seed: int | None = None,
     shrink: bool = True,
     real_template: Path | None = None,
+    template_names: Sequence[str] = SYNTHETIC_TEMPLATES,
 ) -> Outcome:
     started = clock.perf_counter()
     lines: list[str] = []
     if hasattr(hypothesis_engine, "MAX_SHRINKING_SECONDS"):
         hypothesis_engine.MAX_SHRINKING_SECONDS = SHRINK_SECONDS
     with tempfile.TemporaryDirectory(prefix="kopia-wzorca-wzorce-") as scratch:
-        templates = build_templates(Path(scratch), real_template)
+        templates = build_templates(Path(scratch), real_template, template_names)
         run = Run(Routes(), {template.name: Statistics() for template in templates})
         phases = [Phase.explicit, Phase.generate] + ([Phase.shrink] if shrink else [])
         failures: list[Violation] = []
@@ -1072,7 +1090,14 @@ def run_check(
                 explicit.append(missing_cells)
             test = _property(run, template, explicit, examples, random_seed, phases)
             try:
-                test()
+                # Hypothesis draws about one value in forty from the literals of the non-test modules loaded in the
+                # process and keeps the ones it may draw in a cache shared by every Hypothesis run in the process.
+                # Without both the test alone and the full pytest check the same examples (#288).
+                with (
+                    mock.patch.object(hypothesis_providers, "_get_local_constants", Constants),
+                    mock.patch.object(hypothesis_providers, "CONSTANTS_CACHE", LRUCache(1024)),
+                ):
+                    test()
             except Violation as violation:
                 failures.append(violation)
             except BaseExceptionGroup as group:
@@ -1171,12 +1196,15 @@ def _longest_example(template: Template) -> Case:
 def _carriage_return_examples(template: Template) -> list[Case]:
     """Text with a lone ``\\r`` in a look column after an empty Rozliczenie pracownika: Excel reads it as a line break.
 
-    Counterexamples from CI: A18='\\r' on ``maly`` and B18='x\\rxD&' on ``syntetyczny``.
+    Counterexamples from CI: A18='\\r' on ``maly`` and B18='x\\rxD&' on ``syntetyczny``. The third, from CI on
+    Windows: AC='linia 1\\r\\nlinia 2\\r' beside b'bajty', which sends the file down the old path with the raw text.
     """
 
+    old_path = (None,) * 26 + (b"bajty", None, "linia 1\r\nlinia 2\r") + (None,) * (DATA_COLUMNS - 29)
     return [
         Case(template, ((), (_data_row(("\r",) + (None,) * (DATA_COLUMNS - 1)),))),
         Case(template, ((), (_data_row((None, "x\rxD&") + (None,) * (DATA_COLUMNS - 2)),))),
+        Case(template, ((_data_row(old_path),),)),
     ]
 
 
