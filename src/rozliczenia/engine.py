@@ -12,7 +12,7 @@ from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import DataRow, Problem, TemplateFile, WorkbookError
+from .workbook_files import DataRow, TemplateFile, WorkbookError
 from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
 
 
@@ -25,15 +25,7 @@ def default_worker_template_path() -> Path:
 def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
     """Zatrzymanie z Komunikatem Przebiegu rozliczeń dla Pliku zbiorczego, którego nie da się użyć."""
 
-    if error.problem is Problem.MISSING:
-        return StopError(settlement_messages.collective_file_missing(source_path))
-    if error.problem is Problem.OPEN_IN_EXCEL:
-        return StopError(settlement_messages.collective_file_open(source_path))
-    if error.problem is Problem.INACCESSIBLE:
-        return StopError(settlement_messages.collective_file_inaccessible(source_path))
-    if error.problem is Problem.LAYOUT:
-        return StopError(settlement_messages.collective_file_without_worker_header(source_path))
-    return StopError(settlement_messages.collective_file_unreadable(source_path))
+    return StopError(settlement_messages.collective_file_unusable(source_path, error))
 
 
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Issue]]:

@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Final
+from typing import Final, assert_never
 
 from .domain import Issue
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
-from .workbook_files import WORKER_HEADER
+from .workbook_files import WORKER_HEADER, Problem, WorkbookError
 from .worker_config import WorkerConfigError
 
 _NOTHING_CREATED: Final = "Nie utworzono żadnego pliku pracownika."
@@ -22,6 +22,24 @@ _STAGING_LEFT: Final = "W Folderze okresu został folder tymczasowy, którego ni
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
+
+
+def collective_file_unusable(source: Path, error: WorkbookError) -> Message:
+    """Plik zbiorczy, którego nie da się użyć; ``error`` mówi dlaczego."""
+
+    match error.problem:
+        case Problem.MISSING:
+            return collective_file_missing(source)
+        case Problem.OPEN_IN_EXCEL:
+            return _collective_file_open(source)
+        case Problem.INACCESSIBLE:
+            return _collective_file_inaccessible(source)
+        case Problem.LAYOUT:
+            return _collective_file_without_worker_header(source)
+        case Problem.UNREADABLE | Problem.HAS_DATA:
+            return _collective_file_unreadable(source)
+        case _:
+            assert_never(error.problem)
 
 
 def collective_file_missing(source: Path) -> Message:
@@ -36,7 +54,7 @@ def collective_file_missing(source: Path) -> Message:
     )
 
 
-def collective_file_open(source: Path) -> Message:
+def _collective_file_open(source: Path) -> Message:
     """Plik zbiorczy ma obok plik blokady Excela ``~$…``."""
 
     return Message(
@@ -50,7 +68,7 @@ def collective_file_open(source: Path) -> Message:
     )
 
 
-def collective_file_inaccessible(source: Path) -> Message:
+def _collective_file_inaccessible(source: Path) -> Message:
     """System nie oddał bajtów Pliku zbiorczego (np. zajęty przez inny program albo OneDrive bez sieci); to nie uszkodzenie."""
 
     return Message(
@@ -81,7 +99,7 @@ def collective_file_invalid(source: Path, detail: str) -> Message:
     )
 
 
-def collective_file_unreadable(source: Path) -> Message:
+def _collective_file_unreadable(source: Path) -> Message:
     """Plik zbiorczy nie daje się odczytać jako skoroszyt .xlsx."""
 
     return collective_file_invalid(
@@ -90,7 +108,7 @@ def collective_file_unreadable(source: Path) -> Message:
     )
 
 
-def collective_file_without_worker_header(source: Path) -> Message:
+def _collective_file_without_worker_header(source: Path) -> Message:
     """Plik zbiorczy nie ma nagłówka WYKONAWCA w H17, skąd Przebieg rozliczeń czyta Wykonawcę."""
 
     return collective_file_invalid(
