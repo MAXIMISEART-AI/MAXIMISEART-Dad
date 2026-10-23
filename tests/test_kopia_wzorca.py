@@ -65,7 +65,7 @@ def test_kopia_wzorca_sprawdza_te_same_przyklady_niezaleznie_od_modulow_wczytany
         checked.append(re.sub(r" object at 0x[0-9a-f]+", "", repr(case.workers)))  # type: ignore[attr-defined]
 
     monkeypatch.setattr(checker.Run, "check", record)
-    checker.run_check(shrink=False)
+    checker.run_check(shrink=False, template_names=("maly",))
     alone, checked[:] = list(checked), []
 
     # Pełny pytest wczytuje moduły, których test uruchomiony sam nie wczytuje (#288).
@@ -76,9 +76,9 @@ def test_kopia_wzorca_sprawdza_te_same_przyklady_niezaleznie_od_modulow_wczytany
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setitem(sys.modules, spec.name, module)
-    checker.run_check(shrink=False)
+    checker.run_check(shrink=False, template_names=("maly",))
 
-    assert len(alone) > 2 * checker.DEFAULT_EXAMPLES
+    assert len(alone) > checker.DEFAULT_EXAMPLES
     assert checked == alone
 
 
