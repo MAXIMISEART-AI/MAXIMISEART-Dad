@@ -146,6 +146,8 @@ class Outcome(Generic[ViewT]):
     (``Finished``); zrobiła go funkcja rozmówcy w osłonie rdzenia.
     ``notices`` to neutralne ostrzeżenia: niezapisane metryki i odłączony
     podgląd postępu. ``metrics_saved``: rekord metryk trafił do pliku metryk.
+    ``progress``: ostatni snapshot jedynej projekcji postępu (etapy, Przetworzenia
+    Szablonów pracownika, liczba problemów); po odłączeniu podglądu ten z chwili odłączenia.
     """
 
     ending: Finished | Stop
@@ -153,6 +155,7 @@ class Outcome(Generic[ViewT]):
     total_duration_ms: int
     notices: tuple[str, ...]
     metrics_saved: bool
+    progress: ProgressSnapshot
 
     @property
     def result(self) -> Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]:
@@ -323,4 +326,5 @@ def run_process(
         total_duration_ms=total_duration_ms,
         notices=tuple(notices),
         metrics_saved=metrics_saved,
+        progress=observation.projection.snapshot,
     )
