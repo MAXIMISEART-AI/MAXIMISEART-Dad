@@ -428,7 +428,7 @@ def test_raport_zgodny_ze_specyfikacja_w_kazdym_stanie_repozytorium(tmp_path: Pa
     runs = {"ja": github, "ja-odlaczony": None, "ja-na-zdalnej": github, "rebasuje": None, "szuka": None}
 
     with ThreadPoolExecutor() as pool:
-        reports = dict(zip(runs, pool.map(lambda run: _report(by_name[run[0]][1], path=run[1]), runs.items())))
+        reports = dict(zip(runs, pool.map(lambda run: _report(by_name[run[0]][1], path=run[1]), runs.items()), strict=True))
 
     mismatches = []
     for name, report in reports.items():

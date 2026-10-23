@@ -69,7 +69,9 @@ def main(argv: list[str] | None = None) -> int:
 def _gate_pushes() -> None:
     """Ustawia ``core.hooksPath`` na bramę pre-push i ostrzega o hookach, które przestają działać."""
 
-    configured = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True)
+    configured = subprocess.run(
+        ["git", "config", "--get", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True, check=False
+    )
     if configured.stdout.strip() == HOOKS:
         return
     hooks_path = subprocess.run(

@@ -289,7 +289,7 @@ def test_bez_straznika_narzedzie_przerywa_zamiast_dzialac_bez_sprzatania(tmp_pat
     )
 
     answered = subprocess.run(
-        [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True, encoding="utf-8", timeout=60
+        [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True, encoding="utf-8", timeout=60, check=False
     )
 
     assert answered.stdout.splitlines() == ["run OSError True", "commit_copy OSError True"], answered.stderr

@@ -112,6 +112,7 @@ def _launch_again(runtime: Path, port: int, environment: dict[str, str]) -> subp
         encoding="utf-8",
         errors="replace",
         timeout=60,
+        check=False,
     )
 
 
@@ -259,7 +260,7 @@ def test_centrum_bez_konsoli_startuje_rozpoznaje_sie_i_zamyka(tmp_path: Path) ->
     first = subprocess.Popen(_windowless(runtime, port), cwd=runtime, env=environment)
     try:
         health = _health(port)
-        second = subprocess.run(_windowless(runtime, port), cwd=runtime, env=environment, timeout=60)
+        second = subprocess.run(_windowless(runtime, port), cwd=runtime, env=environment, timeout=60, check=False)
         addresses = _opened_addresses(opened, 2)
         _close(port)
         exit_code = first.wait(timeout=30)
@@ -311,6 +312,7 @@ def test_krok_instalacji_tworzy_skrot_ktory_uruchamia_centrum_przez_pythonw(tmp_
         errors="replace",
         env=_environment(browser),
         timeout=120,
+        check=False,
     )
     assert installed.returncode == 0, installed.stdout + installed.stderr
     shortcut = _read_shortcut(desktop / "Centrum rozliczeń.lnk")
