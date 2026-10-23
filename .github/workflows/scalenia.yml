@@ -29,6 +29,12 @@ jobs:
     name: Scalenia otwartych PR z bazą
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Since Git 2.54 a fetch starts `git maintenance run --auto` detached, and its `git worktree prune` can delete the
+    # worktree that potomne.commit_copy is adding (#312); the job env reaches every git, actions/checkout included.
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: maintenance.auto
+      GIT_CONFIG_VALUE_0: 'false'
     steps:
       - uses: actions/checkout@v7
         with:
