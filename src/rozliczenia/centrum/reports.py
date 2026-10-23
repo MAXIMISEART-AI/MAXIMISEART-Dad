@@ -36,9 +36,9 @@ from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
+    REPORT_LABEL,
     IssueState,
     Refused,
-    Report,
     ReportBox,
     SendOutcome,
     Sent,
@@ -63,6 +63,15 @@ _UPDATE_LOG_ENTRIES: Final = 20
 
 _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
+
+
+@dataclass(frozen=True)
+class Report:
+    """Zgłoszenie: tytuł (kod i „Co się stało”), treść Markdown i odcisk problemu, po którym je rozpoznać."""
+
+    title: str
+    body: str
+    fingerprint: str
 
 
 @dataclass(frozen=True)
@@ -396,7 +405,7 @@ class Reports:
         self._commit = commit
         self._clock = clock
         self._states_asked_at: float | None = None  # od startu Centrum skrzynka nie była jeszcze pytana
-        self._key_file = config_directory / REPORT_KEY_FILE
+        self._config_directory = config_directory
         self._unsent = config_directory / UNSENT_DIRECTORY
         self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
         self._box = box
@@ -463,7 +472,11 @@ class Reports:
                     self._open[draft.report.fingerprint] = found
                 draft.logged.waiting(found)
                 return contract.ReportWaiting(state="waiting")
-            outcome = self._box.send(draft.report, key=key) if found is None else found
+            outcome = (
+                self._box.open_issue(REPORT_LABEL, draft.report.title, draft.report.body, key=key)
+                if found is None
+                else found
+            )
         saved = self._unsent / draft.file_name
         if isinstance(outcome, Sent):
             with self._lock:
@@ -569,16 +582,20 @@ class Reports:
         return "ready" if self._key() is not None else "missing_key"
 
     def _key(self) -> str | None:
-        """Klucz do Zgłoszeń z lokalnego pliku; ``None``, gdy pliku nie ma albo jest pusty."""
+        return read_report_key(self._config_directory)
 
-        try:
-            content = self._key_file.read_bytes()
-            # Notatnik dopisuje BOM UTF-8, a ``>`` i ``Out-File`` w PowerShell 5.1 zapisują UTF-16 z BOM.
-            encoding = "utf-16" if content.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
-            key = content.decode(encoding).strip()
-        except (OSError, UnicodeError):
-            return None
-        return key or None
+
+def read_report_key(config_directory: Path) -> str | None:
+    """Klucz do Skrzynki Zgłoszeń z lokalnego pliku; ``None``, gdy pliku nie ma albo jest pusty."""
+
+    try:
+        content = (config_directory / REPORT_KEY_FILE).read_bytes()
+        # Notatnik dopisuje BOM UTF-8, a ``>`` i ``Out-File`` w PowerShell 5.1 zapisują UTF-16 z BOM.
+        encoding = "utf-16" if content.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
+        key = content.decode(encoding).strip()
+    except (OSError, UnicodeError):
+        return None
+    return key or None
 
 
 

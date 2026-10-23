@@ -17,15 +17,17 @@ from rozliczenia.centrum.report_box import (
     GitHubReportBox,
     HttpRequest,
     HttpResponse,
+    Label,
     Refused,
-    Report,
     SendOutcome,
     Sent,
     StatesOutcome,
     Unreachable,
 )
 
-REPORT = Report(title="BRAK_WZORCA: Nie znaleziono wzorca.", body="## Komunikat\n", fingerprint="0123456789abcdef")
+TITLE = "BRAK_WZORCA: Nie znaleziono wzorca."
+BODY = "## Komunikat\n"
+FINGERPRINT = "0123456789abcdef"
 KEY = "github_pat_SYNTETYCZNY"
 
 
@@ -41,9 +43,11 @@ class ScriptedTransport:
         return self.answer()
 
 
-def send_with(answer: Callable[[], HttpResponse]) -> tuple[SendOutcome, ScriptedTransport]:
+def send_with(
+    answer: Callable[[], HttpResponse], label: Label = "zgloszenie"
+) -> tuple[SendOutcome, ScriptedTransport]:
     transport = ScriptedTransport(answer)
-    return GitHubReportBox(transport=transport).send(REPORT, key=KEY), transport
+    return GitHubReportBox(transport=transport).open_issue(label, TITLE, BODY, key=KEY), transport
 
 
 def no_network() -> HttpResponse:
@@ -65,8 +69,18 @@ def test_utworzone_issue_to_wyslane_zgloszenie_z_numerem() -> None:
     )
     assert request.headers["Authorization"] == f"Bearer {KEY}"
     assert request.body is not None
-    assert json.loads(request.body) == {"title": REPORT.title, "body": REPORT.body, "labels": ["zgloszenie"]}
+    assert json.loads(request.body) == {"title": TITLE, "body": BODY, "labels": ["zgloszenie"]}
     assert KEY not in repr(request)
+
+
+@pytest.mark.parametrize("label", ["kontrola-ilosci", "logi-uruchomienia"])
+def test_issue_dostaje_etykiete_swojego_rodzaju(label: Label) -> None:
+    outcome, transport = send_with(lambda: HttpResponse(201, json.dumps({"number": 7}).encode()), label)
+
+    assert outcome == Sent(7)
+    [request] = transport.requests
+    assert request.body is not None
+    assert json.loads(request.body)["labels"] == [label]
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])
@@ -107,12 +121,12 @@ def pages(*answers: list[dict[str, object]]) -> Callable[[], HttpResponse]:
 
 def find_with(answer: Callable[[], HttpResponse]) -> tuple[FindOutcome, ScriptedTransport]:
     transport = ScriptedTransport(answer)
-    return GitHubReportBox(transport=transport).find_open(REPORT.fingerprint, key=KEY), transport
+    return GitHubReportBox(transport=transport).find_open(FINGERPRINT, key=KEY), transport
 
 
 def test_otwarte_issue_z_odciskiem_problemu_to_znalezione_zgloszenie() -> None:
     outcome, transport = find_with(
-        pages([issue(3, OTHER_FINGERPRINT), issue(7, REPORT.fingerprint), {"number": 8, "body": None}])
+        pages([issue(3, OTHER_FINGERPRINT), issue(7, FINGERPRINT), {"number": 8, "body": None}])
     )
 
     assert outcome == 7
@@ -135,7 +149,7 @@ def test_bez_otwartego_issue_z_odciskiem_nie_ma_zgloszenia_takze_po_przejrzeniu_
 
 def test_otwarte_issue_z_odciskiem_na_drugiej_stronie_to_znalezione_zgloszenie() -> None:
     full_page = [issue(number, OTHER_FINGERPRINT) for number in range(100, 200)]
-    outcome, _ = find_with(pages(full_page, [issue(42, REPORT.fingerprint)]))
+    outcome, _ = find_with(pages(full_page, [issue(42, FINGERPRINT)]))
 
     assert outcome == 42
 
@@ -212,8 +226,8 @@ def test_brak_sieci_albo_niezwykla_odpowiedz_przy_stanie_to_skrzynka_nieosiagaln
 
 
 OPERATIONS: dict[str, Callable[[GitHubReportBox, str], object]] = {
-    "send": lambda box, key: box.send(REPORT, key=key),
-    "find_open": lambda box, key: box.find_open(REPORT.fingerprint, key=key),
+    "open_issue": lambda box, key: box.open_issue("kontrola-ilosci", TITLE, BODY, key=key),
+    "find_open": lambda box, key: box.find_open(FINGERPRINT, key=key),
     "states": lambda box, key: box.states([7], key=key),
 }
 

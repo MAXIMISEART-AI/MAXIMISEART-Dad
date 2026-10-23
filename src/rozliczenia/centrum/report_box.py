@@ -1,18 +1,20 @@
-"""Skrzynka Zgłoszeń: adapter, przez który Centrum rozliczeń wysyła Zgłoszenia do Maksa.
+"""Skrzynka Zgłoszeń: adapter, przez który Centrum rozliczeń pisze do Maksa.
 
 Skrzynka jest wstrzykiwana do ``create_app`` obok platformy (ADR 0007). U taty
 to prywatne repozytorium Zgłoszeń na GitHubie (``GitHubReportBox``), w
 ``verify-centrum-rozliczen`` katalog plików, a w testach API fałszywa skrzynka.
-Skrzynka nie zna Centrum: dostaje gotowe Zgłoszenie i klucz taty, a zwraca
-wynik bez wyjątków. Klucz nie trafia do wyniku, dziennika ani Zgłoszenia.
+Skrzynka nie zna Centrum ani rodzajów treści: dostaje etykietę issue
+(``zgloszenie``, ``kontrola-ilosci``, ``logi-uruchomienia``), gotowy tekst i
+klucz taty, a zwraca wynik bez wyjątków. Klucz nie trafia do wyniku, dziennika
+ani issue.
 
-Każda operacja zwraca jeden z wyników: ``Sent`` (numer issue), ``Refused``
-(skrzynka odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable``
-(brak sieci albo skrzynka nie odpowiedziała jak zwykle). Klucz, którego nie da
-się wysłać w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused``
-bez zapytania: taki klucz nie może być ważny. Znalezienie otwartego
-Zgłoszenia po odcisku problemu (``find_open``) daje numer issue albo ``None``
-z tymi samymi porażkami; kolejne operacje dostają ten sam kształt.
+Każda operacja zwraca wynik albo jedną z dwóch porażek: ``Refused`` (skrzynka
+odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable`` (brak sieci
+albo skrzynka nie odpowiedziała jak zwykle). Klucz, którego nie da się wysłać
+w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused`` bez
+zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem, a
+znalezienie otwartego Zgłoszenia po odcisku problemu (``find_open``) daje numer
+issue albo ``None``.
 """
 
 from __future__ import annotations
@@ -26,18 +28,16 @@ from dataclasses import dataclass, field
 from typing import Final, Literal, Protocol
 
 
-@dataclass(frozen=True)
-class Report:
-    """Zgłoszenie: tytuł (kod i „Co się stało”), treść Markdown i odcisk problemu, po którym je rozpoznać."""
-
-    title: str
-    body: str
-    fingerprint: str
+Label = Literal["zgloszenie", "kontrola-ilosci", "logi-uruchomienia"]
+"""Etykieta issue w Skrzynce Zgłoszeń; etykiety zakłada Maks w repozytorium Zgłoszeń, kod ich nie tworzy."""
+REPORT_LABEL: Final[Label] = "zgloszenie"
+# GitHub odrzuca treść issue i komentarza dłuższą niż tyle znaków.
+COMMENT_LIMIT: Final = 65_536
 
 
 @dataclass(frozen=True)
 class Sent:
-    """Skrzynka przyjęła Zgłoszenie jako issue o numerze ``number``."""
+    """Skrzynka założyła issue o numerze ``number``."""
 
     number: int
 
@@ -63,10 +63,9 @@ StatesOutcome = Mapping[int, IssueState] | Refused | Unreachable
 
 
 class ReportBox(Protocol):
-    def send(self, report: Report, *, key: str) -> SendOutcome:
-        """Zakłada Zgłoszenie w skrzynce z kluczem taty; nigdy nie rzuca wyjątku sieci."""
+    def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
+        """Zakłada issue z etykietą ``label`` kluczem taty; nigdy nie rzuca wyjątku sieci."""
         ...
-
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         """Otwarte Zgłoszenie z odciskiem problemu ``fingerprint``; nigdy nie rzuca wyjątku sieci."""
         ...
@@ -94,7 +93,6 @@ class HttpResponse:
 Transport = Callable[[HttpRequest], HttpResponse]
 
 REPOSITORY: Final = "MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia"
-LABEL: Final = "zgloszenie"
 _API: Final = "https://api.github.com"
 _TIMEOUT_S: Final = 15.0
 _REFUSALS: Final = frozenset({401, 403, 404})
@@ -127,31 +125,23 @@ class GitHubReportBox:
     def __init__(self, transport: Transport | None = None) -> None:
         self._transport = transport
 
-    def send(self, report: Report, *, key: str) -> SendOutcome:
+    def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
         if not _sendable(key):
             return Refused()
-        payload = {"title": report.title, "body": report.body, "labels": [LABEL]}
-        answer = self._exchange(
-            HttpRequest(
-                method="POST",
-                url=f"{_API}/repos/{REPOSITORY}/issues",
-                headers={**_headers(key), "Content-Type": "application/json"},
-                body=json.dumps(payload).encode("utf-8"),
-            )
-        )
+        answer = self._post(f"{_API}/repos/{REPOSITORY}/issues", {"title": title, "body": body, "labels": [label]}, key)
         if not isinstance(answer, HttpResponse):
             return answer
         number = _json_field(answer.body, "number") if answer.status == 201 else None
         return Sent(number) if isinstance(number, int) else Unreachable()
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
-        """Przegląda otwarte issue z etykietą Zgłoszeń strona po stronie i szuka wiersza z odciskiem problemu."""
+        """Przegląda otwarte issue z etykietą ``zgloszenie`` strona po stronie i szuka wiersza z odciskiem problemu."""
 
         if not _sendable(key):
             return Refused()
         line = fingerprint_line(fingerprint)
         for page in range(1, _MAX_PAGES + 1):
-            url = f"{_API}/repos/{REPOSITORY}/issues?state=open&labels={LABEL}&per_page={_PAGE_SIZE}&page={page}"
+            url = f"{_API}/repos/{REPOSITORY}/issues?state=open&labels={REPORT_LABEL}&per_page={_PAGE_SIZE}&page={page}"
             answer = self._exchange(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
             if not isinstance(answer, HttpResponse):
                 return answer
@@ -180,6 +170,16 @@ class GitHubReportBox:
                 return Unreachable()
             states[number] = "open" if state == "open" else "closed"
         return states
+
+    def _post(self, url: str, payload: Mapping[str, object], key: str) -> HttpResponse | Refused | Unreachable:
+        return self._exchange(
+            HttpRequest(
+                method="POST",
+                url=url,
+                headers={**_headers(key), "Content-Type": "application/json"},
+                body=json.dumps(payload).encode("utf-8"),
+            )
+        )
 
     def _exchange(self, request: HttpRequest) -> HttpResponse | Refused | Unreachable:
         """Odpowiedź skrzynki na ``request``; brak sieci to ``Unreachable``, odmowa autoryzacji ``Refused``."""

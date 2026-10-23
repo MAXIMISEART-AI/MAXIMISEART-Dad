@@ -34,11 +34,13 @@ the same run root and port: the restarted Centrum keeps every scripted boundary
 and rewrites ``server.json`` with its own pid.
 
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
-directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
+directory, ``<root>/skrzynka-zgloszen/``: each issue Centrum opens (a Zgłoszenie
+Dad sends, or a Kontrola ilości Centrum sends by itself) becomes
 ``<number>.json`` with its title, body, label, and ``state`` (``open``; the
 drive may edit it to ``closed``, which Centrum reads as Maks closing the
-Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file whose body
-has its fingerprint line. The key is never written there. While
+Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file labelled
+``zgloszenie`` whose body has its fingerprint line. The key is never written
+there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 Each question about the state of sent Zgłoszenia appends its numbers to
 ``<root>/skrzynka-zgloszen-zapytania.jsonl``.
@@ -104,10 +106,10 @@ from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.processes import Processes  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
-    LABEL,
+    REPORT_LABEL,
     FindOutcome,
     IssueState,
-    Report,
+    Label,
     SendOutcome,
     Sent,
     StatesOutcome,
@@ -160,13 +162,13 @@ class FileReportBox:
         self._directory = directory
         self._lock = threading.Lock()
 
-    def send(self, report: Report, *, key: str) -> SendOutcome:
+    def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
         with self._lock:
             self._directory.mkdir(parents=True, exist_ok=True)
             number = len(list(self._directory.glob("*.json"))) + 1
-            issue = {"number": number, "title": report.title, "body": report.body, "labels": [LABEL], "state": "open"}
+            issue = {"number": number, "title": title, "body": body, "labels": [label], "state": "open"}
             (self._directory / f"{number}.json").write_text(
                 json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
@@ -178,7 +180,11 @@ class FileReportBox:
         line = fingerprint_line(fingerprint)
         with self._lock:
             issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
-        found = [issue["number"] for issue in issues if issue["state"] == "open" and line in issue["body"].splitlines()]
+        found = [
+            issue["number"]
+            for issue in issues
+            if issue["labels"] == [REPORT_LABEL] and issue["state"] == "open" and line in issue["body"].splitlines()
+        ]
         return min(found, default=None)
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:

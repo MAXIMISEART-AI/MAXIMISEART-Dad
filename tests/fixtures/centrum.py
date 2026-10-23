@@ -18,13 +18,15 @@ from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
+    REPORT_LABEL,
     FindOutcome,
+    Label,
     Refused,
-    Report,
     SendOutcome,
     Sent,
     StatesOutcome,
     Unreachable,
+    fingerprint_line,
 )
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
@@ -65,36 +67,61 @@ class FakePlatform:
 
 
 @dataclass
-class FakeReportBox:
-    """Skrzynka Zgłoszeń zastąpiona zapisem wysłanych Zgłoszeń i przygotowanymi wynikami wysyłki.
+class FakeIssue:
+    """Issue fałszywej skrzynki: etykieta, tytuł i treść, jak je założyło Centrum."""
 
-    Bez przygotowanego wyniku każde Zgłoszenie dostaje kolejny numer issue i jest
-    otwarte (``open``: odcisk problemu → numer), dopóki Maks nie zamknie jego
-    numeru (``close``). ``search_failure`` to odmowa albo brak połączenia przy
+    number: int
+    label: Label
+    title: str
+    body: str
+
+
+@dataclass
+class FakeReportBox:
+    """Skrzynka Zgłoszeń zastąpiona zapisem założonych issue i przygotowanymi wynikami.
+
+    Bez przygotowanego wyniku (``outcomes``, po jednym na każde zakładane issue) każde
+    issue dostaje kolejny numer i jest otwarte, dopóki Maks nie zamknie jego numeru
+    (``close``). ``sent`` to Zgłoszenia (etykieta ``zgloszenie``), a ``issues_with``
+    issue innej etykiety. ``search_failure`` to odmowa albo brak połączenia przy
     każdym pytaniu o otwarte Zgłoszenie, ``states_failure`` to porażka każdego
     zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
     ``search_hold`` to skrzynka, która na pytanie o otwarte Zgłoszenie odpowiada
     dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
-    mówi, że takie pytanie już trwa.
+    mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
+    z zakładaniem issue.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
-    sent: list[Report] = field(default_factory=list)
+    issues: list[FakeIssue] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
-    open: dict[str, int] = field(default_factory=dict)
     closed: set[int] = field(default_factory=set)
     search_failure: Refused | Unreachable | None = None
     states_failure: Refused | Unreachable | None = None
     asked: list[list[int]] = field(default_factory=list)
     search_hold: threading.Event | None = None
     searching: threading.Event = field(default_factory=threading.Event)
+    open_hold: threading.Event | None = None
+    opening: threading.Event = field(default_factory=threading.Event)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def send(self, report: Report, *, key: str) -> SendOutcome:
-        self.keys.append(key)
-        outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.sent) + 1)
-        if isinstance(outcome, Sent):
-            self.sent.append(report)
-            self.open[report.fingerprint] = outcome.number
+    @property
+    def sent(self) -> list[FakeIssue]:
+        return self.issues_with(REPORT_LABEL)
+
+    def issues_with(self, label: Label) -> list[FakeIssue]:
+        with self._lock:
+            return [issue for issue in self.issues if issue.label == label]
+
+    def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
+        self.opening.set()
+        if self.open_hold is not None:
+            self.open_hold.wait()
+        with self._lock:
+            self.keys.append(key)
+            outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.issues) + 1)
+            if isinstance(outcome, Sent):
+                self.issues.append(FakeIssue(outcome.number, label, title, body))
         return outcome
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
@@ -103,8 +130,13 @@ class FakeReportBox:
             self.search_hold.wait()
         if self.search_failure is not None:
             return self.search_failure
-        number = self.open.get(fingerprint)
-        return None if number is None or number in self.closed else number
+        line = fingerprint_line(fingerprint)
+        found = [
+            issue.number
+            for issue in self.sent
+            if issue.number not in self.closed and line in issue.body.splitlines()
+        ]
+        return found[-1] if found else None
 
     def close(self, number: int) -> None:
         self.closed.add(number)
