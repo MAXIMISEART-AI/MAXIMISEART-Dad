@@ -63,8 +63,8 @@ their contents.
   (`Podgląd bez zapisu`).
 - Prove that a new test or check fails on the broken code it guards with
   `tools/mutacje.py`. It mutates a copy of the checkout, never the checkout.
-  Run it once for each test added or changed in a round of work. A rebase, or
-  a fix that leaves the test unchanged, does not need a new run.
+  Run it once for each test or check added or changed in a round of work. A
+  rebase, or a fix that leaves the test unchanged, does not need a new run.
 
 ## Frontend
 
