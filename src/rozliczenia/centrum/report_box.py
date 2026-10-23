@@ -14,7 +14,8 @@ albo skrzynka nie odpowiedziała jak zwykle). Klucz, którego nie da się wysła
 w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused`` bez
 zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem,
 komentarz ``Commented`` z identyfikatorem i adresem, a pytanie o issue z
-etykietą (``labelled_issues``) daje ich numery i treści. ``find_issue`` wybiera z nich
+etykietą (``labelled_issues``) daje ich numery, treści i zamknięcie (powód i czas,
+z których Powiadomienia biorą stan sprawy). ``find_issue`` wybiera z nich
 najnowsze issue z wierszem rozpoznawczym: odciskiem problemu Zgłoszenia albo
 tokenem okresu Kontroli ilości.
 """
@@ -25,9 +26,10 @@ import http.client
 import json
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Final, Literal, Protocol
+from datetime import datetime
+from typing import Final, Literal, Protocol, get_args
 
 
 Label = Literal["zgloszenie", "kontrola-ilosci", "logi-uruchomienia", "uwaga-taty"]
@@ -52,12 +54,25 @@ class Commented:
     url: str
 
 
+CloseReason = Literal["completed", "not_planned", "duplicate"]
+"""Powód zamknięcia issue (``state_reason``): Maks coś zmienił (``completed``) albo nie (``not_planned``, ``duplicate``)."""
+
+
+@dataclass(frozen=True)
+class Closure:
+    """Zamknięcie issue przez Maksa: powód (``None``, gdy GitHub go nie podał) i czas (``None``: nieczytelny)."""
+
+    reason: CloseReason | None
+    at: datetime | None
+
+
 @dataclass(frozen=True)
 class Issue:
-    """Issue z etykietą w skrzynce: numer i treść (pusta, gdy issue jej nie ma)."""
+    """Issue z etykietą w skrzynce: numer, treść (pusta, gdy issue jej nie ma) i zamknięcie (``None``: otwarte)."""
 
     number: int
     body: str
+    closure: Closure | None = None
 
 
 @dataclass(frozen=True)
@@ -76,11 +91,6 @@ IssuesOutcome = tuple[Issue, ...] | Refused | Unreachable
 # Numer znalezionego issue albo ``None``, gdy issue z tym wierszem nie ma (nigdy nie było albo Maks je zamknął).
 FindOutcome = int | None | Refused | Unreachable
 
-# Stan Zgłoszenia w skrzynce: ``open`` czeka na naprawę, ``closed`` Maks zamknął po naprawie.
-IssueState = Literal["open", "closed"]
-# Stan każdego z pytanych numerów albo porażka całego zapytania.
-StatesOutcome = Mapping[int, IssueState] | Refused | Unreachable
-
 
 class ReportBox(Protocol):
     def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
@@ -93,10 +103,6 @@ class ReportBox(Protocol):
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         """Otwarte issue z etykietą ``label``, z ``include_closed`` także zamknięte; nigdy nie rzuca wyjątku sieci."""
-        ...
-
-    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
-        """Stan wysłanych Zgłoszeń o numerach ``numbers``; nigdy nie rzuca wyjątku sieci."""
         ...
 
 
@@ -124,6 +130,7 @@ _REFUSALS: Final = frozenset({401, 403, 404})
 # Issue z etykietą przegląda się stronami po 100; dziesięć stron to więcej, niż jedna etykieta kiedykolwiek będzie miała.
 _PAGE_SIZE: Final = 100
 _MAX_PAGES: Final = 10
+_CLOSE_REASONS: Final[Mapping[str, CloseReason]] = {reason: reason for reason in get_args(CloseReason)}
 
 
 def find_issue(box: ReportBox, label: Label, line: str, *, include_closed: bool, key: str) -> FindOutcome:
@@ -194,21 +201,6 @@ class GitHubReportBox:
                 break
         return tuple(found)
 
-    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
-        if not _sendable(key):
-            return Refused()
-        states: dict[int, IssueState] = {}
-        for number in numbers:
-            url = f"{_API}/repos/{REPOSITORY}/issues/{number}"
-            answer = self._exchange(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
-            if not isinstance(answer, HttpResponse):
-                return answer
-            state = _json_field(answer.body, "state") if answer.status == 200 else None
-            if state not in ("open", "closed"):
-                return Unreachable()
-            states[number] = "open" if state == "open" else "closed"
-        return states
-
     def _post(self, url: str, payload: Mapping[str, object], key: str) -> HttpResponse | Refused | Unreachable:
         return self._exchange(
             HttpRequest(
@@ -249,7 +241,25 @@ def _issue(entry: object) -> Issue | None:
     if not isinstance(entry, dict) or not isinstance(entry.get("number"), int):
         return None
     body = entry.get("body")
-    return Issue(entry["number"], body if isinstance(body, str) else "")
+    closure = _closure(entry) if entry.get("state") == "closed" else None
+    return Issue(entry["number"], body if isinstance(body, str) else "", closure)
+
+
+def _closure(entry: dict[str, object]) -> Closure:
+    """Zamknięcie z ``state_reason`` i ``closed_at``; nieznany powód albo nieczytelny czas to ``None``."""
+
+    reason, closed_at = entry.get("state_reason"), entry.get("closed_at")
+    try:
+        at = datetime.fromisoformat(closed_at) if isinstance(closed_at, str) else None
+    except ValueError:
+        at = None
+    return Closure(close_reason(reason), at if at is not None and at.tzinfo is not None else None)
+
+
+def close_reason(value: object) -> CloseReason | None:
+    """Znany powód zamknięcia albo ``None`` (brak, ``reopened`` przy otwartym albo powód, którego Centrum nie zna)."""
+
+    return _CLOSE_REASONS.get(value) if isinstance(value, str) else None
 
 
 def _json_field(body: bytes, name: str) -> object:

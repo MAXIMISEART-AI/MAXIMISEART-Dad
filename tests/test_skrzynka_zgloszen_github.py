@@ -9,10 +9,12 @@ import http.client
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import pytest
 
 from rozliczenia.centrum.report_box import (
+    Closure,
     CommentOutcome,
     Commented,
     FindOutcome,
@@ -25,7 +27,6 @@ from rozliczenia.centrum.report_box import (
     Refused,
     SendOutcome,
     Sent,
-    StatesOutcome,
     Unreachable,
     find_issue,
 )
@@ -259,51 +260,40 @@ def test_porazka_skrzynki_przy_szukaniu_wiersza_to_ta_sama_porazka(
     assert outcome == expected
 
 
-def issue_in(state: str) -> HttpResponse:
-    return HttpResponse(200, json.dumps({"number": 1, "state": state, "title": "x"}).encode())
+CLOSED_AT = "2026-10-20T09:15:00Z"
+CLOSED_MOMENT = datetime(2026, 10, 20, 9, 15, tzinfo=timezone.utc)
 
 
-def states_with(*answers: Callable[[], HttpResponse]) -> tuple[StatesOutcome, ScriptedTransport]:
-    queued = iter(answers)
-    transport = ScriptedTransport(lambda: next(queued)())
-    return GitHubReportBox(transport=transport).states([7, 9], key=KEY), transport
+def test_zamkniete_issue_ma_powod_i_czas_zamkniecia_a_otwarte_nie() -> None:
+    def entry(number: int, state: str, reason: object, closed_at: object = CLOSED_AT) -> dict[str, object]:
+        return {"number": number, "body": "", "state": state, "state_reason": reason, "closed_at": closed_at}
 
+    outcome, _ = issues_with(
+        pages(
+            [
+                entry(1, "closed", "completed"),
+                entry(2, "closed", "not_planned"),
+                entry(3, "closed", "duplicate"),
+                entry(4, "closed", None),
+                entry(5, "closed", "zablokowane"),
+                entry(6, "closed", "completed", closed_at="wczoraj"),
+                entry(7, "closed", "completed", closed_at="2026-10-20T09:15:00"),
+                entry(8, "open", "reopened", closed_at=None),
+            ]
+        ),
+        include_closed=True,
+    )
 
-def test_stan_wyslanych_zgloszen_to_stan_ich_issue() -> None:
-    outcome, transport = states_with(lambda: issue_in("closed"), lambda: issue_in("open"))
-
-    assert outcome == {7: "closed", 9: "open"}
-    assert [(request.method, request.url) for request in transport.requests] == [
-        ("GET", "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/7"),
-        ("GET", "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/9"),
-    ]
-    assert all(request.headers["Authorization"] == f"Bearer {KEY}" for request in transport.requests)
-    assert all(request.body is None for request in transport.requests)
-
-
-@pytest.mark.parametrize("status", [401, 403, 404])
-def test_odmowa_przy_stanie_zgloszen_to_odmowa_skrzynki(status: int) -> None:
-    outcome, _ = states_with(lambda: issue_in("open"), lambda: HttpResponse(status, b'{"message": "Not Found"}'))
-
-    assert outcome == Refused()
-
-
-@pytest.mark.parametrize(
-    "answer",
-    [
-        no_network,
-        lambda: HttpResponse(502, b"<html>Bad gateway</html>"),
-        lambda: HttpResponse(200, b"to nie jest JSON"),
-        lambda: issue_in("zablokowane"),
-    ],
-    ids=["brak-sieci", "awaria-githuba", "nieczytelna-odpowiedz", "nieznany-stan"],
-)
-def test_brak_sieci_albo_niezwykla_odpowiedz_przy_stanie_to_skrzynka_nieosiagalna(
-    answer: Callable[[], HttpResponse],
-) -> None:
-    outcome, _ = states_with(lambda: issue_in("closed"), answer)
-
-    assert outcome == Unreachable()
+    assert outcome == (
+        Issue(1, "", Closure("completed", CLOSED_MOMENT)),
+        Issue(2, "", Closure("not_planned", CLOSED_MOMENT)),
+        Issue(3, "", Closure("duplicate", CLOSED_MOMENT)),
+        Issue(4, "", Closure(None, CLOSED_MOMENT)),
+        Issue(5, "", Closure(None, CLOSED_MOMENT)),
+        Issue(6, "", Closure("completed", None)),
+        Issue(7, "", Closure("completed", None)),
+        Issue(8, ""),
+    )
 
 
 COMMENT_URL = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/12#issuecomment-901"
@@ -358,7 +348,6 @@ OPERATIONS: dict[str, Callable[[GitHubReportBox, str], object]] = {
     "open_issue": lambda box, key: box.open_issue("kontrola-ilosci", TITLE, BODY, key=key),
     "comment": lambda box, key: box.comment(12, BODY, key=key),
     "labelled_issues": lambda box, key: box.labelled_issues("kontrola-ilosci", include_closed=True, key=key),
-    "states": lambda box, key: box.states([7], key=key),
 }
 
 

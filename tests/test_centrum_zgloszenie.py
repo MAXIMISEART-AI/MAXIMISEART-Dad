@@ -357,7 +357,9 @@ def test_wyslane_zgloszenie_czeka_na_naprawe_takze_po_restarcie_centrum(tmp_path
     assert len(centrum.surroundings.report_box.keys) == 1
     sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
     [fingerprint] = [line.removeprefix("- Odcisk problemu: ") for line in body.splitlines() if "Odcisk problemu" in line]
-    assert sent == [{"fingerprint": fingerprint, "number": 1, "commit": TOOL_COMMIT, "state": "open"}]
+    assert [{name: entry[name] for name in ("fingerprint", "number", "commit", "closure")} for entry in sent] == [
+        {"fingerprint": fingerprint, "number": 1, "commit": TOOL_COMMIT, "closure": None}
+    ]
 
 
 def test_zatrzymanie_dla_taty_nie_proponuje_zgloszenia(tmp_path: Path) -> None:
@@ -472,7 +474,7 @@ def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_
     assert [entry["number"] for entry in sent] == [1, 2]
 
 
-def test_zgloszenie_zamkniete_wedlug_powiadomienia_o_naprawie_nie_czeka_juz_po_restarcie(tmp_path: Path) -> None:
+def test_zgloszenie_zamkniete_wedlug_powiadomien_nie_czeka_juz_po_restarcie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
@@ -480,7 +482,7 @@ def test_zgloszenie_zamkniete_wedlug_powiadomienia_o_naprawie_nie_czeka_juz_po_r
     diagnose(centrum, first)
     send(centrum, first)
     box.close(1)
-    assert centrum.client.get("/api/reports/repair").json() == {"repaired": True}
+    assert [item["state"] for item in centrum.client.get("/api/notifications").json()["items"]] == ["rozwiazana"]
     centrum.restart()
 
     again = stopped_for_maks(centrum)
@@ -490,8 +492,7 @@ def test_zgloszenie_zamkniete_wedlug_powiadomienia_o_naprawie_nie_czeka_juz_po_r
     assert "- Poprzednie Zgłoszenie: #1" in preview["body"].splitlines()
     assert send(centrum, again) == {"state": "sent"}
     sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
-    assert [(entry["number"], entry["state"]) for entry in sent] == [(1, "closed"), (2, "open")]
-    assert centrum.client.get("/api/reports/repair").json() == {"repaired": True}
+    assert [(entry["number"], entry["closure"] is None) for entry in sent] == [(1, False), (2, True)]
 
 
 def test_bez_odpowiedzi_skrzynki_wyslany_problem_dalej_czeka_na_naprawe(tmp_path: Path) -> None:
@@ -583,11 +584,11 @@ def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowi
         try:
             clicks = [pool.submit(send, centrum, run_id) for _ in range(2)]
             assert box.searching.wait(5)
-            during_send = pool.submit(centrum.client.get, "/api/reports/repair").result(timeout=2)
+            during_send = pool.submit(centrum.client.get, "/api/notifications").result(timeout=2)
         finally:
             box.search_hold.set()
         answers = [click.result(timeout=10) for click in clicks]
 
-    assert during_send.json() == {"repaired": False}
+    assert during_send.json() == {"unread": 0, "items": []}
     assert answers == [{"state": "sent"}, {"state": "sent"}]
     assert len(box.sent) == 1

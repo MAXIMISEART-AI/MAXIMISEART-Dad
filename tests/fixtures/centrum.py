@@ -6,7 +6,7 @@ import json
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,8 @@ from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
     REPORT_LABEL,
     REPOSITORY,
+    CloseReason,
+    Closure,
     CommentOutcome,
     Commented,
     Issue,
@@ -28,7 +30,6 @@ from rozliczenia.centrum.report_box import (
     Refused,
     SendOutcome,
     Sent,
-    StatesOutcome,
     Unreachable,
 )
 from rozliczenia.centrum.shutdown import Shutdown
@@ -88,10 +89,9 @@ class FakeReportBox:
 
     Bez przygotowanego wyniku (``outcomes``, po jednym na każde zakładane issue) każde
     issue dostaje kolejny numer i jest otwarte, dopóki Maks nie zamknie jego numeru
-    (``close``); komentarz do issue, którego nie ma, to odmowa jak 404 GitHuba. ``sent`` to Zgłoszenia (etykieta ``zgloszenie``), a ``issues_with``
-    issue innej etykiety. ``search_failure`` to odmowa albo brak połączenia przy
-    każdym pytaniu o issue z etykietą, ``states_failure`` to porażka każdego
-    zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
+    (``close``, z powodem); komentarz do issue, którego nie ma, to odmowa jak 404 GitHuba. ``sent`` to Zgłoszenia
+    (etykieta ``zgloszenie``), a ``issues_with`` issue innej etykiety. ``search_failure`` to odmowa albo brak
+    połączenia przy każdym pytaniu o issue z etykietą, a ``listed`` to etykieta i ``include_closed`` każdego pytania.
     ``search_hold`` to skrzynka, która na pytanie o issue z etykietą odpowiada
     dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
     mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
@@ -102,10 +102,9 @@ class FakeReportBox:
     outcomes: list[SendOutcome] = field(default_factory=list)
     issues: list[FakeIssue] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
-    closed: set[int] = field(default_factory=set)
+    closed: dict[int, Closure] = field(default_factory=dict)
     search_failure: Refused | Unreachable | None = None
-    states_failure: Refused | Unreachable | None = None
-    asked: list[list[int]] = field(default_factory=list)
+    listed: list[tuple[Label, bool]] = field(default_factory=list)
     search_hold: threading.Event | None = None
     searching: threading.Event = field(default_factory=threading.Event)
     open_hold: threading.Event | None = None
@@ -153,26 +152,23 @@ class FakeReportBox:
         return Commented(comment_id, f"https://github.com/{REPOSITORY}/issues/{number}#issuecomment-{comment_id}")
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
+        assert key, "skrzynka pytana bez klucza"
+        self.listed.append((label, include_closed))
         self.searching.set()
         if self.search_hold is not None:
             self.search_hold.wait()
         if self.search_failure is not None:
             return self.search_failure
         return tuple(
-            Issue(issue.number, issue.body)
+            Issue(issue.number, issue.body, self.closed.get(issue.number))
             for issue in self.issues_with(label)
             if include_closed or issue.number not in self.closed
         )
 
-    def close(self, number: int) -> None:
-        self.closed.add(number)
+    def close(self, number: int, reason: CloseReason | None = "completed", at: datetime | None = None) -> None:
+        """Maks zamyka issue ``number`` z powodem ``reason`` (``state_reason`` GitHuba) w chwili ``at``."""
 
-    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
-        assert key, "skrzynka pytana bez klucza"
-        self.asked.append(list(numbers))
-        if self.states_failure is not None:
-            return self.states_failure
-        return {number: "closed" if number in self.closed else "open" for number in numbers}
+        self.closed[number] = Closure(reason, at or datetime.now(timezone.utc))
 
 
 @dataclass
