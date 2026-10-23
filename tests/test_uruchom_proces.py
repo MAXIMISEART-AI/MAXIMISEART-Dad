@@ -164,7 +164,7 @@ def test_przebieg_rozliczen_ok_konczy_kodem_0_z_podsumowaniem_karty_uruchomienia
     assert (progress["template_total"], progress["templates_completed"]) == (3, 3)
     [record] = MetricsStore(tmp_path / "metrics.jsonl", COUNTER_NAMES).read()
     assert (record["mode"], record["result"], record["total_duration_ms"]) == ("RUN", "OK", result["total_duration_ms"])
-    assert (result["metrics_saved"], result["notices"]) == (True, [])
+    assert (result["metrics_saved"], result["technical_notes"]) == (True, [])
     assert str(tmp_path) not in json.dumps(result)
 
 
@@ -226,7 +226,7 @@ def test_awaria_podgladu_postepu_odlacza_go_bez_tekstu_wyjatku_i_bez_zmiany_wyni
     assert secret not in stdout + stderr
     assert stderr == ""
     assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
-    assert result["notices"] == [DETACHED_VIEW_NOTICE]
+    assert result["technical_notes"] == [DETACHED_VIEW_NOTICE]
     assert {phase["state"] for phase in result["progress"]["phases"]} == phase_states
     assert [(figure["label"], figure["value"]) for figure in result["summary"]["figures"]] == [
         ("Zapisane szablony", 2),
@@ -269,7 +269,7 @@ def test_nieudany_zapis_metryk_jest_ostrzezeniem_bez_zmiany_wyniku(tmp_path: Pat
 
     assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
     assert result["metrics_saved"] is False
-    assert result["notices"] == ["Ostrzeżenie: Nie zapisano metryk; proces rozliczeń zakończył się niezależnie."]
+    assert result["technical_notes"] == ["Ostrzeżenie: Nie zapisano metryk; proces rozliczeń zakończył się niezależnie."]
     assert [(figure["label"], figure["value"]) for figure in result["summary"]["figures"]] == [
         ("Zapisane szablony", 2),
         ("Puste szablony", 1),

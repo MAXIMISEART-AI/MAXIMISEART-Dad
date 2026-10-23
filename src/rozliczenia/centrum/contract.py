@@ -446,7 +446,7 @@ DiagnosisOffer = Literal["on_request", "automatic"]
 
 
 class RunOutcome(_Model):
-    """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
+    """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
     błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
@@ -465,7 +465,7 @@ class RunOutcome(_Model):
     report: ReportState | None
     stops: list[Message]
     warnings: list[Message]
-    notices: list[str]
+    technical_notes: list[str]
     summary: RunSummary | None
 
 

@@ -490,7 +490,7 @@ def _run_result(
         report=None if stopped is None else stopped.report,
         stops=stops,
         warnings=[] if shown is None else [contract.Message.of(warning) for warning in shown.warnings],
-        notices=list(outcome.notices),
+        technical_notes=list(outcome.technical_notes),
         summary=None if shown is None else shown.summary,
     )
 
@@ -508,7 +508,7 @@ def _unexpected_result(dry_run: bool, stopped: StoppedRun) -> contract.RunOutcom
         report=stopped.report,
         stops=[contract.Message.of(_RESULT_NOT_SHOWN)],
         warnings=[],
-        notices=[],
+        technical_notes=[],
         summary=None,
     )
 

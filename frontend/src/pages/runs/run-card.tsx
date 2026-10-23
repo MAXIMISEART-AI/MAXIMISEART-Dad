@@ -208,10 +208,10 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
       {result.warnings.map((warning) => (
         <ThreePartMessage key={warning.what} message={warning} kind="warning" />
       ))}
-      {result.notices.map((notice) => (
-        <p key={notice} className="flex items-center gap-2 text-sm text-muted-foreground">
+      {result.technical_notes.map((note) => (
+        <p key={note} className="flex items-center gap-2 text-sm text-muted-foreground">
           <InfoIcon className="size-4" aria-hidden />
-          {notice}
+          {note}
         </p>
       ))}
       {result.summary === null ? null : <SummaryDetails summary={result.summary} dryRun={run.dry_run} />}
