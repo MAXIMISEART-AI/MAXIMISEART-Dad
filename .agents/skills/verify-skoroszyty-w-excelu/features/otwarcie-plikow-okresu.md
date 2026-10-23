@@ -29,7 +29,7 @@ Preconditions: the Baseline in `README.md`; both Wzorce were opened as the refer
 - **Plik zbiorczy.** Copy it to the desk and open it; it stays open for `gotowosc-w-excelu`.
 - **Link.** `excel.link_names` equals the Wzorzec pliku zbiorczego's list (`links=1`).
 - **Rows and formulas.** Headers of row 17 give `NUMER ZL.`, `ADRES`, `WYKONAWCA`; the four Zlecenia skuteczne are in rows 18–21. For each, `excel.formulas_r1c1("AU:AY")` equals the reference and `excel.error_cells("AU:AX")` is none.
-- **Ilości usług.** `excel.read` of `N:AP` of each order's row gives exactly `QUANTITIES` of `run_excel_verification.py` as non-zero numbers, and `N15:AP15` their column sums (`cells=14 | sums_row=15`).
+- **Ilości usług.** `excel.read` of `N:AP` of each order's row gives exactly `QUANTITIES` of `run_excel_verification.py` as non-zero numbers, and `N15:AP15` their column sums (`cells=17 | sums_row=15`).
 - **Wyróżnienia.** `excel.fill` gives interior, font color, bold, italic: ADRES `(0xFFFF00, 0xC00000, True, False)` (`-2`), `(0x00B0F0, 0x000000, False, False)` (`-4`), `(0xFFFFFF, 0x000000, False, False)` (`-7`, `-6`), and WYKONAWCA `(0xFFFFFF, 0x000000, False, True)` (`-4`) (`cells=5`).
 - **Wygląd Wiersza danych.** `excel.row_heights` of each order's row against `excel.standard_height`; `excel.shown_text` of DATA is remembered for `rozliczenia-pracownikow-w-excelu`. `STEP … plik-zbiorczy-wyglad-wiersza | rows=4 | one_line_pt=…`.
 
