@@ -1,0 +1,314 @@
+"""Kontrola ilości po Przebiegu rozliczeń z Centrum (ADR 0013, #273), przez HTTP API z fałszywą Skrzynką Zgłoszeń.
+
+Plik zbiorczy jest syntetyczny: wiersze z poprawkami „taty” w N:AP, a wartości w kolumnach, których Kontrola nie
+może wysłać, są znacznikami. Żaden test nie łączy się z GitHubem.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+import json
+from pathlib import Path
+import threading
+from typing import Final
+
+import pytest
+
+from rozliczenia.centrum.report_box import Refused, SendOutcome, Sent, Unreachable
+
+from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox, finished_view
+from tests.fixtures.centrum_processes import SettlingCentrum, run_to_end, settling_centrum
+from tests.fixtures.settlement import CellValue, PERIOD, write_quantity_source
+
+KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
+LABEL: Final = "kontrola-ilosci"
+LINE = f"- Kontrola ilości okresu: {PERIOD}"
+
+TUE, WED, THU, FRI, MON = (datetime(2026, 9, day) for day in (8, 9, 10, 11, 14))
+
+# Każdy wiersz to jeden przypadek decyzji 9-11; komentarz mówi, co Reguły ilości dają, a co wpisał tata.
+TATA_ROWS: list[dict[str, CellValue]] = [
+    # zgodny z regułą; zera z Wzorca w N, Q i X to puste
+    {"C": "u", "D": "nokia zte", "E": "instalacja", "G": TUE.replace(hour=10, minute=15),
+     "V": 1, "T": 1, "O": 1, "Z": 1, "S": 1, "N": 0, "Q": 0, "X": 0},
+    # reguła Q 2 (trzy fut przy routerze), tata 1: dwa wiersze z tej samej godziny to jedna grupa
+    {"C": "u", "D": "nokia zte 3*fut", "E": "instalacja", "G": TUE.replace(hour=10, minute=5),
+     "V": 1, "T": 1, "O": 1, "Z": 1, "P": 1, "Q": 1, "S": 4},
+    {"C": "u", "D": "nokia zte 3*fut", "E": "instalacja", "G": TUE.replace(hour=10, minute=40),
+     "V": 1, "T": 1, "O": 1, "Z": 1, "P": 1, "Q": 1, "S": 4},
+    # usterka w piątek przed 17: bez dodatku, tata wpisał 45 w N
+    {"C": "pr", "D": "usterka", "G": FRI.replace(hour=16, minute=30), "V": 1, "AI": 1, "N": 45},
+    # reguła daje AK 1, więc AK jest porównywane: tata 0
+    {"C": "pr", "D": "technicolor", "G": WED.replace(hour=12), "V": 1, "O": 1, "Z": 1, "S": 1},
+    # AK z reguły wpisane przez tatę: zgodne, więc nie liczy się jak kolumna z opisu
+    {"C": "pr", "D": "technicolor", "G": WED.replace(hour=15), "V": 1, "O": 1, "Z": 1, "S": 1, "AK": 1},
+    # reguła nie daje AK, więc AK taty liczy się jak kolumna z opisu technika, razem z Y
+    {"C": "pr", "D": "nokia", "G": WED.replace(hour=13), "V": 1, "Z": 1, "AK": 1, "Y": 1},
+    # bez reguły: różnica tylko w V, wartość taty w O
+    {"C": "u", "D": "przeniesienie", "G": MON.replace(hour=9), "T": 1, "O": 1},
+    # bez reguły: słowo w AM to „nieliczbowa”, AM liczy się też jak kolumna z opisu
+    {"C": "u", "D": "przeniesienie", "G": MON.replace(hour=9, minute=30), "V": 1, "T": 1, "AM": "dwa"},
+    # rozliczany z opisu: bez porównania, AB taty liczy się jak kolumna z opisu
+    {"C": "u", "D": "prewencja", "G": THU.replace(hour=8), "AB": 2},
+    # DATA zmieniona przez tatę na tekst: bez porównania
+    {"C": "pr", "D": "nokia", "G": "wtorek", "V": 1, "Z": 1},
+    # liczba tekstem i float równy liczbie to ta liczba; R to pozostała kolumna N:AP
+    {"C": "pr", "D": "gniazdo", "G": THU.replace(hour=11), "V": "1", "AE": 1.0, "AP": 1, "R": 3},
+    # 1.5 i formuła to „nieliczbowa”
+    {"C": "pr", "D": "fut", "G": THU.replace(hour=14), "V": 1, "Q": 1.5, "S": "=1+1"},
+]
+
+DIFFERENCES_HEADER = (
+    "| Kolumna | Reguła | Tata | CZYNNOŚCI | UMOWA | Dzień, godzina | Wiersze |\n"
+    "| --- | --- | --- | --- | --- | --- | --- |\n"
+)
+
+
+def expected_body(run_id: str) -> str:
+    return (
+        f"{LINE}\n"
+        "\n"
+        "Kontrola ilości z Centrum rozliczeń: Reguły ilości przeliczone na Pliku zbiorczym, "
+        "z którego tata uruchomił Przebieg rozliczeń.\n"
+        "\n"
+        "- Wiersze danych: 13 (porównane 9, rozliczane z opisu 1, bez reguły 2, bez daty i godziny w DATA 1)\n"
+        "- Różnice w kolumnach Reguł ilości: 7\n"
+        "\n"
+        "## Różnice\n"
+        "\n"
+        "### URZĄDZENIA `fut`\n"
+        "\n"
+        f"{DIFFERENCES_HEADER}"
+        "| Q | 1 | nieliczbowa | (puste) | `pr` | czw 14 | 1 |\n"
+        "| S | 1 | nieliczbowa | (puste) | `pr` | czw 14 | 1 |\n"
+        "\n"
+        "### URZĄDZENIA `nokia zte 3*fut`\n"
+        "\n"
+        f"{DIFFERENCES_HEADER}"
+        "| Q | 2 | 1 | `instalacja` | `u` | wt 10 | 2 |\n"
+        "\n"
+        "### URZĄDZENIA `technicolor`\n"
+        "\n"
+        f"{DIFFERENCES_HEADER}"
+        "| AK | 1 | 0 | (puste) | `pr` | śr 12 | 1 |\n"
+        "\n"
+        "### URZĄDZENIA `usterka`\n"
+        "\n"
+        f"{DIFFERENCES_HEADER}"
+        "| N | 0 | 45 | (puste) | `pr` | pt 16 | 1 |\n"
+        "\n"
+        "## Wiersze bez reguły\n"
+        "\n"
+        "### URZĄDZENIA `przeniesienie` (wiersze: 2)\n"
+        "\n"
+        f"{DIFFERENCES_HEADER}"
+        "| V | 1 | 0 | (puste) | `u` | pon 9 | 1 |\n"
+        "\n"
+        "| Kolumna | Wartość taty | Wiersze |\n"
+        "| --- | --- | --- |\n"
+        "| O | 1 | 1 |\n"
+        "| AM | nieliczbowa | 1 |\n"
+        "\n"
+        "## Kolumny z opisu technika: wiersze wypełnione przez tatę\n"
+        "\n"
+        "| Y | AB | AD | AJ | AK | AL | AM |\n"
+        "| --- | --- | --- | --- | --- | --- | --- |\n"
+        "| 1 | 1 | 0 | 0 | 1 | 0 | 1 |\n"
+        "\n"
+        "## Pozostałe kolumny N:AP: wiersze wypełnione przez tatę\n"
+        "\n"
+        "| R | U | W | X | AA | AC | AF | AH |\n"
+        "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+        "| 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |\n"
+        "\n"
+        "## Narzędzie\n"
+        "\n"
+        f"- Wersja narzędzia (commit): {TOOL_COMMIT}\n"
+        f"- Uruchomienie: {run_id}\n"
+    )
+
+
+def centrum_with(tmp_path: Path, rows: list[dict[str, CellValue]], *, key: bool = True) -> SettlingCentrum:
+    centrum = settling_centrum(tmp_path)
+    write_quantity_source(centrum.collective_file, rows)
+    if key:
+        (tmp_path / "config" / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
+    return centrum
+
+
+def box(centrum: SettlingCentrum) -> FakeReportBox:
+    return centrum.surroundings.report_box
+
+
+def queued(centrum: SettlingCentrum) -> list[Path]:
+    return sorted((centrum.tmp_path / "config" / "zgloszenia" / "kolejka").glob("*"))
+
+
+def sent_check(centrum: SettlingCentrum) -> FakeIssue:
+    assert box(centrum).wait_until(lambda fake: bool(fake.issues_with(LABEL))), "Kontrola ilości nie dotarła"
+    [issue] = box(centrum).issues_with(LABEL)
+    return issue
+
+
+def test_przebieg_z_poprawkami_taty_daje_kontrole_ilosci_z_grupami_roznic_i_liczbami(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+
+    view = run_to_end(centrum, dry_run=False)
+
+    assert view["result"]["result"] == "OK"
+    issue = sent_check(centrum)
+    assert (issue.label, issue.title) == (LABEL, f"Kontrola ilości {PERIOD}: 7 różnic")
+    assert issue.body == expected_body(view["run"]["id"])
+    assert box(centrum).keys == [KEY]
+    assert f"skrzynka-wyslano etykieta={LABEL} okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
+
+
+def test_przy_zera_roznic_kontrola_ilosci_tez_powstaje_z_tytulem_bez_roznic(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, [TATA_ROWS[0]])
+
+    run_to_end(centrum, dry_run=False)
+
+    issue = sent_check(centrum)
+    assert issue.title == f"Kontrola ilości {PERIOD}: bez różnic"
+    assert "- Różnice w kolumnach Reguł ilości: 0\n" in issue.body
+    assert "## Różnice" not in issue.body
+
+
+def test_plik_zbiorczy_bez_naglowka_kolumny_wejscia_daje_kontrole_bez_porownania(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    (tmp_path / "config" / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
+
+    run_to_end(centrum, dry_run=False)
+
+    issue = sent_check(centrum)
+    assert issue.title == f"Kontrola ilości {PERIOD}: bez porównania"
+    assert "nie ma nagłówka UMOWA, URZĄDZENIA, CZYNNOŚCI, DATA" in issue.body
+
+
+STARTED = datetime(2026, 9, 9, 13, 45)
+MARKED: dict[str, CellValue] = {
+    "A": "ZNACZNIK-MIASTO",
+    "B": "ZNACZNIK-ADRES",
+    "C": "u ZNACZNIK-UMOWA",
+    "D": "nokia ZNACZNIK-URZADZENIA",
+    "E": "ZNACZNIK-CZYNNOSCI",
+    "F": "ZNACZNIK-NUMER-ZL",
+    "G": STARTED,
+    "I": "ZNACZNIK-NUMER-UMOWY",
+    "J": "tak",
+    "K": "ZNACZNIK-ZREALIZOWANE",
+    "AQ": "ZNACZNIK-AQ",
+    "AR": "ZNACZNIK-AR",
+    "AS": "ZNACZNIK-AS",
+    "AT": "ZNACZNIK-AT",
+    "V": "ZNACZNIK-ILOSC",
+}
+FORBIDDEN = (
+    "ZNACZNIK-MIASTO",
+    "ZNACZNIK-ADRES",
+    "ZNACZNIK-NUMER-ZL",
+    "ZNACZNIK-NUMER-UMOWY",
+    "ZNACZNIK-ZREALIZOWANE",
+    "ZNACZNIK-AQ",
+    "ZNACZNIK-AR",
+    "ZNACZNIK-AS",
+    "ZNACZNIK-AT",
+    "ZNACZNIK-ILOSC",
+    "adrian.testowy",
+    "Adrian Testowy",
+    "2026-09-09",
+    "09.09.2026",
+    "09.09",
+    "13:45",
+)
+ALLOWED = ("ZNACZNIK-UMOWA", "ZNACZNIK-URZADZENIA", "ZNACZNIK-CZYNNOSCI")
+
+
+def test_kontrola_ilosci_nie_ma_adresu_numerow_wykonawcy_daty_ani_czynnosci_zrealizowanych(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, [MARKED])
+
+    view = run_to_end(centrum, dry_run=False)
+
+    issue = sent_check(centrum)
+    sent = issue.title + issue.body + "".join(issue.comments)
+    assert [marker for marker in FORBIDDEN if marker in sent] == []
+    assert all(marker in sent for marker in ALLOWED)
+    assert "| V | 1 | nieliczbowa | `ZNACZNIK-CZYNNOSCI` | `u ZNACZNIK-UMOWA` | śr 13 | 1 |" in sent
+    assert queued(centrum) == []
+    seen_by_tata = [
+        json.dumps(view),
+        centrum.client.get("/api/runs/current").text,
+        centrum.client.get("/api/metrics?process=settlement").text,
+        centrum.log_path.read_text(encoding="utf-8"),
+        centrum.metrics_path.read_text(encoding="utf-8"),
+        *(path.read_text(encoding="utf-8") for path in (tmp_path / "config").glob("*.json*")),
+    ]
+    assert [marker for marker in ALLOWED if any(marker in text for text in seen_by_tata)] == []
+
+
+def _without_times(value: object) -> object:
+    """Wynik Uruchomienia albo rekord metryk bez czasów i identyfikatorów, które różnią się z każdym Uruchomieniem."""
+
+    if isinstance(value, dict):
+        return {
+            key: _without_times(item)
+            for key, item in value.items()
+            if not (key == "id" or key.endswith("_ms") or key.endswith("_at") or key in ("timestamp", "value"))
+        }
+    if isinstance(value, list):
+        return [_without_times(item) for item in value]
+    return value
+
+
+@pytest.mark.parametrize(
+    ("answer", "key"),
+    [(Sent(1), True), (Refused(), True), (Unreachable(), True), (None, False)],
+    ids=["przyjela", "odmowila", "brak-sieci", "brak-klucza"],
+)
+def test_wynik_przebiegu_jest_ten_sam_przy_kazdej_odpowiedzi_skrzynki(
+    tmp_path: Path, answer: SendOutcome | None, key: bool
+) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS, key=key)
+    if answer is not None:
+        box(centrum).outcomes.append(answer)
+
+    view = run_to_end(centrum, dry_run=False)
+
+    reference = centrum_with(tmp_path / "bez-skrzynki", TATA_ROWS, key=False)
+    expected = run_to_end(reference, dry_run=False)
+    assert _without_times(view["result"]) == _without_times(expected["result"])
+    assert view["result"]["notices"] == [] and view["result"]["warnings"] == []
+    [record] = centrum.metric_records()
+    [expected_record] = reference.metric_records()
+    assert _without_times(record) == _without_times(expected_record)
+    assert list((tmp_path / "config" / "zgloszenia").glob("Zgłoszenie *.md")) == []
+
+
+def test_wysylka_w_tle_nie_trzyma_miejsca_uruchomienia_ani_zamkniecia_centrum(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    fake = box(centrum)
+    fake.open_hold = hold = threading.Event()
+
+    run_to_end(centrum, dry_run=False)
+    assert fake.opening.wait(30), "wysyłka w tle nie zaczęła pytać skrzynki"
+
+    again = centrum.start(dry_run=True)
+    assert again.status_code == 200, again.json()
+    assert finished_view(centrum.client)["run"]["id"] == again.json()["run"]["id"]
+    assert centrum.client.post("/api/shutdown").status_code == 202
+    hold.set()
+    sent_check(centrum)
+
+
+def test_podglad_i_zatrzymanie_nie_tworza_kontroli_ilosci(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+
+    preview = run_to_end(centrum, dry_run=True)
+    write_quantity_source(centrum.collective_file, [*TATA_ROWS, {"H": "andrzej.nieznany2"}])
+    stopped = run_to_end(centrum, dry_run=False)
+
+    assert preview["result"]["ending"] == "finished"
+    assert stopped["result"]["ending"] == "stop"
+    assert queued(centrum) == []
+    assert box(centrum).keys == []
+    assert "skrzynka-" not in centrum.log_path.read_text(encoding="utf-8")

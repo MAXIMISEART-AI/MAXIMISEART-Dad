@@ -34,7 +34,9 @@ from rozliczenia.centrum.metrics import metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.reports import Reports, repair_router
+from rozliczenia.centrum.outbox import QUEUE_DIRECTORY, Outbox
+from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
+from rozliczenia.centrum.reports import UNSENT_DIRECTORY, Reports, read_report_key, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
@@ -143,9 +145,11 @@ def create_app(
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
-    reports = Reports(
-        settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock
-    )
+    config = settings_path.parent
+    box = report_box or GitHubReportBox()
+    reports = Reports(config, box, log, surroundings.tool_freshness.local, clock=clock)
+    # Kontrola ilości po Przebiegu rozliczeń: w kolejce obok niewysłanych Zgłoszeń, wysyłana w tle (ADR 0013).
+    outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     stops = Stops(
         reports,
@@ -154,7 +158,9 @@ def create_app(
         ),
         log,
     )
-    runs = RunHost(log, centrum_runs, stops, after_run=())
+    runs = RunHost(
+        log, centrum_runs, stops, after_run=[QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)]
+    )
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie
     # opiekun ponownego startu zostawia wynik obok Ustawień taty, a to Centrum odczytuje go teraz, raz.

@@ -267,16 +267,20 @@ def _route(operation: str, method: str, path: str, body: object = None) -> Entry
     return Entry((operation,), call)
 
 
-def _preview(process: str, period: str) -> Entry:
+def _preview(process: str, period: str, *, dry_run: bool = True) -> Entry:
+    """Uruchomienie procesu do wyniku; z zapisem Przebieg rozliczeń zapisuje też Kontrolę ilości w kolejce."""
+
+    where = "Podgląd bez zapisu" if dry_run else "Uruchomienie z zapisem"
+
     def call(client: TestClient, seen: Seen) -> Problems:
-        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
+        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": dry_run})
         problems = _http(started, "startRun", seen)
         if started.status_code != 200:
             return problems
         result = finished_view(client)["result"]
-        seen.append(("Podgląd bez zapisu", json.dumps(result, ensure_ascii=False)))
+        seen.append((where, json.dumps(result, ensure_ascii=False)))
         if result["ending"] in ("unexpected", "after_engine"):
-            problems.append(f"Podgląd bez zapisu: ogólny Komunikat ({result['ending']})")
+            problems.append(f"{where}: ogólny Komunikat ({result['ending']})")
         return problems + _http(client.get("/api/runs/current"), "getCurrentRun", seen)
 
     return Entry(("startRun", "streamRunEvents", "getCurrentRun"), call)
@@ -327,6 +331,7 @@ ENTRIES: dict[str, Entry] = {
     "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
     "podglad[przygotowanie]": _preview("preparation", PERIOD),
     "podglad[przebieg]": _preview("settlement", SETTLEMENT_PERIOD),
+    "zapis[przebieg]": _preview("settlement", SETTLEMENT_PERIOD, dry_run=False),
     "diagnoza[przygotowanie]": _diagnosis("preparation", PERIOD, report=True),
     "diagnoza[przebieg]": _diagnosis("settlement", SETTLEMENT_PERIOD, report=False),
 }
