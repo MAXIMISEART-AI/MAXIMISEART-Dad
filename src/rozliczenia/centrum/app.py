@@ -153,14 +153,6 @@ def create_app(
     reports = Reports(config, box, log, surroundings.tool_freshness.local, clock=clock)
     # Kontrola ilości i Logi Uruchomienia: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle (ADR 0013, 0015).
     outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
-    # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
-    stops = Stops(
-        reports,
-        lambda process, period: diagnose(
-            process, period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
-        ),
-        log,
-    )
     # Logi Uruchomienia: jeden plik JSON na Uruchomienie obok dziennika Centrum, poza Gitem i OneDrive (ADR 0015).
     run_logs = RunLogs(
         log.directory / RUN_LOGS_DIRECTORY,
@@ -170,6 +162,15 @@ def create_app(
             process, period, settings=store.load(), configuration=configuration
         ),
         cloud_files=surroundings.cloud_files,
+    )
+    # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
+    stops = Stops(
+        reports,
+        lambda process, period: diagnose(
+            process, period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
+        ),
+        log,
+        run_logs,
     )
     runs = RunHost(
         log,

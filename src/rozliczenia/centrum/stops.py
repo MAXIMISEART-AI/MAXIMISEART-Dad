@@ -10,9 +10,9 @@ tylko w pamięci serwera, więc restart Centrum ją zeruje.
 
 Przy Zatrzymaniu „do Maksa” i Powtórce Centrum proponuje Diagnozę; przy
 nieoczekiwanym wyjątku zaczyna ją od razu. ``Stops`` prowadzi Diagnozę
-Zatrzymania (Diagnoza, wpis w dzienniku, podgląd Zgłoszenia, pytanie skrzynki)
-i wysyłkę Zgłoszenia. Każda z nich zwraca nowy stan Zgłoszenia, a ``RunHost``
-pokazuje go na karcie Uruchomienia.
+Zatrzymania (Diagnoza, wpis w dzienniku, Diagnoza w Logach Uruchomienia,
+podgląd Zgłoszenia, pytanie skrzynki) i wysyłkę Zgłoszenia. Każda z nich
+zwraca nowy stan Zgłoszenia, a ``RunHost`` pokazuje go na karcie Uruchomienia.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import threading
-from typing import Final, overload
+from typing import Final, Protocol, overload
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.diagnosis import Diagnosis
@@ -35,11 +35,24 @@ Diagnose = Callable[[contract.ProcessKey, str], Diagnosis]
 """Diagnoza procesu dla tokenu okresu Zatrzymania, z Ustawieniami taty z chwili kliknięcia."""
 
 
+class DiagnosedLogs(Protocol):
+    """Logi Uruchomienia (``run_logs.RunLogs``), do których dopisuje się Diagnoza."""
+
+    def link(self, run_id: str) -> str | None:
+        """Adres komentarza Logów Uruchomienia w Skrzynce Zgłoszeń; ``None``: Logi czekają w kolejce."""
+        ...
+
+    def diagnosed(self, run_id: str, diagnosis: Diagnosis) -> None:
+        """Dopisuje Diagnozę do Logów Uruchomienia: do pliku i jako kolejny komentarz w Skrzynce Zgłoszeń."""
+        ...
+
+
 class Stops:
-    def __init__(self, reports: Reports, diagnosis_of: Diagnose, log: CentrumLog) -> None:
+    def __init__(self, reports: Reports, diagnosis_of: Diagnose, log: CentrumLog, logs: DiagnosedLogs) -> None:
         self._reports = reports
         self._diagnosis_of = diagnosis_of
         self._log = log
+        self._logs = logs
         self._lock = threading.Lock()
         self._last: dict[contract.ProcessKey, ProblemFingerprint] = {}
 
@@ -71,10 +84,21 @@ class Stops:
         info = stopped.info
         diagnosis = self._diagnosis_of(info.process, info.period)
         self._log.diagnosed(process=info.process, period=info.period, cause=diagnosis.explanation.code)
-        draft = self._reports.draft(info.id, StopReport(info, stopped.stop, stopped.fingerprint, diagnosis))
+        # Adres sprzed komentarza tej Diagnozy: podgląd nie zależy od tego, czy kolejka zdążyła go już wysłać.
+        logs = self._logs.link(info.id)
+        self._log_diagnosis(info.id, diagnosis)
+        draft = self._reports.draft(info.id, StopReport(info, stopped.stop, stopped.fingerprint, diagnosis, logs))
         state = self._reports.ask(draft)
         stopped.draft = draft
         return diagnosis.view(stopped.stop.message, draft.view), state
+
+    def _log_diagnosis(self, run_id: str, diagnosis: Diagnosis) -> None:
+        """Diagnoza w Logach Uruchomienia; ich błąd nie zmienia Diagnozy ani Zgłoszenia, tylko trafia do dziennika."""
+
+        try:
+            self._logs.diagnosed(run_id, diagnosis)
+        except Exception as failure:  # noqa: BLE001 - Logi nie mogą zmienić Diagnozy: typ wyjątku trafia do dziennika Centrum
+            self._log.unexpected_failure(failure, where="Diagnoza w Logach Uruchomienia")
 
     def send(self, stopped: StoppedRun) -> contract.ReportState:
         if stopped.offer is None:

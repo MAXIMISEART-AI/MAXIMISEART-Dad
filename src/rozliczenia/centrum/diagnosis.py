@@ -19,7 +19,7 @@ wyjątek), jest „nie sprawdzono” na swoim miejscu, a typ wyjątku trafia do
 dziennika Centrum, nigdy jego treść; reszta sprawdzeń idzie dalej, więc
 Diagnoza zawsze kończy się wyjaśnieniem i podglądem Zgłoszenia. Diagnoza
 niczego nie zapisuje ani nie naprawia; jej wynik i ostatnie wpisy dziennika
-zostają w ``Diagnosis`` po stronie serwera, np. dla Zgłoszenia.
+zostają w ``Diagnosis`` po stronie serwera, dla Zgłoszenia i Logów Uruchomienia.
 """
 
 from __future__ import annotations

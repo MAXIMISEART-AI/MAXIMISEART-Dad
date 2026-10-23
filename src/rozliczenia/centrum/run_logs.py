@@ -15,16 +15,21 @@ wyniku i bez Komunikatu.
 Te same Logi idą przez kolejkę Skrzynki Zgłoszeń (``Outbox``) do issue okresu z etykietą ``logi-uruchomienia``,
 także zamkniętego: każde Uruchomienie to komentarz z podsumowaniem w Markdown (``summary_markdown``) i pełnym JSON
 w zwijanym bloku, a JSON ponad limit komentarza idzie w kolejnych częściach, które sklejone dają tekst pliku.
+
+Diagnoza Zatrzymania dopisuje się do Logów swojego Uruchomienia (``RunLogs.diagnosed``): ten sam plik dostaje pole
+``diagnosis``, a issue okresu kolejny komentarz z całymi Logami, więc najnowszy komentarz Uruchomienia to zawsze jego
+plik. Diagnoza może dotyczyć tylko ostatniego Uruchomienia tej pracy Centrum, więc jego Logi zostają w pamięci.
 """
 
 from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
 import platform
+import threading
 from typing import Final, Literal, assert_never
 
 from pydantic import BaseModel, ConfigDict
@@ -33,6 +38,7 @@ from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.cloud_files import CloudFiles
+from rozliczenia.centrum.diagnosis import CheckState, Diagnosis
 from rozliczenia.centrum.outbox import Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import Label
 from rozliczenia.centrum.runs import EndedRun
@@ -94,6 +100,53 @@ class Environment(_Record):
     """``None``: plików procesu nie dało się wyliczyć (np. Folder okresu niedostępny)."""
 
 
+class Explanation(_Record):
+    """Wyjaśnienie Diagnozy: Komunikat w trzech częściach z kodem, jak w Zgłoszeniu."""
+
+    code: str
+    what: str
+    where: str
+    action: str
+
+
+class LoggedCheck(_Record):
+    """Sprawdzenie Diagnozy jak na liście „Sprawdzono” taty; ``code`` to kod Komunikatu sprawdzenia, które nie przeszło."""
+
+    label: str
+    state: CheckState
+    detail: str
+    code: str | None
+
+
+class LoggedDiagnosis(_Record):
+    """Ostatnia Diagnoza Uruchomienia: wyjaśnienie z kodem, co tata robi dalej i każde sprawdzenie po kolei."""
+
+    diagnosed_at: datetime
+    explanation: Explanation
+    next_action: contract.DiagnosisNextAction
+    checks: list[LoggedCheck]
+
+    @classmethod
+    def of(cls, diagnosis: Diagnosis, *, diagnosed_at: datetime) -> LoggedDiagnosis:
+        explanation = diagnosis.explanation
+        return cls(
+            diagnosed_at=diagnosed_at,
+            explanation=Explanation(
+                code=explanation.code, what=explanation.what, where=explanation.where, action=explanation.action
+            ),
+            next_action=diagnosis.next_action,
+            checks=[
+                LoggedCheck(
+                    label=check.label,
+                    state=check.state,
+                    detail=check.detail,
+                    code=None if check.message is None else check.message.code,
+                )
+                for check in diagnosis.checks
+            ],
+        )
+
+
 class Tool(_Record):
     wydanie: None
     """Wydań (ADR 0014) jeszcze nie ma."""
@@ -127,8 +180,8 @@ class RunLog(_Record):
     templates: list[LoggedTemplate]
     environment: Environment
     trace: CallTrace | None
-    diagnosis: None
-    """Diagnoza dopisze się w osobnej zmianie (nowa wersja schematu)."""
+    diagnosis: LoggedDiagnosis | None
+    """Ostatnia Diagnoza tego Uruchomienia; ``None``, dopóki tata jej nie uruchomił (pliki schematu 1 sprzed niej też)."""
 
     @classmethod
     def of(cls, run: EndedRun, *, tool: Tool, environment: Environment) -> RunLog:
@@ -214,18 +267,31 @@ def logi_post(record: RunLog) -> Post:
 
 
 def summary_markdown(record: RunLog) -> str:
-    """Podsumowanie na górze komentarza Logów: proces, tryb, okres, wynik, czas, kody Komunikatów i Wydanie."""
+    """Podsumowanie na górze komentarza Logów: proces, tryb, okres, wynik, czas, kody Komunikatów, Diagnoza i Wydanie."""
 
     commit = "nieznany" if record.tool.commit is None else short_commit(record.tool.commit)
+    diagnosis = "" if record.diagnosis is None else f"- Diagnoza: {_diagnosis(record.diagnosis)}\n"
     return (
         f"**Logi Uruchomienia**: {_process(record.process)}, {record.mode}, okres {record.period}\n"
         "\n"
         f"- Wynik: {_result(record)}\n"
         f"- Czas: {_duration(record.duration_ms)}\n"
         f"- Komunikaty: {_codes(record.messages)}\n"
+        f"{diagnosis}"
         f"- Wydanie: {record.tool.wydanie or 'brak'}, commit {commit}\n"
         f"- Uruchomienie: {record.run_id}, start {record.started_at:%Y-%m-%d %H:%M:%S} UTC"
     )
+
+
+def _diagnosis(diagnosis: LoggedDiagnosis) -> str:
+    """Kod wyjaśnienia, a po nim sprawdzenia, które nie przeszły albo których nie sprawdzono."""
+
+    groups = [f"`{diagnosis.explanation.code}`"]
+    for state, name in (("failed", "nie przeszło"), ("not_checked", "nie sprawdzono")):
+        labels = [check.label for check in diagnosis.checks if check.state == state]
+        if labels:
+            groups.append(f"{name}: {', '.join(labels)}")
+    return "; ".join(groups)
 
 
 def _process(key: contract.ProcessKey) -> str:
@@ -303,9 +369,38 @@ class RunLogs:
         self._commit = commit
         self._files = files
         self._cloud = cloud_files
+        self._lock = threading.Lock()
+        self._last: RunLog | None = None  # Logi ostatniego Uruchomienia z chwili jego końca, bez Diagnozy
 
     def run_ended(self, run: EndedRun) -> None:
         record = RunLog.of(run, tool=Tool(wydanie=None, commit=self._commit()), environment=self._environment(run))
+        with self._lock:
+            self._last = record
+        self._keep(record)
+
+    def link(self, run_id: str) -> str | None:
+        """Adres komentarza Logów Uruchomienia ``run_id``, który Skrzynka przyjęła w tej pracy Centrum; ``None``: w kolejce.
+
+        Każdy komentarz Logów Uruchomienia ma całe Logi, więc adres po Diagnozie też prowadzi do pełnych Logów.
+        """
+
+        return self._outbox.delivered(run_id, LABEL)
+
+    def diagnosed(self, run_id: str, diagnosis: Diagnosis) -> None:
+        """Dopisuje Diagnozę do Logów Uruchomienia ``run_id``: do pliku i jako kolejny komentarz w issue okresu.
+
+        Uruchomienie, którego Logi nie powstały w tej pracy Centrum, nie dostaje niczego.
+        """
+
+        with self._lock:
+            ended = self._last
+        if ended is not None and ended.run_id == run_id:
+            logged = LoggedDiagnosis.of(diagnosis, diagnosed_at=datetime.now(timezone.utc))
+            self._keep(ended.model_copy(update={"diagnosis": logged}))
+
+    def _keep(self, record: RunLog) -> None:
+        """Plik Logów (nowy albo nadpisany) i komentarz w issue okresu z tymi samymi znakami."""
+
         try:
             replace_atomically(self._directory / record.file_name, record.text)
         finally:

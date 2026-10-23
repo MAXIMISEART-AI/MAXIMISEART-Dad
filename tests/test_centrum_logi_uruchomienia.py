@@ -26,6 +26,7 @@ from tests.fixtures.centrum_processes import (
     preparing_centrum,
     run_to_end,
     settling_centrum,
+    stopped_for_maks,
 )
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.settlement import MARKED, SOURCE_NAME, write_quantity_source
@@ -345,6 +346,25 @@ def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_p
     forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
     assert [marker for marker in forbidden if any(marker in text for text in texts)] == []
     assert sum("Adrian Testowy" in text for text in texts) == 4, "Wykonawca z Konfiguracji w obu wynikach z planem"
+
+
+def test_diagnoza_w_logach_nie_ma_tresci_komorek_ani_pelnych_sciezek(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    (tmp_path / "config" / "zgloszenia-klucz.txt").write_text("github_pat_SYNTETYCZNY\n", encoding="utf-8")
+    write_quantity_source(centrum.collective_file, [MARKED, {**MARKED, "H": "ZNACZNIK-WYKONAWCA"}])
+    run_id = stopped_for_maks(centrum)
+
+    response = centrum.client.post(f"/api/runs/{run_id}/diagnosis")
+
+    assert response.status_code == 200, response.json()
+    box = centrum.surroundings.report_box
+    assert box.wait_until(lambda fake: sum(len(issue.comments) for issue in fake.background_issues) == 2)
+    [record] = records(centrum)
+    assert record["diagnosis"]["checks"], "Diagnoza w pliku Logów"
+    sent = [part for issue in box.background_issues for part in (issue.title, issue.body, *issue.comments)]
+    texts = [path.read_text(encoding="utf-8") for path in log_files(centrum)] + sent
+    forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
+    assert [marker for marker in forbidden if any(marker in text for text in texts)] == []
 
 
 def test_katalog_logow_bez_prawa_zapisu_daje_ten_sam_wynik_bez_komunikatu(tmp_path: Path) -> None:
