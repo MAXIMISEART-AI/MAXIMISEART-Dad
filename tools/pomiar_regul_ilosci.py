@@ -30,8 +30,11 @@ import sys
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from rozliczenia.quantity_rules import FromDescription, OrderContent, QuantityColumn, RuleResult, ServiceQuantities, WeekTime, WithoutRule, evaluate
-from rozliczenia.workbook_files import HEADER_ROW, QUANTITY_COLUMNS, DataRow, read_data_rows
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from rozliczenia.quantity_rules import FromDescription, OrderContent, QuantityColumn, RuleResult, ServiceQuantities, WeekTime, WithoutRule, evaluate  # noqa: E402
+from rozliczenia.workbook_files import HEADER_ROW, QUANTITY_COLUMNS, DataRow, read_data_rows  # noqa: E402
 
 NONNUMERIC = "nieliczbowa"
 Value = int | str
@@ -182,7 +185,7 @@ def report(name: str, measured: list[Row], undated: int) -> list[str]:
         letter
         for row in service
         for letter in _ALL
-        if row.tata[letter] != 0 and not (letter in QuantityColumn and row.compares(QuantityColumn(letter)))
+        if row.tata[letter] != 0 and not (letter in QuantityColumn.__members__ and row.compares(QuantityColumn(letter)))
     )
     lines.append(f"-- wiersze z regułą z wpisem taty w kolumnie spoza porównania: {_counts(beyond)}")
     return lines
