@@ -1,7 +1,7 @@
-"""Skoroszyt, którego nie da się użyć: Komunikat każdej roli pliku przy każdym powodzie (``Problem``).
+"""Skoroszyt, którego nie da się użyć: tłumaczenie powodu (``Problem``) na Komunikat na każdym wejściu.
 
-Powód, którego plik w danej roli mieć nie może, nie ma wiersza. Pełną treść i pozostałe skutki Zatrzymań
-przypinają testy procesów; tu jest tylko to, który Komunikat odpowiada któremu powodowi.
+Komunikat każdej roli pliku przy każdym powodzie pilnują próbki katalogów (``tests/fixtures/message_samples.py``)
+i testy procesów. Tu jest jeden test tłumaczenia na wejście, na drodze, której nie sprawdza nic innego.
 """
 
 from __future__ import annotations
@@ -12,17 +12,15 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
-from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.domain import ProgressEvent, WorkerStarted
+from rozliczenia.domain import PhaseStarted, ProgressEvent, ProgressPhase, WorkerStarted
 from rozliczenia.engine import run_settlements
-from rozliczenia.message import Message, StopError
-from rozliczenia.workbook_files import WORKER_HEADER
+from rozliczenia.message import StopError
 
 from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakePlatform
 from tests.fixtures.preparation import (
@@ -34,15 +32,52 @@ from tests.fixtures.preparation import (
 from tests.fixtures.settlement import make_fixture, write_mapping, write_template
 from tests.fixtures.workbooks import active_worksheet
 
-Damage = Callable[[Path, pytest.MonkeyPatch], None]
+
+def test_przygotowanie_tlumaczy_wzorzec_otwarty_w_excelu_dopiero_w_zapisywaniu(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    lock_file = fixture.collective_template_path.with_name(f"~${fixture.collective_template_path.name}")
+
+    def open_before_saving(event: ProgressEvent) -> None:
+        if isinstance(event, PhaseStarted) and event.phase is ProgressPhase.SAVING:
+            lock_file.write_bytes(b"")
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(fixture, observer=open_before_saving)
+
+    assert raised.value.message.code == "WZORZEC_OTWARTY"
+    assert list(fixture.periods_directory.iterdir()) == []
 
 
-def missing(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    path.unlink()
+def test_przebieg_bez_pliku_zbiorczego_zatrzymuje_sprawdzanie_brakiem_pliku_zbiorczego(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    source_path.unlink()
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert raised.value.message.code == "BRAK_PLIKU_ZBIORCZEGO"
 
 
-def open_in_excel(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    path.with_name(f"~${path.name}").write_bytes(b"")
+def test_przebieg_bez_wzorca_rozliczenia_pracownika_w_zapisywaniu_nie_tworzy_skoroszytow_z_wzorca(
+    tmp_path: Path,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+
+    def remove_before_first_file(event: ProgressEvent) -> None:
+        if isinstance(event, WorkerStarted) and event.template_index == 1:
+            worker_template_path.unlink()
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=remove_before_first_file)
+
+    assert raised.value.message.code == "BLAD_KOPII_WZORCA"
+    assert not target_directory.exists()
+
+
+INTERNAL = "Wzorzec rozliczenia wewnętrznego.xlsx"
+COLLECTIVE = "Wzorzec pliku zbiorczego.xlsx"
+WORKER = "Wzorzec rozliczenia pracownika.xlsx"
 
 
 def inaccessible(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,240 +91,33 @@ def inaccessible(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Path, "read_bytes", blocked)
 
 
-def unreadable(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    path.write_bytes(b"to nie jest skoroszyt")
+def with_data(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workbook = load_workbook(path)
+    try:
+        active_worksheet(workbook)["A18"] = "dane"
+        workbook.save(path)
+    finally:
+        workbook.close()
 
 
-def edited(change: Callable[[Worksheet], None]) -> Damage:
-    def damage(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        workbook = load_workbook(path)
-        try:
-            change(active_worksheet(workbook))
-            workbook.save(path)
-        finally:
-            workbook.close()
-
-    return damage
-
-
-def cell(address: str, value: str) -> Damage:
-    def change(sheet: Worksheet) -> None:
-        sheet[address] = value
-
-    return edited(change)
-
-
-def merged(cells: str) -> Damage:
-    return edited(lambda sheet: sheet.merge_cells(cells))
-
-
-def _swap_g17_and_h17(sheet: Worksheet) -> None:
-    sheet["G17"].value, sheet["H17"].value = sheet["H17"].value, sheet["G17"].value
-
-
-worker_outside_h = edited(_swap_g17_and_h17)
-
-WORKER_HEADER_CELL = str(WORKER_HEADER)
-INTERNAL_ORDER_NUMBER_HEADER = "G1"
-INTERNAL_FOURTH_ORDER = "C5:D5"
-COLLECTIVE_SECOND_AND_THIRD_ORDER = "B19:C20"
-FIRST_DATA_ROW_CELL = "A18"
-
-PREPARATION = [
-    pytest.param("register_path", missing, "BRAK_REJESTRU", id="rejestr-brak"),
-    pytest.param("register_path", open_in_excel, "REJESTR_OTWARTY", id="rejestr-otwarty"),
-    pytest.param("register_path", inaccessible, "NIEDOSTEPNY_REJESTR", id="rejestr-niedostepny"),
-    pytest.param("register_path", unreadable, "USZKODZONY_REJESTR", id="rejestr-nieczytelny"),
-    pytest.param("internal_template_path", missing, "BRAK_WZORCA", id="wewnetrzny-brak"),
-    pytest.param("internal_template_path", open_in_excel, "WZORZEC_OTWARTY", id="wewnetrzny-otwarty"),
-    pytest.param("internal_template_path", inaccessible, "NIEDOSTEPNY_WZORZEC", id="wewnetrzny-niedostepny"),
-    pytest.param("internal_template_path", unreadable, "USZKODZONY_WZORZEC", id="wewnetrzny-nieczytelny"),
-    pytest.param("internal_template_path", cell(INTERNAL_ORDER_NUMBER_HEADER, "inna kolumna"), "ZLY_WZORZEC", id="wewnetrzny-bez-naglowka"),
-    pytest.param("internal_template_path", merged(INTERNAL_FOURTH_ORDER), "SCALONE_KOMORKI_WZORCA", id="wewnetrzny-scalenie"),
-    pytest.param("collective_template_path", missing, "BRAK_WZORCA", id="zbiorczy-brak"),
-    pytest.param("collective_template_path", open_in_excel, "WZORZEC_OTWARTY", id="zbiorczy-otwarty"),
-    pytest.param("collective_template_path", inaccessible, "NIEDOSTEPNY_WZORZEC", id="zbiorczy-niedostepny"),
-    pytest.param("collective_template_path", unreadable, "USZKODZONY_WZORZEC", id="zbiorczy-nieczytelny"),
-    pytest.param("collective_template_path", cell(WORKER_HEADER_CELL, "inna kolumna"), "ZLY_WZORZEC", id="zbiorczy-bez-naglowka"),
-    pytest.param("collective_template_path", worker_outside_h, "WYKONAWCA_POZA_H", id="zbiorczy-wykonawca-poza-h"),
-    pytest.param("collective_template_path", merged(COLLECTIVE_SECOND_AND_THIRD_ORDER), "SCALONE_KOMORKI_WZORCA", id="zbiorczy-scalenie"),
-]
-
-
-@pytest.mark.parametrize(("role", "damage", "code"), PREPARATION)
-def test_przygotowanie_zatrzymuje_sie_komunikatem_roli_pliku_i_powodu(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str, damage: Damage, code: str
-) -> None:
-    fixture = make_preparation_fixture(tmp_path)
-    damage(getattr(fixture, role), monkeypatch)
-
-    with pytest.raises(StopError) as raised:
-        run_preparation(fixture)
-
-    assert raised.value.message.code == code
-
-
-SOURCE_UNFIT = "Plik zbiorczy nie nadaje się do Przebiegu rozliczeń."
-WORKER_TEMPLATE_UNUSABLE = "Nie można użyć Wzorca rozliczenia pracownika."
-WORKER_TEMPLATE_UNREADABLE = f"{WORKER_TEMPLATE_UNUSABLE} Nie można odczytać Wzorca rozliczenia pracownika."
-TEMPLATE_NOT_COPIED = "Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika."
-WORKER_FILE_FAILED = "Nie udało się przygotować skoroszytu pracownika Adrian Testowy."
-
-SETTLEMENT = [
-    pytest.param("source", missing, "BRAK_PLIKU_ZBIORCZEGO", None, id="zbiorczy-brak"),
-    pytest.param("source", open_in_excel, "PLIK_ZBIORCZY_OTWARTY", None, id="zbiorczy-otwarty"),
-    pytest.param("source", inaccessible, "NIEDOSTEPNY_PLIK_ZBIORCZY", None, id="zbiorczy-niedostepny"),
-    pytest.param(
-        "source", unreadable, "ZLY_PLIK_ZBIORCZY", f"{SOURCE_UNFIT} Nie można odczytać Pliku zbiorczego", id="zbiorczy-nieczytelny"
-    ),
-    pytest.param(
-        "source",
-        cell(WORKER_HEADER_CELL, "inna kolumna"),
-        "ZLY_PLIK_ZBIORCZY",
-        f"{SOURCE_UNFIT} W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H.",
-        id="zbiorczy-bez-wykonawca-w-h17",
-    ),
-    pytest.param(
-        "worker_template",
-        missing,
-        "ZLY_WZORZEC_PRACOWNIKA",
-        f"{WORKER_TEMPLATE_UNUSABLE} Nie znaleziono Wzorca rozliczenia pracownika: Wzorzec rozliczenia pracownika.xlsx.",
-        id="wzorzec-pracownika-brak",
-    ),
-    pytest.param(
-        "worker_template",
-        open_in_excel,
-        "ZLY_WZORZEC_PRACOWNIKA",
-        f"{WORKER_TEMPLATE_UNUSABLE} Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.",
-        id="wzorzec-pracownika-otwarty",
-    ),
-    pytest.param(
-        "worker_template", inaccessible, "ZLY_WZORZEC_PRACOWNIKA", WORKER_TEMPLATE_UNREADABLE, id="wzorzec-pracownika-niedostepny"
-    ),
-    pytest.param(
-        "worker_template", unreadable, "ZLY_WZORZEC_PRACOWNIKA", WORKER_TEMPLATE_UNREADABLE, id="wzorzec-pracownika-nieczytelny"
-    ),
-    pytest.param(
-        "worker_template",
-        cell(WORKER_HEADER_CELL, "inna kolumna"),
-        "ZLY_WZORZEC_PRACOWNIKA",
-        f"{WORKER_TEMPLATE_UNUSABLE} Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w H:17.",
-        id="wzorzec-pracownika-bez-wykonawca-w-h17",
-    ),
-    pytest.param(
-        "worker_template",
-        cell(FIRST_DATA_ROW_CELL, "dane"),
-        "ZLY_WZORZEC_PRACOWNIKA",
-        f"{WORKER_TEMPLATE_UNUSABLE} Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.",
-        id="wzorzec-pracownika-z-danymi",
-    ),
-]
-
-
-@pytest.mark.parametrize(("role", "damage", "code", "what"), SETTLEMENT)
-def test_przebieg_zatrzymuje_sie_w_sprawdzaniu_komunikatem_roli_pliku_i_powodu(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str, damage: Damage, code: str, what: str | None
-) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
-    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
-    damage({"source": source_path, "worker_template": worker_template_path}[role], monkeypatch)
-
-    with pytest.raises(StopError) as raised:
-        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
-
-    assert_message(raised.value.message, code, what)
-
-
-SAVING = [
-    pytest.param(missing, "BLAD_KOPII_WZORCA", TEMPLATE_NOT_COPIED, id="brak"),
-    pytest.param(open_in_excel, "BLAD_KOPII_WZORCA", TEMPLATE_NOT_COPIED, id="otwarty"),
-    pytest.param(inaccessible, "BLAD_KOPII_WZORCA", TEMPLATE_NOT_COPIED, id="niedostepny"),
-    pytest.param(unreadable, "BLAD_KOPII_WZORCA", TEMPLATE_NOT_COPIED, id="nieczytelny"),
-    pytest.param(cell(WORKER_HEADER_CELL, "inna kolumna"), "BLAD_SZABLONU_PRACOWNIKA", WORKER_FILE_FAILED, id="bez-wykonawca-w-h17"),
-    pytest.param(cell(FIRST_DATA_ROW_CELL, "dane"), "BLAD_SZABLONU_PRACOWNIKA", WORKER_FILE_FAILED, id="z-danymi"),
-]
-
-
-@pytest.mark.parametrize(("damage", "code", "what"), SAVING)
-def test_przebieg_zatrzymuje_sie_w_zapisywaniu_komunikatem_powodu_dla_wzorca_rozliczenia_pracownika(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: Damage, code: str, what: str
-) -> None:
-    source_path, _, config_path = make_fixture(tmp_path)
-    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
-
-    def damage_before_first_file(event: ProgressEvent) -> None:
-        if isinstance(event, WorkerStarted) and event.template_index == 1:
-            damage(worker_template_path, monkeypatch)
-
-    with pytest.raises(StopError) as raised:
-        run_settlements(
-            source_path, config_path, worker_template_path=worker_template_path, observer=damage_before_first_file
-        )
-
-    assert_message(raised.value.message, code, what)
-
-
-def assert_message(message: Message, code: str, what: str | None) -> None:
-    assert message.code == code
-    if what is not None:
-        assert message.what.startswith(what)
-
-
-INTERNAL = "Wzorzec rozliczenia wewnętrznego.xlsx"
-COLLECTIVE = "Wzorzec pliku zbiorczego.xlsx"
-WORKER = "Wzorzec rozliczenia pracownika.xlsx"
-
-CONFIGURATION = [
-    pytest.param(INTERNAL, missing, "missing", "Nie znaleziono wzorca", id="wewnetrzny-brak"),
-    pytest.param(INTERNAL, open_in_excel, "open_in_excel", "Wzorzec jest otwarty w Excelu", id="wewnetrzny-otwarty"),
-    pytest.param(INTERNAL, inaccessible, "unreadable", "Nie można teraz odczytać wzorca", id="wewnetrzny-niedostepny"),
-    pytest.param(INTERNAL, unreadable, "unreadable", "Nie można odczytać wzorca. Plik jest uszkodzony", id="wewnetrzny-nieczytelny"),
-    pytest.param(
-        INTERNAL, cell(INTERNAL_ORDER_NUMBER_HEADER, "inna kolumna"), "unreadable", "We wzorcu brakuje nagłówka NUMER ZL.", id="wewnetrzny-bez-naglowka"
-    ),
-    pytest.param(COLLECTIVE, missing, "missing", "Nie znaleziono wzorca", id="zbiorczy-brak"),
-    pytest.param(COLLECTIVE, open_in_excel, "open_in_excel", "Wzorzec jest otwarty w Excelu", id="zbiorczy-otwarty"),
-    pytest.param(COLLECTIVE, inaccessible, "unreadable", "Nie można teraz odczytać wzorca", id="zbiorczy-niedostepny"),
-    pytest.param(COLLECTIVE, unreadable, "unreadable", "Nie można odczytać wzorca. Plik jest uszkodzony", id="zbiorczy-nieczytelny"),
-    pytest.param(
-        COLLECTIVE, worker_outside_h, "unreadable", "Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie G", id="zbiorczy-wykonawca-poza-h"
-    ),
-    pytest.param(
-        WORKER,
-        missing,
-        "missing",
-        f"{WORKER_TEMPLATE_UNUSABLE} Nie znaleziono Wzorca rozliczenia pracownika",
-        id="wzorzec-pracownika-brak",
-    ),
-    pytest.param(
-        WORKER,
-        open_in_excel,
-        "open_in_excel",
-        f"{WORKER_TEMPLATE_UNUSABLE} Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.",
-        id="wzorzec-pracownika-otwarty",
-    ),
-    pytest.param(WORKER, inaccessible, "unreadable", WORKER_TEMPLATE_UNREADABLE, id="wzorzec-pracownika-niedostepny"),
-    pytest.param(WORKER, unreadable, "unreadable", WORKER_TEMPLATE_UNREADABLE, id="wzorzec-pracownika-nieczytelny"),
-    pytest.param(
-        WORKER,
-        cell(WORKER_HEADER_CELL, "inna kolumna"),
-        "unreadable",
-        f"{WORKER_TEMPLATE_UNUSABLE} Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA",
-        id="wzorzec-pracownika-bez-wykonawca-w-h17",
-    ),
-    pytest.param(
-        WORKER,
-        cell(FIRST_DATA_ROW_CELL, "dane"),
-        "unreadable",
-        f"{WORKER_TEMPLATE_UNUSABLE} Wzorzec rozliczenia pracownika zawiera dane",
-        id="wzorzec-pracownika-z-danymi",
-    ),
-]
-
-
-@pytest.mark.parametrize(("file_name", "damage", "kind", "what"), CONFIGURATION)
-def test_konfiguracja_pokazuje_rodzaj_problemu_i_komunikat_wzorca_przy_kazdym_powodzie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, file_name: str, damage: Damage, kind: str, what: str
+@pytest.mark.parametrize(
+    ("file_name", "damage", "what"),
+    [
+        pytest.param(INTERNAL, inaccessible, "Nie można teraz odczytać wzorca.", id="niedostepny-wzorzec-wewnetrzny"),
+        pytest.param(
+            WORKER,
+            with_data,
+            "Nie można użyć Wzorca rozliczenia pracownika. Wzorzec rozliczenia pracownika zawiera dane",
+            id="wzorzec-pracownika-z-danymi",
+        ),
+    ],
+)
+def test_konfiguracja_pokazuje_niedostepny_wzorzec_i_wzorzec_z_danymi_jako_nieczytelne(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    file_name: str,
+    damage: Callable[[Path, pytest.MonkeyPatch], None],
+    what: str,
 ) -> None:
     config = tmp_path / "config"
     config.mkdir()
@@ -313,7 +141,6 @@ def test_konfiguracja_pokazuje_rodzaj_problemu_i_komunikat_wzorca_przy_kazdym_po
 
     response = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}).get("/api/configuration")
 
-    templates = {template["file_name"]: template for template in response.json()["templates"]}
-    assert (templates[file_name]["state"], templates[file_name]["problem"]) == ("problem", kind)
-    assert templates[file_name]["message"]["what"].startswith(what)
-    assert [template["state"] for name, template in templates.items() if name != file_name] == ["ready", "ready"]
+    template = {template["file_name"]: template for template in response.json()["templates"]}[file_name]
+    assert (template["state"], template["problem"]) == ("problem", "unreadable")
+    assert template["message"]["what"].startswith(what)
