@@ -47,15 +47,17 @@ jobs:
         run: python -m mypy
 
   pytest:
-    # Tata has Windows, so both Pythons run there. Linux runs the tests Windows skips (POSIX signals, process
-    # groups, the pre-push hook).
-    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }})
+    # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
+    # tools/czesci_pytest.py, longest files first. Linux runs the whole suite once, for the tests Windows skips
+    # (POSIX signals, process groups, the pre-push hook).
+    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || format(', {0}', matrix.part) }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest]
         python-version: ['3.11', '3.14']
+        part: ['1/2', '2/2']
         include:
           - os: ubuntu-latest
             python-version: '3.14'
@@ -92,7 +94,12 @@ jobs:
 
       - name: Run tests
         if: ${{ runner.os == 'Windows' }}
-        run: py -3 -m pytest -n auto
+        run: |
+          $files = py -3 tools/czesci_pytest.py ${{ matrix.part }}
+          if ($LASTEXITCODE -ne 0) {
+            throw "Splitting the test files failed (exit code $LASTEXITCODE)"
+          }
+          py -3 -m pytest -n auto $files
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
