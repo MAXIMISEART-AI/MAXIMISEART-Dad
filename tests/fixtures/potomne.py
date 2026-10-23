@@ -42,8 +42,7 @@ def with_grandchild(beats: Path, then: str, *, grandchild_output: str = "") -> l
 
 def beating(beats: Path) -> bool:
     before = beats.stat().st_size
-    time.sleep(2)
-    return beats.stat().st_size != before
+    return wait_for(lambda: beats.stat().st_size != before, 2)
 
 
 def wait_for(condition: Callable[[], bool], seconds: float = 60) -> bool:

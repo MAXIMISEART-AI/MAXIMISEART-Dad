@@ -91,15 +91,11 @@ def checkout_copy() -> Iterator[Path]:
         for name in present:
             (copy / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, copy / name, follow_symlinks=False)
-        imported = subprocess.run(
-            [sys.executable, "-c", "import rozliczenia; print(rozliczenia.__file__)"],
-            cwd=copy,
-            env=environment(copy),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=True,
-        ).stdout.strip()
+        found = potomne.run(
+            [sys.executable, "-c", "import rozliczenia; print(rozliczenia.__file__)"], cwd=copy, env=environment(copy)
+        )
+        found.check_returncode()
+        imported = found.stdout.strip()
         if not Path(imported).resolve().is_relative_to(copy.resolve()):
             raise RuntimeError(f"kopia importuje rozliczenia z {imported}, nie ze swojego src")
         yield copy
