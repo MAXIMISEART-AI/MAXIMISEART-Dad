@@ -106,6 +106,22 @@ def template_open_in_excel(template_path: Path) -> Message:
     )
 
 
+def template_inaccessible(template_path: Path) -> Message:
+    """System nie oddał bajtów wzorca (np. plik zajęty przez inny program albo folder bez dostępu); to nie uszkodzenie."""
+
+    return Message(
+        code="NIEDOSTEPNY_WZORZEC",
+        what=(
+            "Nie można teraz odczytać wzorca. Plik może być zajęty przez inny program. Nie utworzono żadnego pliku."
+        ),
+        where=file_label(template_path),
+        action=(
+            "Zamknij programy, które mogą używać wzorca, i uruchom ponownie. "
+            "Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
+        ),
+    )
+
+
 def template_unreadable(template_path: Path) -> Message:
     """Wzorzec nie daje się odczytać jako skoroszyt .xlsx."""
 
