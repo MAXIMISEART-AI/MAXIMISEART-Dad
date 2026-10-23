@@ -68,6 +68,9 @@ def _structure_stubs(body: str) -> dict[str, str]:
 
 
 def _repo(tmp_path: Path, structure: str = "pass") -> Path:
+    # Zadanie pytest na Windows w CI instaluje tylko requirements.txt; szybko biegnie tam w zadaniu na Linuksie.
+    for static_check in ("ruff", "mypy"):
+        pytest.importorskip(static_check, reason="szybko uruchamia ruff i mypy z dodatku dev")
     repo = repository(tmp_path / "repo", {**BASE_FILES, **_structure_stubs(structure)})
     for name in (".gitignore", "tools/szybko.py"):
         shutil.copy2(ROOT / name, repo / name)
