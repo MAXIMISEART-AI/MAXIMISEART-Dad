@@ -1,8 +1,10 @@
-"""Aktualizacja narzędzia: przesunięcie klonu narzędzia taty na najnowszy `main` publicznego repozytorium.
+"""Aktualizacja narzędzia: przesunięcie klonu narzędzia taty na najnowsze Wydanie publicznego repozytorium.
 
 Jedna operacja, ``ToolClone.update``, robi to, co Maks zrobiłby ręcznie
-(ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` ze
-stałego adresu publicznego repozytorium i przesuwa klon tylko do przodu.
+(ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` i tagi
+Wydań (ADR 0014) ze stałego adresu publicznego repozytorium i przesuwa klon
+tylko do przodu, na commit najnowszego Wydania, który był czubkiem `main`
+(``newest_on_main``, ``_main_tips``). Lokalna gałąź klonu to dalej `main`.
 Pliki taty w ``config/``, które nowa wersja usuwa albo przestaje śledzić,
 zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``). Gdy nowa
 wersja zmienia ``requirements.txt``, biblioteki instaluje ten sam Python, w
@@ -47,6 +49,7 @@ from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -87,7 +90,9 @@ JOURNAL: Final = "centrum-aktualizacja-w-toku"
 GUARDIAN_LEASE_S: Final = 10 * 60.0
 _JOURNAL_FORMAT: Final = 1
 
-_FETCHED: Final = f"refs/remotes/origin/{BRANCH}"
+_FETCHED_MAIN: Final = f"refs/remotes/origin/{BRANCH}"
+# Własna przestrzeń na tagi Wydań z GitHuba: tag usunięty albo przesunięty na GitHubie nie zostaje w klonie.
+_RELEASES: Final = "refs/wydania/"
 _FETCH_TIMEOUT_S: Final = 120.0
 _LOCAL_TIMEOUT_S: Final = 60.0
 # Pobranie, które przez tyle sekund idzie wolniej niż tyle bajtów na sekundę, kończy sam Git: połączenie stoi.
@@ -110,14 +115,58 @@ _FOREIGN_VARIABLES: Final = (
 )
 
 
+_RELEASE_TAG: Final = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+
+
+@dataclass(frozen=True, order=True)
+class Release:
+    """Wydanie: tag ``vMAJOR.MINOR.PATCH``; nowsze to wyższy numer, nie dalszy tag w porządku alfabetycznym."""
+
+    number: tuple[int, int, int]
+    tag: str
+
+    @classmethod
+    def of_tag(cls, tag: str) -> Release | None:
+        """Wydanie z nazwy tagu; ``None`` dla każdego innego tagu."""
+
+        found = _RELEASE_TAG.fullmatch(tag)
+        return None if found is None else cls((int(found[1]), int(found[2]), int(found[3])), tag)
+
+
+@dataclass(frozen=True)
+class NewestRelease:
+    """Commit najnowszego Wydania na `main` (``None``: takiego nie ma) i tagi wyższych Wydań spoza `main`."""
+
+    commit: str | None
+    skipped: tuple[str, ...] = ()
+
+
+def newest_on_main(commits: Mapping[str, str], on_main: Callable[[str], bool]) -> NewestRelease:
+    """Najwyższe Wydanie wśród tagów ``commits`` (tag → commit), którego commit leży na `main` (``on_main``).
+
+    Ten sam wybór robią Aktualizacja i Aktualność narzędzia. Tag, który nie jest
+    Wydaniem, się nie liczy; wyższe Wydanie spoza `main` (tag założony z gałęzi
+    agenta) jest pominięte i nie zatrzymuje niższego Wydania na `main`.
+    """
+
+    releases = sorted((release for tag in commits if (release := Release.of_tag(tag)) is not None), reverse=True)
+    skipped: list[str] = []
+    for release in releases:
+        if on_main(commits[release.tag]):
+            return NewestRelease(commits[release.tag], tuple(skipped))
+        skipped.append(release.tag)
+    return NewestRelease(None, tuple(skipped))
+
+
 @dataclass(frozen=True)
 class UpdateResult:
-    """Wynik Aktualizacji narzędzia: kod, commit przed i po oraz czy instalowano biblioteki."""
+    """Wynik Aktualizacji narzędzia: kod, commit przed i po, czy instalowano biblioteki i pominięte Wydania spoza `main`."""
 
     code: str
     before: str | None
     after: str | None
     installed: bool = False
+    skipped: tuple[str, ...] = ()
 
 
 def write_result(path: Path, result: UpdateResult) -> None:
@@ -255,7 +304,12 @@ class ToolClone:
         return cls(Path(__file__).resolve().parents[3])
 
     def update(self, on_step: Callable[[Step], None] = lambda step: None) -> UpdateResult:
-        """Przesuwa klon do przodu na najnowszy `main`; wszystko albo nic.
+        """Przesuwa klon do przodu na najnowsze Wydanie; wszystko albo nic.
+
+        Klon, który już zawiera commit najnowszego Wydania (także na nowszym
+        commicie `main` z wersji, która pobierała `main`), i GitHub bez
+        Wydania na `main` to ``UP_TO_DATE``: aktualizacja nigdy nie cofa
+        wersji. Wydania spoza `main` wynik wymienia w ``skipped``.
 
         ``on_step`` dostaje każdy krok, zanim się zacznie. Po ``UPDATED``
         dziennik „Aktualizacja w toku” zostaje, dopóki nowa wersja nie
@@ -281,18 +335,20 @@ class ToolClone:
         fetch_failure = run.fetch(self.origin)
         if fetch_failure is not None:
             return UpdateResult(fetch_failure, before, None)
-        after = run.text("rev-parse", _FETCHED)
-        if after == before:
-            return UpdateResult(UP_TO_DATE, before, after)
-        dad_files = _DadFiles.leaving(run, _FETCHED)
-        if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
-            return UpdateResult(LOCAL_CHANGES, before, None)
+        tips = _main_tips(run)
+        newest = newest_on_main(_release_commits(run), lambda commit: commit in tips)
+        after, skipped = newest.commit, newest.skipped
+        if after is None or run.is_ancestor(after, before):
+            return UpdateResult(UP_TO_DATE, before, before, skipped=skipped)
+        dad_files = _DadFiles.leaving(run, after)
+        if _has_local_commits(run, after) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
+            return UpdateResult(LOCAL_CHANGES, before, None, skipped=skipped)
         journal.begin(self.root, dad_files.names, before, after)
         moved = False
         try:
             with dad_files.set_aside(run, journal.backup):
                 # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
-                moved = run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode == 0
+                moved = run.run("merge", "--ff-only", "--quiet", after).returncode == 0
         except _NotPutBack:
             # Wszystko albo nic: klon wraca sprzed kliknięcia, a cofnięcie jeszcze raz wgrywa pliki taty.
             if moved and _moved_back(run, journal):
@@ -313,7 +369,7 @@ class ToolClone:
         if installed is False:
             code = LIBRARIES_FAILED if _moved_back(run, journal) else ROLLBACK_FAILED
             return UpdateResult(code, before, after, installed=True)
-        return UpdateResult(UPDATED, before, after, installed=installed is True)
+        return UpdateResult(UPDATED, before, after, installed=installed is True, skipped=skipped)
 
     def _install_libraries(self, run: _Git, before: str, after: str, on_step: Callable[[Step], None]) -> bool | None:
         """Instaluje biblioteki, gdy ``after`` zmienia wymagania: czy się udało, a ``None``, gdy nie było czego instalować."""
@@ -408,10 +464,53 @@ def _put_back(root: Path, backup: Path, names: Iterable[str]) -> None:
         shutil.copy2(backup / name, target)
 
 
-def _has_local_commits(run: _Git) -> bool:
-    """Klon ma commity, których nie ma pobrany `main`: przesunięcie do przodu by je pominęło."""
+def contains_commit(root: Path, ancestor: str, descendant: str) -> bool:
+    """Czy commit ``descendant`` w klonie ``root`` zawiera ``ancestor``; ``False`` bez Gita i bez takiego commitu w klonie.
 
-    return run.text("rev-list", "--count", f"{_FETCHED}..HEAD") != "0"
+    Commitu Wydania, którego klon nie ma, nie zawiera żaden commit klonu.
+    """
+
+    if ancestor == descendant:
+        return True
+    git = find_git()
+    if git is None:
+        return False
+    try:
+        return _Git(git, root).is_ancestor(ancestor, descendant)
+    except (GitFailed, OSError, subprocess.SubprocessError):
+        return False
+
+
+def _main_tips(run: _Git) -> frozenset[str]:
+    """Commity, które były czubkiem pobranego `main`: jego linia pierwszych rodziców.
+
+    Commit z gałęzi wciągniętej do `main` zwykłym merge'em leży na `main`, ale nigdy nie był jego czubkiem, więc
+    tag Wydania na nim (założony, zanim gałąź weszła do `main`) nie jest Wydaniem z `main`.
+    """
+
+    return frozenset(run.output("rev-list", "--first-parent", _FETCHED_MAIN).split())
+
+
+def _release_commits(run: _Git) -> dict[str, str]:
+    """Tagi pobrane z GitHuba, które wskazują commit, i te commity (tag z opisem wskazuje go przez obiekt tagu)."""
+
+    # Bez ``tag^{commit}``: Git wołany przez plik .cmd (w testach w Windows) traci ``^``.
+    listed = run.output(
+        "for-each-ref", "--format=%(refname:lstrip=2) %(objecttype) %(objectname) %(*objecttype) %(*objectname)", _RELEASES
+    )
+    commits: dict[str, str] = {}
+    for line in listed.splitlines():
+        name, kind, target, *peeled = line.split()
+        kind, target = (peeled[0], peeled[1]) if peeled else (kind, target)
+        if kind == "commit":
+            commits[name] = target
+    return commits
+
+
+def _has_local_commits(run: _Git, target: str) -> bool:
+    """Klon ma commity, których nie ma ``target``: przesunięcie do przodu by je pominęło."""
+
+    return run.text("rev-list", "--count", f"{target}..HEAD") != "0"
 
 
 def _changed_tracked_files(run: _Git, *, keep: frozenset[str]) -> bool:
@@ -617,6 +716,14 @@ class _Git:
             raise GitFailed(args[0])
         return result.stdout
 
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """Czy ``ancestor`` to ``descendant`` albo jego przodek."""
+
+        result = self.run("merge-base", "--is-ancestor", ancestor, descendant)
+        if result.returncode not in (0, 1):
+            raise GitFailed("merge-base")
+        return result.returncode == 0
+
     def changed(self, before: str, after: str, name: str) -> bool:
         """Czy ``after`` dodaje albo zmienia plik ``name`` względem ``before``."""
 
@@ -626,7 +733,7 @@ class _Git:
         return result.returncode == 1
 
     def fetch(self, origin: str) -> str | None:
-        """Pobiera `main` z ``origin``; ``None``, gdy się udało, inaczej kod porażki (logowanie albo brak sieci).
+        """Pobiera `main` i tagi Wydań z ``origin``; ``None``, gdy się udało, inaczej kod porażki (logowanie albo brak sieci).
 
         Adres jest stały, więc każda inna porażka pobrania to brak połączenia z GitHubem.
         """
@@ -642,8 +749,11 @@ class _Git:
                 "fetch",
                 "--quiet",
                 "--no-tags",
+                "--prune",
                 origin,
-                f"+refs/heads/{BRANCH}:{_FETCHED}",
+                # Z „+”: po force-pushu `main` na GitHubie pobranie dalej się udaje; klon taty i tak idzie tylko do przodu.
+                f"+refs/heads/{BRANCH}:{_FETCHED_MAIN}",
+                f"+refs/tags/v*:{_RELEASES}v*",
                 timeout_s=_FETCH_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired:

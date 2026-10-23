@@ -86,6 +86,11 @@ class CentrumLog:
             biblioteki="tak" if installed else "nie",
         )
 
+    def update_skipped_releases(self, *, tags: tuple[str, ...]) -> None:
+        """Wydania wyższe od wybranego, których commit nie leży na `main`: Aktualizacja narzędzia je pominęła."""
+
+        self._write("aktualizacja-pominiete-wydania", tagi=",".join(tags))
+
     def unexpected_failure(self, failure: BaseException, *, where: str) -> None:
         """Nieoczekiwany wyjątek: tylko nazwa typu i miejsce (np. trasa API), bez tekstu wyjątku."""
 

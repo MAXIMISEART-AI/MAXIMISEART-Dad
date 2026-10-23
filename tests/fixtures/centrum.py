@@ -32,7 +32,7 @@ from rozliczenia.centrum.report_box import (
     Unreachable,
 )
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,6 +40,8 @@ ROOT = Path(__file__).resolve().parents[2]
 CENTRUM = "http://127.0.0.1:47811"
 # Syntetyczny commit narzędzia; testy nigdy nie czytają prawdziwego `main` z GitHuba.
 TOOL_COMMIT = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
+# GitHub odpowiedział, ale nie ma żadnego Wydania na `main`.
+NO_RELEASE = "brak-wydania"
 # Atrybuty plików Windows: zwykły plik i plik OneDrive „tylko online” (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS).
 NORMAL_FILE = 0x80
 ONLINE_ONLY_FILE = 0x400000
@@ -188,22 +190,25 @@ class FakeClock:
 
 @dataclass
 class FakeGitHub:
-    """Commit narzędzia u taty, dzień, od którego narzędzie jest na nim, i commit `main` na GitHubie.
+    """Commit narzędzia u taty, dzień, od którego narzędzie jest na nim, i commit najnowszego Wydania na GitHubie.
 
-    ``main=None`` to brak sieci; ``asked`` liczy pytania o `main`.
+    ``release=None`` to brak sieci, ``NO_RELEASE`` to GitHub bez żadnego Wydania; ``asked`` liczy pytania o Wydania.
+    Commit narzędzia zawiera tylko taki sam commit Wydania.
     """
 
     tool_commit: str | None = TOOL_COMMIT
     since: date | None = None
-    main: str | None = TOOL_COMMIT
+    release: str | None = TOOL_COMMIT
     asked: int = 0
 
     def freshness(self) -> ToolFreshness:
-        return ToolFreshness(local=lambda: self.tool_commit, since=lambda: self.since, main=self._main)
+        return ToolFreshness(local=lambda: self.tool_commit, since=lambda: self.since, release=self._release)
 
-    def _main(self) -> str | None:
+    def _release(self) -> GitHubReleases | None:
         self.asked += 1
-        return self.main
+        if self.release is None:
+            return None
+        return GitHubReleases(None if self.release == NO_RELEASE else self.release)
 
 
 @dataclass

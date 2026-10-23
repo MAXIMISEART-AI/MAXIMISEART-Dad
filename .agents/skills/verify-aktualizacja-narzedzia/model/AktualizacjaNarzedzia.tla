@@ -37,7 +37,7 @@ CONSTANTS
 
 VARIABLES
     \* Dysk taty: przeżywa zamknięcie Centrum i wyłączenie komputera.
-    head,          \* commit klonu: "stara" (sprzed kliknięcia) albo "nowa" (pobrany main)
+    head,          \* commit klonu: "stara" (sprzed kliknięcia) albo "nowa" (najnowsze Wydanie)
     plikTaty,      \* config/worker_mapping.yaml w klonie: "taty", "wzor" (treść z HEAD repozytorium) albo "brak"
     kopia,         \* kopia pliku taty w dzienniku (centrum-aktualizacja-w-toku/pliki-taty): "brak" albo "taty"
     biblioteki,    \* biblioteki Pythona taty: "stare", "czesciowe" (pip przerwany albo nieudany), "nowe"
@@ -172,9 +172,11 @@ Klik ==
 \* --- ToolClone.update ---------------------------------------------------------
 
 \* Dziennik w toku bez terminu opiekuna (_Journal.read, guardian_may_run): _moved_back cofa
-\* klon, zanim cokolwiek się pobierze. Inaczej run.fetch(self.origin), potem after == before,
-\* potem _has_local_commits i _changed_tracked_files (te odmowy nie zmieniają klonu, tak jak
-\* porażka fetch).
+\* klon, zanim cokolwiek się pobierze. Inaczej run.fetch(self.origin) (`main` i tagi Wydań),
+\* _main_tips i newest_on_main (Wydania spoza linii czubków main pominięte), is_ancestor(after, before), potem
+\* _has_local_commits i _changed_tracked_files (te odmowy nie zmieniają klonu, tak jak porażka
+\* fetch, więc model ich nie rozróżnia). GitHub bez Wydania, Wydanie na starszym commicie i klon na
+\* nowszym commicie `main` niż Wydanie kończą się jak head = "nowa": AKTUALNA, klon bez zmian.
 Pobranie ==
     /\ pc = "pobieranie"
     /\ \/ /\ dziennik = "w_toku"
@@ -184,12 +186,12 @@ Pobranie ==
           /\ \/ /\ AwariaPobrania
                 /\ Idz("spoczynek", "ToolClone.update: fetch nie przeszedl (BRAK_POLACZENIA), klon bez zmian")
              \/ /\ head = "nowa"
-                /\ Idz("spoczynek", "ToolClone.update: after == before (AKTUALNA), klon bez zmian")
+                /\ Idz("spoczynek", "ToolClone.update: klon zawiera najnowsze Wydanie (AKTUALNA), klon bez zmian")
              \/ /\ head = "stara"
                 /\ Idz("kopia_plikow",
                        IF nowaUsuwaPlikTaty
-                       THEN "ToolClone.update: fetch pobral main, ktory usuwa plik taty z config/"
-                       ELSE "ToolClone.update: fetch pobral nowy main")
+                       THEN "ToolClone.update: najnowsze Wydanie usuwa plik taty z config/"
+                       ELSE "ToolClone.update: fetch pobral nowe Wydanie")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 
 \* _Journal.begin: copy2 pliku taty do pliki-taty i fsync, potem stan.json (plik tymczasowy, fsync,
@@ -227,7 +229,7 @@ Scalanie ==
     /\ \/ /\ head' = "nowa"
           /\ plikTaty' = IF nowaUsuwaPlikTaty THEN "brak" ELSE plikTaty
           /\ Idz(IF nowaUsuwaPlikTaty THEN "przywrocenie_po_scaleniu" ELSE "instalacja",
-                 "ToolClone.update: git merge --ff-only przesuwa klon na nowy main")
+                 "ToolClone.update: git merge --ff-only przesuwa klon na nowe Wydanie")
        \/ /\ OdmowaScalenia
           /\ UNCHANGED <<head, plikTaty>>
           /\ IF nowaUsuwaPlikTaty
@@ -345,7 +347,7 @@ KoniecDziennika ==
                    [] cofa = "klik" -> "pobieranie"
                    [] OTHER -> "spoczynek",
                  CASE cofa = "opiekun" -> "_Journal.end: dziennik znika; opiekun cofnal klon"
-                   [] cofa = "klik" -> "_Journal.end: dziennik znika; ToolClone.update pobiera main jak zwykle"
+                   [] cofa = "klik" -> "_Journal.end: dziennik znika; ToolClone.update pobiera Wydania jak zwykle"
                    [] cofa = "opiekun_bez_portu" -> "_Journal.end: dziennik znika; opiekun cofnal klon bez portu, pokazuje okienko (return 1)"
                    [] OTHER -> "_Journal.end: dziennik znika; Centrum pokazuje Komunikat porazki")
     /\ UNCHANGED <<head, plikTaty, biblioteki, nowa, klikniecia>>

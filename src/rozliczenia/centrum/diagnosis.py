@@ -122,7 +122,7 @@ class Diagnosis:
 
 @dataclass(frozen=True)
 class Surroundings:
-    """Granice komputera taty poza jego plikami: commit `main` na GitHubie i atrybuty plików OneDrive."""
+    """Granice komputera taty poza jego plikami: najnowsze Wydanie na GitHubie i atrybuty plików OneDrive."""
 
     tool_freshness: ToolFreshness
     cloud_files: CloudFiles
@@ -246,15 +246,19 @@ def _check(label: str) -> Callable[[_CheckRun], _Check]:
 @_check("Aktualność narzędzia")
 def _tool_freshness(computer: _Computer, label: str) -> list[CheckResult]:
     freshness = computer.surroundings.tool_freshness
-    local = freshness.local()
-    if local is None:
-        return [CheckResult.not_checked(label, "Nie sprawdzono: narzędzie na tym komputerze nie ma commitu Gita.")]
-    main = freshness.main()
-    if main is None:
-        return [CheckResult.not_checked(label, "Nie sprawdzono: brak połączenia z GitHubem.")]
-    if main != local:
+    judgement = freshness.judge()
+    if judgement == "newer":
         return [CheckResult.failed(label, diagnosis_messages.newer_tool_version())]
-    return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {short_commit(local)}.")]
+    if judgement == "current":
+        return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {short_commit(freshness.local() or '')}.")]
+    return [CheckResult.not_checked(label, _NOT_CHECKED_FRESHNESS[judgement])]
+
+
+_NOT_CHECKED_FRESHNESS: Final = {
+    "no_commit": "Nie sprawdzono: narzędzie na tym komputerze nie ma commitu Gita.",
+    "no_answer": "Nie sprawdzono: brak połączenia z GitHubem.",
+    "no_release": "Nie sprawdzono: na GitHubie nie ma jeszcze żadnego Wydania.",
+}
 
 
 @dataclass(frozen=True)
@@ -405,8 +409,8 @@ def _centrum_log(computer: _Computer, label: str) -> list[CheckResult]:
 # Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.
 # OneDrive idzie przed sprawdzeniami, które otwierają Rejestr zleceń, wzorce i pliki okresu: plik tylko w
 # chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik. Aktualność narzędzia
-# idzie po plikach taty: `main` zmienia się kilka razy dziennie, więc nowsza wersja jest prawie zawsze, a
-# prawie nigdy nie jest przyczyną. Dziennik idzie ostatni, po wpisach o sprawdzeniach, które same się nie udały.
+# idzie po plikach taty: nowsze Wydanie jest wyjaśnieniem tylko bez innej przyczyny (ADR 0009), bo przyczyny
+# w plikach taty nowa wersja nie usuwa. Dziennik idzie ostatni, po wpisach o sprawdzeniach, które same się nie udały.
 _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
     "preparation": (
         _tata_settings,
