@@ -67,6 +67,7 @@ PREPARATION_SAMPLES: Samples = {
     ],
     "template_missing": [lambda: messages.template_missing(TEMPLATE)],
     "template_open_in_excel": [lambda: messages.template_open_in_excel(TEMPLATE)],
+    "template_inaccessible": [lambda: messages.template_inaccessible(TEMPLATE)],
     "template_unreadable": [lambda: messages.template_unreadable(TEMPLATE)],
     "template_without_header": [lambda: messages.template_without_header(TEMPLATE, "Sheet1", 17, "WYKONAWCA")],
     "template_with_worker_outside_h": [lambda: messages.template_with_worker_outside_h(TEMPLATE, "Sheet1", "G")],

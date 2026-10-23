@@ -151,6 +151,8 @@ def _template_stop(template_path: Path, error: WorkbookError) -> StopError:
         return StopError(messages.template_missing(template_path))
     if error.problem is Problem.OPEN_IN_EXCEL:
         return StopError(messages.template_open_in_excel(template_path))
+    if error.problem is Problem.INACCESSIBLE:
+        return StopError(messages.template_inaccessible(template_path))
     fault = error.fault
     if isinstance(fault, MissingHeader) and fault.found_in is not None:
         return StopError(messages.template_with_worker_outside_h(template_path, fault.sheet, fault.found_in))

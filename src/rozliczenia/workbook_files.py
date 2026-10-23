@@ -331,8 +331,8 @@ def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
         yield item
 
 
-def _open(path: Path, source: Path | IO[bytes], *, read_only: bool) -> Workbook:
-    """Skoroszyt ``path`` otwarty przez openpyxl z ``source`` (plik albo jego bajty) z klasyfikacją uszkodzeń."""
+def _open(path: Path, source: IO[bytes], *, read_only: bool) -> Workbook:
+    """Skoroszyt ``path`` otwarty przez openpyxl z jego bajtów (``_file_bytes``) z klasyfikacją uszkodzeń."""
 
     with _unreadable_as_error(path):
         if read_only:
@@ -566,8 +566,7 @@ def _read_outline(path: Path, rules: _Rules) -> _Outline:
     """
 
     ensure_available(path)
-    with _unreadable_as_error(path):
-        content = path.read_bytes()
+    content = _file_bytes(path)
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
@@ -731,8 +730,7 @@ class TemplateFile:
         ensure_available(self.path)
         if self.path.suffix.lower() not in _WORKBOOK_SUFFIXES:
             raise WorkbookError(self.path, Problem.UNREADABLE)
-        with _unreadable_as_error(self.path):
-            content = self.path.read_bytes()
+        content = _file_bytes(self.path)
         if content != self._content:
             self._content = content
             self._copy = None
