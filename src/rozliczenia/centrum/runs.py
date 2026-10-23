@@ -32,7 +32,7 @@ from fastapi.responses import StreamingResponse
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
-from rozliczenia.centrum.run_view import ProcessView
+from rozliczenia.centrum.run_view import ProcessView, Shown
 from rozliczenia.centrum.stops import NO_DIAGNOSIS, StoppedRun, Stops
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.decision import Decision
@@ -85,20 +85,6 @@ class PreparedRun(Generic[InputsT, SummaryT]):
 
     def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
         return self.view.progress(snapshot, dry_run=self.dry_run)
-
-    def summary_view(self, inputs: InputsT, summary: SummaryT) -> _SummaryView:
-        return _SummaryView(
-            summary=self.view.summary(summary, dry_run=self.dry_run),
-            warnings=[contract.Message.of(warning) for warning in self.view.warnings(inputs, summary)],
-        )
-
-
-@dataclass(frozen=True)
-class _SummaryView:
-    """Podsumowanie i ostrzeżenia zakończonego procesu w kształcie kontraktu."""
-
-    summary: contract.RunSummary
-    warnings: list[contract.Message]
 
 
 # Odmowa w trakcie Aktualizacji narzędzia: uruchomienia procesu, zamknięcia Centrum albo innej aktualizacji.
@@ -316,7 +302,7 @@ class _Run:
         try:
             since = datetime.now(timezone.utc)
             outcome = run_process(
-                prepared.process, prepared.inputs, self, view=prepared.summary_view, metrics_path=prepared.metrics_path
+                prepared.process, prepared.inputs, self, view=prepared.view.shown, metrics_path=prepared.metrics_path
             )
             self._host.remember(prepared, since)
             stop = None if isinstance(outcome.ending, Finished) else outcome.ending
@@ -394,7 +380,7 @@ def _decision_view(decision: Decision) -> contract.Decision:
 
 
 def _run_result(
-    outcome: Outcome[_SummaryView],
+    outcome: Outcome[Shown],
     prepared: PreparedRun[Any, Any],
     stopped: StoppedRun | None,
 ) -> contract.RunOutcome:
@@ -433,7 +419,7 @@ def _run_result(
         diagnosis=None if stopped is None else stopped.offer,
         report=None if stopped is None else stopped.report,
         stops=stops,
-        warnings=[] if shown is None else shown.warnings,
+        warnings=[] if shown is None else [contract.Message.of(warning) for warning in shown.warnings],
         notices=list(outcome.notices),
         summary=None if shown is None else shown.summary,
     )
@@ -484,10 +470,13 @@ _STREAM_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 class ProcessEntry(Protocol):
-    """Proces, który Centrum umie uruchomić: co pokazać przed startem i jak przygotować Uruchomienie."""
+    """Proces, który Centrum umie uruchomić: jego rdzeń, co pokazać przed startem i jak przygotować Uruchomienie."""
 
     @property
     def key(self) -> contract.ProcessKey: ...
+
+    @property
+    def process(self) -> Process[Any, Any]: ...
 
     def setup(self) -> contract.ProcessSetup: ...
 

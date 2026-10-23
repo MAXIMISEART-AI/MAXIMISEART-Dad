@@ -11,7 +11,7 @@ from typing import Any, NoReturn
 
 import pytest
 
-from rozliczenia import collective_preparation, preparation_process, preparation_register
+from rozliczenia import preparation_process, preparation_register
 from rozliczenia.telemetry import MetricsStore, metric_record
 from rozliczenia.centrum import contract, run_view
 
@@ -353,18 +353,9 @@ def test_nieoczekiwany_wyjatek_pokazuje_trzy_czesci_bez_tekstu_wyjatku_i_danych_
     assert list(centrum.fixture.periods_directory.iterdir()) == []
 
 
-def test_niepokazane_podsumowanie_po_zapisie_mowi_zeby_nie_uruchamiac_ponownie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_niepokazane_podsumowanie_po_zapisie_mowi_zeby_nie_uruchamiac_ponownie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    prepare = collective_preparation.prepare_collective_file
-
-    def prepare_with_unprintable_summary(*args: Any, **kwargs: Any) -> Any:
-        summary = prepare(*args, **kwargs)
-        summary.orders_per_day = {"SYN-001": 1}  # type: ignore[dict-item]  # podsumowanie, którego nie da się pokazać
-        return summary
-
-    monkeypatch.setattr(collective_preparation, "prepare_collective_file", prepare_with_unprintable_summary)
+    centrum.engines.fail_summary = True
 
     centrum.start(dry_run=False)
     result = finished_view(centrum.client)["result"]
