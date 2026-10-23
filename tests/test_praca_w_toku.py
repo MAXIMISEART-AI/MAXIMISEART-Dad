@@ -294,13 +294,23 @@ def test_werdykt_mowi_gdy_zaden_fetch_nie_potwierdzil_origin_main_w_ostatniej_go
     assert _report(branch, "--aktualizacja") == f"{NIEPOTRZEBNA}{note}\n"
 
 
-def test_gdy_git_nie_scali_galezi_z_main_werdykt_jest_nieznany(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("repository", "verdict"),
+    [
+        pytest.param("bez bazy scalenia", "AKTUALIZACJA: nieznana (git merge-tree: ", id="bez bazy scalenia"),
+        pytest.param("bez origin/main", "AKTUALIZACJA: nieznana (brak origin/main)\n", id="bez origin/main"),
+    ],
+)
+def test_gdy_git_nie_scali_galezi_z_main_werdykt_jest_nieznany(tmp_path: Path, repository: str, verdict: str) -> None:
     main, branch = _branch_from_main(tmp_path)
-    _git(branch, "switch", "--orphan", "feat/bez-historii")
-    _commit(branch, "inny.py", "x = 9\n", "bez historii main")
-    _git(main, "fetch")
+    if repository == "bez bazy scalenia":
+        _git(branch, "switch", "--orphan", "feat/bez-historii")
+        _commit(branch, "inny.py", "x = 9\n", "bez historii main")
+        _git(main, "fetch")
+    else:
+        _git(main, "update-ref", "-d", "refs/remotes/origin/main")
 
-    assert _report(branch, "--aktualizacja").startswith("AKTUALIZACJA: nieznana (git merge-tree: ")
+    assert _report(branch, "--aktualizacja").startswith(verdict)
 
 
 @dataclass(frozen=True)

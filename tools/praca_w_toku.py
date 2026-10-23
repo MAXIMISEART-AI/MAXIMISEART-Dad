@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         print("BŁĄD: uruchom w checkoucie repozytorium git.", file=sys.stderr)
         return 2
     if _git_fails(root, "rev-parse", "--verify", "--quiet", BASE):
-        print(f"PRACA W TOKU POMINIĘTA | brak {BASE}, nie ma z czym porównać")
+        print(f"AKTUALIZACJA: nieznana (brak {BASE})" if args.aktualizacja else f"PRACA W TOKU POMINIĘTA | brak {BASE}, nie ma z czym porównać")
         return 0
 
     branch = _git(root, "branch", "--show-current").strip() or _busy_branch(root)
