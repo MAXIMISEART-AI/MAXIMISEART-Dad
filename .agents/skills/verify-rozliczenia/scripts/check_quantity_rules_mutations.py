@@ -47,8 +47,8 @@ MUTATIONS = (
     _mutation("próg dodatku 16:00", "time(17))", "time(16))", "usterka o 16:00 dostaje 45 zł"),
     _mutation(
         "dodatek dopiero po 17:00",
-        "started.time() >= late_from",
-        "started.time() > late_from",
+        "started.at >= late_from",
+        "started.at > late_from",
         "usterka równo o 17:00 traci 45 zł",
     ),
     _mutation("dodatek bez soboty", ", 5: time.min}", "}", "sobotnia usterka traci 45 zł"),
