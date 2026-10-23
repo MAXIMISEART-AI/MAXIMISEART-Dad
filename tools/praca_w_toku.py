@@ -352,7 +352,7 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 def _git_fails(cwd: Path, *args: str) -> bool:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=TIMEOUT_S).returncode != 0
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=TIMEOUT_S, check=False).returncode != 0
 
 
 def _gh(root: Path, *args: str) -> Any:
