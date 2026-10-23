@@ -28,6 +28,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install development dependencies
         run: python -m pip install --disable-pip-version-check -e ".[dev]"
@@ -44,6 +48,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install development dependencies
         run: python -m pip install --disable-pip-version-check -e ".[dev]"
@@ -75,6 +83,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Route py -3 to the selected Python
         if: ${{ runner.os == 'Windows' }}
@@ -133,6 +145,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
@@ -165,6 +181,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Route py -3 to the selected Python
         shell: pwsh
@@ -220,6 +240,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
@@ -272,6 +296,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install development dependencies (pinned FastAPI and Pydantic shape the contract)
         run: python -m pip install --disable-pip-version-check -e ".[dev]"
