@@ -11,12 +11,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from fastapi.testclient import TestClient  # noqa: E402  (po ścieżce do src)
-from starlette.types import ASGIApp, Message, Receive, Scope, Send  # noqa: E402
+from fastapi.testclient import TestClient
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from rozliczenia.centrum import report_box, restart_guardian, tool_freshness  # noqa: E402
-from rozliczenia.centrum.tool_update import ToolClone  # noqa: E402
-from rozliczenia.centrum.log import CentrumLog  # noqa: E402
+from rozliczenia.centrum import report_box, restart_guardian, tool_freshness
+from rozliczenia.centrum.tool_update import ToolClone
+from rozliczenia.centrum.log import CentrumLog
 
 _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
 
