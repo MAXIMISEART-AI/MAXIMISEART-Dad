@@ -75,6 +75,8 @@ STRUCTURE = (
     "tests/test_mutacje_skilli.py::test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia",
     "tests/test_skille_dla_zmiany.py::test_frontmatter_kazdego_skilla_jest_poprawnym_yaml",
     "tests/test_skille_dla_zmiany.py::test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje",
+    # ``.gitignore`` czyta tu ``git check-ignore``, nie Python, więc graf nie wiąże go z tym testem.
+    "tests/test_centrum_rozliczen.py::test_lokalne_pliki_taty_sa_poza_gitem",
 )
 STATIC_JOBS = ("ruff", "mypy")
 MODULE_ROOTS = ("src", ".", "tools")
