@@ -12,11 +12,18 @@ inna praca zmieniają każdy we własnych commitach albo niezacommitowanych. Com
 (gałąź zbudowana na innej) się nie liczą. Bieżący checkout to ten, w którym skrypt uruchomiono.
 Raport informuje i nie blokuje: kod wyjścia 0, inny tylko przy błędnym użyciu.
 
+Ostatnia linia mówi, czy gałąź bieżącego checkoutu aktualizować z ``origin/main`` (rebase albo merge):
+``AKTUALIZACJA: potrzebna``, gdy ``git merge-tree`` widzi konflikt albo gałąź i ``origin/main`` zmieniają
+od bazy scalenia ten sam plik, inaczej ``AKTUALIZACJA: niepotrzebna``. Liczą się commity, nie
+niezacommitowane pliki. Werdykt nie pobiera ``origin/main``. ``git merge-tree`` dodaje do bazy obiektów
+tylko nieosiągalne obiekty scalenia, które usuwa ``git gc``.
+
     py -3 tools/praca_w_toku.py                  # Windows
     python3 tools/praca_w_toku.py                # macOS i Linux
     python3 tools/praca_w_toku.py --issue 212    # przed startem zgłoszenia #212
     python3 tools/praca_w_toku.py --lokalnie     # bez GitHuba
     python3 tools/praca_w_toku.py --nakladania   # tylko nakładania (drukuje je tools/ci_lokalnie.py)
+    python3 tools/praca_w_toku.py --aktualizacja # tylko werdykt aktualizacji, w ułamku sekundy
 """
 
 from __future__ import annotations
@@ -82,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue", type=int, metavar="N", help="Tylko praca nad zgłoszeniem #N albo PR, którego dotyczy.")
     parser.add_argument("--lokalnie", action="store_true", help="Bez wywołań gh.")
     parser.add_argument("--nakladania", action="store_true", help="Tylko sekcja nakładań.")
+    parser.add_argument("--aktualizacja", action="store_true", help="Tylko werdykt, czy aktualizować z origin/main.")
     args = parser.parse_args(argv)
     if isinstance(sys.stdout, io.TextIOWrapper):
         # Tematy commitów mogą mieć znaki spoza strony kodowej konsoli Windows.
@@ -96,6 +104,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     branch = _git(root, "branch", "--show-current").strip() or _busy_branch(root)
+    if args.aktualizacja:
+        print(_update_verdict(root, branch))
+        return 0
     mine_dirty = _dirty(root)
     others = [item for item in _local_work(root) if item.worktree != root and (branch is None or item.branch != branch)]
     issue_body = ""
@@ -124,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     mine = _files(root, "HEAD") | mine_dirty
     for line in _overlaps([(item, _shared(root, mine, mine_dirty, item)) for item in others]):
         print(line)
+    if not args.nakladania:
+        print(_update_verdict(root, branch))
     return 0
 
 
@@ -313,8 +326,36 @@ def _overlaps(shared: list[tuple[WorkInProgress, frozenset[str]]]) -> list[str]:
     return lines
 
 
-def _files(root: Path, ref: str) -> frozenset[str]:
-    return frozenset(_git(root, "diff", "--no-renames", "--name-only", "-z", f"{BASE}...{ref}").split("\0")) - {""}
+def _update_verdict(root: Path, branch: str | None) -> str:
+    """Q9: gałąź aktualizuje się z ``origin/main`` tylko przy konflikcie albo pliku zmienionym po obu stronach."""
+
+    ref = "HEAD" if branch is None else f"refs/heads/{branch}"
+    merged = subprocess.run(
+        ["git", "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", ref, BASE],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=TIMEOUT_S,
+        check=False,
+    )
+    if merged.returncode not in (0, 1):
+        reason = (merged.stderr.strip().splitlines() or [f"kod {merged.returncode}"])[0]
+        verdict = f"nieznana (git merge-tree: {reason})"
+    elif conflicts := sorted(set(merged.stdout.split("\0")[1:]) - {""}):
+        verdict = f"potrzebna (konflikt w: {', '.join(conflicts)})"
+    elif shared := sorted(_files(root, ref) & _files(root, BASE, since=ref)):
+        verdict = f"potrzebna (bez konfliktu, wspólne pliki: {', '.join(shared)})"
+    else:
+        verdict = "niepotrzebna (bez konfliktu, bez wspólnych plików)"
+    return f"AKTUALIZACJA: {verdict}"
+
+
+def _files(root: Path, ref: str, since: str = BASE) -> frozenset[str]:
+    """Pliki, które ``ref`` zmienia od bazy scalenia z ``since``."""
+
+    return frozenset(_git(root, "diff", "--no-renames", "--name-only", "-z", f"{since}...{ref}").split("\0")) - {""}
 
 
 def _own_files(root: Path, ref: str, other: str) -> frozenset[str]:

@@ -203,6 +203,75 @@ def test_odlaczony_head_z_samym_merge_liczy_sie_z_niezacommitowanymi_plikami(che
     assert f"- odłączony HEAD {owner.resolve()}: inny.py, wspolny.py" in lines
 
 
+WSPOLNY = "a = 1\nb = 1\nc = 1\nd = 1\ne = 1\n"
+NIEPOTRZEBNA = "AKTUALIZACJA: niepotrzebna (bez konfliktu, bez wspólnych plików)"
+
+
+def _branch_from_main(tmp_path: Path) -> tuple[Path, Path]:
+    """Origin z ``main``, jego klon i worktree gałęzi ``feat/galaz`` z ``origin/main``; zwraca klon i worktree."""
+
+    origin, main, branch = tmp_path / "origin.git", tmp_path / "main", tmp_path / "galaz"
+    _git(tmp_path, "init", "--bare", "-b", "main", str(origin))
+    _git(tmp_path, "clone", str(origin), str(main))
+    _commit(main, "wspolny.py", WSPOLNY, "start")
+    _commit(main, "inny.py", "x = 1\n", "drugi plik")
+    _git(main, "push", "-u", "origin", "main")
+    _git(main, "worktree", "add", "-b", "feat/galaz", str(branch), "origin/main")
+    return main, branch
+
+
+def _merged_on_github(tmp_path: Path, files: dict[str, str]) -> None:
+    """Commity na ``main`` z innego klonu, jak merge PR na GitHubie."""
+
+    github = tmp_path / "github"
+    _git(tmp_path, "clone", str(tmp_path / "origin.git"), str(github))
+    for path, content in files.items():
+        _commit(github, path, content, f"zmiana {path}")
+    _git(github, "push", "origin", "main")
+
+
+@pytest.mark.parametrize(
+    ("in_branch", "on_main", "verdict"),
+    [
+        pytest.param({"inny.py": "x = 2\n"}, {"wspolny.py": WSPOLNY.replace("a = 1", "a = 3")}, NIEPOTRZEBNA, id="bez konfliktu"),
+        pytest.param(
+            {"wspolny.py": WSPOLNY.replace("a = 1", "a = 2")},
+            {"wspolny.py": WSPOLNY.replace("a = 1", "a = 3")},
+            "AKTUALIZACJA: potrzebna (konflikt w: wspolny.py)",
+            id="konflikt",
+        ),
+        pytest.param(
+            {"wspolny.py": WSPOLNY.replace("a = 1", "a = 2")},
+            {"wspolny.py": WSPOLNY.replace("e = 1", "e = 3")},
+            "AKTUALIZACJA: potrzebna (bez konfliktu, wspólne pliki: wspolny.py)",
+            id="wspólny plik bez konfliktu",
+        ),
+        pytest.param({}, {}, NIEPOTRZEBNA, id="gałąź równa main"),
+    ],
+)
+def test_aktualizacja_z_main_tylko_przy_konflikcie_albo_wspolnym_pliku(
+    tmp_path: Path, in_branch: dict[str, str], on_main: dict[str, str], verdict: str
+) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    for path, content in in_branch.items():
+        _commit(branch, path, content, f"moja zmiana {path}")
+    if on_main:
+        _merged_on_github(tmp_path, on_main)
+    _git(main, "fetch")
+
+    assert _report(branch).splitlines()[-1] == verdict
+    assert _report(branch, "--aktualizacja") == f"{verdict}\n"
+
+
+def test_gdy_git_nie_scali_galezi_z_main_werdykt_jest_nieznany(tmp_path: Path) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    _git(branch, "switch", "--orphan", "feat/bez-historii")
+    _commit(branch, "inny.py", "x = 9\n", "bez historii main")
+    _git(main, "fetch")
+
+    assert _report(branch, "--aktualizacja").startswith("AKTUALIZACJA: nieznana (git merge-tree: ")
+
+
 @dataclass(frozen=True)
 class _Commit:
     name: str
@@ -232,6 +301,8 @@ _REMOTE = _Commit("zdalna", frozenset({"zdalny.py"}), on_remote=True)
 _MERGE = _Commit("merge", frozenset(), merge=True)
 _REMOTE_LATER = _Commit("zdalna-dalej", frozenset({"szkic.py"}), on_remote=True)
 _UNFETCHED = _Commit("niepobrana", frozenset({"pr-plik.py"}))
+# Obie strony przepisują jedyną linię pliku, więc plik zmieniony tu i w nowym main to konflikt.
+_MAIN_LATER = _Commit("nowy main", frozenset({"rebasowany.py"}))
 _GITHUB_ONLY = (
     _Checkout("zdalna", None, frozenset({_REMOTE, _REMOTE_LATER}), pr=9, pr_files=_REMOTE.files | _REMOTE_LATER.files),
     _Checkout("niepobrana", None, frozenset({_UNFETCHED}), pr=10, pr_files=_UNFETCHED.files),
@@ -277,6 +348,9 @@ def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> lis
             pr = f" (PR #{side.pr})" if github and side.pr is not None else ""
             overlaps.append(f"- {name}{pr}: {', '.join(sorted(shared))}")
     lines += ["NAKŁADANIA | pliki zmieniane tu i w innej pracy w toku", *overlaps] if overlaps else ["NAKŁADANIA | brak"]
+    clash = sorted(frozenset().union(*(commit.files for commit in me.commits)) & _MAIN_LATER.files)
+    verdict = f"potrzebna (konflikt w: {', '.join(clash)})" if clash else "niepotrzebna (bez konfliktu, bez wspólnych plików)"
+    lines.append(f"AKTUALIZACJA: {verdict}")
     return sorted(lines)
 
 
@@ -406,7 +480,7 @@ def _world(tmp_path: Path) -> list[_Checkout]:
     git(main, "switch", "--quiet", "main")
     git(main, "branch", "--quiet", "--delete", "--force", "zdalna")
 
-    (main / "rebasowany.py").write_text("x = 'main'\n", encoding="utf-8")
+    write(main, _MAIN_LATER.files)
     commit(main, "nowy main")
     git(main, "push", "--quiet", "origin", "main")
     for path, backend in ((rebasing, "--merge"), (rebasing_detached, "--merge"), (rebasing_apply, "--apply")):
