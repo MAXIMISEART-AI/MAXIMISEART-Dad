@@ -154,7 +154,7 @@ requests, `wątek Uruchomienie n` is the thread `RunHost.start` spawned,
 
 Prove the check can still fail. This applies broken variants to a temporary copy
 of `src`, never to the checkout, each in the one scope that catches it (about
-1.5 minutes on a Mac):
+45 s on a Mac):
 
 ```powershell
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutations.py
