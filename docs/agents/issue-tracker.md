@@ -107,8 +107,12 @@ create none.
   out when the next Kontrola is sent. The Centrum log records only
   `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number) and `skrzynka-czeka`
   (cause). A kill between sending and removing the file can repeat it.
-- For now every Kontrola opens a new issue. One issue per period, with repeated
-  Przebiegi as comments (#274), and the retry at Centrum start (#276) come next.
+- One period has one open issue. A repeated Przebieg of the period (e.g. after
+  Dad deleted the Folder rozliczeń pracowników) adds its Kontrola as a comment
+  to the open issue whose body has the period's identifying line. Once you
+  close it, the next Przebieg of that period opens a new issue. Centrum looks
+  the issue up on every send, so a deleted issue never blocks the queue.
+- The retry at Centrum start (#276) comes next.
 - Centrum never creates the `kontrola-ilosci` label; it must exist in the
   repository.
 

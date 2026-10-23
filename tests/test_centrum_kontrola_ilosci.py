@@ -9,8 +9,9 @@ from __future__ import annotations
 from datetime import datetime
 import json
 from pathlib import Path
+import shutil
 import threading
-from typing import Final
+from typing import Any, Final
 
 import pytest
 
@@ -312,3 +313,56 @@ def test_podglad_i_zatrzymanie_nie_tworza_kontroli_ilosci(tmp_path: Path) -> Non
     assert queued(centrum) == []
     assert box(centrum).keys == []
     assert "skrzynka-" not in centrum.log_path.read_text(encoding="utf-8")
+
+
+def repeated(centrum: SettlingCentrum) -> dict[str, Any]:
+    """Przebieg tego samego okresu jeszcze raz, po usunięciu Folderu rozliczeń pracowników, jak zrobiłby tata."""
+
+    shutil.rmtree(centrum.worker_settlements)
+    view = run_to_end(centrum, dry_run=False)
+    assert view["result"]["result"] == "OK"
+    return view
+
+
+def test_powtorzony_przebieg_okresu_dopisuje_kontrole_jako_komentarz_do_otwartego_issue_okresu(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    run_to_end(centrum, dry_run=False)
+    first = sent_check(centrum)
+
+    second = repeated(centrum)
+
+    assert box(centrum).wait_until(lambda fake: bool(first.comments)), "druga Kontrola ilości nie dotarła"
+    assert [issue.number for issue in box(centrum).issues_with(LABEL)] == [first.number]
+    assert first.comments == [expected_body(second["run"]["id"]).removeprefix(f"{LINE}\n\n")]
+    assert queued(centrum) == []
+
+
+def test_gdy_maks_zamknal_issue_okresu_powtorzony_przebieg_zaklada_nowe(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    run_to_end(centrum, dry_run=False)
+    first = sent_check(centrum)
+    box(centrum).close(first.number)
+
+    second = repeated(centrum)
+
+    assert box(centrum).wait_until(lambda fake: len(fake.issues_with(LABEL)) == 2), "nowe issue okresu nie powstało"
+    newer = box(centrum).issues_with(LABEL)[1]
+    assert newer.body == expected_body(second["run"]["id"])
+    assert first.comments == []
+
+
+def test_kontrola_ilosci_nie_trafia_do_issue_innego_okresu_ani_innej_etykiety(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    foreign = [
+        FakeIssue(1, LABEL, "Kontrola ilości 01_07_09_2026: bez różnic", "- Kontrola ilości okresu: 01_07_09_2026\n"),
+        FakeIssue(2, LABEL, f"Kontrola ilości {PERIOD}0", f"- Kontrola ilości okresu: {PERIOD}0\n"),
+        FakeIssue(3, "zgloszenie", "BRAK_WZORCA: Nie znaleziono wzorca.", f"## Komunikat\n\n{LINE}\n"),
+        FakeIssue(4, "logi-uruchomienia", f"Logi {PERIOD}", f"{LINE}\n"),
+    ]
+    box(centrum).issues.extend(foreign)
+
+    view = run_to_end(centrum, dry_run=False)
+
+    assert box(centrum).wait_until(lambda fake: len(fake.issues) == 5), "Kontrola ilości nie dotarła"
+    assert box(centrum).issues[4].body == expected_body(view["run"]["id"])
+    assert [issue.comments for issue in foreign] == [[], [], [], []]

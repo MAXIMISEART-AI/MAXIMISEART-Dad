@@ -8,7 +8,8 @@ brak sieci) zostawia plik bez Komunikatu; wątek rusza znów po każdej nowej wy
 usunięciem pliku powtarza wysyłkę (co najmniej raz, decyzja 12). Treść nigdy nie trafia do dziennika Centrum:
 tylko etykieta, okres, numer issue i przyczyna czekania (decyzja 13).
 
-Treść dłuższa niż komentarz GitHuba idzie w częściach: pierwsza zakłada issue, kolejne są komentarzami.
+Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
+komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Final, Literal, get_args
+from typing import Final, Literal, assert_never, get_args
 
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
@@ -31,6 +32,7 @@ from rozliczenia.centrum.report_box import (
     ReportBox,
     Sent,
     Unreachable,
+    find_issue,
 )
 from rozliczenia.centrum.reports import replace_atomically
 
@@ -58,6 +60,10 @@ class PeriodThread:
     """Tytuł, gdy issue trzeba założyć."""
 
 
+Target = PeriodThread
+"""Dokąd w Skrzynce Zgłoszeń idzie wysyłka; dostarczenie rozróżnia cele przez ``match``."""
+
+
 @dataclass(frozen=True)
 class Post:
     """Gotowa wysyłka do issue okresu, wyrenderowana przez wersję narzędzia, która ją utworzyła.
@@ -65,7 +71,7 @@ class Post:
     ``header``: treść nowego issue; ``None``: nowe issue otwiera pierwsza część (Kontrola ilości).
     """
 
-    thread: PeriodThread
+    thread: Target
     period: str | None
     """Token okresu do dziennika Centrum; ``None``: Uruchomienie bez okresu."""
     run_id: str
@@ -80,7 +86,7 @@ class Post:
     @classmethod
     def of(
         cls,
-        thread: PeriodThread,
+        thread: Target,
         *,
         period: str | None,
         run_id: str,
@@ -192,19 +198,38 @@ class Delivered:
 
 
 def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
-    """Nowe issue okresu z pierwszą częścią, potem komentarz z każdą kolejną; pierwsza porażka kończy wysyłkę."""
+    match post.thread:
+        case PeriodThread() as thread:
+            return _deliver_to_period(post, thread, box, key)
+        case _:
+            assert_never(post.thread)
 
-    body, comments = post.opening()
-    opened = box.open_issue(post.thread.label, post.thread.title, body, key=key)
-    if not isinstance(opened, Sent):
-        return opened
+
+def _deliver_to_period(post: Post, thread: PeriodThread, box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
+    """Każda część jako komentarz do issue okresu, a bez niego nowe issue z pierwszą częścią i komentarze z resztą.
+
+    Issue okresu jest szukane przy każdej próbie, więc usunięte albo zamknięte issue nie blokuje kolejki. Pierwsza
+    porażka kończy wysyłkę; następna próba zaczyna od nowa.
+    """
+
+    found = find_issue(box, thread.label, thread.line, include_closed=thread.closed == "reuse", key=key)
+    if isinstance(found, Refused | Unreachable):
+        return found
+    if found is None:
+        body, comments = post.opening()
+        opened = box.open_issue(thread.label, thread.title, body, key=key)
+        if not isinstance(opened, Sent):
+            return opened
+        number = opened.number
+    else:
+        number, comments = found, post.parts
     delivered: list[Commented] = []
     for comment in comments:
-        answer = box.comment(opened.number, comment, key=key)
+        answer = box.comment(number, comment, key=key)
         if not isinstance(answer, Commented):
             return answer
         delivered.append(answer)
-    return Delivered(opened.number, tuple(delivered))
+    return Delivered(number, tuple(delivered))
 
 
 class Outbox:

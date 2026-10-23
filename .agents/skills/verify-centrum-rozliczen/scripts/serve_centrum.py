@@ -41,7 +41,8 @@ drive may edit it to ``closed``, which Centrum reads as Maks closing the
 Zgłoszenie). Asked for the issues with a label, the skrzynka lists the files
 with that label, only the ``open`` ones unless closed issues are asked for too;
 Centrum takes the newest one whose body has its exact line (the fingerprint
-line of a Zgłoszenie's problem). The key is never written
+line of a Zgłoszenie's problem, or the period line of a Kontrola ilości, which
+then goes into that file's ``comments``). The key is never written
 there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 Each question about the state of sent Zgłoszenia appends its numbers to

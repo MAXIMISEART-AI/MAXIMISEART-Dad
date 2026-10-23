@@ -13,9 +13,9 @@ import pytest
 
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
-from rozliczenia.centrum.report_box import COMMENT_LIMIT, Unreachable
+from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Unreachable
 
-from tests.fixtures.centrum import FakeReportBox
+from tests.fixtures.centrum import FakeIssue, FakeReportBox
 from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
@@ -112,7 +112,7 @@ def test_wysylka_ponad_limit_to_issue_z_pierwsza_czescia_i_komentarze_z_kolejnym
     assert "x" * 10 not in queue.log()
 
 
-def test_bez_sieci_wysylka_czeka_w_pliku_i_idzie_przy_nastepnej_wysylce_po_kolei(tmp_path: Path) -> None:
+def test_bez_sieci_wysylka_czeka_w_pliku_i_idzie_przy_nastepnej_wysylce_po_kolei_do_issue_okresu(tmp_path: Path) -> None:
     queue = Queue(tmp_path, FakeReportBox(outcomes=[Unreachable()]))
 
     queue.outbox.post(post(["pierwsza\n"]))
@@ -123,8 +123,32 @@ def test_bez_sieci_wysylka_czeka_w_pliku_i_idzie_przy_nastepnej_wysylce_po_kolei
 
     queue.outbox.post(post(["druga\n"]))
 
-    assert queue.box.wait_until(lambda box: len(box.issues) == 2)
-    assert [issue.body.splitlines()[-1] for issue in queue.box.issues] == ["pierwsza", "druga"]
+    assert queue.box.wait_until(lambda box: bool(box.issues) and bool(box.issues[0].comments))
+    [issue] = queue.box.issues
+    assert issue.body.splitlines()[-1] == "pierwsza"
+    assert issue.comments == ["Część 1/1\n\ndruga\n"]
+    assert wait_for(lambda: queue.files() == [])
+
+
+LOGS = PeriodThread(
+    label="logi-uruchomienia",
+    line="- Logi Uruchomień okresu: 08_14_09_2026",
+    closed="reuse",
+    title="Logi Uruchomień 08_14_09_2026",
+)
+
+
+def test_watek_ktory_zostaje_po_zamknieciu_dostaje_czesci_jako_komentarze_w_zamknietym_issue(tmp_path: Path) -> None:
+    closed = FakeIssue(7, LOGS.label, LOGS.title, f"{LOGS.line}\n\nLogi Uruchomień tego okresu.\n")
+    queue = Queue(tmp_path, FakeReportBox(issues=[closed], closed={7}))
+
+    queue.outbox.post(
+        Post.of(LOGS, period="08_14_09_2026", run_id=RUN_ID, blocks=["logi\n"], frame=numbered, header="Nagłówek")
+    )
+
+    assert queue.box.wait_until(lambda box: bool(closed.comments))
+    assert queue.box.issues == [closed]
+    assert closed.comments == ["Część 1/1\n\nlogi\n"]
     assert wait_for(lambda: queue.files() == [])
 
 
@@ -137,6 +161,16 @@ def test_bez_klucza_wysylka_czeka_w_pliku_bez_pytania_skrzynki(tmp_path: Path) -
     assert wait_for(lambda: waiting in queue.log())
     assert len(queue.files()) == 1
     assert queue.box.keys == []
+
+
+def test_gdy_skrzynka_odmawia_szukania_issue_okresu_wysylka_czeka_w_pliku_bez_nowego_issue(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Refused()))
+
+    queue.outbox.post(post(["treść\n"]))
+
+    assert wait_for(lambda: "przyczyna=odmowa" in queue.log())
+    assert len(queue.files()) == 1
+    assert (queue.box.issues, queue.box.keys) == ([], [])
 
 
 def test_nieudany_komentarz_zostawia_wysylke_w_pliku(tmp_path: Path) -> None:
