@@ -59,7 +59,7 @@ do not matter here: the checker replaces the engine with fixed steps.
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\explore_runs.py
 ```
 
-On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 8 s on a
+On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 5 s on a
 Mac and runs in CI as `tests/test_jedno_uruchomienie_naraz.py`. In a worktree the
 script checks the worktree's own `src`.
 
@@ -148,7 +148,7 @@ requests, `wątek Uruchomienie n` is the thread `RunHost.start` spawned,
 
 Prove the check can still fail. This applies broken variants to a temporary copy
 of `src`, never to the checkout, each in the one scope that catches it (about
-2 minutes on a Mac):
+1.5 minutes on a Mac):
 
 ```powershell
 py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutations.py
