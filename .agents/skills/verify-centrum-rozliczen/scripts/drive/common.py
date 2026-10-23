@@ -242,7 +242,7 @@ def error_toasts(page: Page) -> Locator:
 def served_version(run: Run) -> tuple[str, str | None]:
     """The tool commit the served Centrum runs and the day the run's tool clone moved to it, as Git reports them.
 
-    The commit is the clone's ``HEAD`` unless powiadomienie-o-naprawie pinned another one in
+    The commit is the clone's ``HEAD`` unless a feature pinned another one in
     ``<root>/github/tool-commit.txt``. The day (``YYYY-MM-DD``) is the last ``HEAD`` reflog entry's, in that entry's
     time zone, when that entry leads to the commit, else ``None``. Neither depends on how Centrum reads ``.git``.
     """

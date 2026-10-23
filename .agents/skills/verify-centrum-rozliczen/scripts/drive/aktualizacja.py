@@ -24,13 +24,12 @@ RETRY = "Narzędzie działa dalej w poprzedniej wersji. Sprawdź internet i klik
 REPORT_BUTTON = "Wyślij do Maksa"
 INSTALLING = "Instalowanie bibliotek…"
 LIBRARIES_FAILED = "Nie udało się zainstalować bibliotek nowej wersji narzędzia."
-REPAIRED = "Maks naprawił zgłoszony problem."
 NEW_VERSION_FAILED = "Nowa wersja narzędzia nie wystartowała."
 TO_MAKS = "Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
 # Long enough to see the installation start; installing from no index fails in about a second.
 PACING_MS = 4000
-# Long enough to see the progress on Okresy, send the refused requests and see Konfiguracja during the same update;
-# fetching from the local "origin" takes milliseconds.
+# Long enough to see the progress, send the refused requests and capture it during the same update; fetching from
+# the local "origin" takes milliseconds.
 UPDATE_PACING_MS = 8000
 # Long enough to see the tab wait for the new Centrum; the restarted scripted Centrum starts in about a second.
 RESTART_PACING_MS = 3000
@@ -151,10 +150,6 @@ def _tool_card(page: Page) -> Locator:
     return page.get_by_role("region", name="Narzędzie", exact=True)
 
 
-def _repair_notice(page: Page) -> Locator:
-    return page.get_by_role("status").filter(has_text=REPAIRED)
-
-
 def _status(page: Page, text: str) -> Locator:
     return page.get_by_role("status").filter(has_text=text)
 
@@ -165,25 +160,6 @@ def _entered(status: Locator) -> None:
     status.evaluate("element => Promise.all(element.getAnimations().map((animation) => animation.finished))")
 
 
-@contextmanager
-def _repaired_in_this_version(run: Run, first: str) -> Iterator[None]:
-    """Maks closed a Zgłoszenie that Dad sent from the clone's first commit, so Okresy shows the repair notice."""
-
-    sent = Path(run.fixture["settings"]).parent / "zgloszenia-wyslane.json"
-    before = sent.read_bytes() if sent.exists() else None
-    print("  harness: a Zgłoszenie sent from the clone's commit is closed (Maks repaired it)", flush=True)
-    entries = json.loads(before) if before is not None else []
-    entries.append({"fingerprint": "aktualizacja-naprawa", "number": 9000, "commit": first, "state": "closed"})
-    sent.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
-    try:
-        yield
-    finally:
-        if before is None:
-            sent.unlink(missing_ok=True)
-        else:
-            sent.write_bytes(before)
-
-
 def _post(run: Run, path: str, name: str, body: dict[str, object] | None = None) -> int:
     request = urllib.request.Request(
         run.url.rstrip("/") + path,
@@ -192,10 +168,6 @@ def _post(run: Run, path: str, name: str, body: dict[str, object] | None = None)
         headers={"Origin": run.url.rstrip("/"), "Content-Type": "application/json"},
     )
     return run.refused(request, name)
-
-
-def _repaired(run: Run, name: str) -> object:
-    return run.api("/api/reports/repair", name)["repaired"]
 
 
 def _update_entries(run: Run) -> list[str]:
@@ -226,11 +198,6 @@ def _answers(run: Run) -> bool:
 
 
 def drive_update(run: Run, page: Page) -> None:
-    with _repaired_in_this_version(run, run.fixture["tool"]["first"]):
-        _drive_update(run, page)
-
-
-def _drive_update(run: Run, page: Page) -> None:
     tool = run.fixture["tool"]
     clone, first, newest, dad_files = Path(tool["clone"]), tool["first"], tool["newest"], tool["dad_files"]
     origin, libraries = Path(tool["origin"]), tool["libraries"]
@@ -271,14 +238,6 @@ def _drive_update(run: Run, page: Page) -> None:
         run.capture(page, "93-aktualizacja-jest-nowsza")
         _drive_no_connection(run, page, card, clone, first)
 
-        run.step(FEATURE, "aktualizacja-powiadomienie")
-        page.get_by_role("link", name="Okresy", exact=True).click()
-        notice = _repair_notice(page)
-        expect(notice).to_be_visible()
-        expect(notice.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
-        run.check(_repaired(run, "aktualizacja-powiadomienie") is True, "Okresy has the repair notice for this version")
-        run.capture(page, "141-aktualizacja-powiadomienie")
-
         run.step(FEATURE, "aktualizacja-postep")
         print(f"  harness: each Aktualizacja narzędzia waits {UPDATE_PACING_MS} ms before it looks for Git", flush=True)
         pacing.write_text(str(UPDATE_PACING_MS), encoding="utf-8")
@@ -286,9 +245,9 @@ def _drive_update(run: Run, page: Page) -> None:
         restart_pacing.write_text(str(RESTART_PACING_MS), encoding="utf-8")
         before_health = run.api("/api/health", "aktualizacja-health-przed")
         page.evaluate("window.przedPonownymStartem = true")
-        notice.get_by_role("button", name=BUTTON, exact=True).dblclick()
-        expect(_status(page, FETCHING)).to_be_visible()
-        expect(notice.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
+        card.get_by_role("button", name=BUTTON, exact=True).dblclick()
+        expect(card.get_by_role("status").filter(has_text=FETCHING)).to_be_visible()
+        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
         view = run.api("/api/tool-update", "aktualizacja-postep")
         run.check(view == {"state": "running", "step": "fetching"}, "the server reports the step `fetching`")
         run.check(
@@ -303,24 +262,15 @@ def _drive_update(run: Run, page: Page) -> None:
         run.capture(page, "94-aktualizacja-postep", live=True)
         run.check(
             [entry.split(" ")[0] for entry in _update_entries(run)[2:]] == ["aktualizacja-start"],
-            "with the internet back, the double click in the repair notice started exactly one more Aktualizacja narzędzia",
+            "with the internet back, the double click started exactly one more Aktualizacja narzędzia",
         )
-        page.get_by_role("link", name="Konfiguracja", exact=True).click()
-        card = _tool_card(page)
-        expect(card.get_by_role("status").filter(has_text=FETCHING)).to_be_visible()
-        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
-        run.check(True, "on Konfiguracja the same update runs and its button cannot be clicked either")
-        _entered(card.get_by_role("status").filter(has_text=FETCHING))
-        run.capture(page, "142-aktualizacja-postep-konfiguracja", live=True)
-        page.get_by_role("link", name="Okresy", exact=True).click()
-        expect(_repair_notice(page).get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
     finally:
         pacing.unlink(missing_ok=True)
 
     try:
         run.step(FEATURE, "aktualizacja-ponowny-start")
         expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
-        expect(_repair_notice(page).get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
+        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
         run.check(not _answers(run), "the old Centrum has closed and the new one is not up yet")
         run.check(_log_events(run)[-2:] == ["aktualizacja-start", "zamkniecie"], "the old Centrum closed itself")
         run.check(
@@ -337,15 +287,8 @@ def _drive_update(run: Run, page: Page) -> None:
         expect(toast).to_be_visible(timeout=RESTART_TIMEOUT_MS)
         expect(toast).to_contain_text(f"Centrum działa w wersji {newest[:7]}.")
         run.check(page.evaluate("window.przedPonownymStartem === undefined"), "the tab reloaded by itself")
-        expect(page.get_by_role("heading", name="Okresy", exact=True)).to_be_visible()
-        page.wait_for_load_state("networkidle")
-        expect(_repair_notice(page)).to_have_count(0)
-        run.check(
-            _repaired(run, "aktualizacja-powiadomienie-po") is False,
-            "the reloaded tab is back on Okresy in the new version, and the repair notice is gone by itself",
-        )
-        run.capture(page, "143-aktualizacja-bez-powiadomienia")
-        page.get_by_role("link", name="Konfiguracja", exact=True).click()
+        expect(page.get_by_role("heading", name="Konfiguracja", exact=True)).to_be_visible()
+        run.check(True, "the reloaded tab is back on Konfiguracja in the new version")
         card = _tool_card(page)
         updated_commit, since = served_version(run)
         expect(card.get_by_text(version_line(updated_commit, since), exact=True)).to_be_visible()
@@ -492,21 +435,20 @@ def _drive_new_version_not_starting(
     _github_main(run, not_starting)
     print(f"  harness: the old version, started again, waits {RESTART_PACING_MS} ms before it starts", flush=True)
     (run.root / "pacing" / "ponowny-start-ms.txt").write_text(str(RESTART_PACING_MS), encoding="utf-8")
-    with _repaired_in_this_version(run, newest):
-        page.get_by_role("link", name="Okresy", exact=True).click()
-        notice = _repair_notice(page)
-        expect(notice).to_be_visible()
-        before_health = run.api("/api/health", "aktualizacja-nie-wystartowala-health-przed")
-        page.evaluate("window.przedPonownymStartem = true")
-        notice.get_by_role("button", name=BUTTON, exact=True).click()
-        expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
-        expect(notice.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
-        run.check(not _answers(run), "the old Centrum has closed, and no Centrum answers yet")
-        _entered(_status(page, RESTARTING))
-        run.capture(page, "135-aktualizacja-nie-wystartowala-ponowny-start", live=True)
-        print("  Dad goes to Uruchomienia while Centrum restarts", flush=True)
-        page.get_by_role("link", name="Uruchomienia", exact=True).click()
-        expect(page.get_by_role("heading", name="Uruchomienia", exact=True)).to_be_visible()
+    page.reload()
+    card = _tool_card(page)
+    expect(card).to_contain_text("Jest nowsza wersja")
+    before_health = run.api("/api/health", "aktualizacja-nie-wystartowala-health-przed")
+    page.evaluate("window.przedPonownymStartem = true")
+    card.get_by_role("button", name=BUTTON, exact=True).click()
+    expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
+    expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
+    run.check(not _answers(run), "the old Centrum has closed, and no Centrum answers yet")
+    _entered(_status(page, RESTARTING))
+    run.capture(page, "135-aktualizacja-nie-wystartowala-ponowny-start", live=True)
+    print("  Dad goes to Uruchomienia while Centrum restarts", flush=True)
+    page.get_by_role("link", name="Uruchomienia", exact=True).click()
+    expect(page.get_by_role("heading", name="Uruchomienia", exact=True)).to_be_visible()
     (run.root / "pacing" / "ponowny-start-ms.txt").unlink()
 
     run.step(FEATURE, "aktualizacja-nie-wystartowala")
