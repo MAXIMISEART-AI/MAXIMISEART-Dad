@@ -181,3 +181,10 @@ def test_kazdy_skill_verify_deklaruje_pilnuje(monkeypatch: pytest.MonkeyPatch) -
     assert skills
     assert without == [], "dopisz do frontmattera SKILL.md klucz pilnuje: z globami ścieżek, przy których zmianie skill obowiązuje"
 
+
+def test_agents_md_nie_wymienia_skilli_verify() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    named = [md.parent.name for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if md.parent.name in agents]
+
+    assert named == [], "routing skilli verify-* żyje w ich pilnuje:, a AGENTS.md odsyła do tools/skille_dla_zmiany.py"
