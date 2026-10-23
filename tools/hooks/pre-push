@@ -60,7 +60,11 @@ def main() -> int:
         print("pre-push: brak .venv; utwórz je przez tools/setup_worktree.py i ponów push.", flush=True)
         return 1
     if sys.platform == "win32":  # tools/setup_worktree.py nie włącza bramy na Windows
-        return subprocess.run(COMMAND, stdin=subprocess.DEVNULL, check=False).returncode
+        # Import dopiero tutaj: test bramy kopiuje do atrapy checkoutu sam hook, bez tools/potomne.py.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import potomne
+
+        return potomne.run(COMMAND, cwd=Path.cwd(), echo=True).returncode
     # Hook staje się ci_lokalnie, więc sygnał dla samego hooka też kończy sprawdzenie.
     os.execv(COMMAND[0], COMMAND)
 

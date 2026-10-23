@@ -2,7 +2,7 @@
 
 Issues and specs for this repo live as GitHub issues in
 [MAXIMISEART-AI/MAXIMISEART-Dad](https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad).
-Use the `gh` CLI for all operations.
+Use `gh` for all operations.
 
 ## Conventions
 
