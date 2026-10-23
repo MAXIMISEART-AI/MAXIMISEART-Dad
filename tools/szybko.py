@@ -2,14 +2,19 @@
 
 Agent uruchamia je po każdej zmianie; pełną bramką jest CI na GitHubie. Zmiana to pliki, którymi checkout,
 razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie
-``origin/main``). Kroki ruff i mypy to kroki ``tools/ci_lokalnie.py``, a pytest to jego krok z wybranymi testami.
+``origin/main``). Kroki ruff i mypy to kroki ``tools/ci_lokalnie.py``, a pytest to jego krok z wybranymi
+testami. Kroki biegną naraz.
 
 Test jest dotknięty, gdy zmiana obejmuje jego plik albo plik, od którego zależy. Zależności wynikają z samego
-kodu, bez stanu z poprzednich przebiegów, więc świeży worktree odpowiada tak samo szybko: importy modułów
-Pythona, a w ``tests/`` także ścieżki i nazwy modułów w napisach, czyli skrypt, który test uruchamia, plik,
-który czyta, albo katalog. Zależność jest przechodnia, z wyjątkiem katalogu: test zależy od jego plików, ale nie
-od ich zależności. Zmiana w ``FULL`` (konfiguracja i zależności, ``conftest.py`` każdego testu) uruchamia pełny
-zestaw. Testy ``STRUCTURE`` pilnują reguł z tabeli w ``AGENTS.md`` i biegną przy każdej zmianie.
+kodu, więc świeży worktree wybiera tak samo: importy modułów Pythona, a w ``tests/`` także ścieżki i nazwy
+modułów w napisach, czyli skrypt, który test uruchamia, plik, który czyta, albo pliki katalogu. Zależność jest
+przechodnia, z wyjątkiem plików katalogu. Zmiana w ``FULL`` (konfiguracja i zależności, ``conftest.py`` każdego
+testu) wybiera wszystkie testy. Test, który już przeszedł na tych samych plikach, nie biegnie drugi raz:
+pamięć zielonych testów leży w katalogu gita worktree.
+
+Testy ``STRUCTURE`` pilnują reguł z tabeli w ``AGENTS.md`` i biegną przy każdej zmianie, a gdy ``--baza`` poszła
+dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle pada dopiero tam).
+Szybko nie pobiera ``origin``, więc merge jest z bazą z ostatniego ``git fetch``.
 
 Kończy się ``SZYBKO OK`` albo ``SZYBKO FAIL | <kroki>``.
 
@@ -27,7 +32,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import subprocess
 import sys
@@ -65,7 +69,11 @@ class Selection:
 
 @dataclass(frozen=True)
 class Dependencies:
-    """``follows``: przechodnie (import, uruchomiony skrypt, czytany plik); ``reads``: pliki katalogu wymienionego w teście."""
+    """Od czego zależy każdy plik Pythona.
+
+    ``follows`` jest przechodnie (import, skrypt, który test uruchamia, plik, który czyta), a ``reads`` nie: pliki
+    katalogu, który wskazuje test.
+    """
 
     follows: dict[str, set[str]]
     reads: dict[str, set[str]]
@@ -87,10 +95,11 @@ class Dependencies:
                 follows[path].update(_resolve(name, path, modules, files))
             if path.startswith("tests/"):
                 for text in _texts(tree):
-                    follows[path].update(_resolve(text, path, modules, files) if text in modules else ())
+                    if text in modules:
+                        follows[path] |= _resolve(text, path, modules, files)
                     named, under = _named(text, files, directories)
-                    follows[path].update(named)
-                    reads[path].update(under)
+                    follows[path] |= named
+                    reads[path] |= under
             follows[path].update(_packages(path, files))
             follows[path].discard(path)
         return cls(follows, reads)
@@ -136,12 +145,12 @@ def _is_python(root: Path, path: str) -> bool:
 
 
 def _module_roots(files: frozenset[str]) -> list[str]:
-    skills = sorted({"/".join(PurePosixPath(path).parts[:4]) for path in files if PurePosixPath(path).match(f"{SKILL_SCRIPTS}/**")})
-    return [*MODULE_ROOTS, *skills]
+    skills = {"/".join(PurePosixPath(path).parts[:4]) for path in files if PurePosixPath(path).match(f"{SKILL_SCRIPTS}/**")}
+    return [*MODULE_ROOTS, *sorted(skills)]
 
 
 def _modules(files: frozenset[str]) -> dict[str, set[str]]:
-    """Nazwa modułu → pliki, które ją dają, względem każdego katalogu na ``sys.path`` (``src``, korzeń, ``tools``, skrypty skilli)."""
+    """Nazwa modułu → pliki, które ją dają, względem katalogów na ``sys.path`` (``src``, korzeń, ``tools``, skilli)."""
 
     modules: dict[str, set[str]] = defaultdict(set)
     roots = _module_roots(files)
@@ -274,39 +283,48 @@ def _fingerprint(root: Path, inputs: Iterable[str]) -> str:
     return digest.hexdigest()
 
 
-def _green_memory() -> Path:
-    """Testy, które przeszły, z odciskiem ich plików; każdy worktree ma własną w swoim katalogu gita."""
+@dataclass(frozen=True)
+class GreenMemory:
+    """Pliki testów, które przeszły, z odciskiem plików, od których zależą; każdy worktree ma własną w katalogu gita."""
 
-    return ROOT / _git("rev-parse", "--git-path", GREEN).strip()
+    path: Path
+
+    @classmethod
+    def of_checkout(cls) -> GreenMemory:
+        return cls(ROOT / _git("rev-parse", "--git-path", GREEN).strip())
+
+    def to_run(self, selection: Selection) -> list[str]:
+        green = self._recalled()
+        return [test for test, fingerprint in selection.tests.items() if green.get(test) != fingerprint]
+
+    def remember(self, selection: Selection, junit: Path, ran: Iterable[str]) -> None:
+        """Zapamiętuje pliki z ``ran``, których każdy przypadek w raporcie JUnit przeszedł albo został pominięty."""
+
+        green = {test: selection.tests[test] for test in _passed(junit, ran)}
+        written = self.path.with_suffix(".tmp")
+        written.write_text(json.dumps({**self._recalled(), **green}, indent=1, sort_keys=True), encoding="utf-8")
+        written.replace(self.path)
+
+    def _recalled(self) -> dict[str, str]:
+        try:
+            loaded = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return {str(test): str(fingerprint) for test, fingerprint in loaded.items()} if isinstance(loaded, dict) else {}
 
 
-def _remembered(memory: Path) -> dict[str, str]:
-    try:
-        loaded = json.loads(memory.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return {str(test): str(fingerprint) for test, fingerprint in loaded.items()} if isinstance(loaded, dict) else {}
-
-
-def _remember(memory: Path, green: dict[str, str]) -> None:
-    written = memory.with_suffix(".tmp")
-    written.write_text(json.dumps({**_remembered(memory), **green}, indent=1, sort_keys=True), encoding="utf-8")
-    written.replace(memory)
-
-
-def _passed(junit: Path, tests: Iterable[str]) -> set[str]:
-    """Pliki testów z ``tests``, których każdy przypadek w raporcie JUnit przeszedł albo został pominięty."""
-
+def _passed(junit: Path, ran: Iterable[str]) -> set[str]:
     try:
         cases = list(ET.parse(junit).iter("testcase"))
     except (OSError, ET.ParseError):
         return set()
-    modules = {test.removesuffix(".py").replace("/", "."): test for test in tests}
+    ran = set(ran)
     seen: set[str] = set()
     failed: set[str] = set()
     for case in cases:
-        classname = case.get("classname", "")
-        test = next((path for module, path in modules.items() if classname == module or classname.startswith(module + ".")), None)
+        # ``tests.test_x`` albo ``tests.test_x.TestKlasa``
+        parts = case.get("classname", "").split(".")
+        test = next((path for end in range(len(parts), 0, -1) if (path := "/".join(parts[:end]) + ".py") in ran), None)
         if test is None:
             continue
         seen.add(test)
@@ -337,23 +355,23 @@ def _changed(base: str) -> frozenset[str]:
 
 
 def _merge_with(base: str) -> str | None:
-    """Commit z HEAD połączonym z ``base``, jak drzewo, które sprawdza CI PR-u; None, gdy ``base`` jest w HEAD albo jest konflikt."""
+    """Commit HEAD połączony z ``base``, jak drzewo CI PR-u; None, gdy ``base`` jest już w HEAD albo merge ma konflikt."""
 
     if subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd=ROOT, capture_output=True).returncode == 0:
         return None
     merged = subprocess.run(
-        ["git", "merge-tree", "--write-tree", "--name-only", "HEAD", base], cwd=ROOT, capture_output=True, text=True, encoding="utf-8"
+        ["git", "merge-tree", "--write-tree", "--name-only", "HEAD", base],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     tree, *conflicts = merged.stdout.split("\n\n", 1)[0].splitlines()
     if merged.returncode != 0:
         print(f"UWAGA: merge z {base} ma konflikt w {', '.join(conflicts)}; testy struktury po mergu pominięte", flush=True)
         return None
-    identity = {f"GIT_{role}_{key}": value for role in ("AUTHOR", "COMMITTER") for key, value in (("NAME", "szybko"), ("EMAIL", "szybko@localhost"))}
-    made = subprocess.run(
-        ["git", "commit-tree", tree, "-p", "HEAD", "-p", base, "-m", f"szybko: HEAD z {base}"],
-        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", env={**os.environ, **identity}, check=True,
-    )
-    return made.stdout.strip()
+    author = ("-c", "user.name=szybko", "-c", "user.email=szybko@localhost")
+    return _git(*author, "commit-tree", tree, "-p", "HEAD", "-p", base, "-m", f"szybko: HEAD z {base}").strip()
 
 
 def _pytest_arguments(tests: Iterable[str], junit: Path) -> tuple[str, ...]:
@@ -365,24 +383,20 @@ def _pytest_arguments(tests: Iterable[str], junit: Path) -> tuple[str, ...]:
 def _own_cache(step: ci_lokalnie.Step) -> ci_lokalnie.Step:
     """Cache mypy zależy od ``--platform``: przebiegi dla dwóch systemów w jednym cache unieważniają go sobie nawzajem."""
 
-    if "--platform" not in step.command:
+    if "--platform" not in step.command or "--cache-dir" in step.command:
         return step
     platform = step.command[step.command.index("--platform") + 1]
     return replace(step, command=(*step.command, "--cache-dir", f".mypy_cache/{platform}"))
 
 
+def _pytest(root: Path, name: str, arguments: Iterable[str]) -> ci_lokalnie.Step:
+    pytest = next(step for step in ci_lokalnie._steps(root) if step.job == "pytest")
+    return replace(pytest, name=name, command=(*pytest.command, *arguments))
+
+
 def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.Step]:
-    steps = ci_lokalnie._steps(root)
-    pytest = next(step for step in steps if step.job == "pytest")
-    return [
-        *(_own_cache(step) for step in steps if step.job in STATIC_JOBS),
-        replace(pytest, command=(*pytest.command, *_pytest_arguments(tests, junit))),
-    ]
-
-
-def _structure_after_merge(copy: Path, base: str) -> ci_lokalnie.Step:
-    pytest = next(step for step in ci_lokalnie._steps(copy) if step.job == "pytest")
-    return replace(pytest, name=f"testy struktury po mergu z {base}", command=(*pytest.command, *STRUCTURE))
+    static = (_own_cache(step) for step in ci_lokalnie._steps(root) if step.job in STATIC_JOBS)
+    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit))]
 
 
 def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
@@ -421,8 +435,8 @@ def _describe(selection: Selection, to_run: list[str], changed: frozenset[str], 
     names = ", ".join(PurePosixPath(path).name for path in to_run) or "brak"
     green = len(selection.tests) - len(to_run)
     return (
-        f"Zmiana: {len(changed)} plików od {base}. Testy {kind}: {len(selection.tests)}, do uruchomienia {len(to_run)}"
-        f" ({names}), zielone na tych samych plikach {green}; i testy struktury."
+        f"Zmiana: {len(changed)} plików od {base}. Testy {kind}: {len(selection.tests)},"
+        f" do uruchomienia {len(to_run)} ({names}), zielone na tych samych plikach {green}; i testy struktury."
     )
 
 
@@ -436,17 +450,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"SZYBKO FAIL | nieznana baza {args.baza}")
         return 1
     selection = select(ROOT, changed)
-    memory = _green_memory()
-    green = _remembered(memory)
-    to_run = [test for test, fingerprint in selection.tests.items() if green.get(test) != fingerprint]
+    memory = GreenMemory.of_checkout()
+    to_run = memory.to_run(selection)
     print(_describe(selection, to_run, changed, args.baza), flush=True)
-    junit = memory.with_name("szybko-junit.xml")
+    junit = memory.path.with_name("szybko-junit.xml")
     junit.unlink(missing_ok=True)
     failed = _run_all(_steps(ROOT, to_run, junit), ROOT)
-    _remember(memory, {test: selection.tests[test] for test in _passed(junit, to_run)})
+    memory.remember(selection, junit, to_run)
     if merge := _merge_with(args.baza):
         with potomne.commit_copy(ROOT, merge) as copy:
-            failed += _run_all([_structure_after_merge(copy, args.baza)], copy)
+            failed += _run_all([_pytest(copy, f"testy struktury po mergu z {args.baza}", STRUCTURE)], copy)
     print(f"SZYBKO FAIL | {', '.join(failed)}" if failed else "SZYBKO OK")
     return 1 if failed else 0
 

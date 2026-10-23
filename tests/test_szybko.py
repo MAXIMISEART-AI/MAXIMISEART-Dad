@@ -1,4 +1,4 @@
-"""``tools/szybko.py`` sprawdza zmianę w sekundach: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą.
+"""``tools/szybko.py``: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą, raz na tych samych plikach.
 
 Każdy test buduje małe repozytorium z narzędziami checkoutu i gałęzią ``origin/main``. ``tests/test_b.py`` w nim
 zawsze pada, więc szybkie sprawdzenie, które go uruchomi, choć zmiana go nie dotyka, kończy się porażką.
@@ -21,6 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import szybko  # noqa: E402
+
+# Testy z tabeli reguł w AGENTS.md, które szybko uruchamia tylko jako dotknięte zmianą, każdy z powodem.
+BY_CHANGE_ONLY: dict[str, str] = {}
 
 BASE_FILES = {
     ".agents/skills/verify-x/scripts/skrypt.py": "WARTOSC = 1\n",
@@ -49,6 +52,13 @@ BASE_FILES = {
         "def test_dane() -> None:\n    assert [p.read_text() for p in DANE.glob('*.md')] == ['zgodny\\n']\n"
     ),
 }
+COUNTED = (
+    "import os\nfrom pathlib import Path\n\nfrom pakiet.posredni import podwojona\n\n\n"
+    "def test_podwojona() -> None:\n"
+    "    with Path(os.environ['PRZEBIEGI']).open('a', encoding='utf-8') as runs:\n"
+    "        runs.write('.')\n"
+    "    assert podwojona() == 2\n"
+)
 
 
 def _structure_stubs(body: str) -> dict[str, str]:
@@ -70,10 +80,11 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
 
 
 def _szybko(repo: Path, *arguments: str, runs: Path | None = None) -> subprocess.CompletedProcess[str]:
+    counted = {"PRZEBIEGI": str(runs)} if runs else {}
     return subprocess.run(
         [sys.executable, str(repo / "tools" / "szybko.py"), *arguments],
         cwd=repo,
-        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "2", "PRZEBIEGI": str(runs)},
+        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "2", **counted},
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -106,15 +117,6 @@ def test_zmiana_bez_bledu_konczy_sie_ok_choc_niedotkniety_test_pada(tmp_path: Pa
     answered = _szybko(repo)
 
     assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "SZYBKO OK"), answered.stdout
-
-
-COUNTED = (
-    "import os\nfrom pathlib import Path\n\nfrom pakiet.posredni import podwojona\n\n\n"
-    "def test_podwojona() -> None:\n"
-    "    with Path(os.environ['PRZEBIEGI']).open('a', encoding='utf-8') as runs:\n"
-    "        runs.write('.')\n"
-    "    assert podwojona() == 2\n"
-)
 
 
 def test_zielony_test_biegnie_znowu_dopiero_po_zmianie_pliku_od_ktorego_zalezy(tmp_path: Path) -> None:
@@ -152,7 +154,10 @@ def test_nowy_niesledzony_test_biegnie(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("changed", "failing"),
-    [("tools/narzedzie.py", "tests/test_narzedzie.py::test_narzedzie"), ("docs/dane/wpis.md", "tests/test_dane.py::test_dane")],
+    [
+        ("tools/narzedzie.py", "tests/test_narzedzie.py::test_narzedzie"),
+        ("docs/dane/wpis.md", "tests/test_dane.py::test_dane"),
+    ],
     ids=["skrypt, który test uruchamia", "plik katalogu, który test czyta"],
 )
 def test_test_jest_dotkniety_zmiana_pliku_ktory_wskazuje_sciezka(tmp_path: Path, changed: str, failing: str) -> None:
@@ -203,7 +208,8 @@ def test_testy_struktury_biegna_tez_na_mergu_z_baza_ktora_poszla_dalej(tmp_path:
 
     answered = _szybko(repo)
 
-    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, "SZYBKO FAIL | testy struktury po mergu z origin/main")
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | testy struktury po mergu z origin/main"), answered.stdout
 
 
 def test_konflikt_z_baza_jest_uwaga_a_nie_porazka(tmp_path: Path) -> None:
@@ -227,7 +233,8 @@ def test_blad_typu_tylko_na_windows_wywraca_szybkie_sprawdzenie(tmp_path: Path) 
 
     answered = _szybko(repo)
 
-    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, "SZYBKO FAIL | mypy (Windows)"), answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | mypy (Windows)"), answered.stdout
 
 
 def test_nieznana_baza_konczy_sie_jedna_linia_wyniku(tmp_path: Path) -> None:
@@ -238,10 +245,11 @@ def test_nieznana_baza_konczy_sie_jedna_linia_wyniku(tmp_path: Path) -> None:
     assert (answered.returncode, answered.stdout.splitlines()) == (1, ["SZYBKO FAIL | nieznana baza nie-ma-takiej"])
 
 
-def test_testy_struktury_to_istniejace_testy_regul_z_tabeli_w_agents_md() -> None:
+def test_kazdy_test_z_tabeli_regul_w_agents_md_jest_testem_struktury_albo_ma_powod() -> None:
     table = (ROOT / "AGENTS.md").read_text(encoding="utf-8").split("## Reguły i co ich pilnuje", 1)[1]
     guards = [line.rsplit("|", 2)[-2] for line in table.splitlines() if line.startswith("|")]
     named = {path for guard in guards for path in re.findall(r"tests/test_\w+\.py", guard)}
+    structure = {node.partition("::")[0] for node in szybko.STRUCTURE}
 
     collected = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *szybko.STRUCTURE],
@@ -251,5 +259,7 @@ def test_testy_struktury_to_istniejace_testy_regul_z_tabeli_w_agents_md() -> Non
         encoding="utf-8",
     )
 
-    assert {node.partition("::")[0] for node in szybko.STRUCTURE} == named
+    undecided = named - structure - BY_CHANGE_ONLY.keys()
+    assert undecided == set(), "dopisz test do STRUCTURE w tools/szybko.py albo powód do BY_CHANGE_ONLY"
+    assert (structure | BY_CHANGE_ONLY.keys()) - named == set(), "STRUCTURE albo BY_CHANGE_ONLY ma test spoza tabeli"
     assert collected.returncode == 0, collected.stdout
