@@ -89,8 +89,7 @@ def test_stop_konczy_trwajace_polecenie_a_nowe_nie_biegnie(tmp_path: Path) -> No
     assert not beating(beats)
     with pytest.raises(potomne.Stopped):
         potomne.run([sys.executable, "-c", f"open({str(marker)!r}, 'w')"], cwd=tmp_path, stop=stop)
-    time.sleep(1)
-    assert not marker.exists()
+    assert not wait_for(marker.exists, 1)
 
 
 @POSIX_ONLY
