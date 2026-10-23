@@ -1,8 +1,7 @@
 """Brama ``tools/hooks/pre-push``: push agenta, który wysyła HEAD, przechodzi tylko po ruff i mypy dla obu systemów.
 
 Każdy test robi prawdziwy ``git push`` do tymczasowego repozytorium bare. Test kroków bramy uruchamia prawdziwe
-``tools/ci_lokalnie.py`` na małym kodzie; pozostałe zastępują ``.venv/bin/python`` atrapą, która od razu kończy się
-werdyktem. Push robi agent (``AI_AGENT``), chyba że test mówi inaczej.
+``tools/ci_lokalnie.py`` na małym kodzie, a pozostałe atrapę ``.venv/bin/python``.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from tests.fixtures.potomne import wait_for
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
-WINDOWS_ONLY_TYPE_ERROR = 'import sys\n\nif sys.platform == "win32":\n    LICZBA: int = "tekst"\n'
+TYPE_ERROR_ONLY_IF = 'import sys\n\nif {}:\n    LICZBA: int = "tekst"\n'
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
@@ -59,7 +58,12 @@ def checkout(tmp_path: Path) -> Path:
     _git(tmp_path, "init", "-q", "--bare", str(remote))
     checkout = repository(
         tmp_path / "checkout",
-        {".gitignore": ".venv/\n__pycache__/\n", "pyproject.toml": '[tool.mypy]\nfiles = ["kod"]\n', "kod/__init__.py": ""},
+        {
+            ".gitignore": ".venv/\n__pycache__/\n",
+            "pyproject.toml": '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nfiles = ["kod"]\n',
+            "kod/__init__.py": "",
+            "tools/praca_w_toku.py": 'print("NAKŁADANIA | atrapa")\n',
+        },
     )
     (checkout / "tools" / "hooks").mkdir(parents=True)
     shutil.copy2(HOOK, checkout / "tools" / "hooks" / "pre-push")
@@ -76,7 +80,7 @@ def _venv_python(checkout: Path, body: str) -> None:
     python.chmod(0o755)
 
 
-def _ci_lokalnie(checkout: Path, *, passes: bool) -> None:
+def _stub_ci_lokalnie(checkout: Path, *, passes: bool) -> None:
     verdict = "CI LOKALNIE OK" if passes else "CI LOKALNIE FAIL | ruff"
     _venv_python(checkout, f"echo '{verdict}'\nexit {0 if passes else 1}")
 
@@ -122,7 +126,8 @@ def _remote_branch(checkout: Path) -> str:
     [
         pytest.param({"kod/test_pada.py": "def test_pada() -> None:\n    assert False\n"}, True, id="pytest pada"),
         pytest.param({"kod/nieuzywany.py": "import os\n"}, False, id="błąd ruff"),
-        pytest.param({"kod/tylko_windows.py": WINDOWS_ONLY_TYPE_ERROR}, False, id="błąd mypy tylko na Windows"),
+        pytest.param({"kod/tylko_windows.py": TYPE_ERROR_ONLY_IF.format('sys.platform == "win32"')}, False, id="błąd mypy tylko na Windows"),
+        pytest.param({"kod/poza_windows.py": TYPE_ERROR_ONLY_IF.format('sys.platform != "win32"')}, False, id="błąd mypy poza Windows"),
     ],
 )
 def test_push_head_rozstrzygaja_ruff_i_mypy_dla_obu_systemow(checkout: Path, change: dict[str, str], passes: bool) -> None:
@@ -135,12 +140,13 @@ def test_push_head_rozstrzygaja_ruff_i_mypy_dla_obu_systemow(checkout: Path, cha
 
     assert (pushed.returncode == 0) == passes, pushed.stdout + pushed.stderr
     assert _remote_branch(checkout) == (head if passes else "")
+    assert "NAKŁADANIA" not in pushed.stdout + pushed.stderr
 
 
 def test_usuniecie_galezi_przechodzi_bez_sprawdzania(checkout: Path) -> None:
-    _ci_lokalnie(checkout, passes=True)
+    _stub_ci_lokalnie(checkout, passes=True)
     assert _git(checkout, "push", "origin", f"HEAD:{BRANCH}").returncode == 0
-    _ci_lokalnie(checkout, passes=False)
+    _stub_ci_lokalnie(checkout, passes=False)
 
     deleted = _git(checkout, "push", "origin", "--delete", BRANCH)
 
@@ -157,7 +163,7 @@ def test_push_bez_venv_jest_odrzucony_ze_wskazaniem_setup_worktree(checkout: Pat
 
 
 def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Path) -> None:
-    _ci_lokalnie(checkout, passes=False)
+    _stub_ci_lokalnie(checkout, passes=False)
 
     pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}", agent=None)
 
@@ -174,7 +180,7 @@ def test_push_head_odlaczonego_albo_galezi_rozstrzyga_brama(checkout: Path, deta
     _git(checkout, "commit", "-q", "--allow-empty", "-m", "nowy commit")
     if detached:
         _git(checkout, "checkout", "-q", "--detach")
-    _ci_lokalnie(checkout, passes=False)
+    _stub_ci_lokalnie(checkout, passes=False)
 
     pushed = _git(checkout, "push", "origin", "HEAD:zmiana" if detached else "zmiana")
 

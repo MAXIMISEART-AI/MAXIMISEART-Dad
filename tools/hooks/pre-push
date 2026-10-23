@@ -4,10 +4,8 @@
 Push człowieka przechodzi bez sprawdzania i bez słowa. Agenta rozpoznaje zmienna ``AI_AGENT`` (Claude Code,
 opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
 
-Brama staje się ``tools/ci_lokalnie.py --tylko ruff,mypy --do-pierwszego-bledu`` Pythonem z ``.venv`` checkoutu
-(``execve``), więc polecenia kroków są tylko w ``tools/ci_lokalnie.py``, a sygnał dla grupy ``git push`` kończy
-też sprawdzenie. Włącza ją ``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym
-checkoutu. Pełną bramką jest CI na GitHubie.
+Kroki bierze z ``tools/ci_lokalnie.py``, uruchomionego Pythonem z ``.venv`` checkoutu. Włącza ją
+``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
 """
 
 from __future__ import annotations
@@ -61,12 +59,10 @@ def main() -> int:
     if not VENV_PYTHON.exists():
         print("pre-push: brak .venv; utwórz je przez tools/setup_worktree.py i ponów push.", flush=True)
         return 1
-    # GIT_DIR hooka w worktree i GIT_CONFIG_PARAMETERS z `git -c` skierowałyby polecenia git z ci_lokalnie
-    # (nakładania z innymi worktree) na ten checkout.
-    environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
     if sys.platform == "win32":  # tools/setup_worktree.py nie włącza bramy na Windows
-        return subprocess.run(COMMAND, env=environment, stdin=subprocess.DEVNULL, check=False).returncode
-    os.execve(COMMAND[0], COMMAND, environment)
+        return subprocess.run(COMMAND, stdin=subprocess.DEVNULL, check=False).returncode
+    # Hook staje się ci_lokalnie, więc sygnał dla samego hooka też kończy sprawdzenie.
+    os.execv(COMMAND[0], COMMAND)
 
 
 if __name__ == "__main__":

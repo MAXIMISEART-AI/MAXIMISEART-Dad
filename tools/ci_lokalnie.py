@@ -1,15 +1,15 @@
-"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations i frontend, do ręcznego użycia.
+"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations i frontend.
 
 Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: jego ``.venv``,
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
-przy porażce. Kończy się ``CI LOKALNIE OK`` albo ``CI LOKALNIE FAIL | <kroki>``. Zadania E2E i
-Timing guard mają swoje narzędzia (``--kroki-ci`` je wymienia), bo trwają kilka minut.
+przy porażce. Kończy się ``CI LOKALNIE OK`` (z ``--tylko``: ``CI LOKALNIE OK | tylko <zadania>``)
+albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem nakładania z pracą
+w toku (``tools/praca_w_toku.py --nakladania``). Zadania E2E i Timing guard mają swoje narzędzia
+(``--kroki-ci`` je wymienia), bo trwają kilka minut.
 
 ``--kazdy-commit`` sprawdza każdy commit gałęzi od bazy (domyślnie ``origin/main``) we własnym
 tymczasowym worktree, domyślnie krokami ruff, mypy i pytest, i nie dotyka checkoutu: zastępuje
 ręczne ``git rebase --exec``. Niezacommitowanych zmian nie sprawdza.
-
-Brama ``tools/hooks/pre-push`` uruchamia stąd kroki ruff i mypy (``--tylko ruff,mypy``).
 
 Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez SIGKILL (``tools/potomne.py``).
 
@@ -181,16 +181,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"nieznane zadania: {', '.join(sorted(unknown))}; znane: {', '.join(sorted(known))}")
     if args.kazdy_commit:
         return _check_every_commit(args.kazdy_commit, jobs, fail_fast=args.do_pierwszego_bledu)
+    complete = jobs == known
     failed = _check(ROOT, jobs, fail_fast=args.do_pierwszego_bledu)
-    try:
-        overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
-        potomne.run(overlaps, cwd=ROOT, timeout=120, echo=True)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
+    if complete:
+        try:
+            overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
+            potomne.run(overlaps, cwd=ROOT, timeout=120, echo=True)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
     if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1
-    print("CI LOKALNIE OK")
+    print("CI LOKALNIE OK" if complete else f"CI LOKALNIE OK | tylko {', '.join(sorted(jobs))}")
     return 0
 
 

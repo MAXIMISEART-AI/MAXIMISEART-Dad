@@ -111,7 +111,7 @@ def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(t
     every_commit = subprocess.run([*tool, "--kazdy-commit", base], capture_output=True, text=True, encoding="utf-8")
     only_head = subprocess.run(tool, capture_output=True, text=True, encoding="utf-8")
 
-    assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK")
+    assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK | tylko pytest")
     assert (every_commit.returncode, every_commit.stdout.splitlines()[-1]) == (1, f"COMMITY FAIL | {broken[:7]} (pytest)")
     assert "test_zepsuty.py::test_zepsuty" in every_commit.stdout
     assert (git(repo, "rev-parse", "HEAD"), git(repo, "worktree", "list", "--porcelain").count("worktree ")) == (head, 1)
