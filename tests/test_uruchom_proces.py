@@ -295,9 +295,14 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_kodem_2_z_kodem_ostrze
     assert (record["mode"], record["result"]) == ("DRY-RUN", "WYMAGA_SPRAWDZENIA")
 
 
-def test_podsumowanie_i_ostrzezenia_sa_te_same_co_na_karcie_uruchomienia_centrum(tmp_path: Path) -> None:
-    centrum = settling_centrum(tmp_path, include_unmapped=True)
-    card = run_to_end(centrum, dry_run=True)["result"]
+def test_podsumowanie_i_ostrzezenia_w_kolejnosci_etapow_sa_te_same_w_skrypcie_na_karcie_i_w_metrykach(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    write_quantity_source(
+        centrum.collective_file,
+        [{"H": "andrzej.nieznany2"}, {}, {"H": None}, {"H": "andrzej.nieznany3"}, {"H": None}],
+    )
+    view = run_to_end(centrum, dry_run=True)
+    card = view["result"]
 
     exit_code, result = _run(
         "settlement",
@@ -312,11 +317,33 @@ def test_podsumowanie_i_ostrzezenia_sa_te_same_co_na_karcie_uruchomienia_centrum
         "--dry-run",
     )
 
+    where = f"plik {SOURCE_NAME}, folder {PERIOD}"
+    then_rerun = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
+    unmapped = {
+        "code": "BRAK_MAPOWANIA",
+        "what": "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
+        "where": where,
+        "action": (
+            "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
+            f"do konfiguracji wykonawców. {then_rerun}"
+        ),
+    }
+    without_worker = {"code": "BRAK_WYKONAWCY", "where": where, "action": f"Wpisz WYKONAWCĘ w kolumnie H tego wiersza. {then_rerun}"}
+    assert result["warnings"] == [
+        {**without_worker, "what": "Wiersz 20 ma dane, ale nie ma wykonawcy w kolumnie H."},
+        {**without_worker, "what": "Wiersz 22 ma dane, ale nie ma wykonawcy w kolumnie H."},
+        unmapped,
+        unmapped,
+    ]
     assert (exit_code, result["result"]) == (2, card["result"])
     assert result["summary"] == card["summary"]
     assert [{key: value for key, value in warning.items() if key != "code"} for warning in result["warnings"]] == card[
         "warnings"
     ]
+    assert ("Problemy", 4) in [(figure["label"], figure["value"]) for figure in view["progress"]["figures"]]
+    [script_record] = MetricsStore(tmp_path / "metrics-skryptu.jsonl", COUNTER_NAMES).read()
+    [card_record] = centrum.metric_records()
+    assert script_record["counters"]["issues"] == card_record["counters"]["issues"] == 4
 
 
 def test_zatrzymanie_w_sprawdzaniu_konczy_kodem_1_z_kodem_komunikatu_i_bez_plikow(tmp_path: Path) -> None:
