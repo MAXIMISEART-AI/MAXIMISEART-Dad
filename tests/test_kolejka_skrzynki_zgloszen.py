@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
+import threading
 
 import pytest
 
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
-from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Unreachable
+from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
 from tests.fixtures.potomne import wait_for
@@ -45,17 +46,34 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Queue:
+    """Kolejka na folderze w ``tmp_path``; ``waiting_at_pass`` to liczba linii „skrzynka-czeka” na początku każdego
+    przejścia (kolejka pyta o klucz raz na przejście, a przejścia idą po kolei w jednym wątku)."""
+
     def __init__(self, tmp_path: Path, box: FakeReportBox, key: str | None = KEY) -> None:
         self.directory = tmp_path / "config" / "zgloszenia" / "kolejka"
         self.log_path = tmp_path / "logs" / "centrum-rozliczen.log"
         self.box = box
         self.key = key
+        self.waiting_at_pass: list[int] = []
         self.outbox = self.restarted()
 
     def restarted(self) -> Outbox:
         """Kolejka nowego startu Centrum na tym samym folderze."""
 
-        return Outbox(self.directory, self.box, lambda: self.key, CentrumLog(self.log_path))
+        return Outbox(self.directory, self.box, self._pass_key, CentrumLog(self.log_path))
+
+    def _pass_key(self) -> str | None:
+        self.waiting_at_pass.append(self.log().count("skrzynka-czeka"))
+        return self.key
+
+    def queued(self, *texts: str) -> list[str]:
+        """Pliki kolejki z poprzedniej pracy Centrum, po jednym na tekst, w tej kolejności."""
+
+        self.directory.mkdir(parents=True, exist_ok=True)
+        names = [f"20261023T1015{second:02d}000000Z-0001-kontrola-ilosci-3f2a9c1b.json" for second in range(len(texts))]
+        for name, text in zip(names, texts, strict=True):
+            (self.directory / name).write_text(post([text]).to_json(), encoding="utf-8")
+        return names
 
     def files(self) -> list[str]:
         return sorted(path.name for path in self.directory.glob("*"))
@@ -89,6 +107,20 @@ def test_czesc_ponad_limit_komentarza_to_blad_programu() -> None:
             blocks=["x" * 60_000],
             frame=lambda _number, _count, text: "nagłówek " * 1_000 + text,
         )
+
+
+def test_granica_tresci_liczy_znaki_a_nie_bajty_takze_z_polskimi_literami() -> None:
+    first_line = len(f"{THREAD.line}\n\n")
+
+    def opening(text: str) -> Post:
+        return Post(THREAD, period="08_14_09_2026", run_id=RUN_ID, header=None, parts=(text,))
+
+    longest = opening("ą" * (COMMENT_LIMIT - first_line))
+
+    assert len(longest.opening()[0]) == COMMENT_LIMIT
+    assert len(longest.opening()[0].encode("utf-8")) > COMMENT_LIMIT
+    with pytest.raises(ValueError, match="komentarzu"):
+        opening("ą" * (COMMENT_LIMIT - first_line + 1))
 
 
 def test_wysylka_wraca_z_pliku_kolejki_taka_sama() -> None:
@@ -171,6 +203,74 @@ def test_bez_klucza_wysylka_czeka_w_pliku_bez_pytania_skrzynki(tmp_path: Path) -
     assert wait_for(lambda: waiting in queue.log())
     assert len(queue.files()) == 1
     assert queue.box.keys == []
+
+
+def test_bez_klucza_przejscie_kolejki_daje_jedna_linie_dziennika_przy_wielu_plikach(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(), key=None)
+    queue.queued("pierwsza\n", "druga\n", "trzecia\n")
+
+    queue.outbox.resume()
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 1)
+    queue.outbox.send_in_background()
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 2)
+
+    assert queue.waiting_at_pass == [0, 1]
+    assert "skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=brak-klucza" in queue.log()
+    assert len(queue.files()) == 3
+    assert queue.box.keys == []
+
+
+@pytest.mark.parametrize("failure", [Unreachable(), Refused()], ids=["brak-sieci", "odmowa-klucza"])
+def test_brak_sieci_albo_odmowa_klucza_zatrzymuje_przejscie_z_jedna_linia_dziennika(
+    tmp_path: Path, failure: Unreachable | Refused
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=failure))
+    queue.queued("pierwsza\n", "druga\n", "trzecia\n")
+
+    queue.outbox.resume()
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 1)
+    queue.outbox.send_in_background()
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 2)
+
+    assert queue.waiting_at_pass == [0, 1]
+    assert len(queue.files()) == 3
+
+
+def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_tym_samym_przejsciu(
+    tmp_path: Path,
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox(outcomes=[Rejected()]))
+    refused, _sent = queue.queued("odrzucona\n", "przyjęta\n")
+
+    queue.outbox.resume()
+
+    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
+    assert queue.box.issues[0].body.splitlines()[-1] == "przyjęta"
+    assert wait_for(lambda: queue.files() == [refused])
+    assert (
+        f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=odmowa plik={refused}" in queue.log()
+    )
+    assert "brak-sieci" not in queue.log()
+
+    queue.restarted().resume()
+
+    assert queue.box.wait_until(lambda box: len(box.issues[0].comments) == 1)
+    assert queue.box.issues[0].comments == ["Część 1/1\n\nodrzucona\n"]
+    assert wait_for(lambda: queue.files() == [])
+
+
+def test_wysylka_dodana_w_trakcie_przejscia_wychodzi_bez_kolejnego_budzenia(tmp_path: Path) -> None:
+    hold = threading.Event()
+    queue = Queue(tmp_path, FakeReportBox(search_hold=hold))
+
+    queue.outbox.post(post(["pierwsza\n"]))
+    assert queue.box.searching.wait(30), "przejście kolejki nie zaczęło pytać skrzynki"
+    queue.outbox.post(post(["druga\n"]))
+    hold.set()
+
+    assert queue.box.wait_until(lambda box: bool(box.issues) and len(box.issues[0].comments) == 1)
+    assert queue.box.issues[0].comments == ["Część 1/1\n\ndruga\n"]
+    assert wait_for(lambda: queue.files() == [])
 
 
 def test_gdy_skrzynka_odmawia_szukania_issue_okresu_wysylka_czeka_w_pliku_bez_nowego_issue(tmp_path: Path) -> None:

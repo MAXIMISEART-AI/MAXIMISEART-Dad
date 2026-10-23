@@ -66,6 +66,11 @@ class Refused:
 
 
 @dataclass(frozen=True)
+class Rejected:
+    """Skrzynka odmówiła tej treści (np. 422 GitHuba: treść za długa); klucz i sieć działają, inna treść przejdzie."""
+
+
+@dataclass(frozen=True)
 class Unreachable:
     """Skrzynka nie odpowiedziała jak zwykle: brak sieci, przekroczony czas albo awaria po stronie GitHuba."""
 
