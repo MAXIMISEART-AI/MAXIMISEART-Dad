@@ -34,7 +34,7 @@ UNKNOWN_DEVICES = "NIEZNANE_URZADZENIA"
 ROWS_FROM_DESCRIPTION = "WIERSZE_Z_OPISU"
 COLUMNS_FROM_DESCRIPTION = "KOLUMNY_Z_OPISU"
 QUANTITY_WARNINGS: Final = frozenset({UNKNOWN_DEVICES, ROWS_FROM_DESCRIPTION, COLUMNS_FROM_DESCRIPTION})
-# Kolumny Ilości usług, których Reguły ilości nie wyznaczają z opisu technika (CZYNNOŚCI ZREALIZOWANE).
+# Kolumny Ilości usług z opisu technika (CZYNNOŚCI ZREALIZOWANE); AK i AM Reguły ilości wypełniają tylko częściowo.
 _DESCRIPTION_COLUMNS: Final = ("Y", "AB", "AD", "AJ", "AK", "AL", "AM")
 
 # Napisy Decyzji taty o niepełnym okresie; jej Komunikat to ``incomplete_period``, odmowa ``incomplete_period_refused``.

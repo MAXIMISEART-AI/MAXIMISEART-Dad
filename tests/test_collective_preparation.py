@@ -9,6 +9,7 @@ import time
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
+from openpyxl.utils import column_index_from_string
 from openpyxl.utils.datetime import CALENDAR_MAC_1904
 import pytest
 
@@ -158,7 +159,7 @@ def with_drive_to_every_order(
     dostają tylko V.
     """
 
-    drive = 22 - first_column
+    drive = column_index_from_string("V") - first_column
     return [row[:drive] + (1,) + row[drive + 1 :] if index < orders else row for index, row in enumerate(rows)]
 
 

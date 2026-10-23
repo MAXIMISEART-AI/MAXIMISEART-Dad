@@ -1,7 +1,7 @@
 """Reguły ilości: Ilości usług z treści zlecenia (ADR 0012).
 
-Jedyną operacją jest ``evaluate()``. Moduł nie zna skoroszytów, Komunikatów ani Centrum rozliczeń: używają go
-Przygotowanie pliku zbiorczego i Kontrola ilości.
+Jedyną operacją jest ``evaluate()``. Moduł nie zna skoroszytów, Komunikatów ani Centrum rozliczeń, bo oprócz
+Przygotowania pliku zbiorczego będzie go używać Kontrola ilości.
 
 ``URZĄDZENIA`` są czytane jako składniki po normalizacji: małe litery, przecinki jak spacje, zwinięte spacje,
 bez ``xg`` (także doklejonego, ``nokia zteXG``). Składnik może mieć krotność ``n*`` (``3*fut``, ``2* fut``).

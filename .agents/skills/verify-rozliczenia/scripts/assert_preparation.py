@@ -29,6 +29,7 @@ from wynik_uruchomienia import (
 from skrypt_skilla import Parser
 
 from rozliczenia.preparation_messages import COLUMNS_FROM_DESCRIPTION, ROWS_FROM_DESCRIPTION, UNKNOWN_DEVICES
+from rozliczenia.workbook_files import QUANTITY_COLUMNS
 
 
 PERIOD = "08_14_09_2026"
@@ -250,10 +251,10 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
         if _rows(sheet, 18, 22, 11) != [*EXPECTED_COLLECTIVE_ROWS, (None,) * 11]:
             errors.append("Plik zbiorczy does not hold exactly the Zlecenia skuteczne from row 18")
         quantities = [
-            {get_column_letter(column): sheet.cell(row, column).value for column in range(14, 43)} for row in range(18, 24)
+            {get_column_letter(column): sheet.cell(row, column).value for column in QUANTITY_COLUMNS} for row in range(18, 24)
         ]
         expected = [
-            {get_column_letter(column): rules.get(get_column_letter(column), 0) for column in range(14, 43)}
+            {get_column_letter(column): rules.get(get_column_letter(column), 0) for column in QUANTITY_COLUMNS}
             for rules in (*EXPECTED_QUANTITIES, {}, {})
         ]
         if quantities != expected:

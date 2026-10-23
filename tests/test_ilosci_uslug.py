@@ -14,6 +14,9 @@ import zipfile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
+
+from rozliczenia.workbook_files import QUANTITY_COLUMNS
+
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
 from tests.fixtures.preparation import (
     REGISTER_HEADERS,
@@ -27,7 +30,7 @@ from tests.fixtures.preparation import (
 )
 from tests.fixtures.workbooks import active_worksheet, refused_by_copy, replace_cells, rewrite_parts
 
-QUANTITY_LETTERS = [get_column_letter(column) for column in range(14, 43)]  # N:AP
+QUANTITY_LETTERS = [get_column_letter(column) for column in QUANTITY_COLUMNS]
 
 # Linie instrukcji taty o składnikach URZĄDZENIA, dokładnie z jej zapisem (także podwójne spacje), z UMOWA bez druku,
 # CZYNNOŚCI bez liczby sztuk i DATA we wtorek rano.

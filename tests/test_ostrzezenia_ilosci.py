@@ -66,7 +66,7 @@ def test_ostrzezenia_wskazuja_wiersze_pliku_zbiorczego_bez_regul_i_z_opisu_oraz_
     assert "SYN-" not in repr(summary.warnings)
 
 
-def test_okres_tylko_ze_znanymi_urzadzeniami_ma_tylko_przypominajke(tmp_path: Path) -> None:
+def test_okres_tylko_ze_znanymi_urzadzeniami_ma_tylko_ostrzezenie_o_kolumnach_z_opisu(tmp_path: Path) -> None:
     rows = [_order(1, "nokia zte"), _order(2, "SYN-URZ-2", successful="nie"), _order(3, "fut", started=MONDAY)]
     fixture = make_preparation_fixture(tmp_path, rows)
 

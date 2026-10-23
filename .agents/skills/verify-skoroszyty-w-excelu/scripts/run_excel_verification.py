@@ -37,6 +37,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from rozliczenia.preparation_messages import QUANTITY_WARNINGS  # noqa: E402
+from rozliczenia.workbook_files import QUANTITY_COLUMNS  # noqa: E402
 from skrypt_skilla import Parser, create_run_root, new_run  # noqa: E402
 
 # Exit code of the machine script for Wymaga sprawdzenia.
@@ -51,7 +52,6 @@ HEADER_ROW = 17
 FIRST_ROW = 18
 LAST_SCANNED_ROW = 60
 INPUT_COLUMNS = range(14, 47)  # N:AT, what Dad types
-QUANTITY_COLUMNS = range(14, 43)  # N:AP
 CALCULATED = "AU{row}:AX{row}"  # amounts; AY looks up the Słownik, which is #N/D without the Słownik itself
 FORMULAS = "AU{row}:AY{row}"
 FILLED_ORDERS = ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7", "PREP-SYN-ZL-6")

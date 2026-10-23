@@ -111,7 +111,7 @@ def completed_activities(number: int) -> str:
     return "montaż\ndemontaż" if number == 2 else "montaż"
 
 
-# Order number -> first word of UMOWA and URZĄDZENIA, so that the Plik zbiorczy rows get Ilości usług from the
+# Order number -> first word of UMOWA and the whole URZĄDZENIA, so that the Plik zbiorczy rows get Ilości usług from the
 # Reguły ilości (2: router with two TV devices and printing, 4: gateway with wifi6extra and a Saturday usterka,
 # 6: Monday-evening usterka with an unknown component and printing, 7: prewencja, settled from the description).
 ORDER_CONTENT: dict[int, tuple[str, str]] = {
