@@ -24,6 +24,12 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 ## Error Ownership
 
 - Classify validation and inspection problems as safe `Issue` values when the process can continue with another Szablon pracownika.
+- Write a Komunikat's text only in its process's catalog (`preparation_messages`, `settlement_messages`).
+  Code that both processes share, or whose failure Centrum rozliczeń needs as a fact and not only as text (`workbook_files`, the Sprawdzanie of each Wzorzec), raises a typed fact instead (`WorkbookError`: the `Problem` and, for a bad layout, where).
+  Each caller translates that fact with one function of its process's catalog, which handles every `Problem` in a `match` that ends in `assert_never`, so a new `Problem` fails mypy until every catalog chooses its Komunikat.
+  Other code calls its process's catalog factories directly, also when Diagnoza runs it to show the same Zatrzymanie.
+- Outside a catalog, decide on a Komunikat only by a code or a set of codes that the catalog exports for that decision (`INCOMPLETE_PERIOD`).
+  Never map a code back to the fact that produced it.
 - Classify failures that can invalidate a write as typed critical exceptions.
   This includes preparing or restoring `xl/externalLinks/*`, not only the final filesystem replacement.
 - Preserve `Nienadpisywanie`: existing input data is reported and never replaced automatically.
