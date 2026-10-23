@@ -50,6 +50,7 @@ zamiast każdej naprawy z osobna.
   MAJOR. Gdyby kiedyś powstało `v1.0.0`, kod tylko z `v0` zostawiłby tatę na
   zawsze na ostatnim `v0`. Zabłąkany `v1.0.0` na `main` trafiłby do taty, tak
   jak każdy ręczny tag na `main`; przed nim chroni brama pre-push (niżej).
+  Dowolny MAJOR to decyzja Maksa z 24.10.
 - **Aktualizacja narzędzia.** `ToolClone.update` pobiera `main` (z `+`, więc
   force-push `main` na GitHubie nie psuje pobrania) i tagi `v*` do własnej
   przestrzeni refów klonu (`refs/wydania/`, z `--prune`, więc tag usunięty
@@ -102,15 +103,19 @@ ręcznie. Ochrona ma trzy warstwy:
   `MAXIMISEART_WYDANIE=1`. Reguła i jej strażnik są w tabeli `AGENTS.md`.
   Granica strażnika: brama widzi tylko `git push`; `--no-verify`,
   `gh release create`, `gh api` i stronę GitHuba łapie tylko przegląd.
-- **Tagi Wydań się nie zmieniają.** Ruleset dla tagów `v*` bez listy wyjątków
-  blokuje ich przesunięcie i usunięcie, także adminowi. Niezmienne Wydania
-  GitHuba (`immutable-releases`, dostępne w tym repozytorium, dziś wyłączone)
-  robią to samo tylko dla tagów z Wydaniem na GitHubie. Wybiera Maks.
+- **Tagi Wydań się nie zmieniają.** Ruleset „Wydania v* bez przesuwania i
+  usuwania” (id `25751654`, reguły `update` i `deletion`, bez wyjątków) blokuje
+  przesunięcie i usunięcie tagów `v*`, także adminowi; założenie nowego tagu
+  przechodzi. Sprawdzone na tymczasowym tagu próbnym: przesunięcie i usunięcie
+  dostały `GH013`, utworzenie przeszło. Niezmienne Wydania GitHuba nie są
+  włączone. Pomyłkowy tag naprawia się nowszym Wydaniem; usunięcie wymaga, żeby
+  Maks na chwilę wyłączył ruleset.
 
 Nie chroni: tag na commicie `main` bez zielonego CI, który ominie bramę
 (`--no-verify`, push spoza agenta), i tag na commicie, który `main` potem
-zrewertował, trafią do taty. Gdyby to było potrzebne, Centrum może pytać API o
-`Required CI status` commitu przed przesunięciem klonu.
+zrewertował, trafią do taty. Centrum nie pyta API o `Required CI status`
+commitu, a Aktualność zostaje przy kompromisie przy uśpionym tagu (wyżej):
+decyzja Maksa z 24.10.
 
 ## Przejście
 
