@@ -36,6 +36,7 @@ from tests.fixtures.centrum import (
     FakeOneDrive,
     FakePlatform,
     FakeReportBox,
+    RUN_LOGS_IN_BACKGROUND,
     MetricsPaths,
     finished_view,
 )
@@ -98,7 +99,7 @@ class Surroundings:
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
     onedrive: FakeOneDrive | None = field(default_factory=FakeOneDrive)
-    report_box: FakeReportBox = field(default_factory=FakeReportBox)
+    report_box: FakeReportBox = field(default_factory=lambda: FakeReportBox(background=RUN_LOGS_IN_BACKGROUND))
     clock: FakeClock = field(default_factory=FakeClock)
     tool: ToolRepository | None = None
     update_hold: threading.Event | None = None
@@ -331,3 +332,4 @@ def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum) -> str:
         centrum.engines.fail_summary = False
     assert view["result"]["stop_kind"] == "for_maks"
     return str(view["run"]["id"])
+
