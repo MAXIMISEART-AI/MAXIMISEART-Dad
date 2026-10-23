@@ -51,25 +51,25 @@ class ConfigurationFiles:
 
         return (
             Template(
-                "Wzorzec rozliczenia wewnętrznego",
-                self.internal_template,
-                "preparation",
-                preparation_files.check_internal_template,
-                preparation_messages.template_unusable,
+                label="Wzorzec rozliczenia wewnętrznego",
+                path=self.internal_template,
+                used_by="preparation",
+                check=preparation_files.check_internal_template,
+                explain=preparation_messages.template_unusable,
             ),
             Template(
-                "Wzorzec pliku zbiorczego",
-                self.collective_template,
-                "preparation",
-                preparation_files.check_collective_template,
-                preparation_messages.template_unusable,
+                label="Wzorzec pliku zbiorczego",
+                path=self.collective_template,
+                used_by="preparation",
+                check=preparation_files.check_collective_template,
+                explain=preparation_messages.template_unusable,
             ),
             Template(
-                "Wzorzec rozliczenia pracownika",
-                self.worker_template,
-                "settlement",
-                check_worker_template,
-                settlement_messages.worker_template_unusable,
+                label="Wzorzec rozliczenia pracownika",
+                path=self.worker_template,
+                used_by="settlement",
+                check=check_worker_template,
+                explain=settlement_messages.worker_template_unusable,
             ),
         )
 
