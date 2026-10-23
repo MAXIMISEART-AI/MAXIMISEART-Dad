@@ -19,6 +19,7 @@ from tests.fixtures.git_repo import commit, repository
 from tests.fixtures.potomne import wait_for
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
+WORK_IN_PROGRESS = HOOK.parents[1] / "praca_w_toku.py"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 # Wpisy, którymi conftest (``git_bez_konserwacji_w_tle``) wyłącza gitowi konserwację w tle.
@@ -76,9 +77,12 @@ def checkout(tmp_path: Path) -> Path:
 
 
 def _venv_python(checkout: Path, body: str) -> None:
+    """Atrapa ``.venv/bin/python``: ``body`` zamiast ``ci_lokalnie``, a ``tools/praca_w_toku.py`` prawdziwym Pythonem."""
+
     python = checkout / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True, exist_ok=True)
-    python.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+    real = f'if [ "$1" = tools/praca_w_toku.py ]; then exec "{sys.executable}" "$@"; fi'
+    python.write_text(f"#!/bin/sh\n{real}\n{body}\n", encoding="utf-8")
     python.chmod(0o755)
 
 
@@ -164,14 +168,60 @@ def test_push_bez_venv_jest_odrzucony_ze_wskazaniem_setup_worktree(checkout: Pat
     assert _remote_branch(checkout) == ""
 
 
-def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Path) -> None:
+@pytest.mark.parametrize("potomne_py", ["działa", "z błędem składni"])
+def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Path, potomne_py: str) -> None:
+    if potomne_py == "z błędem składni":
+        (checkout / "tools" / "potomne.py").write_text("def (\n", encoding="utf-8")
     _stub_ci_lokalnie(checkout, passes=False)
 
     pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}", agent=None)
 
     assert pushed.returncode == 0, pushed.stderr
     assert "pre-push" not in pushed.stderr + pushed.stdout
+    assert "AKTUALIZACJA" not in pushed.stderr + pushed.stdout
     assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
+
+
+def test_push_agenta_drukuje_werdykt_aktualizacji_z_main(checkout: Path) -> None:
+    shutil.copy2(WORK_IN_PROGRESS, checkout / "tools" / "praca_w_toku.py")
+    commit(checkout, "narzędzie")
+    assert _git(checkout, "push", "-q", "origin", "HEAD:refs/heads/main", agent=None).returncode == 0
+    (checkout / "kod" / "nowy.py").write_text("x = 1\n", encoding="utf-8")
+    commit(checkout, "zmiana")
+    _stub_ci_lokalnie(checkout, passes=True)
+
+    pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
+
+    assert pushed.returncode == 0, pushed.stdout + pushed.stderr
+    lines = (pushed.stdout + pushed.stderr).splitlines()
+    assert [line for line in lines if line.startswith("AKTUALIZACJA: ")][0].startswith("AKTUALIZACJA: niepotrzebna"), lines
+
+
+BROKEN_VERDICTS = {
+    "werdykt pada": ("tools/praca_w_toku.py", 'raise SystemExit("git: zepsuty")\n', "(tools/praca_w_toku.py: git: zepsuty)"),
+    "potomne.py z błędem składni": ("tools/potomne.py", "def (\n", "(SyntaxError: "),
+    "werdykt wisi": ("tools/praca_w_toku.py", "import time\ntime.sleep(60)\n", "(TimeoutExpired: "),
+}
+
+
+@pytest.mark.parametrize(
+    ("broken", "passes"),
+    [("werdykt pada", True), ("werdykt pada", False), ("potomne.py z błędem składni", True), ("werdykt wisi", True)],
+)
+def test_nieudany_werdykt_aktualizacji_nie_zmienia_wyniku_pushu(checkout: Path, broken: str, passes: bool) -> None:
+    path, text, reason = BROKEN_VERDICTS[broken]
+    (checkout / path).write_text(text, encoding="utf-8")
+    head = commit(checkout, "zepsuty werdykt")
+    _stub_ci_lokalnie(checkout, passes=passes)
+
+    pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}")
+
+    assert (pushed.returncode == 0) == passes, pushed.stdout + pushed.stderr
+    assert _remote_branch(checkout) == (head if passes else "")
+    lines = (pushed.stdout + pushed.stderr).splitlines()
+    assert [line for line in lines if line.startswith("AKTUALIZACJA: ")] == [
+        next(line for line in lines if line.startswith(f"AKTUALIZACJA: nieznana {reason}"))
+    ], lines
 
 
 def test_push_z_samym_claudecode_rozstrzyga_brama(checkout: Path) -> None:
