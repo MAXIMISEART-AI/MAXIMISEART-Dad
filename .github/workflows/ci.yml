@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A new push to a pull request cancels the run of its older commit; every push to main runs to the end.
+  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ruff:
     name: Ruff
@@ -47,15 +52,17 @@ jobs:
         run: python -m mypy
 
   pytest:
-    # Tata has Windows, so both Pythons run there. Linux runs the tests Windows skips (POSIX signals, process
-    # groups, the pre-push hook).
-    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }})
+    # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
+    # tools/czesci_pytest.py. Linux runs all files once, for the tests Windows skips (POSIX signals, process
+    # groups, the pre-push hook). Both pass the files longest first.
+    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || format(', {0}', matrix.part) }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest]
         python-version: ['3.11', '3.14']
+        part: ['1/2', '2/2']
         include:
           - os: ubuntu-latest
             python-version: '3.14'
@@ -93,22 +100,36 @@ jobs:
 
       - name: Run tests
         if: ${{ runner.os == 'Windows' }}
-        run: py -3 -m pytest -n auto
+        run: |
+          $files = py -3 tools/czesci_pytest.py ${{ matrix.part }}
+          if ($LASTEXITCODE -ne 0) {
+            throw "Splitting the test files failed (exit code $LASTEXITCODE)"
+          }
+          py -3 -m pytest -n auto $files
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto
+        run: python -m pytest -n auto $(python tools/czesci_pytest.py 1/1)
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
-    name: Mutation checks
+    # A pull request runs only the scripts whose verdict its changes can alter; a push to main runs them all.
+    # Each part runs every third script: side by side on one runner they exceed their time limits.
+    name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest
     # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
     env:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v7
+        with:
+          # On a pull request HEAD is the merge commit and HEAD^1 the base it merges into.
+          fetch-depth: 2
 
       - uses: actions/setup-python@v7
         with:
@@ -120,7 +141,11 @@ jobs:
       - name: Prove each verify skill's check fails on broken variants
         shell: pwsh
         run: |
-          python tools/mutacje_skilli.py
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3 --zmiany-od HEAD^1
+          } else {
+            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3
+          }
           if ($LASTEXITCODE -ne 0) {
             throw "Mutation checks failed (exit code $LASTEXITCODE)"
           }

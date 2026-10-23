@@ -102,6 +102,7 @@ class Actor:
     run: Any = None  # the _Run whose work() this thread runs
     history: list[str] = field(default_factory=list)
     thread: threading.Thread | None = None
+    released: threading.Condition | None = None  # on the Scheduler's lock: this thread may take its step
 
 
 _ABORT = "\0abort"
@@ -127,13 +128,16 @@ def _code_location() -> str:
 
 class Scheduler:
     def __init__(self, trace: list[str]) -> None:
-        self.condition = threading.Condition()
+        self.lock = threading.Lock()
+        # A wake-up reaches only the thread that waits for it. With one shared condition every step woke every parked
+        # thread: the exploration took about twice as long, most of it switching threads in the kernel.
+        self.stopped = threading.Condition(self.lock)  # a thread parked at a step or ended
         self.actors: list[Actor] = []
         self.trace = trace
         self.gaps: list[str] = []
 
     def spawn(self, name: str, body: Callable[[], None], run: Any = None) -> Actor:
-        actor = Actor(name, run=run)
+        actor = Actor(name, run=run, released=threading.Condition(self.lock))
 
         def main() -> None:
             _CURRENT.actor = actor
@@ -144,12 +148,12 @@ class Scheduler:
             except ModelGap as gap:
                 self.gaps.append(f"{actor.name}: {gap}")
             finally:
-                with self.condition:
+                with self.lock:
                     actor.status = "done"
                     actor.pending = None
-                    self.condition.notify_all()
+                    self.stopped.notify()
 
-        with self.condition:
+        with self.lock:
             self.actors.append(actor)
         actor.thread = threading.Thread(target=main, name=f"model-{name}", daemon=True)
         actor.thread.start()
@@ -165,13 +169,14 @@ class Scheduler:
         """Parks the calling thread until the checker picks this step; returns the picked variant."""
 
         actor = _current_actor()
+        assert actor.released is not None
         pending = Pending(call, _code_location(), enabled, variants)
-        with self.condition:
+        with self.lock:
             actor.pending = pending
             actor.status = "parked"
-            self.condition.notify_all()
+            self.stopped.notify()
             while actor.go is None:
-                self.condition.wait()
+                actor.released.wait()
             outcome, actor.go = actor.go, None
             actor.status = "running"
             actor.pending = None
@@ -185,18 +190,19 @@ class Scheduler:
 
     def settle(self) -> None:
         deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
-        with self.condition:
+        with self.lock:
             while any(actor.status == "running" for actor in self.actors):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise RuntimeError("Wątek nie doszedł do kolejnego kroku na czas; sprawdź zawieszenie.")
-                self.condition.wait(remaining)
+                self.stopped.wait(remaining)
 
     def release(self, actor: Actor, outcome: str) -> None:
-        with self.condition:
+        assert actor.released is not None
+        with self.lock:
             actor.status = "running"
             actor.go = outcome
-            self.condition.notify_all()
+            actor.released.notify()
 
     def abort_all(self) -> None:
         for actor in self.actors:

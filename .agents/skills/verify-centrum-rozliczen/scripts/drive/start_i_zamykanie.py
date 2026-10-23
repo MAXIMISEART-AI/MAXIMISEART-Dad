@@ -70,6 +70,7 @@ def _launch(run: Run, port: int, name: str) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         [sys.executable, str(tool / "run_centrum.py"), "--port", str(port)],
         cwd=tool, env=environment, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        check=False,
     )
     (run.evidence / "api" / f"{name}.txt").write_text(
         f"exit_code={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}", encoding="utf-8"
