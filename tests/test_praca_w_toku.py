@@ -27,12 +27,18 @@ def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-c", "user.name=Sesja", "-c", "user.email=sesja@example.invalid", *args],
-        cwd=cwd,
-        capture_output=True,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["git", "-c", "user.name=Sesja", "-c", "user.email=sesja@example.invalid", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+    except subprocess.CalledProcessError as failed:
+        failed.add_note(failed.stderr)
+        raise
 
 
 def _commit(cwd: Path, path: str, content: str, message: str) -> None:

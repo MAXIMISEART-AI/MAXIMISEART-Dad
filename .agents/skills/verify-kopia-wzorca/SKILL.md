@@ -97,6 +97,11 @@ spends up to a minute more shrinking the counterexample (`SHRINK_SECONDS`). In a
 create its own `.venv` first (`tools/setup_worktree.py`); the script refuses to run against another checkout's
 `src`.
 
+`tests/test_kopia_wzorca.py` runs the same check in parts that pytest-xdist spreads over workers
+(`CZESCI`: one part for `maly`, four for `syntetyczny`). Part i of n compares every n-th example of its
+Wzorzec with the openpyxl path (`run_check(part=(i, n))`), but writes every example through the copy,
+so its coverage line is that of all examples. A failing part names its share in the `Czas:` line.
+
 The last line is the verdict:
 
 | Last line | Exit | Meaning |
@@ -157,7 +162,9 @@ breaks, `_x000D_`, emoji, 32 767 characters and longer), formulas and `=`, error
 durations including dates before 1900-03-01. About one value in 60 is one that sends the file down
 the old path or refuses it: control characters, time zones, signalling NaN, rich text, array
 formulas, bytes. Only these may be refused: a refused Rozliczenie pracownika without one is a
-LUKA SPRAWDZENIA. The default run is derandomized, so it gives the same examples every time.
+LUKA SPRAWDZENIA. The default run is derandomized, so it gives the same examples every time and in
+every process. The checker turns off Hypothesis's draws from the literals of the modules loaded beside
+it; with them, `tests/test_kopia_wzorca.py` checked other examples alone than in the full pytest (#288).
 
 Not covered:
 
