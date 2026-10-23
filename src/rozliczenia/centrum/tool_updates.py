@@ -220,6 +220,8 @@ class ToolUpdates:
         return replace(result, code=UNEXPECTED)
 
     def _finished(self, result: UpdateResult) -> None:
+        if result.skipped:
+            self._log.update_skipped_releases(tags=result.skipped)
         self._log.update_finished(
             result=result.code, before=result.before, after=result.after, installed=result.installed
         )

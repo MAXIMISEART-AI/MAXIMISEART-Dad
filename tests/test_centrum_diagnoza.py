@@ -12,7 +12,7 @@ import pytest
 
 from rozliczenia import preparation_files, preparation_register
 
-from tests.fixtures.centrum import FakeGitHub, finished_view, view_timing, views_until
+from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, view_timing, views_until
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -592,7 +592,7 @@ NEWER = {
 def test_rejestr_otwarty_w_excelu_przy_nowszej_wersji_wyjasnia_rejestr_a_aktualizacje_tylko_proponuje(
     tmp_path: Path,
 ) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=NEWER_MAIN)))
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(release=NEWER_MAIN)))
     lock(centrum.fixture.register_path)
     stop_of(centrum)
     repeated = run_to_end(centrum, dry_run=True)
@@ -607,7 +607,7 @@ def test_rejestr_otwarty_w_excelu_przy_nowszej_wersji_wyjasnia_rejestr_a_aktuali
 def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narzedzie_przyciskiem(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=NEWER_MAIN)))
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(release=NEWER_MAIN)))
     run_id = stopped_for_maks(centrum, monkeypatch)
 
     diagnosis = diagnose(centrum, run_id)
@@ -619,10 +619,11 @@ def test_nowsza_wersja_bez_innej_przyczyny_wyjasnia_ze_trzeba_zaktualizowac_narz
 @pytest.mark.parametrize(
     ("github", "detail"),
     [
-        (FakeGitHub(main=None), "Nie sprawdzono: brak połączenia z GitHubem."),
+        (FakeGitHub(release=None), "Nie sprawdzono: brak połączenia z GitHubem."),
         (FakeGitHub(tool_commit=None), "Nie sprawdzono: narzędzie na tym komputerze nie ma commitu Gita."),
+        (FakeGitHub(release=NO_RELEASE), "Nie sprawdzono: na GitHubie nie ma jeszcze żadnego Wydania."),
     ],
-    ids=["brak-sieci", "bez-gita"],
+    ids=["brak-sieci", "bez-gita", "bez-wydania"],
 )
 def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyczyna(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github: FakeGitHub, detail: str
@@ -637,7 +638,7 @@ def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyc
 
 
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_nie_zmienia_wyjasnienia(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(main=None)))
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=FakeGitHub(release=None)))
     lock(centrum.fixture.register_path)
     stop_of(centrum)
     repeated = run_to_end(centrum, dry_run=True)

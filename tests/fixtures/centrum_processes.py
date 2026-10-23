@@ -76,7 +76,7 @@ class Surroundings:
         tool = self.tool
         if tool is None:
             return self.github.freshness()
-        return ToolFreshness.of_clone(tool.clone, tool.newest_release_commit)
+        return ToolFreshness.of_clone(tool.clone, tool.github_releases)
 
     def tool_update(self) -> ToolClone | None:
         tool, hold = self.tool, self.update_hold

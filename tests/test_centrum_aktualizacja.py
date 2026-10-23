@@ -21,13 +21,14 @@ import pytest
 
 from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
 
-from tests.fixtures.centrum import views_until
+from tests.fixtures.centrum import NO_RELEASE, views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
     FakeInstaller,
     ToolRepository,
+    git,
     tool_repository,
 )
 
@@ -162,6 +163,21 @@ def test_najnowsza_wersja_zostaje_bez_zmian(tmp_path: Path) -> None:
     ]
 
 
+def test_pominiete_wydanie_spoza_main_zostawia_slad_w_dzienniku_centrum(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    current = repository.head()
+    git(repository.publisher, "checkout", "--quiet", "-b", "agent")
+    git(repository.publisher, "commit", "--quiet", "--allow-empty", "--message", "Zmiana spoza main")
+    repository.release(tag="v0.3.0")
+
+    view = update_until_done(centrum)
+
+    assert view == {"state": "up_to_date"}
+    assert repository.head() == current
+    assert log_entries(centrum, "aktualizacja-pominiete-wydania") == ["tagi=v0.3.0"]
+    assert tool_on_configuration(centrum)["freshness"] == "current"
+
+
 def test_przed_kliknieciem_nie_ma_aktualizacji(tmp_path: Path) -> None:
     centrum, _ = updating_centrum(tmp_path)
 
@@ -170,7 +186,7 @@ def test_przed_kliknieciem_nie_ma_aktualizacji(tmp_path: Path) -> None:
 
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_to_nie_sprawdzono(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    centrum.surroundings.github.main = None
+    centrum.surroundings.github.release = None
 
     assert tool_on_configuration(centrum)["freshness"] == "not_checked"
 
@@ -182,7 +198,7 @@ def test_konfiguracja_pyta_githuba_o_main_najwyzej_raz_na_10_minut(tmp_path: Pat
     centrum = preparing_centrum(tmp_path)
     github, clock = centrum.surroundings.github, centrum.surroundings.clock
     first = tool_on_configuration(centrum)["freshness"]
-    github.main = NEWER_MAIN
+    github.release = NEWER_MAIN
 
     within_ten_minutes = [tool_on_configuration(centrum)["freshness"] for _ in range(3)]
     clock.advance(minutes=10)
@@ -192,12 +208,25 @@ def test_konfiguracja_pyta_githuba_o_main_najwyzej_raz_na_10_minut(tmp_path: Pat
     assert github.asked == 2
 
 
+def test_github_bez_wydania_konfiguracja_pamieta_jak_kazda_odpowiedz_przez_10_minut(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    github, clock = centrum.surroundings.github, centrum.surroundings.clock
+    github.release = NO_RELEASE
+    readings = []
+    for _ in range(9):
+        readings.append(tool_on_configuration(centrum)["freshness"])
+        clock.advance(minutes=1)
+
+    assert readings == ["not_checked"] * 9
+    assert github.asked == 1
+
+
 def test_bez_odpowiedzi_githuba_konfiguracja_pyta_znowu_po_minucie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     github, clock = centrum.surroundings.github, centrum.surroundings.clock
-    github.main = None
+    github.release = None
     offline = tool_on_configuration(centrum)["freshness"]
-    github.main = NEWER_MAIN
+    github.release = NEWER_MAIN
 
     still_offline = tool_on_configuration(centrum)["freshness"]
     clock.advance(minutes=1)

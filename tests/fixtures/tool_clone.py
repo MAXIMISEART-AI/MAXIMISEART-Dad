@@ -18,6 +18,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 from pathlib import Path
 import shutil
@@ -25,7 +26,8 @@ import socket
 import subprocess
 import threading
 
-from rozliczenia.centrum.tool_update import newest_release
+from rozliczenia.centrum.tool_freshness import GitHubReleases
+from rozliczenia.centrum.tool_update import Release, newest_on_main
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -64,6 +66,10 @@ def git(directory: Path, *args: str) -> str:
     )
     assert result.returncode == 0, f"git {' '.join(args)}: {result.stderr}"
     return result.stdout.strip()
+
+
+def _succeeds(directory: Path, *args: str) -> bool:
+    return subprocess.run(["git", "-C", str(directory), *args], env=isolated_git_environment(), check=False).returncode == 0
 
 
 def _write(root: Path, files: Mapping[str, str | None]) -> None:
@@ -108,11 +114,15 @@ class ToolRepository:
         git(self.publisher, "push", "--quiet", "origin", f"refs/tags/{name}")
         return name
 
-    def newest_release_commit(self) -> str | None:
-        """Commit najnowszego Wydania w „origin”, wybrany jak w Centrum."""
+    def github_releases(self) -> GitHubReleases:
+        """Odpowiedź „origin” o najnowszym Wydaniu na `main`, wybranym jak w Centrum (``newest_on_main``)."""
 
-        newest = newest_release(git(self.origin, "tag", "--list", "v*").split())
-        return None if newest is None else git(self.origin, "rev-parse", f"{newest.tag}^{{commit}}")
+        commits = {tag: git(self.origin, "rev-parse", f"{tag}^{{commit}}") for tag in git(self.origin, "tag").split()}
+
+        def on_main(commit: str) -> bool:
+            return _succeeds(self.origin, "merge-base", "--is-ancestor", commit, "main")
+
+        return GitHubReleases(newest_on_main(commits, on_main).commit)
 
     def head(self) -> str:
         return git(self.clone, "rev-parse", "HEAD")
@@ -190,7 +200,7 @@ def _published(directory: Path, publisher: Path) -> ToolRepository:
 
 
 def _next_release(tags: list[str]) -> str:
-    newest = newest_release(tags)
+    newest = max((release for tag in tags if (release := Release.of_tag(tag)) is not None), default=None)
     if newest is None:
         return "v0.1.0"
     major, minor, patch = newest.number
@@ -251,3 +261,44 @@ class FakeInstaller:
         if self.hold is not None:
             self.hold.wait()
         return self.succeeds
+
+
+@contextmanager
+def github_api_of(origin: Path) -> Iterator[str]:
+    """API GitHuba (lista tagów i porównanie z `main`) dla repozytorium ``origin``, liczone Gitem w ``origin``.
+
+    Adres zwrócony przez blok to repozytorium w tym API (``REPOSITORY_API``).
+    """
+
+    class _Api(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path == "/repo/tags?per_page=100":
+                tags = [
+                    {"name": tag, "commit": {"sha": git(origin, "rev-parse", f"{tag}^{{commit}}")}}
+                    for tag in git(origin, "tag").split()
+                ]
+                self._answer(json.dumps(tags))
+            elif self.path.startswith("/repo/compare/") and self.path.endswith("...main?per_page=1&page=2"):
+                commit = self.path.removeprefix("/repo/compare/").partition("...")[0]
+                on_main = _succeeds(origin, "merge-base", "--is-ancestor", commit, "main")
+                self._answer(json.dumps({"status": "ahead" if on_main else "diverged"}))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def _answer(self, body: str) -> None:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(body.encode("utf-8"))
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Api)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/repo"
+    finally:
+        server.shutdown()
+        server.server_close()

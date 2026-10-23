@@ -1,61 +1,79 @@
 """Aktualność narzędzia: commit narzędzia u taty względem najnowszego Wydania na publicznym GitHubie.
 
-Diagnoza i Konfiguracja porównują dwa źródła z ``ToolFreshness``: commit
-narzędzia, z którego działa Centrum (``version.tool_commit`` odczytany przy
-starcie), i commit najnowszego Wydania publicznego repozytorium narzędzia
-(ADR 0014; ten sam wybór tagu co w Aktualizacji narzędzia,
-``tool_update.newest_release``). Oba są wstrzykiwane do aplikacji Centrum, więc testy i
-weryfikacja w przeglądarce nigdy nie łączą się z GitHubem. Brak sieci to
-``None`` w krótkim limicie czasu, nigdy wyjątek ani Komunikat. Diagnoza pyta
-GitHuba przy każdym sprawdzeniu; Konfiguracja, odczytywana przy każdym wejściu
-na stronę, pamięta jego odpowiedź (``RememberedMain``).
+Diagnoza i Konfiguracja oceniają ją przez ``ToolFreshness.judge`` z trzech źródeł:
+commitu narzędzia, z którego działa Centrum (``version.tool_commit`` odczytany
+przy starcie), odpowiedzi GitHuba o najnowszym Wydaniu na `main` (ADR 0014; ten
+sam wybór co w Aktualizacji narzędzia, ``tool_update.newest_on_main``) i
+sprawdzenia w klonie, czy commit narzędzia zawiera commit Wydania. Źródła są
+wstrzykiwane do aplikacji Centrum, więc testy i weryfikacja w przeglądarce nigdy
+nie łączą się z GitHubem. Brak sieci to ``None`` w krótkim limicie czasu, nigdy
+wyjątek ani Komunikat. Diagnoza pyta GitHuba przy każdym sprawdzeniu;
+Konfiguracja, odczytywana przy każdym wejściu na stronę, pamięta jego odpowiedź
+(``RememberedRelease``).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
+from functools import partial
 import json
 from pathlib import Path
 import re
 import threading
-from typing import Final
+from typing import Final, Literal
 import urllib.request
 
 from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum.deadline import within
-from rozliczenia.centrum.tool_update import newest_release
+from rozliczenia.centrum.tool_update import contains_commit, newest_on_main
 from rozliczenia.centrum.version import commit_since, is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
 
-RELEASES_URL: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad/tags?per_page=100"
+
+@dataclass(frozen=True)
+class GitHubReleases:
+    """Odpowiedź GitHuba: commit najnowszego Wydania na `main`; ``None``, gdy na `main` nie ma żadnego Wydania."""
+
+    newest: str | None
+
+
+# ``None``: GitHub nie odpowiedział (brak sieci, odmowa, limit czasu, niepełna odpowiedź).
+ReleaseSource = Callable[[], GitHubReleases | None]
+Judgement = Literal["current", "newer", "no_release", "no_answer", "no_commit"]
+
+REPOSITORY_API: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad"
 # 1000 tagów: przy Wydaniu na tydzień na lata. Strona 100 tagów to kilkadziesiąt kB.
 _PAGES: Final = 10
+# Tyle najwyższych Wydań sprawdza się po kolei, zanim jedno leży na `main`; dalej wynik jest nieznany.
+_CANDIDATES: Final = 5
 _PAGE_BYTES: Final = 1_000_000
 _TIMEOUT_S: Final = 3.0
 
 
 @dataclass(frozen=True)
 class ToolFreshness:
-    """Źródła wersji narzędzia u taty i najnowszego Wydania na GitHubie; ``None`` = nie wiadomo.
+    """Źródła Aktualności narzędzia; ``None`` = nie wiadomo.
 
     ``local`` to commit narzędzia, z którego działa Centrum, ``since`` dzień, od
-    którego narzędzie jest na tym commicie, a ``main`` commit najnowszego
-    Wydania na GitHubie; nazwa pola pochodzi sprzed ADR 0014.
+    którego narzędzie jest na tym commicie, ``release`` odpowiedź GitHuba o
+    najnowszym Wydaniu, a ``contains(release, local)`` mówi, czy commit
+    narzędzia zawiera commit Wydania.
     """
 
     local: CommitSource
     since: Callable[[], date | None]
-    main: CommitSource
+    release: ReleaseSource
+    contains: Callable[[str, str], bool] = field(default=lambda release, local: release == local)
 
     @classmethod
     def of_system(cls) -> ToolFreshness:
-        return cls.of_clone(TOOL_ROOT, github_release_commit)
+        return cls.of_clone(TOOL_ROOT, github_releases)
 
     @classmethod
-    def of_clone(cls, root: Path, main: CommitSource) -> ToolFreshness:
+    def of_clone(cls, root: Path, release: ReleaseSource) -> ToolFreshness:
         """Wersja narzędzia w ``root`` odczytana teraz, przy starcie Centrum.
 
         Klon przesunięty później (ręcznie albo przez aktualizację przed ponownym startem) nie zmienia kodu, który
@@ -64,81 +82,136 @@ class ToolFreshness:
 
         running = tool_commit(root)
         since = None if running is None else commit_since(running, root)
-        return cls(local=lambda: running, since=lambda: since, main=main)
+        return cls(local=lambda: running, since=lambda: since, release=release, contains=partial(contains_commit, root))
 
+    def judge(self, release: ReleaseSource | None = None) -> Judgement:
+        """Aktualność narzędzia według ``release`` (domyślnie ``self.release``).
+
+        ``current``, gdy commit narzędzia zawiera commit najnowszego Wydania:
+        także narzędzie na nowszym commicie `main` niż Wydanie jest aktualne.
+        """
+
+        local = self.local()
+        if local is None:
+            return "no_commit"
+        answer = (release or self.release)()
+        if answer is None:
+            return "no_answer"
+        if answer.newest is None:
+            return "no_release"
+        return "current" if self.contains(answer.newest, local) else "newer"
 
 
 # API GitHuba bez logowania odpowiada na 60 pytań na godzinę z jednego adresu, a bez sieci każde pytanie czeka do
-# 3 s: Konfiguracja pamięta odpowiedź przez 10 minut, a brak odpowiedzi przez minutę (internet może zaraz wrócić).
-MAIN_KEPT_S: Final = 10 * 60
+# 3 s: Konfiguracja pamięta odpowiedź przez 10 minut, także „brak Wydań”, a brak odpowiedzi przez minutę
+# (internet może zaraz wrócić).
+ANSWER_KEPT_S: Final = 10 * 60
 NO_ANSWER_KEPT_S: Final = 60
 
 
-class RememberedMain:
-    """Commit najnowszego Wydania z ``main``, pamiętany przez ``MAIN_KEPT_S`` na zegarze ``clock``; brak odpowiedzi krócej."""
+class RememberedRelease:
+    """Odpowiedź ``release`` pamiętana przez ``ANSWER_KEPT_S`` na zegarze ``clock``; brak odpowiedzi krócej."""
 
-    def __init__(self, main: CommitSource, *, clock: Callable[[], float]) -> None:
-        self._main = main
+    def __init__(self, release: ReleaseSource, *, clock: Callable[[], float]) -> None:
+        self._release = release
         self._clock = clock
         self._lock = threading.Lock()
-        self._answer: str | None = None
+        self._answer: GitHubReleases | None = None
         self._asked_at: float | None = None
 
-    def __call__(self) -> str | None:
+    def __call__(self) -> GitHubReleases | None:
         with self._lock:
             if self._asked_at is not None:
-                kept = MAIN_KEPT_S if self._answer is not None else NO_ANSWER_KEPT_S
+                kept = ANSWER_KEPT_S if self._answer is not None else NO_ANSWER_KEPT_S
                 if self._clock() - self._asked_at < kept:
                     return self._answer
-        answer = self._main()
+        answer = self._release()
         with self._lock:
             self._answer, self._asked_at = answer, self._clock()
         return answer
 
 
-def github_release_commit() -> str | None:
-    """Commit najnowszego Wydania publicznego repozytorium; ``None`` bez sieci, bez Wydania, po limicie czasu, przy odmowie."""
+def github_releases() -> GitHubReleases | None:
+    """Najnowsze Wydanie na `main` publicznego repozytorium; ``None`` bez sieci, po limicie czasu, przy odmowie."""
 
-    return release_commit_from(RELEASES_URL, timeout_s=_TIMEOUT_S)
+    return releases_from(REPOSITORY_API, timeout_s=_TIMEOUT_S)
 
 
-def release_commit_from(url: str, *, timeout_s: float) -> str | None:
-    """Commit najnowszego Wydania z listy tagów API GitHuba pod ``url``, najpóźniej po ``timeout_s`` sekundach.
+def releases_from(api: str, *, timeout_s: float) -> GitHubReleases | None:
+    """Najnowsze Wydanie na `main` z API GitHuba repozytorium ``api``, najpóźniej po ``timeout_s`` sekundach.
 
-    Lista przychodzi stronami (nagłówek ``Link``); bez wszystkich stron nie
-    wiadomo, które Wydanie jest najnowsze, więc więcej niż ``_PAGES`` stron to
-    ``None``. Diagnoza czeka na odpowiedź najwyżej ``timeout_s``
-    (``deadline.within``). Połączenie idzie wprost, bez serwera proxy z
-    ustawień systemu.
+    Lista tagów (``tags``) przychodzi stronami (nagłówek ``Link``); bez
+    wszystkich stron nie wiadomo, które Wydanie jest najnowsze, więc więcej niż
+    ``_PAGES`` stron to ``None``. Czy commit Wydania leży na `main`, mówi
+    porównanie (``compare``) ze stroną bez commitów i plików. Diagnoza czeka na
+    odpowiedź najwyżej ``timeout_s`` (``deadline.within``). Połączenie idzie
+    wprost, bez serwera proxy z ustawień systemu.
     """
 
-    def fetch() -> str | None:
-        direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        commits: dict[str, str] = {}
-        page = url
-        for _ in range(_PAGES):
-            request = urllib.request.Request(
-                page, headers={"Accept": "application/vnd.github+json", "User-Agent": "centrum-rozliczen"}
-            )
-            try:
-                with direct.open(request, timeout=timeout_s) as response:
-                    tags = json.loads(response.read(_PAGE_BYTES))
-                    following = _next_page(response.headers.get("Link"))
-            except (OSError, ValueError):  # brak sieci, odmowa GitHuba (HTTPError), zerwane połączenie, nie JSON
-                return None
-            if not isinstance(tags, list):
-                return None
-            for tag in tags:
-                named = _tag_commit(tag)
-                if named is not None:
-                    commits[named[0]] = named[1]
-            if following is None:
-                newest = newest_release(commits)
-                return None if newest is None else commits[newest.tag]
-            page = following
-        return None
+    def fetch() -> GitHubReleases | None:
+        commits = _tag_commits(f"{api}/tags?per_page=100", timeout_s)
+        if commits is None:
+            return None
+        asked = 0
+
+        def on_main(commit: str) -> bool:
+            nonlocal asked
+            asked += 1
+            if asked > _CANDIDATES:
+                raise _NoAnswer
+            compared = _json(f"{api}/compare/{commit}...main?per_page=1&page=2", timeout_s)
+            if not isinstance(compared, dict) or not isinstance(compared.get("status"), str):
+                raise _NoAnswer
+            return compared["status"] in ("ahead", "identical")
+
+        try:
+            return GitHubReleases(newest_on_main(commits, on_main).commit)
+        except _NoAnswer:
+            return None
 
     return within(timeout_s, fetch, name="github-wydania")
+
+
+class _NoAnswer(Exception):
+    """GitHub nie dał pełnej odpowiedzi; Aktualność to wtedy ``None``."""
+
+
+def _tag_commits(url: str, timeout_s: float) -> dict[str, str] | None:
+    """Tagi i ich commity ze wszystkich stron listy tagów; ``None`` bez pełnej listy."""
+
+    commits: dict[str, str] = {}
+    page = url
+    for _ in range(_PAGES):
+        try:
+            tags, following = _page(page, timeout_s)
+        except _NoAnswer:
+            return None
+        if not isinstance(tags, list):
+            return None
+        for tag in tags:
+            named = _tag_commit(tag)
+            if named is not None:
+                commits[named[0]] = named[1]
+        if following is None:
+            return commits
+        page = following
+    return None
+
+
+def _json(url: str, timeout_s: float) -> object:
+    return _page(url, timeout_s)[0]
+
+
+def _page(url: str, timeout_s: float) -> tuple[object, str | None]:
+    """Treść JSON odpowiedzi ``url`` i adres następnej strony z nagłówka ``Link``; ``_NoAnswer`` przy porażce."""
+
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "centrum-rozliczen"})
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with direct.open(request, timeout=timeout_s) as response:
+            return json.loads(response.read(_PAGE_BYTES)), _next_page(response.headers.get("Link"))
+    except (OSError, ValueError) as failure:  # brak sieci, odmowa GitHuba (HTTPError), zerwane połączenie, nie JSON
+        raise _NoAnswer from failure
 
 
 def _tag_commit(tag: object) -> tuple[str, str] | None:

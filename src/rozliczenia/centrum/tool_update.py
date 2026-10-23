@@ -3,8 +3,8 @@
 Jedna operacja, ``ToolClone.update``, robi to, co Maks zrobiłby ręcznie
 (ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` i tagi
 Wydań (ADR 0014) ze stałego adresu publicznego repozytorium i przesuwa klon
-tylko do przodu, na commit najnowszego Wydania, które leży na `main`. Lokalna
-gałąź klonu to dalej `main`.
+tylko do przodu, na commit najnowszego Wydania, które leży na `main`
+(``newest_on_main``). Lokalna gałąź klonu to dalej `main`.
 Pliki taty w ``config/``, które nowa wersja usuwa albo przestaje śledzić,
 zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``). Gdy nowa
 wersja zmienia ``requirements.txt``, biblioteki instaluje ten sam Python, w
@@ -72,8 +72,6 @@ LOGIN: Final = "LOGOWANIE"
 OTHER_BRANCH: Final = "INNA_GALAZ"
 # Lokalne commity, zmienione śledzone pliki albo nieśledzony plik, który nowa wersja by nadpisała.
 LOCAL_CHANGES: Final = "ZMIANY_NA_KOMPUTERZE"
-# Najnowsze Wydanie wskazuje commit spoza `main`: tag założony ręcznie, poza tworzeniem Wydania (ADR 0014).
-RELEASE_OFF_MAIN: Final = "WYDANIE_SPOZA_MAIN"
 # Kod Komunikatu porażki, której nikt nie przewidział (``GitFailed`` albo inny wyjątek); zamienia go Centrum.
 UNEXPECTED: Final = "NIEOCZEKIWANY_BLAD"
 # Kod Komunikatu: biblioteki nowej wersji się nie zainstalowały, a klon wrócił do commitu sprzed aktualizacji.
@@ -135,20 +133,40 @@ class Release:
         return None if found is None else cls((int(found[1]), int(found[2]), int(found[3])), tag)
 
 
-def newest_release(tags: Iterable[str]) -> Release | None:
-    """Najnowsze Wydanie wśród ``tags``; ``None``, gdy żaden tag nie jest Wydaniem."""
+@dataclass(frozen=True)
+class NewestRelease:
+    """Commit najnowszego Wydania na `main` (``None``: takiego nie ma) i tagi wyższych Wydań spoza `main`."""
 
-    return max((release for tag in tags if (release := Release.of_tag(tag)) is not None), default=None)
+    commit: str | None
+    skipped: tuple[str, ...] = ()
+
+
+def newest_on_main(commits: Mapping[str, str], on_main: Callable[[str], bool]) -> NewestRelease:
+    """Najwyższe Wydanie wśród tagów ``commits`` (tag → commit), którego commit leży na `main` (``on_main``).
+
+    Ten sam wybór robią Aktualizacja i Aktualność narzędzia. Tag, który nie jest
+    Wydaniem, się nie liczy; wyższe Wydanie spoza `main` (tag założony z gałęzi
+    agenta) jest pominięte i nie zatrzymuje niższego Wydania na `main`.
+    """
+
+    releases = sorted((release for tag in commits if (release := Release.of_tag(tag)) is not None), reverse=True)
+    skipped: list[str] = []
+    for release in releases:
+        if on_main(commits[release.tag]):
+            return NewestRelease(commits[release.tag], tuple(skipped))
+        skipped.append(release.tag)
+    return NewestRelease(None, tuple(skipped))
 
 
 @dataclass(frozen=True)
 class UpdateResult:
-    """Wynik Aktualizacji narzędzia: kod, commit przed i po oraz czy instalowano biblioteki."""
+    """Wynik Aktualizacji narzędzia: kod, commit przed i po, czy instalowano biblioteki i pominięte Wydania spoza `main`."""
 
     code: str
     before: str | None
     after: str | None
     installed: bool = False
+    skipped: tuple[str, ...] = ()
 
 
 def write_result(path: Path, result: UpdateResult) -> None:
@@ -290,9 +308,8 @@ class ToolClone:
 
         Klon, który już zawiera commit najnowszego Wydania (także na nowszym
         commicie `main` z wersji, która pobierała `main`), i GitHub bez
-        żadnego Wydania to ``UP_TO_DATE``: aktualizacja nigdy nie cofa wersji.
-        Wydanie, którego commitu nie ma na `main`, to ``RELEASE_OFF_MAIN``,
-        a klon zostaje bez zmian.
+        Wydania na `main` to ``UP_TO_DATE``: aktualizacja nigdy nie cofa
+        wersji. Wydania spoza `main` wynik wymienia w ``skipped``.
 
         ``on_step`` dostaje każdy krok, zanim się zacznie. Po ``UPDATED``
         dziennik „Aktualizacja w toku” zostaje, dopóki nowa wersja nie
@@ -318,18 +335,13 @@ class ToolClone:
         fetch_failure = run.fetch(self.origin)
         if fetch_failure is not None:
             return UpdateResult(fetch_failure, before, None)
-        releases = _release_commits(run)
-        newest = newest_release(releases)
-        if newest is None:
-            return UpdateResult(UP_TO_DATE, before, before)
-        after = releases[newest.tag]
-        if run.is_ancestor(after, before):
-            return UpdateResult(UP_TO_DATE, before, before)
-        if not run.is_ancestor(after, _FETCHED_MAIN):
-            return UpdateResult(RELEASE_OFF_MAIN, before, None)
+        newest = newest_on_main(_release_commits(run), lambda commit: run.is_ancestor(commit, _FETCHED_MAIN))
+        after, skipped = newest.commit, newest.skipped
+        if after is None or run.is_ancestor(after, before):
+            return UpdateResult(UP_TO_DATE, before, before, skipped=skipped)
         dad_files = _DadFiles.leaving(run, after)
         if _has_local_commits(run, after) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
-            return UpdateResult(LOCAL_CHANGES, before, None)
+            return UpdateResult(LOCAL_CHANGES, before, None, skipped=skipped)
         journal.begin(self.root, dad_files.names, before, after)
         moved = False
         try:
@@ -356,7 +368,7 @@ class ToolClone:
         if installed is False:
             code = LIBRARIES_FAILED if _moved_back(run, journal) else ROLLBACK_FAILED
             return UpdateResult(code, before, after, installed=True)
-        return UpdateResult(UPDATED, before, after, installed=installed is True)
+        return UpdateResult(UPDATED, before, after, installed=installed is True, skipped=skipped)
 
     def _install_libraries(self, run: _Git, before: str, after: str, on_step: Callable[[Step], None]) -> bool | None:
         """Instaluje biblioteki, gdy ``after`` zmienia wymagania: czy się udało, a ``None``, gdy nie było czego instalować."""
@@ -451,15 +463,36 @@ def _put_back(root: Path, backup: Path, names: Iterable[str]) -> None:
         shutil.copy2(backup / name, target)
 
 
+def contains_commit(root: Path, ancestor: str, descendant: str) -> bool:
+    """Czy commit ``descendant`` w klonie ``root`` zawiera ``ancestor``; ``False`` bez Gita i bez takiego commitu w klonie.
+
+    Commitu Wydania, którego klon nie ma, nie zawiera żaden commit klonu.
+    """
+
+    if ancestor == descendant:
+        return True
+    git = find_git()
+    if git is None:
+        return False
+    try:
+        return _Git(git, root).is_ancestor(ancestor, descendant)
+    except (GitFailed, OSError, subprocess.SubprocessError):
+        return False
+
+
 def _release_commits(run: _Git) -> dict[str, str]:
-    """Tagi Wydań pobrane z GitHuba i ich commity (tag z opisem wskazuje commit przez obiekt tagu)."""
+    """Tagi pobrane z GitHuba, które wskazują commit, i te commity (tag z opisem wskazuje go przez obiekt tagu)."""
 
     # Bez ``tag^{commit}``: Git wołany przez plik .cmd (w testach w Windows) traci ``^``.
-    listed = run.output("for-each-ref", "--format=%(refname:lstrip=2) %(objectname) %(*objectname)", _RELEASES)
+    listed = run.output(
+        "for-each-ref", "--format=%(refname:lstrip=2) %(objecttype) %(objectname) %(*objecttype) %(*objectname)", _RELEASES
+    )
     commits: dict[str, str] = {}
     for line in listed.splitlines():
-        name, target, *peeled = line.split()
-        commits[name] = peeled[0] if peeled else target
+        name, kind, target, *peeled = line.split()
+        kind, target = (peeled[0], peeled[1]) if peeled else (kind, target)
+        if kind == "commit":
+            commits[name] = target
     return commits
 
 
@@ -707,6 +740,7 @@ class _Git:
                 "--no-tags",
                 "--prune",
                 origin,
+                # Z „+”: po force-pushu `main` na GitHubie pobranie dalej się udaje; klon taty i tak idzie tylko do przodu.
                 f"+refs/heads/{BRANCH}:{_FETCHED_MAIN}",
                 f"+refs/tags/v*:{_RELEASES}v*",
                 timeout_s=_FETCH_TIMEOUT_S,

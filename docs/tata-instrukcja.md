@@ -217,7 +217,6 @@ przed wysłaniem.
 | „GitHub prosi o logowanie” | Nie loguj się nigdzie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „inna gałąź narzędzia” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „zmiany zrobione na tym komputerze” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
-| „nie jest sprawdzonym Wydaniem” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „Nie udało się zainstalować bibliotek” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „z nieoczekiwanego powodu” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 | „Nowa wersja narzędzia nie wystartowała” | Niczego nie zamykasz: Centrum samo wróciło do poprzedniej wersji, a karta odświeżyła się na niej z tym komunikatem pod tytułem strony. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |

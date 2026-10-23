@@ -44,7 +44,7 @@ def bez_githuba(monkeypatch: pytest.MonkeyPatch) -> None:
     def github_in_test() -> str | None:
         raise AssertionError("Test Centrum sięga do GitHuba; podstaw tool_freshness w create_app.")
 
-    monkeypatch.setattr(tool_freshness, "github_release_commit", github_in_test)
+    monkeypatch.setattr(tool_freshness, "github_releases", github_in_test)
 
 
 @pytest.fixture(autouse=True)

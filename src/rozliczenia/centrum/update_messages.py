@@ -23,7 +23,6 @@ from rozliczenia.centrum.tool_update import (
     NEW_VERSION_FAILED,
     NO_GIT,
     OTHER_BRANCH,
-    RELEASE_OFF_MAIN,
     ROLLBACK_FAILED,
     UNEXPECTED,
 )
@@ -81,17 +80,6 @@ def local_changes() -> Message:
     )
 
 
-def release_off_main() -> Message:
-    """Najnowsze Wydanie na GitHubie nie pochodzi z `main`, więc nie przeszło przez tworzenie Wydania."""
-
-    return Message(
-        code=RELEASE_OFF_MAIN,
-        what=f"{_NOT_UPDATED} najnowsza wersja na GitHubie nie jest sprawdzonym Wydaniem.",
-        where=_TOOL,
-        action=_TO_MAKS,
-    )
-
-
 def unexpected_failure() -> Message:
     """Porażka, której nikt nie przewidział; ani wyjście Gita, ani treść wyjątku nie trafiają do taty."""
 
@@ -142,7 +130,6 @@ _BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
     LOGIN: login_required,
     OTHER_BRANCH: other_branch,
     LOCAL_CHANGES: local_changes,
-    RELEASE_OFF_MAIN: release_off_main,
     UNEXPECTED: unexpected_failure,
     LIBRARIES_FAILED: libraries_failed,
     NEW_VERSION_FAILED: new_version_failed,

@@ -34,12 +34,17 @@ Instrukcja dla taty jest w
 Wymagany jest Python 3.11 lub nowszy na komputerze taty. Narzędzie to klon
 publicznego repozytorium na gałęzi `main` ustawionej na najnowsze Wydanie
 ([ADR 0014](docs/adr/0014-tata-dostaje-tylko-wydania.md)), bo sam `git clone`
-daje najnowszy `main`, także zmiany, które nie weszły do żadnego Wydania:
+daje najnowszy `main`, także zmiany, które nie weszły do żadnego Wydania. Wydanie
+wybiera się tak jak Centrum: najwyższy numer `vMAJOR.MINOR.PATCH` (bez
+`-rc1` i innych dopisków) z tagów, które leżą na `main`. Gdy `$wydanie` wyjdzie
+puste, na GitHubie nie ma jeszcze Wydania i narzędzia nie instaluj:
 
 ```powershell
 git clone https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git
 cd MAXIMISEART-Dad
-git reset --hard (git tag --list "v*.*.*" --sort=-version:refname | Select-Object -First 1)
+$wydanie = git tag --list "v*" --merged origin/main --sort=-version:refname |
+    Where-Object { $_ -cmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' } | Select-Object -First 1
+git reset --hard $wydanie
 py -3 -m pip install -r requirements.txt
 ```
 

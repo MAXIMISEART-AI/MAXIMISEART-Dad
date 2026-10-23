@@ -116,7 +116,7 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
 from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
 from rozliczenia.centrum.server import serve  # noqa: E402
 from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
-from rozliczenia.centrum.tool_freshness import ToolFreshness  # noqa: E402
+from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness  # noqa: E402
 from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
 from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
@@ -202,13 +202,13 @@ def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
         commit = local_commit()
         return None if commit is None else commit_since(commit, clone)
 
-    def main_commit() -> str | None:
+    def releases() -> GitHubReleases | None:
         if (root / "github" / "brak-sieci").exists():
             return None
         chosen = root / "github" / "main-commit.txt"
-        return chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit()
+        return GitHubReleases(chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit())
 
-    return ToolFreshness(local=local_commit, since=since, main=main_commit)
+    return ToolFreshness(local=local_commit, since=since, release=releases)
 
 
 def _scripted_clock(root: Path) -> Callable[[], float]:
