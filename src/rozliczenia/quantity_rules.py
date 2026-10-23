@@ -49,9 +49,24 @@ Quantities = Mapping[QuantityColumn, int]
 _NONE: Final[Quantities] = MappingProxyType({})
 
 
+@dataclass(frozen=True, order=True)
+class WeekTime:
+    """Dzień tygodnia i godzina z ``DATA`` bez daty dziennej: wszystko, co Reguły ilości czytają z daty zlecenia.
+
+    ``weekday``: 0 to poniedziałek. Reguły nie dostają daty dziennej, więc nie mogą od niej zależeć.
+    """
+
+    weekday: int
+    at: time
+
+    @classmethod
+    def of(cls, started: datetime) -> WeekTime:
+        return cls(started.weekday(), started.time().replace(second=0, microsecond=0))
+
+
 @dataclass(frozen=True)
 class OrderContent:
-    """Treść zlecenia, z której Reguły ilości wyznaczają Ilości usług: surowe wartości komórek i data zlecenia."""
+    """Treść zlecenia, z której Reguły ilości wyznaczają Ilości usług: surowe wartości komórek i pora zlecenia."""
 
     contract: object
     """``UMOWA``."""
@@ -59,8 +74,8 @@ class OrderContent:
     """``URZĄDZENIA``."""
     activities: object
     """``CZYNNOŚCI``."""
-    started: datetime
-    """``DATA``: początek zlecenia."""
+    started: WeekTime
+    """``DATA``: dzień tygodnia i godzina początku zlecenia."""
 
 
 @dataclass(frozen=True)
@@ -180,9 +195,9 @@ def _first_word(contract: object) -> str:
     return words[0] if words else ""
 
 
-def _is_late(started: datetime) -> bool:
-    late_from = _LATE_FAULT_FROM.get(started.weekday())
-    return late_from is not None and started.time() >= late_from
+def _is_late(started: WeekTime) -> bool:
+    late_from = _LATE_FAULT_FROM.get(started.weekday)
+    return late_from is not None and started.at >= late_from
 
 
 def _pieces(activities: object) -> int:
