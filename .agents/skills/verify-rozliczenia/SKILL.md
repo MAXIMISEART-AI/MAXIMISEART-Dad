@@ -174,8 +174,9 @@ explicitly, so no run reads `config/`. Its ordered stages are:
 The `preparation` variant follows the same stages with its own primitives:
 `create_preparation_fixture.py`, `preparation_doctor.py`,
 `preparation --dry-run`, `assert_preparation.py --expect dry-run`,
-`preparation`, then `assert_preparation.py --expect run`. Both runs require
-exit code `0`.
+`preparation`, then `assert_preparation.py --expect run`. The dry-run requires
+exit code `0` and the write `2` (Wymaga sprawdzenia): Dad completes the Ilości
+usług its warnings name in the written Plik zbiorczy.
 
 The `chain` variants run, in order: `create_preparation_fixture.py
 --with-worker-template`, `preparation_doctor.py --with-worker-template`, the four
@@ -183,7 +184,7 @@ preparation steps above under a `preparation-` prefix with their own
 `preparation-metrics.jsonl`, `fill_readiness.py` (Gotowość), `settlement --source
 <the Plik zbiorczy written by Przygotowanie> --dry-run`, `assert_chain.py
 --expect dry-run`, `settlement` on the same file, then `assert_chain.py --expect
-run`. Every run requires exit code `0`.
+run`. Every run requires exit code `0`, except the Przygotowanie write (`2`).
 
 The assertions read the result through the contract model it is printed
 from (`ProcessResult` in `tools/uruchom_proces.py`), never as a raw dict, so a
