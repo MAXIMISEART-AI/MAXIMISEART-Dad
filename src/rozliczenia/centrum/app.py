@@ -30,14 +30,17 @@ from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import MetricsFiles, metrics_router
+from rozliczenia.centrum.metrics import metrics_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.reports import Reports, repair_router
+from rozliczenia.centrum.outbox import QUEUE_DIRECTORY, Outbox
+from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
+from rozliczenia.centrum.reports import UNSENT_DIRECTORY, Reports, read_report_key, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
-from rozliczenia.centrum.runs import RunHost, runs_router
+from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
 from rozliczenia.settings import SettingsStore
 from rozliczenia.centrum.settlement_run import SettlementEntry
@@ -63,7 +66,7 @@ def create_app(
     log: CentrumLog,
     shutdown: Shutdown,
     today: Callable[[], date] = date.today,
-    metrics_files: MetricsFiles | None = None,
+    processes: Processes | None = None,
     configuration_files: ConfigurationFiles | None = None,
     tool_freshness: ToolFreshness | None = None,
     cloud_files: CloudFiles | None = None,
@@ -135,16 +138,18 @@ def create_app(
     store = SettingsStore(settings_path)
     app.include_router(settings_router(store, platform))
     app.include_router(periods_router(store, platform, today))
-    metrics = metrics_files or MetricsFiles.default()
     configuration = configuration_files or ConfigurationFiles.default()
+    processes = processes or Processes.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
-    reports = Reports(
-        settings_path.parent, report_box or GitHubReportBox(), log, surroundings.tool_freshness.local, clock=clock
-    )
+    config = settings_path.parent
+    box = report_box or GitHubReportBox()
+    reports = Reports(config, box, log, surroundings.tool_freshness.local, clock=clock)
+    # Kontrola ilości po Przebiegu rozliczeń: w kolejce obok niewysłanych Zgłoszeń, wysyłana w tle (ADR 0013).
+    outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     stops = Stops(
         reports,
@@ -153,7 +158,9 @@ def create_app(
         ),
         log,
     )
-    runs = RunHost(log, centrum_runs, stops)
+    runs = RunHost(
+        log, centrum_runs, stops, after_run=[QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)]
+    )
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie
     # opiekun ponownego startu zostawia wynik obok Ustawień taty, a to Centrum odczytuje go teraz, raz.
@@ -167,11 +174,13 @@ def create_app(
         guardian=guardian or (lambda copy, restart: restart_guardian.launch(copy, restart)),
         result_file=settings_path.parent / RESULT_FILE,
     )
-    preparation = PreparationEntry(store, configuration, metrics.preparation, today)
-    settlement = SettlementEntry(store, configuration, metrics.settlement, today)
-    app.include_router(runs_router(runs, [preparation, settlement]))
+    entries: list[ProcessEntry] = [
+        PreparationEntry(store, configuration, processes.preparation, today),
+        SettlementEntry(store, configuration, processes.settlement, today),
+    ]
+    app.include_router(runs_router(runs, entries))
     app.include_router(repair_router(reports))
-    app.include_router(metrics_router(metrics, today, centrum_runs))
+    app.include_router(metrics_router({entry.key: entry.process for entry in entries}, today, centrum_runs))
     app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))

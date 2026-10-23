@@ -234,7 +234,7 @@ def _fill_entries(collective_file: Path) -> None:
     """Gotowość lustra: tata wpisuje ilości i obciążenia w ``N:AT`` każdego Wiersza danych Pliku zbiorczego."""
 
     rng = random.Random(SEED)
-    data_rows = [row.number for row in read_data_rows(collective_file)]
+    data_rows = [row.number for row in read_data_rows(collective_file).rows]
     workbook = load_workbook(collective_file)
     try:
         sheet = workbook.active

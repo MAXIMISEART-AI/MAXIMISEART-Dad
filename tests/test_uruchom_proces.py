@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import importlib.util
 import itertools
 import json
@@ -30,7 +31,15 @@ from tests.fixtures.preparation import (
 )
 from rozliczenia.preparation_register import read_register
 from rozliczenia.workbook_files import read_data_rows
-from tests.fixtures.settlement import PERIOD, SOURCE_NAME, link_order_numbers, make_fixture, make_preview_fixture, write_template
+from tests.fixtures.settlement import (
+    PERIOD,
+    SOURCE_NAME,
+    link_order_numbers,
+    make_fixture,
+    make_preview_fixture,
+    write_quantity_source,
+    write_template,
+)
 from tests.fixtures.workbooks import hyperlinks
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "uruchom_proces.py"
@@ -109,6 +118,22 @@ def _preparation_arguments(fixture: PreparationFixture, *extra: str) -> list[str
         fixture.register_path.parent / "metrics.jsonl",
         *extra,
     ]
+
+
+def test_przebieg_ze_skryptu_dla_maszyn_nie_tworzy_kontroli_ilosci(tmp_path: Path) -> None:
+    source, _target, config = make_fixture(tmp_path)
+    started = datetime(2026, 9, 9, 13, 45)
+    write_quantity_source(
+        source,
+        [{"C": "u ZNACZNIK-UMOWA", "D": "nokia ZNACZNIK-URZADZENIA", "E": "ZNACZNIK-CZYNNOSCI", "G": started, "V": 2}],
+    )
+
+    completed = _completed(*_settlement_arguments(tmp_path, source, config))
+
+    assert completed.returncode == 0, completed.stderr
+    assert [path for path in tmp_path.rglob("*") if path.name in ("zgloszenia", "kolejka")] == []
+    printed = completed.stdout + completed.stderr + (tmp_path / "metrics.jsonl").read_text(encoding="utf-8")
+    assert [marker for marker in ("ZNACZNIK-UMOWA", "ZNACZNIK-URZADZENIA", "ZNACZNIK-CZYNNOSCI") if marker in printed] == []
 
 
 def test_przebieg_rozliczen_ok_konczy_kodem_0_z_podsumowaniem_karty_uruchomienia(tmp_path: Path) -> None:
@@ -210,6 +235,29 @@ def test_awaria_podgladu_postepu_odlacza_go_bez_tekstu_wyjatku_i_bez_zmiany_wyni
     assert len(list(target.iterdir())) == 3
     [record] = MetricsStore(tmp_path / "metrics.jsonl", COUNTER_NAMES).read()
     assert (record["result"], result["metrics_saved"]) == ("OK", True)
+
+
+def test_plan_ktorego_nie_da_sie_pokazac_to_zatrzymanie_po_silniku_z_tym_samym_wynikiem_co_w_metrykach(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source, _target, config = make_preview_fixture(tmp_path)
+    secret = "Jan Kowalski /Users/klient/Rejestr.xlsx"
+
+    def broken_view(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(run_view.ProcessView, "shown", broken_view)
+
+    exit_code = _script(monkeypatch).main(_settlement_arguments(tmp_path, source, config, "--dry-run"))
+    stdout, stderr = capsys.readouterr()
+    result = json.loads(stdout)
+
+    assert secret not in stdout + stderr
+    assert stderr == ""
+    assert (exit_code, result["result"], result["summary"], result["warnings"]) == (1, "BLAD_KRYTYCZNY", None, [])
+    assert (result["stop"]["kind"], result["stop"]["message"]["code"]) == ("after_engine", "BLAD_PLANU")
+    [record] = MetricsStore(tmp_path / "metrics.jsonl", COUNTER_NAMES).read()
+    assert (record["mode"], record["result"]) == ("DRY-RUN", "BLAD_KRYTYCZNY")
 
 
 def test_nieudany_zapis_metryk_jest_ostrzezeniem_bez_zmiany_wyniku(tmp_path: Path) -> None:

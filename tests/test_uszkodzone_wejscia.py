@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cached_property
 from datetime import date
 import json
 import os
@@ -28,15 +29,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.report_box import GitHubReportBox, HttpRequest, HttpResponse
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, finished_view
+from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, MetricsPaths, finished_view
+from tests.fixtures.centrum_processes import Engines
 from tests.fixtures.preparation import PERIOD, write_collective_template, write_internal_template, write_register
 from tests.fixtures.settlement import write_source, write_template
 
@@ -164,6 +164,10 @@ class World:
     def path(self, name: str) -> Path:
         return self.root / FILES[name][0]
 
+    @cached_property
+    def engines(self) -> Engines:
+        return Engines(MetricsPaths(self.path("metryki_przygotowania"), self.path("metryki_przebiegu")))
+
     def app(self) -> FastAPI:
         log = CentrumLog(self.path("dziennik_centrum"))
         # Drugie wskazanie dostaje wejście chooseRegister albo choosePeriodsDirectory po _remembering_choices.
@@ -182,9 +186,7 @@ class World:
                 collective_template=self.path("wzorzec_zbiorczy"),
                 worker_template=self.path("wzorzec_pracownika"),
             ),
-            metrics_files=MetricsFiles(
-                preparation=self.path("metryki_przygotowania"), settlement=self.path("metryki_przebiegu")
-            ),
+            processes=self.engines.processes(),
             tool_freshness=FakeGitHub().freshness(),
             cloud_files=FakeOneDrive().cloud_files(),
             report_box=GitHubReportBox(transport=_offline_like_urllib),
@@ -265,16 +267,20 @@ def _route(operation: str, method: str, path: str, body: object = None) -> Entry
     return Entry((operation,), call)
 
 
-def _preview(process: str, period: str) -> Entry:
+def _preview(process: str, period: str, *, dry_run: bool = True) -> Entry:
+    """Uruchomienie procesu do wyniku; z zapisem Przebieg rozliczeń zapisuje też Kontrolę ilości w kolejce."""
+
+    where = "Podgląd bez zapisu" if dry_run else "Uruchomienie z zapisem"
+
     def call(client: TestClient, seen: Seen) -> Problems:
-        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
+        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": dry_run})
         problems = _http(started, "startRun", seen)
         if started.status_code != 200:
             return problems
         result = finished_view(client)["result"]
-        seen.append(("Podgląd bez zapisu", json.dumps(result, ensure_ascii=False)))
+        seen.append((where, json.dumps(result, ensure_ascii=False)))
         if result["ending"] in ("unexpected", "after_engine"):
-            problems.append(f"Podgląd bez zapisu: ogólny Komunikat ({result['ending']})")
+            problems.append(f"{where}: ogólny Komunikat ({result['ending']})")
         return problems + _http(client.get("/api/runs/current"), "getCurrentRun", seen)
 
     return Entry(("startRun", "streamRunEvents", "getCurrentRun"), call)
@@ -325,6 +331,7 @@ ENTRIES: dict[str, Entry] = {
     "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
     "podglad[przygotowanie]": _preview("preparation", PERIOD),
     "podglad[przebieg]": _preview("settlement", SETTLEMENT_PERIOD),
+    "zapis[przebieg]": _preview("settlement", SETTLEMENT_PERIOD, dry_run=False),
     "diagnoza[przygotowanie]": _diagnosis("preparation", PERIOD, report=True),
     "diagnoza[przebieg]": _diagnosis("settlement", SETTLEMENT_PERIOD, report=False),
 }
@@ -377,7 +384,7 @@ def world_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.mark.parametrize(("entry", "damage", "name"), _cases())
 def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
-    world_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str, damage: str, name: str
+    world_template: Path, tmp_path: Path, entry: str, damage: str, name: str
 ) -> None:
     world = World(tmp_path / "swiat")
     shutil.copytree(world_template, world.root)
@@ -387,7 +394,7 @@ def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
         pytest.skip("ANSI nie zmienia pliku bez polskich znaków")
     DAMAGES[damage][1](target)
     if entry in DIAGNOSIS_ENTRIES:
-        monkeypatch.setattr(run_view.ProcessView, "summary", _summary_not_shown)
+        world.engines.fail_summary = True
     seen: Seen = []
     try:
         problems = ENTRIES[entry].call(client, seen)
@@ -409,13 +416,7 @@ def test_macierz_obejmuje_kazda_operacje_kontraktu_centrum(tmp_path: Path) -> No
     assert (swept | NOT_SWEPT.keys()) - operations == set(), "ENTRIES albo NOT_SWEPT ma operację spoza kontraktu"
 
 
-def _summary_not_shown(*args: object, **kwargs: object) -> Any:
-    raise ValueError("syntetyczne Zatrzymanie „do Maksa”, żeby była Diagnoza")
-
-
-def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
-    world_template: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(world_template: Path, tmp_path: Path) -> None:
     world = World(tmp_path / "swiat")
     shutil.copytree(world_template, world.root)
     client = _remembering_choices(world)
@@ -425,7 +426,7 @@ def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
         board = client.get("/api/periods")
         preview = client.post("/api/runs", json={"process": "preparation", "period": PERIOD, "dry_run": True})
         stopped = finished_view(client)["result"]
-        monkeypatch.setattr(run_view.ProcessView, "summary", _summary_not_shown)
+        world.engines.fail_summary = True
         run_id = _run_with_diagnosis(client, "preparation", PERIOD)
         diagnosis = client.post(f"/api/runs/{run_id}/diagnosis").json()
     finally:

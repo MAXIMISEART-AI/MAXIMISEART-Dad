@@ -9,6 +9,7 @@ from pathlib import Path
 from . import collective_file, settlement_files, settlement_messages, template_settlement, workbook_files
 from .domain import Issue, ProgressObserver, SettlementSummary, WorkerResult
 from .message import StopError
+from .order_facts import CollectiveOrders
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
@@ -36,17 +37,17 @@ def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
     return StopError(settlement_messages.collective_file_unreadable(source_path))
 
 
-def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Issue]]:
+def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Issue], CollectiveOrders]:
     """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA."""
 
     try:
-        data_rows, issues = collective_file.read_data_rows(source_path)
+        read = collective_file.read_data_rows(source_path)
     except WorkbookError as error:
         raise _collective_file_stop(source_path, error) from error
     rows_by_worker: defaultdict[str, list[DataRow]] = defaultdict(list)
-    for row in data_rows:
+    for row in read.rows:
         rows_by_worker[normalize_text(row.worker)].append(row)
-    return dict(rows_by_worker), issues
+    return dict(rows_by_worker), read.issues, read.orders
 
 
 def _plan_rows(
@@ -124,11 +125,13 @@ def run_settlements(
     folder, mapping, worker_template = phases.check(check_inputs)
     target_directory = folder.worker_settlements
     worker_names = list(mapping.values())
-    rows_by_worker, source_issues = phases.read(
+    rows_by_worker, source_issues, orders = phases.read(
         lambda: _read_source_rows(source_path),
         issue_count=lambda read_rows: len(read_rows[1]),
     )
-    summary = SettlementSummary(folder.period.token, source_path, target_directory, issues=list(source_issues))
+    summary = SettlementSummary(
+        folder.period.token, source_path, target_directory, orders=orders, issues=list(source_issues)
+    )
     rows_by_target, plan_issues = phases.plan(
         lambda: _plan_rows(source_path, mapping, rows_by_worker, source_issues, dry_run=dry_run),
         templates=lambda _planned: worker_names,

@@ -26,6 +26,12 @@ pilnuje:
   The same holds for an Aktualizacja narzędzia until its restart guardian has
   started: killed mid-Git or mid-pip, it leaves the clone for the next start to
   roll back.
+- **PO_WYNIKU_PRZED_KONCEM**: Centrum's server never ends between an
+  Uruchomienie's result and its actions after the result (`RunHost.after`, the
+  `after_run` list in `create_app`). Harm: the Kontrola ilości of a Przebieg
+  rozliczeń lands in its queue file in that action; a shutdown or update accepted
+  in between kills the thread before the file exists, and Maks never gets that
+  Kontrola.
 
 An Uruchomienie is in progress from the moment `RunHost.start` creates its `_Run`
 until `RunHost.finished` has written its end to the Centrum log. The checker
@@ -40,24 +46,27 @@ after a new version, until the restart guardian has started and
 | --- | --- |
 | `runs.py` `RunHost.start`, `shutdown_refusal`, `decide`, `finished`, `publish` | check and claim of `_run` under `_lock`; refusal while a run has not ended; an accepted shutdown sets `_closing` under the same lock |
 | `runs.py` `RunHost.begin_update`, `end_update`, `_busy_locked` | check and claim of `_updating` under `_lock`; refusal while closing, updating or running |
-| `runs.py` `_Run.work`, `confirm`, `answer` | when `ended` is set; waiting for the Decyzja on `_decided` |
+| `runs.py` `_Run.work`, `confirm`, `answer` | when `ended` is set; after-run actions (`RunHost.after`) before `finished`; waiting for the Decyzja on `_decided` |
 | `shutdown.py` `Shutdown.request`, `wait`, `refuse_while`, `close_for_update` | refusal check, then `_requested.set()`; `close_for_update` sets it without the check |
 | `tool_updates.py` `ToolUpdates.start`, `_update`, `_restart` | modelled by hand: `begin_update`, a log entry, the thread; then either `end_update` or the guardian and `close_for_update` |
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `4cec718`.** At this commit the checker was confirmed to describe
+**Sync commit: `1cb726f`.** At this commit the checker was confirmed to describe
 the covered code. To see whether it needs another look:
 
 ```bash
-git log --oneline 4cec718..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
+git log --oneline 1cb726f..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
 forward (here and in nothing else) only after you have confirmed that the
 harness still matches the code at the new commit and the check and the mutations
 pass there. Changes to process content, progress views, Diagnoza or Zgłoszenia
-do not matter here: the checker replaces the engine with fixed steps.
+do not matter here: the checker replaces the engine with fixed steps. Neither do
+the actions after the result themselves (`after_run` in `app.py`): the checker
+replaces them with one step, and their network work runs on a thread outside
+`runs.py` that holds nothing.
 
 ## Run
 
@@ -71,7 +80,7 @@ script checks the worktree's own `src`.
 
 | Last line | Exit | Meaning |
 | --- | --- | --- |
-| `URUCHOMIENIA OK` | 0 | Both rules hold in every schedule. |
+| `URUCHOMIENIA OK` | 0 | All three rules hold in every schedule. |
 | `URUCHOMIENIA OK, ZNANE USTALENIA: n` | 0 | Only the known findings below, each printed with its counterexample. |
 | `URUCHOMIENIA: NOWE NARUSZENIE (n)` | 1 | A rule breaks in a way not listed below, or a scope never reached a behaviour it must reach (`BRAK_ZAMKNIECIA`, `BRAK_ODMOWY_ZAMKNIECIA`, `BRAK_WYNIKU`, `BRAK_ODMOWY_STARTU`), so the check would prove nothing. |
 | `URUCHOMIENIA: LUKA MODELU (n)` | 2 | `runs.py` or `shutdown.py` uses `threading` in a way the model does not cover (for example `RLock`, `Condition`, `wait(timeout=...)`). No verdict on the rules. |
@@ -90,7 +99,8 @@ thread is one indivisible step, as is each Centrum log entry and
 `CentrumRuns.remember` (file writes in the real code). Before each step the
 checker lets any thread whose step can go now go first, and it tries every such
 order. A lock entry can go only while the lock is free, and `wait()` only once the
-Event is set. Schedules that reach a state already seen are cut short.
+Event is set. The actions after the result (`AfterRun`) are one step that
+writes nothing. Schedules that reach a state already seen are cut short.
 
 Replaced: `ToolUpdates` by a „Zaktualizuj narzędzie” tab that calls the real
 `begin_update`, logs and starts the update thread, and a thread whose Git, pip and
@@ -163,6 +173,7 @@ py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\check_runs_mutation
 It must end with `MUTACJE OK`. These all give `NOWE NARUSZENIE`: the check and
 claim in `start` under two lock entries (two Uruchomienia at once), a refusal that
 skips a run waiting for its Decyzja, `ended` set at the start of `_Run.work`,
+the actions after the result moved below `ended = True`,
 `Shutdown.request` without the refusal, an accepted shutdown that does not set
 `_closing`, `begin_update` without the closing or the running check, and `start`
 without the updating check. `RLock` in `RunHost` gives `LUKA MODELU`.

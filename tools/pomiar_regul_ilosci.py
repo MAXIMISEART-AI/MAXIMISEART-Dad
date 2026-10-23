@@ -30,7 +30,7 @@ import sys
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from rozliczenia.quantity_rules import FromDescription, OrderContent, QuantityColumn, RuleResult, ServiceQuantities, WithoutRule, evaluate
+from rozliczenia.quantity_rules import FromDescription, OrderContent, QuantityColumn, RuleResult, ServiceQuantities, WeekTime, WithoutRule, evaluate
 from rozliczenia.workbook_files import HEADER_ROW, QUANTITY_COLUMNS, DataRow, read_data_rows
 
 NONNUMERIC = "nieliczbowa"
@@ -99,12 +99,12 @@ def rows(path: Path) -> tuple[list[Row], int]:
     _check_header(path)
     measured: list[Row] = []
     undated = 0
-    for row in read_data_rows(path):
+    for row in read_data_rows(path).rows:
         started = _cell(row, "G")
         if not isinstance(started, datetime):
             undated += 1
             continue
-        content = OrderContent(contract=_cell(row, "C"), devices=_cell(row, "D"), activities=_cell(row, "E"), started=started)
+        content = OrderContent(contract=_cell(row, "C"), devices=_cell(row, "D"), activities=_cell(row, "E"), started=WeekTime.of(started))
         tata = {letter: value(_cell(row, letter)) for letter in _ALL}
         devices = " ".join(str(_cell(row, "D") or "").split())
         measured.append(Row(devices, evaluate(content), tata, _context(row, started, tata)))

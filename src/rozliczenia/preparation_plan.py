@@ -17,9 +17,9 @@ from pathlib import Path
 from . import preparation_messages as messages
 from .message import Message, StopError
 from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, SUCCESSFUL, WORKER, RegisterSheet, cell_value
-from .quantity_rules import OrderContent, RuleResult, evaluate
+from .quantity_rules import OrderContent, RuleResult, WeekTime, evaluate
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow, is_blank
+from .workbook_files import DataRow, cell_datetime, is_blank
 from .worker_config import normalize_text
 
 _SUCCESSFUL_VALUE = "tak"
@@ -56,7 +56,7 @@ class CollectiveRow:
             contract=cell_value(order.row, CONTRACT),
             devices=cell_value(order.row, DEVICES),
             activities=cell_value(order.row, ACTIVITIES),
-            started=order.started,
+            started=WeekTime.of(order.started),
         )
         return cls(order, evaluate(content))
 
@@ -93,7 +93,7 @@ def plan_period_orders(
     orders: list[PeriodOrder] = []
     undated_rows: list[int] = []
     for row in register.rows:
-        started = _order_date(cell_value(row, DATE))
+        started = cell_datetime(cell_value(row, DATE))
         if started is None:
             undated_rows.append(row.number)
         elif period.start <= started < period.end:
@@ -123,16 +123,8 @@ def period_warnings(register_path: Path, plan: Plan) -> list[Message]:
     return [messages.incomplete_period(register_path, plan.sheet, plan.period.token, last_order_day, monday)]
 
 
-def _order_date(value: object) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, date):
-        return datetime(value.year, value.month, value.day)
-    return None
-
-
 def _in_period(row: DataRow, period: SettlementPeriod) -> bool:
-    started = _order_date(cell_value(row, DATE))
+    started = cell_datetime(cell_value(row, DATE))
     return started is not None and period.start <= started < period.end
 
 

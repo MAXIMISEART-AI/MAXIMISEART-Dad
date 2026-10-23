@@ -34,11 +34,13 @@ the same run root and port: the restarted Centrum keeps every scripted boundary
 and rewrites ``server.json`` with its own pid.
 
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
-directory, ``<root>/skrzynka-zgloszen/``: each Zgłoszenie Dad sends becomes
-``<number>.json`` with its title, body, label, and ``state`` (``open``; the
+directory, ``<root>/skrzynka-zgloszen/``: each issue Centrum opens (a Zgłoszenie
+Dad sends, or a Kontrola ilości Centrum sends by itself) becomes
+``<number>.json`` with its title, body, label, comments, and ``state`` (``open``; the
 drive may edit it to ``closed``, which Centrum reads as Maks closing the
-Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file whose body
-has its fingerprint line. The key is never written there. While
+Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file labelled
+``zgloszenie`` whose body has its fingerprint line. The key is never written
+there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 Each question about the state of sent Zgłoszenia appends its numbers to
 ``<root>/skrzynka-zgloszen-zapytania.jsonl``.
@@ -83,6 +85,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import replace
 from datetime import date
 import json
 import os
@@ -96,17 +99,20 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from rozliczenia import preparation_register, template_settlement  # noqa: E402
+from rozliczenia import preparation_process, preparation_register, settlement_process, template_settlement  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
-from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
+from rozliczenia.centrum.processes import Processes  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
-    LABEL,
+    REPORT_LABEL,
+    CommentOutcome,
+    Commented,
     FindOutcome,
     IssueState,
-    Report,
+    Label,
+    Refused,
     SendOutcome,
     Sent,
     StatesOutcome,
@@ -159,17 +165,32 @@ class FileReportBox:
         self._directory = directory
         self._lock = threading.Lock()
 
-    def send(self, report: Report, *, key: str) -> SendOutcome:
+    def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
         with self._lock:
             self._directory.mkdir(parents=True, exist_ok=True)
             number = len(list(self._directory.glob("*.json"))) + 1
-            issue = {"number": number, "title": report.title, "body": report.body, "labels": [LABEL], "state": "open"}
+            issue = {"number": number, "title": title, "body": body, "labels": [label], "state": "open"}
             (self._directory / f"{number}.json").write_text(
                 json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
         return Sent(number)
+
+    def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
+        """The comment goes into the issue's own file, so numbering by ``*.json`` stays the issue count."""
+
+        if (self._directory / "brak-sieci").exists():
+            return Unreachable()
+        path = self._directory / f"{number}.json"
+        with self._lock:
+            if not path.is_file():
+                return Refused()
+            issue = json.loads(path.read_text(encoding="utf-8"))
+            issue["comments"] = [*issue.get("comments", []), body]
+            path.write_text(json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            comment_id = len(issue["comments"])
+        return Commented(comment_id, f"{path.as_uri()}#komentarz-{comment_id}")
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         if (self._directory / "brak-sieci").exists():
@@ -177,7 +198,11 @@ class FileReportBox:
         line = fingerprint_line(fingerprint)
         with self._lock:
             issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
-        found = [issue["number"] for issue in issues if issue["state"] == "open" and line in issue["body"].splitlines()]
+        found = [
+            issue["number"]
+            for issue in issues
+            if issue["labels"] == [REPORT_LABEL] and issue["state"] == "open" and line in issue["body"].splitlines()
+        ]
         return min(found, default=None)
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
@@ -293,8 +318,10 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
-    metrics = MetricsFiles(
-        preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
+    metrics = fixture["metrics"]
+    processes = Processes(
+        preparation=replace(preparation_process.PROCESS, metrics_path=lambda: Path(metrics["preparation"])),
+        settlement=replace(settlement_process.PROCESS, metrics_path=lambda: Path(metrics["settlement"])),
     )
     configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
     clone = Path(fixture["tool"]["clone"])
@@ -310,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
         log=log,
         shutdown=shutdown,
         today=lambda: today,
-        metrics_files=metrics,
+        processes=processes,
         configuration_files=ConfigurationFiles(**configuration),
         tool_freshness=_scripted_github(root, clone),
         cloud_files=_scripted_onedrive(root),

@@ -65,7 +65,7 @@ def _links_by_row(path: Path) -> dict[int, dict[str, str]]:
     letters = {1: "A", 2: "B", 3: "C", 6: "F", 8: "H"}
     return {
         row.number: {letters.get(column, str(column)): link.address for column, link in row.hyperlinks.items()}
-        for row in read_data_rows(path)
+        for row in read_data_rows(path).rows
         if row.hyperlinks
     }
 
