@@ -581,3 +581,5 @@ def test_dziennik_centrum_ma_poczatek_i_koniec_uruchomienia_z_wynikiem_bez_danyc
     ]
     assert "SYN-" not in log
     assert str(centrum.fixture.periods_directory) not in log
+
+# W6: powtórka kształtu PR #278, bez wpływu na działanie
