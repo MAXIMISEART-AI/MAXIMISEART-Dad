@@ -13,7 +13,7 @@ import shutil
 import pytest
 
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
+from rozliczenia.centrum.outbox import Frame, NewIssue, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
@@ -93,6 +93,18 @@ def test_czesc_ponad_limit_komentarza_to_blad_programu() -> None:
 
 def test_wysylka_wraca_z_pliku_kolejki_taka_sama() -> None:
     queued = post(["## Różnice\n", "| Q | 2 | 1 |\n"])
+
+    assert Post.from_json(queued.to_json()) == queued
+
+
+def test_wysylka_do_nowego_issue_wraca_z_pliku_kolejki_taka_sama() -> None:
+    queued = Post(
+        NewIssue(label="uwaga-taty", title="Tytuł Uwagi"),
+        period=None,
+        run_id=RUN_ID,
+        header=None,
+        parts=("Treść Uwagi\n\nUwaga ogólna · wersja narzędzia 3c1d0a9",),
+    )
 
     assert Post.from_json(queued.to_json()) == queued
 
