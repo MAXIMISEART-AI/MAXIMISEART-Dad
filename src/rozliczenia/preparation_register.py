@@ -54,13 +54,16 @@ DATE = Column("DATA GODZ. POCZ.", "DATA")
 ADDRESS = Column("ADRES", "ADRES")
 WORKER = Column("WYKONAWCA", "WYKONAWCA")
 SUCCESSFUL = Column("SKUTECZNE", "SKUTECZNE")
+CONTRACT = Column("UMOWA", "UMOWA")
+DEVICES = Column("URZĄDZENIA", "URZĄDZENIA")
+ACTIVITIES = Column("CZYNNOŚCI", "CZYNNOŚCI")
 COLUMNS: tuple[Column, ...] = (
     DATE,
     Column("MIASTO", "MIASTO"),
     ADDRESS,
-    Column("UMOWA", "UMOWA"),
-    Column("URZĄDZENIA", "URZĄDZENIA"),
-    Column("CZYNNOŚCI", "CZYNNOŚCI"),
+    CONTRACT,
+    DEVICES,
+    ACTIVITIES,
     Column("NUMER ZL.", "NUMER ZL.", ("nr zlecenia",)),
     WORKER,
     Column("NUMER UMOWY", "NUMER UMOWY/ZLECENIA ORANGE", ("NUMER UMOWY/ZLECENIA ORANGE",)),

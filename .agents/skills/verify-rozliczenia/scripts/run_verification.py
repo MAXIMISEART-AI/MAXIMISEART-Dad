@@ -397,7 +397,8 @@ def _run_preparation_stage(
         f"{step_prefix}dry-run", [*preparation_arguments, "--dry-run"], metrics, evidence_root, environment, expected_exit=0
     )
     _run_step(f"assert-{step_prefix}dry-run", assert_arguments("dry-run"), evidence_root, environment, expected_exit=0)
-    _run_process_step(f"{step_prefix}run", preparation_arguments, metrics, evidence_root, environment, expected_exit=0)
+    # Exit 2 (Wymaga sprawdzenia): the written Plik zbiorczy carries the Ilości usług warnings assert_preparation checks.
+    _run_process_step(f"{step_prefix}run", preparation_arguments, metrics, evidence_root, environment, expected_exit=2)
     _run_step(f"assert-{step_prefix}run", assert_arguments("run"), evidence_root, environment, expected_exit=0)
 
 

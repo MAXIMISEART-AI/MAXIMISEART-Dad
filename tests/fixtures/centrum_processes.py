@@ -73,10 +73,10 @@ class Engines:
                 raise RuntimeError("nieprzewidziany błąd przy SYN-001")
             return real.execute(inputs, observer, conversation)
 
-        def finished(summary: SummaryT) -> Finished:
+        def finished(inputs: InputsT, summary: SummaryT) -> Finished:
             if self.fail_summary:
                 raise ValueError("synthetic summary failure SYN-001")
-            return real.finished(summary)
+            return real.finished(inputs, summary)
 
         return replace(real, execute=execute, finished=finished)
 

@@ -102,28 +102,29 @@ SETTLEMENT_COUNTERS = {
     "skipped": 0,
     "issues": 0,
 }
-PREPARATION_COUNTERS = {"period_orders": 4, "successful_orders": 3, "skipped_empty_rows": 5, "warnings": 0}
+# Domyślny syntetyczny Rejestr ma tylko urządzenia nieznane Regułom ilości: dwa ostrzeżenia ilości.
+PREPARATION_COUNTERS = {"period_orders": 4, "successful_orders": 3, "skipped_empty_rows": 5, "warnings": 2}
 
 
 @pytest.mark.parametrize(
-    ("name", "dry_run", "counters"),
+    ("name", "dry_run", "counters", "result"),
     [
-        ("przebieg-rozliczen", False, SETTLEMENT_COUNTERS),
-        ("przebieg-rozliczen", True, SETTLEMENT_COUNTERS | {"written": 0, "planned": 2}),
-        ("przygotowanie-pliku-zbiorczego", False, PREPARATION_COUNTERS),
-        ("przygotowanie-pliku-zbiorczego", True, PREPARATION_COUNTERS),
+        ("przebieg-rozliczen", False, SETTLEMENT_COUNTERS, "OK"),
+        ("przebieg-rozliczen", True, SETTLEMENT_COUNTERS | {"written": 0, "planned": 2}, "OK"),
+        ("przygotowanie-pliku-zbiorczego", False, PREPARATION_COUNTERS, "WYMAGA_SPRAWDZENIA"),
+        ("przygotowanie-pliku-zbiorczego", True, PREPARATION_COUNTERS, "OK"),
     ],
     ids=["przebieg-RUN", "przebieg-DRY-RUN", "przygotowanie-RUN", "przygotowanie-DRY-RUN"],
 )
 def test_rekord_metryk_ma_liczniki_procesu_bez_sciezek_i_danych_klientow(
-    tmp_path: Path, name: str, dry_run: bool, counters: dict[str, int]
+    tmp_path: Path, name: str, dry_run: bool, counters: dict[str, int], result: str
 ) -> None:
     case = CASES[name](tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
 
     outcome = run(case, metrics_path, dry_run=dry_run)
 
-    assert (outcome.result, outcome.metrics_saved) == ("OK", True)
+    assert (outcome.result, outcome.metrics_saved) == (result, True)
     metrics_text = metrics_path.read_text(encoding="utf-8")
     [line] = metrics_text.splitlines()
     record = json.loads(line)
@@ -131,7 +132,7 @@ def test_rekord_metryk_ma_liczniki_procesu_bez_sciezek_i_danych_klientow(
         "DRY-RUN" if dry_run else "RUN",
         PERIOD,
         True,
-        "OK",
+        result,
     )
     assert record["counters"] == counters
     assert set(record["phase_durations_ms"]) == PHASES
@@ -185,7 +186,7 @@ def test_problem_przebiegu_rozliczen_i_ostrzezenie_przygotowania_sa_licznikami_r
         tmp_path / "przygotowanie.jsonl", preparation_process.PROCESS.counter_names
     ).read()
     assert (settlement_record["result"], settlement_record["counters"]["issues"]) == ("WYMAGA_SPRAWDZENIA", 1)
-    assert (preparation_record["result"], preparation_record["counters"]["warnings"]) == ("OK", 1)
+    assert (preparation_record["result"], preparation_record["counters"]["warnings"]) == ("OK", 3)
 
 
 METRICS_NOT_SAVED = {

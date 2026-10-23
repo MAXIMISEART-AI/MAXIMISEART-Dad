@@ -68,13 +68,22 @@ def bez_opiekuna_ponownego_startu_w_tescie_api(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.fixture(autouse=True)
-def bez_skrzynki_zgloszen_na_githubie(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Żaden test nie wysyła Zgłoszenia na GitHub: Centrum bez podstawionej skrzynki kończy wysyłkę odpowiedzią 500."""
+def bez_skrzynki_zgloszen_na_githubie(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Żaden test nie łączy się ze Skrzynką Zgłoszeń na GitHubie: podstaw report_box w create_app.
 
-    def github_in_test(request: object) -> NoReturn:
-        raise AssertionError("Test Centrum wysyła Zgłoszenie na GitHub; podstaw report_box w create_app.")
+    Wysyłka w tle (Kontrola ilości) łapie każdy wyjątek swojego wątku, więc sam ``AssertionError`` by przepadł:
+    każda próba jest zapisana i wywraca test po jego końcu.
+    """
+
+    attempts: list[str] = []
+
+    def github_in_test(request: report_box.HttpRequest) -> NoReturn:
+        attempts.append(f"{request.method} {request.url}")
+        raise AssertionError("Test Centrum łączy się ze Skrzynką Zgłoszeń na GitHubie; podstaw report_box w create_app.")
 
     monkeypatch.setattr(report_box, "urllib_transport", github_in_test)
+    yield
+    assert attempts == [], "Test łączył się ze Skrzynką Zgłoszeń na GitHubie: " + ", ".join(attempts)
 
 
 @pytest.fixture(autouse=True)

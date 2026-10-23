@@ -28,6 +28,13 @@ from drive.common import (
 NOT_PREVIEWED = "08_14_09_2026"
 PREPARATION = "przygotowanie-pliku-zbiorczego"
 INCOMPLETE_PERIOD_WHAT = "Ostatnie zlecenie okresu jest z soboty 10.10.2026"
+# Ilości usług warnings of the fixture's Plik zbiorczy rows (create_centrum_fixture.DEVICES): "Co się stało" and "Gdzie".
+COLLECTIVE_FILE = f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx"
+QUANTITY_WARNINGS = (
+    ("Narzędzie nie zna urządzenia z kolumny URZĄDZENIA", f"plik {COLLECTIVE_FILE}, wiersze 18, 20"),
+    ("rozlicza się z opisu technika", f"plik {COLLECTIVE_FILE}, wiersz 19"),
+    ("Ilości, które wynikają z opisu technika", f"plik {COLLECTIVE_FILE}, kolumny Y, AB, AD, AJ, AK, AL i AM"),
+)
 # Harness: the page reports itself hidden, so the Uruchomienia stream pauses and its next view arrives late.
 HIDE_TAB = (
     "Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'hidden'});"
@@ -41,6 +48,22 @@ def _started_once(run: Run, page: Page, sent: list[Request], what: str) -> None:
 
     run.check(len(sent) == 1, f"a double click on {what} starts one Uruchomienie procesu ({len(sent)} requests)")
     run.check(error_toasts(page).count() == 0, f"no error toast after the double click on {what}")
+
+
+def _quantity_warnings_shown(run: Run, page: Page, result: dict[str, object], label: str) -> None:
+    """The result shows each Ilości usług warning in three parts, with Plik zbiorczy rows and no row content."""
+
+    card = page.get_by_role("region", name="Podgląd na żywo")
+    for what, where in QUANTITY_WARNINGS:
+        expect(card.get_by_label("Ostrzeżenie").filter(has_text=what).filter(has_text=where)).to_be_visible()
+    warnings = result["warnings"]
+    assert isinstance(warnings, list)
+    shown = [(warning["what"], warning["where"]) for warning in warnings]
+    run.check(
+        all(any(what in text and place == where for text, place in shown) for what, where in QUANTITY_WARNINGS)
+        and ROW_MARKER not in json.dumps(warnings, ensure_ascii=False),
+        f"{label} shows the Ilości usług warnings with Plik zbiorczy rows and no row content",
+    )
 
 
 def _preparation_records(run: Run, name: str) -> list[dict[str, object]]:
@@ -97,6 +120,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(live.get_by_role("listitem", name="sob 10.10.2026: 1", exact=True)).to_be_visible()
     expect(live.get_by_label("Ostrzeżenie").filter(has_text=INCOMPLETE_PERIOD_WHAT)).to_be_visible()
     expect(live).to_contain_text(f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx")
+    _quantity_warnings_shown(run, page, result, "the preview")
     run.check(not period_folder.exists(), "the DRY-RUN created neither files nor the Folder okresu")
     records = _preparation_records(run, "przygotowanie-metryki-podglad")
     run.check(
@@ -225,7 +249,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     finally:
         page.evaluate(SHOW_TAB)
     expect(decision).to_have_count(0)
-    expect(page.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany")
+    expect(page.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany · wymaga sprawdzenia")
     run.check(True, "with the stream back, the dialog closes on the result")
     opened_before = len(run.lines("opened.jsonl"))
     with sent_requests(page, "POST", f"/api/periods/{LAST_COMPLETE}/open") as sent:
@@ -238,18 +262,24 @@ def drive_preparation(run: Run, page: Page) -> None:
 
     run.step(feature, "przygotowanie-kontynuuj")
     result = finished_result(run, "przygotowanie-kontynuuj")
-    run.check(result["result"] == "OK", "the RUN finished OK")
+    run.check(
+        result["result"] == "WYMAGA_SPRAWDZENIA"
+        and result["headline"] == "Plik zbiorczy przygotowany · wymaga sprawdzenia"
+        and result["warnings"] == preview_warnings,
+        "the RUN needs review only for the preview's warnings: Dad completes the written Plik zbiorczy",
+    )
+    _quantity_warnings_shown(run, page, result, "the written Plik zbiorczy's result")
     run.check(all(path.is_file() for path in period_files(run)), "both period files are in the Folder okresu")
     records = _preparation_records(run, "przygotowanie-metryki-zapisane")
     run.check(
         len(records) == records_before + 3
         and [(record["mode"], record["result"]) for record in records[:3]]
-        == [("RUN", "OK"), ("RUN", "BLAD_KRYTYCZNY"), ("DRY-RUN", "OK")],
+        == [("RUN", "WYMAGA_SPRAWDZENIA"), ("RUN", "BLAD_KRYTYCZNY"), ("DRY-RUN", "OK")],
         "every Uruchomienie procesu appended one record to the process's metrics file",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
     run.check(
-        f"uruchomienie-koniec proces=preparation tryb=RUN okres={LAST_COMPLETE} wynik=OK koniec=finished" in log
+        f"uruchomienie-koniec proces=preparation tryb=RUN okres={LAST_COMPLETE} wynik=WYMAGA_SPRAWDZENIA koniec=finished" in log
         and "uruchomienie-start proces=preparation tryb=RUN" in log
         and ROW_MARKER not in log,
         "the Centrum log records the start and end of each Uruchomienie procesu with safe facts only",

@@ -9,6 +9,7 @@ import time
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
+from openpyxl.utils import column_index_from_string
 from openpyxl.utils.datetime import CALENDAR_MAC_1904
 import pytest
 
@@ -47,7 +48,13 @@ from tests.fixtures.preparation import (
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
 from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts, hyperlinks, rewrite_parts
 from tests.fixtures.settlement import projected
-from tests.fixtures.preparation import cell_values, collective_row, incomplete_period_fixture, run_preparation
+from tests.fixtures.preparation import (
+    cell_values,
+    collective_row,
+    incomplete_period_fixture,
+    other_warnings,
+    run_preparation,
+)
 from tests.fixtures.interlocutor import Tata
 
 
@@ -143,6 +150,19 @@ def test_rejestr_in_old_layout_still_fills_both_period_files(tmp_path: Path) -> 
     ]
 
 
+def with_drive_to_every_order(
+    rows: list[tuple[object, ...]], *, first_column: int, orders: int
+) -> list[tuple[object, ...]]:
+    """Wiersze Wzorca od ``first_column`` z 1 w V (dojazd) w pierwszych ``orders`` wierszach.
+
+    Domyślne zlecenia mają ``URZĄDZENIA`` ``dekoder``, którego Reguły ilości nie znają, i UMOWA bez druku, więc
+    dostają tylko V.
+    """
+
+    drive = column_index_from_string("V") - first_column
+    return [row[:drive] + (1,) + row[drive + 1 :] if index < orders else row for index, row in enumerate(rows)]
+
+
 def test_plik_zbiorczy_keeps_wzorzec_rows_1_to_17_quantities_and_formulas(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
 
@@ -152,8 +172,8 @@ def test_plik_zbiorczy_keeps_wzorzec_rows_1_to_17_quantities_and_formulas(tmp_pa
     assert cell_values(created, min_row=1, max_row=17, min_col=1, max_col=47) == cell_values(
         template, min_row=1, max_row=17, min_col=1, max_col=47
     )
-    assert cell_values(created, min_row=18, max_row=30, min_col=12, max_col=47) == cell_values(
-        template, min_row=18, max_row=30, min_col=12, max_col=47
+    assert cell_values(created, min_row=18, max_row=30, min_col=12, max_col=47) == with_drive_to_every_order(
+        cell_values(template, min_row=18, max_row=30, min_col=12, max_col=47), first_column=12, orders=3
     )
     assert cell_values(created, min_row=18, max_row=18, min_col=14, max_col=14) == [(0,)]
     assert cell_values(created, min_row=18, max_row=18, min_col=47, max_col=47) == [("=N18*$N$1",)]
@@ -180,7 +200,7 @@ def test_przygotowanie_na_syntetycznych_wzorcach_ksztaltu_taty_wypelnia_pliki_ok
     run_preparation(reference)
     summary = run_preparation(fixture)
 
-    assert summary.warnings == []
+    assert other_warnings(summary.warnings) == []
     created, template = fixture.collective_file_path, fixture.collective_template_path
     assert cell_values(created, min_row=18, max_row=21, min_col=1, max_col=11) == cell_values(
         reference.collective_file_path, min_row=18, max_row=21, min_col=1, max_col=11
@@ -188,8 +208,8 @@ def test_przygotowanie_na_syntetycznych_wzorcach_ksztaltu_taty_wypelnia_pliki_ok
     assert cell_values(created, min_row=1, max_row=17, min_col=1, max_col=51) == cell_values(
         template, min_row=1, max_row=17, min_col=1, max_col=51
     )
-    assert cell_values(created, min_row=18, max_row=21, min_col=14, max_col=51) == cell_values(
-        template, min_row=18, max_row=21, min_col=14, max_col=51
+    assert cell_values(created, min_row=18, max_row=21, min_col=14, max_col=51) == with_drive_to_every_order(
+        cell_values(template, min_row=18, max_row=21, min_col=14, max_col=51), first_column=14, orders=3
     )
     assert external_link_parts(created) == external_link_parts(template)
     def filled_rows(path: Path) -> int:
@@ -216,7 +236,7 @@ def test_summary_reports_counts_and_file_names_without_client_data(tmp_path: Pat
     assert summary.period_order_count == 4
     assert summary.successful_order_count == 3
     assert summary.skipped_empty_rows == 5
-    assert summary.warnings == []
+    assert other_warnings(summary.warnings) == []
     assert summary.internal_settlement_file == fixture.internal_settlement_path
     assert summary.collective_file == fixture.collective_file_path
     assert sorted(path.name for path in fixture.period_directory.iterdir()) == [
@@ -403,8 +423,8 @@ def test_zdarzenia_przebiegu_pass_four_stages_in_order_without_worker_events(
 
     assert [(event.phase, type(event)) for event in recorded] == STAGES_IN_ORDER
     assert set(projection.snapshot.phase_states.values()) == {PhaseState.COMPLETED}
-    assert [warning.code for warning in summary.warnings] == ["NIEPELNY_OKRES"]
-    assert projection.snapshot.issue_count == 1
+    assert [warning.code for warning in summary.warnings] == ["NIEPELNY_OKRES", "NIEZNANE_URZADZENIA", "KOLUMNY_Z_OPISU"]
+    assert projection.snapshot.issue_count == 3
     assert projection.snapshot.template_total == 0
     assert "SYN-" not in repr(recorded)
 
@@ -1025,14 +1045,14 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
 
     summary = run_preparation(fixture)
 
-    assert [warning.text for warning in summary.warnings] == [
+    assert [warning.text for warning in other_warnings(summary.warnings)] == [
         "Co się stało: Zleceń skutecznych: 8, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
         "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
         f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersze 24–25\n"
         "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
         "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
     ]
-    assert summary.warnings[0].code == "MALO_WIERSZY_Z_ZERAMI"
+    assert other_warnings(summary.warnings)[0].code == "MALO_WIERSZY_Z_ZERAMI"
     assert summary.successful_order_count == successful_count
     assert len(sheet_rows(fixture.internal_settlement_path, min_row=2, max_col=1)) == successful_count + 1
     created = cell_values(fixture.collective_file_path, min_row=18, max_row=26, min_col=1, max_col=14)
@@ -1049,7 +1069,7 @@ def test_jedno_zlecenie_skuteczne_ponad_wiersze_z_zerami_ostrzega_o_jednym_wiers
 
     summary = run_preparation(fixture)
 
-    assert [(warning.code, warning.text) for warning in summary.warnings] == [
+    assert [(warning.code, warning.text) for warning in other_warnings(summary.warnings)] == [
         (
             "MALO_WIERSZY_Z_ZERAMI",
             "Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
@@ -1070,7 +1090,7 @@ def test_zlecenia_skuteczne_filling_exactly_wzorzec_zero_rows_do_not_warn(tmp_pa
 
     summary = run_preparation(fixture)
 
-    assert summary.warnings == []
+    assert other_warnings(summary.warnings) == []
 
 
 def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_day(tmp_path: Path) -> None:
@@ -1085,14 +1105,14 @@ def test_last_order_before_monday_warns_about_incomplete_period_with_orders_per_
 
     plan = run_preparation(fixture, dry_run=True)
 
-    assert [warning.text for warning in plan.warnings] == [
+    assert [warning.text for warning in other_warnings(plan.warnings)] == [
         "Co się stało: Ostatnie zlecenie okresu jest z soboty 12.09.2026, a okres kończy się w poniedziałek "
         "14.09.2026. Rejestr zleceń może nie mieć jeszcze wszystkich zleceń tego okresu.\n"
         f"Gdzie: plik {REGISTER_NAME}, arkusz ZLECENIA, okres {PERIOD}\n"
         "Co zrobić: Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport "
         "w Rejestrze zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj."
     ]
-    assert plan.warnings[0].code == "NIEPELNY_OKRES"
+    assert other_warnings(plan.warnings)[0].code == "NIEPELNY_OKRES"
     assert plan.orders_per_day == {
         date(2026, 9, 8): 1,
         date(2026, 9, 9): 0,
@@ -1110,7 +1130,7 @@ def test_incomplete_period_warning_does_not_block_creating_both_files(tmp_path: 
 
     summary = run_preparation(fixture)
 
-    assert [warning.code for warning in summary.warnings] == ["NIEPELNY_OKRES"]
+    assert [warning.code for warning in other_warnings(summary.warnings)] == ["NIEPELNY_OKRES"]
     assert fixture.internal_settlement_path.is_file()
     assert fixture.collective_file_path.is_file()
 
@@ -1124,7 +1144,7 @@ def test_order_on_monday_anywhere_in_rejestr_means_full_period(tmp_path: Path) -
 
     plan = run_preparation(fixture, dry_run=True)
 
-    assert plan.warnings == []
+    assert other_warnings(plan.warnings) == []
 
 
 def test_skipped_empty_rows_are_all_empty_rows_from_first_to_last_period_order(tmp_path: Path) -> None:
@@ -1247,7 +1267,7 @@ def test_dry_run_of_incomplete_period_does_not_ask_tata(tmp_path: Path) -> None:
     plan = run_preparation(fixture, dry_run=True, conversation=tata)
 
     assert tata.decisions == []
-    assert [warning.code for warning in plan.warnings] == ["NIEPELNY_OKRES"]
+    assert [warning.code for warning in other_warnings(plan.warnings)] == ["NIEPELNY_OKRES"]
 
 
 def test_time_of_decyzja_taty_is_not_counted_in_przygotowanie_time(tmp_path: Path) -> None:

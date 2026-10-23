@@ -72,6 +72,53 @@ this public one ([ADR 0007](../adr/0007-zgloszenia-do-maksa-w-prywatnym-repo.md)
   in the PR body. Closing the Zgłoszenie tells Dad's Centrum that the fix is
   ready to update.
 
+## Kontrola ilości from Dad's computer
+
+After each Przebieg rozliczeń with saving (RUN) that Centrum shows as finished,
+Centrum sends a Kontrola ilości by itself, in the background, as an issue
+labelled `kontrola-ilosci` in the same private repository
+([ADR 0013](../adr/0013-kontrola-ilosci-wysylana-automatycznie.md)). Dad does
+not click or see anything. A preview, a Zatrzymanie, and the machine script
+create none.
+
+- The title has the period token and the number of differences, e.g.
+  `Kontrola ilości 08_14_09_2026: 7 różnic`, also `bez różnic`, and
+  `bez porównania` when row 17 of the Plik zbiorczy lacks UMOWA, URZĄDZENIA,
+  CZYNNOŚCI or DATA.
+- The first line is the identifying line `- Kontrola ilości okresu: <token>`.
+  The body groups differences in the Reguły ilości columns by the exact
+  URZĄDZENIA text, with CZYNNOŚCI, UMOWA, weekday and full hour, rule value,
+  Dad's value and row count. It lists rows without a rule (only V, T, N
+  differences, plus Dad's other values), counts rows settled from the
+  description and rows whose DATA is not a date, and counts rows Dad filled in
+  the description columns (Y, AB, AD, AJ, AK, AL, AM; AK and AM only where the
+  rule gives zero) and in the other N:AP columns. Blank and 0 are the same;
+  `nieliczbowa` is a cell that is not a whole number (a word, a formula, 1.5).
+  It ends with the tool commit and the Uruchomienie id.
+- It never has an address, order or contract number, Wykonawca, the daily date
+  or `CZYNNOŚCI ZREALIZOWANE`. The exact URZĄDZENIA, CZYNNOŚCI and UMOWA texts
+  are Dad's data: the same rules as for a Zgłoszenie apply. Review it in a
+  session with an agent; a rule change needs Dad's confirmation, and the public
+  PR refers to the issue by number only with a synthetic test case.
+- A body over GitHub's 65 536 characters arrives as an issue with part 1 and
+  comments with the next parts (`Kontrola ilości, część k/n`).
+- Without network or a key, the Kontrola waits as a JSON file in
+  `config\zgloszenia\kolejka\` on Dad's computer, with no Komunikat, and goes
+  out at the next Centrum start or when the next Kontrola is sent. The Centrum
+  log records only `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number),
+  `skrzynka-czeka` (cause) and `skrzynka-nieczytelny` (the name of a queue file
+  that is damaged or from a newer tool version; it stays and is never sent). A
+  sent file is marked as delivered before it is removed, so a file Windows
+  keeps open is not sent again. Power loss between sending and marking can
+  repeat it.
+- One period has one open issue. A repeated Przebieg of the period (e.g. after
+  Dad deleted the Folder rozliczeń pracowników) adds its Kontrola as a comment
+  to the open issue whose body has the period's identifying line. Once you
+  close it, the next Przebieg of that period opens a new issue. Centrum looks
+  the issue up on every send, so a deleted issue never blocks the queue.
+- Centrum never creates the `kontrola-ilosci` label; it must exist in the
+  repository.
+
 ## Pull requests as a triage surface
 
 PRs as a request surface: no.

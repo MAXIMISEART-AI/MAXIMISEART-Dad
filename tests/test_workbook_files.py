@@ -167,7 +167,7 @@ def test_skoroszyt_bez_stylow_daje_sie_przeczytac_bez_formatu(tmp_path: Path) ->
     write_source(path, include_unmapped=False)
     without_styles(path)
 
-    assert [row.number for row in read_data_rows(path)] == [18, 19, 20]
+    assert [row.number for row in read_data_rows(path).rows] == [18, 19, 20]
 
 
 @pytest.mark.parametrize("opening", OPENINGS)
@@ -230,7 +230,7 @@ def test_naglowek_wykonawca_nie_zalezy_od_wielkosci_liter_i_spacji(tmp_path: Pat
     move_worker_header(path, "H17")
 
     _check_template(path)
-    assert len(read_data_rows(path)) == 3
+    assert len(read_data_rows(path).rows) == 3
 
 
 def test_wiersze_danych_pliku_zbiorczego_w_kolejnosci_z_wykonawca_i_wartosciami_a_at(tmp_path: Path) -> None:
@@ -248,7 +248,7 @@ def test_wiersze_danych_pliku_zbiorczego_w_kolejnosci_z_wykonawca_i_wartosciami_
         workbook.close()
     before = path.read_bytes()
 
-    rows = read_data_rows(path)
+    rows = read_data_rows(path).rows
 
     assert [(row.number, row.worker) for row in rows] == [
         (18, "adrian.testowy"),
@@ -328,7 +328,7 @@ def test_wiersze_danych_po_pustych_wierszach_maja_wartosci_jak_w_excelu(tmp_path
     SHEET_SHAPES[shape](path)
     zeros = {letter: 0 for letter in ("Q", "R", "S", "T", "U", "V", "X")}
 
-    rows = read_data_rows(path)
+    rows = read_data_rows(path).rows
 
     assert [(row.number, row.worker) for row in rows] == [(18, "adrian.testowy"), (100, "beata.fikcyjna"), (150, None)]
     assert all(len(row.values) == 46 for row in rows)
@@ -685,7 +685,7 @@ def test_rozliczenie_pracownika_ma_hiperlacza_wierszy_danych_jak_plik_z_wzorca(t
         template_path = linked_template(tmp_path / "Wzorzec.xlsx")
     else:
         template_path = write_synthetic_templates(tmp_path / "wzorce") / WORKER_TEMPLATE
-    rows = read_data_rows(linked_collective_file(tmp_path))
+    rows = read_data_rows(linked_collective_file(tmp_path)).rows
 
     created, expected = _settlement_folders(tmp_path, template_path, rows)
 
