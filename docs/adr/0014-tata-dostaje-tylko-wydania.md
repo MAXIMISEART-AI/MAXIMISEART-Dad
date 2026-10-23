@@ -50,7 +50,7 @@ zamiast każdej naprawy z osobna.
   MAJOR. Gdyby kiedyś powstało `v1.0.0`, kod tylko z `v0` zostawiłby tatę na
   zawsze na ostatnim `v0`. Zabłąkany `v1.0.0` na `main` trafiłby do taty, tak
   jak każdy ręczny tag na `main`; przed nim chroni brama pre-push (niżej).
-  Dowolny MAJOR to decyzja Maksa z 24.10.
+  Dowolny MAJOR to decyzja Maksa z 23.10.
 - **Aktualizacja narzędzia.** `ToolClone.update` pobiera `main` (z `+`, więc
   force-push `main` na GitHubie nie psuje pobrania) i tagi `v*` do własnej
   przestrzeni refów klonu (`refs/wydania/`, z `--prune`, więc tag usunięty
@@ -115,7 +115,7 @@ Nie chroni: tag na commicie `main` bez zielonego CI, który ominie bramę
 (`--no-verify`, push spoza agenta), i tag na commicie, który `main` potem
 zrewertował, trafią do taty. Centrum nie pyta API o `Required CI status`
 commitu, a Aktualność zostaje przy kompromisie przy uśpionym tagu (wyżej):
-decyzja Maksa z 24.10.
+decyzja Maksa z 23.10.
 
 ## Przejście
 
