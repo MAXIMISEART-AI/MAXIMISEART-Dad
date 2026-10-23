@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
+from functools import partial
 from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
@@ -19,6 +20,7 @@ from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
 from rozliczenia.settlement_period import parse_period_token
 from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
+from rozliczenia.workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
 from rozliczenia.worker_config import WorkerConfigError
 
 REGISTER = Path("C:/Dane/ZLECENIA INTERMAX OD 08_11_2021.xlsx")
@@ -65,17 +67,26 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
-    "template_missing": [lambda: messages.template_missing(TEMPLATE)],
-    "template_open_in_excel": [lambda: messages.template_open_in_excel(TEMPLATE)],
-    "template_inaccessible": [lambda: messages.template_inaccessible(TEMPLATE)],
-    "template_unreadable": [lambda: messages.template_unreadable(TEMPLATE)],
-    "template_without_header": [lambda: messages.template_without_header(TEMPLATE, "Sheet1", 17, "WYKONAWCA")],
-    "template_with_worker_outside_h": [lambda: messages.template_with_worker_outside_h(TEMPLATE, "Sheet1", "G")],
-    "template_with_merged_cells": [lambda: messages.template_with_merged_cells(TEMPLATE, "Sheet1", "B19:C20")],
+    "template_unusable": [
+        *(partial(messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, problem)) for problem in Problem),
+        partial(
+            messages.template_unusable,
+            TEMPLATE,
+            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA")),
+        ),
+        partial(
+            messages.template_unusable,
+            TEMPLATE,
+            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA", "G")),
+        ),
+        partial(
+            messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, Problem.LAYOUT, MergedCells("Sheet1", "B19:C20"))
+        ),
+    ],
     "register_missing": [lambda: messages.register_missing(REGISTER)],
-    "register_open_in_excel": [lambda: messages.register_open_in_excel(REGISTER)],
-    "register_inaccessible": [lambda: messages.register_inaccessible(REGISTER)],
-    "register_unreadable": [lambda: messages.register_unreadable(REGISTER)],
+    "register_unusable": [
+        partial(messages.register_unusable, REGISTER, WorkbookError(REGISTER, problem)) for problem in Problem
+    ],
     "register_without_headers": [
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE"]),
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE", "WYKONAWCA"]),

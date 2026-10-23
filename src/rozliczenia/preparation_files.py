@@ -24,9 +24,6 @@ from .preparation_plan import PeriodOrder
 from .preparation_register import COLUMNS
 from .workbook_files import (
     Layout,
-    MergedCells,
-    MissingHeader,
-    Problem,
     TemplateFile,
     WorkbookError,
     WorkbookSaveError,
@@ -143,24 +140,7 @@ def _template_stops(template_path: Path) -> Iterator[None]:
     try:
         yield
     except WorkbookError as error:
-        raise _template_stop(template_path, error) from error
-
-
-def _template_stop(template_path: Path, error: WorkbookError) -> StopError:
-    if error.problem is Problem.MISSING:
-        return StopError(messages.template_missing(template_path))
-    if error.problem is Problem.OPEN_IN_EXCEL:
-        return StopError(messages.template_open_in_excel(template_path))
-    if error.problem is Problem.INACCESSIBLE:
-        return StopError(messages.template_inaccessible(template_path))
-    fault = error.fault
-    if isinstance(fault, MissingHeader) and fault.found_in is not None:
-        return StopError(messages.template_with_worker_outside_h(template_path, fault.sheet, fault.found_in))
-    if isinstance(fault, MissingHeader):
-        return StopError(messages.template_without_header(template_path, fault.sheet, fault.row, fault.header))
-    if isinstance(fault, MergedCells):
-        return StopError(messages.template_with_merged_cells(template_path, fault.sheet, fault.cells))
-    return StopError(messages.template_unreadable(template_path))
+        raise StopError(messages.template_unusable(template_path, error)) from error
 
 
 def _write_period_file(template_path: Path, layout: Layout, target: Path, orders: Sequence[PeriodOrder]) -> None:
