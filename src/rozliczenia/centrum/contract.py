@@ -742,6 +742,8 @@ ApiOperation = Literal[
     "startToolUpdate",
     "getToolUpdate",
     "reportToolUpdate",
+    "draftDadNote",
+    "sendDadNote",
     "closeCentrum",
 ]
 # Do 10 minut: dłuższy czas to uśpiona karta, nie pomiar.

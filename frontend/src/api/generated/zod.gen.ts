@@ -27,6 +27,8 @@ export const zApiTiming = z.object({
         'startToolUpdate',
         'getToolUpdate',
         'reportToolUpdate',
+        'draftDadNote',
+        'sendDadNote',
         'closeCentrum'
     ]),
     browser_ms: z.int().gte(0).lte(600000),

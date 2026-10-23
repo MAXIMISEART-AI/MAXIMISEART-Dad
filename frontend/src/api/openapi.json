@@ -1080,6 +1080,8 @@
               "startToolUpdate",
               "getToolUpdate",
               "reportToolUpdate",
+              "draftDadNote",
+              "sendDadNote",
               "closeCentrum"
             ],
             "title": "Operation"
