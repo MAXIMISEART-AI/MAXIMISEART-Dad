@@ -32,14 +32,14 @@ Instrukcja dla taty jest w
 ## Instalacja lokalna
 
 Wymagany jest Python 3.11 lub nowszy na komputerze taty. Narzędzie to klon
-publicznego repozytorium na gałęzi `main` ustawionej na Stabilną wersję
-([ADR 0014](docs/adr/0014-tata-dostaje-tylko-stabilna-wersje.md)), bo sam
-`git clone` daje najnowszy `main`, także taki, którego CI nie przeszło:
+publicznego repozytorium na gałęzi `main` ustawionej na najnowsze Wydanie
+([ADR 0014](docs/adr/0014-tata-dostaje-tylko-wydania.md)), bo sam `git clone`
+daje najnowszy `main`, także zmiany, które nie weszły do żadnego Wydania:
 
 ```powershell
 git clone https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git
 cd MAXIMISEART-Dad
-git reset --hard origin/stabilna
+git reset --hard (git tag --list "v*.*.*" --sort=-version:refname | Select-Object -First 1)
 py -3 -m pip install -r requirements.txt
 ```
 

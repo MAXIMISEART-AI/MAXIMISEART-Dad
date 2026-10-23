@@ -359,28 +359,28 @@ taty. Karta `Narzędzie` w Konfiguracji pokazuje jego skrót i dzień, od które
 narzędzie jest na tym commicie; Zgłoszenie podaje pełny commit.
 _Avoid_: numer wersji z `pyproject.toml`
 
-## Stabilna wersja
+## Wydanie
 
-Najnowszy commit `main`, dla którego na GitHubie przeszło pełne CI
-(`Required CI status`). CI przesuwa na niego gałąź `stabilna` publicznego
-repozytorium, tylko do przodu. Tylko ją tata dostaje przez Aktualizację
-narzędzia.
-_Avoid_: release, wydanie, zielony main
+Wersja narzędzia, którą Maks świadomie ogłasza tacie: numer, np. `0.2.0`, i
+krótka notka „Co nowego” dla taty. Jedno Wydanie zbiera wszystkie zmiany od
+poprzedniego, a nie każdą naprawę z osobna. Tylko Wydanie może trafić na
+komputer taty; zmiany, które nie weszły do żadnego Wydania, u taty nie działają.
+_Avoid_: release, deploy, `main`
 
 ## Aktualizacja narzędzia
 
-Przejście narzędzia na komputerze taty na Stabilną wersję, które
-tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
-zostawia poprzednią wersję; pliki taty pozostają nietknięte.
+Przejście narzędzia na komputerze taty na najnowsze Wydanie, które tata zleca
+jednym przyciskiem w Centrum rozliczeń. Przycisk jest tylko wtedy, gdy jest
+Wydanie nowsze od wersji taty. Udaje się w całości albo zostawia poprzednią
+wersję; pliki taty pozostają nietknięte.
 _Avoid_: upgrade, git pull, instalacja
 
 ## Aktualność narzędzia
 
-Czy narzędzie na komputerze taty jest w najnowszej wersji, czyli czy jego
-commit to Stabilna wersja: `Aktualna`, `Jest nowsza wersja`
-albo `Nie sprawdzono` (bez internetu). Pokazuje ją Konfiguracja i sprawdza
-Diagnoza; nowsza wersja jest przyczyną Zatrzymania tylko wtedy, gdy Diagnoza
-nie znalazła innej.
+Czy narzędzie na komputerze taty jest na najnowszym Wydaniu: `Aktualna`,
+`Jest nowsza wersja` albo `Nie sprawdzono` (bez internetu). Pokazuje ją
+Konfiguracja i sprawdza Diagnoza; nowsza wersja jest przyczyną Zatrzymania
+tylko wtedy, gdy Diagnoza nie znalazła innej.
 _Avoid_: świeżość, freshness
 
 ## Ponowny start Centrum

@@ -29,9 +29,9 @@ Zaakceptowana. Zmienia trzy zdania
 Pozostałe zasady (tylko `127.0.0.1`, kontrola `Host` i `Origin`, reguła
 prywatności, launchery `.cmd` bez zmian) zostają. Launchery `.cmd` usunął
 potem [ADR 0010](0010-centrum-jedynym-wejsciem-taty.md).
-Gałąź, z której Centrum pobiera nową wersję i z którą porównuje Aktualność
-narzędzia, zmienia [ADR 0014](0014-tata-dostaje-tylko-stabilna-wersje.md):
-`stabilna` zamiast `main`.
+Wersję, na którą Centrum przesuwa klon i z którą porównuje Aktualność
+narzędzia, zmienia [ADR 0014](0014-tata-dostaje-tylko-wydania.md): najnowsze
+Wydanie zamiast `main`.
 
 ## Kontekst
 
