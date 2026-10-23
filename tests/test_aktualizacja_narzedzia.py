@@ -118,22 +118,28 @@ def test_wydanie_na_starszym_commicie_niz_klon_nie_cofa_wersji(repository: ToolR
     assert repository.state() == unchanged
 
 
-def test_klon_na_main_nowszym_niz_wydanie_jest_aktualny_az_wydanie_go_wyprzedzi(
-    repository: ToolRepository, tmp_path: Path
+@pytest.mark.parametrize("released", [True, False], ids=["main-to-wydanie", "main-nowszy-niz-wydanie"])
+def test_przejscie_z_wersji_pobierajacej_main_konczy_sie_na_wydaniu_albo_nowszym_i_dalej_idzie_po_wydaniach(
+    repository: ToolRepository, tmp_path: Path, released: bool
 ) -> None:
-    # Wersja sprzed ADR 0014 aktualizowała się z `main`, także ze zmian, które nie weszły do żadnego Wydania.
-    from_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    from_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=released)
+    # Ostatnia aktualizacja wersją sprzed ADR 0014: pobranie `main` i przesunięcie do przodu, bez patrzenia na Wydania.
     repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
     unchanged = repository.state()
 
-    ahead = update(repository)
+    after_transition = update(repository)
 
-    assert ahead == UpdateResult("AKTUALNA", before=from_main, after=from_main, installed=False)
+    assert after_transition == UpdateResult("AKTUALNA", before=from_main, after=from_main, installed=False)
     assert repository.state() == unchanged
 
-    newest = repository.publish({"src/narzedzie.py": "WERSJA = 3\n"})
+    repository.publish({"src/narzedzie.py": "WERSJA = 3\n"}, released=False)
+    assert update(repository) == UpdateResult("AKTUALNA", before=from_main, after=from_main, installed=False)
 
-    assert update(repository) == UpdateResult("ok", before=from_main, after=newest, installed=False)
+    newest = repository.release()
+
+    assert update(repository) == UpdateResult(
+        "ok", before=from_main, after=git(repository.origin, "rev-parse", f"{newest}^{{commit}}"), installed=False
+    )
 
 
 def test_bez_wydania_na_githubie_narzedzie_jest_aktualne_a_klon_zostaje_bez_zmian(

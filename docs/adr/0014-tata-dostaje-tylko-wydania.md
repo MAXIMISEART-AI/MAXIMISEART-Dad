@@ -2,7 +2,9 @@
 
 ## Status
 
-Proponowana, czeka na zgodę Maksa. Zmienia dwa zdania
+Zaakceptowana (decyzja Maksa z 23.10, spec #313, ticket #315). Na niej
+opiera się [ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md)
+(Powiadomienie o nowej wersji z notką Wydania). Zmienia dwa zdania
 [ADR 0009](0009-aktualizacja-narzedzia-z-centrum.md):
 
 - „Pobiera `main` z publicznego repozytorium bez logowania i przesuwa klon tylko
@@ -53,9 +55,13 @@ zamiast każdej naprawy z osobna.
   Aktualność to `Nie sprawdzono`. Konfiguracja dalej pamięta odpowiedź przez 10
   minut, a brak odpowiedzi przez minutę (limit 60 pytań na godzinę bez
   logowania); jedna strona to jedno pytanie.
-- **Tworzenie Wydania** (osobna zmiana, `tools/wydanie.py`) sprawdza, że commit
-  leży na `main` i ma zielone `Required CI status`, i dopiero wtedy zakłada tag
-  i Wydanie na GitHubie. Centrum zielonego CI nie sprawdza.
+- **Tworzenie Wydania** (osobna zmiana, #316) sprawdza, że commit leży na
+  `main` i ma zielone `Required CI status`, i dopiero wtedy zakłada tag i
+  Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o
+  nowej wersji (ADR 0015); numer i commit Wydania Centrum bierze z tagu.
+  Centrum zielonego CI nie sprawdza.
+- **Przycisk** `Zaktualizuj narzędzie` dalej jest zawsze; tylko przy nowszym
+  Wydaniu będzie po #319.
 
 ### Ochrona przed tagiem założonym ręcznie
 
@@ -96,8 +102,9 @@ pytać API o `Required CI status` commitu przed przesunięciem klonu.
 
 ## Konsekwencje
 
-- Naprawa dociera do taty dopiero z następnym Wydaniem. Powiadomienie o
-  naprawie: Maks zamyka Zgłoszenie, gdy naprawa jest w Wydaniu; wcześniej tata
+- Naprawa dociera do taty dopiero z następnym Wydaniem. Do czasu Powiadomień z
+  ADR 0015 Powiadomienie o naprawie pojawia się, gdy Maks zamknie Zgłoszenie,
+  więc Maks zamyka je dopiero, gdy naprawa jest w Wydaniu; wcześniej tata
   kliknie aktualizację z Powiadomienia i dostanie `Masz najnowszą wersję.`.
 - Zielone, ale zepsute Wydanie naprawia się tylko do przodu: nowym Wydaniem z
   revertem. Usunięcie tagu nie cofa taty, bo aktualizacja nigdy nie cofa.
