@@ -359,9 +359,17 @@ taty. Karta `Narzędzie` w Konfiguracji pokazuje jego skrót i dzień, od które
 narzędzie jest na tym commicie; Zgłoszenie podaje pełny commit.
 _Avoid_: numer wersji z `pyproject.toml`
 
+## Stabilna wersja
+
+Najnowszy commit `main`, dla którego na GitHubie przeszło pełne CI
+(`Required CI status`). CI przesuwa na niego gałąź `stabilna` publicznego
+repozytorium, tylko do przodu. Tylko ją tata dostaje przez Aktualizację
+narzędzia.
+_Avoid_: release, wydanie, zielony main
+
 ## Aktualizacja narzędzia
 
-Przejście narzędzia na komputerze taty na jego najnowszą wersję, które
+Przejście narzędzia na komputerze taty na Stabilną wersję, które
 tata zleca jednym przyciskiem w Centrum rozliczeń. Udaje się w całości albo
 zostawia poprzednią wersję; pliki taty pozostają nietknięte.
 _Avoid_: upgrade, git pull, instalacja
@@ -369,7 +377,7 @@ _Avoid_: upgrade, git pull, instalacja
 ## Aktualność narzędzia
 
 Czy narzędzie na komputerze taty jest w najnowszej wersji, czyli czy jego
-commit to `main` publicznego repozytorium: `Aktualna`, `Jest nowsza wersja`
+commit to Stabilna wersja: `Aktualna`, `Jest nowsza wersja`
 albo `Nie sprawdzono` (bez internetu). Pokazuje ją Konfiguracja i sprawdza
 Diagnoza; nowsza wersja jest przyczyną Zatrzymania tylko wtedy, gdy Diagnoza
 nie znalazła innej.
