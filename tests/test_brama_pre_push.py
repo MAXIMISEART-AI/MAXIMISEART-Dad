@@ -339,3 +339,29 @@ def test_sprawdzenie_nie_przezywa_sygnalu_dla_grupy_pushu(checkout: Path, stop: 
     push.wait(timeout=10)
 
     assert wait_for(lambda: not any(_alive(pid) for pid in started), 15)
+
+
+@pytest.mark.parametrize("pushed", ["v0.2.0", "HEAD:refs/heads/zmiana v0.2.0"], ids=["sam-tag", "z-galezia"])
+def test_push_tagu_wydania_przez_agenta_jest_odrzucony(checkout: Path, pushed: str) -> None:
+    _stub_ci_lokalnie(checkout, passes=True)
+    _git(checkout, "tag", "v0.2.0")
+
+    rejected = _git(checkout, "push", "origin", *pushed.split())
+
+    assert rejected.returncode != 0
+    assert "tagów Wydania" in rejected.stdout + rejected.stderr
+    assert _git(checkout, "ls-remote", "origin", "refs/tags/v0.2.0").stdout == ""
+
+
+def test_tag_wydania_wypycha_narzedzie_wydan_i_czlowiek_a_inny_tag_agent(checkout: Path) -> None:
+    _stub_ci_lokalnie(checkout, passes=True)
+    for tag in ("v0.2.0", "v0.3.0", "proba"):
+        _git(checkout, "tag", tag)
+    release_tool = _environment("claude-code") | {"MAXIMISEART_WYDANIE": "1"}
+
+    by_tool = subprocess.run(["git", "push", "origin", "v0.2.0"], cwd=checkout, env=release_tool, capture_output=True, text=True, check=False)
+    by_human = _git(checkout, "push", "origin", "v0.3.0", agent=None)
+    other = _git(checkout, "push", "origin", "proba")
+
+    assert [by_tool.returncode, by_human.returncode, other.returncode] == [0, 0, 0], by_tool.stderr + other.stderr
+    assert len(_git(checkout, "ls-remote", "--tags", "origin").stdout.splitlines()) == 3
