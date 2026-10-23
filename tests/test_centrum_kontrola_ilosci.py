@@ -345,26 +345,28 @@ def waiting_for_network(centrum: SettlingCentrum) -> int:
 
 
 def test_kontrola_ilosci_bez_sieci_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_centrum(tmp_path: Path) -> None:
+    # Bez sieci przez cały czas, a nie na jedną odpowiedź: Logi Uruchomienia budzą kolejkę osobno, więc Kontrola
+    # może pójść w jednym albo dwóch przejściach.
     centrum = centrum_with(tmp_path, TATA_ROWS)
-    box(centrum).outcomes.append(Unreachable())
+    box(centrum).search_failure = Unreachable()
 
     view = run_to_end(centrum, dry_run=False)
 
-    assert box(centrum).wait_until(lambda fake: len(fake.keys) == 1)
+    assert wait_for(lambda: waiting_for_network(centrum) >= 1)
     assert view["result"]["result"] == "OK"
     assert view["result"]["notices"] == [] and view["result"]["warnings"] == []
     [waiting] = queued(centrum)
     assert [path.name for path in (tmp_path / "config" / "zgloszenia").iterdir()] == ["kolejka"]
 
-    box(centrum).outcomes.append(Unreachable())
+    before_start = waiting_for_network(centrum)
     centrum.restart()
     with centrum.client:
-        assert box(centrum).wait_until(lambda fake: len(fake.keys) == 2)
+        assert wait_for(lambda: waiting_for_network(centrum) > before_start)
         assert centrum.client.get("/api/runs/current").json()["state"] == "idle"
-    assert wait_for(lambda: waiting_for_network(centrum) == 2)
     assert queued(centrum) == [waiting]
     assert box(centrum).issues == []
 
+    box(centrum).search_failure = None
     centrum.restart()
     with centrum.client:
         issue = sent_check(centrum)
@@ -376,11 +378,12 @@ def test_kontrola_ilosci_bez_sieci_czeka_w_kolejce_i_wychodzi_przy_nastepnym_sta
 
 def test_ponowienie_przy_starcie_nie_opoznia_startu_centrum(tmp_path: Path) -> None:
     centrum = centrum_with(tmp_path, TATA_ROWS)
-    box(centrum).outcomes.append(Unreachable())
+    box(centrum).search_failure = Unreachable()
     run_to_end(centrum, dry_run=False)
-    assert box(centrum).wait_until(lambda fake: len(fake.keys) == 1)
+    assert wait_for(lambda: waiting_for_network(centrum) >= 1)
     box(centrum).open_hold = hold = threading.Event()
     box(centrum).opening.clear()
+    box(centrum).search_failure = None
     centrum.restart()
 
     # Start na osobnym wątku: start, który czeka na skrzynkę, wisiałby inaczej do końca testu.
