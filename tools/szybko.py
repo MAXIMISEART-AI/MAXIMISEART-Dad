@@ -49,9 +49,12 @@ BASE = "origin/main"
 FULL = ("pyproject.toml", "requirements.txt", "tests/conftest.py")
 STRUCTURE = (
     "tests/test_adr.py",
+    "tests/test_jeden_zapis_skoroszytu.py",
     "tests/test_potomne.py::test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne",
+    "tests/test_potomne.py::test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run",
     "tests/test_struktura_testow.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",
+    "tests/test_wycofane_pojecia.py",
 )
 STATIC_JOBS = ("ruff", "mypy")
 MODULE_ROOTS = ("src", ".", "tools")
@@ -61,29 +64,21 @@ GREEN = "szybko-zielone.json"
 
 @dataclass(frozen=True)
 class Selection:
-    """Pliki testów do sprawdzenia, każdy z odciskiem plików, od których zależy; ``full``: powód pełnego zestawu."""
-
-    tests: dict[str, str]
-    full: str | None = None
+    fingerprints: dict[str, str]
+    full_reason: str | None = None
 
 
 @dataclass(frozen=True)
 class Dependencies:
-    """Od czego zależy każdy plik Pythona.
-
-    ``follows`` jest przechodnie (import, skrypt, który test uruchamia, plik, który czyta), a ``reads`` nie: pliki
-    katalogu, który wskazuje test.
-    """
-
-    follows: dict[str, set[str]]
-    reads: dict[str, set[str]]
+    depends_on: dict[str, set[str]]
+    folder_files: dict[str, set[str]]
 
     @classmethod
     def of(cls, root: Path, files: frozenset[str]) -> Dependencies:
         modules = _modules(files)
         directories = {str(parent) for path in files for parent in PurePosixPath(path).parents if str(parent) != "."}
-        follows: dict[str, set[str]] = defaultdict(set)
-        reads: dict[str, set[str]] = defaultdict(set)
+        depends_on: dict[str, set[str]] = defaultdict(set)
+        folder_files: dict[str, set[str]] = defaultdict(set)
         for path in sorted(files):
             if not _is_python(root, path):
                 continue
@@ -92,37 +87,32 @@ class Dependencies:
             except (OSError, SyntaxError, ValueError):
                 continue
             for name in _imports(tree, path):
-                follows[path].update(_resolve(name, path, modules, files))
+                depends_on[path] |= _resolve(name, path, modules, files)
             if path.startswith("tests/"):
                 for text in _texts(tree):
                     if text in modules:
-                        follows[path] |= _resolve(text, path, modules, files)
-                    named, under = _named(text, files, directories)
-                    follows[path] |= named
-                    reads[path] |= under
-            follows[path].update(_packages(path, files))
-            follows[path].discard(path)
-        return cls(follows, reads)
+                        depends_on[path] |= _resolve(text, path, modules, files)
+                    depends_on[path] |= _files_named(text, files)
+                    folder_files[path] |= _folder_files(text, files, directories)
+            depends_on[path] |= _packages(path, files)
+            depends_on[path].discard(path)
+        return cls(depends_on, folder_files)
 
-    def inputs(self, test: str) -> set[str]:
-        """Plik testu i pliki, od których zależy."""
-
+    def inputs_of(self, test: str) -> set[str]:
         found, pending = {test}, [test]
         while pending:
-            for target in self.follows.get(pending.pop(), set()) - found:
+            for target in self.depends_on.get(pending.pop(), set()) - found:
                 found.add(target)
                 pending.append(target)
-        return found | {path for source in found for path in self.reads.get(source, set())}
+        return found | {path for source in found for path in self.folder_files.get(source, set())}
 
-    def dependents(self, changed: Iterable[str]) -> set[str]:
-        """Zmienione pliki i pliki, które od nich zależą."""
-
+    def affected_by(self, changed: Iterable[str]) -> set[str]:
         back: dict[str, set[str]] = defaultdict(set)
-        for source, targets in self.follows.items():
+        for source, targets in self.depends_on.items():
             for target in targets:
                 back[target].add(source)
         changed = set(changed)
-        found = changed | {source for source, under in self.reads.items() if under & changed}
+        found = changed | {source for source, folder in self.folder_files.items() if folder & changed}
         pending = list(found)
         while pending:
             for source in back[pending.pop()] - found:
@@ -150,8 +140,6 @@ def _module_roots(files: frozenset[str]) -> list[str]:
 
 
 def _modules(files: frozenset[str]) -> dict[str, set[str]]:
-    """Nazwa modułu → pliki, które ją dają, względem katalogów na ``sys.path`` (``src``, korzeń, ``tools``, skilli)."""
-
     modules: dict[str, set[str]] = defaultdict(set)
     roots = _module_roots(files)
     for path in files:
@@ -199,12 +187,6 @@ def _packages(path: str, files: frozenset[str]) -> set[str]:
 
 
 def _texts(tree: ast.AST) -> set[str]:
-    """Napisy modułu i całe ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``).
-
-    Początek ścieżki się nie liczy: ``ROOT / ".agents" / "skills"`` z ``ROOT / ".agents" / "skills" / "x"`` wskazałby
-    wszystkie skille.
-    """
-
     def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
         return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
 
@@ -216,6 +198,7 @@ def _texts(tree: ast.AST) -> set[str]:
         return [None]
 
     nodes = list(ast.walk(tree))
+    # Tylko cała ścieżka: początek ``ROOT / ".agents" / "skills"`` łańcucha ``... / "x"`` wskazałby wszystkie skille.
     beginnings = {id(node.left) for node in nodes if is_path(node)}
     found = {node.value for node in nodes if isinstance(node, ast.Constant) and isinstance(node.value, str)}
     for node in nodes:
@@ -232,26 +215,28 @@ def _texts(tree: ast.AST) -> set[str]:
     return found
 
 
-def _named(text: str, files: frozenset[str], directories: set[str]) -> tuple[set[str], set[str]]:
-    """Pliki, które napis wskazuje (ścieżka albo jednoznaczna nazwa pliku), i pliki katalogu, który wskazuje (ścieżka).
+def _as_path(text: str) -> str | None:
+    path = text.strip().replace("\\", "/").strip("/")
+    if ("/" in path or "." in path) and path.strip(".") and not any(c.isspace() for c in path):
+        return path
+    return None
 
-    Nazwa pliku, którą nosi kilka plików (``SKILL.md``), to zwykle plik w repozytorium testu, a nie w tym.
-    """
 
-    text = text.strip().replace("\\", "/").strip("/")
-    if "/" not in text and "." not in text or not text.strip(".") or any(c.isspace() for c in text):
-        return set(), set()
-    named = {path for path in files if path == text or path.endswith("/" + text)}
-    if "/" not in text and len(named) > 1:
-        named = set()
-    under: set[str] = set()
-    if "/" in text:
-        for directory in directories:
-            if directory == text or directory.endswith("/" + text):
-                under.update(path for path in files if str(PurePosixPath(path).parent) == directory)
-    if any(PurePosixPath(path).name == "__init__.py" for path in under):
-        under = set()
-    return named, under
+def _files_named(text: str, files: frozenset[str]) -> set[str]:
+    if (path := _as_path(text)) is None:
+        return set()
+    named = {file for file in files if file == path or file.endswith("/" + path)}
+    # Nazwa, którą nosi kilka plików (``SKILL.md``), to zwykle plik w repozytorium, które test sam buduje.
+    return set() if "/" not in path and len(named) > 1 else named
+
+
+def _folder_files(text: str, files: frozenset[str], directories: set[str]) -> set[str]:
+    if (path := _as_path(text)) is None or "/" not in path:
+        return set()
+    folders = {folder for folder in directories if folder == path or folder.endswith("/" + path)}
+    found = {file for file in files if str(PurePosixPath(file).parent) in folders}
+    # Pakiet test zna przez importy; jego katalog w napisie to ścieżka w repozytorium, które test sam buduje.
+    return set() if any(PurePosixPath(file).name == "__init__.py" for file in found) else found
 
 
 def _is_test(path: str) -> bool:
@@ -265,14 +250,12 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
     tests = {path for path in files if _is_test(path) and (root / path).is_file()}
     full = sorted(changed & set(FULL))
     if not full:
-        tests &= dependencies.dependents(changed)
-    fingerprints = {test: _fingerprint(root, dependencies.inputs(test)) for test in sorted(tests)}
+        tests &= dependencies.affected_by(changed)
+    fingerprints = {test: _fingerprint(root, dependencies.inputs_of(test)) for test in sorted(tests)}
     return Selection(fingerprints, f"zmiana w {', '.join(full)}" if full else None)
 
 
 def _fingerprint(root: Path, inputs: Iterable[str]) -> str:
-    """Odcisk treści plików, od których test zależy, z konfiguracją z ``FULL`` i wersją Pythona."""
-
     digest = hashlib.sha256(sys.version.encode())
     for path in sorted({*inputs, *FULL}):
         try:
@@ -285,8 +268,6 @@ def _fingerprint(root: Path, inputs: Iterable[str]) -> str:
 
 @dataclass(frozen=True)
 class GreenMemory:
-    """Pliki testów, które przeszły, z odciskiem plików, od których zależą; każdy worktree ma własną w katalogu gita."""
-
     path: Path
 
     @classmethod
@@ -295,12 +276,10 @@ class GreenMemory:
 
     def to_run(self, selection: Selection) -> list[str]:
         green = self._recalled()
-        return [test for test, fingerprint in selection.tests.items() if green.get(test) != fingerprint]
+        return [test for test, fingerprint in selection.fingerprints.items() if green.get(test) != fingerprint]
 
     def remember(self, selection: Selection, junit: Path, ran: Iterable[str]) -> None:
-        """Zapamiętuje pliki z ``ran``, których każdy przypadek w raporcie JUnit przeszedł albo został pominięty."""
-
-        green = {test: selection.tests[test] for test in _passed(junit, ran)}
+        green = {test: selection.fingerprints[test] for test in _passed(junit, ran)}
         written = self.path.with_suffix(".tmp")
         written.write_text(json.dumps({**self._recalled(), **green}, indent=1, sort_keys=True), encoding="utf-8")
         written.replace(self.path)
@@ -346,8 +325,6 @@ def _files(root: Path) -> frozenset[str]:
 
 
 def _changed(base: str) -> frozenset[str]:
-    """Pliki zmienione od ``merge-base`` HEAD z ``base``: zacommitowane, niezacommitowane i nieśledzone."""
-
     fork = _git("merge-base", "HEAD", base).strip()
     diff = _git("diff", "-z", "--name-only", "--no-renames", fork)
     untracked = _git("ls-files", "-z", "--others", "--exclude-standard")
@@ -355,9 +332,8 @@ def _changed(base: str) -> frozenset[str]:
 
 
 def _merge_with(base: str) -> str | None:
-    """Commit HEAD połączony z ``base``, jak drzewo CI PR-u; None, gdy ``base`` jest już w HEAD albo merge ma konflikt."""
-
-    if subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd=ROOT, capture_output=True).returncode == 0:
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd=ROOT, capture_output=True, check=False)
+    if ancestor.returncode == 0:
         return None
     merged = subprocess.run(
         ["git", "merge-tree", "--write-tree", "--name-only", "HEAD", base],
@@ -365,6 +341,7 @@ def _merge_with(base: str) -> str | None:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        check=False,
     )
     tree, *conflicts = merged.stdout.split("\n\n", 1)[0].splitlines()
     if merged.returncode != 0:
@@ -380,32 +357,17 @@ def _pytest_arguments(tests: Iterable[str], junit: Path) -> tuple[str, ...]:
     return (*tests, *structure, f"--junitxml={junit}")
 
 
-def _own_cache(step: ci_lokalnie.Step) -> ci_lokalnie.Step:
-    """Cache mypy zależy od ``--platform``: przebiegi dla dwóch systemów w jednym cache unieważniają go sobie nawzajem."""
-
-    if "--platform" not in step.command or "--cache-dir" in step.command:
-        return step
-    platform = step.command[step.command.index("--platform") + 1]
-    return replace(step, command=(*step.command, "--cache-dir", f".mypy_cache/{platform}"))
-
-
 def _pytest(root: Path, name: str, arguments: Iterable[str]) -> ci_lokalnie.Step:
     pytest = next(step for step in ci_lokalnie._steps(root) if step.job == "pytest")
     return replace(pytest, name=name, command=(*pytest.command, *arguments))
 
 
 def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.Step]:
-    static = (_own_cache(step) for step in ci_lokalnie._steps(root) if step.job in STATIC_JOBS)
+    static = (step for step in ci_lokalnie._steps(root) if step.job in STATIC_JOBS)
     return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit))]
 
 
 def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
-    """Uruchamia kroki w ``root`` naraz i drukuje wynik każdego jedną linią, po kolei; zwraca nazwy kroków, które padły.
-
-    Kroki od siebie nie zależą, więc czas to najdłuższy krok, a nie ich suma: zimny mypy w świeżym worktree
-    biegnie w trakcie testów.
-    """
-
     stop = threading.Event()
 
     def run(step: ci_lokalnie.Step) -> tuple[bool, str, float]:
@@ -431,11 +393,11 @@ def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
 
 
 def _describe(selection: Selection, to_run: list[str], changed: frozenset[str], base: str) -> str:
-    kind = f"pełny zestaw ({selection.full})" if selection.full else "dotknięte zmianą"
+    kind = f"pełny zestaw ({selection.full_reason})" if selection.full_reason else "dotknięte zmianą"
     names = ", ".join(PurePosixPath(path).name for path in to_run) or "brak"
-    green = len(selection.tests) - len(to_run)
+    green = len(selection.fingerprints) - len(to_run)
     return (
-        f"Zmiana: {len(changed)} plików od {base}. Testy {kind}: {len(selection.tests)},"
+        f"Zmiana: {len(changed)} plików od {base}. Testy {kind}: {len(selection.fingerprints)},"
         f" do uruchomienia {len(to_run)} ({names}), zielone na tych samych plikach {green}; i testy struktury."
     )
 

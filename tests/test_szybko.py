@@ -1,8 +1,4 @@
-"""``tools/szybko.py``: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą, raz na tych samych plikach.
-
-Każdy test buduje małe repozytorium z narzędziami checkoutu i gałęzią ``origin/main``. ``tests/test_b.py`` w nim
-zawsze pada, więc szybkie sprawdzenie, które go uruchomi, choć zmiana go nie dotyka, kończy się porażką.
-"""
+"""``tools/szybko.py``: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą, raz na tych samych plikach."""
 
 from __future__ import annotations
 
@@ -22,8 +18,9 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import szybko  # noqa: E402
 
-# Testy z tabeli reguł w AGENTS.md, które szybko uruchamia tylko jako dotknięte zmianą, każdy z powodem.
-BY_CHANGE_ONLY: dict[str, str] = {}
+BY_CHANGE_ONLY = {
+    "tests/test_brama_pre_push.py": "sprawdza zachowanie bramy pushem w repozytorium testu, a nie całe repozytorium",
+}
 
 BASE_FILES = {
     ".agents/skills/verify-x/scripts/skrypt.py": "WARTOSC = 1\n",
@@ -37,7 +34,7 @@ BASE_FILES = {
     "tests/test_posredni.py": (
         "from pakiet.posredni import podwojona\n\n\ndef test_podwojona() -> None:\n    assert podwojona() == 2\n"
     ),
-    "tests/test_b.py": "from pakiet.b import inna\n\n\ndef test_niedotkniety() -> None:\n    assert inna() == 2\n",
+    "tests/test_zawsze_pada.py": "from pakiet.b import inna\n\n\ndef test_niedotkniety() -> None:\n    assert inna() == 2\n",
     "tools/narzedzie.py": "print('wynik')\n",
     "tests/test_narzedzie.py": (
         "from pathlib import Path\nimport subprocess\nimport sys\n\n"
@@ -88,6 +85,7 @@ def _szybko(repo: Path, *arguments: str, runs: Path | None = None) -> subprocess
         capture_output=True,
         text=True,
         encoding="utf-8",
+        check=False,
     )
 
 
@@ -107,7 +105,7 @@ def test_zmiana_modulu_uruchamia_testy_ktore_go_importuja_a_pozostalych_nie(tmp_
 
     assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, "SZYBKO FAIL | pytest")
     assert "FAILED tests/test_posredni.py::test_podwojona" in answered.stdout
-    assert "test_b" not in answered.stdout
+    assert "test_zawsze_pada" not in answered.stdout
 
 
 def test_zmiana_bez_bledu_konczy_sie_ok_choc_niedotkniety_test_pada(tmp_path: Path) -> None:
@@ -167,7 +165,7 @@ def test_test_jest_dotkniety_zmiana_pliku_ktory_wskazuje_sciezka(tmp_path: Path,
     answered = _szybko(repo)
 
     assert f"FAILED {failing}" in answered.stdout
-    assert "test_b" not in answered.stdout
+    assert "test_zawsze_pada" not in answered.stdout
 
 
 @pytest.mark.parametrize("changed", ["pyproject.toml", "requirements.txt", "tests/conftest.py"])
@@ -178,7 +176,7 @@ def test_zmiana_konfiguracji_albo_conftest_uruchamia_pelny_zestaw(tmp_path: Path
 
     answered = _szybko(repo)
 
-    assert "FAILED tests/test_b.py::test_niedotkniety" in answered.stdout
+    assert "FAILED tests/test_zawsze_pada.py::test_niedotkniety" in answered.stdout
     assert answered.returncode == 1
 
 
@@ -233,8 +231,9 @@ def test_blad_typu_tylko_na_windows_wywraca_szybkie_sprawdzenie(tmp_path: Path) 
 
     answered = _szybko(repo)
 
-    last = answered.stdout.splitlines()[-1]
-    assert (answered.returncode, last) == (1, "SZYBKO FAIL | mypy (Windows)"), answered.stdout
+    # Na Windows zwykły krok mypy też sprawdza Windows, więc pada razem z krokiem dla Windows.
+    expected = "SZYBKO FAIL | mypy, mypy (Windows)" if sys.platform == "win32" else "SZYBKO FAIL | mypy (Windows)"
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, expected), answered.stdout
 
 
 def test_nieznana_baza_konczy_sie_jedna_linia_wyniku(tmp_path: Path) -> None:
@@ -257,6 +256,7 @@ def test_kazdy_test_z_tabeli_regul_w_agents_md_jest_testem_struktury_albo_ma_pow
         capture_output=True,
         text=True,
         encoding="utf-8",
+        check=False,
     )
 
     undecided = named - structure - BY_CHANGE_ONLY.keys()
