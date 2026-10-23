@@ -22,14 +22,14 @@ from rozliczenia.centrum.report_box import (
     REPOSITORY,
     CommentOutcome,
     Commented,
-    FindOutcome,
+    Issue,
+    IssuesOutcome,
     Label,
     Refused,
     SendOutcome,
     Sent,
     StatesOutcome,
     Unreachable,
-    fingerprint_line,
 )
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
@@ -88,9 +88,9 @@ class FakeReportBox:
     issue dostaje kolejny numer i jest otwarte, dopóki Maks nie zamknie jego numeru
     (``close``); komentarz do issue, którego nie ma, to odmowa jak 404 GitHuba. ``sent`` to Zgłoszenia (etykieta ``zgloszenie``), a ``issues_with``
     issue innej etykiety. ``search_failure`` to odmowa albo brak połączenia przy
-    każdym pytaniu o otwarte Zgłoszenie, ``states_failure`` to porażka każdego
+    każdym pytaniu o issue z etykietą, ``states_failure`` to porażka każdego
     zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
-    ``search_hold`` to skrzynka, która na pytanie o otwarte Zgłoszenie odpowiada
+    ``search_hold`` to skrzynka, która na pytanie o issue z etykietą odpowiada
     dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
     mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
     z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy.
@@ -150,19 +150,17 @@ class FakeReportBox:
             comment_id = sum(len(issue.comments) for issue in self.issues)
         return Commented(comment_id, f"https://github.com/{REPOSITORY}/issues/{number}#issuecomment-{comment_id}")
 
-    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+    def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         self.searching.set()
         if self.search_hold is not None:
             self.search_hold.wait()
         if self.search_failure is not None:
             return self.search_failure
-        line = fingerprint_line(fingerprint)
-        found = [
-            issue.number
-            for issue in self.sent
-            if issue.number not in self.closed and line in issue.body.splitlines()
-        ]
-        return found[-1] if found else None
+        return tuple(
+            Issue(issue.number, issue.body)
+            for issue in self.issues_with(label)
+            if include_closed or issue.number not in self.closed
+        )
 
     def close(self, number: int) -> None:
         self.closed.add(number)

@@ -13,8 +13,10 @@ odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable`` (brak sieci
 albo skrzynka nie odpowiedziała jak zwykle). Klucz, którego nie da się wysłać
 w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused`` bez
 zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem,
-komentarz ``Commented`` z identyfikatorem i adresem, a znalezienie otwartego
-Zgłoszenia po odcisku problemu (``find_open``) daje numer issue albo ``None``.
+komentarz ``Commented`` z identyfikatorem i adresem, a pytanie o issue z
+etykietą (``labelled_issues``) daje ich numery i treści. ``find_issue`` wybiera z nich
+najnowsze issue z wierszem rozpoznawczym: odciskiem problemu Zgłoszenia albo
+tokenem okresu Kontroli ilości.
 """
 
 from __future__ import annotations
@@ -51,6 +53,14 @@ class Commented:
 
 
 @dataclass(frozen=True)
+class Issue:
+    """Issue z etykietą w skrzynce: numer i treść (pusta, gdy issue jej nie ma)."""
+
+    number: int
+    body: str
+
+
+@dataclass(frozen=True)
 class Refused:
     """Skrzynka odmówiła: klucz wygasł, jest nieważny albo nie ma dostępu do repozytorium Zgłoszeń."""
 
@@ -62,7 +72,8 @@ class Unreachable:
 
 SendOutcome = Sent | Refused | Unreachable
 CommentOutcome = Commented | Refused | Unreachable
-# Numer otwartego Zgłoszenia problemu albo ``None``, gdy otwartego nie ma (nigdy nie było albo Maks je zamknął).
+IssuesOutcome = tuple[Issue, ...] | Refused | Unreachable
+# Numer znalezionego issue albo ``None``, gdy issue z tym wierszem nie ma (nigdy nie było albo Maks je zamknął).
 FindOutcome = int | None | Refused | Unreachable
 
 # Stan Zgłoszenia w skrzynce: ``open`` czeka na naprawę, ``closed`` Maks zamknął po naprawie.
@@ -79,8 +90,9 @@ class ReportBox(Protocol):
     def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
         """Dopisuje komentarz do issue ``number``; nigdy nie rzuca wyjątku sieci."""
         ...
-    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
-        """Otwarte Zgłoszenie z odciskiem problemu ``fingerprint``; nigdy nie rzuca wyjątku sieci."""
+
+    def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
+        """Otwarte issue z etykietą ``label``, z ``include_closed`` także zamknięte; nigdy nie rzuca wyjątku sieci."""
         ...
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
@@ -109,15 +121,18 @@ REPOSITORY: Final = "MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia"
 _API: Final = "https://api.github.com"
 _TIMEOUT_S: Final = 15.0
 _REFUSALS: Final = frozenset({401, 403, 404})
-# Otwarte Zgłoszenia przegląda się stronami po 100; dziesięć stron to więcej, niż Maks kiedykolwiek będzie miał otwartych.
+# Issue z etykietą przegląda się stronami po 100; dziesięć stron to więcej, niż jedna etykieta kiedykolwiek będzie miała.
 _PAGE_SIZE: Final = 100
 _MAX_PAGES: Final = 10
 
 
-def fingerprint_line(fingerprint: str) -> str:
-    """Wiersz treści Zgłoszenia z odciskiem problemu, po którym skrzynka znajduje otwarte Zgłoszenie."""
+def find_issue(box: ReportBox, label: Label, line: str, *, include_closed: bool, key: str) -> FindOutcome:
+    """Najnowsze (o najwyższym numerze) issue z etykietą ``label`` i dokładnie wierszem ``line`` w treści."""
 
-    return f"- Odcisk problemu: {fingerprint}"
+    issues = box.labelled_issues(label, include_closed=include_closed, key=key)
+    if isinstance(issues, Refused | Unreachable):
+        return issues
+    return max((issue.number for issue in issues if line in issue.body.splitlines()), default=None)
 
 
 def urllib_transport(request: HttpRequest) -> HttpResponse:
@@ -159,27 +174,25 @@ class GitHubReportBox:
         comment_id, url = document.get("id"), document.get("html_url")
         return Commented(comment_id, url) if isinstance(comment_id, int) and isinstance(url, str) else Unreachable()
 
-    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
-        """Przegląda otwarte issue z etykietą ``zgloszenie`` strona po stronie i szuka wiersza z odciskiem problemu."""
+    def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
+        """Issue z etykietą strona po stronie; wpis bez numeru (nie issue) pomija, a porażka strony to porażka całości."""
 
         if not _sendable(key):
             return Refused()
-        line = fingerprint_line(fingerprint)
+        state = "all" if include_closed else "open"
+        found: list[Issue] = []
         for page in range(1, _MAX_PAGES + 1):
-            url = f"{_API}/repos/{REPOSITORY}/issues?state=open&labels={REPORT_LABEL}&per_page={_PAGE_SIZE}&page={page}"
+            url = f"{_API}/repos/{REPOSITORY}/issues?state={state}&labels={label}&per_page={_PAGE_SIZE}&page={page}"
             answer = self._exchange(HttpRequest(method="GET", url=url, headers=_headers(key), body=None))
             if not isinstance(answer, HttpResponse):
                 return answer
-            issues = _json(answer.body) if answer.status == 200 else None
-            if not isinstance(issues, list):
+            entries = _json(answer.body) if answer.status == 200 else None
+            if not isinstance(entries, list):
                 return Unreachable()
-            for issue in issues:
-                body = issue.get("body") if isinstance(issue, dict) else None
-                if isinstance(body, str) and line in body.splitlines() and isinstance(issue.get("number"), int):
-                    return int(issue["number"])
-            if len(issues) < _PAGE_SIZE:
+            found.extend(issue for issue in map(_issue, entries) if issue is not None)
+            if len(entries) < _PAGE_SIZE:
                 break
-        return None
+        return tuple(found)
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
         if not _sendable(key):
@@ -230,6 +243,13 @@ def _headers(key: str) -> dict[str, str]:
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "centrum-rozliczen",
     }
+
+
+def _issue(entry: object) -> Issue | None:
+    if not isinstance(entry, dict) or not isinstance(entry.get("number"), int):
+        return None
+    body = entry.get("body")
+    return Issue(entry["number"], body if isinstance(body, str) else "")
 
 
 def _json_field(body: bytes, name: str) -> object:

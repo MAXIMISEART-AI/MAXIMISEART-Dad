@@ -19,13 +19,17 @@ from rozliczenia.centrum.report_box import (
     GitHubReportBox,
     HttpRequest,
     HttpResponse,
+    Issue,
+    IssuesOutcome,
     Label,
     Refused,
     SendOutcome,
     Sent,
     StatesOutcome,
     Unreachable,
+    find_issue,
 )
+from rozliczenia.centrum.reports import fingerprint_line
 
 TITLE = "BRAK_WZORCA: Nie znaleziono wzorca."
 BODY = "## Komunikat\n"
@@ -121,9 +125,86 @@ def pages(*answers: list[dict[str, object]]) -> Callable[[], HttpResponse]:
     return lambda: HttpResponse(200, json.dumps(next(remaining)).encode())
 
 
+def issues_with(
+    answer: Callable[[], HttpResponse], *, include_closed: bool = False
+) -> tuple[IssuesOutcome, ScriptedTransport]:
+    transport = ScriptedTransport(answer)
+    box = GitHubReportBox(transport=transport)
+    return box.labelled_issues("kontrola-ilosci", include_closed=include_closed, key=KEY), transport
+
+
+def test_otwarte_issue_z_etykieta_to_ich_numery_i_tresci() -> None:
+    outcome, transport = issues_with(
+        pages([{"number": 3, "body": "a\r\nb", "state": "open"}, {"number": 8, "body": None}, {"body": "bez numeru"}])
+    )
+
+    assert outcome == (Issue(3, "a\r\nb"), Issue(8, ""))
+    [request] = transport.requests
+    assert (request.method, request.url, request.body) == (
+        "GET",
+        f"{ISSUES}?state=open&labels=kontrola-ilosci&per_page=100&page=1",
+        None,
+    )
+    assert request.headers["Authorization"] == f"Bearer {KEY}"
+
+
+def test_z_zamknietymi_to_wszystkie_issue_z_etykieta() -> None:
+    _, transport = issues_with(pages([]), include_closed=True)
+
+    [request] = transport.requests
+    assert request.url == f"{ISSUES}?state=all&labels=kontrola-ilosci&per_page=100&page=1"
+
+
+def test_issue_z_etykieta_sa_zbierane_ze_wszystkich_stron() -> None:
+    full_page = [{"number": number, "body": ""} for number in range(200, 100, -1)]
+
+    outcome, transport = issues_with(pages(full_page, [{"number": 5, "body": "ostatnie"}]))
+
+    assert isinstance(outcome, tuple)
+    assert [found.number for found in outcome] == [*range(200, 100, -1), 5]
+    assert [request.url.rsplit("=", 1)[1] for request in transport.requests] == ["1", "2"]
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_odmowa_autoryzacji_przy_szukaniu_to_odmowa_skrzynki(status: int) -> None:
+    outcome, _ = issues_with(lambda: HttpResponse(status, b'{"message": "Bad credentials"}'))
+
+    assert outcome == Refused()
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        no_network,
+        cut_off,
+        lambda: HttpResponse(502, b"<html>Bad gateway</html>"),
+        lambda: HttpResponse(200, b'{"message": "to nie jest lista"}'),
+    ],
+    ids=["brak-sieci", "urwana-odpowiedz", "awaria-githuba", "nieczytelna-odpowiedz"],
+)
+def test_brak_sieci_albo_niezwykla_odpowiedz_przy_szukaniu_to_skrzynka_nieosiagalna(
+    answer: Callable[[], HttpResponse],
+) -> None:
+    outcome, _ = issues_with(answer)
+
+    assert outcome == Unreachable()
+
+
+def test_brak_sieci_na_drugiej_stronie_to_skrzynka_nieosiagalna() -> None:
+    full_page = [issue(number, OTHER_FINGERPRINT) for number in range(100, 200)]
+    answers = iter([lambda: HttpResponse(200, json.dumps(full_page).encode()), no_network])
+
+    outcome, _ = issues_with(lambda: next(answers)())
+
+    assert outcome == Unreachable()
+
+
 def find_with(answer: Callable[[], HttpResponse]) -> tuple[FindOutcome, ScriptedTransport]:
     transport = ScriptedTransport(answer)
-    return GitHubReportBox(transport=transport).find_open(FINGERPRINT, key=KEY), transport
+    found = find_issue(
+        GitHubReportBox(transport=transport), "zgloszenie", fingerprint_line(FINGERPRINT), include_closed=False, key=KEY
+    )
+    return found, transport
 
 
 def test_otwarte_issue_z_odciskiem_problemu_to_znalezione_zgloszenie() -> None:
@@ -133,12 +214,21 @@ def test_otwarte_issue_z_odciskiem_problemu_to_znalezione_zgloszenie() -> None:
 
     assert outcome == 7
     [request] = transport.requests
-    assert (request.method, request.url, request.body) == (
-        "GET",
-        f"{ISSUES}?state=open&labels=zgloszenie&per_page=100&page=1",
-        None,
-    )
-    assert request.headers["Authorization"] == f"Bearer {KEY}"
+    assert request.url == f"{ISSUES}?state=open&labels=zgloszenie&per_page=100&page=1"
+
+
+def test_z_kilku_issue_z_wierszem_wygrywa_najnowsze() -> None:
+    outcome, _ = find_with(pages([issue(4, FINGERPRINT), issue(9, FINGERPRINT), issue(6, FINGERPRINT)]))
+
+    assert outcome == 9
+
+
+def test_wiersz_musi_byc_caly_a_nie_poczatkiem_innego() -> None:
+    prefixed = {"number": 4, "body": f"x {fingerprint_line(FINGERPRINT)}"}
+
+    outcome, _ = find_with(pages([issue(3, FINGERPRINT + "0"), prefixed]))
+
+    assert outcome is None
 
 
 def test_bez_otwartego_issue_z_odciskiem_nie_ma_zgloszenia_takze_po_przejrzeniu_kolejnych_stron() -> None:
@@ -156,28 +246,17 @@ def test_otwarte_issue_z_odciskiem_na_drugiej_stronie_to_znalezione_zgloszenie()
     assert outcome == 42
 
 
-@pytest.mark.parametrize("status", [401, 403, 404])
-def test_odmowa_autoryzacji_przy_szukaniu_to_odmowa_skrzynki(status: int) -> None:
-    outcome, _ = find_with(lambda: HttpResponse(status, b'{"message": "Bad credentials"}'))
-
-    assert outcome == Refused()
-
-
 @pytest.mark.parametrize(
-    "answer",
-    [
-        no_network,
-        lambda: HttpResponse(502, b"<html>Bad gateway</html>"),
-        lambda: HttpResponse(200, b'{"message": "to nie jest lista"}'),
-    ],
-    ids=["brak-sieci", "awaria-githuba", "nieczytelna-odpowiedz"],
+    ("answer", "expected"),
+    [(lambda: HttpResponse(401, b"{}"), Refused()), (no_network, Unreachable())],
+    ids=["odmowa", "brak-sieci"],
 )
-def test_brak_sieci_albo_niezwykla_odpowiedz_przy_szukaniu_to_skrzynka_nieosiagalna(
-    answer: Callable[[], HttpResponse],
+def test_porazka_skrzynki_przy_szukaniu_wiersza_to_ta_sama_porazka(
+    answer: Callable[[], HttpResponse], expected: Refused | Unreachable
 ) -> None:
     outcome, _ = find_with(answer)
 
-    assert outcome == Unreachable()
+    assert outcome == expected
 
 
 def issue_in(state: str) -> HttpResponse:
@@ -278,7 +357,7 @@ def test_brak_sieci_albo_niezwykla_odpowiedz_przy_komentarzu_to_skrzynka_nieosia
 OPERATIONS: dict[str, Callable[[GitHubReportBox, str], object]] = {
     "open_issue": lambda box, key: box.open_issue("kontrola-ilosci", TITLE, BODY, key=key),
     "comment": lambda box, key: box.comment(12, BODY, key=key),
-    "find_open": lambda box, key: box.find_open(FINGERPRINT, key=key),
+    "labelled_issues": lambda box, key: box.labelled_issues("kontrola-ilosci", include_closed=True, key=key),
     "states": lambda box, key: box.states([7], key=key),
 }
 

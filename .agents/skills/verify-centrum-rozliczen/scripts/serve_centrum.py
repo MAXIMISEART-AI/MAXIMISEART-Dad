@@ -38,8 +38,10 @@ directory, ``<root>/skrzynka-zgloszen/``: each issue Centrum opens (a Zgłoszeni
 Dad sends, or a Kontrola ilości Centrum sends by itself) becomes
 ``<number>.json`` with its title, body, label, comments, and ``state`` (``open``; the
 drive may edit it to ``closed``, which Centrum reads as Maks closing the
-Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file labelled
-``zgloszenie`` whose body has its fingerprint line. The key is never written
+Zgłoszenie). Asked for the issues with a label, the skrzynka lists the files
+with that label, only the ``open`` ones unless closed issues are asked for too;
+Centrum takes the newest one whose body has its exact line (the fingerprint
+line of a Zgłoszenie's problem). The key is never written
 there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 Each question about the state of sent Zgłoszenia appends its numbers to
@@ -106,10 +108,10 @@ from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.processes import Processes  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
-    REPORT_LABEL,
     CommentOutcome,
     Commented,
-    FindOutcome,
+    Issue,
+    IssuesOutcome,
     IssueState,
     Label,
     Refused,
@@ -117,7 +119,6 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
     Sent,
     StatesOutcome,
     Unreachable,
-    fingerprint_line,
 )
 from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
 from rozliczenia.centrum.server import serve  # noqa: E402
@@ -192,18 +193,16 @@ class FileReportBox:
             comment_id = len(issue["comments"])
         return Commented(comment_id, f"{path.as_uri()}#komentarz-{comment_id}")
 
-    def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
+    def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
-        line = fingerprint_line(fingerprint)
         with self._lock:
             issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
-        found = [
-            issue["number"]
+        return tuple(
+            Issue(issue["number"], issue["body"])
             for issue in issues
-            if issue["labels"] == [REPORT_LABEL] and issue["state"] == "open" and line in issue["body"].splitlines()
-        ]
-        return min(found, default=None)
+            if issue["labels"] == [label] and (include_closed or issue["state"] == "open")
+        )
 
     def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
         with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:

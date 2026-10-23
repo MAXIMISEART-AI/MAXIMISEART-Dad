@@ -37,13 +37,14 @@ from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
     REPORT_LABEL,
+    FindOutcome,
     IssueState,
     Refused,
     ReportBox,
     SendOutcome,
     Sent,
     Unreachable,
-    fingerprint_line,
+    find_issue,
 )
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
@@ -191,6 +192,12 @@ class UpdateReport:
             "```",
         ]
         return _report(self.message, lines, fingerprint)
+
+
+def fingerprint_line(fingerprint: str) -> str:
+    """Wiersz treści Zgłoszenia z odciskiem problemu, po którym Centrum znajduje otwarte Zgłoszenie w skrzynce."""
+
+    return f"- Odcisk problemu: {fingerprint}"
 
 
 def _message_lines(message: Message) -> list[str]:
@@ -466,7 +473,7 @@ class Reports:
         key = self._key()
         outcome: SendOutcome | None = None
         if key is not None:
-            found = self._box.find_open(draft.report.fingerprint, key=key)
+            found = self._find_open(draft.report.fingerprint, key)
             if isinstance(found, int):
                 with self._lock:
                     self._open[draft.report.fingerprint] = found
@@ -556,14 +563,16 @@ class Reports:
         key = self._key()
         if key is None:
             return
-        box = self._box
-        answer = within(SEARCH_DEADLINE_S, lambda: (box.find_open(fingerprint, key=key),), name="skrzynka-szukaj")
+        answer = within(SEARCH_DEADLINE_S, lambda: (self._find_open(fingerprint, key),), name="skrzynka-szukaj")
         if answer is None:
             return
         [found] = answer
         if found is None or isinstance(found, int):
             with self._lock:
                 self._open[fingerprint] = found
+
+    def _find_open(self, fingerprint: str, key: str) -> FindOutcome:
+        return find_issue(self._box, REPORT_LABEL, fingerprint_line(fingerprint), include_closed=False, key=key)
 
     def _state_of(self, fingerprint: str) -> contract.ReportState:
         """Odpowiedź skrzynki z tej pracy Centrum, a bez niej ostatni znany stan wysłanego Zgłoszenia.
