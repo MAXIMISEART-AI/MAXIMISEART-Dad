@@ -42,5 +42,5 @@ Preconditions:
 - The files are written before the card shows the result, so read them after the card is finished; a file read while the Uruchomienie runs is not there yet.
 - File names start with the start time in whole seconds; sort by `started_at` inside the file, not by name, when two Uruchomienia start in the same second.
 - The card's Komunikaty have no code; only the file has it, so the drive checks codes against the messages it knows for these runs.
-- Logi surviving a restart of Centrum is not driven: the only restart of the feature set is `aktualizacja`'s, before any Uruchomienie of the run. `tests/test_centrum_logi_uruchomienia.py` covers it over HTTP.
+- Logi surviving a restart of Centrum is proved only in `all`: `kontrola-ilosci` restarts Centrum twice after Przebieg rozliczeń, so `logi-kazde-uruchomienie` finds the files of the Uruchomienia before those restarts. Alone, the feature does not restart; `tests/test_centrum_logi_uruchomienia.py` covers it over HTTP.
 - `tool.commit` is the commit Centrum ran when the Uruchomienie ended. In `all`, `powiadomienie-o-naprawie` pins another one (`github/tool-commit.txt`) after `przebieg-rozliczen`, so only the drive's own Uruchomienia are compared with `served_version`, and never with the clone's `HEAD`.
