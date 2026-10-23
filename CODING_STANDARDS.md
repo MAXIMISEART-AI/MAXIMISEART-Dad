@@ -46,6 +46,8 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 - Keep tests free of client addresses, order numbers, and row contents in output or logs.
   The one exception is the Zatrzymanie about gaps in `SKUTECZNE` (`ZLE_SKUTECZNE`, ADR 0004): its tests use synthetic `SKUTECZNE` values, because the Komunikat shows the exact cell content.
 - Before real files are used, run a preview without saving (`Podgląd bez zapisu`).
+- Name a file that a test reads or runs with a literal path (`ROOT / "docs" / "adr"`), not a path built from a variable.
+  `tools/szybko.py` selects tests from imports and such literals, so a path built at run time hides the dependency.
 - Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`.
   It mutates a copy of the checkout, never the checkout.
   Run it once for each test or check added or changed in a round of work.

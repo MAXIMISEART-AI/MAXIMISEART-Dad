@@ -8,6 +8,13 @@
 - Wydajność i środowisko taty: przy pomiarach wydajności albo decyzjach zależnych od jego sprzętu lub OneDrive przeczytaj [`docs/agents/komputer-taty.md`](docs/agents/komputer-taty.md).
 - Dowód, że test albo sprawdzenie gryzie: użyj [`tools/mutacje.py`](tools/mutacje.py). Sprawdzenie każdego commitu gałęzi, gdy go potrzebujesz (nic go nie wymaga): `tools/ci_lokalnie.py --kazdy-commit`. Nie pisz własnego silnika mutacji ani `git rebase --exec`.
 - PR jest gotowy do merge'a, gdy CI na GitHubie jest zielone dla HEAD PR i przeszły skille `verify-*`, które `tools/skille_dla_zmiany.py` wskazuje dla tej zmiany. `CI LOKALNIE OK` tego nie oznacza. Brama `pre-push` sprawdza push agenta tylko ruffem i mypy, a `tools/ci_lokalnie.py` służy do odtworzenia porażki z CI.
+- Po każdej zmianie uruchom `.venv/bin/python tools/szybko.py` (Windows: `py -3 tools/szybko.py`).
+  Sprawdza ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą od `origin/main`, a kończy się `SZYBKO OK` albo `SZYBKO FAIL | <kroki>`.
+  Na gałęzi zbudowanej na innej dodaj `--baza <gałąź rodzica>`.
+  Na mergu z `origin/main` z ostatniego `git fetch` uruchamia tylko testy struktury.
+  Nie uruchamia zadań CI `mutations` (skrypty mutacji skilli), `Frontend`, E2E ani Timing guard.
+  Krok pytest bierze 4 workery, chyba że ustawisz `PYTEST_XDIST_AUTO_NUM_WORKERS`.
+  `SZYBKO OK` nie jest gotowością.
 - Status `scalenie z main` na HEAD PR mówi, czy scalenie PR z obecnym `main` przechodzi bez konfliktu, ruff i mypy dla obu systemów (`tools/scalenia_pr.py` w workflow `scalenia.yml`, po każdym pushu do `main`).
   Ruleset go nie wymaga, więc gotowość PR od niego nie zależy.
   `failure` znaczy, że PR trzeba zaktualizować z `origin/main` i poprawić, a opis statusu nazywa pliki z konfliktem albo kroki, które padły.
@@ -40,6 +47,7 @@ Gdy operator Cię poprawi, popraw błąd i dopisz tu regułę. Jeśli reguła ju
 | `AGENTS.md` nie wymienia skilli `verify-*` z nazwy: routing żyje w ich `pilnuje:`, a ten plik odsyła do `tools/skille_dla_zmiany.py`. | `tests/test_skille_dla_zmiany.py`: `test_agents_md_nie_wymienia_skilli_verify` |
 | Pojęcie wycofane przez ADR (CLI, terminal, Rich, `run.py`, launchery `.cmd` taty) nie wraca. | `tests/test_wycofane_pojecia.py`: `src/`, `frontend/src`, skille, `docs/`, `README.md`, `requirements.txt`, `pyproject.toml`; linia o historii, także w starszym ADR-ze, którego Status prowadzi do ADR-u, który pojęcie wycofał, stoi cała w `tests/fixtures/historia_wycofanych_pojec.txt` |
 | Moduł testów importuje pomocniki tylko z `tests/fixtures`. | `tests/test_struktura_testow.py` |
+| Test z tej tabeli, który sprawdza całe repozytorium, biegnie przy każdym `tools/szybko.py`. | `tests/test_szybko.py`: każdy test z tabeli jest w `STRUCTURE` (`tools/szybko.py`) albo ma powód w `BY_CHANGE_ONLY` |
 | Po zmianie modeli serwera wygeneruj kontrakt Centrum na nowo. | zadanie CI `Frontend`, krok „Require the committed contract and build to be fresh” |
 | Opis PR obiecuje tylko tyle, ile potwierdzają mutacje z `tools/mutacje.py`. | nic: decyduje osąd (dwa przeglądy z 2026-10-21 i 2026-10-22) |
 | Test czeka na stan Centrum albo mierzy czas zegarem testu, nigdy stałą liczbą milisekund. | `tests/test_struktura_testow.py`: `time.sleep` (pod każdą nazwą z importu) i `Event().wait` w testach tylko w pętli, która pyta `time.monotonic()` o termin, w podróbce, którą test przekazuje dalej jako wartość, albo w teście z `SIMULATED_TIME` z powodem |
