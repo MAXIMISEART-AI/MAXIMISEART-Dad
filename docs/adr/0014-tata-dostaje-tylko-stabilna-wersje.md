@@ -70,16 +70,22 @@ CI na pushu do `main`.
   pokazuje `Jest nowsza wersja`, bo porównuje równość commitów, a nie
   przodków. Diagnoza tak samo: gdy nie znajdzie innej przyczyny Zatrzymania,
   wyjaśnia je nowszą wersją, a aktualizacja nic nie zmienia. Trwa to do
-  najbliższego zielonego runu CI na `main`, który wyprzedzi jego commit, więc
-  Maks mówi tacie o aktualizacji, gdy `main` jest zielony.
+  najbliższego zielonego runu CI na `main`, który wyprzedzi jego commit. Żeby
+  tego uniknąć, Maks po merge'u czeka, aż `git ls-remote origin
+  refs/heads/main refs/heads/stabilna` pokaże ten sam SHA, nie merguje nic
+  więcej, dopóki tata nie kliknie, i dopiero wtedy mówi mu o aktualizacji.
+  Tata staje wtedy dokładnie na `stabilna`.
 - Przed merge'em tej zmiany Maks zakłada `stabilna` na ostatnim commicie
   `main` z zielonym CI. Bez tego, do końca pierwszego zielonego runu po
   merge'u, Aktualność pokazuje `Nie sprawdzono`, Diagnoza „brak połączenia z
   GitHubem”, a aktualizacja `Masz najnowszą wersję.`.
-- Ruleset dla `stabilna` blokuje tylko force push i usunięcie. Skrypt i tak
-  nie używa force, ale ruleset chroni gałąź także przed ręcznym pushem.
-  Wymagany status albo ograniczenie aktualizacji zablokowałyby push z
-  `GITHUB_TOKEN`.
+- Ruleset dla `stabilna` blokuje force push i usunięcie, i nic więcej. Nie
+  zatrzymuje zwykłego pushu do przodu.
+- Po merge'u Maks sprawdza pierwszy run „Stabilna wersja” (`gh run list
+  --workflow stabilna.yml --limit 3`) i to, że `stabilna` stoi na commicie
+  merge'a. Run CI commitu sprzed merge'u, który skończy się po nim, daje
+  czerwony run promocji (w jego commicie nie ma skryptu), a `stabilna` się
+  nie zmienia.
 - Nowa instalacja u taty: `git clone`, potem `git reset --hard
   origin/stabilna` na `main` (README).
 
@@ -93,6 +99,15 @@ CI na pushu do `main`.
   `Masz najnowszą wersję.`, a Powiadomienie zostanie.
 - `verify-centrum-na-windowsie` to osobny workflow, uruchamiany tylko przy
   zmianach w plikach startu i aktualizacji. Nie jest warunkiem promocji.
+- Ręczny push na `stabilna` omija CI i trafia do taty. Gałąź agenta zbudowana
+  na `main` jest potomkiem `stabilna`, więc `git push origin HEAD:stabilna`
+  przechodzi jako push do przodu, a Centrum nie sprawdza, że `stabilna` leży
+  na `main`. Ruleset `main` wymaga zielonego `Required CI status`, a
+  `stabilna` takiej ochrony nie ma. Zabezpieczenie wybiera Maks, np. odmowę
+  pushu na `refs/heads/stabilna` w `tools/hooks/pre-push` z regułą w
+  `AGENTS.md`, wymagany status w rulesecie `stabilna` (trzeba sprawdzić, czy
+  przepuszcza push z `GITHUB_TOKEN`) albo pobieranie w Centrum także `main`
+  i odmowę, gdy `stabilna` na nim nie leży.
 - Nazwa `stabilna` jest umową z kodem u taty. Zmiana nazwy potrzebuje
   takiego samego przejścia jak to.
 
