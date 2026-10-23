@@ -66,6 +66,9 @@ def _matches_card(run: Run, record: Json, view: Json, mode: str) -> None:
         (record["summary"], record["notices"]) == (result["summary"], result["notices"]),
         "the summary and the notices equal the card",
     )
+
+
+def _names_running_tool(run: Run, record: Json) -> None:
     run.check(
         record["tool"] == {"wydanie": None, "commit": served_version(run)[0]},
         "the Logi name the commit of the tool Centrum runs",
@@ -113,6 +116,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
     view = _card(run, "logi-podglad")
     record = _one_new(run, before, "Podgląd bez zapisu")
     _matches_card(run, record, view, "podgląd")
+    _names_running_tool(run, record)
     run.check(
         _codes(record) == [("warning", "BRAK_MAPOWANIA")],
         "the warning keeps its code BRAK_MAPOWANIA, which the card does not show",
@@ -129,6 +133,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
     view = _card(run, "logi-zatrzymanie")
     record = _one_new(run, before, "Zatrzymanie")
     _matches_card(run, record, view, "zapis")
+    _names_running_tool(run, record)
     run.check(
         _codes(record) == [("stop", "NIEZNANY_WYKONAWCA")],
         "the Zatrzymanie is one message of kind stop with its code NIEZNANY_WYKONAWCA",
