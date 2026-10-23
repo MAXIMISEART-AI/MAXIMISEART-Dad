@@ -11,13 +11,25 @@ wydrukował na końcu ``MUTACJE OK``. Skrypt biegnie przez ``tools/potomne.py``:
 potomne giną po jego końcu i po limicie, a cały skrypt ginie razem z runnerem, choćby zabitym
 przez SIGKILL. Kończy się ``MUTACJE SKILLI OK`` albo ``MUTACJE SKILLI FAIL | <skrypty>``.
 
+Z ``--zmiany-od REF`` biegnie tylko skrypt, którego werdykt mogą zmienić zmiany od ``REF`` (jak
+w ``git diff REF...HEAD``, z niezacommitowanymi): zmieniony jest plik, który skrypt czyta, albo
+plik w folderze jego skilla. Skrypt czyta swój plik, sprawdzenia z poleceń swoich mutacji, pliki,
+które mutacje zmieniają, ich importy z repozytorium (każdy ``import`` w kodzie, także w funkcji) oraz
+infrastrukturę mutacji: ten runner z importami i ``INFRASTRUCTURE``. Skrypt, którego plików nie da
+się tak wyznaczyć (polecenie mutacji nie jest skryptem z repozytorium, kod się nie parsuje), biegnie
+zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
+
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
+    .venv/bin/python tools/mutacje_skilli.py --zmiany-od origin/main
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
+from collections.abc import Iterable
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -35,10 +47,105 @@ MENTION = re.compile(r"[\w.\\/-]*scripts[\\/]check_\w+_mutations\.py")
 VERDICT = "MUTACJE OK"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
+# Pliki spoza Pythona, od których zależy przebieg mutacji w CI: biblioteki, zadanie CI, końce linii kopii.
+INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
+# Katalogi, w których skrypty i sprawdzenia szukają importów (sys.path), poza katalogiem importującego pliku.
+IMPORT_ROOTS = (ROOT / "src", ROOT / "tools", ROOT)
 
 
 def _name(path: Path) -> str:
     return path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path.as_posix()
+
+
+def _git(*arguments: str) -> list[str]:
+    out = subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, check=True).stdout.decode("utf-8")
+    return [name for name in out.split("\0") if name]
+
+
+def _changed(base: str) -> set[str]:
+    return {
+        *_git("diff", "--name-only", "--no-renames", "-z", f"{base}...HEAD"),
+        *_git("diff", "--name-only", "--no-renames", "-z", "HEAD"),
+        *_git("ls-files", "-z", "--others", "--exclude-standard"),
+    }
+
+
+def _modules(name: str, roots: Iterable[Path]) -> set[Path]:
+    """Pliki, które może wykonać import ``name``: pakiety po drodze i sam moduł.
+
+    Także te, których nie ma: usunięty plik zmienia, co wykona import w niezmienionym pliku.
+    """
+
+    parts = name.split(".")
+    return {
+        candidate
+        for root in roots
+        for depth in range(1, len(parts) + 1)
+        for candidate in (root.joinpath(*parts[:depth], "__init__.py"), root.joinpath(*parts[:depth]).with_suffix(".py"))
+    }
+
+
+def _imports(path: Path) -> set[Path]:
+    roots = (*IMPORT_ROOTS, path.parent)
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                found |= _modules(alias.name, roots)
+        elif isinstance(node, ast.ImportFrom):
+            bases = (path.parents[node.level - 1],) if node.level else roots
+            module = node.module or ""
+            names = [module] if module else []
+            names += [f"{module}.{alias.name}" if module else alias.name for alias in node.names]
+            for name in names:
+                found |= _modules(name, bases)
+    return found
+
+
+def _closure(starts: Iterable[Path]) -> set[Path]:
+    seen: set[Path] = set()
+    todo = [path.resolve() for path in starts]
+    while todo:
+        path = todo.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.suffix == ".py" and path.is_file():
+            todo += [found.resolve() for found in _imports(path)]
+    return seen
+
+
+def reads(script: Path) -> set[str]:
+    """Pliki repozytorium, których zmiana może zmienić werdykt skryptu."""
+
+    spec = importlib.util.spec_from_file_location(f"_mutacje_{script.parents[1].name}", script)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"nie da się wczytać {_name(script)}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    starts = {script, Path(__file__), *(ROOT / name for name in INFRASTRUCTURE)}
+    for mutation in module.MUTATIONS:
+        checker = ROOT / mutation.command[0]
+        if checker.suffix != ".py" or not checker.is_file():
+            raise ValueError(f"polecenie mutacji {mutation.name!r} nie zaczyna się skryptem z repozytorium")
+        starts |= {checker, *(ROOT / edit.file for edit in mutation.edits)}
+    return {_name(path) for path in _closure(starts) if path.is_relative_to(ROOT)}
+
+
+def _why_run(script: Path, changed: set[str]) -> tuple[bool, str]:
+    """Czy skrypt biegnie przy tych zmianach, i dlaczego."""
+
+    folder = f"{_name(script.parents[1])}/"
+    touched = sorted(name for name in changed if name.startswith(folder))
+    try:
+        read = reads(script)
+    except Exception as error:  # noqa: BLE001 - skrypt, którego plików nie da się wyznaczyć, biegnie i pokazuje swój błąd
+        return True, f"nie da się wyznaczyć plików, które czyta: {error}"
+    touched += sorted(changed & read)
+    if touched:
+        return True, f"zmienione: {', '.join(touched[:3])}" + (f" i {len(touched) - 3} innych" if len(touched) > 3 else "")
+    files = sum((ROOT / name).is_file() for name in read)
+    return False, f"zmiany nie dotykają folderu skilla ani {files} plików repozytorium, które skrypt czyta"
 
 
 def _lost(scripts: list[Path]) -> dict[str, str]:
@@ -82,6 +189,7 @@ def _run(script: Path, limit_s: float) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--limit-s", type=float, default=LIMIT_S, help="Limit czasu jednego skryptu w sekundach.")
+    parser.add_argument("--zmiany-od", metavar="REF", help="Tylko skrypty, których werdykt mogą zmienić zmiany od REF.")
     args = parser.parse_args(argv)
     scripts = sorted(SKILLS.glob(f"*/scripts/{PATTERN}"))
     failed = _lost(scripts)
@@ -90,10 +198,15 @@ def main(argv: list[str] | None = None) -> int:
     if not scripts and not failed:
         print(f"MUTACJE SKILLI FAIL | brak skryptów .agents/skills/*/scripts/{PATTERN}")
         return 1
+    changed = None if args.zmiany_od is None else _changed(args.zmiany_od)
     # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.
     for script in scripts:
         name = _name(script)
-        print(f"== {name}", flush=True)
+        runs, why = (True, "") if changed is None else _why_run(script, changed)
+        if not runs:
+            print(f"POMINIĘTY {name}: {why}", flush=True)
+            continue
+        print(f"== {name}" + (f" ({why})" if why else ""), flush=True)
         started = time.monotonic()
         reason = _run(script, args.limit_s)
         elapsed = f"({time.monotonic() - started:.0f} s)"
