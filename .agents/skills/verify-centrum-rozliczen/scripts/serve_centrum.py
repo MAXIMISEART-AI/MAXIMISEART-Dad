@@ -186,7 +186,11 @@ class FileReportBox:
         return Sent(number)
 
     def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
-        """The comment goes into the issue's own file, so numbering by ``*.json`` stays the issue count."""
+        """The comment goes into the issue's own file, so numbering by ``*.json`` stays the issue count.
+
+        Its address names the file within the run root, never the full path: the Zgłoszenie links it, and a
+        Zgłoszenie holds no full path.
+        """
 
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
@@ -198,7 +202,7 @@ class FileReportBox:
             issue["comments"] = [*issue.get("comments", []), body]
             path.write_text(json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             comment_id = len(issue["comments"])
-        return Commented(comment_id, f"{path.as_uri()}#komentarz-{comment_id}")
+        return Commented(comment_id, f"skrzynka-zgloszen/{number}.json#komentarz-{comment_id}")
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         if (self._directory / "brak-sieci").exists():
