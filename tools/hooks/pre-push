@@ -6,6 +6,9 @@ opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
 
 Kroki bierze z ``tools/ci_lokalnie.py``, uruchomionego Pythonem z ``.venv`` checkoutu. Włącza ją
 ``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
+
+Przed krokami drukuje werdykt ``tools/praca_w_toku.py --aktualizacja``, czy aktualizować gałąź z ``origin/main``.
+Werdykt tylko informuje: gdy się nie uda, brama drukuje ``AKTUALIZACJA: nieznana (…)``, a wynik pushu się nie zmienia.
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ import sys
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 VENV_PYTHON = Path(".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
 COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--tylko", "ruff,mypy", "--do-pierwszego-bledu")
+UPDATE_VERDICT = (str(VENV_PYTHON), "tools/praca_w_toku.py", "--aktualizacja")
+UPDATE_VERDICT_TIMEOUT_S = 10
 CHECKS = "sprawdzam ruff i mypy (macOS i Windows) przez tools/ci_lokalnie.py; resztę sprawdza CI na GitHubie"
 
 
@@ -49,6 +54,22 @@ def _decide(pushed: set[str]) -> Decision:
     return DIRTY if _git("status", "--porcelain") else CLEAN
 
 
+def _print_update_verdict() -> None:
+    try:
+        import potomne
+
+        done = potomne.run(UPDATE_VERDICT, cwd=Path.cwd(), timeout=UPDATE_VERDICT_TIMEOUT_S)
+    except (ImportError, OSError, subprocess.TimeoutExpired) as error:
+        reason = str(error)
+    else:
+        last = (done.stdout.strip().splitlines() or [""])[-1]
+        if done.returncode == 0 and last.startswith("AKTUALIZACJA: "):
+            print(last, flush=True)
+            return
+        reason = (done.stderr.strip().splitlines() or [f"kod {done.returncode}"])[-1]
+    print(f"AKTUALIZACJA: nieznana (tools/praca_w_toku.py: {reason})", flush=True)
+
+
 def main() -> int:
     pushed = {line.split()[1] for line in sys.stdin if line.strip()}
     decision = _decide(pushed)
@@ -59,9 +80,9 @@ def main() -> int:
     if not VENV_PYTHON.exists():
         print("pre-push: brak .venv; utwórz je przez tools/setup_worktree.py i ponów push.", flush=True)
         return 1
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    _print_update_verdict()
     if sys.platform == "win32":  # tools/setup_worktree.py nie włącza bramy na Windows
-        # Import dopiero tutaj: test bramy kopiuje do atrapy checkoutu sam hook, bez tools/potomne.py.
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         import potomne
 
         return potomne.run(COMMAND, cwd=Path.cwd(), echo=True).returncode
