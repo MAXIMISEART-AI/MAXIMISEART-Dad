@@ -264,11 +264,20 @@ def _pytest_arguments(selection: Selection) -> tuple[str, ...]:
     return (*selection.tests, *structure)
 
 
+def _own_cache(step: ci_lokalnie.Step) -> ci_lokalnie.Step:
+    """Cache mypy zależy od ``--platform``: przebiegi dla dwóch systemów w jednym cache unieważniają go sobie nawzajem."""
+
+    if "--platform" not in step.command:
+        return step
+    platform = step.command[step.command.index("--platform") + 1]
+    return replace(step, command=(*step.command, "--cache-dir", f".mypy_cache/{platform}"))
+
+
 def _steps(root: Path, selection: Selection) -> list[ci_lokalnie.Step]:
     steps = ci_lokalnie._steps(root)
     pytest = next(step for step in steps if step.job == "pytest")
     return [
-        *(step for step in steps if step.job in STATIC_JOBS),
+        *(_own_cache(step) for step in steps if step.job in STATIC_JOBS),
         replace(pytest, command=(*pytest.command, *_pytest_arguments(selection))),
     ]
 
