@@ -5,6 +5,7 @@ pilnuje:
   - src/rozliczenia/centrum/launcher.py
   - src/rozliczenia/centrum/platform.py
   - src/rozliczenia/centrum/shortcut.py
+  - src/rozliczenia/centrum/centrum-rozliczen.ico
   - src/rozliczenia/centrum/start_problems.py
   - src/rozliczenia/centrum/restart_guardian.py
   - src/rozliczenia/centrum/tool_update.py
