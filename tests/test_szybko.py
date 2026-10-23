@@ -20,6 +20,7 @@ import szybko  # noqa: E402
 
 BY_CHANGE_ONLY = {
     "tests/test_brama_pre_push.py": "sprawdza zachowanie bramy pushem w repozytorium testu, a nie całe repozytorium",
+    "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i AGENTS.md",
 }
 

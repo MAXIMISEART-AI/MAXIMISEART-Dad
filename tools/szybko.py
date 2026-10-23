@@ -54,6 +54,7 @@ STRUCTURE = (
     "tests/test_potomne.py::test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne",
     "tests/test_potomne.py::test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run",
     "tests/test_struktura_testow.py",
+    "tests/test_systemowy_python.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",
     "tests/test_wycofane_pojecia.py",
 )
