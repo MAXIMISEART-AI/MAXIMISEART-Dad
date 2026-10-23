@@ -152,8 +152,8 @@ class FakeReportBox:
         return Commented(comment_id, f"https://github.com/{REPOSITORY}/issues/{number}#issuecomment-{comment_id}")
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
-        assert key, "skrzynka pytana bez klucza"
         self.listed.append((label, include_closed))
+        assert key, "skrzynka pytana bez klucza"
         self.searching.set()
         if self.search_hold is not None:
             self.search_hold.wait()
