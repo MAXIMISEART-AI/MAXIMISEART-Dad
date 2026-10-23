@@ -59,8 +59,50 @@ include = [
 extend-exclude = [".claude"]
 
 [tool.ruff.lint]
-# Szeroki except tylko z wpisem do dziennika albo ponownym rzuceniem.
-extend-select = ["BLE001", "S110", "TID251"]
+extend-select = [
+    # Szeroki except tylko z wpisem do dziennika albo ponownym rzuceniem.
+    "BLE001",
+    "S110",
+    "TID251",
+    # Martwe tłumienie to wzór do skopiowania. N802 ożywia cztery noqa z powodem (nazwy jak w threading i tempfile).
+    "RUF100",
+    "N802",
+    # Zapadki: przy włączeniu 0 naruszeń, więc wzorzec nie wróci ani się nie rozleje. Tłumienie tylko z kodem,
+    # bez TODO i zakomentowanego kodu, bez exec/eval, breakpoint() i yaml.load, bez pułapek wartości domyślnych i pętli.
+    "PGH003",
+    "PGH004",
+    "ERA001",
+    "FIX001",
+    "FIX002",
+    "FIX003",
+    "FIX004",
+    "B006",
+    "B008",
+    "B018",
+    "B904",
+    "RUF012",
+    "RUF013",
+    "S102",
+    "S307",
+    "S506",
+    "T100",
+    "PLW2901",
+    # zip bez strict ucina dłuższą listę po cichu, więc porównanie wierszy w weryfikatorze może przejść przy brakującym
+    # wierszu: strict=True, gdy długości muszą być równe, strict=False tylko z powodem, a kolejne pary przez pairwise.
+    "B905",
+    "RUF007",
+    # subprocess.run bez check połyka błąd polecenia: check=True, chyba że kod potem czyta returncode.
+    "PLW1510",
+    # Kod taty bez Any w sygnaturach i bez print (zakres w per-file-ignores).
+    "ANN401",
+    "T201",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"!src/**" = ["ANN401", "T201"]
+# Konsola startu Centrum i instalatora skrótu.
+"src/rozliczenia/centrum/launcher.py" = ["T201"]
+"src/rozliczenia/centrum/shortcut.py" = ["T201"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # Mypy w CI sprawdza kod dla Windows i dla macOS/Linuksa, ale gałąź pod os.name widzi na obu, więc

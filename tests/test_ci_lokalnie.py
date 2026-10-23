@@ -108,8 +108,8 @@ def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(t
     head = commit(repo, "bez zepsutego testu")
     tool = [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest"]
 
-    every_commit = subprocess.run([*tool, "--kazdy-commit", base], capture_output=True, text=True, encoding="utf-8")
-    only_head = subprocess.run(tool, capture_output=True, text=True, encoding="utf-8")
+    every_commit = subprocess.run([*tool, "--kazdy-commit", base], capture_output=True, text=True, encoding="utf-8", check=False)
+    only_head = subprocess.run(tool, capture_output=True, text=True, encoding="utf-8", check=False)
 
     assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK | tylko pytest")
     assert (every_commit.returncode, every_commit.stdout.splitlines()[-1]) == (1, f"COMMITY FAIL | {broken[:7]} (pytest)")
@@ -129,6 +129,7 @@ def test_kazdy_commit_przechodzi_gdy_kazdy_commit_przechodzi(tmp_path: Path) -> 
         capture_output=True,
         text=True,
         encoding="utf-8",
+        check=False,
     )
 
     assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "COMMITY OK (2)")
@@ -143,6 +144,7 @@ def test_kazdy_commit_od_nieistniejacej_bazy_nazywa_baze_bez_tracebacku(tmp_path
         capture_output=True,
         text=True,
         encoding="utf-8",
+        check=False,
     )
 
     assert (answered.returncode, answered.stdout.splitlines()[-1:]) == (1, ["COMMITY FAIL | nieznana baza nie-ma-takiej-bazy"])

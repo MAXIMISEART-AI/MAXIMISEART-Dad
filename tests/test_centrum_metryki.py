@@ -46,7 +46,7 @@ def record(
         "completed": not stopped,
         "result": "BLAD_KRYTYCZNY" if stopped else result,
         "total_duration_ms": total,
-        "phase_durations_ms": dict(zip(("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"), phases)),
+        "phase_durations_ms": dict(zip(("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"), phases, strict=True)),
         "counters": dict.fromkeys(counters, 0) if stopped else counters,
         "stop": stop,
     }
@@ -177,7 +177,7 @@ def test_p50_i_p95_dopiero_od_pieciu_ukonczonych_obserwacji_tego_samego_trybu(tm
         app.metrics.preparation,
         *(
             preparation(f"2026-09-0{day}T08:00:00+00:00", total=total, phases=(total // 10, total // 5, 0, 0))
-            for day, total in zip(range(1, 6), (5000, 1000, 4000, 2000, 3000))
+            for day, total in zip(range(1, 6), (5000, 1000, 4000, 2000, 3000), strict=True)
         ),
         *(preparation(f"2026-09-1{day}T08:00:00+00:00", mode="DRY-RUN") for day in range(4)),
         preparation("2026-09-20T08:00:00+00:00", mode="DRY-RUN", stop=FOR_TATA),

@@ -107,6 +107,7 @@ def _shortcut(clone: Path, port: int) -> subprocess.CompletedProcess[str]:
         text=True,
         encoding="utf-8",
         timeout=60,
+        check=False,
     )
 
 

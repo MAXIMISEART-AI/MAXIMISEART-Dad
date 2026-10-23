@@ -205,10 +205,10 @@ def test_strumien_pokazuje_liczniki_szablonow_pracownikow_na_biezaco(tmp_path: P
 
     labels = ["Wiersze danych", "Zapisane szablony", "Puste szablony", "Problemy"]
     assert seen == [
-        list(zip(labels, [0, 0, 0, 0])),
-        list(zip(labels, [2, 1, 0, 0])),
-        list(zip(labels, [3, 2, 0, 0])),
-        list(zip(labels, [3, 2, 1, 0])),
+        list(zip(labels, [0, 0, 0, 0], strict=True)),
+        list(zip(labels, [2, 1, 0, 0], strict=True)),
+        list(zip(labels, [3, 2, 0, 0], strict=True)),
+        list(zip(labels, [3, 2, 1, 0], strict=True)),
     ]
 
 
