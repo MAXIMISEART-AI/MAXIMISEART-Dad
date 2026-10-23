@@ -1,0 +1,48 @@
+name: Stabilna wersja
+
+# Centrum rozliczeń on Dad's computer updates only from the branch `stabilna` (ADR 0014). After a CI run of a push
+# to main whose `Required CI status` succeeded, this moves `stabilna` forward to that commit, without force. A late
+# run of an older commit leaves it where it is; tools/promuj_stabilna.py derives everything from the remote's state.
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  promote:
+    name: Promote green main to stabilna
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Require Required CI status to have succeeded in this run attempt
+        id: required
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOBS: repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/attempts/${{ github.event.workflow_run.run_attempt }}/jobs
+        run: |
+          conclusion=$(gh api --paginate "$JOBS" --jq '.jobs[] | select(.name == "Required CI status") | .conclusion')
+          echo "Required CI status: ${conclusion:-none}"
+          echo "green=$([ "$conclusion" = success ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        if: steps.required.outputs.green == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Move stabilna forward to the green commit
+        if: steps.required.outputs.green == 'true'
+        env:
+          COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: python3 tools/promuj_stabilna.py "$COMMIT"
