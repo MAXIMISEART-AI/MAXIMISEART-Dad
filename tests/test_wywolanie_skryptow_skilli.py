@@ -50,6 +50,7 @@ def _script(script: Path, *arguments: str, cwd: Path) -> subprocess.CompletedPro
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
 
 

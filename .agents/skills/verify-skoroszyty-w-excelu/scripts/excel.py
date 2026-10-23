@@ -30,7 +30,7 @@ from typing import TextIO
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser  # noqa: E402
+from skrypt_skilla import Parser
 
 APP = "Microsoft Excel"
 BUNDLE_ID = "com.microsoft.Excel"

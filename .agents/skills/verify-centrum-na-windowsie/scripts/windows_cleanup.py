@@ -18,7 +18,7 @@ import windows_desktop
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser, RunRootError, remove_run_root, require_run_root  # noqa: E402
+from skrypt_skilla import Parser, RunRootError, remove_run_root, require_run_root
 
 
 def _remove(root: Path) -> bool:

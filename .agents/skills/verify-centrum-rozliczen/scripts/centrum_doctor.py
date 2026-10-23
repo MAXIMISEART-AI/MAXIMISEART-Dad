@@ -20,7 +20,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser  # noqa: E402
+from skrypt_skilla import Parser
 
 
 def _get(url: str) -> tuple[int, bytes]:

@@ -17,7 +17,7 @@ import windows_tool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser  # noqa: E402
+from skrypt_skilla import Parser
 
 
 def diagnose(root: Path) -> str:

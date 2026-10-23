@@ -14,7 +14,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser, create_run_root  # noqa: E402
+from skrypt_skilla import Parser, create_run_root
 
 
 PERIOD = "08_14_09_2026"

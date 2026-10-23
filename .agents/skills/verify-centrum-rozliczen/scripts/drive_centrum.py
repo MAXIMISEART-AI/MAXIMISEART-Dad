@@ -43,7 +43,7 @@ from drive.common import DAD_TIME_ZONE, DriveFailure, Run
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser  # noqa: E402
+from skrypt_skilla import Parser
 
 # aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
 # appends to the metrics files that Metryki counts, so it runs after Metryki; Przebieg rozliczeń continues Dad's

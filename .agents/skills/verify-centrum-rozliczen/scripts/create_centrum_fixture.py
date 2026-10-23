@@ -47,7 +47,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from skrypt_skilla import Parser, create_run_root  # noqa: E402
+from skrypt_skilla import Parser, create_run_root
 
 # Dad's "today" for the run: Monday 19.10.2026, so the last complete period is 06_12_10_2026,
 # whose Folder okresu deliberately does not exist.
