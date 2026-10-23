@@ -87,6 +87,10 @@ extend-select = [
     "S506",
     "T100",
     "PLW2901",
+    # zip bez strict ucina dłuższą listę po cichu, więc porównanie wierszy w weryfikatorze może przejść przy brakującym
+    # wierszu: strict=True, gdy długości muszą być równe, strict=False tylko z powodem, a kolejne pary przez pairwise.
+    "B905",
+    "RUF007",
     # Kod taty bez Any w sygnaturach i bez print (zakres w per-file-ignores).
     "ANN401",
     "T201",

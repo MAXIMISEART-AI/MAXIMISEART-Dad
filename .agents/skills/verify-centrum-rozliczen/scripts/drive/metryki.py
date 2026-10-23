@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from itertools import pairwise
 import json
 from pathlib import Path
 import re
@@ -300,7 +301,7 @@ def _check_chart(run: Run, chart: Locator, phases: list[str], shown: list[dict[s
 def _check_bar_widths(run: Run, chart: Locator, label: str, *, narrow: bool) -> None:
     edges: list[list[float]] = chart.evaluate(BAR_EDGES)
     widths = [right - left for left, right in edges]
-    gaps = [later[0] - earlier[1] for earlier, later in zip(edges, edges[1:])]
+    gaps = [later[0] - earlier[1] for earlier, later in pairwise(edges)]
     run.check(
         len(edges) > 1
         and min(gaps) > 0

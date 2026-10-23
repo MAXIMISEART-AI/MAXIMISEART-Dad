@@ -353,7 +353,9 @@ def _check_address_fills(
         column = _target_positions(sheet, header_row, label, errors).get("ADRES", 0)
         rows = range(header_row + 1, header_row + 1 + len(register_rows))
         differing = [
-            f"{get_column_letter(column)}{row}" for row, fill in zip(rows, expected) if _fill(sheet.cell(row, column)) != fill
+            f"{get_column_letter(column)}{row}"
+            for row, fill in zip(rows, expected, strict=True)
+            if _fill(sheet.cell(row, column)) != fill
         ]
         if differing:
             errors.append(f"{label}: ADRES fill differs from the Rejestr ADRES of the same order ({', '.join(differing)})")
