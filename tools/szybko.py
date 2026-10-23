@@ -25,6 +25,8 @@ from collections import defaultdict
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import subprocess
@@ -32,6 +34,7 @@ import sys
 import threading
 import time
 from typing import TypeGuard
+import xml.etree.ElementTree as ET
 
 import ci_lokalnie
 from mutacje import environment
@@ -49,19 +52,15 @@ STRUCTURE = (
 STATIC_JOBS = ("ruff", "mypy")
 MODULE_ROOTS = ("src", ".", "tools")
 SKILL_SCRIPTS = ".agents/skills/*/scripts"
+GREEN = "szybko-zielone.json"
 
 
 @dataclass(frozen=True)
-class Full:
-    reason: str
+class Selection:
+    """Pliki testów do sprawdzenia, każdy z odciskiem plików, od których zależy; ``full``: powód pełnego zestawu."""
 
-
-@dataclass(frozen=True)
-class Affected:
-    tests: tuple[str, ...]
-
-
-Selection = Full | Affected
+    tests: dict[str, str]
+    full: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +94,16 @@ class Dependencies:
             follows[path].update(_packages(path, files))
             follows[path].discard(path)
         return cls(follows, reads)
+
+    def inputs(self, test: str) -> set[str]:
+        """Plik testu i pliki, od których zależy."""
+
+        found, pending = {test}, [test]
+        while pending:
+            for target in self.follows.get(pending.pop(), set()) - found:
+                found.add(target)
+                pending.append(target)
+        return found | {path for source in found for path in self.reads.get(source, set())}
 
     def dependents(self, changed: Iterable[str]) -> set[str]:
         """Zmienione pliki i pliki, które od nich zależą."""
@@ -242,11 +251,68 @@ def _is_test(path: str) -> bool:
 
 
 def select(root: Path, changed: frozenset[str]) -> Selection:
-    if full := sorted(changed & set(FULL)):
-        return Full(f"zmiana w {', '.join(full)}")
     files = _files(root) | changed
-    affected = Dependencies.of(root, files).dependents(changed)
-    return Affected(tuple(sorted(path for path in affected if _is_test(path) and (root / path).is_file())))
+    dependencies = Dependencies.of(root, files)
+    tests = {path for path in files if _is_test(path) and (root / path).is_file()}
+    full = sorted(changed & set(FULL))
+    if not full:
+        tests &= dependencies.dependents(changed)
+    fingerprints = {test: _fingerprint(root, dependencies.inputs(test)) for test in sorted(tests)}
+    return Selection(fingerprints, f"zmiana w {', '.join(full)}" if full else None)
+
+
+def _fingerprint(root: Path, inputs: Iterable[str]) -> str:
+    """Odcisk treści plików, od których test zależy, z konfiguracją z ``FULL`` i wersją Pythona."""
+
+    digest = hashlib.sha256(sys.version.encode())
+    for path in sorted({*inputs, *FULL}):
+        try:
+            content = (root / path).read_bytes()
+        except OSError:
+            content = b"brak pliku"
+        digest.update(f"{path}\0{len(content)}\0".encode() + content)
+    return digest.hexdigest()
+
+
+def _green_memory() -> Path:
+    """Testy, które przeszły, z odciskiem ich plików; każdy worktree ma własną w swoim katalogu gita."""
+
+    return ROOT / _git("rev-parse", "--git-path", GREEN).strip()
+
+
+def _remembered(memory: Path) -> dict[str, str]:
+    try:
+        loaded = json.loads(memory.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(test): str(fingerprint) for test, fingerprint in loaded.items()} if isinstance(loaded, dict) else {}
+
+
+def _remember(memory: Path, green: dict[str, str]) -> None:
+    written = memory.with_suffix(".tmp")
+    written.write_text(json.dumps({**_remembered(memory), **green}, indent=1, sort_keys=True), encoding="utf-8")
+    written.replace(memory)
+
+
+def _passed(junit: Path, tests: Iterable[str]) -> set[str]:
+    """Pliki testów z ``tests``, których każdy przypadek w raporcie JUnit przeszedł albo został pominięty."""
+
+    try:
+        cases = list(ET.parse(junit).iter("testcase"))
+    except (OSError, ET.ParseError):
+        return set()
+    modules = {test.removesuffix(".py").replace("/", "."): test for test in tests}
+    seen: set[str] = set()
+    failed: set[str] = set()
+    for case in cases:
+        classname = case.get("classname", "")
+        test = next((path for module, path in modules.items() if classname == module or classname.startswith(module + ".")), None)
+        if test is None:
+            continue
+        seen.add(test)
+        if case.find("failure") is not None or case.find("error") is not None:
+            failed.add(test)
+    return seen - failed
 
 
 def _git(*arguments: str) -> str:
@@ -290,11 +356,10 @@ def _merge_with(base: str) -> str | None:
     return made.stdout.strip()
 
 
-def _pytest_arguments(selection: Selection) -> tuple[str, ...]:
-    if isinstance(selection, Full):
-        return ()
-    structure = (node for node in STRUCTURE if node.split("::")[0] not in selection.tests)
-    return (*selection.tests, *structure)
+def _pytest_arguments(tests: Iterable[str], junit: Path) -> tuple[str, ...]:
+    tests = sorted(tests)
+    structure = (node for node in STRUCTURE if node.split("::")[0] not in tests)
+    return (*tests, *structure, f"--junitxml={junit}")
 
 
 def _own_cache(step: ci_lokalnie.Step) -> ci_lokalnie.Step:
@@ -306,12 +371,12 @@ def _own_cache(step: ci_lokalnie.Step) -> ci_lokalnie.Step:
     return replace(step, command=(*step.command, "--cache-dir", f".mypy_cache/{platform}"))
 
 
-def _steps(root: Path, selection: Selection) -> list[ci_lokalnie.Step]:
+def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.Step]:
     steps = ci_lokalnie._steps(root)
     pytest = next(step for step in steps if step.job == "pytest")
     return [
         *(_own_cache(step) for step in steps if step.job in STATIC_JOBS),
-        replace(pytest, command=(*pytest.command, *_pytest_arguments(selection))),
+        replace(pytest, command=(*pytest.command, *_pytest_arguments(tests, junit))),
     ]
 
 
@@ -351,11 +416,14 @@ def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
     return failed
 
 
-def _describe(selection: Selection, changed: frozenset[str], base: str) -> str:
-    if isinstance(selection, Full):
-        return f"Zmiana: {len(changed)} plików od {base}. Testy: pełny zestaw ({selection.reason})."
-    tests = ", ".join(PurePosixPath(path).name for path in selection.tests) or "brak"
-    return f"Zmiana: {len(changed)} plików od {base}. Testy dotknięte zmianą ({len(selection.tests)}): {tests}; i testy struktury."
+def _describe(selection: Selection, to_run: list[str], changed: frozenset[str], base: str) -> str:
+    kind = f"pełny zestaw ({selection.full})" if selection.full else "dotknięte zmianą"
+    names = ", ".join(PurePosixPath(path).name for path in to_run) or "brak"
+    green = len(selection.tests) - len(to_run)
+    return (
+        f"Zmiana: {len(changed)} plików od {base}. Testy {kind}: {len(selection.tests)}, do uruchomienia {len(to_run)}"
+        f" ({names}), zielone na tych samych plikach {green}; i testy struktury."
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -368,8 +436,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"SZYBKO FAIL | nieznana baza {args.baza}")
         return 1
     selection = select(ROOT, changed)
-    print(_describe(selection, changed, args.baza), flush=True)
-    failed = _run_all(_steps(ROOT, selection), ROOT)
+    memory = _green_memory()
+    green = _remembered(memory)
+    to_run = [test for test, fingerprint in selection.tests.items() if green.get(test) != fingerprint]
+    print(_describe(selection, to_run, changed, args.baza), flush=True)
+    junit = memory.with_name("szybko-junit.xml")
+    junit.unlink(missing_ok=True)
+    failed = _run_all(_steps(ROOT, to_run, junit), ROOT)
+    _remember(memory, {test: selection.tests[test] for test in _passed(junit, to_run)})
     if merge := _merge_with(args.baza):
         with potomne.commit_copy(ROOT, merge) as copy:
             failed += _run_all([_structure_after_merge(copy, args.baza)], copy)

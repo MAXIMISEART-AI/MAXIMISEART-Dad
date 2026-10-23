@@ -69,11 +69,11 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
     return repo
 
 
-def _szybko(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _szybko(repo: Path, *arguments: str, runs: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(repo / "tools" / "szybko.py"), *arguments],
         cwd=repo,
-        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "2"},
+        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "2", "PRZEBIEGI": str(runs)},
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -106,6 +106,38 @@ def test_zmiana_bez_bledu_konczy_sie_ok_choc_niedotkniety_test_pada(tmp_path: Pa
     answered = _szybko(repo)
 
     assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "SZYBKO OK"), answered.stdout
+
+
+COUNTED = (
+    "import os\nfrom pathlib import Path\n\nfrom pakiet.posredni import podwojona\n\n\n"
+    "def test_podwojona() -> None:\n"
+    "    with Path(os.environ['PRZEBIEGI']).open('a', encoding='utf-8') as runs:\n"
+    "        runs.write('.')\n"
+    "    assert podwojona() == 2\n"
+)
+
+
+def test_zielony_test_biegnie_znowu_dopiero_po_zmianie_pliku_od_ktorego_zalezy(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    runs = tmp_path / "przebiegi"
+    _write(repo, "tests/test_posredni.py", COUNTED)
+    first, again = _szybko(repo, runs=runs), _szybko(repo, runs=runs)
+    _write(repo, "src/pakiet/a.py", "def wartosc() -> int:\n    return 2 - 1\n")
+    after_change = _szybko(repo, runs=runs)
+
+    assert [answered.stdout.splitlines()[-1] for answered in (first, again, after_change)] == ["SZYBKO OK"] * 3
+    assert runs.read_text(encoding="utf-8") == ".."
+
+
+def test_test_ktory_padl_biegnie_znowu_bez_zmian(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    runs = tmp_path / "przebiegi"
+    _write(repo, "tests/test_posredni.py", COUNTED.replace("== 2", "== 3"))
+
+    answered = [_szybko(repo, runs=runs).stdout.splitlines()[-1] for _ in range(2)]
+
+    assert answered == ["SZYBKO FAIL | pytest"] * 2
+    assert runs.read_text(encoding="utf-8") == ".."
 
 
 def test_nowy_niesledzony_test_biegnie(tmp_path: Path) -> None:
