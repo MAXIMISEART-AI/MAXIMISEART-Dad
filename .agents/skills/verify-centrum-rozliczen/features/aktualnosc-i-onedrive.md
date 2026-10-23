@@ -42,7 +42,7 @@ Preconditions:
 ## Gotchas
 
 - Never let `serve_centrum.py` use the real GitHub source: the verification must not reach the internet. The real source's time limit is covered by `tests/test_aktualnosc_narzedzia.py` against a silent local server.
-- A newer `main` explains the stop only without another cause, so `Nowsza wersja` needs the Wzorzec renamed back first; remove `main-commit.txt` before `Oba przeszły`, or `Aktualność narzędzia` stays `failed` and becomes the explanation.
+- A newer `stabilna` explains the stop only without another cause, so `Nowsza wersja` needs the Wzorzec renamed back first; remove `main-commit.txt` before `Oba przeszły`, or `Aktualność narzędzia` stays `failed` and becomes the explanation.
 - Restore the Wzorzec by renaming it back, never by copying: `diagnoza` compares modification times.
 - Opening `Sprawdzono (10)` twice collapses it again; open it once per Diagnoza.
-- The update in `W trakcie aktualizacji` is real: without the harness pointing the origin's `stabilna` at the clone's `HEAD`, a run of this feature alone would move the clone and restart Centrum. Its result `Masz najnowszą wersję.` stays Centrum's Aktualizacja narzędzia until the next one, so later features see it next to every update button; the scripted GitHub's `main` (`main-commit.txt`) is a separate stand-in, so the explanation can still say there is a newer version.
+- The update in `W trakcie aktualizacji` is real: without the harness pointing the origin's `stabilna` at the clone's `HEAD`, a run of this feature alone would move the clone and restart Centrum. Its result `Masz najnowszą wersję.` stays Centrum's Aktualizacja narzędzia until the next one, so later features see it next to every update button; the scripted GitHub's `stabilna` (`main-commit.txt`) is a separate stand-in, so the explanation can still say there is a newer version.

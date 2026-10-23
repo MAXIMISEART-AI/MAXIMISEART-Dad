@@ -36,7 +36,8 @@ class ToolFreshness:
     """Źródła wersji narzędzia u taty i Stabilnej wersji na GitHubie; ``None`` = nie wiadomo.
 
     ``local`` to commit narzędzia, z którego działa Centrum, ``since`` dzień, od
-    którego narzędzie jest na tym commicie, a ``main`` commit gałęzi `stabilna` na GitHubie.
+    którego narzędzie jest na tym commicie, a ``main`` commit Stabilnej wersji (gałąź `stabilna`)
+    na GitHubie; nazwa pola pochodzi sprzed ADR 0014.
     """
 
     local: CommitSource

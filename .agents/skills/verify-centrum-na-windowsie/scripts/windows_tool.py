@@ -8,7 +8,7 @@
   untracked files, ignored ones left out), so a run proves the working tree, not the last commit. ``newest`` changes
   ``requirements.txt`` (a comment only, so pip installs nothing new), which makes the update install libraries.
   ``not_starting``, one version after ``newest``, has a ``run_centrum.py`` that fails at once. The origin's
-  ``main`` and ``stabilna`` start on ``first``; the drive moves both;
+  ``main`` and ``stabilna`` start on ``first``; the drive moves ``stabilna`` and keeps ``main`` on ``not_starting``;
 - ``przegladarka.cmd``: Dad's browser, which only records the address Centrum opens in ``otwarte-adresy.txt``;
 - ``windows.json``: these facts for the drive, doctor and cleanup.
 
@@ -154,11 +154,12 @@ def boundaries(facts: dict[str, Any]) -> dict[str, str]:
 
 
 def move_stabilna(facts: dict[str, Any], version: str) -> None:
-    """The origin's ``main`` and ``stabilna`` (CI passed for it; Centrum updates from it) move to ``version``.
+    """The origin's ``stabilna`` (CI passed for it; Centrum updates from it) moves to ``version``.
 
-    ``version`` is a key of ``versions``.
+    ``version`` is a key of ``versions``. ``main`` moves to ``not_starting``, a commit whose CI did not pass, ahead
+    of every version: a Centrum that fetched ``main`` instead of ``stabilna`` would fail the run.
     """
 
     origin = Path(facts["origin"])
-    for branch in ("main", "stabilna"):
-        git(origin, "update-ref", f"refs/heads/{branch}", facts["versions"][version])
+    git(origin, "update-ref", "refs/heads/stabilna", facts["versions"][version])
+    git(origin, "update-ref", "refs/heads/main", facts["versions"]["not_starting"])

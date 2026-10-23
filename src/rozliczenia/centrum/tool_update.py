@@ -286,11 +286,11 @@ class ToolClone:
         if run.branch() != BRANCH:
             return UpdateResult(OTHER_BRANCH, before, None)
         on_step("fetching")
-        fetch_failure = run.fetch(self.origin)
-        if fetch_failure == UP_TO_DATE:
+        not_fetched = run.fetch(self.origin)
+        if not_fetched == UP_TO_DATE:
             return UpdateResult(UP_TO_DATE, before, before)
-        if fetch_failure is not None:
-            return UpdateResult(fetch_failure, before, None)
+        if not_fetched is not None:
+            return UpdateResult(not_fetched, before, None)
         after = run.text("rev-parse", _FETCHED)
         if run.is_ancestor(after, before):
             return UpdateResult(UP_TO_DATE, before, before)
