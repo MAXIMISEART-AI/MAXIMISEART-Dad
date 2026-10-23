@@ -173,7 +173,7 @@ Klik ==
 
 \* Dziennik w toku bez terminu opiekuna (_Journal.read, guardian_may_run): _moved_back cofa
 \* klon, zanim cokolwiek się pobierze. Inaczej run.fetch(self.origin) (`main` i tagi Wydań),
-\* newest_release, is_ancestor(after, before), is_ancestor(after, main) (WYDANIE_SPOZA_MAIN), potem
+\* newest_on_main (Wydania spoza main pominięte), is_ancestor(after, before), potem
 \* _has_local_commits i _changed_tracked_files (te odmowy nie zmieniają klonu, tak jak porażka
 \* fetch, więc model ich nie rozróżnia). GitHub bez Wydania, Wydanie na starszym commicie i klon na
 \* nowszym commicie `main` niż Wydanie kończą się jak head = "nowa": AKTUALNA, klon bez zmian.
