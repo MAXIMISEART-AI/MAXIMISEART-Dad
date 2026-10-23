@@ -73,7 +73,7 @@ class Post:
     ``header``: treść nowego issue; ``None``: nowe issue otwiera pierwsza część (Kontrola ilości).
     """
 
-    thread: Target
+    target: Target
     period: str | None
     """Token okresu do dziennika Centrum; ``None``: Uruchomienie bez okresu."""
     run_id: str
@@ -88,7 +88,7 @@ class Post:
     @classmethod
     def of(
         cls,
-        thread: Target,
+        target: Target,
         *,
         period: str | None,
         run_id: str,
@@ -103,7 +103,7 @@ class Post:
 
         texts = _pack(blocks, COMMENT_LIMIT - _FRAME_RESERVE)
         parts = tuple(frame(number, len(texts), text) for number, text in enumerate(texts, start=1))
-        return cls(thread, period, run_id, header, parts)
+        return cls(target, period, run_id, header, parts)
 
     def opening(self) -> tuple[str, tuple[str, ...]]:
         """Treść nowego issue (wiersz rozpoznawczy i nagłówek albo część 1) i komentarze po jego założeniu."""
@@ -112,7 +112,7 @@ class Post:
             first, comments = (self.parts[0], self.parts[1:]) if self.parts else ("", ())
         else:
             first, comments = self.header, self.parts
-        return f"{self.thread.line}\n\n{first}", comments
+        return f"{self.target.line}\n\n{first}", comments
 
     def to_json(self) -> str:
         return _queue_text(self, delivered_parts=0)
@@ -138,11 +138,12 @@ class _Queued:
 
 
 def _queue_text(post: Post, *, delivered_parts: int) -> str:
-    thread = post.thread
+    target = post.target
     return json.dumps(
         {
             "schema_version": SCHEMA_VERSION,
-            "thread": {"label": thread.label, "line": thread.line, "closed": thread.closed, "title": thread.title},
+            # Klucz ze schematu 1, sprzed nazwy ``Post.target``: pliki kolejki starszych wersji czytają się dalej.
+            "thread": {"label": target.label, "line": target.line, "closed": target.closed, "title": target.title},
             "period": post.period,
             "run_id": post.run_id,
             "header": post.header,
@@ -227,11 +228,11 @@ class Delivered:
 
 
 def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
-    match post.thread:
+    match post.target:
         case PeriodThread() as thread:
             return _deliver_to_period(post, thread, box, key)
         case _:
-            assert_never(post.thread)
+            assert_never(post.target)
 
 
 def _deliver_to_period(post: Post, thread: PeriodThread, box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
@@ -313,13 +314,13 @@ class Outbox:
         """
 
         moment = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        name = f"{moment}-{next(self._sequence):04d}-{post.thread.label}-{post.run_id[:8]}.json"
+        name = f"{moment}-{next(self._sequence):04d}-{post.target.label}-{post.run_id[:8]}.json"
         try:
             replace_atomically(self._directory / name, post.to_json())
         except OSError as failure:
             self._log.unexpected_failure(failure, where="zapis wysyłki do Skrzynki Zgłoszeń")
             return
-        self._log.box_post_queued(label=post.thread.label, period=post.period)
+        self._log.box_post_queued(label=post.target.label, period=post.period)
         self.send_in_background()
 
     def send_in_background(self) -> None:
@@ -363,7 +364,7 @@ class Outbox:
                 self._remove(path)
                 continue
             post = queued.post
-            label, period = post.thread.label, post.period
+            label, period = post.target.label, post.period
             if key is None:
                 self._log.box_post_waiting(label=label, period=period, cause="brak-klucza")
                 continue
