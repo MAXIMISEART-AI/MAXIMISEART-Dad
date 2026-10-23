@@ -273,13 +273,16 @@ def _route(operation: str, method: str, path: str, body: object = None) -> Entry
     return Entry((operation,), call)
 
 
-def _preview(process: str, period: str, *, dry_run: bool = True) -> Entry:
-    """Uruchomienie procesu do wyniku; z zapisem Przebieg rozliczeń zapisuje też Kontrolę ilości w kolejce."""
+def _process_run(process: str, period: str, *, saving: bool = False) -> Entry:
+    """Uruchomienie procesu do wyniku: Podgląd bez zapisu albo Uruchomienie z zapisem.
 
-    where = "Podgląd bez zapisu" if dry_run else "Uruchomienie z zapisem"
+    Po Uruchomieniu z zapisem Przebieg rozliczeń zapisuje też Kontrolę ilości w kolejce.
+    """
+
+    where = "Uruchomienie z zapisem" if saving else "Podgląd bez zapisu"
 
     def call(client: TestClient, seen: Seen) -> Problems:
-        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": dry_run})
+        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": not saving})
         problems = _http(started, "startRun", seen)
         if started.status_code != 200:
             return problems
@@ -350,9 +353,9 @@ ENTRIES: dict[str, Entry] = {
     "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
     "draftDadNote": _route("draftDadNote", "POST", "/api/dad-notes/draft", DAD_NOTE),
     "sendDadNote": _route("sendDadNote", "POST", "/api/dad-notes", DAD_NOTE),
-    "podglad[przygotowanie]": _preview("preparation", PERIOD),
-    "podglad[przebieg]": _preview("settlement", SETTLEMENT_PERIOD),
-    "zapis[przebieg]": _preview("settlement", SETTLEMENT_PERIOD, dry_run=False),
+    "podglad[przygotowanie]": _process_run("preparation", PERIOD),
+    "podglad[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD),
+    "zapis[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD, saving=True),
     "diagnoza[przygotowanie]": _diagnosis("preparation", PERIOD, report=True),
     "diagnoza[przebieg]": _diagnosis("settlement", SETTLEMENT_PERIOD, report=False),
 }

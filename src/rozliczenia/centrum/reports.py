@@ -22,7 +22,6 @@ import codecs
 import json
 import threading
 from collections.abc import Callable, Mapping
-from contextlib import suppress
 from dataclasses import astuple, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
@@ -31,6 +30,7 @@ from typing import Final, Literal
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
+from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.log import CentrumLog
@@ -255,23 +255,6 @@ def _trace_lines(trace: CallTrace | None) -> list[str]:
 
 def _cell(text: str) -> str:
     return text.replace("|", "\\|")
-
-
-def replace_atomically(path: Path, text: str) -> None:
-    """Zapisuje ``text`` jako ``path`` przez plik tymczasowy w tym samym folderze.
-
-    Nieudany zapis (``OSError``) nie zostawia pustego ani urwanego pliku i nie niszczy poprzedniej treści.
-    """
-
-    temporary = path.with_name(path.name + ".tmp")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        temporary.write_text(text, encoding="utf-8")
-        temporary.replace(path)
-    except OSError:
-        with suppress(OSError):
-            temporary.unlink(missing_ok=True)
-        raise
 
 
 @dataclass(frozen=True)

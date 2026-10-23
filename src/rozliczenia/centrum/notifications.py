@@ -28,7 +28,8 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.dad_notes import NOTE_LABEL, DadNote, DadNotes
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import REPORT_LABEL, Closure, CloseReason, Label, Refused, ReportBox, Unreachable
-from rozliczenia.centrum.reports import SentReport, SentReports, replace_atomically
+from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.reports import SentReport, SentReports
 
 NOTIFICATIONS_FILE: Final = "powiadomienia.json"
 SCHEMA_VERSION: Final = 1
