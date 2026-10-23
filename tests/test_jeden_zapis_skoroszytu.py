@@ -17,6 +17,7 @@ CELL_WRITES = frozenset(
     {"value", "font", "fill", "border", "alignment", "number_format", "protection", "hyperlink", "auto_filter"}
 )
 SHEET_PARTS = frozenset({"row_dimensions", "column_dimensions"})
+CELL_PARAMETERS = frozenset({"row", "column", "value"})  # Worksheet.cell z openpyxl, w odróżnieniu od RowLook.cell
 COLUMN = r"\$?[A-Z]{1,3}\$?"
 CELL_ADDRESS = re.compile(rf"{COLUMN}[0-9]+(?::{COLUMN}[0-9]+)?")
 NOT_WORKBOOK_SAVES = {"phases.save": "PhaseRunner.save to etap Zapisywanie procesu; skoroszyt zapisuje w nim workbook_files"}
@@ -42,13 +43,10 @@ def _writes(tree: ast.Module) -> Iterator[ast.expr]:
                 or any(isinstance(part, ast.Attribute) and part.attr in SHEET_PARTS for part in ast.walk(node))
             ):
                 yield node
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "cell"
-            and (len(node.args) > 2 or any(keyword.arg == "value" for keyword in node.keywords))
-        ):
-            yield node
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "cell":
+            keywords = {keyword.arg for keyword in node.keywords}
+            if keywords <= CELL_PARAMETERS and (len(node.args) == 3 or "value" in keywords):
+                yield node
 
 
 def test_zapis_skoroszytu_ma_jedno_miejsce() -> None:
