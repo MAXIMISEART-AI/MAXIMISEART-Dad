@@ -1,7 +1,8 @@
 """Zapisuje kontrakt Centrum rozliczeń (OpenAPI z modeli Pydantic) dla generatora schematów zod.
 
 Uruchamiane przez ``npm run contract`` w ``frontend/``; wynik trafia do
-``frontend/src/api/openapi.json`` i jest commitowany razem z wygenerowanymi typami.
+``frontend/src/api/openapi.json`` i jest commitowany razem z wygenerowanymi typami. Trasy i schematy są
+posortowane, więc dwie gałęzie, które dodały po trasie, zmieniają różne miejsca pliku.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import get_args
+from typing import Any, get_args
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -54,6 +55,14 @@ def _timing_problems(operations: set[str]) -> list[str]:
     return lines + ([f"OUTSIDE_TIMING nazywa operacje bez trasy API: {', '.join(sorted(stale))}"] if stale else [])
 
 
+def _sorted(contract: dict[str, Any]) -> dict[str, Any]:
+    components = contract.get("components", {})
+    return contract | {
+        "paths": dict(sorted(contract["paths"].items())),
+        "components": components | {"schemas": dict(sorted(components.get("schemas", {}).items()))},
+    }
+
+
 class _NoPlatform:
     """Kontrakt powstaje bez komputera taty: żadna akcja systemowa nie jest wywoływana."""
 
@@ -75,7 +84,7 @@ def main() -> int:
         log=log,
         shutdown=Shutdown(log),
     )
-    contract = app.openapi()
+    contract = _sorted(app.openapi())
     operations = {operation["operationId"] for path in contract["paths"].values() for operation in path.values()}
     problems = _timing_problems(operations)
     if problems:

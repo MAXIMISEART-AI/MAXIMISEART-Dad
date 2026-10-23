@@ -69,6 +69,7 @@ STRUCTURE = (
     "tests/test_systemowy_python.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",
     "tests/test_wycofane_pojecia.py",
+    "tests/test_wywolanie_skryptow_skilli.py::test_skrypty_skilli_biora_katalog_runu_warianty_i_sciezki_tylko_z_parsera",
     # Globy ``pilnuje:`` z frontmatteru SKILL.md i pliki, które wczytują sprawdzenia skilli, to całe repozytorium,
     # a graf ich nie widzi.
     "tests/test_mutacje_skilli.py::test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium",

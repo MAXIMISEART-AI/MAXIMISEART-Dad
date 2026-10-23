@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 import json
 import os
@@ -25,6 +24,9 @@ PREPARATION_TEMPLATE_NAMES = ("Wzorzec rozliczenia wewnętrznego.xlsx", "Wzorzec
 WORKER_TEMPLATE_NAME = "Wzorzec rozliczenia pracownika.xlsx"
 HELPER_DIRECTORY = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = str(Path("tools") / "uruchom_proces.py")
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+from skrypt_skilla import Parser, new_run  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -215,17 +217,6 @@ def _run_process_step(
 def _version() -> str:
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         return str(tomllib.load(stream)["project"]["version"])
-
-
-def _new_paths() -> tuple[Path, Path]:
-    run_parent = REPO_ROOT / ".verification" / "runs"
-    evidence_parent = REPO_ROOT / ".verification" / "evidence"
-    run_parent.mkdir(parents=True, exist_ok=True)
-    evidence_parent.mkdir(parents=True, exist_ok=True)
-    run_id = f"rozliczenia-{uuid.uuid4().hex}"
-    evidence_root = evidence_parent / run_id
-    evidence_root.mkdir()
-    return run_parent / run_id, evidence_root
 
 
 def _create_lock(run_root: Path) -> None:
@@ -531,13 +522,9 @@ def _run_chain_workflow(run_root: Path, evidence_root: Path, templates_directory
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--variant",
-        choices=(*WORKFLOW_VARIANTS, "all"),
-        default="default",
-        help="'all' runs every variant except the local-only *-real-templates variants",
-    )
+    parser = Parser(description=__doc__)
+    parser.add_variants(WORKFLOW_VARIANTS, default="default", every=CI_VARIANTS)
+    parser.add_run_dir()
     parser.add_argument(
         "--templates-dir",
         type=Path,
@@ -550,27 +537,45 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     templates_directory = (args.templates_dir or _default_templates_directory()).expanduser().resolve()
-    if args.variant != "all":
-        return _verify(args.variant, templates_directory)
-    failed = [variant for variant in CI_VARIANTS if _verify(variant, templates_directory) != 0]
-    if failed:
-        print(f"VERIFY FAIL | variants={', '.join(failed)}", file=sys.stderr)
-        return 1
-    print(f"VERIFY OK | variants={', '.join(CI_VARIANTS)}")
-    return 0
-
-
-def _verify(variant: str, templates_directory: Path) -> int:
-    variant_config = WORKFLOW_VARIANTS[variant]
-    if variant_config.local_only:
-        missing_templates = [name for name in variant_config.template_names if not (templates_directory / name).is_file()]
+    passed: list[str] = []
+    skipped: list[str] = []
+    failed: list[str] = []
+    for variant in args.variant:
+        missing_templates = _missing_templates(variant, templates_directory)
         if missing_templates:
             print(
                 f"VERIFY SKIP | variant={variant} | templates_dir={templates_directory} | "
                 f"missing={', '.join(missing_templates)}"
             )
-            return 0
-    run_root, evidence_root = _new_paths()
+            skipped.append(variant)
+        elif _verify(variant, templates_directory, args.run_dir) == 0:
+            passed.append(variant)
+        else:
+            failed.append(variant)
+    if len(args.variant) == 1:
+        return 1 if failed else 0
+    not_run = f" | skipped={', '.join(skipped)}" if skipped else ""
+    if failed:
+        print(f"VERIFY FAIL | variants={', '.join(failed)}{not_run}", file=sys.stderr)
+        return 1
+    if skipped:
+        print(f"VERIFY SKIP | ok={', '.join(passed) or '-'}{not_run}")
+        return 0
+    print(f"VERIFY OK | variants={', '.join(passed)}")
+    return 0
+
+
+def _missing_templates(variant: str, templates_directory: Path) -> list[str]:
+    variant_config = WORKFLOW_VARIANTS[variant]
+    if not variant_config.local_only:
+        return []
+    return [name for name in variant_config.template_names if not (templates_directory / name).is_file()]
+
+
+def _verify(variant: str, templates_directory: Path, run_dir: Path) -> int:
+    variant_config = WORKFLOW_VARIANTS[variant]
+    run = new_run(run_dir, f"rozliczenia-{uuid.uuid4().hex}")
+    run_root, evidence_root = run.root, run.evidence
     failure: BaseException | None = None
     cleanup_failure: BaseException | None = None
     try:
@@ -620,6 +625,8 @@ def _verify(variant: str, templates_directory: Path) -> int:
                 str(HELPER_DIRECTORY / "self_test.py"),
                 "--evidence-root",
                 str(evidence_root),
+                "--run-dir",
+                str(run_dir),
             ],
             evidence_root,
             self_test_environment,

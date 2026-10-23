@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 import sys
 import tomllib
@@ -14,9 +13,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
 
 from rozliczenia.worker_config import load_worker_mapping  # noqa: E402
+from skrypt_skilla import Parser  # noqa: E402
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderError  # noqa: E402
 from rozliczenia.template_settlement import (  # noqa: E402
     WorkerTemplateValidationError,
@@ -60,8 +60,8 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root of a settlement fixture")
     parser.add_argument("--expected-version", default="0.1.0")
     args = parser.parse_args(argv)
     try:

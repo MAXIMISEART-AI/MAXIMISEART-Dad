@@ -6,13 +6,12 @@
 Without ``--run`` it dispatches the workflow ``verify-centrum-na-windowsie.yml`` on ``--ref`` (default: the current
 branch, which must be pushed; the workflow must already be on ``main`` for a dispatch). With ``--run`` it waits for
 an existing run, e.g. the one a pull request started. Either way it waits for the run, downloads its evidence to
-``.verification/evidence/github-<run id>/`` and prints the run's own ``VERIFY OK``/``VERIFY FAIL`` line, exiting 0
+``<run dir>/evidence/github-<run id>/`` (``--run-dir``, default ``.verification``) and prints the run's own ``VERIFY OK``/``VERIFY FAIL`` line, exiting 0
 only for ``VERIFY OK``. A run takes about 10 minutes: start this as a background command.
 """
 
 from __future__ import annotations
 
-import argparse
 from datetime import datetime
 import json
 from pathlib import Path
@@ -21,6 +20,10 @@ import sys
 import time
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+from skrypt_skilla import Parser  # noqa: E402
+
 WORKFLOW = "verify-centrum-na-windowsie.yml"
 
 
@@ -48,7 +51,8 @@ def _dispatch(ref: str, feature: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = Parser(description=__doc__)
+    parser.add_run_dir()
     parser.add_argument("--feature", default="all")
     parser.add_argument("--ref", default=None)
     parser.add_argument("--run", default=None, help="Wait for this existing run instead of dispatching one.")
@@ -61,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"RUN {run_id} | https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/{run_id}", flush=True)
     subprocess.run(["gh", "run", "watch", run_id, "--interval", "30"], cwd=REPO_ROOT, stdout=subprocess.DEVNULL, check=False)
     conclusion = json.loads(_gh("run", "view", run_id, "--json", "conclusion"))["conclusion"]
-    evidence = REPO_ROOT / ".verification" / "evidence" / f"github-{run_id}"
+    evidence = args.run_dir / "evidence" / f"github-{run_id}"
     evidence.mkdir(parents=True, exist_ok=True)
     subprocess.run(["gh", "run", "download", run_id, "--dir", str(evidence)], cwd=REPO_ROOT, check=False)
     verdicts = [

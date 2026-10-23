@@ -61,7 +61,7 @@ The runner refuses to start (`VERIFY FAIL | preflight`) off Windows, without the
 Pythons are not Dad's), or while anything listens on Dad's port `47811`. The port is fixed in the shortcut, so
 **one run per machine**, and never on a computer whose own Centrum is running.
 
-It creates `.verification/runs/windows-<id>` (`windows_tool.prepare`): Dad's synthetic folder okresów `INEA`,
+It creates `<run dir>/runs/windows-<id>` (`windows_tool.prepare`; `--run-dir`, default `.verification`): Dad's synthetic folder okresów `INEA`,
 Rejestr zleceń and `config/` from `verify-centrum-rozliczen`'s fixture, and a bare "origin" with three versions of
 the tool built from this checkout's working tree (tracked and untracked files): `first`, `newest` (only
 `requirements.txt` changes, so the update installs libraries with nothing new to fetch) and `not_starting`. The
@@ -109,9 +109,9 @@ region `Narzędzie`; dialog `Zaktualizowano` in region `Notifications`. Recipes 
 
 ## Evidence
 
-`.verification/evidence/windows-<id>/` survives cleanup; on GitHub it is the artifact
+`<run dir>/evidence/windows-<id>/` survives cleanup; on GitHub it is the artifact
 `verify-centrum-na-windowsie-<run id>-<attempt>`, which `run_on_github.py` downloads to
-`.verification/evidence/github-<run id>/`:
+`<run dir>/evidence/github-<run id>/`:
 
 - `drive.txt`: every `STEP <feature> | <id>`, harness step (`harness:`), check (`ok:`), the log lines of each update,
   and the verdict; `doctor-*.txt`, `cleanup.txt`;
@@ -138,8 +138,9 @@ Proof standards:
 
 The runner calls `scripts/windows_cleanup.py` in `finally`. It stops only processes whose command line contains the
 run root (Centrum from the run's tool, the restart guardian, Git and pip below them), closes Explorer windows on the
-run's folders, and removes the run root (making Git's read-only objects writable first). It never kills by process
-name and never touches the evidence. After a runner that was itself killed:
+run's folders, and removes the run root (making Git's read-only objects writable first). It refuses a directory that
+`windows_tool.prepare` did not create (no `.katalog-runu` file). It never kills by process name and never touches the
+evidence. After a runner that was itself killed:
 
 ```powershell
 py -3 .agents\skills\verify-centrum-na-windowsie\scripts\windows_cleanup.py --root "$runRoot"
