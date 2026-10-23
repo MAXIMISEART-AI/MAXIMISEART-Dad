@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any, NoReturn
@@ -19,6 +20,21 @@ from rozliczenia.centrum.tool_update import ToolClone
 from rozliczenia.centrum.log import CentrumLog
 
 _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
+
+
+@pytest.fixture(autouse=True)
+def git_bez_konserwacji_w_tle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Od Gita 2.54 ``git maintenance run --auto`` po ``commit`` wykonuje też ``git worktree prune``.
+
+    Poza Windowsem ta konserwacja biegnie odłączona w tle. Usuwa wtedy katalog ``.git/worktrees/<nazwa>``, który
+    ``git worktree add`` z następnego kroku testu właśnie zakłada, i ``add`` kończy się kodem 128. Wpis działa w gicie
+    ze środowiskiem testu, ale nie w ``receive-pack`` repozytorium bare, do którego test pushuje: tam nie ma worktree.
+    """
+
+    entry = int(os.environ.get("GIT_CONFIG_COUNT", "0"))
+    monkeypatch.setenv(f"GIT_CONFIG_KEY_{entry}", "maintenance.auto")
+    monkeypatch.setenv(f"GIT_CONFIG_VALUE_{entry}", "false")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", str(entry + 1))
 
 
 @pytest.fixture(autouse=True)
