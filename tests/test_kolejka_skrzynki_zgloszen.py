@@ -8,14 +8,15 @@ Centrum nieosiągalna rozsądnym kosztem.
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 import pytest
 
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
-from rozliczenia.centrum.report_box import COMMENT_LIMIT, Unreachable
+from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Unreachable
 
-from tests.fixtures.centrum import FakeReportBox
+from tests.fixtures.centrum import FakeIssue, FakeReportBox
 from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
@@ -40,12 +41,21 @@ def post(blocks: list[str], *, frame: Frame = numbered) -> Post:
     return Post.of(THREAD, period="08_14_09_2026", run_id=RUN_ID, blocks=blocks, frame=frame)
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class Queue:
     def __init__(self, tmp_path: Path, box: FakeReportBox, key: str | None = KEY) -> None:
         self.directory = tmp_path / "config" / "zgloszenia" / "kolejka"
         self.log_path = tmp_path / "logs" / "centrum-rozliczen.log"
         self.box = box
-        self.outbox = Outbox(self.directory, box, lambda: key, CentrumLog(self.log_path))
+        self.key = key
+        self.outbox = self.restarted()
+
+    def restarted(self) -> Outbox:
+        """Kolejka nowego startu Centrum na tym samym folderze."""
+
+        return Outbox(self.directory, self.box, lambda: self.key, CentrumLog(self.log_path))
 
     def files(self) -> list[str]:
         return sorted(path.name for path in self.directory.glob("*"))
@@ -112,7 +122,7 @@ def test_wysylka_ponad_limit_to_issue_z_pierwsza_czescia_i_komentarze_z_kolejnym
     assert "x" * 10 not in queue.log()
 
 
-def test_bez_sieci_wysylka_czeka_w_pliku_i_idzie_przy_nastepnej_wysylce_po_kolei(tmp_path: Path) -> None:
+def test_bez_sieci_wysylka_czeka_w_pliku_i_idzie_przy_nastepnej_wysylce_po_kolei_do_issue_okresu(tmp_path: Path) -> None:
     queue = Queue(tmp_path, FakeReportBox(outcomes=[Unreachable()]))
 
     queue.outbox.post(post(["pierwsza\n"]))
@@ -123,8 +133,32 @@ def test_bez_sieci_wysylka_czeka_w_pliku_i_idzie_przy_nastepnej_wysylce_po_kolei
 
     queue.outbox.post(post(["druga\n"]))
 
-    assert queue.box.wait_until(lambda box: len(box.issues) == 2)
-    assert [issue.body.splitlines()[-1] for issue in queue.box.issues] == ["pierwsza", "druga"]
+    assert queue.box.wait_until(lambda box: bool(box.issues) and bool(box.issues[0].comments))
+    [issue] = queue.box.issues
+    assert issue.body.splitlines()[-1] == "pierwsza"
+    assert issue.comments == ["Część 1/1\n\ndruga\n"]
+    assert wait_for(lambda: queue.files() == [])
+
+
+LOGS = PeriodThread(
+    label="logi-uruchomienia",
+    line="- Logi Uruchomień okresu: 08_14_09_2026",
+    closed="reuse",
+    title="Logi Uruchomień 08_14_09_2026",
+)
+
+
+def test_watek_ktory_zostaje_po_zamknieciu_dostaje_czesci_jako_komentarze_w_zamknietym_issue(tmp_path: Path) -> None:
+    closed = FakeIssue(7, LOGS.label, LOGS.title, f"{LOGS.line}\n\nLogi Uruchomień tego okresu.\n")
+    queue = Queue(tmp_path, FakeReportBox(issues=[closed], closed={7}))
+
+    queue.outbox.post(
+        Post.of(LOGS, period="08_14_09_2026", run_id=RUN_ID, blocks=["logi\n"], frame=numbered, header="Nagłówek")
+    )
+
+    assert queue.box.wait_until(lambda box: bool(closed.comments))
+    assert queue.box.issues == [closed]
+    assert closed.comments == ["Część 1/1\n\nlogi\n"]
     assert wait_for(lambda: queue.files() == [])
 
 
@@ -137,6 +171,16 @@ def test_bez_klucza_wysylka_czeka_w_pliku_bez_pytania_skrzynki(tmp_path: Path) -
     assert wait_for(lambda: waiting in queue.log())
     assert len(queue.files()) == 1
     assert queue.box.keys == []
+
+
+def test_gdy_skrzynka_odmawia_szukania_issue_okresu_wysylka_czeka_w_pliku_bez_nowego_issue(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Refused()))
+
+    queue.outbox.post(post(["treść\n"]))
+
+    assert wait_for(lambda: "przyczyna=odmowa" in queue.log())
+    assert len(queue.files()) == 1
+    assert (queue.box.issues, queue.box.keys) == ([], [])
 
 
 def test_nieudany_komentarz_zostawia_wysylke_w_pliku(tmp_path: Path) -> None:
@@ -158,3 +202,114 @@ def test_wysylka_ktorej_nie_da_sie_zapisac_przepada_bez_wyjatku(tmp_path: Path) 
     assert "nieoczekiwany-wyjatek typ=" in queue.log()
     assert "zapis wysyłki do Skrzynki Zgłoszeń" in queue.log()
     assert queue.box.issues == []
+
+
+def test_wysylka_zapisana_przez_wersje_z_273_wychodzi_po_starcie(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    queue.directory.mkdir(parents=True)
+    shutil.copy(
+        ROOT / "tests" / "fixtures" / "kolejka-v1-kontrola-ilosci.json",
+        queue.directory / "20261023T101500000000Z-0001-kontrola-ilosci-3f2a9c1b.json",
+    )
+
+    queue.outbox.resume()
+
+    assert queue.box.wait_until(lambda box: bool(box.issues))
+    [issue] = queue.box.issues_with("kontrola-ilosci")
+    assert issue.title == "Kontrola ilości 08_14_09_2026: 1 różnica"
+    assert issue.body == (
+        "- Kontrola ilości okresu: 08_14_09_2026\n\n"
+        "Kontrola ilości z Centrum rozliczeń (plik kolejki w wersji 1 z #273).\n\n"
+        "## Różnice\n\n| Kolumna | Reguła | Tata |\n| --- | --- | --- |\n| Q | 2 | 1 |\n"
+    )
+    assert wait_for(lambda: queue.files() == [])
+
+
+def test_zapis_urwany_przez_utrate_zasilania_znika_przy_starcie_i_nie_jest_wysylany(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    queue.directory.mkdir(parents=True)
+    (queue.directory / "20261023T101500000000Z-0001-kontrola-ilosci-3f2a9c1b.json.tmp").write_text(
+        '{"schema_version": 1, "thr', encoding="utf-8"
+    )
+
+    queue.outbox.resume()
+
+    assert queue.files() == []
+    assert queue.box.keys == []
+
+
+def test_plik_kolejki_ktorego_nie_da_sie_odczytac_zostaje_z_jednym_wpisem_i_nie_wstrzymuje_innych(
+    tmp_path: Path,
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    queue.directory.mkdir(parents=True)
+    broken = "00000000T000000000000Z-0001-kontrola-ilosci-3f2a9c1b.json"
+    (queue.directory / broken).write_text('{"schema_version": 2}', encoding="utf-8")
+
+    queue.outbox.post(post(["treść\n"]))
+    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
+    assert wait_for(lambda: queue.files() == [broken])
+    queue.outbox.post(post(["druga\n"]))
+    assert queue.box.wait_until(lambda box: len(box.issues[0].comments) == 1)
+    assert wait_for(lambda: queue.files() == [broken])
+
+    assert queue.log().count(f"skrzynka-nieczytelny plik={broken}") == 1
+    assert "nieoczekiwany-wyjatek" not in queue.log()
+
+
+def test_wyslanej_wysylki_ktorej_nie_da_sie_usunac_skrzynka_nie_dostaje_drugi_raz(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    unlink = Path.unlink
+
+    def locked(path: Path, missing_ok: bool = False) -> None:
+        if path.parent == queue.directory and path.suffix == ".json":
+            raise PermissionError("plik otwarty w innym programie")
+        unlink(path, missing_ok=missing_ok)
+
+    def failed_removals() -> int:
+        return queue.log().count("usunięcie wysłanej wysyłki")
+
+    monkeypatch.setattr(Path, "unlink", locked)
+    queue.outbox.post(post(["pierwsza\n"]))
+    assert wait_for(lambda: failed_removals() == 1)
+    queue.outbox.post(post(["druga\n"]))
+    assert wait_for(lambda: failed_removals() == 2)
+    queue.restarted().resume()
+    assert wait_for(lambda: failed_removals() == 4)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    queue.restarted().resume()
+
+    assert wait_for(lambda: queue.files() == [])
+    [issue] = queue.box.issues
+    assert [issue.body.splitlines()[-1], *(comment.splitlines()[-1] for comment in issue.comments)] == [
+        "pierwsza",
+        "druga",
+    ]
+    assert queue.log().count("skrzynka-wyslano") == 2
+    assert failed_removals() == 4
+
+
+def test_po_wyslaniu_kolejka_zna_adres_pierwszego_komentarza_uruchomienia(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(outcomes=[Unreachable()]))
+    logs = PeriodThread(
+        label="logi-uruchomienia", line="- Logi Uruchomienia okresu: 08_14_09_2026", closed="reuse", title="Logi"
+    )
+    run_logs = Post.of(
+        logs, period="08_14_09_2026", run_id=RUN_ID, blocks=["podsumowanie\n"], frame=numbered, header="Logi okresu"
+    )
+
+    queue.outbox.post(run_logs)
+    assert wait_for(lambda: "przyczyna=brak-sieci" in queue.log())
+    waiting = queue.outbox.delivered(RUN_ID, "logi-uruchomienia")
+    queue.outbox.resume()
+    assert queue.box.wait_until(lambda box: bool(box.issues) and bool(box.issues[0].comments))
+    assert wait_for(lambda: queue.outbox.delivered(RUN_ID, "logi-uruchomienia") is not None)
+
+    assert waiting is None
+    assert queue.outbox.delivered(RUN_ID, "logi-uruchomienia") == (
+        "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/1#issuecomment-1"
+    )
+    assert queue.outbox.delivered(RUN_ID, "kontrola-ilosci") is None
+    assert queue.outbox.delivered("inne-uruchomienie", "logi-uruchomienia") is None

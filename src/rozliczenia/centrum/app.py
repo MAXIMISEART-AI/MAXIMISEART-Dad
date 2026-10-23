@@ -80,6 +80,8 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienie o naprawie: pierwsze pytanie skrzynki przy starcie, nie dopiero przy wejściu na Okresy.
         reports.check_repairs_in_background()
+        # Kontrole ilości, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
+        outbox.resume()
         yield
 
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.

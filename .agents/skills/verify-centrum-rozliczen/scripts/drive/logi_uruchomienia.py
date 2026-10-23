@@ -122,7 +122,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
         "the warning keeps its code BRAK_MAPOWANIA, which the card does not show",
     )
     _nothing_about_logs(run, page, "after the preview")
-    run.capture(page, "150-logi-podglad")
+    run.capture(page, "160-logi-podglad")
 
     run.step(FEATURE, "logi-zatrzymanie")
     before = set(_records(run))
@@ -139,7 +139,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
         "the Zatrzymanie is one message of kind stop with its code NIEZNANY_WYKONAWCA",
     )
     _nothing_about_logs(run, page, "after the Zatrzymanie")
-    run.capture(page, "151-logi-zatrzymanie")
+    run.capture(page, "161-logi-zatrzymanie")
 
     run.step(FEATURE, "logi-szablony")
     view = json.loads(settled.read_text(encoding="utf-8"))

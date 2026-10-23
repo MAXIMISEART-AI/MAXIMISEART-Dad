@@ -27,6 +27,7 @@ from drive import (
     aktualnosc_i_onedrive,
     diagnoza,
     konfiguracja,
+    kontrola_ilosci,
     logi_uruchomienia,
     metryki,
     pomiar_u_taty,
@@ -48,7 +49,7 @@ from skrypt_skilla import Parser
 
 # aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
 # appends to the metrics files that Metryki counts, so it runs after Metryki; Przebieg rozliczeń continues Dad's
-# path from its Plik zbiorczy; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
+# path from its Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
 # scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
 # powiadomienie-o-naprawie closes that Zgłoszenie there; logi-uruchomienia matches every Uruchomienie of the week
 # with its file of Logi; pomiar-u-taty clicks through the pages with the files
@@ -62,6 +63,7 @@ FEATURES = (
     "metryki",
     "przygotowanie-pliku-zbiorczego",
     "przebieg-rozliczen",
+    "kontrola-ilosci",
     "diagnoza",
     "aktualnosc-i-onedrive",
     "zgloszenie",
@@ -95,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         "metryki": metryki.drive_metrics,
         "przygotowanie-pliku-zbiorczego": przygotowanie_pliku_zbiorczego.drive_preparation,
         "przebieg-rozliczen": przebieg_rozliczen.drive_settlement,
+        "kontrola-ilosci": kontrola_ilosci.drive_quantity_check,
         "diagnoza": diagnoza.drive_diagnosis,
         "aktualnosc-i-onedrive": aktualnosc_i_onedrive.drive_freshness_and_onedrive,
         "zgloszenie": zgloszenie.drive_report,

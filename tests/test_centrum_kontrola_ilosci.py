@@ -9,8 +9,9 @@ from __future__ import annotations
 from datetime import datetime
 import json
 from pathlib import Path
+import shutil
 import threading
-from typing import Final
+from typing import Any, Final
 
 import pytest
 
@@ -18,6 +19,7 @@ from rozliczenia.centrum.report_box import Refused, SendOutcome, Sent, Unreachab
 
 from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox, finished_view, without_times
 from tests.fixtures.centrum_processes import SettlingCentrum, run_to_end, settling_centrum
+from tests.fixtures.potomne import wait_for
 from tests.fixtures.settlement import MARKED, CellValue, PERIOD, write_quantity_source
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -280,3 +282,122 @@ def test_podglad_i_zatrzymanie_nie_tworza_kontroli_ilosci(tmp_path: Path) -> Non
     assert queued(centrum) == []
     assert box(centrum).keys == []
     assert "skrzynka-" not in centrum.log_path.read_text(encoding="utf-8")
+
+
+def repeated(centrum: SettlingCentrum) -> dict[str, Any]:
+    """Przebieg tego samego okresu jeszcze raz, po usunięciu Folderu rozliczeń pracowników, jak zrobiłby tata."""
+
+    shutil.rmtree(centrum.worker_settlements)
+    view = run_to_end(centrum, dry_run=False)
+    assert view["result"]["result"] == "OK"
+    return view
+
+
+def test_powtorzony_przebieg_okresu_dopisuje_kontrole_jako_komentarz_do_otwartego_issue_okresu(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    run_to_end(centrum, dry_run=False)
+    first = sent_check(centrum)
+
+    second = repeated(centrum)
+
+    assert box(centrum).wait_until(lambda fake: bool(first.comments)), "druga Kontrola ilości nie dotarła"
+    assert [issue.number for issue in box(centrum).issues_with(LABEL)] == [first.number]
+    assert first.comments == [expected_body(second["run"]["id"]).removeprefix(f"{LINE}\n\n")]
+    assert queued(centrum) == []
+
+
+def test_gdy_maks_zamknal_issue_okresu_powtorzony_przebieg_zaklada_nowe(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    run_to_end(centrum, dry_run=False)
+    first = sent_check(centrum)
+    box(centrum).close(first.number)
+
+    second = repeated(centrum)
+
+    assert box(centrum).wait_until(lambda fake: len(fake.issues_with(LABEL)) == 2), "nowe issue okresu nie powstało"
+    newer = box(centrum).issues_with(LABEL)[1]
+    assert newer.body == expected_body(second["run"]["id"])
+    assert first.comments == []
+
+
+def test_kontrola_ilosci_nie_trafia_do_issue_innego_okresu_ani_innej_etykiety(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    foreign = [
+        FakeIssue(1, LABEL, "Kontrola ilości 01_07_09_2026: bez różnic", "- Kontrola ilości okresu: 01_07_09_2026\n"),
+        FakeIssue(2, LABEL, f"Kontrola ilości {PERIOD}0", f"- Kontrola ilości okresu: {PERIOD}0\n"),
+        FakeIssue(3, "zgloszenie", "BRAK_WZORCA: Nie znaleziono wzorca.", f"## Komunikat\n\n{LINE}\n"),
+        FakeIssue(4, "logi-uruchomienia", f"Logi {PERIOD}", f"{LINE}\n"),
+    ]
+    box(centrum).issues.extend(foreign)
+
+    view = run_to_end(centrum, dry_run=False)
+
+    assert box(centrum).wait_until(lambda fake: len(fake.issues) == 5), "Kontrola ilości nie dotarła"
+    assert box(centrum).issues[4].body == expected_body(view["run"]["id"])
+    assert [issue.comments for issue in foreign] == [[], [], [], []]
+
+
+def waiting_for_network(centrum: SettlingCentrum) -> int:
+    waiting = f"skrzynka-czeka etykieta={LABEL} okres={PERIOD} przyczyna=brak-sieci"
+    return centrum.log_path.read_text(encoding="utf-8").count(waiting)
+
+
+def test_kontrola_ilosci_bez_sieci_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_centrum(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    box(centrum).outcomes.append(Unreachable())
+
+    view = run_to_end(centrum, dry_run=False)
+
+    assert box(centrum).wait_until(lambda fake: len(fake.keys) == 1)
+    assert view["result"]["result"] == "OK"
+    assert view["result"]["notices"] == [] and view["result"]["warnings"] == []
+    [waiting] = queued(centrum)
+    assert [path.name for path in (tmp_path / "config" / "zgloszenia").iterdir()] == ["kolejka"]
+
+    box(centrum).outcomes.append(Unreachable())
+    centrum.restart()
+    with centrum.client:
+        assert box(centrum).wait_until(lambda fake: len(fake.keys) == 2)
+        assert centrum.client.get("/api/runs/current").json()["state"] == "idle"
+    assert wait_for(lambda: waiting_for_network(centrum) == 2)
+    assert queued(centrum) == [waiting]
+    assert box(centrum).issues == []
+
+    centrum.restart()
+    with centrum.client:
+        issue = sent_check(centrum)
+
+    assert issue.body == expected_body(view["run"]["id"])
+    assert wait_for(lambda: queued(centrum) == [])
+    assert list((tmp_path / "config" / "zgloszenia").glob("Zgłoszenie *.md")) == []
+
+
+def test_ponowienie_przy_starcie_nie_opoznia_startu_centrum(tmp_path: Path) -> None:
+    centrum = centrum_with(tmp_path, TATA_ROWS)
+    box(centrum).outcomes.append(Unreachable())
+    run_to_end(centrum, dry_run=False)
+    assert box(centrum).wait_until(lambda fake: len(fake.keys) == 1)
+    box(centrum).open_hold = hold = threading.Event()
+    box(centrum).opening.clear()
+    centrum.restart()
+
+    # Start na osobnym wątku: start, który czeka na skrzynkę, wisiałby inaczej do końca testu.
+    start = threading.Thread(target=centrum.client.__enter__, daemon=True)
+    start.start()
+    try:
+        start.join(10)
+        started_while_held = not start.is_alive()
+        asked = box(centrum).opening.wait(30)
+        health = centrum.client.get("/api/health") if started_while_held else None
+    finally:
+        hold.set()
+        start.join(30)
+    try:
+        issue = sent_check(centrum)
+    finally:
+        centrum.client.__exit__(None, None, None)
+
+    assert started_while_held, "start Centrum czekał na skrzynkę"
+    assert asked, "ponowienie przy starcie nie zapytało skrzynki"
+    assert health is not None and health.status_code == 200
+    assert issue.title == f"Kontrola ilości {PERIOD}: 7 różnic"
