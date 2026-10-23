@@ -16,7 +16,7 @@ UPDATE_BUTTON = "Zaktualizuj narzędzie"
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
 KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
 # The tool Dad runs when he sends the Zgłoszenie of this feature: newer than the one of features/zgloszenie.md,
-# whose closed Zgłoszenie 1 would otherwise give the notice from the start.
+# whose closed first Zgłoszenie would otherwise give the notice from the start.
 SENDING_COMMIT = "d" * 40
 # The tool after Dad's update: another commit than the one the Zgłoszenie was sent from.
 UPDATED_COMMIT = "e" * 40
@@ -77,13 +77,9 @@ def _send_from_updated_tool(run: Run, page: Page, box: Path) -> int:
     stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
     page.get_by_role("region", name="Diagnoza").get_by_role("button", name="Wyślij do Maksa", exact=True).click()
     expect(page.get_by_role("status").filter(has_text=zgloszenie.SENT)).to_be_visible()
-    issues = sorted(box.glob("*.json"), key=lambda path: int(path.stem))
-    number = int(issues[-1].stem)
-    run.check(
-        json.loads(issues[-1].read_text(encoding="utf-8"))["state"] == "open",
-        "the Zgłoszenie from the updated tool is open in the skrzynka",
-    )
-    return number
+    newest = zgloszenie._issues(box)[-1]
+    run.check(newest["state"] == "open", "the Zgłoszenie from the updated tool is open in the skrzynka")
+    return int(str(newest["number"]))
 
 
 def drive_repair_notice(run: Run, page: Page) -> None:

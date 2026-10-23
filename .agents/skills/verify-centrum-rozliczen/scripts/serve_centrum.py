@@ -46,7 +46,10 @@ then goes into that file's ``comments``). The key is never written
 there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
 Each question about the state of sent Zgłoszenia appends its numbers to
-``<root>/skrzynka-zgloszen-zapytania.jsonl``.
+``<root>/skrzynka-zgloszen-zapytania.jsonl``. While ``<root>/pacing/skrzynka-ms.txt``
+exists, the skrzynka waits that many milliseconds before it opens an issue, like
+GitHub over a slow connection, so the drive can see that Centrum starts without
+waiting for the Kontrole ilości it sends again at start.
 
 Centrum asks the skrzynka for the state of sent Zgłoszenia at most once per 10
 minutes of its monotonic clock; ``<root>/zegar/przesuniecie-min.txt`` moves that
@@ -165,9 +168,12 @@ class FileReportBox:
 
     def __init__(self, directory: Path) -> None:
         self._directory = directory
+        self._pacing = directory.parent / "pacing" / "skrzynka-ms.txt"
         self._lock = threading.Lock()
 
     def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
+        if self._pacing.exists():
+            time.sleep(int(self._pacing.read_text(encoding="utf-8")) / 1000)
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
         with self._lock:
