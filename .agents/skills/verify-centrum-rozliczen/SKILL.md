@@ -1,6 +1,10 @@
 ---
 name: verify-centrum-rozliczen
-description: Verify Centrum rozliczeń, MAXIMISEART-Dad's local browser app, end to end in Chromium (Playwright for Python) on a synthetic folder okresów, checking screens, API answers, and effects on disk, with retained screenshots; use after changes to the Centrum server, frontend, contract, or launcher.
+description: Verify Centrum rozliczeń, MAXIMISEART-Dad's local browser app, end to end in Chromium (Playwright for Python) on a synthetic folder okresów, checking screens, API answers, and effects on disk, with retained screenshots; use after changes to the Centrum server, frontend, contract, or launcher, and read ADR 0004 (`docs/adr/0004-centrum-rozliczen-adapter.md`) before making them. When a change can make the frontend faster or slower, measure it before and after with `--feature wydajnosc` and update the baseline as `features/wydajnosc.md` says.
+pilnuje:
+  - src/rozliczenia/centrum/*
+  - frontend/*
+  - run_centrum.py
 ---
 
 # Verify Centrum rozliczeń
