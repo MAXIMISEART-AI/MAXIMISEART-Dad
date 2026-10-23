@@ -32,16 +32,22 @@ def _load_checker() -> ModuleType:
     return module
 
 
-# 60 przykładów na każdy z dwóch Wzorców: ~65 s na Macu M4 Max, kilka razy dłużej na runnerze Windows.
+# Każdy Wzorzec ma osobny przebieg Hypothesis, więc osobna część testu sprawdza te same przykłady, a xdist rozkłada części.
+WZORCE = ("syntetyczny", "maly")
+
+
+# 60 przykładów na Wzorzec: ~65 s obu na Macu M4 Max, kilka razy dłużej na runnerze Windows.
 @pytest.mark.timeout(600)
-def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_dla_generowanych_wierszy_danych() -> None:
+@pytest.mark.parametrize("wzorzec", WZORCE)
+def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_dla_generowanych_wierszy_danych(wzorzec: str) -> None:
     checker = _load_checker()
+    assert sorted(WZORCE) == sorted(checker.SYNTHETIC_TEMPLATES), "każdy Wzorzec checkera ma swoją część testu"
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
         # Hypothesis warns about the size of a shrunk counterexample's repr; the checker prints its own story.
         warnings.filterwarnings("ignore", message="Generating overly large repr")
-        outcome = checker.run_check()
+        outcome = checker.run_check(template_names=(wzorzec,))
 
     assert outcome.exit_code == 0, "\n".join(outcome.lines)
 
