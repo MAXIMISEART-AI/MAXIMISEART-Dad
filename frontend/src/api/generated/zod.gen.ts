@@ -916,29 +916,17 @@ export const zConfiguration = z.object({
 /**
  * Successful Response
  */
+export const zGetConfigurationResponse = zConfiguration;
+
+/**
+ * Successful Response
+ */
 export const zGetHealthResponse = zHealth;
 
 /**
  * Successful Response
  */
-export const zGetSettingsResponse = zSettings;
-
-/**
- * Successful Response
- */
-export const zChooseRegisterResponse = zChoice;
-
-/**
- * Successful Response
- */
-export const zChoosePeriodsDirectoryResponse = zChoice;
-
-export const zChangeThemeBody = zThemeChange;
-
-/**
- * Successful Response
- */
-export const zChangeThemeResponse = zSettings;
+export const zGetMetricsResponse = zMetrics;
 
 /**
  * Response Getperiodboard
@@ -965,7 +953,7 @@ export const zOpenPeriodPathResponse = zOpened;
 /**
  * Successful Response
  */
-export const zGetRunSetupResponse = zRunSetup;
+export const zGetRepairNoticeResponse = zRepairNotice;
 
 export const zStartRunBody = zRunRequest;
 
@@ -993,6 +981,16 @@ export const zGetCurrentRunResponse = z.discriminatedUnion('state', [
     zRunFinished
 ]);
 
+/**
+ * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
+ */
+export const zStreamRunEventsResponse = zRunEvent;
+
+/**
+ * Successful Response
+ */
+export const zGetRunSetupResponse = zRunSetup;
+
 export const zDecideRunBody = zDecisionAnswer;
 
 export const zDecideRunPath = z.object({
@@ -1010,11 +1008,6 @@ export const zDecideRunResponse = z.discriminatedUnion('state', [
     zRunAwaitingDecision,
     zRunFinished
 ]);
-
-/**
- * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
- */
-export const zStreamRunEventsResponse = zRunEvent;
 
 export const zDiagnoseRunPath = z.object({
     run_id: z.string()
@@ -1044,17 +1037,29 @@ export const zReportRunResponse = z.discriminatedUnion('state', [
 /**
  * Successful Response
  */
-export const zGetRepairNoticeResponse = zRepairNotice;
+export const zGetSettingsResponse = zSettings;
 
 /**
  * Successful Response
  */
-export const zGetMetricsResponse = zMetrics;
+export const zChoosePeriodsDirectoryResponse = zChoice;
 
 /**
  * Successful Response
  */
-export const zGetConfigurationResponse = zConfiguration;
+export const zChooseRegisterResponse = zChoice;
+
+export const zChangeThemeBody = zThemeChange;
+
+/**
+ * Successful Response
+ */
+export const zChangeThemeResponse = zSettings;
+
+/**
+ * Successful Response
+ */
+export const zCloseCentrumResponse = zClosing;
 
 /**
  * Response Gettoolupdate
@@ -1093,11 +1098,6 @@ export const zReportToolUpdateResponse = z.discriminatedUnion('state', [
     zReportWaiting,
     zReportSaved
 ]);
-
-/**
- * Successful Response
- */
-export const zCloseCentrumResponse = zClosing;
 
 export const zRecordViewTimingBody = zViewTiming;
 

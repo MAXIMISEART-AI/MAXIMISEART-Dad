@@ -1440,6 +1440,22 @@ export type WorkersUnreadable = {
     message: Message;
 };
 
+export type GetConfigurationData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/configuration';
+};
+
+export type GetConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: Configuration;
+};
+
+export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];
+
 export type GetHealthData = {
     body?: never;
     path?: never;
@@ -1456,78 +1472,30 @@ export type GetHealthResponses = {
 
 export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
 
-export type GetSettingsData = {
+export type GetMetricsData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/settings';
+    url: '/api/metrics';
 };
 
-export type GetSettingsResponses = {
+export type GetMetricsErrors = {
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
+};
+
+export type GetMetricsError = GetMetricsErrors[keyof GetMetricsErrors];
+
+export type GetMetricsResponses = {
     /**
      * Successful Response
      */
-    200: Settings;
+    200: Metrics;
 };
 
-export type GetSettingsResponse = GetSettingsResponses[keyof GetSettingsResponses];
-
-export type ChooseRegisterData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/settings/register/choose';
-};
-
-export type ChooseRegisterResponses = {
-    /**
-     * Successful Response
-     */
-    200: Choice;
-};
-
-export type ChooseRegisterResponse = ChooseRegisterResponses[keyof ChooseRegisterResponses];
-
-export type ChoosePeriodsDirectoryData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/settings/periods-directory/choose';
-};
-
-export type ChoosePeriodsDirectoryResponses = {
-    /**
-     * Successful Response
-     */
-    200: Choice;
-};
-
-export type ChoosePeriodsDirectoryResponse = ChoosePeriodsDirectoryResponses[keyof ChoosePeriodsDirectoryResponses];
-
-export type ChangeThemeData = {
-    body: ThemeChange;
-    path?: never;
-    query?: never;
-    url: '/api/settings/theme';
-};
-
-export type ChangeThemeErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ChangeThemeError = ChangeThemeErrors[keyof ChangeThemeErrors];
-
-export type ChangeThemeResponses = {
-    /**
-     * Successful Response
-     */
-    200: Settings;
-};
-
-export type ChangeThemeResponse = ChangeThemeResponses[keyof ChangeThemeResponses];
+export type GetMetricsResponse = GetMetricsResponses[keyof GetMetricsResponses];
 
 export type GetPeriodBoardData = {
     body?: never;
@@ -1591,21 +1559,21 @@ export type OpenPeriodPathResponses = {
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
 
-export type GetRunSetupData = {
+export type GetRepairNoticeData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/runs/setup';
+    url: '/api/reports/repair';
 };
 
-export type GetRunSetupResponses = {
+export type GetRepairNoticeResponses = {
     /**
      * Successful Response
      */
-    200: RunSetup;
+    200: RepairNotice;
 };
 
-export type GetRunSetupResponse = GetRunSetupResponses[keyof GetRunSetupResponses];
+export type GetRepairNoticeResponse = GetRepairNoticeResponses[keyof GetRepairNoticeResponses];
 
 export type StartRunData = {
     body: RunRequest;
@@ -1676,6 +1644,38 @@ export type GetCurrentRunResponses = {
 
 export type GetCurrentRunResponse = GetCurrentRunResponses[keyof GetCurrentRunResponses];
 
+export type StreamRunEventsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/runs/events';
+};
+
+export type StreamRunEventsResponses = {
+    /**
+     * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
+     */
+    200: RunEvent;
+};
+
+export type StreamRunEventsResponse = StreamRunEventsResponses[keyof StreamRunEventsResponses];
+
+export type GetRunSetupData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/runs/setup';
+};
+
+export type GetRunSetupResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunSetup;
+};
+
+export type GetRunSetupResponse = GetRunSetupResponses[keyof GetRunSetupResponses];
+
 export type DecideRunData = {
     body: DecisionAnswer;
     path: {
@@ -1723,22 +1723,6 @@ export type DecideRunResponses = {
 };
 
 export type DecideRunResponse = DecideRunResponses[keyof DecideRunResponses];
-
-export type StreamRunEventsData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/runs/events';
-};
-
-export type StreamRunEventsResponses = {
-    /**
-     * Strumień SSE; każde pole `data` to `RunEvent` (JSON).
-     */
-    200: RunEvent;
-};
-
-export type StreamRunEventsResponse = StreamRunEventsResponses[keyof StreamRunEventsResponses];
 
 export type DiagnoseRunData = {
     body?: never;
@@ -1826,62 +1810,103 @@ export type ReportRunResponses = {
 
 export type ReportRunResponse = ReportRunResponses[keyof ReportRunResponses];
 
-export type GetRepairNoticeData = {
+export type GetSettingsData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/reports/repair';
+    url: '/api/settings';
 };
 
-export type GetRepairNoticeResponses = {
+export type GetSettingsResponses = {
     /**
      * Successful Response
      */
-    200: RepairNotice;
+    200: Settings;
 };
 
-export type GetRepairNoticeResponse = GetRepairNoticeResponses[keyof GetRepairNoticeResponses];
+export type GetSettingsResponse = GetSettingsResponses[keyof GetSettingsResponses];
 
-export type GetMetricsData = {
+export type ChoosePeriodsDirectoryData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/metrics';
+    url: '/api/settings/periods-directory/choose';
 };
 
-export type GetMetricsErrors = {
-    /**
-     * Internal Server Error
-     */
-    500: Problem;
-};
-
-export type GetMetricsError = GetMetricsErrors[keyof GetMetricsErrors];
-
-export type GetMetricsResponses = {
+export type ChoosePeriodsDirectoryResponses = {
     /**
      * Successful Response
      */
-    200: Metrics;
+    200: Choice;
 };
 
-export type GetMetricsResponse = GetMetricsResponses[keyof GetMetricsResponses];
+export type ChoosePeriodsDirectoryResponse = ChoosePeriodsDirectoryResponses[keyof ChoosePeriodsDirectoryResponses];
 
-export type GetConfigurationData = {
+export type ChooseRegisterData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/configuration';
+    url: '/api/settings/register/choose';
 };
 
-export type GetConfigurationResponses = {
+export type ChooseRegisterResponses = {
     /**
      * Successful Response
      */
-    200: Configuration;
+    200: Choice;
 };
 
-export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];
+export type ChooseRegisterResponse = ChooseRegisterResponses[keyof ChooseRegisterResponses];
+
+export type ChangeThemeData = {
+    body: ThemeChange;
+    path?: never;
+    query?: never;
+    url: '/api/settings/theme';
+};
+
+export type ChangeThemeErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ChangeThemeError = ChangeThemeErrors[keyof ChangeThemeErrors];
+
+export type ChangeThemeResponses = {
+    /**
+     * Successful Response
+     */
+    200: Settings;
+};
+
+export type ChangeThemeResponse = ChangeThemeResponses[keyof ChangeThemeResponses];
+
+export type CloseCentrumData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/shutdown';
+};
+
+export type CloseCentrumErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type CloseCentrumError = CloseCentrumErrors[keyof CloseCentrumErrors];
+
+export type CloseCentrumResponses = {
+    /**
+     * Successful Response
+     */
+    202: Closing;
+};
+
+export type CloseCentrumResponse = CloseCentrumResponses[keyof CloseCentrumResponses];
 
 export type GetToolUpdateData = {
     body?: never;
@@ -1982,31 +2007,6 @@ export type ReportToolUpdateResponses = {
 };
 
 export type ReportToolUpdateResponse = ReportToolUpdateResponses[keyof ReportToolUpdateResponses];
-
-export type CloseCentrumData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/shutdown';
-};
-
-export type CloseCentrumErrors = {
-    /**
-     * Conflict
-     */
-    409: Problem;
-};
-
-export type CloseCentrumError = CloseCentrumErrors[keyof CloseCentrumErrors];
-
-export type CloseCentrumResponses = {
-    /**
-     * Successful Response
-     */
-    202: Closing;
-};
-
-export type CloseCentrumResponse = CloseCentrumResponses[keyof CloseCentrumResponses];
 
 export type RecordViewTimingData = {
     body: ViewTiming;
