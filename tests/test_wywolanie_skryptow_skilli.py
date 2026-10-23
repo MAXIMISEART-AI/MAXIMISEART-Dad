@@ -180,6 +180,21 @@ def test_self_test_pisze_probe_sprzatania_do_podanego_katalogu_przebiegu(tmp_pat
     assert sorted(path.name for path in run_dir.iterdir()) == ["evidence", "runs"]
 
 
+def test_lista_z_pominietym_wariantem_nie_konczy_sie_verify_ok(tmp_path: Path) -> None:
+    empty_templates = tmp_path / "bez-wzorcow"
+    empty_templates.mkdir()
+
+    done = _script(
+        SKILLS / "verify-rozliczenia" / "scripts" / "run_verification.py",
+        *("--variant", "preparation-real-templates", "chain-real-templates"),
+        *("--templates-dir", str(empty_templates), "--run-dir", str(tmp_path / "przebieg")),
+        cwd=tmp_path,
+    )
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.splitlines()[-1] == "VERIFY SKIP | ok=- | skipped=preparation-real-templates, chain-real-templates"
+
+
 def test_fixture_nie_pisze_do_niepustego_katalogu(tmp_path: Path) -> None:
     occupied = tmp_path / "zajety"
     occupied.mkdir()

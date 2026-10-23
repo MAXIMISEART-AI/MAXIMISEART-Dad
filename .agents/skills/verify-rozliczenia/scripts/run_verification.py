@@ -537,26 +537,43 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     templates_directory = (args.templates_dir or _default_templates_directory()).expanduser().resolve()
-    failed = [variant for variant in args.variant if _verify(variant, templates_directory, args.run_dir) != 0]
-    if len(args.variant) == 1:
-        return 1 if failed else 0
-    if failed:
-        print(f"VERIFY FAIL | variants={', '.join(failed)}", file=sys.stderr)
-        return 1
-    print(f"VERIFY OK | variants={', '.join(args.variant)}")
-    return 0
-
-
-def _verify(variant: str, templates_directory: Path, run_dir: Path) -> int:
-    variant_config = WORKFLOW_VARIANTS[variant]
-    if variant_config.local_only:
-        missing_templates = [name for name in variant_config.template_names if not (templates_directory / name).is_file()]
+    passed: list[str] = []
+    skipped: list[str] = []
+    failed: list[str] = []
+    for variant in args.variant:
+        missing_templates = _missing_templates(variant, templates_directory)
         if missing_templates:
             print(
                 f"VERIFY SKIP | variant={variant} | templates_dir={templates_directory} | "
                 f"missing={', '.join(missing_templates)}"
             )
-            return 0
+            skipped.append(variant)
+        elif _verify(variant, templates_directory, args.run_dir) == 0:
+            passed.append(variant)
+        else:
+            failed.append(variant)
+    if len(args.variant) == 1:
+        return 1 if failed else 0
+    not_run = f" | skipped={', '.join(skipped)}" if skipped else ""
+    if failed:
+        print(f"VERIFY FAIL | variants={', '.join(failed)}{not_run}", file=sys.stderr)
+        return 1
+    if skipped:
+        print(f"VERIFY SKIP | ok={', '.join(passed) or '-'}{not_run}")
+        return 0
+    print(f"VERIFY OK | variants={', '.join(passed)}")
+    return 0
+
+
+def _missing_templates(variant: str, templates_directory: Path) -> list[str]:
+    variant_config = WORKFLOW_VARIANTS[variant]
+    if not variant_config.local_only:
+        return []
+    return [name for name in variant_config.template_names if not (templates_directory / name).is_file()]
+
+
+def _verify(variant: str, templates_directory: Path, run_dir: Path) -> int:
+    variant_config = WORKFLOW_VARIANTS[variant]
     run = new_run(run_dir, f"rozliczenia-{uuid.uuid4().hex}")
     run_root, evidence_root = run.root, run.evidence
     failure: BaseException | None = None
