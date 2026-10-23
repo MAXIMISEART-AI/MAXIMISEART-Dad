@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final, Literal, assert_never, get_args
 
+from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
     COMMENT_LIMIT,
@@ -36,7 +37,6 @@ from rozliczenia.centrum.report_box import (
     Unreachable,
     find_issue,
 )
-from rozliczenia.centrum.reports import replace_atomically
 
 QUEUE_DIRECTORY: Final = "kolejka"
 SCHEMA_VERSION: Final = 1
