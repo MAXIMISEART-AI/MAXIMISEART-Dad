@@ -40,6 +40,7 @@ from tests.fixtures.centrum import (
     MetricsPaths,
     finished_view,
 )
+from tests.fixtures.potomne import wait_for
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
 from tests.fixtures.tool_clone import FakeInstaller, ToolRepository
@@ -331,5 +332,15 @@ def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum) -> str:
     finally:
         centrum.engines.fail_summary = False
     assert view["result"]["stop_kind"] == "for_maks"
+    run_logs_handled(centrum)
     return str(view["run"]["id"])
 
+
+def run_logs_handled(centrum: PreparingCentrum | SettlingCentrum) -> None:
+    """Czeka na wpis wątku kolejki, że Logi Uruchomienia poszły albo czekają; przychodzi w tle, po wyniku."""
+
+    def handled() -> bool:
+        log = centrum.log_path.read_text(encoding="utf-8")
+        return any(f"{entry} etykieta=logi-uruchomienia" in log for entry in ("skrzynka-wyslano", "skrzynka-czeka"))
+
+    assert wait_for(handled), "wątek kolejki nie obsłużył Logów Uruchomienia"

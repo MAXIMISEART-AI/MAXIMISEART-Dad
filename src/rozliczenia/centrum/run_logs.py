@@ -11,30 +11,39 @@ Plik leży w katalogu Logów obok dziennika Centrum, poza Gitem i OneDrive, bez 
 klucz procesu i identyfikator Uruchomienia, więc jest jedna na Uruchomienie i układa się chronologicznie. Zapis jest
 atomowy; nieudany wychodzi z ``run_ended``, a ``RunHost.after`` zapisuje w dzienniku tylko jego typ, bez zmiany
 wyniku i bez Komunikatu.
+
+Te same Logi idą przez kolejkę Skrzynki Zgłoszeń (``Outbox``) do issue okresu z etykietą ``logi-uruchomienia``,
+także zamkniętego: każde Uruchomienie to komentarz z podsumowaniem w Markdown (``summary_markdown``) i pełnym JSON
+w zwijanym bloku, a JSON ponad limit komentarza idzie w kolejnych częściach, które sklejone dają tekst pliku.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from functools import cache
 from pathlib import Path
 import platform
-from typing import Final, Literal
+from typing import Final, Literal, assert_never
 
 from pydantic import BaseModel, ConfigDict
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.cloud_files import CloudFiles
+from rozliczenia.centrum.outbox import Outbox, PeriodThread, Post
+from rozliczenia.centrum.report_box import Label
 from rozliczenia.centrum.reports import replace_atomically
 from rozliczenia.centrum.runs import EndedRun
 from rozliczenia.centrum.tool_freshness import CommitSource
+from rozliczenia.centrum.version import short_commit
 from rozliczenia.domain import WorkerStatus
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
 RUN_LOGS_DIRECTORY: Final = "uruchomienia"
+LABEL: Final[Label] = "logi-uruchomienia"
 
 ProcessFiles = Callable[[contract.ProcessKey, str], Sequence[Path]]
 """Pliki taty Uruchomienia procesu dla tokenu okresu, z Ustawieniami taty z chwili końca Uruchomienia."""
@@ -169,21 +178,139 @@ class RunLog(_Record):
 
         return f"{self.started_at:%Y%m%dT%H%M%SZ}-{self.process}-{self.run_id}.json"
 
+    @property
+    def text(self) -> str:
+        """Treść pliku Logów; te same znaki idą do Skrzynki Zgłoszeń."""
+
+        return self.model_dump_json(indent=2) + "\n"
+
+
+def logi_post(record: RunLog) -> Post:
+    """Logi do issue okresu w Skrzynce Zgłoszeń: podsumowanie, pod nim JSON w ``<details>``, w razie potrzeby w częściach."""
+
+    period, run_id = record.period, record.run_id
+
+    def frame(number: int, count: int, chunk: str) -> str:
+        part = "" if count == 1 else f", część {number}/{count}"
+        top = summary_markdown(record) if number == 1 else f"**Logi Uruchomienia** {run_id}{part}"
+        return f"{top}\n\n<details><summary>Logi JSON{part}</summary>\n\n````json\n{chunk}\n````\n\n</details>\n"
+
+    return Post.of(
+        PeriodThread(
+            label=LABEL,
+            line=f"- Logi Uruchomienia okresu: {period}",
+            closed="reuse",
+            title=f"Logi Uruchomienia {period}",
+        ),
+        period=period,
+        run_id=run_id,
+        header=(
+            f"Logi Uruchomień okresu {period} z Centrum rozliczeń taty. Każde Uruchomienie to komentarz: "
+            "podsumowanie, a pod nim pełny JSON Logów. Długie Logi idą w kolejnych komentarzach „część k/n”."
+        ),
+        blocks=[record.text],
+        frame=frame,
+    )
+
+
+def summary_markdown(record: RunLog) -> str:
+    """Podsumowanie na górze komentarza Logów: proces, tryb, okres, wynik, czas, kody Komunikatów i Wydanie."""
+
+    commit = "nieznany" if record.tool.commit is None else short_commit(record.tool.commit)
+    return (
+        f"**Logi Uruchomienia**: {_process(record.process)}, {record.mode}, okres {record.period}\n"
+        "\n"
+        f"- Wynik: {_result(record)}\n"
+        f"- Czas: {_duration(record.duration_ms)}\n"
+        f"- Komunikaty: {_codes(record.messages)}\n"
+        f"- Wydanie: {record.tool.wydanie or 'brak'}, commit {commit}\n"
+        f"- Uruchomienie: {record.run_id}, start {record.started_at:%Y-%m-%d %H:%M:%S} UTC"
+    )
+
+
+def _process(key: contract.ProcessKey) -> str:
+    match key:
+        case "preparation":
+            return "Przygotowanie pliku zbiorczego"
+        case "settlement":
+            return "Przebieg rozliczeń"
+        case _:
+            assert_never(key)
+
+
+def _result(record: RunLog) -> str:
+    match record.ending:
+        case "finished":
+            return record.result
+        case "stop":
+            return f"{record.result}, {_stop(record.stop_kind)}"
+        case "unexpected":
+            return f"{record.result}, nieoczekiwany wyjątek"
+        case "after_engine":
+            return f"{record.result}, błąd po zakończeniu silnika"
+        case _:
+            assert_never(record.ending)
+
+
+def _stop(kind: contract.StopKind | None) -> str:
+    match kind:
+        case "for_tata":
+            return "Zatrzymanie dla taty"
+        case "for_maks":
+            return "Zatrzymanie do Maksa"
+        case "repeated":
+            return "powtórzone Zatrzymanie dla taty"
+        case None:
+            return "Zatrzymanie"
+        case _:
+            assert_never(kind)
+
+
+def _duration(milliseconds: int | None) -> str:
+    if milliseconds is None:
+        return "nieznany"
+    if milliseconds < 1000:
+        return f"{milliseconds} ms"
+    return f"{milliseconds / 1000:.1f} s".replace(".", ",")
+
+
+def _codes(messages: Sequence[LoggedMessage]) -> str:
+    """Kody w kolejności karty, każdy raz, z liczbą powtórzeń i rodzajem."""
+
+    counted = Counter((message.kind, message.code) for message in messages)
+    if not counted:
+        return "brak"
+    kinds = {"stop": "Zatrzymanie", "warning": "ostrzeżenie"}
+    return ", ".join(
+        f"`{code}`{f' ×{count}' if count > 1 else ''} ({kinds[kind]})" for (kind, code), count in counted.items()
+    )
+
 
 class RunLogs:
     """Logi Uruchomienia każdego Uruchomienia procesu z Centrum (``runs.AfterRun``) w katalogu ``directory``."""
 
     def __init__(
-        self, directory: Path, *, commit: CommitSource, files: ProcessFiles, cloud_files: CloudFiles
+        self,
+        directory: Path,
+        outbox: Outbox,
+        *,
+        commit: CommitSource,
+        files: ProcessFiles,
+        cloud_files: CloudFiles,
     ) -> None:
         self._directory = directory
+        self._outbox = outbox
         self._commit = commit
         self._files = files
         self._cloud = cloud_files
 
     def run_ended(self, run: EndedRun) -> None:
         record = RunLog.of(run, tool=Tool(wydanie=None, commit=self._commit()), environment=self._environment(run))
-        replace_atomically(self._directory / record.file_name, record.model_dump_json(indent=2) + "\n")
+        try:
+            replace_atomically(self._directory / record.file_name, record.text)
+        finally:
+            # Katalog Logów, który nie przyjął pliku, nie zatrzymuje Logów w drodze do Maksa.
+            self._outbox.post(logi_post(record))
 
     def _environment(self, run: EndedRun) -> Environment:
         try:

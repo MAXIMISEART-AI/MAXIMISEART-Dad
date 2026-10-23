@@ -143,7 +143,9 @@ def box(centrum: SettlingCentrum) -> FakeReportBox:
 
 
 def queued(centrum: SettlingCentrum) -> list[Path]:
-    return sorted((centrum.tmp_path / "config" / "zgloszenia" / "kolejka").glob("*"))
+    """Kontrole ilości w kolejce; Logi Uruchomienia mają w niej własne pliki."""
+
+    return sorted((centrum.tmp_path / "config" / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*"))
 
 
 def sent_check(centrum: SettlingCentrum) -> FakeIssue:
@@ -281,7 +283,7 @@ def test_podglad_i_zatrzymanie_nie_tworza_kontroli_ilosci(tmp_path: Path) -> Non
     assert stopped["result"]["ending"] == "stop"
     assert queued(centrum) == []
     assert box(centrum).keys == []
-    assert "skrzynka-" not in centrum.log_path.read_text(encoding="utf-8")
+    assert f"etykieta={LABEL}" not in centrum.log_path.read_text(encoding="utf-8")
 
 
 def repeated(centrum: SettlingCentrum) -> dict[str, Any]:

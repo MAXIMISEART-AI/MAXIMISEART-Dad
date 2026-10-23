@@ -321,6 +321,7 @@ def test_pliki_procesu_ktorych_nie_da_sie_wyliczyc_daja_logi_bez_plikow_bez_nieo
 
 def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_pelnych_sciezek(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
+    (tmp_path / "config" / "zgloszenia-klucz.txt").write_text("github_pat_SYNTETYCZNY\n", encoding="utf-8")
     unmapped = {**MARKED, "H": "ZNACZNIK-WYKONAWCA"}
     without_worker = {**MARKED, "H": None}
     write_quantity_source(centrum.collective_file, [MARKED, unmapped, without_worker])
@@ -335,11 +336,15 @@ def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_p
         "BLAD_KRYTYCZNY",
         "OK",
     ]
+    box = centrum.surroundings.report_box
+    assert box.wait_until(lambda fake: sum(len(issue.comments) for issue in fake.background_issues) == 3)
+    sent = [part for issue in box.background_issues for part in (issue.title, issue.body, *issue.comments)]
     texts = [path.read_text(encoding="utf-8") for path in log_files(centrum)]
     assert len(texts) == 3
+    texts += sent
     forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
     assert [marker for marker in forbidden if any(marker in text for text in texts)] == []
-    assert sum("Adrian Testowy" in text for text in texts) == 2, "Wykonawca z Konfiguracji w obu wynikach z planem"
+    assert sum("Adrian Testowy" in text for text in texts) == 4, "Wykonawca z Konfiguracji w obu wynikach z planem"
 
 
 def test_katalog_logow_bez_prawa_zapisu_daje_ten_sam_wynik_bez_komunikatu(tmp_path: Path) -> None:
@@ -357,7 +362,9 @@ def test_katalog_logow_bez_prawa_zapisu_daje_ten_sam_wynik_bez_komunikatu(tmp_pa
     assert blocked.read_text(encoding="utf-8") == ""
     log = centrum.log_path.read_text(encoding="utf-8")
     assert 'nieoczekiwany-wyjatek typ=FileExistsError miejsce="po wyniku Uruchomienia procesu"' in log
-    assert len(list((tmp_path / "config" / "zgloszenia" / "kolejka").glob("*"))) == 1, "Kontrola ilości w kolejce"
+    queue = (tmp_path / "config" / "zgloszenia" / "kolejka").glob("*")
+    labels = sorted(re.sub(r"^\w+-\d{4}-(.+)-\w{8}\.json$", r"\1", path.name) for path in queue)
+    assert labels == ["kontrola-ilosci", "logi-uruchomienia"], "Kontrola ilości i Logi w kolejce"
     [record] = centrum.metric_records()
     [expected_record] = reference.metric_records()
     assert without_times(record) == without_times(expected_record)

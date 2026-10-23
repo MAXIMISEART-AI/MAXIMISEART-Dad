@@ -80,7 +80,7 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienie o naprawie: pierwsze pytanie skrzynki przy starcie, nie dopiero przy wejściu na Okresy.
         reports.check_repairs_in_background()
-        # Kontrole ilości, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
+        # Kontrole ilości i Logi, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
         outbox.resume()
         yield
 
@@ -151,7 +151,7 @@ def create_app(
     config = settings_path.parent
     box = report_box or GitHubReportBox()
     reports = Reports(config, box, log, surroundings.tool_freshness.local, clock=clock)
-    # Kontrola ilości po Przebiegu rozliczeń: w kolejce obok niewysłanych Zgłoszeń, wysyłana w tle (ADR 0013).
+    # Kontrola ilości i Logi Uruchomienia: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle (ADR 0013, 0015).
     outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     stops = Stops(
@@ -164,6 +164,7 @@ def create_app(
     # Logi Uruchomienia: jeden plik JSON na Uruchomienie obok dziennika Centrum, poza Gitem i OneDrive (ADR 0015).
     run_logs = RunLogs(
         log.directory / RUN_LOGS_DIRECTORY,
+        outbox,
         commit=surroundings.tool_freshness.local,
         files=lambda process, period: files_of_process(
             process, period, settings=store.load(), configuration=configuration
