@@ -92,7 +92,7 @@ class ServiceQuantities:
 class FromDescription:
     """Zlecenie rozliczane z opisu (prewencja, niedostępność usług, puste ``URZĄDZENIA``): bez żadnych ilości."""
 
-    quantities: Quantities = field(default=_NONE, init=False)
+    quantities: Quantities = field(default_factory=lambda: _NONE, init=False)
 
 
 @dataclass(frozen=True)
