@@ -314,15 +314,22 @@ uruchomienie dostaje komunikat, że trwa już Uruchomienie procesu. Zakładka
   nieskuteczne, w kolejności z Rejestru, bez pustych wierszy i z wyróżnieniami
   kolorem i pogrubieniem jak w Rejestrze.
 - Plik zbiorczy ma wszystkie Zlecenia skuteczne od wiersza 18, bez przerw.
-  Stawki, sumy, formuły i link do Słownika są jak we wzorcu.
+  W kolumnach `N:AP` są już Ilości usług według Reguł ilości. Stawki, sumy,
+  formuły i link do Słownika są jak we wzorcu.
 
 ### Co dalej ręcznie
 
 1. Uzupełnij `UWAGI` i `zwrot` w Rozliczeniu wewnętrznym.
-2. Wpisz ilości 0/1 w Pliku zbiorczym. Jeśli chcesz pominąć jakieś Zlecenie
-   skuteczne, usuń je ręcznie.
+2. Przejrzyj Ilości usług w Pliku zbiorczym. Uzupełnij kolumny z opisu
+   technika i wiersze wskazane w ostrzeżeniach. Jeśli chcesz pominąć jakieś
+   Zlecenie skuteczne, usuń je ręcznie.
 3. Zapisz i zamknij oba pliki.
 4. Uruchom Przebieg rozliczeń w Centrum rozliczeń.
+
+Reguły ilości to Twoje zasady, które wyznaczają ilości z `URZĄDZENIA`,
+`UMOWA`, `CZYNNOŚCI` i godziny w `DATA`. Jeśli poprawiasz liczbę wpisaną przez
+narzędzie, powiedz o tym osobie utrzymującej narzędzie, żeby poprawiła Reguły
+ilości.
 
 ### Komunikat → co zrobić
 

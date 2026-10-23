@@ -149,6 +149,22 @@ powstają razem albo żaden.
   zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
   openpyxl nie zapisuje wyników formuł, więc Plik zbiorczy, tak jak Szablony
   pracowników, prosi Excela o przeliczenie formuł przy otwarciu.
+- Reguły ilości czytają `URZĄDZENIA` jako składniki (`nokia zte`, `n*fut`,
+  `wifi6extra`, `usterka`, `gniazdo`). T wynika z pierwszego słowa `UMOWA`, a
+  liczba sztuk instalacji ręcznej z `CZYNNOŚCI`. Usterka od poniedziałku do
+  piątku od 17:00 i w sobotę dostaje dodatek 45 w N według `DATA`. Wiersz z
+  prewencją, niedostępnością usług albo pustymi `URZĄDZENIA` zostaje bez
+  ilości, a wiersz z nieznanym składnikiem dostaje tylko V, T i N. Oba
+  rodzaje wierszy dają ostrzeżenie z numerami wierszy Pliku zbiorczego. Każde
+  Przygotowanie przypomina też o kolumnach z opisu technika (`Y`, `AB`, `AD`,
+  `AJ`, `AK`, `AL`, `AM`), które uzupełnia tata. Dlatego zapis kończy się
+  wynikiem wymagającym sprawdzenia, a podgląd bez zapisu z tymi samymi
+  ostrzeżeniami wynikiem OK.
+- Reguły ilości są w `src/rozliczenia/quantity_rules.py`, a
+  `tests/test_ilosci_uslug.py` sprawdza je z każdą linią instrukcji taty.
+  `tools/pomiar_regul_ilosci.py` porównuje je z Plikami zbiorczymi, które
+  wypełnił tata. Uruchamia go tylko Maks na swoim Macu, a wynik to same liczby
+  i teksty `URZĄDZENIA`.
 - Wypełnienia, kolory czcionki, pogrubienia, kursywa i formaty dat przechodzą z
   Rejestru. Krój i rozmiar czcionki, szerokości kolumn, wysokości wierszy,
   nagłówek i blokada nagłówka pochodzą z wzorca. Autofiltr obejmuje nagłówek i
