@@ -524,10 +524,12 @@ def _attempt(target: Path, write: Callable[[], None]) -> Attempt:
     return Attempt(target, None)
 
 
-def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow]) -> None:
-    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(
-        target, [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
-    )
+def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow], via_copy: bool) -> None:
+    """The reference; it gets the text an XML reader reads (``_xml_line_ends``) only when the copy wrote the file."""
+
+    if via_copy:
+        rows = [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
+    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(target, rows)
     if has_xml_comment(target):
         raise AssertionError("bliźniak Wzorca poszedł kopią: wzorzec porównania nie jest drogą openpyxl")
 
@@ -539,7 +541,8 @@ def _xml_line_ends(value: Any) -> Any:
     Windows every ``\\n`` is written as ``\\r\\n`` and a raw ``\\r\\n`` in a value comes back as two line
     breaks. The copy writes bytes and is the same on every system. Giving the reference the text an XML
     reader would read anyway keeps the reference independent of the system; the copy still gets the raw
-    ``\\r``, so dropping or mangling it would still be a divergence.
+    ``\\r``, so dropping or mangling it would still be a divergence. When the copy itself takes the old path,
+    the reference gets the raw text as well: both are openpyxl, and its Windows quirk is not checked.
     """
 
     if isinstance(value, str):
@@ -976,7 +979,7 @@ class Run:
                 copy = _attempt(copy_folder / name, lambda: worker.create(copy_folder / name, rows))
                 via_copy = len(self.routes.fallbacks) == fallbacks
                 reference = (
-                    _attempt(reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows))
+                    _attempt(reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows, via_copy))
                     if twin is not None
                     else None
                 )
@@ -1207,12 +1210,15 @@ def _longest_example(template: Template) -> Case:
 def _carriage_return_examples(template: Template) -> list[Case]:
     """Text with a lone ``\\r`` in a look column after an empty Rozliczenie pracownika: Excel reads it as a line break.
 
-    Counterexamples from CI: A18='\\r' on ``maly`` and B18='x\\rxD&' on ``syntetyczny``.
+    Counterexamples from CI: A18='\\r' on ``maly`` and B18='x\\rxD&' on ``syntetyczny``. The third, from CI on
+    Windows: AC='linia 1\\r\\nlinia 2\\r' beside b'bajty', which sends the file down the old path with the raw text.
     """
 
+    old_path = (None,) * 26 + (b"bajty", None, "linia 1\r\nlinia 2\r") + (None,) * (DATA_COLUMNS - 29)
     return [
         Case(template, ((), (_data_row(("\r",) + (None,) * (DATA_COLUMNS - 1)),))),
         Case(template, ((), (_data_row((None, "x\rxD&") + (None,) * (DATA_COLUMNS - 2)),))),
+        Case(template, ((_data_row(old_path),),)),
     ]
 
 

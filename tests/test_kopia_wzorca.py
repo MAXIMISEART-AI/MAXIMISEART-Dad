@@ -88,7 +88,7 @@ def test_czesci_kopii_wzorca_porownuja_razem_kazde_rozliczenie_pracownika_raz_i_
     checker = _load_checker()
     compared: list[str] = []
 
-    def reference(twin: Path, target: Path, rows: object) -> None:
+    def reference(twin: Path, target: Path, rows: object, via_copy: bool) -> None:
         compared.append(re.sub(r" object at 0x[0-9a-f]+", "", repr(rows)))
 
     monkeypatch.setattr(checker, "_write_with_openpyxl", reference)
