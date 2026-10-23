@@ -34,6 +34,11 @@ def _log(run: Run) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def _offline_waits(run: Run) -> int:
+    lines = _log(run).splitlines()
+    return sum(" skrzynka-czeka " in line and line.endswith(" przyczyna=brak-sieci") for line in lines)
+
+
 def _checks_in_box(box: Path) -> list[dict[str, object]]:
     issues = [json.loads(path.read_text(encoding="utf-8")) for path in box.glob("*.json")]
     return sorted((issue for issue in issues if issue["labels"] == [LABEL]), key=lambda issue: int(str(issue["number"])))
@@ -125,10 +130,11 @@ def drive_quantity_check(run: Run, page: Page) -> None:
     offline.parent.mkdir(exist_ok=True)
     offline.touch()
     _close(run, page)
+    waited = _offline_waits(run)
     _start(run, "kontrola-start-bez-sieci")
     # The first failure ends the pass, and the Logi Uruchomienia queued before the Kontrola go first.
     run.wait_for(
-        lambda: "przyczyna=brak-sieci" in _log(run), "at start Centrum tries the queue again and the Kontrola keeps waiting"
+        lambda: _offline_waits(run) > waited, "at start Centrum tries the queue again and the Kontrola keeps waiting"
     )
     run.check(_queued(config) == [waiting], "the Kontrola file stays after another failure")
     run.check(len(_checks_in_box(box)) == checks_before, "nothing reached the skrzynka")

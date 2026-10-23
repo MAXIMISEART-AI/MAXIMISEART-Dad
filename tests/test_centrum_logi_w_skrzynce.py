@@ -10,6 +10,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+from collections.abc import Callable
 from typing import Final
 
 import pytest
@@ -27,10 +28,10 @@ LINE = f"- Logi Uruchomienia okresu: {PERIOD}"
 JSON_PART = re.compile(r"\n````json\n(.*)\n````\n\n</details>\n\Z", re.DOTALL)
 
 
-def watched_centrum(tmp_path: Path, *, key: bool = True) -> SettlingCentrum:
+def watched_centrum(tmp_path: Path, *, key: bool = True, include_unmapped: bool = False) -> SettlingCentrum:
     """Centrum, którego fałszywa Skrzynka pokazuje Logi Uruchomienia w ``issues``, a nie w ruchu w tle."""
 
-    centrum = settling_centrum(tmp_path)
+    centrum = settling_centrum(tmp_path, include_unmapped=include_unmapped)
     box(centrum).background = frozenset()
     if key:
         write_key(centrum)
@@ -129,6 +130,66 @@ def test_komentarz_ma_podsumowanie_uruchomienia_a_pod_nim_pelny_json_logow_w_zwi
         "\n"
         "</details>\n"
     )
+
+
+def _broken_worker_config(centrum: SettlingCentrum) -> None:
+    centrum.configuration.worker_config.write_text(":: nie yaml", encoding="utf-8")
+
+
+def _failing_engine(centrum: SettlingCentrum) -> None:
+    centrum.engines.fail_engine = True
+
+
+def _failing_summary(centrum: SettlingCentrum) -> None:
+    centrum.engines.fail_summary = True
+
+
+def _as_is(centrum: SettlingCentrum) -> None:
+    return None
+
+
+SUMMARIES: Final[dict[str, tuple[Callable[[SettlingCentrum], None], bool, bool, list[str]]]] = {
+    "ok": (_as_is, False, True, ["- Wynik: OK", "- Komunikaty: brak"]),
+    "wymaga-sprawdzenia": (
+        _as_is,
+        True,
+        True,
+        ["- Wynik: WYMAGA_SPRAWDZENIA", "- Komunikaty: `BRAK_MAPOWANIA` (ostrzeżenie)"],
+    ),
+    "do-maksa": (
+        _broken_worker_config,
+        False,
+        False,
+        ["- Wynik: BLAD_KRYTYCZNY, Zatrzymanie do Maksa", "- Komunikaty: `ZLA_KONFIGURACJA_WYKONAWCOW` (Zatrzymanie)"],
+    ),
+    "nieoczekiwany-wyjatek": (
+        _failing_engine,
+        False,
+        False,
+        ["- Wynik: BLAD_KRYTYCZNY, nieoczekiwany wyjątek", "- Komunikaty: `BLAD_NIEOCZEKIWANY` (Zatrzymanie)"],
+    ),
+    "po-silniku": (
+        _failing_summary,
+        False,
+        True,
+        ["- Wynik: BLAD_KRYTYCZNY, błąd po zakończeniu silnika", "- Komunikaty: `BLAD_PLANU` (Zatrzymanie)"],
+    ),
+}
+
+
+@pytest.mark.parametrize(("steer", "unmapped", "dry_run", "lines"), SUMMARIES.values(), ids=SUMMARIES.keys())
+def test_podsumowanie_komentarza_nazywa_wynik_sposob_zakonczenia_i_kody_komunikatow(
+    tmp_path: Path, steer: Callable[[SettlingCentrum], None], unmapped: bool, dry_run: bool, lines: list[str]
+) -> None:
+    centrum = watched_centrum(tmp_path, include_unmapped=unmapped)
+    steer(centrum)
+
+    view = run_to_end(centrum, dry_run=dry_run)
+
+    [comment] = thread_with(centrum, comments=1).comments
+    summary = comment.split("\n\n<details>")[0].splitlines()
+    assert [line for line in lines if line not in summary] == []
+    assert sent_json([comment]) == local_logs(centrum, view["run"]["id"])
 
 
 @pytest.mark.parametrize(

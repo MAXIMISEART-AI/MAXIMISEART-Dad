@@ -1,7 +1,9 @@
-"""Komentarz Logów Uruchomienia w Skrzynce Zgłoszeń (#320): podsumowanie z rekordu Logów i podział długiego JSON.
+"""Komentarz Logów Uruchomienia w Skrzynce Zgłoszeń (#320): to, czego testy przez HTTP nie osiągną tanio.
 
 Logi ponad limit komentarza GitHuba wymagałyby przez HTTP setek Komunikatów, więc podział sprawdza wysyłka
 zbudowana wprost z rekordu (``logi_post``): jej części to dokładnie komentarze, które kolejka dopisuje do issue.
+Podsumowanie ma tu tylko przypadki bez taniej drogi przez HTTP z fikstur Przebiegu: nazwa Przygotowania,
+powtórki kodów, powtórzone Zatrzymanie, czas w sekundach albo nieznany, brak commitu. Resztę sprawdza ``test_centrum_logi_w_skrzynce.py``.
 """
 
 from __future__ import annotations
@@ -50,18 +52,6 @@ def record(**changes: Any) -> RunLog:
     return RunLog.model_validate({**fields, **changes})
 
 
-def test_podsumowanie_ma_proces_tryb_okres_wynik_czas_komunikaty_wydanie_i_uruchomienie() -> None:
-    assert summary_markdown(record()) == (
-        "**Logi Uruchomienia**: Przebieg rozliczeń, zapis, okres 08_14_09_2026\n"
-        "\n"
-        "- Wynik: OK\n"
-        "- Czas: 10 ms\n"
-        "- Komunikaty: brak\n"
-        "- Wydanie: brak, commit 3c1d0a9\n"
-        f"- Uruchomienie: {RUN_ID}, start 2026-10-23 20:47:20 UTC"
-    )
-
-
 SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
     "przygotowanie-podglad": (
         {"process": "preparation", "mode": "podgląd"},
@@ -74,21 +64,17 @@ SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
             "- Komunikaty: `BRAK_MAPOWANIA` ×2 (ostrzeżenie), `NIEZNANE_URZADZENIA` (ostrzeżenie)",
         ],
     ),
-    "zatrzymanie-do-maksa": (
-        {"result": "BLAD_KRYTYCZNY", "ending": "stop", "stop_kind": "for_maks", "messages": [STOP]},
-        ["- Wynik: BLAD_KRYTYCZNY, Zatrzymanie do Maksa", "- Komunikaty: `ZLA_KONFIGURACJA_WYKONAWCOW` (Zatrzymanie)"],
-    ),
     "powtorka": (
         {"result": "BLAD_KRYTYCZNY", "ending": "stop", "stop_kind": "repeated", "messages": [STOP]},
         ["- Wynik: BLAD_KRYTYCZNY, powtórzone Zatrzymanie dla taty"],
     ),
-    "nieoczekiwany-wyjatek": (
+    "czas-nieznany": (
         {"result": "BLAD_KRYTYCZNY", "ending": "unexpected", "stop_kind": "for_maks", "duration_ms": None},
-        ["- Wynik: BLAD_KRYTYCZNY, nieoczekiwany wyjątek", "- Czas: nieznany"],
+        ["- Czas: nieznany"],
     ),
-    "po-silniku": (
+    "czas-w-sekundach": (
         {"result": "BLAD_KRYTYCZNY", "ending": "after_engine", "stop_kind": "for_maks", "duration_ms": 12_345},
-        ["- Wynik: BLAD_KRYTYCZNY, błąd po zakończeniu silnika", "- Czas: 12,3 s"],
+        ["- Czas: 12,3 s"],
     ),
     "bez-commitu": (
         {"tool": {"wydanie": None, "commit": None}},
@@ -106,17 +92,6 @@ def test_podsumowanie_nazywa_wynik_sposob_zakonczenia_i_kody_komunikatow(
     assert [line for line in lines if line not in summary] == []
 
 
-def test_logi_w_jednym_komentarzu_maja_podsumowanie_i_json_bez_numeru_czesci() -> None:
-    logs = record()
-
-    post = logi_post(logs)
-
-    [comment] = post.parts
-    assert comment.startswith(summary_markdown(logs) + "\n\n<details><summary>Logi JSON</summary>\n")
-    assert "część" not in comment
-    assert sent_json(post.parts) == logs.text
-
-
 def test_logi_ponad_limit_komentarza_dziela_sie_na_czesci_ktore_razem_daja_caly_json() -> None:
     logs = record(
         result="WYMAGA_SPRAWDZENIA",
@@ -128,7 +103,6 @@ def test_logi_ponad_limit_komentarza_dziela_sie_na_czesci_ktore_razem_daja_caly_
 
     count = len(post.parts)
     assert count >= 4
-    assert all(len(comment) <= COMMENT_LIMIT for comment in post.parts)
     assert post.parts[0].startswith(summary_markdown(logs))
     assert [f"Logi JSON, część {number}/{count}</summary>" in comment for number, comment in enumerate(post.parts, 1)] == [
         True

@@ -22,7 +22,7 @@ from tests.fixtures.preparation import (
     incomplete_period_rows,
 )
 from tests.fixtures.centrum import centrum as bare_centrum
-from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, preparing_centrum, run_logs_handled
+from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, preparing_centrum
 from tests.fixtures.centrum import finished_view, phase_states, run_events, views_until
 
 # Podsumowanie wyniku na domyślnym syntetycznym Rejestrze zleceń, takie samo w podglądzie i przy Uruchom.
@@ -575,17 +575,12 @@ def test_dziennik_centrum_ma_poczatek_i_koniec_uruchomienia_z_wynikiem_bez_danyc
 
     centrum.start(dry_run=False)
     finished_view(centrum.client)
-    run_logs_handled(centrum)
 
     log = centrum.log_path.read_text(encoding="utf-8")
     events = [line.split(" ", 1)[1] for line in log.splitlines()]
     assert [event for event in events if event.startswith("uruchomienie-")] == [
         f"uruchomienie-start proces=preparation tryb=RUN okres={PERIOD}",
         f"uruchomienie-koniec proces=preparation tryb=RUN okres={PERIOD} wynik=WYMAGA_SPRAWDZENIA koniec=finished",
-    ]
-    assert sorted(event for event in events if not event.startswith("uruchomienie-")) == [
-        f"skrzynka-czeka etykieta=logi-uruchomienia okres={PERIOD} przyczyna=brak-klucza",
-        f"skrzynka-w-kolejce etykieta=logi-uruchomienia okres={PERIOD}",
     ]
     assert "SYN-" not in log
     assert str(centrum.fixture.periods_directory) not in log

@@ -337,7 +337,10 @@ def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum) -> str:
 
 
 def run_logs_handled(centrum: PreparingCentrum | SettlingCentrum) -> None:
-    """Czeka na wpis wątku kolejki, że Logi Uruchomienia poszły albo czekają; przychodzi w tle, po wyniku."""
+    """Czeka na wpis wątku kolejki, że Logi Uruchomienia poszły albo czekają; przychodzi w tle, po wyniku.
+
+    Rozpoznaje tylko pierwsze Uruchomienie tej pracy Centrum: po kolejnych wystarczyłby mu wpis poprzedniego.
+    """
 
     def handled() -> bool:
         log = centrum.log_path.read_text(encoding="utf-8")
