@@ -16,6 +16,11 @@
 - Wydajność frontendu Centrum: przy zmianach, które mogą zmienić jego szybkość, zmierz przed i po funkcją [`wydajnosc`](.agents/skills/verify-centrum-rozliczen/features/wydajnosc.md) (`--feature wydajnosc`) i zaktualizuj baseline według jej opisu.
 - Dowód, że test albo sprawdzenie gryzie: użyj [`tools/mutacje.py`](tools/mutacje.py). Sprawdzenie każdego commitu gałęzi, gdy go potrzebujesz (nic go nie wymaga): `tools/ci_lokalnie.py --kazdy-commit`. Nie pisz własnego silnika mutacji ani `git rebase --exec`.
 - PR jest gotowy do merge'a, gdy CI na GitHubie jest zielone dla HEAD PR i przeszły skille `verify-*`, które ta lista wskazuje dla tej zmiany. `CI LOKALNIE OK` tego nie oznacza. Brama `pre-push` sprawdza push agenta tylko ruffem i mypy, a `tools/ci_lokalnie.py` służy do odtworzenia porażki z CI.
+- Po każdej zmianie uruchom `.venv/bin/python tools/szybko.py` (Windows: `py -3 tools/szybko.py`).
+  Sprawdza ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą od `origin/main`, a kończy się `SZYBKO OK` albo `SZYBKO FAIL | <kroki>`.
+  Na gałęzi zbudowanej na innej dodaj `--baza <gałąź rodzica>`.
+  Testy struktury sprawdzają też merge z `origin/main` z ostatniego `git fetch`.
+  `SZYBKO OK` nie jest gotowością.
 - Przegląd PR zlecaj zaraz po pushu, równolegle z CI.
 - Rebase na `main` rób tylko przy konflikcie albo gdy `main` zmienił te same pliki co PR. Czerwony `main` naprawia od razu osobny PR, nie poprawka w PR, nad którym pracujesz.
 - Skille projektu: trzymaj je w `.agents/skills/`, także nowe `verify-*` z `/pstack:create-verification-skill` (nie w `.claude/skills/` ani `.cursor/skills/`). Ich `scripts/**/*.py` sprawdzają ruff i mypy bez wpisu w `pyproject.toml`. Skrypt mutacji skilla nazwij `scripts/check_<co>_mutations.py` i zostaw w nim tylko tabelę `Mutation` dla `check_all` z `tools/mutacje.py`; CI uruchamia go sam przez `tools/mutacje_skilli.py`. Człon `<co>` odróżnia go od skryptów innych skilli, bo mypy odrzuca dwa moduły o tej samej nazwie. `check_all` kończy go linią `MUTACJE OK`, a jego wywołanie w `SKILL.md` pilnuje, żeby nie wypadł z CI po zmianie nazwy albo usunięciu.
@@ -38,6 +43,7 @@ Gdy operator Cię poprawi, popraw błąd i dopisz tu regułę. Jeśli reguła ju
 | W `AGENTS.md` i `CODING_STANDARDS.md` łam linię prozy tylko na końcu zdania, żeby zmiana słowa zmieniała jedną linię, a nie cały akapit. | `tests/test_dokumenty_regul.py`: linia prozy, po której następna ciągnie ten sam akapit, kończy się na `.`, `!` albo `?`; bloki kodu, tabele i nagłówki są pominięte |
 | Pojęcie wycofane przez ADR (CLI, terminal, Rich, `run.py`, launchery `.cmd` taty) nie wraca. | `tests/test_wycofane_pojecia.py`: `src/`, `frontend/src`, skille, `docs/`, `README.md`, `requirements.txt`; zdanie o historii ma wpis w `HISTORY`, a starszy ADR jest historią, gdy jego Status prowadzi do ADR-u, który pojęcie wycofał |
 | Moduł testów importuje pomocniki tylko z `tests/fixtures`. | `tests/test_struktura_testow.py` |
+| Test z tej tabeli, który sprawdza całe repozytorium, biegnie przy każdym `tools/szybko.py`. | `tests/test_szybko.py`: każdy test z tabeli jest w `STRUCTURE` (`tools/szybko.py`) albo ma powód w `BY_CHANGE_ONLY` |
 | Po zmianie modeli serwera wygeneruj kontrakt Centrum na nowo. | zadanie CI `Frontend`, krok „Require the committed contract and build to be fresh” |
 | Opis PR obiecuje tylko tyle, ile potwierdzają mutacje z `tools/mutacje.py`. | nic: decyduje osąd (dwa przeglądy z 2026-10-21 i 2026-10-22) |
 | Test czeka na stan Centrum albo mierzy czas zegarem testu, nigdy stałą liczbą milisekund. | `tests/test_struktura_testow.py`: `time.sleep` w testach tylko w pętli, która pyta `time.monotonic()` o termin, w lambdzie albo funkcji wewnętrznej podróbki albo w teście z `SIMULATED_TIME` z powodem |
