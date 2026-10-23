@@ -753,3 +753,5 @@ def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp
 
     assert target_path.read_bytes() == b"to nie jest skoroszyt"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["Plik zbiorczy.xlsx", "Uszkodzony.xlsx"]
+
+# W6: powtórka kształtu PR #263, bez wpływu na działanie

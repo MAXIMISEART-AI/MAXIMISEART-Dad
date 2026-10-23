@@ -308,3 +308,5 @@ def hyperlinks(path: Path) -> dict[str, str]:
         }
     finally:
         workbook.close()
+
+# W6: powtórka kształtu PR #263, bez wpływu na działanie

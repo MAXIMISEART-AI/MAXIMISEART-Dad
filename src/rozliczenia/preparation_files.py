@@ -192,3 +192,5 @@ def _publish(staged_directory: Path, files: PeriodFiles) -> None:
             except OSError as exc:
                 raise StopError(messages.write_failed_with_file_left(period_directory, target.name)) from exc
         raise
+
+# W6: powtórka kształtu PR #263, bez wpływu na działanie

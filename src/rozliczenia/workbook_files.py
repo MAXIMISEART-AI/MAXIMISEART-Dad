@@ -1022,3 +1022,5 @@ def _restore_external_link_parts(path: Path, parts: _ExternalLinkParts) -> None:
         os.replace(temporary_path, path)
     finally:
         temporary_path.unlink(missing_ok=True)
+
+# W6: powtórka kształtu PR #263, bez wpływu na działanie

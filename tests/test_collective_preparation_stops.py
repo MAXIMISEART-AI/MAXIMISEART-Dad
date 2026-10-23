@@ -733,3 +733,5 @@ def test_staging_folder_that_cannot_be_removed_after_publication_does_not_stop_t
     assert sorted(path.name for path in fixture.period_directory.iterdir()) == sorted(
         [INTERNAL_SETTLEMENT_NAME, COLLECTIVE_FILE_NAME]
     )
+
+# W6: powtórka kształtu PR #263, bez wpływu na działanie
