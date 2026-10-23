@@ -3,12 +3,15 @@ import { MoonIcon, SunIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { NotificationsBell } from "@/components/notifications-bell"
 import { WriteToMaks } from "@/components/write-to-maks"
 import { useSettings } from "@/lib/settings"
+import { NOTIFICATIONS_PAGE, useCurrentPage } from "@/pages"
 
-// Nagłówek bez tytułu (tytuł jest w treści strony): menu, „Napisz do Maksa” i ikona motywu.
+// Nagłówek bez tytułu (tytuł jest w treści strony): menu, „Napisz do Maksa”, dzwonek Powiadomień i ikona motywu.
 export function SiteHeader() {
   const { theme, toggleTheme } = useSettings()
+  const page = useCurrentPage()
   const dark = theme === "dark"
   const label = dark ? "Włącz motyw jasny" : "Włącz motyw ciemny"
 
@@ -17,6 +20,7 @@ export function SiteHeader() {
       <SidebarTrigger className="-ml-1" aria-label="Pokaż lub ukryj menu" />
       <div className="ml-auto flex items-center gap-1">
         <WriteToMaks />
+        <NotificationsBell current={page.id === NOTIFICATIONS_PAGE.id} />
         <Tooltip>
           <TooltipTrigger
             render={<Button variant="ghost" size="icon" aria-label={label} onClick={toggleTheme} />}

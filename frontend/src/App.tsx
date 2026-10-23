@@ -7,6 +7,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { RunsProvider } from "@/lib/runs"
+import { NotificationsProvider } from "@/lib/notifications"
 import { SettingsProvider } from "@/lib/settings"
 import { ToolUpdateProvider } from "@/lib/tool-update"
 import { useViewTiming } from "@/lib/view-timing"
@@ -33,6 +34,7 @@ export function App() {
         <Toaster>
           <RunsProvider>
           <ToolUpdateProvider>
+          <NotificationsProvider page={page.id}>
           <SidebarProvider style={LAYOUT}>
             <AppSidebar variant="inset" current={page} onClosed={() => setClosed(true)} />
             <SidebarInset>
@@ -42,6 +44,7 @@ export function App() {
               </div>
             </SidebarInset>
           </SidebarProvider>
+          </NotificationsProvider>
           </ToolUpdateProvider>
           </RunsProvider>
         </Toaster>

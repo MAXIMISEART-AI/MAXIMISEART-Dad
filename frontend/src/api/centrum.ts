@@ -4,8 +4,10 @@ import type {
   DadNoteText,
   DecisionAnswer,
   GetCurrentRunResponse,
+  GetNotificationsResponse,
   GetPeriodBoardResponse,
   GetToolUpdateResponse,
+  NotificationsRead,
   OpenRequest,
   PeriodRow,
   RunEvent,
@@ -26,11 +28,12 @@ import {
   zGetConfigurationResponse,
   zGetHealthResponse,
   zGetMetricsResponse,
+  zGetNotificationsResponse,
   zGetPeriodBoardResponse,
-  zGetRepairNoticeResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zGetToolUpdateResponse,
+  zMarkNotificationsReadResponse,
   zOpenPeriodPathResponse,
   zReportRunResponse,
   zReportToolUpdateResponse,
@@ -89,6 +92,12 @@ export type Process = RunRequest["process"]
 
 export type OpenTarget = OpenRequest["target"]
 
+/** Powiadomienia od najnowszego i liczba nowych (kropka na dzwonku). */
+export type Notifications = GetNotificationsResponse
+
+/** Jedno Powiadomienie: Uwaga taty albo Zgłoszenie (unia z kontraktu po `kind`). */
+export type Notification = Notifications["items"][number]
+
 /** Uwaga taty po „Wyślij”: skrzynka ją przyjęła albo czeka w kolejce (unia z kontraktu). */
 export type DadNoteState = SendDadNoteResponse
 
@@ -97,7 +106,15 @@ export type RunView = GetCurrentRunResponse
 
 function send(
   method: "POST" | "PUT",
-  body?: OpenRequest | ThemeChange | RunRequest | DecisionAnswer | ViewTiming | DadNoteText | DadNoteRequest
+  body?:
+    | OpenRequest
+    | ThemeChange
+    | RunRequest
+    | DecisionAnswer
+    | ViewTiming
+    | DadNoteText
+    | DadNoteRequest
+    | NotificationsRead
 ): RequestInit {
   return {
     method,
@@ -259,9 +276,19 @@ export function reportToolUpdate() {
   return call(zReportToolUpdateResponse, "reportToolUpdate", "/api/tool-update/report", send("POST"))
 }
 
-/** Czy Maks naprawił zgłoszony problem; serwer pyta skrzynkę Zgłoszeń najwyżej raz na 10 minut, bez sieci po cichu. */
-export function getRepairNotice() {
-  return call(zGetRepairNoticeResponse, "getRepairNotice", "/api/reports/repair")
+/** Powiadomienia o Uwagach taty i Zgłoszeniach; serwer pyta skrzynkę najwyżej raz na 10 minut, bez sieci po cichu. */
+export function getNotifications() {
+  return call(zGetNotificationsResponse, "getNotifications", "/api/notifications")
+}
+
+/** Tata zobaczył te Powiadomienia (ich `id`); serwer pamięta to także po ponownym starcie Centrum. */
+export function markNotificationsRead(ids: ReadonlyArray<string>) {
+  return call(
+    zMarkNotificationsReadResponse,
+    "markNotificationsRead",
+    "/api/notifications/read",
+    send("POST", { ids: [...ids] })
+  )
 }
 
 /** Dokładnie to, co dostanie Maks z Uwagi taty: tytuł i treść issue składa serwer, przeglądarka je tylko pokazuje. */

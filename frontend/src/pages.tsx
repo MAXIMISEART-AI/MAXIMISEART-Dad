@@ -1,28 +1,35 @@
 import * as React from "react"
-import { CalendarRangeIcon, ChartColumnIcon, PlayIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react"
+import { BellIcon, CalendarRangeIcon, ChartColumnIcon, PlayIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react"
 
 import type { ViewTiming } from "@/api/generated"
 import { ConfigurationPage } from "@/pages/configuration/configuration-page"
 import { MetricsPage } from "@/pages/metrics/metrics-page"
+import { NotificationsPage } from "@/pages/notifications/notifications-page"
 import { PeriodsPage } from "@/pages/periods/periods-page"
 import { RunsPage } from "@/pages/runs/runs-page"
 
 /**
- * Strony z bocznego menu. Nowa strona to nowy wpis: menu, adres `#/<id>` i treść biorą się stąd.
- * Kolejność wpisów to kolejność w menu; pierwszy wpis jest stroną startową.
+ * Strony Centrum. Nowa strona to nowy wpis: menu, adres `#/<id>` i treść biorą się stąd. Strona z `menu: false`
+ * (Powiadomienia, otwierane dzwonkiem) nie ma pozycji w menu. Kolejność wpisów to kolejność w menu; pierwszy wpis
+ * jest stroną startową.
  */
 export const PAGES = [
-  { id: "okresy", title: "Okresy", icon: CalendarRangeIcon, Content: PeriodsPage },
-  { id: "uruchomienia", title: "Uruchomienia", icon: PlayIcon, Content: RunsPage },
-  { id: "metryki", title: "Metryki", icon: ChartColumnIcon, Content: MetricsPage },
-  { id: "konfiguracja", title: "Konfiguracja", icon: SlidersHorizontalIcon, Content: ConfigurationPage },
+  { id: "okresy", title: "Okresy", icon: CalendarRangeIcon, Content: PeriodsPage, menu: true },
+  { id: "uruchomienia", title: "Uruchomienia", icon: PlayIcon, Content: RunsPage, menu: true },
+  { id: "metryki", title: "Metryki", icon: ChartColumnIcon, Content: MetricsPage, menu: true },
+  { id: "konfiguracja", title: "Konfiguracja", icon: SlidersHorizontalIcon, Content: ConfigurationPage, menu: true },
+  { id: "powiadomienia", title: "Powiadomienia", icon: BellIcon, Content: NotificationsPage, menu: false },
 ] as const satisfies ReadonlyArray<{
   // Identyfikator strony z kontraktu: pod nim pomiar widoku trafia do dziennika Centrum.
   id: ViewTiming["page"]
   title: string
   icon: LucideIcon
   Content: React.ComponentType
+  menu: boolean
 }>
+
+/** Strona Powiadomienia, do której prowadzi dzwonek w nagłówku. */
+export const NOTIFICATIONS_PAGE = PAGES[4]
 
 export type Page = (typeof PAGES)[number]
 
