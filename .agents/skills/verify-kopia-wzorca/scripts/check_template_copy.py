@@ -577,6 +577,7 @@ class Statistics:
     unexplained: Counter[str] = field(default_factory=Counter)  # refusals of Wiersze danych without a rare value
     max_rows: int = 0
     chunk_rows_reached: set[int] = field(default_factory=set)
+    violated: bool = False  # from the first counterexample on, every part checks every example Hypothesis shrinks
 
 
 def check_settlement(
@@ -948,16 +949,26 @@ class Violation(AssertionError):
 
 @dataclass
 class Run:
+    """Checks examples; part ``part`` of ``parts`` compares only every ``parts``-th example of each Wzorzec.
+
+    Every part writes every Rozliczenie pracownika through the copy, so the coverage it reports is that of all
+    examples; the rules (the openpyxl reference and the comparison, most of the time) run in one part per example.
+    Hypothesis generates the same examples in every part, as no check fails until a counterexample.
+    """
+
     routes: Routes
     statistics: dict[str, Statistics]
+    part: int = 0
+    parts: int = 1
 
     def check(self, case: Case) -> None:
         template = case.template
         statistics = self.statistics[template.name]
+        compared = statistics.violated or statistics.examples % self.parts == self.part
         statistics.examples += 1
         divergences: list[tuple[int, Divergence]] = []
         with tempfile.TemporaryDirectory(prefix="kopia-wzorca-") as scratch:
-            twin = refused_by_copy(Path(shutil.copy(template.path, Path(scratch) / "bliźniak Wzorca.xlsx")))
+            twin = refused_by_copy(Path(shutil.copy(template.path, Path(scratch) / "bliźniak Wzorca.xlsx"))) if compared else None
             worker = TemplateFile(template.path, Layout.WORKER_SETTLEMENT)
             worker.check()
             for index, rows in enumerate(case.workers, start=1):
@@ -968,14 +979,16 @@ class Run:
                 fallbacks = len(self.routes.fallbacks)
                 copy = _attempt(copy_folder / name, lambda: worker.create(copy_folder / name, rows))
                 via_copy = len(self.routes.fallbacks) == fallbacks
-                reference = _attempt(
-                    reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows, via_copy)
+                reference = (
+                    _attempt(reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows, via_copy))
+                    if twin is not None
+                    else None
                 )
                 route = "odmowa" if copy.refusal else "kopia" if via_copy else "droga openpyxl"
                 statistics.settlements[route] += 1
                 if copy.refusal:
                     statistics.refusals[copy.refusal] += 1
-                refusal = copy.refusal or reference.refusal
+                refusal = copy.refusal or (reference.refusal if reference is not None else None)
                 if refusal and not any(is_rare(value) for row in rows for value in row.values):
                     statistics.unexplained[refusal] += 1
                 statistics.max_rows = max(statistics.max_rows, len(rows))
@@ -984,10 +997,12 @@ class Run:
                     statistics.linked += _linked(rows)
                     last = FIRST_DATA_ROW + len(rows) - 1
                     statistics.chunk_rows_reached.update(row for row in template.chunk_rows[1:] if row <= last + 1)
-                divergences += [(index, divergence) for divergence in check_settlement(template, copy, reference, rows, via_copy)]
+                if reference is not None:
+                    divergences += [(index, divergence) for divergence in check_settlement(template, copy, reference, rows, via_copy)]
         if template.path.read_bytes() != template.content:
             divergences.append((0, Divergence("NIETKNIETY_WZORZEC", "plik Wzorca na dysku się zmienił")))
         if divergences:
+            statistics.violated = True
             raise Violation(case, divergences)
 
 
@@ -1071,14 +1086,17 @@ def run_check(
     shrink: bool = True,
     real_template: Path | None = None,
     template_names: Sequence[str] = SYNTHETIC_TEMPLATES,
+    part: tuple[int, int] = (0, 1),
 ) -> Outcome:
+    if not 0 <= part[0] < part[1]:
+        raise ValueError(f"część {part[0]} spoza 0..{part[1] - 1}")
     started = clock.perf_counter()
     lines: list[str] = []
     if hasattr(hypothesis_engine, "MAX_SHRINKING_SECONDS"):
         hypothesis_engine.MAX_SHRINKING_SECONDS = SHRINK_SECONDS
     with tempfile.TemporaryDirectory(prefix="kopia-wzorca-wzorce-") as scratch:
         templates = build_templates(Path(scratch), real_template, template_names)
-        run = Run(Routes(), {template.name: Statistics() for template in templates})
+        run = Run(Routes(), {template.name: Statistics() for template in templates}, *part)
         phases = [Phase.explicit, Phase.generate] + ([Phase.shrink] if shrink else [])
         failures: list[Violation] = []
         errors: list[str] = []
@@ -1140,7 +1158,8 @@ def run_check(
         lines += story(failure.case, failure.divergences)
     gaps += errors
     lines += [f"LUKA SPRAWDZENIA: {gap}" for gap in gaps]
-    lines.append(f"Czas: {clock.perf_counter() - started:.0f} s, {examples} przykładów na Wzorzec.")
+    share = f", porównana część {part[0] + 1} z {part[1]}" if part[1] > 1 else ""
+    lines.append(f"Czas: {clock.perf_counter() - started:.0f} s, {examples} przykładów na Wzorzec{share}.")
     if errors:
         return Outcome(2, [*lines, f"KOPIA WZORCA: LUKA SPRAWDZENIA ({len(gaps)})"])
     if failures:

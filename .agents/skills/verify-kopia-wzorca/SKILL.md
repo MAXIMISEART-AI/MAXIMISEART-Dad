@@ -97,6 +97,11 @@ spends up to a minute more shrinking the counterexample (`SHRINK_SECONDS`). In a
 create its own `.venv` first (`tools/setup_worktree.py`); the script refuses to run against another checkout's
 `src`.
 
+`tests/test_kopia_wzorca.py` runs the same check in parts that pytest-xdist spreads over workers
+(`CZESCI`: one part for `maly`, four for `syntetyczny`). Part i of n compares every n-th example of its
+Wzorzec with the openpyxl path (`run_check(part=(i, n))`), but writes every example through the copy,
+so its coverage line is that of all examples. A failing part names its share in the `Czas:` line.
+
 The last line is the verdict:
 
 | Last line | Exit | Meaning |
