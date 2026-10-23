@@ -221,6 +221,12 @@ def _branch_from_main(tmp_path: Path) -> tuple[Path, Path]:
     return main, branch
 
 
+def _compared(checkout: Path) -> str:
+    """Koniec werdyktu, który nazywa ``origin/main``, z którym porównano gałąź."""
+
+    return f" | origin/main {git(checkout, 'log', '-1', '--format=%h', 'origin/main')}"
+
+
 def _merged_on_github(tmp_path: Path, files: dict[str, str]) -> None:
     """Commity na ``main`` z innego klonu, jak merge PR na GitHubie."""
 
@@ -260,19 +266,17 @@ def test_aktualizacja_z_main_tylko_przy_konflikcie_albo_wspolnym_pliku(
         _merged_on_github(tmp_path, on_main)
     _git(main, "fetch")
 
-    assert _report(branch).splitlines()[-1] == verdict
-    assert _report(branch, "--aktualizacja") == f"{verdict}\n"
+    assert _report(branch).splitlines()[-1] == f"{verdict}{_compared(branch)}"
+    assert _report(branch, "--aktualizacja") == f"{verdict}{_compared(branch)}\n"
 
 
 @pytest.mark.parametrize(
     ("fetch", "note"),
     [
         pytest.param("w innym worktree", "", id="w innym worktree"),
-        pytest.param("sprzed 3 h", " | origin/main z fetch sprzed 3 h, odśwież: git fetch origin", id="sprzed 3 h"),
-        pytest.param("brak", " | origin/main bez śladu fetch, odśwież: git fetch origin", id="brak"),
-        pytest.param(
-            "z adresu, bez origin/main", " | origin/main bez śladu fetch, odśwież: git fetch origin", id="z adresu, bez origin/main"
-        ),
+        pytest.param("sprzed 3 h", " z fetch sprzed 3 h, odśwież: git fetch origin", id="sprzed 3 h"),
+        pytest.param("brak", " bez śladu fetch, odśwież: git fetch origin", id="brak"),
+        pytest.param("z adresu, bez origin/main", " bez śladu fetch, odśwież: git fetch origin", id="z adresu, bez origin/main"),
     ],
 )
 def test_werdykt_mowi_gdy_zaden_fetch_nie_potwierdzil_origin_main_w_ostatniej_godzinie(
@@ -291,7 +295,7 @@ def test_werdykt_mowi_gdy_zaden_fetch_nie_potwierdzil_origin_main_w_ostatniej_go
         _merged_on_github(tmp_path, {"inny.py": "x = 2\n"})
         _git(coordinator, "fetch", str(tmp_path / "origin.git"), "main")
 
-    assert _report(branch, "--aktualizacja") == f"{NIEPOTRZEBNA}{note}\n"
+    assert _report(branch, "--aktualizacja") == f"{NIEPOTRZEBNA}{_compared(branch)}{note}\n"
 
 
 @pytest.mark.parametrize(
@@ -355,7 +359,7 @@ _PULL_REQUESTS = {
 }
 
 
-def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> list[str]:
+def _expected_report(me: _Checkout, world: list[_Checkout], github: bool, compared: str) -> list[str]:
     """Raport ze specyfikacji w docstringu narzędzia, wyliczony z modelu świata, nie z Gita."""
 
     on_branches = {commit for side in world if side.branch is not None for commit in side.commits}
@@ -391,7 +395,7 @@ def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> lis
     lines += ["NAKŁADANIA | pliki zmieniane tu i w innej pracy w toku", *overlaps] if overlaps else ["NAKŁADANIA | brak"]
     clash = sorted(frozenset().union(*(commit.files for commit in me.commits)) & _MAIN_LATER.files)
     verdict = f"potrzebna (konflikt w: {', '.join(clash)})" if clash else "niepotrzebna (bez konfliktu, bez wspólnych plików)"
-    lines.append(f"AKTUALIZACJA: {verdict} | origin/main bez śladu fetch, odśwież: git fetch origin")
+    lines.append(f"AKTUALIZACJA: {verdict}{compared} bez śladu fetch, odśwież: git fetch origin")
     return sorted(lines)
 
 
@@ -547,7 +551,7 @@ def test_raport_zgodny_ze_specyfikacja_w_kazdym_stanie_repozytorium(tmp_path: Pa
 
     mismatches = []
     for name, report in reports.items():
-        expected = _expected_report(by_name[name][0], world, github=runs[name] is not None)
+        expected = _expected_report(by_name[name][0], world, github=runs[name] is not None, compared=_compared(tmp_path / "main"))
         actual = sorted(report.splitlines())
         mismatches += [f"{name}: brak {line}" for line in expected if line not in actual]
         mismatches += [f"{name}: nadmiar {line}" for line in actual if line not in expected]
