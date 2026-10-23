@@ -16,6 +16,7 @@ from typing import Any, Final
 
 import pytest
 
+from rozliczenia.centrum import app
 from rozliczenia.centrum.report_box import REPOSITORY, Refused, Unreachable
 
 from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox
@@ -319,3 +320,25 @@ def test_katalog_logow_bez_prawa_zapisu_nie_zmienia_diagnozy_ani_zgloszenia_a_di
     assert blocked.read_text(encoding="utf-8") == ""
     log = centrum.log_path.read_text(encoding="utf-8")
     assert 'nieoczekiwany-wyjatek typ=FileExistsError miejsce="Diagnoza w Logach Uruchomienia"' in log
+
+
+def test_diagnoza_uruchomienia_bez_logow_nie_trafia_do_logow_poprzedniego(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = watched_centrum(tmp_path)
+    earlier = run_to_end(centrum, dry_run=True)["run"]["id"]
+    thread_with(centrum, comments=1)
+    before = local_logs(centrum, earlier)
+
+    def broken(*_: object, **__: object) -> list[Path]:
+        raise RuntimeError("syntetyczny błąd budowy Logów")
+
+    monkeypatch.setattr(app, "files_of_process", broken)
+    run_id = stopped_for_maks(centrum)
+
+    shown = diagnose(centrum, run_id)
+
+    assert f"- Logi: w kolejce, Uruchomienie {run_id}" in shown["report"]["body"].splitlines()
+    assert local_logs(centrum, earlier) == before
+    assert wait_for(lambda: queued_logs(centrum) == [])
+    assert len(threads(box(centrum))[0].comments) == 1
