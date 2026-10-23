@@ -6,7 +6,8 @@ używają, mają po jednym teście, że ich procesy giną razem z nimi.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import ast
+from collections.abc import Callable, Iterator, Sequence
 import contextlib
 import os
 from pathlib import Path
@@ -295,14 +296,149 @@ def test_bez_straznika_narzedzie_przerywa_zamiast_dzialac_bez_sprzatania(tmp_pat
     assert answered.stdout.splitlines() == ["run OSError True", "commit_copy OSError True"], answered.stderr
 
 
-def test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne() -> None:
-    sources = [path for path in [*TOOLS.rglob("*.py"), TOOLS / "hooks" / "pre-push"] if path != TOOLS / "potomne.py"]
+def _tool_sources() -> list[Path]:
+    return sorted(path for path in [*TOOLS.rglob("*.py"), TOOLS / "hooks" / "pre-push"] if path != TOOLS / "potomne.py")
 
+
+def test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne() -> None:
     found = [
         f"{path.relative_to(TOOLS.parent).as_posix()}:{number}: {line.strip()}"
-        for path in sorted(sources)
+        for path in _tool_sources()
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if OWN_TREE_OR_COPY.search(line)
     ]
 
-    assert found == [], "polecenie, które trwa, i kopię commitu narzędzie uruchamia przez potomne.run i potomne.commit_copy"
+    assert not found, "\n".join(
+        [*found, "Polecenie, które trwa, i kopię commitu narzędzie uruchamia przez potomne.run i potomne.commit_copy."]
+    )
+
+
+FAST_PROGRAMS = frozenset({"git", "gh", "ps"})
+# Lokalne podpolecenia gita, które kończą się w ułamku sekundy i nie uruchamiają pomocników (sieć, hooki).
+FAST_GIT = frozenset(
+    {
+        "branch",
+        "config",
+        "diff",
+        "for-each-ref",
+        "log",
+        "ls-files",
+        "merge-base",
+        "merge-tree",
+        "rev-list",
+        "rev-parse",
+        "show-ref",
+        "status",
+        "worktree",
+    }
+)
+NIGHT_STREAMS = {
+    "tools/hooks/pre-push": "strumień nocy W1 (#290), do zdjęcia po merge'u",
+    "tools/setup_worktree.py": "strumień nocy W1 (plik W1 w planie nocy) i #286, do zdjęcia po merge'u",
+    "tools/promuj_stabilna.py": "strumień nocy W7 (git push i ls-remote), do zdjęcia po merge'u",
+}
+SUBPROCESS_LAUNCHES = frozenset({"run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput"})
+
+
+def _launches(tree: ast.AST) -> Iterator[ast.Call]:
+    from_subprocess = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "subprocess"
+        for alias in node.names
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if isinstance(function, ast.Attribute) and isinstance(function.value, ast.Name):
+            module, name = function.value.id, function.attr
+            if (module == "subprocess" and name in SUBPROCESS_LAUNCHES) or (module == "os" and name in {"system", "popen"}):
+                yield node
+        elif isinstance(function, ast.Name) and function.id in from_subprocess:
+            yield node
+
+
+def _command(call: ast.Call) -> ast.expr | None:
+    return call.args[0] if call.args else next((keyword.value for keyword in call.keywords if keyword.arg == "args"), None)
+
+
+def _program(command: ast.expr | None) -> str | None:
+    if not isinstance(command, (ast.List, ast.Tuple)) or not command.elts:
+        return None
+    head = command.elts[0]
+    if isinstance(head, ast.Constant) and isinstance(head.value, str):
+        return head.value
+    return head.id if isinstance(head, ast.Name) else None
+
+
+def _git_subcommand(arguments: Sequence[ast.expr]) -> str | ast.Starred | None:
+    """Podpolecenie po opcjach ``-C``/``-c``; ``Starred``, gdy przychodzi z argumentów funkcji."""
+
+    position = 0
+    while position < len(arguments):
+        argument = arguments[position]
+        if isinstance(argument, ast.Starred):
+            return argument
+        if isinstance(argument, ast.Constant) and argument.value in ("-C", "-c"):
+            position += 2
+            continue
+        return argument.value if isinstance(argument, ast.Constant) and isinstance(argument.value, str) else None
+    return None
+
+
+def _slow_launches(source: str) -> Iterator[tuple[int, str, str]]:
+    """Wiersz, wywołanie i polecenie każdego uruchomienia spoza szybkich ``git``, ``gh`` i ``ps``.
+
+    Funkcję, która przekazuje gitowi swoje ``*args``, sprawdza się tam, gdzie ją wołają.
+    """
+
+    tree = ast.parse(source)
+    wrappers: dict[str, int] = {}
+    for call in _launches(tree):
+        command = _command(call)
+        program = _program(command)
+        if program not in FAST_PROGRAMS:
+            shown = ast.unparse(command.elts[0]) if isinstance(command, (ast.List, ast.Tuple)) else ast.unparse(command or call)
+            yield call.lineno, ast.unparse(call.func), shown
+        elif program == "git" and isinstance(command, (ast.List, ast.Tuple)):
+            subcommand = _git_subcommand(command.elts[1:])
+            if isinstance(subcommand, ast.Starred):
+                wrappers |= _passing_own_arguments(tree, call, subcommand)
+            elif subcommand not in FAST_GIT:
+                yield call.lineno, ast.unparse(call.func), f"git {subcommand or '?'}"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in wrappers:
+            subcommand = _git_subcommand(node.args[wrappers[node.func.id] :])
+            if not isinstance(subcommand, ast.Starred) and subcommand not in FAST_GIT:
+                yield node.lineno, f"{node.func.id}()", f"git {subcommand or '?'}"
+
+
+def _passing_own_arguments(tree: ast.Module, call: ast.Call, passed: ast.Starred) -> dict[str, int]:
+    """Funkcja z ``call``, która przekazuje gitowi swoje ``*args``, i pozycja pierwszego z nich."""
+
+    return {
+        function.name: len(function.args.posonlyargs) + len(function.args.args)
+        for function in ast.walk(tree)
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and function.args.vararg is not None
+        and ast.unparse(passed.value) == function.args.vararg.arg
+        and any(node is call for node in ast.walk(function))
+    }
+
+
+def test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run() -> None:
+    found = [
+        f"{name}:{number}: {launcher} uruchamia {command} poza potomne.run"
+        for path in _tool_sources()
+        if (name := path.relative_to(TOOLS.parent).as_posix()) not in NIGHT_STREAMS
+        for number, launcher, command in _slow_launches(path.read_text(encoding="utf-8"))
+    ]
+
+    assert not found, "\n".join(
+        [
+            *found,
+            "Polecenie, które trwa albo uruchamia własne procesy, uruchom przez potomne.run z tools/potomne.py; "
+            "zwykłe subprocess zostaje tylko dla git, gh i ps, a nowe szybkie, lokalne podpolecenie gita dopisz do FAST_GIT.",
+        ]
+    )
