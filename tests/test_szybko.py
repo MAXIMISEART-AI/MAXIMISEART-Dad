@@ -38,11 +38,12 @@ BASE_FILES = {
     ),
     "tests/test_zawsze_pada.py": "from pakiet.b import inna\n\n\ndef test_niedotkniety() -> None:\n    assert inna() == 2\n",
     "tools/narzedzie.py": "print('wynik')\n",
+    "src/pakiet/narzedzia.py": "from pathlib import Path\n\nSKRYPT = Path('tools', 'narzedzie.py')\n",
     "tests/test_narzedzie.py": (
-        "from pathlib import Path\nimport subprocess\nimport sys\n\n"
-        "TOOL = Path(Path(__file__).resolve().parents[1], 'tools', 'narzedzie.py')\n\n\n"
+        "from pathlib import Path\nimport subprocess\nimport sys\n\nfrom pakiet.narzedzia import SKRYPT\n\n\n"
         "def test_narzedzie() -> None:\n"
-        "    done = subprocess.run([sys.executable, str(TOOL)], capture_output=True, text=True, check=True)\n"
+        "    root = Path(__file__).resolve().parents[1]\n"
+        "    done = subprocess.run([sys.executable, str(root / SKRYPT)], capture_output=True, text=True, check=True)\n"
         "    assert done.stdout == 'wynik\\n'\n"
     ),
     "src/witryna/__init__.py": "",
@@ -60,8 +61,9 @@ BASE_FILES = {
     ),
     "docs/dane/wpis.md": "zgodny\n",
     "tests/test_dane.py": (
-        "from pathlib import Path\n\nDANE = Path(__file__).resolve().parents[1] / 'docs' / 'dane'\n\n\n"
-        "def test_dane() -> None:\n    assert [p.read_text() for p in DANE.glob('*.md')] == ['zgodny\\n']\n"
+        "import os\nfrom pathlib import Path\n\nDANE = Path(__file__).resolve().parents[1] / 'docs' / 'dane'\n\n\n"
+        "def test_dane() -> None:\n"
+        "    assert [(DANE / name).read_text(encoding='utf-8') for name in sorted(os.listdir(DANE))] == ['zgodny\\n']\n"
     ),
 }
 COUNTED = (
