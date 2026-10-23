@@ -52,20 +52,24 @@ jobs:
         run: python -m mypy
 
   pytest:
-    # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
-    # tools/czesci_pytest.py. Linux runs all files once, for the tests Windows skips (POSIX signals, process
-    # groups, the pre-push hook). Both pass the files longest first.
-    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || format(', {0}', matrix.part) }})
+    # Tata has Windows, so both Pythons run there, each in three parts of similar CI time from
+    # tools/czesci_pytest.py. Linux runs all files once, in two parts, for the tests Windows skips (POSIX
+    # signals, process groups, the pre-push hook). Both pass the files longest first.
+    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }}, ${{ matrix.part }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest]
         python-version: ['3.11', '3.14']
-        part: ['1/2', '2/2']
+        part: ['1/3', '2/3', '3/3']
         include:
           - os: ubuntu-latest
             python-version: '3.14'
+            part: '1/2'
+          - os: ubuntu-latest
+            python-version: '3.14'
+            part: '2/2'
     env:
       EXPECTED_PYTHON_VERSION: ${{ matrix.python-version }}
       PYTHONUTF8: '1'
@@ -109,7 +113,7 @@ jobs:
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py 1/1)
+        run: python -m pytest -n auto $(python tools/czesci_pytest.py ${{ matrix.part }})
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
