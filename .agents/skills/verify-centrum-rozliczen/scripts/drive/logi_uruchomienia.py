@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+from pathlib import Path
 import re
 from typing import Any
 
@@ -13,6 +14,11 @@ from drive.common import ROW_MARKER, Run, finished_result, served_version
 from drive.przebieg_rozliczen import TEMPLATE_PACING_MS, drive_settlement
 
 FEATURE = "logi-uruchomienia"
+LABEL = "logi-uruchomienia"
+# Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
+KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ_LOGOW"
+# The JSON of the Logi at the end of a comment, inside its <details> block.
+JSON_PART = re.compile(r"\n````json\n(.*)\n````\n\n</details>\n\Z", re.DOTALL)
 # Centrum logs to <root>/logs/centrum-rozliczen.log, so the Logi Uruchomienia are next to it (ADR 0015).
 LOGS = "logs/uruchomienia"
 MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
@@ -90,6 +96,16 @@ def _new_settlement(run: Run, page: Page, period: str) -> None:
     page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
     page.get_by_role("radio", name="Przebieg rozliczeń").click()
     expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
+
+
+def _queued_logs(run: Run) -> list[Path]:
+    return sorted((run.root / "config" / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*.json"))
+
+
+def _threads(run: Run) -> list[Json]:
+    box = run.root / "skrzynka-zgloszen"
+    issues = [json.loads(path.read_text(encoding="utf-8")) for path in box.glob("*.json")] if box.is_dir() else []
+    return sorted((issue for issue in issues if issue["labels"] == [LABEL]), key=lambda issue: int(issue["number"]))
 
 
 def _ended_in_centrum_log(run: Run) -> list[tuple[str, str, str, str, str]]:
@@ -183,3 +199,57 @@ def drive_run_logs(run: Run, page: Page) -> None:
         files != [] and not any("/" in name or "\\" in name for name in files),
         "the files of each process are listed by name only",
     )
+
+    run.step(FEATURE, "logi-w-skrzynce")
+    print("  harness: Maks writes the key; the next Uruchomienie wakes the queue", flush=True)
+    key_file = run.root / "config" / "zgloszenia-klucz.txt"
+    key_file.write_text(KEY + "\n", encoding="utf-8")
+    try:
+        _new_settlement(run, page, needs_check)
+        page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        expect(page.get_by_label("Wynik")).to_contain_text("Podgląd wymaga sprawdzenia · nic nie zapisano")
+        woke = _card(run, "logi-skrzynka-podglad")
+        run.wait_for(lambda: _queued_logs(run) == [], "every Logi waiting in the queue reaches the skrzynka", timeout_s=60)
+    finally:
+        key_file.unlink()
+    files = sorted(path.read_text(encoding="utf-8") for path in (run.root / LOGS).glob("*.json"))
+    threads = _threads(run)
+    (run.evidence / "api" / "logi-skrzynka.json").write_text(
+        json.dumps(
+            [
+                {key: thread[key] for key in ("number", "title", "labels", "state")}
+                | {"comments": len(thread.get("comments", []))}
+                for thread in threads
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    periods = sorted({json.loads(text)["period"] for text in files})
+    run.check(
+        sorted((thread["title"], thread["body"].splitlines()[0]) for thread in threads)
+        == [(f"Logi Uruchomienia {period}", f"- Logi Uruchomienia okresu: {period}") for period in periods],
+        f"the skrzynka has one issue labelled {LABEL} per period with Uruchomienia: {', '.join(periods)}",
+    )
+    comments = [(thread["title"], comment) for thread in threads for comment in thread.get("comments", [])]
+    sent = [(title, part.group(1) if (part := JSON_PART.search(comment)) else comment) for title, comment in comments]
+    run.check(
+        sorted(text for _, text in sent) == files,
+        f"each of the {len(files)} files of Logi is one comment whose JSON is the file, character for character",
+    )
+    run.check(
+        all(title == f"Logi Uruchomienia {json.loads(text)['period']}" for title, text in sent),
+        "each comment is in the issue of its own period",
+    )
+    run.check(
+        all(comment.startswith("**Logi Uruchomienia**: ") for _, comment in comments),
+        "each comment starts with the summary of its Uruchomienie",
+    )
+    [example] = [comment for _, comment in comments if f"- Uruchomienie: {woke['run']['id']}," in comment]
+    (run.evidence / "api" / "logi-komentarz.md").write_text(example, encoding="utf-8")
+    everything = json.dumps(threads, ensure_ascii=False)
+    run.check(KEY not in everything and ROW_MARKER not in everything, "the skrzynka has neither the key nor workbook content")
+    _nothing_about_logs(run, page, "after the Logi reached the skrzynka")
+    run.capture(page, "162-logi-w-skrzynce")
