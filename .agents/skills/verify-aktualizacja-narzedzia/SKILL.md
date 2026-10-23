@@ -71,7 +71,7 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `2cf0d08` (2026-10-23, ADR 0014: `ToolClone.update` fetches
+Sync commit: `65c479b` (2026-10-23, ADR 0014: `ToolClone.update` fetches
 `main` and the Wydanie tags and moves the clone to the newest Wydanie. No
 Wydanie, a clone that already contains it, and a Wydanie not on `main`
 (`WYDANIE_SPOZA_MAIN`) all end before the journal with the clone unchanged,
