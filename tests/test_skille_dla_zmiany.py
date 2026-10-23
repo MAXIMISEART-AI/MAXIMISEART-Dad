@@ -14,6 +14,7 @@ import sys
 from types import ModuleType
 
 import pytest
+import yaml
 
 from tests.fixtures.git_repo import commit, git
 
@@ -181,6 +182,18 @@ def test_kazdy_skill_verify_deklaruje_pilnuje(monkeypatch: pytest.MonkeyPatch) -
     assert skills
     assert without == [], "dopisz do frontmattera SKILL.md klucz pilnuje: z globami ścieżek, przy których zmianie skill obowiązuje"
 
+
+
+def test_frontmatter_kazdego_skilla_jest_poprawnym_yaml() -> None:
+    broken = {}
+    for md in sorted(SKILLS.glob("*/SKILL.md")):
+        front = md.read_text(encoding="utf-8").split("\n---\n", 1)[0].removeprefix("---\n")
+        try:
+            yaml.safe_load(front)
+        except yaml.YAMLError as error:
+            broken[md.parent.name] = str(error).splitlines()[0]
+
+    assert broken == {}, "harness czyta frontmatter jako YAML: wartość bez cudzysłowu nie może mieć „: ”"
 
 def test_agents_md_nie_wymienia_skilli_verify() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
