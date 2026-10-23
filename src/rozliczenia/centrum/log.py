@@ -147,6 +147,11 @@ class CentrumLog:
 
         self._write("skrzynka-czeka", etykieta=label, okres=period or _NO_PERIOD, przyczyna=cause)
 
+    def box_post_unreadable(self, *, file: str) -> None:
+        """Pliku kolejki Skrzynki Zgłoszeń nie da się odczytać (uszkodzony, nieznany schemat); zostaje. Tylko nazwa."""
+
+        self._write("skrzynka-nieczytelny", plik=file)
+
     def view_timed(
         self,
         *,

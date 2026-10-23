@@ -4,9 +4,10 @@ Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodT
 rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął. Najpierw trafia do własnego pliku
 JSON w ``config/zgloszenia/kolejka/`` (poza Gitem, poza plikami ``Zgłoszenie *.md``, które tata może przesłać
 Maksowi), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa wysłane. Porażka (brak klucza, odmowa,
-brak sieci) zostawia plik bez Komunikatu; wątek rusza znów po każdej nowej wysyłce. Przerwanie między wysłaniem a
-usunięciem pliku powtarza wysyłkę (co najmniej raz, decyzja 12). Treść nigdy nie trafia do dziennika Centrum:
-tylko etykieta, okres, numer issue i przyczyna czekania (decyzja 13).
+brak sieci) zostawia plik bez Komunikatu; wątek rusza znów przy starcie Centrum (``resume``) i po każdej nowej
+wysyłce. Wysłany plik dostaje znacznik dostarczenia, zanim zniknie, więc plik, którego nie da się usunąć, nie idzie
+drugi raz. Przerwanie między wysłaniem a znacznikiem powtarza wysyłkę (co najmniej raz, decyzja 12). Treść nigdy
+nie trafia do dziennika Centrum: tylko etykieta, okres, numer issue i przyczyna czekania (decyzja 13).
 
 Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
@@ -18,6 +19,7 @@ import itertools
 import json
 import threading
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -113,48 +115,75 @@ class Post:
         return f"{self.thread.line}\n\n{first}", comments
 
     def to_json(self) -> str:
-        thread = self.thread
-        return json.dumps(
-            {
-                "schema_version": SCHEMA_VERSION,
-                "thread": {"label": thread.label, "line": thread.line, "closed": thread.closed, "title": thread.title},
-                "period": self.period,
-                "run_id": self.run_id,
-                "header": self.header,
-                "parts": list(self.parts),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+        return _queue_text(self, delivered_parts=0)
 
     @classmethod
     def from_json(cls, text: str) -> Post | None:
         """Plik kolejki; nieznana wersja schematu albo etykieta lub plik uszkodzony to ``None`` (plik zostaje)."""
 
-        try:
-            document = json.loads(text)
-            thread = document["thread"]
-            if document["schema_version"] != SCHEMA_VERSION or thread["label"] not in _LABELS:
-                return None
-            if thread["closed"] not in ("new_issue", "reuse"):
-                return None
-            post = cls(
-                PeriodThread(thread["label"], _string(thread["line"]), thread["closed"], _string(thread["title"])),
-                _optional_string(document["period"]),
-                _string(document["run_id"]),
-                _optional_string(document["header"]),
-                tuple(_string(part) for part in document["parts"]),
-            )
-        except (ValueError, KeyError, TypeError):
-            return None
-        return post
+        queued = _parse(text)
+        return None if queued is None else queued.post
 
 
-def _queued(path: Path) -> Post | None:
-    """Wysyłka z pliku kolejki; pliku, którego nie da się odczytać, nie ma w tym przejściu."""
+@dataclass(frozen=True)
+class _Queued:
+    """Plik kolejki: wysyłka i ile jej części skrzynka już przyjęła (wszystkie: plik czeka tylko na usunięcie)."""
+
+    post: Post
+    delivered_parts: int
+
+    @property
+    def delivered(self) -> bool:
+        return self.delivered_parts == len(self.post.parts)
+
+
+def _queue_text(post: Post, *, delivered_parts: int) -> str:
+    thread = post.thread
+    return json.dumps(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "thread": {"label": thread.label, "line": thread.line, "closed": thread.closed, "title": thread.title},
+            "period": post.period,
+            "run_id": post.run_id,
+            "header": post.header,
+            "parts": list(post.parts),
+            "delivered_parts": delivered_parts,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def _parse(text: str) -> _Queued | None:
+    """Granica plików kolejki. ``delivered_parts`` jest opcjonalne: pliki z #273 go nie mają i nic nie dostarczyły."""
 
     try:
-        return Post.from_json(path.read_text(encoding="utf-8"))
+        document = json.loads(text)
+        thread = document["thread"]
+        if document["schema_version"] != SCHEMA_VERSION or thread["label"] not in _LABELS:
+            return None
+        if thread["closed"] not in ("new_issue", "reuse"):
+            return None
+        post = Post(
+            PeriodThread(thread["label"], _string(thread["line"]), thread["closed"], _string(thread["title"])),
+            _optional_string(document["period"]),
+            _string(document["run_id"]),
+            _optional_string(document["header"]),
+            tuple(_string(part) for part in document["parts"]),
+        )
+        delivered_parts = document.get("delivered_parts", 0)
+    except (ValueError, KeyError, TypeError):
+        return None
+    if type(delivered_parts) is not int or not 0 <= delivered_parts <= len(post.parts):
+        return None
+    return _Queued(post, delivered_parts)
+
+
+def _queued(path: Path) -> _Queued | None:
+    """Plik kolejki; pliku, którego nie da się odczytać, nie ma w tym przejściu."""
+
+    try:
+        return _parse(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError):
         return None
 
@@ -235,8 +264,9 @@ def _deliver_to_period(post: Post, thread: PeriodThread, box: ReportBox, key: st
 class Outbox:
     """Pliki kolejki w ``directory`` i jedyny wątek, który je wysyła.
 
-    Każdy plik ma jednego autora (``post``, nowa nazwa) i jednego czytelnika, który go usuwa (wątek
-    ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie.
+    Każdy plik ma jednego autora (``post``, nowa nazwa) i jednego czytelnika, który go oznacza i usuwa (wątek
+    ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie, i
+    adresy dostarczonych wysyłek; zbiory nazw plików zna tylko ten jeden wątek.
     """
 
     def __init__(self, directory: Path, box: ReportBox, key: Callable[[], str | None], log: CentrumLog) -> None:
@@ -245,9 +275,36 @@ class Outbox:
         self._key = key
         self._log = log
         self._sequence = itertools.count(1)
-        self._lock = threading.Lock()  # tylko _draining i _again; nigdy na czas pytania skrzynki ani pliku
+        self._lock = threading.Lock()  # tylko _draining, _again i _first_comments; nigdy na czas skrzynki ani pliku
         self._draining = False
         self._again = False
+        self._first_comments: dict[tuple[str, Label], str | None] = {}
+        self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
+        self._unreadable: set[str] = set()  # nieczytelne, już w dzienniku tej pracy Centrum
+
+    def resume(self) -> None:
+        """Przy starcie Centrum: usuwa pozostałości urwanego zapisu i wysyła w tle wszystko, co czeka.
+
+        Woła go ``lifespan`` przed przyjęciem pierwszego zapytania HTTP. Wysyłkę tworzy tylko Uruchomienie, które
+        startuje z zapytania, a wątek wysyłki rusza dopiero tutaj, więc żaden ``*.tmp`` nie ma teraz autora: każdy
+        został po zapisie przerwanym w poprzedniej pracy Centrum (np. utrata zasilania). Plik ``.json`` obok niego,
+        jeśli jest, ma pełną treść sprzed tego zapisu. Start nie czeka na skrzynkę: pyta ją tylko wątek w tle.
+        """
+
+        with suppress(OSError):
+            for leftover in self._directory.glob("*.tmp"):
+                with suppress(OSError):
+                    leftover.unlink()
+        self.send_in_background()
+
+    def delivered(self, run_id: str, label: Label) -> str | None:
+        """Adres pierwszego komentarza wysyłki ``label`` z Uruchomienia ``run_id``, przyjętej w tej pracy Centrum.
+
+        ``None``: wysyłka czeka w kolejce, nie powstała albo cała zmieściła się w treści nowego issue.
+        """
+
+        with self._lock:
+            return self._first_comments.get((run_id, label))
 
     def post(self, post: Post) -> None:
         """Zapisuje ``post`` w nowym pliku kolejki i budzi wysyłkę w tle; nie pyta skrzynki i nie czeka na sieć.
@@ -295,9 +352,17 @@ class Outbox:
             return
         key = self._key()
         for path in paths:
-            post = _queued(path)
-            if post is None:
+            if path.name in self._undeleted:
+                self._remove(path)
                 continue
+            queued = _queued(path)
+            if queued is None:
+                self._skip_unreadable(path)
+                continue
+            if queued.delivered:
+                self._remove(path)
+                continue
+            post = queued.post
             label, period = post.thread.label, post.period
             if key is None:
                 self._log.box_post_waiting(label=label, period=period, cause="brak-klucza")
@@ -308,7 +373,27 @@ class Outbox:
                 self._log.box_post_waiting(label=label, period=period, cause=cause)
                 return
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
-            try:
-                path.unlink(missing_ok=True)
-            except OSError as failure:  # np. plik otwarty w Windows: wysyłka i tak przyjęta
+            with self._lock:
+                self._first_comments[post.run_id, label] = outcome.comments[0].url if outcome.comments else None
+            with suppress(OSError):  # bez znacznika chroni już tylko _undeleted, do końca tej pracy Centrum
+                replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))
+            self._remove(path)
+
+    def _remove(self, path: Path) -> None:
+        """Usuwa dostarczony plik; gdy się nie da (np. plik otwarty w Windows), pierwszy raz zapisuje to w dzienniku."""
+
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as failure:
+            if path.name not in self._undeleted:
+                self._undeleted.add(path.name)
                 self._log.unexpected_failure(failure, where="usunięcie wysłanej wysyłki do Skrzynki Zgłoszeń")
+            return
+        self._undeleted.discard(path.name)
+
+    def _skip_unreadable(self, path: Path) -> None:
+        """Uszkodzony plik albo nieznany schemat (np. z nowszej wersji narzędzia) zostaje; dziennik raz na pracę."""
+
+        if path.name not in self._unreadable:
+            self._unreadable.add(path.name)
+            self._log.box_post_unreadable(file=path.name)

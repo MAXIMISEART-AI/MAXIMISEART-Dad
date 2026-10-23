@@ -104,15 +104,18 @@ create none.
   comments with the next parts (`Kontrola ilości, część k/n`).
 - Without network or a key, the Kontrola waits as a JSON file in
   `config\zgloszenia\kolejka\` on Dad's computer, with no Komunikat, and goes
-  out when the next Kontrola is sent. The Centrum log records only
-  `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number) and `skrzynka-czeka`
-  (cause). A kill between sending and removing the file can repeat it.
+  out at the next Centrum start or when the next Kontrola is sent. The Centrum
+  log records only `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number),
+  `skrzynka-czeka` (cause) and `skrzynka-nieczytelny` (the name of a queue file
+  that is damaged or from a newer tool version; it stays and is never sent). A
+  sent file is marked as delivered before it is removed, so a file Windows
+  keeps open is not sent again. Power loss between sending and marking can
+  repeat it.
 - One period has one open issue. A repeated Przebieg of the period (e.g. after
   Dad deleted the Folder rozliczeń pracowników) adds its Kontrola as a comment
   to the open issue whose body has the period's identifying line. Once you
   close it, the next Przebieg of that period opens a new issue. Centrum looks
   the issue up on every send, so a deleted issue never blocks the queue.
-- The retry at Centrum start (#276) comes next.
 - Centrum never creates the `kontrola-ilosci` label; it must exist in the
   repository.
 
