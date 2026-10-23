@@ -6,15 +6,24 @@ razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-bas
 testami. Kroki biegną naraz.
 
 Test jest dotknięty, gdy zmiana obejmuje jego plik albo plik, od którego zależy. Zależności wynikają z samego
-kodu, więc świeży worktree wybiera tak samo: importy modułów Pythona, a w ``tests/`` także ścieżki i nazwy
-modułów w napisach, czyli skrypt, który test uruchamia, plik, który czyta, albo pliki katalogu. Zależność jest
-przechodnia, z wyjątkiem plików katalogu. Zmiana w ``FULL`` (konfiguracja i zależności, ``conftest.py`` każdego
-testu) wybiera wszystkie testy. Test, który już przeszedł na tych samych plikach, nie biegnie drugi raz:
-pamięć zielonych testów leży w katalogu gita worktree.
+kodu, więc świeży worktree wybiera tak samo:
 
-Testy ``STRUCTURE`` pilnują reguł z tabeli w ``AGENTS.md`` i biegną przy każdej zmianie, a gdy ``--baza`` poszła
-dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle pada dopiero tam).
-Szybko nie pobiera ``origin``, więc merge jest z bazą z ostatniego ``git fetch``.
+- importy modułów Pythona;
+- w ``tests/`` ścieżki i nazwy modułów w napisach, czyli skrypt, który test uruchamia, plik, który czyta, albo
+  pliki katalogu; poza ``tests/`` tylko ścieżki z ``/``, i bez zależności dalej;
+- pliki z globu (``glob``, ``rglob``, ``iterdir``) na katalogu o znanej nazwie;
+- pliki inne niż Python w katalogu pakietu (``centrum/static``) dla każdego modułu tego pakietu.
+
+Zależność przez import i skrypt testu jest przechodnia, a przez katalog, glob i plik danych nie. Zmiana w ``FULL``
+(konfiguracja i zależności, ``conftest.py`` każdego testu) wybiera wszystkie testy. Test, który już przeszedł na
+tych samych plikach, nie biegnie drugi raz: pamięć zielonych testów leży w katalogu gita worktree. Krok pytest
+bierze ``WORKERS`` workerów, chyba że ustawiono ``PYTEST_XDIST_AUTO_NUM_WORKERS``.
+
+Testy ``STRUCTURE`` (reguły z tabeli w ``AGENTS.md`` i testy całego repozytorium) biegną przy każdej zmianie, a gdy
+``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle
+pada dopiero tam). Na mergu biegną tylko one, bez mypy i testów dotkniętych zmianą. Szybko nie pobiera ``origin``,
+więc merge jest z bazą z ostatniego ``git fetch``. Nie uruchamia zadań CI ``mutations`` (skrypty mutacji skilli),
+``Frontend``, E2E ani Timing guard.
 
 Kończy się ``SZYBKO OK`` albo ``SZYBKO FAIL | <kroki>``.
 
