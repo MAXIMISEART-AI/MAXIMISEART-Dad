@@ -326,11 +326,6 @@ uruchomienie dostaje komunikat, że trwa już Uruchomienie procesu. Zakładka
 3. Zapisz i zamknij oba pliki.
 4. Uruchom Przebieg rozliczeń w Centrum rozliczeń.
 
-Reguły ilości to Twoje zasady, które wyznaczają ilości z `URZĄDZENIA`,
-`UMOWA`, `CZYNNOŚCI` i godziny w `DATA`. Jeśli poprawiasz liczbę wpisaną przez
-narzędzie, powiedz o tym osobie utrzymującej narzędzie, żeby poprawiła Reguły
-ilości.
-
 ### Komunikat → co zrobić
 
 Każdy komunikat ma trzy części: co się stało, gdzie i co zrobić. Znajdź w
