@@ -18,13 +18,16 @@ OTHER = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
 
 
 def _git(directory: Path, *arguments: str, when: str = SWITCHED) -> None:
-    subprocess.run(
+    result = subprocess.run(
         ["git", "-c", "user.name=Maks", "-c", "user.email=maks@example.invalid", *arguments],
         cwd=directory,
         env=os.environ | {"GIT_COMMITTER_DATE": when},
-        check=True,
         capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
     )
+    assert result.returncode == 0, f"git {' '.join(arguments)}: {result.stderr}"
 
 
 def _clone(root: Path) -> str:
