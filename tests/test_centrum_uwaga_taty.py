@@ -1,0 +1,156 @@
+"""Uwaga taty ogólna (ADR 0015, #318) przez HTTP API Centrum z fałszywą Skrzynką Zgłoszeń; bez prawdziwego GitHuba."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
+
+from tests.fixtures.centrum import TOOL_COMMIT, Centrum, FakeIssue, centrum
+from tests.fixtures.potomne import wait_for
+
+KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
+TITLE = "Plik zbiorczy otwiera się długo"
+BODY = "Od wczoraj Excel myśli przy nim minutę.\nInne pliki otwierają się od razu."
+# Treść issue kończy się wersją narzędzia taty: pierwsze 7 znaków commitu, jak na Konfiguracji.
+VERSION_LINE = "Uwaga ogólna · wersja narzędzia 3c1d0a9"
+
+
+def with_key(tmp_path: Path) -> Centrum:
+    started = centrum(tmp_path)
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config" / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
+    return started
+
+
+def notes(tmp_path: Path) -> list[dict[str, Any]]:
+    """Uwagi z pliku stanu u taty; bez pliku żadnych."""
+
+    path = tmp_path / "config" / "uwagi-taty.json"
+    if not path.is_file():
+        return []
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["schema_version"] == 1
+    entries: list[dict[str, Any]] = document["uwagi"]
+    return entries
+
+
+def queued(tmp_path: Path) -> list[Path]:
+    return sorted((tmp_path / "config" / "zgloszenia" / "kolejka").glob("*.json"))
+
+
+def dad_note_issues(started: Centrum) -> list[FakeIssue]:
+    return started.report_box.issues_with("uwaga-taty")
+
+
+def test_uwaga_z_tytulem_i_trescia_to_jedno_issue_uwaga_taty_z_wersja_narzedzia(tmp_path: Path) -> None:
+    started = with_key(tmp_path)
+
+    response = started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY})
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "sent"}
+    [issue] = started.report_box.issues
+    assert (issue.label, issue.title, issue.body) == ("uwaga-taty", TITLE, f"{BODY}\n\n{VERSION_LINE}")
+    [note] = notes(tmp_path)
+    assert (note["title"], note["commit"], note["number"]) == (TITLE, TOOL_COMMIT, issue.number)
+    assert BODY not in json.dumps(note, ensure_ascii=False)
+    assert wait_for(lambda: queued(tmp_path) == [])
+
+
+@pytest.mark.parametrize(
+    ("text", "body"),
+    [
+        ({"title": f"  {TITLE}  ", "body": f"\n{BODY}\n\n"}, f"{BODY}\n\n{VERSION_LINE}"),
+        ({"title": TITLE}, VERSION_LINE),
+        ({"title": TITLE, "body": "  \n"}, VERSION_LINE),
+    ],
+    ids=["z-trescia", "bez-tresci", "tresc-z-samych-spacji"],
+)
+def test_podglad_maks_dostanie_to_dokladnie_wyslane_issue(tmp_path: Path, text: dict[str, str], body: str) -> None:
+    started = with_key(tmp_path)
+
+    draft = started.client.post("/api/dad-notes/draft", json=text)
+    sent = started.client.post("/api/dad-notes", json=text)
+
+    assert sent.json() == {"state": "sent"}
+    [issue] = dad_note_issues(started)
+    assert draft.status_code == 200
+    assert draft.json() == {"title": issue.title, "body": issue.body} == {"title": TITLE, "body": body}
+
+
+def assert_nothing_sent(started: Centrum, tmp_path: Path) -> None:
+    assert started.report_box.issues == []
+    assert started.report_box.keys == []
+    assert queued(tmp_path) == []
+    assert notes(tmp_path) == []
+
+
+@pytest.mark.parametrize("title", ["", "   \n"], ids=["pusty", "same-biale-znaki"])
+def test_uwaga_bez_tytulu_jest_odrzucona(tmp_path: Path, title: str) -> None:
+    started = with_key(tmp_path)
+
+    response = started.client.post("/api/dad-notes", json={"title": title, "body": BODY})
+
+    assert response.status_code == 422
+    assert_nothing_sent(started, tmp_path)
+
+
+def test_tytul_uwagi_w_dwoch_liniach_jest_odrzucony(tmp_path: Path) -> None:
+    started = with_key(tmp_path)
+
+    response = started.client.post("/api/dad-notes", json={"title": "Plik zbiorczy\notwiera się długo"})
+
+    assert response.status_code == 422
+    assert_nothing_sent(started, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("key", "outcome"),
+    [(False, None), (True, Unreachable()), (True, Refused())],
+    ids=["brak-klucza", "brak-sieci", "odmowa"],
+)
+def test_uwaga_bez_skrzynki_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_centrum(
+    tmp_path: Path, key: bool, outcome: SendOutcome | None
+) -> None:
+    started = with_key(tmp_path) if key else centrum(tmp_path)
+    if outcome is not None:
+        started.report_box.outcomes.append(outcome)
+
+    response = started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY})
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "waiting"}
+    assert started.report_box.issues == []
+    [waiting] = queued(tmp_path)
+    [note] = notes(tmp_path)
+    assert (note["title"], note["number"]) == (TITLE, None)
+
+    restarted = with_key(tmp_path)
+    with restarted.client:
+        assert restarted.report_box.wait_until(lambda box: len(box.issues) == 1)
+        assert wait_for(lambda: notes(tmp_path)[0]["number"] is not None)
+
+    [issue] = dad_note_issues(restarted)
+    assert (issue.title, issue.body) == (TITLE, f"{BODY}\n\n{VERSION_LINE}")
+    assert notes(tmp_path) == [{**note, "number": issue.number}]
+    assert wait_for(lambda: waiting not in queued(tmp_path))
+
+
+def test_uwaga_ktorej_kolejka_nie_zapisala_jest_odmowa_bez_sladu_w_stanie_uwag(tmp_path: Path) -> None:
+    started = with_key(tmp_path)
+    (tmp_path / "config" / "zgloszenia").mkdir()
+    (tmp_path / "config" / "zgloszenia" / "kolejka").write_text("plik zamiast folderu", encoding="utf-8")
+
+    response = started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY})
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "message": "Uwaga się nie zapisała i nie pójdzie do Maksa. Spróbuj wysłać ją jeszcze raz."
+    }
+    assert started.report_box.issues == []
+    assert notes(tmp_path) == []
