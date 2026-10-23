@@ -24,6 +24,8 @@ SKILLS_FOR_CHANGE = ("skille_dla_zmiany.py", "mutacje_skilli.py")
 SKILL = "---\nname: verify-kod\ndescription: kod\npilnuje:\n  - kod/*\n---\n"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
+# Wpisy, którymi conftest (``git_bez_konserwacji_w_tle``) wyłącza gitowi konserwację w tle.
+CONFTEST_GIT_CONFIG = ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
 TYPE_ERROR_ONLY_IF = 'import sys\n\nif {}:\n    LICZBA: int = "tekst"\n'
 
 pytestmark = pytest.mark.skipif(
@@ -36,7 +38,7 @@ def _environment(agent: str | None) -> dict[str, str]:
     environment = {
         name: value
         for name, value in os.environ.items()
-        if not name.startswith("GIT_") and name not in AGENT_MARKERS
+        if (not name.startswith("GIT_") or name.startswith(CONFTEST_GIT_CONFIG)) and name not in AGENT_MARKERS
     }
     environment |= {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
     if agent is not None:

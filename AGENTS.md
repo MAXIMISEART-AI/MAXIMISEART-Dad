@@ -8,6 +8,12 @@
 - Wydajność i środowisko taty: przy pomiarach wydajności albo decyzjach zależnych od jego sprzętu lub OneDrive przeczytaj [`docs/agents/komputer-taty.md`](docs/agents/komputer-taty.md).
 - Dowód, że test albo sprawdzenie gryzie: użyj [`tools/mutacje.py`](tools/mutacje.py). Sprawdzenie każdego commitu gałęzi, gdy go potrzebujesz (nic go nie wymaga): `tools/ci_lokalnie.py --kazdy-commit`. Nie pisz własnego silnika mutacji ani `git rebase --exec`.
 - PR jest gotowy do merge'a, gdy CI na GitHubie jest zielone dla HEAD PR i przeszły skille `verify-*`, które `tools/skille_dla_zmiany.py` wskazuje dla tej zmiany. `CI LOKALNIE OK` tego nie oznacza. Brama `pre-push` sprawdza push agenta tylko ruffem i mypy, a `tools/ci_lokalnie.py` służy do odtworzenia porażki z CI.
+- Status `scalenie z main` na HEAD PR mówi, czy scalenie PR z obecnym `main` przechodzi bez konfliktu, ruff i mypy dla obu systemów (`tools/scalenia_pr.py` w workflow `scalenia.yml`, po każdym pushu do `main`).
+  Ruleset go nie wymaga, więc gotowość PR od niego nie zależy.
+  `failure` znaczy, że PR trzeba zaktualizować z `origin/main` i poprawić, a opis statusu nazywa pliki z konfliktem albo kroki, które padły.
+  `error` z „sam nie przechodzi” znaczy, że czerwony jest `main`, nie PR.
+  Brak statusu znaczy, że `main` nie zmienił się od pushu PR albo przebieg jeszcze trwa.
+  `gh pr checks` kończy się kodem 1, gdy ten status jest czerwony, więc agent, który czeka na zielone CI, patrzy na `Required CI status`.
 - Przegląd PR zlecaj zaraz po pushu, równolegle z CI.
 - Rebase na `main` rób tylko przy konflikcie albo gdy `main` zmienił te same pliki co PR. Rozstrzyga to werdykt `AKTUALIZACJA` z `tools/praca_w_toku.py --aktualizacja`, który drukuje też brama `pre-push`. Czerwony `main` naprawia od razu osobny PR, nie poprawka w PR, nad którym pracujesz.
 - Skille projektu: trzymaj je w `.agents/skills/`, także nowe `verify-*` z `/pstack:create-verification-skill` (nie w `.claude/skills/` ani `.cursor/skills/`). Ich `scripts/**/*.py` sprawdzają ruff i mypy bez wpisu w `pyproject.toml`. Skrypt mutacji skilla nazwij `scripts/check_<co>_mutations.py` i zostaw w nim tylko tabelę `Mutation` dla `check_all` z `tools/mutacje.py`; CI uruchamia go sam przez `tools/mutacje_skilli.py`. Człon `<co>` odróżnia go od skryptów innych skilli, bo mypy odrzuca dwa moduły o tej samej nazwie. `check_all` kończy go linią `MUTACJE OK`, a jego wywołanie w `SKILL.md` pilnuje, żeby nie wypadł z CI po zmianie nazwy albo usunięciu.
