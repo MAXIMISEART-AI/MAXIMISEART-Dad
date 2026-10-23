@@ -99,7 +99,7 @@ def proces(argv: list[str], fragment: str, executable: str | None = None) -> Ite
     try:
         deadline = time.monotonic() + 10
         while fragment not in subprocess.run(
-            ["ps", "-o", "command=", "-p", str(process.pid)], capture_output=True, text=True, check=False
+            ["ps", "-ww", "-o", "command=", "-p", str(process.pid)], capture_output=True, text=True, check=False
         ).stdout:
             assert time.monotonic() < deadline, f"ps nie pokazał procesu {argv}"
             time.sleep(0.05)
