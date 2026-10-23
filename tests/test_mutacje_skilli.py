@@ -236,7 +236,9 @@ def test_zabity_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path) -> None:
         assert ready.exists(), "skrypt mutacji nie ruszył"
         runner.kill()
         runner.wait(timeout=30)
-        time.sleep(7)
+        deadline = time.monotonic() + 7
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
 
         assert not marker.exists(), "skrypt mutacji przeżył runner"
     finally:
