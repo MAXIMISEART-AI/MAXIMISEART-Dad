@@ -52,11 +52,11 @@ after a new version, until the restart guardian has started and
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `d0b2811`.** At this commit the checker was confirmed to describe
+**Sync commit: `50bd0cc`.** At this commit the checker was confirmed to describe
 the covered code. To see whether it needs another look:
 
 ```bash
-git log --oneline d0b2811..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
+git log --oneline 50bd0cc..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
@@ -66,7 +66,8 @@ pass there. Changes to process content, progress views, Diagnoza or Zgłoszenia
 do not matter here: the checker replaces the engine with fixed steps. Neither do
 the actions after the result themselves (`after_run` in `app.py`): the checker
 replaces them with one step, and their network work runs on a thread outside
-`runs.py` that holds nothing.
+`runs.py` that holds nothing. The same holds for the start-time retry of that
+queue (`outbox.resume()` in `lifespan`).
 
 ## Run
 
