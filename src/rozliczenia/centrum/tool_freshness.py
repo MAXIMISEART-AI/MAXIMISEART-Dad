@@ -1,8 +1,9 @@
-"""Aktualność narzędzia: commit narzędzia u taty względem `main` na publicznym GitHubie.
+"""Aktualność narzędzia: commit narzędzia u taty względem Stabilnej wersji na publicznym GitHubie.
 
 Diagnoza i Konfiguracja porównują dwa źródła z ``ToolFreshness``: commit
 narzędzia, z którego działa Centrum (``version.tool_commit`` odczytany przy
-starcie), i commit `main` publicznego repozytorium narzędzia. Oba są wstrzykiwane do aplikacji Centrum, więc testy i
+starcie), i commit gałęzi `stabilna` publicznego repozytorium narzędzia, tej
+samej, z której pobiera Aktualizacja narzędzia (ADR 0014). Oba są wstrzykiwane do aplikacji Centrum, więc testy i
 weryfikacja w przeglądarce nigdy nie łączą się z GitHubem. Brak sieci to
 ``None`` w krótkim limicie czasu, nigdy wyjątek ani Komunikat. Diagnoza pyta
 GitHuba przy każdym sprawdzeniu; Konfiguracja, odczytywana przy każdym wejściu
@@ -21,20 +22,21 @@ import urllib.request
 
 from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum.deadline import within
+from rozliczenia.centrum.tool_update import STABLE_BRANCH
 from rozliczenia.centrum.version import commit_since, is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
 
-MAIN_COMMIT_URL: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad/commits/main"
+STABLE_COMMIT_URL: Final = f"https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad/commits/{STABLE_BRANCH}"
 _TIMEOUT_S: Final = 3.0
 
 
 @dataclass(frozen=True)
 class ToolFreshness:
-    """Źródła wersji narzędzia u taty i `main` na GitHubie; ``None`` = nie wiadomo.
+    """Źródła wersji narzędzia u taty i Stabilnej wersji na GitHubie; ``None`` = nie wiadomo.
 
     ``local`` to commit narzędzia, z którego działa Centrum, ``since`` dzień, od
-    którego narzędzie jest na tym commicie, a ``main`` commit `main` na GitHubie.
+    którego narzędzie jest na tym commicie, a ``main`` commit gałęzi `stabilna` na GitHubie.
     """
 
     local: CommitSource
@@ -43,7 +45,7 @@ class ToolFreshness:
 
     @classmethod
     def of_system(cls) -> ToolFreshness:
-        return cls.of_clone(TOOL_ROOT, github_main_commit)
+        return cls.of_clone(TOOL_ROOT, github_stable_commit)
 
     @classmethod
     def of_clone(cls, root: Path, main: CommitSource) -> ToolFreshness:
@@ -66,7 +68,7 @@ NO_ANSWER_KEPT_S: Final = 60
 
 
 class RememberedMain:
-    """Commit `main` z ``main``, pamiętany przez ``MAIN_KEPT_S`` na zegarze ``clock``; brak odpowiedzi krócej."""
+    """Commit Stabilnej wersji z ``main``, pamiętany przez ``MAIN_KEPT_S`` na zegarze ``clock``; brak odpowiedzi krócej."""
 
     def __init__(self, main: CommitSource, *, clock: Callable[[], float]) -> None:
         self._main = main
@@ -87,13 +89,13 @@ class RememberedMain:
         return answer
 
 
-def github_main_commit() -> str | None:
-    """Commit `main` publicznego repozytorium narzędzia; ``None`` bez sieci, po limicie czasu albo przy odmowie."""
+def github_stable_commit() -> str | None:
+    """Commit gałęzi `stabilna` publicznego repozytorium; ``None`` bez sieci i bez tej gałęzi, po limicie czasu, przy odmowie."""
 
-    return main_commit_from(MAIN_COMMIT_URL, timeout_s=_TIMEOUT_S)
+    return commit_from(STABLE_COMMIT_URL, timeout_s=_TIMEOUT_S)
 
 
-def main_commit_from(url: str, *, timeout_s: float) -> str | None:
+def commit_from(url: str, *, timeout_s: float) -> str | None:
     """Commit z odpowiedzi ``url`` API GitHuba w postaci samego SHA, najpóźniej po ``timeout_s`` sekundach.
 
     Diagnoza czeka na odpowiedź najwyżej ``timeout_s`` (``deadline.within``).
@@ -112,4 +114,4 @@ def main_commit_from(url: str, *, timeout_s: float) -> str | None:
             return None
         return body if is_commit(body) else None
 
-    return within(timeout_s, fetch, name="github-main")
+    return within(timeout_s, fetch, name="github-stabilna")

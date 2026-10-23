@@ -15,7 +15,7 @@ the production boundary for Dad's computer, is scripted:
 The Diagnoza's two boundaries beyond Dad's files are scripted too, so the
 verification never reaches GitHub and checks OneDrive on every system:
 
-- the commit of `main` on GitHub is the tool's own commit (up to date) unless
+- the commit of `stabilna` on GitHub is the tool's own commit (up to date) unless
   ``<root>/github/main-commit.txt`` names another one; while
   ``<root>/github/brak-sieci`` exists there is no network. The tool is the
   run's synthetic clone ``<root>/aktualizacja/klon``: its own commit is the

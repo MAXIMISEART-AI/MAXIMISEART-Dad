@@ -27,7 +27,7 @@ from rozliczenia.centrum.metrics import MetricsFiles
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
-from rozliczenia.centrum.tool_update import ToolClone
+from rozliczenia.centrum.tool_update import STABLE_BRANCH, ToolClone
 
 from tests.fixtures.centrum import (
     CENTRUM,
@@ -53,7 +53,7 @@ class Surroundings:
 
     ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu. ``tool`` to
     narzędzie jako prawdziwy klon z lokalnym „origin” zamiast GitHuba: wtedy
-    commit narzędzia i `main` pochodzą z tych repozytoriów, a Aktualizacja
+    commit narzędzia i `stabilna` pochodzą z tych repozytoriów, a Aktualizacja
     narzędzia przesuwa ten klon. ``update_hold`` zatrzymuje każdą Aktualizację
     narzędzia na jej początku, dopóki test jej nie puści (``set``), a
     ``installer`` instaluje biblioteki zamiast pip. Opiekun ponownego startu po udanej
@@ -76,7 +76,7 @@ class Surroundings:
         tool = self.tool
         if tool is None:
             return self.github.freshness()
-        return ToolFreshness.of_clone(tool.clone, lambda: git(tool.origin, "rev-parse", "main"))
+        return ToolFreshness.of_clone(tool.clone, lambda: git(tool.origin, "rev-parse", STABLE_BRANCH))
 
     def tool_update(self) -> ToolClone | None:
         tool, hold = self.tool, self.update_hold

@@ -33,6 +33,7 @@ from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
     FakeInstaller,
     ToolRepository,
+    git,
     origin_asking_for_login,
     tool_repository,
     unreachable_origin,
@@ -54,7 +55,7 @@ def update(repository: ToolRepository) -> UpdateResult:
     return ToolClone(repository.clone, origin=str(repository.origin)).update()
 
 
-def test_aktualizacja_przesuwa_klon_do_przodu_na_najnowszy_main(repository: ToolRepository, tmp_path: Path) -> None:
+def test_aktualizacja_przesuwa_klon_do_przodu_na_stabilna_wersje(repository: ToolRepository, tmp_path: Path) -> None:
     before = repository.head()
     newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
 
@@ -72,6 +73,54 @@ def test_klon_na_najnowszym_commicie_jest_juz_aktualny(repository: ToolRepositor
 
     assert result == UpdateResult("AKTUALNA", before=current, after=current, installed=False)
     assert repository.head() == current
+
+
+def test_main_ktorego_ci_jeszcze_nie_przeszlo_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    unpromoted = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, promoted=False)
+    unchanged = repository.state()
+
+    waiting = update(repository)
+
+    assert waiting == UpdateResult("AKTUALNA", before=before, after=before, installed=False)
+    assert repository.state() == unchanged
+
+    repository.promote()
+
+    assert update(repository) == UpdateResult("ok", before=before, after=unpromoted, installed=False)
+    assert repository.read("src/narzedzie.py") == "WERSJA = 2\n"
+
+
+def test_klon_na_main_nowszym_niz_stabilna_jest_aktualny_az_stabilna_go_wyprzedzi(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    # Wersja sprzed ADR 0014 aktualizowała się z `main`, także z commitu, którego CI jeszcze nie przeszło.
+    from_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, promoted=False)
+    repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
+    unchanged = repository.state()
+
+    ahead = update(repository)
+
+    assert ahead == UpdateResult("AKTUALNA", before=from_main, after=from_main, installed=False)
+    assert repository.state() == unchanged
+
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 3\n"})
+
+    assert update(repository) == UpdateResult("ok", before=from_main, after=newest, installed=False)
+
+
+def test_bez_galezi_stabilna_na_githubie_narzedzie_jest_aktualne_a_klon_zostaje_bez_zmian(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    git(repository.origin, "update-ref", "-d", "refs/heads/stabilna")
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, promoted=False)
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=before, after=before, installed=False)
+    assert repository.state() == unchanged
 
 
 def test_bez_gita_na_komputerze_aktualizacja_konczy_sie_brakiem_gita_a_klon_zostaje_bez_zmian(
@@ -328,7 +377,7 @@ def test_odmowa_przesuniecia_zostawia_pliki_taty_i_klon_bez_zmian(repository: To
     assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
     assert repository.read("config/rejestr.yaml") == "zachowany u taty\n"
     assert repository.in_clone("status", "--porcelain", "--branch").splitlines() == [
-        "## main...origin/main [behind 1]",
+        "## main...origin/main",
         " M config/worker_mapping.yaml",
         "?? config/rejestr.yaml",
     ]
@@ -388,7 +437,7 @@ def assert_back_before_click(repository: ToolRepository, before: str) -> None:
     assert repository.read("config/worker_mapping.example.yaml") == FIRST_VERSION["config/worker_mapping.example.yaml"]
     assert repository.read(DAD_SETTINGS) == "folder_okresow: Załączniki\n"
     assert repository.in_clone("status", "--porcelain", "--branch").splitlines() == [
-        "## main...origin/main [behind 1]",
+        "## main...origin/main",
         " M config/worker_mapping.yaml",
         "?? config/centrum-ustawienia.yaml",
     ]

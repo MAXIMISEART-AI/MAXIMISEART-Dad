@@ -452,7 +452,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
 
     The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
     update after #161 on Dad's computer. One version later (``libraries``, on the origin's branch
-    ``biblioteki`` until the drive makes it `main`) needs a library whose installation fails. Another
+    ``biblioteki`` until the drive makes it `stabilna`) needs a library whose installation fails. Another
     one after the newest (``not_starting``, on the branch ``nie-startuje``) has a Centrum that does not start.
     """
 
@@ -470,7 +470,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
         (clone / name).write_text(content, encoding="utf-8")
     (publisher / ".gitignore").write_text(f"{WORKER_MAPPING}\n", encoding="utf-8")
     newest = _publish(publisher, 2, "Nowa wersja narzędzia", untrack=(WORKER_MAPPING,))
-    _git(publisher, "push", "--quiet", str(origin), "main")
+    _git(publisher, "push", "--quiet", str(origin), "main", "main:stabilna")
     (publisher / "requirements.txt").write_text(UNINSTALLABLE_REQUIREMENTS, encoding="utf-8")
     libraries = _publish(publisher, 3, "Wersja z nową biblioteką")
     _git(publisher, "push", "--quiet", str(origin), "main:biblioteki")

@@ -1,6 +1,6 @@
 """Źródła Aktualności narzędzia, których HTTP API Centrum nie dosięga, bo w testach są podstawione.
 
-Commit `main` pochodzi z lokalnego serwera HTTP na 127.0.0.1, nigdy z GitHuba.
+Commit Stabilnej wersji pochodzi z lokalnego serwera HTTP na 127.0.0.1, nigdy z GitHuba.
 Commit narzędzia pochodzi z syntetycznych katalogów ``.git``.
 """
 
@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from rozliczenia.centrum.tool_freshness import main_commit_from
+from rozliczenia.centrum.tool_freshness import commit_from
 from rozliczenia.centrum.version import tool_commit
 
 MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
@@ -23,7 +23,7 @@ BRANCH = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
 
 
 class _GitHub(BaseHTTPRequestHandler):
-    """Odpowiedź API GitHuba na commit `main` w postaci samego SHA; ścieżka wybiera wariant odpowiedzi."""
+    """Odpowiedź API GitHuba na commit gałęzi w postaci samego SHA; ścieżka wybiera wariant odpowiedzi."""
 
     def do_GET(self) -> None:
         if self.path == "/sha" and self.headers["Accept"] == "application/vnd.github.sha":
@@ -52,13 +52,13 @@ def github() -> Iterator[str]:
     server.server_close()
 
 
-def test_commit_main_z_odpowiedzi_githuba(github: str) -> None:
-    assert main_commit_from(f"{github}/sha", timeout_s=2) == MAIN
+def test_commit_z_odpowiedzi_githuba(github: str) -> None:
+    assert commit_from(f"{github}/sha", timeout_s=2) == MAIN
 
 
 @pytest.mark.parametrize("path", ["/limit", "/strona"], ids=["odmowa", "nie-commit"])
 def test_odmowa_albo_odpowiedz_bez_commitu_to_nie_wiadomo(github: str, path: str) -> None:
-    assert main_commit_from(github + path, timeout_s=2) is None
+    assert commit_from(github + path, timeout_s=2) is None
 
 
 def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:
@@ -67,7 +67,7 @@ def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:
         silent.listen()
         started = time.monotonic()
 
-        commit = main_commit_from(f"http://127.0.0.1:{silent.getsockname()[1]}/sha", timeout_s=0.3)
+        commit = commit_from(f"http://127.0.0.1:{silent.getsockname()[1]}/sha", timeout_s=0.3)
 
         assert (commit, time.monotonic() - started < 1.5) == (None, True)
 
@@ -77,7 +77,7 @@ def test_brak_sieci_to_nie_wiadomo() -> None:
         closed.bind(("127.0.0.1", 0))
         port = closed.getsockname()[1]  # port zwolniony po wyjściu: połączenie zostaje odrzucone
 
-    assert main_commit_from(f"http://127.0.0.1:{port}/sha", timeout_s=2) is None
+    assert commit_from(f"http://127.0.0.1:{port}/sha", timeout_s=2) is None
 
 
 def _git(root: Path, head: str) -> Path:

@@ -3,7 +3,8 @@
 ``tool_repository`` buduje w katalogu testu repozytorium wydawcy (tu Maks
 commituje nowe wersje), jego kopię bez katalogu roboczego jako „origin” i klon
 narzędzia taty na pierwszym commicie. ``publish`` dodaje do `main` w „origin”
-nowy commit, a ``in_clone`` robi w klonie to, co mógłby zrobić ktoś przy
+nowy commit i, jak CI po zielonym przebiegu, przesuwa na niego `stabilna`
+(``promoted``); ``promote`` robi to później. ``in_clone`` robi w klonie to, co mógłby zrobić ktoś przy
 komputerze taty; ``state`` to wszystko, co aktualizacja mogłaby w klonie
 zmienić. ``unreachable_origin`` i ``origin_asking_for_login`` to GitHub bez
 internetu i GitHub, który prosi o logowanie, oba na tym komputerze. Pomocniki
@@ -79,8 +80,13 @@ class ToolRepository:
     origin: Path
     clone: Path
 
-    def publish(self, files: Mapping[str, str | None], *, untrack: tuple[str, ...] = ()) -> str:
-        """Nowy commit na `main` w „origin”: ``files`` zmienia pliki (``None`` usuwa), ``untrack`` przestaje je śledzić."""
+    def publish(
+        self, files: Mapping[str, str | None], *, untrack: tuple[str, ...] = (), promoted: bool = True
+    ) -> str:
+        """Nowy commit na `main` w „origin”: ``files`` zmienia pliki (``None`` usuwa), ``untrack`` przestaje je śledzić.
+
+        ``promoted=False`` to `main`, którego CI jeszcze nie przeszło: `stabilna` zostaje na poprzednim commicie.
+        """
 
         _write(self.publisher, files)
         if untrack:
@@ -88,7 +94,14 @@ class ToolRepository:
         git(self.publisher, "add", "--all")
         git(self.publisher, "commit", "--quiet", "--message", "Nowa wersja narzędzia")
         git(self.publisher, "push", "--quiet", "origin", "main")
+        if promoted:
+            self.promote()
         return git(self.publisher, "rev-parse", "HEAD")
+
+    def promote(self) -> None:
+        """CI przeszło dla `main`: `stabilna` w „origin” przesuwa się na niego."""
+
+        git(self.publisher, "push", "--quiet", "origin", "main:stabilna")
 
     def head(self) -> str:
         return git(self.clone, "rev-parse", "HEAD")
@@ -158,6 +171,7 @@ def _published(directory: Path, publisher: Path) -> ToolRepository:
     origin = directory / "origin.git"
     git(directory, "clone", "--quiet", "--bare", str(publisher), str(origin))
     git(publisher, "remote", "add", "origin", str(origin))
+    git(publisher, "push", "--quiet", "origin", "main:stabilna")
     clone = directory / "narzedzie"
     git(directory, "clone", "--quiet", str(origin), str(clone))
     return ToolRepository(publisher, origin, clone)

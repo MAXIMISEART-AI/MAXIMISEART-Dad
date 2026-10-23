@@ -217,8 +217,8 @@ def _drive_update_in_progress(run: Run, page: Page, update: Locator) -> None:
     head = subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
     pacing = run.root / "pacing" / "aktualizacja-ms.txt"
     pacing.parent.mkdir(exist_ok=True)
-    print("  harness: `main` in the local origin is the clone's own commit, so the update changes nothing", flush=True)
-    subprocess.run(["git", "-C", str(origin), "update-ref", "refs/heads/main", head.stdout.strip()], check=True)
+    print("  harness: `stabilna` in the local origin is the clone's own commit, so the update changes nothing", flush=True)
+    subprocess.run(["git", "-C", str(origin), "update-ref", "refs/heads/stabilna", head.stdout.strip()], check=True)
     print(f"  harness: the Aktualizacja narzędzia waits {UPDATE_PACING_MS} ms before it looks for Git", flush=True)
     pacing.write_text(str(UPDATE_PACING_MS), encoding="utf-8")
     started = len(_update_entries(run))
@@ -248,4 +248,4 @@ def _drive_update_in_progress(run: Run, page: Page, update: Locator) -> None:
             "the click on the disabled button during the update started no second Aktualizacja narzędzia",
         )
     finally:
-        subprocess.run(["git", "-C", str(origin), "update-ref", "refs/heads/main", tool["newest"]], check=True)
+        subprocess.run(["git", "-C", str(origin), "update-ref", "refs/heads/stabilna", tool["newest"]], check=True)

@@ -23,7 +23,7 @@ driving, then use the matching feature file as the recipe. Screens inside the ta
 - Find native windows by class and exact title, and require that Centrum's own process (the port owner) owns a
   picker; never click by coordinates.
 - Find tab elements by ARIA role and exact Polish accessible name, as in `verify-centrum-rozliczen`.
-- Move GitHub's `main` only with `windows_tool.move_main`, and put it back to `newest` when a feature ends.
+- Move GitHub's `stabilna` only with `windows_tool.move_stabilna`, and put it back to `newest` when a feature ends.
 
 ## Proof and skip reporting
 

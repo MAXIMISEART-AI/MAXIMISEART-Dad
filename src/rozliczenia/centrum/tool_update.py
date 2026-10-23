@@ -1,8 +1,10 @@
-"""Aktualizacja narzędzia: przesunięcie klonu narzędzia taty na najnowszy `main` publicznego repozytorium.
+"""Aktualizacja narzędzia: przesunięcie klonu narzędzia taty na Stabilną wersję publicznego repozytorium.
 
 Jedna operacja, ``ToolClone.update``, robi to, co Maks zrobiłby ręcznie
-(ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` ze
-stałego adresu publicznego repozytorium i przesuwa klon tylko do przodu.
+(ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera gałąź
+`stabilna` (ADR 0014: commit `main`, którego CI przeszło) ze stałego adresu
+publicznego repozytorium i przesuwa klon tylko do przodu. Lokalna gałąź klonu
+to dalej `main`.
 Pliki taty w ``config/``, które nowa wersja usuwa albo przestaje śledzić,
 zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``). Gdy nowa
 wersja zmienia ``requirements.txt``, biblioteki instaluje ten sam Python, w
@@ -57,6 +59,8 @@ from typing import IO, Final, Literal, TypeGuard
 
 GITHUB_REPOSITORY: Final = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git"
 BRANCH: Final = "main"
+# Gałąź publicznego repozytorium, którą CI przesuwa na commit `main` po zielonym CI (ADR 0014).
+STABLE_BRANCH: Final = "stabilna"
 
 UPDATED: Final = "ok"
 UP_TO_DATE: Final = "AKTUALNA"
@@ -87,7 +91,7 @@ JOURNAL: Final = "centrum-aktualizacja-w-toku"
 GUARDIAN_LEASE_S: Final = 10 * 60.0
 _JOURNAL_FORMAT: Final = 1
 
-_FETCHED: Final = f"refs/remotes/origin/{BRANCH}"
+_FETCHED: Final = f"refs/remotes/origin/{STABLE_BRANCH}"
 _FETCH_TIMEOUT_S: Final = 120.0
 _LOCAL_TIMEOUT_S: Final = 60.0
 # Pobranie, które przez tyle sekund idzie wolniej niż tyle bajtów na sekundę, kończy sam Git: połączenie stoi.
@@ -255,7 +259,11 @@ class ToolClone:
         return cls(Path(__file__).resolve().parents[3])
 
     def update(self, on_step: Callable[[Step], None] = lambda step: None) -> UpdateResult:
-        """Przesuwa klon do przodu na najnowszy `main`; wszystko albo nic.
+        """Przesuwa klon do przodu na Stabilną wersję; wszystko albo nic.
+
+        Klon, który już ją zawiera (także na nowszym commicie `main` z wersji,
+        która pobierała `main`), albo brak gałęzi `stabilna` na GitHubie to
+        ``UP_TO_DATE``: do przodu nie ma dokąd.
 
         ``on_step`` dostaje każdy krok, zanim się zacznie. Po ``UPDATED``
         dziennik „Aktualizacja w toku” zostaje, dopóki nowa wersja nie
@@ -279,11 +287,13 @@ class ToolClone:
             return UpdateResult(OTHER_BRANCH, before, None)
         on_step("fetching")
         fetch_failure = run.fetch(self.origin)
+        if fetch_failure == UP_TO_DATE:
+            return UpdateResult(UP_TO_DATE, before, before)
         if fetch_failure is not None:
             return UpdateResult(fetch_failure, before, None)
         after = run.text("rev-parse", _FETCHED)
-        if after == before:
-            return UpdateResult(UP_TO_DATE, before, after)
+        if run.is_ancestor(after, before):
+            return UpdateResult(UP_TO_DATE, before, before)
         dad_files = _DadFiles.leaving(run, _FETCHED)
         if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
             return UpdateResult(LOCAL_CHANGES, before, None)
@@ -409,7 +419,7 @@ def _put_back(root: Path, backup: Path, names: Iterable[str]) -> None:
 
 
 def _has_local_commits(run: _Git) -> bool:
-    """Klon ma commity, których nie ma pobrany `main`: przesunięcie do przodu by je pominęło."""
+    """Klon ma commity, których nie ma pobrana `stabilna`: przesunięcie do przodu by je pominęło."""
 
     return run.text("rev-list", "--count", f"{_FETCHED}..HEAD") != "0"
 
@@ -617,6 +627,14 @@ class _Git:
             raise GitFailed(args[0])
         return result.stdout
 
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """Czy ``ancestor`` to ``descendant`` albo jego przodek."""
+
+        result = self.run("merge-base", "--is-ancestor", ancestor, descendant)
+        if result.returncode not in (0, 1):
+            raise GitFailed("merge-base")
+        return result.returncode == 0
+
     def changed(self, before: str, after: str, name: str) -> bool:
         """Czy ``after`` dodaje albo zmienia plik ``name`` względem ``before``."""
 
@@ -626,9 +644,12 @@ class _Git:
         return result.returncode == 1
 
     def fetch(self, origin: str) -> str | None:
-        """Pobiera `main` z ``origin``; ``None``, gdy się udało, inaczej kod porażki (logowanie albo brak sieci).
+        """Pobiera `stabilna` z ``origin``; ``None``, gdy się udało, inaczej kod wyniku.
 
-        Adres jest stały, więc każda inna porażka pobrania to brak połączenia z GitHubem.
+        ``UP_TO_DATE``, gdy GitHub nie ma gałęzi `stabilna`: CI jeszcze żadnej
+        nie przesunęło, więc nie ma wersji, na którą można przejść. Poza tym
+        logowanie albo brak sieci: adres jest stały, więc każda inna porażka
+        pobrania to brak połączenia z GitHubem.
         """
 
         try:
@@ -643,17 +664,21 @@ class _Git:
                 "--quiet",
                 "--no-tags",
                 origin,
-                f"+refs/heads/{BRANCH}:{_FETCHED}",
+                f"+refs/heads/{STABLE_BRANCH}:{_FETCHED}",
                 timeout_s=_FETCH_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired:
             return NO_CONNECTION
         if result.returncode == 0:
             return None
+        if _NO_REMOTE_BRANCH in result.stderr:
+            return UP_TO_DATE
         asked_for_login = any(sign in result.stderr.lower() for sign in _LOGIN_SIGNS)
         return LOGIN if asked_for_login else NO_CONNECTION
 
 
+# Tak kończy Git (z ``LC_ALL=C``), gdy serwer nie ma pobieranej gałęzi.
+_NO_REMOTE_BRANCH: Final = "couldn't find remote ref"
 # Git bez pytań kończy tak, gdy serwer prosi o logowanie (GitHub także przy repozytorium, którego nie widzi).
 _LOGIN_SIGNS: Final = ("terminal prompts disabled", "could not read username", "could not read password", "authentication failed")
 
