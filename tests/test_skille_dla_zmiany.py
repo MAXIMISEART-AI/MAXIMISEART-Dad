@@ -195,6 +195,20 @@ def test_frontmatter_kazdego_skilla_jest_poprawnym_yaml() -> None:
 
     assert broken == {}, "harness czyta frontmatter jako YAML: wartość bez cudzysłowu nie może mieć „: ”"
 
+
+def test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    skill = SKILLS / "verify-centrum-na-windowsie"
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / f"{skill.name}.yml").read_text(encoding="utf-8"))
+    triggers = workflow[True]  # YAML 1.1 czyta klucz „on” jako True
+
+    expected = sorted([*tool.guarded(skill / "SKILL.md"), f"{skill.relative_to(ROOT).as_posix()}/**"])
+
+    assert {event: sorted(triggers[event]["paths"]) for event in ("pull_request", "push")} == {
+        "pull_request": expected,
+        "push": expected,
+    }, "paths workflow skilla Windows to jego pilnuje: i folder skilla: dopisz ścieżkę w obu miejscach"
+
 def test_agents_md_nie_wymienia_skilli_verify() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
