@@ -205,33 +205,41 @@ class Template:
         return sorted(count for count in counts if 0 <= count <= self.max_rows)
 
 
-def build_templates(directory: Path, real_template: Path | None) -> list[Template]:
-    """The synthetic Wzorce, or only Dad's real Wzorzec when it is given."""
+SYNTHETIC_TEMPLATES = ("syntetyczny", "maly")
+
+
+def build_templates(directory: Path, real_template: Path | None, names: Sequence[str] = SYNTHETIC_TEMPLATES) -> list[Template]:
+    """The synthetic Wzorce in ``names``, or only Dad's real Wzorzec when it is given."""
 
     if real_template is not None:
         copied = directory / "wzorzec-taty.xlsx"
         shutil.copyfile(real_template, copied)
         return [Template.of("wzorzec-taty", f"prawdziwy Wzorzec: {real_template.name}", copied, max_rows=700)]
-    synthetic = directory / "syntetyczny.xlsx"
-    write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
-    small = directory / "maly.xlsx"
-    write_template(small)
-    add_external_link_fixture(small)
-    templates = [
-        Template.of(
-            "syntetyczny",
-            "kształt Wzorca taty z tools/syntetyczne_wzorce.py, 200 Wierszy danych: wspólne formuły, calcChain, "
-            "link zewnętrzny, komentarz z relacjami arkusza rId1 i rId2, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
-            synthetic,
-            max_rows=260,
-        ),
-        Template.of(
-            "maly",
-            "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz, bez relacji arkusza",
-            small,
-            max_rows=80,
-        ),
-    ]
+    templates = []
+    if "syntetyczny" in names:
+        synthetic = directory / "syntetyczny.xlsx"
+        write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
+        templates.append(
+            Template.of(
+                "syntetyczny",
+                "kształt Wzorca taty z tools/syntetyczne_wzorce.py, 200 Wierszy danych: wspólne formuły, calcChain, "
+                "link zewnętrzny, komentarz z relacjami arkusza rId1 i rId2, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
+                synthetic,
+                max_rows=260,
+            )
+        )
+    if "maly" in names:
+        small = directory / "maly.xlsx"
+        write_template(small)
+        add_external_link_fixture(small)
+        templates.append(
+            Template.of(
+                "maly",
+                "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz, bez relacji arkusza",
+                small,
+                max_rows=80,
+            )
+        )
     return templates
 
 
@@ -1061,13 +1069,14 @@ def run_check(
     random_seed: int | None = None,
     shrink: bool = True,
     real_template: Path | None = None,
+    template_names: Sequence[str] = SYNTHETIC_TEMPLATES,
 ) -> Outcome:
     started = clock.perf_counter()
     lines: list[str] = []
     if hasattr(hypothesis_engine, "MAX_SHRINKING_SECONDS"):
         hypothesis_engine.MAX_SHRINKING_SECONDS = SHRINK_SECONDS
     with tempfile.TemporaryDirectory(prefix="kopia-wzorca-wzorce-") as scratch:
-        templates = build_templates(Path(scratch), real_template)
+        templates = build_templates(Path(scratch), real_template, template_names)
         run = Run(Routes(), {template.name: Statistics() for template in templates})
         phases = [Phase.explicit, Phase.generate] + ([Phase.shrink] if shrink else [])
         failures: list[Violation] = []
