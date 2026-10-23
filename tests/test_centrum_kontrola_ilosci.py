@@ -16,9 +16,9 @@ import pytest
 
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Sent, Unreachable
 
-from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox, finished_view
+from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox, finished_view, without_times
 from tests.fixtures.centrum_processes import SettlingCentrum, run_to_end, settling_centrum
-from tests.fixtures.settlement import CellValue, PERIOD, write_quantity_source
+from tests.fixtures.settlement import MARKED, CellValue, PERIOD, write_quantity_source
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 LABEL: Final = "kontrola-ilosci"
@@ -185,24 +185,6 @@ def test_plik_zbiorczy_bez_naglowka_kolumny_wejscia_daje_kontrole_bez_porownania
     assert "nie ma nagłówka UMOWA, URZĄDZENIA, CZYNNOŚCI, DATA" in issue.body
 
 
-STARTED = datetime(2026, 9, 9, 13, 45)
-MARKED: dict[str, CellValue] = {
-    "A": "ZNACZNIK-MIASTO",
-    "B": "ZNACZNIK-ADRES",
-    "C": "u ZNACZNIK-UMOWA",
-    "D": "nokia ZNACZNIK-URZADZENIA",
-    "E": "ZNACZNIK-CZYNNOSCI",
-    "F": "ZNACZNIK-NUMER-ZL",
-    "G": STARTED,
-    "I": "ZNACZNIK-NUMER-UMOWY",
-    "J": "tak",
-    "K": "ZNACZNIK-ZREALIZOWANE",
-    "AQ": "ZNACZNIK-AQ",
-    "AR": "ZNACZNIK-AR",
-    "AS": "ZNACZNIK-AS",
-    "AT": "ZNACZNIK-AT",
-    "V": "ZNACZNIK-ILOSC",
-}
 FORBIDDEN = (
     "ZNACZNIK-MIASTO",
     "ZNACZNIK-ADRES",
@@ -246,20 +228,6 @@ def test_kontrola_ilosci_nie_ma_adresu_numerow_wykonawcy_daty_ani_czynnosci_zrea
     assert [marker for marker in ALLOWED if any(marker in text for text in seen_by_tata)] == []
 
 
-def _without_times(value: object) -> object:
-    """Wynik Uruchomienia albo rekord metryk bez czasów i identyfikatorów, które różnią się z każdym Uruchomieniem."""
-
-    if isinstance(value, dict):
-        return {
-            key: _without_times(item)
-            for key, item in value.items()
-            if not (key == "id" or key.endswith("_ms") or key.endswith("_at") or key in ("timestamp", "value"))
-        }
-    if isinstance(value, list):
-        return [_without_times(item) for item in value]
-    return value
-
-
 @pytest.mark.parametrize(
     ("answer", "key"),
     [(Sent(1), True), (Refused(), True), (Unreachable(), True), (None, False)],
@@ -276,11 +244,11 @@ def test_wynik_przebiegu_jest_ten_sam_przy_kazdej_odpowiedzi_skrzynki(
 
     reference = centrum_with(tmp_path / "bez-skrzynki", TATA_ROWS, key=False)
     expected = run_to_end(reference, dry_run=False)
-    assert _without_times(view["result"]) == _without_times(expected["result"])
+    assert without_times(view["result"]) == without_times(expected["result"])
     assert view["result"]["notices"] == [] and view["result"]["warnings"] == []
     [record] = centrum.metric_records()
     [expected_record] = reference.metric_records()
-    assert _without_times(record) == _without_times(expected_record)
+    assert without_times(record) == without_times(expected_record)
     assert list((tmp_path / "config" / "zgloszenia").glob("Zgłoszenie *.md")) == []
 
 

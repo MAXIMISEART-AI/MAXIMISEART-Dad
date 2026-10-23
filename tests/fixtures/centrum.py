@@ -284,6 +284,20 @@ def view_timing(**changes: object) -> dict[str, object]:
     return timing | changes
 
 
+def without_times(value: object) -> object:
+    """Wynik Uruchomienia albo rekord metryk bez czasów i identyfikatorów, które różnią się z każdym Uruchomieniem."""
+
+    if isinstance(value, dict):
+        return {
+            key: without_times(item)
+            for key, item in value.items()
+            if not (key == "id" or key.endswith("_ms") or key.endswith("_at") or key in ("timestamp", "value"))
+        }
+    if isinstance(value, list):
+        return [without_times(item) for item in value]
+    return value
+
+
 def run_events(client: TestClient) -> Iterator[dict[str, Any]]:
     """Zdarzenia strumienia SSE Uruchomień procesu, każde jako sparsowany JSON z linii ``data:``."""
 
