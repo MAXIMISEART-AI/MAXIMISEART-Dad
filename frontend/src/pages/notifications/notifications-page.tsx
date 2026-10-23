@@ -129,10 +129,14 @@ function Row({ notification, fresh }: { notification: Notification; fresh: boole
         <kind.icon />
       </span>
       <div className="flex min-w-0 flex-col gap-1">
-        <h2 className="flex items-center gap-2 text-sm font-medium">
-          <span className="min-w-0 break-words">{name(notification)}</span>
+        <h2 className="text-sm font-medium text-pretty break-words">
+          {name(notification)}
           {fresh ? (
-            <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: "var(--chart-1)" }} aria-label="nowe" />
+            <span
+              className="ml-2 inline-block size-1.5 rounded-full align-middle"
+              style={{ backgroundColor: "var(--chart-1)" }}
+              aria-label="nowe"
+            />
           ) : null}
         </h2>
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground">

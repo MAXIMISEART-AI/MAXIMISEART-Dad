@@ -47,7 +47,7 @@ def _close_issue(box: Path, number: int, reason: str) -> None:
 
 
 def _bell(page: Page) -> Locator:
-    return page.locator("header").get_by_role("link", name=BELL, exact=False)
+    return page.locator("header").get_by_role("button", name=BELL, exact=False)
 
 
 def _row(page: Page, kind: str, name: str) -> Locator:
@@ -110,6 +110,7 @@ def drive_notifications(run: Run, page: Page) -> None:
     print(f"  harness: Maks closes Uwaga #{note['number']} as completed and Zgłoszenie #{report['number']} as not planned", flush=True)
     _close_issue(box, int(str(note["number"])), "completed")
     _close_issue(box, int(str(report["number"])), "not_planned")
+    _advance_clock(run, 10)
     asked = len(_asked(run))
     _enter(page, run, "okresy", "Okresy")
     expect(_bell(page)).to_have_accessible_name(BELL_FRESH)
@@ -133,9 +134,11 @@ def drive_notifications(run: Run, page: Page) -> None:
     menu = page.get_by_role("list", name="Sekcje Centrum rozliczeń")
     expect(menu.get_by_role("link", name=BELL)).to_have_count(0)
     expect(menu.locator("[aria-current=page]")).to_have_count(0)
-    note_row, report_row = _row(page, "Uwaga", str(note["title"])), _row(page, "Zgłoszenie", report_what)
-    expect(note_row).to_contain_text(RESOLVED)
-    expect(report_row).to_contain_text(READ)
+    # The Zgłoszenie that zgloszenie closed has the same „Co się stało”; the state tells the two rows apart.
+    note_row = _row(page, "Uwaga", str(note["title"])).filter(has_text=RESOLVED)
+    report_row = _row(page, "Zgłoszenie", report_what).filter(has_text=READ)
+    expect(note_row).to_have_count(1)
+    expect(report_row).to_have_count(1)
     for row in (note_row, report_row):
         expect(row.get_by_label("nowe", exact=True)).to_be_visible()
         run.check(row.get_attribute("data-fresh") == "true", "a new row keeps its light background while Dad stays")
