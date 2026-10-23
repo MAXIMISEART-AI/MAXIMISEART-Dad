@@ -19,6 +19,7 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 - Do not add a shared module only to avoid two small constants.
   Add one when it owns a coherent behaviour or a real variation.
 - Keep the interface smaller than the implementation: callers should not need to know how a workbook is loaded, repaired, or saved atomically.
+- In `src/`, a signature names its type instead of `Any`: the concrete type, `object`, or a `TypeVar` (ruff ANN401).
 
 ## Error Ownership
 
@@ -26,6 +27,9 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 - Classify failures that can invalidate a write as typed critical exceptions.
   This includes preparing or restoring `xl/externalLinks/*`, not only the final filesystem replacement.
 - Preserve `Nienadpisywanie`: existing input data is reported and never replaced automatically.
+- Code in `src/` does not `print` (ruff T201), because Dad never sees a console and a problem reaches him as a Komunikat; only `launcher.py` and `shortcut.py` print to the start console.
+- Pass `check=True` to `subprocess.run` unless the code after it reads `returncode`, and never write `check=False` only to silence ruff's PLW1510.
+- Pass `strict=True` to `zip` when both sides must have the same length (ruff B905), `strict=False` only with a comment naming the check that already reports a different length, and use `itertools.pairwise` for successive pairs (RUF007).
 
 ## Test Surface
 
@@ -70,5 +74,6 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 - Treat ADR 0010 as the constraint that Centrum rozliczeń is Dad's only entry: there are no `.cmd` launchers and Dad's manual describes only Centrum.
 - Treat ADR 0011 as the constraint that the processes have one conversation, Centrum rozliczeń: there is no CLI and no terminal adapter, and a Komunikat has only its three parts.
   E2E, the timing guard and the benchmark run the processes through the machine script `tools/uruchom_proces.py`, which uses the same core as Centrum and prints the Centrum contract as JSON.
+- Do not leave a TODO, FIXME, XXX or HACK in the code (ruff FIX001-FIX004): finish it in the same change or name it in the report for Maks.
 - Review standards separately from specification compliance.
   A passing test suite does not replace a review of module depth, seam locality, or domain vocabulary.
