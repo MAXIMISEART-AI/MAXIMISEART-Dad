@@ -59,7 +59,7 @@ The check holds that copy to five rules, for any Wiersze danych:
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `75e79c2`** (covered code as left by PR #282, 2026-10-23):
+Coverage, confirmed at **sync commit `1b9393a`** (PR #325 merged with Ilości usług and #273, 2026-10-23):
 
 | Code | What the check covers |
 | --- | --- |
@@ -77,7 +77,7 @@ Run the check when a diff touches any of these. To see whether the covered code 
 sync commit:
 
 ```bash
-git diff --stat 75e79c2 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
+git diff --stat 1b9393a -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
