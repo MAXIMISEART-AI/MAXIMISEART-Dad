@@ -52,11 +52,11 @@ after a new version, until the restart guardian has started and
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `50bd0cc`.** At this commit the checker was confirmed to describe
+**Sync commit: `870ea89`.** At this commit the checker was confirmed to describe
 the covered code. To see whether it needs another look:
 
 ```bash
-git log --oneline 50bd0cc..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
+git log --oneline 870ea89..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
