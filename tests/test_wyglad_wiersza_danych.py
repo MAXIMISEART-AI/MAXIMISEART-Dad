@@ -26,7 +26,6 @@ from tests.fixtures.preparation import (
 from tests.fixtures.settlement import write_template
 from tests.fixtures.workbooks import LEFTOVER_DATE_FORMAT, LEFTOVER_ROW_HEIGHT, active_worksheet, leave_data_row_leftovers
 
-YELLOW = "FFFFFF00"
 RED = "FFFF0000"
 # Zlecenie 2 (wiersz 4 Rejestru) jest skuteczne, ma czerwony ADRES i koniec linii w CZYNNOŚCI ZREALIZOWANE; trafia do
 # wiersza 2 Rozliczenia wewnętrznego, 18 Pliku zbiorczego i 18 Rozliczenia pracownika Adriana.
@@ -163,17 +162,18 @@ def test_zapisane_wiersze_danych_nie_maja_zapisanej_wysokosci_a_pozostale_wiersz
         }, written.path.name
 
 
-def test_adres_pliku_zbiorczego_jest_zawsze_zolty_i_przechodzi_do_rozliczenia_pracownika(tmp_path: Path) -> None:
+def test_adres_ma_wypelnienie_adresu_tego_zlecenia_w_rejestrze_we_wszystkich_trzech_plikach(tmp_path: Path) -> None:
     chain = _chain(tmp_path)
 
-    # ADRES: kolumna C Rozliczenia wewnętrznego, B Pliku zbiorczego i Rozliczenia pracownika.
+    # ADRES: kolumna C Rozliczenia wewnętrznego, B Pliku zbiorczego i Rozliczenia pracownika. W Rejestrze czerwony
+    # jest tylko ADRES zlecenia 2; skuteczne zlecenia 4 i 6 trafiają do wierszy 19 i 20 Pliku zbiorczego.
     internal = {cell.coordinate: _fill(cell) for cell in _cells(chain.internal) if cell.column == 3}
     collective = {cell.coordinate: _fill(cell) for cell in _cells(chain.collective) if cell.column == 2}
     worker = {cell.coordinate: _fill(cell) for cell in _cells(chain.worker) if cell.column == 2}
 
     assert internal == {"C2": RED, "C3": None, "C4": None, "C5": None}
-    assert collective == {"B18": YELLOW, "B19": YELLOW, "B20": YELLOW}
-    assert worker == {"B18": YELLOW}
+    assert collective == {"B18": RED, "B19": None, "B20": None}
+    assert worker == {"B18": RED}
 
 
 def test_format_liczby_jest_z_komorki_zrodlowej_a_data_pracownika_ma_format_pliku_zbiorczego(tmp_path: Path) -> None:

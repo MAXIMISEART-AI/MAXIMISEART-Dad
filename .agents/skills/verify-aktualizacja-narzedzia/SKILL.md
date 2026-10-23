@@ -1,6 +1,11 @@
 ---
 name: verify-aktualizacja-narzedzia
 description: Model-check with TLA+ (TLC) that Aktualizacja narzędzia leaves Dad with a version that starts and with his own file in `config/`, and that the restart guardian rolls back only a new version that really does not start, under every order of failures - fetch, git, pip, file copy, restart guardian, a new version that will not start, the computer switching off, and Dad clicking the desktop shortcut during the restart. Use when a change touches `ToolClone.update`, `_DadFiles`, `_Journal`, `_roll_back`, `ToolUpdates._update` or `_restart`, `restart_guardian.main`, or the start in `launcher._start` in `src/rozliczenia/centrum/`, or when fixing #196.
+pilnuje:
+  - src/rozliczenia/centrum/tool_update.py
+  - src/rozliczenia/centrum/tool_updates.py
+  - src/rozliczenia/centrum/restart_guardian.py
+  - src/rozliczenia/centrum/launcher.py
 ---
 
 # Verify Aktualizacja narzędzia (TLA+)
@@ -66,10 +71,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `38253d6` (2026-10-22: Centrum started by the guardian waits for
-the port of a shortcut clicked during the restart, `OpiekunStart` and
-`OpiekunStartStara`, #246; only `launcher.py` changed since `78a0764`). At this
-commit every row above was checked against the code.
+Sync commit: `4cec718` (2026-10-22: the Zgłoszenie of a failed update goes
+through `Reports.draft`/`ask`/`send`; only Zgłoszenia in `tool_updates.py`
+changed since `38253d6`, so the model did not). At this commit every row above
+was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,

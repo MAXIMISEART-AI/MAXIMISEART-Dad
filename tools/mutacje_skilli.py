@@ -7,27 +7,43 @@ skrypt o takiej nazwie trafia do CI i do ``tools/ci_lokalnie.py`` bez wpisu w ``
 Skrypt nie może zgubić się po cichu. FAIL dostaje plik ``.py`` w skillu z ``mutation`` w nazwie,
 który nie pasuje do wzorca, oraz skrypt mutacji wskazany w ``SKILL.md`` skilla, którego nie ma.
 FAIL dostaje też skrypt, który przekroczył limit czasu, skończył się kodem innym niż 0 albo nie
-wydrukował na końcu ``MUTACJE OK``. Limit obejmuje też procesy potomne skryptu: po końcu
-skryptu albo po limicie runner zabija je razem z nim. Skrypt ginie też razem z runnerem, choćby
-zabitym przez SIGKILL bramy pre-push albo Ctrl+C. Kończy się ``MUTACJE SKILLI OK`` albo
-``MUTACJE SKILLI FAIL | <skrypty>``.
+wydrukował na końcu ``MUTACJE OK``. Skrypt biegnie przez ``tools/potomne.py``: jego procesy
+potomne giną po jego końcu i po limicie, a cały skrypt ginie razem z runnerem, choćby zabitym
+przez SIGKILL. Kończy się ``MUTACJE SKILLI OK`` albo ``MUTACJE SKILLI FAIL | <skrypty>``.
+
+Z ``--zmiany-od REF`` biegnie tylko skrypt, którego werdykt mogą zmienić zmiany od ``REF`` (jak
+w ``git diff REF...HEAD``, z niezacommitowanymi). Skill deklaruje we frontmatterze ``SKILL.md`` klucz
+``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje też ``/``). Skill
+bez tego klucza biegnie zawsze. Skrypt skilla z kluczem biegnie, gdy zmieniony jest plik z
+``pilnuje``, plik w folderze skilla albo plik, który skrypt czyta: on sam, sprawdzenia z poleceń
+jego mutacji, pliki, które mutacje zmieniają, ich importy z repozytorium (każdy ``import`` w kodzie,
+także w funkcji) oraz infrastruktura mutacji: ten runner z importami i ``INFRASTRUCTURE``. Pliki
+czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zawęża selekcji poniżej
+nich. Skrypt, którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z
+repozytorium, kod się nie parsuje), biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
+Z ``--czesc K/N`` biegnie co N-ty skrypt od K-tego (w kolejności nazw), więc N zadań CI dzieli
+skrypty bez listy w ``ci.yml``.
 
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
+    .venv/bin/python tools/mutacje_skilli.py --zmiany-od origin/main
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
+from collections.abc import Iterable
+from fnmatch import fnmatchcase
+import importlib.util
 import os
 from pathlib import Path
 import re
-import signal
 import subprocess
 import sys
-import threading
 import time
-from typing import IO, Any
+
+import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / ".agents" / "skills"
@@ -37,20 +53,143 @@ MENTION = re.compile(r"[\w.\\/-]*scripts[\\/]check_\w+_mutations\.py")
 VERDICT = "MUTACJE OK"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
-# Strażnik w osobnej sesji zabija grupę skryptu, gdy potok od runnera zamknie się bez sygnału końca, czyli gdy
-# runner zginie. Sygnał bramy pre-push do grupy runnera nie sięga grupy skryptu, a SIGKILL nie uruchamia finally.
-GUARD = '''import os, signal, sys
-group = sys.stdin.buffer.readline()
-if group and not sys.stdin.buffer.read(1):
-    try:
-        os.killpg(int(group), signal.SIGKILL)
-    except OSError:
-        pass
-'''
+# Pliki spoza Pythona, od których zależy przebieg mutacji w CI: biblioteki, zadanie CI, końce linii kopii.
+INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
+# Katalogi, w których skrypty i sprawdzenia szukają importów (sys.path), poza katalogiem importującego pliku.
+IMPORT_ROOTS = (ROOT / "src", ROOT / "tools", ROOT)
 
 
 def _name(path: Path) -> str:
     return path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path.as_posix()
+
+
+def _part(text: str) -> tuple[int, int]:
+    number, _, count = text.partition("/")
+    if not (number.isdigit() and count.isdigit() and 1 <= int(number) <= int(count)):
+        raise argparse.ArgumentTypeError(f"część K/N z 1 <= K <= N, nie {text!r}")
+    return int(number), int(count)
+
+
+def _git(*arguments: str) -> list[str]:
+    out = subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, check=True).stdout.decode("utf-8")
+    return [name for name in out.split("\0") if name]
+
+
+def _changed(base: str) -> set[str]:
+    return {
+        *_git("diff", "--name-only", "--no-renames", "-z", f"{base}...HEAD"),
+        *_git("diff", "--name-only", "--no-renames", "-z", "HEAD"),
+        *_git("ls-files", "-z", "--others", "--exclude-standard"),
+    }
+
+
+def _modules(name: str, roots: Iterable[Path]) -> set[Path]:
+    """Pliki, które może wykonać import ``name``: pakiety po drodze i sam moduł.
+
+    Także te, których nie ma: usunięty plik zmienia, co wykona import w niezmienionym pliku.
+    """
+
+    parts = name.split(".")
+    return {
+        candidate
+        for root in roots
+        for depth in range(1, len(parts) + 1)
+        for candidate in (root.joinpath(*parts[:depth], "__init__.py"), root.joinpath(*parts[:depth]).with_suffix(".py"))
+    }
+
+
+def _imports(path: Path) -> set[Path]:
+    roots = (*IMPORT_ROOTS, path.parent)
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                found |= _modules(alias.name, roots)
+        elif isinstance(node, ast.ImportFrom):
+            bases = (path.parents[node.level - 1],) if node.level else roots
+            module = node.module or ""
+            names = [module] if module else []
+            names += [f"{module}.{alias.name}" if module else alias.name for alias in node.names]
+            for name in names:
+                found |= _modules(name, bases)
+    return found
+
+
+def _closure(starts: Iterable[Path]) -> set[Path]:
+    seen: set[Path] = set()
+    todo = [path.resolve() for path in starts]
+    while todo:
+        path = todo.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.suffix == ".py" and path.is_file():
+            todo += [found.resolve() for found in _imports(path)]
+    return seen
+
+
+def reads(script: Path) -> set[str]:
+    """Pliki repozytorium, których zmiana może zmienić werdykt skryptu."""
+
+    spec = importlib.util.spec_from_file_location(f"_mutacje_{script.parents[1].name}", script)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"nie da się wczytać {_name(script)}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    starts = {script, Path(__file__), *(ROOT / name for name in INFRASTRUCTURE)}
+    for mutation in module.MUTATIONS:
+        checker = ROOT / mutation.command[0]
+        if checker.suffix != ".py" or not checker.is_file():
+            raise ValueError(f"polecenie mutacji {mutation.name!r} nie zaczyna się skryptem z repozytorium")
+        starts |= {checker, *(ROOT / edit.file for edit in mutation.edits)}
+    return {_name(path) for path in _closure(starts) if path.is_relative_to(ROOT)}
+
+
+def guarded(skill_md: Path) -> tuple[str, ...] | None:
+    """Globy z klucza ``pilnuje`` frontmattera ``SKILL.md``; ``None``, gdy klucza nie ma.
+
+    Klucz to linia ``pilnuje:``, a pod nią linie ``  - <glob>``. Czytnik nie parsuje reszty frontmattera
+    jako YAML, bo opisy skilli mają w tekście dwukropki, których YAML nie przyjmuje.
+    """
+
+    lines = skill_md.read_text(encoding="utf-8").splitlines() if skill_md.is_file() else []
+    end = lines.index("---", 1) if lines[:1] == ["---"] and "---" in lines[1:] else 0
+    front = lines[1:end]
+    keys = [number for number, line in enumerate(front) if line.split(":", 1)[0] == "pilnuje"]
+    if not keys:
+        return None
+    if front[keys[0]] != "pilnuje:":
+        raise ValueError(f"pilnuje w {_name(skill_md)} nie jest listą globów pod kluczem")
+    globs = []
+    for line in front[keys[0] + 1 :]:
+        if not line.startswith("  - "):
+            break
+        globs.append(line.removeprefix("  - ").strip())
+    if not globs:
+        raise ValueError(f"pilnuje w {_name(skill_md)} nie ma żadnego globu")
+    return tuple(globs)
+
+
+def _why_run(script: Path, changed: set[str]) -> tuple[bool, str]:
+    """Czy skrypt biegnie przy tych zmianach, i dlaczego."""
+
+    skill = script.parents[1]
+    try:
+        globs = guarded(skill / "SKILL.md")
+        if globs is None:
+            return True, f"{_name(skill)}/SKILL.md nie ma klucza pilnuje"
+        read = reads(script)
+    except Exception as error:  # noqa: BLE001 - skrypt, którego plików nie da się wyznaczyć, biegnie i pokazuje swój błąd
+        return True, f"nie da się wyznaczyć plików, które czyta: {error}"
+    touched = sorted(
+        name
+        for name in changed
+        if name.startswith(f"{_name(skill)}/") or name in read or any(fnmatchcase(name, glob) for glob in globs)
+    )
+    if touched:
+        return True, f"zmienione: {', '.join(touched[:3])}" + (f" i {len(touched) - 3} innych" if len(touched) > 3 else "")
+    files = sum((ROOT / name).is_file() for name in read)
+    return False, f"zmiany nie dotykają pilnuje, folderu skilla ani {files} plików repozytorium, które skrypt czyta"
 
 
 def _lost(scripts: list[Path]) -> dict[str, str]:
@@ -71,133 +210,22 @@ def _lost(scripts: list[Path]) -> dict[str, str]:
     return lost
 
 
-def _echo(stream: IO[str], lines: list[str]) -> None:
-    for line in stream:
-        print(line, end="", flush=True)
-        lines.append(line)
-
-
-if sys.platform == "win32":
-    import ctypes
-    from ctypes import wintypes
-
-    class _BasicLimits(ctypes.Structure):
-        _fields_ = [
-            ("PerProcessUserTimeLimit", ctypes.c_int64),
-            ("PerJobUserTimeLimit", ctypes.c_int64),
-            ("LimitFlags", wintypes.DWORD),
-            ("MinimumWorkingSetSize", ctypes.c_size_t),
-            ("MaximumWorkingSetSize", ctypes.c_size_t),
-            ("ActiveProcessLimit", wintypes.DWORD),
-            ("Affinity", ctypes.c_size_t),
-            ("PriorityClass", wintypes.DWORD),
-            ("SchedulingClass", wintypes.DWORD),
-        ]
-
-    class _ExtendedLimits(ctypes.Structure):
-        _fields_ = [
-            ("BasicLimitInformation", _BasicLimits),
-            ("IoInfo", ctypes.c_uint64 * 6),
-            ("ProcessMemoryLimit", ctypes.c_size_t),
-            ("JobMemoryLimit", ctypes.c_size_t),
-            ("PeakProcessMemoryUsed", ctypes.c_size_t),
-            ("PeakJobMemoryUsed", ctypes.c_size_t),
-        ]
-
-    _KILL_ON_JOB_CLOSE = 0x2000
-    _EXTENDED_LIMIT_INFORMATION = 9
-    _TERMINATE_AND_SET_QUOTA = 0x0101
-
-
-class _Tree:
-    """Skrypt z jego procesami potomnymi, także tymi, które przeżyły skrypt albo runner."""
-
-    def __init__(self, command: list[str], **popen: Any) -> None:
-        if sys.platform == "win32":
-            # Job Object obejmuje potomków także po końcu skryptu, a taskkill /T już ich wtedy nie znajduje.
-            # KILL_ON_JOB_CLOSE kończy job, gdy runner zginie i system zamknie jego uchwyt.
-            self.kernel32 = kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            kernel32.CreateJobObjectW.restype = kernel32.OpenProcess.restype = wintypes.HANDLE
-            self.job = wintypes.HANDLE(kernel32.CreateJobObjectW(None, None))
-            limits = _ExtendedLimits()
-            limits.BasicLimitInformation.LimitFlags = _KILL_ON_JOB_CLOSE
-            size = ctypes.sizeof(limits)
-            if not self.job.value or not kernel32.SetInformationJobObject(
-                self.job, _EXTENDED_LIMIT_INFORMATION, ctypes.byref(limits), size
-            ):
-                error = ctypes.get_last_error()
-                kernel32.CloseHandle(self.job)
-                raise OSError(error, "Job Object dla skryptu mutacji")
-            self.process = subprocess.Popen(command, **popen)
-            handle = wintypes.HANDLE(kernel32.OpenProcess(_TERMINATE_AND_SET_QUOTA, False, self.process.pid))
-            if not handle.value or not kernel32.AssignProcessToJobObject(self.job, handle):
-                error = ctypes.get_last_error()
-                self.process.kill()
-                self.process.wait()
-                kernel32.CloseHandle(handle)
-                kernel32.CloseHandle(self.job)
-                raise OSError(error, "Job Object dla skryptu mutacji")
-            kernel32.CloseHandle(handle)
-        else:
-            self.guard = subprocess.Popen([sys.executable, "-c", GUARD], stdin=subprocess.PIPE, start_new_session=True)
-            assert self.guard.stdin is not None
-            # Własna grupa procesów, żeby po limicie zabić też procesy potomne skryptu.
-            self.process = subprocess.Popen(command, start_new_session=True, **popen)
-            self.guard.stdin.write(f"{self.process.pid}\n".encode())
-            self.guard.stdin.flush()
-
-    def kill(self) -> None:
-        if sys.platform == "win32":
-            self.kernel32.TerminateJobObject(self.job, 1)
-            self.kernel32.CloseHandle(self.job)
-        else:
-            try:
-                os.killpg(self.process.pid, signal.SIGKILL)
-            # macOS odpowiada EPERM, gdy w grupie zostały same zombie.
-            except (ProcessLookupError, PermissionError):
-                pass
-            assert self.guard.stdin is not None
-            self.guard.stdin.write(b".")
-            self.guard.stdin.close()
-            self.guard.wait()
-        self.process.wait()
-
-
 def _run(script: Path, limit_s: float) -> str | None:
     """Uruchamia skrypt z echem wyjścia; zwraca powód porażki albo ``None``."""
 
-    tree = _Tree(
-        [sys.executable, str(script)],
-        cwd=ROOT,
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    process = tree.process
-    assert process.stdout is not None
-    deadline = time.monotonic() + limit_s
-    lines: list[str] = []
-    reader = threading.Thread(target=_echo, args=(process.stdout, lines), daemon=True)
-    reader.start()
     try:
-        try:
-            process.wait(timeout=limit_s)
-        except subprocess.TimeoutExpired:
-            pass
-    finally:
-        tree.kill()
-    # Potomek, który uciekł z grupy procesów, trzyma potok otwarty; czekanie na niego też mieści się w limicie.
-    reader.join(timeout=max(deadline - time.monotonic(), 5))
-    if reader.is_alive() or time.monotonic() > deadline:
+        done = potomne.run(
+            [sys.executable, str(script)],
+            cwd=ROOT,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            timeout=limit_s,
+            echo=True,
+        )
+    except subprocess.TimeoutExpired:
         return f"przekroczył limit {limit_s:.0f} s"
-    code = process.returncode
-    if code != 0:
-        return f"kod wyjścia {code}"
-    if [line.strip() for line in lines if line.strip()][-1:] != [VERDICT]:
+    if done.returncode != 0:
+        return f"kod wyjścia {done.returncode}"
+    if [line.strip() for line in done.stdout.splitlines() if line.strip()][-1:] != [VERDICT]:
         return f"brak końcowej linii {VERDICT}"
     return None
 
@@ -205,6 +233,8 @@ def _run(script: Path, limit_s: float) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--limit-s", type=float, default=LIMIT_S, help="Limit czasu jednego skryptu w sekundach.")
+    parser.add_argument("--zmiany-od", metavar="REF", help="Tylko skrypty, których werdykt mogą zmienić zmiany od REF.")
+    parser.add_argument("--czesc", metavar="K/N", type=_part, help="Tylko co N-ty skrypt od K-tego.")
     args = parser.parse_args(argv)
     scripts = sorted(SKILLS.glob(f"*/scripts/{PATTERN}"))
     failed = _lost(scripts)
@@ -213,10 +243,16 @@ def main(argv: list[str] | None = None) -> int:
     if not scripts and not failed:
         print(f"MUTACJE SKILLI FAIL | brak skryptów .agents/skills/*/scripts/{PATTERN}")
         return 1
+    changed = None if args.zmiany_od is None else _changed(args.zmiany_od)
+    number, count = args.czesc or (1, 1)
     # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.
-    for script in scripts:
+    for script in scripts[number - 1 :: count]:
         name = _name(script)
-        print(f"== {name}", flush=True)
+        runs, why = (True, "") if changed is None else _why_run(script, changed)
+        if not runs:
+            print(f"POMINIĘTY {name}: {why}", flush=True)
+            continue
+        print(f"== {name}" + (f" ({why})" if why else ""), flush=True)
         started = time.monotonic()
         reason = _run(script, args.limit_s)
         elapsed = f"({time.monotonic() - started:.0f} s)"

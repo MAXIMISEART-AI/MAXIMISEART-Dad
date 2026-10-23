@@ -12,21 +12,18 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final
 
-from openpyxl.styles import Color, PatternFill
-from openpyxl.styles.fills import Fill
 from openpyxl.utils import column_index_from_string
 
 from . import preparation_messages as messages
 from .message import Message, StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import CollectiveRow, PeriodOrder
-from .preparation_register import ADDRESS, COLUMNS, Column
+from .preparation_register import COLUMNS
 from .quantity_rules import FromDescription, WithoutRule
 from .workbook_files import (
     DataRow,
@@ -38,15 +35,6 @@ from .workbook_files import (
     WorkbookError,
     WorkbookSaveError,
 )
-
-# Wypełnienie komórek kolumny pliku okresu bez względu na Wyróżnienie w Rejestrze: w plikach taty ADRES Pliku
-# zbiorczego jest zawsze żółty.
-_FIXED_FILLS: Final[Mapping[Layout, Mapping[Column, Fill]]] = {
-    Layout.COLLECTIVE_FILE: {
-        ADDRESS: PatternFill(patternType="solid", fgColor=Color(rgb="FFFFFF00"), bgColor=Color(indexed=64)),
-    },
-}
-
 
 @dataclass(frozen=True)
 class PeriodFiles:
@@ -200,9 +188,8 @@ def _template_stop(template_path: Path, error: WorkbookError) -> StopError:
 def _write_period_file(template_path: Path, layout: Layout, target: Path, rows: Sequence[DataRow]) -> None:
     """Plik z Wzorca z Wierszami danych od pierwszego Wiersza danych (ADR 0008)."""
 
-    fills = _FIXED_FILLS.get(layout, {})
     with _template_stops(template_path):
-        _template(template_path, layout).create(target, [_with_fills(row, fills) for row in rows])
+        _template(template_path, layout).create(target, rows)
 
 
 def _with_quantities(row: CollectiveRow) -> DataRow:
@@ -212,18 +199,6 @@ def _with_quantities(row: CollectiveRow) -> DataRow:
     return replace(
         row.order.row, quantities={column_index_from_string(column): value for column, value in quantities.items()}
     )
-
-
-def _with_fills(row: DataRow, fills: Mapping[Column, Fill]) -> DataRow:
-    """Wiersz Rejestru z wypełnieniem ``fills`` w ich kolumnach zamiast wypełnienia z Rejestru."""
-
-    if not fills:
-        return row
-    highlights = tuple(
-        highlights if column not in fills else replace(highlights, fill=fills[column])
-        for column, highlights in zip(COLUMNS, row.highlights, strict=True)
-    )
-    return replace(row, highlights=highlights)
 
 
 def _publish(staged_directory: Path, files: PeriodFiles) -> None:

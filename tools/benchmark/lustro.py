@@ -25,6 +25,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from benchmark import ROOT, SCRIPT, BenchmarkError
+import potomne
 from rozliczenia.period_folder import PeriodFolder, collective_file_name
 from rozliczenia.preparation_messages import QUANTITY_WARNINGS
 from rozliczenia.settlement_period import parse_period_token
@@ -255,7 +256,7 @@ class _ChildRun:
     exit_code: int
     spawned_at: datetime
     wall_ms: int
-    stdout: bytes
+    stdout: str
 
 
 def run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRun:
@@ -266,17 +267,11 @@ def run_quietly(arguments: Sequence[str | Path], failure_log: Path) -> _ChildRun
 
     spawned_at = datetime.now(UTC)
     started = time.perf_counter()
-    completed = subprocess.run(
-        [sys.executable, *map(str, arguments)],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    completed = potomne.run([sys.executable, *map(str, arguments)], cwd=Path.cwd())
     wall_ms = round((time.perf_counter() - started) * 1000)
     if completed.returncode != 0:
         failure_log.parent.mkdir(parents=True, exist_ok=True)
-        failure_log.write_bytes(completed.stdout + completed.stderr)
+        failure_log.write_text(completed.stdout + completed.stderr, encoding="utf-8")
     return _ChildRun(completed.returncode, spawned_at, wall_ms, completed.stdout)
 
 

@@ -255,9 +255,11 @@ czterech stron w kolorze automatycznym i format liczby komórki źródłowej
 bez wartości źródłowej (`zwrot` i `UWAGI` Rozliczenia wewnętrznego, L Pliku
 zbiorczego) dostaje sam wygląd z formatem ogólnym, a jej treść zostaje z
 Wzorca. Wpisany wiersz nie ma zapisanej wysokości (`ht`, `customHeight`), więc
-Excel dopasowuje ją do treści. ADRES Pliku zbiorczego ma zawsze żółte
-wypełnienie (w plikach taty 419 z 419 komórek), także gdy w Rejestrze ma inny
-kolor; Rozliczenie pracownika dostaje je zwykłym przeniesieniem Wyróżnień.
+Excel dopasowuje ją do treści. ADRES Pliku zbiorczego bierze Wyróżnienia z
+komórki ADRES tego zlecenia w Rejestrze, jak każda inna kolumna; Rozliczenie
+pracownika dostaje je zwykłym przeniesieniem Wyróżnień. Pierwsza wersja tej
+zmiany dawała mu zawsze żółte wypełnienie (w plikach taty 419 z 419 komórek),
+także gdy w Rejestrze miał inny kolor albo żaden; tata poprawił to 2026-10-22.
 Kolumny za kolumnami wyglądu (M:AT Rozliczenia pracownika) zostają jak w zmianie
 z 2026-10-21. Ochrona i styl nazwany komórki Wzorca zostają.
 
@@ -308,11 +310,11 @@ Teraz:
   każdej przenoszonej komórki.
 - Wyróżnienia komórek Rejestru są czytane tą samą regułą co komórek Pliku
   zbiorczego (`Highlights.of`: wypełnienie bez wzoru to brak wypełnienia).
-- Przygotowanie podaje tylko nagłówki docelowe kolumn Rejestru i stałe
-  wypełnienie ADRES Pliku zbiorczego. Kolumny pod nagłówkami i scalenia w
-  komórkach zapisu liczy `TemplateFile` z tego samego wczytania Wzorca, z
-  którego powstaje plik, a zły układ zgłasza z miejscem (`MissingHeader`,
-  `MergedCells`). Przygotowanie tłumaczy go na te same Komunikaty co dotąd.
+- Przygotowanie podaje tylko nagłówki docelowe kolumn Rejestru. Kolumny pod
+  nagłówkami i scalenia w komórkach zapisu liczy `TemplateFile` z tego samego
+  wczytania Wzorca, z którego powstaje plik, a zły układ zgłasza z miejscem
+  (`MissingHeader`, `MergedCells`). Przygotowanie tłumaczy go na te same
+  Komunikaty co dotąd.
 
 Skutki dla plików:
 
@@ -323,10 +325,13 @@ Skutki dla plików:
   wypełnienia. W Excelu obie wyglądają tak samo.
 - Rozliczenie wewnętrzne i Plik zbiorczy drogą openpyxl: to, co widać w Excelu,
   bez zmian, z tym samym wyjątkiem.
-- Wartość, której nie da się zapisać w XML, zatrzymuje zapis Pliku zbiorczego
-  tak jak zapis Rozliczenia pracownika (`WorkbookSaveError`), zamiast iść drogą
-  openpyxl, która kończyła się nieoczekiwanym wyjątkiem. Odczyt Rejestru przez
-  openpyxl takich wartości nie daje.
+- Znak niedozwolony w XML zatrzymuje zapis każdego pliku z Wzorca tym samym
+  błędem `WorkbookSaveError` na obu drogach. Dotąd kopia Pliku zbiorczego
+  wracała wtedy do openpyxl, a droga openpyxl (zawsze w Rozliczeniu
+  wewnętrznym) kończyła się nieoczekiwanym wyjątkiem. Przygotowanie zatrzymuje
+  się teraz z `BLAD_ZAPISU`, Przebieg rozliczeń jak dotąd z
+  `BLAD_SZABLONU_PRACOWNIKA`. Odczyt Rejestru i Pliku zbiorczego przez openpyxl
+  takich wartości nie daje.
 
 Na kopiach danych taty (31 okresów z obu Rejestrów, wszystkie, z których
 Przygotowanie zapisuje pliki) Pliki zbiorcze i Rozliczenia pracowników po tej

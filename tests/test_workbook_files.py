@@ -20,10 +20,10 @@ from openpyxl.styles import Color, Font, PatternFill
 from openpyxl.styles.fills import Fill
 from openpyxl.styles.numbers import is_date_format
 from openpyxl.utils import get_column_letter
-from openpyxl.utils.exceptions import IllegalCharacterError
 
 from rozliczenia import workbook_files
 from rozliczenia.highlights import PLAIN, Highlights
+from rozliczenia.preparation_register import COLUMNS
 from rozliczenia.workbook_files import (
     DataRow,
     ExcelRow,
@@ -45,8 +45,8 @@ from tests.fixtures.benchmark import (
     WORKER_TEMPLATE,
     write_synthetic_templates,
     zip_part,
-    zip_part_names,
 )
+from tests.fixtures.preparation import write_internal_template
 from tests.fixtures.porownanie import compare_worker_settlements, renumber_cell_styles
 from tests.fixtures.workbooks import (
     active_worksheet,
@@ -58,7 +58,9 @@ from tests.fixtures.workbooks import (
     external_link_parts,
     has_xml_comment,
     hyperlinks,
+    marked_for_copy,
     refused_by_copy,
+    written_by_copy,
     replace_cells,
     rewrite_parts,
     without_sheet,
@@ -201,13 +203,9 @@ def move_worker_header(path: Path, cell: str | None) -> None:
         workbook.close()
 
 
-def _check_worker_header(path: Path) -> None:
-    TemplateFile(path, Layout.COLLECTIVE_FILE, ["WYKONAWCA"]).check()
-
-
 HEADER_CHECKS: dict[str, Callable[[Path], object]] = {
     "odczyt-wierszy-danych": read_data_rows,
-    "wzorzec": _check_worker_header,
+    "wzorzec": _check_template,
     "sprawdzanie-wzorca-rozliczenia-pracownika": _check_worker_settlement_template,
 }
 
@@ -231,7 +229,7 @@ def test_naglowek_wykonawca_nie_zalezy_od_wielkosci_liter_i_spacji(tmp_path: Pat
     write_source(path, include_unmapped=False)
     move_worker_header(path, "H17")
 
-    _check_worker_header(path)
+    _check_template(path)
     assert len(read_data_rows(path)) == 3
 
 
@@ -440,19 +438,22 @@ def test_rozliczenie_pracownika_z_wzorca_zachowuje_wspolne_formuly_calcchain_i_f
     assert template_path.read_bytes() == template_before
 
 
-def _settlement_folders(tmp_path: Path, template_path: Path, rows: list[DataRow]) -> tuple[Path, Path]:
-    """Rozliczenie pracownika z kopii Wzorca i to samo z jego bliźniaka drogą openpyxl, każde w swoim folderze."""
+def _settlement_folders(
+    tmp_path: Path, template_path: Path, rows: list[DataRow], *, copied: bool = True
+) -> tuple[Path, Path]:
+    """Rozliczenie pracownika z Wzorca (kopią, gdy ``copied``) i to samo z jego bliźniaka drogą openpyxl."""
 
     created = tmp_path / "rozliczenie"
     expected = tmp_path / "przez-openpyxl"
     created.mkdir()
     expected.mkdir()
+    marked_for_copy(template_path)
     twin = refused_by_copy(Path(shutil.copy(template_path, tmp_path / f"bliźniak {template_path.name}")))
     name = "Rozliczenie - Wykonawca.xlsx"
     TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(created / name, rows)
     TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(expected / name, rows)
+    assert written_by_copy(created / name) == copied
     assert not has_xml_comment(expected / name)
-    assert ("xl/calcChain.xml" in zip_part_names(created / name)) == ("xl/calcChain.xml" in zip_part_names(template_path))
     return created, expected
 
 
@@ -544,7 +545,9 @@ def test_rozliczenie_pracownika_z_tekstem_sformatowanym_jest_jak_plik_z_wzorca(t
 
     template_path = linked_template(tmp_path / "Wzorzec.xlsx")
 
-    created, expected = _settlement_folders(tmp_path, template_path, [_data_row(values) for values in RICH_TEXT_ROWS])
+    created, expected = _settlement_folders(
+        tmp_path, template_path, [_data_row(values) for values in RICH_TEXT_ROWS], copied=False
+    )
 
     assert set(compare_worker_settlements(expected, created).values()) == {0}
 
@@ -690,8 +693,12 @@ def test_rozliczenie_pracownika_ma_hiperlacza_wierszy_danych_jak_plik_z_wzorca(t
     assert hyperlinks(created / "Rozliczenie - Wykonawca.xlsx") == LINKED_CELLS
 
 
-def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_pracownika_bez_pliku(tmp_path: Path) -> None:
+@pytest.mark.parametrize("by_copy", [True, False], ids=["kopia", "openpyxl"])
+def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_pracownika_bez_pliku(tmp_path: Path, by_copy: bool) -> None:
     template_path = linked_template(tmp_path / "Wzorzec.xlsx")
+    if not by_copy:
+        refused_by_copy(template_path)
+    template_before = template_path.read_bytes()
     output_directory = tmp_path / "okres"
     output_directory.mkdir()
 
@@ -701,21 +708,21 @@ def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_pracownika_bez_pliku
         )
 
     assert list(output_directory.iterdir()) == []
+    assert template_path.read_bytes() == template_before
 
 
-def test_blad_wpisania_wierszy_danych_przez_openpyxl_nie_zostawia_pliku(tmp_path: Path) -> None:
-    template_path = refused_by_copy(linked_template(tmp_path / "Wzorzec.xlsx"))
-    template_before = template_path.read_bytes()
+def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_wewnetrznego_bez_pliku(tmp_path: Path) -> None:
+    template_path = write_internal_template(tmp_path / "Wzorzec rozliczenia wewnętrznego.xlsx")
     output_directory = tmp_path / "okres"
     output_directory.mkdir()
+    row = DataRow(2, ("syntetyczny\x01znak",) + (None,) * 10, (PLAIN,) * 11, ("General",) * 11)
 
-    with pytest.raises(IllegalCharacterError):
-        TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(
-            output_directory / "Plik.xlsx", [_data_row(_row(A="syntetyczny\x01znak"))]
+    with pytest.raises(WorkbookSaveError):
+        TemplateFile(template_path, Layout.INTERNAL_SETTLEMENT, [column.target_header for column in COLUMNS]).create(
+            output_directory / "Rozliczenie wew.xlsx", [row]
         )
 
     assert list(output_directory.iterdir()) == []
-    assert template_path.read_bytes() == template_before
 
 
 @pytest.mark.parametrize("by_copy", [True, False], ids=["kopia", "openpyxl"])
@@ -732,18 +739,17 @@ def test_nieudany_zapis_pliku_z_wzorca_nie_zostawia_pliku(tmp_path: Path, by_cop
 
 
 def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp_path: Path) -> None:
-    target_path = linked_template(tmp_path / "Plik zbiorczy.xlsx")
-    target_before = target_path.read_bytes()
-    damaged_pattern = tmp_path / "Wzorzec.xlsx"
-    damaged_pattern.write_bytes(b"to nie jest skoroszyt")
-    workbook = load_workbook(target_path, keep_links=True)
+    source_path = linked_template(tmp_path / "Plik zbiorczy.xlsx")
+    target_path = tmp_path / "Uszkodzony.xlsx"
+    target_path.write_bytes(b"to nie jest skoroszyt")
+    workbook = load_workbook(source_path, keep_links=True)
     try:
         active_worksheet(workbook)["A18"] = "syntetyczne miasto"
 
         with pytest.raises(ExternalLinksError):
-            save_workbook(workbook, target_path, external_links_from=damaged_pattern)
+            save_workbook(workbook, target_path)
     finally:
         workbook.close()
 
-    assert target_path.read_bytes() == target_before
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["Plik zbiorczy.xlsx", "Wzorzec.xlsx"]
+    assert target_path.read_bytes() == b"to nie jest skoroszyt"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["Plik zbiorczy.xlsx", "Uszkodzony.xlsx"]

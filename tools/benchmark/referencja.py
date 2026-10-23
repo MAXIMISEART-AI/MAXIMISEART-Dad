@@ -6,16 +6,18 @@ import difflib
 import hashlib
 import json
 import shutil
+import subprocess
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmark import SCRIPT, BenchmarkError
+from benchmark import ROOT, SCRIPT, BenchmarkError
 from benchmark.lustro import worker_settlements_folder
 from benchmark.uruchomienie import Przebieg, git_output, remove_worker_settlements, run_przebieg
 from porownanie_rozliczen import CATEGORIES, compare_worker_settlements
+from potomne import commit_copy
 
 
 ORACLE_CATEGORIES = (*CATEGORIES, "liczniki", "komunikaty", "podsumowanie")
@@ -48,7 +50,7 @@ def reference_folder(references: Path, mirror: Path, worker_template: Path) -> P
 def freeze_reference(
     references: Path, mirror: Path, commit: str, config: Path, worker_template: Path
 ) -> Path:
-    """Wynik referencyjny lustra z commita ``commit``: jego Przebieg rozliczeń w tymczasowym worktree gita."""
+    """Wynik referencyjny lustra z commita ``commit``: jego Przebieg rozliczeń w tymczasowej kopii commitu."""
 
     resolved = git_output("rev-parse", "--verify", f"{commit}^{{commit}}")
     if resolved is None:
@@ -60,19 +62,19 @@ def freeze_reference(
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="benchmark-referencja-") as scratch_name:
         scratch = Path(scratch_name)
-        checkout = scratch / "checkout"
-        if git_output("worktree", "add", "--detach", str(checkout), sha) is None:
-            raise BenchmarkError(f"Nie udało się zbudować commita {sha[:7]} w tymczasowym worktree gita.")
         try:
-            if not (checkout / SCRIPT).is_file():
-                raise BenchmarkError(
-                    f"Commit {sha[:7]} nie ma skryptu {SCRIPT.as_posix()}, przez który benchmark uruchamia "
-                    "Przebieg rozliczeń. Zamroź wynik referencyjny z commita, który go ma: python tools/benchmark_przebiegu.py "
-                    "freeze --commit SHA z tymi samymi --scenario, --templates-dir i --config."
-                )
-            przebieg = run_przebieg(checkout, mirror, config, worker_template, scratch)
-        finally:
-            git_output("worktree", "remove", "--force", str(checkout))
+            with commit_copy(ROOT, sha) as checkout:
+                if not (checkout / SCRIPT).is_file():
+                    raise BenchmarkError(
+                        f"Commit {sha[:7]} nie ma skryptu {SCRIPT.as_posix()}, przez który benchmark uruchamia "
+                        "Przebieg rozliczeń. Zamroź wynik referencyjny z commita, który go ma: python tools/benchmark_przebiegu.py "
+                        "freeze --commit SHA z tymi samymi --scenario, --templates-dir i --config."
+                    )
+                przebieg = run_przebieg(checkout, mirror, config, worker_template, scratch)
+        except subprocess.CalledProcessError as error:
+            raise BenchmarkError(
+                f"Nie udało się zbudować commita {sha[:7]} w tymczasowym worktree gita: {error.stderr.strip()}"
+            ) from error
         staging = Path(tempfile.mkdtemp(prefix=f".{sha}.staging-", dir=target.parent))
         try:
             worker_settlements = worker_settlements_folder(mirror)

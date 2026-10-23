@@ -11,11 +11,12 @@ import sys
 import zipfile
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from create_preparation_fixture import completed_activities, order_contract, order_devices
+from create_preparation_fixture import REGISTER_NAME, completed_activities, order_contract, order_devices
 from wynik_uruchomienia import (
     check_metrics,
     contract,
@@ -27,7 +28,7 @@ from wynik_uruchomienia import (
     look_mismatches,
 )
 
-from rozliczenia.preparation_messages import COLUMNS_FROM_DESCRIPTION, ROWS_FROM_DESCRIPTION, UNKNOWN_DEVICES  # noqa: E402  (after wynik_uruchomienia puts src on sys.path)
+from rozliczenia.preparation_messages import COLUMNS_FROM_DESCRIPTION, ROWS_FROM_DESCRIPTION, UNKNOWN_DEVICES
 
 
 PERIOD = "08_14_09_2026"
@@ -169,7 +170,7 @@ def _unchanged_inputs(root: Path) -> list[str]:
     manifest = json.loads((root / "fixture_manifest.json").read_text(encoding="utf-8"))
     errors: list[str] = []
     for label, path, key in (
-        ("Rejestr zleceń", root / "ZLECENIA INTERMAX OD 08_11_2021.xlsx", "register_sha256"),
+        ("Rejestr zleceń", root / REGISTER_NAME, "register_sha256"),
         ("Wzorzec rozliczenia wewnętrznego", root / INTERNAL_TEMPLATE, "internal_template_sha256"),
         ("Wzorzec pliku zbiorczego", root / COLLECTIVE_TEMPLATE, "collective_template_sha256"),
     ):
@@ -270,12 +271,9 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
             errors.append("Plik zbiorczy lost Wzorzec rates, sums, sheets or header formatting")
         if sheet["B18"].fill.fgColor.rgb != "FFFFFF00" or sheet.auto_filter.ref != "A17:AP21":
             errors.append("Plik zbiorczy lost a Rejestr highlight or has a wrong autofilter")
-        written_rows = range(18, 18 + len(EXPECTED_COLLECTIVE_ROWS))
-        look = look_mismatches(sheet, 17, written_rows, 12)
+        look = look_mismatches(sheet, 17, range(18, 18 + len(EXPECTED_COLLECTIVE_ROWS)), 12)
         if look:
             errors.append(f"Plik zbiorczy: Wygląd Wiersza danych differs: {'; '.join(look)}")
-        if {sheet.cell(row, 2).fill.fgColor.rgb for row in written_rows} != {"FFFFFF00"}:
-            errors.append("Plik zbiorczy: ADRES is not yellow in every Wiersz danych")
     finally:
         workbook.close()
 
@@ -316,8 +314,8 @@ def _check_real_template_file(
     header_row: int,
     look_columns: int,
     order_numbers: tuple[object, ...],
+    quantities: tuple[dict[str, int], ...],
     errors: list[str],
-    quantities: tuple[dict[str, int], ...] = (),
 ) -> None:
     """Rows routed by header, the Wygląd Wiersza danych in A..``look_columns``, and the rest of the Wzorzec unchanged.
 
@@ -350,7 +348,7 @@ def _check_real_template_file(
             errors.append(f"{label}: Wygląd Wiersza danych differs: {'; '.join(look)}")
 
         expected_values = _cell_values(template_book, written)
-        for row, row_quantities in zip(written_rows, quantities):
+        for row, row_quantities in zip(written_rows, quantities, strict=True):
             for letter, value in row_quantities.items():
                 expected_values[(template_sheet.title, row, column_index_from_string(letter))] = value
         actual_values = _cell_values(output_book, written)
@@ -362,6 +360,39 @@ def _check_real_template_file(
             errors.append(f"{label}: {len(changed)} Wzorzec cells outside the written rows changed ({where})")
     finally:
         template_book.close()
+        output_book.close()
+
+
+def _fill(cell: Cell | MergedCell) -> tuple[object, object]:
+    fill_type = cell.fill.fill_type
+    return fill_type, cell.fill.fgColor.rgb if fill_type else None
+
+
+def _check_address_fills(
+    register: Path, output: Path, *, label: str, header_row: int, register_rows: tuple[int, ...], errors: list[str]
+) -> None:
+    """ADRES of every written row has the fill of that order's ADRES in the Rejestr, whatever the colour or none."""
+
+    register_book = load_workbook(register, data_only=False)
+    output_book = load_workbook(output, data_only=False)
+    try:
+        register_sheet = register_book["ZLECENIA"]
+        [register_column] = [cell.column for cell in register_sheet[1] if cell.value == "ADRES"]
+        expected = [_fill(register_sheet.cell(row, register_column)) for row in register_rows]
+        if len(set(expected)) < 3:
+            errors.append("Rejestr ADRES fills of the period orders lack yellow, another colour or none, so the check proves nothing")
+        sheet = _sheet(output_book.active)
+        column = _target_positions(sheet, header_row, label, errors).get("ADRES", 0)
+        rows = range(header_row + 1, header_row + 1 + len(register_rows))
+        differing = [
+            f"{get_column_letter(column)}{row}"
+            for row, fill in zip(rows, expected, strict=True)
+            if _fill(sheet.cell(row, column)) != fill
+        ]
+        if differing:
+            errors.append(f"{label}: ADRES fill differs from the Rejestr ADRES of the same order ({', '.join(differing)})")
+    finally:
+        register_book.close()
         output_book.close()
 
 
@@ -416,6 +447,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     header_row=1,
                     look_columns=13,
                     order_numbers=EXPECTED_INTERNAL_ORDER_NUMBERS,
+                    quantities=({},) * len(EXPECTED_INTERNAL_ORDER_NUMBERS),
                     errors=errors,
                 )
                 _check_real_template_file(
@@ -425,8 +457,8 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     header_row=17,
                     look_columns=12,
                     order_numbers=EXPECTED_COLLECTIVE_ORDER_NUMBERS,
-                    errors=errors,
                     quantities=EXPECTED_QUANTITIES,
+                    errors=errors,
                 )
             for template, output, label, header_row, register_rows in (
                 (INTERNAL_TEMPLATE, INTERNAL_NAME, "Rozliczenie wewnętrzne", 1, EXPECTED_INTERNAL_REGISTER_ROWS),
@@ -434,6 +466,14 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
             ):
                 _check_hyperlinks(
                     root / template,
+                    period_directory / output,
+                    label=label,
+                    header_row=header_row,
+                    register_rows=register_rows,
+                    errors=errors,
+                )
+                _check_address_fills(
+                    root / REGISTER_NAME,
                     period_directory / output,
                     label=label,
                     header_row=header_row,
@@ -452,8 +492,8 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
     return finish(
         errors,
         f"ASSERT OK | process=przygotowanie | mode=run | templates={templates} | workbooks_checked=2 | "
-        "formatting_preserved=true | row_look=A:M,A:L | hyperlinks_from_rejestr=NUMER ZL. | external_links_preserved=true | "
-        "inputs_unchanged=true",
+        "formatting_preserved=true | row_look=A:M,A:L | hyperlinks_from_rejestr=NUMER ZL. | address_fill_from_rejestr=ADRES | "
+        "external_links_preserved=true | inputs_unchanged=true",
     )
 
 

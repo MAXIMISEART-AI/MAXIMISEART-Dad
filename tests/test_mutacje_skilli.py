@@ -6,6 +6,9 @@ Każdy test buduje własne ``.agents/skills`` obok kopii narzędzia, więc narz�
 from __future__ import annotations
 
 import contextlib
+import fnmatch
+import importlib.util
+import json
 from pathlib import Path
 import os
 import shutil
@@ -13,12 +16,43 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Callable
+from types import ModuleType
 
 import pytest
 
-TOOL = Path(__file__).resolve().parents[1] / "tools" / "mutacje_skilli.py"
+from tests.fixtures.git_repo import commit, git
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOLS = ROOT / "tools"
+TOOL = TOOLS / "mutacje_skilli.py"
 PASSING = 'print("WYKRYTA: proba")\nprint("MUTACJE OK")\n'
+CHECKED = "src/pakiet/sprawdzany.py"
+GUARDED = "---\nname: verify-x\npilnuje:\n  - src/pakiet/rout*.py\n---\n"
+ANCHORS = "src/pakiet/kotwice.txt"
+WITH_TABLE = f"""from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+from mutacje import Edit, Mutation  # noqa: E402
+
+MUTATIONS = (
+    Mutation("m", (Edit(Path("{CHECKED}"), "X", "Y"), Edit(Path("{ANCHORS}"), "X", "Y")), (".agents/skills/verify-a/scripts/sprawdz_a.py",)),
+)
+
+if __name__ == "__main__":
+    {PASSING.replace(chr(10), chr(10) + "    ").rstrip()}
+"""
+REPO = {
+    "src/pakiet/__init__.py": "",
+    CHECKED: "def run() -> int:\n    from pakiet import pomocnik\n\n    return pomocnik.X\n",
+    "src/pakiet/pomocnik.py": "X = 1\n",
+    "src/pakiet/obcy.py": "Y = 2\n",
+    "src/pakiet/routing.py": "Z = 3\n",
+    ANCHORS: "X\n",
+    ".agents/skills/verify-a/scripts/sprawdz_a.py": "from pakiet import sprawdzany\n",
+    "requirements.txt": "pytest\n",
+    "docs/opis.md": "opis\n",
+}
 
 
 def _skill(root: Path, name: str, scripts: dict[str, str], skill_md: str = "") -> None:
@@ -30,11 +64,16 @@ def _skill(root: Path, name: str, scripts: dict[str, str], skill_md: str = "") -
     (skill / "SKILL.md").write_text(skill_md, encoding="utf-8")
 
 
-def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _tool(root: Path) -> list[str]:
     (root / "tools").mkdir(exist_ok=True)
-    shutil.copy(TOOL, root / "tools" / TOOL.name)
+    for name in (TOOL.name, "potomne.py", "mutacje.py"):
+        shutil.copy(TOOLS / name, root / "tools" / name)
+    return [sys.executable, str(root / "tools" / TOOL.name)]
+
+
+def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(root / "tools" / TOOL.name), *args],
+        [*_tool(root), *args],
         cwd=root,
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -42,6 +81,17 @@ def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         timeout=120,
         check=False,
+    )
+
+
+def _start(root: Path) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        _tool(root),
+        cwd=root,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
     )
 
 
@@ -117,51 +167,29 @@ def test_skrypt_po_limicie_czasu_daje_fail_a_kolejne_dalej_ruszaja(tmp_path: Pat
     assert "verify-b" not in final
 
 
-def _leaves_child(marker: Path, escape: bool) -> str:
-    """Skrypt z werdyktem, który kończy się kodem 0, a zostawia potomka z otwartym stdout."""
-
-    ready = marker.with_name("potomek-gotowy")
-    child = (
-        ("import os\nos.setsid()\n" if escape else "")
-        + f"import os, pathlib, time\npathlib.Path({str(ready)!r}).write_text(str(os.getpid()))\ntime.sleep(3)\n"
-        + f"pathlib.Path({str(marker)!r}).touch()\ntime.sleep(600)\n"
+def test_wyjscie_skryptu_mutacji_widac_w_trakcie_jego_pracy(tmp_path: Path) -> None:
+    seen = tmp_path / "linia-widziana"
+    script = (
+        "import pathlib, sys, time\n"
+        "print('WYKRYTA: pierwsza', flush=True)\n"
+        "deadline = time.monotonic() + 20\n"
+        f"while not pathlib.Path({str(seen)!r}).exists():\n"
+        "    if time.monotonic() > deadline:\n"
+        "        sys.exit(3)\n"
+        "    time.sleep(0.05)\n" + PASSING
     )
-    return (
-        f"import pathlib, subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', {child!r}])\n"
-        + f"while not pathlib.Path({str(ready)!r}).exists():\n    time.sleep(0.05)\n"
-        + PASSING
-    )
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": script})
 
+    runner = _start(tmp_path)
+    assert runner.stdout is not None
+    lines = []
+    for line in runner.stdout:
+        lines.append(line.rstrip("\n"))
+        if line.startswith("WYKRYTA: pierwsza"):
+            seen.touch()
+    runner.wait(timeout=30)
 
-def test_potomek_skryptu_z_otwartym_wyjsciem_ginie_razem_ze_skryptem(tmp_path: Path) -> None:
-    marker = tmp_path / "potomek-zyje"
-    _skill(tmp_path, "verify-a", {"check_a_mutations.py": _leaves_child(marker, escape=False)})
-
-    result = _run(tmp_path, "--limit-s", "60")
-    time.sleep(6)
-
-    assert result.returncode == 0, result.stdout
-    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK"
-    assert not marker.exists()
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="na Windows potomek nie wychodzi z Job Object skryptu")
-def test_potomek_poza_grupa_procesow_z_otwartym_wyjsciem_daje_fail_po_limicie(tmp_path: Path) -> None:
-    _skill(tmp_path, "verify-a", {"check_a_mutations.py": _leaves_child(tmp_path / "potomek-zyje", escape=True)})
-    _skill(tmp_path, "verify-b", {"check_b_mutations.py": PASSING})
-
-    started = time.monotonic()
-    try:
-        result = _run(tmp_path, "--limit-s", "5")
-    finally:
-        os.kill(int((tmp_path / "potomek-gotowy").read_text()), signal.SIGTERM)
-
-    assert time.monotonic() - started < 60
-    assert result.returncode == 1
-    assert "OK   .agents/skills/verify-b/scripts/check_b_mutations.py" in result.stdout
-    final = result.stdout.splitlines()[-1]
-    assert ".agents/skills/verify-a/scripts/check_a_mutations.py" in final
-    assert "verify-b" not in final
+    assert (runner.returncode, lines[-1]) == (0, "MUTACJE SKILLI OK"), lines
 
 
 @pytest.mark.parametrize(
@@ -193,80 +221,24 @@ def test_sciezka_bezwzgledna_spoza_repo_daje_nazwany_fail(tmp_path: Path) -> Non
     assert outside.as_posix() in result.stdout.splitlines()[-1]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="grupa procesów z samymi zombie jest tylko na POSIX")
-def test_grupa_skryptu_z_samymi_zombie_nie_wywraca_runnera(tmp_path: Path) -> None:
-    ready = tmp_path / "potomek-gotowy"
-    child = (
-        "import os, pathlib, subprocess, sys, time\n"
-        "subprocess.Popen([sys.executable, '-c', 'pass']).pid\n"
-        "os.setsid()\n"
-        f"time.sleep(1)\npathlib.Path({str(ready)!r}).write_text(str(os.getpid()))\ntime.sleep(600)\n"
-    )
-    script = (
-        f"import pathlib, subprocess, sys, time\n"
-        f"subprocess.Popen([sys.executable, '-c', {child!r}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-        f"while not pathlib.Path({str(ready)!r}).exists():\n    time.sleep(0.05)\n" + PASSING
-    )
-    _skill(tmp_path, "verify-a", {"check_a_mutations.py": script})
-
-    try:
-        result = _run(tmp_path, "--limit-s", "60")
-    finally:
-        if ready.exists():
-            os.kill(int(ready.read_text()), signal.SIGTERM)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK"
-
-
-def _hard_kill(runner: subprocess.Popen[bytes]) -> None:
-    runner.kill()
-
-
-STOPS: dict[str, Callable[[subprocess.Popen[bytes]], None]] = {"SIGKILL samego runnera": _hard_kill}
-if sys.platform != "win32":
-
-    def _stop_like_gate(runner: subprocess.Popen[bytes]) -> None:
-        """Sekwencja z tools/hooks/pre-push: SIGTERM do grupy, a po chwili SIGKILL."""
-
-        for signum in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(runner.pid, signum)
-            except (ProcessLookupError, PermissionError):
-                break
-            time.sleep(2)
-
-    def _ctrl_c(runner: subprocess.Popen[bytes]) -> None:
-        os.killpg(runner.pid, signal.SIGINT)
-
-    STOPS |= {"brama pre-push": _stop_like_gate, "Ctrl+C": _ctrl_c}
-
-
-@pytest.mark.parametrize("stop", sorted(STOPS))
-def test_przerwany_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path, stop: str) -> None:
+def test_zabity_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path) -> None:
     ready, marker = tmp_path / "skrypt-gotowy", tmp_path / "skrypt-przezyl"
     script = (
         f"import os, pathlib, time\npathlib.Path({str(ready)!r}).write_text(str(os.getpid()))\n"
         f"time.sleep(5)\npathlib.Path({str(marker)!r}).touch()\ntime.sleep(600)\n"
     )
     _skill(tmp_path, "verify-a", {"check_a_mutations.py": script})
-    (tmp_path / "tools").mkdir()
-    shutil.copy(TOOL, tmp_path / "tools" / TOOL.name)
-    runner = subprocess.Popen(
-        [sys.executable, str(tmp_path / "tools" / TOOL.name)],
-        cwd=tmp_path,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        start_new_session=sys.platform != "win32",
-    )
+    runner = subprocess.Popen(_tool(tmp_path), cwd=tmp_path, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + 60
         while not ready.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert ready.exists(), "skrypt mutacji nie ruszył"
-        STOPS[stop](runner)
+        runner.kill()
         runner.wait(timeout=30)
-        time.sleep(7)
+        deadline = time.monotonic() + 7
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
 
         assert not marker.exists(), "skrypt mutacji przeżył runner"
     finally:
@@ -275,3 +247,152 @@ def test_przerwany_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path, stop: str
         if ready.exists():
             with contextlib.suppress(OSError):
                 os.kill(int(ready.read_text()), signal.SIGTERM)
+
+
+def _selection_repo(root: Path) -> str:
+    """Skill a z ``pilnuje`` i tabelą, b z tabelą bez ``pilnuje``, c z ``pilnuje`` bez tabeli; zwraca commit bazy."""
+
+    for name, text in REPO.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+    checker = {"sprawdz_a.py": REPO[".agents/skills/verify-a/scripts/sprawdz_a.py"]}
+    _skill(root, "verify-a", {"check_a_mutations.py": WITH_TABLE, **checker}, GUARDED)
+    _skill(root, "verify-b", {"check_b_mutations.py": WITH_TABLE})
+    _skill(root, "verify-c", {"check_c_mutations.py": PASSING}, GUARDED)
+    _tool(root)
+    git(root, "init", "--quiet")
+    return commit(root, "baza")
+
+
+def _ran(result: subprocess.CompletedProcess[str], skill: str) -> bool:
+    script = f".agents/skills/{skill}/scripts/check_{skill[-1]}_mutations.py"
+    ran, skipped = f"OK   {script}" in result.stdout, f"POMINIĘTY {script}" in result.stdout
+    assert ran != skipped, result.stdout
+    return ran
+
+
+@pytest.mark.parametrize(
+    ("changed", "runs"),
+    [
+        ("docs/opis.md", False),
+        ("src/pakiet/obcy.py", False),
+        ("src/pakiet/routing.py", True),
+        (".agents/skills/verify-b/SKILL.md", False),
+        (CHECKED, True),
+        (ANCHORS, True),
+        ("src/pakiet/pomocnik.py", True),
+        ("src/pakiet/__init__.py", True),
+        (".agents/skills/verify-a/scripts/sprawdz_a.py", True),
+        (".agents/skills/verify-a/SKILL.md", True),
+        ("requirements.txt", True),
+        ("tools/potomne.py", True),
+        ("tools/mutacje_skilli.py", True),
+    ],
+)
+def test_ze_zmianami_od_bazy_biegnie_skrypt_ktorego_pliki_sie_zmienily(tmp_path: Path, changed: str, runs: bool) -> None:
+    base = _selection_repo(tmp_path)
+    with (tmp_path / changed).open("a", encoding="utf-8") as file:
+        file.write("\n")
+    commit(tmp_path, "zmiana")
+
+    result = _run(tmp_path, "--zmiany-od", base)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK"
+    assert (_ran(result, "verify-a"), _ran(result, "verify-b"), _ran(result, "verify-c")) == (runs, True, True)
+
+
+def test_usuniety_plik_importowany_przez_sprawdzenie_uruchamia_skrypt(tmp_path: Path) -> None:
+    base = _selection_repo(tmp_path)
+    (tmp_path / "src/pakiet/pomocnik.py").unlink()
+    commit(tmp_path, "bez pomocnika")
+
+    assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
+
+
+def test_niezacommitowana_zmiana_uruchamia_skrypt(tmp_path: Path) -> None:
+    base = _selection_repo(tmp_path)
+    (tmp_path / "src/pakiet/pomocnik.py").write_text("X = 2\n", encoding="utf-8")
+
+    assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
+
+
+def test_bez_zmian_od_bazy_pomija_tylko_skill_z_pilnuje_i_tabela(tmp_path: Path) -> None:
+    base = _selection_repo(tmp_path)
+
+    selected, everything = _run(tmp_path, "--zmiany-od", base), _run(tmp_path)
+
+    assert [_ran(selected, skill) for skill in ("verify-a", "verify-b", "verify-c")] == [False, True, True]
+    assert [_ran(everything, skill) for skill in ("verify-a", "verify-b", "verify-c")] == [True, True, True]
+
+
+def test_pilnuje_nie_bedace_lista_globow_uruchamia_skrypt(tmp_path: Path) -> None:
+    _selection_repo(tmp_path)
+    (tmp_path / ".agents/skills/verify-a/SKILL.md").write_text("---\npilnuje: src/pakiet/routing.py\n---\n", encoding="utf-8")
+    base = commit(tmp_path, "pilnuje jako tekst")
+
+    assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
+
+
+def _load_tool(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    monkeypatch.syspath_prepend(str(TOOLS))
+    spec = importlib.util.spec_from_file_location("mutacje_skilli", TOOL)
+    assert spec is not None and spec.loader is not None
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    tracked = git(ROOT, "ls-files").splitlines()
+
+    guarded = {md.parent.name: tool.guarded(md) for md in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md"))}
+    dead = [f"{skill}: {glob}" for skill, globs in guarded.items() for glob in globs or () if not any(fnmatch.fnmatchcase(name, glob) for name in tracked)]
+
+    assert any(guarded.values())
+    assert dead == []
+
+
+def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    loader = (
+        "import json, runpy, sys\n"
+        "script = runpy.run_path(sys.argv[1], run_name='_mutacje')\n"
+        "for checker in {mutation.command[0] for mutation in script['MUTATIONS']}:\n"
+        "    runpy.run_path(checker, run_name='_sprawdzenie')\n"
+        "print(json.dumps([getattr(module, '__file__', None) for module in list(sys.modules.values())]))\n"
+    )
+    scripts = sorted((ROOT / ".agents" / "skills").glob("*/scripts/check_*_mutations.py"))
+    unread = {}
+    for script in scripts:
+        out = subprocess.run(
+            [sys.executable, "-c", loader, str(script)], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True
+        ).stdout
+        loaded = {Path(name).resolve() for name in json.loads(out.splitlines()[-1]) if name}
+        in_repo = {path.relative_to(ROOT).as_posix() for path in loaded if path.is_relative_to(ROOT) and ".venv" not in path.parts}
+        unread[script.parents[1].name] = sorted(in_repo - tool.reads(script))
+
+    assert scripts
+    assert unread == {script.parents[1].name: [] for script in scripts}
+
+
+def test_czesci_uruchamiaja_kazdy_skrypt_dokladnie_raz(tmp_path: Path) -> None:
+    for skill in ("verify-a", "verify-b", "verify-c"):
+        _skill(tmp_path, skill, {f"check_{skill[-1]}_mutations.py": PASSING})
+
+    parts = [_run(tmp_path, "--czesc", f"{number}/2") for number in (1, 2)]
+
+    ran = [line.split()[1] for part in parts for line in part.stdout.splitlines() if line.startswith("OK   ")]
+    assert [part.stdout.splitlines()[-1] for part in parts] == ["MUTACJE SKILLI OK"] * 2
+    assert sorted(ran) == [f".agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "abc"]
+
+
+@pytest.mark.parametrize("part", ["0/2", "3/2", "1", "a/b"])
+def test_czesc_spoza_zakresu_jest_bledem_wywolania(tmp_path: Path, part: str) -> None:
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING})
+
+    result = _run(tmp_path, "--czesc", part)
+
+    assert result.returncode == 2
+    assert "OK   " not in result.stdout

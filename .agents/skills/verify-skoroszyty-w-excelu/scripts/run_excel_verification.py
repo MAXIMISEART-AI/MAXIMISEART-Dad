@@ -58,10 +58,14 @@ WORKER_ORDERS = {
     "Darek Fikcyjny": ("PREP-SYN-ZL-6",),
     "Kamil Syntetyczny": ("PREP-SYN-ZL-4",),
 }
-# Wyróżnienia of the synthetic Rejestr: ADRES of order 2 yellow with bold dark red, WYKONAWCA of order 4 italic.
+# Wyróżnienia of the synthetic Rejestr: ADRES of order 2 yellow with bold dark red, ADRES of order 4 blue, WYKONAWCA
+# of order 4 italic, ADRES of orders 7 and 6 none. Excel shows no fill as white and the automatic colour as black.
 HIGHLIGHTS = {
     ("PREP-SYN-ZL-2", "adres"): (0xFFFF00, 0xC00000, True, False),
+    ("PREP-SYN-ZL-4", "adres"): (0x00B0F0, 0x000000, False, False),
     ("PREP-SYN-ZL-4", "wykonawca"): (0xFFFFFF, 0x000000, False, True),
+    ("PREP-SYN-ZL-7", "adres"): (0xFFFFFF, 0x000000, False, False),
+    ("PREP-SYN-ZL-6", "adres"): (0xFFFFFF, 0x000000, False, False),
 }
 ROW_MARKER = "PREP-SYN-"
 # Ilości usług Przygotowanie writes from the Reguły ilości for the fixture's URZĄDZENIA and UMOWA

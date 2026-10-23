@@ -20,7 +20,8 @@ ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=SYNTHETIC-LINK&tw=1&wiers
 WORKERS = ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
 PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
 FILE_PLAN = [
-    contract.WorkerFile(file=f"Rozliczenie {PERIOD} - {worker}.xlsx", rows=rows) for worker, rows in zip(WORKERS, (2, 1, 0))
+    contract.WorkerFile(file=f"Rozliczenie {PERIOD} - {worker}.xlsx", rows=rows)
+    for worker, rows in zip(WORKERS, (2, 1, 0), strict=True)
 ]
 ORDER_COLUMN = 6  # F
 
@@ -211,7 +212,7 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
         adrian_file = _path(root, WORKERS[0])
         darek_file = _path(root, WORKERS[1])
         kamil_file = _path(root, WORKERS[2])
-        for name, snapshot in zip(WORKERS, (adrian, darek, kamil)):
+        for name, snapshot in zip(WORKERS, (adrian, darek, kamil), strict=True):
             if (snapshot.formula_au18, snapshot.formula_au19) != ("=N18", "=N19"):
                 errors.append(f"formula changed for {name}")
             if (

@@ -189,7 +189,7 @@ def _configuration(config: Path) -> dict[str, str]:
     worker_config = config / "worker_mapping.yaml"
     worker_config.write_text(
         yaml.safe_dump(
-            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, WORKERS))}, allow_unicode=True, sort_keys=False
+            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, WORKERS, strict=True))}, allow_unicode=True, sort_keys=False
         ),
         encoding="utf-8",
     )
@@ -239,7 +239,7 @@ def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object
         "completed": completed,
         "result": result,
         "total_duration_ms": sum(phases),
-        "phase_durations_ms": dict(zip(PHASES, phases)),
+        "phase_durations_ms": dict(zip(PHASES, phases, strict=True)),
         "counters": counters if completed else dict.fromkeys(counters, 0),
     }
     if completed:

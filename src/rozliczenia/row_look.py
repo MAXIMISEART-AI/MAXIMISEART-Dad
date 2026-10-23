@@ -93,6 +93,6 @@ class RowLook:
 
 
 def wraps(value: object) -> bool:
-    """Zawijany jest tylko tekst z końcem linii."""
+    """Zawijany jest tylko tekst z końcem linii; ``\\r`` też nim jest, bo parser XML czyta je w komórce jako ``\\n``."""
 
-    return isinstance(value, str) and "\n" in value
+    return isinstance(value, str) and ("\n" in value or "\r" in value)

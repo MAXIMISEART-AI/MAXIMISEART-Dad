@@ -1,17 +1,17 @@
-"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations i frontend, przed zgłoszeniem gotowości.
+"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations i frontend.
 
 Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: jego ``.venv``,
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
-przy porażce. Kończy się ``CI LOKALNIE OK`` albo ``CI LOKALNIE FAIL | <kroki>``. Zadania E2E i
-Timing guard mają swoje narzędzia (``--kroki-ci`` je wymienia), bo trwają kilka minut.
+przy porażce. Kończy się ``CI LOKALNIE OK`` (z ``--tylko``: ``CI LOKALNIE OK | tylko <zadania>``)
+albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem nakładania z pracą
+w toku (``tools/praca_w_toku.py --nakladania``). Zadania E2E i Timing guard mają swoje narzędzia
+(``--kroki-ci`` je wymienia), bo trwają kilka minut.
 
 ``--kazdy-commit`` sprawdza każdy commit gałęzi od bazy (domyślnie ``origin/main``) we własnym
 tymczasowym worktree, domyślnie krokami ruff, mypy i pytest, i nie dotyka checkoutu: zastępuje
 ręczne ``git rebase --exec``. Niezacommitowanych zmian nie sprawdza.
 
-Po ``CI LOKALNIE OK`` pełnego przebiegu (bez ``--tylko``) na czystym checkoucie zapisuje jego drzewo HEAD w pieczątce
-``$(git rev-parse --git-dir)/ci-lokalnie-ok``: brama ``tools/hooks/pre-push`` przepuszcza wtedy push
-tego drzewa bez ponownego przebiegu.
+Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez SIGKILL (``tools/potomne.py``).
 
     py -3 tools/ci_lokalnie.py                  # Windows
     .venv/bin/python tools/ci_lokalnie.py       # macOS i Linux
@@ -28,10 +28,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 
 from mutacje import environment
+import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 # Wygenerowany kontrakt i zbudowany frontend muszą zgadzać się ze źródłami (u taty nie ma Node).
@@ -43,7 +43,6 @@ JOBS_ELSEWHERE = {
 }
 OUTPUT_ON_FAILURE = 40
 EVERY_COMMIT_JOBS = ("ruff", "mypy", "pytest")
-STAMP = "ci-lokalnie-ok"
 
 
 @dataclass(frozen=True)
@@ -66,7 +65,8 @@ def _steps(root: Path) -> list[Step]:
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check"), root),
         Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy"), root),
         # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
-        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32"), root),
+        # Własny cache, bo zmiana --platform unieważnia wspólny i oba kroki sprawdzałyby za każdym razem całość.
+        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
@@ -91,24 +91,8 @@ def _dependencies_fresh(frontend: Path) -> bool:
     return installed.exists() and installed.stat().st_mtime >= (frontend / "package-lock.json").stat().st_mtime
 
 
-def _clean_tree() -> str | None:
-    """Drzewo HEAD, gdy checkout nie ma zmian ani nieśledzonych plików (pytest uruchomiłby i je)."""
-
-    return None if _git("status", "--porcelain") else _git("rev-parse", "HEAD^{tree}")
-
-
 def _run(step: Step, root: Path) -> tuple[bool, str]:
-    completed = subprocess.run(
-        step.command,
-        cwd=step.cwd,
-        env={**environment(root), "PYTHON": sys.executable},
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    completed = potomne.run(step.command, cwd=step.cwd, env={**environment(root), "PYTHON": sys.executable})
     output = completed.stdout + completed.stderr
     if step.command[:2] == ("git", "status"):
         stale = completed.stdout.strip()
@@ -156,19 +140,13 @@ def _check_every_commit(base: str, jobs: set[str], *, fail_fast: bool) -> int:
     if _git("status", "--porcelain", "--untracked-files=no"):
         print("UWAGA: niezacommitowane zmiany nie są sprawdzane", flush=True)
     failed = []
-    _git("worktree", "prune")
-    with tempfile.TemporaryDirectory(prefix="commit-", ignore_cleanup_errors=True) as scratch:
-        for commit in commits:
-            print(f"== {_git('log', '-1', '--format=%h %s', commit)}", flush=True)
-            if _git("diff", "--name-only", commit, "HEAD", "--", "pyproject.toml", "requirements.txt"):
-                print("UWAGA: zależności różnią się od HEAD, a .venv jest zainstalowane z HEAD", flush=True)
-            tree = Path(scratch) / commit
-            _git("worktree", "add", "--quiet", "--detach", str(tree), commit)
-            try:
-                if steps := _check(tree, jobs, fail_fast=fail_fast):
-                    failed.append(f"{commit[:7]} ({', '.join(steps)})")
-            finally:
-                _git("worktree", "remove", "--force", str(tree))
+    for commit in commits:
+        print(f"== {_git('log', '-1', '--format=%h %s', commit)}", flush=True)
+        if _git("diff", "--name-only", commit, "HEAD", "--", "pyproject.toml", "requirements.txt"):
+            print("UWAGA: zależności różnią się od HEAD, a .venv jest zainstalowane z HEAD", flush=True)
+        with potomne.commit_copy(ROOT, commit) as tree:
+            if steps := _check(tree, jobs, fail_fast=fail_fast):
+                failed.append(f"{commit[:7]} ({', '.join(steps)})")
     if failed:
         print(f"COMMITY FAIL | {'; '.join(failed)}")
         return 1
@@ -203,20 +181,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"nieznane zadania: {', '.join(sorted(unknown))}; znane: {', '.join(sorted(known))}")
     if args.kazdy_commit:
         return _check_every_commit(args.kazdy_commit, jobs, fail_fast=args.do_pierwszego_bledu)
-    tree = _clean_tree() if jobs == known else None
+    complete = jobs == known
     failed = _check(ROOT, jobs, fail_fast=args.do_pierwszego_bledu)
-    try:
-        overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
-        subprocess.run(overlaps, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
+    if complete:
+        try:
+            overlaps = (sys.executable, str(ROOT / "tools" / "praca_w_toku.py"), "--nakladania")
+            potomne.run(overlaps, cwd=ROOT, timeout=120, echo=True)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print(f"NAKŁADANIA POMINIĘTE | {error}", flush=True)
     if failed:
         print(f"CI LOKALNIE FAIL | {', '.join(failed)}")
         return 1
-    # Commit albo zmiana w trakcie przebiegu znaczy, że sprawdzone drzewo nie jest już drzewem HEAD.
-    if tree is not None and _clean_tree() == tree:
-        (ROOT / _git("rev-parse", "--git-dir") / STAMP).write_text(tree, encoding="utf-8")
-    print("CI LOKALNIE OK")
+    print("CI LOKALNIE OK" if complete else f"CI LOKALNIE OK | tylko {', '.join(sorted(jobs))}")
     return 0
 
 

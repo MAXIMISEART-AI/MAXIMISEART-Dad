@@ -96,7 +96,8 @@ def busy_commands() -> list[str]:
 
     if sys.platform == "win32":
         return []
-    listing = subprocess.run(["ps", "-Ao", "pid=,ppid=,command="], capture_output=True, text=True, check=False)
+    # -ww: ps z procps (Linux) obcina polecenie do 80 kolumn, gdy nie pisze do terminala.
+    listing = subprocess.run(["ps", "-ww", "-Ao", "pid=,ppid=,command="], capture_output=True, text=True, check=False)
     parents: dict[int, int] = {}
     commands: dict[int, str] = {}
     for line in listing.stdout.splitlines():
