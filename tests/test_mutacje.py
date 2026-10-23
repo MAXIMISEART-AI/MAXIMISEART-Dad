@@ -122,6 +122,7 @@ def test_kopia_ma_niezacommitowane_zmiany_checkoutu_a_checkout_zostaje_nietkniet
         text=True,
         encoding="utf-8",
         timeout=120,
+        check=False,
     )
 
     assert answered.stdout.splitlines() == ["WYKRYTA: mutacja → kod wyjścia 9", "MUTACJE OK"]
@@ -162,6 +163,7 @@ def test_kopia_ma_sciezke_ktora_zmienila_typ(tmp_path: Path, before: dict[str, s
         text=True,
         encoding="utf-8",
         timeout=120,
+        check=False,
     )
 
     assert answered.stdout.splitlines() == ["WYKRYTA: mutacja → kod wyjścia 9", "MUTACJE OK"], answered.stderr
@@ -196,6 +198,7 @@ def test_polecenie_bez_wyniku_w_limicie_czasu_daje_przekroczony_czas(tmp_path: P
         text=True,
         encoding="utf-8",
         timeout=120,
+        check=False,
     )
 
     assert (answered.returncode, answered.stdout.splitlines()[0]) == (1, "PRZEKROCZONY CZAS: mutacja → brak wyniku po 5 s")
@@ -215,6 +218,7 @@ def test_wnuk_polecenia_mutacji_ginie_z_poleceniem(tmp_path: Path) -> None:
         text=True,
         encoding="utf-8",
         timeout=120,
+        check=False,
     )
 
     assert answered.stdout.splitlines() == ["WYKRYTA: mutacja → kod wyjścia 3", "MUTACJE OK"], answered.stderr

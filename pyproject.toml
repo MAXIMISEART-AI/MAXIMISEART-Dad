@@ -91,6 +91,8 @@ extend-select = [
     # wierszu: strict=True, gdy długości muszą być równe, strict=False tylko z powodem, a kolejne pary przez pairwise.
     "B905",
     "RUF007",
+    # subprocess.run bez check połyka błąd polecenia: check=True, chyba że kod potem czyta returncode.
+    "PLW1510",
     # Kod taty bez Any w sygnaturach i bez print (zakres w per-file-ignores).
     "ANN401",
     "T201",
@@ -101,6 +103,10 @@ extend-select = [
 # Konsola startu Centrum i instalatora skrótu.
 "src/rozliczenia/centrum/launcher.py" = ["T201"]
 "src/rozliczenia/centrum/shortcut.py" = ["T201"]
+# Dług do zdjęcia, gdy feat/szybkie-sprawdzenie trafi do main: powstawało równolegle z tą regułą
+# i ma 4 wywołania subprocess.run bez check, więc bez tego wpisu main padłby przy każdej kolejności merge'y.
+"tools/szybko.py" = ["PLW1510"]
+"tests/test_szybko.py" = ["PLW1510"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # Mypy w CI sprawdza kod dla Windows i dla macOS/Linuksa, ale gałąź pod os.name widzi na obu, więc
