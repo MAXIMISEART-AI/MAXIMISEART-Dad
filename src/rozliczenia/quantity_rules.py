@@ -1,7 +1,7 @@
 """Reguły ilości: Ilości usług z treści zlecenia (ADR 0012).
 
-Jedyną operacją jest ``evaluate()``. Moduł nie zna skoroszytów, Komunikatów ani Centrum rozliczeń, bo oprócz
-Przygotowania pliku zbiorczego będzie go używać Kontrola ilości.
+Jedyną operacją jest ``evaluate()``. Moduł nie zna skoroszytów, Komunikatów ani Centrum rozliczeń, bo używają go
+Przygotowanie pliku zbiorczego i Kontrola ilości.
 
 ``URZĄDZENIA`` są czytane jako składniki po normalizacji: małe litery, przecinki jak spacje, zwinięte spacje,
 bez ``xg`` (także doklejonego, ``nokia zteXG``). Składnik może mieć krotność ``n*`` (``3*fut``, ``2* fut``).
@@ -67,6 +67,10 @@ class WeekTime:
         return cls(started.weekday(), started.time().replace(second=0, microsecond=0))
 
 
+# Skrót dnia tygodnia (indeks jak ``WeekTime.weekday``, 0 to poniedziałek) w liczbach zleceń na dzień i w Kontroli ilości.
+WEEKDAY_LABELS: Final = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
+
+
 @dataclass(frozen=True)
 class OrderContent:
     """Treść zlecenia, z której Reguły ilości wyznaczają Ilości usług: surowe wartości komórek i pora zlecenia."""
@@ -92,7 +96,7 @@ class ServiceQuantities:
 class FromDescription:
     """Zlecenie rozliczane z opisu (prewencja, niedostępność usług, puste ``URZĄDZENIA``): bez żadnych ilości."""
 
-    quantities: Quantities = field(default=_NONE, init=False)
+    quantities: Quantities = field(default_factory=lambda: _NONE, init=False)
 
 
 @dataclass(frozen=True)

@@ -28,6 +28,7 @@ from .domain import ProgressObserver, ProgressPhase
 from .message import Message, StopError
 from .period_folder import PeriodFolder, PeriodFolderInaccessible, PeriodFolderLookupError, locate_period_folder
 from .phase_runner import PhaseRunner
+from .quantity_rules import WEEKDAY_LABELS
 from .settlement_period import SettlementPeriod, parse_period_token
 from .worker_config import WorkerConfigError, load_worker_mapping
 
@@ -63,7 +64,7 @@ class PreparationSummary:
         """``Zlecenia na dzień`` z etykietami dni dla taty, np. ``("wt 08.09.2026", 1)``, w kolejności dat."""
 
         return [
-            (f"{messages.WEEKDAY_LABELS[day.weekday()]} {day:%d.%m.%Y}", count)
+            (f"{WEEKDAY_LABELS[day.weekday()]} {day:%d.%m.%Y}", count)
             for day, count in self.orders_per_day.items()
         ]
 

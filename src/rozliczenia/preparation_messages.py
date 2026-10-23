@@ -41,7 +41,6 @@ INCOMPLETE_PERIOD_TITLE: Final = "Ostrzeżenie: niepełny okres"
 INCOMPLETE_PERIOD_QUESTION: Final = "Kontynuować mimo niepełnego okresu?"
 # Liczby zleceń na dzień okresu, w Decyzji i w podsumowaniu; etykieta dnia to np. „wt 08.09.2026”.
 ORDERS_PER_DAY: Final = "Zlecenia na dzień"
-WEEKDAY_LABELS: Final = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
 
 
 def period_file_exists(period_directory: Path, filename: str) -> Message:
