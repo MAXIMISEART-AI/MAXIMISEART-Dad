@@ -355,7 +355,7 @@ którego nie udało się usunąć, w Folderze okresu został wskazany plik.
 | „Przerwano z powodu niepełnego okresu” | Uzupełnij eksport zleceń w Rejestrze, zapisz go, zamknij i uruchom ponownie. Jeśli okres jest pełny, w okienku kliknij `Kontynuuj`. |
 | „Nie znaleziono wzorca” | Przekaż komunikat osobie utrzymującej narzędzie. Nie twórz wzorca z pliku poprzedniego tygodnia. |
 | „Wzorzec jest otwarty w Excelu” | Zamknij wzorzec w Excelu bez zapisywania zmian i uruchom ponownie. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z folderu `config` pozostawiony plik `~$` wskazany w komunikacie. |
-| „Nie można teraz odczytać wzorca” | Nie poprawiaj wzorca. Zamknij programy, które mogą go używać, i uruchom ponownie. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
+| „Nie można teraz odczytać wzorca” | Nie poprawiaj wzorca. Przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można odczytać wzorca” | Przekaż komunikat osobie utrzymującej narzędzie. |
 | „We wzorcu brakuje nagłówka” | Przekaż komunikat osobie utrzymującej narzędzie. |
 | „Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie” | Przebieg rozliczeń czyta wykonawcę tylko z kolumny H. Otwórz `config\Wzorzec pliku zbiorczego.xlsx` i w wierszu 17 przenieś WYKONAWCA do kolumny H, a nagłówek z kolumny H do kolumny wskazanej w komunikacie. Zapisz i zamknij wzorzec, uruchom ponownie. Jeśli nie wiesz, jak to zrobić, przekaż komunikat osobie utrzymującej narzędzie. |
