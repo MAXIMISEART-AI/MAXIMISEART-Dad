@@ -149,7 +149,9 @@ breaks, `_x000D_`, emoji, 32 767 characters and longer), formulas and `=`, error
 durations including dates before 1900-03-01. About one value in 60 is one that sends the file down
 the old path or refuses it: control characters, time zones, signalling NaN, rich text, array
 formulas, bytes. Only these may be refused: a refused Rozliczenie pracownika without one is a
-LUKA SPRAWDZENIA. The default run is derandomized, so it gives the same examples every time.
+LUKA SPRAWDZENIA. The default run is derandomized, so it gives the same examples every time and in
+every process. The checker turns off Hypothesis's draws from the literals of the modules loaded beside
+it; with them, `tests/test_kopia_wzorca.py` checked other examples alone than in the full pytest (#288).
 
 Not covered:
 
