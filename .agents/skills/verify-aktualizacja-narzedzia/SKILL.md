@@ -48,7 +48,7 @@ model action is one indivisible step of this code:
 | Model action | Code (`src/rozliczenia/centrum/`) |
 | --- | --- |
 | `Klik` | `tool_updates.py` `ToolUpdates.start`, `_result` (`restart_guardian.prepare`). A click while a journal is in progress does not count toward `MaxKlikniec` (see Scope). |
-| `Pobranie` | `tool_update.py` `ToolClone.update`: `_Journal.read`, and when no guardian may run (`guardian_may_run`) `_moved_back` before anything else (`cofa = "klik"`, `ROLLBACK_FAILED` when it fails); otherwise `_Git.fetch` of `stabilna` (no such branch on GitHub is `AKTUALNA`), `_Git.is_ancestor` (a clone that already contains the fetched commit is `AKTUALNA`), then up to `_DadFiles.leaving`, `_has_local_commits`, `_changed_tracked_files` |
+| `Pobranie` | `tool_update.py` `ToolClone.update`: `_Journal.read`, and when no guardian may run (`guardian_may_run`) `_moved_back` before anything else (`cofa = "klik"`, `ROLLBACK_FAILED` when it fails); otherwise `_Git.fetch` of `main` and the Wydanie tags, `newest_release` (no Wydanie is `AKTUALNA`), `_Git.is_ancestor` (a clone that already contains the newest Wydanie is `AKTUALNA`, one not on `main` is `WYDANIE_SPOZA_MAIN`), then up to `_DadFiles.leaving`, `_has_local_commits`, `_changed_tracked_files` |
 | `KopiaPlikow` | `tool_update.py` `_Journal.begin`: `JournalKept` when a journal is in progress (only with a guardian's lease, since `Pobranie` rolls back any other), else copy and `fsync` of Dad's files into `pliki-taty`, then `stan.json` (`_write`) |
 | `CheckoutHead` | `tool_update.py` `_DadFiles.set_aside` before `yield` |
 | `Scalanie` | `tool_update.py` `ToolClone.update`, `git merge --ff-only`, and `if not moved` (`journal.end()`) when Git refuses |

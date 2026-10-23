@@ -265,3 +265,18 @@ def version_line(commit: str, since: str | None) -> str:
         return f"Wersja {commit[:7]}"
     year, month, day = since.split("-")
     return f"Wersja {commit[:7]} od {day}.{month}.{year}"
+
+
+def release_only(origin: Path, commit: str) -> None:
+    """GitHub's only Wydanie, as Centrum's Aktualizacja narzędzia sees it, is ``commit``: tag ``v0.1.0`` in ``origin``.
+
+    A real Wydanie never moves; the harness withdraws every tag instead, so one tag is always the newest.
+    """
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(origin), *args], capture_output=True, text=True, check=True).stdout
+
+    tags = git("tag", "--list", "v*").split()
+    if tags:
+        git("tag", "--delete", *tags)
+    git("tag", "v0.1.0", commit)

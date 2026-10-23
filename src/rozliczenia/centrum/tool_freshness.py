@@ -1,9 +1,10 @@
-"""Aktualność narzędzia: commit narzędzia u taty względem Stabilnej wersji na publicznym GitHubie.
+"""Aktualność narzędzia: commit narzędzia u taty względem najnowszego Wydania na publicznym GitHubie.
 
 Diagnoza i Konfiguracja porównują dwa źródła z ``ToolFreshness``: commit
 narzędzia, z którego działa Centrum (``version.tool_commit`` odczytany przy
-starcie), i commit gałęzi `stabilna` publicznego repozytorium narzędzia, tej
-samej, z której pobiera Aktualizacja narzędzia (ADR 0014). Oba są wstrzykiwane do aplikacji Centrum, więc testy i
+starcie), i commit najnowszego Wydania publicznego repozytorium narzędzia
+(ADR 0014; ten sam wybór tagu co w Aktualizacji narzędzia,
+``tool_update.newest_release``). Oba są wstrzykiwane do aplikacji Centrum, więc testy i
 weryfikacja w przeglądarce nigdy nie łączą się z GitHubem. Brak sieci to
 ``None`` w krótkim limicie czasu, nigdy wyjątek ani Komunikat. Diagnoza pyta
 GitHuba przy każdym sprawdzeniu; Konfiguracja, odczytywana przy każdym wejściu
@@ -15,29 +16,34 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+import json
 from pathlib import Path
+import re
 import threading
 from typing import Final
 import urllib.request
 
 from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum.deadline import within
-from rozliczenia.centrum.tool_update import STABLE_BRANCH
+from rozliczenia.centrum.tool_update import newest_release
 from rozliczenia.centrum.version import commit_since, is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
 
-STABLE_COMMIT_URL: Final = f"https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad/commits/{STABLE_BRANCH}"
+RELEASES_URL: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad/tags?per_page=100"
+# 1000 tagów: przy Wydaniu na tydzień na lata. Strona 100 tagów to kilkadziesiąt kB.
+_PAGES: Final = 10
+_PAGE_BYTES: Final = 1_000_000
 _TIMEOUT_S: Final = 3.0
 
 
 @dataclass(frozen=True)
 class ToolFreshness:
-    """Źródła wersji narzędzia u taty i Stabilnej wersji na GitHubie; ``None`` = nie wiadomo.
+    """Źródła wersji narzędzia u taty i najnowszego Wydania na GitHubie; ``None`` = nie wiadomo.
 
     ``local`` to commit narzędzia, z którego działa Centrum, ``since`` dzień, od
-    którego narzędzie jest na tym commicie, a ``main`` commit Stabilnej wersji (gałąź `stabilna`)
-    na GitHubie; nazwa pola pochodzi sprzed ADR 0014.
+    którego narzędzie jest na tym commicie, a ``main`` commit najnowszego
+    Wydania na GitHubie; nazwa pola pochodzi sprzed ADR 0014.
     """
 
     local: CommitSource
@@ -46,7 +52,7 @@ class ToolFreshness:
 
     @classmethod
     def of_system(cls) -> ToolFreshness:
-        return cls.of_clone(TOOL_ROOT, github_stable_commit)
+        return cls.of_clone(TOOL_ROOT, github_release_commit)
 
     @classmethod
     def of_clone(cls, root: Path, main: CommitSource) -> ToolFreshness:
@@ -69,7 +75,7 @@ NO_ANSWER_KEPT_S: Final = 60
 
 
 class RememberedMain:
-    """Commit Stabilnej wersji z ``main``, pamiętany przez ``MAIN_KEPT_S`` na zegarze ``clock``; brak odpowiedzi krócej."""
+    """Commit najnowszego Wydania z ``main``, pamiętany przez ``MAIN_KEPT_S`` na zegarze ``clock``; brak odpowiedzi krócej."""
 
     def __init__(self, main: CommitSource, *, clock: Callable[[], float]) -> None:
         self._main = main
@@ -90,29 +96,64 @@ class RememberedMain:
         return answer
 
 
-def github_stable_commit() -> str | None:
-    """Commit gałęzi `stabilna` publicznego repozytorium; ``None`` bez sieci i bez tej gałęzi, po limicie czasu, przy odmowie."""
+def github_release_commit() -> str | None:
+    """Commit najnowszego Wydania publicznego repozytorium; ``None`` bez sieci, bez Wydania, po limicie czasu, przy odmowie."""
 
-    return commit_from(STABLE_COMMIT_URL, timeout_s=_TIMEOUT_S)
+    return release_commit_from(RELEASES_URL, timeout_s=_TIMEOUT_S)
 
 
-def commit_from(url: str, *, timeout_s: float) -> str | None:
-    """Commit z odpowiedzi ``url`` API GitHuba w postaci samego SHA, najpóźniej po ``timeout_s`` sekundach.
+def release_commit_from(url: str, *, timeout_s: float) -> str | None:
+    """Commit najnowszego Wydania z listy tagów API GitHuba pod ``url``, najpóźniej po ``timeout_s`` sekundach.
 
-    Diagnoza czeka na odpowiedź najwyżej ``timeout_s`` (``deadline.within``).
-    Połączenie idzie wprost, bez serwera proxy z ustawień systemu.
+    Lista przychodzi stronami (nagłówek ``Link``); bez wszystkich stron nie
+    wiadomo, które Wydanie jest najnowsze, więc więcej niż ``_PAGES`` stron to
+    ``None``. Diagnoza czeka na odpowiedź najwyżej ``timeout_s``
+    (``deadline.within``). Połączenie idzie wprost, bez serwera proxy z
+    ustawień systemu.
     """
 
     def fetch() -> str | None:
-        request = urllib.request.Request(
-            url, headers={"Accept": "application/vnd.github.sha", "User-Agent": "centrum-rozliczen"}
-        )
         direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        try:
-            with direct.open(request, timeout=timeout_s) as response:
-                body = response.read(100).decode("ascii", errors="replace").strip()
-        except (OSError, ValueError):  # brak sieci, odmowa GitHuba (HTTPError) albo zerwane połączenie
-            return None
-        return body if is_commit(body) else None
+        commits: dict[str, str] = {}
+        page = url
+        for _ in range(_PAGES):
+            request = urllib.request.Request(
+                page, headers={"Accept": "application/vnd.github+json", "User-Agent": "centrum-rozliczen"}
+            )
+            try:
+                with direct.open(request, timeout=timeout_s) as response:
+                    tags = json.loads(response.read(_PAGE_BYTES))
+                    following = _next_page(response.headers.get("Link"))
+            except (OSError, ValueError):  # brak sieci, odmowa GitHuba (HTTPError), zerwane połączenie, nie JSON
+                return None
+            if not isinstance(tags, list):
+                return None
+            for tag in tags:
+                named = _tag_commit(tag)
+                if named is not None:
+                    commits[named[0]] = named[1]
+            if following is None:
+                newest = newest_release(commits)
+                return None if newest is None else commits[newest.tag]
+            page = following
+        return None
 
-    return within(timeout_s, fetch, name="github-stabilna")
+    return within(timeout_s, fetch, name="github-wydania")
+
+
+def _tag_commit(tag: object) -> tuple[str, str] | None:
+    """Nazwa tagu i jego commit z jednego wpisu listy tagów; ``None`` dla wpisu w innym kształcie."""
+
+    if not isinstance(tag, dict):
+        return None
+    name, commit = tag.get("name"), tag.get("commit")
+    sha = commit.get("sha") if isinstance(commit, dict) else None
+    return (name, sha) if isinstance(name, str) and isinstance(sha, str) and is_commit(sha) else None
+
+
+def _next_page(link: str | None) -> str | None:
+    found = None if link is None else _NEXT_PAGE.search(link)
+    return None if found is None else found[1]
+
+
+_NEXT_PAGE: Final = re.compile(r'<([^>]+)>;\s*rel="next"')

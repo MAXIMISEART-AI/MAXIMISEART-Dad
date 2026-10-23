@@ -11,7 +11,7 @@ import urllib.request
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import Run, served_version, version_line
+from drive.common import Run, release_only, served_version, version_line
 
 FEATURE = "aktualizacja"
 BUTTON = "Zaktualizuj narzędzie"
@@ -36,7 +36,7 @@ UPDATE_PACING_MS = 8000
 RESTART_PACING_MS = 3000
 # The restart guardian waits up to 60 s for the new Centrum; the tab reloads when it answers.
 RESTART_TIMEOUT_MS = 60_000
-# Konfiguracja keeps GitHub's answer about `stabilna` for 10 minutes of Centrum's clock.
+# Konfiguracja keeps GitHub's answer about the newest Wydanie for 10 minutes of Centrum's clock.
 MAIN_KEPT_MIN = 10
 
 
@@ -46,7 +46,7 @@ def _git(clone: Path, *args: str) -> str:
 
 
 def _github_main(run: Run, commit: str) -> None:
-    """`stabilna` on the scripted GitHub is ``commit``; Centrum's clock moves past the time Konfiguracja keeps the old answer."""
+    """The newest Wydanie on the scripted GitHub is ``commit``; Centrum's clock moves past the time Konfiguracja keeps the old answer."""
 
     (run.root / "github" / "main-commit.txt").write_text(commit, encoding="utf-8")
     moved = run.root / "zegar" / "przesuniecie-min.txt"
@@ -243,7 +243,7 @@ def _drive_update(run: Run, page: Page) -> None:
     restart_pacing = run.root / "pacing" / "ponowny-start-ms.txt"
 
     run.step(FEATURE, "aktualizacja-jest-nowsza")
-    print("  harness: `stabilna` on the scripted GitHub is the local origin's newest commit", flush=True)
+    print("  harness: the newest Wydanie on the scripted GitHub is the local origin's newest commit", flush=True)
     _github_main(run, newest)
     try:
         run.check(_head(clone) == first, "the run's tool clone stands on the first commit")
@@ -403,9 +403,9 @@ def _drive_update(run: Run, page: Page) -> None:
         finally:
             restart_pacing.unlink(missing_ok=True)
         # Later features (pomiar-u-taty) expect Konfiguracja without an alert: one more click on the restored
-        # `stabilna` leaves this Centrum with `Masz najnowszą wersję.` instead of the failed installation.
-        print("  harness: `stabilna` in the local origin is the newest commit again", flush=True)
-        _git(origin, "update-ref", "refs/heads/stabilna", newest)
+        # Wydanie leaves this Centrum with `Masz najnowszą wersję.` instead of the failed installation.
+        print("  harness: the newest Wydanie in the local origin is the newest commit again", flush=True)
+        release_only(origin, newest)
         _github_main(run, newest)
         card = _tool_card(page)
         card.get_by_role("button", name=BUTTON, exact=True).click()
@@ -415,7 +415,7 @@ def _drive_update(run: Run, page: Page) -> None:
     finally:
         main_commit.unlink(missing_ok=True)
         pacing.with_name("instalacja-ms.txt").unlink(missing_ok=True)
-        _git(origin, "update-ref", "refs/heads/stabilna", newest)
+        release_only(origin, newest)
 
 
 def _drive_failed_installation(
@@ -429,8 +429,8 @@ def _drive_failed_installation(
     run_configuration: dict[str, bytes],
 ) -> None:
     run.step(FEATURE, "aktualizacja-instalowanie")
-    print("  harness: `stabilna` in the local origin and on the scripted GitHub needs a library pip cannot install offline", flush=True)
-    _git(origin, "update-ref", "refs/heads/stabilna", libraries)
+    print("  harness: the newest Wydanie in the local origin and on the scripted GitHub needs a library pip cannot install offline", flush=True)
+    release_only(origin, libraries)
     _github_main(run, libraries)
     print(f"  harness: each installation of libraries waits {PACING_MS} ms before pip starts", flush=True)
     (run.root / "pacing" / "instalacja-ms.txt").write_text(str(PACING_MS), encoding="utf-8")
@@ -487,8 +487,8 @@ def _drive_new_version_not_starting(
     tool = run.fixture["tool"]
     clone, newest, dad_files = Path(tool["clone"]), tool["newest"], tool["dad_files"]
     run.step(FEATURE, "aktualizacja-nie-wystartowala-ponowny-start")
-    print("  harness: `stabilna` in the local origin and on the scripted GitHub is a version whose Centrum does not start", flush=True)
-    _git(origin, "update-ref", "refs/heads/stabilna", not_starting)
+    print("  harness: the newest Wydanie in the local origin and on the scripted GitHub is a version whose Centrum does not start", flush=True)
+    release_only(origin, not_starting)
     _github_main(run, not_starting)
     print(f"  harness: the old version, started again, waits {RESTART_PACING_MS} ms before it starts", flush=True)
     (run.root / "pacing" / "ponowny-start-ms.txt").write_text(str(RESTART_PACING_MS), encoding="utf-8")

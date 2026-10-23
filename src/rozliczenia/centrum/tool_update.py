@@ -1,10 +1,10 @@
-"""Aktualizacja narzędzia: przesunięcie klonu narzędzia taty na Stabilną wersję publicznego repozytorium.
+"""Aktualizacja narzędzia: przesunięcie klonu narzędzia taty na najnowsze Wydanie publicznego repozytorium.
 
 Jedna operacja, ``ToolClone.update``, robi to, co Maks zrobiłby ręcznie
-(ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera gałąź
-`stabilna` (ADR 0014: commit `main`, którego CI przeszło) ze stałego adresu
-publicznego repozytorium i przesuwa klon tylko do przodu. Lokalna gałąź klonu
-to dalej `main`.
+(ADR 0009): znajduje Gita for Windows także poza ``PATH``, pobiera `main` i tagi
+Wydań (ADR 0014) ze stałego adresu publicznego repozytorium i przesuwa klon
+tylko do przodu, na commit najnowszego Wydania, które leży na `main`. Lokalna
+gałąź klonu to dalej `main`.
 Pliki taty w ``config/``, które nowa wersja usuwa albo przestaje śledzić,
 zostają u niego z dokładnie tą treścią, którą miały (``_DadFiles``). Gdy nowa
 wersja zmienia ``requirements.txt``, biblioteki instaluje ten sam Python, w
@@ -49,6 +49,7 @@ from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -59,8 +60,6 @@ from typing import IO, Final, Literal, TypeGuard
 
 GITHUB_REPOSITORY: Final = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git"
 BRANCH: Final = "main"
-# Gałąź publicznego repozytorium, którą CI przesuwa na commit `main` po zielonym CI (ADR 0014).
-STABLE_BRANCH: Final = "stabilna"
 
 UPDATED: Final = "ok"
 UP_TO_DATE: Final = "AKTUALNA"
@@ -73,6 +72,8 @@ LOGIN: Final = "LOGOWANIE"
 OTHER_BRANCH: Final = "INNA_GALAZ"
 # Lokalne commity, zmienione śledzone pliki albo nieśledzony plik, który nowa wersja by nadpisała.
 LOCAL_CHANGES: Final = "ZMIANY_NA_KOMPUTERZE"
+# Najnowsze Wydanie wskazuje commit spoza `main`: tag założony ręcznie, poza tworzeniem Wydania (ADR 0014).
+RELEASE_OFF_MAIN: Final = "WYDANIE_SPOZA_MAIN"
 # Kod Komunikatu porażki, której nikt nie przewidział (``GitFailed`` albo inny wyjątek); zamienia go Centrum.
 UNEXPECTED: Final = "NIEOCZEKIWANY_BLAD"
 # Kod Komunikatu: biblioteki nowej wersji się nie zainstalowały, a klon wrócił do commitu sprzed aktualizacji.
@@ -91,7 +92,9 @@ JOURNAL: Final = "centrum-aktualizacja-w-toku"
 GUARDIAN_LEASE_S: Final = 10 * 60.0
 _JOURNAL_FORMAT: Final = 1
 
-_FETCHED: Final = f"refs/remotes/origin/{STABLE_BRANCH}"
+_FETCHED_MAIN: Final = f"refs/remotes/origin/{BRANCH}"
+# Własna przestrzeń na tagi Wydań z GitHuba: tag usunięty albo przesunięty na GitHubie nie zostaje w klonie.
+_RELEASES: Final = "refs/wydania/"
 _FETCH_TIMEOUT_S: Final = 120.0
 _LOCAL_TIMEOUT_S: Final = 60.0
 # Pobranie, które przez tyle sekund idzie wolniej niż tyle bajtów na sekundę, kończy sam Git: połączenie stoi.
@@ -112,6 +115,30 @@ _FOREIGN_VARIABLES: Final = (
     "GIT_ASKPASS",
     "SSH_ASKPASS",
 )
+
+
+_RELEASE_TAG: Final = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+
+
+@dataclass(frozen=True, order=True)
+class Release:
+    """Wydanie: tag ``vMAJOR.MINOR.PATCH``; nowsze to wyższy numer, nie dalszy tag w porządku alfabetycznym."""
+
+    number: tuple[int, int, int]
+    tag: str
+
+    @classmethod
+    def of_tag(cls, tag: str) -> Release | None:
+        """Wydanie z nazwy tagu; ``None`` dla każdego innego tagu."""
+
+        found = _RELEASE_TAG.fullmatch(tag)
+        return None if found is None else cls((int(found[1]), int(found[2]), int(found[3])), tag)
+
+
+def newest_release(tags: Iterable[str]) -> Release | None:
+    """Najnowsze Wydanie wśród ``tags``; ``None``, gdy żaden tag nie jest Wydaniem."""
+
+    return max((release for tag in tags if (release := Release.of_tag(tag)) is not None), default=None)
 
 
 @dataclass(frozen=True)
@@ -259,11 +286,13 @@ class ToolClone:
         return cls(Path(__file__).resolve().parents[3])
 
     def update(self, on_step: Callable[[Step], None] = lambda step: None) -> UpdateResult:
-        """Przesuwa klon do przodu na Stabilną wersję; wszystko albo nic.
+        """Przesuwa klon do przodu na najnowsze Wydanie; wszystko albo nic.
 
-        Klon, który już ją zawiera (także na nowszym commicie `main` z wersji,
-        która pobierała `main`), albo brak gałęzi `stabilna` na GitHubie to
-        ``UP_TO_DATE``: do przodu nie ma dokąd.
+        Klon, który już zawiera commit najnowszego Wydania (także na nowszym
+        commicie `main` z wersji, która pobierała `main`), i GitHub bez
+        żadnego Wydania to ``UP_TO_DATE``: aktualizacja nigdy nie cofa wersji.
+        Wydanie, którego commitu nie ma na `main`, to ``RELEASE_OFF_MAIN``,
+        a klon zostaje bez zmian.
 
         ``on_step`` dostaje każdy krok, zanim się zacznie. Po ``UPDATED``
         dziennik „Aktualizacja w toku” zostaje, dopóki nowa wersja nie
@@ -286,23 +315,26 @@ class ToolClone:
         if run.branch() != BRANCH:
             return UpdateResult(OTHER_BRANCH, before, None)
         on_step("fetching")
-        not_fetched = run.fetch(self.origin)
-        if not_fetched == UP_TO_DATE:
+        fetch_failure = run.fetch(self.origin)
+        if fetch_failure is not None:
+            return UpdateResult(fetch_failure, before, None)
+        newest = newest_release(run.output("for-each-ref", "--format=%(refname:lstrip=2)", _RELEASES).split())
+        if newest is None:
             return UpdateResult(UP_TO_DATE, before, before)
-        if not_fetched is not None:
-            return UpdateResult(not_fetched, before, None)
-        after = run.text("rev-parse", _FETCHED)
+        after = run.text("rev-parse", f"{_RELEASES}{newest.tag}^{{commit}}")
         if run.is_ancestor(after, before):
             return UpdateResult(UP_TO_DATE, before, before)
-        dad_files = _DadFiles.leaving(run, _FETCHED)
-        if _has_local_commits(run) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
+        if not run.is_ancestor(after, _FETCHED_MAIN):
+            return UpdateResult(RELEASE_OFF_MAIN, before, None)
+        dad_files = _DadFiles.leaving(run, after)
+        if _has_local_commits(run, after) or _changed_tracked_files(run, keep=frozenset(dad_files.names)):
             return UpdateResult(LOCAL_CHANGES, before, None)
         journal.begin(self.root, dad_files.names, before, after)
         moved = False
         try:
             with dad_files.set_aside(run, journal.backup):
                 # Git odmawia przed zmianą czegokolwiek, np. gdy nieśledzony plik zostałby nadpisany plikiem nowej wersji.
-                moved = run.run("merge", "--ff-only", "--quiet", _FETCHED).returncode == 0
+                moved = run.run("merge", "--ff-only", "--quiet", after).returncode == 0
         except _NotPutBack:
             # Wszystko albo nic: klon wraca sprzed kliknięcia, a cofnięcie jeszcze raz wgrywa pliki taty.
             if moved and _moved_back(run, journal):
@@ -418,10 +450,10 @@ def _put_back(root: Path, backup: Path, names: Iterable[str]) -> None:
         shutil.copy2(backup / name, target)
 
 
-def _has_local_commits(run: _Git) -> bool:
-    """Klon ma commity, których nie ma pobrana `stabilna`: przesunięcie do przodu by je pominęło."""
+def _has_local_commits(run: _Git, target: str) -> bool:
+    """Klon ma commity, których nie ma ``target``: przesunięcie do przodu by je pominęło."""
 
-    return run.text("rev-list", "--count", f"{_FETCHED}..HEAD") != "0"
+    return run.text("rev-list", "--count", f"{target}..HEAD") != "0"
 
 
 def _changed_tracked_files(run: _Git, *, keep: frozenset[str]) -> bool:
@@ -644,12 +676,9 @@ class _Git:
         return result.returncode == 1
 
     def fetch(self, origin: str) -> str | None:
-        """Pobiera `stabilna` z ``origin``; ``None``, gdy się udało, inaczej kod wyniku.
+        """Pobiera `main` i tagi Wydań z ``origin``; ``None``, gdy się udało, inaczej kod porażki (logowanie albo brak sieci).
 
-        ``UP_TO_DATE``, gdy GitHub nie ma gałęzi `stabilna`: CI jeszcze żadnej
-        nie przesunęło, więc nie ma wersji, na którą można przejść. Poza tym
-        logowanie albo brak sieci: adres jest stały, więc każda inna porażka
-        pobrania to brak połączenia z GitHubem.
+        Adres jest stały, więc każda inna porażka pobrania to brak połączenia z GitHubem.
         """
 
         try:
@@ -663,22 +692,20 @@ class _Git:
                 "fetch",
                 "--quiet",
                 "--no-tags",
+                "--prune",
                 origin,
-                f"+refs/heads/{STABLE_BRANCH}:{_FETCHED}",
+                f"+refs/heads/{BRANCH}:{_FETCHED_MAIN}",
+                f"+refs/tags/v*:{_RELEASES}v*",
                 timeout_s=_FETCH_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired:
             return NO_CONNECTION
         if result.returncode == 0:
             return None
-        if _NO_REMOTE_BRANCH in result.stderr:
-            return UP_TO_DATE
         asked_for_login = any(sign in result.stderr.lower() for sign in _LOGIN_SIGNS)
         return LOGIN if asked_for_login else NO_CONNECTION
 
 
-# Tak kończy Git (z ``LC_ALL=C``), gdy serwer nie ma pobieranej gałęzi.
-_NO_REMOTE_BRANCH: Final = "couldn't find remote ref"
 # Git bez pytań kończy tak, gdy serwer prosi o logowanie (GitHub także przy repozytorium, którego nie widzi).
 _LOGIN_SIGNS: Final = ("terminal prompts disabled", "could not read username", "could not read password", "authentication failed")
 

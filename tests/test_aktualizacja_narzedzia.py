@@ -56,7 +56,7 @@ def update(repository: ToolRepository) -> UpdateResult:
     return ToolClone(repository.clone, origin=str(repository.origin)).update()
 
 
-def test_aktualizacja_przesuwa_klon_do_przodu_na_stabilna_wersje(repository: ToolRepository, tmp_path: Path) -> None:
+def test_aktualizacja_przesuwa_klon_do_przodu_na_najnowsze_wydanie(repository: ToolRepository, tmp_path: Path) -> None:
     before = repository.head()
     newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
 
@@ -76,9 +76,9 @@ def test_klon_na_najnowszym_commicie_jest_juz_aktualny(repository: ToolRepositor
     assert repository.head() == current
 
 
-def test_main_ktorego_ci_jeszcze_nie_przeszlo_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
+def test_zmiana_na_main_spoza_wydania_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
     before = repository.head()
-    unpromoted = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, promoted=False)
+    unreleased = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
     unchanged = repository.state()
 
     waiting = update(repository)
@@ -86,17 +86,43 @@ def test_main_ktorego_ci_jeszcze_nie_przeszlo_nie_trafia_do_taty(repository: Too
     assert waiting == UpdateResult("AKTUALNA", before=before, after=before, installed=False)
     assert repository.state() == unchanged
 
-    repository.promote()
+    repository.release()
 
-    assert update(repository) == UpdateResult("ok", before=before, after=unpromoted, installed=False)
+    assert update(repository) == UpdateResult("ok", before=before, after=unreleased, installed=False)
     assert repository.read("src/narzedzie.py") == "WERSJA = 2\n"
 
 
-def test_klon_na_main_nowszym_niz_stabilna_jest_aktualny_az_stabilna_go_wyprzedzi(
+def test_najnowsze_wydanie_to_najwyzszy_numer_a_nie_ostatni_tag_alfabetycznie(
     repository: ToolRepository, tmp_path: Path
 ) -> None:
-    # Wersja sprzed ADR 0014 aktualizowała się z `main`, także z commitu, którego CI jeszcze nie przeszło.
-    from_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, promoted=False)
+    before = repository.head()
+    tenth = repository.publish({"src/narzedzie.py": "WERSJA = 10\n"}, released=False)
+    repository.release(tag="v0.10.0")
+    repository.publish({"src/narzedzie.py": "WERSJA = 9\n"}, released=False)
+    repository.release(tag="v0.9.0")
+
+    assert update(repository) == UpdateResult("ok", before=before, after=tenth, installed=False)
+    assert repository.read("src/narzedzie.py") == "WERSJA = 10\n"
+
+
+def test_wydanie_na_starszym_commicie_niz_klon_nie_cofa_wersji(repository: ToolRepository, tmp_path: Path) -> None:
+    first = repository.head()
+    current = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
+    repository.release(first, tag="v0.5.0")
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=current, after=current, installed=False)
+    assert repository.state() == unchanged
+
+
+def test_klon_na_main_nowszym_niz_wydanie_jest_aktualny_az_wydanie_go_wyprzedzi(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    # Wersja sprzed ADR 0014 aktualizowała się z `main`, także ze zmian, które nie weszły do żadnego Wydania.
+    from_main = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
     repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
     unchanged = repository.state()
 
@@ -110,11 +136,68 @@ def test_klon_na_main_nowszym_niz_stabilna_jest_aktualny_az_stabilna_go_wyprzedz
     assert update(repository) == UpdateResult("ok", before=from_main, after=newest, installed=False)
 
 
-def test_bez_galezi_stabilna_na_githubie_narzedzie_jest_aktualne_a_klon_zostaje_bez_zmian(
+def test_bez_wydania_na_githubie_narzedzie_jest_aktualne_a_klon_zostaje_bez_zmian(
     repository: ToolRepository, tmp_path: Path
 ) -> None:
-    git(repository.origin, "update-ref", "-d", "refs/heads/stabilna")
-    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, promoted=False)
+    git(repository.origin, "tag", "--delete", "v0.1.0")
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("AKTUALNA", before=before, after=before, installed=False)
+    assert repository.state() == unchanged
+
+
+def off_main_commit(repository: ToolRepository) -> str:
+    """Commit, który zna tylko tag: ktoś założył go z gałęzi, która nie weszła do `main`."""
+
+    git(repository.publisher, "checkout", "--quiet", "-b", "agent")
+    (repository.publisher / "src" / "narzedzie.py").write_text("WERSJA = 666\n", encoding="utf-8")
+    git(repository.publisher, "commit", "--quiet", "--all", "--message", "Zmiana spoza main")
+    commit = git(repository.publisher, "rev-parse", "HEAD")
+    git(repository.publisher, "checkout", "--quiet", "main")
+    return commit
+
+
+def test_wydanie_spoza_main_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.release(off_main_commit(repository), tag="v9.0.0")
+    before = repository.head()
+    unchanged = repository.state()
+
+    result = update(repository)
+
+    assert result == UpdateResult("WYDANIE_SPOZA_MAIN", before=before, after=None)
+    assert repository.state() == unchanged
+
+
+def test_wydanie_przesuniete_na_githubie_poza_main_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
+    released = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    blocked = repository.state()
+    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
+    assert update(repository).code == "ZMIANY_NA_KOMPUTERZE"
+    repository.in_clone("checkout", "--quiet", "--", "src/narzedzie.py")
+    assert repository.state() == blocked
+    tag = git(repository.origin, "tag", "--points-at", released)
+    git(repository.publisher, "tag", "--force", tag, off_main_commit(repository))
+    git(repository.publisher, "push", "--quiet", "--force", "origin", f"refs/tags/{tag}")
+
+    result = update(repository)
+
+    assert result == UpdateResult("WYDANIE_SPOZA_MAIN", before=blocked[0], after=None)
+    assert repository.state() == blocked
+
+
+def test_wydanie_wycofane_z_githuba_nie_trafia_do_taty_z_wczesniejszego_pobrania(
+    repository: ToolRepository, tmp_path: Path
+) -> None:
+    released = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    repository.write("src/narzedzie.py", "WERSJA = 1  # poprawka na komputerze taty\n")
+    assert update(repository).code == "ZMIANY_NA_KOMPUTERZE"
+    repository.in_clone("checkout", "--quiet", "--", "src/narzedzie.py")
+    git(repository.origin, "tag", "--delete", git(repository.origin, "tag", "--points-at", released))
     before = repository.head()
     unchanged = repository.state()
 
@@ -378,7 +461,7 @@ def test_odmowa_przesuniecia_zostawia_pliki_taty_i_klon_bez_zmian(repository: To
     assert repository.read("config/worker_mapping.yaml") == REAL_NAMES
     assert repository.read("config/rejestr.yaml") == "zachowany u taty\n"
     assert repository.in_clone("status", "--porcelain", "--branch").splitlines() == [
-        "## main...origin/main",
+        "## main...origin/main [behind 1]",
         " M config/worker_mapping.yaml",
         "?? config/rejestr.yaml",
     ]
@@ -438,7 +521,7 @@ def assert_back_before_click(repository: ToolRepository, before: str) -> None:
     assert repository.read("config/worker_mapping.example.yaml") == FIRST_VERSION["config/worker_mapping.example.yaml"]
     assert repository.read(DAD_SETTINGS) == "folder_okresow: Załączniki\n"
     assert repository.in_clone("status", "--porcelain", "--branch").splitlines() == [
-        "## main...origin/main",
+        "## main...origin/main [behind 1]",
         " M config/worker_mapping.yaml",
         "?? config/centrum-ustawienia.yaml",
     ]

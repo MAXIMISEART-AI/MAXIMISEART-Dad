@@ -3,8 +3,8 @@
 ``tool_repository`` buduje w katalogu testu repozytorium wydawcy (tu Maks
 commituje nowe wersje), jego kopię bez katalogu roboczego jako „origin” i klon
 narzędzia taty na pierwszym commicie. ``publish`` dodaje do `main` w „origin”
-nowy commit i, jak CI po zielonym przebiegu, przesuwa na niego `stabilna`
-(``promoted``); ``promote`` robi to później. ``in_clone`` robi w klonie to, co mógłby zrobić ktoś przy
+nowy commit i, jak Maks, wydaje go jako następne Wydanie (``released``);
+``release`` robi to później. ``in_clone`` robi w klonie to, co mógłby zrobić ktoś przy
 komputerze taty; ``state`` to wszystko, co aktualizacja mogłaby w klonie
 zmienić. ``unreachable_origin`` i ``origin_asking_for_login`` to GitHub bez
 internetu i GitHub, który prosi o logowanie, oba na tym komputerze. Pomocniki
@@ -24,6 +24,8 @@ import shutil
 import socket
 import subprocess
 import threading
+
+from rozliczenia.centrum.tool_update import newest_release
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -81,11 +83,11 @@ class ToolRepository:
     clone: Path
 
     def publish(
-        self, files: Mapping[str, str | None], *, untrack: tuple[str, ...] = (), promoted: bool = True
+        self, files: Mapping[str, str | None], *, untrack: tuple[str, ...] = (), released: bool = True
     ) -> str:
         """Nowy commit na `main` w „origin”: ``files`` zmienia pliki (``None`` usuwa), ``untrack`` przestaje je śledzić.
 
-        ``promoted=False`` to `main`, którego CI jeszcze nie przeszło: `stabilna` zostaje na poprzednim commicie.
+        ``released=False`` to zmiana na `main`, która nie weszła do żadnego Wydania.
         """
 
         _write(self.publisher, files)
@@ -94,14 +96,23 @@ class ToolRepository:
         git(self.publisher, "add", "--all")
         git(self.publisher, "commit", "--quiet", "--message", "Nowa wersja narzędzia")
         git(self.publisher, "push", "--quiet", "origin", "main")
-        if promoted:
-            self.promote()
+        if released:
+            self.release()
         return git(self.publisher, "rev-parse", "HEAD")
 
-    def promote(self) -> None:
-        """CI przeszło dla `main`: `stabilna` w „origin” przesuwa się na niego."""
+    def release(self, commit: str = "HEAD", tag: str | None = None) -> str:
+        """Wydanie ``commit`` w „origin”: tag ``tag`` albo następny numer po najnowszym Wydaniu."""
 
-        git(self.publisher, "push", "--quiet", "origin", "main:stabilna")
+        name = tag or _next_release(git(self.publisher, "tag", "--list", "v*").split())
+        git(self.publisher, "tag", name, commit)
+        git(self.publisher, "push", "--quiet", "origin", f"refs/tags/{name}")
+        return name
+
+    def newest_release_commit(self) -> str | None:
+        """Commit najnowszego Wydania w „origin”, wybrany jak w Centrum."""
+
+        newest = newest_release(git(self.origin, "tag", "--list", "v*").split())
+        return None if newest is None else git(self.origin, "rev-parse", f"{newest.tag}^{{commit}}")
 
     def head(self) -> str:
         return git(self.clone, "rev-parse", "HEAD")
@@ -171,10 +182,19 @@ def _published(directory: Path, publisher: Path) -> ToolRepository:
     origin = directory / "origin.git"
     git(directory, "clone", "--quiet", "--bare", str(publisher), str(origin))
     git(publisher, "remote", "add", "origin", str(origin))
-    git(publisher, "push", "--quiet", "origin", "main:stabilna")
+    git(publisher, "tag", "v0.1.0")
+    git(publisher, "push", "--quiet", "origin", "refs/tags/v0.1.0")
     clone = directory / "narzedzie"
     git(directory, "clone", "--quiet", str(origin), str(clone))
     return ToolRepository(publisher, origin, clone)
+
+
+def _next_release(tags: list[str]) -> str:
+    newest = newest_release(tags)
+    if newest is None:
+        return "v0.1.0"
+    major, minor, patch = newest.number
+    return f"v{major}.{minor}.{patch + 1}"
 
 
 def free_port() -> int:

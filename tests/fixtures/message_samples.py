@@ -220,6 +220,7 @@ UPDATE_SAMPLES: Samples = {
     "login_required": [update_messages.login_required],
     "other_branch": [update_messages.other_branch],
     "local_changes": [update_messages.local_changes],
+    "release_off_main": [update_messages.release_off_main],
     "unexpected_failure": [update_messages.unexpected_failure],
     "libraries_failed": [update_messages.libraries_failed],
     "new_version_failed": [update_messages.new_version_failed],
