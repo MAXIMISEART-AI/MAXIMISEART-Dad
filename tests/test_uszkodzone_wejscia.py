@@ -267,16 +267,23 @@ def _route(operation: str, method: str, path: str, body: object = None) -> Entry
     return Entry((operation,), call)
 
 
-def _preview(process: str, period: str) -> Entry:
+def _process_run(process: str, period: str, *, saving: bool = False) -> Entry:
+    """Uruchomienie procesu do wyniku: Podgląd bez zapisu albo Uruchomienie z zapisem.
+
+    Po Uruchomieniu z zapisem Przebieg rozliczeń zapisuje też Kontrolę ilości w kolejce.
+    """
+
+    where = "Uruchomienie z zapisem" if saving else "Podgląd bez zapisu"
+
     def call(client: TestClient, seen: Seen) -> Problems:
-        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
+        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": not saving})
         problems = _http(started, "startRun", seen)
         if started.status_code != 200:
             return problems
         result = finished_view(client)["result"]
-        seen.append(("Podgląd bez zapisu", json.dumps(result, ensure_ascii=False)))
+        seen.append((where, json.dumps(result, ensure_ascii=False)))
         if result["ending"] in ("unexpected", "after_engine"):
-            problems.append(f"Podgląd bez zapisu: ogólny Komunikat ({result['ending']})")
+            problems.append(f"{where}: ogólny Komunikat ({result['ending']})")
         return problems + _http(client.get("/api/runs/current"), "getCurrentRun", seen)
 
     return Entry(("startRun", "streamRunEvents", "getCurrentRun"), call)
@@ -325,8 +332,9 @@ ENTRIES: dict[str, Entry] = {
     "getRepairNotice": _route("getRepairNotice", "GET", "/api/reports/repair"),
     "getToolUpdate": _route("getToolUpdate", "GET", "/api/tool-update"),
     "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
-    "podglad[przygotowanie]": _preview("preparation", PERIOD),
-    "podglad[przebieg]": _preview("settlement", SETTLEMENT_PERIOD),
+    "podglad[przygotowanie]": _process_run("preparation", PERIOD),
+    "podglad[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD),
+    "zapis[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD, saving=True),
     "diagnoza[przygotowanie]": _diagnosis("preparation", PERIOD, report=True),
     "diagnoza[przebieg]": _diagnosis("settlement", SETTLEMENT_PERIOD, report=False),
 }
@@ -343,14 +351,7 @@ NOT_SWEPT: dict[str, str] = {
 
 # Znane przypadki: powód, termin i zgoda Maksa. Po terminie przypadek znów pada, a naprawiony pada od razu (strict).
 KNOWN_UNTIL = date(2026, 10, 29)
-KNOWN: dict[tuple[str, str, str], str] = {
-    (entry, "bez_odczytu", template): (
-        "Wzorzec bez dostępu nazwany uszkodzonym: workbook_files czyta jego bajty z pominięciem _file_bytes. "
-        "Poprawka u właściciela refactor/jeden-zapis-wierszy-danych; zgoda Maksa 2026-10-22"
-    )
-    for entry in ("getConfiguration", "podglad[przygotowanie]", "diagnoza[przygotowanie]")
-    for template in ("wzorzec_wewnetrzny", "wzorzec_zbiorczy")
-}
+KNOWN: dict[tuple[str, str, str], str] = {}
 
 
 def _cases() -> list[Any]:

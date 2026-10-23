@@ -121,6 +121,11 @@ REQUIRED_SCREENSHOTS = {
         "47-przebieg-wymaga-sprawdzenia.png",
         "48-przebieg-odczyt-po-uruchomieniu.png",
     ),
+    "kontrola-ilosci": (
+        "150-kontrola-w-kolejce.png",
+        "151-kontrola-bez-sieci-po-starcie.png",
+        "152-kontrola-start-bez-czekania.png",
+    ),
     "diagnoza": (
         "50-diagnoza-dla-taty.png",
         "51-diagnoza-powtorka.png",

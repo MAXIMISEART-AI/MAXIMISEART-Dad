@@ -356,7 +356,8 @@ _Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), feedback, komentarz
 
 Miejsce, do którego trafiają Zgłoszenia, Kontrole ilości, Logi Uruchomienia i
 Uwagi taty i w którym Maks je zamyka: prywatne repozytorium Zgłoszeń. Centrum
-pyta ją o otwarte Zgłoszenie odcisku problemu i o stan wysłanych Zgłoszeń.
+pyta ją o otwarte Zgłoszenie odcisku problemu, o otwarte issue Kontroli ilości
+okresu i o stan wysłanych Zgłoszeń.
 _Avoid_: issue tracker, publiczne issue
 
 ## Kontrola ilości

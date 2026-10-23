@@ -67,6 +67,7 @@ PREPARATION_SAMPLES: Samples = {
     ],
     "template_missing": [lambda: messages.template_missing(TEMPLATE)],
     "template_open_in_excel": [lambda: messages.template_open_in_excel(TEMPLATE)],
+    "template_inaccessible": [lambda: messages.template_inaccessible(TEMPLATE)],
     "template_unreadable": [lambda: messages.template_unreadable(TEMPLATE)],
     "template_without_header": [lambda: messages.template_without_header(TEMPLATE, "Sheet1", 17, "WYKONAWCA")],
     "template_with_worker_outside_h": [lambda: messages.template_with_worker_outside_h(TEMPLATE, "Sheet1", "G")],
@@ -113,6 +114,15 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.too_few_zero_rows(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", 7, 6, 24),
         lambda: messages.too_few_zero_rows(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", 9, 6, 24),
     ],
+    "unknown_devices": [
+        lambda: messages.unknown_devices(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [19]),
+        lambda: messages.unknown_devices(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", list(range(18, 30))),
+    ],
+    "rows_from_description": [
+        lambda: messages.rows_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [20]),
+        lambda: messages.rows_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [20, 21, 23]),
+    ],
+    "columns_from_description": [lambda: messages.columns_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx")],
     "incomplete_period": [
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],

@@ -22,7 +22,6 @@ import codecs
 import json
 import threading
 from collections.abc import Callable, Mapping
-from contextlib import suppress
 from dataclasses import asdict, astuple, dataclass, replace
 import hashlib
 from pathlib import Path
@@ -32,18 +31,20 @@ from fastapi import APIRouter
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
+from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
+    REPORT_LABEL,
+    FindOutcome,
     IssueState,
     Refused,
-    Report,
     ReportBox,
     SendOutcome,
     Sent,
     Unreachable,
-    fingerprint_line,
+    find_issue,
 )
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
@@ -63,6 +64,15 @@ _UPDATE_LOG_ENTRIES: Final = 20
 
 _MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
+
+
+@dataclass(frozen=True)
+class Report:
+    """Zgłoszenie: tytuł (kod i „Co się stało”), treść Markdown i odcisk problemu, po którym je rozpoznać."""
+
+    title: str
+    body: str
+    fingerprint: str
 
 
 @dataclass(frozen=True)
@@ -184,6 +194,12 @@ class UpdateReport:
         return _report(self.message, lines, fingerprint)
 
 
+def fingerprint_line(fingerprint: str) -> str:
+    """Wiersz treści Zgłoszenia z odciskiem problemu, po którym Centrum znajduje otwarte Zgłoszenie w skrzynce."""
+
+    return f"- Odcisk problemu: {fingerprint}"
+
+
 def _message_lines(message: Message) -> list[str]:
     """Początek każdego Zgłoszenia: Komunikat z kodem i trzema częściami."""
 
@@ -240,23 +256,6 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|")
 
 
-def _replace_atomically(path: Path, text: str) -> None:
-    """Zapisuje ``text`` jako ``path`` przez plik tymczasowy w tym samym folderze.
-
-    Nieudany zapis (``OSError``) nie zostawia pustego ani urwanego pliku i nie niszczy poprzedniej treści.
-    """
-
-    temporary = path.with_name(path.name + ".tmp")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        temporary.write_text(text, encoding="utf-8")
-        temporary.replace(path)
-    except OSError:
-        with suppress(OSError):
-            temporary.unlink(missing_ok=True)
-        raise
-
-
 @dataclass(frozen=True)
 class SentReport:
     """Wysłane Zgłoszenie w lokalnym stanie: odcisk problemu, numer issue i commit narzędzia przy wysyłce.
@@ -310,7 +309,7 @@ class SentReports:
 
     def _write(self, reports: list[SentReport]) -> None:
         try:
-            _replace_atomically(self._path, json.dumps([asdict(report) for report in reports], indent=2) + "\n")
+            replace_atomically(self._path, json.dumps([asdict(report) for report in reports], indent=2) + "\n")
         except OSError as failure:
             self._log.unexpected_failure(failure, where="stan wysłanych Zgłoszeń")
 
@@ -396,7 +395,7 @@ class Reports:
         self._commit = commit
         self._clock = clock
         self._states_asked_at: float | None = None  # od startu Centrum skrzynka nie była jeszcze pytana
-        self._key_file = config_directory / REPORT_KEY_FILE
+        self._config_directory = config_directory
         self._unsent = config_directory / UNSENT_DIRECTORY
         self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
         self._box = box
@@ -457,13 +456,17 @@ class Reports:
         key = self._key()
         outcome: SendOutcome | None = None
         if key is not None:
-            found = self._box.find_open(draft.report.fingerprint, key=key)
+            found = self._find_open(draft.report.fingerprint, key)
             if isinstance(found, int):
                 with self._lock:
                     self._open[draft.report.fingerprint] = found
                 draft.logged.waiting(found)
                 return contract.ReportWaiting(state="waiting")
-            outcome = self._box.send(draft.report, key=key) if found is None else found
+            outcome = (
+                self._box.open_issue(REPORT_LABEL, draft.report.title, draft.report.body, key=key)
+                if found is None
+                else found
+            )
         saved = self._unsent / draft.file_name
         if isinstance(outcome, Sent):
             with self._lock:
@@ -484,7 +487,7 @@ class Reports:
             else report_messages.box_unreachable(saved)
         )
         try:
-            _replace_atomically(saved, f"# {draft.report.title}\n\n{draft.report.body}")
+            replace_atomically(saved, f"# {draft.report.title}\n\n{draft.report.body}")
         except OSError as failure:  # np. folder Zgłoszeń niedostępny: treść zostaje tylko w podglądzie Diagnozy
             self._log.unexpected_failure(failure, where="zapis niewysłanego Zgłoszenia")
             draft.logged.not_saved(unsent.code)
@@ -543,14 +546,16 @@ class Reports:
         key = self._key()
         if key is None:
             return
-        box = self._box
-        answer = within(SEARCH_DEADLINE_S, lambda: (box.find_open(fingerprint, key=key),), name="skrzynka-szukaj")
+        answer = within(SEARCH_DEADLINE_S, lambda: (self._find_open(fingerprint, key),), name="skrzynka-szukaj")
         if answer is None:
             return
         [found] = answer
         if found is None or isinstance(found, int):
             with self._lock:
                 self._open[fingerprint] = found
+
+    def _find_open(self, fingerprint: str, key: str) -> FindOutcome:
+        return find_issue(self._box, REPORT_LABEL, fingerprint_line(fingerprint), include_closed=False, key=key)
 
     def _state_of(self, fingerprint: str) -> contract.ReportState:
         """Odpowiedź skrzynki z tej pracy Centrum, a bez niej ostatni znany stan wysłanego Zgłoszenia.
@@ -569,16 +574,20 @@ class Reports:
         return "ready" if self._key() is not None else "missing_key"
 
     def _key(self) -> str | None:
-        """Klucz do Zgłoszeń z lokalnego pliku; ``None``, gdy pliku nie ma albo jest pusty."""
+        return read_report_key(self._config_directory)
 
-        try:
-            content = self._key_file.read_bytes()
-            # Notatnik dopisuje BOM UTF-8, a ``>`` i ``Out-File`` w PowerShell 5.1 zapisują UTF-16 z BOM.
-            encoding = "utf-16" if content.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
-            key = content.decode(encoding).strip()
-        except (OSError, UnicodeError):
-            return None
-        return key or None
+
+def read_report_key(config_directory: Path) -> str | None:
+    """Klucz do Skrzynki Zgłoszeń z lokalnego pliku; ``None``, gdy pliku nie ma albo jest pusty."""
+
+    try:
+        content = (config_directory / REPORT_KEY_FILE).read_bytes()
+        # Notatnik dopisuje BOM UTF-8, a ``>`` i ``Out-File`` w PowerShell 5.1 zapisują UTF-16 z BOM.
+        encoding = "utf-16" if content.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
+        key = content.decode(encoding).strip()
+    except (OSError, UnicodeError):
+        return None
+    return key or None
 
 
 

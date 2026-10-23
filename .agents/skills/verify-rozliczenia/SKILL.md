@@ -174,8 +174,9 @@ explicitly, so no run reads `config/`. Its ordered stages are:
 The `preparation` variant follows the same stages with its own primitives:
 `create_preparation_fixture.py`, `preparation_doctor.py`,
 `preparation --dry-run`, `assert_preparation.py --expect dry-run`,
-`preparation`, then `assert_preparation.py --expect run`. Both runs require
-exit code `0`.
+`preparation`, then `assert_preparation.py --expect run`. The dry-run requires
+exit code `0` and the write `2` (Wymaga sprawdzenia): Dad completes the Ilości
+usług its warnings name in the written Plik zbiorczy.
 
 The `chain` variants run, in order: `create_preparation_fixture.py
 --with-worker-template`, `preparation_doctor.py --with-worker-template`, the four
@@ -183,7 +184,7 @@ preparation steps above under a `preparation-` prefix with their own
 `preparation-metrics.jsonl`, `fill_readiness.py` (Gotowość), `settlement --source
 <the Plik zbiorczy written by Przygotowanie> --dry-run`, `assert_chain.py
 --expect dry-run`, `settlement` on the same file, then `assert_chain.py --expect
-run`. Every run requires exit code `0`.
+run`. Every run requires exit code `0`, except the Przygotowanie write (`2`).
 
 The assertions read the result through the contract model it is printed
 from (`ProcessResult` in `tools/uruchom_proces.py`), never as a raw dict, so a
@@ -197,6 +198,27 @@ two mapped workbooks and one empty one with no Problemy, and its progress ends
 at three of three Szablony pracowników. The `unmapped` variant proves that the
 dry-run warns with `BRAK_MAPOWANIA` and the real run stops with
 `NIEZNANY_WYKONAWCA` and publishes nothing.
+
+## Reguły ilości
+
+After a change to `src/rozliczenia/quantity_rules.py` or to its conformance
+test `tests/test_ilosci_uslug.py`, prove that the test still catches a single
+broken rule:
+
+```powershell
+py -3 .agents\skills\verify-rozliczenia\scripts\check_quantity_rules_mutations.py
+```
+
+It must end with `MUTACJE OK`. Each mutation breaks one rule of Dad's
+instruction on a copy of the checkout, and `quantity_rules_conformance.py` must
+fail on it: TV devices in Z instead of Q, the 17:00 surcharge threshold and its
+days, S not as the sum O+P+Q+AG, single components, pieces from `CZYNNOŚCI`,
+T from the first word of `UMOWA`, and rows without a rule. The check first runs
+unbroken, so a red baseline fails the script instead of counting as detection.
+It takes about 6 s on a Mac. CI runs it in the `mutations` job. A mutation
+reported as `NIEAKTUALNA` no longer matches `quantity_rules.py`: rewrite its
+anchor and replacement so it breaks the same rule in the new code. A new rule
+gets a case in the test and a mutation here.
 
 ## Evidence
 
@@ -305,6 +327,12 @@ already performs both checks and prints `scratch_removed=true`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.
 - `scripts/self_test.py` checks the skill package and evidence hygiene.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\self_test.py --evidence-root "$evidenceRoot"`.
+- `scripts/quantity_rules_conformance.py` runs the test of every line of Dad's
+  instruction in `tests/test_ilosci_uslug.py` and ends with `ILOŚCI USŁUG OK`.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\quantity_rules_conformance.py`.
+- `scripts/check_quantity_rules_mutations.py` is the mutation table of Reguły
+  ilości (see that section). Invocation:
+  `py -3 .agents\skills\verify-rozliczenia\scripts\check_quantity_rules_mutations.py`.
 
 Read `features/README.md` before choosing a feature. Keep the feature map
 updated when routes, script parameters, contract fields, or workbook rules

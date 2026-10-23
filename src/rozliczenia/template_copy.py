@@ -231,6 +231,11 @@ class Row(Protocol):
         """Formaty liczb komórek źródłowych kolumn wyglądu od A, po pozycji, dla każdej wpisywanej kolumny wyglądu."""
         ...
 
+    @property
+    def quantities(self) -> Mapping[int, int]:
+        """Kolumna od 1 → liczba wpisana w komórkę Wzorca z jej stylem; tylko w ``SheetLayout.quantity_columns``."""
+        ...
+
 
 @dataclass(frozen=True)
 class SheetLayout:
@@ -244,6 +249,8 @@ class SheetLayout:
     """Kolumny wyglądu (``row_look``); te za kolumnami Wiersza danych dostają sam wygląd, a treść zostaje z Wzorca."""
     collective_file: bool = False
     """Plik zbiorczy z Przygotowania: autofiltr obejmuje nagłówek i wpisane wiersze."""
+    quantity_columns: range = range(0)
+    """Kolumny Ilości usług; formuła w nich w Wierszach danych to ``UnsupportedShape``, jak w kolumnach Wiersza danych."""
 
 
 class TemplateCopy:
@@ -545,7 +552,7 @@ class _Sheet:
         self._epoch = epoch
         self._letters = [
             get_column_letter(column).encode("ascii")
-            for column in range(1, max(layout.data_columns, layout.look_columns) + 1)
+            for column in range(1, max(layout.data_columns, layout.look_columns, layout.quantity_columns.stop - 1) + 1)
         ]
         try:
             data_start, data_end = sheet_data_bounds(xml)
@@ -665,7 +672,8 @@ class _Sheet:
         chunk = bisect_left(self._boundaries, region_end)
         tail_start = self._boundaries[chunk]
         links_at = self._links_at
-        head = b"".join([self._prefix(last_row if rows else None), *patched, xml[region_end:tail_start]])
+        last_column = max([self._layout.data_columns, *(column for row in rows for column in row.quantities)])
+        head = b"".join([self._prefix(last_row if rows else None, last_column), *patched, xml[region_end:tail_start]])
         if self._chunks is None:
             self._chunks = _compressed_chunks(xml, self._boundaries)
         compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
@@ -690,8 +698,8 @@ class _Sheet:
         size = len(head) + sum(len(piece) for piece in middle) + len(hyperlinks) + len(xml) - links_at
         return _Part(name, flags, zipfile.ZIP_DEFLATED, dos_time, dos_date, crc, size, compressed)
 
-    def _prefix(self, last_row: int | None) -> bytes:
-        """Arkusz do pierwszego Wiersza danych; ``dimension`` obejmuje wpisane wiersze, jeśli wcześniej nie obejmował."""
+    def _prefix(self, last_row: int | None, last_column: int) -> bytes:
+        """Arkusz do pierwszego Wiersza danych; ``dimension`` obejmuje wpisane komórki, jeśli wcześniej nie obejmował."""
 
         prefix = self._xml[: self._data_start]
         if self._dimension is None or last_row is None:
@@ -700,7 +708,7 @@ class _Sheet:
         covering = (
             min(min_column or 1, 1),
             min(min_row or 1, self._layout.first_data_row),
-            max(max_column or 1, self._layout.data_columns),
+            max(max_column or 1, last_column),
             max(max_row or 1, last_row),
         )
         if covering == (min_column, min_row, max_column, max_row):
@@ -733,6 +741,9 @@ class _Sheet:
             existing = cells.get(column)
             style = styles.look_style(_cell_style(existing), look.cell(column, PLAIN, GENERAL, wrapped=False))
             written[column] = _restyled(reference, existing, style)
+        for column, quantity in data.quantities.items():
+            reference = self._letters[column - 1] + suffix
+            written[column] = _cell_xml(reference, _cell_style(cells.get(column)), *_value_xml(quantity))
         return start_tag + b"".join(cell for _, cell in sorted(written.items())) + b"</row>"
 
     def _cell(
@@ -774,15 +785,15 @@ def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, l
     """Czy Wiersze danych mają już wartość w kolumnach danych wejściowych; jedno przejście po komórkach.
 
     Kolumny Wiersza danych od pierwszego Wiersza danych nie mogą mieć formuł ani
-    scaleń: wpisanie wartości w taką komórkę zmienia ``calcChain`` albo wspólną
-    formułę (formuła) lub nie jest możliwe (scalenie); to robi dawna droga przez
-    openpyxl (``UnsupportedShape``). Formuły nie są danymi.
+    scaleń, a kolumny Ilości usług formuł: wpisanie wartości w taką komórkę zmienia
+    ``calcChain`` albo wspólną formułę (formuła) lub nie jest możliwe (scalenie); to
+    robi dawna droga przez openpyxl (``UnsupportedShape``). Formuły nie są danymi.
     """
 
     has_input = False
     for cell in _CELL_WITH_CONTENT.finditer(xml, data_start, data_end):
         column = _column(cell.group(1))
-        if column > layout.data_columns:
+        if column > layout.data_columns and column not in layout.quantity_columns:
             continue
         content = cell.group(2)
         if _FORMULA.search(content):

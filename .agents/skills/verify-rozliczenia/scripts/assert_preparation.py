@@ -11,11 +11,11 @@ import zipfile
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell, MergedCell
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from create_preparation_fixture import REGISTER_NAME, completed_activities
+from create_preparation_fixture import REGISTER_NAME, completed_activities, order_contract, order_devices
 from wynik_uruchomienia import (
     check_metrics,
     contract,
@@ -28,13 +28,24 @@ from wynik_uruchomienia import (
 )
 from skrypt_skilla import Parser
 
+from rozliczenia.preparation_messages import COLUMNS_FROM_DESCRIPTION, ROWS_FROM_DESCRIPTION, UNKNOWN_DEVICES
+from rozliczenia.workbook_files import QUANTITY_COLUMNS
+
 
 PERIOD = "08_14_09_2026"
 INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 ROW_MARKER = "PREP-SYN-"
 ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
-EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_rows": 4, "warnings": 0}
+EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_rows": 4, "warnings": 3}
+# Ilości usług Dad completes: Plik zbiorczy rows 20 (order 7, prewencja) and 21 (order 6, unknown device), and
+# the reminder every Przygotowanie carries. Only the written Plik zbiorczy needs review; the dry-run stays OK.
+EXPECTED_WARNINGS = [
+    (UNKNOWN_DEVICES, f"plik {COLLECTIVE_NAME}, wiersz 21"),
+    (ROWS_FROM_DESCRIPTION, f"plik {COLLECTIVE_NAME}, wiersz 20"),
+    (COLUMNS_FROM_DESCRIPTION, f"plik {COLLECTIVE_NAME}, kolumny Y, AB, AD, AJ, AK, AL i AM"),
+]
+EXPECTED_RESULT = {"DRY-RUN": "OK", "RUN": "WYMAGA_SPRAWDZENIA"}
 EXPECTED_SUMMARY = contract.RunSummary(
     figures=[
         contract.Figure(label="Zlecenia okresu", value=5, unit="count"),
@@ -87,8 +98,8 @@ def _internal_row(number: int, started: datetime, worker: str, successful: str) 
         started,
         "PREP-SYN-MIASTO",
         f"PREP-SYN-ADRES-{number}",
-        f"PREP-SYN-UM-{number}",
-        "dekoder",
+        order_contract(number),
+        order_devices(number),
         "instalacja",
         f"PREP-SYN-ZL-{number}",
         worker,
@@ -106,8 +117,8 @@ def _collective_row(number: int, started: datetime, worker: str, successful: str
     return (
         "PREP-SYN-MIASTO",
         f"PREP-SYN-ADRES-{number}",
-        f"PREP-SYN-UM-{number}",
-        "dekoder",
+        order_contract(number),
+        order_devices(number),
         "instalacja",
         f"PREP-SYN-ZL-{number}",
         started,
@@ -131,6 +142,13 @@ EXPECTED_COLLECTIVE_ROWS = (
     _collective_row(4, datetime(2026, 9, 12, 12, 0), "kamil.syntetyczny", " Tak "),
     _collective_row(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),
     _collective_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),
+)
+# Ilości usług of rows 18..21 (orders 2, 4, 7, 6) from the Reguły ilości; every other N:AP cell keeps the Wzorzec 0.
+EXPECTED_QUANTITIES: tuple[dict[str, int], ...] = (
+    {"O": 1, "P": 1, "Q": 1, "S": 3, "T": 1, "V": 1, "Z": 1},
+    {"N": 45, "O": 1, "S": 2, "V": 1, "AG": 1, "AI": 1, "AO": 1},
+    {},
+    {"N": 45, "T": 1, "V": 1},
 )
 EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
 EXPECTED_COLLECTIVE_ORDER_NUMBERS = tuple(row[5] for row in EXPECTED_COLLECTIVE_ROWS)
@@ -162,24 +180,25 @@ def _unchanged_inputs(root: Path) -> list[str]:
     return errors
 
 
-def _check_result(result_path: Path | None, errors: list[str]) -> None:
+def _check_result(result_path: Path | None, mode: str, errors: list[str]) -> None:
     result = load_result(result_path, (ROW_MARKER,), errors)
     if result is None:
         return
-    if result.result != "OK" or result.stop is not None or result.warnings != []:
-        errors.append("result is not OK without warnings")
+    if result.result != EXPECTED_RESULT[mode] or result.stop is not None:
+        errors.append(f"result is not {EXPECTED_RESULT[mode]} without a stop")
+    if [(warning.code, warning.where) for warning in result.warnings] != EXPECTED_WARNINGS:
+        errors.append("warnings are not the Ilości usług warnings of the synthetic Rejestr")
     if result.summary != EXPECTED_SUMMARY:
         errors.append("summary does not match the synthetic Rejestr")
-    if dict(figures(result.progress.figures)).get("Ostrzeżenia") != 0:
-        errors.append("progress does not report 0 Ostrzeżenia")
+    if dict(figures(result.progress.figures)).get("Ostrzeżenia") != len(EXPECTED_WARNINGS):
+        errors.append(f"progress does not report {len(EXPECTED_WARNINGS)} Ostrzeżenia")
 
 
 def _check_metrics(root: Path, metrics: Path, modes: list[str], errors: list[str]) -> None:
-    """Every record is a completed OK run of the period, with the counters of the synthetic Rejestr."""
+    """Every record is a completed run of the period with its mode's result and the synthetic Rejestr's counters."""
 
-    records = check_metrics(
-        metrics, root, period=PERIOD, expected=[(mode, "OK") for mode in modes], row_content=(ROW_MARKER,), errors=errors
-    )
+    expected = [(mode, EXPECTED_RESULT[mode]) for mode in modes]
+    records = check_metrics(metrics, root, period=PERIOD, expected=expected, row_content=(ROW_MARKER,), errors=errors)
     for record in records:
         if record.get("counters") != EXPECTED_COUNTERS:
             errors.append("metrics counters do not match the synthetic Rejestr")
@@ -190,7 +209,7 @@ def _assert_dry_run(root: Path, metrics: Path, result_path: Path | None) -> int:
     leftovers = sorted(path.name for path in (root / "INEA").iterdir())
     if leftovers:
         errors.append(f"dry-run created entries in the periods directory: {leftovers}")
-    _check_result(result_path, errors)
+    _check_result(result_path, "DRY-RUN", errors)
     _check_metrics(root, metrics, ["DRY-RUN"], errors)
     return finish(
         errors,
@@ -231,10 +250,18 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
         sheet = _sheet(workbook.active)
         if _rows(sheet, 18, 22, 11) != [*EXPECTED_COLLECTIVE_ROWS, (None,) * 11]:
             errors.append("Plik zbiorczy does not hold exactly the Zlecenia skuteczne from row 18")
-        quantities = [value for row in sheet.iter_rows(min_row=18, max_row=23, min_col=14, max_col=42, values_only=True) for value in row]
+        quantities = [
+            {get_column_letter(column): sheet.cell(row, column).value for column in QUANTITY_COLUMNS} for row in range(18, 24)
+        ]
+        expected = [
+            {get_column_letter(column): rules.get(get_column_letter(column), 0) for column in QUANTITY_COLUMNS}
+            for rules in (*EXPECTED_QUANTITIES, {}, {})
+        ]
+        if quantities != expected:
+            errors.append("Plik zbiorczy N:AP is not the Ilości usług from the Reguły ilości over the Wzorzec zeros")
         formulas = [sheet.cell(row, 47).value for row in range(18, 24)]
-        if any(value != 0 for value in quantities) or formulas != [f"=N{row}*$N$1" for row in range(18, 24)]:
-            errors.append("Plik zbiorczy changed the Wzorzec quantities N:AP or formulas")
+        if formulas != [f"=N{row}*$N$1" for row in range(18, 24)]:
+            errors.append("Plik zbiorczy changed the Wzorzec formulas")
         if (
             sheet["N1"].value != 17.5
             or sheet["N16"].value != "=SUM(N18:N40)"
@@ -288,9 +315,12 @@ def _check_real_template_file(
     header_row: int,
     look_columns: int,
     order_numbers: tuple[object, ...],
+    quantities: tuple[dict[str, int], ...],
     errors: list[str],
 ) -> None:
     """Rows routed by header, the Wygląd Wiersza danych in A..``look_columns``, and the rest of the Wzorzec unchanged.
+
+    ``quantities`` are the Ilości usług of the written rows by column letter; they replace the Wzorzec value.
 
     Messages name columns and fonts only, never a cell value of the Wzorzec or the Rejestr.
     """
@@ -319,6 +349,9 @@ def _check_real_template_file(
             errors.append(f"{label}: Wygląd Wiersza danych differs: {'; '.join(look)}")
 
         expected_values = _cell_values(template_book, written)
+        for row, row_quantities in zip(written_rows, quantities, strict=True):
+            for letter, value in row_quantities.items():
+                expected_values[(template_sheet.title, row, column_index_from_string(letter))] = value
         actual_values = _cell_values(output_book, written)
         changed = sorted(
             key for key in expected_values.keys() | actual_values.keys() if expected_values.get(key) != actual_values.get(key)
@@ -415,6 +448,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     header_row=1,
                     look_columns=13,
                     order_numbers=EXPECTED_INTERNAL_ORDER_NUMBERS,
+                    quantities=({},) * len(EXPECTED_INTERNAL_ORDER_NUMBERS),
                     errors=errors,
                 )
                 _check_real_template_file(
@@ -424,6 +458,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                     header_row=17,
                     look_columns=12,
                     order_numbers=EXPECTED_COLLECTIVE_ORDER_NUMBERS,
+                    quantities=EXPECTED_QUANTITIES,
                     errors=errors,
                 )
             for template, output, label, header_row, register_rows in (
@@ -453,7 +488,7 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
                 errors.append("Wzorzec pliku zbiorczego has no xl/externalLinks parts to preserve")
         except (OSError, ValueError, KeyError, zipfile.BadZipFile):
             errors.append("one or both period files cannot be read")
-    _check_result(result_path, errors)
+    _check_result(result_path, "RUN", errors)
     _check_metrics(root, metrics, ["DRY-RUN", "RUN"], errors)
     return finish(
         errors,
