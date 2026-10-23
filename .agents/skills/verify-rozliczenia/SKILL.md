@@ -199,6 +199,27 @@ at three of three Szablony pracowników. The `unmapped` variant proves that the
 dry-run warns with `BRAK_MAPOWANIA` and the real run stops with
 `NIEZNANY_WYKONAWCA` and publishes nothing.
 
+## Reguły ilości
+
+After a change to `src/rozliczenia/quantity_rules.py` or to its conformance
+test `tests/test_ilosci_uslug.py`, prove that the test still catches a single
+broken rule:
+
+```powershell
+py -3 .agents\skills\verify-rozliczenia\scripts\check_quantity_rules_mutations.py
+```
+
+It must end with `MUTACJE OK`. Each mutation breaks one rule of Dad's
+instruction on a copy of the checkout, and `quantity_rules_conformance.py` must
+fail on it: TV devices in Z instead of Q, the 17:00 surcharge threshold and its
+days, S not as the sum O+P+Q+AG, single components, pieces from `CZYNNOŚCI`,
+T from the first word of `UMOWA`, and rows without a rule. The check first runs
+unbroken, so a red baseline fails the script instead of counting as detection.
+It takes about 6 s on a Mac. CI runs it in the `mutations` job. A mutation
+reported as `NIEAKTUALNA` no longer matches `quantity_rules.py`: rewrite its
+anchor and replacement so it breaks the same rule in the new code. A new rule
+gets a case in the test and a mutation here.
+
 ## Evidence
 
 Evidence is written under `<run dir>\evidence\` and survives cleanup. Each
@@ -306,6 +327,12 @@ already performs both checks and prints `scratch_removed=true`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\cleanup.py --root "$runRoot"`.
 - `scripts/self_test.py` checks the skill package and evidence hygiene.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\self_test.py --evidence-root "$evidenceRoot"`.
+- `scripts/quantity_rules_conformance.py` runs the test of every line of Dad's
+  instruction in `tests/test_ilosci_uslug.py` and ends with `ILOŚCI USŁUG OK`.
+  Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\quantity_rules_conformance.py`.
+- `scripts/check_quantity_rules_mutations.py` is the mutation table of Reguły
+  ilości (see that section). Invocation:
+  `py -3 .agents\skills\verify-rozliczenia\scripts\check_quantity_rules_mutations.py`.
 
 Read `features/README.md` before choosing a feature. Keep the feature map
 updated when routes, script parameters, contract fields, or workbook rules
