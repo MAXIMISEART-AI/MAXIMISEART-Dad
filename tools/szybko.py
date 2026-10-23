@@ -27,6 +27,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 import subprocess
 import time
+from typing import TypeGuard
 
 import ci_lokalnie
 
@@ -174,28 +175,36 @@ def _packages(path: str, files: frozenset[str]) -> set[str]:
 
 
 def _texts(tree: ast.AST) -> set[str]:
-    """Napisy modułu, także ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``)."""
+    """Napisy modułu i całe ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``).
+
+    Początek ścieżki się nie liczy: ``ROOT / ".agents" / "skills"`` z ``ROOT / ".agents" / "skills" / "x"`` wskazałby
+    wszystkie skille.
+    """
+
+    def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
+        return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
 
     def pieces(node: ast.expr) -> list[str | None]:
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        if is_path(node):
             return pieces(node.left) + pieces(node.right)
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return [node.value.strip("/")]
         return [None]
 
-    found: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            found.add(node.value)
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            joined: list[str] = []
-            for piece in [*pieces(node), None]:
-                if piece is not None:
-                    joined.append(piece)
-                    continue
-                if len(joined) > 1:
-                    found.add("/".join(joined))
-                joined = []
+    nodes = list(ast.walk(tree))
+    beginnings = {id(node.left) for node in nodes if is_path(node)}
+    found = {node.value for node in nodes if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    for node in nodes:
+        if not is_path(node) or id(node) in beginnings:
+            continue
+        joined: list[str] = []
+        for piece in [*pieces(node), None]:
+            if piece is not None:
+                joined.append(piece)
+                continue
+            if len(joined) > 1:
+                found.add("/".join(joined))
+            joined = []
     return found
 
 
