@@ -1,13 +1,14 @@
 """Przesuwa gałąź `stabilna` na commit `main`, którego CI przeszło (ADR 0014): tylko do przodu, bez force.
 
-Uruchamia go workflow ``.github/workflows/stabilna.yml`` po zielonym ``Required CI status`` na pushu do `main`.
+Uruchamia go workflow ``.github/workflows/stabilna.yml`` po zielonym runie CI na pushu do `main`.
 Każde uruchomienie wylicza wynik ze stanu ``origin``, więc powtórzone albo spóźnione (run CI starszego
 commitu kończy się po nowszym) niczego nie cofa:
 
 - `stabilna` już zawiera commit: nic się nie zmienia;
 - `stabilna` nie istnieje albo jest przodkiem commitu: push bez force; gdy ktoś przesunie ją w
   międzyczasie, Git odrzuca push, a skrypt liczy od nowa;
-- commit nie jest na `main` albo `stabilna` nie jest jego przodkiem: kod 1, `stabilna` bez zmian.
+- commit albo `stabilna` spoza `main`, albo `stabilna`, która nie jest przodkiem commitu: kod 1, `stabilna` bez
+  zmian.
 
     python3 tools/promuj_stabilna.py <commit> [--remote origin]
 """
@@ -19,6 +20,8 @@ from collections.abc import Sequence
 from pathlib import Path
 import subprocess
 import sys
+
+import potomne
 
 MAIN = "main"
 STABLE = "stabilna"
@@ -41,6 +44,8 @@ def promote(repo: Path, commit: str, remote: str = "origin") -> str:
         stable = _fetch(repo, remote)
         if not _is_ancestor(repo, commit, _FETCHED_MAIN):
             raise Refused(f"{commit} nie jest na {MAIN}")
+        if stable is not None and not _is_ancestor(repo, stable, _FETCHED_MAIN):
+            raise Refused(f"{STABLE} {stable} nie jest na {MAIN}")
         if stable is not None and _is_ancestor(repo, commit, stable):
             return f"STABILNA JUŻ ZAWIERA {commit} ({STABLE} = {stable})"
         if stable is not None and not _is_ancestor(repo, stable, commit):
@@ -81,16 +86,7 @@ def _checked(repo: Path, *args: str) -> str:
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=TIMEOUT_S,
-        check=False,
-    )
+    return potomne.run(["git", "-C", str(repo), *args], cwd=repo, timeout=TIMEOUT_S)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

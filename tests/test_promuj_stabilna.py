@@ -125,8 +125,41 @@ def test_stabilna_spoza_historii_main_zostaje_bez_zmian(repositories: Repositori
     result = promote(repositories, newest)
 
     assert result.returncode == 1
-    assert "nie jest przodkiem" in result.stderr
+    assert "stabilna" in result.stderr and "nie jest na main" in result.stderr
     assert repositories.stabilna() == rewritten != first
+
+
+def test_stabilna_z_commitem_spoza_main_nie_uchodzi_za_zawierajaca_starszy_commit(repositories: Repositories) -> None:
+    _, older, _ = repositories.main
+    (repositories.publisher / "wersja.txt").write_text("ręcznie na stabilna\n", encoding="utf-8")
+    git(repositories.publisher, "commit", "--quiet", "--all", "--message", "Commit tylko na stabilna")
+    git(repositories.publisher, "push", "--quiet", str(repositories.origin), "HEAD:stabilna")
+    off_main = repositories.stabilna()
+
+    result = promote(repositories, older)
+
+    assert result.returncode == 1
+    assert "nie jest na main" in result.stderr
+    assert repositories.stabilna() == off_main
+
+
+def test_stabilna_z_bocznej_galezi_main_nie_cofa_sie_na_commit_obok(repositories: Repositories) -> None:
+    first, _, _ = repositories.main
+    git(repositories.publisher, "checkout", "--quiet", "-b", "pr", first)
+    (repositories.publisher / "pr.txt").write_text("z PR\n", encoding="utf-8")
+    git(repositories.publisher, "add", "--all")
+    git(repositories.publisher, "commit", "--quiet", "--message", "Commit z PR")
+    side = git(repositories.publisher, "rev-parse", "HEAD")
+    git(repositories.publisher, "checkout", "--quiet", "main")
+    git(repositories.publisher, "merge", "--quiet", "--no-ff", "--no-edit", "pr")
+    git(repositories.publisher, "push", "--quiet", str(repositories.origin), "main")
+    repositories.set_stabilna(side)
+
+    result = promote(repositories, repositories.main[2])
+
+    assert result.returncode == 1
+    assert "nie jest przodkiem" in result.stderr
+    assert repositories.stabilna() == side
 
 
 def test_stabilna_przesunieta_przez_inny_run_w_trakcie_pushu_nie_cofa_sie(
@@ -154,13 +187,11 @@ def test_stabilna_przesunieta_przez_inny_run_w_trakcie_pushu_nie_cofa_sie(
     assert repositories.stabilna() == newer
 
 
-def test_workflow_promocji_czeka_na_status_ktory_ci_naprawde_ma() -> None:
-    # Inna nazwa workflow albo statusu nie daje błędu: `stabilna` po cichu przestaje się przesuwać.
+def test_workflow_promocji_czeka_na_ci_z_pushu_do_main() -> None:
+    # Inna nazwa workflow CI nie daje błędu: `stabilna` po cichu przestaje się przesuwać.
     workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
     ci = yaml.safe_load((workflows / "ci.yml").read_text(encoding="utf-8"))
-    promotion = (workflows / "stabilna.yml").read_text(encoding="utf-8")
-    trigger = yaml.safe_load(promotion)[True]["workflow_run"]
+    promotion = yaml.safe_load((workflows / "stabilna.yml").read_text(encoding="utf-8"))
 
-    assert trigger["workflows"] == [ci["name"]]
-    assert "push" in ci[True] and ci[True]["push"]["branches"] == ["main"]
-    assert f'select(.name == "{ci["jobs"]["required"]["name"]}")' in promotion
+    assert promotion[True]["workflow_run"]["workflows"] == [ci["name"]]
+    assert ci[True]["push"]["branches"] == ["main"]
