@@ -83,7 +83,6 @@ class PreparationEntry:
             period=period,
             process=self.process,
             inputs=inputs,
-            metrics_path=self.process.metrics_path(),
             done="Plik zbiorczy przygotowany",
             view=_VIEW,
         )

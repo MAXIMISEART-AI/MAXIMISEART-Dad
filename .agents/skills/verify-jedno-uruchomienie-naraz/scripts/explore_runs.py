@@ -393,7 +393,6 @@ PREPARED: runs.PreparedRun[Any, Any] = runs.PreparedRun(
     period="08_14_09_2026",
     process=PROCESS,
     inputs=SimpleNamespace(dry_run=False),
-    metrics_path=Path("metryki-modelu.jsonl"),
     done="Plik zbiorczy przygotowany",
     view=PREPARATION,
 )

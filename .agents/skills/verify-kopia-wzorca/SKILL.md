@@ -29,11 +29,11 @@ The check holds that copy to five rules, for any Wiersze danych:
   Harm: a worker's quantities or amounts are wrong or formatted differently, and nothing stops.
 - **WYGLAD_WIERSZA**: every cell A:L of a written Wiersz danych has the Wygląd Wiersza danych (GLOSSARY),
   derived in the checker from the rule and not from the code: font face and size of the Wzorzec's header
-  cell in row 17, left and centre alignment, wrapping exactly when the value is text with a line break, a
-  thin border on all four sides in the automatic colour (`indexed=64`) and the number format of the Plik
-  zbiorczy cell; a written row stores no height. Both paths share `row_look.py`, so WIERNA_KOPIA alone
-  would not see a defect there. Harm: rows twice as high, centred text, no cell borders or `#####` in DATA,
-  as before this rule (2026-10-22).
+  cell in row 17, left and centre alignment, wrapping exactly when the value is text with a line break
+  (`\n` or `\r`), a thin border on all four sides in the automatic colour (`indexed=64`) and the number
+  format of the Plik zbiorczy cell; a written row stores no height. Both paths share `row_look.py`, so
+  WIERNA_KOPIA alone would not see a defect there. Harm: rows twice as high, centred text, no cell borders
+  or `#####` in DATA, as before this rule (2026-10-22).
 - **TA_SAMA_ODMOWA**: the copy refuses a value (the run stops) exactly when the openpyxl path
   refuses it, and a refusal leaves no file behind. Harm: a stop that the old path would not make,
   or a file written from a value openpyxl rejects.
@@ -59,25 +59,25 @@ The check holds that copy to five rules, for any Wiersze danych:
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `264f6bd`** (Ilości usług, 2026-10-23):
+Coverage, confirmed at **sync commit `75e79c2`** (covered code as left by PR #282, 2026-10-23):
 
 | Code | What the check covers |
 | --- | --- |
-| `src/rozliczenia/template_copy.py` (all of it) | the code under verification |
+| `src/rozliczenia/template_copy.py` (all of it but the Plik zbiorczy branch, `SheetLayout.collective_file`, which pytest covers in `tests/test_plik_zbiorczy_kopia_wzorca.py`) | the code under verification |
 | `src/rozliczenia/sheet_data.py` (`sheet_data_bounds`, `sheet_rows`) | row index the copy splices on |
 | `src/rozliczenia/highlights.py` (`Highlights.of`, `font_over`, `fill_over`) | Wyróżnienia both paths lay over the Wzorzec's font and fill |
 | `src/rozliczenia/row_look.py` (`RowLook`, `CellLook`, `wraps`) | Wygląd Wiersza danych both paths give A:L; judged by WYGLAD_WIERSZA |
 | `src/rozliczenia/hyperlinks.py` (`Hyperlink`) | the Hiperłącze both paths write; its reader `read_sheet_hyperlinks` is covered by pytest (`tests/test_hiperlacza_pliku_zbiorczego.py`), not here |
-| `src/rozliczenia/workbook_files.py`: `TemplateFile` (`check`, `create`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_placed`, `_write_atomically`, `_package_writer` | the real entry point; which path it takes |
-| `src/rozliczenia/workbook_files.py`: `TemplateFile._create_with_openpyxl`, `_write_rows`, `_ensure_unmerged`, `_request_full_recalculation`, `_save_atomically` | the reference (old openpyxl path) |
+| `src/rozliczenia/workbook_files.py`: `TemplateFile` (`check`, `create`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_placed` (columns already in order), `_write_atomically`, `_package_writer` | the real entry point; which path it takes |
+| `src/rozliczenia/workbook_files.py`: `TemplateFile._create_with_openpyxl`, `_write_rows`, `_request_full_recalculation`, `_save_atomically`, `_restore_external_link_parts` | the reference (old openpyxl path) |
 | `tools/porownanie_rozliczen.py` (`compare_worker_settlements` and its per-cell helpers, `_hyperlink` among them) | the judge for WIERNA_KOPIA |
-| `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`, `refused_by_copy`) | the Wzorce under test and the twin the copy refuses |
+| `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`, `refused_by_copy`, `has_xml_comment`) | the Wzorce under test and the twin the copy refuses |
 
 Run the check when a diff touches any of these. To see whether the covered code moved since the
 sync commit:
 
 ```bash
-git diff --stat 264f6bd -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py
+git diff --stat 75e79c2 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
@@ -127,10 +127,11 @@ One Hypothesis example is one Przebieg rozliczeń: one `TemplateFile` is loaded 
 checked once, then 1 to 3 Rozliczenia pracowników are made from it in a row, as `run_settlements()`
 does for its workers. That catches state carried from one copy to the next, such as the
 compressed chunks cached at the first copy. Each Wzorzec below gets its own Hypothesis run with the
-full number of examples (60 by default), and three fixed examples first: the value-type and
+full number of examples (60 by default), and fixed examples first: the value-type and
 Wyróżnienia rows of the owner tests in `tests/test_workbook_files.py` with Hiperłącza in A and I, one
 Rozliczenie pracownika with the most Wiersze danych in scope, each with a Hiperłącze in F (it crosses
-every reachable chunk start and writes the sheet tail with `<hyperlinks>`), and empty A and B up
+every reachable chunk start and writes the sheet tail with `<hyperlinks>`), three counterexamples
+from CI with `\r` in text (two through the copy, one down the old path), and empty A and B up
 to the first row whose A cell the Wzorzec XML lacks (row 139 of `syntetyczny`), which the copy has
 to add. Each Rozliczenie
 pracownika is written by the real `TemplateFile.create()` and, separately, by the openpyxl path from the Wzorzec's twin (an XML comment in its sheet data makes the copy refuse it; openpyxl skips the comment), then judged.
@@ -174,11 +175,13 @@ Not covered:
 - The reference is the openpyxl path, and the judge reads both files with openpyxl. A defect
   shared by both paths, or a difference openpyxl hides when reading, is invisible, apart from
   what KSZTALT_EXCELA checks. Excel itself is never run.
-- Raw `\r` in text. Every XML reader turns `\r\n` and a lone `\r` into `\n`, so the reference
-  gets text with line ends already normalized (`_xml_line_ends`) and the copy gets the raw text.
+- The openpyxl path's raw `\r` on Windows. Every XML reader turns `\r\n` and a lone `\r` into `\n`,
+  so when the copy writes the file, the reference gets text with line ends already normalized
+  (`_xml_line_ends`) and the copy gets the raw text.
   The reason: openpyxl writes the sheet through et_xmlfile, which opens its temporary file in text
   mode, so on Windows a raw `\r\n` comes back from the openpyxl path as two line breaks (first CI
-  run of this skill). That quirk of the old path is not checked. A Plik zbiorczy read by openpyxl
+  run of this skill). When the copy itself takes the old path, both files come from openpyxl with the
+  raw text, so they share that quirk. The quirk is not checked. A Plik zbiorczy read by openpyxl
   practically never carries a raw `\r` (Excel stores it as `_x000D_`).
 - Only the Wzorce above. Wzorce of other shapes go the old way (`UnsupportedShape`), and that
   routing decision is not checked.
@@ -220,21 +223,22 @@ Prove the check can still fail. This applies broken variants to a temporary copy
 py -3 .agents\skills\verify-kopia-wzorca\scripts\check_copy_mutations.py
 ```
 
-It must end with `MUTACJE OK`: each of the nineteen mutations (sheet CRC over the head only, chunks
+It must end with `MUTACJE OK`: each of the twenty mutations (sheet CRC over the head only, chunks
 without a full flush, a dropped chunk, `dimension` not extended, a date without a date format, an
-empty value keeping the Wzorzec's zero, Wyróżnienia without the fill, the Wzorzec's border or number
-format left in A:L, the Wzorzec's row height kept, every text wrapped and a font size not from the
-header in `row_look.py` (both paths at once), 15 significant digits,
-`xml:space` only for leading spaces, `&` not escaped, `<hyperlinks>` placed after `pageMargins`, a
-reused Wzorzec `rId`, a Hiperłącze one row off, `&` not escaped in a Hiperłącze address) must give
-`KOPIA WZORCA: NOWE NARUSZENIE`.
+empty value keeping the Wzorzec's zero, Wyróżnienia without the fill, the Wzorzec's border left in
+A:L, the Wzorzec's number format left in A:L, the Wzorzec's row height kept, three in `row_look.py`
+that change both paths at once (every text wrapped, text with `\r` but no `\n` not wrapped, a font
+size not from the header), 15 significant digits, `xml:space` only for leading spaces, `&` not
+escaped, `<hyperlinks>` placed after `pageMargins`, a reused Wzorzec `rId`, a Hiperłącze one row off,
+`&` not escaped in a Hiperłącze address) must give `KOPIA WZORCA: NOWE NARUSZENIE`.
 The mutations run side by side; it takes about 15 s. CI runs it in the `mutations` job. A
-mutation reported as `NIEAKTUALNA` no longer matches `template_copy.py`: rewrite its `anchor` and
-`replacement` in `check_copy_mutations.py` against the new code so that it breaks the same rule again.
+mutation reported as `NIEAKTUALNA` no longer finds its `anchor` exactly once in `template_copy.py` or
+`row_look.py`: rewrite its `anchor` and `replacement` in `check_copy_mutations.py` against the new code
+so that it breaks the same rule again.
 
 When the copy changes on purpose, also confirm that the checker still describes it: the rules
 still state what ADR 0008 promises, the Wzorce still have the shapes in the table above, and the
 coverage table names the current functions. Then run the check, a few `--seed` runs and the
 mutations. Only after that, move the sync commit in "Does the change touch it?" to the commit you
-checked. If the copy moves to another file, update `VERIFIED_FILE` in `check_template_copy.py`,
-`VERIFIED` in `check_copy_mutations.py`, the coverage table and this skill's description.
+checked. If the copy moves to another file, update `VERIFIED` in `check_copy_mutations.py`, the
+coverage table and this skill's description.
