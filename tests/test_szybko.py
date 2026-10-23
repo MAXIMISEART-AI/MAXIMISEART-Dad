@@ -55,7 +55,8 @@ def _structure_stubs(body: str) -> dict[str, str]:
     stubs: dict[str, str] = {}
     for node in szybko.STRUCTURE:
         path, _, name = node.partition("::")
-        stubs[path] = stubs.get(path, "") + f"\n\ndef {name or 'test_struktura'}() -> None:\n    {body}\n"
+        header = "from pathlib import Path\n" if "Path(" in body else ""
+        stubs[path] = stubs.get(path, header) + f"\n\ndef {name or 'test_struktura'}() -> None:\n    {body}\n"
     return stubs
 
 
@@ -153,6 +154,39 @@ def test_testy_struktury_biegna_przy_zmianie_ktora_ich_nie_dotyka(tmp_path: Path
     failed = set(re.findall(r"^FAILED (\S+)", answered.stdout, re.MULTILINE))
     assert {node if "::" in node else f"{node}::test_struktura" for node in szybko.STRUCTURE} <= failed
     assert answered.returncode == 1
+
+
+def test_testy_struktury_biegna_tez_na_mergu_z_baza_ktora_poszla_dalej(tmp_path: Path) -> None:
+    unique = (
+        "numbers = [p.name[:4] for p in (Path(__file__).parents[1] / 'docs' / 'adr').glob('*.md')]\n"
+        "    assert len(numbers) == len(set(numbers))"
+    )
+    repo = _repo(tmp_path, structure=unique)
+    git(repo, "checkout", "--quiet", "-b", "inna-galaz")
+    _write(repo, "docs/adr/0002-z-main.md", "# ADR 0002\n")
+    git(repo, "update-ref", "refs/remotes/origin/main", commit(repo, "ADR 0002 na main"))
+    git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
+    _write(repo, "docs/adr/0002-z-galezi.md", "# ADR 0002\n")
+    commit(repo, "ADR 0002 na gałęzi")
+
+    answered = _szybko(repo)
+
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, "SZYBKO FAIL | testy struktury po mergu z origin/main")
+
+
+def test_konflikt_z_baza_jest_uwaga_a_nie_porazka(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    git(repo, "checkout", "--quiet", "-b", "inna-galaz")
+    _write(repo, "docs/notatka.md", "z main\n")
+    git(repo, "update-ref", "refs/remotes/origin/main", commit(repo, "notatka na main"))
+    git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
+    _write(repo, "docs/notatka.md", "z gałęzi\n")
+    commit(repo, "notatka na gałęzi")
+
+    answered = _szybko(repo)
+
+    assert "UWAGA: merge z origin/main ma konflikt w docs/notatka.md" in answered.stdout
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "SZYBKO OK"), answered.stdout
 
 
 def test_blad_typu_tylko_na_windows_wywraca_szybkie_sprawdzenie(tmp_path: Path) -> None:

@@ -24,12 +24,14 @@ import ast
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
+import os
 from pathlib import Path, PurePosixPath
 import subprocess
 import time
 from typing import TypeGuard
 
 import ci_lokalnie
+import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
@@ -257,6 +259,26 @@ def _changed(base: str) -> frozenset[str]:
     return frozenset(path for path in (diff + untracked).split("\0") if path)
 
 
+def _merge_with(base: str) -> str | None:
+    """Commit z HEAD połączonym z ``base``, jak drzewo, które sprawdza CI PR-u; None, gdy ``base`` jest w HEAD albo jest konflikt."""
+
+    if subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd=ROOT, capture_output=True).returncode == 0:
+        return None
+    merged = subprocess.run(
+        ["git", "merge-tree", "--write-tree", "--name-only", "HEAD", base], cwd=ROOT, capture_output=True, text=True, encoding="utf-8"
+    )
+    tree, *conflicts = merged.stdout.split("\n\n", 1)[0].splitlines()
+    if merged.returncode != 0:
+        print(f"UWAGA: merge z {base} ma konflikt w {', '.join(conflicts)}; testy struktury po mergu pominięte", flush=True)
+        return None
+    identity = {f"GIT_{role}_{key}": value for role in ("AUTHOR", "COMMITTER") for key, value in (("NAME", "szybko"), ("EMAIL", "szybko@localhost"))}
+    made = subprocess.run(
+        ["git", "commit-tree", tree, "-p", "HEAD", "-p", base, "-m", f"szybko: HEAD z {base}"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", env={**os.environ, **identity}, check=True,
+    )
+    return made.stdout.strip()
+
+
 def _pytest_arguments(selection: Selection) -> tuple[str, ...]:
     if isinstance(selection, Full):
         return ()
@@ -282,6 +304,25 @@ def _steps(root: Path, selection: Selection) -> list[ci_lokalnie.Step]:
     ]
 
 
+def _structure_after_merge(copy: Path, base: str) -> ci_lokalnie.Step:
+    pytest = next(step for step in ci_lokalnie._steps(copy) if step.job == "pytest")
+    return replace(pytest, name=f"testy struktury po mergu z {base}", command=(*pytest.command, *STRUCTURE))
+
+
+def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
+    """Uruchamia kroki w ``root`` i drukuje wynik każdego jedną linią; zwraca nazwy kroków, które padły."""
+
+    failed = []
+    for step in steps:
+        started = time.monotonic()
+        passed, output = ci_lokalnie._run(step, root)
+        print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({time.monotonic() - started:.0f} s)", flush=True)
+        if not passed:
+            failed.append(step.name)
+            print("\n".join(output.rstrip().splitlines()[-ci_lokalnie.OUTPUT_ON_FAILURE :]), flush=True)
+    return failed
+
+
 def _describe(selection: Selection, changed: frozenset[str], base: str) -> str:
     if isinstance(selection, Full):
         return f"Zmiana: {len(changed)} plików od {base}. Testy: pełny zestaw ({selection.reason})."
@@ -300,14 +341,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     selection = select(ROOT, changed)
     print(_describe(selection, changed, args.baza), flush=True)
-    failed = []
-    for step in _steps(ROOT, selection):
-        started = time.monotonic()
-        passed, output = ci_lokalnie._run(step, ROOT)
-        print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({time.monotonic() - started:.0f} s)", flush=True)
-        if not passed:
-            failed.append(step.name)
-            print("\n".join(output.rstrip().splitlines()[-ci_lokalnie.OUTPUT_ON_FAILURE :]), flush=True)
+    failed = _run_all(_steps(ROOT, selection), ROOT)
+    if merge := _merge_with(args.baza):
+        with potomne.commit_copy(ROOT, merge) as copy:
+            failed += _run_all([_structure_after_merge(copy, args.baza)], copy)
     print(f"SZYBKO FAIL | {', '.join(failed)}" if failed else "SZYBKO OK")
     return 1 if failed else 0
 
