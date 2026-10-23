@@ -15,7 +15,8 @@ Raport informuje i nie blokuje: kod wyjścia 0, inny tylko przy błędnym użyci
 Ostatnia linia mówi, czy gałąź bieżącego checkoutu aktualizować z ``origin/main`` (rebase albo merge):
 ``AKTUALIZACJA: potrzebna``, gdy ``git merge-tree`` widzi konflikt albo gałąź i ``origin/main`` zmieniają
 od bazy scalenia ten sam plik, inaczej ``AKTUALIZACJA: niepotrzebna``. Liczą się commity, nie
-niezacommitowane pliki. Werdykt nie pobiera ``origin/main``: podaje commit ``origin/main``, z którym porównał, a gdy żaden fetch
+niezacommitowane pliki. W trakcie rebase odłączonego HEAD werdykt dotyczy commitu sprzed rebase.
+Werdykt nie pobiera ``origin/main``: podaje commit ``origin/main``, z którym porównał, a gdy żaden fetch
 w tym repozytorium nie potwierdził go w ostatniej godzinie, dopisuje to. ``git merge-tree`` dodaje do bazy
 obiektów tylko nieosiągalne obiekty scalenia, które usuwa ``git gc``.
 
@@ -332,7 +333,7 @@ def _overlaps(shared: list[tuple[WorkInProgress, frozenset[str]]]) -> list[str]:
 def _update_verdict(root: Path, branch: str | None) -> str:
     """Q9: gałąź aktualizuje się z ``origin/main`` tylko przy konflikcie albo pliku zmienionym po obu stronach."""
 
-    ref = "HEAD" if branch is None else f"refs/heads/{branch}"
+    ref = f"refs/heads/{branch}" if branch is not None else _before_rebase(root) or "HEAD"
     merged = subprocess.run(
         ["git", "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", ref, BASE],
         cwd=root,
@@ -353,6 +354,18 @@ def _update_verdict(root: Path, branch: str | None) -> str:
     else:
         verdict = "niepotrzebna (bez konfliktu, bez wspólnych plików)"
     return f"AKTUALIZACJA: {verdict}{_base_note(root)}"
+
+
+def _before_rebase(root: Path) -> str | None:
+    """Commit sprzed rebase odłączonego HEAD: w trakcie HEAD stoi na nowym ``origin/main``."""
+
+    state = Path(_git(root, "rev-parse", "--absolute-git-dir").strip())
+    for name in ("rebase-merge/orig-head", "rebase-apply/orig-head"):
+        try:
+            return (state / name).read_text(encoding="utf-8").strip() or None
+        except OSError:
+            continue
+    return None
 
 
 def _base_note(root: Path) -> str:

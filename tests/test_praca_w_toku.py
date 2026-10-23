@@ -298,6 +298,20 @@ def test_werdykt_mowi_gdy_zaden_fetch_nie_potwierdzil_origin_main_w_ostatniej_go
     assert _report(branch, "--aktualizacja") == f"{NIEPOTRZEBNA}{_compared(branch)}{note}\n"
 
 
+@pytest.mark.parametrize("backend", ["--merge", "--apply"])
+def test_rebase_odlaczonego_head_na_konflikcie_dotyczy_commitu_sprzed_rebase(tmp_path: Path, backend: str) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    _git(branch, "switch", "--detach")
+    _commit(branch, "inny.py", "x = 2\n", "przenosi się bez konfliktu")
+    _commit(branch, "wspolny.py", WSPOLNY.replace("a = 1", "a = 2"), "konflikt z main")
+    _merged_on_github(tmp_path, {"wspolny.py": WSPOLNY.replace("a = 1", "a = 3")})
+    _git(main, "fetch")
+    with pytest.raises(subprocess.CalledProcessError):
+        _git(branch, "rebase", backend, "origin/main")
+
+    assert _report(branch, "--aktualizacja") == f"AKTUALIZACJA: potrzebna (konflikt w: wspolny.py){_compared(branch)}\n"
+
+
 @pytest.mark.parametrize(
     ("repository", "verdict"),
     [
