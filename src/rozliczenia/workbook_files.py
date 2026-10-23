@@ -372,13 +372,35 @@ def is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def cell_datetime(value: object) -> datetime | None:
+    """Data i godzina z komórki ``DATA``; data bez godziny to północ, inna treść to ``None``."""
+
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    return None
+
+
 def header_columns(values: Sequence[object]) -> dict[str, int]:
     """Mapuje znormalizowane nagłówki na numery kolumn (od 1)."""
 
     return {normalize_text(value): column for column, value in enumerate(values, start=1) if not is_blank(value)}
 
 
-def read_data_rows(path: Path) -> list[DataRow]:
+@dataclass(frozen=True)
+class DataRows:
+    """Wiersze danych Pliku zbiorczego i nagłówki A17:K17 z tego samego odczytu.
+
+    ``header``: znormalizowany nagłówek (``header_columns``) → kolumna od 1. Przygotowanie zapisuje kolumny A:K pod
+    nagłówkami Wzorca, więc odczyt po nagłówku jest lustrem zapisu.
+    """
+
+    header: Mapping[str, int]
+    rows: list[DataRow]
+
+
+def read_data_rows(path: Path) -> DataRows:
     """Wiersze danych Pliku zbiorczego z Wyróżnieniami i Hiperłączami komórek w kolejności z pliku; plik jest tylko czytany.
 
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
@@ -424,7 +446,7 @@ def read_data_rows(path: Path) -> list[DataRow]:
             rows.append(DataRow(number, values, row_highlights, number_formats, links.row(number, values)))
     finally:
         workbook.close()
-    return rows
+    return DataRows(header_columns(header), rows)
 
 
 class _HighlightsReader:

@@ -23,7 +23,7 @@ def read_data_rows(path: Path) -> tuple[list[DataRow], list[Issue]]:
 
     rows: list[DataRow] = []
     issues: list[Issue] = []
-    for row in workbook_files.read_data_rows(path):
+    for row in workbook_files.read_data_rows(path).rows:
         if not str(row.worker or "").split():
             issues.append(
                 Issue("BRAK_WYKONAWCY", f"Wiersz {row.number} ma dane, ale nie ma wykonawcy w kolumnie {WORKER_HEADER.column}.")
