@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -203,6 +204,133 @@ def test_odlaczony_head_z_samym_merge_liczy_sie_z_niezacommitowanymi_plikami(che
     assert f"- odłączony HEAD {owner.resolve()}: inny.py, wspolny.py" in lines
 
 
+WSPOLNY = "a = 1\nb = 1\nc = 1\nd = 1\ne = 1\n"
+NIEPOTRZEBNA = "AKTUALIZACJA: niepotrzebna (bez konfliktu, bez wspólnych plików)"
+
+
+def _branch_from_main(tmp_path: Path) -> tuple[Path, Path]:
+    """Origin z ``main``, jego klon i worktree gałęzi ``feat/galaz`` z ``origin/main``; zwraca klon i worktree."""
+
+    origin, main, branch = tmp_path / "origin.git", tmp_path / "main", tmp_path / "galaz"
+    _git(tmp_path, "init", "--bare", "-b", "main", str(origin))
+    _git(tmp_path, "clone", str(origin), str(main))
+    _commit(main, "wspolny.py", WSPOLNY, "start")
+    _commit(main, "inny.py", "x = 1\n", "drugi plik")
+    _git(main, "push", "-u", "origin", "main")
+    _git(main, "worktree", "add", "-b", "feat/galaz", str(branch), "origin/main")
+    return main, branch
+
+
+def _compared(checkout: Path) -> str:
+    """Koniec werdyktu, który nazywa ``origin/main``, z którym porównano gałąź."""
+
+    return f" | origin/main {git(checkout, 'log', '-1', '--format=%h', 'origin/main')}"
+
+
+def _merged_on_github(tmp_path: Path, files: dict[str, str]) -> None:
+    """Commity na ``main`` z innego klonu, jak merge PR na GitHubie."""
+
+    github = tmp_path / "github"
+    _git(tmp_path, "clone", str(tmp_path / "origin.git"), str(github))
+    for path, content in files.items():
+        _commit(github, path, content, f"zmiana {path}")
+    _git(github, "push", "origin", "main")
+
+
+@pytest.mark.parametrize(
+    ("in_branch", "on_main", "verdict"),
+    [
+        pytest.param({"inny.py": "x = 2\n"}, {"wspolny.py": WSPOLNY.replace("a = 1", "a = 3")}, NIEPOTRZEBNA, id="bez konfliktu"),
+        pytest.param(
+            {"wspolny.py": WSPOLNY.replace("a = 1", "a = 2")},
+            {"wspolny.py": WSPOLNY.replace("a = 1", "a = 3")},
+            "AKTUALIZACJA: potrzebna (konflikt w: wspolny.py)",
+            id="konflikt",
+        ),
+        pytest.param(
+            {"wspolny.py": WSPOLNY.replace("a = 1", "a = 2")},
+            {"wspolny.py": WSPOLNY.replace("e = 1", "e = 3")},
+            "AKTUALIZACJA: potrzebna (bez konfliktu, wspólne pliki: wspolny.py)",
+            id="wspólny plik bez konfliktu",
+        ),
+        pytest.param({}, {}, NIEPOTRZEBNA, id="gałąź równa main"),
+    ],
+)
+def test_aktualizacja_z_main_tylko_przy_konflikcie_albo_wspolnym_pliku(
+    tmp_path: Path, in_branch: dict[str, str], on_main: dict[str, str], verdict: str
+) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    for path, content in in_branch.items():
+        _commit(branch, path, content, f"moja zmiana {path}")
+    if on_main:
+        _merged_on_github(tmp_path, on_main)
+    _git(main, "fetch")
+
+    assert _report(branch).splitlines()[-1] == f"{verdict}{_compared(branch)}"
+    assert _report(branch, "--aktualizacja") == f"{verdict}{_compared(branch)}\n"
+
+
+@pytest.mark.parametrize(
+    ("fetch", "note"),
+    [
+        pytest.param("w innym worktree", "", id="w innym worktree"),
+        pytest.param("sprzed 3 h", " z fetch sprzed 3 h, odśwież: git fetch origin", id="sprzed 3 h"),
+        pytest.param("brak", " bez śladu fetch, odśwież: git fetch origin", id="brak"),
+        pytest.param("z adresu, bez origin/main", " bez śladu fetch, odśwież: git fetch origin", id="z adresu, bez origin/main"),
+    ],
+)
+def test_werdykt_mowi_gdy_zaden_fetch_nie_potwierdzil_origin_main_w_ostatniej_godzinie(
+    tmp_path: Path, fetch: str, note: str
+) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    coordinator = tmp_path / "koordynator"
+    _git(main, "worktree", "add", "--detach", str(coordinator), "origin/main")
+    if fetch == "w innym worktree":
+        _git(coordinator, "fetch")
+    elif fetch == "sprzed 3 h":
+        _git(main, "fetch")
+        hours_ago = time.time() - 3 * 3600 - 60
+        os.utime(main / ".git" / "FETCH_HEAD", (hours_ago, hours_ago))
+    elif fetch == "z adresu, bez origin/main":
+        _merged_on_github(tmp_path, {"inny.py": "x = 2\n"})
+        _git(coordinator, "fetch", str(tmp_path / "origin.git"), "main")
+
+    assert _report(branch, "--aktualizacja") == f"{NIEPOTRZEBNA}{_compared(branch)}{note}\n"
+
+
+@pytest.mark.parametrize("backend", ["--merge", "--apply"])
+def test_rebase_odlaczonego_head_na_konflikcie_dotyczy_commitu_sprzed_rebase(tmp_path: Path, backend: str) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    _git(branch, "switch", "--detach")
+    _commit(branch, "inny.py", "x = 2\n", "przenosi się bez konfliktu")
+    _commit(branch, "wspolny.py", WSPOLNY.replace("a = 1", "a = 2"), "konflikt z main")
+    _merged_on_github(tmp_path, {"wspolny.py": WSPOLNY.replace("a = 1", "a = 3")})
+    _git(main, "fetch")
+    with pytest.raises(subprocess.CalledProcessError):
+        _git(branch, "rebase", backend, "origin/main")
+
+    assert _report(branch, "--aktualizacja") == f"AKTUALIZACJA: potrzebna (konflikt w: wspolny.py){_compared(branch)}\n"
+
+
+@pytest.mark.parametrize(
+    ("repository", "verdict"),
+    [
+        pytest.param("bez bazy scalenia", "AKTUALIZACJA: nieznana (git merge-tree: ", id="bez bazy scalenia"),
+        pytest.param("bez origin/main", "AKTUALIZACJA: nieznana (brak origin/main)\n", id="bez origin/main"),
+    ],
+)
+def test_gdy_git_nie_scali_galezi_z_main_werdykt_jest_nieznany(tmp_path: Path, repository: str, verdict: str) -> None:
+    main, branch = _branch_from_main(tmp_path)
+    if repository == "bez bazy scalenia":
+        _git(branch, "switch", "--orphan", "feat/bez-historii")
+        _commit(branch, "inny.py", "x = 9\n", "bez historii main")
+        _git(main, "fetch")
+    else:
+        _git(main, "update-ref", "-d", "refs/remotes/origin/main")
+
+    assert _report(branch, "--aktualizacja").startswith(verdict)
+
+
 @dataclass(frozen=True)
 class _Commit:
     name: str
@@ -232,6 +360,8 @@ _REMOTE = _Commit("zdalna", frozenset({"zdalny.py"}), on_remote=True)
 _MERGE = _Commit("merge", frozenset(), merge=True)
 _REMOTE_LATER = _Commit("zdalna-dalej", frozenset({"szkic.py"}), on_remote=True)
 _UNFETCHED = _Commit("niepobrana", frozenset({"pr-plik.py"}))
+# Obie strony przepisują jedyną linię pliku, więc plik zmieniony tu i w nowym main to konflikt.
+_MAIN_LATER = _Commit("nowy main", frozenset({"rebasowany.py"}))
 _GITHUB_ONLY = (
     _Checkout("zdalna", None, frozenset({_REMOTE, _REMOTE_LATER}), pr=9, pr_files=_REMOTE.files | _REMOTE_LATER.files),
     _Checkout("niepobrana", None, frozenset({_UNFETCHED}), pr=10, pr_files=_UNFETCHED.files),
@@ -243,7 +373,7 @@ _PULL_REQUESTS = {
 }
 
 
-def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> list[str]:
+def _expected_report(me: _Checkout, world: list[_Checkout], github: bool, compared: str) -> list[str]:
     """Raport ze specyfikacji w docstringu narzędzia, wyliczony z modelu świata, nie z Gita."""
 
     on_branches = {commit for side in world if side.branch is not None for commit in side.commits}
@@ -277,6 +407,9 @@ def _expected_report(me: _Checkout, world: list[_Checkout], github: bool) -> lis
             pr = f" (PR #{side.pr})" if github and side.pr is not None else ""
             overlaps.append(f"- {name}{pr}: {', '.join(sorted(shared))}")
     lines += ["NAKŁADANIA | pliki zmieniane tu i w innej pracy w toku", *overlaps] if overlaps else ["NAKŁADANIA | brak"]
+    clash = sorted(frozenset().union(*(commit.files for commit in me.commits)) & _MAIN_LATER.files)
+    verdict = f"potrzebna (konflikt w: {', '.join(clash)})" if clash else "niepotrzebna (bez konfliktu, bez wspólnych plików)"
+    lines.append(f"AKTUALIZACJA: {verdict}{compared} bez śladu fetch, odśwież: git fetch origin")
     return sorted(lines)
 
 
@@ -406,7 +539,7 @@ def _world(tmp_path: Path) -> list[_Checkout]:
     git(main, "switch", "--quiet", "main")
     git(main, "branch", "--quiet", "--delete", "--force", "zdalna")
 
-    (main / "rebasowany.py").write_text("x = 'main'\n", encoding="utf-8")
+    write(main, _MAIN_LATER.files)
     commit(main, "nowy main")
     git(main, "push", "--quiet", "origin", "main")
     for path, backend in ((rebasing, "--merge"), (rebasing_detached, "--merge"), (rebasing_apply, "--apply")):
@@ -428,11 +561,11 @@ def test_raport_zgodny_ze_specyfikacja_w_kazdym_stanie_repozytorium(tmp_path: Pa
     runs = {"ja": github, "ja-odlaczony": None, "ja-na-zdalnej": github, "rebasuje": None, "szuka": None}
 
     with ThreadPoolExecutor() as pool:
-        reports = dict(zip(runs, pool.map(lambda run: _report(by_name[run[0]][1], path=run[1]), runs.items())))
+        reports = dict(zip(runs, pool.map(lambda run: _report(by_name[run[0]][1], path=run[1]), runs.items()), strict=True))
 
     mismatches = []
     for name, report in reports.items():
-        expected = _expected_report(by_name[name][0], world, github=runs[name] is not None)
+        expected = _expected_report(by_name[name][0], world, github=runs[name] is not None, compared=_compared(tmp_path / "main"))
         actual = sorted(report.splitlines())
         mismatches += [f"{name}: brak {line}" for line in expected if line not in actual]
         mismatches += [f"{name}: nadmiar {line}" for line in actual if line not in expected]
