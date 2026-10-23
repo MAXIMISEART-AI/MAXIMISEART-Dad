@@ -1,4 +1,7 @@
-"""Dokumenty z regułami łamią linie tylko na końcu zdania: zmiana jednego słowa zmienia jedną linię, nie cały akapit."""
+"""Dokumenty z regułami łamią linie tylko na końcu zdania: zmiana jednego słowa zmienia jedną linię, nie cały akapit.
+
+``GLOSSARY.md`` i ``README.md`` są jeszcze łamane twardo, więc dołączą do ``DOCUMENTS`` po przeformatowaniu.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +11,14 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCUMENTS = ("AGENTS.md", "CODING_STANDARDS.md")
-FENCE = ("```", "~~~")
-BLOCK_START = re.compile(r"\s*(?:#|\||```|~~~|[-*+]\s|\d+\.\s)")
+FENCE = "```"
+NOT_PROSE = re.compile(r"\s*(?:#+\s|\||```)")
+LIST_ITEM = re.compile(r"\s*(?:-|\d+\.)\s")
 SENTENCE_END = re.compile(r"[.!?][)”\"*]*$")
+
+
+def _prose(line: str) -> bool:
+    return bool(line.strip()) and not NOT_PROSE.match(line)
 
 
 def _lines_broken_mid_sentence(text: str) -> Iterator[int]:
@@ -23,10 +31,9 @@ def _lines_broken_mid_sentence(text: str) -> Iterator[int]:
             fenced = not fenced
         elif (
             not fenced
-            and line.strip()
-            and not line.lstrip().startswith("#")
-            and following.strip()
-            and not BLOCK_START.match(following)
+            and _prose(line)
+            and _prose(following)
+            and not LIST_ITEM.match(following)
             and not SENTENCE_END.search(line.rstrip())
         ):
             yield number
@@ -42,13 +49,13 @@ def test_dokument_regul_lamie_linie_tylko_na_koncu_zdania() -> None:
     assert not broken, "\n".join(
         [
             *broken,
-            "Jedno zdanie na linię: dołącz następną linię do tej, a nową linię zaczynaj tylko od nowego zdania. "
-            "Kolejne zdanie elementu listy idzie w nowej linii z wcięciem kontynuacji (dwie spacje po „- ”).",
+            "Łam linię tylko na końcu zdania: dołącz następną linię do tej i zacznij nową linię dopiero od nowego "
+            "zdania. Nowe zdanie elementu listy wcinaj o szerokość jego znacznika (dwie spacje dla „- ”).",
         ]
     )
 
 
-def test_sprawdzenie_pomija_kod_i_tabele_a_wskazuje_kazde_lamanie_w_srodku_zdania() -> None:
+def test_sprawdzenie_pomija_kod_tabele_i_naglowki_a_wskazuje_lamanie_w_srodku_zdania() -> None:
     document = "\n".join(
         [
             "# Nagłówek bez kropki",
@@ -61,19 +68,26 @@ def test_sprawdzenie_pomija_kod_i_tabele_a_wskazuje_kazde_lamanie_w_srodku_zdani
             "- Element bez kropki",
             "1. Element numerowany bez kropki",
             "",
+            "Akapit łamany przed numerem PR",
+            "#285 ciągnie to samo zdanie.",
+            "Uruchom:",
             "```",
             "polecenie --flaga",
             "  --druga-flaga",
             "```",
-            "",
+            "Tekst przed nagłówkiem",
+            "## Nagłówek",
             "| kolumna | bez kropki |",
             "| --- | --- |",
             "",
             "Komunikat brzmi „Plik jest niedostępny.”",
             "(Całe zdanie w nawiasie.)",
+            'Napisz "gotowe."',
+            "**Pogrubione zdanie.**",
+            "Zdanie z wykrzyknikiem!",
             "Zdanie z pytaniem?",
             "Ostatnia linia bez kropki",
         ]
     )
 
-    assert list(_lines_broken_mid_sentence(document)) == [2, 5]
+    assert list(_lines_broken_mid_sentence(document)) == [2, 5, 11]
