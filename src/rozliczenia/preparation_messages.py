@@ -17,15 +17,16 @@ from dataclasses import dataclass
 from datetime import date
 from itertools import groupby
 from pathlib import Path
-from typing import Final
+from typing import Final, assert_never
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .period_folder import PeriodFolderLookupError, month_folder_label
 from .quantity_rules import DESCRIPTION_COLUMNS
 from .workbook_files import WORKER_HEADER
+from .workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
 from .worker_config import WorkerConfigError
 
-# Kody czytane poza katalogiem: decyzja o niepełnym okresie i problemy Wzorców w Konfiguracji Centrum.
+# Kod czytany poza katalogiem: decyzja o niepełnym okresie. Kody Wzorców czyta tylko ten katalog.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
 TEMPLATE_MISSING = "BRAK_WZORCA"
 TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"
@@ -86,7 +87,35 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
     )
 
 
-def template_missing(template_path: Path) -> Message:
+def template_unusable(template_path: Path, error: WorkbookError) -> Message:
+    """Wzorzec rozliczenia wewnętrznego albo Wzorzec pliku zbiorczego, którego nie da się użyć; ``error`` mówi dlaczego."""
+
+    match error.problem:
+        case Problem.MISSING:
+            return _template_missing(template_path)
+        case Problem.OPEN_IN_EXCEL:
+            return _template_open_in_excel(template_path)
+        case Problem.INACCESSIBLE:
+            return _template_inaccessible(template_path)
+        case Problem.UNREADABLE | Problem.HAS_DATA:
+            return _template_unreadable(template_path)
+        case Problem.LAYOUT:
+            match error.fault:
+                case MissingHeader(sheet=sheet, found_in=str(column)):
+                    return _template_with_worker_outside_h(template_path, sheet, column)
+                case MissingHeader(sheet=sheet, row=row, header=header):
+                    return _template_without_header(template_path, sheet, row, header)
+                case MergedCells(sheet=sheet, cells=cells):
+                    return _template_with_merged_cells(template_path, sheet, cells)
+                case None:
+                    return _template_unreadable(template_path)
+                case _:
+                    assert_never(error.fault)
+        case _:
+            assert_never(error.problem)
+
+
+def _template_missing(template_path: Path) -> Message:
     """Wzorzec rozliczenia wewnętrznego albo Wzorzec pliku zbiorczego nie istnieje."""
 
     return Message(
@@ -97,7 +126,7 @@ def template_missing(template_path: Path) -> Message:
     )
 
 
-def template_open_in_excel(template_path: Path) -> Message:
+def _template_open_in_excel(template_path: Path) -> Message:
     """Wzorzec ma obok plik blokady Excela ``~$…``; narzędzie go nie usuwa."""
 
     return Message(
@@ -112,7 +141,7 @@ def template_open_in_excel(template_path: Path) -> Message:
     )
 
 
-def template_inaccessible(template_path: Path) -> Message:
+def _template_inaccessible(template_path: Path) -> Message:
     """System nie oddał bajtów wzorca (np. plik zajęty przez inny program albo folder bez dostępu); to nie uszkodzenie.
 
     Wzorce leżą w ``config`` na dysku C, więc tata rzadko sam usunie przyczynę: Komunikat idzie do Maksa.
@@ -128,7 +157,7 @@ def template_inaccessible(template_path: Path) -> Message:
     )
 
 
-def template_unreadable(template_path: Path) -> Message:
+def _template_unreadable(template_path: Path) -> Message:
     """Wzorzec nie daje się odczytać jako skoroszyt .xlsx."""
 
     return Message(
@@ -142,7 +171,7 @@ def template_unreadable(template_path: Path) -> Message:
     )
 
 
-def template_without_header(template_path: Path, sheet: str, row: int, header: str) -> Message:
+def _template_without_header(template_path: Path, sheet: str, row: int, header: str) -> Message:
     """Wzorzec nie ma oczekiwanego nagłówka, więc nie wiadomo, gdzie wpisać zlecenia."""
 
     return Message(
@@ -156,7 +185,7 @@ def template_without_header(template_path: Path, sheet: str, row: int, header: s
     )
 
 
-def template_with_worker_outside_h(template_path: Path, sheet: str, column: str) -> Message:
+def _template_with_worker_outside_h(template_path: Path, sheet: str, column: str) -> Message:
     """Wzorzec pliku zbiorczego ma WYKONAWCA poza H17, a Przebieg rozliczeń czyta Wykonawcę z H17."""
 
     worker_column = WORKER_HEADER.column
@@ -172,7 +201,7 @@ def template_with_worker_outside_h(template_path: Path, sheet: str, column: str)
     )
 
 
-def template_with_merged_cells(template_path: Path, sheet: str, cell_range: str) -> Message:
+def _template_with_merged_cells(template_path: Path, sheet: str, cell_range: str) -> Message:
     """Komórki wzorca, do których trafiają zlecenia, są scalone."""
 
     return Message(
@@ -186,6 +215,22 @@ def template_with_merged_cells(template_path: Path, sheet: str, cell_range: str)
     )
 
 
+def register_unusable(register_path: Path, error: WorkbookError) -> Message:
+    """Rejestr zleceń, którego nie da się użyć; ``error`` mówi dlaczego."""
+
+    match error.problem:
+        case Problem.MISSING:
+            return register_missing(register_path)
+        case Problem.OPEN_IN_EXCEL:
+            return _register_open_in_excel(register_path)
+        case Problem.INACCESSIBLE:
+            return _register_inaccessible(register_path)
+        case Problem.UNREADABLE | Problem.LAYOUT | Problem.HAS_DATA:
+            return _register_unreadable(register_path)
+        case _:
+            assert_never(error.problem)
+
+
 def register_missing(register_path: Path) -> Message:
     """Rejestr zleceń nie istnieje pod wskazaną ścieżką."""
 
@@ -197,7 +242,7 @@ def register_missing(register_path: Path) -> Message:
     )
 
 
-def register_open_in_excel(register_path: Path) -> Message:
+def _register_open_in_excel(register_path: Path) -> Message:
     """Rejestr zleceń ma obok plik blokady Excela ``~$…``; narzędzie go nie usuwa."""
 
     return Message(
@@ -212,7 +257,7 @@ def register_open_in_excel(register_path: Path) -> Message:
     )
 
 
-def register_inaccessible(register_path: Path) -> Message:
+def _register_inaccessible(register_path: Path) -> Message:
     """System nie oddał bajtów Rejestru zleceń (np. zajęty przez inny program albo OneDrive bez sieci); to nie uszkodzenie."""
 
     return Message(
@@ -229,7 +274,7 @@ def register_inaccessible(register_path: Path) -> Message:
     )
 
 
-def register_unreadable(register_path: Path) -> Message:
+def _register_unreadable(register_path: Path) -> Message:
     """Rejestr zleceń nie daje się odczytać jako skoroszyt .xlsx."""
 
     return Message(
