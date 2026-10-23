@@ -319,6 +319,7 @@ FAST_PROGRAMS = frozenset({"git", "gh", "ps"})
 FAST_GIT = frozenset(
     {
         "branch",
+        "commit-tree",
         "config",
         "diff",
         "for-each-ref",
