@@ -365,3 +365,21 @@ def test_tag_wydania_wypycha_narzedzie_wydan_i_czlowiek_a_inny_tag_agent(checkou
 
     assert [by_tool.returncode, by_human.returncode, other.returncode] == [0, 0, 0], by_tool.stderr + other.stderr
     assert len(_git(checkout, "ls-remote", "--tags", "origin").stdout.splitlines()) == 3
+
+
+@pytest.mark.parametrize("value", ["0", "", "tak"], ids=["zero", "pusta", "inna"])
+def test_furtka_narzedzia_wydan_otwiera_sie_tylko_na_jedynke(checkout: Path, value: str) -> None:
+    _stub_ci_lokalnie(checkout, passes=True)
+    _git(checkout, "tag", "v0.2.0")
+
+    rejected = subprocess.run(
+        ["git", "push", "origin", "v0.2.0"],
+        cwd=checkout,
+        env=_environment("claude-code") | {"MAXIMISEART_WYDANIE": value},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert rejected.returncode != 0
+    assert _git(checkout, "ls-remote", "origin", "refs/tags/v0.2.0").stdout == ""
