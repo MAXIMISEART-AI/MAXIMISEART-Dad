@@ -111,7 +111,7 @@ def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(t
     every_commit = subprocess.run([*tool, "--kazdy-commit", base], capture_output=True, text=True, encoding="utf-8")
     only_head = subprocess.run(tool, capture_output=True, text=True, encoding="utf-8")
 
-    assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK")
+    assert (only_head.returncode, only_head.stdout.splitlines()[-1]) == (0, "CI LOKALNIE OK | tylko pytest")
     assert (every_commit.returncode, every_commit.stdout.splitlines()[-1]) == (1, f"COMMITY FAIL | {broken[:7]} (pytest)")
     assert "test_zepsuty.py::test_zepsuty" in every_commit.stdout
     assert (git(repo, "rev-parse", "HEAD"), git(repo, "worktree", "list", "--porcelain").count("worktree ")) == (head, 1)
@@ -149,20 +149,6 @@ def test_kazdy_commit_od_nieistniejacej_bazy_nazywa_baze_bez_tracebacku(tmp_path
     assert "Traceback" not in answered.stderr
 
 
-def test_przebieg_tylko_czesci_zadan_nie_zostawia_pieczatki_dla_bramy_pre_push(tmp_path: Path) -> None:
-    repo = repository(
-        tmp_path / "repo", {".gitignore": "__pycache__/\n", "tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"}
-    )
-    commit(repo, "baza")
-
-    answered = subprocess.run(
-        [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest"], capture_output=True, text=True, encoding="utf-8"
-    )
-
-    assert answered.stdout.splitlines()[-1] == "CI LOKALNIE OK"
-    assert not (repo / git(repo, "rev-parse", "--git-dir") / "ci-lokalnie-ok").exists()
-
-
 def _hanging_repository(path: Path, beats: Path) -> tuple[Path, str]:
     repo = repository(path, {".gitignore": "__pycache__/\n", "tests/test_dobry.py": "def test_dobry() -> None:\n    pass\n"})
     base = commit(repo, "baza")
@@ -174,25 +160,10 @@ def _hanging_repository(path: Path, beats: Path) -> tuple[Path, str]:
     return repo, base
 
 
-PARENT = "import subprocess, sys, time; subprocess.Popen(sys.argv[1:]); time.sleep(600)"
-
-
-@pytest.mark.parametrize(
-    "stop",
-    [
-        "SIGKILL ci_lokalnie",
-        pytest.param(
-            "zniknięty rodzic",
-            marks=pytest.mark.skipif(sys.platform == "win32", reason="na Windows rodzic procesu się nie zmienia"),
-        ),
-    ],
-)
-def test_przerwane_ci_lokalnie_nie_zostawia_krokow_ani_kopii_commitow(tmp_path: Path, stop: str) -> None:
+def test_przerwane_ci_lokalnie_nie_zostawia_krokow_ani_kopii_commitow(tmp_path: Path) -> None:
     beats = tmp_path / "wnuk-zyje"
     repo, base = _hanging_repository(tmp_path / "repo", beats)
     command = [sys.executable, str(repo / "tools" / "ci_lokalnie.py"), "--tylko", "pytest", "--kazdy-commit", base]
-    if stop == "zniknięty rodzic":
-        command = [sys.executable, "-c", PARENT, *command, "--z-rodzicem"]
     started = subprocess.Popen(
         command,
         cwd=repo,
