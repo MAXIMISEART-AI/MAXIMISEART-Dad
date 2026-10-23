@@ -10,7 +10,7 @@ pracownika. Wygląd ich komórek nie zależy od tego, co zostało w komórce Wzo
 - format liczby komórki źródłowej (Rejestru zleceń albo Pliku zbiorczego), a bez niej ogólny.
 
 Wiersz danych nie ma zapisanej wysokości, więc Excel dopasowuje ją do treści. Wszystkie drogi
-zapisu (openpyxl w ``preparation_files`` i ``workbook_files``, kopia Wzorca w ``template_copy``)
+zapisu (openpyxl w ``workbook_files``, kopia Wzorca w ``template_copy``)
 biorą wygląd komórki z ``RowLook.cell``, więc dają ten sam wynik.
 """
 
@@ -93,6 +93,6 @@ class RowLook:
 
 
 def wraps(value: object) -> bool:
-    """Zawijany jest tylko tekst z końcem linii."""
+    """Zawijany jest tylko tekst z końcem linii; ``\\r`` też nim jest, bo parser XML czyta je w komórce jako ``\\n``."""
 
-    return isinstance(value, str) and "\n" in value
+    return isinstance(value, str) and ("\n" in value or "\r" in value)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
+import os
 from pathlib import Path
 import time
 
@@ -22,8 +23,6 @@ from rozliczenia.domain import (
 )
 from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.message import StopError
-from rozliczenia.workbook_files import ExternalLinksError
-import rozliczenia.workbook_files as workbook_files
 
 from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
@@ -417,11 +416,16 @@ def test_progress_projection_accepts_przygotowanie_pliku_zbiorczego_interrupted_
     projection = ProgressProjection()
     save_s = 0.05
 
-    def fail_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
-        time.sleep(save_s)
-        raise ExternalLinksError("wymuszony błąd")
+    real_replace = os.replace
 
-    monkeypatch.setattr(workbook_files, "save_workbook", fail_save)
+    def fail_replacing_period_file(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).suffix != ".xlsx":
+            real_replace(source, target)
+            return
+        time.sleep(save_s)
+        raise OSError("wymuszony błąd")
+
+    monkeypatch.setattr(os, "replace", fail_replacing_period_file)
 
     with pytest.raises(StopError):
         run_preparation(fixture, observer=projected(projection))
@@ -1193,18 +1197,18 @@ def test_stage_times_ended_before_zapisywanie_stay_unchanged_after_measured_zapi
 ) -> None:
     fixture = make_preparation_fixture(tmp_path)
     save_s = 0.05
-    real_save_workbook = workbook_files.save_workbook
+    real_replace = os.replace
     ended_before_saving: dict[ProgressPhase, int | None] = {}
 
-    def slow_save(workbook: Workbook, target: Path, *, external_links_from: Path | None = None) -> None:
+    def slow_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
         time.sleep(save_s)
-        real_save_workbook(workbook, target, external_links_from=external_links_from)
+        real_replace(source, target)
 
     def observer(event: ProgressEvent) -> None:
         if isinstance(event, PhaseEnded) and event.phase is not ProgressPhase.SAVING:
             ended_before_saving[event.phase] = event.phase_elapsed_ms
 
-    monkeypatch.setattr(workbook_files, "save_workbook", slow_save)
+    monkeypatch.setattr(os, "replace", slow_replace)
 
     summary = run_preparation(fixture, observer=observer)
 

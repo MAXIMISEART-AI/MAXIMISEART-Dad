@@ -12,7 +12,7 @@ from .message import StopError
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner
 from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import DataRow, Problem, WorkbookError, WorkerSettlementTemplate
+from .workbook_files import DataRow, Problem, TemplateFile, WorkbookError
 from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
 
 
@@ -101,7 +101,7 @@ def run_settlements(
     config_path = config_path.expanduser().resolve()
     worker_template_path = (worker_template_path or default_worker_template_path()).expanduser().resolve()
 
-    def check_inputs() -> tuple[PeriodFolder, dict[str, str], WorkerSettlementTemplate]:
+    def check_inputs() -> tuple[PeriodFolder, dict[str, str], TemplateFile]:
         try:
             workbook_files.ensure_available(source_path)
         except WorkbookError as error:

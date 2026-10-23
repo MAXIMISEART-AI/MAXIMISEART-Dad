@@ -4,8 +4,9 @@ Przebieg rozliczeń writes every Rozliczenie pracownika with ``template_copy.py`
 Wiersze danych into the bytes of the Wzorzec rozliczenia pracownika instead of loading and saving the
 workbook with openpyxl. This checker generates Wiersze danych with Hypothesis (every value type a cell
 can hold, edge texts and numbers, Wyróżnienia, Hiperłącza, row counts on both sides of each compression chunk boundary), writes
-them through the real ``WorkerSettlementTemplate.create_settlement()`` and, as the reference, through
-the old openpyxl path (``file_from_template`` + ``write_data_rows``), and checks five rules:
+them through the real ``TemplateFile.create()`` and, as the reference, through the old openpyxl path: the
+same ``TemplateFile.create()`` on a twin of the Wzorzec that the copy refuses (an XML comment in its sheet
+data, which openpyxl skips). It checks five rules:
 
 - WIERNA_KOPIA: the two files are the same for what Dad sees in Excel, as judged by the benchmark's
   correctness gate (``tools/porownanie_rozliczen.py``): values, formulas, resolved styles with Wyróżnienia,
@@ -28,7 +29,7 @@ the old openpyxl path (``file_from_template`` + ``write_data_rows``), and checks
   references match, sheet elements in schema order, a content type for every part, unique relationship ids and
   every hyperlink pointing at an external hyperlink relationship.
 
-One Hypothesis example is one Przebieg rozliczeń: one ``WorkerSettlementTemplate`` loaded once and
+One Hypothesis example is one Przebieg rozliczeń: one ``TemplateFile`` loaded once and
 1 to 3 Rozliczenia pracowników made from it in a row, as ``run_settlements()`` does for its workers.
 """
 
@@ -49,6 +50,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from unittest import mock
 from xml.etree import ElementTree
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -58,6 +60,9 @@ sys.path[:0] = [str(SOURCE_ROOT), str(REPO_ROOT / "tools"), str(REPO_ROOT)]
 from hypothesis import HealthCheck, Phase, example, given, seed, settings  # noqa: E402
 from hypothesis import strategies as st  # noqa: E402
 from hypothesis.internal.conjecture import engine as hypothesis_engine  # noqa: E402
+from hypothesis.internal.cache import LRUCache  # noqa: E402
+from hypothesis.internal.conjecture import providers as hypothesis_providers  # noqa: E402
+from hypothesis.internal.constants_ast import Constants  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
 from openpyxl.cell.rich_text import CellRichText, TextBlock  # noqa: E402
 from openpyxl.cell.text import InlineFont  # noqa: E402
@@ -69,10 +74,10 @@ import porownanie_rozliczen as gate  # noqa: E402
 from rozliczenia import workbook_files  # noqa: E402
 from rozliczenia.highlights import PLAIN, Highlights  # noqa: E402
 from rozliczenia.hyperlinks import Hyperlink  # noqa: E402
-from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, WorkerSettlementTemplate, file_from_template  # noqa: E402
+from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, TemplateFile  # noqa: E402
 from syntetyczne_wzorce import write_settlement_template  # noqa: E402
 from tests.fixtures.settlement import write_template  # noqa: E402
-from tests.fixtures.workbooks import add_external_link_fixture  # noqa: E402
+from tests.fixtures.workbooks import add_external_link_fixture, has_xml_comment, refused_by_copy  # noqa: E402
 
 VERIFIED_FILE = "template_copy.py"
 SHEET = "xl/worksheets/sheet1.xml"
@@ -201,33 +206,41 @@ class Template:
         return sorted(count for count in counts if 0 <= count <= self.max_rows)
 
 
-def build_templates(directory: Path, real_template: Path | None) -> list[Template]:
-    """The synthetic Wzorce, or only Dad's real Wzorzec when it is given."""
+SYNTHETIC_TEMPLATES = ("syntetyczny", "maly")
+
+
+def build_templates(directory: Path, real_template: Path | None, names: Sequence[str] = SYNTHETIC_TEMPLATES) -> list[Template]:
+    """The synthetic Wzorce in ``names``, or only Dad's real Wzorzec when it is given."""
 
     if real_template is not None:
         copied = directory / "wzorzec-taty.xlsx"
         shutil.copyfile(real_template, copied)
         return [Template.of("wzorzec-taty", f"prawdziwy Wzorzec: {real_template.name}", copied, max_rows=700)]
-    synthetic = directory / "syntetyczny.xlsx"
-    write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
-    small = directory / "maly.xlsx"
-    write_template(small)
-    add_external_link_fixture(small)
-    templates = [
-        Template.of(
-            "syntetyczny",
-            "kształt Wzorca taty z tools/syntetyczne_wzorce.py, 200 Wierszy danych: wspólne formuły, calcChain, "
-            "link zewnętrzny, komentarz z relacjami arkusza rId1 i rId2, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
-            synthetic,
-            max_rows=260,
-        ),
-        Template.of(
-            "maly",
-            "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz, bez relacji arkusza",
-            small,
-            max_rows=80,
-        ),
-    ]
+    templates = []
+    if "syntetyczny" in names:
+        synthetic = directory / "syntetyczny.xlsx"
+        write_settlement_template(synthetic, "GODZINA", data_rows=200, comments=True)
+        templates.append(
+            Template.of(
+                "syntetyczny",
+                "kształt Wzorca taty z tools/syntetyczne_wzorce.py, 200 Wierszy danych: wspólne formuły, calcChain, "
+                "link zewnętrzny, komentarz z relacjami arkusza rId1 i rId2, wiersze zer w N:V i X, A i B bez komórek od wiersza 139",
+                synthetic,
+                max_rows=260,
+            )
+        )
+    if "maly" in names:
+        small = directory / "maly.xlsx"
+        write_template(small)
+        add_external_link_fixture(small)
+        templates.append(
+            Template.of(
+                "maly",
+                "skoroszyt zapisany przez openpyxl, dwa sformatowane Wiersze danych, drugi arkusz, bez relacji arkusza",
+                small,
+                max_rows=80,
+            )
+        )
     return templates
 
 
@@ -402,7 +415,7 @@ def _data_row(
     cells = marked or {}
     hyperlinks = {index + 1: Hyperlink(address) for index, address in (links or {}).items()}
     highlights = tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS))
-    return DataRow(FIRST_DATA_ROW, values[7], values, highlights, number_formats or _source_formats(values), hyperlinks)
+    return DataRow(FIRST_DATA_ROW, values, highlights, number_formats or _source_formats(values), hyperlinks)
 
 
 # Number formats a Plik zbiorczy cell can carry: built-in ones, Dad's date format, and custom codes with quotes,
@@ -512,9 +525,14 @@ def _attempt(target: Path, write: Callable[[], None]) -> Attempt:
     return Attempt(target, None)
 
 
-def _write_with_openpyxl(template: Path, target: Path, rows: Sequence[DataRow]) -> None:
-    with file_from_template(template, target, Layout.COLLECTIVE, recalculate=True) as sheet:
-        sheet.write_data_rows([replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows])
+def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow], via_copy: bool) -> None:
+    """The reference; it gets the text an XML reader reads (``_xml_line_ends``) only when the copy wrote the file."""
+
+    if via_copy:
+        rows = [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
+    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(target, rows)
+    if has_xml_comment(target):
+        raise AssertionError("bliźniak Wzorca poszedł kopią: wzorzec porównania nie jest drogą openpyxl")
 
 
 def _xml_line_ends(value: Any) -> Any:
@@ -524,7 +542,8 @@ def _xml_line_ends(value: Any) -> Any:
     Windows every ``\\n`` is written as ``\\r\\n`` and a raw ``\\r\\n`` in a value comes back as two line
     breaks. The copy writes bytes and is the same on every system. Giving the reference the text an XML
     reader would read anyway keeps the reference independent of the system; the copy still gets the raw
-    ``\\r``, so dropping or mangling it would still be a divergence.
+    ``\\r``, so dropping or mangling it would still be a divergence. When the copy itself takes the old path,
+    the reference gets the raw text as well: both are openpyxl, and its Windows quirk is not checked.
     """
 
     if isinstance(value, str):
@@ -535,17 +554,17 @@ def _xml_line_ends(value: Any) -> Any:
 
 
 class Routes:
-    """Which path ``create_settlement`` took: the copy, or the old openpyxl path (``_create_with_openpyxl``)."""
+    """Which path ``TemplateFile.create`` took: the copy, or the old openpyxl path (``_create_with_openpyxl``)."""
 
     def __init__(self) -> None:
         self.fallbacks: list[Path] = []
-        original = WorkerSettlementTemplate._create_with_openpyxl
+        original = TemplateFile._create_with_openpyxl
 
-        def recording(worker: WorkerSettlementTemplate, target: Path, rows: Sequence[DataRow]) -> None:
+        def recording(worker: TemplateFile, target: Path, rows: Sequence[DataRow]) -> None:
             self.fallbacks.append(target)
             original(worker, target, rows)
 
-        setattr(WorkerSettlementTemplate, "_create_with_openpyxl", recording)
+        setattr(TemplateFile, "_create_with_openpyxl", recording)
 
 
 @dataclass
@@ -558,6 +577,7 @@ class Statistics:
     unexplained: Counter[str] = field(default_factory=Counter)  # refusals of Wiersze danych without a rare value
     max_rows: int = 0
     chunk_rows_reached: set[int] = field(default_factory=set)
+    violated: bool = False  # from the first counterexample on, every part checks every example Hypothesis shrinks
 
 
 def check_settlement(
@@ -607,7 +627,7 @@ def _look_divergences(template: Template, path: Path, rows: Sequence[DataRow]) -
         for column in range(1, LOOK_COLUMNS + 1):
             cell = sheet.cell(number, column)
             value = row.values[column - 1]
-            wraps = isinstance(value, str) and "\n" in value
+            wraps = isinstance(value, str) and ("\n" in value or "\r" in value)  # Excel czyta \r w tekście jako koniec linii
             sides = [
                 (side.style, side.color.indexed if side.color is not None else None)
                 for side in (cell.border.left, cell.border.right, cell.border.top, cell.border.bottom)
@@ -929,16 +949,27 @@ class Violation(AssertionError):
 
 @dataclass
 class Run:
+    """Checks examples; part ``part`` of ``parts`` compares only every ``parts``-th example of each Wzorzec.
+
+    Every part writes every Rozliczenie pracownika through the copy, so the coverage it reports is that of all
+    examples; the rules (the openpyxl reference and the comparison, most of the time) run in one part per example.
+    Hypothesis generates the same examples in every part, as no check fails until a counterexample.
+    """
+
     routes: Routes
     statistics: dict[str, Statistics]
+    part: int = 0
+    parts: int = 1
 
     def check(self, case: Case) -> None:
         template = case.template
         statistics = self.statistics[template.name]
+        compared = statistics.violated or statistics.examples % self.parts == self.part
         statistics.examples += 1
         divergences: list[tuple[int, Divergence]] = []
         with tempfile.TemporaryDirectory(prefix="kopia-wzorca-") as scratch:
-            worker = WorkerSettlementTemplate(template.path)
+            twin = refused_by_copy(Path(shutil.copy(template.path, Path(scratch) / "bliźniak Wzorca.xlsx"))) if compared else None
+            worker = TemplateFile(template.path, Layout.WORKER_SETTLEMENT)
             worker.check()
             for index, rows in enumerate(case.workers, start=1):
                 copy_folder, reference_folder = Path(scratch) / f"kopia-{index}", Path(scratch) / f"openpyxl-{index}"
@@ -946,14 +977,18 @@ class Run:
                 reference_folder.mkdir()
                 name = f"Rozliczenie 08_14_09_2026 - Wykonawca {index}.xlsx"
                 fallbacks = len(self.routes.fallbacks)
-                copy = _attempt(copy_folder / name, lambda: worker.create_settlement(copy_folder / name, rows))
+                copy = _attempt(copy_folder / name, lambda: worker.create(copy_folder / name, rows))
                 via_copy = len(self.routes.fallbacks) == fallbacks
-                reference = _attempt(reference_folder / name, lambda: _write_with_openpyxl(template.path, reference_folder / name, rows))
+                reference = (
+                    _attempt(reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows, via_copy))
+                    if twin is not None
+                    else None
+                )
                 route = "odmowa" if copy.refusal else "kopia" if via_copy else "droga openpyxl"
                 statistics.settlements[route] += 1
                 if copy.refusal:
                     statistics.refusals[copy.refusal] += 1
-                refusal = copy.refusal or reference.refusal
+                refusal = copy.refusal or (reference.refusal if reference is not None else None)
                 if refusal and not any(is_rare(value) for row in rows for value in row.values):
                     statistics.unexplained[refusal] += 1
                 statistics.max_rows = max(statistics.max_rows, len(rows))
@@ -962,10 +997,12 @@ class Run:
                     statistics.linked += _linked(rows)
                     last = FIRST_DATA_ROW + len(rows) - 1
                     statistics.chunk_rows_reached.update(row for row in template.chunk_rows[1:] if row <= last + 1)
-                divergences += [(index, divergence) for divergence in check_settlement(template, copy, reference, rows, via_copy)]
+                if reference is not None:
+                    divergences += [(index, divergence) for divergence in check_settlement(template, copy, reference, rows, via_copy)]
         if template.path.read_bytes() != template.content:
             divergences.append((0, Divergence("NIETKNIETY_WZORZEC", "plik Wzorca na dysku się zmienił")))
         if divergences:
+            statistics.violated = True
             raise Violation(case, divergences)
 
 
@@ -1003,7 +1040,7 @@ def story(case: Case, divergences: Sequence[tuple[int, Divergence]]) -> list[str
     lines = [
         f"  Wzorzec {template.name} ({template.description}); kawałki kompresji kopii od wierszy "
         f"{', '.join(map(str, template.chunk_rows))}.",
-        "  1. Przebieg rozliczeń wczytuje Wzorzec raz (WorkerSettlementTemplate.check).",
+        "  1. Przebieg rozliczeń wczytuje Wzorzec raz (TemplateFile.check).",
     ]
     for index, rows in enumerate(case.workers, start=1):
         if not rows:
@@ -1048,26 +1085,37 @@ def run_check(
     random_seed: int | None = None,
     shrink: bool = True,
     real_template: Path | None = None,
+    template_names: Sequence[str] = SYNTHETIC_TEMPLATES,
+    part: tuple[int, int] = (0, 1),
 ) -> Outcome:
+    if not 0 <= part[0] < part[1]:
+        raise ValueError(f"część {part[0]} spoza 0..{part[1] - 1}")
     started = clock.perf_counter()
     lines: list[str] = []
     if hasattr(hypothesis_engine, "MAX_SHRINKING_SECONDS"):
         hypothesis_engine.MAX_SHRINKING_SECONDS = SHRINK_SECONDS
     with tempfile.TemporaryDirectory(prefix="kopia-wzorca-wzorce-") as scratch:
-        templates = build_templates(Path(scratch), real_template)
-        run = Run(Routes(), {template.name: Statistics() for template in templates})
+        templates = build_templates(Path(scratch), real_template, template_names)
+        run = Run(Routes(), {template.name: Statistics() for template in templates}, *part)
         phases = [Phase.explicit, Phase.generate] + ([Phase.shrink] if shrink else [])
         failures: list[Violation] = []
         errors: list[str] = []
         for template in templates:
             # Each Wzorzec gets its own Hypothesis run with the full budget of examples.
-            explicit = [Case(template, (_value_rows(),)), _longest_example(template)]
+            explicit = [Case(template, (_value_rows(),)), _longest_example(template), *_carriage_return_examples(template)]
             missing_cells = _missing_cells_example(template)
             if missing_cells is not None:
                 explicit.append(missing_cells)
             test = _property(run, template, explicit, examples, random_seed, phases)
             try:
-                test()
+                # Hypothesis draws about one value in forty from the literals of the non-test modules loaded in the
+                # process and keeps the ones it may draw in a cache shared by every Hypothesis run in the process.
+                # Without both the test alone and the full pytest check the same examples (#288).
+                with (
+                    mock.patch.object(hypothesis_providers, "_get_local_constants", Constants),
+                    mock.patch.object(hypothesis_providers, "CONSTANTS_CACHE", LRUCache(1024)),
+                ):
+                    test()
             except Violation as violation:
                 failures.append(violation)
             except BaseExceptionGroup as group:
@@ -1110,7 +1158,8 @@ def run_check(
         lines += story(failure.case, failure.divergences)
     gaps += errors
     lines += [f"LUKA SPRAWDZENIA: {gap}" for gap in gaps]
-    lines.append(f"Czas: {clock.perf_counter() - started:.0f} s, {examples} przykładów na Wzorzec.")
+    share = f", porównana część {part[0] + 1} z {part[1]}" if part[1] > 1 else ""
+    lines.append(f"Czas: {clock.perf_counter() - started:.0f} s, {examples} przykładów na Wzorzec{share}.")
     if errors:
         return Outcome(2, [*lines, f"KOPIA WZORCA: LUKA SPRAWDZENIA ({len(gaps)})"])
     if failures:
@@ -1161,6 +1210,21 @@ def _longest_example(template: Template) -> Case:
     values = ("syntetyczne miasto",) + (None,) * 4 + ("ZL-SYN-1",) + (None,) * 7 + (1,) + (None,) * (DATA_COLUMNS - 14)
     row = _data_row(values, links={ORDER_NUMBER - 1: EDGE_ADDRESSES[0]})
     return Case(template, ((row,) * template.max_rows,))
+
+
+def _carriage_return_examples(template: Template) -> list[Case]:
+    """Text with a lone ``\\r`` in a look column after an empty Rozliczenie pracownika: Excel reads it as a line break.
+
+    Counterexamples from CI: A18='\\r' on ``maly`` and B18='x\\rxD&' on ``syntetyczny``. The third, from CI on
+    Windows: AC='linia 1\\r\\nlinia 2\\r' beside b'bajty', which sends the file down the old path with the raw text.
+    """
+
+    old_path = (None,) * 26 + (b"bajty", None, "linia 1\r\nlinia 2\r") + (None,) * (DATA_COLUMNS - 29)
+    return [
+        Case(template, ((), (_data_row(("\r",) + (None,) * (DATA_COLUMNS - 1)),))),
+        Case(template, ((), (_data_row((None, "x\rxD&") + (None,) * (DATA_COLUMNS - 2)),))),
+        Case(template, ((_data_row(old_path),),)),
+    ]
 
 
 def _missing_cells_example(template: Template) -> Case | None:

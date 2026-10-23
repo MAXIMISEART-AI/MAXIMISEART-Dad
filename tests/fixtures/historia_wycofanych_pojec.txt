@@ -1,0 +1,78 @@
+# Linie z pojęciem wycofanym przez ADR, które opisują historię: plik, tabulator i cała linia bez wcięcia.
+# Wiersz z „# ” podaje powód dla wierszy pod nim. Wiersz, którego linii już nie ma, wywraca
+# tests/test_wycofane_pojecia.py; zdanie o tym, co jest dziś, nie należy tutaj, także w starszym ADR-ze.
+
+# odznaka .cmd oznacza stare Uruchomienia z dawnych launcherów i CLI (ADR 0011, „Historia bez zmian”)
+README.md	Mają odznakę `.cmd`: to stare Uruchomienia z dawnych launcherów i CLI oraz
+src/rozliczenia/centrum/contract.py	rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
+src/rozliczenia/centrum/run_origins.py	``.cmd``: stare Uruchomienia taty z dawnych launcherów i CLI oraz rekordy ze
+
+# Git biegnie bez terminala
+src/rozliczenia/centrum/tool_update.py	terminala, bez pomocnika logowania i bez okna konsoli w Windows. Każde kończy
+
+# tekst błędu Gita
+src/rozliczenia/centrum/tool_update.py	_LOGIN_SIGNS: Final = ("terminal prompts disabled", "could not read username", "could not read password", "authentication failed")
+
+# starszy ADR sprzed ADR-u, który wycofał pojęcie; jego Status prowadzi do tego ADR-u
+docs/adr/0001-local-deterministic-settlement-engine.md	uruchomienia tego samego silnika: `Utwórz rozliczenia.cmd` oraz adapter VBA w
+docs/adr/0001-local-deterministic-settlement-engine.md	Jest testowalny i lokalny, ale sam terminal byłby mniej wygodny dla taty.
+docs/adr/0002-progress-event-observation.md	[ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa adaptery plain i Rich
+docs/adr/0002-progress-event-observation.md	oraz CLI: jedynym podglądem postępu jest Centrum rozliczeń, a projekcja zwraca
+docs/adr/0002-progress-event-observation.md	sam snapshot bez faktów, które czytał tylko terminal. Zmieniona 2026-10-22:
+docs/adr/0002-progress-event-observation.md	postępu rozmówcy. Adapter plain i adapter Rich renderują wyłącznie
+docs/adr/0002-progress-event-observation.md	liczników ani stanów faz. Podgląd postępu terminala
+docs/adr/0002-progress-event-observation.md	(`terminal_conversation`) koordynuje wybór adaptera.
+docs/adr/0002-progress-event-observation.md	silnika. Uruchomienie CLI zawsze obserwuje postęp.
+docs/adr/0002-progress-event-observation.md	Wykonawcy i wyniku Przetworzenia Szablonu pracownika dla trybu Rich i fallbacku
+docs/adr/0002-progress-event-observation.md	- CLI może zmieniać sposób prezentacji bez ponownego interpretowania zdarzeń.
+docs/adr/0002-progress-event-observation.md	- Zmiana reguł projekcji nie wymaga zsynchronizowanej zmiany adapterów Rich i
+docs/adr/0002-progress-event-observation.md	- Awaria adaptera terminala nie zmienia wyniku, zapisu ani kodu wyjścia silnika;
+docs/adr/0002-progress-event-observation.md	- Zwykłe CLI obserwuje postęp; bez Rich używa adaptera plain z tą samą
+docs/adr/0003-cli-only-launcher.md	# ADR 0003: Tylko CLI uruchamiane przez CMD, bez adaptera VBA
+docs/adr/0003-cli-only-launcher.md	uruchamianiu procesów wyłącznie przez CLI zastąpiona przez
+docs/adr/0003-cli-only-launcher.md	[ADR 0011](0011-bez-cli-i-adapterow-terminala.md): CLI procesów zniknęło, a
+docs/adr/0003-cli-only-launcher.md	są uruchamiane wyłącznie przez CLI Pythona. Dla taty każdy proces ma własny
+docs/adr/0003-cli-only-launcher.md	CLI, nie dając tacie nowych możliwości. Docelowo cały proces taty ma działać
+docs/adr/0003-cli-only-launcher.md	jako jedna całość w tle, a to łatwiej osiągnąć z jednego wejścia CLI niż z
+docs/adr/0004-centrum-rozliczen-adapter.md	której procesy są uruchamiane wyłącznie przez CLI i launchery `.cmd`.
+docs/adr/0004-centrum-rozliczen-adapter.md	launchery `.cmd` znikają, Centrum jest jedynym wejściem taty, a CLI zostaje
+docs/adr/0004-centrum-rozliczen-adapter.md	[ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa CLI i adaptery
+docs/adr/0004-centrum-rozliczen-adapter.md	terminala: procesy mają jedną rozmowę z tatą, w Centrum, a Komunikat nie ma
+docs/adr/0004-centrum-rozliczen-adapter.md	linii terminala (`terminal_line`).
+docs/adr/0004-centrum-rozliczen-adapter.md	samych procesów: CLI z launcherami `.cmd` jako ścieżkę zapasową oraz Centrum
+docs/adr/0004-centrum-rozliczen-adapter.md	Centrum jest trzecim adapterem obok plain i Rich. Reguły procesów pozostają
+docs/adr/0004-centrum-rozliczen-adapter.md	bezpieczne komunikaty procesu wspólne z terminalem. Adresy klientów, numery
+docs/adr/0004-centrum-rozliczen-adapter.md	terminal i Centrum biorą go stamtąd, nigdy z `str()` wyjątku.
+docs/adr/0004-centrum-rozliczen-adapter.md	Komunikaty w Centrum mają tę samą treść co w terminalu, ale inną postać:
+docs/adr/0004-centrum-rozliczen-adapter.md	komunikatów, a nie linie terminala do parsowania. Linie wyłącznie terminalowe
+docs/adr/0004-centrum-rozliczen-adapter.md	- zgodę na niepełny okres wyraża się w terminalu wpisaniem `t`, a w Centrum
+docs/adr/0004-centrum-rozliczen-adapter.md	- terminal Przebiegu rozliczeń pokazuje zatrzymanie dawną jedną linią, a
+docs/adr/0004-centrum-rozliczen-adapter.md	Launchery `.cmd` i CLI zostają bez zmian. Ich porzucenie to osobna, przyszła
+docs/adr/0004-centrum-rozliczen-adapter.md	Terminal nie jest miejscem pracy taty: każde Uruchomienie procesu to okno
+docs/adr/0004-centrum-rozliczen-adapter.md	CLI. Centrum nie powtarza tych kosztów: działa w tym samym procesie co silnik i
+docs/adr/0004-centrum-rozliczen-adapter.md	działający w tle, jest bliżej z Centrum niż z terminala.
+docs/adr/0004-centrum-rozliczen-adapter.md	- Moduł Uruchomienia procesu wydziela rdzeń, z którym rozmawiają terminal i
+docs/adr/0004-centrum-rozliczen-adapter.md	to stan czekający na odpowiedź taty, nie pytanie w terminalu. Czas czekania
+docs/adr/0004-centrum-rozliczen-adapter.md	- Wejście CLI zachowuje dzisiejsze zachowanie, a jego testy pilnują regresji
+docs/adr/0004-centrum-rozliczen-adapter.md	- Serwer prowadzi jedno Uruchomienie procesu naraz. Między CLI a Centrum nie ma
+docs/adr/0004-centrum-rozliczen-adapter.md	jak awaria adaptera terminala (ADR 0002). Dotyczy to obserwatora postępu;
+docs/adr/0004-centrum-rozliczen-adapter.md	terminalu, więc jego awaria to błąd po silniku z Komunikatem z katalogu
+docs/adr/0006-uklad-folderow-taty-i-wspolne-ustawienia.md	launchery `.cmd` i CLI nie zostają bez zmian, tylko czytają Ustawienia taty z
+docs/adr/0006-uklad-folderow-taty-i-wspolne-ustawienia.md	taty czyta dalej CLI. [ADR 0011](0011-bez-cli-i-adapterow-terminala.md) usuwa
+docs/adr/0006-uklad-folderow-taty-i-wspolne-ustawienia.md	CLI: Ustawienia taty czyta tylko Centrum rozliczeń.
+docs/adr/0006-uklad-folderow-taty-i-wspolne-ustawienia.md	pokazują tylko dla tego, czego brak. Argumenty CLI mają pierwszeństwo przed
+docs/adr/0006-uklad-folderow-taty-i-wspolne-ustawienia.md	- Testy CLI nie czytają Ustawień taty z katalogu narzędzia; test, który ich
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	czyta CLI, nie launchery.
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	[ADR 0011](0011-bez-cli-i-adapterow-terminala.md) zmienia punkt „CLI zostaje
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	jako narzędzie osoby utrzymującej”: CLI znika, a E2E, straż czasu i benchmark
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	Zatrzymaniu ma Diagnozę i Zgłoszenie do Maksa. CLI umie poza tym przyjąć Plik
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	`t`/`n` i oknami wyboru z terminala. Każda zmiana procesu wymaga sprawdzenia
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	polecenie `py -3 -m pip install -r requirements.txt` w terminalu; obok niego
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	- **CLI zostaje jako narzędzie osoby utrzymującej.** `run.py` i
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	`run_preparation.py` z rdzeniem rozmowy terminala obsługują E2E w CI, pomiar
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	terminalu (okna wyboru, wpisany okres) nie mają wierszy w instrukcji taty.
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	Usunięcie CLI i adapterów terminala to osobna decyzja.
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	zostają: oznaczają Uruchomienia z dawnych launcherów i z CLI.
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	CLI zostaje, bo opierają się na nim weryfikacja end-to-end, bramka czasu w CI
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	procesu bez terminala to osobna praca. Nie musi blokować uproszczenia pracy
+docs/adr/0010-centrum-jedynym-wejsciem-taty.md	- Zmiany CLI nie wymagają zmian instrukcji taty. Zmiana Komunikatu, który widać

@@ -6,8 +6,10 @@ używają, mają po jednym teście, że ich procesy giną razem z nimi.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import ast
+from collections.abc import Callable, Iterator, Sequence
 import contextlib
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
@@ -22,6 +24,7 @@ import pytest
 
 from tests.fixtures.git_repo import commit, git
 from tests.fixtures.potomne import TOOLS, beating, potomne, wait_for, with_grandchild, worktrees
+from tests.fixtures.skladnia import dotted, imports
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="sesje, grupy procesów i sygnały są tylko na POSIX")
 OWN_TREE_OR_COPY = re.compile(
@@ -88,8 +91,7 @@ def test_stop_konczy_trwajace_polecenie_a_nowe_nie_biegnie(tmp_path: Path) -> No
     assert not beating(beats)
     with pytest.raises(potomne.Stopped):
         potomne.run([sys.executable, "-c", f"open({str(marker)!r}, 'w')"], cwd=tmp_path, stop=stop)
-    time.sleep(1)
-    assert not marker.exists()
+    assert not wait_for(marker.exists, 1)
 
 
 @POSIX_ONLY
@@ -289,20 +291,199 @@ def test_bez_straznika_narzedzie_przerywa_zamiast_dzialac_bez_sprzatania(tmp_pat
     )
 
     answered = subprocess.run(
-        [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True, encoding="utf-8", timeout=60
+        [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True, encoding="utf-8", timeout=60, check=False
     )
 
     assert answered.stdout.splitlines() == ["run OSError True", "commit_copy OSError True"], answered.stderr
 
 
-def test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne() -> None:
-    sources = [path for path in [*TOOLS.rglob("*.py"), TOOLS / "hooks" / "pre-push"] if path != TOOLS / "potomne.py"]
+def _tool_sources() -> list[Path]:
+    return sorted(path for path in [*TOOLS.rglob("*.py"), TOOLS / "hooks" / "pre-push"] if path != TOOLS / "potomne.py")
 
+
+def test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne() -> None:
     found = [
         f"{path.relative_to(TOOLS.parent).as_posix()}:{number}: {line.strip()}"
-        for path in sorted(sources)
+        for path in _tool_sources()
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if OWN_TREE_OR_COPY.search(line)
     ]
 
-    assert found == [], "polecenie, które trwa, i kopię commitu narzędzie uruchamia przez potomne.run i potomne.commit_copy"
+    assert not found, "\n".join(
+        [*found, "Polecenie, które trwa, i kopię commitu narzędzie uruchamia przez potomne.run i potomne.commit_copy."]
+    )
+
+
+FAST_PROGRAMS = frozenset({"git", "gh", "ps"})
+# Lokalne podpolecenia gita, które kończą się w ułamku sekundy i nie uruchamiają pomocników (sieć, hooki).
+FAST_GIT = frozenset(
+    {
+        "branch",
+        "commit-tree",
+        "config",
+        "diff",
+        "for-each-ref",
+        "log",
+        "ls-files",
+        "merge-base",
+        "merge-tree",
+        "rev-list",
+        "rev-parse",
+        "show-ref",
+        "status",
+        "worktree",
+    }
+)
+LAUNCHES = frozenset(
+    {
+        *(f"subprocess.{name}" for name in ("run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput")),
+        "os.system",
+        "os.popen",
+    }
+)
+Function = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+@dataclass(frozen=True)
+class _Tool:
+    path: Path
+    module: str
+    tree: ast.Module
+    names: dict[str, str]
+    parents: dict[ast.AST, ast.AST]
+
+    @classmethod
+    def read(cls, path: Path) -> _Tool:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        module = path.relative_to(TOOLS).with_suffix("").as_posix().replace("/", ".")
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        return cls(path, module, tree, imports(tree), parents)
+
+    def calls(self) -> Iterator[tuple[ast.Call, str | None]]:
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Call):
+                yield node, dotted(node.func, self.names, self.module)
+
+    def function_of(self, node: ast.AST) -> Function | None:
+        parent = self.parents.get(node)
+        while parent is not None and not isinstance(parent, Function):
+            parent = self.parents.get(parent)
+        return parent
+
+
+def _command(call: ast.Call) -> ast.expr | None:
+    return call.args[0] if call.args else next((keyword.value for keyword in call.keywords if keyword.arg == "args"), None)
+
+
+def _program(command: ast.expr | None) -> str | None:
+    if not isinstance(command, (ast.List, ast.Tuple)) or not command.elts:
+        return None
+    head = command.elts[0]
+    if isinstance(head, ast.Constant) and isinstance(head.value, str):
+        return head.value
+    return head.id if isinstance(head, ast.Name) else None
+
+
+def _literal(name: ast.expr, scope: ast.AST) -> list[ast.expr] | None:
+    """Elementy krotki albo listy z jedynego przypisania tej nazwy w funkcji (albo module)."""
+
+    if not isinstance(name, ast.Name):
+        return None
+    bound = [
+        node.value
+        for node in ast.walk(scope)
+        if isinstance(node, ast.Assign) and [ast.unparse(target) for target in node.targets] == [name.id]
+    ]
+    return list(bound[0].elts) if len(bound) == 1 and isinstance(bound[0], (ast.Tuple, ast.List)) else None
+
+
+def _git_subcommand(tool: _Tool, call: ast.Call, arguments: Sequence[ast.expr]) -> str | Function | None:
+    """Podpolecenie po opcjach ``-C``/``-c``; funkcja, która przekazuje gitowi swoje ``*args``; ``None``, gdy nieznane."""
+
+    function = tool.function_of(call)
+    pending = list(arguments)
+    while pending:
+        argument = pending.pop(0)
+        if isinstance(argument, ast.Starred):
+            vararg = function.args.vararg if function is not None else None
+            if vararg is not None and isinstance(argument.value, ast.Name) and argument.value.id == vararg.arg:
+                return function
+            unpacked = _literal(argument.value, function or tool.tree)
+            if unpacked is None:
+                return None
+            pending[:0] = unpacked
+        elif isinstance(argument, ast.Constant) and argument.value in ("-C", "-c"):
+            pending = pending[1:]
+        else:
+            return argument.value if isinstance(argument, ast.Constant) and isinstance(argument.value, str) else None
+    return None
+
+
+def _git_calls(tool: _Tool, wrappers: dict[str, int]) -> Iterator[tuple[ast.Call, str, Sequence[ast.expr]]]:
+    """Wywołanie gita, jego opis w komunikacie i argumenty po ``git``: w poleceniu ``subprocess`` albo funkcji gita."""
+
+    for call, called in tool.calls():
+        if called in wrappers:
+            yield call, f"{ast.unparse(call.func)}()", call.args[wrappers[called] :]
+        elif called in LAUNCHES and _program(command := _command(call)) == "git":
+            assert isinstance(command, (ast.List, ast.Tuple))
+            yield call, ast.unparse(call.func), command.elts[1:]
+
+
+def _git_wrappers(tools: Sequence[_Tool]) -> dict[str, int]:
+    """Funkcje z ``tools/``, które przekazują gitowi swoje ``*args`` (także przez inną taką funkcję), i pozycja pierwszego."""
+
+    wrappers: dict[str, int] = {}
+    while True:
+        found = {
+            f"{tool.module}.{function.name}": len(function.args.posonlyargs) + len(function.args.args)
+            for tool in tools
+            for call, _, arguments in _git_calls(tool, wrappers)
+            if isinstance(function := _git_subcommand(tool, call, arguments), Function)
+        }
+        if found.keys() <= wrappers.keys():
+            return wrappers
+        wrappers |= found
+
+
+def _slow_launches(tool: _Tool, wrappers: dict[str, int]) -> Iterator[tuple[int, str, str]]:
+    """Wiersz, wywołanie i polecenie każdego uruchomienia spoza ``gh``, ``ps`` i gita z ``FAST_GIT``."""
+
+    for call, called in tool.calls():
+        if called in LAUNCHES and _program(command := _command(call)) not in FAST_PROGRAMS:
+            shown = ast.unparse(command.elts[0]) if isinstance(command, (ast.List, ast.Tuple)) else ast.unparse(command or call)
+            yield call.lineno, ast.unparse(call.func), shown
+    for call, launcher, arguments in _git_calls(tool, wrappers):
+        subcommand = _git_subcommand(tool, call, arguments)
+        if not isinstance(subcommand, Function) and subcommand not in FAST_GIT:
+            yield call.lineno, launcher, f"git {subcommand or '?'}"
+
+
+def test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run() -> None:
+    """Zwykłe ``subprocess`` w ``tools/`` uruchamia tylko ``gh``, ``ps`` i szybkie podpolecenia gita z ``FAST_GIT``.
+
+    Import pod inną nazwą (``import subprocess as sp``) to ten sam ``subprocess``. Git liczy się też przez funkcję
+    z dowolnego modułu ``tools/``, która przekazuje mu swoje ``*args``, a krotkę rozpakowaną w wywołaniu (``*own``)
+    test czyta z jej jedynego przypisania. Znane granice:
+
+    - każdy inny program, także krótki ``python -c``, idzie przez ``potomne.run``, bo bez uruchomienia nie widać,
+      czy trwa;
+    - funkcji gita wołanej pod inną nazwą (``partial``, przypisanie, metoda) test nie widzi, bo to wymaga analizy
+      przepływu danych.
+    """
+
+    tools = [_Tool.read(path) for path in _tool_sources()]
+    wrappers = _git_wrappers(tools)
+    found = [
+        f"{tool.path.relative_to(TOOLS.parent).as_posix()}:{number}: {launcher} uruchamia {command} poza potomne.run"
+        for tool in tools
+        for number, launcher, command in sorted(_slow_launches(tool, wrappers))
+    ]
+
+    assert not found, "\n".join(
+        [
+            *found,
+            "Polecenie, które trwa albo uruchamia własne procesy, uruchom przez potomne.run z tools/potomne.py; "
+            "zwykłe subprocess zostaje tylko dla git, gh i ps, a nowe szybkie, lokalne podpolecenie gita dopisz do FAST_GIT.",
+        ]
+    )

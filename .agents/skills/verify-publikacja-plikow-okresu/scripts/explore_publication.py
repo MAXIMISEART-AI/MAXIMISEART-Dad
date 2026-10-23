@@ -479,9 +479,7 @@ class _StagingDirectory:
 
 @contextmanager
 def harness(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
-    def write_period_file(
-        template_path: Path, layout: object, target: Path, orders: object, *, recalculate_on_open: bool = False
-    ) -> None:
+    def write_period_file(template_path: Path, layout: object, target: Path, orders: object) -> None:
         scheduler.step(
             "zapis skoroszytu",
             (target,),
