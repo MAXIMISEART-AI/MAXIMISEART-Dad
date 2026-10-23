@@ -28,6 +28,7 @@ from rozliczenia.centrum.tool_update import (
     read_result,
 )
 
+from tests.fixtures.potomne import beating
 from tests.fixtures.tool_clone import (
     FIRST_VERSION,
     NEW_REQUIREMENTS,
@@ -848,13 +849,10 @@ def test_pobranie_ktore_stoi_po_limicie_czasu_konczy_sie_brakiem_polaczenia_bez_
     git = git_whose_fetch_stalls(tmp_path, commit, heartbeat)
 
     result = ToolClone(tmp_path, origin="https://example.invalid/narzedzie.git", find_git=lambda: git).update()
-    time.sleep(0.5)
-    beats = heartbeat.read_text(encoding="utf-8")
-    time.sleep(0.5)
 
     assert result == UpdateResult("BRAK_POLACZENIA", before=commit, after=None)
-    assert beats
-    assert heartbeat.read_text(encoding="utf-8") == beats
+    assert heartbeat.read_text(encoding="utf-8")
+    assert not beating(heartbeat)
 
 
 def test_klikniecie_w_trakcie_ponownego_startu_nie_zastepuje_dziennika_aktualizacji_nowsza_wersja(
