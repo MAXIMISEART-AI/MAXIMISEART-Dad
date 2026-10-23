@@ -21,10 +21,10 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from .order_facts import N_AP, CollectiveOrders, MissingHeaders, OrderFacts, TataValue
-from .preparation_messages import WEEKDAY_LABELS
 from .quantity_rules import (
     DESCRIPTION_COLUMNS,
     FromDescription,
+    WEEKDAY_LABELS,
     QuantityColumn,
     ServiceQuantities,
     WithoutRule,

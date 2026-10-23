@@ -67,6 +67,10 @@ class WeekTime:
         return cls(started.weekday(), started.time().replace(second=0, microsecond=0))
 
 
+# Skrót dnia tygodnia (indeks jak ``WeekTime.weekday``, 0 to poniedziałek) w liczbach zleceń na dzień i w Kontroli ilości.
+WEEKDAY_LABELS: Final = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
+
+
 @dataclass(frozen=True)
 class OrderContent:
     """Treść zlecenia, z której Reguły ilości wyznaczają Ilości usług: surowe wartości komórek i pora zlecenia."""
