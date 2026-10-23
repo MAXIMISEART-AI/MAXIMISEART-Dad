@@ -81,6 +81,10 @@ def _proposal(page: Page) -> Locator:
     return page.get_by_role("region", name="Diagnoza").get_by_role("note", name="Propozycja aktualizacji")
 
 
+def _no_update_offered(page: Page) -> None:
+    expect(page.get_by_role("region", name="Diagnoza").get_by_role("button", name=UPDATE_BUTTON, exact=True)).to_have_count(0)
+
+
 def _state(answer: dict[str, object], label: str) -> tuple[str, str]:
     checks = answer["checks"]
     assert isinstance(checks, list)
@@ -134,10 +138,13 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
     shown = _shown_checks(page).filter(has_text=FRESHNESS)
     expect(shown).to_contain_text("Nie sprawdzono: brak połączenia z GitHubem.")
     expect(shown.get_by_label("nie sprawdzono")).to_be_visible()
+    _no_update_offered(page)
     answer = diagnosis_answer(run, run_id, "aktualnosc-brak-sieci")
     run.check(
-        _state(answer, FRESHNESS)[0] == "not_checked" and answer["next_action"] == "report",
-        "without network the freshness is not checked and is no cause",
+        _state(answer, FRESHNESS)[0] == "not_checked"
+        and answer["next_action"] == "report"
+        and answer["update_proposal"] is False,
+        "without network the freshness is not checked, is no cause, and the Diagnoza offers no update",
     )
     run.capture(page, "77-aktualnosc-brak-sieci")
 
@@ -190,10 +197,14 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
     checks = _shown_checks(page)
     expect(checks.filter(has_text=FRESHNESS)).to_contain_text("Najnowsza wersja z GitHuba, commit ")
     expect(checks.filter(has_text=ONEDRIVE).get_by_label("przeszło")).to_be_visible()
+    _no_update_offered(page)
     answer = diagnosis_answer(run, run_id, "aktualnosc-i-onedrive-przeszly")
     run.check(
-        _state(answer, FRESHNESS)[0] == "passed" and _state(answer, ONEDRIVE)[0] == "passed",
-        "an up-to-date tool and files kept on the computer pass both checks",
+        _state(answer, FRESHNESS)[0] == "passed"
+        and _state(answer, ONEDRIVE)[0] == "passed"
+        and answer["next_action"] != "update"
+        and answer["update_proposal"] is False,
+        "an up-to-date tool and files kept on the computer pass both checks, and the Diagnoza offers no update",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
     run.check(
