@@ -8,6 +8,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, ClassVar, Literal, Mapping
 
+from .order_facts import CollectiveOrders
+
 
 class ProgressPhase(StrEnum):
     """Typed phase values while retaining the existing Polish strings."""
@@ -136,11 +138,13 @@ ProgressObserver = Callable[[ProgressEvent], None]
 
 @dataclass
 class SettlementSummary:
-    """Podsumowanie operacyjne bez zawartości wierszy klientów."""
+    """Podsumowanie operacyjne; z treści Wierszy danych tylko kolumny dozwolone regułą prywatności (``order_facts``)."""
 
     period: str
     source_file: Path
     target_directory: Path
+    orders: CollectiveOrders = ()
+    """Dozwolona treść każdego Wiersza danych, który Przebieg wczytał: dla Kontroli ilości w Centrum."""
     results: list[WorkerResult] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))

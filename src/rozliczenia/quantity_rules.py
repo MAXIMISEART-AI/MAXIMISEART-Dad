@@ -43,6 +43,9 @@ class QuantityColumn(StrEnum):
     AP = "AP"
 
 
+# Kolumny Ilości usług z opisu technika (CZYNNOŚCI ZREALIZOWANE); AK i AM Reguły ilości wypełniają tylko częściowo.
+DESCRIPTION_COLUMNS: Final = ("Y", "AB", "AD", "AJ", "AK", "AL", "AM")
+
 Quantities = Mapping[QuantityColumn, int]
 """Ilości usług zlecenia: kolumna → liczba, tylko różne od zera."""
 
