@@ -1,8 +1,8 @@
 # Aktualność narzędzia i OneDrive
 
 The Diagnoza has two checks that look beyond Dad's files. `Aktualność
-narzędzia` compares the tool's commit with `main` on the public GitHub. A newer
-`main` is the cause only when no other check found one (Dad clicks
+narzędzia` compares the tool's commit with the newest Wydanie on the public
+GitHub (ADR 0014). A newer Wydanie is the cause only when no other check found one (Dad clicks
 `Zaktualizuj narzędzie` in the explanation and runs again); next to another
 cause it is only a quiet proposal under the explanation, with the same button
 second after `Uruchom ponownie` (ADR 0009). While the update runs, the button
@@ -16,7 +16,7 @@ the browser shows the explanation and the list `Sprawdzono`.
 - `aktualnosc-nowsza-wersja`: with another `main` on the scripted GitHub and no other cause, the explanation reads `Jest nowsza wersja narzędzia.` with `Zaktualizuj narzędzie` as its main action instead of `Uruchom ponownie` (`next_action` `update`) and no separate proposal.
 - `aktualnosc-brak-sieci`: without network the explanation is „Nie znalazłem przyczyny na tym komputerze”; `Aktualność narzędzia` reads `Nie sprawdzono: brak połączenia z GitHubem.` with the icon `nie sprawdzono`; region `Diagnoza` has no `Zaktualizuj narzędzie` (`update_proposal` `false`).
 - `onedrive-tylko-w-chmurze`: a Rejestr zleceń only in the cloud is the cause, naming the file and „Zawsze zachowuj na tym urządzeniu”, with `Uruchom ponownie`; the Rejestr zleceń is unchanged.
-- `aktualnosc-propozycja`: the Rejestr zleceń only in the cloud and a newer `main` together: the explanation stays the OneDrive one, and note `Propozycja aktualizacji` under it reads `Jest też nowsza wersja narzędzia.` with an outline `Zaktualizuj narzędzie` (`update_proposal` `true`).
+- `aktualnosc-propozycja`: the Rejestr zleceń only in the cloud and a newer Wydanie together: the explanation stays the OneDrive one, and note `Propozycja aktualizacji` under it reads `Jest też nowsza wersja narzędzia.` with an outline `Zaktualizuj narzędzie` (`update_proposal` `true`).
 - `aktualnosc-aktualizacja-w-trakcie`: a click on that button starts the update; while it runs, the region shows `Pobieranie nowej wersji…`, the button is disabled, and a second click sends nothing; the update ends with `Masz najnowszą wersję.`
 - `aktualnosc-i-onedrive-przeszly`: an up-to-date tool and files on the computer pass both checks, and region `Diagnoza` has no `Zaktualizuj narzędzie`; the Centrum log has both causes by code.
 
