@@ -78,11 +78,12 @@ def drive_configuration(run: Run, page: Page) -> None:
     buttons = page.locator("main").get_by_role("button")
     run.check(
         page.url.endswith("#/konfiguracja")
-        and buttons.count() == 4
+        and buttons.count() == 5
         and buttons.filter(has_text="Zaktualizuj narzędzie").count() == 1
-        and page.locator("main").get_by_role("button", name="Napisz do Maksa", exact=True).count() == 1,
-        "the page offers no action besides the header's menu, `Napisz do Maksa` and theme buttons and"
-        " `Zaktualizuj narzędzie`",
+        and page.locator("main").get_by_role("button", name="Napisz do Maksa", exact=True).count() == 1
+        and page.locator("main").get_by_role("button", name="Powiadomienia", exact=False).count() == 1,
+        "the page offers no action besides the header's menu, `Napisz do Maksa`, Powiadomienia and theme buttons"
+        " and `Zaktualizuj narzędzie`",
     )
     run.capture(page, "11-konfiguracja-tylko-do-odczytu", full_page=False)
     page.mouse.move(0, 0)
