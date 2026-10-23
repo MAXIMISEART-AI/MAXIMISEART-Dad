@@ -21,11 +21,12 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from .order_facts import N_AP, CollectiveOrders, MissingHeaders, OrderFacts, TataValue
-from .preparation_messages import WEEKDAY_LABELS
 from .quantity_rules import (
     DESCRIPTION_COLUMNS,
     FromDescription,
+    WEEKDAY_LABELS,
     QuantityColumn,
+    RuleResult,
     ServiceQuantities,
     WithoutRule,
     evaluate,
@@ -104,31 +105,43 @@ def check(orders: CollectiveOrders) -> CheckResult:
         result.rows += 1
         content = row.content()
         rule = None if content is None else evaluate(content)
+        compared = () if rule is None else compared_columns(rule)
         if rule is None:
             result.undated += 1
         elif isinstance(rule, FromDescription):
             result.from_description += 1
         elif isinstance(rule, ServiceQuantities):
             result.compared += 1
-            compared = [column for column in QuantityColumn if column not in _SHARED or rule.quantities.get(column, 0)]
             result.differences.update(_differences(row, rule.quantities, compared))
         else:
-            _add_unruled(result.unruled[row.devices], row, rule)
-        shared_by_rule = rule.quantities if isinstance(rule, ServiceQuantities) else {}
+            _add_unruled(result.unruled[row.devices], row, rule, compared)
         result.description_filled.update(
-            column
-            for column in DESCRIPTION_COLUMNS
-            if row.quantity(column) != 0 and not (column in _SHARED and shared_by_rule.get(QuantityColumn(column), 0))
+            column for column in DESCRIPTION_COLUMNS if row.quantity(column) != 0 and column not in compared
         )
         result.other_filled.update(column for column in OTHER_COLUMNS if row.quantity(column) != 0)
     return result
 
 
-def _add_unruled(group: Unruled, row: OrderFacts, rule: WithoutRule) -> None:
+def compared_columns(rule: RuleResult) -> tuple[QuantityColumn, ...]:
+    """Kolumny Reguł ilości, w których Kontrola porównuje wynik reguł z wpisami taty (decyzje 9 i 10).
+
+    Wiersz z regułą: wszystkie, AK i AM tylko z wartością reguły różną od zera. Wiersz bez reguły: V, T i N.
+    Wiersz rozliczany z opisu: żadna.
+    """
+
+    if isinstance(rule, FromDescription):
+        return ()
+    if isinstance(rule, WithoutRule):
+        return _WITHOUT_RULE_COLUMNS
+    return tuple(column for column in QuantityColumn if column not in _SHARED or rule.quantities.get(column, 0))
+
+
+def _add_unruled(group: Unruled, row: OrderFacts, rule: WithoutRule, compared: tuple[QuantityColumn, ...]) -> None:
     group.rows += 1
-    group.differences.update(_differences(row, rule.quantities, _WITHOUT_RULE_COLUMNS))
-    others = (column for column in N_AP if column not in _WITHOUT_RULE_COLUMNS)
-    group.values.update((column, row.quantity(column)) for column in others if row.quantity(column) != 0)
+    group.differences.update(_differences(row, rule.quantities, compared))
+    group.values.update(
+        (column, row.quantity(column)) for column in N_AP if column not in compared and row.quantity(column) != 0
+    )
 
 
 def _differences(

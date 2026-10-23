@@ -26,8 +26,8 @@ from pydantic import BaseModel, ConfigDict
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.cloud_files import CloudFiles
-from rozliczenia.centrum.reports import replace_atomically
 from rozliczenia.centrum.runs import EndedRun
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.domain import WorkerStatus

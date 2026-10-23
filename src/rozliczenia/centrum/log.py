@@ -144,19 +144,19 @@ class CentrumLog:
     def box_post_queued(self, *, label: str, period: str | None) -> None:
         """Wysyłka w tle (np. Kontrola ilości) czeka w kolejce Skrzynki Zgłoszeń; bez treści."""
 
-        self._write("skrzynka-w-kolejce", etykieta=label, okres=period or _NO_PERIOD)
+        self._write("skrzynka-w-kolejce", etykieta=label, okres=_period(period))
 
     def box_post_sent(self, *, label: str, period: str | None, number: int) -> None:
         """Wysyłka w tle przyjęta przez Skrzynkę Zgłoszeń w issue ``number``; bez treści i klucza."""
 
-        self._write("skrzynka-wyslano", etykieta=label, okres=period or _NO_PERIOD, numer=number)
+        self._write("skrzynka-wyslano", etykieta=label, okres=_period(period), numer=number)
 
     def box_post_waiting(
         self, *, label: str, period: str | None, cause: Literal["brak-klucza", "odmowa", "brak-sieci"]
     ) -> None:
         """Wysyłka w tle zostaje w kolejce do następnej próby; ``cause``: dlaczego."""
 
-        self._write("skrzynka-czeka", etykieta=label, okres=period or _NO_PERIOD, przyczyna=cause)
+        self._write("skrzynka-czeka", etykieta=label, okres=_period(period), przyczyna=cause)
 
     def box_post_unreadable(self, *, file: str) -> None:
         """Pliku kolejki Skrzynki Zgłoszeń nie da się odczytać (uszkodzony, nieznany schemat); zostaje. Tylko nazwa."""
@@ -234,3 +234,9 @@ def event_of(line: str) -> str:
 def _quoted(value: str | int) -> str:
     text = str(value)
     return f'"{text}"' if " " in text else text
+
+
+def _period(period: str | None) -> str:
+    """Token okresu wysyłki w tle; Uruchomienie bez ustalonego okresu ma ``bez-okresu``."""
+
+    return period or _NO_PERIOD
