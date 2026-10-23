@@ -1,6 +1,6 @@
 """Źródła Aktualności narzędzia, których HTTP API Centrum nie dosięga, bo w testach są podstawione.
 
-Commit `main` pochodzi z lokalnego serwera HTTP na 127.0.0.1, nigdy z GitHuba.
+Lista tagów Wydań pochodzi z lokalnego serwera HTTP na 127.0.0.1, nigdy z GitHuba.
 Commit narzędzia pochodzi z syntetycznych katalogów ``.git``.
 """
 
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 from pathlib import Path
 import socket
 import threading
@@ -15,23 +16,62 @@ import time
 
 import pytest
 
-from rozliczenia.centrum.tool_freshness import main_commit_from
+from rozliczenia.centrum.tool_freshness import GitHubReleases, releases_from
 from rozliczenia.centrum.version import tool_commit
 
 MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
 BRANCH = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
+OLDER = "1111111111111111111111111111111111111111"
+NEWEST = "2222222222222222222222222222222222222222"
+OTHER = "3333333333333333333333333333333333333333"
+OFF_MAIN = "4444444444444444444444444444444444444444"
+NOT_COMPARED = "5555555555555555555555555555555555555555"
+# Odpowiedź porównania z `main` (``compare``) dla commitu tagu; brak wpisu to odmowa GitHuba.
+_STATUS = {OLDER: "ahead", NEWEST: "identical", OTHER: "diverged", OFF_MAIN: "behind"}
+
+
+def _tags(*named: tuple[str, str]) -> str:
+    return json.dumps([{"name": name, "commit": {"sha": sha, "url": "https://api.github.com/x"}} for name, sha in named])
+
+
+# Repozytorium (pierwszy człon ścieżki) wybiera listę tagów i jej strony; kolejność jak u GitHuba nie jest
+# kolejnością Wydań.
+_PAGES = {
+    "/tagi/tags?per_page=100": (
+        _tags(("v0.9.0", OLDER), ("v0.10.0", NEWEST), ("proba", OTHER), ("v0.10", OTHER), ("v1.0.0-rc1", OTHER)),
+        None,
+    ),
+    "/strony/tags?per_page=100": (_tags(("v0.9.0", OLDER)), "/strony/tags?page=2"),
+    "/strony/tags?page=2": (_tags(("v1.0.0", NEWEST), ("v0.11.0", OLDER)), None),
+    "/spoza-main/tags?per_page=100": (_tags(("v0.2.0", OLDER), ("v0.3.0", OFF_MAIN), ("v0.4.0", OTHER)), None),
+    "/tylko-spoza-main/tags?per_page=100": (_tags(("v0.3.0", OFF_MAIN)), None),
+    "/bez-wydan/tags?per_page=100": (_tags(("proba", OTHER)), None),
+    "/bez-konca/tags?per_page=100": (_tags(("v0.1.0", OLDER)), "/bez-konca/tags?per_page=100"),
+    "/bez-porownania/tags?per_page=100": (_tags(("v0.1.0", NOT_COMPARED)), None),
+}
 
 
 class _GitHub(BaseHTTPRequestHandler):
-    """Odpowiedź API GitHuba na commit `main` w postaci samego SHA; ścieżka wybiera wariant odpowiedzi."""
-
     def do_GET(self) -> None:
-        if self.path == "/sha" and self.headers["Accept"] == "application/vnd.github.sha":
-            self._answer(200, MAIN)
-        elif self.path == "/limit":
+        repository, _, rest = self.path[1:].partition("/")
+        if self.path in _PAGES:
+            body, following = _PAGES[self.path]
+            self.send_response(200)
+            if following is not None:
+                host = self.headers["Host"]
+                self.send_header("Link", f'<http://{host}{following}>; rel="next", <http://{host}/tagi>; rel="last"')
+            self.end_headers()
+            self.wfile.write(body.encode("ascii"))
+        elif rest.startswith("compare/") and rest.endswith("...main?per_page=1&page=2"):
+            status = _STATUS.get(rest.removeprefix("compare/").partition("...")[0])
+            if status is None:
+                self._answer(403, '{"message": "API rate limit exceeded"}')
+            else:
+                self._answer(200, json.dumps({"status": status, "ahead_by": 1, "commits": [], "files": []}))
+        elif repository == "limit":
             self._answer(403, '{"message": "API rate limit exceeded"}')
         else:
-            self._answer(200, "<html>to nie jest commit</html>")
+            self._answer(200, "<html>to nie jest lista tagów</html>")
 
     def _answer(self, status: int, body: str) -> None:
         self.send_response(status)
@@ -52,13 +92,30 @@ def github() -> Iterator[str]:
     server.server_close()
 
 
-def test_commit_main_z_odpowiedzi_githuba(github: str) -> None:
-    assert main_commit_from(f"{github}/sha", timeout_s=2) == MAIN
+def test_najnowsze_wydanie_to_najwyzszy_numer_a_nie_ostatni_tag_alfabetycznie(github: str) -> None:
+    assert releases_from(f"{github}/tagi", timeout_s=2) == GitHubReleases(NEWEST)
 
 
-@pytest.mark.parametrize("path", ["/limit", "/strona"], ids=["odmowa", "nie-commit"])
-def test_odmowa_albo_odpowiedz_bez_commitu_to_nie_wiadomo(github: str, path: str) -> None:
-    assert main_commit_from(github + path, timeout_s=2) is None
+def test_najnowsze_wydanie_ze_wszystkich_stron_listy_tagow(github: str) -> None:
+    assert releases_from(f"{github}/strony", timeout_s=2) == GitHubReleases(NEWEST)
+
+
+def test_wyzsze_wydanie_spoza_main_jest_pominiete_a_nizsze_na_main_wybrane(github: str) -> None:
+    assert releases_from(f"{github}/spoza-main", timeout_s=2) == GitHubReleases(OLDER)
+
+
+@pytest.mark.parametrize("repository", ["bez-wydan", "tylko-spoza-main"])
+def test_bez_wydania_na_main_github_odpowiada_ze_nie_ma_wydania(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=2) == GitHubReleases(None)
+
+
+@pytest.mark.parametrize(
+    "repository",
+    ["limit", "strona", "bez-konca", "bez-porownania"],
+    ids=["odmowa", "nie-lista", "bez-konca", "odmowa-porownania"],
+)
+def test_odmowa_odpowiedz_nie_z_api_albo_niepelna_lista_to_nie_wiadomo(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=2) is None
 
 
 def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:
@@ -67,9 +124,9 @@ def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:
         silent.listen()
         started = time.monotonic()
 
-        commit = main_commit_from(f"http://127.0.0.1:{silent.getsockname()[1]}/sha", timeout_s=0.3)
+        answer = releases_from(f"http://127.0.0.1:{silent.getsockname()[1]}/tagi", timeout_s=0.3)
 
-        assert (commit, time.monotonic() - started < 1.5) == (None, True)
+        assert (answer, time.monotonic() - started < 1.5) == (None, True)
 
 
 def test_brak_sieci_to_nie_wiadomo() -> None:
@@ -77,7 +134,7 @@ def test_brak_sieci_to_nie_wiadomo() -> None:
         closed.bind(("127.0.0.1", 0))
         port = closed.getsockname()[1]  # port zwolniony po wyjściu: połączenie zostaje odrzucone
 
-    assert main_commit_from(f"http://127.0.0.1:{port}/sha", timeout_s=2) is None
+    assert releases_from(f"http://127.0.0.1:{port}/tagi", timeout_s=2) is None
 
 
 def _git(root: Path, head: str) -> Path:

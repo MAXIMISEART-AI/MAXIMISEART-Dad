@@ -13,12 +13,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 from fastapi import APIRouter
 
 from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.tool_freshness import RememberedMain, ToolFreshness
+from rozliczenia.centrum.tool_freshness import Judgement, RememberedRelease, ToolFreshness
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import default_worker_template_path
@@ -88,20 +89,20 @@ def configuration_router(
 ) -> APIRouter:
     """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości).
 
-    Aktualność narzędzia porównuje commit narzędzia z `main` na GitHubie, którego odpowiedź Konfiguracja pamięta
-    (``RememberedMain`` na zegarze ``clock``).
+    Aktualność narzędzia porównuje commit narzędzia z najnowszym Wydaniem na GitHubie, którego odpowiedź
+    Konfiguracja pamięta (``RememberedRelease`` na zegarze ``clock``).
     """
 
     router = APIRouter(prefix="/api/configuration", tags=["konfiguracja"])
     checked = _CheckedTemplates()
-    main = RememberedMain(freshness.main, clock=clock)
+    release = RememberedRelease(freshness.release, clock=clock)
 
     @router.get("", operation_id="getConfiguration")
     def configuration() -> contract.Configuration:
         commit = freshness.local()
         return contract.Configuration(
             version=None if commit is None else contract.ToolVersion(commit=short_commit(commit), since=freshness.since()),
-            freshness=_freshness(commit, main),
+            freshness=_STATE[freshness.judge(release)],
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
             reports=report_key(),
@@ -110,13 +111,14 @@ def configuration_router(
     return router
 
 
-def _freshness(commit: str | None, main: Callable[[], str | None]) -> contract.ToolFreshnessState:
-    """Czy commit narzędzia to `main`; ``not_checked`` bez commitu Gita albo bez odpowiedzi GitHuba."""
-
-    newest = None if commit is None else main()
-    if commit is None or newest is None:
-        return "not_checked"
-    return "current" if newest == commit else "newer"
+# Konfiguracja nie odróżnia powodu, dla którego nie sprawdzono; Diagnoza go nazywa.
+_STATE: Final[Mapping[Judgement, contract.ToolFreshnessState]] = {
+    "current": "current",
+    "newer": "newer",
+    "no_release": "not_checked",
+    "no_answer": "not_checked",
+    "no_commit": "not_checked",
+}
 
 
 class _CheckedTemplates:

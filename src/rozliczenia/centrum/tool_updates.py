@@ -160,6 +160,9 @@ class ToolUpdates:
             result, guardian = self._result(clone, before, work)
             if result.before is None:  # bez Gita commit zna tylko Centrum
                 result = replace(result, before=before)
+            # Przed ponownym startem: wynik w pliku opiekuna nie niesie pominiętych Wydań.
+            if result.skipped:
+                self._log.update_skipped_releases(tags=result.skipped)
             if result.code == UPDATED and result.after is not None and guardian is not None:
                 restart = Restart(
                     port, result.before, result.after, clone.root, self._result_file, result.installed, work
