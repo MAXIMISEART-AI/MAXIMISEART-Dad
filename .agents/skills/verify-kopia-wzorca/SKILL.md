@@ -59,7 +59,7 @@ The check holds that copy to five rules, for any Wiersze danych:
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `d3ba226`** (Wygląd Wiersza danych, 2026-10-22):
+Coverage, confirmed at **sync commit `264f6bd`** (Ilości usług, 2026-10-23):
 
 | Code | What the check covers |
 | --- | --- |
@@ -77,7 +77,7 @@ Run the check when a diff touches any of these. To see whether the covered code 
 sync commit:
 
 ```bash
-git diff --stat d3ba226 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py
+git diff --stat 264f6bd -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
@@ -182,6 +182,9 @@ Not covered:
   practically never carries a raw `\r` (Excel stores it as `_x000D_`).
 - Only the Wzorce above. Wzorce of other shapes go the old way (`UnsupportedShape`), and that
   routing decision is not checked.
+- Ilości usług (`DataRow.quantities`, `SheetLayout.quantity_columns`). Only the Plik zbiorczy gets
+  them, so every Rozliczenie pracownika here has none; `tests/test_ilosci_uslug.py` compares the
+  copy with the openpyxl path for them.
 - Reading the Plik zbiorczy, the engine, the publication of the Folder rozliczeń pracowników, the
   Wzorzec changing on disk between Sprawdzanie and Zapisywanie, and file system failures.
 
