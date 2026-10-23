@@ -172,6 +172,23 @@ def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Pa
     assert _remote_branch(checkout) == _git(checkout, "rev-parse", "HEAD").stdout.strip()
 
 
+def test_push_z_samym_claudecode_rozstrzyga_brama(checkout: Path) -> None:
+    _stub_ci_lokalnie(checkout, passes=False)
+
+    pushed = subprocess.run(
+        ["git", "push", "origin", f"HEAD:{BRANCH}"],
+        cwd=checkout,
+        env=_environment(None) | {"CLAUDECODE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert pushed.returncode != 0
+    assert "CI LOKALNIE FAIL" in pushed.stdout + pushed.stderr
+    assert _remote_branch(checkout) == ""
+
+
 @pytest.mark.parametrize("detached", [False, True])
 def test_push_head_odlaczonego_albo_galezi_rozstrzyga_brama(checkout: Path, detached: bool) -> None:
     _git(checkout, "checkout", "-q", "-b", "zmiana")
