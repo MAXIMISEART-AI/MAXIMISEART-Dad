@@ -168,7 +168,9 @@ LOGS = PeriodThread(
 
 def test_watek_ktory_zostaje_po_zamknieciu_dostaje_czesci_jako_komentarze_w_zamknietym_issue(tmp_path: Path) -> None:
     closed = FakeIssue(7, LOGS.label, LOGS.title, f"{LOGS.line}\n\nLogi Uruchomień tego okresu.\n")
-    queue = Queue(tmp_path, FakeReportBox(issues=[closed], closed={7}))
+    box = FakeReportBox(issues=[closed])
+    box.close(7)
+    queue = Queue(tmp_path, box)
 
     queue.outbox.post(
         Post.of(LOGS, period="08_14_09_2026", run_id=RUN_ID, blocks=["logi\n"], frame=numbered, header="Nagłówek")

@@ -483,7 +483,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             ending=ending,
             view=None,
             total_duration_ms=0,
-            notices=(),
+            technical_notes=(),
             metrics_saved=True,
         )
 
