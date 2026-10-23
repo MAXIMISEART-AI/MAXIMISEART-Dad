@@ -7,8 +7,10 @@ opencode) albo ``CLAUDECODE``, które agent ustawia w swoim terminalu.
 Kroki bierze z ``tools/ci_lokalnie.py``, uruchomionego Pythonem z ``.venv`` checkoutu. Włącza ją
 ``tools/setup_worktree.py`` (``core.hooksPath``); git uruchamia ją w katalogu głównym checkoutu.
 
-Przed krokami drukuje werdykt ``tools/praca_w_toku.py --aktualizacja``, czy aktualizować gałąź z ``origin/main``.
-Werdykt tylko informuje: gdy się nie uda, brama drukuje ``AKTUALIZACJA: nieznana (…)``, a wynik pushu się nie zmienia.
+Przed krokami drukuje dwie linie, które tylko informują: werdykt ``tools/praca_w_toku.py --aktualizacja``, czy
+aktualizować gałąź z ``origin/main``, i skille ``verify-*`` do załadowania z ``tools/skille_dla_zmiany.py``. Gdy
+narzędzie się nie uda, brama drukuje ``AKTUALIZACJA: nieznana (…)`` albo ``SKILLE VERIFY: nieznane (…)``, a wynik
+pushu się nie zmienia.
 
 Hook biegnie systemowym Pythonem (na Macu 3.9), więc ten plik i ``tools/potomne.py`` ruff sprawdza pod 3.9
 (``per-file-target-version`` w ``pyproject.toml``).
@@ -25,8 +27,7 @@ import sys
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
 VENV_PYTHON = Path(".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
 COMMAND = (str(VENV_PYTHON), "tools/ci_lokalnie.py", "--tylko", "ruff,mypy", "--do-pierwszego-bledu")
-UPDATE_VERDICT = (str(VENV_PYTHON), "tools/praca_w_toku.py", "--aktualizacja")
-UPDATE_VERDICT_TIMEOUT_S = 5
+NOTE_TIMEOUT_S = 5
 CHECKS = "sprawdzam ruff i mypy (macOS i Windows) przez tools/ci_lokalnie.py; resztę sprawdza CI na GitHubie"
 
 
@@ -45,6 +46,21 @@ DIRTY = Decision(
 )
 
 
+@dataclass(frozen=True)
+class Note:
+    """Linia narzędzia, którą brama drukuje przed krokami: ostatnia linia wyjścia, gdy zaczyna się od ``prefix``."""
+
+    command: tuple[str, ...]
+    prefix: str
+    unknown: str
+
+
+NOTES = (
+    Note((str(VENV_PYTHON), "tools/praca_w_toku.py", "--aktualizacja"), "AKTUALIZACJA: ", "nieznana"),
+    Note((str(VENV_PYTHON), "tools/skille_dla_zmiany.py"), "SKILLE VERIFY: ", "nieznane"),
+)
+
+
 def _git(*args: str) -> str:
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.strip()
 
@@ -57,20 +73,20 @@ def _decide(pushed: set[str]) -> Decision:
     return DIRTY if _git("status", "--porcelain") else CLEAN
 
 
-def _print_update_verdict() -> None:
+def _print_note(note: Note) -> None:
     try:
         import potomne
 
-        done = potomne.run(UPDATE_VERDICT, cwd=Path.cwd(), timeout=UPDATE_VERDICT_TIMEOUT_S)
-    except Exception as error:  # noqa: BLE001 - werdykt tylko informuje, więc żaden jego błąd nie zmienia wyniku pushu
+        done = potomne.run(note.command, cwd=Path.cwd(), timeout=NOTE_TIMEOUT_S)
+    except Exception as error:  # noqa: BLE001 - linia tylko informuje, więc żaden błąd narzędzia nie zmienia wyniku pushu
         reason = f"{type(error).__name__}: {error}"
     else:
         last = (done.stdout.strip().splitlines() or [""])[-1]
-        if done.returncode == 0 and last.startswith("AKTUALIZACJA: "):
+        if last.startswith(note.prefix):
             print(last, flush=True)
             return
-        reason = "tools/praca_w_toku.py: " + (done.stderr.strip().splitlines() or [f"kod {done.returncode}"])[-1]
-    print(f"AKTUALIZACJA: nieznana ({reason})", flush=True)
+        reason = f"{note.command[1]}: " + (done.stderr.strip().splitlines() or [f"kod {done.returncode}"])[-1]
+    print(f"{note.prefix}{note.unknown} ({reason})", flush=True)
 
 
 def main() -> int:
@@ -84,7 +100,8 @@ def main() -> int:
         print("pre-push: brak .venv; utwórz je przez tools/setup_worktree.py i ponów push.", flush=True)
         return 1
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    _print_update_verdict()
+    for note in NOTES:
+        _print_note(note)
     if sys.platform == "win32":  # tools/setup_worktree.py nie włącza bramy na Windows
         import potomne
 
