@@ -19,6 +19,9 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
     REPORT_LABEL,
+    REPOSITORY,
+    CommentOutcome,
+    Commented,
     FindOutcome,
     Label,
     Refused,
@@ -74,6 +77,7 @@ class FakeIssue:
     label: Label
     title: str
     body: str
+    comments: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -82,7 +86,7 @@ class FakeReportBox:
 
     Bez przygotowanego wyniku (``outcomes``, po jednym na każde zakładane issue) każde
     issue dostaje kolejny numer i jest otwarte, dopóki Maks nie zamknie jego numeru
-    (``close``). ``sent`` to Zgłoszenia (etykieta ``zgloszenie``), a ``issues_with``
+    (``close``); komentarz do issue, którego nie ma, to odmowa jak 404 GitHuba. ``sent`` to Zgłoszenia (etykieta ``zgloszenie``), a ``issues_with``
     issue innej etykiety. ``search_failure`` to odmowa albo brak połączenia przy
     każdym pytaniu o otwarte Zgłoszenie, ``states_failure`` to porażka każdego
     zapytania o stan, a ``asked`` to numery z każdego zapytania o stan.
@@ -123,6 +127,16 @@ class FakeReportBox:
             if isinstance(outcome, Sent):
                 self.issues.append(FakeIssue(outcome.number, label, title, body))
         return outcome
+
+    def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
+        with self._lock:
+            self.keys.append(key)
+            issue = next((issue for issue in self.issues if issue.number == number), None)
+            if issue is None:
+                return Refused()
+            issue.comments.append(body)
+            comment_id = sum(len(issue.comments) for issue in self.issues)
+        return Commented(comment_id, f"https://github.com/{REPOSITORY}/issues/{number}#issuecomment-{comment_id}")
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         self.searching.set()

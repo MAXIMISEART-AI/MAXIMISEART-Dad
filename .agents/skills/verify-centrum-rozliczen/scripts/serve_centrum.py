@@ -36,7 +36,7 @@ and rewrites ``server.json`` with its own pid.
 The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each issue Centrum opens (a Zgłoszenie
 Dad sends, or a Kontrola ilości Centrum sends by itself) becomes
-``<number>.json`` with its title, body, label, and ``state`` (``open``; the
+``<number>.json`` with its title, body, label, comments, and ``state`` (``open``; the
 drive may edit it to ``closed``, which Centrum reads as Maks closing the
 Zgłoszenie). The open Zgłoszenie of a problem is the ``open`` file labelled
 ``zgloszenie`` whose body has its fingerprint line. The key is never written
@@ -107,9 +107,12 @@ from rozliczenia.centrum.log import CentrumLog  # noqa: E402
 from rozliczenia.centrum.processes import Processes  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
     REPORT_LABEL,
+    CommentOutcome,
+    Commented,
     FindOutcome,
     IssueState,
     Label,
+    Refused,
     SendOutcome,
     Sent,
     StatesOutcome,
@@ -173,6 +176,21 @@ class FileReportBox:
                 json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
         return Sent(number)
+
+    def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
+        """The comment goes into the issue's own file, so numbering by ``*.json`` stays the issue count."""
+
+        if (self._directory / "brak-sieci").exists():
+            return Unreachable()
+        path = self._directory / f"{number}.json"
+        with self._lock:
+            if not path.is_file():
+                return Refused()
+            issue = json.loads(path.read_text(encoding="utf-8"))
+            issue["comments"] = [*issue.get("comments", []), body]
+            path.write_text(json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            comment_id = len(issue["comments"])
+        return Commented(comment_id, f"{path.as_uri()}#komentarz-{comment_id}")
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         if (self._directory / "brak-sieci").exists():

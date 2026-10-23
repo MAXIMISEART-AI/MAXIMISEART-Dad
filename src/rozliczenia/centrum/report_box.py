@@ -12,9 +12,9 @@ Każda operacja zwraca wynik albo jedną z dwóch porażek: ``Refused`` (skrzynk
 odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable`` (brak sieci
 albo skrzynka nie odpowiedziała jak zwykle). Klucz, którego nie da się wysłać
 w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused`` bez
-zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem, a
-znalezienie otwartego Zgłoszenia po odcisku problemu (``find_open``) daje numer
-issue albo ``None``.
+zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem,
+komentarz ``Commented`` z identyfikatorem i adresem, a znalezienie otwartego
+Zgłoszenia po odcisku problemu (``find_open``) daje numer issue albo ``None``.
 """
 
 from __future__ import annotations
@@ -43,6 +43,14 @@ class Sent:
 
 
 @dataclass(frozen=True)
+class Commented:
+    """Skrzynka przyjęła komentarz: ``id`` z API i ``url`` do niego."""
+
+    id: int
+    url: str
+
+
+@dataclass(frozen=True)
 class Refused:
     """Skrzynka odmówiła: klucz wygasł, jest nieważny albo nie ma dostępu do repozytorium Zgłoszeń."""
 
@@ -53,6 +61,7 @@ class Unreachable:
 
 
 SendOutcome = Sent | Refused | Unreachable
+CommentOutcome = Commented | Refused | Unreachable
 # Numer otwartego Zgłoszenia problemu albo ``None``, gdy otwartego nie ma (nigdy nie było albo Maks je zamknął).
 FindOutcome = int | None | Refused | Unreachable
 
@@ -65,6 +74,10 @@ StatesOutcome = Mapping[int, IssueState] | Refused | Unreachable
 class ReportBox(Protocol):
     def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
         """Zakłada issue z etykietą ``label`` kluczem taty; nigdy nie rzuca wyjątku sieci."""
+        ...
+
+    def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
+        """Dopisuje komentarz do issue ``number``; nigdy nie rzuca wyjątku sieci."""
         ...
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         """Otwarte Zgłoszenie z odciskiem problemu ``fingerprint``; nigdy nie rzuca wyjątku sieci."""
@@ -133,6 +146,18 @@ class GitHubReportBox:
             return answer
         number = _json_field(answer.body, "number") if answer.status == 201 else None
         return Sent(number) if isinstance(number, int) else Unreachable()
+
+    def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
+        if not _sendable(key):
+            return Refused()
+        answer = self._post(f"{_API}/repos/{REPOSITORY}/issues/{number}/comments", {"body": body}, key)
+        if not isinstance(answer, HttpResponse):
+            return answer
+        document = _json(answer.body) if answer.status == 201 else None
+        if not isinstance(document, dict):
+            return Unreachable()
+        comment_id, url = document.get("id"), document.get("html_url")
+        return Commented(comment_id, url) if isinstance(comment_id, int) and isinstance(url, str) else Unreachable()
 
     def find_open(self, fingerprint: str, *, key: str) -> FindOutcome:
         """Przegląda otwarte issue z etykietą ``zgloszenie`` strona po stronie i szuka wiersza z odciskiem problemu."""

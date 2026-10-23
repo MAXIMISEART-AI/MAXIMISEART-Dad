@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 import pytest
 
 from rozliczenia.centrum.report_box import (
+    CommentOutcome,
+    Commented,
     FindOutcome,
     GitHubReportBox,
     HttpRequest,
@@ -225,8 +227,57 @@ def test_brak_sieci_albo_niezwykla_odpowiedz_przy_stanie_to_skrzynka_nieosiagaln
     assert outcome == Unreachable()
 
 
+COMMENT_URL = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/12#issuecomment-901"
+
+
+def comment_with(answer: Callable[[], HttpResponse]) -> tuple[CommentOutcome, ScriptedTransport]:
+    transport = ScriptedTransport(answer)
+    return GitHubReportBox(transport=transport).comment(12, BODY, key=KEY), transport
+
+
+def test_przyjety_komentarz_ma_identyfikator_i_adres() -> None:
+    outcome, transport = comment_with(
+        lambda: HttpResponse(201, json.dumps({"id": 901, "html_url": COMMENT_URL, "body": BODY}).encode())
+    )
+
+    assert outcome == Commented(901, COMMENT_URL)
+    [request] = transport.requests
+    assert (request.method, request.url) == ("POST", f"{ISSUES}/12/comments")
+    assert request.headers["Authorization"] == f"Bearer {KEY}"
+    assert request.body is not None
+    assert json.loads(request.body) == {"body": BODY}
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_odmowa_przy_komentarzu_to_odmowa_skrzynki(status: int) -> None:
+    outcome, _ = comment_with(lambda: HttpResponse(status, b'{"message": "Not Found"}'))
+
+    assert outcome == Refused()
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        no_network,
+        cut_off,
+        lambda: HttpResponse(502, b"<html>Bad gateway</html>"),
+        lambda: HttpResponse(201, json.dumps({"id": 901}).encode()),
+        lambda: HttpResponse(201, json.dumps({"id": "901", "html_url": COMMENT_URL}).encode()),
+        lambda: HttpResponse(201, b"[]"),
+    ],
+    ids=["brak-sieci", "urwana-odpowiedz", "awaria-githuba", "bez-adresu", "id-tekstem", "nie-obiekt"],
+)
+def test_brak_sieci_albo_niezwykla_odpowiedz_przy_komentarzu_to_skrzynka_nieosiagalna(
+    answer: Callable[[], HttpResponse],
+) -> None:
+    outcome, _ = comment_with(answer)
+
+    assert outcome == Unreachable()
+
+
 OPERATIONS: dict[str, Callable[[GitHubReportBox, str], object]] = {
     "open_issue": lambda box, key: box.open_issue("kontrola-ilosci", TITLE, BODY, key=key),
+    "comment": lambda box, key: box.comment(12, BODY, key=key),
     "find_open": lambda box, key: box.find_open(FINGERPRINT, key=key),
     "states": lambda box, key: box.states([7], key=key),
 }
