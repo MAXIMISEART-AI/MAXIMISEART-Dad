@@ -7,56 +7,34 @@ niepoprawnych i reguły P50/P95 daje ``telemetry``; Centrum ich nie powtarza.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Final
 
 from fastapi import APIRouter
 
-from rozliczenia import preparation_process, settlement_process
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.domain import PHASES
 from rozliczenia.process_run import Process
 from rozliczenia.telemetry import MINIMUM_STATISTIC_SAMPLES, MetricsStore, comparable_records, statistics_for
 
-# Procesy Centrum rozliczeń pod kluczami kontraktu.
-PROCESSES: Final[dict[contract.ProcessKey, Process[Any, Any]]] = {
-    "preparation": preparation_process.PROCESS,
-    "settlement": settlement_process.PROCESS,
-}
 _MODES: Final[tuple[contract.RunMode, ...]] = ("RUN", "DRY-RUN")
 _RECENT_WEEKS = 8
 
 
-@dataclass(frozen=True)
-class MetricsFiles:
-    """Pliki metryk obu procesów."""
-
-    preparation: Path
-    settlement: Path
-
-    @classmethod
-    def default(cls) -> MetricsFiles:
-        return cls(**{key: process.metrics_path() for key, process in PROCESSES.items()})
-
-    def stores(self) -> dict[contract.ProcessKey, MetricsStore]:
-        paths: dict[contract.ProcessKey, Path] = {"preparation": self.preparation, "settlement": self.settlement}
-        return {key: MetricsStore(paths[key], process.counter_names) for key, process in PROCESSES.items()}
-
-
 def read_metrics(
-    files: MetricsFiles, today: date, centrum_started: frozenset[tuple[str, str]] = frozenset()
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
+    today: date,
+    centrum_started: frozenset[tuple[str, str]] = frozenset(),
 ) -> contract.Metrics:
     """``centrum_started``: pary (proces, ``started_at``) Uruchomień z Centrum (``run_origins``)."""
 
-    stores = files.stores()
+    stores = {key: MetricsStore(process.metrics_path(), process.counter_names) for key, process in processes.items()}
     records = {process: store.read() for process, store in stores.items()}
     runs = sorted(
         (
-            _run(process, record, centrum_started)
+            _run(process, processes[process].name, record, centrum_started)
             for process, process_records in records.items()
             for record in process_records
         ),
@@ -81,11 +59,11 @@ def read_metrics(
 
 
 def _run(
-    process: contract.ProcessKey, record: dict[str, Any], centrum_started: frozenset[tuple[str, str]]
+    process: contract.ProcessKey, label: str, record: dict[str, Any], centrum_started: frozenset[tuple[str, str]]
 ) -> contract.ProcessRun:
     return contract.ProcessRun(
         process=process,
-        process_label=PROCESSES[process].name,
+        process_label=label,
         started_at=datetime.fromisoformat(record["started_at"]).astimezone(timezone.utc),
         mode=record["mode"],
         period=record["period"],
@@ -154,13 +132,15 @@ def previewed_periods(store: MetricsStore) -> frozenset[str]:
     return frozenset(record["period"] for record in records if (record["mode"], record["result"]) == ("DRY-RUN", "OK"))
 
 
-def metrics_router(files: MetricsFiles, today: Callable[[], date], centrum_runs: CentrumRuns) -> APIRouter:
+def metrics_router(
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]], today: Callable[[], date], centrum_runs: CentrumRuns
+) -> APIRouter:
     router = APIRouter(prefix="/api/metrics", tags=["metryki"])
 
     @router.get("", operation_id="getMetrics", responses={500: {"model": contract.Problem}})
     def metrics() -> contract.Metrics:
         try:
-            return read_metrics(files, today(), centrum_runs.started())
+            return read_metrics(processes, today(), centrum_runs.started())
         except OSError:
             raise contract.Refusal(500, "Nie udało się odczytać plików metryk. Odśwież kartę.") from None
 

@@ -356,9 +356,9 @@ npm run build      # build do src/rozliczenia/centrum/static/
   więc po nich `npm run regen` i commit; bez tego CI i `tools/ci_lokalnie.py` padają.
 - Nowy proces w Uruchomieniach: opis procesu `process_run.Process` w module
   procesu (wzór: `settlement_process.PROCESS`), klasa spełniająca
-  `runs.ProcessEntry` (wzór: `SettlementEntry`), klucz w `contract.ProcessKey`
-  i `metrics.PROCESSES`, wpis w `runs_router(runs, [...])` w `create_app`;
-  `runs.py` się nie zmienia.
+  `runs.ProcessEntry` (wzór: `SettlementEntry`), klucz w `contract.ProcessKey`,
+  pole w `Processes` (`centrum/processes.py`) i wpis na liście `entries` w
+  `create_app`; `runs.py` się nie zmienia.
 
 Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
 i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill
