@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
-from datetime import date
 import os
 from pathlib import Path
 import subprocess
@@ -27,11 +26,6 @@ CLEANUPS = (
 CONTRACT_NAMES = {"root", "run_dir", "variant", "wariant", "katalog_runu"}
 CWD_CALLS = {"chdir", "getcwd", "cwd"}
 
-# Pliki otwartych PR-ów innych wątków przejdą na Parser po ich merge'u. Po terminie przypadek znów pada.
-OPEN_PR_UNTIL = date(2026, 10, 29)
-OPEN_PR = {
-    ("verify-centrum-rozliczen/scripts/serve_centrum.py", "add_argument(--root)"): "#282 zmienia ten plik",
-}
 OUTSIDE_CONTRACT = {
     ("verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py", "'.verification'"): (
         "pamięć podręczna narzędzi modelu TLA+, nie run"
@@ -85,13 +79,11 @@ def test_skrypty_skilli_biora_katalog_runu_warianty_i_sciezki_tylko_z_parsera() 
         for path in sorted(SKILLS.glob("*/scripts/**/*.py"))
         for line, what in _own_contract(path)
     }
-    allowed = {**OUTSIDE_CONTRACT, **(OPEN_PR if date.today() <= OPEN_PR_UNTIL else {})}
-
-    assert sorted(f"{path}:{line}: {what}" for (path, what), line in found.items() if (path, what) not in allowed) == [], (
+    assert sorted(f"{path}:{line}: {what}" for (path, what), line in found.items() if (path, what) not in OUTSIDE_CONTRACT) == [], (
         "--root, --run-dir i --variant dodają metody skrypt_skilla.Parser, katalog przebiegu przychodzi z add_run_dir, "
         "a skrypt nie zależy od bieżącego katalogu"
     )
-    assert sorted(set(allowed) - set(found)) == [], "wyjątek bez znaleziska: usuń go"
+    assert sorted(set(OUTSIDE_CONTRACT) - set(found)) == [], "wyjątek bez znaleziska: usuń go"
 
 
 @pytest.mark.parametrize("cleanup", CLEANUPS, ids=lambda path: path.name)
