@@ -17,7 +17,7 @@ server's answer and the files on disk.
 
 ## Launch
 
-Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`):
+Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`); `--run-dir` can point anywhere:
 
 ```powershell
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
@@ -47,7 +47,7 @@ outlast a 10-minute command limit. Success prints
 `VERIFY OK | features=… | evidence=… | scratch_removed=true`; anything else is a
 failure, reported as `VERIFY FAIL | …`.
 
-The runner creates `.verification/runs/centrum-<id>` with
+The runner creates `<run dir>/runs/centrum-<id>` with
 `scripts/create_centrum_fixture.py`, then starts `scripts/serve_centrum.py` on a
 free port. Readiness is `<root>/server.json` (written only after the port is
 bound) plus a `200` from `/api/health`. Teardown is the runner's `finally`: it
@@ -123,7 +123,8 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\drive_centrum.py --root "$
 
 ## Evidence
 
-Evidence lives in `.verification/evidence/centrum-<id>/` and survives cleanup:
+Evidence lives in `<run dir>/evidence/centrum-<id>/` and survives cleanup. The
+run dir is `.verification` of the checkout, or any path given with `--run-dir`:
 
 - `fixture.txt`, `server.txt` (server console), `doctor.txt`, `drive.txt`
   (every step and check), `cleanup.txt`, `self-test.txt`;
@@ -158,7 +159,8 @@ Proof standards:
 
 The runner calls `scripts/centrum_cleanup.py` in `finally`. It stops the server
 recorded in `server.json` only if that URL still answers as Centrum, then
-removes the run root. It never touches evidence and never kills by process
+removes the run root. It refuses a directory that the fixture did not create
+(no `.katalog-runu` file). It never touches evidence and never kills by process
 name. After a runner that was itself killed:
 
 ```powershell

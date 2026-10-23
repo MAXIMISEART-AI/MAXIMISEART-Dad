@@ -11,7 +11,7 @@ never a cell value. No step waits for a human, except the opt-in ``--kontrola-na
 
 from __future__ import annotations
 
-import argparse
+from argparse import RawDescriptionHelpFormatter
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -34,8 +34,10 @@ REPO_ROOT = SCRIPT.parents[4]
 OTHER_SKILL = REPO_ROOT / ".agents" / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = REPO_ROOT / "tools" / "uruchom_proces.py"
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from rozliczenia.preparation_messages import QUANTITY_WARNINGS  # noqa: E402
+from skrypt_skilla import Parser, create_run_root, new_run  # noqa: E402
 
 # Exit code of the machine script for Wymaga sprawdzenia.
 NEEDS_REVIEW_EXIT = 2
@@ -604,7 +606,8 @@ def _hygiene(run: Run) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
+    parser.add_run_dir()
     parser.add_argument("--wzorce", choices=("prawdziwe", "syntetyczne"), default="prawdziwe")
     parser.add_argument("--templates-dir", type=Path, help="directory with the three real Wzorce (default: config/)")
     parser.add_argument("--kontrola-naprawy", action="store_true", help="also prove the dialog detector; needs one click")
@@ -617,9 +620,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"VERIFY FAIL | {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     run_id = f"excel-{uuid.uuid4().hex[:12]}"
-    evidence = REPO_ROOT / ".verification" / "evidence" / run_id
-    evidence.mkdir(parents=True)
-    run = Run(REPO_ROOT / ".verification" / "runs" / run_id, excel.DESK / run_id, evidence)
+    paths = new_run(args.run_dir, run_id)
+    evidence = paths.evidence
+    run = Run(paths.root, excel.DESK / run_id, evidence)
     real_templates = None
     if args.wzorce == "prawdziwe":
         real_templates = _real_templates(args.templates_dir)
@@ -633,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
     started_excel: int | None = None
     outcome = "OK"
     try:
-        run.root.mkdir(parents=True)
+        create_run_root(run.root)
         create_fixture(run, real_templates)
         run.desk.mkdir(parents=True)
         doctor(run)

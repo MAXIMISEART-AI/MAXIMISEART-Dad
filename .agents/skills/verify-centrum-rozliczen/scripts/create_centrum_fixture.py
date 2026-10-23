@@ -32,7 +32,6 @@ Wykonawcy, and 258 more synthetic records in both metrics files.
 
 from __future__ import annotations
 
-import argparse
 from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
@@ -45,6 +44,10 @@ import sys
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser, create_run_root
 
 # Dad's "today" for the run: Monday 19.10.2026, so the last complete period is 06_12_10_2026,
 # whose Folder okresu deliberately does not exist.
@@ -494,7 +497,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
 
 
 def create(root: Path, variant: str | None = None) -> dict[str, object]:
-    root.mkdir(parents=True)
+    create_run_root(root)
     (root / "config").mkdir()
     configuration = _configuration(root / "config")
     (root / "picker").mkdir()
@@ -553,15 +556,15 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, help="Run root below .verification/runs; must not exist yet.")
+    parser = Parser(description=__doc__)
+    parser.add_root("run root to create; absent or empty")
     parser.add_argument(
         "--wariant", choices=(YEAR_OF_WORK,), help="rok-pracy: add a year of Dad's work for wydajnosc (see above)."
     )
     args = parser.parse_args(argv)
     try:
-        fixture = create(Path(args.root), args.wariant)
-    except (OSError, subprocess.CalledProcessError) as exc:
+        fixture = create(args.root, args.wariant)
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
         return 1
     print(f"FIXTURE OK | root={args.root} | today={fixture['today']} | variant={args.wariant or 'podstawowy'}")

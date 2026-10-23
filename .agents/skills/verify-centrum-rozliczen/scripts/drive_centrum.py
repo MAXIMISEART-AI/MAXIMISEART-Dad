@@ -9,7 +9,7 @@ to ``<evidence>/state``.
 
 from __future__ import annotations
 
-import argparse
+from argparse import RawDescriptionHelpFormatter
 from collections.abc import Callable
 import functools
 from pathlib import Path
@@ -41,6 +41,10 @@ from drive import (
 )
 from drive.common import DAD_TIME_ZONE, DriveFailure, Run
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser
+
 # aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
 # appends to the metrics files that Metryki counts, so it runs after Metryki; Przebieg rozliczeń continues Dad's
 # path from its Plik zbiorczy; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
@@ -66,8 +70,8 @@ FEATURES = (
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, help="Run root with fixture.json and a served Centrum.")
+    parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
+    parser.add_root("run root with fixture.json and a served Centrum")
     parser.add_argument("--url", required=True, help="Centrum URL from <root>/server.json.")
     parser.add_argument("--evidence", required=True, help="Evidence directory that survives cleanup.")
     parser.add_argument("--feature", choices=("all", *FEATURES, *EXPLICIT_FEATURES), default="all")
@@ -78,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         "--powtorzenia", type=int, default=DEFAULT_REPEATS, help="wydajnosc: repetitions per scenario and profile."
     )
     args = parser.parse_args(argv)
-    run = Run(Path(args.root).resolve(), args.url, Path(args.evidence).resolve())
+    run = Run(args.root, args.url, Path(args.evidence).resolve())
     drives: dict[str, Callable[[Run, Page], None]] = {
         "ustawienia": ustawienia.drive_settings,
         "tablica-okresow": tablica_okresow.drive_period_board,

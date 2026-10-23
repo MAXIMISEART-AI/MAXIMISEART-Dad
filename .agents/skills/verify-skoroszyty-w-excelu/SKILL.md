@@ -147,7 +147,8 @@ Drive Excel only through `scripts/excel.py`; it encodes the traps below.
 
 ## Evidence
 
-`.verification/evidence/excel-<id>/` survives cleanup:
+`<run dir>/evidence/excel-<id>/` survives cleanup (`--run-dir`, default
+`.verification` of the checkout):
 
 - `drive.txt`: every `STEP` line.
 - `excel.json`: Excel version, which Wzorce, whether Excel ran before, per
@@ -178,7 +179,7 @@ After a runner killed before its `finally`:
 ```bash
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/excel.py close-under --root ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja
 rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<run>
-.venv/bin/python .agents/skills/verify-rozliczenia/scripts/cleanup.py --root .verification/runs/<run>
+.venv/bin/python .agents/skills/verify-rozliczenia/scripts/cleanup.py --root <run dir>/runs/<run>
 ```
 
 ## Helpers

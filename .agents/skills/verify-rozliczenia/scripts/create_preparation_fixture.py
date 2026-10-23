@@ -7,7 +7,6 @@ synthetic workbook.
 
 from __future__ import annotations
 
-import argparse
 from datetime import datetime
 import hashlib
 import json
@@ -24,6 +23,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser, create_run_root
 
 
 PERIOD = "08_14_09_2026"
@@ -93,26 +96,6 @@ ADDRESS_FILL = "FF00B0F0"
 # Hiperłącze in NUMER ZL. of every ZLECENIA order, like the link to the order in the company app; the Rejestr
 # row number ends the address. The PREP-SYN- marker makes self_test.py reject an address leaking into evidence.
 ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
-
-
-def _run_parent() -> Path:
-    return (_repo_root() / ".verification" / "runs").resolve()
-
-
-def _safe_run_root(value: str) -> Path:
-    root = Path(value).expanduser().resolve()
-    parent = _run_parent()
-    try:
-        root.relative_to(parent)
-    except ValueError as exc:
-        raise ValueError(f"Fixture root must be below {parent}") from exc
-    if root == parent:
-        raise ValueError("Fixture root must be a child of the runs directory")
-    return root
 
 
 def _active_worksheet(workbook: Workbook) -> Worksheet:
@@ -383,8 +366,8 @@ def _write_fixture(root: Path, templates_from: Path | None, *, with_worker_templ
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=str, required=True)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root to create; absent or empty")
     parser.add_argument("--templates-from", type=Path, help="copy the real Wzorce from this directory")
     parser.add_argument(
         "--with-worker-template",
@@ -394,10 +377,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     templates_from = args.templates_from.expanduser().resolve() if args.templates_from else None
     try:
-        root = _safe_run_root(args.root)
-        if root.exists() and any(root.iterdir()):
-            raise ValueError(f"Fixture root is not empty: {root}")
-        root.mkdir(parents=True, exist_ok=True)
+        root = create_run_root(args.root)
         _write_fixture(root, templates_from, with_worker_template=args.with_worker_template)
     except (OSError, ValueError) as exc:
         print(f"FIXTURE FAILED: {exc}", file=sys.stderr)
