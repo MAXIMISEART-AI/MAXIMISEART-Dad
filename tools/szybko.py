@@ -104,14 +104,18 @@ class Dependencies:
             for name in _imports(tree, path):
                 depends_on[path] |= _resolve(name, path, modules, files)
             texts, globs = _references(tree)
-            if not path.startswith("tests/"):
+            test = path.startswith("tests/")
+            if not test:
                 # Poza testami sama nazwa pliku albo modułu to zwykle nazwa procesu albo pliku w cudzym katalogu.
                 texts = {text for text in texts if "/" in text.strip("/")}
             for text in texts:
-                if text in modules and path.startswith("tests/"):
+                if text in modules and test:
                     depends_on[path] |= _resolve(text, path, modules, files)
-                depends_on[path] |= _files_named(text, files)
-                folder_files[path] |= _folder_files(text, files, directories)
+                # Skrypt, który uruchamia test, zależy dalej od swoich importów; plik wskazany przez narzędzie już nie,
+                # a katalog w narzędziu to zwykle lista miejsc do sprawdzenia (``GENERATED``), nie plik, który czyta.
+                (depends_on if test else folder_files)[path] |= _files_named(text, files)
+                if test:
+                    folder_files[path] |= _folder_files(text, files, directories)
             for glob in globs:
                 folder_files[path] |= _globbed(glob, files, directories)
             folder_files[path] |= package_data.get(str(PurePosixPath(path).parent), set())
