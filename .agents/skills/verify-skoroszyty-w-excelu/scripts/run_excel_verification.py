@@ -36,7 +36,6 @@ PROCESS_SCRIPT = REPO_ROOT / "tools" / "uruchom_proces.py"
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from rozliczenia.preparation_messages import QUANTITY_WARNINGS  # noqa: E402
 from rozliczenia.workbook_files import QUANTITY_COLUMNS  # noqa: E402
 from skrypt_skilla import Parser, create_run_root, new_run  # noqa: E402
 
@@ -250,10 +249,9 @@ def preparation(run: Run) -> None:
     )
     expect(isinstance(result, dict), "Przygotowanie printed no result")
     assert isinstance(result, dict)
-    codes = {warning["code"] for warning in result["warnings"]}
+    # Przygotowanie ends a write Wymaga sprawdzenia only for the Ilości usług warnings (preparation_process._finished).
     expect(
-        result["result"] == "WYMAGA_SPRAWDZENIA" and bool(codes & QUANTITY_WARNINGS),
-        "Przygotowanie did not end Wymaga sprawdzenia for the Ilości usług warnings",
+        result["result"] == "WYMAGA_SPRAWDZENIA", "Przygotowanie did not end Wymaga sprawdzenia for the Ilości usług warnings"
     )
     expect(run.collective_file.is_file() and run.internal_file.is_file(), "Przygotowanie left no period files")
 
