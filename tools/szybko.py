@@ -23,14 +23,18 @@ import argparse
 import ast
 from collections import defaultdict
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 import os
 from pathlib import Path, PurePosixPath
 import subprocess
+import sys
+import threading
 import time
 from typing import TypeGuard
 
 import ci_lokalnie
+from mutacje import environment
 import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -310,16 +314,33 @@ def _structure_after_merge(copy: Path, base: str) -> ci_lokalnie.Step:
 
 
 def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
-    """Uruchamia kroki w ``root`` i drukuje wynik każdego jedną linią; zwraca nazwy kroków, które padły."""
+    """Uruchamia kroki w ``root`` naraz i drukuje wynik każdego jedną linią, po kolei; zwraca nazwy kroków, które padły.
+
+    Kroki od siebie nie zależą, więc czas to najdłuższy krok, a nie ich suma: zimny mypy w świeżym worktree
+    biegnie w trakcie testów.
+    """
+
+    stop = threading.Event()
+
+    def run(step: ci_lokalnie.Step) -> tuple[bool, str, float]:
+        started = time.monotonic()
+        done = potomne.run(step.command, cwd=step.cwd, env={**environment(root), "PYTHON": sys.executable}, stop=stop)
+        return done.returncode == 0, done.stdout + done.stderr, time.monotonic() - started
 
     failed = []
-    for step in steps:
-        started = time.monotonic()
-        passed, output = ci_lokalnie._run(step, root)
-        print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({time.monotonic() - started:.0f} s)", flush=True)
-        if not passed:
-            failed.append(step.name)
-            print("\n".join(output.rstrip().splitlines()[-ci_lokalnie.OUTPUT_ON_FAILURE :]), flush=True)
+    pool = ThreadPoolExecutor(max_workers=len(steps))
+    try:
+        for step, (passed, output, elapsed) in zip(steps, pool.map(run, steps), strict=True):
+            print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({elapsed:.0f} s)", flush=True)
+            if not passed:
+                failed.append(step.name)
+                print("\n".join(output.rstrip().splitlines()[-ci_lokalnie.OUTPUT_ON_FAILURE :]), flush=True)
+    except BaseException:
+        # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
+        stop.set()
+        raise
+    finally:
+        pool.shutdown(cancel_futures=True)
     return failed
 
 
