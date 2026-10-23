@@ -270,7 +270,9 @@ def version_line(commit: str, since: str | None) -> str:
 def release_only(origin: Path, commit: str) -> None:
     """GitHub's only Wydanie, as Centrum's Aktualizacja narzędzia sees it, is ``commit``: tag ``v0.1.0`` in ``origin``.
 
-    A real Wydanie never moves; the harness withdraws every tag instead, so one tag is always the newest.
+    A real Wydanie never moves; the harness withdraws every tag instead, so one tag is always the newest. ``main``
+    moves to ``commit`` too, because Centrum refuses a Wydanie that is not on ``main`` and the run's versions sit on
+    side branches of the origin.
     """
 
     def git(*args: str) -> str:
@@ -280,3 +282,4 @@ def release_only(origin: Path, commit: str) -> None:
     if tags:
         git("tag", "--delete", *tags)
     git("tag", "v0.1.0", commit)
+    git("update-ref", "refs/heads/main", commit)

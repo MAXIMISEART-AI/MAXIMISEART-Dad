@@ -32,7 +32,10 @@ def _tags(*named: tuple[str, str]) -> str:
 
 # Ścieżka wybiera odpowiedź API GitHuba na listę tagów: kolejność jak u GitHuba nie jest kolejnością Wydań.
 _PAGES = {
-    "/tagi": (_tags(("v0.9.0", OLDER), ("v0.10.0", NEWEST), ("proba", OTHER), ("v0.10", OTHER)), None),
+    "/tagi": (
+        _tags(("v0.9.0", OLDER), ("v0.10.0", NEWEST), ("proba", OTHER), ("v0.10", OTHER), ("v1.0.0-rc1", OTHER)),
+        None,
+    ),
     "/strona-1": (_tags(("v0.9.0", OLDER)), "/strona-2"),
     "/strona-2": (_tags(("v1.0.0", NEWEST), ("v0.11.0", OTHER)), None),
     "/bez-wydan": (_tags(("proba", OTHER)), None),

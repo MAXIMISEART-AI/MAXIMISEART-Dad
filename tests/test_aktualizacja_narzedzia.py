@@ -151,9 +151,9 @@ def test_bez_wydania_na_githubie_narzedzie_jest_aktualne_a_klon_zostaje_bez_zmia
 
 
 def off_main_commit(repository: ToolRepository) -> str:
-    """Commit, który zna tylko tag: ktoś założył go z gałęzi, która nie weszła do `main`."""
+    """Commit, który zna tylko tag: ktoś założył go z gałęzi od pierwszego Wydania, która nie weszła do `main`."""
 
-    git(repository.publisher, "checkout", "--quiet", "-b", "agent")
+    git(repository.publisher, "checkout", "--quiet", "-b", "agent", "v0.1.0")
     (repository.publisher / "src" / "narzedzie.py").write_text("WERSJA = 666\n", encoding="utf-8")
     git(repository.publisher, "commit", "--quiet", "--all", "--message", "Zmiana spoza main")
     commit = git(repository.publisher, "rev-parse", "HEAD")
