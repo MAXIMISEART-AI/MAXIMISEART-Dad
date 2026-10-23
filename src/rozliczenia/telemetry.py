@@ -199,7 +199,7 @@ class MetricsStore:
         return records
 
 
-def percentile(values: list[float], proportion: float) -> float:
+def percentile(values: list[float], *, proportion: float) -> float:
     """Zwraca interpolowany percentyl dla niepustej, posortowanej próby."""
 
     ordered = sorted(values)
@@ -242,6 +242,6 @@ def statistics_for(
                 durations[phase].append(float(phase_values[phase]))
 
     return {
-        name: (round(percentile(values, 0.50)), round(percentile(values, 0.95)))
+        name: (round(percentile(values, proportion=0.50)), round(percentile(values, proportion=0.95)))
         for name, values in durations.items()
     }
