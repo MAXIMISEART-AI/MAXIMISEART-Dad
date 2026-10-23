@@ -95,7 +95,8 @@ jobs:
 
       - name: Install test dependencies (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
+        # The pre-push hook test runs the real ruff and mypy from tools/ci_lokalnie.py.
+        run: python -m pip install --disable-pip-version-check -e ".[dev]"
 
       - name: Run tests
         if: ${{ runner.os == 'Windows' }}

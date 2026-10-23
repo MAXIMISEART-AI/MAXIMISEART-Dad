@@ -59,16 +59,12 @@ their contents.
   output or logs. The one exception is the Zatrzymanie about gaps in
   `SKUTECZNE` (`ZLE_SKUTECZNE`, ADR 0004): its tests use synthetic
   `SKUTECZNE` values, because the Komunikat shows the exact cell content.
-- Before reporting work done, run `tools/ci_lokalnie.py` with the checkout's
-  own `.venv`: the CI jobs ruff, mypy, pytest, mutations and frontend, ending with
-  `CI LOKALNIE OK`. The `pre-push` hook enforces it for agent pushes; a green run on a clean,
-  committed checkout makes the next push instant. Before real files are used,
-  run a preview without saving (`Podgląd bez zapisu`).
-- Before pushing a branch of several commits, run
-  `tools/ci_lokalnie.py --kazdy-commit`: each commit passes ruff, mypy and
-  pytest in its own worktree.
+- Before real files are used, run a preview without saving
+  (`Podgląd bez zapisu`).
 - Prove that a new test or check fails on the broken code it guards with
   `tools/mutacje.py`. It mutates a copy of the checkout, never the checkout.
+  Run it once for each test or check added or changed in a round of work. A
+  rebase, or a fix that leaves the test unchanged, does not need a new run.
 
 ## Frontend
 
