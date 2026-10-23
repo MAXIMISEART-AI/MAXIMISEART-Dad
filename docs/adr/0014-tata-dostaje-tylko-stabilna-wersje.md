@@ -30,17 +30,22 @@ Tata dostaje tylko Stabilną wersję: commit `main`, dla którego przeszło peł
 CI na pushu do `main`.
 
 - **Gałąź `stabilna`.** Workflow `.github/workflows/stabilna.yml` biegnie po
-  każdym zakończonym runie CI na pushu do `main` (`workflow_run`). Gdy w tej
-  próbie runu job `Required CI status` przeszedł, `tools/promuj_stabilna.py`
-  przesuwa `stabilna` na ten commit zwykłym pushem, bez force. Skrypt wylicza
+  każdym zakończonym runie CI na pushu do `main` (`workflow_run`). Gdy ta
+  próba runu skończyła się sukcesem (każdy job, także `Required CI status`),
+  `tools/promuj_stabilna.py` przesuwa `stabilna` na ten commit zwykłym pushem,
+  bez force. Sukces całego runu jest surowszy niż sam `Required CI status`:
+  łapie też job, którego ktoś zapomni dopisać do `needs`. Skrypt wylicza
   wynik ze stanu GitHuba: `stabilna`, która już zawiera commit, zostaje (run
-  starszego commitu skończył się po nowszym); commit spoza `main` albo
-  `stabilna` spoza historii `main` to odmowa i czerwony job, a `stabilna` się
-  nie zmienia. Push odrzucony, bo inny run przesunął ją w międzyczasie, liczy
+  starszego commitu skończył się po nowszym); commit albo `stabilna` spoza
+  `main`, albo `stabilna`, która nie jest przodkiem commitu, to odmowa i
+  czerwony job, a `stabilna` się nie zmienia. Push odrzucony, bo inny run przesunął ją w międzyczasie, liczy
   się od nowa. Brak gałęzi zakłada pierwszy zielony run.
-- **Uprawnienia.** Tylko ten job ma `contents: write` (i `actions: read` na
-  odczyt jobów runu). `workflow_run` bierze definicję z `main`, więc PR nie
-  zmieni promocji, zanim się zmerguje. Reszta CI zostaje z `contents: read`.
+- **Uprawnienia.** Tylko ten job ma `contents: write`. `workflow_run` bierze
+  definicję z `main`, więc PR nie zmieni promocji, zanim się zmerguje. Reszta
+  CI zostaje z `contents: read`. `GITHUB_TOKEN` z `contents: write` przesuwa
+  gałąź także przez commity, które zmieniają albo dodają pliki w
+  `.github/workflows/` (sprawdzone 23.10 na gałęzi próbnej, runy 39881543713
+  i 39926967134), więc promocja nie potrzebuje osobnego klucza.
 - **Centrum pobiera `stabilna`.** `ToolClone.update` pobiera
   `refs/heads/stabilna` i przesuwa lokalną `main` taty tylko do przodu.
   `INNA_GALAZ` znaczy dalej „klon nie stoi na `main`”, a commit narzędzia
@@ -63,14 +68,20 @@ CI na pushu do `main`.
 - Gdy po tej aktualizacji tata stoi na commicie `main` nowszym niż `stabilna`,
   `Zaktualizuj narzędzie` odpowiada `Masz najnowszą wersję.`, a Aktualność
   pokazuje `Jest nowsza wersja`, bo porównuje równość commitów, a nie
-  przodków. Trwa to do najbliższego zielonego runu CI na `main`, który
-  wyprzedzi jego commit.
+  przodków. Diagnoza tak samo: gdy nie znajdzie innej przyczyny Zatrzymania,
+  wyjaśnia je nowszą wersją, a aktualizacja nic nie zmienia. Trwa to do
+  najbliższego zielonego runu CI na `main`, który wyprzedzi jego commit, więc
+  Maks mówi tacie o aktualizacji, gdy `main` jest zielony.
 - Przed merge'em tej zmiany Maks zakłada `stabilna` na ostatnim commicie
   `main` z zielonym CI. Bez tego, do końca pierwszego zielonego runu po
-  merge'u, Aktualność pokazuje `Nie sprawdzono`, a aktualizacja `Masz
-  najnowszą wersję.`.
-- Ruleset dla `stabilna` blokuje force push i usunięcie. Skrypt i tak nie
-  używa force, ale ruleset chroni gałąź także przed ręcznym pushem.
+  merge'u, Aktualność pokazuje `Nie sprawdzono`, Diagnoza „brak połączenia z
+  GitHubem”, a aktualizacja `Masz najnowszą wersję.`.
+- Ruleset dla `stabilna` blokuje tylko force push i usunięcie. Skrypt i tak
+  nie używa force, ale ruleset chroni gałąź także przed ręcznym pushem.
+  Wymagany status albo ograniczenie aktualizacji zablokowałyby push z
+  `GITHUB_TOKEN`.
+- Nowa instalacja u taty: `git clone`, potem `git reset --hard
+  origin/stabilna` na `main` (README).
 
 ## Konsekwencje
 
