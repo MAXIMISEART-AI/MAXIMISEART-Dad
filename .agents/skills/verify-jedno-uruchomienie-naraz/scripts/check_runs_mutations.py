@@ -43,6 +43,19 @@ MUTATIONS = (
         "URUCHOMIENIA: NOWE NARUSZENIE",
     ),
     Mutation(
+        "działania po wyniku po końcu Uruchomienia",
+        (
+            Edit(
+                RUNS,
+                "        self._host.after(ended)\n        self._host.finished(self, result)\n        self.ended = True\n",
+                "        self._host.finished(self, result)\n        self.ended = True\n        self._host.after(ended)\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "zamknij-w-trakcie"),
+        "Centrum zamyka się po wyniku, zanim Kontrola ilości trafi do pliku kolejki",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
         "Shutdown.request bez odmowy",
         (Edit(SHUTDOWN, "        message = self._blocker()\n", "        message = None\n"),),
         (EXPLORER, "--scope", "zamknij-w-trakcie"),

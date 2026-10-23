@@ -13,6 +13,11 @@ Każda zmiana stanu to nowy niemutowalny widok (``contract.RunView``) z kolejnym
 numerem. Strumień SSE wysyła najpierw bieżący widok, potem każdy kolejny, więc
 ponowne podłączenie (odświeżenie, nowa karta) zaczyna od bieżącego stanu.
 Decyzja taty czeka w stanie ``awaiting_decision``, aż przyjdzie przez API.
+
+Po wyniku, a przed końcem Uruchomienia w dzienniku, każde działanie po wyniku
+(``AfterRun``, np. Kontrola ilości) dostaje zakończone Uruchomienie (``EndedRun``)
+w osobnej osłonie: tylko krótka praca lokalna, nigdy sieć, a jego wyjątek nie
+zmienia wyniku.
 """
 
 from __future__ import annotations
@@ -65,6 +70,14 @@ SummaryT = TypeVar("SummaryT")
 
 
 @dataclass(frozen=True)
+class Viewed(Generic[SummaryT]):
+    """Widok rozmówcy Centrum: wynik dla karty i podsumowanie silnika, z którego powstał, dla działań po wyniku."""
+
+    shown: Shown
+    summary: SummaryT
+
+
+@dataclass(frozen=True)
 class PreparedRun(Generic[InputsT, SummaryT]):
     """Uruchomienie procesu gotowe do startu.
 
@@ -86,6 +99,44 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
         return self.view.progress(snapshot, dry_run=self.dry_run)
 
+    def viewed(self, inputs: InputsT, summary: SummaryT) -> Viewed[SummaryT]:
+        """Widok dla ``run_process(view=...)``: tylko wskazuje podsumowanie, więc osłona rdzenia widzi to co dotąd."""
+
+        return Viewed(self.view.shown(inputs, summary), summary)
+
+
+@dataclass(frozen=True)
+class EndedRun:
+    """Zakończone Uruchomienie procesu z Centrum, każdą drogą: wszystko, co wiadomo po wyniku."""
+
+    info: contract.RunInfo
+    prepared: PreparedRun[Any, Any]
+    outcome: Outcome[Viewed[Any]] | None
+    """Wynik rdzenia; ``None``, gdy rdzeń nie oddał wyniku (ostatnia siatka adaptera)."""
+    stopped: StoppedRun | None
+    result: contract.RunOutcome
+    progress: contract.Progress
+    started_at: datetime
+    ended_at: datetime
+
+    @property
+    def summary(self) -> object | None:
+        """Podsumowanie silnika tylko wtedy, gdy karta pokazuje zakończony proces (``result.ending == "finished"``)."""
+
+        if self.result.ending != "finished" or self.outcome is None or self.outcome.view is None:
+            return None
+        summary: object = self.outcome.view.summary
+        return summary
+
+
+class AfterRun(Protocol):
+    def run_ended(self, run: EndedRun) -> None:
+        """Na wątku Uruchomienia, przed końcem Uruchomienia: tylko lokalny zapis w milisekundach, bez sieci.
+
+        Wyjątek nie zmienia wyniku: ``RunHost.after`` zapisuje jego typ w dzienniku i woła następne działanie.
+        """
+        ...
+
 
 # Odmowa w trakcie Aktualizacji narzędzia: uruchomienia procesu, zamknięcia Centrum albo innej aktualizacji.
 _UPDATING = "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem {then}."
@@ -105,12 +156,17 @@ class RunHost:
     Uruchomienia z Centrum do ``CentrumRuns``. Zatrzymanie zakończonego Uruchomienia
     przejmuje jego właściciel (``stops``); Diagnoza i „Wyślij do Maksa” idą tylko do
     Zatrzymania bieżącego Uruchomienia, a nowy stan Zgłoszenia trafia na jego kartę.
+    Działania po wyniku (``after_run``) biegną przed końcem Uruchomienia, więc
+    przyjęte zamknięcie Centrum albo Aktualizacja narzędzia ich nie przerwie.
     """
 
-    def __init__(self, log: CentrumLog, centrum_runs: CentrumRuns, stops: Stops) -> None:
+    def __init__(
+        self, log: CentrumLog, centrum_runs: CentrumRuns, stops: Stops, *, after_run: Sequence[AfterRun]
+    ) -> None:
         self._log = log
         self._centrum_runs = centrum_runs
         self._stops = stops
+        self._after_run = tuple(after_run)
         self._lock = threading.Lock()
         self._sequence = 0
         self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=contract.RunIdle(state="idle"))]
@@ -241,6 +297,15 @@ class RunHost:
                 result = view.result.model_copy(update={"report": state})
                 self._publish_locked(view.model_copy(update={"result": result}))
 
+    def after(self, run: EndedRun) -> None:
+        """Każde działanie po wyniku we własnej osłonie: błąd jednego nie pomija następnych ani nie zmienia wyniku."""
+
+        for action in self._after_run:
+            try:
+                action.run_ended(run)
+            except Exception as failure:  # noqa: BLE001 - działanie po wyniku nie może zmienić wyniku Uruchomienia
+                self._log.unexpected_failure(failure, where="po wyniku Uruchomienia procesu")
+
     def finished(self, run: _Run, result: contract.RunOutcome) -> None:
         info = run.info
         self._log.run_finished(
@@ -299,10 +364,11 @@ class _Run:
     def work(self) -> None:
         prepared = self._prepared
         stop: Stop | None
+        outcome: Outcome[Viewed[Any]] | None = None
+        since = datetime.now(timezone.utc)
         try:
-            since = datetime.now(timezone.utc)
             outcome = run_process(
-                prepared.process, prepared.inputs, self, view=prepared.view.shown, metrics_path=prepared.metrics_path
+                prepared.process, prepared.inputs, self, view=prepared.viewed, metrics_path=prepared.metrics_path
             )
             self._host.remember(prepared, since)
             stop = None if isinstance(outcome.ending, Finished) else outcome.ending
@@ -314,6 +380,8 @@ class _Run:
             stopped = self._host._stops.ended(self.info, stop)
             result = _unexpected_result(prepared.dry_run, stopped)
         self.stopped = stopped
+        ended = EndedRun(self.info, prepared, outcome, stopped, result, self._progress, since, datetime.now(timezone.utc))
+        self._host.after(ended)
         self._host.finished(self, result)
         self.ended = True
         self._host.publish(
@@ -380,7 +448,7 @@ def _decision_view(decision: Decision) -> contract.Decision:
 
 
 def _run_result(
-    outcome: Outcome[Shown],
+    outcome: Outcome[Viewed[Any]],
     prepared: PreparedRun[Any, Any],
     stopped: StoppedRun | None,
 ) -> contract.RunOutcome:
@@ -409,7 +477,7 @@ def _run_result(
         kind = "finished"
         next_action = "run" if dry_run else "open_period_folder"
         headline = "Podgląd gotowy · nic nie zapisano" if dry_run else prepared.done
-    shown = outcome.view
+    shown = None if outcome.view is None else outcome.view.shown
     return contract.RunOutcome(
         result=outcome.result,
         headline=headline,

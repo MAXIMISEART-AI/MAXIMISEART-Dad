@@ -17,10 +17,15 @@ per schedule, and checks two rules:
 - BEZ_ZAMKNIECIA_W_TRAKCIE: when the server ends, no Uruchomienie procesu is in progress, including
   one waiting for Dad's Decyzja, and no Aktualizacja narzędzia before its restart guardian started.
   Both threads are daemons, so the end of the Python process kills them mid-work.
+- PO_WYNIKU_PRZED_KONCEM: when the server ends, every Uruchomienie that reached its end in the Centrum
+  log has also run its actions after the result (``RunHost.after``: the Kontrola ilości lands in the
+  queue file there). Otherwise a shutdown accepted right after the result kills the thread before the file
+  exists.
 
 Replaced: ``threading`` inside ``runs.py`` and ``shutdown.py`` by model primitives that hand control to
 the checker; ``run_process`` by an engine with two steps and an optional Decyzja through the real
-``_Run.confirm``; ``CentrumLog`` and ``CentrumRuns`` by steps that write nothing. ``ToolUpdates``
+``_Run.confirm``; ``CentrumLog`` and ``CentrumRuns`` by steps that write nothing; the actions after the result
+(``AfterRun``) by one step that writes nothing. ``ToolUpdates``
 (``tool_updates.py``) is modelled by hand around the real ``begin_update``, ``end_update`` and
 ``Shutdown.close_for_update``: Git, pip and the restart guardian are one step that ends either without a
 new version (or with a failure) or with the guardian started. Modelled by hand:
@@ -331,6 +336,19 @@ class LogSteps:
         return entry
 
 
+class AfterRunSteps:
+    """``AfterRun``: the actions after the result (Kontrola ilości into its queue file) are one step; nothing is written."""
+
+    def __init__(self, scheduler: Scheduler) -> None:
+        self._scheduler = scheduler
+
+    def run_ended(self, _run: object) -> None:
+        self._scheduler.step("po wyniku: działania po wyniku Uruchomienia (plik kolejki)")
+        run = _current_actor().run
+        if run is not None:
+            run.model_after_done = True
+
+
 class CentrumRunsSteps:
     """``CentrumRuns``: remembering the metrics record of an Uruchomienie is one step; nothing is written."""
 
@@ -453,6 +471,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             self.model_creator = _current_actor().name
             self.model_window = world_box[0].close_window()
             self.model_done = False
+            self.model_after_done = False
             created.append(self)
 
     def engine(process: Any, inputs: Any, interlocutor: Any, *, view: Any, metrics_path: Path) -> Any:
@@ -488,7 +507,12 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
         log = LogSteps(scheduler)
         # Wired as in create_app (app.py): RunHost, then Shutdown.refuse_while(runs.shutdown_refusal).
         stopper = shutdown.Shutdown(log)  # type: ignore[arg-type]
-        host = runs.RunHost(log, CentrumRunsSteps(scheduler), NoStops())  # type: ignore[arg-type]
+        host = runs.RunHost(
+            log,  # type: ignore[arg-type]
+            CentrumRunsSteps(scheduler),  # type: ignore[arg-type]
+            NoStops(),  # type: ignore[arg-type]
+            after_run=[AfterRunSteps(scheduler)],
+        )
         stopper.refuse_while(host.shutdown_refusal)
         lock = getattr(host, "_lock", None)
         world = World(
@@ -637,6 +661,16 @@ def _server(world: World) -> Callable[[], None]:
                     f"wystartowało {run.model_window}",
                 )
             )
+        for run in world.created:
+            if run.model_done and not run.model_after_done:
+                world.violations.append(
+                    Violation(
+                        "PO_WYNIKU_PRZED_KONCEM",
+                        ("PO_WYNIKU_PRZED_KONCEM",),
+                        f"Centrum kończy pracę po wyniku {run.model_name} (z: {run.model_creator}), "
+                        "zanim przeszły jego działania po wyniku",
+                    )
+                )
         for update in world.updating():
             world.violations.append(
                 Violation(
@@ -687,6 +721,7 @@ def _state(world: World) -> object:
                 run.model_creator,
                 run.model_window,
                 run.model_done,
+                run.model_after_done,
                 run.ended,
                 run.awaiting_decision,
             )

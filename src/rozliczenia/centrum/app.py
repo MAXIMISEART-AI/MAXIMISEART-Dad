@@ -154,7 +154,7 @@ def create_app(
         ),
         log,
     )
-    runs = RunHost(log, centrum_runs, stops)
+    runs = RunHost(log, centrum_runs, stops, after_run=())
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie
     # opiekun ponownego startu zostawia wynik obok Ustawień taty, a to Centrum odczytuje go teraz, raz.
