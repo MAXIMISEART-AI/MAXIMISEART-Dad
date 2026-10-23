@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -66,8 +67,17 @@ def test_po_aktualizacji_narzedzia_przegladarka_dostaje_nowy_pakiet_pod_ta_sama_
     assert (updated.status_code, updated.content) == (200, b"console.log('po aktualizacji')\n")
 
 
-def test_kontrakt_ma_trasy_i_schematy_po_kolei_wiec_dwie_nowe_trasy_nie_zmieniaja_tego_samego_miejsca() -> None:
-    contract = json.loads((ROOT / "frontend" / "src" / "api" / "openapi.json").read_text(encoding="utf-8"))
+def test_kontrakt_ma_trasy_i_schematy_po_kolei_wiec_dwie_nowe_trasy_nie_zmieniaja_tego_samego_miejsca(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = importlib.util.spec_from_file_location("export_openapi", ROOT / "tools" / "export_openapi.py")
+    assert spec is not None and spec.loader is not None
+    export = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(export)
+    monkeypatch.setattr(export, "OUTPUT", tmp_path / "openapi.json")
+
+    assert export.main() == 0
+    contract = json.loads((tmp_path / "openapi.json").read_text(encoding="utf-8"))
     schemas = contract["components"]["schemas"]
 
     assert (list(contract["paths"]), list(schemas)) == (sorted(contract["paths"]), sorted(schemas))
