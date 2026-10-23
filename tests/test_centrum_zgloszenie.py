@@ -45,10 +45,10 @@ def send(centrum: PreparingCentrum, run_id: str) -> dict[str, Any]:
     return state
 
 
-def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     preview = diagnose(centrum, run_id)["report"]
 
     state = send(centrum, run_id)
@@ -69,10 +69,10 @@ def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path, 
     ],
     ids=["utf-8-bom", "utf-16-le", "utf-16-be"],
 )
-def test_klucz_zapisany_z_bom_wysyla_zgloszenie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: bytes) -> None:
+def test_klucz_zapisany_z_bom_wysyla_zgloszenie(tmp_path: Path, content: bytes) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum).write_bytes(content)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
 
     assert send(centrum, run_id) == {"state": "sent"}
@@ -139,18 +139,11 @@ def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_
     assert body.endswith("```\n")
 
 
-def test_zgloszenie_nie_ma_tresci_wierszy_wyjatku_pelnych_sciezek_ani_klucza(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zgloszenie_nie_ma_tresci_wierszy_wyjatku_pelnych_sciezek_ani_klucza(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
-        raise RuntimeError("nieprzewidziany błąd przy SYN-001")
-
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+    centrum.engines.fail_engine = True
     run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
-    monkeypatch.undo()
     diagnose(centrum, run_id)
     send(centrum, run_id)
 
@@ -227,11 +220,9 @@ def unsent_files(centrum: PreparingCentrum) -> dict[str, str]:
     return {path.name: path.read_text(encoding="utf-8") for path in sorted(directory.glob("*.md"))}
 
 
-def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysyla(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysyla(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     preview = diagnose(centrum, run_id)["report"]
 
     saved = send(centrum, run_id)
@@ -258,11 +249,9 @@ def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysy
     assert unsent_files(centrum) == {}
 
 
-def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komunikat(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komunikat(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
     (tmp_path / "config" / "zgloszenia").write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
@@ -289,12 +278,12 @@ def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komun
     ids=["odmowa", "brak-polaczenia"],
 )
 def test_nieudana_wysylka_zapisuje_zgloszenie_w_pliku_a_ponowna_proba_je_wysyla(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: SendOutcome, what: str
+    tmp_path: Path, failure: SendOutcome, what: str
 ) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     centrum.surroundings.report_box.outcomes.append(failure)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     preview = diagnose(centrum, run_id)["report"]
 
     saved = send(centrum, run_id)
@@ -306,12 +295,10 @@ def test_nieudana_wysylka_zapisuje_zgloszenie_w_pliku_a_ponowna_proba_je_wysyla(
     assert (len(centrum.surroundings.report_box.keys), len(centrum.surroundings.report_box.sent), unsent_files(centrum)) == (2, 1, {})
 
 
-def test_plik_niewyslanego_zgloszenia_ktorego_nie_da_sie_usunac_nie_cofa_wyslania(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_plik_niewyslanego_zgloszenia_ktorego_nie_da_sie_usunac_nie_cofa_wyslania(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
     # Na miejscu pliku niewysłanego Zgłoszenia coś, czego nie da się usunąć jak pliku (w Windows: plik otwarty).
     (tmp_path / "config" / "zgloszenia" / f"Zgłoszenie BLAD_PLANU {PERIOD}.md").mkdir(parents=True)
@@ -327,12 +314,10 @@ def current_report(centrum: PreparingCentrum) -> object:
     return view["result"]["report"]
 
 
-def test_wyslanie_jest_raz_na_zatrzymanie_a_wynik_uruchomienia_pokazuje_potwierdzenie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_wyslanie_jest_raz_na_zatrzymanie_a_wynik_uruchomienia_pokazuje_potwierdzenie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     assert current_report(centrum) == {"state": "ready"}
     diagnose(centrum, run_id)
 
@@ -343,10 +328,10 @@ def test_wyslanie_jest_raz_na_zatrzymanie_a_wynik_uruchomienia_pokazuje_potwierd
     assert current_report(centrum) == {"state": "sent"}
 
 
-def test_ponowna_diagnoza_po_wyslaniu_pokazuje_wyslane_zgloszenie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ponowna_diagnoza_po_wyslaniu_pokazuje_wyslane_zgloszenie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
     send(centrum, run_id)
 
@@ -356,17 +341,15 @@ def test_ponowna_diagnoza_po_wyslaniu_pokazuje_wyslane_zgloszenie(tmp_path: Path
     assert len(centrum.surroundings.report_box.sent) == 1
 
 
-def test_wyslane_zgloszenie_czeka_na_naprawe_takze_po_restarcie_centrum(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_wyslane_zgloszenie_czeka_na_naprawe_takze_po_restarcie_centrum(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     body = diagnose(centrum, run_id)["report"]["body"]
     send(centrum, run_id)
 
     centrum.restart()
-    again = stopped_for_maks(centrum, monkeypatch)
+    again = stopped_for_maks(centrum)
 
     assert current_report(centrum) == {"state": "waiting"}
     diagnose(centrum, again)
@@ -387,10 +370,10 @@ def test_zatrzymanie_dla_taty_nie_proponuje_zgloszenia(tmp_path: Path) -> None:
     assert centrum.client.post(f"/api/runs/{view['run']['id']}/report").status_code == 409
 
 
-def test_wyslanie_bez_diagnozy_jest_odrzucone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wyslanie_bez_diagnozy_jest_odrzucone(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
 
     refused = centrum.client.post(f"/api/runs/{run_id}/report")
 
@@ -416,15 +399,15 @@ WAITING = {"state": "waiting"}
 
 
 def test_kolejne_uruchomienie_z_otwartym_zgloszeniem_tego_problemu_czeka_na_naprawe_bez_drugiej_wysylki(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path
 ) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    first = stopped_for_maks(centrum, monkeypatch)
+    first = stopped_for_maks(centrum)
     diagnose(centrum, first)
     send(centrum, first)
 
-    again = stopped_for_maks(centrum, monkeypatch)
+    again = stopped_for_maks(centrum)
 
     assert current_report(centrum) == WAITING
     diagnose(centrum, again)
@@ -432,18 +415,16 @@ def test_kolejne_uruchomienie_z_otwartym_zgloszeniem_tego_problemu_czeka_na_napr
     assert len(centrum.surroundings.report_box.sent) == 1
 
 
-def test_otwarte_zgloszenie_wyslane_spoza_tego_komputera_tez_czeka_na_naprawe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_otwarte_zgloszenie_wyslane_spoza_tego_komputera_tez_czeka_na_naprawe(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    first = stopped_for_maks(centrum, monkeypatch)
+    first = stopped_for_maks(centrum)
     diagnose(centrum, first)
     send(centrum, first)
     (tmp_path / "config" / "zgloszenia-wyslane.json").unlink()
     centrum.restart()
 
-    again = stopped_for_maks(centrum, monkeypatch)
+    again = stopped_for_maks(centrum)
     assert current_report(centrum) == {"state": "ready"}
     diagnose(centrum, again)
 
@@ -453,15 +434,12 @@ def test_otwarte_zgloszenie_wyslane_spoza_tego_komputera_tez_czeka_na_naprawe(
     assert f"zgloszenie-czeka proces=preparation okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
-def test_inny_komunikat_wysyla_sie_osobno_obok_otwartego_zgloszenia(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_inny_komunikat_wysyla_sie_osobno_obok_otwartego_zgloszenia(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
-    first = stopped_for_maks(centrum, monkeypatch)
+    first = stopped_for_maks(centrum)
     diagnose(centrum, first)
     send(centrum, first)
-    monkeypatch.undo()
     centrum.fixture.collective_template_path.unlink()
 
     other = run_to_end(centrum, dry_run=True)["run"]["id"]
@@ -473,18 +451,16 @@ def test_inny_komunikat_wysyla_sie_osobno_obok_otwartego_zgloszenia(
     assert sent_codes == ["BLAD_PLANU", "BRAK_WZORCA"]
 
 
-def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_do_poprzedniego(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_do_poprzedniego(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
-    first = stopped_for_maks(centrum, monkeypatch)
+    first = stopped_for_maks(centrum)
     first_body = diagnose(centrum, first)["report"]["body"]
     send(centrum, first)
     box.close(1)
 
-    again = stopped_for_maks(centrum, monkeypatch)
+    again = stopped_for_maks(centrum)
     preview = diagnose(centrum, again)["report"]
 
     assert current_report(centrum) == {"state": "ready"}
@@ -496,20 +472,18 @@ def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_
     assert [entry["number"] for entry in sent] == [1, 2]
 
 
-def test_zgloszenie_zamkniete_wedlug_powiadomienia_o_naprawie_nie_czeka_juz_po_restarcie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zgloszenie_zamkniete_wedlug_powiadomienia_o_naprawie_nie_czeka_juz_po_restarcie(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
-    first = stopped_for_maks(centrum, monkeypatch)
+    first = stopped_for_maks(centrum)
     diagnose(centrum, first)
     send(centrum, first)
     box.close(1)
     assert centrum.client.get("/api/reports/repair").json() == {"repaired": True}
     centrum.restart()
 
-    again = stopped_for_maks(centrum, monkeypatch)
+    again = stopped_for_maks(centrum)
 
     assert current_report(centrum) == {"state": "ready"}
     preview = diagnose(centrum, again)["report"]
@@ -520,32 +494,28 @@ def test_zgloszenie_zamkniete_wedlug_powiadomienia_o_naprawie_nie_czeka_juz_po_r
     assert centrum.client.get("/api/reports/repair").json() == {"repaired": True}
 
 
-def test_bez_odpowiedzi_skrzynki_wyslany_problem_dalej_czeka_na_naprawe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_bez_odpowiedzi_skrzynki_wyslany_problem_dalej_czeka_na_naprawe(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
-    first = stopped_for_maks(centrum, monkeypatch)
+    first = stopped_for_maks(centrum)
     diagnose(centrum, first)
     send(centrum, first)
     box.close(1)
     box.search_failure = Unreachable()
 
-    again = stopped_for_maks(centrum, monkeypatch)
+    again = stopped_for_maks(centrum)
     diagnose(centrum, again)
 
     assert current_report(centrum) == WAITING
     assert len(box.sent) == 1
 
 
-def test_gdy_skrzynka_nie_odpowiada_na_pytanie_o_otwarte_zgloszenie_zgloszenie_zostaje_w_pliku(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_gdy_skrzynka_nie_odpowiada_na_pytanie_o_otwarte_zgloszenie_zgloszenie_zostaje_w_pliku(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     centrum.surroundings.report_box.search_failure = Unreachable()
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     preview = diagnose(centrum, run_id)["report"]
 
     saved = send(centrum, run_id)
@@ -556,13 +526,13 @@ def test_gdy_skrzynka_nie_odpowiada_na_pytanie_o_otwarte_zgloszenie_zgloszenie_z
 
 
 def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_w_kilka_sekund_a_wysylka_i_tak_pyta_skrzynke(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path
 ) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
     box.search_hold = threading.Event()
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     release = threading.Timer(8, box.search_hold.set)  # bez limitu Diagnoza czekałaby na skrzynkę
     release.start()
     started = time.monotonic()
@@ -581,18 +551,16 @@ def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_w_kilka_sekund_a_wysylka_i_
     assert len(box.sent) == 1
 
 
-def test_spozniona_odpowiedz_skrzynki_w_diagnozie_to_brak_odpowiedzi(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_spozniona_odpowiedz_skrzynki_w_diagnozie_to_brak_odpowiedzi(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
-    first = stopped_for_maks(centrum, monkeypatch)
+    first = stopped_for_maks(centrum)
     diagnose(centrum, first)
     send(centrum, first)
     box.close(1)
     box.search_hold = threading.Event()
-    again = stopped_for_maks(centrum, monkeypatch)
+    again = stopped_for_maks(centrum)
 
     try:
         diagnose(centrum, again)
@@ -602,13 +570,11 @@ def test_spozniona_odpowiedz_skrzynki_w_diagnozie_to_brak_odpowiedzi(
     assert current_report(centrum) == WAITING
 
 
-def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowiada_dalej(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowiada_dalej(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
-    run_id = stopped_for_maks(centrum, monkeypatch)
+    run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
     box.search_hold = threading.Event()
     box.searching.clear()

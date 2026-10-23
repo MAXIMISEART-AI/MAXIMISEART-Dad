@@ -2,8 +2,8 @@
 
 Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i
 podglądem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
-procesu: proces podaje gotowe ``PreparedRun`` (opis procesu, wejście
-procesu, plik metryk i widok Uruchomienia procesu z ``run_view``), a moduł
+procesu: proces podaje gotowe ``PreparedRun`` (rdzeń procesu z jego plikiem
+metryk, wejście procesu i widok Uruchomienia procesu z ``run_view``), a moduł
 prowadzi z nim rdzeń i publikuje widoki dla przeglądarki. Widok podsumowania robi rdzeń
 w swojej osłonie, więc jego awaria to błąd po silniku z Komunikatem z katalogu
 procesu, ten sam wynik co w metrykach. Zatrzymania, ostrzeżenia i decyzja taty
@@ -22,7 +22,6 @@ import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Final, Generic, Literal, Protocol, TypeVar
 
 import anyio
@@ -32,7 +31,7 @@ from fastapi.responses import StreamingResponse
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
-from rozliczenia.centrum.run_view import ProcessView
+from rozliczenia.centrum.run_view import ProcessView, Shown
 from rozliczenia.centrum.stops import NO_DIAGNOSIS, StoppedRun, Stops
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.decision import Decision
@@ -75,7 +74,6 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     period: str
     process: Process[InputsT, SummaryT]
     inputs: InputsT
-    metrics_path: Path
     done: str
     view: ProcessView[InputsT, SummaryT]
 
@@ -85,20 +83,6 @@ class PreparedRun(Generic[InputsT, SummaryT]):
 
     def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
         return self.view.progress(snapshot, dry_run=self.dry_run)
-
-    def summary_view(self, inputs: InputsT, summary: SummaryT) -> _SummaryView:
-        return _SummaryView(
-            summary=self.view.summary(summary, dry_run=self.dry_run),
-            warnings=[contract.Message.of(warning) for warning in self.view.warnings(inputs, summary)],
-        )
-
-
-@dataclass(frozen=True)
-class _SummaryView:
-    """Podsumowanie i ostrzeżenia zakończonego procesu w kształcie kontraktu."""
-
-    summary: contract.RunSummary
-    warnings: list[contract.Message]
 
 
 # Odmowa w trakcie Aktualizacji narzędzia: uruchomienia procesu, zamknięcia Centrum albo innej aktualizacji.
@@ -238,7 +222,7 @@ class RunHost:
     def remember(self, prepared: PreparedRun[Any, Any], since: datetime) -> None:
         """Zapamiętuje rekord metryk, który dopisało to Uruchomienie, jako Uruchomienie z Centrum."""
 
-        metrics = MetricsStore(prepared.metrics_path, prepared.process.counter_names)
+        metrics = MetricsStore(prepared.process.metrics_path(), prepared.process.counter_names)
         self._centrum_runs.remember(prepared.key, metrics, since, datetime.now(timezone.utc))
 
     def failed(self, failure: Exception) -> None:
@@ -316,7 +300,11 @@ class _Run:
         try:
             since = datetime.now(timezone.utc)
             outcome = run_process(
-                prepared.process, prepared.inputs, self, view=prepared.summary_view, metrics_path=prepared.metrics_path
+                prepared.process,
+                prepared.inputs,
+                self,
+                view=prepared.view.shown,
+                metrics_path=prepared.process.metrics_path(),
             )
             self._host.remember(prepared, since)
             stop = None if isinstance(outcome.ending, Finished) else outcome.ending
@@ -394,7 +382,7 @@ def _decision_view(decision: Decision) -> contract.Decision:
 
 
 def _run_result(
-    outcome: Outcome[_SummaryView],
+    outcome: Outcome[Shown],
     prepared: PreparedRun[Any, Any],
     stopped: StoppedRun | None,
 ) -> contract.RunOutcome:
@@ -433,7 +421,7 @@ def _run_result(
         diagnosis=None if stopped is None else stopped.offer,
         report=None if stopped is None else stopped.report,
         stops=stops,
-        warnings=[] if shown is None else shown.warnings,
+        warnings=[] if shown is None else [contract.Message.of(warning) for warning in shown.warnings],
         notices=list(outcome.notices),
         summary=None if shown is None else shown.summary,
     )
@@ -484,10 +472,13 @@ _STREAM_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 class ProcessEntry(Protocol):
-    """Proces, który Centrum umie uruchomić: co pokazać przed startem i jak przygotować Uruchomienie."""
+    """Proces, który Centrum umie uruchomić: jego rdzeń, co pokazać przed startem i jak przygotować Uruchomienie."""
 
     @property
     def key(self) -> contract.ProcessKey: ...
+
+    @property
+    def process(self) -> Process[Any, Any]: ...
 
     def setup(self) -> contract.ProcessSetup: ...
 

@@ -83,6 +83,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import replace
 from datetime import date
 import json
 import os
@@ -96,12 +97,12 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from rozliczenia import preparation_register, template_settlement  # noqa: E402
+from rozliczenia import preparation_process, preparation_register, settlement_process, template_settlement  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
 from rozliczenia.centrum.log import CentrumLog  # noqa: E402
-from rozliczenia.centrum.metrics import MetricsFiles  # noqa: E402
+from rozliczenia.centrum.processes import Processes  # noqa: E402
 from rozliczenia.centrum.report_box import (  # noqa: E402
     LABEL,
     FindOutcome,
@@ -293,8 +294,10 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
-    metrics = MetricsFiles(
-        preparation=Path(fixture["metrics"]["preparation"]), settlement=Path(fixture["metrics"]["settlement"])
+    metrics = fixture["metrics"]
+    processes = Processes(
+        preparation=replace(preparation_process.PROCESS, metrics_path=lambda: Path(metrics["preparation"])),
+        settlement=replace(settlement_process.PROCESS, metrics_path=lambda: Path(metrics["settlement"])),
     )
     configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
     clone = Path(fixture["tool"]["clone"])
@@ -310,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         log=log,
         shutdown=shutdown,
         today=lambda: today,
-        metrics_files=metrics,
+        processes=processes,
         configuration_files=ConfigurationFiles(**configuration),
         tool_freshness=_scripted_github(root, clone),
         cloud_files=_scripted_onedrive(root),

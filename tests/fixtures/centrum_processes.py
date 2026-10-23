@@ -7,27 +7,27 @@ taty, jak po zamknięciu i ponownym otwarciu Centrum na komputerze taty.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 import json
 from pathlib import Path
 import shutil
 import threading
-from typing import Any, NoReturn, Protocol
-
-import pytest
+from typing import Any, Protocol, TypeVar
 
 from fastapi.testclient import TestClient
 
-from rozliczenia.centrum import run_view
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import MetricsFiles
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
 from rozliczenia.centrum.tool_update import ToolClone
+from rozliczenia.decision import Conversation
+from rozliczenia.domain import ProgressObserver
+from rozliczenia.process_run import Finished, Process, ProcessInputs
 
 from tests.fixtures.centrum import (
     CENTRUM,
@@ -36,6 +36,7 @@ from tests.fixtures.centrum import (
     FakeOneDrive,
     FakePlatform,
     FakeReportBox,
+    MetricsPaths,
     finished_view,
 )
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
@@ -45,6 +46,39 @@ from tests.fixtures.tool_clone import FakeInstaller, ToolRepository
 # Środa po okresie 08_14_09_2026, więc to on jest ostatnim pełnym okresem.
 TODAY = date(2026, 9, 16)
 WORKER_SETTLEMENTS = f"Rozliczenie pracowników {PERIOD}"
+
+InputsT = TypeVar("InputsT", bound=ProcessInputs)
+SummaryT = TypeVar("SummaryT")
+
+
+@dataclass
+class Engines:
+    """Prawdziwe rdzenie obu procesów, sterowane przez seam ``Process``.
+
+    ``fail_engine``: silnik rzuca nieoczekiwany wyjątek, zanim przeczyta pliki taty. ``fail_summary``:
+    silnik kończy pracę, a ``Process.finished`` rzuca wyjątek, czyli podsumowania nie da się pokazać.
+    """
+
+    metrics: MetricsPaths
+    fail_engine: bool = False
+    fail_summary: bool = False
+
+    def processes(self) -> Processes:
+        real = self.metrics.processes()
+        return Processes(preparation=self._steered(real.preparation), settlement=self._steered(real.settlement))
+
+    def _steered(self, real: Process[InputsT, SummaryT]) -> Process[InputsT, SummaryT]:
+        def execute(inputs: InputsT, observer: ProgressObserver, conversation: Conversation) -> SummaryT:
+            if self.fail_engine:
+                raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+            return real.execute(inputs, observer, conversation)
+
+        def finished(summary: SummaryT) -> Finished:
+            if self.fail_summary:
+                raise ValueError("synthetic summary failure SYN-001")
+            return real.finished(summary)
+
+        return replace(real, execute=execute, finished=finished)
 
 
 @dataclass
@@ -106,7 +140,7 @@ def _client(
     tmp_path: Path,
     platform: FakePlatform,
     configuration: ConfigurationFiles,
-    metrics: MetricsFiles,
+    engines: Engines,
     surroundings: Surroundings,
 ) -> TestClient:
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
@@ -118,7 +152,7 @@ def _client(
         shutdown=Shutdown(log),
         today=lambda: TODAY,
         configuration_files=configuration,
-        metrics_files=metrics,
+        processes=engines.processes(),
         tool_freshness=surroundings.tool_freshness(),
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
@@ -137,6 +171,7 @@ class PreparingCentrum:
     log_path: Path
     tmp_path: Path
     surroundings: Surroundings
+    engines: Engines
 
     def start(self, *, dry_run: bool, period: str = PERIOD) -> Any:
         return self.client.post("/api/runs", json={"process": "preparation", "period": period, "dry_run": dry_run})
@@ -148,11 +183,11 @@ class PreparingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform(), self.surroundings)
+        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform(), self.surroundings, self.engines)
 
 
 def _preparation_client(
-    tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform, surroundings: Surroundings
+    tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform, surroundings: Surroundings, engines: Engines
 ) -> TestClient:
     configuration = ConfigurationFiles(
         worker_config=fixture.config_path,
@@ -160,11 +195,11 @@ def _preparation_client(
         collective_template=fixture.collective_template_path,
         worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
     )
-    return _client(tmp_path, platform, configuration, _metrics(tmp_path), surroundings)
+    return _client(tmp_path, platform, configuration, engines, surroundings)
 
 
-def _metrics(tmp_path: Path) -> MetricsFiles:
-    return MetricsFiles(
+def _metrics(tmp_path: Path) -> MetricsPaths:
+    return MetricsPaths(
         preparation=tmp_path / ".przygotowanie-pliku-zbiorczego-metrics.jsonl",
         settlement=tmp_path / ".rozliczenia-metrics.jsonl",
     )
@@ -181,16 +216,18 @@ def preparing_centrum(
     fixture = make_preparation_fixture(tmp_path, rows)
     platform = FakePlatform(chosen_files=[fixture.register_path], chosen_folders=[fixture.periods_directory])
     surroundings = surroundings or Surroundings()
-    client = _preparation_client(tmp_path, fixture, platform, surroundings)
+    engines = Engines(_metrics(tmp_path))
+    client = _preparation_client(tmp_path, fixture, platform, surroundings, engines)
     client.post("/api/settings/register/choose")
     client.post("/api/settings/periods-directory/choose")
     return PreparingCentrum(
         client,
         fixture,
-        _metrics(tmp_path).preparation,
+        engines.metrics.preparation,
         tmp_path / "logs" / "centrum-rozliczen.log",
         tmp_path,
         surroundings,
+        engines,
     )
 
 
@@ -204,6 +241,7 @@ class SettlingCentrum:
     configuration: ConfigurationFiles
     tmp_path: Path
     surroundings: Surroundings
+    engines: Engines
 
     @property
     def period_directory(self) -> Path:
@@ -227,9 +265,7 @@ class SettlingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _client(
-            self.tmp_path, FakePlatform(), self.configuration, _metrics(self.tmp_path), self.surroundings
-        )
+        self.client = _client(self.tmp_path, FakePlatform(), self.configuration, self.engines, self.surroundings)
 
 
 def settling_centrum(
@@ -254,13 +290,21 @@ def settling_centrum(
         collective_template=config / "Wzorzec pliku zbiorczego.xlsx",
         worker_template=worker_template,
     )
-    metrics = _metrics(tmp_path)
+    engines = Engines(_metrics(tmp_path))
     surroundings = Surroundings()
-    client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, metrics, surroundings)
+    client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, engines, surroundings)
     client.post("/api/settings/periods-directory/choose")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
     return SettlingCentrum(
-        client, periods_directory, metrics.settlement, log_path, parent, configuration, tmp_path, surroundings
+        client,
+        periods_directory,
+        engines.metrics.settlement,
+        log_path,
+        parent,
+        configuration,
+        tmp_path,
+        surroundings,
+        engines,
     )
 
 
@@ -277,13 +321,13 @@ def run_to_end(centrum: _Starting, *, dry_run: bool) -> dict[str, Any]:
     return finished_view(centrum.client)
 
 
-def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum, monkeypatch: pytest.MonkeyPatch) -> str:
+def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum) -> str:
     """Zatrzymanie „do Maksa” bez zmiany plików: podgląd, którego planu nie da się pokazać; zwraca id Uruchomienia."""
 
-    def broken_summary(*args: object, **kwargs: object) -> NoReturn:
-        raise ValueError("synthetic summary failure SYN-001")
-
-    monkeypatch.setattr(run_view.ProcessView, "summary", broken_summary)
-    view = run_to_end(centrum, dry_run=True)
+    centrum.engines.fail_summary = True
+    try:
+        view = run_to_end(centrum, dry_run=True)
+    finally:
+        centrum.engines.fail_summary = False
     assert view["result"]["stop_kind"] == "for_maks"
     return str(view["run"]["id"])
