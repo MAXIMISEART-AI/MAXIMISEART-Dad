@@ -1,6 +1,14 @@
 ---
 name: verify-kopia-wzorca
 description: Check with generated Wiersze danych that every Rozliczenie pracownika written by the template copy (ADR 0008, `template_copy.py`) is the file the old openpyxl path would write, keeps the rest of the Wzorzec byte for byte, and has the shape Excel needs. Use when a change touches `src/rozliczenia/template_copy.py`, `src/rozliczenia/sheet_data.py`, `src/rozliczenia/highlights.py`, `src/rozliczenia/row_look.py`, `src/rozliczenia/hyperlinks.py`, `TemplateFile` or `_write_rows` in `src/rozliczenia/workbook_files.py`, `tools/porownanie_rozliczen.py`, or when `tests/test_kopia_wzorca.py` fails.
+pilnuje:
+  - src/rozliczenia/template_copy.py
+  - src/rozliczenia/sheet_data.py
+  - src/rozliczenia/highlights.py
+  - src/rozliczenia/row_look.py
+  - src/rozliczenia/hyperlinks.py
+  - src/rozliczenia/workbook_files.py
+  - tools/porownanie_rozliczen.py
 ---
 
 # Verify kopia Wzorca

@@ -17,6 +17,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from hypothesis import given, settings
 
 CHECKER = (
     Path(__file__).resolve().parents[1] / ".agents" / "skills" / "verify-kopia-wzorca" / "scripts" / "check_template_copy.py"
@@ -55,7 +56,7 @@ def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_
     assert outcome.exit_code == 0, "\n".join(outcome.lines)
 
 
-def test_kopia_wzorca_sprawdza_te_same_przyklady_niezaleznie_od_modulow_wczytanych_obok(
+def test_kopia_wzorca_sprawdza_te_same_przyklady_niezaleznie_od_modulow_i_testow_hypothesis_obok(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     checker = _load_checker()
@@ -64,9 +65,13 @@ def test_kopia_wzorca_sprawdza_te_same_przyklady_niezaleznie_od_modulow_wczytany
     def record(run: object, case: object) -> None:
         checked.append(re.sub(r" object at 0x[0-9a-f]+", "", repr(case.workers)))  # type: ignore[attr-defined]
 
+    def examples() -> list[str]:
+        checked.clear()
+        checker.run_check(shrink=False, template_names=("maly",))
+        return list(checked)
+
     monkeypatch.setattr(checker.Run, "check", record)
-    checker.run_check(shrink=False, template_names=("maly",))
-    alone, checked[:] = list(checked), []
+    alone = examples()
 
     # Pełny pytest wczytuje moduły, których test uruchomiony sam nie wczytuje (#288).
     source = tmp_path / "modul_obok.py"
@@ -76,10 +81,20 @@ def test_kopia_wzorca_sprawdza_te_same_przyklady_niezaleznie_od_modulow_wczytany
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setitem(sys.modules, spec.name, module)
-    checker.run_check(shrink=False, template_names=("maly",))
+    beside_module = examples()
+
+    # Test z Hypothesis, który biegnie wcześniej w tym samym workerze, zostawia w pamięci Hypothesis stałe z modułów.
+    @settings(max_examples=20, database=None, derandomize=True)
+    @given(checker.data_rows())
+    def other_test(row: object) -> None:
+        pass
+
+    other_test()
+    after_other_test = examples()
 
     assert len(alone) > checker.DEFAULT_EXAMPLES
-    assert checked == alone
+    assert beside_module == alone
+    assert after_other_test == alone
 
 
 def test_czesci_kopii_wzorca_porownuja_razem_kazde_rozliczenie_pracownika_raz_i_licza_pokrycie_ze_wszystkich(

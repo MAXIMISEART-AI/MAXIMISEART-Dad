@@ -1,6 +1,12 @@
 ---
 name: verify-jedno-uruchomienie-naraz
 description: Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu or Aktualizacja narzędzia at a time and never closes during one (also while it waits for Dad's Decyzja), under every interleaving of browser tabs, Dad and the server. Use when a change touches `RunHost` or `_Run` in `src/rozliczenia/centrum/runs.py`, `Shutdown` in `shutdown.py`, `stop_when_asked` in `server.py`, the `refuse_while` wiring in `app.py`, `ToolUpdates.start` or `_update` in `tool_updates.py`, adds another action that must wait for a running Uruchomienie, or `test_jedno_uruchomienie_naraz` fails.
+pilnuje:
+  - src/rozliczenia/centrum/runs.py
+  - src/rozliczenia/centrum/shutdown.py
+  - src/rozliczenia/centrum/server.py
+  - src/rozliczenia/centrum/app.py
+  - src/rozliczenia/centrum/tool_updates.py
 ---
 
 # Verify jedno Uruchomienie naraz

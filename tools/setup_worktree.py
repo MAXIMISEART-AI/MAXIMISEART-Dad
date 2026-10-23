@@ -22,6 +22,8 @@ import sys
 import tempfile
 import venv
 
+import potomne
+
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / ".venv"
 EXTRAS = ".[dev]"
@@ -67,7 +69,9 @@ def main(argv: list[str] | None = None) -> int:
 def _gate_pushes() -> None:
     """Ustawia ``core.hooksPath`` na bramę pre-push i ostrzega o hookach, które przestają działać."""
 
-    configured = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True)
+    configured = subprocess.run(
+        ["git", "config", "--get", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True, check=False
+    )
     if configured.stdout.strip() == HOOKS:
         return
     hooks_path = subprocess.run(
@@ -88,13 +92,10 @@ def _venv_python() -> Path:
 def _imported_package_directory() -> Path:
     # Spoza checkoutu, żeby katalog bieżący nie zasłonił instalacji z .venv.
     with tempfile.TemporaryDirectory() as outside:
-        completed = subprocess.run(
-            [str(_venv_python()), "-c", "import rozliczenia; print(rozliczenia.__file__)"],
-            cwd=outside,
-            capture_output=True,
-            text=True,
-            check=True,
+        completed = potomne.run(
+            [str(_venv_python()), "-c", "import rozliczenia; print(rozliczenia.__file__)"], cwd=Path(outside)
         )
+    completed.check_returncode()
     return Path(completed.stdout.strip()).resolve().parent
 
 
@@ -102,14 +103,13 @@ def _print_work_in_progress() -> None:
     """Raport ``tools/praca_w_toku.py``: każda sesja zaczyna od tego skryptu, więc widzi inne sesje."""
 
     try:
-        report = (str(_venv_python()), str(ROOT / "tools" / "praca_w_toku.py"))
-        subprocess.run(report, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=120, check=False)
+        potomne.run([str(_venv_python()), str(ROOT / "tools" / "praca_w_toku.py")], cwd=ROOT, timeout=120, echo=True)
     except (OSError, subprocess.TimeoutExpired) as error:
         print(f"PRACA W TOKU POMINIĘTA | {error}")
 
 
 def _run(command: list[str]) -> None:
-    subprocess.run(command, cwd=ROOT, check=True)
+    potomne.run(command, cwd=ROOT, echo=True).check_returncode()
 
 
 if __name__ == "__main__":
