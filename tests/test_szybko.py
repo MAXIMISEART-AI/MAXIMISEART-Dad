@@ -45,6 +45,19 @@ BASE_FILES = {
         "    done = subprocess.run([sys.executable, str(TOOL)], capture_output=True, text=True, check=True)\n"
         "    assert done.stdout == 'wynik\\n'\n"
     ),
+    "src/witryna/__init__.py": "",
+    "src/witryna/strona.py": (
+        "from pathlib import Path\n\n\ndef tytul() -> str:\n"
+        "    return (Path(__file__).parent / 'strona.html').read_text(encoding='utf-8').strip()\n"
+    ),
+    "src/witryna/strona.html": "Centrum\n",
+    "tests/test_strona.py": "from witryna.strona import tytul\n\n\ndef test_tytul() -> None:\n    assert tytul() == 'Centrum'\n",
+    "skille/a/OPIS.md": "pilnuje: src\n",
+    "tests/test_opisy.py": (
+        "from pathlib import Path\n\nSKILLE = Path(__file__).resolve().parents[1] / 'skille'\n\n\n"
+        "def test_opisy() -> None:\n"
+        "    assert [p.read_text(encoding='utf-8') for p in SKILLE.glob('*/OPIS.md')] == ['pilnuje: src\\n']\n"
+    ),
     "docs/dane/wpis.md": "zgodny\n",
     "tests/test_dane.py": (
         "from pathlib import Path\n\nDANE = Path(__file__).resolve().parents[1] / 'docs' / 'dane'\n\n\n"
@@ -81,12 +94,16 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
     return repo
 
 
-def _szybko(repo: Path, *arguments: str, runs: Path | None = None) -> subprocess.CompletedProcess[str]:
-    counted = {"PRZEBIEGI": str(runs)} if runs else {}
+def _szybko(
+    repo: Path, *arguments: str, runs: Path | None = None, workers: str | None = "2"
+) -> subprocess.CompletedProcess[str]:
+    environment = {name: value for name, value in os.environ.items() if name != "PYTEST_XDIST_AUTO_NUM_WORKERS"}
+    environment |= {"PRZEBIEGI": str(runs)} if runs else {}
+    environment |= {"PYTEST_XDIST_AUTO_NUM_WORKERS": workers} if workers else {}
     return subprocess.run(
         [sys.executable, str(repo / "tools" / "szybko.py"), *arguments],
         cwd=repo,
-        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "2", **counted},
+        env=environment,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -134,6 +151,32 @@ def test_zielony_test_biegnie_znowu_dopiero_po_zmianie_pliku_od_ktorego_zalezy(t
     assert runs.read_text(encoding="utf-8") == ".."
 
 
+def test_pamiec_zielonych_nie_przepuszcza_zmiany_pliku_danych_pakietu(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    with (repo / "src" / "witryna" / "strona.py").open("a", encoding="utf-8") as module:
+        module.write("\n\nWERSJA = 2\n")
+    green = _szybko(repo)
+    _write(repo, "src/witryna/strona.html", "Inny tytuł\n")
+    after_change = _szybko(repo)
+
+    assert [green.stdout.splitlines()[-1], after_change.stdout.splitlines()[-1]] == ["SZYBKO OK", "SZYBKO FAIL | pytest"]
+    assert "FAILED tests/test_strona.py::test_tytul" in after_change.stdout
+
+
+@pytest.mark.parametrize(("workers", "expected"), [(None, "4"), ("3", "3")], ids=["bez zmiennej", "ze zmienną"])
+def test_pytest_bierze_cztery_workery_chyba_ze_zmienna_mowi_inaczej(tmp_path: Path, workers: str | None, expected: str) -> None:
+    repo = _repo(tmp_path)
+    _write(
+        repo,
+        "tests/test_workery.py",
+        f"import os\n\n\ndef test_workery() -> None:\n    assert os.environ['PYTEST_XDIST_AUTO_NUM_WORKERS'] == '{expected}'\n",
+    )
+
+    answered = _szybko(repo, workers=workers)
+
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "SZYBKO OK"), answered.stdout
+
+
 def test_test_ktory_padl_biegnie_znowu_bez_zmian(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     runs = tmp_path / "przebiegi"
@@ -160,8 +203,15 @@ def test_nowy_niesledzony_test_biegnie(tmp_path: Path) -> None:
     [
         ("tools/narzedzie.py", "tests/test_narzedzie.py::test_narzedzie"),
         ("docs/dane/wpis.md", "tests/test_dane.py::test_dane"),
+        ("skille/a/OPIS.md", "tests/test_opisy.py::test_opisy"),
+        ("src/witryna/strona.html", "tests/test_strona.py::test_tytul"),
     ],
-    ids=["skrypt, który test uruchamia", "plik katalogu, który test czyta"],
+    ids=[
+        "skrypt, który test uruchamia",
+        "plik katalogu, który test czyta",
+        "plik z globu na katalogu",
+        "plik danych pakietu, który czyta jego moduł",
+    ],
 )
 def test_test_jest_dotkniety_zmiana_pliku_ktory_wskazuje_sciezka(tmp_path: Path, changed: str, failing: str) -> None:
     repo = _repo(tmp_path)
@@ -266,5 +316,5 @@ def test_kazdy_test_z_tabeli_regul_w_agents_md_jest_testem_struktury_albo_ma_pow
 
     undecided = named - structure - BY_CHANGE_ONLY.keys()
     assert undecided == set(), "dopisz test do STRUCTURE w tools/szybko.py albo powód do BY_CHANGE_ONLY"
-    assert (structure | BY_CHANGE_ONLY.keys()) - named == set(), "STRUCTURE albo BY_CHANGE_ONLY ma test spoza tabeli"
+    assert BY_CHANGE_ONLY.keys() - named == set(), "BY_CHANGE_ONLY ma test spoza tabeli"
     assert collected.returncode == 0, collected.stdout

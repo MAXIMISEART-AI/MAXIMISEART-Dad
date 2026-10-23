@@ -32,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import subprocess
 import sys
@@ -53,15 +54,26 @@ STRUCTURE = (
     "tests/test_jeden_zapis_skoroszytu.py",
     "tests/test_potomne.py::test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne",
     "tests/test_potomne.py::test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run",
+    "tests/test_skille_dla_zmiany.py::test_agents_md_nie_wymienia_skilli_verify",
+    "tests/test_skille_dla_zmiany.py::test_kazdy_skill_verify_deklaruje_pilnuje",
     "tests/test_struktura_testow.py",
     "tests/test_systemowy_python.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",
     "tests/test_wycofane_pojecia.py",
+    # Globy ``pilnuje:`` z frontmatteru SKILL.md i pliki, które wczytują sprawdzenia skilli, to całe repozytorium,
+    # a graf ich nie widzi.
+    "tests/test_mutacje_skilli.py::test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium",
+    "tests/test_mutacje_skilli.py::test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia",
+    "tests/test_skille_dla_zmiany.py::test_frontmatter_kazdego_skilla_jest_poprawnym_yaml",
+    "tests/test_skille_dla_zmiany.py::test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje",
 )
 STATIC_JOBS = ("ruff", "mypy")
 MODULE_ROOTS = ("src", ".", "tools")
 SKILL_SCRIPTS = ".agents/skills/*/scripts"
 GREEN = "szybko-zielone.json"
+PATH_TYPES = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
+GLOBS = frozenset({"glob", "rglob", "iterdir"})
+WORKERS = "4"
 
 
 @dataclass(frozen=True)
@@ -79,6 +91,7 @@ class Dependencies:
     def of(cls, root: Path, files: frozenset[str]) -> Dependencies:
         modules = _modules(files)
         directories = {str(parent) for path in files for parent in PurePosixPath(path).parents if str(parent) != "."}
+        package_data = _package_data(files)
         depends_on: dict[str, set[str]] = defaultdict(set)
         folder_files: dict[str, set[str]] = defaultdict(set)
         for path in sorted(files):
@@ -90,12 +103,18 @@ class Dependencies:
                 continue
             for name in _imports(tree, path):
                 depends_on[path] |= _resolve(name, path, modules, files)
-            if path.startswith("tests/"):
-                for text in _texts(tree):
-                    if text in modules:
-                        depends_on[path] |= _resolve(text, path, modules, files)
-                    depends_on[path] |= _files_named(text, files)
-                    folder_files[path] |= _folder_files(text, files, directories)
+            texts, globs = _references(tree)
+            if not path.startswith("tests/"):
+                # Poza testami sama nazwa pliku albo modułu to zwykle nazwa procesu albo pliku w cudzym katalogu.
+                texts = {text for text in texts if "/" in text.strip("/")}
+            for text in texts:
+                if text in modules and path.startswith("tests/"):
+                    depends_on[path] |= _resolve(text, path, modules, files)
+                depends_on[path] |= _files_named(text, files)
+                folder_files[path] |= _folder_files(text, files, directories)
+            for glob in globs:
+                folder_files[path] |= _globbed(glob, files, directories)
+            folder_files[path] |= package_data.get(str(PurePosixPath(path).parent), set())
             depends_on[path] |= _packages(path, files)
             depends_on[path].discard(path)
         return cls(depends_on, folder_files)
@@ -188,33 +207,66 @@ def _packages(path: str, files: frozenset[str]) -> set[str]:
     return {init for parent in parents if (init := str(parent / "__init__.py")) in files}
 
 
-def _texts(tree: ast.AST) -> set[str]:
+@dataclass(frozen=True)
+class _Glob:
+    folder: str
+    pattern: str
+    recursive: bool
+
+
+def _references(tree: ast.AST) -> tuple[set[str], set[_Glob]]:
+    """Napisy modułu, ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``) i globy na katalogach."""
+
     def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
         return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
 
-    def pieces(node: ast.expr) -> list[str | None]:
+    names: dict[str, list[str | None]] = {}
+
+    def pieces(node: ast.AST) -> list[str | None]:
         if is_path(node):
             return pieces(node.left) + pieces(node.right)
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return [node.value.strip("/")]
+        if isinstance(node, ast.Name) and node.id in names:
+            return names[node.id]
+        if _is_path_call(node):
+            return [piece for argument in node.args for piece in pieces(argument)]
         return [None]
 
-    nodes = list(ast.walk(tree))
-    # Tylko cała ścieżka: początek ``ROOT / ".agents" / "skills"`` łańcucha ``... / "x"`` wskazałby wszystkie skille.
-    beginnings = {id(node.left) for node in nodes if is_path(node)}
-    found = {node.value for node in nodes if isinstance(node, ast.Constant) and isinstance(node.value, str)}
-    for node in nodes:
-        if not is_path(node) or id(node) in beginnings:
-            continue
-        joined: list[str] = []
-        for piece in [*pieces(node), None]:
+    def runs(path: list[str | None]) -> list[str]:
+        found, joined = [], []
+        for piece in [*path, None]:
             if piece is not None:
                 joined.append(piece)
                 continue
-            if len(joined) > 1:
-                found.add("/".join(joined))
+            if joined:
+                found.append("/".join(joined))
             joined = []
-    return found
+        return found
+
+    nodes = list(ast.walk(tree))
+    assignments = [node for node in nodes if isinstance(node, ast.Assign) and len(node.targets) == 1]
+    for assignment in sorted(assignments, key=lambda node: (node.lineno, node.col_offset)):
+        target, value = assignment.targets[0], assignment.value
+        if isinstance(target, ast.Name) and (is_path(value) or isinstance(value, ast.Name) and value.id in names):
+            names[target.id] = pieces(value)
+    # Tylko cała ścieżka: początek ``ROOT / ".agents" / "skills"`` łańcucha ``... / "x"`` wskazałby wszystkie skille.
+    beginnings = {id(node.left) for node in nodes if is_path(node)}
+    texts = {node.value for node in nodes if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    paths = [node for node in nodes if (is_path(node) or _is_path_call(node)) and id(node) not in beginnings]
+    texts |= {run for node in paths for run in runs(pieces(node)) if "/" in run}
+    globs: set[_Glob] = set()
+    for node in nodes:
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in GLOBS):
+            continue
+        folder = pieces(node.func.value)
+        if folder[-1] is None:
+            continue
+        if node.func.attr == "iterdir":
+            globs.add(_Glob(runs(folder)[-1], "*", recursive=False))
+        elif node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            globs.add(_Glob(runs(folder)[-1], node.args[0].value, recursive=node.func.attr == "rglob"))
+    return texts, globs
 
 
 def _as_path(text: str) -> str | None:
@@ -227,9 +279,7 @@ def _as_path(text: str) -> str | None:
 def _files_named(text: str, files: frozenset[str]) -> set[str]:
     if (path := _as_path(text)) is None:
         return set()
-    named = {file for file in files if file == path or file.endswith("/" + path)}
-    # Nazwa, którą nosi kilka plików (``SKILL.md``), to zwykle plik w repozytorium, które test sam buduje.
-    return set() if "/" not in path and len(named) > 1 else named
+    return {file for file in files if file == path or file.endswith("/" + path)}
 
 
 def _folder_files(text: str, files: frozenset[str], directories: set[str]) -> set[str]:
@@ -239,6 +289,38 @@ def _folder_files(text: str, files: frozenset[str], directories: set[str]) -> se
     found = {file for file in files if str(PurePosixPath(file).parent) in folders}
     # Pakiet test zna przez importy; jego katalog w napisie to ścieżka w repozytorium, które test sam buduje.
     return set() if any(PurePosixPath(file).name == "__init__.py" for file in found) else found
+
+
+def _is_path_call(node: ast.AST) -> TypeGuard[ast.Call]:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in PATH_TYPES and bool(node.args)
+
+
+def _globbed(glob: _Glob, files: frozenset[str], directories: set[str]) -> set[str]:
+    folders = {folder for folder in directories if folder == glob.folder or folder.endswith("/" + glob.folder)}
+    depth = len(PurePosixPath(glob.pattern).parts)
+    found = set()
+    for file in files:
+        for folder in folders:
+            if file.startswith(folder + "/"):
+                inside = PurePosixPath(file[len(folder) + 1 :])
+                if inside.match(glob.pattern) and (glob.recursive or "**" in glob.pattern or len(inside.parts) == depth):
+                    found.add(file)
+    return found
+
+
+def _package_data(files: frozenset[str]) -> dict[str, set[str]]:
+    """Katalog pakietu → jego pliki inne niż Python, także z podkatalogów, które nie są pakietami (``centrum/static``)."""
+
+    packages = {str(PurePosixPath(file).parent) for file in files if PurePosixPath(file).name == "__init__.py"}
+    data: dict[str, set[str]] = defaultdict(set)
+    for file in files:
+        if file.endswith(".py"):
+            continue
+        parent = PurePosixPath(file).parent
+        owner = next((str(folder) for folder in (parent, *parent.parents) if str(folder) in packages), None)
+        if owner is not None:
+            data[owner].add(file)
+    return data
 
 
 def _is_test(path: str) -> bool:
@@ -369,12 +451,17 @@ def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.St
     return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit))]
 
 
+def _environment(root: Path) -> dict[str, str]:
+    # Gołe ``-n auto`` bierze wszystkie rdzenie Maca, na którym pracuje naraz kilku agentów.
+    return {"PYTEST_XDIST_AUTO_NUM_WORKERS": WORKERS, **environment(root), "PYTHON": sys.executable}
+
+
 def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
     stop = threading.Event()
 
     def run(step: ci_lokalnie.Step) -> tuple[bool, str, float]:
         started = time.monotonic()
-        done = potomne.run(step.command, cwd=step.cwd, env={**environment(root), "PYTHON": sys.executable}, stop=stop)
+        done = potomne.run(step.command, cwd=step.cwd, env=_environment(root), stop=stop)
         return done.returncode == 0, done.stdout + done.stderr, time.monotonic() - started
 
     failed = []
@@ -417,10 +504,10 @@ def main(argv: list[str] | None = None) -> int:
     memory = GreenMemory.of_checkout()
     to_run = memory.to_run(selection)
     print(_describe(selection, to_run, changed, args.baza), flush=True)
-    junit = memory.path.with_name("szybko-junit.xml")
-    junit.unlink(missing_ok=True)
+    junit = memory.path.with_name(f"szybko-junit-{os.getpid()}.xml")
     failed = _run_all(_steps(ROOT, to_run, junit), ROOT)
     memory.remember(selection, junit, to_run)
+    junit.unlink(missing_ok=True)
     if merge := _merge_with(args.baza):
         with potomne.commit_copy(ROOT, merge) as copy:
             failed += _run_all([_pytest(copy, f"testy struktury po mergu z {args.baza}", STRUCTURE)], copy)
