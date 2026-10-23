@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 import re
 import shutil
@@ -17,6 +16,9 @@ REPO_ROOT = SCRIPT.parents[4]
 FEATURES_ROOT = SKILL_ROOT / "features"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
 HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+from skrypt_skilla import Parser, create_run_root, new_run  # noqa: E402
 
 REQUIRED_FRONTMATTER = ("name", "description")
 REQUIRED_MAP_HEADINGS = (
@@ -163,14 +165,13 @@ def _check_evidence(errors: list[str], evidence_root: Path) -> None:
             errors.append(f"source row content found in evidence: {path.relative_to(evidence_root)}")
 
 
-def _check_cleanup_preserves_evidence(errors: list[str]) -> None:
-    run_root = REPO_ROOT / ".verification" / "runs" / f"self-test-{uuid.uuid4().hex}"
-    evidence_root = REPO_ROOT / ".verification" / "evidence" / f"self-test-{uuid.uuid4().hex}"
+def _check_cleanup_preserves_evidence(errors: list[str], run_dir: Path) -> None:
+    run = new_run(run_dir, f"self-test-{uuid.uuid4().hex}")
+    run_root, evidence_root = run.root, run.evidence
     evidence_file = evidence_root / "proof.txt"
     marker = "dowod zachowany: ŻÓŁĆ\n".encode("utf-8")
     try:
-        run_root.mkdir(parents=True)
-        evidence_root.mkdir(parents=True)
+        create_run_root(run_root)
         (run_root / "disposable.txt").write_text("scratch\n", encoding="utf-8")
         evidence_file.write_bytes(marker)
         cleanup = SCRIPTS_ROOT / "cleanup.py"
@@ -206,8 +207,9 @@ def _check_cleanup_preserves_evidence(errors: list[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = Parser(description=__doc__)
     parser.add_argument("--evidence-root", required=True, type=Path)
+    parser.add_run_dir()
     args = parser.parse_args(argv)
 
     errors: list[str] = []
@@ -215,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     _check_headings(errors)
     _check_helpers(errors)
     _check_evidence(errors, args.evidence_root.expanduser().resolve())
-    _check_cleanup_preserves_evidence(errors)
+    _check_cleanup_preserves_evidence(errors, args.run_dir)
 
     if errors:
         for error in errors:

@@ -94,6 +94,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from rozliczenia import preparation_register, template_settlement  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
@@ -120,6 +121,7 @@ from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # 
 from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
 from rozliczenia.domain import WorkerResult  # noqa: E402
 from rozliczenia.workbook_files import DataRow, TemplateFile  # noqa: E402
+from skrypt_skilla import Parser  # noqa: E402
 
 
 class ScriptedPlatform:
@@ -284,11 +286,11 @@ def _fail_register_reading(root: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, help="Run root created by create_centrum_fixture.py.")
+    parser = Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_root("Run root created by create_centrum_fixture.py.")
     parser.add_argument("--port", type=int, required=True, help="Free port on 127.0.0.1.")
     args = parser.parse_args(argv)
-    root = Path(args.root).resolve()
+    root = args.root
     fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
     today = date.fromisoformat(fixture["today"])
     metrics = MetricsFiles(

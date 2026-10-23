@@ -8,7 +8,6 @@ Prints counts only, never a cell value.
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -22,9 +21,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
 
 from rozliczenia.workbook_files import save_workbook  # noqa: E402
+from skrypt_skilla import Parser, require_run_root  # noqa: E402
 
 
 PERIOD = "08_14_09_2026"
@@ -34,22 +34,6 @@ QUANTITY_COLUMNS = range(14, 43)  # N:AP
 CHARGE_DESCRIPTION, CHARGE_AMOUNT, REMARKS_AMOUNT, REMARKS = 43, 44, 45, 46  # AQ, AR, AS, AT
 # Adrian twice and Darek; Kamil's Wiersz danych keeps the values of the Wzorzec pliku zbiorczego.
 FILLED_ORDERS = ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7", "PREP-SYN-ZL-6")
-
-
-def _run_parent() -> Path:
-    return (REPO_ROOT / ".verification" / "runs").resolve()
-
-
-def _safe_run_root(value: Path) -> Path:
-    root = value.expanduser().resolve()
-    parent = _run_parent()
-    try:
-        root.relative_to(parent)
-    except ValueError as exc:
-        raise ValueError(f"Readiness root must be below {parent}") from exc
-    if root == parent:
-        raise ValueError("Readiness root must be a child of the runs directory")
-    return root
 
 
 def _sheet(workbook: Workbook) -> Worksheet:
@@ -167,11 +151,11 @@ def _fill(root: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root of a chain fixture")
     args = parser.parse_args(argv)
     try:
-        return _fill(_safe_run_root(args.root))
+        return _fill(require_run_root(args.root))
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
         print(f"READINESS FAIL: {exc}", file=sys.stderr)
         return 1

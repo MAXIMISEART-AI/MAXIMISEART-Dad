@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from datetime import datetime
 import hashlib
 import json
@@ -27,6 +26,7 @@ from wynik_uruchomienia import (
     load_result,
     look_mismatches,
 )
+from skrypt_skilla import Parser
 
 
 PERIOD = "08_14_09_2026"
@@ -464,8 +464,8 @@ def _assert_run(root: Path, metrics: Path, result_path: Path | None, templates: 
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path)
+    parser = Parser(description=__doc__)
+    parser.add_root("run root of a preparation fixture")
     parser.add_argument("--expect", choices=("dry-run", "run"), required=True)
     parser.add_argument(
         "--templates",
@@ -476,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--metrics", type=Path, help="metrics history of the Przygotowanie (default: <root>/metrics.jsonl)")
     parser.add_argument("--result", type=Path, help="evidence JSON of the Przygotowanie step")
     args = parser.parse_args(argv)
-    root = args.root.expanduser().resolve()
+    root = args.root
     metrics = args.metrics.expanduser().resolve() if args.metrics else root / "metrics.jsonl"
     result_path = args.result.expanduser().resolve() if args.result else None
     try:

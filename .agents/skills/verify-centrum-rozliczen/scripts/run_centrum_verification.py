@@ -1,13 +1,13 @@
 """One-command proof of Centrum rozliczeń: fixture, launch, doctor, drive in Chromium, cleanup, self-test.
 
 Prints ``VERIFY OK | features=… | evidence=… | scratch_removed=true`` or
-``VERIFY FAIL | …``. Scratch lives in ``.verification/runs/centrum-<id>`` and is
-removed; evidence lives in ``.verification/evidence/centrum-<id>`` and is kept.
+``VERIFY FAIL | …``. Scratch lives in ``<run dir>/runs/centrum-<id>`` and is
+removed; evidence lives in ``<run dir>/evidence/centrum-<id>`` and is kept.
 """
 
 from __future__ import annotations
 
-import argparse
+from argparse import RawDescriptionHelpFormatter
 import importlib.util
 import json
 import os
@@ -25,6 +25,7 @@ sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES  # noqa: E402
 from quiet_machine import MachineBusy, QuietMachine  # noqa: E402
+from skrypt_skilla import Parser, new_run  # noqa: E402
 STEP_TIMEOUT_SECONDS = 300
 # wydajnosc repeats every scenario in two CPU profiles, so its drive takes minutes.
 PERFORMANCE_TIMEOUT_SECONDS = 1800
@@ -281,10 +282,9 @@ def _preflight() -> None:
         )
 
 
-def _verify(feature: str, performance: list[str]) -> Path:
-    run_root = REPO_ROOT / ".verification" / "runs" / f"centrum-{uuid.uuid4().hex}"
-    evidence = REPO_ROOT / ".verification" / "evidence" / run_root.name
-    evidence.mkdir(parents=True)
+def _verify(feature: str, performance: list[str], run_dir: Path) -> Path:
+    run = new_run(run_dir, f"centrum-{uuid.uuid4().hex}")
+    run_root, evidence = run.root, run.evidence
     print(f"EVIDENCE {evidence}", flush=True)
     process: subprocess.Popen[bytes] | None = None
     try:
@@ -321,7 +321,8 @@ def _verify(feature: str, performance: list[str]) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
+    parser.add_run_dir()
     parser.add_argument("--feature", choices=("all", *REQUIRED_SCREENSHOTS), default="all")
     parser.add_argument("--baseline", help="wydajnosc: compare with this baseline instead of the skill's.")
     parser.add_argument(
@@ -337,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
         with hold as waited:
             if waited >= 1:
                 print(f"MASZYNA WOLNA | czekano {waited:.0f} s", flush=True)
-            evidence = _verify(args.feature, performance)
+            evidence = _verify(args.feature, performance, args.run_dir)
     except (VerificationFailure, MachineBusy) as exc:
         print(f"VERIFY FAIL | features={args.feature} | {exc}", file=sys.stderr)
         return 1

@@ -22,7 +22,7 @@ returns an exit code that follows the result.
 
 Preconditions:
 
-- Run the one-command orchestrator from the repository root.
+- Run the one-command orchestrator.
 
 - **Check ordered phases and template progress.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. `assert-run.txt` reports `progress_reported=true`: `result.progress.phases` in `run.json` lists `Sprawdzanie`, `Odczyt danych`, `Planowanie`, `Zapisywanie` in that order, each `completed`; `templates_completed` is 3 of `template_total` 3; the figures are `Wiersze danych` 3, `Zapisane szablony` 2, `Puste szablony` 1, `Problemy` 0; and `result` is `OK`.
 - **Check the exit code.** The default fixture records exit `0` and result `OK`. The `unmapped` variant returns `2` (`WYMAGA_SPRAWDZENIA`) for dry-run and `1` (`BLAD_KRYTYCZNY`, stop `NIEZNANY_WYKONAWCA`) for the real run, which stops before publication.

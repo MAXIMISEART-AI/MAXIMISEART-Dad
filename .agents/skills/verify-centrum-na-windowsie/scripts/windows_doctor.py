@@ -7,7 +7,6 @@ Prints ``DOCTOR OK | pid=… | commit=… | tool=…`` or ``DOCTOR FAIL | <reaso
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 import sys
@@ -15,6 +14,10 @@ import urllib.request
 
 import windows_desktop
 import windows_tool
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser
 
 
 def diagnose(root: Path) -> str:
@@ -46,9 +49,9 @@ def diagnose(root: Path) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True)
-    verdict = diagnose(parser.parse_args(argv).root.resolve())
+    parser = Parser(description=__doc__)
+    parser.add_root("run root of this Windows run")
+    verdict = diagnose(parser.parse_args(argv).root)
     print(verdict, flush=True)
     return 0 if verdict.startswith("DOCTOR OK") else 1
 

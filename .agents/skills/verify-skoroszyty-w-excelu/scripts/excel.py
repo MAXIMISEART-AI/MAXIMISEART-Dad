@@ -16,7 +16,7 @@ Excel are never read, changed, or closed. Calls name addresses and counts, never
 
 from __future__ import annotations
 
-import argparse
+from argparse import RawDescriptionHelpFormatter
 from dataclasses import dataclass
 import fcntl
 import os
@@ -28,6 +28,9 @@ import sys
 import time
 from typing import TextIO
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser
 
 APP = "Microsoft Excel"
 BUNDLE_ID = "com.microsoft.Excel"
@@ -558,11 +561,11 @@ def quit_if_idle() -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="say whether Excel runs, answers, and how many workbooks it holds")
     closer = commands.add_parser("close-under", help="close every workbook below a run root, without saving")
-    closer.add_argument("--root", required=True, type=Path)
+    closer.add_root("directory whose workbooks Excel closes")
     args = parser.parse_args(argv)
     try:
         if args.command == "status":
@@ -571,8 +574,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             print(f"EXCEL running | version={installed_version()} | workbooks={len(open_paths())}")
             return 0
-        root = args.root.expanduser().resolve()
-        names = close_under(root)
+        names = close_under(args.root)
         print(f"EXCEL CLOSED | workbooks={len(names)}")
         return 0
     except ExcelError as exc:

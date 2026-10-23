@@ -2,15 +2,14 @@
 
     py -3 .agents\\skills\\verify-centrum-na-windowsie\\scripts\\run_windows_verification.py [--feature all|<feature>]
 
-Creates ``.verification/runs/windows-<id>`` (``windows_tool.prepare``), drives the features of
+Creates ``<run dir>/runs/windows-<id>`` (``windows_tool.prepare``; ``--run-dir``, default ``.verification``), drives the features of
 ``windows_drive.FEATURES`` (a single feature runs its prerequisites first, reported as preparation), runs the doctor
-after each start, keeps the evidence in ``.verification/evidence/windows-<id>``, and cleans up. Success prints
+after each start, keeps the evidence in ``<run dir>/evidence/windows-<id>``, and cleans up. Success prints
 ``VERIFY OK | features=… | evidence=… | scratch_removed=true``; anything else is ``VERIFY FAIL | …``.
 """
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Iterator
 from contextlib import contextmanager
 import io
@@ -31,6 +30,7 @@ import windows_cleanup
 import windows_desktop
 import windows_doctor
 import windows_tool
+from skrypt_skilla import Parser, new_run
 
 REPO_ROOT = windows_tool.REPO_ROOT
 STATIC = REPO_ROOT / "src" / "rozliczenia" / "centrum" / "static" / "index.html"
@@ -115,16 +115,16 @@ def _keep_state(run: Run) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = Parser(description=__doc__)
+    parser.add_run_dir()
     parser.add_argument("--feature", choices=("all", *FEATURES), default="all")
     args = parser.parse_args(argv)
     # The harness's own output is UTF-8 whatever the code page; Centrum keeps the machine's.
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}"
-    root = REPO_ROOT / ".verification" / "runs" / f"windows-{run_id}"
-    evidence = REPO_ROOT / ".verification" / "evidence" / f"windows-{run_id}"
-    evidence.mkdir(parents=True)
+    paths = new_run(args.run_dir, f"windows-{run_id}")
+    root, evidence = paths.root, paths.evidence
     prepared, verified = _plan(args.feature)
     failure: str | None = None
     with _teed(evidence / "drive.txt"):
