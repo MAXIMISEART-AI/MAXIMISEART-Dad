@@ -12,12 +12,15 @@ potomne giną po jego końcu i po limicie, a cały skrypt ginie razem z runnerem
 przez SIGKILL. Kończy się ``MUTACJE SKILLI OK`` albo ``MUTACJE SKILLI FAIL | <skrypty>``.
 
 Z ``--zmiany-od REF`` biegnie tylko skrypt, którego werdykt mogą zmienić zmiany od ``REF`` (jak
-w ``git diff REF...HEAD``, z niezacommitowanymi): zmieniony jest plik, który skrypt czyta, albo
-plik w folderze jego skilla. Skrypt czyta swój plik, sprawdzenia z poleceń swoich mutacji, pliki,
-które mutacje zmieniają, ich importy z repozytorium (każdy ``import`` w kodzie, także w funkcji) oraz
-infrastrukturę mutacji: ten runner z importami i ``INFRASTRUCTURE``. Skrypt, którego plików nie da
-się tak wyznaczyć (polecenie mutacji nie jest skryptem z repozytorium, kod się nie parsuje), biegnie
-zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
+w ``git diff REF...HEAD``, z niezacommitowanymi). Skill deklaruje we frontmatterze ``SKILL.md`` klucz
+``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje też ``/``). Skill
+bez tego klucza biegnie zawsze. Skrypt skilla z kluczem biegnie, gdy zmieniony jest plik z
+``pilnuje``, plik w folderze skilla albo plik, który skrypt czyta: on sam, sprawdzenia z poleceń
+jego mutacji, pliki, które mutacje zmieniają, ich importy z repozytorium (każdy ``import`` w kodzie,
+także w funkcji) oraz infrastruktura mutacji: ten runner z importami i ``INFRASTRUCTURE``. Pliki
+czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zawęża selekcji poniżej
+nich. Skrypt, którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z
+repozytorium, kod się nie parsuje), biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
 
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
@@ -29,6 +32,7 @@ from __future__ import annotations
 import argparse
 import ast
 from collections.abc import Iterable
+from fnmatch import fnmatchcase
 import importlib.util
 import os
 from pathlib import Path
@@ -132,20 +136,51 @@ def reads(script: Path) -> set[str]:
     return {_name(path) for path in _closure(starts) if path.is_relative_to(ROOT)}
 
 
+def guarded(skill_md: Path) -> tuple[str, ...] | None:
+    """Globy z klucza ``pilnuje`` frontmattera ``SKILL.md``; ``None``, gdy klucza nie ma.
+
+    Klucz to linia ``pilnuje:``, a pod nią linie ``  - <glob>``. Czytnik nie parsuje reszty frontmattera
+    jako YAML, bo opisy skilli mają w tekście dwukropki, których YAML nie przyjmuje.
+    """
+
+    lines = skill_md.read_text(encoding="utf-8").splitlines() if skill_md.is_file() else []
+    end = lines.index("---", 1) if lines[:1] == ["---"] and "---" in lines[1:] else 0
+    front = lines[1:end]
+    keys = [number for number, line in enumerate(front) if line.split(":", 1)[0] == "pilnuje"]
+    if not keys:
+        return None
+    if front[keys[0]] != "pilnuje:":
+        raise ValueError(f"pilnuje w {_name(skill_md)} nie jest listą globów pod kluczem")
+    globs = []
+    for line in front[keys[0] + 1 :]:
+        if not line.startswith("  - "):
+            break
+        globs.append(line.removeprefix("  - ").strip())
+    if not globs:
+        raise ValueError(f"pilnuje w {_name(skill_md)} nie ma żadnego globu")
+    return tuple(globs)
+
+
 def _why_run(script: Path, changed: set[str]) -> tuple[bool, str]:
     """Czy skrypt biegnie przy tych zmianach, i dlaczego."""
 
-    folder = f"{_name(script.parents[1])}/"
-    touched = sorted(name for name in changed if name.startswith(folder))
+    skill = script.parents[1]
     try:
+        globs = guarded(skill / "SKILL.md")
+        if globs is None:
+            return True, f"{_name(skill)}/SKILL.md nie ma klucza pilnuje"
         read = reads(script)
     except Exception as error:  # noqa: BLE001 - skrypt, którego plików nie da się wyznaczyć, biegnie i pokazuje swój błąd
         return True, f"nie da się wyznaczyć plików, które czyta: {error}"
-    touched += sorted(changed & read)
+    touched = sorted(
+        name
+        for name in changed
+        if name.startswith(f"{_name(skill)}/") or name in read or any(fnmatchcase(name, glob) for glob in globs)
+    )
     if touched:
         return True, f"zmienione: {', '.join(touched[:3])}" + (f" i {len(touched) - 3} innych" if len(touched) > 3 else "")
     files = sum((ROOT / name).is_file() for name in read)
-    return False, f"zmiany nie dotykają folderu skilla ani {files} plików repozytorium, które skrypt czyta"
+    return False, f"zmiany nie dotykają pilnuje, folderu skilla ani {files} plików repozytorium, które skrypt czyta"
 
 
 def _lost(scripts: list[Path]) -> dict[str, str]:

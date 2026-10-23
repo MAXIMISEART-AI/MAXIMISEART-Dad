@@ -6,6 +6,7 @@ Każdy test buduje własne ``.agents/skills`` obok kopii narzędzia, więc narz�
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import importlib.util
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ import signal
 import subprocess
 import sys
 import time
+from types import ModuleType
 
 import pytest
 
@@ -25,6 +27,7 @@ TOOLS = ROOT / "tools"
 TOOL = TOOLS / "mutacje_skilli.py"
 PASSING = 'print("WYKRYTA: proba")\nprint("MUTACJE OK")\n'
 CHECKED = "src/pakiet/sprawdzany.py"
+GUARDED = "---\nname: verify-x\npilnuje:\n  - src/pakiet/rout*.py\n---\n"
 ANCHORS = "src/pakiet/kotwice.txt"
 WITH_TABLE = f"""from pathlib import Path
 import sys
@@ -44,6 +47,7 @@ REPO = {
     CHECKED: "def run() -> int:\n    from pakiet import pomocnik\n\n    return pomocnik.X\n",
     "src/pakiet/pomocnik.py": "X = 1\n",
     "src/pakiet/obcy.py": "Y = 2\n",
+    "src/pakiet/routing.py": "Z = 3\n",
     ANCHORS: "X\n",
     ".agents/skills/verify-a/scripts/sprawdz_a.py": "from pakiet import sprawdzany\n",
     "requirements.txt": "pytest\n",
@@ -244,13 +248,15 @@ def test_zabity_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path) -> None:
 
 
 def _selection_repo(root: Path) -> str:
-    """Repozytorium ze skillem a, którego skrypt mutacji ma tabelę, i skillem b bez niej; zwraca commit bazy."""
+    """Skill a z ``pilnuje`` i tabelą, b z tabelą bez ``pilnuje``, c z ``pilnuje`` bez tabeli; zwraca commit bazy."""
 
     for name, text in REPO.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
-    _skill(root, "verify-a", {"check_a_mutations.py": WITH_TABLE, "sprawdz_a.py": REPO[".agents/skills/verify-a/scripts/sprawdz_a.py"]})
-    _skill(root, "verify-b", {"check_b_mutations.py": PASSING})
+    checker = {"sprawdz_a.py": REPO[".agents/skills/verify-a/scripts/sprawdz_a.py"]}
+    _skill(root, "verify-a", {"check_a_mutations.py": WITH_TABLE, **checker}, GUARDED)
+    _skill(root, "verify-b", {"check_b_mutations.py": WITH_TABLE})
+    _skill(root, "verify-c", {"check_c_mutations.py": PASSING}, GUARDED)
     _tool(root)
     git(root, "init", "--quiet")
     return commit(root, "baza")
@@ -268,6 +274,7 @@ def _ran(result: subprocess.CompletedProcess[str], skill: str) -> bool:
     [
         ("docs/opis.md", False),
         ("src/pakiet/obcy.py", False),
+        ("src/pakiet/routing.py", True),
         (".agents/skills/verify-b/SKILL.md", False),
         (CHECKED, True),
         (ANCHORS, True),
@@ -290,7 +297,7 @@ def test_ze_zmianami_od_bazy_biegnie_skrypt_ktorego_pliki_sie_zmienily(tmp_path:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK"
-    assert (_ran(result, "verify-a"), _ran(result, "verify-b")) == (runs, True)
+    assert (_ran(result, "verify-a"), _ran(result, "verify-b"), _ran(result, "verify-c")) == (runs, True, True)
 
 
 def test_usuniety_plik_importowany_przez_sprawdzenie_uruchamia_skrypt(tmp_path: Path) -> None:
@@ -308,21 +315,45 @@ def test_niezacommitowana_zmiana_uruchamia_skrypt(tmp_path: Path) -> None:
     assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
 
 
-def test_bez_zmian_od_bazy_pomija_tylko_skrypty_z_tabela(tmp_path: Path) -> None:
+def test_bez_zmian_od_bazy_pomija_tylko_skill_z_pilnuje_i_tabela(tmp_path: Path) -> None:
     base = _selection_repo(tmp_path)
 
     selected, everything = _run(tmp_path, "--zmiany-od", base), _run(tmp_path)
 
-    assert (_ran(selected, "verify-a"), _ran(selected, "verify-b")) == (False, True)
-    assert (_ran(everything, "verify-a"), _ran(everything, "verify-b")) == (True, True)
+    assert [_ran(selected, skill) for skill in ("verify-a", "verify-b", "verify-c")] == [False, True, True]
+    assert [_ran(everything, skill) for skill in ("verify-a", "verify-b", "verify-c")] == [True, True, True]
 
 
-def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pilnuje_nie_bedace_lista_globow_uruchamia_skrypt(tmp_path: Path) -> None:
+    _selection_repo(tmp_path)
+    (tmp_path / ".agents/skills/verify-a/SKILL.md").write_text("---\npilnuje: src/pakiet/routing.py\n---\n", encoding="utf-8")
+    base = commit(tmp_path, "pilnuje jako tekst")
+
+    assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
+
+
+def _load_tool(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.syspath_prepend(str(TOOLS))
     spec = importlib.util.spec_from_file_location("mutacje_skilli", TOOL)
     assert spec is not None and spec.loader is not None
     tool = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tool)
+    return tool
+
+
+def test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    tracked = git(ROOT, "ls-files").splitlines()
+
+    guarded = {md.parent.name: tool.guarded(md) for md in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md"))}
+    dead = [f"{skill}: {glob}" for skill, globs in guarded.items() for glob in globs or () if not any(fnmatch.fnmatchcase(name, glob) for name in tracked)]
+
+    assert any(guarded.values())
+    assert dead == []
+
+
+def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
     loader = (
         "import json, runpy, sys\n"
         "script = runpy.run_path(sys.argv[1], run_name='_mutacje')\n"
