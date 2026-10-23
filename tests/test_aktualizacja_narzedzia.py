@@ -76,6 +76,15 @@ def test_klon_na_najnowszym_commicie_jest_juz_aktualny(repository: ToolRepositor
     assert repository.head() == current
 
 
+def test_wydanie_z_tagiem_z_opisem_przesuwa_klon_na_commit_tagu(repository: ToolRepository, tmp_path: Path) -> None:
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    repository.release(annotated=True)
+
+    assert update(repository) == UpdateResult("ok", before=before, after=newest, installed=False)
+    assert repository.head() == newest
+
+
 def test_zmiana_na_main_spoza_wydania_nie_trafia_do_taty(repository: ToolRepository, tmp_path: Path) -> None:
     before = repository.head()
     unreleased = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
@@ -614,7 +623,7 @@ def test_kolejne_klikniecie_przy_aktualizacji_w_toku_nie_gubi_pliku_taty(
 def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
     """Git, którego pomocnik (jak ``git-remote-https`` przy pobraniu) zostaje po nim z jego wyjściem otwartym na minutę.
 
-    Odpowiada jak klon na `main` już na najnowszym commicie ``commit``.
+    Odpowiada jak klon na `main` już na commicie ``commit`` najnowszego Wydania.
     """
 
     script = tmp_path / "git_z_pomocnikiem.py"
@@ -625,7 +634,7 @@ def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
         "command = args[2] if args[:1] == ['-C'] else args[0]\n"
         "if command == 'fetch':\n"
         "    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-        "print('main' if command == 'symbolic-ref' else COMMIT)\n",
+        "print({'symbolic-ref': 'main', 'for-each-ref': f'v0.1.0 {COMMIT}'}.get(command, COMMIT))\n",
         encoding="utf-8",
     )
     return _executable(tmp_path, script)

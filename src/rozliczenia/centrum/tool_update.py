@@ -318,10 +318,11 @@ class ToolClone:
         fetch_failure = run.fetch(self.origin)
         if fetch_failure is not None:
             return UpdateResult(fetch_failure, before, None)
-        newest = newest_release(run.output("for-each-ref", "--format=%(refname:lstrip=2)", _RELEASES).split())
+        releases = _release_commits(run)
+        newest = newest_release(releases)
         if newest is None:
             return UpdateResult(UP_TO_DATE, before, before)
-        after = run.text("rev-parse", f"{_RELEASES}{newest.tag}^{{commit}}")
+        after = releases[newest.tag]
         if run.is_ancestor(after, before):
             return UpdateResult(UP_TO_DATE, before, before)
         if not run.is_ancestor(after, _FETCHED_MAIN):
@@ -448,6 +449,18 @@ def _put_back(root: Path, backup: Path, names: Iterable[str]) -> None:
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(backup / name, target)
+
+
+def _release_commits(run: _Git) -> dict[str, str]:
+    """Tagi Wydań pobrane z GitHuba i ich commity (tag z opisem wskazuje commit przez obiekt tagu)."""
+
+    # Bez ``tag^{commit}``: Git wołany przez plik .cmd (w testach w Windows) traci ``^``.
+    listed = run.output("for-each-ref", "--format=%(refname:lstrip=2) %(objectname) %(*objectname)", _RELEASES)
+    commits: dict[str, str] = {}
+    for line in listed.splitlines():
+        name, target, *peeled = line.split()
+        commits[name] = peeled[0] if peeled else target
+    return commits
 
 
 def _has_local_commits(run: _Git, target: str) -> bool:

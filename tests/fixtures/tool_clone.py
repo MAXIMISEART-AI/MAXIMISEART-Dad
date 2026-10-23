@@ -100,11 +100,11 @@ class ToolRepository:
             self.release()
         return git(self.publisher, "rev-parse", "HEAD")
 
-    def release(self, commit: str = "HEAD", tag: str | None = None) -> str:
-        """Wydanie ``commit`` w „origin”: tag ``tag`` albo następny numer po najnowszym Wydaniu."""
+    def release(self, commit: str = "HEAD", tag: str | None = None, *, annotated: bool = False) -> str:
+        """Wydanie ``commit`` w „origin”: tag ``tag`` albo następny numer po najnowszym Wydaniu, z opisem albo bez."""
 
         name = tag or _next_release(git(self.publisher, "tag", "--list", "v*").split())
-        git(self.publisher, "tag", name, commit)
+        git(self.publisher, "tag", *(["--annotate", "--message", f"Wydanie {name}"] if annotated else []), name, commit)
         git(self.publisher, "push", "--quiet", "origin", f"refs/tags/{name}")
         return name
 
