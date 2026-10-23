@@ -215,17 +215,24 @@ def _texts(tree: ast.AST) -> set[str]:
 
 
 def _named(text: str, files: frozenset[str], directories: set[str]) -> tuple[set[str], set[str]]:
-    """Pliki, które napis wskazuje (ścieżka albo nazwa pliku), i pliki katalogu, który wskazuje (ścieżka)."""
+    """Pliki, które napis wskazuje (ścieżka albo jednoznaczna nazwa pliku), i pliki katalogu, który wskazuje (ścieżka).
+
+    Nazwa pliku, którą nosi kilka plików (``SKILL.md``), to zwykle plik w repozytorium testu, a nie w tym.
+    """
 
     text = text.strip().replace("\\", "/").strip("/")
     if "/" not in text and "." not in text or not text.strip(".") or any(c.isspace() for c in text):
         return set(), set()
     named = {path for path in files if path == text or path.endswith("/" + text)}
+    if "/" not in text and len(named) > 1:
+        named = set()
     under: set[str] = set()
     if "/" in text:
         for directory in directories:
             if directory == text or directory.endswith("/" + text):
-                under.update(path for path in files if path.startswith(directory + "/"))
+                under.update(path for path in files if str(PurePosixPath(path).parent) == directory)
+    if any(PurePosixPath(path).name == "__init__.py" for path in under):
+        under = set()
     return named, under
 
 
