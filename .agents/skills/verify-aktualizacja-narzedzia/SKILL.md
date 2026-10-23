@@ -71,11 +71,12 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `4a4d550` (2026-10-23, ADR 0014: `ToolClone.update` fetches
-`stabilna` instead of `main`; a clone that already contains it and a GitHub
-without that branch both end in `AKTUALNA` with the clone unchanged, the same
-outcome as `head = "nowa"` in `Pobranie`, so only its comments and strings
-changed). At this commit every row above was checked against the code.
+Sync commit: `2cf0d08` (2026-10-23, ADR 0014: `ToolClone.update` fetches
+`main` and the Wydanie tags and moves the clone to the newest Wydanie. No
+Wydanie, a clone that already contains it, and a Wydanie not on `main`
+(`WYDANIE_SPOZA_MAIN`) all end before the journal with the clone unchanged,
+the same outcomes as `head = "nowa"` and `AwariaPobrania` in `Pobranie`, so
+only its comments and strings changed). At this commit every row above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,
