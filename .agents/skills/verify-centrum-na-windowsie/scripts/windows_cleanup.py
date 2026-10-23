@@ -57,7 +57,10 @@ def cleanup(root: Path) -> str:
     for window in windows_desktop.visible_windows():
         if window.cls == windows_desktop.EXPLORER and any(name in window.title for name in names):
             windows_desktop.close(window)
-    removed = _remove(root)
+    try:
+        removed = _remove(root)
+    except RunRootError as error:
+        return f"CLEANUP FAIL | stopped={sorted(set(stopped))} | {error}"
     verdict = "CLEANUP OK" if removed else "CLEANUP FAIL"
     return f"{verdict} | stopped={sorted(set(stopped))} | removed={str(removed).lower()}"
 
