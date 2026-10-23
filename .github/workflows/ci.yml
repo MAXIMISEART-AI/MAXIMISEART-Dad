@@ -47,12 +47,18 @@ jobs:
         run: python -m mypy
 
   pytest:
-    name: pytest (Python ${{ matrix.python-version }})
-    runs-on: windows-latest
+    # Tata has Windows, so both Pythons run there. Linux runs the tests Windows skips (POSIX signals, process
+    # groups, the pre-push hook).
+    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [windows-latest]
         python-version: ['3.11', '3.14']
+        include:
+          - os: ubuntu-latest
+            python-version: '3.14'
     env:
       EXPECTED_PYTHON_VERSION: ${{ matrix.python-version }}
       PYTHONUTF8: '1'
@@ -64,10 +70,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Route py -3 to the selected Python
+        if: ${{ runner.os == 'Windows' }}
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\.github\scripts" -Encoding utf8
 
       - name: Verify py -3 interpreter
+        if: ${{ runner.os == 'Windows' }}
         run: |
           $actualVersion = py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
           if ($actualVersion -ne $env:EXPECTED_PYTHON_VERSION) {
@@ -75,10 +83,20 @@ jobs:
           }
 
       - name: Install test dependencies
+        if: ${{ runner.os == 'Windows' }}
         run: py -3 -m pip install --disable-pip-version-check -r requirements.txt
 
+      - name: Install test dependencies (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
       - name: Run tests
+        if: ${{ runner.os == 'Windows' }}
         run: py -3 -m pytest -n auto
+
+      - name: Run tests (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: python -m pytest -n auto
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
