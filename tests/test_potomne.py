@@ -331,11 +331,6 @@ FAST_GIT = frozenset(
         "worktree",
     }
 )
-NIGHT_STREAMS = {
-    "tools/hooks/pre-push": "strumień nocy W1 (#290), do zdjęcia po merge'u",
-    "tools/setup_worktree.py": "strumień nocy W1 (plik W1 w planie nocy) i #286, do zdjęcia po merge'u",
-    "tools/promuj_stabilna.py": "strumień nocy W7 (git push i ls-remote), do zdjęcia po merge'u",
-}
 SUBPROCESS_LAUNCHES = frozenset({"run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput"})
 
 
@@ -428,9 +423,8 @@ def _passing_own_arguments(tree: ast.Module, call: ast.Call, passed: ast.Starred
 
 def test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run() -> None:
     found = [
-        f"{name}:{number}: {launcher} uruchamia {command} poza potomne.run"
+        f"{path.relative_to(TOOLS.parent).as_posix()}:{number}: {launcher} uruchamia {command} poza potomne.run"
         for path in _tool_sources()
-        if (name := path.relative_to(TOOLS.parent).as_posix()) not in NIGHT_STREAMS
         for number, launcher, command in _slow_launches(path.read_text(encoding="utf-8"))
     ]
 
