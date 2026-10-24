@@ -53,13 +53,17 @@ def threads(fake: FakeReportBox) -> list[FakeIssue]:
 
 
 def thread_with(centrum: SettlingCentrum, comments: int) -> FakeIssue:
-    """Jedyne issue Logów okresu, gdy ma już ``comments`` komentarzy."""
+    """Jedyne issue Logów okresu, gdy ma już ``comments`` komentarzy, a kolejka Logów jest pusta.
+
+    Skrzynka dostaje komentarz, zanim Outbox zapamięta jego adres dla Zgłoszenia i usunie plik kolejki.
+    """
 
     def arrived(fake: FakeReportBox) -> bool:
         found = threads(fake)
         return len(found) == 1 and len(found[0].comments) == comments
 
     assert box(centrum).wait_until(arrived), f"issue Logów okresu nie ma {comments} komentarzy: {box(centrum).issues}"
+    assert wait_for(lambda: queued_logs(centrum) == [])
     [thread] = threads(box(centrum))
     return thread
 

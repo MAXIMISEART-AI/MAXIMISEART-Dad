@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 EXPLORER = (
     Path(__file__).resolve().parents[1]
     / ".agents"
@@ -34,6 +36,7 @@ def _load_explorer() -> ModuleType:
     return module
 
 
+@pytest.mark.dlugi
 def test_publikacja_plikow_okresu_zachowuje_nienadpisywanie_i_razem_albo_zaden_w_kazdym_harmonogramie() -> None:
     explorer = _load_explorer()
 
