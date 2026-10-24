@@ -107,7 +107,7 @@ def plan_period_orders(
     register = _period_sheet(register_path, sheets, period)
     orders: list[PeriodOrder] = []
     undated_rows: list[int] = []
-    for row in register.rows:
+    for row in register.register_rows:
         started = cell_datetime(cell_value(row, DATE))
         if started is None:
             undated_rows.append(row.number)
@@ -157,7 +157,7 @@ def _check_successful_values(register_path: Path, register: RegisterSheet, order
 def _period_sheet(register_path: Path, sheets: Sequence[RegisterSheet], period: SettlementPeriod) -> RegisterSheet:
     """Jedyny arkusz Rejestru ze zleceniami okresu; bez takiego arkusza pierwszy arkusz ze zleceniami."""
 
-    with_orders = [sheet for sheet in sheets if any(_in_period(row, period) for row in sheet.rows)]
+    with_orders = [sheet for sheet in sheets if any(_in_period(row, period) for row in sheet.register_rows)]
     if len(with_orders) > 1:
         raise StopError(
             messages.period_orders_in_many_sheets(register_path, [sheet.name for sheet in with_orders], period.token)

@@ -7,6 +7,8 @@ od pierwszego do ostatniego, którego data może leżeć w okresie. ``read_regis
 Rejestru dla ``input_checks.Readers``, który tłumaczy jego ``WorkbookError``.
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -77,7 +79,7 @@ class RegisterSheet:
     """Arkusz ze zleceniami: wiersze z danymi i numery całkowicie pustych wierszy z odczytanego zakresu."""
 
     name: str
-    rows: tuple[RegisterRow, ...]
+    register_rows: tuple[RegisterRow, ...]
     """Wiersze z danymi; komórki pod nagłówkiem docelowym."""
     empty_rows: tuple[int, ...]
     _positions: tuple[int, ...]  # numery kolumn ``COLUMNS`` w arkuszu (od 1)
