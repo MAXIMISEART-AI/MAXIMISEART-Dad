@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import subprocess
 from typing import Any
 
 from playwright.sync_api import Page, expect
@@ -22,6 +23,8 @@ JSON_PART = re.compile(r"\n````json\n(.*)\n````\n\n</details>\n\Z", re.DOTALL)
 # Centrum logs to <root>/logs/centrum-rozliczen.log, so the Logi Uruchomienia are next to it (ADR 0015).
 LOGS = "logs/uruchomienia"
 MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
+# A Wydanie's tag (ADR 0014): vMAJOR.MINOR.PATCH without leading zeros or suffixes.
+RELEASE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 # What Dad could read about the Logi: the word in any of its cases, or their folder.
 ABOUT_LOGS = re.compile(r"\bLog(i|ów|ach|ami)\b|uruchomienia/")
 
@@ -75,10 +78,29 @@ def _matches_card(run: Run, record: Json, view: Json, mode: str) -> None:
     )
 
 
+def _wydanie(run: Run, commit: str) -> str | None:
+    """The highest Wydanie whose tag in the run's tool clone points at ``commit``, as Git lists the tags.
+
+    Tags from the install (``refs/tags/``) and from Aktualizacja narzędzia (``refs/wydania/``) count.
+    """
+
+    clone = run.fixture["tool"]["clone"]
+    tags = subprocess.run(
+        ["git", "-C", clone, "for-each-ref", "--points-at", commit, "--format=%(refname:strip=2)", "refs/tags/", "refs/wydania/"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    numbers = [tuple(map(int, found.groups())) for tag in tags if (found := RELEASE_TAG.fullmatch(tag))]
+    return ".".join(map(str, max(numbers))) if numbers else None
+
+
 def _names_running_tool(run: Run, record: Json) -> None:
+    commit = served_version(run)[0]
+    wydanie = _wydanie(run, commit)
     run.check(
-        record["tool"] == {"wydanie": None, "commit": served_version(run)[0]},
-        "the Logi name the commit of the tool Centrum runs",
+        record["tool"] == {"wydanie": wydanie, "commit": commit},
+        f"the Logi name the commit of the tool Centrum runs and its Wydanie from the clone's tags ({wydanie or 'none'})",
     )
 
 

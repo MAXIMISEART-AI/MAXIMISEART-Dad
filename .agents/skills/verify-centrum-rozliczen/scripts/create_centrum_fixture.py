@@ -15,7 +15,9 @@ Przebieg rozliczeń for that period needs checking.
 The tool itself is a synthetic Git clone in ``<root>/aktualizacja/klon`` whose
 "origin" is a local bare repository, ``<root>/aktualizacja/origin.git``, one commit
 ahead of the clone: Aktualizacja narzędzia in this run moves that clone, never
-the checkout the verification runs from, and never reaches GitHub. The clone's
+the checkout the verification runs from, and never reaches GitHub. The clone
+stands on the first version, the Wydanie ``v0.0.1`` (an annotated tag it got
+from the origin, as an install from the README leaves it). The clone's
 ``config/`` holds Dad's files, among them his locally changed konfiguracja
 wykonawców, which the newest commit stops tracking. Its
 ``run_centrum.py``, which the restart guardian starts after an update, is a shim
@@ -455,7 +457,7 @@ DAD_FILES = {
 
 
 def _tool_clone(root: Path) -> dict[str, object]:
-    """The run's tool: a clone on the first version with Dad's files, and a local "origin" one version ahead.
+    """The run's tool: a clone on the first version (Wydanie v0.0.1) with Dad's files, and a local "origin" one version ahead.
 
     The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
     update after #161 on Dad's computer. One version later (``libraries``, on the origin's branch
@@ -471,6 +473,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
     (publisher / "run_centrum.py").write_text(shim, encoding="utf-8")
     (publisher / WORKER_MAPPING).write_text("schema_version: 1\nworkers:\n  przyklad: Przykład\n", encoding="utf-8")
     first = _publish(publisher, 1, "Pierwsza wersja narzędzia")
+    _git(publisher, "tag", "--annotate", "--message", "Wydanie v0.0.1", "v0.0.1")
     _git(tool, "clone", "--quiet", "--bare", str(publisher), str(origin))
     _git(tool, "clone", "--quiet", str(origin), str(clone))
     for name, content in DAD_FILES.items():
