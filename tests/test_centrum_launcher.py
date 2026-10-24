@@ -17,7 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.fixtures.tool_clone import copy_centrum_runtime, free_port
+from rozliczenia.centrum import restart_guardian
+
+from tests.fixtures.tool_clone import REPOSITORY_ROOT, copy_centrum_runtime, free_port
 
 COMMIT = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
 UPDATED_COMMIT = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
@@ -279,6 +281,40 @@ def test_centrum_bez_konsoli_startuje_rozpoznaje_sie_i_zamyka(tmp_path: Path) ->
     assert exit_code == 0
     assert _log_events(runtime) == ["start", "juz-dziala", "zamkniecie", "stop"]
     assert "konsola=nie" in (runtime / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
+
+
+_CONSOLE, _NO_CONSOLE = 10, 20
+_CONSOLE_PROBE = (
+    "import sys; sys.path.insert(0, sys.argv[1]); from rozliczenia.centrum.platform import has_console; "
+    f"raise SystemExit({_CONSOLE} if has_console() else {_NO_CONSOLE})"
+)
+
+
+def _in_terminal(command: list[str]) -> int:
+    """Kod wyjścia ``command`` w prawdziwej konsoli: nowe okno konsoli w Windows, pseudoterminal gdzie indziej."""
+
+    if sys.platform == "win32":
+        return subprocess.run(command, creationflags=subprocess.CREATE_NEW_CONSOLE, timeout=60, check=False).returncode
+    import pty
+
+    leader, follower = pty.openpty()
+    try:
+        return subprocess.run(command, stdin=follower, stdout=follower, stderr=follower, timeout=60, check=False).returncode
+    finally:
+        os.close(follower)
+        os.close(leader)
+
+
+def test_centrum_od_opiekuna_ponownego_startu_nie_ma_konsoli_a_w_terminalu_i_z_potokiem_ma(tmp_path: Path) -> None:
+    probe = [sys.executable, "-c", _CONSOLE_PROBE, str(REPOSITORY_ROOT / "src")]
+
+    seen = {
+        "opiekun": restart_guardian._detached(probe, tmp_path).wait(timeout=60),
+        "terminal": _in_terminal(probe),
+        "potok": subprocess.run(probe, capture_output=True, timeout=60, check=False).returncode,
+    }
+
+    assert seen == {"opiekun": _NO_CONSOLE, "terminal": _CONSOLE, "potok": _CONSOLE}
 
 
 def _read_shortcut(link: Path) -> dict[str, str]:

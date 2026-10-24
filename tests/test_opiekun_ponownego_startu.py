@@ -182,6 +182,8 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
     assert f"aktualizacja-koniec wynik=ok przed={before} po={newest} biblioteki=nie" in [
         line.split(" ", 1)[1] for line in _log_lines(clone)
     ]
+    starts = [line.split(" ", 1)[1] for line in _log_lines(clone) if line.split(" ", 2)[1] == "start"]
+    assert starts[1] == f"start port={port} wersja={newest[:7]} konsola=nie"
 
 
 def _guardian_in_background(restart: Restart, dialogs: list[tuple[str, str]]) -> tuple[threading.Thread, list[int]]:
