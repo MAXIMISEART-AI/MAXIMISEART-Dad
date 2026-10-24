@@ -47,7 +47,7 @@ def serve(
         log.started(port=port, version=version_label(tool_commit()), console=console)
         threading.Thread(target=on_ready, args=(url,), name="centrum-gotowosc", daemon=True).start()
 
-    server = _Server(config, started=started)
+    server = _Server(config, started=started, stopping=lambda: log.stopped(port=port))
 
     def stop_when_asked() -> None:
         shutdown.wait()
@@ -61,22 +61,30 @@ def serve(
         return 1
     finally:
         listener.close()
-        if server.started:
-            log.stopped(port=port)
     return 0 if server.started else 1
 
 
 class _Server(uvicorn.Server):
-    """Uvicorn, który zgłasza gotowość zaraz po zajęciu portu, zanim obsłuży pierwsze żądanie."""
+    """Uvicorn, który zgłasza start zaraz po zajęciu portu, a zamykanie, zanim go zwolni.
 
-    def __init__(self, config: uvicorn.Config, *, started: Callable[[], None]) -> None:
+    ``shutdown`` uvicorn zamyka gniazdo, a po nim opiekun ponownego startu od razu startuje nowe Centrum,
+    więc ``stop`` po ``shutdown`` trafiłby do dziennika po ``start`` nowego. Uvicorn woła ``shutdown``
+    tylko po udanym starcie.
+    """
+
+    def __init__(self, config: uvicorn.Config, *, started: Callable[[], None], stopping: Callable[[], None]) -> None:
         super().__init__(config)
         self._started = started
+        self._stopping = stopping
 
     async def startup(self, sockets: list[socket.socket] | None = None) -> None:
         await super().startup(sockets=sockets)
         if self.started:
             self._started()
+
+    async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
+        self._stopping()
+        await super().shutdown(sockets=sockets)
 
 
 def _silence_uvicorn() -> None:
