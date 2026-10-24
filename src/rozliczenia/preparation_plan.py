@@ -17,7 +17,7 @@ from pathlib import Path
 from . import preparation_messages as messages
 from .message import StopError
 from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, SUCCESSFUL, WORKER, RegisterSheet, cell_value
-from .quantity_rules import OrderContent, RuleResult, WeekTime, evaluate
+from .quantity_rules import OrderContent, RuleResult, evaluate
 from .settlement_period import SettlementPeriod
 from .workbook_files import DataRow, cell_datetime, is_blank
 from .worker_config import normalize_text
@@ -52,11 +52,9 @@ class CollectiveRow:
 
     @classmethod
     def of(cls, order: PeriodOrder) -> CollectiveRow:
-        content = OrderContent(
-            contract=cell_value(order.row, CONTRACT),
-            devices=cell_value(order.row, DEVICES),
-            activities=cell_value(order.row, ACTIVITIES),
-            started=WeekTime.of(order.started),
+        row = order.row
+        content = OrderContent.of(
+            cell_value(row, CONTRACT), cell_value(row, DEVICES), cell_value(row, ACTIVITIES), order.started
         )
         return cls(order, evaluate(content))
 

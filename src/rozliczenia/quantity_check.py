@@ -25,6 +25,7 @@ from .quantity_rules import (
     DESCRIPTION_COLUMNS,
     FromDescription,
     WEEKDAY_LABELS,
+    OrderContent,
     QuantityColumn,
     RuleResult,
     ServiceQuantities,
@@ -103,18 +104,20 @@ def check(orders: CollectiveOrders) -> CheckResult:
     result = QuantityCheck()
     for row in orders:
         result.rows += 1
-        content = row.content()
-        rule = None if content is None else evaluate(content)
-        compared = () if rule is None else compared_columns(rule)
-        if rule is None:
+        content = row.content
+        if content is None:
             result.undated += 1
-        elif isinstance(rule, FromDescription):
-            result.from_description += 1
-        elif isinstance(rule, ServiceQuantities):
-            result.compared += 1
-            result.differences.update(_differences(row, rule.quantities, compared))
+            compared: tuple[QuantityColumn, ...] = ()
         else:
-            _add_unruled(result.unruled[row.devices], row, rule, compared)
+            rule = evaluate(content)
+            compared = compared_columns(rule)
+            if isinstance(rule, FromDescription):
+                result.from_description += 1
+            elif isinstance(rule, ServiceQuantities):
+                result.compared += 1
+                result.differences.update(_differences(content, row, rule.quantities, compared))
+            else:
+                _add_unruled(result.unruled[content.devices], content, row, rule, compared)
         result.description_filled.update(
             column for column in DESCRIPTION_COLUMNS if row.quantity(column) != 0 and column not in compared
         )
@@ -136,23 +139,32 @@ def compared_columns(rule: RuleResult) -> tuple[QuantityColumn, ...]:
     return tuple(column for column in QuantityColumn if column not in _SHARED or rule.quantities.get(column, 0))
 
 
-def _add_unruled(group: Unruled, row: OrderFacts, rule: WithoutRule, compared: tuple[QuantityColumn, ...]) -> None:
+def _add_unruled(
+    group: Unruled, content: OrderContent, row: OrderFacts, rule: WithoutRule, compared: tuple[QuantityColumn, ...]
+) -> None:
     group.rows += 1
-    group.differences.update(_differences(row, rule.quantities, compared))
+    group.differences.update(_differences(content, row, rule.quantities, compared))
     group.values.update(
         (column, row.quantity(column)) for column in N_AP if column not in compared and row.quantity(column) != 0
     )
 
 
 def _differences(
-    row: OrderFacts, quantities: Mapping[QuantityColumn, int], columns: Iterable[QuantityColumn]
+    content: OrderContent, row: OrderFacts, quantities: Mapping[QuantityColumn, int], columns: Iterable[QuantityColumn]
 ) -> Iterable[Difference]:
-    assert row.time is not None
+    started = content.started
     for column in columns:
         rule, tata = quantities.get(column, 0), row.quantity(column)
         if rule != tata:
             yield Difference(
-                row.devices, row.activities, row.contract, row.time.weekday, row.time.at.hour, column, rule, tata
+                content.devices,
+                content.activities,
+                content.contract,
+                started.weekday,
+                started.at.hour,
+                column,
+                rule,
+                tata,
             )
 
 

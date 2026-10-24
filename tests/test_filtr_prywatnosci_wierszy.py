@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 import pytest
 
 from rozliczenia.order_facts import NON_NUMERIC, MissingHeaders, OrderFacts, collective_orders, tata_value
-from rozliczenia.quantity_rules import WeekTime
+from rozliczenia.quantity_rules import OrderContent, WeekTime
 
 # Nagłówki A17:K17 Wzorca pliku zbiorczego po normalizacji, jak je daje odczyt Pliku zbiorczego.
 HEADER = {
@@ -51,10 +51,7 @@ def test_wiersz_po_filtrze_ma_tylko_umowe_urzadzenia_czynnosci_pore_i_ilosci() -
     facts = _filtered(HEADER, _marked_row())
 
     assert facts == OrderFacts(
-        contract="ZNACZNIK-C",
-        devices="ZNACZNIK-D",
-        activities="ZNACZNIK-E",
-        time=WeekTime(3, time(13, 45)),
+        content=OrderContent("ZNACZNIK-C", "ZNACZNIK-D", "ZNACZNIK-E", WeekTime(3, time(13, 45))),
         quantities={get_column_letter(column): NON_NUMERIC for column in range(14, 43)},
     )
     forbidden = [f"ZNACZNIK-{letter}" for letter in ("A", "B", "F", "G", "H", "I", "J", "K", "AQ", "AR", "AS", "AT")]
@@ -68,9 +65,10 @@ def test_kolumny_wejscia_czytane_po_naglowku_a_nie_po_pozycji() -> None:
     row: list[object] = [None] * 46
     row[2], row[3], row[4], row[6] = "instalacja", "nokia zte", "u", STARTED
 
-    facts = _filtered(reordered, row)
+    content = _filtered(reordered, row).content
 
-    assert (facts.contract, facts.devices, facts.activities) == ("u", "nokia zte", "instalacja")
+    assert content is not None
+    assert (content.contract, content.devices, content.activities) == ("u", "nokia zte", "instalacja")
 
 
 def test_brak_naglowka_kolumny_wejscia_to_brak_porownania_a_nie_zgadywanie_pozycji() -> None:
@@ -79,31 +77,30 @@ def test_brak_naglowka_kolumny_wejscia_to_brak_porownania_a_nie_zgadywanie_pozyc
     assert collective_orders(header, [_marked_row()]) == MissingHeaders(("UMOWA", "DATA"))
 
 
-def test_data_bez_daty_w_komorce_daje_wiersz_bez_pory() -> None:
+def test_data_bez_daty_w_komorce_daje_wiersz_bez_tresci_zlecenia() -> None:
     row = _marked_row()
     row[6] = "wtorek rano"
 
     facts = _filtered(HEADER, row)
 
-    assert facts.time is None
-    assert facts.content() is None
+    assert facts.content is None
 
 
 def test_data_bez_godziny_to_polnoc_tego_dnia_tygodnia() -> None:
     row = _marked_row()
     row[6] = date(2026, 9, 12)
 
-    facts = _filtered(HEADER, row)
+    content = _filtered(HEADER, row).content
 
-    assert facts.time == WeekTime(5, time(0, 0))
+    assert content is not None
+    assert content.started == WeekTime(5, time(0, 0))
 
 
 def test_tresc_zlecenia_dla_regul_ilosci_ma_pore_bez_daty_dziennej() -> None:
     row: list[object] = [None] * 46
     row[2], row[3], row[4], row[6] = "u", "usterka", None, STARTED
 
-    facts = _filtered(HEADER, row)
-    content = facts.content()
+    content = _filtered(HEADER, row).content
 
     assert content is not None
     assert (content.contract, content.devices, content.activities, content.started) == (
