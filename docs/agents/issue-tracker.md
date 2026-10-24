@@ -108,9 +108,16 @@ create none.
   `config\zgloszenia\kolejka\` on Dad's computer, with no Komunikat, and goes
   out at the next Centrum start or when the next Kontrola is sent. A file whose
   content GitHub refuses (400, 413, 422) waits until the next Centrum start and
-  does not hold back the files after it. The Centrum log records only
-  `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number), `skrzynka-czeka`
-  (cause, once per pass; for a refused content also the file name) and `skrzynka-nieczytelny` (the name of a queue file
+  does not hold back the files after it. A comment to an issue that is gone
+  from the repository (you deleted an Uwaga taty issue that was to get the
+  link to its Logi) never goes out: when the list of issues with its label
+  arrives without that number, Centrum removes the file and logs it once
+  (#402). Without network or a key, or when GitHub refuses the list (401, 403,
+  404), the file waits, because the issue may still be there. The Centrum log
+  records only `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number),
+  `skrzynka-czeka` (cause, once per pass; for a refused content also the file
+  name), `skrzynka-porzucono` (file name and issue number of a dropped comment)
+  and `skrzynka-nieczytelny` (the name of a queue file
   that is damaged or from a newer tool version; it stays and is never sent). A
   sent file is marked as delivered before it is removed, so a file Windows
   keeps open is not sent again. Power loss between sending and marking can
