@@ -139,6 +139,8 @@ extend-select = [
 "os.name".msg = 'sprawdzaj system przez sys.platform == "win32": mypy zawęża gałęzie tylko po sys.platform'
 
 [tool.mypy]
+# API biblioteki standardowej sprawdzane dla najstarszego Pythona z requires-python, nie dla tego, którym biegnie mypy.
+python_version = "3.11"
 strict = true
 files = [
     "*.py",
