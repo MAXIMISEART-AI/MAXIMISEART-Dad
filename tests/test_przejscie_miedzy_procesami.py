@@ -22,7 +22,7 @@ def test_plik_zbiorczy_z_przygotowania_daje_rozliczenia_pracownikow_z_ich_zlecen
     preparation = run_preparation(fixture)
     settlement = run_settlements(preparation.collective_file, fixture.config_path, worker_template_path=worker_template)
 
-    assert settlement.issues == []
+    assert settlement.warnings == []
     assert [(result.worker_name, result.status, result.rows) for result in settlement.results] == [
         ("Adrian Testowy", "ZAPISANO", 1),
         ("Darek Fikcyjny", "ZAPISANO", 1),

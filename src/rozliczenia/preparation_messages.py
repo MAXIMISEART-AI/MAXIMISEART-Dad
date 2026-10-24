@@ -22,14 +22,11 @@ from typing import Final, assert_never
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .period_folder import PeriodFolderLookupError, month_folder_label
 from .quantity_rules import DESCRIPTION_COLUMNS
-from .workbook_files import WORKER_HEADER
-from .workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
+from .workbook_files import WORKER_HEADER, MergedCells, MissingHeader, Problem, WorkbookError
 from .worker_config import WorkerConfigError
 
-# Kod czytany poza katalogiem: decyzja o niepełnym okresie. Kody Wzorców czyta tylko ten katalog.
+# Kod czytany poza katalogiem: decyzja o niepełnym okresie.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
-TEMPLATE_MISSING = "BRAK_WZORCA"
-TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"
 # Ostrzeżenia ilości: tylko z ich powodu zapisany Plik zbiorczy wymaga sprawdzenia, więc skrypty, które czekają
 # na Przygotowanie bez uwag, przyjmują taki wynik.
 UNKNOWN_DEVICES = "NIEZNANE_URZADZENIA"
@@ -87,28 +84,28 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
     )
 
 
-def template_unusable(template_path: Path, error: WorkbookError) -> Message:
+def template_unusable(error: WorkbookError) -> Message:
     """Wzorzec rozliczenia wewnętrznego albo Wzorzec pliku zbiorczego, którego nie da się użyć; ``error`` mówi dlaczego."""
 
     match error.problem:
         case Problem.MISSING:
-            return _template_missing(template_path)
+            return _template_missing(error.path)
         case Problem.OPEN_IN_EXCEL:
-            return _template_open_in_excel(template_path)
+            return _template_open_in_excel(error.path)
         case Problem.INACCESSIBLE:
-            return _template_inaccessible(template_path)
+            return _template_inaccessible(error.path)
         case Problem.UNREADABLE | Problem.HAS_DATA:
-            return _template_unreadable(template_path)
+            return _template_unreadable(error.path)
         case Problem.LAYOUT:
             match error.fault:
                 case MissingHeader(sheet=sheet, found_in=str(column)):
-                    return _template_with_worker_outside_h(template_path, sheet, column)
+                    return _template_with_worker_outside_h(error.path, sheet, column)
                 case MissingHeader(sheet=sheet, row=row, header=header):
-                    return _template_without_header(template_path, sheet, row, header)
+                    return _template_without_header(error.path, sheet, row, header)
                 case MergedCells(sheet=sheet, cells=cells):
-                    return _template_with_merged_cells(template_path, sheet, cells)
+                    return _template_with_merged_cells(error.path, sheet, cells)
                 case None:
-                    return _template_unreadable(template_path)
+                    return _template_unreadable(error.path)
                 case _:
                     assert_never(error.fault)
         case _:
@@ -119,7 +116,7 @@ def _template_missing(template_path: Path) -> Message:
     """Wzorzec rozliczenia wewnętrznego albo Wzorzec pliku zbiorczego nie istnieje."""
 
     return Message(
-        code=TEMPLATE_MISSING,
+        code="BRAK_WZORCA",
         what="Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku.",
         where=file_label(template_path),
         action=REPORT_TO_MAINTAINER,
@@ -130,7 +127,7 @@ def _template_open_in_excel(template_path: Path) -> Message:
     """Wzorzec ma obok plik blokady Excela ``~$…``; narzędzie go nie usuwa."""
 
     return Message(
-        code=TEMPLATE_OPEN_IN_EXCEL,
+        code="WZORZEC_OTWARTY",
         what="Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku.",
         where=file_label(template_path),
         action=(
@@ -215,18 +212,18 @@ def _template_with_merged_cells(template_path: Path, sheet: str, cell_range: str
     )
 
 
-def register_unusable(register_path: Path, error: WorkbookError) -> Message:
+def register_unusable(error: WorkbookError) -> Message:
     """Rejestr zleceń, którego nie da się użyć; ``error`` mówi dlaczego."""
 
     match error.problem:
         case Problem.MISSING:
-            return register_missing(register_path)
+            return register_missing(error.path)
         case Problem.OPEN_IN_EXCEL:
-            return _register_open_in_excel(register_path)
+            return _register_open_in_excel(error.path)
         case Problem.INACCESSIBLE:
-            return _register_inaccessible(register_path)
+            return _register_inaccessible(error.path)
         case Problem.UNREADABLE | Problem.LAYOUT | Problem.HAS_DATA:
-            return _register_unreadable(register_path)
+            return _register_unreadable(error.path)
         case _:
             assert_never(error.problem)
 

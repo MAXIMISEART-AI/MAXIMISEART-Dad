@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from rozliczenia import TOOL_ROOT
+from rozliczenia import TOOL_ROOT, settlement_messages
 from rozliczenia.centrum import run_view
 from rozliczenia.preparation_process import PROCESS as PREPARATION
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore
@@ -305,9 +305,14 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_kodem_2_z_kodem_ostrze
     assert (record["mode"], record["result"]) == ("DRY-RUN", "WYMAGA_SPRAWDZENIA")
 
 
-def test_podsumowanie_i_ostrzezenia_sa_te_same_co_na_karcie_uruchomienia_centrum(tmp_path: Path) -> None:
-    centrum = settling_centrum(tmp_path, include_unmapped=True)
-    card = run_to_end(centrum, dry_run=True)["result"]
+def test_podsumowanie_i_ostrzezenia_w_kolejnosci_etapow_sa_te_same_w_skrypcie_na_karcie_i_w_metrykach(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    write_quantity_source(
+        centrum.collective_file,
+        [{"H": "andrzej.nieznany2"}, {}, {"H": None}, {"H": "andrzej.nieznany3"}, {"H": None}],
+    )
+    view = run_to_end(centrum, dry_run=True)
+    card = view["result"]
 
     exit_code, result = _run(
         "settlement",
@@ -322,11 +327,31 @@ def test_podsumowanie_i_ostrzezenia_sa_te_same_co_na_karcie_uruchomienia_centrum
         "--dry-run",
     )
 
+    where = f"plik {SOURCE_NAME}, folder {PERIOD}"
+    assert [(warning["code"], warning["where"]) for warning in result["warnings"]] == [
+        ("BRAK_WYKONAWCY", where),
+        ("BRAK_WYKONAWCY", where),
+        ("BRAK_MAPOWANIA", where),
+        ("BRAK_MAPOWANIA", where),
+    ]
+    expected = [
+        settlement_messages.row_without_worker_warning(centrum.collective_file, 20),
+        settlement_messages.row_without_worker_warning(centrum.collective_file, 22),
+        settlement_messages.unmapped_worker_warning(centrum.collective_file),
+        settlement_messages.unmapped_worker_warning(centrum.collective_file),
+    ]
+    assert result["warnings"] == [
+        {"code": message.code, "what": message.what, "where": message.where, "action": message.action} for message in expected
+    ]
     assert (exit_code, result["result"]) == (2, card["result"])
     assert result["summary"] == card["summary"]
     assert [{key: value for key, value in warning.items() if key != "code"} for warning in result["warnings"]] == card[
         "warnings"
     ]
+    assert ("Problemy", 4) in [(figure["label"], figure["value"]) for figure in view["progress"]["figures"]]
+    [script_record] = MetricsStore(tmp_path / "metrics-skryptu.jsonl", COUNTER_NAMES).read()
+    [card_record] = centrum.metric_records()
+    assert script_record["counters"]["issues"] == card_record["counters"]["issues"] == 4
 
 
 def test_zatrzymanie_w_sprawdzaniu_konczy_kodem_1_z_kodem_komunikatu_i_bez_plikow(tmp_path: Path) -> None:

@@ -101,7 +101,7 @@ def ensure_register_available(register_path: Path) -> None:
     try:
         workbook_files.ensure_available(register_path)
     except WorkbookError as error:
-        raise StopError(messages.register_unusable(register_path, error)) from error
+        raise StopError(messages.register_unusable(error)) from error
 
 
 def read_register(register_path: Path, period: SettlementPeriod | None = None) -> list[RegisterSheet]:
@@ -119,7 +119,7 @@ def read_register(register_path: Path, period: SettlementPeriod | None = None) -
                 return _read_register_sheets(workbook, _order_sheet_positions(register_path, workbook))
         return list(_period_sheets(register_path, content, period))
     except WorkbookError as error:
-        raise StopError(messages.register_unusable(register_path, error)) from error
+        raise StopError(messages.register_unusable(error)) from error
 
 
 # Centrum robi Podgląd, a potem RUN tego samego okresu w jednym procesie. Arkusze okresu zależą tylko od bajtów

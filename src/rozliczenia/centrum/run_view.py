@@ -11,7 +11,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Final, Generic, TypeVar
 
-from rozliczenia import settlement_messages
 from rozliczenia.centrum import contract
 from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.domain import SettlementSummary
@@ -113,10 +112,6 @@ def _settlement_summary(summary: SettlementSummary, dry_run: bool) -> contract.R
     )
 
 
-def _settlement_warnings(inputs: SettlementInputs, summary: SettlementSummary) -> list[Message]:
-    return [settlement_messages.issue_message(issue, inputs.source) for issue in summary.issues]
-
-
 def _preparation_figures(snapshot: ProgressSnapshot, _dry_run: bool) -> list[contract.Figure]:
     return [
         _count("Ostrzeżenia", snapshot.issue_count),
@@ -151,7 +146,7 @@ SETTLEMENT: Final[ProcessView[SettlementInputs, SettlementSummary]] = ProcessVie
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
     _figures=_settlement_figures,
     _summary=_settlement_summary,
-    _warnings=_settlement_warnings,
+    _warnings=lambda _inputs, summary: summary.warnings,
 )
 PREPARATION: Final[ProcessView[PreparationInputs, PreparationSummary]] = ProcessView(
     reminder="Zapisz i zamknij Rejestr zleceń w Excelu",

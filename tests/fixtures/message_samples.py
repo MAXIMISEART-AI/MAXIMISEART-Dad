@@ -15,7 +15,6 @@ from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
 from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems, update_messages
 from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
-from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
 from rozliczenia.settlement_period import parse_period_token
@@ -57,24 +56,16 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
     "template_unusable": [
-        *(partial(messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, problem)) for problem in Problem),
+        *(partial(messages.template_unusable, WorkbookError(TEMPLATE, problem)) for problem in Problem),
+        partial(messages.template_unusable, WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA"))),
         partial(
-            messages.template_unusable,
-            TEMPLATE,
-            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA")),
+            messages.template_unusable, WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA", "G"))
         ),
-        partial(
-            messages.template_unusable,
-            TEMPLATE,
-            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA", "G")),
-        ),
-        partial(
-            messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, Problem.LAYOUT, MergedCells("Sheet1", "B19:C20"))
-        ),
+        partial(messages.template_unusable, WorkbookError(TEMPLATE, Problem.LAYOUT, MergedCells("Sheet1", "B19:C20"))),
     ],
     "register_missing": [lambda: messages.register_missing(REGISTER)],
     "register_unusable": [
-        partial(messages.register_unusable, REGISTER, WorkbookError(REGISTER, problem)) for problem in Problem
+        partial(messages.register_unusable, WorkbookError(REGISTER, problem)) for problem in Problem
     ],
     "register_without_headers": [
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE"]),
@@ -149,7 +140,7 @@ SETTLEMENT_SAMPLES: Samples = {
         )
     ],
     "collective_file_unusable": [
-        partial(settlement_messages.collective_file_unusable, SOURCE, WorkbookError(SOURCE, problem)) for problem in Problem
+        partial(settlement_messages.collective_file_unusable, WorkbookError(SOURCE, problem)) for problem in Problem
     ],
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
     "worker_config_problem": [
@@ -159,13 +150,12 @@ SETTLEMENT_SAMPLES: Samples = {
         lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
     "worker_template_unusable": [
-        partial(settlement_messages.worker_template_unusable, WORKER_TEMPLATE, WorkbookError(WORKER_TEMPLATE, problem))
+        partial(settlement_messages.worker_template_unusable, WorkbookError(WORKER_TEMPLATE, problem))
         for problem in Problem
     ],
     "worker_template_unusable_in_saving": [
         partial(
             settlement_messages.worker_template_unusable_in_saving,
-            WORKER_TEMPLATE,
             WORKER_SETTLEMENTS,
             "Wykonawca Testowy",
             WorkbookError(WORKER_TEMPLATE, problem),
@@ -174,6 +164,8 @@ SETTLEMENT_SAMPLES: Samples = {
     ],
     "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
     "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
+    "unmapped_worker_warning": [lambda: settlement_messages.unmapped_worker_warning(SOURCE)],
+    "row_without_worker_warning": [lambda: settlement_messages.row_without_worker_warning(SOURCE, 19)],
     "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
     "staging_left": [
@@ -193,14 +185,6 @@ SETTLEMENT_SAMPLES: Samples = {
     "unexpected_failure": [settlement_messages.unexpected_failure],
     "summary_not_shown": [settlement_messages.summary_not_shown],
     "plan_not_shown": [settlement_messages.plan_not_shown],
-    "issue_message": [
-        lambda: settlement_messages.issue_message(
-            Issue("BRAK_MAPOWANIA", "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników."), SOURCE
-        ),
-        lambda: settlement_messages.issue_message(
-            Issue("BRAK_WYKONAWCY", "Wiersz 19 ma dane, ale nie ma wykonawcy w kolumnie H."), SOURCE
-        ),
-    ],
 }
 
 START_SAMPLES: Samples = {

@@ -71,7 +71,10 @@ def test_przebieg_bez_wzorca_rozliczenia_pracownika_w_zapisywaniu_nie_tworzy_sko
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=remove_before_first_file)
 
-    assert raised.value.message.code == "BLAD_KOPII_WZORCA"
+    assert (raised.value.message.code, raised.value.message.where) == (
+        "BLAD_KOPII_WZORCA",
+        f"plik Wzorzec rozliczenia pracownika.xlsx, folder {tmp_path.name}",
+    )
     assert not target_directory.exists()
 
 

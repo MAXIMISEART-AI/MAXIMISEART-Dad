@@ -72,7 +72,7 @@ def _finished(_inputs: SettlementInputs, summary: SettlementSummary) -> Finished
             # Licznik ze schematu metryk sprzed usunięcia pominiętych szablonów; zawsze 0,
             # żeby stare i nowe rekordy miały te same klucze.
             "skipped": 0,
-            "issues": len(summary.issues),
+            "issues": len(summary.warnings),
         },
         phase_durations_ms=summary.phase_durations_ms,
     )
