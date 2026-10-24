@@ -12,12 +12,11 @@ from typing import Final
 
 from rozliczenia import quantity_check
 from rozliczenia.centrum.outbox import Outbox, PeriodThread, Post
-from rozliczenia.centrum.report_box import Label
 from rozliczenia.centrum.runs import EndedRun
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.domain import SettlementSummary
 
-LABEL: Final[Label] = "kontrola-ilosci"
+LABEL: Final = "kontrola-ilosci"
 
 
 class QuantityCheckAfterRun:

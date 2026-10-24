@@ -10,13 +10,15 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
+import threading
 from typing import Any
 
 import pytest
 
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, OLD_NOTES_FILE, OLD_REPORTS_FILE, REPORT, Case, DadCases
+from rozliczenia.centrum.dad_notes import after_delivery, with_logs
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import KnownIssue, NewIssue, PeriodThread, Post
+from rozliczenia.centrum.outbox import KnownIssue, NewIssue, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import (
     Closure,
     CommentOutcome,
@@ -224,12 +226,22 @@ def test_wpis_starego_pliku_ktorego_nie_da_sie_odczytac_jest_pominiety(
         "nie wpis",
         {**VALID_ENTRY, "kind": "kontrola-ilosci"},
         {**VALID_ENTRY, "kind": None},
+        {**VALID_ENTRY, "kind": ["uwaga"]},
         {**VALID_ENTRY, "id": 7},
         {**VALID_ENTRY, "commit": 7},
         {**VALID_ENTRY, "run_id": 7},
         {**VALID_ENTRY, "number": "7"},
     ],
-    ids=["nie-obiekt", "nieznany-rodzaj", "bez-rodzaju", "identyfikator", "commit", "uruchomienie", "numer"],
+    ids=[
+        "nie-obiekt",
+        "nieznany-rodzaj",
+        "bez-rodzaju",
+        "rodzaj-lista",
+        "identyfikator",
+        "commit",
+        "uruchomienie",
+        "numer",
+    ],
 )
 def test_wpis_pliku_spraw_taty_z_polem_zlego_typu_jest_pominiety(tmp_path: Path, entry: object) -> None:
     with_document(tmp_path, DAD_CASES_FILE, {"schema_version": 1, "sprawy": [entry, VALID_ENTRY]})
@@ -382,7 +394,13 @@ def test_zgloszenie_bez_co_sie_stalo_albo_czytelnego_czasu_nie_daje_powiadomieni
         OLD_REPORTS_FILE,
         [
             *json.loads((FIXTURES / "zgloszenia-wyslane-sprzed-powiadomien.json").read_text(encoding="utf-8")),
-            {"fingerprint": "a1b2c3d4e5f60718", "number": 9, "commit": None, "what": "Brak sieci", "sent_at": "wczoraj"},
+            {
+                "fingerprint": "a1b2c3d4e5f60718",
+                "number": 9,
+                "commit": None,
+                "what": "Brak sieci",
+                "sent_at": "wczoraj",
+            },
             {"fingerprint": "b2c3d4e5f6071829", "number": 10, "commit": None, "sent_at": "2026-10-21T09:30:00+00:00"},
         ],
     )
@@ -390,3 +408,112 @@ def test_zgloszenie_bez_co_sie_stalo_albo_czytelnego_czasu_nie_daje_powiadomieni
     assert notifications(tmp_path) == [
         ("uwaga", "uwaga-c0ffee00c0ffee00c0ffee00c0ffee00-wyslana", False, "Uwaga sprzed Powiadomień")
     ]
+
+
+def test_uszkodzony_plik_spraw_taty_w_innym_kodowaniu_to_brak_spraw(tmp_path: Path) -> None:
+    config = old_files(tmp_path)
+    (config / DAD_CASES_FILE).write_bytes(json.dumps({"schema_version": 1, "sprawy": []}).encode("utf-16"))
+
+    assert cases(tmp_path) == []
+
+
+def test_stary_plik_z_urwanym_json_nie_zabiera_spraw_z_drugiego(tmp_path: Path) -> None:
+    config = old_files(tmp_path)
+    text = (config / OLD_REPORTS_FILE).read_text(encoding="utf-8")
+    (config / OLD_REPORTS_FILE).write_text(text[: len(text) // 2], encoding="utf-8")
+
+    assert cases(tmp_path) == [case for case in OLD_CASES if case.kind == NOTE]
+
+
+def test_sprawa_bez_czasow_i_z_polskimi_literami_wraca_z_pliku_bez_zmian(tmp_path: Path) -> None:
+    case = Case(REPORT, "3f0c1b2a9d8e7f60", None, None, None, 7, Closure("not_planned", None))
+    note = Case(NOTE, NEW.id, "Brakuje ilości", None, at(24, 12), 8, run_id="b4c3d2e1f0a94b8c")
+    stored = DadCases(tmp_path / "config", log(tmp_path))
+    stored.add(case)
+    stored.add(note)
+
+    assert cases(tmp_path) == [case, note]
+    assert "Brakuje ilości" in (tmp_path / "config" / DAD_CASES_FILE).read_text(encoding="utf-8")
+
+
+def _outbox(tmp_path: Path) -> Outbox:
+    return Outbox(tmp_path / "kolejka", AnsweringBox({}), lambda: None, log(tmp_path))
+
+
+PINNED_ID = "0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d"
+PINNED_RUN = "b4c3d2e1f0a94b8c"
+WAITING_LOGS = f"Logi Uruchomienia: w drodze (Uruchomienie {PINNED_RUN})"
+REJECTED_LOGS = (
+    f"Logi Uruchomienia: nie dotarły, Skrzynka odrzuciła ich treść (Uruchomienie {PINNED_RUN}). "
+    "Odnośnik przyjdzie w komentarzu, gdy dotrą."
+)
+
+
+OTHER_TARGETS = {
+    "logi-uruchomienia": PeriodThread(label="logi-uruchomienia", line="- Logi", closed="reuse", title="Logi"),
+    "komentarz-zgloszenia": KnownIssue("zgloszenie", 3),
+    "nowe-zgloszenie": NewIssue("zgloszenie", "Zgłoszenie"),
+}
+
+
+def _queued(tmp_path: Path) -> list[Path]:
+    return sorted((tmp_path / "kolejka").glob("*")) if (tmp_path / "kolejka").exists() else []
+
+
+@pytest.mark.parametrize("target", OTHER_TARGETS.values(), ids=OTHER_TARGETS.keys())
+def test_wysylka_innej_etykiety_o_identyfikatorze_uwagi_idzie_bez_zmian(
+    tmp_path: Path, target: PeriodThread | KnownIssue | NewIssue
+) -> None:
+    stored = DadCases(old_files(tmp_path), log(tmp_path))
+    post = Post(target, period=None, run_id=PINNED_ID, header=None, parts=(f"Treść\n{WAITING_LOGS}",))
+
+    assert with_logs(post, stored, lambda run_id: "https://logi", lambda run_id: False) == post
+
+
+@pytest.mark.parametrize(
+    "target", [*OTHER_TARGETS.values(), KnownIssue("uwaga-taty", 12)], ids=[*OTHER_TARGETS.keys(), "komentarz-uwagi"]
+)
+def test_tylko_nowa_uwaga_dostaje_komentarz_o_odrzuconych_logach(
+    tmp_path: Path, target: PeriodThread | KnownIssue | NewIssue
+) -> None:
+    stored = DadCases(old_files(tmp_path), log(tmp_path))
+    post = Post(target, period=None, run_id=PINNED_ID, header=None, parts=(f"Treść\n{REJECTED_LOGS}",))
+
+    after_delivery(post, 40, stored, _outbox(tmp_path))
+
+    assert _queued(tmp_path) == []
+
+
+def test_nowa_uwaga_po_odrzuconych_logach_dostaje_komentarz(tmp_path: Path) -> None:
+    stored = DadCases(old_files(tmp_path), log(tmp_path))
+    post = Post(NewIssue("uwaga-taty", "Uwaga"), period=None, run_id=PINNED_ID, header=None, parts=(REJECTED_LOGS,))
+
+    after_delivery(post, 40, stored, _outbox(tmp_path))
+
+    assert len(_queued(tmp_path)) == 1
+
+
+def test_wysylka_uwagi_nieznanej_temu_komputerowi_idzie_bez_zmian(tmp_path: Path) -> None:
+    stored = DadCases(tmp_path / "config", log(tmp_path))
+    post = Post(NewIssue("uwaga-taty", "Uwaga"), period=None, run_id="nieznana", header=None, parts=(WAITING_LOGS,))
+
+    prepared = with_logs(post, stored, lambda run_id: "https://logi", lambda run_id: False)
+    after_delivery(post, 41, stored, _outbox(tmp_path))
+
+    assert prepared == post
+    assert _queued(tmp_path) == []
+
+
+def test_sprawdzanie_powiadomien_w_tle_nie_wstrzymuje_zamkniecia_centrum(tmp_path: Path) -> None:
+    config = old_files(tmp_path)
+    (config / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
+    started = centrum(tmp_path)
+    hold = started.report_box.search_hold = threading.Event()
+    try:
+        started.client.get("/api/notifications")
+        checks = [thread for thread in threading.enumerate() if thread.name == "powiadomienia-sprawdzanie"]
+    finally:
+        hold.set()
+
+    assert checks
+    assert all(thread.daemon for thread in checks)

@@ -210,7 +210,7 @@ class Notifications:
         Sprawę z notki Wydania Powiadomienie nazywa tak, jak zna ją tata; sprawy wysłanej z innego komputera nie ma.
         """
 
-        sent = {
+        sent: dict[tuple[str, int | None], contract.SolvedCase] = {
             (case.kind.label, case.number): contract.SolvedCase(kind=case.kind.key, title=case.title)
             for case in cases
             if case.title is not None

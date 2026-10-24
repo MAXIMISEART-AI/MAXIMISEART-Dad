@@ -179,7 +179,7 @@ def _load(config_directory: Path) -> list[Case]:
         reports = _document(config_directory / OLD_REPORTS_FILE)
         notes = _document(config_directory / OLD_NOTES_FILE)
         return _cases(_old_reports(reports)) + _cases(_old_notes(notes))
-    except (OSError, UnicodeError, ValueError):
+    except (OSError, ValueError):  # UnicodeError to też ValueError
         return []
     if not isinstance(document, dict) or document.get("schema_version") != SCHEMA_VERSION:
         return []
@@ -189,7 +189,7 @@ def _load(config_directory: Path) -> list[Case]:
 def _document(path: Path) -> object:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError):
+    except (OSError, ValueError):  # UnicodeError to też ValueError
         return None
 
 
