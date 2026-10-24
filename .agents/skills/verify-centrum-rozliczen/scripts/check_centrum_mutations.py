@@ -17,9 +17,12 @@ from mutacje import Edit, Mutation, check_all
 
 DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
+WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
+QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
 RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
+UZUPELNIENIE = (RUNNER, "--feature", "uzupelnienie")
 
 MUTATIONS = (
     Mutation(
@@ -69,6 +72,18 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+    Mutation(
+        "plik blokady Excela blokuje odczyt Uzupełnienia",
+        (Edit(WORKBOOK_FILES, "    if open_in_excel and not despite_excel_lock:\n", "    if open_in_excel:\n"),),
+        UZUPELNIENIE,
+        "tata z Plikiem zbiorczym otwartym w Excelu widzi Komunikat zamiast swoich postępów",
+    ),
+    Mutation(
+        "wpis taty nie robi wiersza",
+        (Edit(QUANTITIES_TO_FILL, "    return any(order.quantity(column) != 0 for", "    return False and any(order.quantity(column) != 0 for"),),
+        UZUPELNIENIE,
+        "wiersz, który tata uzupełnił w Excelu, zostaje na liście do zrobienia",
     ),
 )
 
