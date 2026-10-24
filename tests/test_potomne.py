@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Any
 
 import pytest
 
@@ -64,6 +65,24 @@ def test_echo_drukuje_wyjscie_razem_z_stderr(tmp_path: Path, capsys: pytest.Capt
 def test_po_limicie_drzewo_ginie_a_run_rzuca_timeout(tmp_path: Path) -> None:
     beats = tmp_path / "wnuk-zyje"
 
+    with pytest.raises(subprocess.TimeoutExpired):
+        potomne.run(with_grandchild(beats, "time.sleep(60)"), cwd=tmp_path, timeout=5)
+
+    assert not beating(beats)
+
+
+def test_wnuk_uruchomiony_zanim_narzedzie_wroci_ze_startu_polecenia_ginie_z_drzewem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    beats = tmp_path / "wnuk-zyje"
+    start = subprocess.Popen
+
+    def descheduled_after_start(*args: Any, **kwargs: Any) -> subprocess.Popen[str]:
+        process = start(*args, **kwargs)
+        wait_for(beats.exists, 3)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", descheduled_after_start)
     with pytest.raises(subprocess.TimeoutExpired):
         potomne.run(with_grandchild(beats, "time.sleep(60)"), cwd=tmp_path, timeout=5)
 
