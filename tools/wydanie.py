@@ -37,15 +37,15 @@ import urllib.parse
 
 from pydantic import BaseModel, TypeAdapter
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+import potomne
+from rozliczenia.centrum import release_notes, tool_update
+from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes
+from rozliczenia.centrum.report_box import REPOSITORY as REPORT_BOX
+from rozliczenia.centrum.tool_update import MainLine, Release
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-
-import potomne  # noqa: E402
-from rozliczenia.centrum import release_notes, tool_update  # noqa: E402
-from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes  # noqa: E402
-from rozliczenia.centrum.report_box import REPOSITORY as REPORT_BOX  # noqa: E402
-from rozliczenia.centrum.tool_update import MainLine, Release  # noqa: E402
-
 REPOSITORY: Final = tool_update.GITHUB_REPOSITORY.removeprefix("https://github.com/").removesuffix(".git")
 ORIGIN: Final = "origin"
 REQUIRED_CI: Final = "Required CI status"

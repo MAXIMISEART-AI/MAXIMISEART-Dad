@@ -97,7 +97,7 @@ class Stops:
 
         try:
             self._logs.diagnosed(run_id, diagnosis)
-        except Exception as failure:  # noqa: BLE001 - Logi nie mogą zmienić Diagnozy: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:  # Logi nie mogą zmienić Diagnozy: typ wyjątku trafia do dziennika Centrum
             self._log.unexpected_failure(failure, where="Diagnoza w Logach Uruchomienia")
 
     def send(self, stopped: StoppedRun) -> contract.ReportState:

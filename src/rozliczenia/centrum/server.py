@@ -56,7 +56,7 @@ def serve(
     threading.Thread(target=stop_when_asked, name="centrum-zamkniecie", daemon=True).start()
     try:
         server.run(sockets=[listener])
-    except Exception as failure:  # noqa: BLE001 - granica serwera: typ wyjątku trafia do dziennika Centrum
+    except Exception as failure:
         log.unexpected_failure(failure, where="serwer")
         return 1
     finally:
