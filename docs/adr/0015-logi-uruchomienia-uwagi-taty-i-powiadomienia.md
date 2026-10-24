@@ -97,7 +97,9 @@ co stało się z tym, co wysłał.
   da się ich wysłać”; obie te linie mają identyfikator Uruchomienia. Po „nie
   dotarły” kolejka dopisuje do issue Uwagi, także zamkniętego, komentarz z
   odnośnikiem, gdy Logi dotrą przy którymś następnym starcie Centrum, albo z
-  tym, że nie dotrą, gdy znikną z kolejki (#374). Wysyłka jest co najmniej raz:
+  tym, że nie dotrą, gdy znikną z kolejki (#374). Komentarz do issue Uwagi,
+  którego Skrzynka już nie ma (Maks je usunął), kolejka usuwa z jedną linią
+  dziennika, a bez sieci, klucza albo dostępu zostawia (#402). Wysyłka jest co najmniej raz:
   zerwane połączenie po utworzeniu issue może dać drugie issue.
 - **Powiadomienia** to osobny widok otwierany dzwonkiem, z trzema rodzajami:
   nowa wersja, Uwaga i Zgłoszenie. Wejście do widoku oznacza wszystkie jako
