@@ -267,6 +267,9 @@ def drive_update(run: Run, page: Page) -> None:
         _github_main(run, newest)
 
         run.step(FEATURE, "aktualizacja-postep")
+        page.reload()
+        expect(card).to_contain_text("Jest nowsza wersja")
+        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
         print(f"  harness: each Aktualizacja narzędzia waits {UPDATE_PACING_MS} ms before it looks for Git", flush=True)
         pacing.write_text(str(UPDATE_PACING_MS), encoding="utf-8")
         print(f"  harness: the restarted Centrum waits {RESTART_PACING_MS} ms before it starts", flush=True)
