@@ -14,6 +14,7 @@ from drive.common import (
     LAST_COMPLETE,
     ROW_MARKER,
     Run,
+    active_run_signs,
     current_run,
     figure,
     finished_result,
@@ -28,7 +29,7 @@ from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 SETTLEMENT = "przebieg-rozliczen"
 WORKER_SETTLEMENTS = f"Rozliczenie pracowników {LAST_COMPLETE}"
 # serve_centrum.py waits this long before each Szablon pracownika while the pacing file exists.
-TEMPLATE_PACING_MS = 1500
+TEMPLATE_PACING_MS = 2500
 WORKER_COLUMN, QUANTITY_COLUMN, FIRST_DATA_ROW = 8, 14, 18  # H (WYKONAWCA), N (first quantity), row 18
 
 
@@ -178,6 +179,22 @@ def drive_settlement(run: Run, page: Page) -> None:
             "closing Centrum is refused while the Przebieg rozliczeń runs",
         )
         run.capture(page, "43-przebieg-na-zywo", live=True)
+
+        run.step(feature, "przebieg-znak-uruchomienia")
+        menu_sign, header_link = active_run_signs(page, "Trwa Uruchomienie")
+        page.get_by_role("link", name="Okresy", exact=True).click()
+        expect(page.get_by_role("heading", name="Okresy", level=1)).to_be_visible()
+        expect(menu_sign).to_be_visible()
+        expect(header_link).to_be_visible()
+        run.check(
+            current_run(run, "przebieg-znak-uruchomienia")["state"] == "running",
+            "on Okresy during the RUN the menu and the header show „Trwa Uruchomienie” (harness pacing on)",
+        )
+        run.capture(page, "150-przebieg-znak-uruchomienia", live=True)  # the sign's spinner turns while it runs
+        header_link.click()
+        expect(live).to_be_visible()
+        expect(header_link).to_have_count(0)
+        run.check(page.url.endswith("#/uruchomienia"), "the header link leads back to the live view; there it is gone")
     finally:
         pacing.unlink(missing_ok=True)
 

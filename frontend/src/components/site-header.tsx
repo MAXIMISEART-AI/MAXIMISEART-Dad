@@ -1,5 +1,6 @@
 import { MoonIcon, SunIcon } from "lucide-react"
 
+import { ActiveRunLink } from "@/components/active-run"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -8,7 +9,8 @@ import { WriteToMaks } from "@/components/write-to-maks"
 import { useSettings } from "@/lib/settings"
 import { NOTIFICATIONS_PAGE, useCurrentPage } from "@/pages"
 
-// Nagłówek bez tytułu (tytuł jest w treści strony): menu, „Napisz do Maksa”, dzwonek Powiadomień i ikona motywu.
+// Nagłówek bez tytułu (tytuł jest w treści strony): menu, link do trwającego Uruchomienia, „Napisz do Maksa”,
+// dzwonek Powiadomień i ikona motywu.
 export function SiteHeader() {
   const { theme, toggleTheme } = useSettings()
   const page = useCurrentPage()
@@ -19,6 +21,7 @@ export function SiteHeader() {
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 px-4 lg:px-6">
       <SidebarTrigger className="-ml-1" aria-label="Pokaż lub ukryj menu" />
       <div className="ml-auto flex items-center gap-1">
+        <ActiveRunLink current={page.id} />
         <WriteToMaks />
         <NotificationsBell current={page.id === NOTIFICATIONS_PAGE.id} />
         <Tooltip>

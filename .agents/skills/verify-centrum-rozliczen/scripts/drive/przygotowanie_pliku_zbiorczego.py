@@ -12,6 +12,7 @@ from drive.common import (
     LAST_COMPLETE,
     ROW_MARKER,
     Run,
+    active_run_signs,
     current_run,
     ensure_files_set,
     error_toasts,
@@ -209,6 +210,23 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(decision).to_be_visible()
     run.check(True, "the decision survives a reload of the tab")
     run.capture(page, "33-przygotowanie-decyzja")
+
+    run.step(feature, "przygotowanie-znak-decyzji")
+    menu_sign, header_link = active_run_signs(page, "Czeka na decyzję")
+    page.goto(run.url + "#/okresy")
+    expect(page.get_by_role("heading", name="Okresy", level=1)).to_be_visible()
+    expect(decision).to_have_count(0)
+    expect(menu_sign).to_be_visible()
+    expect(header_link).to_be_visible()
+    run.check(True, "on Okresy, where the decision dialog does not open, the header says „Czeka na decyzję”")
+    run.capture(page, "149-przygotowanie-znak-decyzji")
+    header_link.click()
+    expect(decision).to_be_visible()
+    # The open dialog hides the rest of the page from the accessibility tree, so the header is read as text.
+    expect(page.locator("header").get_by_text("Czeka na decyzję")).to_have_count(0)
+    run.check(
+        page.url.endswith("#/uruchomienia"), "the header link leads to Uruchomienia, where the decision waits; there it is gone"
+    )
 
     run.step(feature, "przygotowanie-przerwij")
     decision.get_by_role("button", name="Przerwij bez zapisu").click()

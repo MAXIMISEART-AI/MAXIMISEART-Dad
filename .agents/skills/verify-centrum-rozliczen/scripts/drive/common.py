@@ -198,6 +198,14 @@ def figure(shown: object, label: str) -> int:
     return value
 
 
+def active_run_signs(page: Page, label: str) -> tuple[Locator, Locator]:
+    """The sign of the current Uruchomienie beside `Uruchomienia` in the menu and the header's link to it."""
+
+    menu = page.get_by_role("list", name="Sekcje Centrum rozliczeń")
+    header = page.locator("header").first
+    return menu.get_by_role("img", name=label, exact=True), header.get_by_role("link", name=label, exact=True)
+
+
 def stop_banner(page: Page) -> Locator:
     """The three-part stop banner of the Uruchomienie procesu shown on Uruchomienia."""
 
