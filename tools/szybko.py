@@ -117,7 +117,7 @@ class Dependencies:
                 continue
             for name in _imports(tree, path):
                 depends_on[path] |= _resolve(name, path, modules, files)
-            texts, globs = _references(tree)
+            texts, globs = references(tree)
             test = path.startswith("tests/")
             if not test:
                 # Poza testami sama nazwa pliku albo modułu to zwykle nazwa procesu albo pliku w cudzym katalogu.
@@ -232,7 +232,7 @@ class _Glob:
     recursive: bool
 
 
-def _references(tree: ast.AST) -> tuple[set[str], set[_Glob]]:
+def references(tree: ast.AST) -> tuple[set[str], set[_Glob]]:
     """Napisy modułu, ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``) i globy na katalogach."""
 
     def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
