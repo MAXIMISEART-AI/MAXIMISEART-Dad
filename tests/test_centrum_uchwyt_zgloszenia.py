@@ -224,7 +224,7 @@ def test_drugie_klikniecie_w_trakcie_wysylki_czeka_na_jej_wynik_i_nie_wysyla_dru
     handle, _, _ = prepared(computer.reports(), computer)
     box.open_hold = threading.Event()
     answers: list[dict[str, Any]] = []
-    clicks = [threading.Thread(target=lambda: answers.append(dump(handle.send()))) for _ in range(2)]
+    clicks = [threading.Thread(target=lambda: answers.append(dump(handle.send())), daemon=True) for _ in range(2)]
 
     try:
         clicks[0].start()
@@ -260,7 +260,7 @@ def test_wysylka_przerwana_wyjatkiem_nie_blokuje_nastepnej_ani_nie_zmienia_stanu
     monkeypatch.setattr(box, "open_issue", opened)
 
     answers: list[dict[str, Any]] = []
-    again = threading.Thread(target=lambda: answers.append(dump(handle.send())))
+    again = threading.Thread(target=lambda: answers.append(dump(handle.send())), daemon=True)
     again.start()
     again.join(10)
 
