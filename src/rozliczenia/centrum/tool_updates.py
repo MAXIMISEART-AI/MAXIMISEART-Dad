@@ -11,26 +11,28 @@ wtedy w dzienniku nowe Centrum, z pliku wyniku od opiekuna. Gdy opiekun nie
 wystartuje, klon wraca do wersji sprzed kliknięcia, a Centrum działa dalej.
 Każdą porażkę, której ``tool_update`` nie przewidział, karta widzi jako Komunikat
 nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku. Przy każdej
-porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika.
+porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika, a jego stan
+czyta z uchwytu Zgłoszenia (``reports.ReportHandle``) przy każdym odczycie.
+Porażkę kliknięcia karta widzi dopiero ze stanem po odpowiedzi skrzynki
+Zgłoszeń (najwyżej termin szukania), a porażkę od opiekuna od razu.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 import shutil
 import tempfile
 import threading
-from typing import Final
-import uuid
+from typing import Final, Literal
 
 from fastapi import APIRouter, Request
 
 from rozliczenia.centrum import contract, restart_guardian, update_messages
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.reports import Draft, Reports, UpdateReport
+from rozliczenia.centrum.reports import ReportHandle, Reports, UpdateReport
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.shutdown import Shutdown
@@ -99,21 +101,20 @@ class ToolUpdates:
         self._result_file = result_file
         self._release = release
         self._lock = threading.Lock()
-        self._view: contract.ToolUpdate = contract.ToolUpdateIdle(state="idle")
-        self._draft: Draft | None = None
+        self._view: contract.ToolUpdate | _Failed = contract.ToolUpdateIdle(state="idle")
         self._up_to_date_with: GitHubReleases | None = None
         self._after_restart()
 
     def current(self) -> contract.ToolUpdate:
         with self._lock:
             view, judged = self._view, self._up_to_date_with
-        if not isinstance(view, contract.ToolUpdateUpToDate):
-            return view
-        newest = self._release()
-        with self._lock:
-            if newest is not None and newest != judged and self._view is view:
-                self._view = contract.ToolUpdateIdle(state="idle")
-            return self._view
+        if isinstance(view, contract.ToolUpdateUpToDate):
+            newest = self._release()
+            with self._lock:
+                if newest is not None and newest != judged and self._view is view:
+                    self._view = contract.ToolUpdateIdle(state="idle")
+                view = self._view
+        return view.view if isinstance(view, _Failed) else view
 
     def start(self, port: int) -> contract.ToolUpdate:
         """Zaczyna aktualizację w tle i od razu zwraca jej pierwszy krok; ``contract.Refusal``, gdy coś trwa.
@@ -136,7 +137,8 @@ class ToolUpdates:
     def _after_restart(self) -> None:
         """Wynik od opiekuna ponownego startu: do dziennika i do karty, raz, bez czekania na sieć.
 
-        Po porażce (np. cofnięcie nowej wersji) skrzynkę Zgłoszeń pyta osobny wątek: start Centrum na nią nie czeka.
+        Po porażce (np. cofnięcie nowej wersji) skrzynkę Zgłoszeń pyta w tle uchwyt Zgłoszenia: start Centrum na nią
+        nie czeka.
         """
 
         result = read_result(self._result_file)
@@ -145,31 +147,12 @@ class ToolUpdates:
         self._finished(result)
         with suppress(OSError):  # wynik i tak jest już w dzienniku; plik zostaje do następnego startu
             self._result_file.unlink(missing_ok=True)
-        view = _view_of(result)
-        if view is not None:
-            self._view = view
-            return
-        failed, draft = self._failed(result)
-        self._view, self._draft = failed, draft
-        threading.Thread(
-            target=self._ask_box_after_restart, args=(failed, draft), name="zgloszenie-aktualizacji", daemon=True
-        ).start()
-
-    def _ask_box_after_restart(self, failed: contract.ToolUpdateFailed, draft: Draft) -> None:
-        try:
-            state = self._reports.ask(draft)
-        except Exception as failure:
-            self._log.unexpected_failure(failure, where="stan Zgłoszenia aktualizacji przy starcie")
-            return
-        with self._lock:
-            if self._view is failed:  # karta mogła już wysłać Zgłoszenie
-                self._view = failed.model_copy(update={"report": state})
+        self._view = _view_of(result) or self._failed(result)
 
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
         restarting = False
-        view: contract.ToolUpdate | None = None
-        draft: Draft | None = None
+        view: contract.ToolUpdate | _Failed | None = None
         newest: GitHubReleases | None = None
         try:
             result, guardian = self._result(clone, before, work)
@@ -191,8 +174,10 @@ class ToolUpdates:
                 if isinstance(view, contract.ToolUpdateUpToDate):
                     newest = self._release()
                 if view is None:
-                    failed, draft = self._failed(result)
-                    view = failed.model_copy(update={"report": self._reports.ask(draft)})
+                    failed = self._failed(result)
+                    # Po pierwszym „failed” karta nie czyta już stanu, więc dostaje go po odpowiedzi skrzynki.
+                    failed.report.wait_for_box()
+                    view = failed
         finally:
             if not restarting:
                 shutil.rmtree(work, ignore_errors=True)
@@ -201,7 +186,7 @@ class ToolUpdates:
                 with self._lock:
                     self._runs.end_update()
                     if view is not None:
-                        self._view, self._draft, self._up_to_date_with = view, draft, newest
+                        self._view, self._up_to_date_with = view, newest
 
     def _result(self, clone: ToolClone, before: str | None, work: Path) -> tuple[UpdateResult, Path | None]:
         try:
@@ -244,37 +229,47 @@ class ToolUpdates:
             result=result.code, before=result.before, after=result.after, installed=result.installed
         )
 
-    def _failed(self, result: UpdateResult) -> tuple[contract.ToolUpdateFailed, Draft]:
+    def _failed(self, result: UpdateResult) -> _Failed:
         """Komunikat porażki z podglądem Zgłoszenia; ``aktualizacja-koniec`` jest już w dzienniku, więc podgląd go ma."""
 
         message = update_messages.message_of(result.code)
         source = UpdateReport.of(result, message, self._log)
-        draft = self._reports.draft(uuid.uuid4().hex, source)
-        failed = contract.ToolUpdateFailed(
-            state="failed",
-            message=contract.Message.of(message),
-            next_action="retry" if message.code in _RETRIED_BY_TATA else "report",
-            report=self._reports.state(source.fingerprint),
-            draft=draft.view,
+        report = self._reports.handle(source.fingerprint)
+        return _Failed(
+            contract.Message.of(message),
+            "retry" if message.code in _RETRIED_BY_TATA else "report",
+            report,
+            report.prepare(source),
         )
-        return failed, draft
 
     def send_report(self) -> contract.ReportState:
         """„Wyślij do Maksa” przy nieudanej aktualizacji; ``contract.Refusal``, gdy ostatnia aktualizacja nie zawiodła."""
 
         with self._lock:
-            failed, draft = self._view, self._draft
-        if not isinstance(failed, contract.ToolUpdateFailed) or draft is None:
+            failed = self._view
+        if not isinstance(failed, _Failed):
             raise contract.Refusal(409, _NO_FAILED_UPDATE)
-        state = self._reports.send(draft)
-        with self._lock:
-            if self._view is failed:
-                self._view = failed.model_copy(update={"report": state})
-        return state
+        return failed.report.send()
 
     def _show_step(self, step: Step) -> None:
         with self._lock:
             self._view = contract.ToolUpdateRunning(state="running", step=step)
+
+
+@dataclass(frozen=True)
+class _Failed:
+    """Nieudana Aktualizacja narzędzia: Komunikat, co dalej i jej Zgłoszenie z zamrożonym podglądem ``draft``."""
+
+    message: contract.Message
+    next_action: Literal["retry", "report"]
+    report: ReportHandle
+    draft: contract.ReportDraft
+
+    @property
+    def view(self) -> contract.ToolUpdateFailed:
+        return contract.ToolUpdateFailed(
+            state="failed", message=self.message, next_action=self.next_action, report=self.report.state, draft=self.draft
+        )
 
 
 def _view_of(result: UpdateResult) -> contract.ToolUpdate | None:

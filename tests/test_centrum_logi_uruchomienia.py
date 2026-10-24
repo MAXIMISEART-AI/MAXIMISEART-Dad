@@ -11,12 +11,12 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import app, contract
+from rozliczenia.centrum import app, contract, runs
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
 from tests.fixtures.centrum import TOOL_COMMIT, finished_view, views_until, without_times
@@ -137,6 +137,23 @@ def _adapter_net(
     return run
 
 
+def _core_failed(
+    centrum: Callable[[Path], AnyCentrum], *, dry_run: bool
+) -> Callable[[Path, pytest.MonkeyPatch], Ran]:
+    """Sam rdzeń Uruchomienia procesu rzuca wyjątkiem, więc nie oddaje wyniku: ostatnia siatka adaptera bez rdzenia."""
+
+    def run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ran:
+        steered = centrum(tmp_path)
+
+        def broken(*args: object, **kwargs: object) -> NoReturn:
+            raise ValueError("synthetic core failure SYN-002")
+
+        monkeypatch.setattr(runs, "run_process", broken)
+        return steered, run_to_end(steered, dry_run=dry_run)
+
+    return run
+
+
 QUANTITY_WARNINGS = [("warning", "NIEZNANE_URZADZENIA"), ("warning", "KOLUMNY_Z_OPISU")]
 UNEXPECTED = [("stop", "BLAD_NIEOCZEKIWANY")]
 
@@ -221,6 +238,13 @@ ENDINGS = {
     "po-silniku-adapter": Ending(
         _adapter_net(preparing_centrum, dry_run=True),
         "podgląd",
+        ("BLAD_KRYTYCZNY", "after_engine", "for_maks"),
+        [("stop", "BLAD_WYNIKU")],
+        "ValueError",
+    ),
+    "bez-rdzenia-zapis": Ending(
+        _core_failed(settling_centrum, dry_run=False),
+        "zapis",
         ("BLAD_KRYTYCZNY", "after_engine", "for_maks"),
         [("stop", "BLAD_WYNIKU")],
         "ValueError",

@@ -116,6 +116,12 @@ model gained the result file, the card and what Dad sees (`wynik`, `karta`,
 `f0521710` (#373) only changes how `ToolUpdates.current` shows `AKTUALNA`,
 which the model does not describe, and `tool_update.py` and `launcher.py` did
 not change. At this commit every row above was checked against the code.
+After it, PR #399 (the Zgłoszenie handle) changes only the Zgłoszenie of a
+failed update in `tool_updates.py`: `_failed`, `_after_restart` and
+`send_report` use `reports.ReportHandle`, `_after_restart` still reads the
+result file once and shows `_view_of(result)` or the failure, and `_update`
+waits for the box answer (`wait_for_box`) before the `failed` view, still
+before `end_update`; no row moved.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries, the result file or the
