@@ -160,13 +160,17 @@ def create_app(
     # narzędzia (limit API bez klucza); Diagnoza pyta za każdym razem, a jej odpowiedź też trafia do pamięci.
     freshness = tool_freshness or ToolFreshness.of_system()
     release = RememberedRelease(freshness.release, clock=clock)
-    # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
-    surroundings = Surroundings(replace(freshness, release=release.fresh), cloud_files or CloudFiles.of_system())
     # Sprawy taty: wysłane Zgłoszenia i Uwagi taty w jednym pliku stanu obok Ustawień taty (ADR 0015).
     config = settings_path.parent
     cases = DadCases(config, log)
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz obok Ustawień taty (ADR 0007).
     box = KeyedBox(report_box or GitHubReportBox(), lambda: read_report_key(config), clock=clock)
+    # Diagnoza: commit `main` z GitHuba, atrybuty OneDrive i werdykt Skrzynki o kluczu to granice komputera taty.
+    surroundings = Surroundings(
+        replace(freshness, release=release.fresh),
+        cloud_files or CloudFiles.of_system(),
+        lambda: box.judge(wait_s=report_search_deadline_s),
+    )
     reports = Reports(
         config, box, log, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
     )
