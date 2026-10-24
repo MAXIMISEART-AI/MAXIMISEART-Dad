@@ -56,12 +56,11 @@ from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.worksheet import Worksheet
 
-from .dated_rows import rows_dated_between
 from .highlights import PLAIN, Highlights
-from .hyperlinks import Hyperlink, read_sheet_hyperlinks, sheet_part
-from .input_rows import rows_with_input
+from .hyperlinks import Hyperlink, read_sheet_hyperlinks
 from .row_look import GENERAL, RowLook, wraps
 from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
+from .workbook_parts import package_parts, rows_dated_between, rows_with_input, sheet_part
 from .worker_config import normalize_text
 
 
@@ -74,7 +73,7 @@ _WORKBOOK_FILE_ERRORS = (OSError, InvalidFileException, ValueError, zipfile.BadZ
 # Błędy openpyxl przy pliku, który nie jest poprawnym skoroszytem .xlsx: przy otwieraniu, a w trybie
 # tylko do odczytu także przy czytaniu wierszy, bo arkusz jest wtedy parsowany leniwie. ``IndexError``:
 # komórka ze stylem w skoroszycie bez ``xl/styles.xml``. ``ExpatError``: zepsuty XML arkusza przy odczycie
-# Wierszy danych (``input_rows``).
+# Wierszy danych (``workbook_parts.rows_with_input``).
 _UNREADABLE_WORKBOOK_ERRORS = (
     OSError,
     InvalidFileException,
@@ -412,7 +411,7 @@ def read_data_rows(path: Path) -> DataRows:
     nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem.
 
     openpyxl czyta tylko wiersze, które mogą mieć wartości w A:K
-    (``input_rows``), a nie każdy z ~10 tys. sformatowanych wierszy Pliku
+    (``workbook_parts.rows_with_input``), a nie każdy z ~10 tys. sformatowanych wierszy Pliku
     zbiorczego; wartości i klasyfikacja uszkodzeń są takie jak przy odczycie
     całego arkusza.
     """
@@ -434,8 +433,7 @@ def read_data_rows(path: Path) -> DataRows:
         _check_worker_header(path, sheet.title, header)
         with _unreadable_as_error(path):
             max_column = max(DATA_ROW_COLUMNS[-1], sheet.max_column)
-            with zipfile.ZipFile(BytesIO(content)) as archive:
-                links = read_sheet_hyperlinks(archive, sheet.title)
+            links = read_sheet_hyperlinks(content, sheet.title)
         rows: list[DataRow] = []
         last_column = DATA_ROW_COLUMNS[-1]
         highlights = _HighlightsReader()
@@ -503,8 +501,7 @@ class ReadSheet:
             min_row, max_row = max(min_row, self._rows.start), self._rows.stop - 1
             if min_row > max_row:
                 return
-        with zipfile.ZipFile(BytesIO(self._content)) as archive:
-            links = read_sheet_hyperlinks(archive, self.title)
+        links = read_sheet_hyperlinks(self._content, self.title)
         highlights = _HighlightsReader()
         for number, cells in enumerate(self._sheet.iter_rows(min_row=min_row, max_row=max_row), start=min_row):
             values = tuple(getattr(cell, "value", None) for cell in cells)
@@ -541,7 +538,7 @@ class ReadWorkbook:
         """Ten skoroszyt z arkuszami ``date_columns`` (tytuł → kolumna daty od 1) zawężonymi do dat z [``start``, ``end``).
 
         Arkusz zawężony czyta tylko wiersze od pierwszego do ostatniego, którego
-        data może leżeć w przedziale (``dated_rows``); wartości, formaty i
+        data może leżeć w przedziale (``workbook_parts.rows_dated_between``); wartości, formaty i
         Hiperłącza tych wierszy są takie jak przy odczycie całego arkusza.
         """
 
@@ -664,8 +661,8 @@ def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> t
     ``ExpatError``, a styl komórki, wiersza albo kolumny spoza stylów skoroszytu ``IndexError``.
     """
 
-    with zipfile.ZipFile(BytesIO(content)) as archive:
-        xml = archive.read(sheet_part(archive, sheet_title))
+    with package_parts(content) as parts:
+        xml = parts[sheet_part(parts, sheet_title)]
     # Styl każdej komórki i wiersza jest też w zbiorze wszystkich ``s="N"``, który znajduje się ~3× szybciej; dokładne
     # wyrażenie rozstrzyga tylko wtedy, gdy ten szerszy zbiór ma styl spoza stylów skoroszytu.
     cell_or_row_styles = set(_ANY_STYLE.findall(xml))

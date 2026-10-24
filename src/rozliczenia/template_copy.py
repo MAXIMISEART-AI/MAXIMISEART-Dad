@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import html
 import math
-import posixpath
 import re
 import struct
 import zipfile
@@ -85,7 +84,18 @@ from openpyxl.styles.borders import Border
 from .highlights import PLAIN, Highlights
 from .hyperlinks import Hyperlink
 from .row_look import GENERAL, CellLook, RowLook, wraps
-from .sheet_data import IrregularSheetData, SheetRow, sheet_data_bounds, sheet_rows
+from .workbook_parts import (
+    MAIN,
+    OFFICE_REL,
+    PACKAGE_REL,
+    IrregularSheetData,
+    Relationship,
+    SheetData,
+    SheetRow,
+    office_document,
+    relationships,
+    relationships_part,
+)
 
 
 _T = TypeVar("_T")
@@ -99,10 +109,7 @@ class InvalidValue(Exception):
     """Wartości Wiersza danych nie da się zapisać w skoroszycie."""
 
 
-_OFFICE_REL: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-_PACKAGE_REL: Final = "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
 _CONTENT_DEFAULT: Final = "{http://schemas.openxmlformats.org/package/2006/content-types}Default"
-_MAIN: Final = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 # Błędy odczytu bajtów Wzorca, które znaczą kształt spoza kopii albo uszkodzenie: Wzorzec idzie wtedy dawną
 # drogą przez openpyxl, z jej klasyfikacją. Kopia czyta tylko bajty w pamięci, więc błąd wejścia-wyjścia
 # (``OSError``) ani inny nieoczekiwany wyjątek nie jest tu kształtem i nie jest maskowany.
@@ -147,7 +154,7 @@ _NUM_FMT = re.compile(rb"<numFmt\b([^>]*?)/?>")
 _NUM_FMT_ID = re.compile(rb'numFmtId="(\d+)"')
 _CALC_FLAGS: Final = ((b"calcMode", b"auto"), (b"fullCalcOnLoad", b"1"), (b"forceFullCalc", b"1"))
 _WORKSHEET_START = re.compile(rb"<((?:[\w.-]+:)?)worksheet\b[^>]*>")
-_RELATIONSHIPS_PREFIX = re.compile(rb"""xmlns:([\w.-]+)\s*=\s*["']""" + _OFFICE_REL.encode() + rb"""["']""")
+_RELATIONSHIPS_PREFIX = re.compile(rb"""xmlns:([\w.-]+)\s*=\s*["']""" + OFFICE_REL.encode() + rb"""["']""")
 _RELATIONSHIP_NUMBER = re.compile(r"rId(\d+)")
 # Elementy arkusza, które schemat (CT_Worksheet) stawia między ``sheetData`` a ``hyperlinks``; każdy inny element
 # za ``sheetData`` (``printOptions``, ``pageMargins``, …, ``extLst``, także z innej przestrzeni nazw) idzie za nimi.
@@ -320,8 +327,10 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
             raise UnsupportedShape("compression")
     plain = {info.filename: archive.read(info) for info in infos}  # sprawdza CRC każdej części
     _require_well_formed_xml(plain)
-    workbook_name = _office_document(plain)
-    workbook_rels = _relationships(plain, workbook_name)
+    workbook_name = office_document(plain)
+    if workbook_name is None:
+        raise UnsupportedShape("officeDocument")
+    workbook_rels = relationships(plain, workbook_name)
     workbook_xml = plain[workbook_name]
     sheet_name, sheet_title, sheet_position, date1904 = _active_sheet(workbook_xml, workbook_rels)
     styles_name = _target_of_type(workbook_rels, "/styles")
@@ -330,8 +339,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         raise UnsupportedShape("styles")
     shared_strings = _shared_strings(plain[strings_name]) if strings_name in plain else []
 
-    folder, name = posixpath.split(sheet_name)
-    rels_name = posixpath.join(folder, "_rels", f"{name}.rels")
+    rels_name = relationships_part(sheet_name)
     sheet_index = styles_index = -1
     rels_index: int | None = None
     filter_name: _FilterName | None = None
@@ -390,51 +398,30 @@ def _require_well_formed_xml(plain: dict[str, bytes]) -> None:
             expat.ParserCreate().Parse(data, True)
 
 
-def _office_document(plain: dict[str, bytes]) -> str:
-    for relationship in ElementTree.fromstring(plain["_rels/.rels"]).iter(_PACKAGE_REL):
-        if relationship.get("Type", "").endswith("/officeDocument"):
-            return relationship.get("Target", "").lstrip("/")
-    raise UnsupportedShape("officeDocument")
+def _target_of_type(workbook_rels: Mapping[str, Relationship], suffix: str) -> str | None:
+    return next((rel.target for rel in workbook_rels.values() if rel.kind.endswith(suffix)), None)
 
 
-def _relationships(plain: dict[str, bytes], part: str) -> dict[str, tuple[str, str]]:
-    """Relacje części ``part``: identyfikator → (typ, ścieżka części w zip)."""
-
-    folder, name = posixpath.split(part)
-    rels = ElementTree.fromstring(plain[posixpath.join(folder, "_rels", f"{name}.rels")])
-    found: dict[str, tuple[str, str]] = {}
-    for relationship in rels.iter(_PACKAGE_REL):
-        target = relationship.get("Target", "")
-        if relationship.get("TargetMode") != "External":
-            target = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join(folder, target))
-        found[relationship.get("Id", "")] = (relationship.get("Type", ""), target)
-    return found
-
-
-def _target_of_type(relationships: dict[str, tuple[str, str]], suffix: str) -> str | None:
-    return next((target for kind, target in relationships.values() if kind.endswith(suffix)), None)
-
-
-def _active_sheet(workbook_xml: bytes, relationships: dict[str, tuple[str, str]]) -> tuple[str, str, int, bool]:
+def _active_sheet(workbook_xml: bytes, workbook_rels: Mapping[str, Relationship]) -> tuple[str, str, int, bool]:
     """Część zip aktywnego arkusza (tak jak ``workbook.active`` w openpyxl), jego nazwa, pozycja i czy daty liczą się od 1904."""
 
     root = ElementTree.fromstring(workbook_xml)
-    view = root.find(f"{_MAIN}bookViews/{_MAIN}workbookView")
+    view = root.find(f"{MAIN}bookViews/{MAIN}workbookView")
     active = int(view.get("activeTab", "0")) if view is not None else 0
-    sheets = root.findall(f"{_MAIN}sheets/{_MAIN}sheet")
+    sheets = root.findall(f"{MAIN}sheets/{MAIN}sheet")
     sheet = sheets[active]
     if sheet.get("state", "visible") != "visible":
         raise UnsupportedShape("hidden active sheet")
-    kind, target = relationships[sheet.get(f"{{{_OFFICE_REL}}}id", "")]
-    if not kind.endswith("/worksheet"):
+    relationship = workbook_rels[sheet.get(f"{{{OFFICE_REL}}}id", "")]
+    if not relationship.kind.endswith("/worksheet"):
         raise UnsupportedShape("chartsheet")
-    properties = root.find(f"{_MAIN}workbookPr")
+    properties = root.find(f"{MAIN}workbookPr")
     date1904 = properties is not None and properties.get("date1904", "0").lower() in ("1", "true")
-    return target, sheet.get("name", ""), active, date1904
+    return relationship.target, sheet.get("name", ""), active, date1904
 
 
 def _shared_strings(xml: bytes) -> list[str]:
-    return [_plain_text(item) for item in ElementTree.fromstring(xml).iter(f"{_MAIN}si")]
+    return [_plain_text(item) for item in ElementTree.fromstring(xml).iter(f"{MAIN}si")]
 
 
 def _plain_text(element: ElementTree.Element) -> str:
@@ -556,10 +543,11 @@ class _Sheet:
             for column in range(1, max(layout.data_columns, layout.look_columns, layout.quantity_columns.stop - 1) + 1)
         ]
         try:
-            data_start, data_end = sheet_data_bounds(xml)
-            self._rows = sheet_rows(xml, data_start, data_end)
+            sheet_data = SheetData.of(xml)
         except IrregularSheetData as exc:
             raise UnsupportedShape(str(exc)) from exc
+        self._rows = sheet_data.rows
+        data_end = sheet_data.end
         self._numbers = [row.number for row in self._rows]
         first = bisect_left(self._numbers, layout.first_data_row)
         self._data_start = self._rows[first].start if first < len(self._rows) else data_end
@@ -580,7 +568,7 @@ class _Sheet:
             self._links_at,
         ]
         self._chunks: list[bytes] | None = None  # dopiero przy pierwszej kopii: Sprawdzanie ich nie potrzebuje
-        dimension = _DIMENSION.search(xml, 0, data_start)
+        dimension = _DIMENSION.search(xml, 0, sheet_data.start)
         self._dimension = None if dimension is None else (dimension.start(1), dimension.end(1), range_boundaries(dimension.group(1).decode("ascii")))
 
     def header(self, shared_strings: list[str]) -> list[object]:
@@ -846,7 +834,7 @@ def _hyperlinks_place(xml: bytes, data_end: int) -> tuple[int, bytes, bytes]:
     bound = _RELATIONSHIPS_PREFIX.search(root.group(0))
     if bound is not None:
         return position, b"<hyperlinks>", bound.group(1)
-    return position, b'<hyperlinks xmlns:r="' + _OFFICE_REL.encode() + b'">', b"r"
+    return position, b'<hyperlinks xmlns:r="' + OFFICE_REL.encode() + b'">', b"r"
 
 
 def _cell_style(cell: bytes | None) -> int | None:
@@ -959,7 +947,7 @@ class _SheetRels:
         self._xml = xml
         numbers = [0]
         if xml is not None:
-            for relationship in ElementTree.fromstring(xml).iter(_PACKAGE_REL):
+            for relationship in ElementTree.fromstring(xml).iter(PACKAGE_REL):
                 number = _RELATIONSHIP_NUMBER.fullmatch(relationship.get("Id", ""))
                 if number is not None:
                     numbers.append(int(number.group(1)))
@@ -975,7 +963,7 @@ class _SheetRels:
             raise UnsupportedShape("sheet rels")
         ids = [b"rId%d" % number for number in range(self._first, self._first + len(links))]
         entries = b"".join(
-            b'<Relationship Id="' + rid + b'" Type="' + _OFFICE_REL.encode() + b'/hyperlink" Target="'
+            b'<Relationship Id="' + rid + b'" Type="' + OFFICE_REL.encode() + b'/hyperlink" Target="'
             + _escaped_attribute(link.address) + b'" TargetMode="External"/>'
             for rid, link in zip(ids, links, strict=True)
         )
@@ -1091,14 +1079,14 @@ class _Styles:
             attributes = {match.group(1): match.group(2) or match.group(3) or b"" for match in _ATTRIBUTE.finditer(number_format.group(1))}
             self.custom_formats[int(attributes[b"numFmtId"])] = html.unescape(attributes[b"formatCode"].decode("utf-8"))
         root = ElementTree.fromstring(xml)
-        fonts = root.find(f"{_MAIN}fonts")
-        fills = root.find(f"{_MAIN}fills")
-        borders = root.find(f"{_MAIN}borders")
+        fonts = root.find(f"{MAIN}fonts")
+        fills = root.find(f"{MAIN}fills")
+        borders = root.find(f"{MAIN}borders")
         if fonts is None or fills is None or borders is None or None in (_FONTS.search(xml), _FILLS.search(xml), _BORDERS.search(xml)):
             raise UnsupportedShape("fonts")
-        self.fonts = [Font.from_tree(cast(Any, font)) for font in fonts.iterfind(f"{_MAIN}font")]
-        self.fills = [Fill.from_tree(cast(Any, fill)) or PatternFill() for fill in fills.iterfind(f"{_MAIN}fill")]
-        self.borders = [Border.from_tree(cast(Any, border)) or Border() for border in borders.iterfind(f"{_MAIN}border")]
+        self.fonts = [Font.from_tree(cast(Any, font)) for font in fonts.iterfind(f"{MAIN}font")]
+        self.fills = [Fill.from_tree(cast(Any, fill)) or PatternFill() for fill in fills.iterfind(f"{MAIN}fill")]
+        self.borders = [Border.from_tree(cast(Any, border)) or Border() for border in borders.iterfind(f"{MAIN}border")]
         self.font_ids = _first_ids(self.fonts)
         self.fill_ids = _first_ids(self.fills)
         self.border_ids = _first_ids(self.borders)
