@@ -3,24 +3,33 @@
 Narzędzie scala PR numer N do jego bazy, gdy jednocześnie:
 
 1. PR jest otwarty, nie jest szkicem i nie pochodzi z forka (z forka ruff i mypy biegłyby na obcym kodzie);
-2. check ``Required CI status`` na HEAD PR skończył się sukcesem;
-3. ostatni komentarz werdyktu dla HEAD PR to ``PASS``;
+2. check ``Required CI status`` z GitHub Actions na HEAD PR skończył się sukcesem (jak w rulesecie ``main``:
+   CheckRun z workflow, nie status commitu, który może ustawić każdy z prawem zapisu);
+3. najnowszy komentarz werdyktu dla HEAD PR to ``PASS``;
 4. HEAD PR scala się z bieżącą bazą z ``origin`` bez konfliktu, a ruff i mypy dla obu systemów przechodzą na
    scalonym drzewie (``scalenia_pr.merge_verdict``, jak status ``scalenie z main``, ale teraz, nie po pushu).
 
 Komentarz werdyktu to komentarz na PR, którego pierwsza linia to dokładnie ``WERDYKT: PASS <SHA>`` albo
-``WERDYKT: FAIL <SHA>``, gdzie ``<SHA>`` to HEAD PR (pełny albo co najmniej 7 pierwszych znaków); dalsze linie to
-znaleziska. Pisze go niezależny recenzent, nie autor zmiany: ``PASS`` mówi, że przegląd nie znalazł
+``WERDYKT: FAIL <SHA>``, gdzie ``<SHA>`` to HEAD PR małymi literami (pełny albo co najmniej 7 pierwszych znaków);
+dalsze linie to znaleziska. Pisze go niezależny recenzent, nie autor zmiany: ``PASS`` mówi, że przegląd nie znalazł
 problemów, a skille ``verify-*`` z ``tools/skille_dla_zmiany.py`` przeszły na tym SHA. Liczą się tylko komentarze
 kont z prawem zapisu (``OWNER``, ``MEMBER``, ``COLLABORATOR``). Rozstrzyga najnowszy komentarz werdyktu dla
 HEAD, więc ``FAIL`` po ``PASS`` odbiera zgodę, a werdykt starszego commitu nie przechodzi na nowy push.
+Ścisły jest tylko ``PASS``: komentarz, którego pierwsza linia zaczyna się od „werdykt” (bez względu na wielkość
+liter, znaczniki markdown i odstępy), a nie jest żadną z dwóch linii powyżej, jest werdyktem nieczytelnym. Gdy
+nie podaje SHA albo któryś jego SHA wskazuje HEAD, blokuje merge tak jak ``FAIL``: literówka w ``FAIL`` nie
+może zostawić ważnego ``PASS``.
 
 Gdy któryś warunek nie zachodzi, narzędzie nie scala i kończy się linią ``SCAL ODMOWA | #N <sha> | <przyczyny>``.
 Warunki 1–3 sprawdza razem i podaje wszystkie przyczyny; warunek 4 trwa dłużej, więc biegnie dopiero po nich.
 Przed merge'em sprawdza, że baza w ``origin`` nie przesunęła się w trakcie sprawdzania, a ``gh pr merge
 --match-head-commit`` odrzuca PR, którego HEAD zmienił się po sprawdzeniu. Po merge'u uruchamia sprzątanie
-lokalnych gałęzi i worktree ``tools/sprzatanie.py``, jeśli istnieje. Kod 0 i ``SCAL OK`` znaczą, że PR jest
-scalony (albo z ``--bez-merge``: że byłby); kod 1 to odmowa albo błąd narzędzia (``SCAL FAIL``).
+lokalnych gałęzi i worktree ``tools/sprzatanie.py``, jeśli istnieje; sprzątanie, które przekroczy czas, kończy
+się ostrzeżeniem w linii ``SCAL OK``, bo PR jest już scalony. Kod 0 i ``SCAL OK`` znaczą, że PR jest scalony
+(albo z ``--bez-merge``: że byłby); kod 1 to odmowa albo błąd narzędzia (``SCAL FAIL``).
+
+Komentarze i checki pochodzą z jednego ``gh pr view --json``, które doczytuje wszystkie strony komentarzy
+(sprawdzone na PR z 337 komentarzami, gh 2.101).
 
     .venv/bin/python tools/scal_pr.py 336               # sprawdza i scala
     .venv/bin/python tools/scal_pr.py 336 --bez-merge   # tylko sprawdza
@@ -42,6 +51,8 @@ import scalenia_pr
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_CHECK = "Required CI status"
 VERDICT_LINE = re.compile(r"WERDYKT: (PASS|FAIL) ([0-9a-f]{7,40})")
+VERDICT_START = re.compile(r"[\s*_#>`~]*werdykt", re.IGNORECASE)
+SHA_LIKE = re.compile(r"(?<![0-9a-z])[0-9a-f]{7,}(?![0-9a-z])", re.IGNORECASE)
 TRUSTED = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 CLEANUP = ROOT / "tools" / "sprzatanie.py"
 CLEANUP_TIMEOUT_S = 300
@@ -76,11 +87,11 @@ def _gh(*arguments: str) -> str:
 def _ci_problem(rollup: list[dict[str, str | None]]) -> str | None:
     results = []
     for check in rollup:
-        if REQUIRED_CHECK in (check.get("name"), check.get("context")):
-            completed = check.get("status") in (None, "COMPLETED")
-            results.append((check.get("conclusion") if completed else check.get("status")) or check.get("state") or "?")
+        if check.get("name") == REQUIRED_CHECK and check.get("workflowName"):
+            completed = check.get("status") == "COMPLETED"
+            results.append((check.get("conclusion") if completed else check.get("status")) or "?")
     if not results:
-        return f"CI: brak „{REQUIRED_CHECK}” na HEAD"
+        return f"CI: brak „{REQUIRED_CHECK}” z GitHub Actions na HEAD"
     failed = [result for result in results if result != "SUCCESS"]
     return f"CI: „{REQUIRED_CHECK}” {', '.join(failed)}" if failed else None
 
@@ -88,12 +99,23 @@ def _ci_problem(rollup: list[dict[str, str | None]]) -> str | None:
 def _verdict_problem(comments: list[dict[str, object]], head: str) -> str | None:
     latest = None
     for comment in comments:
-        found = VERDICT_LINE.fullmatch(str(comment["body"]).partition("\n")[0].strip())
-        if found and head.startswith(found[2]) and comment["authorAssociation"] in TRUSTED:
-            latest = found[1]
+        if comment["authorAssociation"] not in TRUSTED:
+            continue
+        line = str(comment["body"]).partition("\n")[0].strip()
+        found = VERDICT_LINE.fullmatch(line)
+        if found:
+            if head.startswith(found[2]):
+                latest = found[1]
+        elif VERDICT_START.match(line):
+            named = [sha.lower()[:40] for sha in SHA_LIKE.findall(line)]
+            if not named or any(head.startswith(sha) for sha in named):
+                latest = "nieczytelny"
+    short = head[:7]
     if latest is None:
-        return f"werdykt: brak komentarza „WERDYKT: PASS {head[:7]}”"
-    return None if latest == "PASS" else f"werdykt: FAIL dla {head[:7]}"
+        return f"werdykt: brak komentarza „WERDYKT: PASS {short}”"
+    if latest == "nieczytelny":
+        return f"werdykt nieczytelny dla {short}: pierwsza linia to nie „WERDYKT: PASS|FAIL <SHA>”"
+    return None if latest == "PASS" else f"werdykt: FAIL dla {short}"
 
 
 def _pull(number: int) -> Pull:
@@ -135,7 +157,10 @@ def _check(pull: Pull) -> str:
 def _clean_up() -> str:
     if not CLEANUP.exists():
         return f"sprzątanie pominięte: brak {CLEANUP.relative_to(ROOT).as_posix()}"
-    done = potomne.run([sys.executable, str(CLEANUP)], cwd=ROOT, timeout=CLEANUP_TIMEOUT_S, echo=True)
+    try:
+        done = potomne.run([sys.executable, str(CLEANUP)], cwd=ROOT, timeout=CLEANUP_TIMEOUT_S, echo=True)
+    except subprocess.TimeoutExpired:
+        return f"UWAGA: sprzątanie przerwane po {CLEANUP_TIMEOUT_S} s, uruchom je ponownie"
     result = done.stdout.rstrip().rpartition("\n")[2]
     return f"sprzątanie: {result or f'kod {done.returncode}'}"
 

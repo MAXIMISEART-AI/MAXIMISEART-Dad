@@ -45,11 +45,18 @@ else:
 """
 
 
-def _check_run(status: str, conclusion: str | None) -> dict[str, str | None]:
-    return {"__typename": "CheckRun", "name": "Required CI status", "status": status, "conclusion": conclusion}
+def _check_run(status: str, conclusion: str | None, *, workflow: str = "CI") -> dict[str, str | None]:
+    return {"__typename": "CheckRun", "name": "Required CI status", "status": status, "conclusion": conclusion, "workflowName": workflow}
 
 
-GREEN = [{"__typename": "CheckRun", "name": "Ruff", "status": "COMPLETED", "conclusion": "SUCCESS"}, _check_run("COMPLETED", "SUCCESS")]
+GREEN = [
+    {"__typename": "CheckRun", "name": "Ruff", "status": "COMPLETED", "conclusion": "SUCCESS", "workflowName": "CI"},
+    _check_run("COMPLETED", "SUCCESS"),
+]
+COMMIT_STATUS = {"__typename": "StatusContext", "context": "Required CI status", "state": "SUCCESS"}
+NOT_ACTIONS = "CI: brak „Required CI status” z GitHub Actions na HEAD"
+NO_PASS = "werdykt: brak komentarza „WERDYKT: PASS {short}”"
+UNREADABLE = "werdykt nieczytelny dla {short}: pierwsza linia to nie „WERDYKT: PASS|FAIL <SHA>”"
 
 
 class FakeGitHub:
@@ -175,11 +182,21 @@ def test_gotowy_pr_jest_scalany_z_jego_head_a_po_merge_biegnie_sprzatanie(tmp_pa
             [("WERDYKT: PASS {head}", "OWNER")],
             "CI: „Required CI status” IN_PROGRESS",
         ),
-        (GREEN[:1], [("WERDYKT: PASS {head}", "OWNER")], "CI: brak „Required CI status” na HEAD"),
-        (GREEN, [], "werdykt: brak komentarza „WERDYKT: PASS {short}”"),
-        (GREEN, [("WERDYKT: PASS {old}", "OWNER")], "werdykt: brak komentarza „WERDYKT: PASS {short}”"),
-        (GREEN, [("WERDYKT: PASS {head}", "NONE")], "werdykt: brak komentarza „WERDYKT: PASS {short}”"),
-        (GREEN, [("Recenzja: WERDYKT: PASS {head}", "OWNER")], "werdykt: brak komentarza „WERDYKT: PASS {short}”"),
+        (
+            [_check_run("COMPLETED", "FAILURE"), _check_run("COMPLETED", "SUCCESS")],
+            [("WERDYKT: PASS {head}", "OWNER")],
+            "CI: „Required CI status” FAILURE",
+        ),
+        (GREEN[:1], [("WERDYKT: PASS {head}", "OWNER")], NOT_ACTIONS),
+        ([COMMIT_STATUS], [("WERDYKT: PASS {head}", "OWNER")], NOT_ACTIONS),
+        ([_check_run("COMPLETED", "SUCCESS", workflow="")], [("WERDYKT: PASS {head}", "OWNER")], NOT_ACTIONS),
+        (GREEN, [], NO_PASS),
+        (GREEN, [("WERDYKT: PASS {old}", "OWNER")], NO_PASS),
+        (GREEN, [("WERDYKT: PASS {head}", "NONE")], NO_PASS),
+        (GREEN, [("WERDYKT: PASS {head}", "CONTRIBUTOR")], NO_PASS),
+        (GREEN, [("Recenzja: WERDYKT: PASS {head}", "OWNER")], NO_PASS),
+        (GREEN, [("WERDYKT: PASS {head} — bez uwag", "OWNER")], UNREADABLE),
+        (GREEN, [("WERDYKT: PASS {head6}", "OWNER")], UNREADABLE),
         (GREEN, [("WERDYKT: PASS {head}", "OWNER"), ("WERDYKT: FAIL {head}", "MEMBER")], "werdykt: FAIL dla {short}"),
         (
             [_check_run("COMPLETED", "FAILURE")],
@@ -190,11 +207,17 @@ def test_gotowy_pr_jest_scalany_z_jego_head_a_po_merge_biegnie_sprzatanie(tmp_pa
     ids=[
         "ci-czerwone",
         "ci-trwa",
+        "ci-czerwone-w-jednym-z-dwoch-przebiegow",
         "ci-bez-wymaganego-checku",
+        "ci-tylko-status-commitu",
+        "ci-check-spoza-github-actions",
         "bez-werdyktu",
         "pass-dla-starszego-commitu",
         "pass-konta-bez-prawa-zapisu",
+        "pass-kontrybutora",
         "pass-nie-w-pierwszej-linii",
+        "pass-z-dopiskiem-w-pierwszej-linii",
+        "pass-z-6-znakami-sha",
         "fail-po-pass",
         "wszystkie-przyczyny-naraz",
     ],
@@ -208,13 +231,61 @@ def test_bez_zielonego_ci_albo_werdyktu_pass_dla_head_pr_nie_jest_scalany(
     git(github.checkout, "push", "--quiet", "--force", "origin", f"{head}:refs/pull/1/head")
     github.update(1, headRefOid=head, statusCheckRollup=ci)
     for body, association in comments:
-        github.comment(1, body.format(head=head, old=old), association)
+        github.comment(1, body.format(head=head, old=old, head6=head[:6]), association)
 
     answered = github.run("1")
 
     assert answered.returncode == 1, answered.stdout + answered.stderr
     assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | {reason.format(short=head[:7])}"
     assert github.merges() == []
+
+
+@pytest.mark.parametrize(
+    "fail",
+    [
+        "WERDYKT: FAIL {head} — brak testu",
+        "WERDYKT: FAIL {head}.",
+        "**WERDYKT: FAIL {head}**",
+        "WERDYKT: FAIL",
+        "Werdykt: FAIL {head}",
+        "WERDYKT:  FAIL {head}",
+    ],
+    ids=["dopisek", "kropka", "markdown", "bez-sha", "male-litery", "dwie-spacje"],
+)
+def test_nieczytelny_werdykt_dla_head_po_pass_blokuje_merge(tmp_path: Path, fail: str) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.comment(1, f"WERDYKT: PASS {head}")
+    github.comment(1, fail.format(head=head))
+
+    answered = github.run("1")
+
+    assert answered.returncode == 1, answered.stdout + answered.stderr
+    assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | {UNREADABLE.format(short=head[:7])}"
+    assert github.merges() == []
+
+
+@pytest.mark.parametrize(
+    "comments",
+    [
+        ["WERDYKT: PASS {head}", "Werdykt: FAIL {old} — poprawione w nowym commicie"],
+        ["**Werdykt:** FAIL {head}", "WERDYKT: PASS {head}"],
+    ],
+    ids=["nieczytelny-dla-starszego-commitu", "pass-po-nieczytelnym"],
+)
+def test_werdykt_nieczytelny_dla_innego_commitu_albo_starszy_niz_pass_nie_blokuje(tmp_path: Path, comments: list[str]) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    old = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    head = github.commit_on(old, {"kod/inne.py": "INNE: int = 2\n"}, "PR 1 po poprawce")
+    git(github.checkout, "push", "--quiet", "--force", "origin", f"{head}:refs/pull/1/head")
+    github.update(1, headRefOid=head)
+    for body in comments:
+        github.comment(1, body.format(head=head, old=old))
+
+    answered = github.run("1", "--bez-merge")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert _last_line(answered).startswith(f"SCAL OK | #1 {head[:7]} | gotowy do merge'a")
 
 
 @pytest.mark.parametrize(
@@ -287,3 +358,35 @@ def test_main_przesuniety_w_trakcie_sprawdzania_zatrzymuje_merge(tmp_path: Path)
     assert answered.returncode == 1, answered.stdout + answered.stderr
     assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | main zmienił się w trakcie sprawdzania, uruchom ponownie"
     assert github.merges() == []
+
+
+def test_baza_przesunieta_z_innego_klonu_przed_sprawdzeniem_jest_baza_scalenia(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.comment(1, f"WERDYKT: PASS {head}")
+    other = tmp_path / "inny-klon"
+    git(tmp_path, "clone", "--quiet", str(tmp_path / "origin.git"), str(other))
+    (other / "kod" / "nowe.py").write_text("NOWE: int = 1\n", encoding="utf-8")
+    moved = commit(other, "main z innego klonu")
+    git(other, "push", "--quiet", "origin", "HEAD:main")
+
+    answered = github.run("1")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert _last_line(answered).startswith(f"SCAL OK | #1 {head[:7]} | scalony do main {moved[:7]}")
+    assert len(github.merges()) == 1
+
+
+def test_sprzatanie_po_czasie_nie_odwoluje_scalenia(tmp_path: Path) -> None:
+    hangs = "import time\n\ntime.sleep(600)\n"
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, "tools/sprzatanie.py": hangs})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    tool = github.checkout / "tools" / "scal_pr.py"
+    tool.write_text(tool.read_text(encoding="utf-8").replace("CLEANUP_TIMEOUT_S = 300", "CLEANUP_TIMEOUT_S = 1"), encoding="utf-8")
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    answered = github.run("1")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert _last_line(answered).endswith("| UWAGA: sprzątanie przerwane po 1 s, uruchom je ponownie")
+    assert len(github.merges()) == 1
