@@ -1,13 +1,16 @@
 """Dzieli pliki testów na N części o podobnym czasie w CI i wypisuje pliki części K, najdłuższe najpierw.
 
-Czas pliku to suma czasów jego testów w raporcie junit części pytest na Windowsie, a z raportów
-obu Pythonów średnia, zapisana w ``tools/czasy_testow_ci.json``. Plik spoza tabeli waży tyle, co mediana tabeli, więc nowy test trafia
-do którejś części bez zmiany tabeli; nieaktualna tabela psuje tylko równowagę części, nie ich sumę.
+Czas pliku to suma czasów jego testów w raporcie junit części pytest, a z raportów obu Pythonów
+średnia. Tabela Windowsa to ``tools/czasy_testow_ci.json``, a Linuksa (``--linux``)
+``tools/czasy_testow_ci_linux.json``: na Linuksie biegną testy, które Windows pomija, i te same pliki
+trwają inaczej. Plik spoza tabeli waży tyle, co mediana tabeli, więc nowy test trafia do którejś
+części bez zmiany tabeli; nieaktualna tabela psuje tylko równowagę części, nie ich sumę.
 Najdłuższe pliki idą pierwsze, bo xdist rozdaje testy po kolei: długi test z końca kolejki startuje
 dopiero wtedy, gdy reszta workerów już kończy.
 
     py -3 tools/czesci_pytest.py 1/3                                # pliki części 1 z 3, po jednym w linii
-    .venv/bin/python tools/czesci_pytest.py --czasy-z junit-*/junit.xml   # tabela z raportów junit części
+    python tools/czesci_pytest.py --linux 1/2                       # część 1 z 2 według tabeli Linuksa
+    .venv/bin/python tools/czesci_pytest.py --czasy-z junit-*/junit.xml   # tabela Windowsa z raportów junit części
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMES = ROOT / "tools" / "czasy_testow_ci.json"
+TIMES_LINUX = ROOT / "tools" / "czasy_testow_ci_linux.json"
 # Domyślne python_files pytest: pyproject.toml go nie zmienia.
 PYTEST_FILES = ("test_*.py", "*_test.py")
 
@@ -65,14 +69,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("czesc", nargs="?", type=_part, metavar="K/N", help="Część K z N.")
-    group.add_argument("--czasy-z", type=Path, nargs="+", metavar="JUNIT", help=f"Zapisz {TIMES.name} z raportów junit części.")
+    group.add_argument("--czasy-z", type=Path, nargs="+", metavar="JUNIT", help="Zapisz tabelę czasów z raportów junit części.")
+    parser.add_argument("--linux", action="store_true", help=f"Tabela Linuksa {TIMES_LINUX.name} zamiast {TIMES.name}.")
     args = parser.parse_args(argv)
+    table = TIMES_LINUX if args.linux else TIMES
     if args.czasy_z is not None:
-        TIMES.write_text(json.dumps(_times_from(args.czasy_z), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        table.write_text(json.dumps(_times_from(args.czasy_z), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         return 0
     number, count = args.czesc
     files = sorted({path.relative_to(ROOT).as_posix() for pattern in PYTEST_FILES for path in (ROOT / "tests").rglob(pattern)})
-    times = json.loads(TIMES.read_text(encoding="utf-8")) if TIMES.is_file() else {}
+    times = json.loads(table.read_text(encoding="utf-8")) if table.is_file() else {}
     print("\n".join(parts(files, times, count)[number - 1]))
     return 0
 
