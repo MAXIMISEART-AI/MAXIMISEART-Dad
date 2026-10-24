@@ -179,8 +179,8 @@ REQUIRED_SCREENSHOTS = {
         "76-powiadomienia-brak-sieci.png",
     ),
     "logi-uruchomienia": (
-        "160-logi-podglad.png",
-        "161-logi-zatrzymanie.png",
+        "155-logi-podglad.png",
+        "156-logi-zatrzymanie.png",
     ),
     "pomiar-u-taty": ("80-pomiar-bez-sladu.png",),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.

@@ -139,7 +139,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
         "the warning keeps its code BRAK_MAPOWANIA, which the card does not show",
     )
     _nothing_about_logs(run, page, "after the preview")
-    run.capture(page, "160-logi-podglad")
+    run.capture(page, "155-logi-podglad")
 
     run.step(FEATURE, "logi-zatrzymanie")
     before = set(_records(run))
@@ -156,7 +156,7 @@ def drive_run_logs(run: Run, page: Page) -> None:
         "the Zatrzymanie is one message of kind stop with its code NIEZNANY_WYKONAWCA",
     )
     _nothing_about_logs(run, page, "after the Zatrzymanie")
-    run.capture(page, "161-logi-zatrzymanie")
+    run.capture(page, "156-logi-zatrzymanie")
 
     run.step(FEATURE, "logi-szablony")
     view = json.loads(settled.read_text(encoding="utf-8"))
@@ -252,4 +252,4 @@ def drive_run_logs(run: Run, page: Page) -> None:
     everything = json.dumps(threads, ensure_ascii=False)
     run.check(KEY not in everything and ROW_MARKER not in everything, "the skrzynka has neither the key nor workbook content")
     _nothing_about_logs(run, page, "after the Logi reached the skrzynka")
-    run.capture(page, "162-logi-w-skrzynce")
+    run.capture(page, "157-logi-w-skrzynce")
