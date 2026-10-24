@@ -15,7 +15,12 @@ from rozliczenia.centrum.report_box import REPOSITORY, Rejected
 from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.centrum import FakeReportBox
-from tests.fixtures.centrum_processes import SettlingCentrum, run_logs_handled, run_to_end, settling_centrum
+from tests.fixtures.centrum_processes import (
+    SettlingCentrum,
+    run_logs_handled,
+    run_to_end,
+    settling_centrum,
+)
 from tests.fixtures.potomne import wait_for
 from tests.fixtures.settlement import PERIOD
 
@@ -23,13 +28,13 @@ KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 TITLE = "Podgląd pokazał dwa razy tego samego Wykonawcę"
 BODY = "Na liście Szablonów pracownika jest dwa razy ten sam Wykonawca."
 VERSION = "wersja narzędzia 3c1d0a9"
-UNKNOWN_RUN = (
-    "Tego Uruchomienia nie ma już w historii Centrum rozliczeń. Wybierz inne Uruchomienie albo wyślij Uwagę ogólną."
-)
+UNKNOWN_RUN = "Tego Uruchomienia nie ma już w historii Centrum rozliczeń. Wybierz inne Uruchomienie albo wyślij Uwagę ogólną."
 
 
 def write_key(centrum: SettlingCentrum) -> None:
-    (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
+    (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").write_text(
+        KEY + "\n", encoding="utf-8"
+    )
 
 
 def box(centrum: SettlingCentrum) -> FakeReportBox:
@@ -38,7 +43,9 @@ def box(centrum: SettlingCentrum) -> FakeReportBox:
 
 def queued(centrum: SettlingCentrum, label: str | None = None) -> list[Path]:
     pattern = "*.json" if label is None else f"*-{label}-*.json"
-    return sorted((centrum.tmp_path / "config" / "zgloszenia" / "kolejka").glob(pattern))
+    return sorted(
+        (centrum.tmp_path / "config" / "zgloszenia" / "kolejka").glob(pattern)
+    )
 
 
 def run_line(centrum: SettlingCentrum, mode: str, result: str) -> str:
@@ -48,9 +55,15 @@ def run_line(centrum: SettlingCentrum, mode: str, result: str) -> str:
 
 
 def logs_comment(centrum: SettlingCentrum, run_id: str) -> str:
-    assert wait_for(lambda: queued(centrum) == []), "Logi Uruchomienia nie wyszły z kolejki"
+    assert wait_for(lambda: queued(centrum) == []), (
+        "Logi Uruchomienia nie wyszły z kolejki"
+    )
     [thread] = box(centrum).background_issues
-    position = next(number for number, comment in enumerate(thread.comments, start=1) if run_id in comment)
+    position = next(
+        number
+        for number, comment in enumerate(thread.comments, start=1)
+        if run_id in comment
+    )
     return f"https://github.com/{REPOSITORY}/issues/{thread.number}#issuecomment-{position}"
 
 
@@ -67,17 +80,23 @@ def rejected_logs_line(run_id: str) -> str:
 
 def logs_rejections(centrum: SettlingCentrum) -> int:
     log = centrum.log_path.read_text(encoding="utf-8")
-    return log.count(f"etykieta=logi-uruchomienia okres={PERIOD} przyczyna=odmowa-tresci")
+    return log.count(
+        f"etykieta=logi-uruchomienia okres={PERIOD} przyczyna=odmowa-tresci"
+    )
 
 
-def pinned_after_rejected_logs(tmp_path: Path, *, rejected_starts: int) -> tuple[SettlingCentrum, str]:
+def pinned_after_rejected_logs(
+    tmp_path: Path, *, rejected_starts: int
+) -> tuple[SettlingCentrum, str]:
     """Skrzynka odrzuca Logi podglądu przy ``rejected_starts`` startach Centrum, a przy pierwszym idzie przypięta Uwaga."""
 
     centrum = settling_centrum(tmp_path)
     box(centrum).background_comment_outcomes.extend([Rejected()] * rejected_starts)
     write_key(centrum)
     run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
-    assert wait_for(lambda: logs_rejections(centrum) == 1), "Skrzynka nie odrzuciła Logów"
+    assert wait_for(lambda: logs_rejections(centrum) == 1), (
+        "Skrzynka nie odrzuciła Logów"
+    )
 
     sent = centrum.client.post("/api/dad-notes", json=note(run_id))
 
@@ -85,7 +104,9 @@ def pinned_after_rejected_logs(tmp_path: Path, *, rejected_starts: int) -> tuple
     return centrum, run_id
 
 
-def test_uwaga_przypieta_do_uruchomienia_niesie_jego_linie_i_odnosnik_do_komentarza_logow(tmp_path: Path) -> None:
+def test_uwaga_przypieta_do_uruchomienia_niesie_jego_linie_i_odnosnik_do_komentarza_logow(
+    tmp_path: Path,
+) -> None:
     centrum = settling_centrum(tmp_path)
     write_key(centrum)
     run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
@@ -96,7 +117,9 @@ def test_uwaga_przypieta_do_uruchomienia_niesie_jego_linie_i_odnosnik_do_komenta
 
     assert sent.json() == {"state": "sent"}
     [issue] = box(centrum).issues_with("uwaga-taty")
-    expected = f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n[Logi Uruchomienia]({logs})"
+    expected = (
+        f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n[Logi Uruchomienia]({logs})"
+    )
     assert (issue.title, issue.body) == (TITLE, expected)
     assert draft.json() == {"title": TITLE, "body": expected}
 
@@ -121,15 +144,23 @@ RESULTS: Final[dict[str, tuple[Callable[[SettlingCentrum], None], bool, bool, st
 }
 
 
-@pytest.mark.parametrize(("steer", "unmapped", "dry_run", "words"), RESULTS.values(), ids=RESULTS.keys())
+@pytest.mark.parametrize(
+    ("steer", "unmapped", "dry_run", "words"), RESULTS.values(), ids=RESULTS.keys()
+)
 def test_linia_uruchomienia_w_uwadze_nazywa_tryb_i_wynik_jak_karta_uruchomienia(
-    tmp_path: Path, steer: Callable[[SettlingCentrum], None], unmapped: bool, dry_run: bool, words: str
+    tmp_path: Path,
+    steer: Callable[[SettlingCentrum], None],
+    unmapped: bool,
+    dry_run: bool,
+    words: str,
 ) -> None:
     centrum = settling_centrum(tmp_path, include_unmapped=unmapped)
     steer(centrum)
     run_id = run_to_end(centrum, dry_run=dry_run)["run"]["id"]
 
-    draft = centrum.client.post("/api/dad-notes/draft", json={"title": TITLE, "run_id": run_id})
+    draft = centrum.client.post(
+        "/api/dad-notes/draft", json={"title": TITLE, "run_id": run_id}
+    )
 
     mode, result = words.split(" · ")
     assert draft.json()["body"] == (
@@ -137,21 +168,29 @@ def test_linia_uruchomienia_w_uwadze_nazywa_tryb_i_wynik_jak_karta_uruchomienia(
     )
 
 
-def test_uwaga_do_nieznanego_uruchomienia_jest_odrzucona_bez_wysylki(tmp_path: Path) -> None:
+def test_uwaga_do_nieznanego_uruchomienia_jest_odrzucona_bez_wysylki(
+    tmp_path: Path,
+) -> None:
     centrum = settling_centrum(tmp_path)
     write_key(centrum)
     run_to_end(centrum, dry_run=True)
 
-    draft = centrum.client.post("/api/dad-notes/draft", json=note("nieznane-uruchomienie"))
+    draft = centrum.client.post(
+        "/api/dad-notes/draft", json=note("nieznane-uruchomienie")
+    )
     sent = centrum.client.post("/api/dad-notes", json=note("nieznane-uruchomienie"))
 
-    assert [(draft.status_code, draft.json()), (sent.status_code, sent.json())] == [(404, {"message": UNKNOWN_RUN})] * 2
+    assert [(draft.status_code, draft.json()), (sent.status_code, sent.json())] == [
+        (404, {"message": UNKNOWN_RUN})
+    ] * 2
     assert box(centrum).issues == []
     assert queued(centrum, "uwaga-taty") == []
     assert not (tmp_path / "config" / "uwagi-taty.json").exists()
 
 
-def test_uwaga_do_uruchomienia_z_logami_w_kolejce_czeka_i_wychodzi_po_logach_z_odnosnikiem(tmp_path: Path) -> None:
+def test_uwaga_do_uruchomienia_z_logami_w_kolejce_czeka_i_wychodzi_po_logach_z_odnosnikiem(
+    tmp_path: Path,
+) -> None:
     centrum = settling_centrum(tmp_path)
     run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
     run_logs_handled(centrum)
@@ -167,14 +206,21 @@ def test_uwaga_do_uruchomienia_z_logami_w_kolejce_czeka_i_wychodzi_po_logach_z_o
     write_key(centrum)
     centrum.restart()
     with centrum.client:
-        assert box(centrum).wait_until(lambda fake: len(fake.issues_with("uwaga-taty")) == 1)
+        assert box(centrum).wait_until(
+            lambda fake: len(fake.issues_with("uwaga-taty")) == 1
+        )
         logs = logs_comment(centrum, run_id)
 
     [issue] = box(centrum).issues_with("uwaga-taty")
-    assert issue.body == f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n[Logi Uruchomienia]({logs})"
+    assert (
+        issue.body
+        == f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n[Logi Uruchomienia]({logs})"
+    )
 
 
-def test_odnosnik_do_logow_wyslanych_przez_poprzednie_centrum_jest_od_razu_w_uwadze(tmp_path: Path) -> None:
+def test_odnosnik_do_logow_wyslanych_przez_poprzednie_centrum_jest_od_razu_w_uwadze(
+    tmp_path: Path,
+) -> None:
     centrum = settling_centrum(tmp_path)
     write_key(centrum)
     run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
@@ -186,7 +232,9 @@ def test_odnosnik_do_logow_wyslanych_przez_poprzednie_centrum_jest_od_razu_w_uwa
     assert draft.json()["body"].endswith(f"\n[Logi Uruchomienia]({logs})")
 
 
-def test_okno_uwagi_pokazuje_szesc_najnowszych_uruchomien_z_centrum_i_starsze_zaznaczone(tmp_path: Path) -> None:
+def test_okno_uwagi_pokazuje_szesc_najnowszych_uruchomien_z_centrum_i_starsze_zaznaczone(
+    tmp_path: Path,
+) -> None:
     centrum = settling_centrum(tmp_path)
     own = run_to_end(centrum, dry_run=True)["run"]["id"]
     store = MetricsStore(centrum.metrics_path, settlement_process.PROCESS.counter_names)
@@ -199,7 +247,12 @@ def test_okno_uwagi_pokazuje_szesc_najnowszych_uruchomien_z_centrum_i_starsze_za
         store.append({**record, "started_at": at})
         if centrum_line is not None:
             with remembered.open("a", encoding="utf-8") as lines:
-                lines.write(json.dumps({"process": "settlement", "started_at": at, **centrum_line}) + "\n")
+                lines.write(
+                    json.dumps(
+                        {"process": "settlement", "started_at": at, **centrum_line}
+                    )
+                    + "\n"
+                )
 
     earlier(-1)
     earlier(5, {})
@@ -222,42 +275,64 @@ def test_uwaga_wyslana_przed_logami_dostaje_odnosnik_w_komentarzu_gdy_logi_dotra
 ) -> None:
     centrum, run_id = pinned_after_rejected_logs(tmp_path, rejected_starts=2)
     [issue] = box(centrum).issues_with("uwaga-taty")
-    assert issue.body == f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n{rejected_logs_line(run_id)}"
+    assert (
+        issue.body
+        == f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n{rejected_logs_line(run_id)}"
+    )
     waiting = [f"logi-uruchomienia-{run_id[:8]}.json", f"uwaga-taty-{run_id[:8]}.json"]
-    assert wait_for(lambda: [path.name.split("-", 2)[2] for path in queued(centrum)] == waiting)
+    assert wait_for(
+        lambda: [path.name.split("-", 2)[2] for path in queued(centrum)] == waiting
+    )
 
     centrum.restart()
     with centrum.client:
-        assert wait_for(lambda: logs_rejections(centrum) == 2), "Skrzynka nie odrzuciła Logów drugi raz"
+        assert wait_for(lambda: logs_rejections(centrum) == 2), (
+            "Skrzynka nie odrzuciła Logów drugi raz"
+        )
     assert [path.name.split("-", 2)[2] for path in queued(centrum)] == waiting
     centrum.restart()
     with centrum.client:
         assert box(centrum).wait_until(lambda fake: issue.comments != [])
         logs = logs_comment(centrum, run_id)
 
-    assert issue.comments == [f"[Logi Uruchomienia]({logs}) dotarły do Skrzynki po tej Uwadze (Uruchomienie {run_id})."]
+    assert issue.comments == [
+        f"[Logi Uruchomienia]({logs}) dotarły do Skrzynki po tej Uwadze (Uruchomienie {run_id})."
+    ]
 
 
-def test_dwie_uwagi_przypiete_do_roznych_uruchomien_dostaja_odnosniki_do_swoich_logow(tmp_path: Path) -> None:
+def test_dwie_uwagi_przypiete_do_roznych_uruchomien_dostaja_odnosniki_do_swoich_logow(
+    tmp_path: Path,
+) -> None:
     centrum = settling_centrum(tmp_path)
     first = run_to_end(centrum, dry_run=True)["run"]["id"]
     second = run_to_end(centrum, dry_run=True)["run"]["id"]
     assert wait_for(lambda: len(queued(centrum, "logi-uruchomienia")) == 2)
     for run_id in (first, second):
-        sent = centrum.client.post("/api/dad-notes", json={"title": run_id, "run_id": run_id})
+        sent = centrum.client.post(
+            "/api/dad-notes", json={"title": run_id, "run_id": run_id}
+        )
         assert sent.json() == {"state": "waiting"}
 
     write_key(centrum)
     centrum.restart()
     with centrum.client:
-        assert box(centrum).wait_until(lambda fake: len(fake.issues_with("uwaga-taty")) == 2)
+        assert box(centrum).wait_until(
+            lambda fake: len(fake.issues_with("uwaga-taty")) == 2
+        )
         links = {run_id: logs_comment(centrum, run_id) for run_id in (first, second)}
 
-    footers = {issue.title: issue.body.splitlines()[-1] for issue in box(centrum).issues_with("uwaga-taty")}
-    assert footers == {run_id: f"[Logi Uruchomienia]({links[run_id]})" for run_id in (first, second)}
+    footers = {
+        issue.title: issue.body.splitlines()[-1]
+        for issue in box(centrum).issues_with("uwaga-taty")
+    }
+    assert footers == {
+        run_id: f"[Logi Uruchomienia]({links[run_id]})" for run_id in (first, second)
+    }
 
 
-def test_uwaga_do_uruchomienia_bez_logow_w_kolejce_mowi_ze_nie_powstaly(tmp_path: Path) -> None:
+def test_uwaga_do_uruchomienia_bez_logow_w_kolejce_mowi_ze_nie_powstaly(
+    tmp_path: Path,
+) -> None:
     centrum = settling_centrum(tmp_path)
     run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
     run_logs_handled(centrum)
@@ -272,9 +347,41 @@ def test_uwaga_do_uruchomienia_bez_logow_w_kolejce_mowi_ze_nie_powstaly(tmp_path
     missing = f"Logi Uruchomienia: nie powstały albo nie da się ich wysłać (Uruchomienie {run_id})"
     assert issue.body == f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n{missing}"
     assert wait_for(lambda: queued(centrum) == [])
+    assert issue.comments == []
 
 
-def test_odrzucone_logi_ktore_zniknely_z_kolejki_po_uwadze_daja_komentarz_ze_nie_dotra(tmp_path: Path) -> None:
+def test_odrzucone_logi_innego_uruchomienia_nie_zmieniaja_linii_uwagi_bez_logow(
+    tmp_path: Path,
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    without_logs = run_to_end(centrum, dry_run=True)["run"]["id"]
+    run_logs_handled(centrum)
+    for path in queued(centrum, "logi-uruchomienia"):
+        path.unlink()
+    write_key(centrum)
+    box(centrum).background_comment_outcomes.append(Rejected())
+    rejected = run_to_end(centrum, dry_run=True)["run"]["id"]
+    assert wait_for(lambda: logs_rejections(centrum) == 1), (
+        "Skrzynka nie odrzuciła Logów"
+    )
+
+    sent = centrum.client.post("/api/dad-notes", json=note(without_logs))
+
+    assert sent.json() == {"state": "sent"}
+    [issue] = box(centrum).issues_with("uwaga-taty")
+    missing = f"Logi Uruchomienia: nie powstały albo nie da się ich wysłać (Uruchomienie {without_logs})"
+    assert issue.body.splitlines()[-1] == missing
+    assert wait_for(
+        lambda: (
+            [path.name.split("-", 2)[2] for path in queued(centrum)]
+            == [f"logi-uruchomienia-{rejected[:8]}.json"]
+        )
+    )
+
+
+def test_odrzucone_logi_ktore_zniknely_z_kolejki_po_uwadze_daja_komentarz_ze_nie_dotra(
+    tmp_path: Path,
+) -> None:
     centrum, run_id = pinned_after_rejected_logs(tmp_path, rejected_starts=1)
     [issue] = box(centrum).issues_with("uwaga-taty")
     assert wait_for(lambda: len(queued(centrum)) == 2)
@@ -285,18 +392,26 @@ def test_odrzucone_logi_ktore_zniknely_z_kolejki_po_uwadze_daja_komentarz_ze_nie
     with centrum.client:
         assert box(centrum).wait_until(lambda fake: issue.comments != [])
 
-    assert issue.comments == [f"Logi Uruchomienia nie dotrą: Centrum przestało je wysyłać (Uruchomienie {run_id})."]
+    assert issue.comments == [
+        f"Logi Uruchomienia nie dotrą: Centrum przestało je wysyłać (Uruchomienie {run_id})."
+    ]
     assert wait_for(lambda: queued(centrum) == [])
 
 
-def test_usuniete_issue_uwagi_nie_wstrzymuje_kolejki_z_odnosnikiem_do_logow(tmp_path: Path) -> None:
+def test_usuniete_issue_uwagi_nie_wstrzymuje_kolejki_z_odnosnikiem_do_logow(
+    tmp_path: Path,
+) -> None:
     centrum, run_id = pinned_after_rejected_logs(tmp_path, rejected_starts=1)
     [issue] = box(centrum).issues_with("uwaga-taty")
     assert wait_for(lambda: len(queued(centrum)) == 2)
     box(centrum).issues.remove(issue)
 
     def logs_sent() -> bool:
-        return any(run_id in comment for logs in box(centrum).background_issues for comment in logs.comments)
+        return any(
+            run_id in comment
+            for logs in box(centrum).background_issues
+            for comment in logs.comments
+        )
 
     centrum.restart()
     with centrum.client:
@@ -306,4 +421,40 @@ def test_usuniete_issue_uwagi_nie_wstrzymuje_kolejki_z_odnosnikiem_do_logow(tmp_
     assert later.json() == {"state": "sent"}
     assert issue.comments == []
     log = centrum.log_path.read_text(encoding="utf-8")
-    assert "skrzynka-czeka etykieta=uwaga-taty okres=bez-okresu przyczyna=odmowa-tresci" in log
+    assert (
+        "skrzynka-czeka etykieta=uwaga-taty okres=bez-okresu przyczyna=odmowa-tresci"
+        in log
+    )
+
+
+def test_druga_przypieta_uwaga_po_odrzuconych_logach_dostaje_odnosnik_takze_zamknieta(
+    tmp_path: Path,
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    write_key(centrum)
+    delivered = run_to_end(centrum, dry_run=True)["run"]["id"]
+    logs_comment(centrum, delivered)
+    assert centrum.client.post(
+        "/api/dad-notes", json={"title": "A", "run_id": delivered}
+    ).json() == {"state": "sent"}
+    box(centrum).background_comment_outcomes.append(Rejected())
+    late = run_to_end(centrum, dry_run=True)["run"]["id"]
+    assert wait_for(lambda: logs_rejections(centrum) == 1), (
+        "Skrzynka nie odrzuciła Logów"
+    )
+    assert centrum.client.post(
+        "/api/dad-notes", json={"title": "B", "run_id": late}
+    ).json() == {"state": "sent"}
+    first, second = box(centrum).issues_with("uwaga-taty")
+    assert second.body.splitlines()[-1] == rejected_logs_line(late)
+    box(centrum).close(second.number)
+
+    centrum.restart()
+    with centrum.client:
+        assert box(centrum).wait_until(lambda fake: second.comments != [])
+        logs = logs_comment(centrum, late)
+
+    assert second.comments == [
+        f"[Logi Uruchomienia]({logs}) dotarły do Skrzynki po tej Uwadze (Uruchomienie {late})."
+    ]
+    assert first.comments == []
