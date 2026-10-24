@@ -2,7 +2,7 @@
 
     py -3 .agents\\skills\\verify-centrum-na-windowsie\\scripts\\windows_doctor.py --root <run root>
 
-Prints ``DOCTOR OK | pid=… | commit=… | tool=…`` or ``DOCTOR FAIL | <reason>`` (exit code 1).
+Prints ``DOCTOR OK | pid=… | commit=… | process=… | tool=…`` or ``DOCTOR FAIL | <reason>`` (exit code 1).
 """
 
 from __future__ import annotations

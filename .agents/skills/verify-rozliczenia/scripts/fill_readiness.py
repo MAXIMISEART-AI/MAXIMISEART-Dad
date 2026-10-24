@@ -30,7 +30,7 @@ HEADER_ROW = 17
 FIRST_DATA_ROW = 18
 QUANTITY_COLUMNS = range(14, 43)  # N:AP
 CHARGE_DESCRIPTION, CHARGE_AMOUNT, REMARKS_AMOUNT, REMARKS = 43, 44, 45, 46  # AQ, AR, AS, AT
-# Adrian twice and Darek; Kamil's Wiersz danych keeps the values of the Wzorzec pliku zbiorczego.
+# Adrian twice and Darek; Kamil's Wiersz danych keeps what Przygotowanie pliku zbiorczego wrote.
 FILLED_ORDERS = ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7", "PREP-SYN-ZL-6")
 
 

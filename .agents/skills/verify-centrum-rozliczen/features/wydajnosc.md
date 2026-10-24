@@ -1,7 +1,7 @@
 # Wydajność
 
 Measures how fast Centrum rozliczeń feels on Dad's laptop and compares it with
-the baseline in `wydajnosc-baseline.json`: cold start of the four pages, reopening
+the baseline in `wydajnosc-baseline.json`: cold start of the four pages of the menu, reopening
 the tab, two laps through the sidebar with the time a skeleton was visible, the
 interactions Dad uses (theme, Metryki filters, the Wykres/Tabela and
 Uruchomienie/Historia tabs, collapsing the sidebar, returning to the tab), the
@@ -9,7 +9,8 @@ API requests of each scenario, the bundle size, and CPU traces of the cold start
 of Okresy and Metryki. It is the hill-climbing loop for frontend changes: every
 change that makes Centrum faster or slower updates the baseline in its own PR.
 It runs only when named (`--feature wydajnosc`), never in `all`: it takes a few
-minutes and holds the machine alone.
+minutes and holds the machine alone. Powiadomienia (the header bell) and the
+dialog `Napisz do Maksa` are not measured.
 
 ## Sub-features
 
@@ -42,7 +43,7 @@ Preconditions:
   - Interactions (`okresy/motyw-jasny`, `okresy/motyw-ciemny`, `metryki/proces-*`, `metryki/tryb-*`, `metryki/zakladka-tabela`, `metryki/zakladka-wykres`, `uruchomienia/zakladka-*`, `menu-boczne/zwin`, `menu-boczne/rozwin`): the longest Event Timing duration of the input (input to next paint, as INP). Below Event Timing's 16 ms threshold the value is 16.
   - `<strona>/powrot-do-karty` (Okresy, Metryki): a `focus` event on the window, until the last API answer or DOM change it caused.
   - CPU traces: one DevTools trace of the cold start of Okresy and Metryki per profile (`wydajnosc/slad-<strona>-<n>x.json`, open in Chrome DevTools → Performance); the report sums the main thread's time per event kind.
-- **API requests.** Every `/api/` request of the scenario's context (method and path) is counted per repetition, the event stream and writes included. Every repetition in both profiles must match the baseline's `zapytania_api` exactly; the cold start of Uruchomienia sends `GET /api/runs/setup` once (#167; it sent it twice before). The browser's own measurement (`POST /api/view-timings`, see `pomiar-u-taty.md`) counts too: one per ready view is part of the expected cost, and a second one in a scenario means the view was measured twice.
+- **API requests.** Every `/api/` request of the scenario's context (method and path) is counted per repetition, the event stream and writes included, and so are the background reads of the header (`GET /api/notifications` on every page change and return to the tab) and of the card `Narzędzie` (`GET /api/tool-update` on Konfiguracja). Every repetition in both profiles must match the baseline's `zapytania_api` exactly; the cold start of Uruchomienia sends `GET /api/runs/setup` once (#167; it sent it twice before). The browser's own measurement (`POST /api/view-timings`, see `pomiar-u-taty.md`) counts too: one per ready view is part of the expected cost, and a second one in a scenario means the view was measured twice.
 - **Budget.** `max(baseline × (1 + margines.wzgledny), baseline + margines.minimalny_ms)` per scenario and profile; the bundle (decoded JS and CSS of a cold start) may grow by `margines.bundle_wzgledny`. A scenario missing from the baseline, or a baseline scenario that was not measured, fails too.
 - **Gate.** A median over budget does not fail at once: right after the measurement, the routine that produced it (that page's cold start or reopened tab, the menu laps, or the interactions) runs again with the same repetitions in that profile, and the scenario fails only if the second median is over budget too (`ok w ponownym pomiarze` otherwise, with the second median in brackets). Both profiles gate. Decision: on a machine with other load, medians at 6× drift a few percent over budget in one series and not the next (seen at 1–6% over), while a real regression stays over in both; a second measurement filters that noise without widening the margin, which would hide small regressions. API request counts and the bundle are deterministic and fail on the first difference.
 - **Report.** `wydajnosc/raport.txt` lists every scenario and profile with median, baseline, budget and verdict (`ok`, `ponad budżet`, `brak w baseline`), the details in brackets, then the API requests per scenario (with the expected ones on a difference), the bundle, the CPU traces, and the failures. `wydajnosc/raport.json` holds the same plus every sample. `drive.txt` repeats the text report. `VERIFY OK` means no failure; `VERIFY FAIL | … drive returned 1` with `DRIVE FAIL | wydajnosc: N porażek` means read the failures at the end of `raport.txt`.

@@ -334,6 +334,18 @@ def test_nowsze_wydanie_daje_powiadomienie_z_notka_sprawami_taty_i_przyciskiem(t
     assert centrum.client.get("/api/configuration").json()["update_offered"] is True
 
 
+def test_notka_poprawiona_recznie_na_githubie_daje_co_nowego_bez_listy_i_sprawy_taty(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    sent_note(centrum)
+    notes = f"{SUMMARY}\r\n### Rozwiązane sprawy taty \r\n- Uwaga taty #{number_of(centrum, NOTE_TITLE)}: {NOTE_TITLE}\r\n"
+    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0", notes))
+
+    assert [(item["summary"], item["solved"]) for item in new_versions(centrum)] == [
+        (SUMMARY, [{"kind": "uwaga", "title": NOTE_TITLE}])
+    ]
+
+
 def test_wydanie_nie_nowsze_od_wersji_taty_nie_ma_przycisku_ani_kropki_a_wyzsze_spoza_main_nie_jest_powiadomieniem(
     tmp_path: Path,
 ) -> None:

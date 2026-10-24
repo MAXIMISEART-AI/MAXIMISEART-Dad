@@ -26,6 +26,8 @@ from rozliczenia.centrum import report_box
 # Etykieta sprawy w Skrzynce Zgłoszeń → jej rodzaj w notce.
 CASE_KINDS: Final[Mapping[str, str]] = {report_box.REPORT_LABEL: "Zgłoszenie", report_box.NOTE_LABEL: "Uwaga taty"}
 CASES_HEADING: Final = "## Rozwiązane sprawy taty"
+# Maks poprawia notkę ręcznie na GitHubie, więc nagłówek spraw może mieć inny poziom i spacje na końcu.
+_CASES_HEADING_LINE: Final = re.compile(rf"^#+[ \t]+{re.escape(CASES_HEADING.lstrip('# '))}[ \t]*$", re.MULTILINE)
 
 _CASE_LINE: Final = re.compile(r"- (?P<kind>.+?) #(?P<number>[1-9][0-9]*): (?P<title>.+)")
 
@@ -53,7 +55,7 @@ def render(notes: ReleaseNotes) -> str:
     summary = notes.summary.strip()
     if not summary:
         raise ValueError("notka nie ma „Co nowego”")
-    if CASES_HEADING in summary:
+    if _CASES_HEADING_LINE.search(summary):
         raise ValueError(f"„Co nowego” nie może zawierać nagłówka {CASES_HEADING!r}")
     if not notes.cases:
         return summary + "\n"
@@ -64,11 +66,11 @@ def render(notes: ReleaseNotes) -> str:
 def parse(text: str) -> ReleaseNotes:
     """Notka z tekstu ``render``; linia listy spraw, której nie da się odczytać, jest pomijana."""
 
-    summary, _, listed = text.replace("\r\n", "\n").partition(f"\n{CASES_HEADING}\n")
+    summary, *listed = _CASES_HEADING_LINE.split(text.replace("\r\n", "\n"), maxsplit=1)
     labels = {kind: label for label, kind in CASE_KINDS.items()}
     cases = tuple(
         DadCase(int(found["number"]), found["title"].strip(), labels[found["kind"]])
-        for line in listed.splitlines()
+        for line in "".join(listed).splitlines()
         if (found := _CASE_LINE.fullmatch(line.strip())) is not None and found["kind"] in labels
     )
     return ReleaseNotes(summary.strip(), cases)

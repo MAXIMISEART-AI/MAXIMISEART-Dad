@@ -180,7 +180,10 @@ end tell
 
 
 def windows() -> list[str]:
-    """Excel's on-screen windows as ``layer | title | WxH``; a dialog has no title. Needs no permission."""
+    """Excel's on-screen windows as ``layer | title | WxH``; a dialog has no title.
+
+    Titles need Screen Recording for the app running the agent; without it every window comes back untitled.
+    """
 
     completed = subprocess.run(
         ["osascript", "-l", "JavaScript", str(WINDOWS_SCRIPT)], capture_output=True, text=True, check=False

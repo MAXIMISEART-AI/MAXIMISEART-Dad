@@ -36,3 +36,27 @@ def test_notka_bez_spraw_nie_ma_naglowka_spraw() -> None:
 def test_notka_wymaga_co_nowego_bez_naglowka_spraw(summary: str) -> None:
     with pytest.raises(ValueError, match="Co nowego"):
         render(ReleaseNotes(summary, ()))
+
+
+CASES = (DadCase(3, "Zatrzymanie przy pustym ADRES", "zgloszenie"), DadCase(12, "Brakuje ilości", "uwaga-taty"))
+LISTED = "- Zgłoszenie #3: Zatrzymanie przy pustym ADRES\n- Uwaga taty #12: Brakuje ilości\n"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"{SUMMARY}\n\n## Rozwiązane sprawy taty \n\n{LISTED}",
+        f"{SUMMARY}\n\n### Rozwiązane sprawy taty\n\n{LISTED}",
+        f"{SUMMARY}\n## Rozwiązane sprawy taty\n{LISTED}",
+        f"{SUMMARY}\n\n## Rozwiązane sprawy taty\n\n{LISTED}".replace("\n", "\r\n"),
+    ],
+    ids=["spacja-na-koncu-naglowka", "naglowek-###", "bez-pustej-linii-przed-naglowkiem", "crlf"],
+)
+def test_notka_poprawiona_recznie_na_githubie_ma_co_nowego_bez_listy_i_sprawy(text: str) -> None:
+    assert parse(text) == ReleaseNotes(SUMMARY, CASES)
+
+
+@pytest.mark.parametrize("heading", ["# Rozwiązane sprawy taty", "##\tRozwiązane sprawy taty"], ids=["naglowek-#", "tabulator"])
+def test_co_nowego_z_naglowkiem_spraw_innego_zapisu_jest_odrzucone(heading: str) -> None:
+    with pytest.raises(ValueError, match="Co nowego"):
+        render(ReleaseNotes(f"Co nowego.\n{heading}\nDalej o tym, co tata zobaczy.", ()))

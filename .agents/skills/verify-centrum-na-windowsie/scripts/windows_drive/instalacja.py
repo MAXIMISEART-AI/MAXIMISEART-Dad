@@ -11,7 +11,7 @@ import sys
 
 from windows_drive.common import Run, same_path
 import windows_desktop
-from windows_tool import git
+from windows_tool import REPO_ROOT
 from rozliczenia.centrum.tool_update import GITHUB_REPOSITORY
 
 FEATURE = "instalacja"
@@ -33,6 +33,19 @@ def _python(run: Run, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+_PIP_LINE = "py -3 -m pip install -r requirements.txt"
+
+
+def _readme_clone() -> str:
+    """README's PowerShell for ``Instalacja lokalna`` up to ``git reset --hard $wydanie``; its last line must be pip."""
+
+    section = (REPO_ROOT / "README.md").read_text(encoding="utf-8").split("## Instalacja lokalna", 1)[1]
+    lines = section.split("```powershell\n", 1)[1].split("```", 1)[0].splitlines()
+    if lines[-1:] != [_PIP_LINE] or not lines[-2].startswith("git reset --hard "):
+        raise AssertionError(f"README's installation no longer ends with git reset and {_PIP_LINE!r}: {lines}")
+    return "\n".join(lines[:-1]) + "\n"
+
+
 def _encodable(text: str, code_page: int) -> bool:
     try:
         text.encode(f"cp{code_page}")
@@ -46,10 +59,26 @@ def drive(run: Run) -> None:
     versions = facts["versions"]
 
     run.step(FEATURE, "klon")
-    git(Path(facts["origin"]).parent, "clone", "--quiet", "--branch", "main", facts["origin"], str(run.tool), machine=True)
-    run.git("remote", "set-url", "origin", GITHUB_REPOSITORY)
-    run.check(run.git("rev-parse", "HEAD") == versions["first"], "the tool's clone stands on the first version")
+    # Maks types README's lines in Windows PowerShell; the boundaries rewrite GitHub's address to the run's origin.
+    script = run.root / "instalacja.ps1"
+    script.write_text(_readme_clone(), encoding="utf-8-sig")
+    run.tool.parent.mkdir(parents=True)
+    clone = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+        cwd=run.tool.parent,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=300,
+    )
+    said = [line.strip() for line in (clone.stdout + clone.stderr).splitlines() if line.strip()]
+    print(f"  README: {' | '.join(said)}", flush=True)
+    run.check(clone.returncode == 0 and (run.tool / ".git").is_dir(), "README's clone and choice of the Wydanie run in PowerShell")
+    run.check(run.git("rev-parse", "HEAD") == versions["first"], "the tool stands on the newest Wydanie (the first version), not on main")
     run.check(run.git("branch", "--show-current") == "main", "the clone is on main")
+    run.check(run.git("config", "--get", "remote.origin.url") == GITHUB_REPOSITORY, "origin is the tool's GitHub address")
     run.check(" " in str(run.tool) and not str(run.tool).isascii(), f"the tool's folder has a space and a Polish letter: {run.tool}")
 
     run.step(FEATURE, "pliki-taty")
@@ -59,6 +88,7 @@ def drive(run: Run) -> None:
     run.check(status == "", "Dad's konfiguracja wykonawców and Wzorce in config/ leave the clone clean for Git")
 
     run.step(FEATURE, "biblioteki")
+    run.harness(f"README's {_PIP_LINE!r} runs with this Python, not with the py launcher")
     pip = _python(run, "-m", "pip", "install", "--disable-pip-version-check", "-r", "requirements.txt")
     (run.evidence / "state" / "pip-instalacja.txt").write_text(pip.stdout + pip.stderr, encoding="utf-8")
     run.check(pip.returncode == 0, "py -3 -m pip install -r requirements.txt succeeds in the tool's folder")

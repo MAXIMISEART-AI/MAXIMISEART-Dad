@@ -26,6 +26,7 @@ Preconditions:
 
 ## Gotchas
 
-- The launcher gives the other program up to 5 s to answer `health` before it decides; the window appears after that.
+- The launcher asks the other program for `health` once, with a 5 s timeout. The harness's socket closes every connection at once, so the window appears without that wait; a program that accepts and stays silent delays it by 5 s.
+- The same message box carries Centrum's other start problems from the shortcut (`start_problems.py`: another version already running, an update still finishing, a missing library, an unexpected error) and the restart guardian's `not_started_after_update` when no version starts. Only the taken port is driven here.
 - The message box is modal to nothing and topmost; it can sit behind nothing, but a desktop screenshot on a locked or disconnected session is black. GitHub's runner keeps an unlocked session.
 - The text compare is exact: a change of the Komunikat's wording in `start_problems.py` is a change of what Dad reads, and this step reports it.
