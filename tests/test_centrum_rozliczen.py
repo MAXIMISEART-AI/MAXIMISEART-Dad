@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
@@ -614,6 +615,72 @@ def test_otwieranie_bez_wskazanego_folderu_okresow_prosi_o_jego_wskazanie(tmp_pa
 
     assert response.status_code == 409
     assert response.json() == {"message": "Najpierw wskaż folder okresów."}
+    assert app.platform.opened == []
+
+
+def with_register(tmp_path: Path) -> tuple[Centrum, Path]:
+    """Centrum, w którym tata wybrał w Ustawieniach Rejestr zleceń z folderu „Rejestr”."""
+
+    register = tmp_path / "Rejestr" / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+    register.parent.mkdir()
+    register.touch()
+    app = centrum(tmp_path)
+    app.platform.chosen_files.append(register)
+    assert app.client.post("/api/settings/register/choose").status_code == 200
+    return app, register
+
+
+def test_rejestr_zlecen_z_ustawien_otwiera_sie_jednym_kliknieciem(tmp_path: Path) -> None:
+    app, register = with_register(tmp_path)
+
+    response = app.client.post("/api/settings/register/open")
+
+    assert response.json() == {"name": "ZLECENIA INTERMAX OD 08_11_2021.xlsx"}
+    assert app.platform.opened == [register]
+
+
+def test_otwieranie_rejestru_bez_wyboru_w_ustawieniach_prosi_o_wybor(tmp_path: Path) -> None:
+    app = centrum(tmp_path)
+
+    response = app.client.post("/api/settings/register/open")
+
+    assert response.status_code == 409
+    assert response.json() == {"message": "Najpierw wybierz Rejestr zleceń w Ustawieniach."}
+    assert app.platform.opened == []
+
+
+@pytest.mark.parametrize("gone", ["usuniety", "folder-zamiast-pliku", "bez-folderu"])
+def test_nieistniejacy_rejestr_nie_jest_otwierany(tmp_path: Path, gone: str) -> None:
+    app, register = with_register(tmp_path)
+    register.unlink()
+    if gone == "folder-zamiast-pliku":
+        register.mkdir()
+    if gone == "bez-folderu":
+        register.parent.rmdir()
+        register.parent.write_bytes(b"")
+
+    response = app.client.post("/api/settings/register/open")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "message": "Nie ma Rejestru zleceń ZLECENIA INTERMAX OD 08_11_2021.xlsx. Wybierz właściwy plik w Ustawieniach."
+    }
+    assert app.platform.opened == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows sprawdza plik bez prawa odczytu jego folderu")
+def test_rejestr_w_folderze_bez_dostepu_jest_niedostepny_a_nie_uszkodzony(tmp_path: Path) -> None:
+    app, register = with_register(tmp_path)
+    register.parent.chmod(0)
+    try:
+        response = app.client.post("/api/settings/register/open")
+    finally:
+        register.parent.chmod(0o755)
+
+    assert response.status_code == 409
+    assert response.json()["message"].startswith(
+        "Rejestr zleceń ZLECENIA INTERMAX OD 08_11_2021.xlsx jest teraz niedostępny."
+    )
     assert app.platform.opened == []
 
 
