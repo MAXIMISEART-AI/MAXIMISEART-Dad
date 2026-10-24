@@ -85,6 +85,10 @@ def test_do_pierwszego_bledu_pomija_kroki_po_pierwszym_nieudanym(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], fail_fast: bool
 ) -> None:
     tool = _load_tool(monkeypatch)
+    # Pełny przebieg kończy się nakładaniami z praca_w_toku.py; prawdziwe pytają GitHub i git o wszystkie worktree.
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "praca_w_toku.py").write_text('print("NAKŁADANIA | atrapa")\n', encoding="utf-8")
+    monkeypatch.setattr(tool, "ROOT", tmp_path)
     second_ran = tmp_path / "drugi-krok"
     steps = [
         tool.Step("pierwszy", "ruff", "", (sys.executable, "-c", "raise SystemExit(1)"), tmp_path),
