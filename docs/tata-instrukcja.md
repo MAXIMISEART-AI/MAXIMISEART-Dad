@@ -15,7 +15,7 @@ Oba kroki robisz w Centrum rozliczeń, które otwierasz skrótem na pulpicie:
 | Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu |
 | Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` |
 | Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` |
-| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`, gdy jest nowsza wersja: na stronie `Konfiguracja` i w Diagnozie |
+| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`, gdy jest nowsza wersja: na stronie `Konfiguracja`, w Powiadomieniach i w Diagnozie |
 
 ## Pierwsza instalacja
 
@@ -172,7 +172,13 @@ Powiadomienia. Widać tam Twoje Uwagi i Zgłoszenia, od najnowszych, i co się z
 nimi stało: `Wysłana do Maksa.`, `Wyślę do Maksa, gdy będzie internet.`,
 `Rozwiązana. Będzie w następnej wersji.` albo `Maks przeczytał.`.
 
-Czerwona kropka na dzwonku znaczy, że Maks coś zrobił z Twoją sprawą. Gdy
+Gdy Maks wyda nową wersję narzędzia, nad listą pojawia się karta `Nowa wersja`
+z numerem, np. `Nowa wersja 0.2.0`: co nowego, które Twoje Uwagi i Zgłoszenia
+rozwiązuje, i przycisk `Zaktualizuj narzędzie`. Po aktualizacji przycisk znika,
+a karta zostaje na liście jako historia.
+
+Czerwona kropka na dzwonku znaczy, że Maks coś zrobił z Twoją sprawą albo wydał
+nową wersję. Gdy
 wejdziesz w Powiadomienia, kropka gaśnie; nowe sprawy mają małą kropkę, dopóki
 nie wyjdziesz. Niczego nie oznaczasz ręcznie. Centrum sprawdza to przy
 otwarciu i najwyżej raz na 10 minut. Bez internetu nic się nie pokazuje i nic
