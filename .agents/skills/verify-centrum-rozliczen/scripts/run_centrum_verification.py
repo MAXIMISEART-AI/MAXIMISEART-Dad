@@ -163,6 +163,12 @@ REQUIRED_SCREENSHOTS = {
         "163-uwaga-czeka-na-internet.png",
         "164-uwaga-wysylanie.png",
         "165-uwaga-wyslana.png",
+        "166-uwaga-przycisk-na-karcie.png",
+        "167-uwaga-z-karty.png",
+        "168-uwaga-przypieta.png",
+        "169-uwaga-ogolna-z-karty.png",
+        "170-uwaga-historia.png",
+        "171-uwaga-z-historii.png",
     ),
     "powiadomienia": (
         "72-powiadomienia-dzwonek.png",
