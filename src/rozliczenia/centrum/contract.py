@@ -187,7 +187,9 @@ class ProcessRun(_Model):
     ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
     rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
     ``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego
-    rekordu, który rodzaju nie zapisał.
+    rekordu, który rodzaju nie zapisał. ``run_id`` to identyfikator Uruchomienia z Centrum, ten sam co w jego
+    Logach Uruchomienia, po którym okno Uwagi taty przypina do niego Uwagę; ``None`` przy ``cmd`` i przy
+    Uruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało.
     """
 
     process: ProcessKey
@@ -200,6 +202,7 @@ class ProcessRun(_Model):
     phase_durations: list[PhaseDuration]
     origin: Literal["cmd", "centrum"]
     stop_kind: RecordedStopKind | None
+    run_id: str | None
 
 
 class PhasePercentiles(_Model):

@@ -762,7 +762,9 @@ export type Problem = {
  * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
  * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
  * ``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego
- * rekordu, który rodzaju nie zapisał.
+ * rekordu, który rodzaju nie zapisał. ``run_id`` to identyfikator Uruchomienia z Centrum, ten sam co w jego
+ * Logach Uruchomienia, po którym okno Uwagi taty przypina do niego Uwagę; ``None`` przy ``cmd`` i przy
+ * Uruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało.
  */
 export type ProcessRun = {
     /**
@@ -805,6 +807,10 @@ export type ProcessRun = {
      * Stop Kind
      */
     stop_kind: 'for_tata' | 'for_maks' | null;
+    /**
+     * Run Id
+     */
+    run_id: string | null;
 };
 
 /**
