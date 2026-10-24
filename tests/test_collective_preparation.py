@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 import os
+import re
 from pathlib import Path
 import time
 import zipfile
@@ -25,7 +26,9 @@ from rozliczenia.domain import (
 )
 from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.message import StopError
-from rozliczenia.preparation_register import read_register
+from rozliczenia.highlights import PLAIN
+from rozliczenia.preparation_register import COLUMNS, read_register
+from rozliczenia.workbook_files import DataCell
 from rozliczenia.settlement_period import parse_period_token
 
 from tests.fixtures.preparation import (
@@ -412,6 +415,24 @@ def test_rejestr_replaced_after_podglad_by_one_of_the_same_size_and_time_is_read
 
     assert summary.period_order_count == 3
     assert summary.successful_order_count == 2
+
+
+def test_rejestr_row_ending_before_the_last_column_has_an_empty_general_cell_there(tmp_path: Path) -> None:
+    path = tmp_path / "Rejestr.xlsx"
+    workbook = Workbook()
+    sheet = active_worksheet(workbook)
+    sheet.append([column.register_header for column in COLUMNS])
+    sheet.append([datetime(2026, 9, 8, 9, 0), "syntetyczne miasto"])
+    workbook.save(path)
+    rewrite_parts(  # bez wymiaru arkusza openpyxl daje wiersz tylko do jego ostatniej komórki
+        path, lambda name, data: re.sub(rb"<dimension [^>]*/>", b"", data) if name.startswith("xl/worksheets/") else data
+    )
+
+    [register] = read_register(path)
+
+    [row] = register.rows
+    assert row.cells["CZYNNOŚCI ZREALIZOWANE"] == DataCell(None, PLAIN, "General", None)
+    assert row.cells["MIASTO"].value == "syntetyczne miasto"
 
 
 def test_rejestr_rows_remembered_after_podglad_cannot_be_changed(tmp_path: Path) -> None:

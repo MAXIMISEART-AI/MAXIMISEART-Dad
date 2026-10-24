@@ -188,7 +188,7 @@ def _read_register_sheets(workbook: ReadWorkbook, positions: dict[str, list[int]
         columns = positions[sheet.title]
         rows: list[RegisterRow] = []
         empty_rows: list[int] = []
-        for whole_row, row in sheet.data_rows(min_row=2, columns=dict(zip(TARGET_HEADERS, columns, strict=True))):
+        for whole_row, row in sheet.data_rows(min_row=2, columns={header: columns[index] for index, header in enumerate(TARGET_HEADERS)}):
             if all(is_blank(cell) for cell in whole_row):
                 empty_rows.append(row.number)
                 continue

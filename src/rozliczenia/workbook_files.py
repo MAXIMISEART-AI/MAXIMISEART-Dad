@@ -374,12 +374,12 @@ def read_data_rows(path: Path) -> DataRows:
                         number,
                         tuple(
                             DataCell(
-                                value,
+                                values[column - 1],
                                 highlights.of(cell),
                                 getattr(cell, "number_format", None) or GENERAL,
                                 row_links.get(column),
                             )
-                            for column, (value, cell) in enumerate(zip(values, row_cells, strict=True), start=1)
+                            for column, cell in enumerate(row_cells, start=1)
                         ),
                     )
                 )

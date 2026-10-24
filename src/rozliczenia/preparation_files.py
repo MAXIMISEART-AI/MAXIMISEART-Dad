@@ -131,7 +131,7 @@ def write_period_files(
             _write_period_file(
                 files.internal_template,
                 staged_directory / internal_name,
-                [order.row for order in orders],
+                [order.register_row for order in orders],
             )
             _write_period_file(
                 files.collective_template,
@@ -175,7 +175,7 @@ def _write_period_file(template: TemplateFile, target: Path, rows: Sequence[Regi
 def _with_quantities(row: CollectiveRow) -> RegisterRow:
     """Wiersz Rejestru z Ilościami usług zlecenia z Planowania."""
 
-    return replace(row.order.row, quantities=row.rule_result.quantities)
+    return replace(row.order.register_row, quantities=row.rule_result.quantities)
 
 
 def _publish(staged_directory: Path, files: PeriodFiles) -> None:

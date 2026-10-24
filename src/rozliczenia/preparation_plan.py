@@ -31,16 +31,16 @@ _BLANK_WORKER_LABEL = "(pusty)"
 class PeriodOrder:
     """Zlecenie okresu: wiersz Rejestru i jego data z ``DATA GODZ. POCZ.``."""
 
-    row: RegisterRow
+    register_row: RegisterRow
     started: datetime
 
     @property
     def row_number(self) -> int:
-        return self.row.number
+        return self.register_row.number
 
     @property
     def is_successful(self) -> bool:
-        return normalize_text(cell_value(self.row, SUCCESSFUL)) == _SUCCESSFUL_VALUE
+        return normalize_text(cell_value(self.register_row, SUCCESSFUL)) == _SUCCESSFUL_VALUE
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class CollectiveRow:
 
     @classmethod
     def of(cls, order: PeriodOrder) -> CollectiveRow:
-        row = order.row
+        row = order.register_row
         content = OrderContent.of(
             cell_value(row, CONTRACT), cell_value(row, DEVICES), cell_value(row, ACTIVITIES), order.started
         )
@@ -139,7 +139,7 @@ def _check_successful_values(register_path: Path, register: RegisterSheet, order
     empty_rows: list[int] = []
     other_values: list[messages.CellContent] = []
     for order in orders:
-        value = cell_value(order.row, SUCCESSFUL)
+        value = cell_value(order.register_row, SUCCESSFUL)
         if normalize_text(value) in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE):
             continue
         if is_blank(value):
@@ -172,7 +172,7 @@ def _unknown_workers(
 
     unknown: dict[str, tuple[str, list[int]]] = {}
     for order in orders:
-        worker = cell_value(order.row, WORKER)
+        worker = cell_value(order.register_row, WORKER)
         key = normalize_text(worker)
         if not order.is_successful or key in worker_mapping:
             continue
