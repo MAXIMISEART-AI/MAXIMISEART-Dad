@@ -29,12 +29,6 @@ ResultT = TypeVar("ResultT")
 _PHASE_ORDER = tuple(ProgressPhase)
 
 
-def elapsed_ms_since(started: float) -> int:
-    """Zwraca nieujemny czas w milisekundach od odczytu ``time.perf_counter()``."""
-
-    return max(0, round((time.perf_counter() - started) * 1000))
-
-
 def _zero(result: object) -> int:
     """Liczba domyślna, gdy etap nie podaje żadnej wartości."""
 
@@ -73,12 +67,14 @@ class PhaseRunner:
 
     Zegar uruchomienia startuje przy utworzeniu. Awaria obserwatora odłącza go
     do końca uruchomienia i nie zmienia wyniku etapów. Czas etapu jest
-    zapisywany także po przerwaniu.
+    zapisywany także po przerwaniu. ``clock`` to zegar w sekundach, z którego
+    sekwencer liczy wszystkie czasy.
     """
 
-    def __init__(self, observer: ProgressObserver | None) -> None:
+    def __init__(self, observer: ProgressObserver | None, *, clock: Callable[[], float] = time.perf_counter) -> None:
         self._observer = observer
-        self._run_started = time.perf_counter()
+        self._clock = clock
+        self._run_started = clock()
         self._phase_started = self._run_started
         self._next_phase = 0
         self._active_phase: ProgressPhase | None = None
@@ -189,26 +185,29 @@ class PhaseRunner:
             raise ProgressProtocolError(
                 f"Nie można wstrzymać zegara w trakcie etapu {self._active_phase.value}."
             )
-        paused_at = time.perf_counter()
+        paused_at = self._clock()
         try:
             yield
         finally:
-            self._run_started += time.perf_counter() - paused_at
+            self._run_started += self._clock() - paused_at
 
     def elapsed_ms(self) -> int:
         """Czas od rozpoczęcia uruchomienia, bez czasu wstrzymania."""
 
-        return elapsed_ms_since(self._run_started)
+        return self._ms_since(self._run_started)
 
     def phase_elapsed_ms(self) -> int:
         """Czas od rozpoczęcia bieżącego (ostatniego) etapu."""
 
-        return elapsed_ms_since(self._phase_started)
+        return self._ms_since(self._phase_started)
 
     def durations_ms(self) -> Mapping[ProgressPhase, int]:
         """Nowa kopia tylko do odczytu czasów etapów zmierzonych do tej chwili."""
 
         return MappingProxyType(dict(self._durations_ms))
+
+    def _ms_since(self, started: float) -> int:
+        return max(0, round((self._clock() - started) * 1000))
 
     def _run_phase(
         self,
@@ -219,7 +218,7 @@ class PhaseRunner:
         """Wykonuje etap; ``record_counts`` zapisuje liczby z wyniku przed END."""
 
         self._enter(phase)
-        self._phase_started = time.perf_counter()
+        self._phase_started = self._clock()
         self._worker_failure_reported = False
         self._emit(PhaseStarted(phase, elapsed_ms=self.elapsed_ms()))
         try:

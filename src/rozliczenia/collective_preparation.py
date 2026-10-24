@@ -15,10 +15,11 @@ ma te same ostrzeżenia ilości co zapis), a wzorce i zapis plików okresu w ``p
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
+import time
 from types import MappingProxyType
 
 from . import TOOL_ROOT, preparation_files, preparation_plan, preparation_register
@@ -30,6 +31,7 @@ from .period_folder import PeriodFolder, PeriodFolderInaccessible, PeriodFolderL
 from .phase_runner import PhaseRunner
 from .quantity_rules import WEEKDAY_LABELS
 from .settlement_period import SettlementPeriod, parse_period_token
+from .workbook_files import WorkbookError
 from .worker_config import WorkerConfigError, load_worker_mapping
 
 __all__ = [
@@ -123,6 +125,7 @@ def prepare_collective_file(
     dry_run: bool = False,
     observer: ProgressObserver | None = None,
     conversation: Conversation | None = None,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> PreparationSummary:
     """Tworzy w Folderze okresu razem Rozliczenie wewnętrzne i Plik zbiorczy.
 
@@ -140,10 +143,11 @@ def prepare_collective_file(
     Planowaniu, a przed Zapisywaniem pyta przez nią o Decyzję taty; odmowa to
     ``StopError`` bez zapisu, z podpowiedzią zgody tego rozmówcy. Czas
     czekania na Decyzję nie wlicza się do czasów etapów. Bez rozmowy
-    Przygotowanie o nic nie pyta.
+    Przygotowanie o nic nie pyta. ``clock`` to zegar w sekundach, z którego
+    liczone są czasy etapów.
     """
 
-    phases = PhaseRunner(observer)
+    phases = PhaseRunner(observer, clock=clock)
     register_path = register_path.expanduser().resolve()
     periods_directory = periods_directory.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
@@ -153,8 +157,11 @@ def prepare_collective_file(
     def check_inputs() -> tuple[preparation_files.PeriodFiles, dict[str, str]]:
         settlement_period = _parse_period(period)
         preparation_register.ensure_register_available(register_path)
-        preparation_files.check_internal_template(internal_template)
-        preparation_files.check_collective_template(collective_template)
+        try:
+            preparation_files.check_internal_template(internal_template)
+            preparation_files.check_collective_template(collective_template)
+        except WorkbookError as error:
+            raise StopError(messages.template_unusable(error.path, error)) from error
         if not periods_directory.is_dir():
             raise StopError(messages.periods_directory_missing(periods_directory))
         files = preparation_files.PeriodFiles(

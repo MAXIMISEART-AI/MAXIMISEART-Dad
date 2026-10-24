@@ -170,6 +170,37 @@ def test_skoroszyt_bez_stylow_daje_sie_przeczytac_bez_formatu(tmp_path: Path) ->
     assert [row.number for row in read_data_rows(path).rows] == [18, 19, 20]
 
 
+def test_numer_stylu_poza_komorka_i_wierszem_nie_czyni_wzorca_nieczytelnym(tmp_path: Path) -> None:
+    path = styled_template(tmp_path / "Skoroszyt.xlsx")
+    rewrite_parts(
+        path,
+        lambda name, data: (
+            data.replace(b"</worksheet>", b'<!-- s="999" --></worksheet>', 1) if name.startswith("xl/worksheets/") else data
+        ),
+    )
+
+    _check_template(path)
+    _plan_template(path)
+
+
+@pytest.mark.parametrize("opening", [_check_template, _plan_template])
+def test_styl_wiersza_spoza_stylow_skoroszytu_czyni_wzorzec_nieczytelnym(tmp_path: Path, opening: Callable[[Path], None]) -> None:
+    path = styled_template(tmp_path / "Skoroszyt.xlsx")
+    rewrite_parts(
+        path,
+        lambda name, data: (
+            re.sub(rb'<row r="([0-9]+)"', rb'<row r="\1" s="99999" customFormat="1"', data, count=1)
+            if name.startswith("xl/worksheets/")
+            else data
+        ),
+    )
+
+    with pytest.raises(WorkbookError) as raised:
+        opening(path)
+
+    assert raised.value.problem is Problem.UNREADABLE
+
+
 @pytest.mark.parametrize("opening", OPENINGS)
 def test_brak_pliku_przy_kazdym_otwarciu(tmp_path: Path, opening: str) -> None:
     with pytest.raises(WorkbookError) as raised:

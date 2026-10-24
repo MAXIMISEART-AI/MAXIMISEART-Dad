@@ -18,10 +18,8 @@ sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
 from rozliczenia.worker_config import load_worker_mapping  # noqa: E402
 from skrypt_skilla import Parser  # noqa: E402
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderError  # noqa: E402
-from rozliczenia.template_settlement import (  # noqa: E402
-    WorkerTemplateValidationError,
-    validate_worker_template,
-)
+from rozliczenia.engine import check_worker_template  # noqa: E402
+from rozliczenia.workbook_files import WorkbookError  # noqa: E402
 
 
 def _check(root: Path, expected_version: str) -> tuple[str, int]:
@@ -44,7 +42,7 @@ def _check(root: Path, expected_version: str) -> tuple[str, int]:
         raise ValueError("synthetic mapping must contain three workers")
     if target_directory.exists():
         raise ValueError("target directory must not exist before dry-run")
-    validate_worker_template(root / "Wzorzec rozliczenia pracownika.xlsx")
+    check_worker_template(root / "Wzorzec rozliczenia pracownika.xlsx")
 
     workbook = load_workbook(source, read_only=True, data_only=False)
     try:
@@ -66,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         period, template_count = _check(args.root, args.expected_version)
-    except (OSError, ValueError, KeyError, TypeError, WorkerTemplateValidationError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, WorkbookError) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
         return 1
     except PeriodFolderError as exc:

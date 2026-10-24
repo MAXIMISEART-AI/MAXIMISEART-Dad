@@ -324,6 +324,13 @@ W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
 (macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
 checkoutu importuje `src` głównego checkoutu.
 
+`.venv/bin/python tools/sprzatanie.py` pokazuje lokalne worktree i gałęzie, których
+praca jest już w `origin/main`, i niczego nie usuwa; usuwa je dopiero z `--usun`.
+Zostawia każdy worktree z commitami spoza `origin/main`, zmianami, plikami nieśledzonymi,
+niepustymi plikami ignorowanymi spoza `.venv`, `node_modules` i cache, żywym procesem
+(także w podkatalogu), blokadą, rebase'em, merge'em albo bisect w toku albo aktywnym
+wątkiem T3 i podaje powód.
+
 Czas Przebiegu rozliczeń mierzy `tools/benchmark_przebiegu.py measure
 --scenario typowy-tydzien` (albo `ciezki-tydzien`) na syntetycznym lustrze
 folderów taty; `tools/benchmark_przebiegu.py comment` drukuje z dziennika
@@ -379,7 +386,7 @@ npm ci
 npm run contract   # OpenAPI z modeli Pydantic → typy i schematy zod (Python z zależnościami: zmienna PYTHON)
 npm run typecheck  # tsc strict
 npm run lint       # Oxlint z wtyczkami anti-slop
-npm run rules      # każde pole kontraktu użyte w UI, brak porównań nazwy procesu
+npm run rules      # każde pole kontraktu użyte w UI, brak porównań nazwy procesu, sieć tylko w plikach NETWORK_FILES
 npm run build      # build do src/rozliczenia/centrum/static/
 ```
 
