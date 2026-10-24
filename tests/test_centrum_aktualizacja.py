@@ -574,18 +574,17 @@ def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_z
     box.search_hold = threading.Event()
     release = threading.Timer(8, box.search_hold.set)  # bez osobnego wątku start czekałby na skrzynkę
     release.start()
-    started = time.monotonic()
 
     try:
         centrum.restart()
-        took = time.monotonic() - started
+        box_answered = box.search_hold.is_set()
         while_box_silent = centrum.client.get("/api/tool-update").json()
     finally:
         box.search_hold.set()
         release.cancel()
     answered = tool_update_until(centrum, lambda view: view["report"] == {"state": "ready"})
 
-    assert took < 2
+    assert not box_answered
     assert {key: value for key, value in first.items() if key != "draft"} == {
         "state": "failed",
         "message": {"what": "Nowa wersja narzędzia nie wystartowała.", "where": "narzędzie na tym komputerze", "action": TO_MAKS},

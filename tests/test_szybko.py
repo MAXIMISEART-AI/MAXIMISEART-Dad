@@ -20,6 +20,10 @@ import szybko  # noqa: E402
 
 BY_CHANGE_ONLY = {
     "tests/test_brama_pre_push.py": "sprawdza zachowanie bramy pushem w repozytorium testu, a nie całe repozytorium",
+    "tests/test_git_w_testach.py": (
+        "sprawdza gita sesji testów, a nie całe repozytorium; zmiana conftest.py i fixtures/git_config.py uruchamia "
+        "wszystkie testy"
+    ),
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i AGENTS.md",
 }
@@ -240,9 +244,12 @@ def test_test_jest_dotkniety_zmiana_pliku_ktory_wskazuje_sciezka(tmp_path: Path,
     assert "test_zawsze_pada" not in answered.stdout
 
 
-@pytest.mark.parametrize("changed", ["pyproject.toml", "requirements.txt", "tests/conftest.py"])
+@pytest.mark.parametrize(
+    "changed", ["pyproject.toml", "requirements.txt", "tests/conftest.py", "tests/fixtures/git_config.py"]
+)
 def test_zmiana_konfiguracji_albo_conftest_uruchamia_pelny_zestaw(tmp_path: Path, changed: str) -> None:
     repo = _repo(tmp_path)
+    (repo / changed).parent.mkdir(parents=True, exist_ok=True)
     with (repo / changed).open("a", encoding="utf-8") as file:
         file.write("\n")
 

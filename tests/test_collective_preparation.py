@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 import os
 from pathlib import Path
 import time
+import zipfile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
@@ -24,6 +25,8 @@ from rozliczenia.domain import (
 )
 from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.message import StopError
+from rozliczenia.preparation_register import read_register
+from rozliczenia.settlement_period import parse_period_token
 
 from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
@@ -55,6 +58,7 @@ from tests.fixtures.preparation import (
     other_warnings,
     run_preparation,
 )
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.interlocutor import Tata
 
 
@@ -391,6 +395,45 @@ def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: P
     assert summary.collective_file == fixture.collective_file_path
     assert list(fixture.periods_directory.iterdir()) == []
     assert [path.read_bytes() for path in inputs] == before
+
+
+def test_rejestr_replaced_after_podglad_by_one_of_the_same_size_and_time_is_read_anew_by_run(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    before = fixture.register_path.stat()
+    run_preparation(fixture, dry_run=True)
+    write_register(fixture.register_path, default_register_rows()[:-1])
+    with zipfile.ZipFile(fixture.register_path, "a") as archive:
+        archive.comment = b" " * (before.st_size - fixture.register_path.stat().st_size)
+    os.utime(fixture.register_path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = fixture.register_path.stat()
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_order_count == 3
+    assert summary.successful_order_count == 2
+
+
+def test_rejestr_rows_remembered_after_podglad_cannot_be_changed(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    link_register_order_numbers(fixture.register_path, "https://firma.example/zlecenie/")
+    row = read_register(fixture.register_path, parse_period_token(PERIOD))[0].rows[0]
+    column, link = next(iter(row.hyperlinks.items()))
+
+    with pytest.raises(TypeError):
+        row.hyperlinks[column] = link  # type: ignore[index]
+    with pytest.raises(TypeError):
+        row.quantities[column] = 1  # type: ignore[index]
+
+
+def test_podglad_of_another_period_does_not_change_what_run_reads_from_the_same_rejestr(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    run_preparation(fixture, "15_21_09_2026", dry_run=True)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_order_count == 4
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
 
 
 STAGES_IN_ORDER = [
@@ -1038,7 +1081,8 @@ def test_worker_outside_worker_config_in_unsuccessful_order_does_not_stop(tmp_pa
 def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_files(tmp_path: Path) -> None:
     successful_count = COLLECTIVE_TEMPLATE_ZERO_ROWS + 2
     rows: list[RegisterRow] = [
-        register_order(number, datetime(2026, 9, 14, 8, number)) for number in range(1, successful_count + 1)
+        {**register_order(number, datetime(2026, 9, 14, 8, number)), "UMOWA": "u", "URZĄDZENIA": "nokia zte"}
+        for number in range(1, successful_count + 1)
     ]
     rows.insert(3, register_order(99, datetime(2026, 9, 14, 9, 0), successful="nie"))
     fixture = make_preparation_fixture(tmp_path, rows)
@@ -1049,8 +1093,9 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
         "Co się stało: Zleceń skutecznych: 8, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
         "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
         f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersze 24–25\n"
-        "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
-        "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
+        "Co zrobić: Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości tak samo, a puste komórki "
+        "liczą się jak 0. Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze "
+        "z zerami we Wzorcu pliku zbiorczego."
     ]
     assert other_warnings(summary.warnings)[0].code == "MALO_WIERSZY_Z_ZERAMI"
     assert summary.successful_order_count == successful_count
@@ -1058,6 +1103,9 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
     created = cell_values(fixture.collective_file_path, min_row=18, max_row=26, min_col=1, max_col=14)
     assert [row[5] for row in created] == [f"ZL-SYN-{number:03d}" for number in range(1, 9)] + [None]
     assert [row[13] for row in created] == [0] * COLLECTIVE_TEMPLATE_ZERO_ROWS + [None] * 3
+    with_zeros, without_zeros = cell_values(fixture.collective_file_path, min_row=23, max_row=24, min_col=14, max_col=42)
+    assert [value or 0 for value in without_zeros] == list(with_zeros)
+    assert any(with_zeros)
 
 
 def test_jedno_zlecenie_skuteczne_ponad_wiersze_z_zerami_ostrzega_o_jednym_wierszu(tmp_path: Path) -> None:
@@ -1075,8 +1123,9 @@ def test_jedno_zlecenie_skuteczne_ponad_wiersze_z_zerami_ostrzega_o_jednym_wiers
             "Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
             "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
             f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersz 24\n"
-            "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
-            "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.",
+            "Co zrobić: Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości tak samo, a puste komórki "
+            "liczą się jak 0. Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze "
+            "z zerami we Wzorcu pliku zbiorczego.",
         )
     ]
 
@@ -1272,16 +1321,17 @@ def test_dry_run_of_incomplete_period_does_not_ask_tata(tmp_path: Path) -> None:
 
 def test_time_of_decyzja_taty_is_not_counted_in_przygotowanie_time(tmp_path: Path) -> None:
     fixture = incomplete_period_fixture(tmp_path)
+    clock = ManualClock()
+    tata = Tata(before_answer=lambda: clock.advance(600))
     recorded: list[ProgressEvent] = []
-    pause_s = 1.5
-    rounding_ms = 0.5  # czasy etapów i Zdarzeń przebiegu są zaokrąglone do pełnych ms
 
-    started = time.perf_counter()
-    summary = run_preparation(
-        fixture, observer=recorded.append, conversation=Tata(before_answer=lambda: time.sleep(pause_s))
-    )
-    not_waiting_ms = (time.perf_counter() - started - pause_s) * 1000
+    def each_phase_takes_125_ms(event: ProgressEvent) -> None:
+        recorded.append(event)
+        if isinstance(event, PhaseStarted):
+            clock.advance(0.125)
 
-    durations = summary.phase_durations_ms.values()
-    assert sum(durations) <= not_waiting_ms + rounding_ms * len(durations)
-    assert max(event.elapsed_ms or 0 for event in recorded) <= not_waiting_ms + rounding_ms
+    summary = run_preparation(fixture, observer=each_phase_takes_125_ms, conversation=tata, clock=clock)
+
+    assert len(tata.decisions) == 1
+    assert dict(summary.phase_durations_ms) == dict.fromkeys(ProgressPhase, 125)
+    assert max(event.elapsed_ms or 0 for event in recorded) == 500

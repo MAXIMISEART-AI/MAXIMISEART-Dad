@@ -146,6 +146,8 @@ class Outcome(Generic[ViewT]):
     (``Finished``); zrobiła go funkcja rozmówcy w osłonie rdzenia.
     ``notices`` to neutralne ostrzeżenia: niezapisane metryki i odłączony
     podgląd postępu. ``metrics_saved``: rekord metryk trafił do pliku metryk.
+    ``progress``: ostatni snapshot jedynej projekcji postępu (etapy, Przetworzenia
+    Szablonów pracownika, liczba problemów); po odłączeniu podglądu ten z chwili odłączenia.
     """
 
     ending: Finished | Stop
@@ -153,29 +155,31 @@ class Outcome(Generic[ViewT]):
     total_duration_ms: int
     notices: tuple[str, ...]
     metrics_saved: bool
+    progress: ProgressSnapshot
 
     @property
     def result(self) -> Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]:
         return self.ending.result if isinstance(self.ending, Finished) else "BLAD_KRYTYCZNY"
 
 
-@dataclass
 class _Clock:
     """``Czas uruchomienia`` od startu silnika, bez czasu decyzji taty."""
 
-    started: float = field(default_factory=time.perf_counter)
-    paused_s: float = 0.0
+    def __init__(self, clock: Callable[[], float]) -> None:
+        self._clock = clock
+        self.started = clock()
+        self.paused_s = 0.0
 
     def elapsed_ms(self) -> int:
-        return max(0, round((time.perf_counter() - self.started - self.paused_s) * 1000))
+        return max(0, round((self._clock() - self.started - self.paused_s) * 1000))
 
     @contextmanager
     def paused(self) -> Iterator[None]:
-        paused_at = time.perf_counter()
+        paused_at = self._clock()
         try:
             yield
         finally:
-            self.paused_s += time.perf_counter() - paused_at
+            self.paused_s += self._clock() - paused_at
 
 
 class _ClockedConversation:
@@ -272,23 +276,25 @@ def run_process(
     *,
     view: Callable[[InputsT, SummaryT], ViewT],
     metrics_path: Path,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> Outcome[ViewT]:
     """Prowadzi jedno Uruchomienie procesu z gotowym wejściem procesu i dowolnym rozmówcą.
 
     ``view`` robi z podsumowania silnika widok rozmówcy; jej wyjątek to błąd po
     silniku z Komunikatem zakończenia procesu. Rekord metryk trafia do
-    ``metrics_path``; rozmówca renderuje ``Outcome`` sam.
+    ``metrics_path``; rozmówca renderuje ``Outcome`` sam. ``clock`` to zegar
+    w sekundach, z którego rdzeń liczy ``Czas uruchomienia``.
     """
 
     dry_run = inputs.dry_run
     mode = "DRY-RUN" if dry_run else "RUN"
     started_at = datetime.now(timezone.utc).isoformat()
-    clock = _Clock()
+    run_clock = _Clock(clock)
     observation = _Observation(interlocutor)
     observation.start()
 
-    engine_outcome = _run_engine(process, inputs, observation, _ClockedConversation(interlocutor, clock), view)
-    total_duration_ms = clock.elapsed_ms()
+    engine_outcome = _run_engine(process, inputs, observation, _ClockedConversation(interlocutor, run_clock), view)
+    total_duration_ms = run_clock.elapsed_ms()
     ending, shown = _build_summary(
         engine_outcome, not_shown=process.plan_not_shown if dry_run else process.summary_not_shown
     )
@@ -323,4 +329,5 @@ def run_process(
         total_duration_ms=total_duration_ms,
         notices=tuple(notices),
         metrics_saved=metrics_saved,
+        progress=observation.projection.snapshot,
     )
