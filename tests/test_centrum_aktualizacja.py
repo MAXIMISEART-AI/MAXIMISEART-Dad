@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-import os
 from pathlib import Path
 import re
 import shutil
@@ -31,12 +30,6 @@ from tests.fixtures.tool_clone import (
     git,
     tool_repository,
 )
-
-
-@pytest.fixture(autouse=True)
-def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 def updating_centrum(
