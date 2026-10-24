@@ -10,7 +10,8 @@ ani issue.
 
 Każda operacja zwraca wynik albo jedną z dwóch porażek: ``Refused`` (skrzynka
 odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable`` (brak sieci
-albo skrzynka nie odpowiedziała jak zwykle). Klucz, którego nie da się wysłać
+albo skrzynka nie odpowiedziała jak zwykle). Zakładanie issue i komentarz mają
+trzecią: ``Rejected`` (skrzynka odmówiła tej treści). Klucz, którego nie da się wysłać
 w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused`` bez
 zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem,
 komentarz ``Commented`` z identyfikatorem i adresem, a pytanie o issue z
@@ -33,7 +34,9 @@ from typing import Final, Literal, Protocol
 Label = Literal["zgloszenie", "kontrola-ilosci", "logi-uruchomienia"]
 """Etykieta issue w Skrzynce Zgłoszeń; etykiety zakłada Maks w repozytorium Zgłoszeń, kod ich nie tworzy."""
 REPORT_LABEL: Final[Label] = "zgloszenie"
-# GitHub odrzuca treść issue i komentarza dłuższą niż tyle znaków.
+# Najwięcej znaków (jak ``len``) w treści issue i komentarza. Dokumentacja REST GitHuba limitu nie podaje; pomiar na
+# repozytorium Zgłoszeń 2026-10-24 (#332): nowe issue przyjmuje 65 536 znaków (także „ą” i emoji), a 65 537 odrzuca
+# kodem 422; komentarz przyjmuje do 262 144 bajtów UTF-8, czyli każdy tekst do 65 536 znaków (najwyżej 4 bajty na znak).
 COMMENT_LIMIT: Final = 65_536
 
 
@@ -66,12 +69,17 @@ class Refused:
 
 
 @dataclass(frozen=True)
+class Rejected:
+    """Skrzynka odmówiła tej treści (np. 422 GitHuba: treść za długa); klucz i sieć działają, inna treść przejdzie."""
+
+
+@dataclass(frozen=True)
 class Unreachable:
     """Skrzynka nie odpowiedziała jak zwykle: brak sieci, przekroczony czas albo awaria po stronie GitHuba."""
 
 
-SendOutcome = Sent | Refused | Unreachable
-CommentOutcome = Commented | Refused | Unreachable
+SendOutcome = Sent | Refused | Rejected | Unreachable
+CommentOutcome = Commented | Refused | Rejected | Unreachable
 IssuesOutcome = tuple[Issue, ...] | Refused | Unreachable
 # Numer znalezionego issue albo ``None``, gdy issue z tym wierszem nie ma (nigdy nie było albo Maks je zamknął).
 FindOutcome = int | None | Refused | Unreachable
@@ -121,6 +129,8 @@ REPOSITORY: Final = "MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia"
 _API: Final = "https://api.github.com"
 _TIMEOUT_S: Final = 15.0
 _REFUSALS: Final = frozenset({401, 403, 404})
+# Odpowiedzi na treść wysyłki (zła albo za długa), nie na klucz ani sieć.
+_REJECTIONS: Final = frozenset({400, 413, 422})
 # Issue z etykietą przegląda się stronami po 100; dziesięć stron to więcej, niż jedna etykieta kiedykolwiek będzie miała.
 _PAGE_SIZE: Final = 100
 _MAX_PAGES: Final = 10
@@ -209,8 +219,10 @@ class GitHubReportBox:
             states[number] = "open" if state == "open" else "closed"
         return states
 
-    def _post(self, url: str, payload: Mapping[str, object], key: str) -> HttpResponse | Refused | Unreachable:
-        return self._exchange(
+    def _post(
+        self, url: str, payload: Mapping[str, object], key: str
+    ) -> HttpResponse | Refused | Rejected | Unreachable:
+        answer = self._exchange(
             HttpRequest(
                 method="POST",
                 url=url,
@@ -218,6 +230,7 @@ class GitHubReportBox:
                 body=json.dumps(payload).encode("utf-8"),
             )
         )
+        return Rejected() if isinstance(answer, HttpResponse) and answer.status in _REJECTIONS else answer
 
     def _exchange(self, request: HttpRequest) -> HttpResponse | Refused | Unreachable:
         """Odpowiedź skrzynki na ``request``; brak sieci to ``Unreachable``, odmowa autoryzacji ``Refused``."""

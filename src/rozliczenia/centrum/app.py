@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.diagnosis import Surroundings, diagnose
+from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router
 from rozliczenia.centrum.period_board import periods_router
@@ -39,6 +39,7 @@ from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports, read_report_key, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.run_logs import RUN_LOGS_DIRECTORY, RunLogs
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
@@ -163,8 +164,20 @@ def create_app(
         ),
         log,
     )
+    # Logi Uruchomienia: jeden plik JSON na Uruchomienie obok dziennika Centrum, poza Gitem i OneDrive (ADR 0015).
+    run_logs = RunLogs(
+        log.directory / RUN_LOGS_DIRECTORY,
+        commit=surroundings.tool_freshness.local,
+        files=lambda process, period: files_of_process(
+            process, period, settings=store.load(), configuration=configuration
+        ),
+        cloud_files=surroundings.cloud_files,
+    )
     runs = RunHost(
-        log, centrum_runs, stops, after_run=[QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)]
+        log,
+        centrum_runs,
+        stops,
+        after_run=[run_logs, QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)],
     )
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie

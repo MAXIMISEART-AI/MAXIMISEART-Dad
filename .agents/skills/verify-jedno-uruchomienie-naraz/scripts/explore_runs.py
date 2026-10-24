@@ -59,6 +59,7 @@ from rozliczenia.centrum.run_view import PREPARATION
 from rozliczenia.decision import Decision
 from rozliczenia.message import Message
 from rozliczenia.preparation_process import PROCESS
+from rozliczenia.progress import ProgressProjection
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -485,6 +486,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             total_duration_ms=0,
             notices=(),
             metrics_saved=True,
+            progress=ProgressProjection().snapshot,
         )
 
     class NoStops:
