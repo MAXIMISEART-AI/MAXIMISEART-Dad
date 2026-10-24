@@ -18,7 +18,9 @@ w zwijanym bloku, a JSON ponad limit komentarza idzie w kolejnych częściach, k
 
 Diagnoza Zatrzymania dopisuje się do Logów swojego Uruchomienia (``RunLogs.diagnosed``): ten sam plik dostaje pole
 ``diagnosis``, a issue okresu kolejny komentarz z całymi Logami, więc najnowszy komentarz Uruchomienia to zawsze jego
-plik. Diagnozę ma tylko ostatnie Uruchomienie tej pracy Centrum, więc w pamięci zostają tylko jego Logi; Diagnoza,
+plik. Diagnoza z tym samym wynikiem co ostatnio dopisana (``LoggedDiagnosis.same_result``) nie zmienia niczego: po
+nieoczekiwanym wyjątku karta zaczyna Diagnozę sama przy każdym pokazaniu, a Maks potrzebuje tylko zmiany wyniku.
+Diagnozę ma tylko ostatnie Uruchomienie tej pracy Centrum, więc w pamięci zostają tylko jego Logi; Diagnoza,
 w której trakcie skończyło się następne Uruchomienie, nie dopisuje się nigdzie.
 """
 
@@ -118,6 +120,13 @@ class LoggedCheck(_Record):
     detail: str
     code: str | None
 
+    @property
+    def result(self) -> tuple[str, CheckState, str | None, str | None]:
+        """Sprawdzenie bez okoliczności: ``detail`` sprawdzenia, które przeszło, to fakt chwili (liczba wpisów dziennika
+        rośnie z każdą Diagnozą), a przy ``failed`` i ``not_checked`` sam wynik: treść Komunikatu albo powód."""
+
+        return self.label, self.state, self.code, None if self.state == "passed" else self.detail
+
 
 class LoggedDiagnosis(_Record):
     """Ostatnia Diagnoza Uruchomienia: wyjaśnienie z kodem, co tata robi dalej i każde sprawdzenie po kolei."""
@@ -146,6 +155,14 @@ class LoggedDiagnosis(_Record):
                 for check in diagnosis.checks
             ],
         )
+
+    def same_result(self, other: LoggedDiagnosis) -> bool:
+        """Te same Logi Diagnozy bez okoliczności: bez chwili i z każdym sprawdzeniem jako ``LoggedCheck.result``."""
+
+        def result(diagnosis: LoggedDiagnosis) -> object:
+            return diagnosis.explanation, diagnosis.next_action, [check.result for check in diagnosis.checks]
+
+        return result(self) == result(other)
 
 
 class Tool(_Record):
@@ -182,7 +199,7 @@ class RunLog(_Record):
     environment: Environment
     trace: CallTrace | None
     diagnosis: LoggedDiagnosis | None
-    """Ostatnia Diagnoza tego Uruchomienia; ``None``, dopóki tata jej nie uruchomił (pliki schematu 1 sprzed niej też)."""
+    """Ostatnia Diagnoza tego Uruchomienia z nowym wynikiem; ``None``, dopóki tata jej nie uruchomił (pliki schematu 1 sprzed niej też)."""
 
     @classmethod
     def of(cls, run: EndedRun, *, tool: Tool, environment: Environment) -> RunLog:
@@ -367,7 +384,7 @@ class RunLogs:
         self._files = files
         self._cloud = cloud_files
         self._lock = threading.Lock()
-        self._last: RunLog | None = None  # Logi ostatniego Uruchomienia z chwili jego końca, bez Diagnozy
+        self._last: RunLog | None = None  # Logi ostatniego Uruchomienia tak, jak ostatnio poszły do pliku i Skrzynki
 
     def run_ended(self, run: EndedRun) -> None:
         record = RunLog.of(run, tool=Tool(wydanie=None, commit=self._commit()), environment=self._environment(run))
@@ -386,14 +403,20 @@ class RunLogs:
     def diagnosed(self, run_id: str, diagnosis: Diagnosis) -> None:
         """Dopisuje Diagnozę do Logów Uruchomienia ``run_id``: do pliku i jako kolejny komentarz w issue okresu.
 
-        Uruchomienie, którego Logi nie powstały w tej pracy Centrum, nie dostaje niczego.
+        Uruchomienie, którego Logi nie powstały w tej pracy Centrum, nie dostaje niczego, a Diagnoza z tym samym
+        wynikiem co ostatnio dopisana też nie.
         """
 
         with self._lock:  # dwie Diagnozy naraz (np. dwie karty): plik i komentarz każdej, jedna po drugiej
-            ended = self._last
-            if ended is not None and ended.run_id == run_id:
-                logged = LoggedDiagnosis.of(diagnosis, diagnosed_at=datetime.now(timezone.utc))
-                self._keep(ended.model_copy(update={"diagnosis": logged}))
+            last = self._last
+            if last is None or last.run_id != run_id:
+                return
+            logged = LoggedDiagnosis.of(diagnosis, diagnosed_at=datetime.now(timezone.utc))
+            if last.diagnosis is not None and logged.same_result(last.diagnosis):
+                return
+            record = last.model_copy(update={"diagnosis": logged})
+            self._keep(record)
+            self._last = record  # po pliku, który nie powstał, następna Diagnoza próbuje znowu: plik i komentarz
 
     def _keep(self, record: RunLog) -> None:
         """Plik Logów (nowy albo nadpisany) i komentarz w issue okresu z tymi samymi znakami."""

@@ -20,8 +20,15 @@ from rozliczenia.centrum import app
 from rozliczenia.centrum.report_box import REPOSITORY, Refused, Unreachable
 
 from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox
-from tests.fixtures.centrum_processes import SettlingCentrum, run_to_end, settling_centrum, stopped_for_maks
+from tests.fixtures.centrum_processes import (
+    SettlingCentrum,
+    run_logs_handled,
+    run_to_end,
+    settling_centrum,
+    stopped_for_maks,
+)
 from tests.fixtures.potomne import wait_for
+from tests.fixtures.preparation import INTERNAL_SETTLEMENT_NAME
 from tests.fixtures.settlement import PERIOD
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -258,6 +265,180 @@ def test_diagnoza_po_zatrzymaniu_do_maksa_dopisuje_sie_do_pliku_logow_i_jako_kol
     summary = thread.comments[1].split("\n\n<details>")[0].splitlines()
     assert f"- Diagnoza: `{diagnosis['explanation']['code']}`" in [line.split(";")[0] for line in summary]
     assert [issue.number for issue in box(centrum).issues_with(LABEL)] == [thread.number]
+
+
+def unexpected_exception(centrum: SettlingCentrum) -> str:
+    """Nieoczekiwany wyjątek, po którym karta zaczyna Diagnozę sama przy każdym pokazaniu; zwraca id Uruchomienia."""
+
+    centrum.engines.fail_engine = True
+    try:
+        view = run_to_end(centrum, dry_run=True)
+    finally:
+        centrum.engines.fail_engine = False
+    assert (view["result"]["ending"], view["result"]["diagnosis"]) == ("unexpected", "automatic")
+    run_logs_handled(centrum)
+    return str(view["run"]["id"])
+
+
+def test_diagnoza_z_tym_samym_wynikiem_przy_kazdym_pokazaniu_karty_daje_jeden_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    diagnose(centrum, run_id)
+    diagnosed = thread_with(centrum, comments=2).comments[1]
+
+    shown = [diagnose(centrum, run_id) for _ in range(3)]
+    response = centrum.client.post(f"/api/runs/{run_id}/report")
+
+    thread = thread_with(centrum, comments=2)
+    assert thread.comments == [thread.comments[0], diagnosed]
+    assert sent_json([diagnosed]) == local_logs(centrum, run_id)
+    assert response.json() == {"state": "sent"}
+    [report] = box(centrum).sent
+    assert report.body == shown[-1]["report"]["body"]
+    link = f"- Logi: https://github.com/{REPOSITORY}/issues/{thread.number}#issuecomment-2"
+    assert link in report.body.splitlines()
+
+
+def test_diagnoza_z_innym_wynikiem_niz_ostatnio_wyslana_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    template = centrum.configuration.worker_template
+    good = template.read_bytes()
+    thread_with(centrum, comments=1)
+
+    passing = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+    template.write_bytes(b"to nie jest skoroszyt")
+    broken = diagnose(centrum, run_id)
+    thread_with(centrum, comments=3)
+    template.write_bytes(good)
+    fixed = diagnose(centrum, run_id)
+    thread_with(centrum, comments=4)
+    centrum.surroundings.github.release = None
+    offline = diagnose(centrum, run_id)
+    thread_with(centrum, comments=5)
+    centrum.surroundings.github.tool_commit = None
+    without_git = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=6)
+    labels = ("Wzorzec rozliczenia pracownika", "Aktualność narzędzia")
+    shown = (passing, broken, fixed, offline, without_git)
+    states = [tuple(check_state(diagnosis, label) for label in labels) for diagnosis in shown]
+    assert states == [
+        ("passed", "passed"),
+        ("failed", "passed"),
+        ("passed", "passed"),
+        ("passed", "not_checked"),
+        ("passed", "not_checked"),
+    ]
+    assert check_detail(offline, labels[1]) != check_detail(without_git, labels[1])
+    logged = [json.loads(sent_json([comment]))["diagnosis"] for comment in thread.comments[1:]]
+    assert [tuple(check_state(diagnosis, label) for label in labels) for diagnosis in logged] == states
+    assert [check_detail(diagnosis, labels[1]) for diagnosis in logged[-2:]] == [
+        check_detail(diagnosis, labels[1]) for diagnosis in shown[-2:]
+    ]
+    assert sent_json([thread.comments[-1]]) == local_logs(centrum, run_id)
+
+
+def test_to_samo_wyjasnienie_o_innym_pliku_okresu_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    collective = centrum.collective_file.with_name(f"~${centrum.collective_file.name}")
+    collective.write_bytes(b"")
+    first = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+
+    collective.unlink()
+    (centrum.period_directory / f"~${INTERNAL_SETTLEMENT_NAME}").write_bytes(b"")
+    second = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    shown = [diagnosis["explanation"]["where"] for diagnosis in (first, second)]
+    assert shown[0] != shown[1]
+    logged = [json.loads(sent_json([comment]))["diagnosis"]["explanation"] for comment in thread.comments[1:]]
+    assert [(explanation["code"], explanation["where"]) for explanation in logged] == [
+        ("PLIK_OKRESU_OTWARTY", where) for where in shown
+    ]
+
+
+def test_inny_plik_tylko_w_chmurze_za_tym_samym_co_zrobic_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    onedrive = centrum.surroundings.onedrive
+    assert onedrive is not None
+    thread_with(centrum, comments=1)
+    onedrive.online_only.add(centrum.collective_file)
+    first = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+
+    onedrive.online_only = {centrum.configuration.worker_template}
+    second = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    explanations = [diagnosis["explanation"] for diagnosis in (first, second)]
+    assert explanations[0]["action"] == explanations[1]["action"]
+    assert explanations[0]["where"] != explanations[1]["where"]
+    logged = [json.loads(sent_json([comment]))["diagnosis"]["explanation"] for comment in thread.comments[1:]]
+    assert [(explanation["code"], explanation["where"]) for explanation in logged] == [
+        ("PLIK_TYLKO_W_CHMURZE", explanation["where"]) for explanation in explanations
+    ]
+
+
+def test_inna_wada_sprawdzenia_za_tym_samym_wyjasnieniem_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    centrum.configuration.worker_template.write_bytes(b"to nie jest skoroszyt")
+    workers = centrum.configuration.worker_config
+    workers.write_bytes("wykonawcy: [".encode())
+    not_yaml = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+
+    workers.write_bytes("wykonawcy: ż".encode("cp1250"))
+    not_utf8 = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    label = "Konfiguracja wykonawców"
+    assert [diagnosis["explanation"] for diagnosis in (not_yaml, not_utf8)] == [not_yaml["explanation"]] * 2
+    assert check_detail(not_yaml, label) != check_detail(not_utf8, label)
+    logged = [json.loads(sent_json([comment]))["diagnosis"] for comment in thread.comments[1:]]
+    checks = [next(check for check in diagnosis["checks"] if check["label"] == label) for diagnosis in logged]
+    assert [(check["code"], check["detail"]) for check in checks] == [
+        ("ZLA_KONFIGURACJA_WYKONAWCOW", check_detail(diagnosis, label)) for diagnosis in (not_yaml, not_utf8)
+    ]
+
+
+def test_plik_logow_ktory_nie_powstal_przy_diagnozie_powstaje_przy_nastepnej_z_tym_samym_wynikiem(
+    tmp_path: Path,
+) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    [path] = (centrum.log_path.parent / "uruchomienia").glob(f"*-{run_id}.json")
+    blocked = path.with_name(path.name + ".tmp")
+    blocked.mkdir()
+    diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+    assert json.loads(local_logs(centrum, run_id))["diagnosis"] is None
+
+    blocked.rmdir()
+    diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    assert json.loads(local_logs(centrum, run_id))["diagnosis"] is not None
+    assert sent_json([thread.comments[-1]]) == local_logs(centrum, run_id)
+
+
+def check_state(diagnosis: dict[str, Any], label: str) -> str:
+    [state] = [check["state"] for check in diagnosis["checks"] if check["label"] == label]
+    return str(state)
+
+
+def check_detail(diagnosis: dict[str, Any], label: str) -> str:
+    [detail] = [check["detail"] for check in diagnosis["checks"] if check["label"] == label]
+    return str(detail)
 
 
 def test_wyslane_zgloszenie_prowadzi_do_komentarza_logow_swojego_uruchomienia(tmp_path: Path) -> None:

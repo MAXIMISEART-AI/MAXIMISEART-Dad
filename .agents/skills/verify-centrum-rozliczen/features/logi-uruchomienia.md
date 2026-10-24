@@ -15,7 +15,7 @@ Zgłoszeń (`config/zgloszenia/kolejka/`, like the Kontrola ilości) and go to t
 period's issue labelled `logi-uruchomienia`, which they keep using after Maks
 closes it, one comment per Uruchomienie: a summary, then the file's JSON in a
 `<details>` block (a JSON too long for one comment goes in comments `część k/n`).
-Each Diagnoza (features/diagnoza.md) of the last Uruchomienie of this Centrum
+Each Diagnoza with a new result (features/diagnoza.md) of the last Uruchomienie of this Centrum
 rewrites the file with its `diagnosis` and adds one more comment with the whole
 Logi, so the newest comment of an Uruchomienie is always its file; a Diagnoza of
 an Uruchomienie from before a restart of Centrum adds nothing.
