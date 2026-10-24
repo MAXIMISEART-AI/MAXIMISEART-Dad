@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Final, Generic, TypeVar
+from typing import Final, Generic, Protocol, TypeVar
 
 from rozliczenia.centrum import contract
 from rozliczenia.collective_preparation import PreparationSummary
@@ -20,8 +20,16 @@ from rozliczenia.process_run import ProcessInputs
 from rozliczenia.progress import ProgressSnapshot
 from rozliczenia.settlement_process import SettlementInputs
 
+
+class WarnedSummary(Protocol):
+    """Podsumowanie procesu z ostrzeżeniami, które karta Uruchomienia pokazuje z kodami Komunikatów."""
+
+    @property
+    def warnings(self) -> Sequence[Message]: ...
+
+
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
-SummaryT = TypeVar("SummaryT")
+SummaryT = TypeVar("SummaryT", bound=WarnedSummary)
 
 
 @dataclass(frozen=True)
@@ -46,7 +54,6 @@ class ProcessView(Generic[InputsT, SummaryT]):
     preview_hint: str
     _figures: Callable[[ProgressSnapshot, bool], list[contract.Figure]]
     _summary: Callable[[SummaryT, bool], contract.RunSummary]
-    _warnings: Callable[[InputsT, SummaryT], Sequence[Message]]
 
     def progress(self, snapshot: ProgressSnapshot, *, dry_run: bool) -> contract.Progress:
         """Etapy, postęp Szablonów pracowników i liczby na żywo z jednego snapshotu projekcji."""
@@ -67,7 +74,7 @@ class ProcessView(Generic[InputsT, SummaryT]):
     def shown(self, inputs: InputsT, summary: SummaryT) -> Shown:
         """Wynik zakończonego procesu; rdzeń woła go w swojej osłonie (``run_process(view=...)``)."""
 
-        return Shown(self._summary(summary, inputs.dry_run), tuple(self._warnings(inputs, summary)))
+        return Shown(self._summary(summary, inputs.dry_run), tuple(summary.warnings))
 
 
 def _count(label: str, value: int) -> contract.Figure:
@@ -146,7 +153,6 @@ SETTLEMENT: Final[ProcessView[SettlementInputs, SettlementSummary]] = ProcessVie
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
     _figures=_settlement_figures,
     _summary=_settlement_summary,
-    _warnings=lambda _inputs, summary: summary.warnings,
 )
 PREPARATION: Final[ProcessView[PreparationInputs, PreparationSummary]] = ProcessView(
     reminder="Zapisz i zamknij Rejestr zleceń w Excelu",
@@ -154,5 +160,4 @@ PREPARATION: Final[ProcessView[PreparationInputs, PreparationSummary]] = Process
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
     _figures=_preparation_figures,
     _summary=_preparation_summary,
-    _warnings=lambda _inputs, summary: summary.warnings,
 )

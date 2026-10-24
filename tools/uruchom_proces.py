@@ -60,7 +60,7 @@ from rozliczenia.progress import ProgressSnapshot
 from rozliczenia.settlement_process import SettlementInputs
 
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
-SummaryT = TypeVar("SummaryT")
+SummaryT = TypeVar("SummaryT", bound=run_view.WarnedSummary)
 _EXIT_CODES = {"OK": 0, "WYMAGA_SPRAWDZENIA": 2, "BLAD_KRYTYCZNY": 1}
 
 class _Model(BaseModel):
