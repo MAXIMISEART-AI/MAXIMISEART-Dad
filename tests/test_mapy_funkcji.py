@@ -20,10 +20,8 @@ MAPS = sorted(path.parent for path in SKILLS.glob("*/features"))
 FEATURE_LISTS = ("FEATURES", "EXPLICIT_FEATURES")
 PACKAGE_HELPERS = frozenset({"__init__", "common"})
 LINK = re.compile(r"\]\(\./([^)]+\.md)\)")
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 DRIVING = re.compile(r"## Driving it with \S.*")
-SKILL_MD_POINTS_TO_MAP = {
-    "verify-centrum-na-windowsie": "SKILL.md mówi, że --feature to „one feature of features/README.md”, bez listy nazw",
-}
 
 
 @dataclass(frozen=True)
@@ -36,16 +34,26 @@ def _feature_files(skill: Path) -> list[Path]:
     return sorted(path for path in (skill / "features").glob("*.md") if path.name != "README.md")
 
 
-def _code_features(skill: Path) -> list[Feature]:
+def _feature_list_values(tree: ast.Module) -> list[tuple[str, ast.expr]]:
     return [
-        Feature(name, f"{target.id} w {path.relative_to(skill).as_posix()}")
-        for path in sorted((skill / "scripts").rglob("*.py"))
-        for node in ast.parse(path.read_text(encoding="utf-8")).body
-        if isinstance(node, ast.Assign)
-        for target in node.targets
+        (target.id, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)) and node.value is not None
+        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
         if isinstance(target, ast.Name) and target.id in FEATURE_LISTS
-        for name in ast.literal_eval(node.value)
     ]
+
+
+def _code_features(skill: Path) -> list[Feature]:
+    features = []
+    for path in sorted((skill / "scripts").rglob("*.py")):
+        source = path.relative_to(skill).as_posix()
+        for name, value in _feature_list_values(ast.parse(path.read_text(encoding="utf-8"))):
+            try:
+                features += [Feature(feature, f"{name} w {source}") for feature in ast.literal_eval(value)]
+            except ValueError:
+                pytest.fail(f"{name} w {source}:{value.lineno} nie jest krotką napisów: zapisz funkcje literałem")
+    return features
 
 
 def _package_modules(skill: Path) -> list[Feature]:
@@ -60,7 +68,7 @@ def _package_modules(skill: Path) -> list[Feature]:
 @pytest.mark.parametrize("skill", MAPS, ids=lambda skill: skill.name)
 def test_kazdy_plik_funkcji_ma_link_w_mapie_skilla(skill: Path) -> None:
     index = skill / "features" / "README.md"
-    linked = LINK.findall(index.read_text(encoding="utf-8")) if index.is_file() else []
+    linked = LINK.findall(HTML_COMMENT.sub("", index.read_text(encoding="utf-8"))) if index.is_file() else []
     files = [path.name for path in _feature_files(skill)]
 
     problems = [
@@ -122,7 +130,7 @@ def test_kazda_funkcja_z_kodu_skilla_ma_plik_w_mapie_i_wpis_w_skill_md(skill: Pa
         f"funkcja `{feature.name}` z {feature.source} nie pada w {skill.name}/SKILL.md: "
         f"dopisz `--feature {feature.name}` tam, gdzie SKILL.md wymienia funkcje"
         for feature in _code_features(skill)
-        if feature.name not in listed and skill.name not in SKILL_MD_POINTS_TO_MAP
+        if feature.name not in listed
     ]
 
     assert without_file == [], "\n".join(without_file)
