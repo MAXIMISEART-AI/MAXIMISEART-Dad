@@ -19,7 +19,7 @@ from fastapi import APIRouter
 
 from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.tool_freshness import Judgement, RememberedRelease, ToolFreshness
+from rozliczenia.centrum.tool_freshness import Judgement, RememberedRelease, ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import check_worker_template, default_worker_template_path
@@ -136,9 +136,11 @@ def configuration_router(
     @router.get("", operation_id="getConfiguration")
     def configuration() -> contract.Configuration:
         commit = freshness.local()
+        judgement = freshness.judge(release)
         return contract.Configuration(
             version=None if commit is None else contract.ToolVersion(commit=short_commit(commit), since=freshness.since()),
-            freshness=_STATE[freshness.judge(release)],
+            freshness=_STATE[judgement],
+            update_offered=offers_update(judgement),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
             reports=report_key(),

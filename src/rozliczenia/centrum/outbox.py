@@ -458,7 +458,7 @@ class Outbox:
         while True:
             try:
                 self._send_all()
-            except Exception as failure:  # noqa: BLE001 - granica wątku wysyłki: typ wyjątku trafia do dziennika Centrum
+            except Exception as failure:
                 self._log.unexpected_failure(failure, where="wysyłka do Skrzynki Zgłoszeń")
             with self._changed:
                 if not self._again:

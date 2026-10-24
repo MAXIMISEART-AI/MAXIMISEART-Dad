@@ -1264,6 +1264,10 @@
             ],
             "title": "Freshness"
           },
+          "update_offered": {
+            "type": "boolean",
+            "title": "Update Offered"
+          },
           "templates": {
             "items": {
               "oneOf": [
@@ -1317,12 +1321,13 @@
         "required": [
           "version",
           "freshness",
+          "update_offered",
           "templates",
           "workers",
           "reports"
         ],
         "title": "Configuration",
-        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji\nwzględem `main` na GitHubie, sprawdzana jak w Diagnozie."
+        "description": "Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.\n\n``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji\nwzględem najnowszego Wydania na GitHubie (ADR 0014), sprawdzana jak w Diagnozie. ``update_offered`` mówi,\nczy Konfiguracja proponuje Aktualizację narzędzia: tylko przy nowszym Wydaniu (``tool_freshness.offers_update``)."
       },
       "Count": {
         "properties": {

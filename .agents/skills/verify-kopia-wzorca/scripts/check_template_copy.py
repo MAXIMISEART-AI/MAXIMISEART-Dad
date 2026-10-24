@@ -53,31 +53,34 @@ from typing import Any
 from unittest import mock
 from xml.etree import ElementTree
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
+
+from hypothesis import HealthCheck, Phase, example, given, seed, settings
+from hypothesis import strategies as st
+from hypothesis.internal.conjecture import engine as hypothesis_engine
+from hypothesis.internal.cache import LRUCache
+from hypothesis.internal.conjecture import providers as hypothesis_providers
+from hypothesis.internal.constants_ast import Constants
+from openpyxl import load_workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
+from openpyxl.styles import Color, Font, GradientFill, PatternFill
+from openpyxl.utils import column_index_from_string, get_column_letter
+from openpyxl.worksheet.formula import ArrayFormula
+
+import porownanie_rozliczen as gate
+from rozliczenia import workbook_files
+from rozliczenia.highlights import PLAIN, Highlights
+from rozliczenia.hyperlinks import Hyperlink
+from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, TemplateFile
+from syntetyczne_wzorce import write_settlement_template
+from tests.fixtures.settlement import write_template
+from tests.fixtures.workbooks import add_external_link_fixture, has_xml_comment, refused_by_copy
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = REPO_ROOT / "src"
-sys.path[:0] = [str(SOURCE_ROOT), str(REPO_ROOT / "tools"), str(REPO_ROOT)]
-
-from hypothesis import HealthCheck, Phase, example, given, seed, settings  # noqa: E402
-from hypothesis import strategies as st  # noqa: E402
-from hypothesis.internal.conjecture import engine as hypothesis_engine  # noqa: E402
-from hypothesis.internal.cache import LRUCache  # noqa: E402
-from hypothesis.internal.conjecture import providers as hypothesis_providers  # noqa: E402
-from hypothesis.internal.constants_ast import Constants  # noqa: E402
-from openpyxl import load_workbook  # noqa: E402
-from openpyxl.cell.rich_text import CellRichText, TextBlock  # noqa: E402
-from openpyxl.cell.text import InlineFont  # noqa: E402
-from openpyxl.styles import Color, Font, GradientFill, PatternFill  # noqa: E402
-from openpyxl.utils import column_index_from_string, get_column_letter  # noqa: E402
-from openpyxl.worksheet.formula import ArrayFormula  # noqa: E402
-
-import porownanie_rozliczen as gate  # noqa: E402
-from rozliczenia import workbook_files  # noqa: E402
-from rozliczenia.highlights import PLAIN, Highlights  # noqa: E402
-from rozliczenia.hyperlinks import Hyperlink  # noqa: E402
-from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, TemplateFile  # noqa: E402
-from syntetyczne_wzorce import write_settlement_template  # noqa: E402
-from tests.fixtures.settlement import write_template  # noqa: E402
-from tests.fixtures.workbooks import add_external_link_fixture, has_xml_comment, refused_by_copy  # noqa: E402
 
 VERIFIED_FILE = "template_copy.py"
 SHEET = "xl/worksheets/sheet1.xml"

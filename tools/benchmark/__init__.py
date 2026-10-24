@@ -17,10 +17,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DIRECTORY = ROOT / ".benchmark"
 SCRIPT = Path("tools", "uruchom_proces.py")
-sys.path.insert(0, str(ROOT / "src"))
 
 
 class BenchmarkError(Exception):
