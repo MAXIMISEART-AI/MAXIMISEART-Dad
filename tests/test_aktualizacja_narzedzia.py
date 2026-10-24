@@ -1038,10 +1038,12 @@ def test_gdy_git_nie_porowna_wymagan_klon_wraca_sprzed_klikniecia_bez_instalacji
 def git_whose_fetch_stalls(tmp_path: Path, commit: str, heartbeat: Path) -> Path:
     """Git, którego pobranie stoi, a jego pomocnik dopisuje do ``heartbeat``, dopóki żyje (najwyżej pół minuty).
 
+    Pomocnika uruchamia proces, który zaraz się kończy, więc pomocnik nie ma żywego rodzica.
     Poza pobraniem odpowiada jak klon na `main` na commicie ``commit``.
     """
 
     helper = f"import time\nfor _ in range(600):\n    open({str(heartbeat)!r}, 'a').write('.')\n    time.sleep(0.05)\n"
+    middle = f"import subprocess, sys\nsubprocess.Popen([sys.executable, '-c', {helper!r}])\n"
     script = tmp_path / "git_ze_stojacym_pobraniem.py"
     script.write_text(
         "import subprocess, sys, time\n"
@@ -1049,7 +1051,7 @@ def git_whose_fetch_stalls(tmp_path: Path, commit: str, heartbeat: Path) -> Path
         "args = [arg for index, arg in enumerate(sys.argv[1:]) if arg != '-c' and sys.argv[index] != '-c']\n"
         "command = args[2] if args[:1] == ['-C'] else args[0]\n"
         "if command == 'fetch':\n"
-        f"    subprocess.Popen([sys.executable, '-c', {helper!r}])\n"
+        f"    subprocess.run([sys.executable, '-c', {middle!r}])\n"
         "    time.sleep(60)\n"
         "print('main' if command == 'symbolic-ref' else COMMIT)\n",
         encoding="utf-8",
