@@ -133,7 +133,7 @@ jobs:
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
     # A pull request runs only the scripts whose verdict its changes can alter; a push to main runs them all.
-    # Each part runs every third script: side by side on one runner they exceed their time limits.
+    # Each part runs a third of the scripts by their CI time: side by side on one runner they exceed their time limits.
     name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest
     # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.

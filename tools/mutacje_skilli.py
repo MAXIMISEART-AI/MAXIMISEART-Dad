@@ -21,8 +21,9 @@ także w funkcji) oraz infrastruktura mutacji: ten runner z importami i ``INFRAS
 czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zawęża selekcji poniżej
 nich. Skrypt, którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z
 repozytorium, kod się nie parsuje), biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
-Z ``--czesc K/N`` biegnie co N-ty skrypt od K-tego (w kolejności nazw), więc N zadań CI dzieli
-skrypty bez listy w ``ci.yml``.
+Z ``--czesc K/N`` biegną skrypty K-tej z N części o podobnym czasie w CI (``CI_TIMES_S``), więc
+N zadań CI dzieli skrypty bez listy w ``ci.yml``. Skrypt spoza tabeli waży tyle, co mediana tabeli:
+nieaktualna tabela psuje tylko równowagę części, nie gubi skryptu.
 
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
@@ -39,6 +40,7 @@ import importlib.util
 import os
 from pathlib import Path
 import re
+import statistics
 import subprocess
 import sys
 import time
@@ -53,6 +55,13 @@ MENTION = re.compile(r"[\w.\\/-]*scripts[\\/]check_\w+_mutations\.py")
 VERDICT = "MUTACJE OK"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
+# Czas skryptu skilla w zadaniu CI na windows-latest (run 40040059089 na main); dzieli skrypty na części.
+CI_TIMES_S: dict[str, float] = {
+    "verify-jedno-uruchomienie-naraz": 288,
+    "verify-kopia-wzorca": 91,
+    "verify-publikacja-plikow-okresu": 66,
+    "verify-rozliczenia": 65,
+}
 # Pliki spoza Pythona, od których zależy przebieg mutacji w CI: biblioteki, zadanie CI, końce linii kopii.
 INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
 # Katalogi, w których skrypty i sprawdzenia szukają importów (sys.path), poza katalogiem importującego pliku.
@@ -192,6 +201,20 @@ def _why_run(script: Path, changed: set[str]) -> tuple[bool, str]:
     return False, f"zmiany nie dotykają pilnuje, folderu skilla ani {files} plików repozytorium, które skrypt czyta"
 
 
+def parts(scripts: list[Path], count: int, times: dict[str, float]) -> list[list[Path]]:
+    """Skrypty w ``count`` częściach: każdy następny najdłuższy skrypt do części o najmniejszej sumie czasu."""
+
+    default = statistics.median(times.values()) if times else 1.0
+    weight = {script: times.get(script.parents[1].name, default) for script in scripts}
+    chosen: list[list[Path]] = [[] for _ in range(count)]
+    sums = [0.0] * count
+    for script in sorted(scripts, key=lambda script: (-weight[script], _name(script))):
+        lightest = sums.index(min(sums))
+        chosen[lightest].append(script)
+        sums[lightest] += weight[script]
+    return [sorted(part) for part in chosen]
+
+
 def _lost(scripts: list[Path]) -> dict[str, str]:
     """Skrypty mutacji, których runner by nie uruchomił, z powodem."""
 
@@ -234,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--limit-s", type=float, default=LIMIT_S, help="Limit czasu jednego skryptu w sekundach.")
     parser.add_argument("--zmiany-od", metavar="REF", help="Tylko skrypty, których werdykt mogą zmienić zmiany od REF.")
-    parser.add_argument("--czesc", metavar="K/N", type=_part, help="Tylko co N-ty skrypt od K-tego.")
+    parser.add_argument("--czesc", metavar="K/N", type=_part, help="Tylko skrypty K-tej z N części o podobnym czasie w CI.")
     args = parser.parse_args(argv)
     scripts = sorted(SKILLS.glob(f"*/scripts/{PATTERN}"))
     failed = _lost(scripts)
@@ -246,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     changed = None if args.zmiany_od is None else _changed(args.zmiany_od)
     number, count = args.czesc or (1, 1)
     # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.
-    for script in scripts[number - 1 :: count]:
+    for script in parts(scripts, count, CI_TIMES_S)[number - 1]:
         name = _name(script)
         runs, why = (True, "") if changed is None else _why_run(script, changed)
         if not runs:
