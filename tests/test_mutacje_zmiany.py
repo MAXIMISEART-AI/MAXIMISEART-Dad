@@ -5,6 +5,7 @@ Przebiegi idą w małym repozytorium z narzędziami checkoutu: baza ma ``return 
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 from pathlib import Path
@@ -34,8 +35,9 @@ ALL_CASES = (
 )
 
 
-def _repo(tmp_path: Path, test: str, changed: str = CHANGED) -> Path:
-    repo = repository(tmp_path, {"src/rozliczenia/__init__.py": "", MODULE: BASE, "tests/test_warunek.py": test})
+def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE) -> Path:
+    files = {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": "", MODULE: base, "tests/test_warunek.py": test}
+    repo = repository(tmp_path, files)
     for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py"):
         shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
     commit(repo, "baza")
@@ -71,7 +73,7 @@ def test_zmiana_z_testami_ktore_widza_kazda_mutacje_konczy_sie_ok(tmp_path: Path
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "NIEWYKRYTA" not in done.stdout
-    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | mutacje=4 | wyjątki=0"
+    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | mutacje=4 | wyjątki=0 | innego systemu=0"
 
 
 def test_czesci_dziela_mutacje_miedzy_siebie(tmp_path: Path) -> None:
@@ -94,6 +96,101 @@ def test_wyjatek_w_linii_mutacji_ja_pomija_a_wygasly_juz_nie(tmp_path: Path) -> 
     assert excused.returncode == 0, excused.stdout + excused.stderr
     assert "WYJĄTEK: src/rozliczenia/warunek.py:2 bez `b` w `and` (tylko na próbę, do 2999-01-01, zgoda Maks)" in excused.stdout
     assert stale.returncode == 1, stale.stdout + stale.stderr
+
+
+def test_mutacja_kodu_sprawdzanego_tylko_w_podprocesie_wykrywa_test_podprocesu(tmp_path: Path) -> None:
+    base = BASE + "\n\ndef dwa() -> int:\n    return 1\n"
+    changed = CHANGED + "\n\ndef dwa() -> int:\n    return 2\n"
+    in_subprocess = (
+        "import subprocess\nimport sys\n\n\n"
+        "def test_dwa_w_podprocesie() -> None:\n"
+        "    code = 'from rozliczenia.warunek import dwa; assert dwa() == 2'\n"
+        "    subprocess.run([sys.executable, '-c', code], check=True)\n"
+    )
+
+    tests = "import subprocess\nimport sys\n" + ALL_CASES + "\n\n" + in_subprocess.replace("import subprocess\nimport sys\n\n\n", "")
+
+    done = _run(_repo(tmp_path, tests, changed, base))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "WYKRYTA: src/rozliczenia/warunek.py:6 `return 2` → `return None`" in done.stdout
+
+
+def test_mutacja_stalej_modulu_wykrywa_test_innej_funkcji_pliku(tmp_path: Path) -> None:
+    base = "LIMIT = 3\n\n\ndef duze(n: int) -> bool:\n    return n > LIMIT\n\n\ndef nazwa() -> str:\n    return 'a'\n"
+    changed = base.replace("LIMIT = 3", "LIMIT = 5").replace("return 'a'", "return 'b'")
+    tests = (
+        "from rozliczenia.warunek import duze, nazwa\n\n\n"
+        "def test_nazwa() -> None:\n    assert nazwa() == 'b'\n\n\n"
+        "def test_duze() -> None:\n    assert duze(4) is False\n    assert duze(6) is True\n"
+    )
+
+    done = _run(_repo(tmp_path, tests, changed, base))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "WYKRYTA: src/rozliczenia/warunek.py:1 zmiana linii 1 cofnięta do bazy" in done.stdout
+
+
+def test_cofniecie_przywraca_usunieta_linie_zaczynajaca_sie_od_dwoch_minusow(tmp_path: Path) -> None:
+    base = 'TEKST = """\n-- stare\n"""\n'
+    tests = "from rozliczenia.warunek import TEKST\n\n\ndef test_tekst() -> None:\n    assert '-- stare' not in TEKST\n"
+
+    done = _run(_repo(tmp_path, tests, base.replace("-- stare", "nowe"), base))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "WYKRYTA: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy" in done.stdout
+
+
+def test_przeniesiony_plik_bez_zmian_nie_daje_mutacji(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ONE_CASE, BASE)
+    git(repo, "mv", MODULE, "src/rozliczenia/przeniesiony.py")
+
+    done = _run(repo)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ od baza"
+
+
+def test_plik_bez_zaleznych_testow_konczy_sie_fail(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, "def test_nic() -> None:\n    pass\n")
+
+    done = _run(repo)
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "żaden test nie zależy od src/rozliczenia/warunek.py" in done.stdout
+
+
+def test_wyjatek_w_linii_obejmuje_cofniecie_fragmentu_ktory_ja_zawiera(tmp_path: Path) -> None:
+    base = "def oba(a, b):\n    return a\n"
+    changed = CHANGED.replace("a and b\n", "a and b  # mutacje-zmiany: tylko na próbę | do 2999-01-01 | zgoda Maks\n")
+
+    done = _run(_repo(tmp_path, ONE_CASE, changed, base))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "WYJĄTEK: src/rozliczenia/warunek.py:1 zmiana linii 1–2 cofnięta do bazy" in done.stdout
+
+
+def test_wyjatek_obowiazuje_jeszcze_w_dniu_terminu(tmp_path: Path) -> None:
+    today = datetime.datetime.now(datetime.UTC).date()
+    changed = CHANGED.replace("a and b\n", f"a and b  # mutacje-zmiany: tylko na próbę | do {today} | zgoda Maks\n")
+
+    done = _run(_repo(tmp_path, ALL_CASES.replace("    assert oba(False, True) is False\n", ""), changed))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert f"WYJĄTEK: src/rozliczenia/warunek.py:2 bez `a` w `and` (tylko na próbę, do {today}, zgoda Maks)" in done.stdout
+
+
+def test_galaz_innego_systemu_jest_pominieta_a_nie_niewykryta(tmp_path: Path) -> None:
+    other = "nt" if sys.platform != "win32" else "posix"
+    branch = "if sys.platform == 'win32':" if sys.platform != "win32" else "if sys.platform != 'win32':"
+    base = f"import sys\n\n{branch}\n    SYSTEM = 'stary'\n"
+    changed = base.replace("'stary'", f"'{other}'")
+
+    done = _run(_repo(tmp_path, "import rozliczenia.warunek\n\n\ndef test_import() -> None:\n    pass\n", changed, base))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert f"POMINIĘTA: src/rozliczenia/warunek.py:4 zmiana linii 4 cofnięta do bazy → kod innego systemu niż {sys.platform}" in done.stdout
+    assert done.stdout.splitlines()[-1].endswith("innego systemu=1")
 
 
 def test_testy_ktore_padaja_bez_mutacji_koncza_sie_bez_werdyktu_mutacji(tmp_path: Path) -> None:
@@ -176,10 +273,47 @@ def test_dekorator_nie_dostaje_mutacji() -> None:
     assert [d for d in _described("@dataclass(frozen=True)\nclass A:\n    x: int\n", [1]) if "cofnięta" not in d] == []
 
 
-def test_adnotacje_i_docstringi_nie_dostaja_mutacji() -> None:
-    code = 'def f(x: tuple[int, str] | None = None) -> bool:\n    """Opis."""\n'
+def test_gałąź_innego_systemu_i_jej_warunek_sa_oznaczone() -> None:
+    code = "import sys\n\nif sys.platform == 'win32':\n    x = a or b\nelse:\n    y = c or d\n"
+    hunks = [Hunk(line, 1, ()) for line in (3, 4, 6)]
 
-    assert [description for description in _described(code, [1, 2]) if "cofnięta" not in description] == []
+    def other(platform: str) -> dict[str, bool]:
+        return {m.description: m.other_system for m in mutants("m.py", code, hunks, platform) if "cofnięta" not in m.description}
+
+    assert other("linux") == {
+        "warunek `sys.platform == 'win32'` zawsze `True`": True,
+        "warunek `sys.platform == 'win32'` zawsze `False`": True,
+        "bez `a` w `or`": True,
+        "bez `b` w `or`": True,
+        "bez `c` w `or`": False,
+        "bez `d` w `or`": False,
+    }
+    assert {d for d, flag in other("win32").items() if flag} == {
+        "warunek `sys.platform == 'win32'` zawsze `True`",
+        "warunek `sys.platform == 'win32'` zawsze `False`",
+        "bez `c` w `or`",
+        "bez `d` w `or`",
+    }
+
+
+def test_cofniecie_liczy_linie_jak_git_mimo_separatora_unicode() -> None:
+    code = 'a = "x\u2028y"\nb = 2\nc = 3\n'
+
+    assert _described(code, [3], ("c = 4",))["zmiana linii 3 cofnięta do bazy"] == 'a = "x\u2028y"\nb = 2\nc = 4\n'
+
+
+def test_adnotacja_pola_modelu_zostaje_mutacja_a_stala_nie_jest_aliasem() -> None:
+    model = "class Model(BaseModel):\n    pole: int | None\n"
+    constant = "TIMEOUT_S = 5 * 60\n"
+
+    assert "zmiana linii 2 cofnięta do bazy" in _described(model, [2], ("    pole: int",))
+    assert "zmiana linii 1 cofnięta do bazy" in _described(constant, [1], ("TIMEOUT_S = 3 * 60",))
+
+
+def test_adnotacje_i_docstringi_nie_dostaja_mutacji() -> None:
+    code = 'def f(x: tuple[int, str] | None = None) -> bool:\n    """Opis."""\n\n\nif TYPE_CHECKING:\n    g(a or b)\n'
+
+    assert [description for description in _described(code, [1, 2, 5, 6]) if "cofnięta" not in description] == []
 
 
 def test_wyjatek_w_samodzielnym_komentarzu_dotyczy_linii_pod_nim() -> None:
@@ -187,7 +321,7 @@ def test_wyjatek_w_samodzielnym_komentarzu_dotyczy_linii_pod_nim() -> None:
 
     found = exceptions(code, "m.py")
 
-    assert sorted(found) == [2, 3]
+    assert sorted(found) == [1, 2, 3]
     assert (found[2].reason, str(found[2].until), found[2].who) == ("to samo", "2026-12-31", "Maks")
 
 

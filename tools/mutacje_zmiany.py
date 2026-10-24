@@ -1,4 +1,4 @@
-"""Psuje zmienione linie ``src/`` i sprawdza, że któryś test to zauważa, jak zadanie CI ``Mutacje zmiany``.
+"""Psuje zmienione linie ``src/`` i sprawdza, że któryś test to zauważa, jak zadanie CI ``Change mutations``.
 
 Zmiana to linie plików ``src/**/*.py``, którymi checkout (z niezacommitowanymi i nieśledzonymi plikami) różni się
 od ``merge-base`` HEAD z ``--baza`` (domyślnie ``origin/main``). Na każdej zmienionej linii narzędzie robi mutacje,
@@ -14,20 +14,25 @@ które przeglądy PR-ów robiły ręcznie i które przeżywały testy:
 - bez jednego elementu krotki, która nie jest samymi stałymi;
 - fragment zmiany (hunk) cofnięty do bazy: test poprawki, który przechodzi bez niej, tu przeżywa.
 
-Mutacja, która zmienia tylko docstringi, komentarze, adnotacje, importy albo aliasy typów, nie zmienia zachowania,
-więc jej nie ma; dekoratorów narzędzie nie psuje.
+Mutacja, która zmienia tylko docstringi, komentarze, adnotacje argumentów i wyników funkcji, importy albo aliasy
+typów (``Nazwa = Callable[...]``, ``A | B`` czytane tylko w adnotacjach), nie zmienia zachowania, więc jej nie ma.
+Dekoratorów narzędzie nie psuje, a samo usunięcie linii (bez linii dodanej w tym miejscu) nie daje mutacji.
+Kod w gałęzi innego systemu (``if sys.platform == "win32":`` poza Windows i jej ``else`` na Windows) i sam ten
+warunek dostają linię ``POMINIĘTA``: tu nie biegnie żaden test, który by go wykonał.
 
 Najpierw biegną raz testy dotknięte zmianą, wybrane jak w ``tools/szybko.py``, z pluginem
 ``tools/pokrycie_linii.py``, który zapisuje, które testy wykonują które zmienione linie. Muszą przejść, inaczej
 wynik mutacji niczego nie dowodzi. Potem każda mutacja biegnie przez silnik ``tools/mutacje.py`` (własna kopia
-checkoutu) tylko z testami, które wykonały jej linie. Gdy żaden nie wykonał ich w procesie testów (kod modułu przy
-imporcie, kod w procesie uruchomionym przez test), biegną testy, które wykonały inną zmienioną linię tego pliku,
-a gdy takich nie ma, wszystkie testy dotknięte plikiem.
+checkoutu) najpierw tylko z testami, które wykonały jej linie (a gdy takich nie ma, z testami innych zmienionych
+linii tego pliku). Pokrycie tylko przyspiesza wykrycie: mutacja, która je przeżyła, biegnie jeszcze raz ze wszystkimi
+testami dotkniętymi jej plikiem (kod modułu przy imporcie, kod wykonany raz na proces, kod w procesie uruchomionym
+przez test), i dopiero ta porażka daje ``NIEWYKRYTA``.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
 dostaje wyjątek w linii mutacji albo w samodzielnym komentarzu tuż nad nią:
-``# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>``. Wyjątek po terminie nie obowiązuje, a komentarz
-``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
+``# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>``. Wyjątek obejmuje każdą mutację tej linii, także
+cofnięcie fragmentu, który ją zawiera. Wyjątek po terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
+następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
 
 Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. Nie zastępuje mutacji z opisu PR: zachowanie,
 którego żadna z tych mutacji nie psuje (np. inny klucz wyszukiwania), dalej sprawdza przegląd.
@@ -76,6 +81,7 @@ class Mutant:
     lines: frozenset[int]  # zmienione linie, które mutacja psuje
     description: str
     source: str  # cały plik po mutacji
+    other_system: bool = False  # kod gałęzi innego systemu niż ten, na którym biegną testy
 
 
 @dataclass(frozen=True)
@@ -113,21 +119,35 @@ def changes(fork: str) -> dict[str, list[Hunk]]:
 
     found: dict[str, list[Hunk]] = defaultdict(list)
     current: str | None = None
-    hunk: Hunk | None = None
-    for line in _git("diff", "-U0", "--no-renames", "--no-color", fork, "--", "src").splitlines():
-        if line.startswith("+++ "):
+    old_left = new_left = 0  # linie fragmentu, których parser jeszcze nie przeczytał: nie są nagłówkiem
+    # Przeniesiony plik (``-M``) psuje tylko linie, które przy przeniesieniu się zmieniły.
+    for line in _git("diff", "-U0", "-M", "--no-color", fork, "--", "src").split("\n"):
+        if old_left and line.startswith("-"):
+            old_left -= 1
+            if current is not None:
+                hunk = found[current][-1]
+                found[current][-1] = Hunk(hunk.start, hunk.count, (*hunk.old, line[1:]))
+        elif new_left and line.startswith("+"):
+            new_left -= 1
+        elif line.startswith("+++ "):
             name = line[4:]
             current = name[2:] if name.startswith("b/") and _is_source(name[2:]) else None
-        elif (match := _HUNK.match(line)) and current is not None:
-            hunk = Hunk(int(match["new"]), int(match["new_count"] or 1), ())
-            found[current].append(hunk)
-        elif line.startswith("-") and not line.startswith("--- ") and current is not None and hunk is not None:
-            found[current][-1] = hunk = Hunk(hunk.start, hunk.count, (*hunk.old, line[1:]))
+        elif match := _HUNK.match(line):
+            old_left, new_left = int(match["old_count"] or 1), int(match["new_count"] or 1)
+            if current is not None:
+                found[current].append(Hunk(int(match["new"]), new_left, ()))
     for name in _git("ls-files", "--others", "--exclude-standard", "--", "src").splitlines():
         if _is_source(name):
-            lines = len((ROOT / name).read_text(encoding="utf-8").splitlines())
-            found[name] = [Hunk(1, lines, ())]
+            found[name] = [Hunk(1, len(_rows((ROOT / name).read_text(encoding="utf-8"))), ())]
     return {path: hunks for path, hunks in found.items() if (ROOT / path).is_file()}
+
+
+def _rows(text: str) -> list[str]:
+    """Linie z końcami, jak liczy je git: tylko ``\n`` kończy linię (``str.splitlines`` dzieli też na U+2028)."""
+
+    rows = [f"{row}\n" for row in text.split("\n")]
+    rows[-1] = rows[-1][:-1]
+    return rows if rows[-1] else rows[:-1]
 
 
 def changed_lines(hunks: Sequence[Hunk]) -> frozenset[int]:
@@ -194,6 +214,26 @@ def _skipped(tree: ast.AST) -> set[int]:
     return skipped
 
 
+def _other_system(tree: ast.AST, platform: str) -> set[int]:
+    """Węzły gałęzi ``if sys.platform == "win32"`` (albo ``!=``) dla innego systemu niż ``platform`` i jej warunek."""
+
+    other: set[int] = set()
+    windows = platform == "win32"
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and len(node.test.ops) == 1):
+            continue
+        test = node.test
+        if ast.unparse(test.left) != "sys.platform" or ast.unparse(test.comparators[0]) != "'win32'":
+            continue
+        if not isinstance(test.ops[0], (ast.Eq, ast.NotEq)):
+            continue
+        body_for_windows = isinstance(test.ops[0], ast.Eq)
+        branch = node.orelse if body_for_windows == windows else node.body
+        other.update(id(inner) for statement in branch for inner in ast.walk(statement))
+        other.update(id(inner) for inner in ast.walk(test))
+    return other
+
+
 _BOUNDARY: dict[type[ast.cmpop], str] = {ast.Lt: "<=", ast.LtE: "<", ast.Gt: ">=", ast.GtE: ">"}
 
 
@@ -237,10 +277,11 @@ def _candidates(node: ast.AST, source: _Source) -> Iterator[tuple[Node, Node, st
 
 
 def _meaning(text: str) -> str:
-    """Kod bez tego, czego test nie widzi: docstringów, adnotacji typów, importów i aliasów typów.
+    """Kod bez tego, czego test nie widzi: docstringów, adnotacji funkcji, importów i aliasów typów.
 
-    Adnotacje (``from __future__ import annotations``) nie działają w czasie wykonania, a import nazwy, którą kod
-    naprawdę wywołuje, psuje już mutacja linii z tym wywołaniem. Mutacja, która zmienia tylko je, nie zmienia zachowania.
+    Adnotacje argumentów i wyników (``from __future__ import annotations``) nie działają w czasie wykonania, a import
+    nazwy, którą kod naprawdę wywołuje, psuje już mutacja linii z tym wywołaniem. Adnotacje pól zostają, bo w modelach
+    pydantic (``centrum/contract.py``) decydują o walidacji.
     """
 
     tree = ast.parse(text)
@@ -249,41 +290,66 @@ def _meaning(text: str) -> str:
             node.annotation = None
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             node.returns = None
-        elif isinstance(node, ast.AnnAssign):
-            node.annotation = ast.Constant(None)
     loaded = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            node.body = [statement for statement in node.body if not _invisible(statement, loaded)]
+            module = isinstance(node, ast.Module)
+            node.body = [statement for statement in node.body if not _invisible(statement, loaded, module=module)]
     return ast.dump(tree)
 
 
-def _invisible(statement: ast.stmt, loaded: set[str]) -> bool:
+_TYPE_FORMS = frozenset(
+    {"Callable", "Literal", "Annotated", "Union", "Optional", "Mapping", "Sequence", "Iterable", "Iterator", "type"}
+    | {"dict", "list", "tuple", "set", "frozenset"}
+)
+
+
+def _type_form(value: ast.expr) -> bool:
+    if isinstance(value, ast.BinOp):
+        return isinstance(value.op, ast.BitOr) and _type_form(value.left) and _type_form(value.right)
+    if isinstance(value, ast.Constant):
+        return value.value is None
+    if isinstance(value, ast.Subscript):
+        value = value.value
+    name = value.attr if isinstance(value, ast.Attribute) else value.id if isinstance(value, ast.Name) else None
+    return name is not None and (name in _TYPE_FORMS or name[:1].isupper())
+
+
+def _invisible(statement: ast.stmt, loaded: set[str], *, module: bool) -> bool:
     if isinstance(statement, (ast.Import, ast.ImportFrom)):
         return True
     if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
         return True
-    # Alias typu (``Nazwa = Callable[...]`` albo ``A | B``) czytany tylko w adnotacjach.
+    # Alias typu modułu (``Nazwa = Callable[...]`` albo ``A | B``) czytany tylko w adnotacjach.
     return (
-        isinstance(statement, ast.Assign)
+        module
+        and isinstance(statement, ast.Assign)
         and len(statement.targets) == 1
         and isinstance(statement.targets[0], ast.Name)
         and statement.targets[0].id not in loaded
         and isinstance(statement.value, (ast.Subscript, ast.BinOp))
+        and _type_form(statement.value)
     )
 
 
-def mutants(path: str, text: str, hunks: Sequence[Hunk]) -> list[Mutant]:
-    """Mutacje zmienionych linii pliku ``path`` o treści ``text``; każda daje kod, który się kompiluje."""
+def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.platform) -> list[Mutant]:
+    """Mutacje zmienionych linii pliku ``path`` o treści ``text``; każda daje kod, który się kompiluje.
+
+    Testy biegną na systemie ``platform``: mutacja kodu gałęzi innego systemu ma ``other_system``.
+    """
 
     tree = ast.parse(text)
     source = _Source(text)
     changed = changed_lines(hunks)
     skipped = _skipped(tree)
+    other = _other_system(tree, platform)
+    other_lines = {
+        line for node in ast.walk(tree) if id(node) in other and isinstance(node, (ast.expr, ast.stmt)) for line in _span_lines(node)
+    }
     found: dict[str, Mutant] = {}
     meaning = _meaning(text)
 
-    def add(lines: frozenset[int], line: int, description: str, mutated: str) -> None:
+    def add(lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool) -> None:
         if mutated == text or mutated in found:
             return
         try:
@@ -291,7 +357,7 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk]) -> list[Mutant]:
         except (SyntaxError, ValueError):
             return
         if _meaning(mutated) != meaning:
-            found[mutated] = Mutant(path, line, lines, description, mutated)
+            found[mutated] = Mutant(path, line, lines, description, mutated, other_system)
 
     for node in ast.walk(tree):
         if id(node) in skipped:
@@ -299,8 +365,9 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk]) -> list[Mutant]:
         for replaced, broken, replacement, description in _candidates(node, source):
             lines = _span_lines(broken) & changed
             if lines:
-                add(lines, broken.lineno, description, source.replaced(replaced, replacement))
-    rows = text.splitlines(keepends=True)
+                mutated = source.replaced(replaced, replacement)
+                add(lines, broken.lineno, description, mutated, other_system=id(broken) in other or id(node) in other)
+    rows = _rows(text)
     for hunk in hunks:
         if not hunk.count or (not hunk.old and hunk.count == len(rows)):
             continue  # samo usunięcie nie ma linii do testu, a nowy plik nie ma bazy
@@ -308,7 +375,8 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk]) -> list[Mutant]:
         mutated = "".join([*rows[: hunk.start - 1], *old, *rows[hunk.start - 1 + hunk.count :]])
         last = hunk.start + hunk.count - 1
         span = f"{hunk.start}" if hunk.count == 1 else f"{hunk.start}–{last}"
-        add(changed_lines([hunk]), hunk.start, f"zmiana linii {span} cofnięta do bazy", mutated)
+        lines = changed_lines([hunk])
+        add(lines, hunk.start, f"zmiana linii {span} cofnięta do bazy", mutated, other_system=lines <= other_lines)
     return sorted(found.values(), key=lambda mutant: (mutant.line, mutant.description))
 
 
@@ -316,8 +384,8 @@ def exceptions(text: str, path: str) -> dict[int, Allowance]:
     """Wyjątki ``# mutacje-zmiany:`` pliku według linii kodu, której dotyczą; zła postać rzuca ``ValueError``."""
 
     found: dict[int, Allowance] = {}
-    lines = text.splitlines()
-    for number, line in enumerate(lines, start=1):
+    for number, line in enumerate(_rows(text), start=1):
+        line = line.rstrip("\n")  # noqa: PLW2901
         match = EXCEPTION.search(line)
         if match is None:
             continue
@@ -328,8 +396,10 @@ def exceptions(text: str, path: str) -> dict[int, Allowance]:
             until = datetime.date.fromisoformat(form["until"])
         except ValueError as error:
             raise ValueError(f"{path}:{number}: zła data wyjątku {form['until']}") from error
-        own_line = line.lstrip().startswith("#")
-        found[number + 1 if own_line else number] = Allowance(form["reason"], until, form["who"])
+        allowance = Allowance(form["reason"], until, form["who"])
+        found[number] = allowance
+        if line.lstrip().startswith("#"):
+            found[number + 1] = allowance
     return found
 
 
@@ -361,6 +431,13 @@ def _command(tests: Sequence[str]) -> tuple[str, ...]:
     return ("-m", "pytest", "-q", "-x", "-n", "0", "-p", "no:cacheprovider", *tests)
 
 
+def _allowance(allowed: dict[int, Allowance], mutant: Mutant, today: datetime.date) -> Allowance | None:
+    """Ważny wyjątek z linii mutacji albo z linii cofniętego fragmentu, który zawiera wyjątek."""
+
+    lines = {mutant.line} | (set(mutant.lines) if mutant.description.endswith("cofnięta do bazy") else set())
+    return next((allowed[line] for line in sorted(lines) if line in allowed and allowed[line].until >= today), None)
+
+
 def _part(text: str) -> tuple[int, int]:
     number, _, count = text.partition("/")
     if not (number.isdigit() and count.isdigit() and 1 <= int(number) <= int(count)):
@@ -372,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, od której liczy się zmiana (domyślnie {BASE}).")
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
-    parser.add_argument("--limit-s", type=float, default=300, help="Limit czasu testów jednej mutacji w sekundach.")
+    parser.add_argument("--limit-s", type=float, default=900, help="Limit czasu testów jednej mutacji w sekundach.")
     parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko co N-ta mutacja, od K-tej.")
     args = parser.parse_args(argv)
     number, count = args.czesc
@@ -407,29 +484,40 @@ def main(argv: list[str] | None = None) -> int:
             print("MUTACJE ZMIANY FAIL | testy dotknięte zmianą padają bez mutacji, więc mutacje niczego nie dowiodą")
             return 2
     today = datetime.datetime.now(datetime.UTC).date()
-    to_run: list[tuple[Mutant, mutacje.Mutation]] = []
-    survived = excused = 0
+    narrow: list[tuple[Mutant, mutacje.Mutation]] = []
+    survived = excused = other_system = 0
     for mutant in found:
         name = f"{mutant.path}:{mutant.line} {mutant.description}"
-        allowance = allowed[mutant.path].get(mutant.line)
-        if allowance is not None and allowance.until >= today:
+        allowance = _allowance(allowed[mutant.path], mutant, today)
+        if allowance is not None:
             excused += 1
             print(f"WYJĄTEK: {name} ({allowance.reason}, do {allowance.until}, zgoda {allowance.who})")
             continue
-        covering = sorted(test for test, files in hits.items() if files.get(mutant.path, set()) & mutant.lines)
-        # Linię wykonaną przy imporcie (stałą modułu) czytają funkcje tego pliku, więc ich testy wystarczą.
-        covering = covering or sorted(test for test, files in hits.items() if files.get(mutant.path))
-        if not covering and not by_file[mutant.path]:
+        if mutant.other_system:
+            other_system += 1
+            print(f"POMINIĘTA: {name} → kod innego systemu niż {sys.platform}")
+            continue
+        if not by_file[mutant.path]:
             survived += 1
             print(f"NIEWYKRYTA: {name} → żaden test nie zależy od {mutant.path}")
             continue
+        covering = sorted(test for test, files in hits.items() if files.get(mutant.path, set()) & mutant.lines)
+        covering = covering or sorted(test for test, files in hits.items() if files.get(mutant.path))
         edit = mutacje.Edit(Path(mutant.path), texts[mutant.path], mutant.source)
-        to_run.append((mutant, mutacje.Mutation(name, (edit,), _command(covering or by_file[mutant.path]))))
-    verdicts = mutacje.verdicts([mutation for _, mutation in to_run], workers=args.rownolegle, limit_s=args.limit_s)
-    for (_, mutation), (verdict, last) in zip(to_run, verdicts, strict=True):
+        narrow.append((mutant, mutacje.Mutation(name, (edit,), _command(covering or by_file[mutant.path]))))
+    # Pokrycie tylko przyspiesza: mutacja, która przeżyła testy swoich linii, biegnie ze wszystkimi testami pliku.
+    wide: list[mutacje.Mutation] = []
+    for (mutant, mutation), (verdict, last) in zip(narrow, mutacje.verdicts([m for _, m in narrow], workers=args.rownolegle, limit_s=args.limit_s), strict=True):
+        full = _command(by_file[mutant.path])
+        if verdict == "WYKRYTA" or mutation.command == full:
+            survived += verdict != "WYKRYTA"
+            print(f"{verdict}: {mutation.name} → {last}", flush=True)
+        else:
+            wide.append(mutacje.Mutation(mutation.name, mutation.edits, full))
+    for mutation, (verdict, last) in zip(wide, mutacje.verdicts(wide, workers=args.rownolegle, limit_s=args.limit_s), strict=True):
         survived += verdict != "WYKRYTA"
-        print(f"{verdict}: {mutation.name} → {last}", flush=True)
-    summary = f"mutacje={len(found)} | wyjątki={excused}"
+        print(f"{verdict}: {mutation.name} → {last} (wszystkie testy pliku)", flush=True)
+    summary = f"mutacje={len(found)} | wyjątki={excused} | innego systemu={other_system}"
     if survived:
         print(f"MUTACJE ZMIANY FAIL | przeżyło {survived} | {summary}")
         return 1
