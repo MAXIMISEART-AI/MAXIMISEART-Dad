@@ -88,7 +88,7 @@ def drive_period_board(run: Run, page: Page) -> None:
     opened_before = len(run.lines("opened.jsonl"))
     missing.hover()
     expect(hint).to_be_visible()
-    run.capture(page, "151-tablica-brakujacy-plik", full_page=False)
+    run.capture(page, "156-tablica-brakujacy-plik", full_page=False)
     with sent_requests(page, "POST", "/api/periods/*/open") as sent:
         missing.click(force=True)
         settle(page, sent)
@@ -118,7 +118,7 @@ def drive_period_board(run: Run, page: Page) -> None:
         # Playwright taps only enabled elements; the button is aria-disabled on purpose, so the tap is forced.
         touch.get_by_role("button", name="Plik zbiorczy, okres 15_21_09_2026", exact=True).tap(force=True)
         expect(touch_hint).to_be_visible()
-        run.capture(touch, "152-tablica-brakujacy-plik-dotyk", full_page=False)
+        run.capture(touch, "157-tablica-brakujacy-plik-dotyk", full_page=False)
         touch.get_by_role("heading", name="Okresy", exact=True).tap()
         expect(touch_hint).to_have_count(0)
         run.check(len(run.lines("opened.jsonl")) == opened_before, "a finger tap shows the hint, a tap beside hides it")

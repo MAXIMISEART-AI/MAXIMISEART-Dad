@@ -190,7 +190,7 @@ def drive_settlement(run: Run, page: Page) -> None:
             current_run(run, "przebieg-znak-uruchomienia")["state"] == "running",
             "on Okresy during the RUN the menu and the header show „Trwa Uruchomienie” (harness pacing on)",
         )
-        run.capture(page, "150-przebieg-znak-uruchomienia", live=True)  # the sign's spinner turns while it runs
+        run.capture(page, "155-przebieg-znak-uruchomienia", live=True)  # the sign's spinner turns while it runs
         header_link.click()
         expect(live).to_be_visible()
         expect(header_link).to_have_count(0)

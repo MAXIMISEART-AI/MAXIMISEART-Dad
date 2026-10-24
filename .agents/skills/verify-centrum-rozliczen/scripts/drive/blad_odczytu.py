@@ -96,7 +96,7 @@ def drive_load_failures(run: Run, page: Page) -> None:
 
     _fails_then_retries(
         run, page, step="blad-odczytu-ustawienia", path="/api/settings", what="okresów",
-        open_page=reload_tab, content=board, shot="140-blad-odczytu-ustawienia",
+        open_page=reload_tab, content=board, shot="139-blad-odczytu-ustawienia",
     )
 
     def via_menu(name: str) -> Callable[[], None]:

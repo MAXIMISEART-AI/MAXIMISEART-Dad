@@ -134,7 +134,9 @@ run dir is `.verification` of the checkout, or any path given with `--run-dir`:
 - `fixture.txt`, `server.txt` (server console), `doctor.txt`, `drive.txt`
   (every step and check), `cleanup.txt`, `self-test.txt`;
 - `screenshots/NN-<step>.png` and `aria/NN-<step>.txt` for each step, captured
-  after transitions finish; on failure, also `screenshots/zz-failure.png`;
+  after transitions finish; on failure, also `screenshots/zz-failure.png`.
+  `NN` belongs to one screenshot only (feature files and PRs cite it alone), and
+  the run fails when two required screenshots share it;
 - `api/*.json` with the server's answers, including the refused foreign
   `Origin` and `Host` requests, and `api/start-*.txt` with the real launcher's
   console output;

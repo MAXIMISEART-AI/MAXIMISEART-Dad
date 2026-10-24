@@ -56,8 +56,8 @@ REQUIRED_SCREENSHOTS = {
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
         "17-tablica-odczyt-nieudany.png",
-        "151-tablica-brakujacy-plik.png",
-        "152-tablica-brakujacy-plik-dotyk.png",
+        "156-tablica-brakujacy-plik.png",
+        "157-tablica-brakujacy-plik-dotyk.png",
     ),
     "uklad-folderow-taty": (
         "15-uklad-taty-tablica.png",
@@ -99,7 +99,7 @@ REQUIRED_SCREENSHOTS = {
         "29-metryki-wykres-szczegoly-jasny.png",
     ),
     "blad-odczytu": (
-        "140-blad-odczytu-ustawienia.png",
+        "139-blad-odczytu-ustawienia.png",
         "142-blad-odczytu-tablica.png",
         "143-blad-odczytu-uruchomienia.png",
         "144-blad-odczytu-historia.png",
@@ -128,7 +128,7 @@ REQUIRED_SCREENSHOTS = {
         "41-przebieg-podglad.png",
         "42-przebieg-potwierdzenie.png",
         "43-przebieg-na-zywo.png",
-        "150-przebieg-znak-uruchomienia.png",
+        "155-przebieg-znak-uruchomienia.png",
         "44-przebieg-zapisane.png",
         "45-przebieg-status-okresu.png",
         "46-przebieg-nienadpisywanie.png",
@@ -320,6 +320,13 @@ def _preflight() -> None:
         raise VerificationFailure(
             "Playwright for Python is missing; run `pip install playwright` and `python -m playwright install chromium`"
         )
+    # Feature files and PR descriptions name screenshots by number alone.
+    owners: dict[str, list[str]] = {}
+    for shot in (shot for shots in REQUIRED_SCREENSHOTS.values() for shot in shots):
+        owners.setdefault(shot.split("-", 1)[0], []).append(shot)
+    shared = {number: shots for number, shots in owners.items() if len(shots) > 1}
+    if shared:
+        raise VerificationFailure(f"screenshot numbers used twice: {shared}")
 
 
 def _verify(feature: str, performance: list[str], run_dir: Path) -> Path:
