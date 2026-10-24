@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, NoReturn
 
-_ROW_START: Final = re.compile(rb'<row r="(\d+)"')
 _WITHOUT_LEADING_R: Final = re.compile(rb'<(?:c|row)(?=[\s>/])(?! r=")')
+_ROW_START_OR_IRREGULAR: Final = re.compile(rb'<(?:row r="(\d+)"|!|(?:c|row)(?=[\s>/])(?! r="))')
 
 
 class IrregularSheetData(Exception):
@@ -45,16 +45,25 @@ def sheet_data_bounds(xml: bytes) -> tuple[int, int]:
 def sheet_rows(xml: bytes, start: int, end: int) -> list[SheetRow]:
     """Wiersze ``<row>`` między ``start`` a ``end`` (treść ``<sheetData>``) w kolejności z pliku."""
 
-    if xml.find(b"<!", start, end) >= 0:
-        raise IrregularSheetData("komentarz albo CDATA")
-    if _WITHOUT_LEADING_R.search(xml, start, end):
-        raise IrregularSheetData("r")
+    # Jedno przejście po arkuszu (dziesiątki MB w Rejestrze zleceń) zamiast osobnego dla każdego warunku kształtu.
     rows: list[SheetRow] = []
-    for match in _ROW_START.finditer(xml, start, end):
+    for match in _ROW_START_OR_IRREGULAR.finditer(xml, start, end):
+        if match.group(1) is None:
+            _raise_irregular(xml, start, end)
         number = int(match.group(1))
         if rows and number <= rows[-1].number:
-            raise IrregularSheetData("kolejność wierszy")
+            _raise_irregular(xml, start, end, "kolejność wierszy")
         tag_end = xml.index(b">", match.end())
         row_end = tag_end + 1 if xml[tag_end - 1 : tag_end] == b"/" else xml.index(b"</row>", tag_end) + len(b"</row>")
         rows.append(SheetRow(number, match.start(), row_end))
     return rows
+
+
+def _raise_irregular(xml: bytes, start: int, end: int, otherwise: str = "") -> NoReturn:
+    """Pierwszy niespełniony warunek kształtu w kolejności: komentarz albo CDATA, ``r`` jako pierwszy atrybut, ``otherwise``."""
+
+    if xml.find(b"<!", start, end) >= 0:
+        raise IrregularSheetData("komentarz albo CDATA")
+    if _WITHOUT_LEADING_R.search(xml, start, end):
+        raise IrregularSheetData("r")
+    raise IrregularSheetData(otherwise)
