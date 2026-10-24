@@ -6,7 +6,9 @@ alert `Nie udało się odczytać <what>` with the Komunikat and the button
 alert with the page, a re-read on its way makes the button wait with a spinner,
 and a second failure keeps the alert and gives the button back. One shared
 component draws it (`frontend/src/components/load-failure.tsx`), so a page
-without it is a dead end this feature catches.
+without it is a dead end this feature catches. A page with several reads
+(Okresy: Ustawienia taty, the board, the key numbers) shows one alert, and its
+button reads every failed one again.
 
 ## Sub-features
 
