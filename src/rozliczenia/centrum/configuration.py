@@ -86,7 +86,7 @@ class Template:
     used_by: contract.ProcessKey
     check: Callable[[Path], object]
     """Sprawdzanie procesu: ``WorkbookError``, gdy Wzorzec nie może posłużyć jako wzór."""
-    explain: Callable[[Path, WorkbookError], Message]
+    explain: Callable[[WorkbookError], Message]
 
     def find_problem(self) -> _Problem | None:
         """Rodzaj problemu i Komunikat, którym zatrzymałby się proces; ``None``, gdy Wzorzec przechodzi Sprawdzanie."""
@@ -94,7 +94,7 @@ class Template:
         try:
             self.check(self.path)
         except WorkbookError as error:
-            return _kind(error.problem), self.explain(self.path, error)
+            return _kind(error.problem), self.explain(error)
         return None
 
     def problem(self) -> Message | None:

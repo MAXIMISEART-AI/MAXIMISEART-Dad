@@ -15,9 +15,11 @@ from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 
 from rozliczenia.domain import (
+    IssueCountReady,
     PhaseEnded,
     PhaseFailed,
     PhaseStarted,
+    PlanReady,
     ProgressEvent,
     ProgressPhase,
     WorkerEnded,
@@ -134,7 +136,7 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
     assert {path.name for path in target_directory.glob("*.xlsx")} == expected_files
     assert summary.written_count == 2
     assert summary.empty_count == 1
-    assert summary.issues == []
+    assert summary.warnings == []
     assert all(result.output_file.parent == target_directory for result in summary.results)
     assert worker_template_path.read_bytes() == worker_template_before
 
@@ -280,7 +282,7 @@ def test_numer_zlecenia_w_rozliczeniu_pracownika_ma_hiperlacze_z_pliku_zbiorczeg
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    assert (summary.written_count, summary.empty_count, summary.warnings) == (2, 1, [])
     # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego, Darka drugie.
     assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx") == {"F18": links[18], "F19": links[20]}
     assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx") == {"F18": links[19]}
@@ -322,7 +324,7 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    assert (summary.written_count, summary.empty_count, summary.warnings) == (2, 1, [])
     assert worker_template_path.read_bytes() == worker_template_before
     written_directory = tmp_path / "przebieg"
     written_directory.mkdir()
@@ -375,10 +377,19 @@ def with_data_row_without_worker(source_path: Path) -> None:
     with_workers(source_path, {20: None})
 
 
+def with_unmapped_worker_and_data_row_without_worker(source_path: Path) -> None:
+    with_unmapped_worker(source_path)
+    with_data_row_without_worker(source_path)
+
+
 @pytest.mark.parametrize(
     ("damage", "code"),
-    [(with_unmapped_worker, "NIEZNANY_WYKONAWCA"), (with_data_row_without_worker, "WIERSZE_BEZ_WYKONAWCY")],
-    ids=["wykonawca-bez-mapowania", "wiersz-danych-bez-wykonawcy"],
+    [
+        (with_unmapped_worker, "NIEZNANY_WYKONAWCA"),
+        (with_data_row_without_worker, "WIERSZE_BEZ_WYKONAWCY"),
+        (with_unmapped_worker_and_data_row_without_worker, "NIEZNANY_WYKONAWCA"),
+    ],
+    ids=["wykonawca-bez-mapowania", "wiersz-danych-bez-wykonawcy", "oba-wygrywa-nieznany-wykonawca"],
 )
 def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
     tmp_path: Path, damage: Callable[[Path], None], code: str
@@ -397,15 +408,19 @@ def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_pub
 def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wykonawcy_z_konfiguracji(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     with_workers(source_path, {18: "andrzej.nieznany2", 20: None})  # nieznany Wykonawca w pierwszym wierszu, przed znanymi
+    recorded: list[ProgressEvent] = []
 
     summary = run_settlements(
         source_path,
         config_path,
         dry_run=True,
         worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
+        observer=recorded.append,
     )
 
-    assert [issue.code for issue in summary.issues] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    assert [warning.code for warning in summary.warnings] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    counted = [(type(event), event.issue_count) for event in recorded if isinstance(event, (IssueCountReady, PlanReady))]
+    assert counted == [(IssueCountReady, 1), (PlanReady, 2)]
     assert [(result.worker_name, result.status, result.rows) for result in summary.results] == [
         ("Adrian Testowy", "PUSTY_SZABLON", 0),
         ("Darek Fikcyjny", "PLAN", 1),

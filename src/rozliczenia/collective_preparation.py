@@ -161,7 +161,7 @@ def prepare_collective_file(
             preparation_files.check_internal_template(internal_template)
             preparation_files.check_collective_template(collective_template)
         except WorkbookError as error:
-            raise StopError(messages.template_unusable(error.path, error)) from error
+            raise StopError(messages.template_unusable(error)) from error
         if not periods_directory.is_dir():
             raise StopError(messages.periods_directory_missing(periods_directory))
         files = preparation_files.PeriodFiles(
