@@ -7,7 +7,7 @@ only opens the tab again: one Centrum, no window, `juz-dziala` in the Centrum lo
 ## Sub-features
 
 - `start`: `health` answers within 60 s as `centrum-rozliczen` on the tool's commit (`versions.first[:7]`); the port owner is `pythonw.exe` beside the drive's Python, running `<tool>\run_centrum.py`, with no visible window and no `conhost.exe` child; the browser recorder got exactly `http://127.0.0.1:47811/`; the log has one `start port=47811 … konsola=nie`.
-- `karta`: the tab shows heading `Okresy` and button `Wskaż folder okresów` (first start, no settings); on Konfiguracja region `Narzędzie` reads `Wersja <first[:7]>`.
+- `karta`: the tab shows heading `Okresy` and button `Wskaż folder okresów` (first start, no settings); on Konfiguracja region `Narzędzie` contains `Wersja <first[:7]>` (the card also shows the version's date and the freshness from the real GitHub API, which this feature does not check).
 - `drugie-klikniecie`: a second double click adds the same address to the recorder, the log gains `juz-dziala`, no `Centrum rozliczeń` message box appears, the first process still holds the port, and the second start ends within 15 s.
 
 ## How to get to it (user POV)
