@@ -159,7 +159,8 @@
       translate 200ms var(--ease-out);
   }
   /* Ikona stanu po zmianie: przezroczystość i skala od 0,9, 200 ms ease-out. Skala siedzi na obudowie ikony,
-     więc nie walczy z obrotem spinnera; przejście, bo etap potrafi zmienić stan dwa razy w chwilę. */
+     więc nie walczy z obrotem spinnera. Każdy stan to nowy element (`key`), więc druga zmiana w ciągu 200 ms
+     zaczyna wejście od nowa. */
   .podmiana {
     transition:
       opacity 200ms var(--ease-out),

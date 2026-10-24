@@ -116,14 +116,14 @@ function RunsContent() {
     )
   }
 
-  return <ShownRun view={view} processes={setup.data.processes} entrance={entrance} />
+  return <RunOrSetup view={view} processes={setup.data.processes} entrance={entrance} />
 }
 
 /**
  * Karta nowego Uruchomienia procesu albo podgląd na żywo. Zamiana jednej na drugą na oczach taty
  * (start, „Nowe Uruchomienie procesu”) wchodzi `wejscie`; karta zastana po wejściu na stronę nie.
  */
-function ShownRun({
+function RunOrSetup({
   view,
   processes,
   entrance,
