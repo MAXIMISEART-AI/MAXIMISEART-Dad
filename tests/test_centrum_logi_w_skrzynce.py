@@ -20,7 +20,13 @@ from rozliczenia.centrum import app
 from rozliczenia.centrum.report_box import REPOSITORY, Refused, Unreachable
 
 from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox
-from tests.fixtures.centrum_processes import SettlingCentrum, run_to_end, settling_centrum, stopped_for_maks
+from tests.fixtures.centrum_processes import (
+    SettlingCentrum,
+    run_logs_handled,
+    run_to_end,
+    settling_centrum,
+    stopped_for_maks,
+)
 from tests.fixtures.potomne import wait_for
 from tests.fixtures.settlement import PERIOD
 
@@ -258,6 +264,71 @@ def test_diagnoza_po_zatrzymaniu_do_maksa_dopisuje_sie_do_pliku_logow_i_jako_kol
     summary = thread.comments[1].split("\n\n<details>")[0].splitlines()
     assert f"- Diagnoza: `{diagnosis['explanation']['code']}`" in [line.split(";")[0] for line in summary]
     assert [issue.number for issue in box(centrum).issues_with(LABEL)] == [thread.number]
+
+
+def unexpected_exception(centrum: SettlingCentrum) -> str:
+    """Nieoczekiwany wyjątek, po którym karta zaczyna Diagnozę sama przy każdym pokazaniu; zwraca id Uruchomienia."""
+
+    centrum.engines.fail_engine = True
+    try:
+        view = run_to_end(centrum, dry_run=True)
+    finally:
+        centrum.engines.fail_engine = False
+    assert (view["result"]["ending"], view["result"]["diagnosis"]) == ("unexpected", "automatic")
+    run_logs_handled(centrum)
+    return str(view["run"]["id"])
+
+
+def test_diagnoza_z_tym_samym_wynikiem_przy_kazdym_pokazaniu_karty_daje_jeden_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    diagnose(centrum, run_id)
+    diagnosed = thread_with(centrum, comments=2).comments[1]
+
+    shown = [diagnose(centrum, run_id) for _ in range(3)]
+    response = centrum.client.post(f"/api/runs/{run_id}/report")
+
+    thread = thread_with(centrum, comments=2)
+    assert thread.comments == [thread.comments[0], diagnosed]
+    assert sent_json([diagnosed]) == local_logs(centrum, run_id)
+    assert response.json() == {"state": "sent"}
+    [report] = box(centrum).sent
+    assert report.body == shown[-1]["report"]["body"]
+    link = f"- Logi: https://github.com/{REPOSITORY}/issues/{thread.number}#issuecomment-2"
+    assert link in report.body.splitlines()
+
+
+def test_diagnoza_z_innym_wynikiem_niz_ostatnio_wyslana_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    template = centrum.configuration.worker_template
+    good = template.read_bytes()
+    thread_with(centrum, comments=1)
+
+    passing = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+    template.write_bytes(b"to nie jest skoroszyt")
+    broken = diagnose(centrum, run_id)
+    thread_with(centrum, comments=3)
+    template.write_bytes(good)
+    fixed = diagnose(centrum, run_id)
+    thread_with(centrum, comments=4)
+    centrum.surroundings.github.release = None
+    offline = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=5)
+    labels = ("Wzorzec rozliczenia pracownika", "Aktualność narzędzia")
+    states = [tuple(check_state(shown, label) for label in labels) for shown in (passing, broken, fixed, offline)]
+    assert states == [("passed", "passed"), ("failed", "passed"), ("passed", "passed"), ("passed", "not_checked")]
+    logged = [json.loads(sent_json([comment]))["diagnosis"] for comment in thread.comments[1:]]
+    assert [tuple(check_state(diagnosis, label) for label in labels) for diagnosis in logged] == states
+    assert sent_json([thread.comments[-1]]) == local_logs(centrum, run_id)
+
+
+def check_state(diagnosis: dict[str, Any], label: str) -> str:
+    [state] = [check["state"] for check in diagnosis["checks"] if check["label"] == label]
+    return str(state)
 
 
 def test_wyslane_zgloszenie_prowadzi_do_komentarza_logow_swojego_uruchomienia(tmp_path: Path) -> None:
