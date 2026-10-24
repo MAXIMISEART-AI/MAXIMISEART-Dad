@@ -115,7 +115,11 @@ def _unchanged_inputs(root: Path, manifest: dict[str, object]) -> list[str]:
     return errors
 
 
-_ROW_CONTENT = ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3", "SYNTHETIC-4", "unknown.synthetic")
+_UNMAPPED = "unknown.synthetic"
+_ROW_CONTENT = ("TEST-CITY", "SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3", "SYNTHETIC-4", _UNMAPPED)
+_UNMAPPED_WARNING = f"Nieznany identyfikator WYKONAWCA: {_UNMAPPED}. Nie ma go w konfiguracji wykonawców."
+_UNMAPPED_STOP = f"W Pliku zbiorczym jest WYKONAWCA spoza konfiguracji wykonawców: {_UNMAPPED}."
+_NAMING_UNMAPPED = (_UNMAPPED_WARNING, _UNMAPPED_STOP)
 
 
 def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str]) -> None:
@@ -164,8 +168,8 @@ def _assert_dry_run(root: Path, result_path: Path | None) -> int:
     errors = _unchanged_inputs(root, manifest)
     if target_directory.exists():
         errors.append("dry-run created the target directory")
-    result = load_result(result_path, _ROW_CONTENT, errors)
     unmapped = bool(manifest.get("include_unmapped"))
+    result = load_result(result_path, _ROW_CONTENT, errors, naming=_NAMING_UNMAPPED if unmapped else ())
     expected_summary = contract.RunSummary(
         figures=[
             contract.Figure(label="Wiersze danych", value=3, unit="count"),
@@ -181,8 +185,9 @@ def _assert_dry_run(root: Path, result_path: Path | None) -> int:
             errors.append("dry-run result is not the expected finished result")
         if result.summary != expected_summary:
             errors.append("dry-run plan does not list every worker file with its rows")
-        if [warning.code for warning in result.warnings] != (["BRAK_MAPOWANIA"] if unmapped else []):
-            errors.append("dry-run warnings do not match the unmapped workers")
+        expected_warnings = [("BRAK_MAPOWANIA", _UNMAPPED_WARNING)] if unmapped else []
+        if [(warning.code, warning.what) for warning in result.warnings] != expected_warnings:
+            errors.append("dry-run warnings do not name each unmapped worker once")
         problems = dict(figures(result.progress.figures)).get("Problemy")
         if problems != (1 if unmapped else 0):
             errors.append(f"dry-run reports {problems} Problemy")
@@ -270,7 +275,8 @@ def _assert_no_publish(root: Path, result_path: Path | None, expected_stop: str,
         errors.append("failed run published the target directory")
     if list(period_directory.glob(f".{target_directory.name}.staging-*")):
         errors.append("failed run left a staging directory")
-    _check_stop(load_result(result_path, _ROW_CONTENT, errors), expected_stop, expected_what, errors)
+    naming = _NAMING_UNMAPPED if manifest.get("include_unmapped") else ()
+    _check_stop(load_result(result_path, _ROW_CONTENT, errors, naming=naming), expected_stop, expected_what, errors)
     _check_stop_metrics(root, expected_stop, errors)
     return finish(
         errors,
