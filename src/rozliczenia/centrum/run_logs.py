@@ -46,6 +46,7 @@ from rozliczenia.centrum.outbox import Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import Label
 from rozliczenia.centrum.runs import EndedRun, Ending
 from rozliczenia.centrum.tool_freshness import CommitSource
+from rozliczenia.centrum.tool_update import Release
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.domain import WorkerStatus
 from rozliczenia.message import Message
@@ -166,8 +167,9 @@ class LoggedDiagnosis(_Record):
 
 
 class Tool(_Record):
-    wydanie: None
-    """Wydań (ADR 0014) jeszcze nie ma."""
+    wydanie: str | None
+    """Numer Wydania (ADR 0014), którego tag w klonie wskazuje ``commit`` (``0.10.0``); ``None``, gdy nie da się go
+    ustalić lokalnie: commit po Wydaniu, bez Gita albo bez commitu."""
     commit: str | None
 
 
@@ -375,19 +377,24 @@ class RunLogs:
         outbox: Outbox,
         *,
         commit: CommitSource,
+        wydanie: Callable[[str], Release | None],
         files: ProcessFiles,
         cloud_files: CloudFiles,
     ) -> None:
         self._directory = directory
         self._outbox = outbox
         self._commit = commit
+        self._wydanie = wydanie
         self._files = files
         self._cloud = cloud_files
         self._lock = threading.Lock()
         self._last: RunLog | None = None  # Logi ostatniego Uruchomienia tak, jak ostatnio poszły do pliku i Skrzynki
 
     def run_ended(self, run: EndedRun) -> None:
-        record = RunLog.of(run, tool=Tool(wydanie=None, commit=self._commit()), environment=self._environment(run))
+        commit = self._commit()
+        release = None if commit is None else self._wydanie(commit)
+        tool = Tool(wydanie=None if release is None else release.version, commit=commit)
+        record = RunLog.of(run, tool=tool, environment=self._environment(run))
         with self._lock:
             self._last = record
         self._keep(record)
