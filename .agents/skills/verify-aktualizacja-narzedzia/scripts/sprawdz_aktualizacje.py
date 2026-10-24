@@ -39,6 +39,7 @@ PASSES, VIOLATES = "przechodzi", "narusza"
 PROMISES = {
     "TataMaDzialajacaWersje": "tata zostaje bez wersji, która startuje, albo bez swojego pliku w config/.",
     "OpiekunCofaTylkoNieudana": "opiekun cofa nową wersję, która by wystartowała.",
+    "OkienkoTylkoGdyNicNieDziala": "opiekun pokazuje okienko „nie wystartowało”, choć Centrum działa.",
 }
 _STATE = re.compile(r"^State \d+: ")
 _STUTTERING = re.compile(r"^State \d+: Stuttering")
