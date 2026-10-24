@@ -22,14 +22,11 @@ from typing import Final, assert_never
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .period_folder import PeriodFolderLookupError, month_folder_label
 from .quantity_rules import DESCRIPTION_COLUMNS
-from .workbook_files import WORKER_HEADER
-from .workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
+from .workbook_files import WORKER_HEADER, MergedCells, MissingHeader, Problem, WorkbookError
 from .worker_config import WorkerConfigError
 
-# Kod czytany poza katalogiem: decyzja o niepełnym okresie. Kody Wzorców czyta tylko ten katalog.
+# Kod czytany poza katalogiem: decyzja o niepełnym okresie.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
-TEMPLATE_MISSING = "BRAK_WZORCA"
-TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"
 # Ostrzeżenia ilości: tylko z ich powodu zapisany Plik zbiorczy wymaga sprawdzenia, więc skrypty, które czekają
 # na Przygotowanie bez uwag, przyjmują taki wynik.
 UNKNOWN_DEVICES = "NIEZNANE_URZADZENIA"
@@ -119,7 +116,7 @@ def _template_missing(template_path: Path) -> Message:
     """Wzorzec rozliczenia wewnętrznego albo Wzorzec pliku zbiorczego nie istnieje."""
 
     return Message(
-        code=TEMPLATE_MISSING,
+        code="BRAK_WZORCA",
         what="Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku.",
         where=file_label(template_path),
         action=REPORT_TO_MAINTAINER,
@@ -130,7 +127,7 @@ def _template_open_in_excel(template_path: Path) -> Message:
     """Wzorzec ma obok plik blokady Excela ``~$…``; narzędzie go nie usuwa."""
 
     return Message(
-        code=TEMPLATE_OPEN_IN_EXCEL,
+        code="WZORZEC_OTWARTY",
         what="Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku.",
         where=file_label(template_path),
         action=(
