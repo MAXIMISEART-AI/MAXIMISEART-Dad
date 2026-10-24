@@ -15,7 +15,14 @@ from tests.fixtures.skladnia import dotted, imports
 
 TESTS = Path(__file__).resolve().parent
 CLOCKS = frozenset({"time.monotonic", "time.perf_counter"})
-TIME_READINGS = CLOCKS | {"time.time", "time.monotonic_ns", "time.perf_counter_ns", "time.time_ns"}
+TIME_READINGS = CLOCKS | {
+    "time.time",
+    "time.monotonic_ns",
+    "time.perf_counter_ns",
+    "time.time_ns",
+    "datetime.datetime.now",
+    "datetime.datetime.utcnow",
+}
 SLEEPS = frozenset({"time.sleep", "asyncio.sleep"})
 SIMULATED_TIME = {
     "test_centrum_przygotowanie.py::test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk": (
@@ -158,19 +165,43 @@ CONSTANT_TIME_BOUNDS = {
 }
 
 
+def _unpacked(target: ast.expr, value: ast.expr | None) -> Iterator[tuple[str, ast.expr | None]]:
+    """Nazwa w celu przypisania i jej wartość: ``took, _ = a, b`` wiąże ``took`` z ``a``."""
+
+    if isinstance(target, ast.Name):
+        yield target.id, value
+        return
+    if isinstance(target, (ast.Tuple, ast.List)):
+        values = value.elts if isinstance(value, (ast.Tuple, ast.List)) else []
+        paired = len(values) == len(target.elts) and not any(
+            isinstance(item, ast.Starred) for item in [*values, *target.elts]
+        )
+        for index, item in enumerate(target.elts):
+            yield from _unpacked(item.value if isinstance(item, ast.Starred) else item, values[index] if paired else None)
+        return
+    for name in ast.walk(target):
+        if isinstance(name, ast.Name):
+            yield name.id, None
+
+
 def _bindings(tree: ast.Module) -> dict[str, list[ast.expr | None]]:
-    """Każda wartość przypisana nazwie w module; ``None``, gdy nazwę wiąże coś innego niż proste przypisanie."""
+    """Każda wartość przypisana nazwie w module; ``None``, gdy nazwę wiąże coś innego niż przypisanie.
+
+    ``took += x`` to ``took = took + x``: dla ``_constant`` nazwa zależy od siebie, więc nie jest stałą, a dla
+    ``_measured`` niesie odczyt zegara z ``x``.
+    """
 
     bound: dict[str, list[ast.expr | None]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                for name in ast.walk(target):
-                    if isinstance(name, ast.Name):
-                        bound.setdefault(name.id, []).append(node.value if target is name else None)
-        elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)) and isinstance(node.target, ast.Name):
-            value = node.value if isinstance(node, ast.AnnAssign) else None
-            bound.setdefault(node.target.id, []).append(value)
+                for bound_name, value in _unpacked(target, node.value):
+                    bound.setdefault(bound_name, []).append(value)
+        elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            itself = ast.Name(id=node.target.id, ctx=ast.Load())
+            bound.setdefault(node.target.id, []).append(ast.BinOp(left=itself, op=node.op, right=node.value))
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and isinstance(node.target, ast.Name):
+            bound.setdefault(node.target.id, []).append(node.value)
         elif isinstance(node, (ast.For, ast.comprehension, ast.withitem)):
             loop_target = node.optional_vars if isinstance(node, ast.withitem) else node.target
             for name in ast.walk(loop_target) if loop_target is not None else ():
