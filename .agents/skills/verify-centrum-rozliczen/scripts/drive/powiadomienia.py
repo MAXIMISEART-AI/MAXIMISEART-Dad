@@ -264,6 +264,12 @@ def _drive_new_version(run: Run, page: Page, note: dict[str, object], report: di
     solved = card.get_by_role("list", name="Rozwiązane sprawy").get_by_role("listitem")
     expect(solved).to_have_text([f"Uwaga: {note['title']}", f"Zgłoszenie: {what}"])
     expect(card.get_by_role("button", name=aktualizacja.BUTTON, exact=True)).to_be_enabled()
+    # In `all` the features before this one leave `Masz najnowszą wersję.` from an older Wydanie (#373).
+    run.check(
+        run.api("/api/tool-update", "powiadomienia-nowa-wersja-aktualizacja")["state"] != "up_to_date",
+        "the button of a newer Wydanie has no earlier `Masz najnowszą wersję.`",
+    )
+    expect(card.get_by_role("status").filter(has_text=aktualizacja.UP_TO_DATE)).to_have_count(0)
     expect(card.get_by_label("nowe", exact=True)).to_be_visible()
     listed = page.get_by_role("list", name=BELL)
     card_box, list_box = card.bounding_box(), listed.bounding_box()

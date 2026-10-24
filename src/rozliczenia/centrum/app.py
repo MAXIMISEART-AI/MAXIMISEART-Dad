@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 import time
@@ -149,8 +150,12 @@ def create_app(
     processes = processes or Processes.default()
     # Uruchomienia z Centrum we własnym dzienniku obok ustawień; schemat metryk się nie zmienia.
     centrum_runs = CentrumRuns(settings_path.parent / CENTRUM_RUNS_FILE)
+    # Najnowsze Wydanie na GitHubie: jedna pamiętana odpowiedź dla Konfiguracji, Powiadomień i wyniku Aktualizacji
+    # narzędzia (limit API bez klucza); Diagnoza pyta za każdym razem, a jej odpowiedź też trafia do pamięci.
+    freshness = tool_freshness or ToolFreshness.of_system()
+    release = RememberedRelease(freshness.release, clock=clock)
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
-    surroundings = Surroundings(tool_freshness or ToolFreshness.of_system(), cloud_files or CloudFiles.of_system())
+    surroundings = Surroundings(replace(freshness, release=release.fresh), cloud_files or CloudFiles.of_system())
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
     config = settings_path.parent
     box = report_box or GitHubReportBox()
@@ -171,8 +176,6 @@ def create_app(
         prepare=lambda post: with_logs(post, notes, run_logs_address),
         addresses=config / ADDRESSES_FILE,
     )
-    # Najnowsze Wydanie na GitHubie: jedna pamiętana odpowiedź dla Konfiguracji i Powiadomień (limit API bez klucza).
-    release = RememberedRelease(surroundings.tool_freshness.release, clock=clock)
     # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
         reports.sent,
@@ -222,6 +225,7 @@ def create_app(
         shutdown=shutdown,
         guardian=guardian or (lambda copy, restart: restart_guardian.launch(copy, restart)),
         result_file=settings_path.parent / RESULT_FILE,
+        release=release,
     )
     entries: list[ProcessEntry] = [
         PreparationEntry(store, configuration, processes.preparation, today),

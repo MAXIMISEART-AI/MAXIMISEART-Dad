@@ -313,6 +313,8 @@ def test_nowsze_wydanie_daje_powiadomienie_z_notka_sprawami_taty_i_przyciskiem(t
         FOREIGN,
     )
     release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0", render(ReleaseNotes(SUMMARY, cases))))
+    # Odpowiedź GitHuba z Diagnozy przed Zgłoszeniem Centrum pamięta przez 10 minut.
+    centrum.surroundings.clock.advance(minutes=10)
 
     answer = notifications(centrum)
 

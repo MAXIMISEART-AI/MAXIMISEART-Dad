@@ -422,6 +422,11 @@ def _drive_failed_installation(
     page.reload()
     card = _tool_card(page)
     expect(card).to_contain_text("Jest nowsza wersja")
+    run.check(
+        run.api("/api/tool-update", "aktualizacja-instalowanie-przed") == {"state": "idle"},
+        "with a newer Wydanie than the one the last update was up to date with, the server forgets that result",
+    )
+    expect(card.get_by_role("status").filter(has_text=UP_TO_DATE)).to_have_count(0)
     card.get_by_role("button", name=BUTTON, exact=True).click()
     expect(card.get_by_role("status").filter(has_text=INSTALLING)).to_be_visible()
     expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
