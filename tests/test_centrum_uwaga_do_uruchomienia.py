@@ -321,12 +321,18 @@ def test_komentarz_do_usunietego_issue_uwagi_kolejka_porzuca_raz_i_wiecej_o_nie_
     [issue] = box(centrum).issues_with("uwaga-taty")
     assert wait_for(lambda: len(queued(centrum)) == 2)
     [comment] = queued(centrum, "uwaga-taty")
+    assert centrum.client.post("/api/dad-notes", json={"title": "Inna Uwaga"}).json() == {"state": "sent"}
+    (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").unlink()
+    behind = centrum.client.post("/api/dad-notes", json={"title": "Uwaga za komentarzem"})
+    assert behind.json() == {"state": "waiting"}
     box(centrum).issues.remove(issue)
+    write_key(centrum)
 
     centrum.restart()
     with centrum.client:
         assert wait_for(lambda: logs_sent(centrum, run_id)), "Logi nie dotarły po ponownym starcie"
-        assert wait_for(lambda: queued(centrum) == []), "komentarz do usuniętego issue Uwagi został w kolejce"
+        assert wait_for(lambda: queued(centrum) == []), "kolejka nie wysłała wszystkiego po komentarzu do usuniętej Uwagi"
+    assert [note.title for note in box(centrum).issues_with("uwaga-taty")] == ["Inna Uwaga", "Uwaga za komentarzem"]
 
     centrum.restart()
     with centrum.client:
@@ -337,7 +343,8 @@ def test_komentarz_do_usunietego_issue_uwagi_kolejka_porzuca_raz_i_wiecej_o_nie_
     log = centrum.log_path.read_text(encoding="utf-8").splitlines()
     [dropped] = [line for line in log if "skrzynka-porzucono" in line]
     assert dropped.endswith(f"skrzynka-porzucono etykieta=uwaga-taty plik={comment.name} numer={issue.number}")
-    assert [line for line in log if "skrzynka-czeka etykieta=uwaga-taty" in line] == []
+    after = log[log.index(dropped) :]
+    assert [line for line in after if "skrzynka-czeka etykieta=uwaga-taty" in line] == []
 
 
 def _without_network(centrum: SettlingCentrum) -> None:
