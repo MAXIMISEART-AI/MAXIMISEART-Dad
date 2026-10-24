@@ -24,7 +24,7 @@ from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
 from rozliczenia.centrum.tool_update import ToolClone
 from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
@@ -98,6 +98,8 @@ class Surroundings:
     tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji). Z
     ``guardian_failure`` opiekun nie wystartuje: wywołuje ją i rzuca ``OSError``.
     ``report_search_deadline_s`` to limit, po którym Diagnoza przestaje czekać na skrzynkę Zgłoszeń.
+    ``release_unanswered`` to GitHub, który przy ``tool`` nie odpowiada o najnowsze Wydanie, chociaż klon dalej
+    pobiera z „origin”.
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -110,12 +112,17 @@ class Surroundings:
     restarts: list[Restart] = field(default_factory=list)
     guardian_failure: Callable[[], None] | None = None
     report_search_deadline_s: float = SEARCH_DEADLINE_S
+    release_unanswered: bool = False
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
         if tool is None:
             return self.github.freshness()
-        return ToolFreshness.of_clone(tool.clone, tool.github_releases, tool.published)
+
+        def release() -> GitHubReleases | None:
+            return None if self.release_unanswered else tool.github_releases()
+
+        return ToolFreshness.of_clone(tool.clone, release, tool.published)
 
     def tool_update(self) -> ToolClone | None:
         tool, hold = self.tool, self.update_hold

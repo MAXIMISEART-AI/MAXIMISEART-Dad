@@ -9,9 +9,10 @@ wstrzykiwane do aplikacji Centrum, więc testy i weryfikacja w przeglądarce nig
 nie łączą się z GitHubem. Brak sieci to ``None`` w krótkim limicie czasu, nigdy
 wyjątek ani Komunikat. Diagnoza pyta GitHuba przy każdym sprawdzeniu;
 Konfiguracja, odczytywana przy każdym wejściu na stronę, pamięta jego odpowiedź
-(``RememberedRelease``), a odpowiedź Diagnozy trafia do tej samej pamięci. Czy z oceny wynika propozycja Aktualizacji narzędzia,
-mówi jedna reguła: ``offers_update``. Powiadomienie o nowej wersji czyta stąd też
-opublikowane Wydania z ich notkami (``PublishedRelease``, lista GitHub Releases).
+(``RememberedRelease``), także tę z Diagnozy. Czy z oceny wynika propozycja
+Aktualizacji narzędzia, mówi jedna reguła: ``offers_update``. Powiadomienie o
+nowej wersji czyta stąd też opublikowane Wydania z ich notkami
+(``PublishedRelease``, lista GitHub Releases).
 """
 
 from __future__ import annotations
