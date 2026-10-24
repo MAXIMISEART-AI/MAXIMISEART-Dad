@@ -54,7 +54,7 @@ def _shows(run: Run, figure: Locator, draft: dict[str, str], message: str) -> No
 
 
 def _queued(config: Path) -> list[dict[str, object]]:
-    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted((config / "zgloszenia" / "kolejka").glob("*.json"))]
+    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted((config / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*.json"))]
 
 
 def _notes(config: Path) -> list[dict[str, object]]:

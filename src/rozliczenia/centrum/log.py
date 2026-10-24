@@ -32,6 +32,12 @@ class CentrumLog:
         self._lock = threading.Lock()
         self._view_timings = 0
 
+    @property
+    def directory(self) -> Path:
+        """Katalog dziennika; obok niego leżą Logi Uruchomienia (ADR 0015)."""
+
+        return self._path.parent
+
     def started(self, *, port: int, version: str, console: bool) -> None:
         self._write("start", port=port, wersja=version, konsola="tak" if console else "nie")
 

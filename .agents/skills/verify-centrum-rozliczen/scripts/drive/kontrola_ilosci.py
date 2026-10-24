@@ -24,12 +24,19 @@ BOX_PACING_MS = 4000
 
 
 def _queued(config: Path) -> list[Path]:
-    return sorted((config / "zgloszenia" / "kolejka").glob("*.json"))
+    """Kontrole ilości in the queue; the Logi Uruchomienia of every Uruchomienie wait there in their own files."""
+
+    return sorted((config / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*.json"))
 
 
 def _log(run: Run) -> str:
     path = run.root / "logs" / "centrum-rozliczen.log"
     return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _offline_waits(run: Run) -> int:
+    lines = _log(run).splitlines()
+    return sum(" skrzynka-czeka " in line and line.endswith(" przyczyna=brak-sieci") for line in lines)
 
 
 def _checks_in_box(box: Path) -> list[dict[str, object]]:
@@ -123,9 +130,12 @@ def drive_quantity_check(run: Run, page: Page) -> None:
     offline.parent.mkdir(exist_ok=True)
     offline.touch()
     _close(run, page)
+    waited = _offline_waits(run)
     _start(run, "kontrola-start-bez-sieci")
-    no_network = f"skrzynka-czeka etykieta={LABEL} okres={LAST_COMPLETE} przyczyna=brak-sieci"
-    run.wait_for(lambda: no_network in _log(run), "at start Centrum tries the Kontrola again and it keeps waiting")
+    # The first failure ends the pass, and the Logi Uruchomienia queued before the Kontrola go first.
+    run.wait_for(
+        lambda: _offline_waits(run) > waited, "at start Centrum tries the queue again and the Kontrola keeps waiting"
+    )
     run.check(_queued(config) == [waiting], "the Kontrola file stays after another failure")
     run.check(len(_checks_in_box(box)) == checks_before, "nothing reached the skrzynka")
     _open_periods(page, run)

@@ -29,7 +29,7 @@ from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, dad_notes_router
-from rozliczenia.centrum.diagnosis import Surroundings, diagnose
+from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications, ReadNotifications, notifications_router
@@ -41,6 +41,7 @@ from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import UNSENT_DIRECTORY, Reports, read_report_key
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.run_logs import RUN_LOGS_DIRECTORY, RunLogs
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
@@ -81,7 +82,7 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienia: pierwsze pytanie skrzynki o stan spraw taty przy starcie, nie dopiero przy odczycie.
         notifications.check_in_background()
-        # Kontrole ilości i Uwagi taty, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza),
+        # Kontrole ilości, Logi i Uwagi taty, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza),
         # wychodzą w tle.
         outbox.resume()
         yield
@@ -153,8 +154,8 @@ def create_app(
     config = settings_path.parent
     box = report_box or GitHubReportBox()
     reports = Reports(config, box, log, surroundings.tool_freshness.local)
-    # Kontrola ilości po Przebiegu rozliczeń i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle
-    # (ADR 0013, ADR 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty.
+    # Kontrola ilości po Przebiegu rozliczeń, Logi Uruchomienia i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń,
+    # wysyłane w tle (ADR 0013, ADR 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty.
     notes = DadNotes(config / DAD_NOTES_FILE, log)
     outbox = Outbox(
         config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
@@ -181,8 +182,21 @@ def create_app(
         ),
         log,
     )
+    # Logi Uruchomienia: jeden plik JSON na Uruchomienie obok dziennika Centrum, poza Gitem i OneDrive (ADR 0015).
+    run_logs = RunLogs(
+        log.directory / RUN_LOGS_DIRECTORY,
+        outbox,
+        commit=surroundings.tool_freshness.local,
+        files=lambda process, period: files_of_process(
+            process, period, settings=store.load(), configuration=configuration
+        ),
+        cloud_files=surroundings.cloud_files,
+    )
     runs = RunHost(
-        log, centrum_runs, stops, after_run=[QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)]
+        log,
+        centrum_runs,
+        stops,
+        after_run=[run_logs, QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)],
     )
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie
