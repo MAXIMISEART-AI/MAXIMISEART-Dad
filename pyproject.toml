@@ -28,6 +28,8 @@ dev = [
     "ruff==0.15.12",
     "types-openpyxl==3.1.5.20260827",
     "types-PyYAML==6.0.12.20260906",
+    # The drive of verify-centrum-rozliczen shows dates in Dad's time zone; Python on Windows has no zone database.
+    "tzdata==2026.5; sys_platform == 'win32'",
     "uvicorn==0.54.0",
 ]
 

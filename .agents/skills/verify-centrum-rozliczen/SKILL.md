@@ -61,6 +61,10 @@ Preconditions, checked by the runner before launching:
   run proves the old build;
 - Playwright for Python and Chromium are installed:
   `py -3 -m pip install -e ".[dev]"` then `py -3 -m playwright install chromium`.
+  On Windows `.[dev]` also installs `tzdata`, the time zone database Python
+  lacks there. The drive reads dates on screen in Dad's time zone
+  (`Europe/Warsaw`, the browser's) and dates in the server's text in the
+  computer's own, so it passes on a machine in any time zone.
 
 `serve_centrum.py` runs the production app (`create_app` and `serve`), not a
 test double. Its inputs are run-local: the settings file and both metrics files
@@ -192,6 +196,9 @@ Then confirm the evidence directory still exists.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
   check (with the `wydajnosc` gate on made-up numbers and the machine lock in a
   scratch directory) and evidence hygiene check.
+- `scripts/check_centrum_mutations.py`: shows the drive fails on broken
+  variants of Centrum, each running one feature on its own copy of the checkout;
+  it ends with `MUTACJE OK`, and CI runs it through `tools/mutacje_skilli.py`.
 - `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 

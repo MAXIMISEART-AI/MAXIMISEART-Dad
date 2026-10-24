@@ -58,6 +58,7 @@ VERDICT = "MUTACJE OK"
 LIMIT_S = 30 * 60
 # Czas skryptu skilla w zadaniu CI na windows-latest (mediana 3 prób run 40062771086); dzieli skrypty na części.
 CI_TIMES_S: dict[str, float] = {
+    "verify-centrum-rozliczen": 145,
     "verify-jedno-uruchomienie-naraz": 325,
     "verify-kopia-wzorca": 293,
     "verify-publikacja-plikow-okresu": 97,

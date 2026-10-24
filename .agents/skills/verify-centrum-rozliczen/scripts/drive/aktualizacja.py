@@ -302,7 +302,9 @@ def drive_update(run: Run, page: Page) -> None:
         run.step(FEATURE, "aktualizacja-ponowny-start")
         expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
-        run.check(not _answers(run), "the old Centrum has closed and the new one is not up yet")
+        # The card shows the restart once the server says it restarts, before the old Centrum closes its port;
+        # on Windows the old one still answers then.
+        run.wait_for(lambda: not _answers(run), "the old Centrum has closed and the new one is not up yet")
         run.check(_log_events(run)[-3:] == ["aktualizacja-start", "zamkniecie", "stop"], "the old Centrum closed itself and logged its stop")
         run.check(
             "zamkniecie z=aktualizacja" in (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8"),
@@ -493,7 +495,7 @@ def _drive_new_version_not_starting(
     card.get_by_role("button", name=BUTTON, exact=True).click()
     expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
     expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
-    run.check(not _answers(run), "the old Centrum has closed, and no Centrum answers yet")
+    run.wait_for(lambda: not _answers(run), "the old Centrum has closed, and no Centrum answers yet")
     _entered(_status(page, RESTARTING))
     run.capture(page, "135-aktualizacja-nie-wystartowala-ponowny-start", live=True)
     print("  Dad goes to Uruchomienia while Centrum restarts", flush=True)
