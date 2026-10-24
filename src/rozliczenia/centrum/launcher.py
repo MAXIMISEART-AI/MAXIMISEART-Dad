@@ -77,7 +77,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             started_by_guardian=args.bez_okienek,
             restart_from_disk=restart_from_disk,
         )
-    except Exception as failure:  # noqa: BLE001 - granica startu: typ wyjątku trafia do dziennika Centrum
+    except Exception as failure:
         log.unexpected_failure(failure, where="start")
         return refuse(start_problems.unexpected_start_failure())
 

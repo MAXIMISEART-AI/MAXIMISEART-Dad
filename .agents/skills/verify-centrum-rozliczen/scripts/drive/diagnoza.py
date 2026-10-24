@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from playwright.sync_api import Page, expect
@@ -196,6 +197,23 @@ def drive_diagnosis(run: Run, page: Page) -> None:
         "the Centrum log records each Diagnoza with its cause code only",
     )
     run.capture(page, "57-diagnoza-bez-przyczyny")
+
+    run.step(FEATURE, "diagnoza-w-logach")
+    run_id = str(run_info["id"])
+    [logs] = (run.root / "logs" / "uruchomienia").glob(f"*-{run_id}.json")
+    text = logs.read_text(encoding="utf-8")
+    logged = json.loads(text)["diagnosis"]
+    run.check(
+        logged["explanation"]["code"] == "NIE_ZNALEZIONO_PRZYCZYNY"
+        and [{part: check[part] for part in ("label", "state", "detail")} for check in logged["checks"]] == results,
+        "the file of Logi of this Uruchomienie holds its last Diagnoza: the cause code and every check as Dad sees it",
+    )
+    queue = Path(run.fixture["settings"]).parent / "zgloszenia" / "kolejka"
+    queued = sorted(queue.glob(f"*-logi-uruchomienia-{run_id[:8]}.json"))
+    run.check(
+        len(queued) >= 2 and text in "".join(json.loads(queued[-1].read_text(encoding="utf-8"))["parts"]),
+        "without a key the Logi with this Diagnoza wait in the queue as one more comment, the file character for character",
+    )
 
     run.step(FEATURE, "diagnoza-nieoczekiwany-wyjatek")
     fault = run.root / "awaria" / "odczyt-rejestru"

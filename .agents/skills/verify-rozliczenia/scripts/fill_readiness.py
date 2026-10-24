@@ -18,13 +18,11 @@ from openpyxl import load_workbook
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
-SCRIPT = Path(__file__).resolve()
-REPO_ROOT = SCRIPT.parents[4]
-sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
-
-from rozliczenia.workbook_files import save_workbook  # noqa: E402
-from skrypt_skilla import Parser, require_run_root  # noqa: E402
+from rozliczenia.workbook_files import save_workbook
+from skrypt_skilla import Parser, require_run_root
 
 
 PERIOD = "08_14_09_2026"

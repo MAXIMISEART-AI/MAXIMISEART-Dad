@@ -92,7 +92,7 @@ The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import date, datetime
 import json
@@ -103,17 +103,16 @@ import threading
 import time
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT / "src"))
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
-from rozliczenia import preparation_process, preparation_register, settlement_process, template_settlement  # noqa: E402
-from rozliczenia.centrum.app import create_app  # noqa: E402
-from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
-from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
-from rozliczenia.centrum.log import CentrumLog  # noqa: E402
-from rozliczenia.centrum.processes import Processes  # noqa: E402
-from rozliczenia.centrum.report_box import (  # noqa: E402
+from rozliczenia import preparation_process, preparation_register, settlement_process
+from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.cloud_files import CloudFiles
+from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.report_box import (
     Closure,
     CommentOutcome,
     Commented,
@@ -126,15 +125,14 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
     Unreachable,
     close_reason,
 )
-from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
-from rozliczenia.centrum.server import serve  # noqa: E402
-from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
-from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness  # noqa: E402
-from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
-from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
-from rozliczenia.domain import WorkerResult  # noqa: E402
-from rozliczenia.workbook_files import DataRow, TemplateFile  # noqa: E402
-from skrypt_skilla import Parser  # noqa: E402
+from rozliczenia.centrum.launcher import listen_locally
+from rozliczenia.centrum.server import serve
+from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
+from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install
+from rozliczenia.centrum.version import commit_since, tool_commit
+from rozliczenia.workbook_files import DataRow, TemplateFile
+from skrypt_skilla import Parser
 
 
 class ScriptedPlatform:
@@ -188,7 +186,11 @@ class FileReportBox:
         return Sent(number)
 
     def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
-        """The comment goes into the issue's own file, so numbering by ``*.json`` stays the issue count."""
+        """The comment goes into the issue's own file, so numbering by ``*.json`` stays the issue count.
+
+        Its address names the file within the run root, never the full path: the Zgłoszenie links it, and a
+        Zgłoszenie holds no full path.
+        """
 
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
@@ -200,7 +202,7 @@ class FileReportBox:
             issue["comments"] = [*issue.get("comments", []), body]
             path.write_text(json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             comment_id = len(issue["comments"])
-        return Commented(comment_id, f"{path.as_uri()}#komentarz-{comment_id}")
+        return Commented(comment_id, f"skrzynka-zgloszen/{number}.json#komentarz-{comment_id}")
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         if include_closed:
@@ -287,18 +289,19 @@ def _paced_install(root: Path) -> Callable[[Path], bool]:
     return install
 
 
-def _pace_worker_templates(root: Path) -> None:
+def _pace_worker_templates(root: Path, worker_template: Path) -> None:
     """Slow each written Szablon pracownika while ``<root>/pacing/szablony-ms.txt`` exists (see the module doc)."""
 
-    write = template_settlement.process_template
+    create = TemplateFile.create
+    worker_template = worker_template.resolve()
 
-    def paced(worker_name: str, template: TemplateFile, target_path: Path, rows: Iterable[DataRow]) -> WorkerResult:
+    def paced(template: TemplateFile, target: Path, rows: Sequence[DataRow]) -> None:
         pacing = root / "pacing" / "szablony-ms.txt"
-        if pacing.exists():
+        if template.path == worker_template and pacing.exists():
             time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
-        return write(worker_name, template, target_path, rows)
+        create(template, target, rows)
 
-    template_settlement.process_template = paced
+    setattr(TemplateFile, "create", paced)
 
 
 def _fail_register_reading(root: Path) -> None:
@@ -335,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
     clone = Path(fixture["tool"]["clone"])
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
-    _pace_worker_templates(root)
+    _pace_worker_templates(root, configuration["worker_template"])
     _fail_register_reading(root)
     # Pip never reaches PyPI from a verification run.
     os.environ["PIP_NO_INDEX"] = "1"

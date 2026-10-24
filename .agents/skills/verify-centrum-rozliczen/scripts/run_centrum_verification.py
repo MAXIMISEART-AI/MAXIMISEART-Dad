@@ -19,13 +19,14 @@ import time
 import urllib.request
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
+from quiet_machine import MachineBusy, QuietMachine
+from skrypt_skilla import Parser, new_run
+
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
-
-from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES  # noqa: E402
-from quiet_machine import MachineBusy, QuietMachine  # noqa: E402
-from skrypt_skilla import Parser, new_run  # noqa: E402
 STEP_TIMEOUT_SECONDS = 300
 # wydajnosc repeats every scenario in two CPU profiles, so its drive takes minutes.
 PERFORMANCE_TIMEOUT_SECONDS = 1800
@@ -157,12 +158,17 @@ REQUIRED_SCREENSHOTS = {
         "71-zgloszenie-inny-problem.png",
     ),
     "uwaga-taty": (
-        "160-uwaga-ikona-w-naglowku.png",
-        "161-uwaga-puste-okno.png",
-        "162-uwaga-wypelniona.png",
-        "163-uwaga-czeka-na-internet.png",
-        "164-uwaga-wysylanie.png",
-        "165-uwaga-wyslana.png",
+        "170-uwaga-ikona-w-naglowku.png",
+        "171-uwaga-puste-okno.png",
+        "172-uwaga-dlugi-tekst.png",
+        "173-uwaga-wypelniona.png",
+        "174-uwaga-czeka-na-internet.png",
+        "175-uwaga-wysylanie.png",
+        "176-uwaga-wyslana.png",
+    ),
+    "logi-uruchomienia": (
+        "160-logi-podglad.png",
+        "161-logi-zatrzymanie.png",
     ),
     "powiadomienia": (
         "72-powiadomienia-dzwonek.png",

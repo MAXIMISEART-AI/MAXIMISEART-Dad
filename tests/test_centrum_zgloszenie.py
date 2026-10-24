@@ -6,8 +6,8 @@ import codecs
 from concurrent.futures import ThreadPoolExecutor
 import json
 import re
+import shutil
 import threading
-import time
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -15,9 +15,16 @@ import pytest
 
 from rozliczenia import preparation_register
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
+from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 
 from tests.fixtures.centrum import TOOL_COMMIT
-from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, run_to_end, stopped_for_maks
+from tests.fixtures.centrum_processes import (
+    PreparingCentrum,
+    Surroundings,
+    preparing_centrum,
+    run_to_end,
+    stopped_for_maks,
+)
 from tests.fixtures.preparation import PERIOD
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -116,6 +123,7 @@ def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_
         "- Proces: Przygotowanie pliku zbiorczego",
         f"- Okres: {PERIOD}",
         "- Tryb: DRY-RUN",
+        f"- Logi: jeszcze niewysłane, Uruchomienie {stopped['run']['id']}",
         "",
         "## Narzędzie",
         "",
@@ -253,6 +261,7 @@ def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komun
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
+    shutil.rmtree(tmp_path / "config" / "zgloszenia")  # Logi Uruchomienia w kolejce
     (tmp_path / "config" / "zgloszenia").write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
     state = send(centrum, run_id)
@@ -526,26 +535,30 @@ def test_gdy_skrzynka_nie_odpowiada_na_pytanie_o_otwarte_zgloszenie_zgloszenie_z
     assert centrum.surroundings.report_box.keys == []
 
 
-def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_w_kilka_sekund_a_wysylka_i_tak_pyta_skrzynke(
+def test_diagnoza_u_taty_czeka_na_skrzynke_zgloszen_najwyzej_3_s() -> None:
+    assert SEARCH_DEADLINE_S == 3.0
+
+
+def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_po_swoim_limicie_a_wysylka_i_tak_pyta_skrzynke(
     tmp_path: Path
 ) -> None:
-    centrum = preparing_centrum(tmp_path)
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(report_search_deadline_s=0.05))
     with_key(centrum)
     box = centrum.surroundings.report_box
     box.search_hold = threading.Event()
     run_id = stopped_for_maks(centrum)
-    release = threading.Timer(8, box.search_hold.set)  # bez limitu Diagnoza czekałaby na skrzynkę
+    release = threading.Timer(10, box.search_hold.set)  # bez limitu Diagnoza czekałaby na skrzynkę
     release.start()
-    started = time.monotonic()
 
     try:
         diagnose(centrum, run_id)
-        took = time.monotonic() - started
+        box_answered = box.search_hold.is_set()
     finally:
         box.search_hold.set()
         release.cancel()
 
-    assert took < 5
+    assert not box_answered
+    assert box.searching.wait(10)
     assert current_report(centrum) == {"state": "ready"}
     assert box.keys == []
     assert send(centrum, run_id) == {"state": "sent"}
@@ -553,7 +566,7 @@ def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_w_kilka_sekund_a_wysylka_i_
 
 
 def test_spozniona_odpowiedz_skrzynki_w_diagnozie_to_brak_odpowiedzi(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(report_search_deadline_s=0.05))
     with_key(centrum)
     box = centrum.surroundings.report_box
     first = stopped_for_maks(centrum)

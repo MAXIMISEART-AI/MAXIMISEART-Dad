@@ -29,12 +29,13 @@ from pathlib import Path
 from typing import Any, Final, Literal, assert_never, get_args
 
 from rozliczenia.centrum.atomic_file import replace_atomically
-from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.log import CentrumLog, WaitingCause
 from rozliczenia.centrum.report_box import (
     COMMENT_LIMIT,
     Commented,
     Label,
     Refused,
+    Rejected,
     ReportBox,
     Sent,
     Unreachable,
@@ -278,7 +279,7 @@ class Delivered:
     comments: tuple[Commented, ...]
 
 
-def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
+def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Rejected | Unreachable:
     match post.target:
         case PeriodThread() as thread:
             return _deliver_to_period(post, thread, box, key)
@@ -288,7 +289,9 @@ def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Unre
             assert_never(post.target)
 
 
-def _deliver_new_issue(post: Post, issue: NewIssue, box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
+def _deliver_new_issue(
+    post: Post, issue: NewIssue, box: ReportBox, key: str
+) -> Delivered | Refused | Rejected | Unreachable:
     """Nowe issue z pierwszą częścią (albo nagłówkiem) i komentarze z resztą; porażka kończy wysyłkę."""
 
     body, comments = post.opening()
@@ -298,7 +301,9 @@ def _deliver_new_issue(post: Post, issue: NewIssue, box: ReportBox, key: str) ->
     return _comment_all(opened.number, comments, box, key)
 
 
-def _deliver_to_period(post: Post, thread: PeriodThread, box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
+def _deliver_to_period(
+    post: Post, thread: PeriodThread, box: ReportBox, key: str
+) -> Delivered | Refused | Rejected | Unreachable:
     """Każda część jako komentarz do issue okresu, a bez niego nowe issue z pierwszą częścią i komentarze z resztą.
 
     Issue okresu jest szukane przy każdej próbie, więc usunięte albo zamknięte issue nie blokuje kolejki. Pierwsza
@@ -319,7 +324,9 @@ def _deliver_to_period(post: Post, thread: PeriodThread, box: ReportBox, key: st
     return _comment_all(number, comments, box, key)
 
 
-def _comment_all(number: int, comments: Sequence[str], box: ReportBox, key: str) -> Delivered | Refused | Unreachable:
+def _comment_all(
+    number: int, comments: Sequence[str], box: ReportBox, key: str
+) -> Delivered | Refused | Rejected | Unreachable:
     delivered: list[Commented] = []
     for comment in comments:
         answer = box.comment(number, comment, key=key)
@@ -327,6 +334,27 @@ def _comment_all(number: int, comments: Sequence[str], box: ReportBox, key: str)
             return answer
         delivered.append(answer)
     return Delivered(number, tuple(delivered))
+
+
+def _waiting(outcome: Refused | Rejected | Unreachable | None) -> tuple[WaitingCause, Literal["stop", "next"]]:
+    """Przyczyna w dzienniku i co dalej w przejściu kolejki po porażce wysyłki (``None``: brak klucza).
+
+    Brak klucza, brak sieci i odmowa (401/403/404: klucz, dostęp albo limit zapytań) spotkałyby każdy następny plik,
+    więc przejście staje z jedną linią dziennika. Odmowa treści dotyczy tylko tego pliku: zostaje do następnego
+    startu Centrum, a przejście idzie dalej.
+    """
+
+    match outcome:
+        case None:
+            return "brak-klucza", "stop"
+        case Unreachable():
+            return "brak-sieci", "stop"
+        case Refused():
+            return "odmowa", "stop"
+        case Rejected():
+            return "odmowa-tresci", "next"
+        case _:
+            assert_never(outcome)
 
 
 class Outbox:
@@ -360,6 +388,7 @@ class Outbox:
         self._first_comments: dict[tuple[str, Label], str | None] = {}
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
         self._unreadable: set[str] = set()  # nieczytelne, już w dzienniku tej pracy Centrum
+        self._rejected: set[str] = set()  # treść odrzucona przez skrzynkę, w dzienniku; następna próba po starcie
 
     def resume(self) -> None:
         """Przy starcie Centrum: usuwa pozostałości urwanego zapisu i wysyła w tle wszystko, co czeka.
@@ -429,7 +458,7 @@ class Outbox:
         while True:
             try:
                 self._send_all()
-            except Exception as failure:  # noqa: BLE001 - granica wątku wysyłki: typ wyjątku trafia do dziennika Centrum
+            except Exception as failure:
                 self._log.unexpected_failure(failure, where="wysyłka do Skrzynki Zgłoszeń")
             with self._changed:
                 if not self._again:
@@ -439,7 +468,7 @@ class Outbox:
                 self._again = False
 
     def _send_all(self) -> None:
-        """Pliki kolejki po nazwie (czas utworzenia), aż do pierwszej porażki skrzynki."""
+        """Pliki kolejki po nazwie (czas utworzenia); porażka skrzynki zatrzymuje przejście albo pomija plik (``_waiting``)."""
 
         paths = sorted(self._directory.glob("*.json"))
         if not paths:
@@ -448,6 +477,8 @@ class Outbox:
         for path in paths:
             if path.name in self._undeleted:
                 self._remove(path)
+                continue
+            if path.name in self._rejected:
                 continue
             queued = _queued(path)
             if queued is None:
@@ -458,15 +489,15 @@ class Outbox:
                 continue
             post = queued.post
             label, period = post.target.label, post.period
-            if key is None:
-                self._log.box_post_waiting(label=label, period=period, cause="brak-klucza")
-                continue
-            outcome = _deliver(post, self._box, key)
+            outcome = None if key is None else _deliver(post, self._box, key)
             if not isinstance(outcome, Delivered):
-                self._log.box_post_waiting(
-                    label=label, period=period, cause="odmowa" if isinstance(outcome, Refused) else "brak-sieci"
-                )
-                return
+                cause, then = _waiting(outcome)
+                if then == "stop":
+                    self._log.box_post_waiting(label=label, period=period, cause=cause)
+                    return
+                self._rejected.add(path.name)
+                self._log.box_post_waiting(label=label, period=period, cause=cause, file=path.name)
+                continue
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
             self._on_delivered(post, outcome.number)
             with self._changed:

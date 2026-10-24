@@ -15,7 +15,7 @@ Oba kroki robisz w Centrum rozliczeń, które otwierasz skrótem na pulpicie:
 | Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu |
 | Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` |
 | Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` |
-| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`: na stronie `Konfiguracja` i w Diagnozie |
+| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`, gdy jest nowsza wersja: na stronie `Konfiguracja` i w Diagnozie |
 
 ## Pierwsza instalacja
 
@@ -183,7 +183,8 @@ się nie psuje; Centrum sprawdzi ponownie później.
 Na stronie `Konfiguracja`, w karcie `Narzędzie`, widać wersję narzędzia, np.
 `Wersja 1a2b3c4 od 20.10.2026`, i czy jest najnowsza: `Aktualna`, `Jest nowsza
 wersja` albo `Nie sprawdzono` (bez internetu). Gdy Maks zapyta, którą wersję
-masz, przeczytaj mu ją.
+masz, przeczytaj mu ją. Przycisk `Zaktualizuj narzędzie` jest w Konfiguracji i w
+Diagnozie tylko wtedy, gdy jest nowsza wersja.
 
 1. Kliknij `Zaktualizuj narzędzie`: na stronie `Konfiguracja` albo w
    Diagnozie. Oba przyciski robią to samo.
@@ -211,7 +212,7 @@ przed wysłaniem.
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
-| „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Zaktualizuj narzędzie` jeszcze raz. |
+| „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Zaktualizuj narzędzie` jeszcze raz. Bez internetu przycisku może nie być; wraca najpóźniej minutę po powrocie internetu, gdy wrócisz do karty Centrum. |
 | „nie ma Gita” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „GitHub prosi o logowanie” | Nie loguj się nigdzie. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „inna gałąź narzędzia” | Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
@@ -387,7 +388,7 @@ Przebiegiem rozliczeń.
 | „Narzędzie nie zna urządzenia z kolumny URZĄDZENIA” | W tych wierszach narzędzie wpisało tylko V, T i N. Uzupełnij pozostałe ilości ręcznie. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie. |
 | „rozlicza się z opisu technika” | Prewencja, niedostępność usług albo puste `URZĄDZENIA`: narzędzie nie wpisało w tych wierszach żadnych ilości. Wpisz je według `CZYNNOŚCI ZREALIZOWANE`. |
 | „Ilości, które wynikają z opisu technika” | Przypomnienie przy każdym Przygotowaniu. W kolumnach Y, AB, AD, AJ, AK, AL i AM uzupełnij ilości według `CZYNNOŚCI ZREALIZOWANE` w każdym wierszu. |
-| „Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości” | Pliki powstały. We wskazanych wierszach Pliku zbiorczego wpisz ilości ręcznie. Jeśli zdarza się to często, poproś osobę utrzymującą narzędzie o dodanie wierszy z zerami we Wzorcu pliku zbiorczego. |
+| „Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości” | Pliki powstały. Narzędzie wpisało ilości w tych wierszach tak samo jak w pozostałych, a puste komórki liczą się jak 0. Sprawdź je jak pozostałe wiersze. Jeśli zdarza się to często, poproś osobę utrzymującą narzędzie o dodanie wierszy z zerami we Wzorcu pliku zbiorczego. |
 
 ## Przebieg rozliczeń
 

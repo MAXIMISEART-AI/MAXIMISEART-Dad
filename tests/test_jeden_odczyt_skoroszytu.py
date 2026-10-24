@@ -25,6 +25,13 @@ def test_bajty_skoroszytu_czyta_z_dysku_tylko_file_bytes() -> None:
     for path in sorted(SRC.rglob("*.py")):
         name = path.relative_to(SRC).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        aliases: dict[str, str] = {
+            alias.asname: alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+            if alias.asname and alias.name in READS
+        }
         owner = {
             node: function.name
             for function in ast.walk(tree)
@@ -35,6 +42,8 @@ def test_bajty_skoroszytu_czyta_z_dysku_tylko_file_bytes() -> None:
             if not isinstance(node, ast.Call):
                 continue
             called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+            if called in aliases:
+                called = aliases[called]
             if called not in READS:
                 continue
             where = f"{name}::{owner.get(node, '<moduł>')}"

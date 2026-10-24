@@ -301,7 +301,7 @@ class RunHost:
         for action in self._after_run:
             try:
                 action.run_ended(run)
-            except Exception as failure:  # noqa: BLE001 - działanie po wyniku nie może zmienić wyniku Uruchomienia
+            except Exception as failure:  # działanie po wyniku nie może zmienić wyniku Uruchomienia
                 self._log.unexpected_failure(failure, where="po wyniku Uruchomienia procesu")
 
     def finished(self, run: _Run, result: contract.RunOutcome) -> None:
@@ -376,7 +376,7 @@ class _Run:
             stop = None if isinstance(outcome.ending, Finished) else outcome.ending
             stopped = self._host._stops.ended(self.info, stop)
             result = _run_result(outcome, prepared, stopped)
-        except Exception as failure:  # noqa: BLE001 - granica wątku Uruchomienia: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             self._host.failed(failure)
             stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
             stopped = self._host._stops.ended(self.info, stop)

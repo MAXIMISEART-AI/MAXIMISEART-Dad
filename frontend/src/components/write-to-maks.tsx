@@ -21,6 +21,9 @@ const BODY_MAX_LENGTH = zDadNoteRequest.shape.body.toJSONSchema().maxLength
 // Szkic dopiero po krótkiej przerwie w pisaniu: zapytanie na każdy klawisz zapychałoby pomiar widoku.
 const DRAFT_PAUSE_MS = 150
 
+// Nieudane zapytanie o szkic wraca po tej przerwie, żeby „Wyślij” nie czekał na następny klawisz taty.
+const DRAFT_RETRY_MS = 1000
+
 const ANSWERS: Record<DadNoteState["state"], { icon: LucideIcon; tone: string; text: string }> = {
   sent: { icon: CircleCheckIcon, tone: "text-success", text: "Uwaga wysłana do Maksa." },
   waiting: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
@@ -78,7 +81,7 @@ function DadNoteForm({ close }: { close: () => void }) {
   }
 
   return (
-    <form onSubmit={send} className="flex flex-col gap-5">
+    <form onSubmit={send} className="flex min-h-0 flex-col gap-5">
       <DialogHeader>
         <DialogTitle>Napisz do Maksa</DialogTitle>
       </DialogHeader>
@@ -89,6 +92,7 @@ function DadNoteForm({ close }: { close: () => void }) {
           required
           autoFocus
           maxLength={TITLE_MAX_LENGTH}
+          placeholder="Np. Brakuje kolumny z kilometrami"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
@@ -123,23 +127,33 @@ type Drafted = { title: string; body: string; draft: DadNoteDraft }
  * Szkic issue od serwera dla tego, co tata właśnie napisał. Poprzedni szkic zostaje na ekranie, dopóki nie
  * przyjdzie nowszy, a odpowiedź na tekst, który tata już zmienił, przepada. `current` mówi, czy szkic na ekranie
  * jest z pól, które teraz wyśle „Wyślij”: bez tego tata mógłby wysłać coś innego, niż widzi w „Maks dostanie”.
+ * Nieudane zapytanie wraca po cichu, bez Komunikatu.
  */
 function useDraft(title: string, body: string) {
   const [drafted, setDrafted] = React.useState<Drafted | null>(null)
 
   React.useEffect(() => {
     let wanted = true
+    let pause: number | undefined
 
-    const pause = window.setTimeout(() => {
-      draftDadNote({ title, body }).then(
-        (draft) => {
-          if (wanted) {
-            setDrafted({ title, body, draft })
+    const ask = (after: number) => {
+      pause = window.setTimeout(() => {
+        draftDadNote({ title, body }).then(
+          (draft) => {
+            if (wanted) {
+              setDrafted({ title, body, draft })
+            }
+          },
+          () => {
+            if (wanted) {
+              ask(DRAFT_RETRY_MS)
+            }
           }
-        },
-        () => undefined
-      )
-    }, DRAFT_PAUSE_MS)
+        )
+      }, after)
+    }
+
+    ask(DRAFT_PAUSE_MS)
 
     return () => {
       wanted = false
@@ -158,7 +172,7 @@ function Preview({ draft }: { draft: DadNoteDraft | null }) {
   const title = draft?.title ?? ""
 
   return (
-    <figure aria-label="Co dostanie Maks" className="flex flex-col gap-1 rounded-lg bg-muted/50 p-3 text-sm">
+    <figure aria-label="Co dostanie Maks" className="flex min-h-0 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
       <figcaption className="text-xs text-muted-foreground">Maks dostanie</figcaption>
       <p className={cn("font-medium break-words", title === "" && "text-muted-foreground/60")}>
         {title === "" ? "Tytuł" : title}

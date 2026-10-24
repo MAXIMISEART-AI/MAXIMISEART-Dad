@@ -11,10 +11,9 @@ import argparse
 from pathlib import Path
 import sys
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from mutacje import Edit, Mutation, check_all  # noqa: E402
+from mutacje import Edit, Mutation, check_all
 
 RULES = Path("src/rozliczenia/quantity_rules.py")
 CHECKER = (".agents/skills/verify-rozliczenia/scripts/quantity_rules_conformance.py",)
@@ -139,4 +138,4 @@ MUTATIONS = (
 
 if __name__ == "__main__":
     argparse.ArgumentParser(description=__doc__).parse_args()
-    raise SystemExit(check_all(MUTATIONS, baseline=True))
+    raise SystemExit(check_all(MUTATIONS))

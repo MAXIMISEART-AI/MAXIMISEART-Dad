@@ -46,6 +46,10 @@ NO_RELEASE = "brak-wydania"
 # Atrybuty plików Windows: zwykły plik i plik OneDrive „tylko online” (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS).
 NORMAL_FILE = 0x80
 ONLINE_ONLY_FILE = 0x400000
+# Pierwszy numer issue ruchu w tle fałszywej skrzynki; numery Zgłoszeń i Kontroli ilości w testach są mniejsze.
+BACKGROUND_NUMBERS = 1001
+# Logi Uruchomienia idą do skrzynki po każdym Uruchomieniu; testy innych wysyłek ich nie oglądają.
+RUN_LOGS_IN_BACKGROUND: frozenset[Label] = frozenset({"logi-uruchomienia"})
 
 
 @dataclass
@@ -97,6 +101,11 @@ class FakeReportBox:
     mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
     z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy.
     ``wait_until`` czeka na wysyłkę w tle.
+
+    Issue etykiet z ``background`` to ruch w tle, którego test nie ogląda (np. Logi Uruchomienia w testach
+    Zgłoszeń): skrzynka przyjmuje je jak działający GitHub w ``background_issues``, z numerami od
+    ``BACKGROUND_NUMBERS`` (GitHub też nie numeruje issue bez przerw), bez ``keys``, przygotowanych wyników,
+    wstrzymań i porażek.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
@@ -110,6 +119,8 @@ class FakeReportBox:
     open_hold: threading.Event | None = None
     opening: threading.Event = field(default_factory=threading.Event)
     comment_outcomes: list[CommentOutcome] = field(default_factory=list)
+    background: frozenset[Label] = frozenset()
+    background_issues: list[FakeIssue] = field(default_factory=list)
     _changed: threading.Condition = field(default_factory=threading.Condition)
 
     def wait_until(self, condition: Callable[[FakeReportBox], bool], seconds: float = 30) -> bool:
@@ -127,6 +138,12 @@ class FakeReportBox:
             return [issue for issue in self.issues if issue.label == label]
 
     def open_issue(self, label: Label, title: str, body: str, *, key: str) -> SendOutcome:
+        if label in self.background:
+            with self._changed:
+                number = BACKGROUND_NUMBERS + len(self.background_issues)
+                self.background_issues.append(FakeIssue(number, label, title, body))
+                self._changed.notify_all()
+            return Sent(number)
         self.opening.set()
         if self.open_hold is not None:
             self.open_hold.wait()
@@ -140,6 +157,12 @@ class FakeReportBox:
 
     def comment(self, number: int, body: str, *, key: str) -> CommentOutcome:
         with self._changed:
+            behind = next((issue for issue in self.background_issues if issue.number == number), None)
+            if behind is not None:
+                behind.comments.append(body)
+                self._changed.notify_all()
+                position = len(behind.comments)
+                return Commented(position, f"https://github.com/{REPOSITORY}/issues/{number}#issuecomment-{position}")
             self.keys.append(key)
             self._changed.notify_all()
             if self.comment_outcomes:
@@ -152,6 +175,13 @@ class FakeReportBox:
         return Commented(comment_id, f"https://github.com/{REPOSITORY}/issues/{number}#issuecomment-{comment_id}")
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
+        if label in self.background:
+            with self._changed:
+                return tuple(
+                    Issue(issue.number, issue.body, self.closed.get(issue.number))
+                    for issue in self.background_issues
+                    if include_closed or issue.number not in self.closed
+                )
         self.listed.append((label, include_closed))
         assert key, "skrzynka pytana bez klucza"
         self.searching.set()
@@ -246,7 +276,7 @@ class Centrum:
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     platform = FakePlatform()
-    report_box = FakeReportBox()
+    report_box = FakeReportBox(background=RUN_LOGS_IN_BACKGROUND)
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
     metrics = MetricsPaths(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
@@ -281,6 +311,20 @@ def view_timing(**changes: object) -> dict[str, object]:
         ],
     }
     return timing | changes
+
+
+def without_times(value: object) -> object:
+    """Wynik Uruchomienia albo rekord metryk bez czasów i identyfikatorów, które różnią się z każdym Uruchomieniem."""
+
+    if isinstance(value, dict):
+        return {
+            key: without_times(item)
+            for key, item in value.items()
+            if not (key == "id" or key.endswith("_ms") or key.endswith("_at") or key in ("timestamp", "value"))
+        }
+    if isinstance(value, list):
+        return [without_times(item) for item in value]
+    return value
 
 
 def run_events(client: TestClient) -> Iterator[dict[str, Any]]:

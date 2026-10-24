@@ -25,6 +25,7 @@ from rozliczenia.centrum.report_box import (
     IssuesOutcome,
     Label,
     Refused,
+    Rejected,
     SendOutcome,
     Sent,
     Unreachable,
@@ -349,6 +350,23 @@ OPERATIONS: dict[str, Callable[[GitHubReportBox, str], object]] = {
     "comment": lambda box, key: box.comment(12, BODY, key=key),
     "labelled_issues": lambda box, key: box.labelled_issues("kontrola-ilosci", include_closed=True, key=key),
 }
+
+
+# Odpowiedź GitHuba na komentarz ponad limit, zmierzona na repozytorium Skrzynki (#332).
+TOO_LONG = (
+    b'{"message": "Validation Failed", "errors": [{"resource": "IssueComment", "code": "unprocessable", '
+    b'"field": "data", "message": "Body is too long (maximum is 65536 characters)"}]}'
+)
+
+
+@pytest.mark.parametrize("status", [400, 413, 422])
+@pytest.mark.parametrize("operation", ["open_issue", "comment"])
+def test_odmowa_tresci_wysylki_to_odmowa_tej_wysylki_a_nie_brak_sieci(operation: str, status: int) -> None:
+    transport = ScriptedTransport(lambda: HttpResponse(status, TOO_LONG))
+
+    outcome = OPERATIONS[operation](GitHubReportBox(transport=transport), KEY)
+
+    assert outcome == Rejected()
 
 
 @pytest.mark.parametrize("key", ["\ufeffgithub_pat_SYNTETYCZNY", "github_pat_SYNTETYCZNY\nX-Inny: 1", "kluczóś"])

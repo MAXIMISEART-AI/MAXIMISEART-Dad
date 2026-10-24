@@ -9,7 +9,8 @@ wstrzykiwane do aplikacji Centrum, więc testy i weryfikacja w przeglądarce nig
 nie łączą się z GitHubem. Brak sieci to ``None`` w krótkim limicie czasu, nigdy
 wyjątek ani Komunikat. Diagnoza pyta GitHuba przy każdym sprawdzeniu;
 Konfiguracja, odczytywana przy każdym wejściu na stronę, pamięta jego odpowiedź
-(``RememberedRelease``).
+(``RememberedRelease``). Czy z oceny wynika propozycja Aktualizacji narzędzia,
+mówi jedna reguła: ``offers_update``.
 """
 
 from __future__ import annotations
@@ -43,6 +44,18 @@ class GitHubReleases:
 # ``None``: GitHub nie odpowiedział (brak sieci, odmowa, limit czasu, niepełna odpowiedź).
 ReleaseSource = Callable[[], GitHubReleases | None]
 Judgement = Literal["current", "newer", "no_release", "no_answer", "no_commit"]
+
+
+def offers_update(judgement: Judgement) -> bool:
+    """Czy Centrum proponuje tacie Aktualizację narzędzia przy Aktualności ``judgement``.
+
+    Tylko przy Wydaniu nowszym od wersji taty (ADR 0014), nigdy bez odpowiedzi
+    GitHuba. Pytają o to Konfiguracja, Diagnoza i Powiadomienie o nowej wersji
+    (#324).
+    """
+
+    return judgement == "newer"
+
 
 REPOSITORY_API: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad"
 # 1000 tagów: przy Wydaniu na tydzień na lata. Strona 100 tagów to kilkadziesiąt kB.

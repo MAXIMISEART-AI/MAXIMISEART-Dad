@@ -588,8 +588,8 @@ Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state
 ReportKeyState = Literal["ready", "missing_key"]
 
 
-# Aktualność narzędzia: ``current`` (commit narzędzia to `main` na GitHubie), ``newer`` (jest nowsza wersja),
-# ``not_checked`` (brak sieci albo narzędzie bez commitu Gita).
+# Aktualność narzędzia: ``current`` (commit narzędzia zawiera najnowsze Wydanie), ``newer`` (jest nowsze Wydanie),
+# ``not_checked`` (brak sieci, brak Wydania albo narzędzie bez commitu Gita).
 ToolFreshnessState = Literal["current", "newer", "not_checked"]
 
 
@@ -604,11 +604,13 @@ class Configuration(_Model):
     """Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
 
     ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
-    względem `main` na GitHubie, sprawdzana jak w Diagnozie.
+    względem najnowszego Wydania na GitHubie (ADR 0014), sprawdzana jak w Diagnozie. ``update_offered`` mówi,
+    czy Konfiguracja proponuje Aktualizację narzędzia: tylko przy nowszym Wydaniu (``tool_freshness.offers_update``).
     """
 
     version: ToolVersion | None
     freshness: ToolFreshnessState
+    update_offered: bool
     templates: list[TemplateStatus]
     workers: Workers
     reports: ReportKeyState

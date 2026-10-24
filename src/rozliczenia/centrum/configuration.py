@@ -13,18 +13,18 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, assert_never
 
 from fastapi import APIRouter
 
 from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.tool_freshness import Judgement, RememberedRelease, ToolFreshness
+from rozliczenia.centrum.tool_freshness import Judgement, RememberedRelease, ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
-from rozliczenia.engine import default_worker_template_path
-from rozliczenia.message import Message, StopError
-from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
+from rozliczenia.engine import check_worker_template, default_worker_template_path
+from rozliczenia.message import Message
+from rozliczenia.workbook_files import Problem, WorkbookError
 from rozliczenia.worker_config import WorkerConfigError, default_config_path, load_worker_mapping
 
 
@@ -50,34 +50,70 @@ class ConfigurationFiles:
         """Trzy Wzorce w kolejności Konfiguracji, każdy ze Sprawdzaniem procesu, który go używa."""
 
         return (
-            Template("Wzorzec rozliczenia wewnętrznego", self.internal_template, "preparation", _internal_template_problem),
-            Template("Wzorzec pliku zbiorczego", self.collective_template, "preparation", _collective_template_problem),
-            Template("Wzorzec rozliczenia pracownika", self.worker_template, "settlement", _worker_template_problem),
+            Template(
+                label="Wzorzec rozliczenia wewnętrznego",
+                path=self.internal_template,
+                used_by="preparation",
+                check=preparation_files.check_internal_template,
+                explain=preparation_messages.template_unusable,
+            ),
+            Template(
+                label="Wzorzec pliku zbiorczego",
+                path=self.collective_template,
+                used_by="preparation",
+                check=preparation_files.check_collective_template,
+                explain=preparation_messages.template_unusable,
+            ),
+            Template(
+                label="Wzorzec rozliczenia pracownika",
+                path=self.worker_template,
+                used_by="settlement",
+                check=check_worker_template,
+                explain=settlement_messages.worker_template_unusable,
+            ),
         )
 
 
 _Problem = tuple[contract.TemplateProblemKind, Message]
-_FindProblem = Callable[[Path], _Problem | None]
 
 
 @dataclass(frozen=True)
 class Template:
-    """Wzorzec: etykieta, plik, proces, który z niego tworzy pliki, i Sprawdzanie tego procesu."""
+    """Wzorzec: etykieta, plik, proces, który z niego tworzy pliki, Sprawdzanie tego procesu i jego katalog."""
 
     label: str
     path: Path
     used_by: contract.ProcessKey
-    find_problem: _FindProblem
+    check: Callable[[Path], object]
+    """Sprawdzanie procesu: ``WorkbookError``, gdy Wzorzec nie może posłużyć jako wzór."""
+    explain: Callable[[Path, WorkbookError], Message]
+
+    def find_problem(self) -> _Problem | None:
+        """Rodzaj problemu i Komunikat, którym zatrzymałby się proces; ``None``, gdy Wzorzec przechodzi Sprawdzanie."""
+
+        try:
+            self.check(self.path)
+        except WorkbookError as error:
+            return _kind(error.problem), self.explain(self.path, error)
+        return None
 
     def problem(self) -> Message | None:
         """Komunikat, którym zatrzymałby się proces używający Wzorca; ``None``, gdy przechodzi Sprawdzanie."""
 
-        found = self.find_problem(self.path)
+        found = self.find_problem()
         return None if found is None else found[1]
-_PROBLEM_CODES: dict[str, contract.TemplateProblemKind] = {
-    preparation_messages.TEMPLATE_MISSING: "missing",
-    preparation_messages.TEMPLATE_OPEN_IN_EXCEL: "open_in_excel",
-}
+
+
+def _kind(problem: Problem) -> contract.TemplateProblemKind:
+    match problem:
+        case Problem.MISSING:
+            return "missing"
+        case Problem.OPEN_IN_EXCEL:
+            return "open_in_excel"
+        case Problem.INACCESSIBLE | Problem.UNREADABLE | Problem.LAYOUT | Problem.HAS_DATA:
+            return "unreadable"
+        case _:
+            assert_never(problem)
 
 
 def configuration_router(
@@ -100,9 +136,11 @@ def configuration_router(
     @router.get("", operation_id="getConfiguration")
     def configuration() -> contract.Configuration:
         commit = freshness.local()
+        judgement = freshness.judge(release)
         return contract.Configuration(
             version=None if commit is None else contract.ToolVersion(commit=short_commit(commit), since=freshness.since()),
-            freshness=_STATE[freshness.judge(release)],
+            freshness=_STATE[judgement],
+            update_offered=offers_update(judgement),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
             reports=report_key(),
@@ -133,7 +171,7 @@ class _CheckedTemplates:
 
     def status(self, template: Template) -> contract.TemplateStatus:
         label, path = template.label, template.path
-        found = self._problem(path, template.find_problem)
+        found = self._problem(template)
         if found is None:
             return contract.TemplateReady(state="ready", label=label, file_name=path.name)
         problem, message = found
@@ -141,47 +179,19 @@ class _CheckedTemplates:
             state="problem", label=label, file_name=path.name, problem=problem, message=contract.Message.of(message)
         )
 
-    def _problem(self, path: Path, find_problem: _FindProblem) -> _Problem | None:
+    def _problem(self, template: Template) -> _Problem | None:
+        path = template.path
         try:
             stat = path.stat()
         except OSError:
-            return find_problem(path)
+            return template.find_problem()
         signature = (stat.st_mtime_ns, stat.st_size, workbook_files.is_open_in_excel(path))
         cached = self._results.get(path)
         if cached is not None and cached[0] == signature:
             return cached[1]
-        found = find_problem(path)
+        found = template.find_problem()
         self._results[path] = (signature, found)
         return found
-
-
-# Przez moduł, jak proces: Konfiguracja i Diagnoza trafiają na to samo Sprawdzanie wzorców.
-def _internal_template_problem(path: Path) -> _Problem | None:
-    return _preparation_template_problem(preparation_files.check_internal_template, path)
-
-
-def _collective_template_problem(path: Path) -> _Problem | None:
-    return _preparation_template_problem(preparation_files.check_collective_template, path)
-
-
-def _preparation_template_problem(check: Callable[[Path], None], path: Path) -> _Problem | None:
-    """Sprawdzanie wzorca z Przygotowania pliku zbiorczego z jego komunikatem."""
-
-    try:
-        check(path)
-    except StopError as error:
-        return _PROBLEM_CODES.get(error.message.code, "unreadable"), error.message
-    return None
-
-
-def _worker_template_problem(path: Path) -> _Problem | None:
-    """Sprawdzanie z Przebiegu rozliczeń z jego komunikatem i rodzajem problemu ze Sprawdzania."""
-
-    try:
-        validate_worker_template(path)
-    except WorkerTemplateValidationError as error:
-        return error.problem, settlement_messages.worker_template_invalid(path, error.message)
-    return None
 
 
 def workers_problem(config_path: Path) -> Message | None:
