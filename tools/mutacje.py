@@ -168,6 +168,21 @@ def _baseline(mutations: Sequence[Mutation], limit_s: float) -> list[str]:
     return red
 
 
+def verdicts(mutations: Sequence[Mutation], *, workers: int | None, limit_s: float = TIMEOUT) -> Iterator[tuple[str, str]]:
+    """Werdykt i ostatnia linia wyjścia każdej mutacji po kolei, bez sprawdzenia podstawy; ``workers`` mutacji naraz."""
+
+    stop = threading.Event()
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        yield from pool.map(partial(_verdict, limit_s=limit_s, stop=stop), mutations)
+    except BaseException:
+        # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
+        stop.set()
+        raise
+    finally:
+        pool.shutdown(cancel_futures=True)
+
+
 def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT) -> int:
     if not mutations:
         print("MUTACJE: brak mutacji, więc nie ma czego dowieść")
@@ -178,18 +193,9 @@ def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: 
     if red:
         print("MUTACJE: polecenie bez mutacji pada albo daje wynik mutacji, więc wynik po mutacji niczego nie dowodzi")
         return 2
-    stop = threading.Event()
-    pool = ThreadPoolExecutor(max_workers=None if parallel else 1)
-    try:
-        verdicts = list(pool.map(partial(_verdict, limit_s=limit_s, stop=stop), mutations))
-    except BaseException:
-        # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
-        stop.set()
-        raise
-    finally:
-        pool.shutdown(cancel_futures=True)
     failures = 0
-    for mutation, (verdict, last) in zip(mutations, verdicts, strict=True):
+    found = list(verdicts(mutations, workers=None if parallel else 1, limit_s=limit_s))
+    for mutation, (verdict, last) in zip(mutations, found, strict=True):
         failures += verdict != "WYKRYTA"
         harm = f" ({mutation.harm})" if mutation.harm else ""
         print(f"{verdict}: {mutation.name}{harm} → {last}", flush=True)
