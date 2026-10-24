@@ -8,7 +8,8 @@ import { Spinner } from "@/components/ui/spinner"
 
 /**
  * Nieudany odczyt strony z serwera: co się nie odczytało, Komunikat i „Spróbuj ponownie”, które czyta od nowa.
- * Dopóki ponowny odczyt jest w drodze, przycisk czeka; udany odczyt zastępuje ten baner treścią strony.
+ * Dopóki ponowny odczyt jest w drodze, przycisk czeka, ale zostaje w fokusie i pod tą samą nazwą. Bez `aria-busy`:
+ * w Centrum oznacza ono szkielet wczytywania (`index.css`, `view-timing.ts`). Udany odczyt zastępuje ten baner treścią strony.
  */
 export function LoadFailure({
   what,
@@ -34,8 +35,15 @@ export function LoadFailure({
       <AlertTitle>Nie udało się odczytać {what}</AlertTitle>
       <AlertDescription>{message}</AlertDescription>
       <AlertAction className="top-1/2 -translate-y-1/2">
-        <Button variant="outline" size="sm" className="text-foreground" disabled={retrying} onClick={retry}>
-          {retrying ? <Spinner data-icon="inline-start" /> : <RotateCwIcon data-icon="inline-start" />}
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-foreground aria-disabled:opacity-50 aria-disabled:active:scale-100"
+          disabled={retrying}
+          focusableWhenDisabled
+          onClick={retry}
+        >
+          {retrying ? <Spinner data-icon="inline-start" aria-hidden /> : <RotateCwIcon data-icon="inline-start" />}
           Spróbuj ponownie
         </Button>
       </AlertAction>

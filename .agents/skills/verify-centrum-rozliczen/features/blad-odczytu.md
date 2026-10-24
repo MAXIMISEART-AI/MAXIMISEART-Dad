@@ -19,7 +19,7 @@ button reads every failed one again.
 - `blad-odczytu-historia`: a failed read of the Historia tab on Uruchomienia (`Nie udało się odczytać historii`), then the table `Historia Uruchomień procesu`.
 - `blad-odczytu-metryki`: a failed read of Metryki (`Nie udało się odczytać metryk`), then the history table.
 - `blad-odczytu-konfiguracja`: a failed read of Konfiguracja (`Nie udało się odczytać konfiguracji`), then the list `Wykonawcy`.
-- `blad-odczytu-ponowna-porazka`: on Konfiguracja, the re-read held on its way shows the disabled `Trwa Spróbuj ponownie`; failing again keeps the alert and the enabled `Spróbuj ponownie`; the next try reads the page.
+- `blad-odczytu-ponowna-porazka`: on Konfiguracja, Enter on `Spróbuj ponownie` while the re-read is held on its way leaves the button named the same, `aria-disabled` and in focus, and a second Enter reads nothing; failing again keeps the alert and gives the button back, still in focus; the next try reads the page.
 - `blad-odczytu-powiadomienia`: a failed read of Powiadomienia behind the bell (`Nie udało się odczytać Powiadomień`), then the list or the card of a new Wydanie.
 - `blad-odczytu-uwaga`: in `Napisz do Maksa` → `Do Uruchomienia`, a failed read of the Uruchomienia to pin (`Nie udało się odczytać Uruchomień`), then the radio group `Uruchomienie` or the calm `Nie ma jeszcze Uruchomień z Centrum.`
 
@@ -44,7 +44,7 @@ Preconditions:
   - `/api/configuration`: link `Okresy`, then link `Konfiguracja`; content: list `Wykonawcy`; screenshot `146`.
   - `/api/notifications`: button `Powiadomienia` in the header; content: list `Powiadomienia` or region `Nowa wersja …`; screenshot `147`.
   - `/api/dad-notes/runs`: button `Napisz do Maksa`, then button `Do Uruchomienia` in group `Dotyczy`; content: radio group `Uruchomienie` or the text `Nie ma jeszcze Uruchomień z Centrum.`; screenshot `148`; Escape closes the dialog.
-- **Second failure.** On Konfiguracja with `/api/configuration` aborted, replace the route with one that holds the request (harness: an answer that takes its time) and click `Spróbuj ponownie`: button `Trwa Spróbuj ponownie` is disabled; capture `141` with `live=True` (the spinner turns). Abort the held request: the alert stays with `Centrum rozliczeń nie odpowiada.` and button `Spróbuj ponownie` is enabled. Remove the route and click it: list `Wykonawcy` appears.
+- **Second failure.** On Konfiguracja with `/api/configuration` aborted, replace the route with one that holds the request (harness: an answer that takes its time) then focus `Spróbuj ponownie` and press Enter: the button keeps its name, is disabled (`aria-disabled`) and keeps the focus, and a second Enter sends no second request; capture `141` with `live=True` (the spinner turns). Abort the held request: the alert stays with `Centrum rozliczeń nie odpowiada.` and `Spróbuj ponownie` is enabled and still focused. Remove the route and click it: list `Wykonawcy` appears.
 - **Proof.** Screenshots `139`, `141`–`148`, `153` and `154` and the checks in `drive.txt`.
 
 ## Gotchas
@@ -52,5 +52,6 @@ Preconditions:
 - Ustawienia taty are read once per tab start and on a return to the tab, so their failure needs a reload, not a menu click. A failed read of Ustawienia shows on Okresy only; Uruchomienia reads what it needs to start on its own.
 - A page Dad has already seen shows its last data at once and reads again behind it. The failed read replaces that data with the alert, so a step must wait for the alert, not for the absence of old content first.
 - `/api/metrics` is read on Okresy as well (its key numbers): leaving the route on while passing through Okresy fails that read too, which is harmless and not checked.
-- The Spinner inside the waiting button turns forever while the request is held, so its capture uses `live=True`, and the held route must be answered in `finally`.
+- The Spinner inside the waiting button turns forever while the request is held, so its capture uses `live=True`, and the held route must be answered in `finally`. Pressing Enter waits for the alert's entrance to end first, or `141` catches it half faded.
+- The button has no `aria-busy`: in Centrum that attribute marks a loading skeleton, which `index.css` keeps transparent for its first 120 ms, so `141` would show no button.
 - Powiadomienia mark new rows read on entry, which reads them once more after the click; the step counts at least one read, not exactly one.

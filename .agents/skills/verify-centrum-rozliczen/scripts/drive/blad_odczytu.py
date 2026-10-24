@@ -112,15 +112,25 @@ def _retry_in_flight(run: Run, page: Page) -> None:
         page.unroute("**/api/configuration")
         # Harness: the re-read is held, like an answer that takes its time, then fails as well.
         page.route("**/api/configuration", lambda route: held.append(route))
-        failure.get_by_role("button", name=RETRY, exact=True).click()
-        waiting = failure.get_by_role("button", name=f"Trwa {RETRY}", exact=True)
-        expect(waiting).to_be_disabled()
-        run.check(len(held) == 1, "the re-read is on its way (held, harness) and the button waits with a spinner")
+        button = failure.get_by_role("button", name=RETRY, exact=True)
+        # The spinner turns forever once Enter is pressed, so the alert's entrance has to end before it.
+        page.wait_for_function("document.getAnimations().every((animation) => animation.playState !== 'running')")
+        button.focus()
+        page.keyboard.press("Enter")
+        expect(button).to_be_disabled()
+        expect(button).to_be_focused()
+        page.keyboard.press("Enter")
+        run.check(
+            len(held) == 1,
+            f"the re-read is on its way (held, harness): {RETRY} keeps its name and the focus, waits with a spinner, and a second "
+            "Enter reads nothing",
+        )
         run.capture(page, "141-blad-odczytu-ponowny-odczyt", live=True)  # the spinner turns until the answer
         held.pop().abort()
-        expect(failure.get_by_role("button", name=RETRY, exact=True)).to_be_enabled()
+        expect(button).to_be_enabled()
+        expect(button).to_be_focused()
         expect(failure).to_contain_text(UNREACHABLE)
-        run.check(True, "a re-read that fails again keeps the Komunikat and gives the button back")
+        run.check(True, "a re-read that fails again keeps the Komunikat and gives the button back, still in focus")
     finally:
         for route in held:
             route.abort()
