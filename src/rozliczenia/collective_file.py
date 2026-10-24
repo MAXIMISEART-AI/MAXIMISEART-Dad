@@ -53,4 +53,4 @@ def read_numbered_orders(path: Path) -> tuple[NumberedOrder, ...] | MissingHeade
     orders = collective_orders(read.header, [row.values for row in read.rows])
     if isinstance(orders, MissingHeaders):
         return orders
-    return tuple(NumberedOrder(row.number, order) for row, order in zip(read.rows, orders, strict=True))
+    return tuple(map(NumberedOrder, (row.number for row in read.rows), orders))

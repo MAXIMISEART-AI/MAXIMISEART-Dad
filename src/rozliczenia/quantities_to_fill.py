@@ -7,19 +7,18 @@ więc ta lista i Kontrola ilości się nie rozjadą. Puste i 0 to to samo, jak w
 
 Wiersz bez reguły jest zrobiony, gdy ma ilość różną od 0 poza V, T i N, a wiersz z opisu, gdy ma ją gdziekolwiek
 w N:AP. Wiersz z ``DATA``, która nie jest datą, nie ma wyniku reguł, więc nie trafia do żadnego rodzaju. Kolumny z
-opisu technika mają tylko liczbę wierszy, w których tata coś wpisał.
+opisu technika mają tylko liczbę wierszy, w których tata coś wpisał, wziętą z Kontroli ilości tych samych wierszy.
 """
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
 from .order_facts import N_AP, OrderFacts
-from .quantity_check import compared_columns, description_filled
+from .quantity_check import QuantityCheck, check, compared_columns
 from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, QuantityColumn, RuleResult, WithoutRule, evaluate
 
 
@@ -75,20 +74,21 @@ class QuantitiesToFill:
     """Każda kolumna z opisu technika (``DESCRIPTION_COLUMNS``) → liczba wierszy, w których tata coś wpisał."""
 
 
-def quantities_to_fill(rows: Iterable[NumberedOrder]) -> QuantitiesToFill:
+def quantities_to_fill(rows: Sequence[NumberedOrder]) -> QuantitiesToFill:
     listed: dict[FillKind, list[RowToFill]] = {kind: [] for kind in FillKind}
-    filled: Counter[str] = Counter()
     for row in rows:
         content = row.order.content
-        rule = None if content is None else evaluate(content)
-        compared: tuple[QuantityColumn, ...] = () if rule is None else compared_columns(rule)
-        filled.update(description_filled(row.order, compared))
-        kind = None if rule is None else _KINDS.get(type(rule))
+        if content is None:
+            continue
+        rule = evaluate(content)
+        kind = _KINDS.get(type(rule))
         if kind is not None:
-            listed[kind].append(RowToFill(row.number, _done(row.order, compared)))
+            listed[kind].append(RowToFill(row.number, _done(row.order, compared_columns(rule))))
+    control = check(tuple(row.order for row in rows))
+    assert isinstance(control, QuantityCheck)  # ``check`` nie porównuje tylko przy brakujących nagłówkach
     return QuantitiesToFill(
         tuple(KindToFill(kind, tuple(found)) for kind, found in listed.items()),
-        {column: filled[column] for column in DESCRIPTION_COLUMNS},
+        {column: control.description_filled[column] for column in DESCRIPTION_COLUMNS},
     )
 
 
