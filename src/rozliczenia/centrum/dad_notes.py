@@ -149,6 +149,11 @@ class DadNotes:
         with self._lock:
             return self._read()
 
+    def pinned_run(self, note_id: str) -> str | None:
+        """Uruchomienie, do którego przypięta jest Uwaga ``note_id``; ``None``: Uwaga ogólna albo nieznana."""
+
+        return next((note.run_id for note in self.all() if note.id == note_id), None)
+
     def mark(self, closures: Mapping[int, Closure | None]) -> None:
         """Zapamiętuje zamknięcie issue ze skrzynki przy Uwagach o tych numerach."""
 
@@ -272,7 +277,7 @@ def with_logs(post: Post, notes: DadNotes, logs: LogsAddress, rejected: LogsReje
         if (address := logs(post.run_id)) is not None:
             return replace(post, parts=(_logs_arrived(post.run_id, address),))
         return None if rejected(post.run_id) else post
-    run_id = next((note.run_id for note in notes.all() if note.id == post.run_id), None)
+    run_id = notes.pinned_run(post.run_id)
     if run_id is None:
         return post
     first, waiting = post.parts[0], _logs_line(run_id, None)
@@ -291,7 +296,7 @@ def after_delivery(post: Post, number: int, notes: DadNotes, outbox: Outbox) -> 
     notes.delivered(post, number)
     if not isinstance(post.target, NewIssue) or post.target.label != NOTE_LABEL:
         return
-    run_id = next((note.run_id for note in notes.all() if note.id == post.run_id), None)
+    run_id = notes.pinned_run(post.run_id)
     if run_id is not None and post.parts[0].endswith(_rejected_logs_line(run_id)):
         target = KnownIssue(NOTE_LABEL, number)
         outbox.post(Post(target, period=None, run_id=run_id, header=None, parts=(_logs_gone(run_id),)))
