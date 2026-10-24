@@ -19,9 +19,11 @@ process, period, `podgląd` or `zapis`, date and result. The finished card on
 Uruchomienia and each Historia row of a Centrum Uruchomienie with a run id have
 the icon `Napisz do Maksa o tym Uruchomieniu`; it opens the same dialog with
 `Do Uruchomienia` chosen and that Uruchomienie checked. The figure is the
-server's draft with that `run_id`: its footer names the Uruchomienie and leads
-to the first comment of its Logi in the skrzynka (`Logi Uruchomienia: <url>`),
-and `config/uwagi-taty.json` keeps the pinned `run_id`.
+server's draft with that `run_id`: its footer names the Uruchomienie and links
+to the first comment of its Logi in the skrzynka (`[Logi Uruchomienia](<url>)`).
+The figure shows a Markdown link as its text only, as GitHub shows it to Maks,
+so Dad never sees the address. `config/uwagi-taty.json` keeps the pinned
+`run_id`.
 
 ## Sub-features
 
@@ -31,9 +33,9 @@ and `config/uwagi-taty.json` keeps the pinned `run_id`.
 - `uwaga-wyslana`: with the key written and a slow skrzynka, a new opening is empty; a second Uwaga with a Tytuł only shows the draft body with the version line alone; `Wyślij` is disabled with a Spinner while sending, then the `status` reads `Uwaga wysłana do Maksa.`; the skrzynka has both Uwagi as `uwaga-taty` issues, each with the title and body its figure showed (the waiting one went out in the same pass); the queue is empty; `config/uwagi-taty.json` has both issue numbers; the Centrum log holds neither the key nor the text of an Uwaga.
 - `uwaga-przycisk-na-karcie`: with the key still written, a `Podgląd bez zapisu` of Przebieg rozliczeń for the fixture's `needs_check` period through the UI finishes `Podgląd wymaga sprawdzenia`; the finished card has `Napisz do Maksa o tym Uruchomieniu` right of `Nowe Uruchomienie procesu`, with that tooltip; the preview's Logi reach the `logi-uruchomienia` issue of the file skrzynka.
 - `uwaga-z-karty`: the card's button opens a new, empty Uwaga with `Do Uruchomienia` pressed and the radio list equal to `GET /api/dad-notes/runs?selected=<run id>` in order (process, period, `podgląd`, date, result), exactly the preview checked; the whole dialog fits the window (a long list makes it scroll, it never runs off the screen); `Wyślij` is disabled without a Tytuł.
-- `uwaga-przypieta`: with a Tytuł and a Treść the figure equals `POST /api/dad-notes/draft` with that `run_id`: `Uruchomienie: Przebieg rozliczeń · <period> · podgląd · do sprawdzenia · <date> · wersja narzędzia …` and `Logi Uruchomienia:` with the address of the first comment of the preview's Logi in the file skrzynka.
+- `uwaga-przypieta`: with a Tytuł and a Treść the figure equals `POST /api/dad-notes/draft` with that `run_id`, links shown as text: `Uruchomienie: Przebieg rozliczeń · <period> · podgląd · do sprawdzenia · <date> · wersja narzędzia …` and `[Logi Uruchomienia](<url>)` with the address of the first comment of the preview's Logi in the file skrzynka; the figure shows that line as `Logi Uruchomienia`, with no address anywhere in it.
 - `uwaga-ogolna-i-z-powrotem`: `Ogólna` hides the list and the figure turns into the general draft ending `Uwaga ogólna · wersja narzędzia …` with no Logi; `Do Uruchomienia` again shows the same list with the preview still checked and the pinned figure.
-- `uwaga-przypieta-wyslana`: `Wyślij` reads `Uwaga wysłana do Maksa.` with no error toast; the skrzynka has one new `uwaga-taty` issue with exactly the figure's title and body, whose `Logi Uruchomienia:` line is that first comment's address; `config/uwagi-taty.json` keeps its number and the preview's `run_id`.
+- `uwaga-przypieta-wyslana`: `Wyślij` reads `Uwaga wysłana do Maksa.` with no error toast; the skrzynka has one new `uwaga-taty` issue with exactly the title and body of the figure's draft, whose `[Logi Uruchomienia](<url>)` link is that first comment's address; `config/uwagi-taty.json` keeps its number and the preview's `run_id`.
 - `uwaga-z-historii`: in Uruchomienia, tab Historia, every row (all pages) has the button exactly when its Uruchomienie has a run id in `/api/metrics`; the oldest such row opens the dialog with `Do Uruchomienia`, the list of `GET /api/dad-notes/runs?selected=<its run id>` (in `all` it is older than the newest six, so the server adds it) and that row checked.
 
 ## How to get to it (user POV)
@@ -55,7 +57,7 @@ Preconditions:
 - **Wysłana.** Write the synthetic key and `1500` to `pacing/skrzynka-ms.txt`. Open the dialog again: both fields empty. Fill only `Tytuł`, check the figure against `api/uwaga-szkic-druga.json`, click `Wyślij`: while the skrzynka is slow the button is disabled and named `Trwa Wyślij` (its Spinner's label comes first); capture `164` live. The `status` reads `Uwaga wysłana do Maksa.`; capture `165`. `api/uwaga-skrzynka.json` holds number, title, body and labels of the two `uwaga-taty` issues. Remove the pacing file, close the dialog, remove the key.
 - **Przycisk na karcie.** Keep the key. `ensure_files_set`, go to `#/uruchomienia` (click `Nowe Uruchomienie procesu` when the current Uruchomienie is finished), radio `Przebieg rozliczeń`, `Podgląd bez zapisu`; `finished_result` keeps `api/uwaga-podglad.json` with the run id. In the region `Podgląd na żywo` the button `Napisz do Maksa o tym Uruchomieniu` (exact) is right of `Nowe Uruchomienie procesu`; hover it for the tooltip. Wait until a `logi-uruchomienia` issue of `<root>/skrzynka-zgloszen/` has a comment with `- Uruchomienie: <run id>,`; its address is `<issue file URI>#komentarz-<n>`. The drive switches to the light theme for `166`–`171` and back afterwards. Capture `166`.
 - **Z karty.** Click the button: `dialog` `Napisz do Maksa`, empty `Tytuł`, in `group` `Dotyczy` the `button` `Do Uruchomienia` has `aria-pressed="true"`; `radiogroup` `Uruchomienie` has one `label` per entry of `api/uwaga-uruchomienia-z-karty.json` and `aria-checked="true"` only on the preview. Capture `167` (viewport).
-- **Przypięta.** Fill `PINNED`, post it with `run_id` (`api/uwaga-szkic-przypieta.json`) and wait for the figure to equal it. Capture `168`. Click `Ogólna`: no `radiogroup`, figure equals `api/uwaga-szkic-ogolna-z-karty.json`; capture `169`. Click `Do Uruchomienia`: the list and the check come back, the figure equals the pinned draft again.
+- **Przypięta.** Fill `PINNED`, post it with `run_id` (`api/uwaga-szkic-przypieta.json`) and wait for the figure to equal it, each Markdown link `[text](url)` of the draft body replaced by its text. Capture `168`. Click `Ogólna`: no `radiogroup`, figure equals `api/uwaga-szkic-ogolna-z-karty.json`; capture `169`. Click `Do Uruchomienia`: the list and the check come back, the figure equals the pinned draft again.
 - **Wysłana.** Click `Wyślij`, wait for the `status` `Uwaga wysłana do Maksa.`; `api/uwaga-przypieta-skrzynka.json` holds the new issue; check `config/uwagi-taty.json`. Click the first `Zamknij`.
 - **Historia.** Click tab `Historia`, click `Pokaż starsze` until it is gone, compare the button count of each row with `run_id` of `/api/metrics` (`api/uwaga-historia.json`) sorted newest first. Hover the button of the oldest row with a run id, capture `170`, click it and check the dialog as in Z karty against `api/uwaga-uruchomienia-z-historii.json`. Capture `171`, press Escape.
 - **Proof.** Screenshots `160`–`171` (`162b`, the empty or unchecked list, is not required), `api/uwaga-*.json`, and the checks in `drive.txt`.
@@ -63,12 +65,13 @@ Preconditions:
 ## Gotchas
 
 - The figure lags the typed text by one draft request: wait until it equals the server's draft (`run.wait_for`), never read it right after `fill`.
+- The figure is the draft body with each Markdown link shown as its text; compare it with the draft after the same replacement (`MARKDOWN_LINK` in the drive), and check the link itself in the draft and in the skrzynka issue.
 - Two buttons in the answer view are named `Zamknij`: the answer's own button comes first, the dialog's corner `X` (sr-only `Zamknij`) after it.
 - The `status` holds only the answer sentence; the `Zamknij` button is outside it.
 - `Wyślij` waits for the skrzynka up to 5 s. The pacing applies to each issue, and with the key both the waiting Uwaga and the new one go out in one pass, so keep the pacing under 2.5 s or the answer turns into `waiting`.
 - The Kontrola ilości and the Zgłoszenia of earlier features take skrzynka numbers too; find Uwagi by the label `uwaga-taty`, never by number.
 - Uwagi in `config/uwagi-taty.json` hold only titles. The queue file holds the body until the skrzynka takes it, so keep only synthetic text in the drive.
-- The pinned figure shows the Logi address only once the preview's Logi are delivered; with the key written before the preview they go out at its end, so wait for the comment before opening the dialog, otherwise the draft says `Logi Uruchomienia: w drodze (Uruchomienie <run id>)` and the sent issue gets the address at delivery instead.
+- The pinned figure links the Logi only once the preview's Logi are delivered; with the key written before the preview they go out at its end, so wait for the comment before opening the dialog, otherwise the draft says `Logi Uruchomienia: w drodze (Uruchomienie <run id>)` and the sent issue gets the address at delivery instead.
 - The radio rows have no value in the DOM; match them to the server's list by position and text (process, `<period> · <podgląd|zapis> · <date>` in Dad's time zone, result word) and read `aria-checked`.
 - A dialog screenshot taken with `full_page` shows the page below the backdrop past the viewport; capture dialogs with `full_page=False`.
 - The key would send later Kontrole ilości and Zgłoszenia at once, and `diagnoza` and `zgloszenie` start without it, so the drive removes it at the end.

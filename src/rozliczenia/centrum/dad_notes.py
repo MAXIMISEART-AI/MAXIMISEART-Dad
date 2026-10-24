@@ -97,9 +97,13 @@ def _result_word(run: contract.ProcessRun) -> str:
 
 
 def _logs_line(run_id: str, logs: str | None) -> str:
-    """Linia Logów przypiętej Uwagi: odnośnik albo „w drodze”, którą ``with_logs`` zamienia na odnośnik."""
+    """Linia Logów przypiętej Uwagi: odnośnik albo „w drodze”, którą ``with_logs`` zamienia na odnośnik.
 
-    return f"Logi Uruchomienia: {logs}" if logs is not None else f"Logi Uruchomienia: w drodze (Uruchomienie {run_id})"
+    Odnośnik to link Markdown: GitHub pokazuje Maksowi sam napis, a „Maks dostanie” pokazuje tacie ten sam napis
+    bez adresu prywatnej Skrzynki, którego tata i tak nie otworzy.
+    """
+
+    return f"[Logi Uruchomienia]({logs})" if logs is not None else f"Logi Uruchomienia: w drodze (Uruchomienie {run_id})"
 
 
 @dataclass(frozen=True)

@@ -36,6 +36,8 @@ const ANSWERS: Record<DadNoteState["state"], { icon: LucideIcon; tone: string; t
   waiting: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
 }
 
+const MARKDOWN_LINK = /\[([^\]\n]+)\]\([^)\s]+\)/g
+
 type Scope = "general" | "run"
 
 const SCOPES: ReadonlyArray<FilterOption<Scope>> = [
@@ -226,7 +228,10 @@ function useDraft(note: DadNoteRequest | null) {
   return { shown: drafted.shown, sendable: current ? note : null }
 }
 
-/** „Maks dostanie”: tytuł i treść issue dokładnie tak, jak złożył je serwer, albo powód, dla którego ich nie ma. */
+/**
+ * „Maks dostanie”: tytuł i treść issue tak, jak złożył je serwer, z linkami jak na GitHubie (sam napis), albo powód,
+ * dla którego ich nie ma.
+ */
 function Preview({ shown }: { shown: Shown | null }) {
   const title = shown?.kind === "draft" ? shown.draft.title : ""
 
@@ -243,11 +248,16 @@ function Preview({ shown }: { shown: Shown | null }) {
             shown.kind === "draft" ? "text-muted-foreground" : "text-destructive"
           )}
         >
-          {shown.kind === "draft" ? shown.draft.body : shown.message}
+          {shown.kind === "draft" ? linkTexts(shown.draft.body) : shown.message}
         </p>
       )}
     </figure>
   )
+}
+
+/** Link Markdown `[napis](adres)` jako sam napis, jak na GitHubie, bez odnośnika: tata nie otworzy prywatnej Skrzynki. */
+function linkTexts(body: string): string {
+  return body.replace(MARKDOWN_LINK, "$1")
 }
 
 function Answer({ state, close }: { state: DadNoteState; close: () => void }) {

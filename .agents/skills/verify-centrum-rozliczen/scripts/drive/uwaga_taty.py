@@ -31,7 +31,9 @@ ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
 # Synthetic Uwaga pinned to the preview.
 PINNED = ("Podgląd każe sprawdzić okres", "Nie wiem, którego Wykonawcę mam dopisać.")
 LOGS_LABEL = "logi-uruchomienia"
-LOGS_LINE = re.compile(r"^Logi Uruchomienia: (.*)$", re.MULTILINE)
+LOGS_LINK = re.compile(r"^\[Logi Uruchomienia\]\((.*)\)$", re.MULTILINE)
+# „Maks dostanie” shows a Markdown link as its text only, the way GitHub shows it to Maks.
+MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\([^)\s]+\)")
 MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
 NO_RUNS = "Nie ma jeszcze Uruchomień z Centrum."
 
@@ -63,7 +65,8 @@ def _shown(figure: Locator) -> tuple[str, str]:
 
 
 def _shows(run: Run, figure: Locator, draft: dict[str, str], message: str) -> None:
-    run.wait_for(lambda: _shown(figure) == (draft["title"], draft["body"]), message)
+    expected = (draft["title"], MARKDOWN_LINK.sub(r"\1", draft["body"]))
+    run.wait_for(lambda: _shown(figure) == expected, message)
 
 
 def _queued(config: Path) -> list[dict[str, object]]:
@@ -400,8 +403,12 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     )
     logs = _logs_comment(box, run_id)
     run.check(
-        LOGS_LINE.findall(pinned["body"]) == [logs],
-        "the pinned Uwaga leads to the first comment of the preview's Logi in the skrzynka",
+        LOGS_LINK.findall(pinned["body"]) == [logs],
+        "the pinned Uwaga links [Logi Uruchomienia] to the first comment of the preview's Logi in the skrzynka",
+    )
+    run.check(
+        _shown(figure)[1].splitlines()[-1] == "Logi Uruchomienia" and str(logs) not in figure.inner_text(),
+        "„Maks dostanie” shows the link as the words Logi Uruchomienia, without the address",
     )
     expect(send).to_be_enabled()
     run.capture(page, "168-uwaga-przypieta", full_page=False)
@@ -413,7 +420,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     _shows(run, figure, general, "with Ogólna the figure shows the server's draft without the Uruchomienie")
     run.check(
         general["body"].splitlines()[-1].startswith("Uwaga ogólna · wersja narzędzia")
-        and LOGS_LINE.search(general["body"]) is None,
+        and "Logi Uruchomienia" not in general["body"],
         "the general Uwaga ends with the general footer and has no Logi",
     )
     run.capture(page, "169-uwaga-ogolna-z-karty", full_page=False)
@@ -438,11 +445,11 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     )
     run.check(
         [(issue["title"], issue["body"]) for issue in new] == [(pinned["title"], pinned["body"])],
-        "the skrzynka has the pinned Uwaga as one uwaga-taty issue, exactly as its figure showed it",
+        "the skrzynka has the pinned Uwaga as one uwaga-taty issue, exactly as its figure's draft",
     )
     run.check(
-        LOGS_LINE.findall(str(new[0]["body"])) == [logs],
-        "its line Logi Uruchomienia is the address of the first comment of the preview's Logi",
+        LOGS_LINK.findall(str(new[0]["body"])) == [logs],
+        "its link Logi Uruchomienia leads to the first comment of the preview's Logi",
     )
     note = _notes(config)[-1]
     run.check(

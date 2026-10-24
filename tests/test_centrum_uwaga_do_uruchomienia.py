@@ -77,7 +77,7 @@ def test_uwaga_przypieta_do_uruchomienia_niesie_jego_linie_i_odnosnik_do_komenta
 
     assert sent.json() == {"state": "sent"}
     [issue] = box(centrum).issues_with("uwaga-taty")
-    expected = f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\nLogi Uruchomienia: {logs}"
+    expected = f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n[Logi Uruchomienia]({logs})"
     assert (issue.title, issue.body) == (TITLE, expected)
     assert draft.json() == {"title": TITLE, "body": expected}
 
@@ -152,7 +152,7 @@ def test_uwaga_do_uruchomienia_z_logami_w_kolejce_czeka_i_wychodzi_po_logach_z_o
         logs = logs_comment(centrum, run_id)
 
     [issue] = box(centrum).issues_with("uwaga-taty")
-    assert issue.body == f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\nLogi Uruchomienia: {logs}"
+    assert issue.body == f"{BODY}\n\n{run_line(centrum, 'podgląd', 'OK')}\n[Logi Uruchomienia]({logs})"
 
 
 def test_odnosnik_do_logow_wyslanych_przez_poprzednie_centrum_jest_od_razu_w_uwadze(tmp_path: Path) -> None:
@@ -164,7 +164,7 @@ def test_odnosnik_do_logow_wyslanych_przez_poprzednie_centrum_jest_od_razu_w_uwa
     centrum.restart()
     draft = centrum.client.post("/api/dad-notes/draft", json=note(run_id))
 
-    assert draft.json()["body"].endswith(f"\nLogi Uruchomienia: {logs}")
+    assert draft.json()["body"].endswith(f"\n[Logi Uruchomienia]({logs})")
 
 
 def test_okno_uwagi_pokazuje_szesc_najnowszych_uruchomien_z_centrum_i_starsze_zaznaczone(tmp_path: Path) -> None:
