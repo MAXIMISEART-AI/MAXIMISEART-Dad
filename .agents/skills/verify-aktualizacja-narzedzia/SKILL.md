@@ -238,6 +238,14 @@ checks it).
   window lasts from `_Journal.end` to `write_result`, milliseconds. The order
   (roll back, then write) dates from #213 (`a713bc87`). `Wylacz` tags a
   switch-off at `skrot_wynik` while the file says „ok”.
+- Mixed failures are not checked. No configuration turns on switch-offs and
+  disk refusals together, and with both one of each is enough for the same
+  harm: „ok” is written, the computer switches off, `GUARDIAN_LEASE_S`
+  passes, the shortcut rolls the clone back and its `write_result`
+  (`launcher._roll_back`) raises `OSError`; the next shortcut start reads
+  „ok”. This path is older than `bd7c9ff8`. A card that shows „Narzędzie
+  zaktualizowane” only when the running commit is the result's `po` would
+  close all three.
 
 Fixed:
 
