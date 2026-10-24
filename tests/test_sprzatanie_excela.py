@@ -8,11 +8,12 @@ gdzie zadanie CI ``mutations`` uruchamia ``check_excel_cleanup_mutations.py``.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 import importlib
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 from types import ModuleType
 
@@ -210,16 +211,24 @@ def test_nieudane_zamkniecie_excela_jest_notatka_sprzatania_a_nie_tracebackiem(
     assert (observed["excel_rss_mb_after"], observed["excel_workbooks_after"]) == (3000, 0), observed
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(lambda excel: excel.ExcelDialog("Excel did not answer within 90 s of starting"), id="ExcelDialog"),
+        pytest.param(lambda excel: ProcessLookupError(3, "No such process"), id="ProcessLookupError"),
+        pytest.param(lambda excel: subprocess.CalledProcessError(1, ["open", "-g"]), id="CalledProcessError"),
+    ],
+)
 def test_nieudane_zatrzymanie_excela_z_oknem_dialogowym_konczy_run_linia_verify(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excel: FakeExcel
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excel: FakeExcel, error: Callable[[ModuleType], Exception]
 ) -> None:
-    excel.end_error = excel.excel.ExcelDialog("Excel did not answer within 90 s of starting")
+    excel.end_error = error(excel.excel)
 
     code, output = _run(tmp_path, monkeypatch, excel, dialog=True)
 
     cleanup = (_evidence(tmp_path) / "cleanup.txt").read_text(encoding="utf-8")
     assert code == 1 and _verdict(output).startswith("VERIFY FAIL"), output
-    assert "excel_quit_failed=ExcelDialog" in cleanup and "desk_kept=" in cleanup, cleanup
+    assert f"excel_quit_failed={type(excel.end_error).__name__}" in cleanup and "desk_kept=" in cleanup, cleanup
 
 
 def test_okno_dialogowe_na_starcie_konczy_run_przed_praca(
