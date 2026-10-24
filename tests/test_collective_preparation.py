@@ -418,12 +418,12 @@ def test_rejestr_rows_remembered_after_podglad_cannot_be_changed(tmp_path: Path)
     fixture = make_preparation_fixture(tmp_path)
     link_register_order_numbers(fixture.register_path, "https://firma.example/zlecenie/")
     row = read_register(fixture.register_path, parse_period_token(PERIOD))[0].rows[0]
-    column, link = next(iter(row.hyperlinks.items()))
+    header, cell = next((header, cell) for header, cell in row.cells.items() if cell.hyperlink is not None)
 
     with pytest.raises(TypeError):
-        row.hyperlinks[column] = link  # type: ignore[index]
+        row.cells[header] = cell  # type: ignore[index]
     with pytest.raises(TypeError):
-        row.quantities[column] = 1  # type: ignore[index]
+        row.quantities[header] = 1  # type: ignore[index]
 
 
 def test_podglad_of_another_period_does_not_change_what_run_reads_from_the_same_rejestr(tmp_path: Path) -> None:

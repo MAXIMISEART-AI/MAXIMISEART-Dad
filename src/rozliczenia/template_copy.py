@@ -53,7 +53,7 @@ import struct
 import zipfile
 import zlib
 from bisect import bisect_left, bisect_right
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -85,6 +85,7 @@ from .highlights import PLAIN, Highlights
 from .hyperlinks import Hyperlink
 from .quantity_rules import QuantityColumn
 from .row_look import GENERAL, CellLook, RowLook, wraps
+from .workbook_files import DataCell
 from .workbook_parts import (
     MAIN,
     OFFICE_REL,
@@ -222,22 +223,11 @@ class Package:
 
 
 class Row(Protocol):
-    """Wiersz danych do wpisania: wartości i Wyróżnienia kolumn Wiersza danych od A, po pozycji, i ich Hiperłącza."""
+    """Wiersz danych do wpisania: komórki kolumn Wiersza danych od A i Ilości usług."""
 
     @property
-    def values(self) -> Sequence[object]: ...
-
-    @property
-    def highlights(self) -> Sequence[Highlights]: ...
-
-    @property
-    def hyperlinks(self) -> Mapping[int, Hyperlink]:
-        """Kolumna od 1 → Hiperłącze; tylko komórki z wartością."""
-        ...
-
-    @property
-    def number_formats(self) -> Sequence[str]:
-        """Formaty liczb komórek źródłowych kolumn wyglądu od A, po pozycji, dla każdej wpisywanej kolumny wyglądu."""
+    def cells(self) -> Mapping[int, DataCell]:
+        """Kolumna od 1 → komórka z wartością, Wyróżnieniami, formatem liczby i Hiperłączem; każda kolumna Wiersza danych."""
         ...
 
     @property
@@ -632,7 +622,7 @@ class _Sheet:
         return [
             (self._letters[column - 1] + b"%d" % (first_row + index), link)
             for index, row in enumerate(rows)
-            for column, link in sorted(row.hyperlinks.items())
+            for column, link in sorted(_row_links(row))
             if column <= self._layout.data_columns
         ]
 
@@ -721,12 +711,11 @@ class _Sheet:
         suffix = b"%d" % number
         columns = self._layout.data_columns
         written = dict(cells)
-        for column, (value, highlights) in enumerate(
-            zip(data.values[:columns], data.highlights[:columns], strict=True), start=1
-        ):
+        for column in range(1, columns + 1):
+            value, highlights, number_format, _ = data.cells[column]
             cell_look = None
             if column <= look.columns:
-                cell_look = look.cell(column, highlights, data.number_formats[column - 1], wrapped=wraps(value))
+                cell_look = look.cell(column, highlights, number_format, wrapped=wraps(value))
             reference = self._letters[column - 1] + suffix
             written[column] = self._cell(reference, cells.get(column), value, highlights, cell_look, styles)
         for column in range(columns + 1, look.columns + 1):
@@ -773,6 +762,10 @@ class _Sheet:
             return _cell_xml(reference, style(date_format), b"n", b"<v>" + _number(serial) + b"</v>")
         kind, content = _value_xml(value)
         return _cell_xml(reference, style(None), kind, content)
+
+
+def _row_links(row: Row) -> Iterator[tuple[int, Hyperlink]]:
+    return ((column, cell.hyperlink) for column, cell in row.cells.items() if cell.hyperlink is not None)
 
 
 def _writable_data_rows_have_input(xml: bytes, data_start: int, data_end: int, layout: SheetLayout) -> bool:

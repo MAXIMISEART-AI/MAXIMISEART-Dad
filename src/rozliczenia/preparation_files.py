@@ -1,7 +1,6 @@
 """Wzorce i pliki okresu w Przygotowaniu pliku zbiorczego.
 
-Moduł podaje oba wzorce z kolumnami Rejestru zleceń (``internal_template``, ``collective_template``, sprawdzane w
-``input_checks``), ocenia,
+Moduł podaje oba wzorce (``internal_template``, ``collective_template``, sprawdzane w ``input_checks``), ocenia,
 czy zlecenia zmieszczą się we wzorcach, i podaje fakty o wierszach Pliku zbiorczego (Planowanie), a potem zapisuje
 Rozliczenie wewnętrzne oraz Plik zbiorczy razem do Folderu okresu (Zapisywanie). Planowanie i Zapisywanie
 zatrzymują się ``StopError``. Moduł wewnętrzny Przygotowania pliku zbiorczego; operacją publiczną pozostaje
@@ -21,13 +20,11 @@ from . import preparation_messages as messages
 from .message import StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import CollectiveRow, PeriodOrder
-from .preparation_register import COLUMNS
 from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, WithoutRule
 from .template_file import TemplateFile
-from .workbook_files import DataRow, WorkbookError
+from .workbook_files import RegisterRow, WorkbookError
 from .workbook_save import WorkbookSaveError
 
-_TARGET_HEADERS = tuple(column.target_header for column in COLUMNS)
 
 @dataclass(frozen=True)
 class PeriodFiles:
@@ -147,15 +144,15 @@ def write_period_files(
 
 
 def internal_template(template_path: Path) -> TemplateFile:
-    """Wzorzec rozliczenia wewnętrznego z kolumnami ``COLUMNS`` pod ich nagłówkami docelowymi."""
+    """Wzorzec rozliczenia wewnętrznego."""
 
-    return TemplateFile.internal_settlement(template_path, _TARGET_HEADERS)
+    return TemplateFile.internal_settlement(template_path)
 
 
 def collective_template(template_path: Path) -> TemplateFile:
-    """Wzorzec pliku zbiorczego z kolumnami ``COLUMNS`` pod ich nagłówkami docelowymi."""
+    """Wzorzec pliku zbiorczego."""
 
-    return TemplateFile.collective_file(template_path, _TARGET_HEADERS)
+    return TemplateFile.collective_file(template_path)
 
 
 @contextmanager
@@ -168,14 +165,14 @@ def _template_stops() -> Iterator[None]:
         raise StopError(messages.template_unusable(error)) from error
 
 
-def _write_period_file(template: TemplateFile, target: Path, rows: Sequence[DataRow]) -> None:
+def _write_period_file(template: TemplateFile, target: Path, rows: Sequence[RegisterRow]) -> None:
     """Plik z Wzorca z Wierszami danych od pierwszego Wiersza danych (ADR 0008)."""
 
     with _template_stops():
         template.create(target, rows)
 
 
-def _with_quantities(row: CollectiveRow) -> DataRow:
+def _with_quantities(row: CollectiveRow) -> RegisterRow:
     """Wiersz Rejestru z Ilościami usług zlecenia z Planowania."""
 
     return replace(row.order.row, quantities=row.rule_result.quantities)

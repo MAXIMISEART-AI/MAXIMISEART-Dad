@@ -367,3 +367,13 @@ obie drogi zapisu; plik wybiera konstruktor (`TemplateFile.worker_settlement`,
 modułu. Rozliczenie wewnętrzne nadal powstaje tylko przez openpyxl i bez flag
 przeliczania: kopia zawsze je ustawia, więc droga przez openpyxl ustawia je
 dokładnie dla plików, które mogą powstać kopią.
+
+Komórka Wiersza danych niesie razem wartość, Wyróżnienia, format liczby i
+Hiperłącze (`workbook_files.DataCell`). Wiersz danych Pliku zbiorczego
+(`DataRow`) ma komórki A:AT po kolumnie i każda trafia do tej samej kolumny
+Rozliczenia pracownika. Wiersz Rejestru zleceń (`RegisterRow`) ma komórki pod
+nagłówkiem docelowym, a `TemplateFile` pliku okresu wpisuje każdą do kolumny
+pod tym nagłówkiem we Wzorcu. Nagłówki docelowe są częścią układu pliku okresu,
+więc konstruktor `TemplateFile` nie dostaje ich z wywołania. Kopia nadal
+przyjmuje tylko nagłówki docelowe w kolumnach od A; inny ich układ zapisuje
+openpyxl.

@@ -22,14 +22,15 @@ from openpyxl.styles.fills import Fill
 from openpyxl.styles.numbers import is_date_format
 from openpyxl.utils import get_column_letter
 
-from rozliczenia.highlights import PLAIN, Highlights
-from rozliczenia.preparation_register import COLUMNS
+from rozliczenia.highlights import Highlights
+from rozliczenia.preparation_register import TARGET_HEADERS
 from rozliczenia.quantity_rules import QuantityColumn
 from rozliczenia.workbook_files import (
     DataRow,
     ExcelRow,
     MissingHeader,
     Problem,
+    RegisterRow,
     WorkbookError,
     read_data_rows,
     read_workbook,
@@ -65,17 +66,32 @@ from tests.fixtures.workbooks import (
     without_sheet,
     without_styles,
 )
-from tests.fixtures.settlement import write_source, write_template
+from tests.fixtures.data_rows import data_row, register_row
+from tests.fixtures.settlement import COLLECTIVE_HEADERS, write_source, write_template
 
 
 def not_a_zip(path: Path) -> None:
     path.write_bytes(b"to nie jest skoroszyt")
 
 
+def with_target_headers(path: Path) -> None:
+    """Nagłówki docelowe pliku zbiorczego w A17:K17, z WYKONAWCA w H17."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = active_worksheet(workbook)
+        for column, header in enumerate(COLLECTIVE_HEADERS, start=1):
+            sheet.cell(17, column).value = header
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+
 def styled_template(path: Path) -> Path:
-    """Skoroszyt w układzie Pliku zbiorczego z komórką ze stylem w Wierszu danych."""
+    """Skoroszyt w układzie Pliku zbiorczego z nagłówkami docelowymi i komórką ze stylem w Wierszu danych."""
 
     write_template(path)
+    with_target_headers(path)
     workbook = load_workbook(path)
     try:
         sheet = active_worksheet(workbook)
@@ -89,21 +105,21 @@ def styled_template(path: Path) -> Path:
 def _read_with_format(path: Path) -> None:
     with read_workbook(path, workbook_content(path)) as workbook:
         for sheet in workbook.sheets():
-            list(sheet.data_rows(min_row=1, columns=range(1, 15)))
+            list(sheet.data_rows(min_row=1, columns={get_column_letter(column): column for column in range(1, 15)}))
 
 
 def _check_template(path: Path) -> None:
-    TemplateFile.collective_file(path, ["WYKONAWCA"]).check()
+    TemplateFile.collective_file(path).check()
 
 
 def _plan_template(path: Path) -> None:
-    TemplateFile.collective_file(path, ["WYKONAWCA"]).plan(1)
+    TemplateFile.collective_file(path).plan(1)
 
 
 def _period_file(path: Path) -> None:
     target = path.with_name("Plik z Wzorca.xlsx")
     try:
-        TemplateFile.collective_file(path, ["WYKONAWCA"]).create(target, [])
+        TemplateFile.collective_file(path).create(target, [])
     finally:
         assert not target.exists()
 
@@ -222,11 +238,14 @@ def test_plik_otwarty_w_excelu_przy_kazdym_otwarciu(tmp_path: Path, opening: str
 
 
 def move_worker_header(path: Path, cell: str | None) -> None:
+    """WYKONAWCA z H17 w komórce ``cell``, a jej nagłówek w H17; bez ``cell`` H17 jest pusta."""
+
     workbook = load_workbook(path)
     try:
         sheet = active_worksheet(workbook)
         sheet["H17"] = None
         if cell is not None:
+            sheet["H17"] = sheet[cell].value
             sheet[cell] = " wykonawca "
         workbook.save(path)
     finally:
@@ -245,6 +264,7 @@ HEADER_CHECKS: dict[str, Callable[[Path], object]] = {
 def test_wykonawca_poza_h17_to_zly_uklad(tmp_path: Path, check: str, cell: str | None, worker_column: str | None) -> None:
     path = tmp_path / "Rozliczenie - zbiorcze.xlsx"
     write_source(path, include_unmapped=False)
+    with_target_headers(path)
     move_worker_header(path, cell)
 
     with pytest.raises(WorkbookError) as raised:
@@ -257,6 +277,7 @@ def test_wykonawca_poza_h17_to_zly_uklad(tmp_path: Path, check: str, cell: str |
 def test_naglowek_wykonawca_nie_zalezy_od_wielkosci_liter_i_spacji(tmp_path: Path) -> None:
     path = tmp_path / "Rozliczenie - zbiorcze.xlsx"
     write_source(path, include_unmapped=False)
+    with_target_headers(path)
     move_worker_header(path, "H17")
 
     _check_template(path)
@@ -285,9 +306,9 @@ def test_wiersze_danych_pliku_zbiorczego_w_kolejnosci_z_wykonawca_i_wartosciami_
         (20, "dariusz.fikcyjny2"),
         (21, "adrian.testowy"),
     ]
-    assert all(len(row.values) == 46 for row in rows)
-    assert rows[0].values[:2] == ("POZNAŃ", "syntetyczny adres 1")
-    assert rows[0].values[45] == "uwagi"
+    assert all(len(row.cells) == 46 for row in rows)
+    assert (rows[0].value("A"), rows[0].value("B")) == ("POZNAŃ", "syntetyczny adres 1")
+    assert rows[0].value("AT") == "uwagi"
     assert path.read_bytes() == before
 
 
@@ -329,8 +350,8 @@ def excel_collective_file(directory: Path) -> Path:
     return path
 
 
-def _values_by_column(values: tuple[object, ...]) -> dict[str, object]:
-    return {get_column_letter(column): value for column, value in enumerate(values, start=1) if value is not None}
+def _values_by_column(row: DataRow) -> dict[str, object]:
+    return {get_column_letter(column): cell.value for column, cell in enumerate(row.cells, start=1) if cell.value is not None}
 
 
 def without_cell_references_in_row_100(path: Path) -> None:
@@ -361,8 +382,8 @@ def test_wiersze_danych_po_pustych_wierszach_maja_wartosci_jak_w_excelu(tmp_path
     rows = read_data_rows(path).rows
 
     assert [(row.number, row.worker) for row in rows] == [(18, "adrian.testowy"), (100, "beata.fikcyjna"), (150, None)]
-    assert all(len(row.values) == 46 for row in rows)
-    assert _values_by_column(rows[0].values) == {
+    assert all(len(row.cells) == 46 for row in rows)
+    assert _values_by_column(rows[0]) == {
         "A": "Instalacje",
         "B": "syntetyczny adres 1",
         "F": 1001,
@@ -376,9 +397,9 @@ def test_wiersze_danych_po_pustych_wierszach_maja_wartosci_jak_w_excelu(tmp_path
         **zeros,
         "AT": "Suma",
     }
-    assert [type(rows[0].values[column]) for column in (5, 13, 14)] == [int, int, float]
-    assert _values_by_column(rows[1].values) == {"C": "tylko C", "H": "beata.fikcyjna", "I": "#N/A", "Q": "=N100+1"}
-    assert _values_by_column(rows[2].values) == {"E": 3}
+    assert [type(rows[0].value(column)) for column in ("F", "N", "O")] == [int, int, float]
+    assert _values_by_column(rows[1]) == {"C": "tylko C", "H": "beata.fikcyjna", "I": "#N/A", "Q": "=N100+1"}
+    assert _values_by_column(rows[2]) == {"E": 3}
 
 
 def linked_template(path: Path) -> Path:
@@ -498,11 +519,7 @@ def _row(**columns: Any) -> ExcelRow:
 def _data_row(values: ExcelRow, **highlights: Highlights) -> DataRow:
     """Wiersz danych z wartościami ``values`` i Wyróżnieniami w podanych kolumnach; pozostałe komórki bez Wyróżnień."""
 
-    cells = [PLAIN] * 46
-    for letter, cell in highlights.items():
-        cells[_column_index(letter) - 1] = cell
-    number_formats = tuple("m/d/yy h:mm" if isinstance(value, (date, time)) else "General" for value in values[:12])
-    return DataRow(18, values, tuple(cells), number_formats)
+    return data_row(values, {_column_index(letter): cell for letter, cell in highlights.items()})
 
 
 def _column_index(letter: str) -> int:
@@ -746,10 +763,10 @@ def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_wewnetrznego_bez_pli
     template_path = write_internal_template(tmp_path / "Wzorzec rozliczenia wewnętrznego.xlsx")
     output_directory = tmp_path / "okres"
     output_directory.mkdir()
-    row = DataRow(2, ("syntetyczny\x01znak",) + (None,) * 10, (PLAIN,) * 11, ("General",) * 11)
+    row = register_row({"DATA": "syntetyczny\x01znak"})
 
     with pytest.raises(WorkbookSaveError):
-        TemplateFile.internal_settlement(template_path, [column.target_header for column in COLUMNS]).create(
+        TemplateFile.internal_settlement(template_path).create(
             output_directory / "Rozliczenie wew.xlsx", [row]
         )
 
@@ -786,13 +803,10 @@ def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp
     assert sorted(path.name for path in tmp_path.iterdir()) == ["Plik zbiorczy.xlsx", "Uszkodzony.xlsx"]
 
 
-PERIOD_HEADERS = [column.target_header for column in COLUMNS]
+def _register_row() -> RegisterRow:
+    """Wiersz Rejestru zleceń: komórka pod każdym nagłówkiem docelowym go nazywa."""
 
-
-def _register_row() -> DataRow:
-    """Wiersz Rejestru zleceń: komórka każdej kolumny ``COLUMNS`` nazywa swój nagłówek docelowy."""
-
-    return DataRow(2, tuple(f"syntetyczne {header}" for header in PERIOD_HEADERS), (PLAIN,) * 11, ("General",) * 11)
+    return register_row({header: f"syntetyczne {header}" for header in TARGET_HEADERS})
 
 
 @pytest.mark.parametrize("by_copy", [True, False], ids=["kopia", "openpyxl"])
@@ -806,7 +820,7 @@ def test_naglowek_docelowy_pliku_zbiorczego_jest_szukany_tylko_w_a_k(tmp_path: P
         refused_by_copy(template_path)
     target = tmp_path / "Plik zbiorczy.xlsx"
 
-    TemplateFile.collective_file(template_path, PERIOD_HEADERS).create(target, [_register_row()])
+    TemplateFile.collective_file(template_path).create(target, [_register_row()])
 
     sheet = active_worksheet(load_workbook(target))
     assert (sheet["B18"].value, sheet["AV18"].value) == ("syntetyczne ADRES", None)
@@ -820,7 +834,7 @@ def test_naglowek_docelowy_rozliczenia_wewnetrznego_jest_szukany_w_calym_wierszu
     workbook.save(template_path)
     target = tmp_path / "Rozliczenie wewnętrzne.xlsx"
 
-    TemplateFile.internal_settlement(template_path, PERIOD_HEADERS).create(target, [_register_row()])
+    TemplateFile.internal_settlement(template_path).create(target, [_register_row()])
 
     sheet = active_worksheet(load_workbook(target))
     assert [sheet.cell(2, column).value for column in (1, 2, 12)] == [
@@ -834,7 +848,7 @@ def test_rozliczenie_wewnetrzne_powstaje_przez_openpyxl_bez_wymuszonego_przelicz
     template_path = write_internal_template(tmp_path / "Wzorzec rozliczenia wewnętrznego.xlsx")
     target = tmp_path / "Rozliczenie wewnętrzne.xlsx"
 
-    route = TemplateFile.internal_settlement(template_path, PERIOD_HEADERS).create(target, [_register_row()])
+    route = TemplateFile.internal_settlement(template_path).create(target, [_register_row()])
 
     assert route is Route.OPENPYXL
     assert not load_workbook(target).calculation.forceFullCalc
@@ -851,7 +865,7 @@ def test_plik_zbiorczy_z_kopii_ma_wymiar_arkusza_z_wpisanymi_iloscami_uslug(tmp_
     target = tmp_path / "Plik zbiorczy.xlsx"
     row = replace(_register_row(), quantities={QuantityColumn.AP: 1})
 
-    route = TemplateFile.collective_file(template_path, PERIOD_HEADERS).create(target, [row])
+    route = TemplateFile.collective_file(template_path).create(target, [row])
 
     assert route is Route.COPY
     assert re.search(r'<dimension ref="A1:AP18"', zip_part(target, "xl/worksheets/sheet1.xml"))

@@ -19,7 +19,7 @@ from .message import StopError
 from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, SUCCESSFUL, WORKER, RegisterSheet, cell_value
 from .quantity_rules import OrderContent, RuleResult, evaluate
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow, cell_datetime, is_blank
+from .workbook_files import RegisterRow, cell_datetime, is_blank
 from .worker_config import normalize_text
 
 _SUCCESSFUL_VALUE = "tak"
@@ -31,7 +31,7 @@ _BLANK_WORKER_LABEL = "(pusty)"
 class PeriodOrder:
     """Zlecenie okresu: wiersz Rejestru i jego data z ``DATA GODZ. POCZ.``."""
 
-    row: DataRow
+    row: RegisterRow
     started: datetime
 
     @property
@@ -128,7 +128,7 @@ def plan_period_orders(
     return Plan(period, register.name, orders, collective_rows, skipped_empty_rows)
 
 
-def _in_period(row: DataRow, period: SettlementPeriod) -> bool:
+def _in_period(row: RegisterRow, period: SettlementPeriod) -> bool:
     started = cell_datetime(cell_value(row, DATE))
     return started is not None and period.start <= started < period.end
 
