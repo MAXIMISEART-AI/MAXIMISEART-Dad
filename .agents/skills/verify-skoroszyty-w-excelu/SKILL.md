@@ -201,7 +201,13 @@ whether the run's workbooks are closed. It then says `close_failed=ExcelDialog`
 and `desk_kept=<desk>`, keeps the desk under the workbooks Excel may still hold,
 never reports `scratch_removed=true`, and the run ends `VERIFY FAIL`. Answer
 the dialog in Excel; the next run's sweep closes those workbooks and removes the
-desk. This path (a dialog left in an Excel that ran before the run, e.g.
+desk. Proven in Excel 16.114.1 on 2026-10-24: a run killed by SIGKILL with
+the Plik zbiorczy open left it and its desk; the next run reported
+`stale_workbooks_closed=1`, `stale_desks_removed=1` and left an unsaved
+workbook of the user open and unchanged. An Excel started with no workbook
+ended `excel_quit=true`. Excel started by `open` (also `excel.launch`) holds
+its blank `Zeszyt1`, which it replaces by the first workbook opened, so
+`excel_workbooks_before=1` after such a start is no workbook of the user. This path (a dialog left in an Excel that ran before the run, e.g.
 `--kontrola-naprawy` not answered in 10 minutes) is proven by
 `tests/test_sprzatanie_excela.py` only, not in Excel yet: prove it at the next
 `--kontrola-naprawy` with Maks at the Mac.
