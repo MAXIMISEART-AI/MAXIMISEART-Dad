@@ -48,7 +48,7 @@ model action is one indivisible step of this code:
 | Model action | Code (`src/rozliczenia/centrum/`) |
 | --- | --- |
 | `Klik` | `tool_updates.py` `ToolUpdates.start`, `_result` (`restart_guardian.prepare`). A click while a journal is in progress does not count toward `MaxKlikniec` (see Scope). |
-| `Pobranie` | `tool_update.py` `ToolClone.update`: `_Journal.read`, and when no guardian may run (`guardian_may_run`) `_moved_back` before anything else (`cofa = "klik"`, `ROLLBACK_FAILED` when it fails); otherwise `_Git.fetch` of `main` and the Wydanie tags, `newest_on_main` with `_main_tips`, the first-parent line of `main` (Wydania not on it are skipped; none left is `AKTUALNA`), `_Git.is_ancestor` (a clone that already contains the newest Wydanie is `AKTUALNA`), then up to `_DadFiles.leaving`, `_has_local_commits`, `_changed_tracked_files` |
+| `Pobranie` | `tool_update.py` `ToolClone.update`: `_Journal.read`, and when no guardian may run (`guardian_may_run`) `_moved_back` before anything else (`cofa = "klik"`, `ROLLBACK_FAILED` when it fails); otherwise `_Git.fetch` of `main` and the Wydanie tags, `MainLine.newest()`, which is `newest_on_main` over `_main_tips`, the first-parent line of `main` (Wydania not on it are skipped; none left is `AKTUALNA`), `_Git.is_ancestor` (a clone that already contains the newest Wydanie is `AKTUALNA`), then up to `_DadFiles.leaving`, `_has_local_commits`, `_changed_tracked_files` |
 | `KopiaPlikow` | `tool_update.py` `_Journal.begin`: `JournalKept` when a journal is in progress (only with a guardian's lease, since `Pobranie` rolls back any other), else copy and `fsync` of Dad's files into `pliki-taty`, then `stan.json` (`_write`) |
 | `CheckoutHead` | `tool_update.py` `_DadFiles.set_aside` before `yield` |
 | `Scalanie` | `tool_update.py` `ToolClone.update`, `git merge --ff-only`, and `if not moved` (`journal.end()`) when Git refuses |
@@ -71,12 +71,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `b097a6c` (2026-10-23, ADR 0014: `ToolClone.update` fetches
-`main` and the Wydanie tags and moves the clone to the highest Wydanie on
-the first-parent line of `main`, skipping higher ones that are not on it. No Wydanie on `main` and a
-clone that already contains it end before the journal with the clone
-unchanged, the same outcome as `head = "nowa"` in `Pobranie`, so only its
-comments and strings changed). At this commit every row above was checked against the code.
+Sync commit: `601fcd7` (2026-10-23, #316: `ToolClone.update` picks the
+newest Wydanie through `MainLine.newest()`, the same `newest_on_main` over
+the first-parent line that the release tool `tools/wydanie.py` uses; same
+steps, same outcomes, so the model is unchanged). At this commit every row above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,
