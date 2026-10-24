@@ -11,7 +11,10 @@ from typing import Any
 import pytest
 
 from rozliczenia.centrum.notifications import CHECK_WAIT_S
-from rozliczenia.centrum.report_box import CloseReason, Refused, Unreachable
+from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes, render
+from rozliczenia.centrum.report_box import NOTE_LABEL, REPORT_LABEL, CloseReason, Refused, Unreachable
+from rozliczenia.centrum.tool_freshness import PublishedRelease
+from rozliczenia.centrum.tool_update import Release
 
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, stopped_for_maks
 
@@ -273,3 +276,155 @@ def test_spozniona_odpowiedz_skrzynki_nie_wstrzymuje_powiadomien_a_jej_stan_i_ta
     while rows(centrum)[0][2] == "wyslana" and time.monotonic() < deadline:
         time.sleep(0.01)
     assert rows(centrum) == [("zgloszenie", what, "rozwiazana", True)]
+
+
+SUMMARY = "Plik zbiorczy ma kolumnę z kilometrami."
+NEW_COMMIT = "b7e4c1a2d3f5e6a7b8c9d0e1f2a3b4c5d6e7f8a9"
+PUBLISHED_AT = datetime(2026, 10, 22, 8, 0, tzinfo=timezone.utc)
+# Sprawa z notki, której ten komputer nie wysłał: Uwaga taty z innego komputera.
+FOREIGN = DadCase(999, "Uwaga z innego komputera", NOTE_LABEL)
+
+
+def published(tag: str, notes: str = SUMMARY, at: datetime = PUBLISHED_AT) -> PublishedRelease:
+    release = Release.of_tag(tag)
+    assert release is not None
+    return PublishedRelease(release, notes, at)
+
+
+def release_on_main(centrum: PreparingCentrum, tag: str, commit: str, *listed: PublishedRelease) -> None:
+    """GitHub: najnowsze Wydanie na `main` to ``tag`` na ``commit``, a lista GitHub Releases to ``listed``."""
+
+    github = centrum.surroundings.github
+    github.release, github.tag, github.published = commit, tag, list(listed)
+
+
+def new_versions(centrum: PreparingCentrum) -> list[dict[str, Any]]:
+    return [item for item in notifications(centrum)["items"] if item["kind"] == "nowa_wersja"]
+
+
+def test_nowsze_wydanie_daje_powiadomienie_z_notka_sprawami_taty_i_przyciskiem(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    what = sent_report(centrum)
+    sent_note(centrum)
+    cases = (
+        DadCase(number_of(centrum, NOTE_TITLE), "Tytuł z Release", NOTE_LABEL),
+        DadCase(centrum.surroundings.report_box.sent[0].number, "Tytuł z Release", REPORT_LABEL),
+        FOREIGN,
+    )
+    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0", render(ReleaseNotes(SUMMARY, cases))))
+
+    answer = notifications(centrum)
+
+    assert [item for item in answer["items"] if item["kind"] == "nowa_wersja"] == [
+        {
+            "kind": "nowa_wersja",
+            "id": "wydanie-v0.2.0",
+            "at": "2026-10-22T08:00:00Z",
+            "unread": True,
+            "version": "0.2.0",
+            "summary": SUMMARY,
+            "solved": [{"kind": "uwaga", "title": NOTE_TITLE}, {"kind": "zgloszenie", "title": what}],
+            "update_offered": True,
+        }
+    ]
+    assert answer["unread"] == 1
+    assert centrum.client.get("/api/configuration").json()["update_offered"] is True
+
+
+def test_wydanie_nie_nowsze_od_wersji_taty_nie_ma_przycisku_ani_kropki_a_wyzsze_spoza_main_nie_jest_powiadomieniem(
+    tmp_path: Path,
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    tool = centrum.surroundings.github.tool_commit
+    assert tool is not None
+    release_on_main(
+        centrum,
+        "v0.2.0",
+        tool,
+        published("v0.3.0", "Wydanie z gałęzi spoza main.", PUBLISHED_AT + timedelta(days=1)),
+        published("v0.2.0"),
+        published("v0.1.0", "Pierwsza wersja z Powiadomieniami.", PUBLISHED_AT - timedelta(days=14)),
+    )
+
+    assert [(item["version"], item["update_offered"], item["unread"]) for item in new_versions(centrum)] == [
+        ("0.2.0", False, False),
+        ("0.1.0", False, False),
+    ]
+    assert notifications(centrum)["unread"] == 0
+    assert centrum.client.get("/api/configuration").json()["update_offered"] is False
+
+
+def test_po_przejsciu_na_wydanie_przycisk_znika_a_karta_zostaje_przeczytana(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0"))
+    read(centrum, [item["id"] for item in new_versions(centrum)])
+
+    centrum.surroundings.github.tool_commit = NEW_COMMIT  # Aktualizacja narzędzia i ponowny start Centrum
+    centrum.restart()
+
+    assert [(item["id"], item["unread"], item["update_offered"]) for item in new_versions(centrum)] == [
+        ("wydanie-v0.2.0", False, False)
+    ]
+    assert notifications(centrum)["unread"] == 0
+
+
+def test_nowe_wydanie_zapala_kropke_a_przycisk_przechodzi_na_nie(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0"))
+    read(centrum, [item["id"] for item in new_versions(centrum)])
+    assert notifications(centrum)["unread"] == 0
+
+    newer = published("v0.3.0", "Rozliczenia pracowników są szybsze.", PUBLISHED_AT + timedelta(days=7))
+    release_on_main(centrum, "v0.3.0", "c" * 40, newer, published("v0.2.0"))
+    centrum.surroundings.clock.advance(minutes=10)
+
+    assert [(item["version"], item["unread"], item["update_offered"]) for item in new_versions(centrum)] == [
+        ("0.3.0", True, True),
+        ("0.2.0", False, False),
+    ]
+    assert notifications(centrum)["unread"] == 1
+
+
+def test_bez_sieci_powiadomienia_o_wydaniach_zostaja_bez_zmian_i_bez_komunikatu(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    github, clock = centrum.surroundings.github, centrum.surroundings.clock
+    github.release, github.published = None, None
+    assert new_versions(centrum) == []
+    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0"))
+    clock.advance(minutes=10)
+    known = notifications(centrum)
+    asked = (github.asked, github.asked_published)
+
+    github.release, github.published = None, None
+    clock.advance(minutes=10)
+    response = centrum.client.get("/api/notifications")
+
+    assert (response.status_code, response.json()) == (200, known)
+    assert (github.asked, github.asked_published) == (asked[0] + 1, asked[1] + 1)
+    assert not centrum.log_path.exists() or "nieoczekiwany-wyjatek" not in centrum.log_path.read_text(encoding="utf-8")
+
+
+def test_github_jest_pytany_o_wydania_przy_starcie_i_najwyzej_raz_na_10_minut_wspolnie_z_konfiguracja(
+    tmp_path: Path,
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0"))
+    github, clock = centrum.surroundings.github, centrum.surroundings.clock
+
+    with centrum.client:  # start Centrum, jak po kliknięciu skrótu
+        deadline = time.monotonic() + 5
+        while github.asked_published == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert (github.asked, github.asked_published) == (1, 1)
+
+        for _ in range(3):
+            notifications(centrum)
+            centrum.client.get("/api/configuration")
+            clock.advance(minutes=3)
+        assert (github.asked, github.asked_published) == (1, 1)
+
+        clock.advance(minutes=1)
+        assert [item["version"] for item in new_versions(centrum)] == ["0.2.0"]
+        centrum.client.get("/api/configuration")
+        assert (github.asked, github.asked_published) == (2, 2)

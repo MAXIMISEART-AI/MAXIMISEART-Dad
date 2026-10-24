@@ -1,9 +1,9 @@
-"""Katalog Komunikatów Przebiegu rozliczeń: zatrzymania i problemy z podsumowania dla taty.
+"""Katalog Komunikatów Przebiegu rozliczeń: zatrzymania i ostrzeżenia podsumowania dla taty.
 
 Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co się
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
 Części nie zawierają pełnych ścieżek ani treści wierszy: wskazują tylko nazwę
-pliku, folder okresu, kolumnę albo Wykonawcę z konfiguracji wykonawców.
+pliku, folder okresu, kolumnę, numer wiersza albo Wykonawcę z konfiguracji wykonawców.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Final, assert_never
 
-from .domain import Issue
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .workbook_files import WORKER_HEADER, Problem, WorkbookError
 from .worker_config import WorkerConfigError
@@ -22,23 +21,27 @@ _STAGING_LEFT: Final = "W Folderze okresu został folder tymczasowy, którego ni
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
+_FIX_UNMAPPED_WORKER: Final = (
+    f"Popraw WYKONAWCĘ w kolumnie {WORKER_HEADER.column} albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
+    "do konfiguracji wykonawców."
+)
 _LEGACY_WORKER_TEMPLATE_NAME: Final = "placeholder.xlsx"
 
 
-def collective_file_unusable(source: Path, error: WorkbookError) -> Message:
+def collective_file_unusable(error: WorkbookError) -> Message:
     """Plik zbiorczy, którego nie da się użyć; ``error`` mówi dlaczego."""
 
     match error.problem:
         case Problem.MISSING:
-            return collective_file_missing(source)
+            return collective_file_missing(error.path)
         case Problem.OPEN_IN_EXCEL:
-            return _collective_file_open(source)
+            return _collective_file_open(error.path)
         case Problem.INACCESSIBLE:
-            return _collective_file_inaccessible(source)
+            return _collective_file_inaccessible(error.path)
         case Problem.LAYOUT:
-            return _collective_file_without_worker_header(source)
+            return _collective_file_without_worker_header(error.path)
         case Problem.UNREADABLE | Problem.HAS_DATA:
-            return _collective_file_unreadable(source)
+            return _collective_file_unreadable(error.path)
         case _:
             assert_never(error.problem)
 
@@ -142,14 +145,14 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
     )
 
 
-def worker_template_unusable(template_path: Path, error: WorkbookError) -> Message:
+def worker_template_unusable(error: WorkbookError) -> Message:
     """Wzorzec rozliczenia pracownika nie przeszedł Sprawdzania; ``error`` mówi dlaczego."""
 
     match error.problem:
         case Problem.MISSING:
-            detail = f"Nie znaleziono Wzorca rozliczenia pracownika: {template_path.name}."
-            if template_path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
-                detail += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{template_path.name}”."
+            detail = f"Nie znaleziono Wzorca rozliczenia pracownika: {error.path.name}."
+            if error.path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
+                detail += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{error.path.name}”."
         case Problem.OPEN_IN_EXCEL:
             detail = "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
         case Problem.LAYOUT:
@@ -163,7 +166,7 @@ def worker_template_unusable(template_path: Path, error: WorkbookError) -> Messa
     return Message(
         code="ZLY_WZORZEC_PRACOWNIKA",
         what=f"Nie można użyć Wzorca rozliczenia pracownika. {detail}",
-        where=file_label(template_path),
+        where=file_label(error.path),
         action=(
             "Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. "
             f"W innym wypadku {REPORT_TO_MAINTAINER.lower()}"
@@ -181,10 +184,7 @@ def unmapped_worker(source: Path) -> Message:
             f"{_NOTHING_CREATED}"
         ),
         where=f"{file_label(source)}, kolumna H",
-        action=(
-            f"{_PREVIEW_PROBLEMS} Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie "
-            f"o dopisanie Wykonawcy do konfiguracji wykonawców. {_SAVE_AND_RETRY}"
-        ),
+        action=f"{_PREVIEW_PROBLEMS} {_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
     )
 
 
@@ -199,6 +199,28 @@ def rows_without_worker(source: Path) -> Message:
     )
 
 
+def unmapped_worker_warning(source: Path) -> Message:
+    """DRY-RUN: WYKONAWCA z Pliku zbiorczego nie ma wpisu w konfiguracji wykonawców."""
+
+    return Message(
+        code="BRAK_MAPOWANIA",
+        what="Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
+        where=file_label(source),
+        action=f"{_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
+    )
+
+
+def row_without_worker_warning(source: Path, row: int) -> Message:
+    """DRY-RUN: Wiersz danych ``row`` bez WYKONAWCY."""
+
+    return Message(
+        code="BRAK_WYKONAWCY",
+        what=f"Wiersz {row} ma dane, ale nie ma wykonawcy w kolumnie {WORKER_HEADER.column}.",
+        where=file_label(source),
+        action=f"Wpisz WYKONAWCĘ w kolumnie {WORKER_HEADER.column} tego wiersza. {_SAVE_AND_RETRY}",
+    )
+
+
 def worker_file_failed(target_directory: Path, worker_name: str) -> Message:
     return Message(
         code="BLAD_SZABLONU_PRACOWNIKA",
@@ -208,16 +230,14 @@ def worker_file_failed(target_directory: Path, worker_name: str) -> Message:
     )
 
 
-def worker_template_unusable_in_saving(
-    template_path: Path, target_directory: Path, worker_name: str, error: WorkbookError
-) -> Message:
+def worker_template_unusable_in_saving(target_directory: Path, worker_name: str, error: WorkbookError) -> Message:
     """Wzorzec rozliczenia pracownika zmieniony po Sprawdzaniu, przy skoroszycie pracownika ``worker_name``."""
 
     match error.problem:
         case Problem.LAYOUT | Problem.HAS_DATA:
             return worker_file_failed(target_directory, worker_name)
         case Problem.MISSING | Problem.OPEN_IN_EXCEL | Problem.INACCESSIBLE | Problem.UNREADABLE:
-            return _worker_files_not_copied(template_path)
+            return _worker_files_not_copied(error.path)
         case _:
             assert_never(error.problem)
 
@@ -301,24 +321,4 @@ def plan_not_shown() -> Message:
         what="Nie udało się pokazać planu. Nic nie zapisano.",
         where="Przebieg rozliczeń",
         action=REPORT_TO_MAINTAINER,
-    )
-
-
-_ISSUE_ACTIONS: Final[dict[str, str]] = {
-    "BRAK_MAPOWANIA": (
-        "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
-        f"do konfiguracji wykonawców. {_SAVE_AND_RETRY}"
-    ),
-    "BRAK_WYKONAWCY": f"Wpisz WYKONAWCĘ w kolumnie H tego wiersza. {_SAVE_AND_RETRY}",
-}
-
-
-def issue_message(issue: Issue, source: Path) -> Message:
-    """Problem z podsumowania (wynik „Wymaga sprawdzenia”) w trzech częściach."""
-
-    return Message(
-        code=issue.code,
-        what=issue.message,
-        where=file_label(source),
-        action=_ISSUE_ACTIONS.get(issue.code, REPORT_TO_MAINTAINER),
     )

@@ -87,12 +87,14 @@ zamiast każdej naprawy z osobna.
   Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o
   nowej wersji (ADR 0015); numer i commit Wydania Centrum bierze z tagu.
   Centrum zielonego CI nie sprawdza.
-- **Przycisk** `Zaktualizuj narzędzie` Konfiguracja i Diagnoza pokazują tylko
-  wtedy, gdy Aktualność to `Jest nowsza wersja`; przy `Aktualna` i przy `Nie
-  sprawdzono` (brak sieci, brak Wydania, brak commitu) go nie ma. Regułę ma
-  jedno miejsce, `tool_freshness.offers_update`, a Konfiguracja podaje ją
-  przeglądarce w polu `update_offered` (#319). Powiadomienie o naprawie
-  miało przycisk zawsze; #323 je usunęło. Odpowiedź `Masz najnowszą wersję.`
+- **Przycisk** `Zaktualizuj narzędzie` Konfiguracja, Diagnoza i Powiadomienie
+  o nowej wersji pokazują tylko wtedy, gdy Aktualność to `Jest nowsza wersja`;
+  przy `Aktualna` i przy `Nie sprawdzono` (brak sieci, brak Wydania, brak
+  commitu) go nie ma. Regułę ma jedno miejsce, `tool_freshness.offers_update`,
+  a Konfiguracja i Powiadomienia podają ją przeglądarce w polu `update_offered`
+  (#319, #324). Powiadomienie o naprawie miało przycisk zawsze; #323 je
+  usunęło. Powiadomienie o nowej wersji ocenia ostatnią odpowiedź GitHuba, więc
+  bez sieci zostaje takie, jakie było. Odpowiedź `Masz najnowszą wersję.`
   zostaje na uśpiony tag (wyżej) i na każdego klienta HTTP.
 
 ### Ochrona przed tagiem założonym ręcznie
@@ -143,10 +145,10 @@ decyzja Maksa z 23.10.
 
 ## Konsekwencje
 
-- Naprawa dociera do taty dopiero z następnym Wydaniem. Do czasu Powiadomień z
-  ADR 0015 Powiadomienie o naprawie pojawia się, gdy Maks zamknie Zgłoszenie,
-  więc Maks zamyka je dopiero, gdy naprawa jest w Wydaniu; wcześniej tata
-  kliknie aktualizację z Powiadomienia i dostanie `Masz najnowszą wersję.`.
+- Naprawa dociera do taty dopiero z następnym Wydaniem. Sprawę zamkniętą przed
+  Wydaniem Powiadomienia z ADR 0015 nazywają rozwiązaną, z dopiskiem, że będzie
+  w następnej wersji; przycisk aktualizacji przynosi dopiero Powiadomienie o
+  nowej wersji, które wymienia ją z notki Wydania.
 - Zielone, ale zepsute Wydanie naprawia się tylko do przodu: nowym Wydaniem z
   revertem. Usunięcie tagu nie cofa taty, bo aktualizacja nigdy nie cofa.
 - Schemat `v*.*.*` i reguła „najwyższy numer na `main`” są umową z kodem u taty.

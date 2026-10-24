@@ -1,4 +1,4 @@
-"""Plik zbiorczy w Przebiegu rozliczeń: Wiersze danych z Wykonawcą, problemy wierszy bez niego i treść dozwolona.
+"""Plik zbiorczy w Przebiegu rozliczeń: Wiersze danych z Wykonawcą, numery wierszy bez niego i treść dozwolona.
 
 Skoroszyt czyta moduł skoroszytu (``workbook_files``), właściciel układu
 arkusza; jego ``WorkbookError`` przechodzi do procesu, który tłumaczy go na
@@ -13,17 +13,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import workbook_files
-from .domain import Issue
 from .order_facts import CollectiveOrders, collective_orders
-from .workbook_files import WORKER_HEADER, DataRow
+from .workbook_files import DataRow
 
 
 @dataclass(frozen=True)
 class CollectiveRows:
     rows: list[DataRow]
     """Wiersze danych z Wykonawcą w kolejności z pliku."""
-    issues: list[Issue]
-    """Problemy Wierszy danych bez Wykonawcy."""
+    without_worker: list[int]
+    """Numery Wierszy danych bez Wykonawcy w kolejności z pliku."""
     orders: CollectiveOrders
     """Dozwolona treść każdego Wiersza danych odczytu."""
 
@@ -33,12 +32,10 @@ def read_data_rows(path: Path) -> CollectiveRows:
 
     read = workbook_files.read_data_rows(path)
     rows: list[DataRow] = []
-    issues: list[Issue] = []
+    without_worker: list[int] = []
     for row in read.rows:
         if not str(row.worker or "").split():
-            issues.append(
-                Issue("BRAK_WYKONAWCY", f"Wiersz {row.number} ma dane, ale nie ma wykonawcy w kolumnie {WORKER_HEADER.column}.")
-            )
+            without_worker.append(row.number)
             continue
         rows.append(row)
-    return CollectiveRows(rows, issues, collective_orders(read.header, [row.values for row in read.rows]))
+    return CollectiveRows(rows, without_worker, collective_orders(read.header, [row.values for row in read.rows]))

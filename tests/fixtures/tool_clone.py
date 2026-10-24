@@ -25,7 +25,7 @@ import socket
 import subprocess
 import threading
 
-from rozliczenia.centrum.tool_freshness import GitHubReleases
+from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease
 from rozliczenia.centrum.tool_update import Release, newest_on_main
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -121,7 +121,13 @@ class ToolRepository:
         def on_main(commit: str) -> bool:
             return _succeeds(self.origin, "merge-base", "--is-ancestor", commit, "main")
 
-        return GitHubReleases(newest_on_main(commits, on_main).commit)
+        newest = newest_on_main(commits, on_main)
+        return GitHubReleases(newest.commit, None if newest.release is None else newest.release.tag)
+
+    def published(self) -> tuple[PublishedRelease, ...]:
+        """Opublikowane Wydania: tagi „origin” nie mają GitHub Release z notką."""
+
+        return ()
 
     def head(self) -> str:
         return git(self.clone, "rev-parse", "HEAD")

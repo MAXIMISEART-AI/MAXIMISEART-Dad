@@ -72,7 +72,7 @@ application. While `<root>/pacing/szablony-ms.txt` exists, each Szablon
 pracownika of a Przebieg rozliczeń RUN waits that many milliseconds, so the
 live progress and the refused closing can be observed; the drive turns it on
 for one RUN only. The Diagnoza never reaches GitHub: the commit of `main` is the
-tool's own unless `<root>/github/main-commit.txt` names another, `<root>/github/brak-sieci`
+tool's own unless `<root>/github/main-commit.txt` names another, its tag is in `<root>/github/wydanie.txt`, the published Wydania with their notes are `<root>/github/wydania.json` in GitHub's shape, `<root>/github/brak-sieci`
 means no network, and a full path listed in `<root>/onedrive/tylko-w-chmurze.txt` is a
 OneDrive file „tylko online” on every system. Zgłoszenia never reach GitHub
 either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.json`

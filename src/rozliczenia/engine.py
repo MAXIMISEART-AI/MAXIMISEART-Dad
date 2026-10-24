@@ -7,8 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import collective_file, settlement_files, settlement_messages, workbook_files
-from .domain import Issue, ProgressObserver, SettlementSummary, WorkerResult
-from .message import StopError
+from .domain import ProgressObserver, SettlementSummary, WorkerResult
+from .message import Message, StopError
 from .order_facts import CollectiveOrders
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner
@@ -30,53 +30,46 @@ def check_worker_template(template_path: Path) -> TemplateFile:
     return template
 
 
-def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
-    """Zatrzymanie z Komunikatem Przebiegu rozliczeń dla Pliku zbiorczego, którego nie da się użyć."""
+def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[int], CollectiveOrders]:
+    """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA.
 
-    return StopError(settlement_messages.collective_file_unusable(source_path, error))
-
-
-def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Issue], CollectiveOrders]:
-    """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA."""
+    Wiersze danych bez Wykonawcy nie trafiają do grup; zostają ich numery.
+    """
 
     try:
         read = collective_file.read_data_rows(source_path)
     except WorkbookError as error:
-        raise _collective_file_stop(source_path, error) from error
+        raise StopError(settlement_messages.collective_file_unusable(error)) from error
     rows_by_worker: defaultdict[str, list[DataRow]] = defaultdict(list)
     for row in read.rows:
         rows_by_worker[normalize_text(row.worker)].append(row)
-    return dict(rows_by_worker), read.issues, read.orders
+    return dict(rows_by_worker), read.without_worker, read.orders
 
 
 def _plan_rows(
     source_path: Path,
     mapping: dict[str, str],
     rows_by_worker: dict[str, list[DataRow]],
-    source_issues: list[Issue],
+    without_worker: list[int],
     *,
     dry_run: bool,
-) -> tuple[dict[str, list[DataRow]], list[Issue]]:
-    """Przypisuje Wiersze danych do nazw z Konfiguracji wykonawców; przy zapisie każdy problem zatrzymuje."""
+) -> tuple[dict[str, list[DataRow]], list[Message]]:
+    """Przypisuje Wiersze danych do nazw z Konfiguracji wykonawców; przy zapisie każde ostrzeżenie zatrzymuje."""
 
     rows_by_target: defaultdict[str, list[DataRow]] = defaultdict(list)
-    issues: list[Issue] = []
+    unmapped: list[Message] = []
     for source_worker, rows in rows_by_worker.items():
         target_name = mapping.get(source_worker)
         if target_name is None:
-            issues.append(
-                Issue(
-                    "BRAK_MAPOWANIA",
-                    "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
-                )
-            )
+            unmapped.append(settlement_messages.unmapped_worker_warning(source_path))
             continue
         rows_by_target[normalize_text(target_name)].extend(rows)
-    if not dry_run and (source_issues or issues):
-        if any(issue.code == "BRAK_MAPOWANIA" for issue in issues):
-            raise StopError(settlement_messages.unmapped_worker(source_path))
+    if not dry_run and unmapped:
+        raise StopError(settlement_messages.unmapped_worker(source_path))
+    if not dry_run and without_worker:
         raise StopError(settlement_messages.rows_without_worker(source_path))
-    return dict(rows_by_target), issues
+    missing_worker = [settlement_messages.row_without_worker_warning(source_path, number) for number in without_worker]
+    return dict(rows_by_target), [*missing_worker, *unmapped]
 
 
 def run_settlements(
@@ -105,7 +98,7 @@ def run_settlements(
         try:
             workbook_files.ensure_available(source_path)
         except WorkbookError as error:
-            raise _collective_file_stop(source_path, error) from error
+            raise StopError(settlement_messages.collective_file_unusable(error)) from error
         try:
             folder = PeriodFolder.from_collective_file(source_path)
         except PeriodFolderError as exc:
@@ -118,25 +111,22 @@ def run_settlements(
         try:
             worker_template = check_worker_template(worker_template_path)
         except WorkbookError as error:
-            raise StopError(settlement_messages.worker_template_unusable(worker_template_path, error)) from error
+            raise StopError(settlement_messages.worker_template_unusable(error)) from error
         return folder, mapping, worker_template
 
     folder, mapping, worker_template = phases.check(check_inputs)
     target_directory = folder.worker_settlements
     worker_names = list(mapping.values())
-    rows_by_worker, source_issues, orders = phases.read(
+    rows_by_worker, without_worker, orders = phases.read(
         lambda: _read_source_rows(source_path),
         issue_count=lambda read_rows: len(read_rows[1]),
     )
-    summary = SettlementSummary(
-        folder.period.token, source_path, target_directory, orders=orders, issues=list(source_issues)
-    )
-    rows_by_target, plan_issues = phases.plan(
-        lambda: _plan_rows(source_path, mapping, rows_by_worker, source_issues, dry_run=dry_run),
+    rows_by_target, warnings = phases.plan(
+        lambda: _plan_rows(source_path, mapping, rows_by_worker, without_worker, dry_run=dry_run),
         templates=lambda _planned: worker_names,
-        issue_count=lambda planned: len(source_issues) + len(planned[1]),
+        issue_count=lambda planned: len(planned[1]),
     )
-    summary.issues.extend(plan_issues)
+    summary = SettlementSummary(folder.period.token, source_path, target_directory, orders=orders, warnings=warnings)
 
     def settle(directory: Path, worker_name: str) -> WorkerResult:
         target_path = directory / folder.worker_settlement(worker_name).name
@@ -147,9 +137,7 @@ def run_settlements(
             worker_template.create(target_path, rows)
         except WorkbookError as error:
             raise StopError(
-                settlement_messages.worker_template_unusable_in_saving(
-                    worker_template_path, target_directory, worker_name, error
-                )
+                settlement_messages.worker_template_unusable_in_saving(target_directory, worker_name, error)
             ) from error
         except Exception as exc:
             raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc

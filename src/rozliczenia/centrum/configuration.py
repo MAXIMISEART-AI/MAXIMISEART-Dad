@@ -19,7 +19,7 @@ from fastapi import APIRouter
 
 from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.tool_freshness import Judgement, RememberedRelease, ToolFreshness, offers_update
+from rozliczenia.centrum.tool_freshness import Judgement, ReleaseSource, ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import check_worker_template, default_worker_template_path
@@ -86,7 +86,7 @@ class Template:
     used_by: contract.ProcessKey
     check: Callable[[Path], object]
     """Sprawdzanie procesu: ``WorkbookError``, gdy Wzorzec nie może posłużyć jako wzór."""
-    explain: Callable[[Path, WorkbookError], Message]
+    explain: Callable[[WorkbookError], Message]
 
     def find_problem(self) -> _Problem | None:
         """Rodzaj problemu i Komunikat, którym zatrzymałby się proces; ``None``, gdy Wzorzec przechodzi Sprawdzanie."""
@@ -94,7 +94,7 @@ class Template:
         try:
             self.check(self.path)
         except WorkbookError as error:
-            return _kind(error.problem), self.explain(self.path, error)
+            return _kind(error.problem), self.explain(error)
         return None
 
     def problem(self) -> Message | None:
@@ -119,19 +119,17 @@ def _kind(problem: Problem) -> contract.TemplateProblemKind:
 def configuration_router(
     files: ConfigurationFiles,
     freshness: ToolFreshness,
+    release: ReleaseSource,
     report_key: Callable[[], contract.ReportKeyState],
-    *,
-    clock: Callable[[], float],
 ) -> APIRouter:
     """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości).
 
-    Aktualność narzędzia porównuje commit narzędzia z najnowszym Wydaniem na GitHubie, którego odpowiedź
-    Konfiguracja pamięta (``RememberedRelease`` na zegarze ``clock``).
+    Aktualność narzędzia porównuje commit narzędzia z najnowszym Wydaniem na GitHubie według ``release``: odpowiedzi
+    GitHuba pamiętanej wspólnie z Powiadomieniami (``RememberedRelease``).
     """
 
     router = APIRouter(prefix="/api/configuration", tags=["konfiguracja"])
     checked = _CheckedTemplates()
-    release = RememberedRelease(freshness.release, clock=clock)
 
     @router.get("", operation_id="getConfiguration")
     def configuration() -> contract.Configuration:

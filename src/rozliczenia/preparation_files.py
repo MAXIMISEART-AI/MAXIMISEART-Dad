@@ -86,9 +86,8 @@ def plan_period_files(files: PeriodFiles, order_count: int, collective_rows: Seq
     """
 
     collective_filename = files.folder.collective_file.name
-    with _template_stops(files.internal_template):
+    with _template_stops():
         _template(files.internal_template, Layout.INTERNAL_SETTLEMENT).plan(order_count)
-    with _template_stops(files.collective_template):
         collective = _template(files.collective_template, Layout.COLLECTIVE_FILE).plan(len(collective_rows))
     warnings: list[Message] = []
     if len(collective_rows) > collective.zero_row_count:
@@ -157,19 +156,19 @@ def _template(template_path: Path, layout: Layout) -> TemplateFile:
 
 
 @contextmanager
-def _template_stops(template_path: Path) -> Iterator[None]:
+def _template_stops() -> Iterator[None]:
     """Wzorzec, którego nie da się użyć, to zatrzymanie z Komunikatem Przygotowania."""
 
     try:
         yield
     except WorkbookError as error:
-        raise StopError(messages.template_unusable(template_path, error)) from error
+        raise StopError(messages.template_unusable(error)) from error
 
 
 def _write_period_file(template_path: Path, layout: Layout, target: Path, rows: Sequence[DataRow]) -> None:
     """Plik z Wzorca z Wierszami danych od pierwszego Wiersza danych (ADR 0008)."""
 
-    with _template_stops(template_path):
+    with _template_stops():
         _template(template_path, layout).create(target, rows)
 
 

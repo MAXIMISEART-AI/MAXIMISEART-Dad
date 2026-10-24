@@ -741,8 +741,9 @@ CaseState = Literal["wyslana", "czeka_na_internet", "rozwiazana", "przeczytana"]
 
 
 class _Notification(_Model):
-    """Wspólne pola Powiadomienia: ``id`` sprawy w jej stanie (nowy stan to nowe Powiadomienie), ``at`` czas tego
-    stanu (zamknięcie przez Maksa albo wysłanie przez tatę) i ``unread``, czy tata go jeszcze nie widział."""
+    """Wspólne pola Powiadomienia: ``id`` sprawy w jej stanie (nowy stan to nowe Powiadomienie) albo Wydania, ``at``
+    czas tego stanu (zamknięcie przez Maksa, wysłanie przez tatę, publikacja Wydania) i ``unread``, czy tata go
+    jeszcze nie widział."""
 
     id: str
     at: datetime
@@ -765,7 +766,26 @@ class ReportNotification(_Notification):
     state: CaseState
 
 
-Notification = Annotated[DadNoteNotification | ReportNotification, Field(discriminator="kind")]
+class SolvedCase(_Model):
+    """Sprawa wysłana z tego komputera, którą Wydanie rozwiązuje: Uwaga taty nazwana tytułem, Zgłoszenie jego
+    „Co się stało”."""
+
+    kind: Literal["uwaga", "zgloszenie"]
+    title: str
+
+
+class ReleaseNotification(_Notification):
+    """Powiadomienie o nowej wersji: numer Wydania (``0.2.0``), notka „Co nowego”, sprawy taty, które rozwiązuje, i
+    czy Centrum proponuje Aktualizację narzędzia (``tool_freshness.offers_update``, tylko przy najnowszym Wydaniu)."""
+
+    kind: Literal["nowa_wersja"]
+    version: str
+    summary: str
+    solved: list[SolvedCase]
+    update_offered: bool
+
+
+Notification = Annotated[DadNoteNotification | ReportNotification | ReleaseNotification, Field(discriminator="kind")]
 
 
 class Notifications(_Model):
