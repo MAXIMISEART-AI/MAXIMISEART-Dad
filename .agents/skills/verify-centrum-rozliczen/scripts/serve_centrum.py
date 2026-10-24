@@ -48,9 +48,12 @@ Centrum takes the newest one whose body has its exact line (the fingerprint
 line of a Zgłoszenie's problem, or the period line of a Kontrola ilości, which
 then goes into that file's ``comments``). The key is never written
 there. While
-``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable, and while
+``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable, while
+``<root>/skrzynka-zgloszen/odmawia-klucza`` exists it refuses the key for every question
+(``Refused``, like GitHub's 401 for an expired token), and while
 ``<root>/skrzynka-zgloszen/odrzuca-<label>`` exists it rejects the content of every new
 issue with that label and of every comment to one (``Rejected``, like GitHub's 422).
+GitHub's rate limit (a 403 that is no refusal) only pytest covers, on the GitHub adapter.
 Each question for the issues with a label, closed ones included (how
 Powiadomienia ask about Dad's sent Zgłoszenia and Uwagi), appends its label to
 ``<root>/skrzynka-zgloszen-zapytania.jsonl``. While ``<root>/pacing/skrzynka-ms.txt``
@@ -187,6 +190,8 @@ class FileReportBox:
             time.sleep(int(self._pacing.read_text(encoding="utf-8")) / 1000)
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
+        if self._refuses_key():
+            return Refused()
         if self._rejects(label):
             return Rejected()
         with self._lock:
@@ -207,6 +212,8 @@ class FileReportBox:
 
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
+        if self._refuses_key():
+            return Refused()
         path = self._directory / f"{number}.json"
         with self._lock:
             if not path.is_file():
@@ -222,12 +229,17 @@ class FileReportBox:
     def _rejects(self, label: str) -> bool:
         return (self._directory / f"odrzuca-{label}").exists()
 
+    def _refuses_key(self) -> bool:
+        return (self._directory / "odmawia-klucza").exists()
+
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         if include_closed:
             with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:
                 asked.write(json.dumps({"label": label}) + "\n")
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
+        if self._refuses_key():
+            return Refused()
         with self._lock:
             issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
         return tuple(

@@ -17,9 +17,12 @@ from mutacje import Edit, Mutation, check_all
 
 DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
+KEYED_BOX = Path("src/rozliczenia/centrum/keyed_box.py")
+OUTBOX = Path("src/rozliczenia/centrum/outbox.py")
 RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
+ZGLOSZENIE = (RUNNER, "--feature", "zgloszenie")
 
 MUTATIONS = (
     Mutation(
@@ -69,6 +72,30 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+    Mutation(
+        "odmowa Skrzynki nie odrzuca klucza",
+        (
+            Edit(
+                KEYED_BOX,
+                "            self._verdict = _Verdict(digest, isinstance(outcome, Refused), asked_at)\n",
+                "            self._verdict = _Verdict(digest, False, asked_at)\n",
+            ),
+        ),
+        ZGLOSZENIE,
+        "Konfiguracja mówi „Zgłoszenia: gotowe” o kluczu, którego Skrzynka odmawia",
+    ),
+    Mutation(
+        "kolejka nie ponawia wysyłki po porażce",
+        (
+            Edit(
+                OUTBOX,
+                "                    if stopped is not None and not self._retry_armed:\n",
+                "                    if False:\n",
+            ),
+        ),
+        ZGLOSZENIE,
+        "Zgłoszenie bez sieci nie wysyła się samo po powrocie sieci",
     ),
 )
 

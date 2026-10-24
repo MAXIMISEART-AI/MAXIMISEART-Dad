@@ -16,12 +16,13 @@ PERIOD = "08_14_09_2026"
 TEMPLATE_MISSING = "Nie znaleziono wzorca, z którego powstają pliki okresu."
 NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 TITLE = f"BRAK_WZORCA: {TEMPLATE_MISSING} Nie utworzono żadnego pliku."
-NO_KEY = "Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń."
+FOR_KEY = "Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi."
+FOR_INTERNET = "Zgłoszenie czeka na internet. Wyśle się samo."
+QUEUED_NOTIFICATION = "Wyślę do Maksa, gdy będzie internet."
 SENT = "Zgłoszenie wysłane do Maksa. Poczekaj na naprawę."
 WAITING = "Zgłoszenie tego problemu już jest wysłane i czeka na naprawę."
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
 KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
-UNSENT = f"Zgłoszenie BRAK_WZORCA {PERIOD}.md"
 
 
 def _stop_for_maks(run: Run, page: Page, name: str, missing: str = "internal_template") -> str:
@@ -59,10 +60,40 @@ def _report_state(run: Run, name: str) -> object:
 
 
 def _issues(box: Path) -> list[dict[str, object]]:
-    """Zgłoszenia in the skrzynka by number; a Kontrola ilości from features/kontrola-ilosci.md takes numbers too."""
+    """This feature's Zgłoszenia (``BRAK_WZORCA``) in the skrzynka by number.
+
+    A Kontrola ilości from features/kontrola-ilosci.md takes numbers too, and the Zgłoszenie features/diagnoza.md
+    left in the queue goes out once this feature writes the key.
+    """
 
     issues = [json.loads(path.read_text(encoding="utf-8")) for path in box.glob("*.json")]
-    return sorted((issue for issue in issues if issue["labels"] == ["zgloszenie"]), key=lambda issue: int(str(issue["number"])))
+    ours = (issue for issue in issues if issue["labels"] == ["zgloszenie"] and str(issue["title"]).startswith("BRAK_WZORCA:"))
+    return sorted(ours, key=lambda issue: int(str(issue["number"])))
+
+
+def _queued_reports(queue: Path) -> list[dict[str, object]]:
+    """Zgłoszenia waiting in the queue of the skrzynka, oldest first (the Logi of each Uruchomienie wait beside them)."""
+
+    posts = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(queue.glob("*-zgloszenie-*.json"))]
+    return [post for post in posts if str(post["target"]["title"]).startswith("BRAK_WZORCA:")]
+
+
+def _queued_text(post: dict[str, object]) -> tuple[object, str]:
+    """A queued Zgłoszenie as it will reach the skrzynka: the issue title and the parts joined."""
+
+    target, parts = post["target"], post["parts"]
+    assert isinstance(target, dict) and isinstance(parts, list)
+    return target["title"], "".join(str(part) for part in parts)
+
+
+def _advance_clock(run: Run) -> None:
+    """Centrum's clock moves a minute on, so the queue of the skrzynka wakes and tries again at once."""
+
+    moved = run.root / "zegar" / "przesuniecie-min.txt"
+    moved.parent.mkdir(exist_ok=True)
+    before = float(moved.read_text(encoding="utf-8")) if moved.exists() else 0.0
+    moved.write_text(str(before + 1), encoding="utf-8")
+    print("  harness: Centrum's clock moves a minute on, past the queue's retry", flush=True)
 
 
 def _sent(config: Path) -> list[dict[str, object]]:
@@ -82,7 +113,7 @@ def _shown_report(page: Page) -> tuple[str, str]:
 def drive_report(run: Run, page: Page) -> None:
     config = Path(run.fixture["settings"]).parent
     key_file = config / "zgloszenia-klucz.txt"
-    unsent = config / "zgloszenia" / UNSENT
+    queue = config / "zgloszenia" / "kolejka"
     box = run.root / "skrzynka-zgloszen"
     diagnosis = page.get_by_role("region", name="Diagnoza")
     key_file.unlink(missing_ok=True)
@@ -122,15 +153,25 @@ def drive_report(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "zgloszenie-bez-klucza")
     send.click()
-    saved = diagnosis.get_by_label("Ostrzeżenie")
-    expect(saved).to_contain_text(NO_KEY)
-    expect(saved).to_contain_text(f"plik {UNSENT}, folder zgloszenia")
-    expect(saved.get_by_role("button", name="Spróbuj ponownie", exact=True)).to_be_visible()
-    run.check(unsent.read_text(encoding="utf-8") == f"# {title}\n\n{body}", "the unsent Zgłoszenie is the preview, in a file")
+    expect(diagnosis.get_by_role("status").filter(has_text=FOR_KEY)).to_be_visible()
+    expect(page.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_have_count(0)
+    expect(page.get_by_label("Ostrzeżenie")).to_have_count(0)
+    [queued] = _queued_reports(queue)
+    run.check(_queued_text(queued) == (title, body), "the queued Zgłoszenie is exactly the preview")
+    run.check(
+        [path.name for path in (config / "zgloszenia").iterdir()] == ["kolejka"],
+        "the folder zgloszenia holds only the queue, no Markdown file",
+    )
     run.check(_issues(box) == [], "without a key nothing reaches the skrzynka Zgłoszeń")
-    state = _report_state(run, "zgloszenie-bez-klucza")
-    run.check(isinstance(state, dict) and state["state"] == "saved", "the server keeps the saved state in the result")
+    run.check(
+        _report_state(run, "zgloszenie-bez-klucza") == {"state": "queued", "waits_for": "key"},
+        "the server keeps the queued state, waiting for the key, in the result",
+    )
     run.capture(page, "61-zgloszenie-bez-klucza")
+    page.locator("header").get_by_role("button", name="Powiadomienia", exact=False).click()
+    rows = page.get_by_role("list", name="Powiadomienia").get_by_role("listitem", name=f"Zgłoszenie: {title.split(': ', 1)[1]}")
+    expect(rows.filter(has_text=QUEUED_NOTIFICATION)).to_have_count(1)
+    run.capture(page, "61b-zgloszenie-bez-klucza-powiadomienia")
 
     run.step(FEATURE, "zgloszenie-konfiguracja")
     page.get_by_role("link", name="Konfiguracja", exact=True).click()
@@ -144,13 +185,27 @@ def drive_report(run: Run, page: Page) -> None:
     run.check(configuration["reports"] == "ready", "Konfiguracja reports the key as ready")
     run.check(KEY not in json.dumps(configuration) and KEY not in page.content(), "the key value never reaches the browser")
     run.capture(page, "63-zgloszenie-konfiguracja-gotowe")
+    refusing = box / "odmawia-klucza"
+    print("  harness: the skrzynka refuses the key Maks writes next (an expired token)", flush=True)
+    refusing.touch()
+    key_file.write_text(KEY + "_WYGASLY\n", encoding="utf-8")
+    page.reload()
+    expect(page.get_by_text("Zgłoszenia: klucz odrzucony", exact=True)).to_be_visible()
+    refused = run.api("/api/configuration", "zgloszenie-konfiguracja-odrzucony")
+    run.check(refused["reports"] == "refused_key", "Konfiguracja reports the refused key")
+    run.capture(page, "63b-zgloszenie-konfiguracja-odrzucony")
+    print("  harness: Maks writes a new key the skrzynka accepts", flush=True)
+    refusing.unlink()
+    key_file.write_text(KEY + "\n", encoding="utf-8")
+    page.reload()
+    expect(page.get_by_text("Zgłoszenia: gotowe", exact=True)).to_be_visible()
 
     run.step(FEATURE, "zgloszenie-wyslane")
     page.get_by_role("link", name="Uruchomienia", exact=True).click()
-    retry = page.get_by_label("Ostrzeżenie").get_by_role("button", name="Spróbuj ponownie", exact=True)
-    retry.click()
+    _advance_clock(run)
     expect(page.get_by_role("status").filter(has_text=SENT)).to_be_visible()
-    expect(page.get_by_role("button", name="Spróbuj ponownie", exact=True)).to_have_count(0)
+    expect(page.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_have_count(0)
+    run.wait_for(lambda: _queued_reports(queue) == [], "the delivered Zgłoszenie leaves the queue")
     [issue] = _issues(box)
     number = issue["number"]
     (run.evidence / "api" / "zgloszenie-skrzynka.json").write_text(
@@ -160,14 +215,15 @@ def drive_report(run: Run, page: Page) -> None:
         (issue["title"], issue["body"], issue["labels"]) == (title, body, ["zgloszenie"]),
         "the skrzynka got exactly the preview, labelled zgloszenie",
     )
-    run.check(not unsent.exists(), "the sent Zgłoszenie no longer waits in a file")
     sent = _sent(config)
     run.check(
-        [entry["number"] for entry in sent] == [number] and f"- Odcisk problemu: {sent[0]['id']}" in body.splitlines(),
-        "the local sent state keeps the fingerprint and the issue number",
+        [entry["number"] for entry in sent if f"- Odcisk problemu: {entry['id']}" in body.splitlines()] == [number],
+        "the local sent state keeps the fingerprint and, once delivered, the issue number",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
-    run.check(f"zgloszenie-wyslane proces=preparation okres={PERIOD} numer={number}" in log, "the Centrum log records the sending")
+    run.check(
+        f"skrzynka-wyslano etykieta=zgloszenie okres={PERIOD} numer={number}" in log, "the Centrum log records the sending"
+    )
     run.check(KEY not in log and KEY not in json.dumps(issue), "the key is neither in the log nor in the Zgłoszenie")
     run.capture(page, "64-zgloszenie-wyslane")
 
@@ -253,7 +309,7 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
     )
     sent = _sent(config)
     run.check(
-        [entry["number"] for entry in sent] == [issue["number"] for issue in issues],
+        {issue["number"] for issue in issues} <= {entry["number"] for entry in sent},
         "the local sent state keeps both Zgłoszenia",
     )
     run.capture(page, "70-zgloszenie-nowe-z-odnosnikiem")
@@ -269,3 +325,30 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
     expect(diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_be_visible()
     run.check(len(_issues(box)) == 2, "asking the skrzynka sends nothing")
     run.capture(page, "71-zgloszenie-inny-problem")
+
+    run.step(FEATURE, "zgloszenie-bez-sieci")
+    diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True).click()
+    title, body = _shown_report(page)
+    offline = box / "brak-sieci"
+    print("  harness: the network goes down", flush=True)
+    offline.touch()
+    try:
+        diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True).click()
+        expect(diagnosis.get_by_role("status").filter(has_text=FOR_INTERNET)).to_be_visible()
+        run.check(
+            _report_state(run, "zgloszenie-bez-sieci") == {"state": "queued", "waits_for": "internet"},
+            "without network the Zgłoszenie waits in the queue for the internet",
+        )
+        run.check(len(_issues(box)) == 2, "without network nothing reaches the skrzynka")
+        run.capture(page, "72-zgloszenie-bez-sieci")
+    finally:
+        print("  harness: the network comes back", flush=True)
+        offline.unlink()
+    _advance_clock(run)
+    expect(diagnosis.get_by_role("status").filter(has_text=SENT)).to_be_visible()
+    issues = _issues(box)
+    run.check(
+        len(issues) == 3 and (issues[-1]["title"], issues[-1]["body"]) == (title, body),
+        "once the network is back the Zgłoszenie sends itself, exactly the preview, with no click",
+    )
+    run.capture(page, "73-zgloszenie-bez-sieci-wyslane")

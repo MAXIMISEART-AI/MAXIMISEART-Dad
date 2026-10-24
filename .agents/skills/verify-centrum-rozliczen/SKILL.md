@@ -81,9 +81,9 @@ means no network, and a full path listed in `<root>/onedrive/tylko-w-chmurze.txt
 OneDrive file „tylko online” on every system. Zgłoszenia never reach GitHub
 either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.json`
 per issue with its label and comments (Zgłoszenie, Kontrola ilości, Logi Uruchomienia of a period; never the key, `state` editable to `closed`; a comment's address is `skrzynka-zgloszen/<number>.json#komentarz-<k>`, never a full path), unreachable while
-`<root>/skrzynka-zgloszen/brak-sieci` exists, rejecting the content of every new issue with a label and of every comment to one while `<root>/skrzynka-zgloszen/odrzuca-<label>` exists, and slow while `<root>/pacing/skrzynka-ms.txt` exists; `<root>/github/tool-commit.txt` stands for
+`<root>/skrzynka-zgloszen/brak-sieci` exists, refusing the key for every question while `<root>/skrzynka-zgloszen/odmawia-klucza` exists, rejecting the content of every new issue with a label and of every comment to one while `<root>/skrzynka-zgloszen/odrzuca-<label>` exists, and slow while `<root>/pacing/skrzynka-ms.txt` exists; `<root>/github/tool-commit.txt` stands for
 the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum's clock
-forward past the 10-minute limit on asking the skrzynka. The tool itself is the run's synthetic Git clone
+forward past the 10-minute limit on asking the skrzynka and past the queue's one-minute retry, which then fires at once. The tool itself is the run's synthetic Git clone
 `<root>/aktualizacja/klon` (its commit is the tool's own commit): Aktualizacja narzędzia moves only that clone,
 fetching from the local "origin" `<root>/aktualizacja/origin.git`, never from GitHub, and while
 `<root>/pacing/aktualizacja-ms.txt` exists each update waits that many milliseconds first (`<root>/pacing/instalacja-ms.txt`: before pip starts). Pip runs with `PIP_NO_INDEX=1`, never reaching PyPI. After a successful
