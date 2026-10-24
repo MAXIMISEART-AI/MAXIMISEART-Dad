@@ -10,14 +10,15 @@ nie łączą się z GitHubem. Brak sieci to ``None`` w krótkim limicie czasu, n
 wyjątek ani Komunikat. Diagnoza pyta GitHuba przy każdym sprawdzeniu;
 Konfiguracja, odczytywana przy każdym wejściu na stronę, pamięta jego odpowiedź
 (``RememberedRelease``). Czy z oceny wynika propozycja Aktualizacji narzędzia,
-mówi jedna reguła: ``offers_update``.
+mówi jedna reguła: ``offers_update``. Powiadomienie o nowej wersji czyta stąd też
+opublikowane Wydania z ich notkami (``PublishedRelease``, lista GitHub Releases).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from functools import partial
 import json
 from pathlib import Path
@@ -28,7 +29,7 @@ import urllib.request
 
 from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum.deadline import within
-from rozliczenia.centrum.tool_update import contains_commit, newest_on_main
+from rozliczenia.centrum.tool_update import Release, contains_commit, newest_on_main
 from rozliczenia.centrum.version import commit_since, is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
@@ -36,13 +37,27 @@ CommitSource = Callable[[], str | None]
 
 @dataclass(frozen=True)
 class GitHubReleases:
-    """Odpowiedź GitHuba: commit najnowszego Wydania na `main`; ``None``, gdy na `main` nie ma żadnego Wydania."""
+    """Odpowiedź GitHuba: commit i tag najnowszego Wydania na `main`; ``None``, gdy na `main` nie ma żadnego Wydania."""
 
     newest: str | None
+    tag: str | None = None
 
 
 # ``None``: GitHub nie odpowiedział (brak sieci, odmowa, limit czasu, niepełna odpowiedź).
 ReleaseSource = Callable[[], GitHubReleases | None]
+
+
+@dataclass(frozen=True)
+class PublishedRelease:
+    """Wydanie opublikowane jako GitHub Release: numer z tagu, notka (``release_notes``) i czas publikacji."""
+
+    release: Release
+    notes: str
+    at: datetime
+
+
+# ``None``: GitHub nie odpowiedział; pusta krotka: nie ma żadnego opublikowanego Wydania.
+PublishedSource = Callable[[], tuple[PublishedRelease, ...] | None]
 Judgement = Literal["current", "newer", "no_release", "no_answer", "no_commit"]
 
 
@@ -72,21 +87,22 @@ class ToolFreshness:
 
     ``local`` to commit narzędzia, z którego działa Centrum, ``since`` dzień, od
     którego narzędzie jest na tym commicie, ``release`` odpowiedź GitHuba o
-    najnowszym Wydaniu, a ``contains(release, local)`` mówi, czy commit
-    narzędzia zawiera commit Wydania.
+    najnowszym Wydaniu, ``published`` opublikowane Wydania z notkami, a
+    ``contains(release, local)`` mówi, czy commit narzędzia zawiera commit Wydania.
     """
 
     local: CommitSource
     since: Callable[[], date | None]
     release: ReleaseSource
+    published: PublishedSource
     contains: Callable[[str, str], bool] = field(default=lambda release, local: release == local)
 
     @classmethod
     def of_system(cls) -> ToolFreshness:
-        return cls.of_clone(TOOL_ROOT, github_releases)
+        return cls.of_clone(TOOL_ROOT, github_releases, github_published)
 
     @classmethod
-    def of_clone(cls, root: Path, release: ReleaseSource) -> ToolFreshness:
+    def of_clone(cls, root: Path, release: ReleaseSource, published: PublishedSource) -> ToolFreshness:
         """Wersja narzędzia w ``root`` odczytana teraz, przy starcie Centrum.
 
         Klon przesunięty później (ręcznie albo przez aktualizację przed ponownym startem) nie zmienia kodu, który
@@ -95,7 +111,13 @@ class ToolFreshness:
 
         running = tool_commit(root)
         since = None if running is None else commit_since(running, root)
-        return cls(local=lambda: running, since=lambda: since, release=release, contains=partial(contains_commit, root))
+        return cls(
+            local=lambda: running,
+            since=lambda: since,
+            release=release,
+            published=published,
+            contains=partial(contains_commit, root),
+        )
 
     def judge(self, release: ReleaseSource | None = None) -> Judgement:
         """Aktualność narzędzia według ``release`` (domyślnie ``self.release``).
@@ -178,11 +200,60 @@ def releases_from(api: str, *, timeout_s: float) -> GitHubReleases | None:
             return compared["status"] in ("ahead", "identical")
 
         try:
-            return GitHubReleases(newest_on_main(commits, on_main).commit)
+            newest = newest_on_main(commits, on_main)
+        except _NoAnswer:
+            return None
+        return GitHubReleases(newest.commit, None if newest.release is None else newest.release.tag)
+
+    return within(timeout_s, fetch, name="github-wydania")
+
+
+# Tyle ostatnio opublikowanych Wydań (jedna strona listy) pokazują Powiadomienia; starsze nie wracają do historii.
+PUBLISHED_PAGE: Final = 30
+
+
+def github_published() -> tuple[PublishedRelease, ...] | None:
+    """Opublikowane Wydania publicznego repozytorium; ``None`` bez sieci, po limicie czasu, przy odmowie."""
+
+    return published_from(REPOSITORY_API, timeout_s=_TIMEOUT_S)
+
+
+def published_from(api: str, *, timeout_s: float) -> tuple[PublishedRelease, ...] | None:
+    """Ostatnie ``PUBLISHED_PAGE`` Wydań z listy GitHub Releases repozytorium ``api``, jednym pytaniem bez klucza."""
+
+    def fetch() -> tuple[PublishedRelease, ...] | None:
+        try:
+            return parse_published(_json(f"{api}/releases?per_page={PUBLISHED_PAGE}", timeout_s))
         except _NoAnswer:
             return None
 
-    return within(timeout_s, fetch, name="github-wydania")
+    return within(timeout_s, fetch, name="github-notki-wydan")
+
+
+def parse_published(document: object) -> tuple[PublishedRelease, ...] | None:
+    """Wydania z odpowiedzi listy GitHub Releases; ``None``, gdy odpowiedź nie jest listą.
+
+    Szkic, wersja przedpremierowa, tag, który nie jest Wydaniem, i wpis w innym kształcie się nie liczą; Release bez
+    treści ma pustą notkę.
+    """
+
+    if not isinstance(document, list):
+        return None
+    return tuple(published for entry in document if (published := _published(entry)) is not None)
+
+
+def _published(entry: object) -> PublishedRelease | None:
+    if not isinstance(entry, dict) or entry.get("draft") is not False or entry.get("prerelease") is not False:
+        return None
+    tag, notes, at = entry.get("tag_name"), entry.get("body"), entry.get("published_at")
+    release = Release.of_tag(tag) if isinstance(tag, str) else None
+    if release is None or not isinstance(notes, str | None) or not isinstance(at, str):
+        return None
+    try:
+        published_at = datetime.fromisoformat(at)
+    except ValueError:
+        return None
+    return PublishedRelease(release, notes or "", published_at) if published_at.tzinfo is not None else None
 
 
 class _NoAnswer(Exception):
