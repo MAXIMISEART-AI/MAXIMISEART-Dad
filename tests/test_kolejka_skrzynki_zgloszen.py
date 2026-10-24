@@ -13,7 +13,7 @@ import threading
 
 import pytest
 
-from rozliczenia.centrum.keyed_box import REFUSED_KEPT_S, KeyedBox
+from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import RETRY_S, Frame, Outbox, PeriodThread, Post, ReportIssue
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
@@ -277,26 +277,38 @@ def test_odrzucona_tresc_nie_nastawia_ponowienia(tmp_path: Path) -> None:
     assert queue.clock.wakes == 0
 
 
-def test_czekanie_trafia_do_dziennika_przy_zmianie_przyczyny_i_po_dostarczeniu(tmp_path: Path) -> None:
+def waiting_causes(queue: Queue) -> list[str]:
+    return [line.rsplit("przyczyna=", 1)[1] for line in queue.log().splitlines() if "skrzynka-czeka" in line]
+
+
+def test_czekanie_trafia_do_dziennika_przy_zmianie_przyczyny(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
+    queue.outbox.post(post(["treść\n"]))
+    queue.passed()
+    queue.clock.advance(RETRY_S)
+    queue.passed()
+    queue.box.search_failure = Refused()
+
+    queue.clock.advance(RETRY_S)
+    queue.passed()
+
+    assert waiting_causes(queue) == ["brak-sieci", "odmowa"]
+
+
+def test_po_dostarczeniu_ta_sama_przyczyna_czekania_znowu_trafia_do_dziennika(tmp_path: Path) -> None:
     queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
     queue.outbox.post(post(["pierwsza\n"]))
     queue.passed()
-    queue.box.search_failure = Refused()
-    queue.clock.advance(RETRY_S)
-    queue.passed()
     queue.box.search_failure = None
-    queue.clock.advance(RETRY_S)  # odrzucony klucz idzie do skrzynki znowu dopiero po kwadransie
-    queue.passed()
-    queue.clock.advance(REFUSED_KEPT_S)
+    queue.clock.advance(RETRY_S)
     assert queue.box.wait_until(lambda box: len(box.issues) == 1)
     queue.passed()
-
     queue.box.search_failure = Unreachable()
+
     queue.outbox.post(post(["druga\n"]))
     queue.passed()
 
-    causes = [line.rsplit("przyczyna=", 1)[1] for line in queue.log().splitlines() if "skrzynka-czeka" in line]
-    assert causes == ["brak-sieci", "odmowa", "brak-sieci"]
+    assert waiting_causes(queue) == ["brak-sieci", "brak-sieci"]
 
 
 def test_zamknieta_kolejka_nie_budzi_sie_po_porazce(tmp_path: Path) -> None:

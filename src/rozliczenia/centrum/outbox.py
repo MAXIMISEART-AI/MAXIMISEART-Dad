@@ -604,7 +604,7 @@ class Outbox:
             with self._changed:
                 if not self._again:
                     self._draining = False
-                    if stopped is not None and not self._retry_armed and not self._closed:
+                    if stopped is not None and not self._retry_armed:
                         self._retry_armed = True
                         self._clock.after(RETRY_S, self._woken)
                     self._changed.notify_all()
