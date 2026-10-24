@@ -27,7 +27,9 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
 from io import BytesIO
+import os
 from pathlib import Path
+import stat
 from types import MappingProxyType
 from typing import IO, Never, TypeVar, cast
 from xml.etree.ElementTree import ParseError
@@ -193,10 +195,22 @@ class DataRow:
         return self.values[_WORKER_COLUMN - 1]
 
 
-def is_open_in_excel(path: Path) -> bool:
-    """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``."""
+def _status(path: Path) -> os.stat_result | None:
+    """``stat`` pliku albo ``None``, gdy go nie ma; folder bez dostępu to ``OSError``.
 
-    return path.with_name(f"~${path.name}").exists()
+    ``Path.exists`` i ``Path.is_file`` od Pythona 3.14 dają wtedy ``False``, więc plik bez dostępu byłby brakiem pliku.
+    """
+
+    try:
+        return path.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
+def is_open_in_excel(path: Path) -> bool:
+    """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``; folder bez dostępu to ``OSError``."""
+
+    return _status(path.with_name(f"~${path.name}")) is not None
 
 
 def ensure_available(path: Path, *, despite_excel_lock: bool = False) -> None:
@@ -207,10 +221,10 @@ def ensure_available(path: Path, *, despite_excel_lock: bool = False) -> None:
     """
 
     try:
-        found, open_in_excel = path.is_file(), is_open_in_excel(path)
+        status, open_in_excel = _status(path), is_open_in_excel(path)
     except OSError as exc:
         raise WorkbookError(path, Problem.INACCESSIBLE) from exc
-    if not found:
+    if status is None or not stat.S_ISREG(status.st_mode):
         raise WorkbookError(path, Problem.MISSING)
     if open_in_excel and not despite_excel_lock:
         raise WorkbookError(path, Problem.OPEN_IN_EXCEL)
