@@ -180,25 +180,36 @@ def test_self_test_pisze_probe_sprzatania_do_podanego_katalogu_przebiegu(tmp_pat
             "VERIFY SKIP | ok=- | skipped=preparation-real-templates, chain-real-templates",
         ),
         (("default", "chain-real-templates"), "VERIFY SKIP | ok=default | skipped=chain-real-templates"),
-        (("chain-real-templates",), "VERIFY SKIP | variant=chain-real-templates | templates_dir="),
     ],
-    ids=["same-pominiete", "przeszly-i-pominiety", "jeden-pominiety"],
+    ids=["same-pominiete", "przeszly-i-pominiety"],
 )
 def test_lista_z_pominietym_wariantem_nie_konczy_sie_verify_ok(
     tmp_path: Path, variants: tuple[str, ...], summary: str
 ) -> None:
+    done = _verification_without_templates(tmp_path, variants)
+
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert done.stdout.splitlines()[-1] == summary
+
+
+def test_lista_z_jednym_pominietym_wariantem_konczy_sie_kodem_pominiecia(tmp_path: Path) -> None:
+    done = _verification_without_templates(tmp_path, ("chain-real-templates",))
+
+    assert done.returncode == 3, done.stdout + done.stderr
+    templates = (tmp_path / "bez-wzorcow").resolve()
+    summary = f"VERIFY SKIP | variant=chain-real-templates | templates_dir={templates} | missing="
+    assert done.stdout.splitlines()[-1].startswith(summary), done.stdout
+
+
+def _verification_without_templates(tmp_path: Path, variants: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
     empty_templates = tmp_path / "bez-wzorcow"
     empty_templates.mkdir()
-
-    done = _script(
+    return _script(
         SKILLS / "verify-rozliczenia" / "scripts" / "run_verification.py",
         *("--variant", *variants),
         *("--templates-dir", str(empty_templates), "--run-dir", str(tmp_path / "przebieg")),
         cwd=tmp_path,
     )
-
-    assert done.returncode == 3, done.stdout + done.stderr
-    assert done.stdout.splitlines()[-1].startswith(summary), done.stdout
 
 
 def test_fixture_nie_pisze_do_niepustego_katalogu(tmp_path: Path) -> None:
