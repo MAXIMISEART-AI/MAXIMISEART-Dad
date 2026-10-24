@@ -1,0 +1,45 @@
+name: Zwiad 401
+
+on:
+  push:
+    branches:
+      - zwiad/401
+
+permissions:
+  contents: read
+
+jobs:
+  zwiad:
+    name: zwiad (snapshot=${{ matrix.snapshot }}, n=${{ matrix.workers }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        snapshot: ['1', '0']
+        workers: ['4', '8']
+    env:
+      PYTHONUTF8: '1'
+      ZWIAD_SNAPSHOT: ${{ matrix.snapshot }}
+      ZWIAD_N: '300'
+      ZWIAD_OUT: zwiad-out
+    steps:
+      - uses: actions/checkout@v7
+      - id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+      - run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt pytest-repeat
+      - name: Original test repeated
+        continue-on-error: true
+        run: python -m pytest -n ${{ matrix.workers }} --count 300 -q -p no:cacheprovider "tests/test_aktualizacja_narzedzia.py::test_pobranie_ktore_stoi_po_limicie_czasu_konczy_sie_brakiem_polaczenia_bez_procesow_gita" 2>&1 | Select-Object -Last 15
+      - name: Instrumented
+        run: python -m pytest -n ${{ matrix.workers }} -q -p no:cacheprovider tests/test_zwiad_401.py 2>&1 | Select-Object -Last 5
+      - name: Summary
+        run: python tools/zwiad_401/podsumuj.py zwiad-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zwiad-${{ matrix.snapshot }}-${{ matrix.workers }}
+          path: zwiad-out
