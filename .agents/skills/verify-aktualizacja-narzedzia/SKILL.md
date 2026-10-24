@@ -271,13 +271,16 @@ Assumed, and not checked:
   only lower bounds. Pip killed between uninstalling and installing a library
   could break this, so the `wylaczenie` model is optimistic.
 - Dad has one file in `config/`. His untracked files (Wzorce, Ustawienia taty,
-  the Zgłoszenia key, the log, metrics, period files) are not modelled. Git
-  does not touch them while no Wydanie tracks their path. Those in the clone
-  match `.gitignore`, and Git treats an ignored file as expendable: a Wydanie
-  that tracks one of these paths (`git add -f`) makes `git merge --ff-only`
-  overwrite Dad's file without refusing (Git 2.50). At the sync commit no
-  tracked file matches `.gitignore` (`git ls-files -ci --exclude-standard` is
-  empty).
+  the Zgłoszenia key, the log, metrics, period files, and in `config/` the
+  read Powiadomienia, the Uwagi taty and the outbox addresses) are not
+  modelled. Git does not touch them while no Wydanie tracks their path. When
+  a Wydanie tracks one, it depends on `.gitignore`. For a file that is not
+  ignored (`config/powiadomienia.json`, `config/uwagi-taty.json`,
+  `config/skrzynka-adresy.jsonl`), `merge` refuses. Git treats an ignored file
+  (`*.xlsx`, `logs/`, `config/centrum-ustawienia.yaml` and the rest of
+  `.gitignore`) as expendable, so `git merge --ff-only` overwrites Dad's file
+  without refusing (Git 2.50). At the sync commit no tracked file matches
+  `.gitignore` (`git ls-files -ci --exclude-standard` is empty).
 - A shortcut clicked while the guardian runs gives the port back within
   `_SHORTCUT_HOLDS_PORT_S` (10 s), because between `listen_locally` and
   `listener.close()` it only reads the journal on the local disk. The model
