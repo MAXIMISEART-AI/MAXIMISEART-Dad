@@ -103,6 +103,28 @@ extend-select = [
     # Kod taty bez Any w sygnaturach i bez print (zakres w per-file-ignores).
     "ANN401",
     "T201",
+    # Dzień i chwila jawnie ze strefą: date.today() i datetime.now() biorą po cichu strefę komputera, a dzień okresu
+    # i termin wyjątku zależą od tego, czyja to północ. DTZ001 (datetime(...) bez tzinfo, 146 stałych) jest poza zakresem.
+    "DTZ002",
+    "DTZ003",
+    "DTZ004",
+    "DTZ005",
+    "DTZ006",
+    "DTZ007",
+    "DTZ011",
+    "DTZ012",
+    # pytest.raises(ValueError) przechodzi na każdym ValueError, także z innej linii niż ta, którą test sprawdza.
+    "PT011",
+    "PT012",
+    # Zapadki z reguł, które przy włączeniu miały 1-4 naruszenia: pierwszeństwo and/or w nawiasach, suppress zamiast
+    # except-pass, typy z collections.abc, next() zamiast [..][0] i Path zamiast os.chmod, os.stat, os.listdir.
+    "RUF021",
+    "SIM105",
+    "UP035",
+    "RUF015",
+    "PTH101",
+    "PTH116",
+    "PTH208",
 ]
 
 [tool.ruff.lint.per-file-ignores]

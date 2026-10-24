@@ -160,5 +160,5 @@ def _remove(path: Path) -> None:
 def _writable_then_retry(function: Callable[..., Any], path: str, _: object) -> None:
     """Git na Windowsie zapisuje obiekty tylko do odczytu; usuwanie przechodzi po zdjęciu tej blokady."""
 
-    os.chmod(path, stat.S_IRWXU)
+    Path(path).chmod(stat.S_IRWXU)
     function(path)

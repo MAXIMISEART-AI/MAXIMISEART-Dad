@@ -17,6 +17,7 @@ porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 import shutil
@@ -127,10 +128,8 @@ class ToolUpdates:
         if result is None:
             return
         self._finished(result)
-        try:
+        with suppress(OSError):  # wynik i tak jest już w dzienniku; plik zostaje do następnego startu
             self._result_file.unlink(missing_ok=True)
-        except OSError:
-            pass  # wynik i tak jest już w dzienniku; plik zostaje do następnego startu
         view = _view_of(result)
         if view is not None:
             self._view = view

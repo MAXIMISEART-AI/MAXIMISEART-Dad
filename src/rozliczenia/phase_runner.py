@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from types import MappingProxyType
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 from .domain import (
     IssueCountReady,

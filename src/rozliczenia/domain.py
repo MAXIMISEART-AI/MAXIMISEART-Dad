@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Callable, ClassVar, Literal, Mapping
+from typing import ClassVar, Literal
 
 from .order_facts import CollectiveOrders
 

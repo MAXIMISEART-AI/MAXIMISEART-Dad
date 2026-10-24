@@ -61,9 +61,9 @@ BASE_FILES = {
     ),
     "docs/dane/wpis.md": "zgodny\n",
     "tests/test_dane.py": (
-        "import os\nfrom pathlib import Path\n\nDANE = Path(__file__).resolve().parents[1] / 'docs' / 'dane'\n\n\n"
+        "from pathlib import Path\n\nDANE = Path(__file__).resolve().parents[1] / 'docs' / 'dane'\n\n\n"
         "def test_dane() -> None:\n"
-        "    assert [(DANE / name).read_text(encoding='utf-8') for name in sorted(os.listdir(DANE))] == ['zgodny\\n']\n"
+        "    assert [path.read_text(encoding='utf-8') for path in sorted(DANE.iterdir())] == ['zgodny\\n']\n"
     ),
 }
 COUNTED = (

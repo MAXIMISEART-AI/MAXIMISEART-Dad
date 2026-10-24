@@ -37,6 +37,7 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 - Code in `src/` does not `print` (ruff T201), because Dad never sees a console and a problem reaches him as a Komunikat; only `launcher.py` and `shortcut.py` print to the start console.
 - Pass `check=True` to `subprocess.run` unless the code after it reads `returncode`, and never write `check=False` only to silence ruff's PLW1510.
 - Pass `strict=True` to `zip` when both sides must have the same length (ruff B905), `strict=False` only with a comment naming the check that already reports a different length, and use `itertools.pairwise` for successive pairs (RUF007).
+- Name the time zone of every current day or moment (ruff DTZ): `datetime.now(timezone.utc)` for a moment that is stored or compared, and `datetime.now().astimezone().date()` for tata's local day.
 
 ## Test Surface
 
@@ -55,6 +56,7 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 - Before real files are used, run a preview without saving (`Podgląd bez zapisu`).
 - Name a file that a test reads or runs with a literal path (`ROOT / "docs" / "adr"`), not a path built from a variable.
   `tools/szybko.py` selects tests from imports and such literals, so a path built at run time hides the dependency.
+- Expect the error a test is about, not any error of its class: `pytest.raises` of a broad exception (`ValueError`, `OSError`) takes `match=` on its message, and the block holds the one statement that raises (ruff PT011, PT012).
 - Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`.
   It mutates a copy of the checkout, never the checkout.
   Run it once for each test or check added or changed in a round of work.

@@ -28,6 +28,7 @@ import re
 import zipfile
 from bisect import bisect_right
 from collections.abc import Mapping
+from contextlib import suppress
 from io import BytesIO
 from typing import Final
 from xml.parsers import expat
@@ -64,10 +65,8 @@ def rows_dated_between(
             data = archive.read(info)
             if info.filename in narrowed:
                 title, column = narrowed[info.filename]
-                try:
+                with suppress(IrregularSheetData):
                     data, ranges[title] = _sheet_rows_dated(data, column, low, high)
-                except IrregularSheetData:
-                    pass
             target.writestr(info.filename, data)
     return reduced.getvalue(), ranges
 
