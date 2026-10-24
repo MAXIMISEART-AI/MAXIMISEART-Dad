@@ -1,13 +1,13 @@
 import * as React from "react"
 import { HistoryIcon, PlayIcon } from "lucide-react"
 
-import { getMetrics, getRunSetup } from "@/api/centrum"
+import { getMetrics, getRunSetup, type ProcessSetup, type RunView } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useContentEntrance } from "@/lib/content-entrance"
+import { useChangeEntrance, useContentEntrance } from "@/lib/content-entrance"
 import { isActive, useRuns } from "@/lib/runs"
 import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
@@ -89,7 +89,7 @@ function RunHistory() {
 
 function RunsContent() {
   const { resource: setup, reload } = useResource(getRunSetup)
-  const { view, dismissed, draft, deciding, decide, newRun } = useRuns()
+  const { view } = useRuns()
   const finishedRun = view?.state === "finished" ? view.run.id : null
   const entrance = useContentEntrance(view === null || setup.state === "loading")
   // Uruchomienie zakończone przed wejściem na stronę zna już odczyt przy montowaniu.
@@ -116,14 +116,32 @@ function RunsContent() {
     )
   }
 
-  const processes = setup.data.processes
+  return <RunOrSetup view={view} processes={setup.data.processes} entrance={entrance} />
+}
+
+/**
+ * Karta nowego Uruchomienia procesu albo podgląd na żywo. Zamiana jednej na drugą na oczach taty
+ * (start, „Nowe Uruchomienie procesu”) wchodzi `wejscie`; karta zastana po wejściu na stronę nie.
+ */
+function RunOrSetup({
+  view,
+  processes,
+  entrance,
+}: {
+  view: RunView
+  processes: ReadonlyArray<ProcessSetup>
+  entrance: string | undefined
+}) {
+  const { dismissed, draft, deciding, decide, newRun } = useRuns()
 
   const setupInstead =
     view.state === "idle" || (view.state === "finished" && (view.run.id === dismissed || draft !== null))
 
+  const shown = useChangeEntrance(setupInstead, "wejscie") ?? entrance
+
   if (setupInstead) {
     return (
-      <div className={entrance}>
+      <div key="nowe" className={shown}>
         <RunSetupCard processes={processes} />
       </div>
     )
@@ -132,7 +150,7 @@ function RunsContent() {
   const reminder = processes.find((process) => process.process === view.run.process)?.reminder ?? ""
 
   return (
-    <div className={entrance}>
+    <div key="podglad" className={shown}>
       <RunCard view={view} reminder={reminder} onNewRun={() => newRun(view.run.id)} />
       {view.state === "awaiting_decision" ? (
         <DecisionDialog
