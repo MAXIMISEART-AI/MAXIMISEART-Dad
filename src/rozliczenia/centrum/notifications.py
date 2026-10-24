@@ -200,7 +200,7 @@ class Notifications:
             self._ask_box(labels, key)
         try:
             self._ask_github()
-        except Exception as failure:  # noqa: BLE001 - granica wątku sprawdzania: typ wyjątku trafia do dziennika
+        except Exception as failure:
             self._log.unexpected_failure(failure, where="Wydania w Powiadomieniach")
 
     def _ask_github(self) -> None:
