@@ -1,4 +1,4 @@
-// Excel's on-screen windows as "layer | title | width x height", one per line; needs no permission.
+// Excel's on-screen windows as "layer | title | width x height", one per line; titles need Screen Recording.
 ObjC.import('CoreGraphics');
 ObjC.import('Foundation');
 function run() {
