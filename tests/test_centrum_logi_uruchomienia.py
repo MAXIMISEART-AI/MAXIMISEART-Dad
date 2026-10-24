@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from rozliczenia import settlement_messages
 from rozliczenia.centrum import app, contract
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
@@ -364,6 +365,14 @@ def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_p
     texts = [path.read_text(encoding="utf-8") for path in log_files(centrum)]
     assert len(texts) == 3
     texts += sent
+    naming = [
+        settlement_messages.unmapped_worker_warning(centrum.collective_file, "ZNACZNIK-WYKONAWCA").what,
+        settlement_messages.unmapped_worker(centrum.collective_file, ["ZNACZNIK-WYKONAWCA"]).what,
+    ]
+    for what in naming:
+        forms = (what, json.dumps(what)[1:-1])
+        assert any(form in text for form in forms for text in texts), what
+        texts = [text.replace(forms[0], "").replace(forms[1], "") for text in texts]
     forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
     assert [marker for marker in forbidden if any(marker in text for text in texts)] == []
     assert sum("Adrian Testowy" in text for text in texts) == 4, "Wykonawca z Konfiguracji w obu wynikach z planem"

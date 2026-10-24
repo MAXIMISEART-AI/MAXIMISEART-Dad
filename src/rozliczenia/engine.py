@@ -44,7 +44,7 @@ class _Plan:
 
     rows_by_target: dict[str, list[DataRow]]
     unmapped_workers: tuple[str, ...]
-    """Identyfikatory WYKONAWCA spoza Konfiguracji wykonawców, każdy raz, w kolejności Pliku zbiorczego."""
+    """Identyfikatory WYKONAWCA spoza Konfiguracji wykonawców, każdy raz, w pisowni i kolejności Pliku zbiorczego."""
     rows_without_worker: tuple[int, ...]
 
 
@@ -56,7 +56,7 @@ def _plan_rows(mapping: dict[str, str], rows_by_worker: dict[str, list[DataRow]]
     for source_worker, rows in rows_by_worker.items():
         target_name = mapping.get(source_worker)
         if target_name is None:
-            unmapped.append(source_worker)
+            unmapped.append(str(rows[0].worker).strip())
             continue
         rows_by_target[normalize_text(target_name)].extend(rows)
     return _Plan(dict(rows_by_target), tuple(unmapped), tuple(without_worker))
@@ -66,12 +66,12 @@ def _plan_warnings(source_path: Path, plan: _Plan, *, dry_run: bool) -> list[Mes
     """Przy zapisie każdy fakt planu zatrzymuje Przebieg; Podgląd bez zapisu pokazuje je jako ostrzeżenia."""
 
     if not dry_run and plan.unmapped_workers:
-        raise StopError(settlement_messages.unmapped_worker(source_path))
+        raise StopError(settlement_messages.unmapped_worker(source_path, plan.unmapped_workers))
     if not dry_run and plan.rows_without_worker:
         raise StopError(settlement_messages.rows_without_worker(source_path))
     return [
         *(settlement_messages.row_without_worker_warning(source_path, number) for number in plan.rows_without_worker),
-        *(settlement_messages.unmapped_worker_warning(source_path) for _worker in plan.unmapped_workers),
+        *(settlement_messages.unmapped_worker_warning(source_path, worker) for worker in plan.unmapped_workers),
     ]
 
 
