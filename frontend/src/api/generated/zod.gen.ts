@@ -17,6 +17,7 @@ export const zApiTiming = z.object({
         'changeTheme',
         'getPeriodBoard',
         'openPeriodPath',
+        'openWorkerSettlement',
         'getRunSetup',
         'startRun',
         'decideRun',
@@ -935,13 +936,15 @@ export const zViewTiming = z.object({
 });
 
 /**
- * WorkerFile
+ * WorkerSettlement
  *
- * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
+ * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
  */
-export const zWorkerFile = z.object({
+export const zWorkerSettlement = z.object({
+    worker: z.string(),
     file: z.string(),
-    rows: z.int()
+    orders: z.int(),
+    empty: z.boolean()
 });
 
 /**
@@ -949,14 +952,14 @@ export const zWorkerFile = z.object({
  *
  * Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
  *
- * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
- * (``None``, gdy proces go nie ma).
+ * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia
+ * pracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy).
  */
 export const zRunSummary = z.object({
     figures: z.array(zFigure),
     counts: zCountGroup.nullable(),
     files: z.array(zPeriodFile),
-    file_plan: z.array(zWorkerFile).nullable()
+    worker_settlements: z.array(zWorkerSettlement).nullable()
 });
 
 /**
@@ -991,7 +994,8 @@ export const zRunOutcome = z.object({
     next_action: z.enum([
         'run',
         'rerun',
-        'open_period_folder'
+        'open_collective_file',
+        'open_worker_settlements_folder'
     ]),
     stop_kind: z.enum([
         'for_tata',
@@ -1038,6 +1042,15 @@ export const zRunEvent = z.object({
         zRunAwaitingDecision,
         zRunFinished
     ])
+});
+
+/**
+ * WorkerSettlementRequest
+ *
+ * Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu.
+ */
+export const zWorkerSettlementRequest = z.object({
+    worker: z.string()
 });
 
 /**
@@ -1161,6 +1174,17 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
+
+export const zOpenWorkerSettlementBody = zWorkerSettlementRequest;
+
+export const zOpenWorkerSettlementPath = z.object({
+    token: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zOpenWorkerSettlementResponse = zOpened;
 
 export const zStartRunBody = zRunRequest;
 

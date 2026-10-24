@@ -164,25 +164,26 @@ class EndedRun:
     def warnings(self) -> tuple[Message, ...]:
         return () if self.shown is None else self.shown.warnings
 
-    def card(self, done: str) -> contract.RunOutcome:
+    def card(self, done: str, result_action: contract.ResultAction) -> contract.RunOutcome:
         """Wynik na karcie Uruchomienia; ``done`` to tytuł wyniku po zapisie (``PreparedRun.done``).
 
-        Wynik „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje
-        ponowny podgląd po poprawce zamiast zapisu. Tytuł Zatrzymania zależy od
-        Rodzaju Zatrzymania na karcie.
+        ``result_action`` otwiera to, co proces zapisał (``ProcessView.result_action``). Wynik
+        „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje ponowny podgląd po poprawce
+        zamiast zapisu. Tytuł Zatrzymania zależy od Rodzaju Zatrzymania na karcie.
         """
 
         dry_run, stopped = self.info.dry_run, self.stopped
-        next_action: Literal["run", "rerun", "open_period_folder"]
         if stopped is not None:
             headline = _STOP_HEADLINES[stopped.kind]
             # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
-            next_action = "open_period_folder" if stopped.stop.kind == "after_engine" and not dry_run else "rerun"
+            next_action: contract.NextAction = (
+                result_action if stopped.stop.kind == "after_engine" and not dry_run else "rerun"
+            )
         elif self.result == "WYMAGA_SPRAWDZENIA":
-            next_action = "rerun" if dry_run else "open_period_folder"
+            next_action = "rerun" if dry_run else result_action
             headline = "Podgląd wymaga sprawdzenia · nic nie zapisano" if dry_run else f"{done} · wymaga sprawdzenia"
         else:
-            next_action = "run" if dry_run else "open_period_folder"
+            next_action = "run" if dry_run else result_action
             headline = "Podgląd gotowy · nic nie zapisano" if dry_run else done
         return contract.RunOutcome(
             result=self.result,
@@ -444,13 +445,13 @@ class _Run:
             )
             self._host.remember(prepared, self.info.id, since)
             ended = self._ended(core, None if isinstance(core.ending, Finished) else core.ending, since)
-            result = ended.card(prepared.done)
+            result = ended.card(prepared.done, prepared.view.result_action)
         except Exception as failure:
             self._host.failed(failure)
             stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
             core = None if core is None else replace(core, ending=stop, view=None, technical_notes=())
             ended = self._ended(core, stop, since)
-            result = ended.card(prepared.done)
+            result = ended.card(prepared.done, prepared.view.result_action)
         self.stopped = ended.stopped
         self._host.after(ended)
         self._host.finished(ended)
