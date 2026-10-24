@@ -248,6 +248,11 @@
   [data-slot="toast"] {
     transition-property: opacity !important;
   }
+  /* Wysokość od razu pełna (`auto` zamiast pomiaru Base UI), więc zwijany panel widać, gdy przenika. */
+  [data-slot="collapsible-content"] {
+    transition-property: opacity;
+    height: auto;
+  }
   [data-slot="sidebar-gap"],
   [data-slot="sidebar-container"] {
     transition: none !important;
