@@ -38,7 +38,6 @@ NOTE_LABEL: Final[Label] = "uwaga-taty"
 SCHEMA_VERSION: Final = 1
 # Tyle „Wyślij” czeka na skrzynkę, zanim powie tacie, że Uwaga czeka w kolejce.
 DELIVERY_WAIT_S: Final = 5.0
-# Tyle najnowszych Uruchomień z Centrum okno Uwagi pokazuje do przypięcia.
 RECENT_RUNS: Final = 6
 _NOT_QUEUED: Final = "Uwaga się nie zapisała i nie pójdzie do Maksa. Spróbuj wysłać ją jeszcze raz."
 _UNKNOWN_RUN: Final = (
@@ -55,11 +54,12 @@ LogsAddress = Callable[[str], str | None]
 
 @dataclass(frozen=True)
 class PinnedRun:
-    """Uruchomienie z Centrum, do którego tata przypiął Uwagę (``run.run_id`` nie jest ``None``), i adres jego Logów.
+    """Uruchomienie z Centrum o identyfikatorze ``run_id``, do którego tata przypiął Uwagę, i adres jego Logów.
 
     ``logs`` ``None``: Logi Uruchomienia jeszcze nie doszły do Skrzynki Zgłoszeń.
     """
 
+    run_id: str
     run: contract.ProcessRun
     logs: str | None
 
@@ -79,7 +79,7 @@ def _pinned_footer(pinned: PinnedRun, version: str) -> str:
     run = pinned.run
     started = run.started_at.astimezone()
     facts = (run.process_label, run.period, _MODE_WORDS[run.mode], _result_word(run), f"{started:%d.%m.%Y, %H:%M}")
-    return f"Uruchomienie: {' · '.join((*facts, version))}\n{_logs_line(str(run.run_id), pinned.logs)}"
+    return f"Uruchomienie: {' · '.join((*facts, version))}\n{_logs_line(pinned.run_id, pinned.logs)}"
 
 
 def _result_word(run: contract.ProcessRun) -> str:
@@ -271,7 +271,7 @@ def _pinned(run_id: str | None, history: History, logs: LogsAddress) -> PinnedRu
     run = next((run for run in _history(history) if run.run_id == run_id), None)
     if run is None:
         raise contract.Refusal(404, _UNKNOWN_RUN)
-    return PinnedRun(run, logs(run_id))
+    return PinnedRun(run_id, run, logs(run_id))
 
 
 def send(
@@ -283,7 +283,7 @@ def send(
     """
 
     issue = note_issue(request.title, request.body, commit, pinned)
-    run_id = None if pinned is None else pinned.run.run_id
+    run_id = None if pinned is None else pinned.run_id
     note = DadNote(uuid.uuid4().hex, issue.title, commit, datetime.now(timezone.utc), number=None, run_id=run_id)
     notes.add(note)
     queued = outbox.post(
