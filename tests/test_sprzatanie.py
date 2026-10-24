@@ -278,3 +278,15 @@ def _process_in(path: Path) -> Iterator[None]:
             yield
         finally:
             process.stdin.close()
+
+
+def test_galaz_main_zostaje_tez_bez_checkoutu(main: Path) -> None:
+    (main / "b.txt").write_text("b\n", encoding="utf-8")
+    commit(main, "feat: druga")
+    git(main, "push", "--quiet", "origin", "main")
+    git(main, "switch", "--quiet", "--detach")
+
+    code, _ = _cleanup(main)
+
+    assert code == 0
+    assert "main" in _branches(main)
