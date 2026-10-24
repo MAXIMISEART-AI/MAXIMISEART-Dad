@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 import urllib.request
 
-from playwright.sync_api import Locator, Page, ViewportSize, expect
+from playwright.sync_api import Locator, Page, Request, ViewportSize, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from drive.common import PAGES, Run, error_toasts
 
@@ -200,6 +201,33 @@ def drive_dad_note(run: Run, page: Page) -> None:
     finally:
         page.set_viewport_size(screen)
     _write(dialog, "", "")
+
+    run.step(FEATURE, "uwaga-szkic-po-bledzie")
+
+    def failed_draft(request: Request) -> bool:
+        return request.url.endswith("/api/dad-notes/draft") and request.post_data_json == {
+            "title": FIRST[0],
+            "body": FIRST[1],
+        }
+
+    page.route("**/api/dad-notes/draft", lambda route: route.abort())
+    try:
+        _write(dialog, *FIRST)
+        try:
+            # The first failure may come before the wait starts; then the second wait catches the next retry.
+            page.wait_for_event("requestfailed", predicate=failed_draft)
+            page.wait_for_event("requestfailed", predicate=failed_draft)
+            retried = True
+        except PlaywrightTimeoutError:
+            retried = False
+        run.check(retried, "a failed draft request is asked again without Dad typing")
+        expect(send).to_be_disabled()
+        expect(page.get_by_role("alert")).to_have_count(0)
+        expect(error_toasts(page)).to_have_count(0)
+    finally:
+        page.unroute("**/api/dad-notes/draft")
+    expect(send).to_be_enabled()
+    run.check(send.is_enabled(), "once Centrum answers the draft, „Wyślij” works without Dad typing again, and no Komunikat showed")
 
     run.step(FEATURE, "uwaga-bez-klucza")
     _write(dialog, *FIRST)
