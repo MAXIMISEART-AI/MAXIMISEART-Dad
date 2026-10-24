@@ -26,7 +26,7 @@ HELPER_DIRECTORY = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = str(Path("tools") / "uruchom_proces.py")
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from skrypt_skilla import Parser, new_run  # noqa: E402
+from skrypt_skilla import SKIPPED, Parser, new_run  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -554,14 +554,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             failed.append(variant)
     if len(args.variant) == 1:
-        return 1 if failed else 0
+        return 1 if failed else SKIPPED if skipped else 0
     not_run = f" | skipped={', '.join(skipped)}" if skipped else ""
     if failed:
         print(f"VERIFY FAIL | variants={', '.join(failed)}{not_run}", file=sys.stderr)
         return 1
     if skipped:
         print(f"VERIFY SKIP | ok={', '.join(passed) or '-'}{not_run}")
-        return 0
+        return SKIPPED
     print(f"VERIFY OK | variants={', '.join(passed)}")
     return 0
 

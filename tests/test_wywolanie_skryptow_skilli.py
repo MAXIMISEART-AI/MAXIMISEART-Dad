@@ -180,8 +180,9 @@ def test_self_test_pisze_probe_sprzatania_do_podanego_katalogu_przebiegu(tmp_pat
             "VERIFY SKIP | ok=- | skipped=preparation-real-templates, chain-real-templates",
         ),
         (("default", "chain-real-templates"), "VERIFY SKIP | ok=default | skipped=chain-real-templates"),
+        (("chain-real-templates",), "VERIFY SKIP | variant=chain-real-templates | templates_dir="),
     ],
-    ids=["same-pominiete", "przeszly-i-pominiety"],
+    ids=["same-pominiete", "przeszly-i-pominiety", "jeden-pominiety"],
 )
 def test_lista_z_pominietym_wariantem_nie_konczy_sie_verify_ok(
     tmp_path: Path, variants: tuple[str, ...], summary: str
@@ -196,8 +197,8 @@ def test_lista_z_pominietym_wariantem_nie_konczy_sie_verify_ok(
         cwd=tmp_path,
     )
 
-    assert done.returncode == 0, done.stdout + done.stderr
-    assert done.stdout.splitlines()[-1] == summary
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert done.stdout.splitlines()[-1].startswith(summary), done.stdout
 
 
 def test_fixture_nie_pisze_do_niepustego_katalogu(tmp_path: Path) -> None:
