@@ -5,15 +5,19 @@ The bell in the header, right of `Napisz do Maksa`, opens the view Powiadomienia
 taty and Zgłoszenia, newest first, each with its colored tag (`Uwaga`,
 `Zgłoszenie`) and state: `Wysłana do Maksa.`, `Wyślę do Maksa, gdy będzie
 internet.`, `Rozwiązana. Będzie w następnej wersji.` (Maks closed the issue as
-`completed`) or `Maks przeczytał.` (`not_planned`). A Zgłoszenie is named by its
-„Co się stało”, without the code. Only Maks's states are new: they light a red
+`completed` or without a reason) or `Maks przeczytał.` (`not_planned` or
+`duplicate`); a Zgłoszenie takes the neuter forms `Wysłane do Maksa.` and
+`Rozwiązane. Będzie w następnej wersji.`. A Zgłoszenie is named by its
+„Co się stało”, without the code; one recorded before Powiadomienia, without a
+„Co się stało”, has no row. Only Maks's states are new: they light a red
 dot on the bell. Entering the view marks them read at once (the dot goes out),
 and the rows that were new keep a small dot and a light background until Dad
 leaves. Centrum asks the skrzynka Zgłoszeń about Dad's open cases at start and
 at most once per 10 minutes of its clock, one question per kind of case (label);
 no network passes silently with the last known state.
 
-Every published Wydanie (GitHub Release) up to the newest one on `main` is a
+Every Wydanie among the last 30 published (GitHub Releases, no drafts or
+pre-releases) up to the newest one on `main` is a
 Powiadomienie o nowej wersji `Nowa wersja 0.x.y` with the green tag `Nowa
 wersja`: its note „Co nowego” and the list `Rozwiązane sprawy` with the cases
 sent from this computer that it solves (`Uwaga: <tytuł>`, `Zgłoszenie: <Co się

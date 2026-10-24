@@ -5,14 +5,20 @@ file of Logi Uruchomienia to `logs/uruchomienia/` next to its log (ADR 0015),
 whatever the mode, result and ending. The file says whether it was a `podgląd`
 or a `zapis`, carries the card's result, ending, Rodzaj Zatrzymania, summary and
 Komunikaty in three parts with their codes, the Szablony pracowników with their
-outcome and time, the tool's commit, and the process's files by name. Dad sees
-nothing of it: no alert, toast or text on the card. No path and no workbook
+outcome and time, the tool's commit, and the process's files by name (with
+size and whether OneDrive holds them only online). Dad sees nothing of it on the
+card: no alert, toast or text; only the previews of a Zgłoszenie
+(`zgloszenie.md`) and of an Uwaga taty pinned to the Uruchomienie
+(`uwaga-taty.md`) carry a line to its Logi. No path and no workbook
 content reach the file. The same Logi wait in the queue of the skrzynka
 Zgłoszeń (`config/zgloszenia/kolejka/`, like the Kontrola ilości) and go to the
-period's issue labelled `logi-uruchomienia`, one comment per Uruchomienie: a
-summary, then the file's JSON in a `<details>` block. Each Diagnoza (features/diagnoza.md)
+period's issue labelled `logi-uruchomienia`, which they keep using after Maks
+closes it, one comment per Uruchomienie: a summary, then the file's JSON in a
+`<details>` block (a JSON too long for one comment goes in comments `część k/n`).
+Each Diagnoza (features/diagnoza.md) of the last Uruchomienie of this Centrum
 rewrites the file with its `diagnosis` and adds one more comment with the whole
-Logi, so the newest comment of an Uruchomienie is always its file.
+Logi, so the newest comment of an Uruchomienie is always its file; a Diagnoza of
+an Uruchomienie from before a restart of Centrum adds nothing.
 
 ## Sub-features
 

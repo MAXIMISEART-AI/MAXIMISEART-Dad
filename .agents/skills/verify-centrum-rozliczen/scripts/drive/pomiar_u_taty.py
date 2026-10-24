@@ -17,6 +17,9 @@ TIMED_REQUEST = re.compile(r"[a-zA-Z]+:\d+/\d+")
 PERIOD_TOKEN = re.compile(r"\d{2}_\d{2}_\d{2}_\d{4}")
 # The cold start before the menu clicks is Konfiguracja, so its data is in the tab's cache when Dad comes back.
 CACHED_IN_ROUTE = "konfiguracja"
+# Powiadomienia is a page without a sidebar entry: Dad reaches it with the header bell. Its cold start comes first,
+# so Konfiguracja stays the last one before the menu clicks.
+NOTIFICATIONS = {"powiadomienia": "Powiadomienia"}
 # A skeleton shows only once a read takes about 120 ms (index.css); a read held this long shows it for the rest.
 SLOW_READ_S = 0.6
 SKELETON_DELAY_MS = 120
@@ -67,7 +70,7 @@ def drive_measurement(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "pomiar-zimny-start")
     page.on("response", remember)
-    for page_id, title in PAGES.items():
+    for page_id, title in (NOTIFICATIONS | PAGES).items():
         since = len(_log_lines(run))
         page.goto("about:blank")
         page.goto(f"{run.url}#/{page_id}")
@@ -108,6 +111,15 @@ def drive_measurement(run: Run, page: Page) -> None:
         "one menu-click entry per page, in the order of the clicks",
     )
     run.check(all("fcp_ms" not in timing for timing in timings), "menu clicks carry no FCP")
+    [(page_id, title)] = NOTIFICATIONS.items()
+    bell_since = len(_log_lines(run))
+    page.locator("header").get_by_role("button", name=title, exact=False).click()
+    expect(page.get_by_role("heading", name=title, level=1)).to_be_visible()
+    [bell] = _wait_for_timings(run, bell_since, 1, "the click on the bell is in the Centrum log")
+    run.check(
+        (bell["widok"], bell["strona"]) == ("przejscie-w-menu", page_id) and "fcp_ms" not in bell,
+        "the bell, outside the sidebar, logs a menu click to Powiadomienia without FCP",
+    )
     for timing in timings:
         if timing["strona"] != CACHED_IN_ROUTE:
             _check_requests(run, timing, f"menu click to {timing['strona']}")
