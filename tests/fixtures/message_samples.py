@@ -17,6 +17,7 @@ from rozliczenia.centrum import diagnosis_messages, report_messages, start_probl
 from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
+from rozliczenia.quantity_rules import DESCRIPTION_COLUMNS
 from rozliczenia.settlement_period import parse_period_token
 from rozliczenia.workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
 from rozliczenia.worker_config import WorkerConfigError
@@ -113,7 +114,7 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.rows_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [20]),
         lambda: messages.rows_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", [20, 21, 23]),
     ],
-    "columns_from_description": [lambda: messages.columns_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx")],
+    "columns_from_description": [lambda: messages.columns_from_description(f"Rozliczenie {PERIOD} - zbiorcze.xlsx", DESCRIPTION_COLUMNS)],
     "incomplete_period": [
         lambda: messages.incomplete_period(REGISTER, SHEET, PERIOD, date(2026, 9, 12), date(2026, 9, 14))
     ],

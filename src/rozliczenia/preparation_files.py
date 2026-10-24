@@ -1,12 +1,10 @@
 """Wzorce i pliki okresu w Przygotowaniu pliku zbiorczego.
 
-Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we
-wzorcach (Planowanie), i zapisuje Rozliczenie wewnętrzne oraz Plik zbiorczy
-razem do Folderu okresu (Zapisywanie). Sprawdzanie zgłasza problem ze wzorcem
-jako ``WorkbookError``, który tłumaczy wejście (Przygotowanie albo Konfiguracja
-Centrum rozliczeń); Planowanie i Zapisywanie zatrzymują się ``StopError``. Moduł
-wewnętrzny Przygotowania pliku zbiorczego; operacją publiczną pozostaje
-``collective_preparation.prepare_collective_file()``.
+Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we wzorcach, i podaje fakty o wierszach
+Pliku zbiorczego (Planowanie), a potem zapisuje Rozliczenie wewnętrzne oraz Plik zbiorczy razem do Folderu okresu
+(Zapisywanie). Sprawdzanie zgłasza problem ze wzorcem jako ``WorkbookError``, który tłumaczy wejście (Przygotowanie
+albo Konfiguracja Centrum rozliczeń); Planowanie i Zapisywanie zatrzymują się ``StopError``. Moduł wewnętrzny
+Przygotowania pliku zbiorczego; operacją publiczną pozostaje ``collective_preparation.prepare_collective_file()``.
 """
 
 from __future__ import annotations
@@ -21,11 +19,11 @@ from pathlib import Path
 from openpyxl.utils import column_index_from_string
 
 from . import preparation_messages as messages
-from .message import Message, StopError
+from .message import StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import CollectiveRow, PeriodOrder
 from .preparation_register import COLUMNS
-from .quantity_rules import FromDescription, WithoutRule
+from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, WithoutRule
 from .workbook_files import (
     DataRow,
     Layout,
@@ -76,38 +74,53 @@ def ensure_period_files_absent(files: PeriodFiles) -> None:
         raise StopError(messages.folder_inaccessible(folder.directory)) from exc
 
 
-def plan_period_files(files: PeriodFiles, order_count: int, collective_rows: Sequence[CollectiveRow]) -> list[Message]:
-    """Planowanie: zlecenia zmieszczą się we wzorcach; zwraca ostrzeżenia Pliku zbiorczego.
+@dataclass(frozen=True)
+class CollectiveFilePlan:
+    """Fakty Planowania o Pliku zbiorczym, z numerami jego wierszy (nie wierszy Rejestru zleceń).
 
-    Scalone komórki w wierszach, do których trafią zlecenia, są zatrzymaniem.
-    Wzorca pliku zbiorczego nie wydłużamy, więc za mało wierszy z zerami to ostrzeżenie. Ostrzeżenia ilości
-    wskazują wiersze Pliku zbiorczego, w których tata uzupełnia Ilości usług, i zawsze przypominają o kolumnach
-    z opisu technika.
+    ``rows_without_rule`` mają składnik ``URZĄDZENIA`` nieznany Regułom ilości, ``rows_from_description`` rozlicza
+    się z opisu technika, a kolumn ``description_columns`` Reguły ilości nie wypełniają w żadnym wierszu.
     """
 
-    collective_filename = files.folder.collective_file.name
+    successful_count: int
+    zero_row_count: int
+    first_row_without_zeros: int
+    rows_without_rule: tuple[int, ...]
+    rows_from_description: tuple[int, ...]
+    description_columns: tuple[str, ...]
+
+    @property
+    def too_few_zero_rows(self) -> bool:
+        """Wzorca pliku zbiorczego nie wydłużamy, więc dolne Zlecenia skuteczne trafiają do wierszy bez zer."""
+
+        return self.successful_count > self.zero_row_count
+
+    @property
+    def quantities_to_complete(self) -> bool:
+        """Tata uzupełnia Ilości usług w Pliku zbiorczym przed Przebiegiem rozliczeń."""
+
+        return bool(self.rows_without_rule or self.rows_from_description or self.description_columns)
+
+
+def plan_period_files(
+    files: PeriodFiles, order_count: int, collective_rows: Sequence[CollectiveRow]
+) -> CollectiveFilePlan:
+    """Planowanie: zlecenia zmieszczą się we wzorcach; scalone komórki w ich wierszach są zatrzymaniem."""
+
     with _template_stops():
         _template(files.internal_template, Layout.INTERNAL_SETTLEMENT).plan(order_count)
         collective = _template(files.collective_template, Layout.COLLECTIVE_FILE).plan(len(collective_rows))
-    warnings: list[Message] = []
-    if len(collective_rows) > collective.zero_row_count:
-        warnings.append(
-            messages.too_few_zero_rows(
-                collective_filename,
-                len(collective_rows),
-                collective.zero_row_count,
-                collective.first_row_without_zeros,
-            )
-        )
     numbered = list(zip(collective.data_rows, collective_rows, strict=True))
-    without_rule = [number for number, row in numbered if isinstance(row.rule_result, WithoutRule)]
-    from_description = [number for number, row in numbered if isinstance(row.rule_result, FromDescription)]
-    if without_rule:
-        warnings.append(messages.unknown_devices(collective_filename, without_rule))
-    if from_description:
-        warnings.append(messages.rows_from_description(collective_filename, from_description))
-    warnings.append(messages.columns_from_description(collective_filename))
-    return warnings
+    return CollectiveFilePlan(
+        successful_count=len(collective_rows),
+        zero_row_count=collective.zero_row_count,
+        first_row_without_zeros=collective.first_row_without_zeros,
+        rows_without_rule=tuple(number for number, row in numbered if isinstance(row.rule_result, WithoutRule)),
+        rows_from_description=tuple(
+            number for number, row in numbered if isinstance(row.rule_result, FromDescription)
+        ),
+        description_columns=DESCRIPTION_COLUMNS,
+    )
 
 
 def write_period_files(

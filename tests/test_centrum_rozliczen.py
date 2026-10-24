@@ -17,7 +17,10 @@ import pytest
 
 from rozliczenia.centrum import app
 from rozliczenia.centrum.app import STATIC_DIRECTORY
+from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE
 from rozliczenia.centrum.launcher import LOG_PATH
+from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE
+from rozliczenia.centrum.outbox import ADDRESSES_FILE
 from rozliczenia.centrum.reports import REPORT_KEY_FILE, SENT_REPORTS_FILE, UNSENT_DIRECTORY
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.settings import default_settings_path
@@ -179,6 +182,10 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
         default_settings_path().parent / REPORT_KEY_FILE,
         default_settings_path().parent / SENT_REPORTS_FILE,
         default_settings_path().parent / UNSENT_DIRECTORY / "Zgłoszenie BLAD_PLANU 08_14_09_2026.md",
+        default_settings_path().parent / DAD_NOTES_FILE,
+        default_settings_path().parent / NOTIFICATIONS_FILE,
+        default_settings_path().parent / ADDRESSES_FILE,
+        default_settings_path().parent / "plik-z-przyszlej-wersji.json",
     ],
     ids=[
         "ustawienia-taty",
@@ -187,6 +194,10 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
         "klucz-do-zgloszen",
         "wyslane-zgloszenia",
         "niewyslane-zgloszenie",
+        "uwagi-taty",
+        "przeczytane-powiadomienia",
+        "adresy-w-skrzynce",
+        "kazdy-nowy-plik-w-config",
     ],
 )
 def test_lokalne_pliki_taty_sa_poza_gitem(local_file: Path) -> None:

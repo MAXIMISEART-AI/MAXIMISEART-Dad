@@ -183,7 +183,7 @@ def unmapped_worker(source: Path) -> Message:
             "W Pliku zbiorczym jest WYKONAWCA, którego nie ma w konfiguracji wykonawców. "
             f"{_NOTHING_CREATED}"
         ),
-        where=f"{file_label(source)}, kolumna H",
+        where=f"{file_label(source)}, kolumna {WORKER_HEADER.column}",
         action=f"{_PREVIEW_PROBLEMS} {_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
     )
 
@@ -194,8 +194,10 @@ def rows_without_worker(source: Path) -> Message:
     return Message(
         code="WIERSZE_BEZ_WYKONAWCY",
         what=f"Nie wszystkie Wiersze danych Pliku zbiorczego mają WYKONAWCĘ. {_NOTHING_CREATED}",
-        where=f"{file_label(source)}, kolumna H",
-        action=f"{_PREVIEW_PROBLEMS} Wpisz WYKONAWCĘ w kolumnie H tych wierszy. {_SAVE_AND_RETRY}",
+        where=f"{file_label(source)}, kolumna {WORKER_HEADER.column}",
+        action=(
+            f"{_PREVIEW_PROBLEMS} Wpisz WYKONAWCĘ w kolumnie {WORKER_HEADER.column} tych wierszy. {_SAVE_AND_RETRY}"
+        ),
     )
 
 

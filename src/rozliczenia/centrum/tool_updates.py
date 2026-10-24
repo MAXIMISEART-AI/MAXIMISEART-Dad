@@ -34,7 +34,7 @@ from rozliczenia.centrum.reports import Draft, Reports, UpdateReport
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.centrum.tool_freshness import CommitSource
+from rozliczenia.centrum.tool_freshness import CommitSource, GitHubReleases, ReleaseSource
 from rozliczenia.centrum.tool_update import (
     LIBRARIES_FAILED,
     NO_CONNECTION,
@@ -64,6 +64,11 @@ class ToolUpdates:
     Centrum (test bez podstawionego klonu kończy się dopiero na akcji), a
     ``commit`` to commit narzędzia przed aktualizacją, tak jak widzi go Diagnoza.
 
+    Wynik ``AKTUALNA`` dotyczy najnowszego Wydania, które Centrum znało w jego
+    chwili (``release``, ta sama pamięć co w Konfiguracji); gdy Centrum zna już
+    inne, wynik znika, żeby przy przycisku nowego Wydania nie było starego „Masz
+    najnowszą wersję.” (#373).
+
     Po udanej aktualizacji Centrum uruchamia opiekuna ponownego startu
     (``guardian``) i zamyka się (``shutdown``); miejsca „jedno naraz” już nie
     zwalnia. Opiekun zostawia wynik w ``result_file``, a nowe Centrum odczytuje
@@ -82,6 +87,7 @@ class ToolUpdates:
         shutdown: Shutdown,
         guardian: GuardianLauncher,
         result_file: Path,
+        release: ReleaseSource,
     ) -> None:
         self._clone = clone
         self._runs = runs
@@ -91,13 +97,22 @@ class ToolUpdates:
         self._shutdown = shutdown
         self._guardian = guardian
         self._result_file = result_file
+        self._release = release
         self._lock = threading.Lock()
         self._view: contract.ToolUpdate = contract.ToolUpdateIdle(state="idle")
         self._draft: Draft | None = None
+        self._up_to_date_with: GitHubReleases | None = None
         self._after_restart()
 
     def current(self) -> contract.ToolUpdate:
         with self._lock:
+            view, judged = self._view, self._up_to_date_with
+        if not isinstance(view, contract.ToolUpdateUpToDate):
+            return view
+        newest = self._release()
+        with self._lock:
+            if newest is not None and newest != judged and self._view is view:
+                self._view = contract.ToolUpdateIdle(state="idle")
             return self._view
 
     def start(self, port: int) -> contract.ToolUpdate:
@@ -155,6 +170,7 @@ class ToolUpdates:
         restarting = False
         view: contract.ToolUpdate | None = None
         draft: Draft | None = None
+        newest: GitHubReleases | None = None
         try:
             result, guardian = self._result(clone, before, work)
             if result.before is None:  # bez Gita commit zna tylko Centrum
@@ -172,6 +188,8 @@ class ToolUpdates:
             if not restarting:
                 self._finished(result)
                 view = _view_of(result)
+                if isinstance(view, contract.ToolUpdateUpToDate):
+                    newest = self._release()
                 if view is None:
                     failed, draft = self._failed(result)
                     view = failed.model_copy(update={"report": self._reports.ask(draft)})
@@ -183,7 +201,7 @@ class ToolUpdates:
                 with self._lock:
                     self._runs.end_update()
                     if view is not None:
-                        self._view, self._draft = view, draft
+                        self._view, self._draft, self._up_to_date_with = view, draft, newest
 
     def _result(self, clone: ToolClone, before: str | None, work: Path) -> tuple[UpdateResult, Path | None]:
         try:

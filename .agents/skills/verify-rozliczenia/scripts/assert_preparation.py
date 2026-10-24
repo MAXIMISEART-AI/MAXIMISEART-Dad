@@ -28,7 +28,6 @@ from wynik_uruchomienia import (
 )
 from skrypt_skilla import Parser
 
-from rozliczenia.preparation_messages import COLUMNS_FROM_DESCRIPTION, ROWS_FROM_DESCRIPTION, UNKNOWN_DEVICES
 from rozliczenia.workbook_files import QUANTITY_COLUMNS
 
 
@@ -41,9 +40,9 @@ EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_
 # Ilości usług Dad completes: Plik zbiorczy rows 20 (order 7, prewencja) and 21 (order 6, unknown device), and
 # the reminder every Przygotowanie carries. Only the written Plik zbiorczy needs review; the dry-run stays OK.
 EXPECTED_WARNINGS = [
-    (UNKNOWN_DEVICES, f"plik {COLLECTIVE_NAME}, wiersz 21"),
-    (ROWS_FROM_DESCRIPTION, f"plik {COLLECTIVE_NAME}, wiersz 20"),
-    (COLUMNS_FROM_DESCRIPTION, f"plik {COLLECTIVE_NAME}, kolumny Y, AB, AD, AJ, AK, AL i AM"),
+    ("NIEZNANE_URZADZENIA", f"plik {COLLECTIVE_NAME}, wiersz 21"),
+    ("WIERSZE_Z_OPISU", f"plik {COLLECTIVE_NAME}, wiersz 20"),
+    ("KOLUMNY_Z_OPISU", f"plik {COLLECTIVE_NAME}, kolumny Y, AB, AD, AJ, AK, AL i AM"),
 ]
 EXPECTED_RESULT = {"DRY-RUN": "OK", "RUN": "WYMAGA_SPRAWDZENIA"}
 EXPECTED_SUMMARY = contract.RunSummary(

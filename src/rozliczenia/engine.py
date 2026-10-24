@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import collective_file, settlement_files, settlement_messages, workbook_files
@@ -46,30 +46,41 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list
     return dict(rows_by_worker), read.without_worker, read.orders
 
 
-def _plan_rows(
-    source_path: Path,
-    mapping: dict[str, str],
-    rows_by_worker: dict[str, list[DataRow]],
-    without_worker: list[int],
-    *,
-    dry_run: bool,
-) -> tuple[dict[str, list[DataRow]], list[Message]]:
-    """Przypisuje Wiersze danych do nazw z Konfiguracji wykonawców; przy zapisie każde ostrzeżenie zatrzymuje."""
+@dataclass(frozen=True)
+class _Plan:
+    """Wiersze danych pod nazwą z Konfiguracji wykonawców i fakty o Wierszach danych bez Szablonu pracownika."""
+
+    rows_by_target: dict[str, list[DataRow]]
+    unmapped_workers: tuple[str, ...]
+    """Identyfikatory WYKONAWCA spoza Konfiguracji wykonawców, każdy raz, w kolejności Pliku zbiorczego."""
+    rows_without_worker: tuple[int, ...]
+
+
+def _plan_rows(mapping: dict[str, str], rows_by_worker: dict[str, list[DataRow]], without_worker: list[int]) -> _Plan:
+    """Przypisuje Wiersze danych do nazw z Konfiguracji wykonawców."""
 
     rows_by_target: defaultdict[str, list[DataRow]] = defaultdict(list)
-    unmapped: list[Message] = []
+    unmapped: list[str] = []
     for source_worker, rows in rows_by_worker.items():
         target_name = mapping.get(source_worker)
         if target_name is None:
-            unmapped.append(settlement_messages.unmapped_worker_warning(source_path))
+            unmapped.append(source_worker)
             continue
         rows_by_target[normalize_text(target_name)].extend(rows)
-    if not dry_run and unmapped:
+    return _Plan(dict(rows_by_target), tuple(unmapped), tuple(without_worker))
+
+
+def _plan_warnings(source_path: Path, plan: _Plan, *, dry_run: bool) -> list[Message]:
+    """Przy zapisie każdy fakt planu zatrzymuje Przebieg; Podgląd bez zapisu pokazuje je jako ostrzeżenia."""
+
+    if not dry_run and plan.unmapped_workers:
         raise StopError(settlement_messages.unmapped_worker(source_path))
-    if not dry_run and without_worker:
+    if not dry_run and plan.rows_without_worker:
         raise StopError(settlement_messages.rows_without_worker(source_path))
-    missing_worker = [settlement_messages.row_without_worker_warning(source_path, number) for number in without_worker]
-    return dict(rows_by_target), [*missing_worker, *unmapped]
+    return [
+        *(settlement_messages.row_without_worker_warning(source_path, number) for number in plan.rows_without_worker),
+        *(settlement_messages.unmapped_worker_warning(source_path) for _worker in plan.unmapped_workers),
+    ]
 
 
 def run_settlements(
@@ -121,8 +132,13 @@ def run_settlements(
         lambda: _read_source_rows(source_path),
         issue_count=lambda read_rows: len(read_rows[1]),
     )
+
+    def plan_rows() -> tuple[dict[str, list[DataRow]], list[Message]]:
+        plan = _plan_rows(mapping, rows_by_worker, without_worker)
+        return plan.rows_by_target, _plan_warnings(source_path, plan, dry_run=dry_run)
+
     rows_by_target, warnings = phases.plan(
-        lambda: _plan_rows(source_path, mapping, rows_by_worker, without_worker, dry_run=dry_run),
+        plan_rows,
         templates=lambda _planned: worker_names,
         issue_count=lambda planned: len(planned[1]),
     )

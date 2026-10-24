@@ -9,9 +9,10 @@ wstrzykiwane do aplikacji Centrum, więc testy i weryfikacja w przeglądarce nig
 nie łączą się z GitHubem. Brak sieci to ``None`` w krótkim limicie czasu, nigdy
 wyjątek ani Komunikat. Diagnoza pyta GitHuba przy każdym sprawdzeniu;
 Konfiguracja, odczytywana przy każdym wejściu na stronę, pamięta jego odpowiedź
-(``RememberedRelease``). Czy z oceny wynika propozycja Aktualizacji narzędzia,
-mówi jedna reguła: ``offers_update``. Powiadomienie o nowej wersji czyta stąd też
-opublikowane Wydania z ich notkami (``PublishedRelease``, lista GitHub Releases).
+(``RememberedRelease``), także tę z Diagnozy. Czy z oceny wynika propozycja
+Aktualizacji narzędzia, mówi jedna reguła: ``offers_update``. Powiadomienie o
+nowej wersji czyta stąd też opublikowane Wydania z ich notkami
+(``PublishedRelease``, lista GitHub Releases).
 """
 
 from __future__ import annotations
@@ -163,6 +164,15 @@ class RememberedRelease:
         answer = self._release()
         with self._lock:
             self._answer, self._asked_at = answer, self._clock()
+        return answer
+
+    def fresh(self) -> GitHubReleases | None:
+        """Odpowiedź ``release`` teraz, bez pamięci (Diagnoza); odpowiedź, która przyszła, zostaje w pamięci."""
+
+        answer = self._release()
+        if answer is not None:
+            with self._lock:
+                self._answer, self._asked_at = answer, self._clock()
         return answer
 
 

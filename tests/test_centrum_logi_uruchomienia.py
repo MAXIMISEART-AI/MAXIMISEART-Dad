@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 
 from rozliczenia.centrum import app, contract
-from rozliczenia.preparation_messages import COLUMNS_FROM_DESCRIPTION, UNKNOWN_DEVICES
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
 from tests.fixtures.centrum import TOOL_COMMIT, finished_view, views_until, without_times
@@ -132,7 +131,7 @@ def _adapter_net(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ran:
     return centrum, run_to_end(centrum, dry_run=True)
 
 
-QUANTITY_WARNINGS = [("warning", UNKNOWN_DEVICES), ("warning", COLUMNS_FROM_DESCRIPTION)]
+QUANTITY_WARNINGS = [("warning", "NIEZNANE_URZADZENIA"), ("warning", "KOLUMNY_Z_OPISU")]
 UNEXPECTED = [("stop", "BLAD_NIEOCZEKIWANY")]
 
 
