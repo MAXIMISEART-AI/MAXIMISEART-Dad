@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -34,8 +35,9 @@ def test_kazdy_plik_testow_jest_w_dokladnie_jednej_czesci(tmp_path: Path, count:
     assert sorted(files) == sorted(tests)
 
 
-def test_czesci_repozytorium_obejmuja_kazdy_plik_testow() -> None:
-    files = [name for number in (1, 2) for name in _part(ROOT, f"{number}/2")]
+@pytest.mark.parametrize("count", [2, 3])
+def test_czesci_repozytorium_obejmuja_kazdy_plik_testow(count: int) -> None:
+    files = [name for number in range(1, count + 1) for name in _part(ROOT, f"{number}/{count}")]
 
     assert len(files) == len(set(files))
     assert set(files) == {path.relative_to(ROOT).as_posix() for path in (ROOT / "tests").rglob("test_*.py")}
@@ -57,3 +59,25 @@ def test_czesc_spoza_zakresu_jest_bledem_wywolania(part: str) -> None:
     done = subprocess.run([sys.executable, str(TOOL), part], capture_output=True, text=True, encoding="utf-8", check=False)
 
     assert (done.returncode, done.stdout) == (2, "")
+
+
+def test_tabela_czasow_sumuje_testy_pliku_w_raporcie_i_usrednia_raporty_obu_pythonow(tmp_path: Path) -> None:
+    (tmp_path / "tools").mkdir()
+    shutil.copy(TOOL, tmp_path / "tools" / TOOL.name)
+    reports = []
+    python_311 = [[("tests.test_a", 1.5), ("tests.test_a.TestKlasa", 2.0)], [("tests.podfolder.test_b", 4.0)]]
+    python_314 = [[("tests.test_a", 2.5)], [("tests.podfolder.test_b", 2.0)]]
+    for number, cases in enumerate([*python_311, *python_314]):
+        report = tmp_path / f"junit-{number}.xml"
+        report.write_text(
+            "<testsuites><testsuite>"
+            + "".join(f'<testcase classname="{name}" name="t" time="{seconds}"/>' for name, seconds in cases)
+            + "</testsuite></testsuites>",
+            encoding="utf-8",
+        )
+        reports.append(str(report))
+
+    subprocess.run([sys.executable, str(tmp_path / "tools" / TOOL.name), "--czasy-z", *reports], check=True)
+
+    table = json.loads((tmp_path / "tools" / "czasy_testow_ci.json").read_text(encoding="utf-8"))
+    assert table == {"tests/podfolder/test_b.py": 3.0, "tests/test_a.py": 3.0}
