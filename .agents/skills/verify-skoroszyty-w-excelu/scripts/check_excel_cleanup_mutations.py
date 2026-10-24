@@ -62,6 +62,12 @@ MUTATIONS = (
         TESTS,
         "run zamyka Excela z otwartym plikiem Maksa",
     ),
+    Mutation(
+        "nieudane zamknięcie Excela wychodzi ze sprzątania",
+        (Edit(RUNNER, '        notes.append(f"excel_quit_failed=', '        raise\n        notes.append(f"excel_quit_failed='),),
+        TESTS,
+        "Excel, który nie odpowie na quit, kończy run tracebackiem bez linii VERIFY, cleanup.txt i usunięcia biurka",
+    ),
 )
 
 

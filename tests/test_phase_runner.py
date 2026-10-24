@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 import pytest
 
-from rozliczenia.domain import PhaseFailed, PlanReady, ProgressEvent, ProgressProtocolError
+from rozliczenia.domain import PhaseFailed, ProgressEvent, ProgressProtocolError
 from rozliczenia.phase_runner import PhaseRunner
 
 
@@ -21,7 +21,7 @@ def fail() -> None:
 def run_whole(runner: PhaseRunner) -> None:
     runner.check(lambda: None)
     runner.read(lambda: None)
-    runner.plan(lambda: None)
+    runner.plan(lambda: None, issue_count=lambda _planned: 0)
     runner.save(lambda: None)
 
 
@@ -76,18 +76,6 @@ def test_etap_uruchomiony_w_trakcie_poprzedniego_jest_bledem_kodu() -> None:
     assert calls == []
 
 
-def test_pominieta_liczba_problemow_w_planowaniu_przenosi_wartosc_z_odczytu_danych() -> None:
-    events: list[ProgressEvent] = []
-    runner = PhaseRunner(events.append)
-
-    runner.check(lambda: None)
-    runner.read(lambda: ["problem", "problem"], issue_count=len)
-    runner.plan(lambda: ["Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny"], templates=lambda names: names)
-
-    plan_ready = [event for event in events if isinstance(event, PlanReady)]
-    assert [(event.issue_count, event.template_total) for event in plan_ready] == [(2, 3)]
-
-
 def test_wstrzymanie_zegara_w_trakcie_etapu_jest_bledem_kodu() -> None:
     runner = PhaseRunner(None)
 
@@ -102,7 +90,9 @@ def test_wstrzymanie_zegara_w_trakcie_etapu_jest_bledem_kodu() -> None:
 def run_until_plan(runner: PhaseRunner) -> None:
     runner.check(lambda: None)
     runner.read(lambda: None)
-    runner.plan(lambda: None, templates=lambda result: ["Adrian Testowy", "Darek Fikcyjny"])
+    runner.plan(
+        lambda: None, templates=lambda result: ["Adrian Testowy", "Darek Fikcyjny"], issue_count=lambda _planned: 0
+    )
 
 
 def settled_outside_saving(runner: PhaseRunner) -> None:
@@ -117,8 +107,9 @@ def test_przetworzenie_szablonow_pracownika_w_innym_etapie_niz_zapisywanie_jest_
     if stage == "plan":
         runner.read(lambda: None)
 
+    counts = {"issue_count": lambda _planned: 0} if stage == "plan" else {}
     with pytest.raises(ProgressProtocolError):
-        getattr(runner, stage)(lambda: settled_outside_saving(runner))
+        getattr(runner, stage)(lambda: settled_outside_saving(runner), **counts)
 
 
 def test_przetworzenie_szablonow_pracownika_poza_trwajacym_zapisywaniem_jest_bledem_kodu() -> None:
@@ -147,8 +138,9 @@ def test_niepoprawna_liczba_konczy_etap_przerwaniem_i_bledem_kodu(
         getattr(runner, stage)(lambda: None, issue_count=lambda result: count)
 
     calls: list[str] = []
+    counts = {"issue_count": lambda _planned: 0} if next_stage == "plan" else {}
     with pytest.raises(ProgressProtocolError):
-        getattr(runner, next_stage)(lambda: calls.append(next_stage))
+        getattr(runner, next_stage)(lambda: calls.append(next_stage), **counts)
     assert calls == []
 
 

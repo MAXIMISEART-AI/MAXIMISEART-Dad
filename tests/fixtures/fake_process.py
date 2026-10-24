@@ -42,7 +42,7 @@ def all_phases(observer: ProgressObserver, before_save: Callable[[], None] = lam
     phases = PhaseRunner(observer)
     phases.check(lambda: None)
     phases.read(lambda: None)
-    phases.plan(lambda: None)
+    phases.plan(lambda: None, issue_count=lambda _planned: 0)
     before_save()
     phases.save(lambda: None)
     return phases.durations_ms()

@@ -259,6 +259,31 @@ def drive_diagnosis(run: Run, page: Page) -> None:
             "the Zgłoszenie carries that log entry for Maks, without the exception text or a workbook row",
         )
         run.capture(page, "58-diagnoza-nieoczekiwany-wyjatek")
+
+        run.step(FEATURE, "diagnoza-bez-powtorki")
+        unexpected = current_run(run, "diagnoza-bez-powtorki")["run"]
+        assert isinstance(unexpected, dict)
+        its_logs = f"*-logi-uruchomienia-{str(unexpected['id'])[:8]}.json"
+        queued = sorted(queue.glob(its_logs))
+        log_path = run.root / "logs" / "centrum-rozliczen.log"
+        diagnosed = f" diagnoza proces=preparation okres={PERIOD} "
+        diagnoses = log_path.read_text(encoding="utf-8").count(diagnosed)
+        page.reload()
+        expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_contain_text(NOT_FOUND)
+        page.get_by_role("link", name="Okresy", exact=True).click()
+        expect(page.get_by_role("heading", name="Okresy", exact=True)).to_be_visible()
+        page.get_by_role("link", name="Uruchomienia", exact=True).click()
+        expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_contain_text(NOT_FOUND)
+        run.wait_for(
+            lambda: log_path.read_text(encoding="utf-8").count(diagnosed) == diagnoses + 2,
+            "a reload and Okresy → Uruchomienia each start the automatic Diagnoza again",
+        )
+        run.check(
+            len(queued) == 2 and sorted(queue.glob(its_logs)) == queued,
+            "the same result queues no more Logi: one comment for the Uruchomienie and one for its first Diagnoza",
+        )
+        diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True).click()
+        title, body = shown.locator("figcaption").inner_text(), shown.locator("pre").inner_text()
     finally:
         fault.unlink()
 

@@ -113,13 +113,12 @@ class PhaseRunner:
         operation: Callable[[], ResultT],
         *,
         templates: Callable[[ResultT], Sequence[str]] = _no_templates,
-        issue_count: Callable[[ResultT], int] | None = None,
+        issue_count: Callable[[ResultT], int],
     ) -> ResultT:
         """Planowanie, a po nim ``PlanReady``; ``templates`` to Wykonawcy Szablonów pracownika po kolei."""
 
         def record_counts(result: ResultT) -> None:
-            if issue_count is not None:
-                self._record_issue_count(issue_count(result))
+            self._record_issue_count(issue_count(result))
             self._templates = tuple(templates(result))
 
         result = self._run_phase(ProgressPhase.PLANNING, operation, record_counts)

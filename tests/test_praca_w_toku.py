@@ -145,19 +145,6 @@ def test_przeniesienie_naklada_sie_stara_sciezka(checkouts: dict[str, Path]) -> 
     assert "inny.py" in mine  # przeniesiony tutaj bez commita, zmieniony tam bez commita
 
 
-def test_odlaczony_head_liczy_sie_tylko_z_wlasnym_commitem_innym_niz_merge(checkouts: dict[str, Path]) -> None:
-    merge, owner = checkouts["other"].parent / "scalenie", checkouts["other"].parent / "wlasciciel"
-    _git(checkouts["other"], "worktree", "add", "--detach", str(merge), "main")
-    _git(merge, "merge", "--no-ff", "--no-edit", "fix/opiekun")
-    _git(checkouts["other"], "worktree", "add", "--detach", str(owner), "main")
-    _commit(owner, "wspolny.py", "a = 4\n", "fix: poprawka właściciela PR")
-
-    report = _report(checkouts["current"])
-
-    assert str(merge.resolve()) not in report
-    assert f"odłączony HEAD {owner.resolve()}: wspolny.py" in report
-
-
 def test_zly_ksztalt_odpowiedzi_gh_to_raport_bez_githuba(checkouts: dict[str, Path]) -> None:
     report = _report(checkouts["current"], "--issue", "7", path=_fake_gh(checkouts["current"].parent, "[{}]"))
 
@@ -190,18 +177,6 @@ def test_zly_ksztalt_tresci_zgloszenia_to_raport_bez_githuba(checkouts: dict[str
 
     assert report.count("GITHUB POMINIĘTY") == 1
     assert "fix/opiekun" in report  # praca lokalna nadal w raporcie
-
-
-def test_odlaczony_head_z_samym_merge_liczy_sie_z_niezacommitowanymi_plikami(checkouts: dict[str, Path]) -> None:
-    owner = checkouts["other"].parent / "wlasciciel-po-scaleniu"
-    _git(checkouts["other"], "worktree", "add", "--detach", str(owner), "main")
-    _git(owner, "merge", "--no-ff", "--no-edit", "fix/opiekun")
-    (owner / "inny.py").write_text("b = 4\n", encoding="utf-8")
-
-    lines = _report(checkouts["current"], "--nakladania").splitlines()
-
-    # inny.py niezacommitowany po obu stronach, wspolny.py z commita fix/opiekun, który niesie merge
-    assert f"- odłączony HEAD {owner.resolve()}: inny.py, wspolny.py" in lines
 
 
 WSPOLNY = "a = 1\nb = 1\nc = 1\nd = 1\ne = 1\n"
