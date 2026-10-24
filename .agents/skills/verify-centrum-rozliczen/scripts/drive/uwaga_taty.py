@@ -117,11 +117,11 @@ def drive_dad_note(run: Run, page: Page) -> None:
         )
     page.get_by_role("button", name=WRITE, exact=True).hover()
     expect(page.get_by_text(WRITE, exact=True)).to_be_visible()
-    run.capture(page, "160-uwaga-ikona-w-naglowku")
+    run.capture(page, "170-uwaga-ikona-w-naglowku")
     header = page.locator("header").first.bounding_box()
     assert header is not None
     page.screenshot(
-        path=run.evidence / "screenshots" / "160b-uwaga-ikona-zblizenie.png",
+        path=run.evidence / "screenshots" / "170b-uwaga-ikona-zblizenie.png",
         clip={"x": header["x"] + header["width"] - 360, "y": header["y"], "width": 360, "height": header["height"] + 40},
     )
 
@@ -143,7 +143,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
     _write(dialog, "   ", "")
     expect(send).to_be_disabled()
     title_box.fill("")
-    run.capture(page, "161-uwaga-puste-okno")
+    run.capture(page, "171-uwaga-puste-okno")
 
     run.step(FEATURE, "uwaga-bez-klucza")
     _write(dialog, *FIRST)
@@ -151,12 +151,12 @@ def drive_dad_note(run: Run, page: Page) -> None:
     _shows(run, figure, first, "„Maks dostanie” shows exactly the server's draft of the typed Uwaga")
     run.check(first["title"] == FIRST[0] and first["body"].startswith(FIRST[1] + "\n\n"), "the draft holds Dad's text")
     expect(send).to_be_enabled()
-    run.capture(page, "162-uwaga-wypelniona")
+    run.capture(page, "172-uwaga-wypelniona")
     send.click()
     expect(dialog.get_by_role("status")).to_have_text(WAITING)
     expect(page.get_by_role("alert")).to_have_count(0)
     expect(error_toasts(page)).to_have_count(0)
-    run.capture(page, "163-uwaga-czeka-na-internet")
+    run.capture(page, "173-uwaga-czeka-na-internet")
     [waiting] = _queued(config)
     run.check(
         waiting["target"] == {"kind": "new_issue", "label": LABEL, "title": first["title"]}
@@ -194,11 +194,11 @@ def drive_dad_note(run: Run, page: Page) -> None:
         _shows(run, figure, second, "„Maks dostanie” shows the server's draft of an Uwaga without Treść")
         send.click()
         expect(dialog.get_by_role("button", name="Trwa Wyślij", exact=True)).to_be_disabled()
-        run.capture(page, "164-uwaga-wysylanie", live=True)
+        run.capture(page, "174-uwaga-wysylanie", live=True)
         expect(dialog.get_by_role("status")).to_have_text(SENT, timeout=15_000)
     finally:
         pacing.unlink(missing_ok=True)
-    run.capture(page, "165-uwaga-wyslana")
+    run.capture(page, "175-uwaga-wyslana")
     issues = _issues(box)
     (run.evidence / "api" / "uwaga-skrzynka.json").write_text(
         json.dumps(
