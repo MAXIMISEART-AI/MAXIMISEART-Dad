@@ -240,7 +240,7 @@ def test_skrot_klikniety_w_trakcie_ponownego_startu_nie_cofa_nowej_wersji_ktora_
 
 
 def _broken_version(repository: ToolRepository, dialogs: Path) -> dict[str, str]:
-    """Nowa wersja z błędem importu: brakuje jej biblioteki, a jak pod ``pythonw`` nie ma konsoli.
+    """Nowa wersja z błędem importu: brakuje jej biblioteki.
 
     Okienko błędu startu tej wersji zapisuje swoją treść do ``dialogs`` zamiast pokazywać się na ekranie.
     """
@@ -248,8 +248,7 @@ def _broken_version(repository: ToolRepository, dialogs: Path) -> dict[str, str]
     app = (repository.publisher / "src/rozliczenia/centrum/app.py").read_text(encoding="utf-8")
     platform = (repository.publisher / "src/rozliczenia/centrum/platform.py").read_text(encoding="utf-8")
     windowless = (
-        "\n\ndef has_console() -> bool:\n    return False\n\n\n"
-        "def show_start_problem(title: str, text: str) -> None:\n"
+        "\n\ndef show_start_problem(title: str, text: str) -> None:\n"
         f"    with open({str(dialogs)!r}, 'a', encoding='utf-8') as shown:\n"
         "        shown.write(text + '\\n')\n"
     )
