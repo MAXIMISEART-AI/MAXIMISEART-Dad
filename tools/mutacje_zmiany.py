@@ -17,8 +17,10 @@ które przeglądy PR-ów robiły ręcznie i które przeżywały testy:
 Mutacja, która zmienia tylko docstringi, komentarze, adnotacje argumentów i wyników funkcji, importy albo aliasy
 typów (``Nazwa = Callable[...]``, ``A | B`` czytane tylko w adnotacjach), nie zmienia zachowania, więc jej nie ma.
 Dekoratorów narzędzie nie psuje, a samo usunięcie linii (bez linii dodanej w tym miejscu) nie daje mutacji.
-Kod w gałęzi innego systemu (``if sys.platform == "win32":`` poza Windows i jej ``else`` na Windows) i sam ten
-warunek dostają linię ``POMINIĘTA``: tu nie biegnie żaden test, który by go wykonał.
+Kod, którego na tym systemie strzeże ``sys.platform ==``/``!=`` literał, dostaje linię ``POMINIĘTA``: gałąź ``if``
+albo ``… if … else …`` innego systemu, kod po ``if`` z takim warunkiem, którego ciało kończy się ``return``/``raise``
+na tym systemie, i sam warunek. Kod tylko dla innego systemu w innej postaci (stała czytana tylko w jego gałęzi,
+warunek przez ``startswith`` albo zmienną) przeżywa i potrzebuje wyjątku.
 
 Najpierw biegną raz testy dotknięte zmianą, wybrane jak w ``tools/szybko.py``, z pluginem
 ``tools/pokrycie_linii.py``, który zapisuje, które testy wykonują które zmienione linie. Muszą przejść, inaczej
@@ -30,8 +32,8 @@ przez test), i dopiero ta porażka daje ``NIEWYKRYTA``.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
 dostaje wyjątek w linii mutacji albo w samodzielnym komentarzu tuż nad nią:
-``# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>``. Wyjątek obejmuje każdą mutację tej linii, także
-cofnięcie fragmentu, który ją zawiera. Wyjątek po terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
+``# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>``. Wyjątek obejmuje każdą mutację tej linii; cofnięcie
+fragmentu ma linię początku fragmentu, więc obejmuje je komentarz nad nim albo w jego pierwszej linii. Wyjątek po terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
 następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
 
 Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. Nie zastępuje mutacji z opisu PR: zachowanie,
@@ -214,23 +216,52 @@ def _skipped(tree: ast.AST) -> set[int]:
     return skipped
 
 
+def _platform_test(test: ast.expr) -> tuple[str, bool] | None:
+    """``sys.platform == "x"`` daje ``("x", True)``, ``!=`` daje ``("x", False)``, inny warunek ``None``."""
+
+    if not (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.Eq, ast.NotEq))):
+        return None
+    right = test.comparators[0]
+    if ast.unparse(test.left) != "sys.platform" or not (isinstance(right, ast.Constant) and isinstance(right.value, str)):
+        return None
+    return right.value, isinstance(test.ops[0], ast.Eq)
+
+
+def _ends(body: list[ast.stmt]) -> bool:
+    return bool(body) and isinstance(body[-1], (ast.Return, ast.Raise, ast.Continue, ast.Break))
+
+
 def _other_system(tree: ast.AST, platform: str) -> set[int]:
-    """Węzły gałęzi ``if sys.platform == "win32"`` (albo ``!=``) dla innego systemu niż ``platform`` i jej warunek."""
+    """Węzły kodu, który na systemie ``platform`` nie biegnie, bo strzeże go ``sys.platform ==``/``!=`` literał.
+
+    To gałąź ``if`` i wyrażenia ``… if … else …`` dla innego systemu, kod po ``if`` z takim warunkiem, którego ciało
+    kończy się ``return``/``raise`` na tym systemie, i sam warunek.
+    """
 
     other: set[int] = set()
-    windows = platform == "win32"
+
+    def mark(nodes: list[ast.stmt] | list[ast.expr]) -> None:
+        other.update(id(inner) for node in nodes for inner in ast.walk(node))
+
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and len(node.test.ops) == 1):
-            continue
-        test = node.test
-        if ast.unparse(test.left) != "sys.platform" or ast.unparse(test.comparators[0]) != "'win32'":
-            continue
-        if not isinstance(test.ops[0], (ast.Eq, ast.NotEq)):
-            continue
-        body_for_windows = isinstance(test.ops[0], ast.Eq)
-        branch = node.orelse if body_for_windows == windows else node.body
-        other.update(id(inner) for statement in branch for inner in ast.walk(statement))
-        other.update(id(inner) for inner in ast.walk(test))
+        if isinstance(node, (ast.If, ast.IfExp)) and (found := _platform_test(node.test)) is not None:
+            literal, equal = found
+            here = (platform == literal) == equal
+            mark([node.test])
+            if isinstance(node, ast.If):
+                mark(node.orelse if here else node.body)
+            else:
+                mark([node.orelse if here else node.body])
+        for field in ("body", "orelse", "finalbody"):
+            block = getattr(node, field, None)
+            if not isinstance(block, list):
+                continue
+            for index, statement in enumerate(block):
+                guard = _platform_test(statement.test) if isinstance(statement, ast.If) else None
+                if guard is not None and isinstance(statement, ast.If) and not statement.orelse and _ends(statement.body):
+                    literal, equal = guard
+                    if (platform == literal) == equal:
+                        mark(block[index + 1 :])
     return other
 
 
@@ -280,11 +311,17 @@ def _meaning(text: str) -> str:
     """Kod bez tego, czego test nie widzi: docstringów, adnotacji funkcji, importów i aliasów typów.
 
     Adnotacje argumentów i wyników (``from __future__ import annotations``) nie działają w czasie wykonania, a import
-    nazwy, którą kod naprawdę wywołuje, psuje już mutacja linii z tym wywołaniem. Adnotacje pól zostają, bo w modelach
-    pydantic (``centrum/contract.py``) decydują o walidacji.
+    nazwy, którą kod naprawdę wywołuje, psuje już mutacja linii z tym wywołaniem. W pliku z pydantic albo FastAPI
+    adnotacje i aliasy decydują o walidacji i trasach, więc zostają; tam pomija się tylko docstringi i importy.
+    Adnotacje pól zostają zawsze.
     """
 
     tree = ast.parse(text)
+    if _runtime_annotations(tree):
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                node.body = [statement for statement in node.body if not _invisible(statement, set(), module=False)]
+        return ast.dump(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.arg):
             node.annotation = None
@@ -296,6 +333,18 @@ def _meaning(text: str) -> str:
             module = isinstance(node, ast.Module)
             node.body = [statement for statement in node.body if not _invisible(statement, loaded, module=module)]
     return ast.dump(tree)
+
+
+def _runtime_annotations(tree: ast.AST) -> bool:
+    """Plik importuje pydantic albo FastAPI, które czytają adnotacje i aliasy typów w czasie wykonania."""
+
+    for node in ast.walk(tree):
+        names = (
+            [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
+        )
+        if any(name.split(".")[0] in {"pydantic", "fastapi"} for name in names):
+            return True
+    return False
 
 
 _TYPE_FORMS = frozenset(
@@ -312,7 +361,8 @@ def _type_form(value: ast.expr) -> bool:
     if isinstance(value, ast.Subscript):
         value = value.value
     name = value.attr if isinstance(value, ast.Attribute) else value.id if isinstance(value, ast.Name) else None
-    return name is not None and (name in _TYPE_FORMS or name[:1].isupper())
+    # Klasa ma nazwę w CamelCase, a stała modułu (``OPCJE["nowa"]``) wielkimi literami.
+    return name is not None and (name in _TYPE_FORMS or (name[:1].isupper() and not name.isupper()))
 
 
 def _invisible(statement: ast.stmt, loaded: set[str], *, module: bool) -> bool:
@@ -376,7 +426,9 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         last = hunk.start + hunk.count - 1
         span = f"{hunk.start}" if hunk.count == 1 else f"{hunk.start}–{last}"
         lines = changed_lines([hunk])
-        add(lines, hunk.start, f"zmiana linii {span} cofnięta do bazy", mutated, other_system=lines <= other_lines)
+        # Komentarz i pusta linia nie biegną na żadnym systemie, więc nie decydują, czyj jest fragment.
+        code = {line for line in lines if line <= len(rows) and rows[line - 1].strip() and not rows[line - 1].lstrip().startswith("#")}
+        add(lines, hunk.start, f"zmiana linii {span} cofnięta do bazy", mutated, other_system=bool(code) and code <= other_lines)
     return sorted(found.values(), key=lambda mutant: (mutant.line, mutant.description))
 
 
@@ -432,10 +484,10 @@ def _command(tests: Sequence[str]) -> tuple[str, ...]:
 
 
 def _allowance(allowed: dict[int, Allowance], mutant: Mutant, today: datetime.date) -> Allowance | None:
-    """Ważny wyjątek z linii mutacji albo z linii cofniętego fragmentu, który zawiera wyjątek."""
+    """Ważny wyjątek z linii mutacji; cofnięcie fragmentu ma linię jego początku."""
 
-    lines = {mutant.line} | (set(mutant.lines) if mutant.description.endswith("cofnięta do bazy") else set())
-    return next((allowed[line] for line in sorted(lines) if line in allowed and allowed[line].until >= today), None)
+    allowance = allowed.get(mutant.line)
+    return allowance if allowance is not None and allowance.until >= today else None
 
 
 def _part(text: str) -> tuple[int, int]:

@@ -160,14 +160,34 @@ def test_plik_bez_zaleznych_testow_konczy_sie_fail(tmp_path: Path) -> None:
     assert "żaden test nie zależy od src/rozliczenia/warunek.py" in done.stdout
 
 
-def test_wyjatek_w_linii_obejmuje_cofniecie_fragmentu_ktory_ja_zawiera(tmp_path: Path) -> None:
+def test_wyjatek_nad_fragmentem_obejmuje_jego_cofniecie(tmp_path: Path) -> None:
+    comment = "    # mutacje-zmiany: tylko na próbę | do 2999-01-01 | zgoda Maks\n"
+    changed = CHANGED.replace("    return a and b\n", comment + "    return a and b\n")
+
+    done = _run(_repo(tmp_path, ONE_CASE, changed))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "WYJĄTEK: src/rozliczenia/warunek.py:2 zmiana linii 2–3 cofnięta do bazy" in done.stdout
+
+
+def test_wyjatek_w_srodku_fragmentu_nie_obejmuje_cofniecia_calego_fragmentu(tmp_path: Path) -> None:
     base = "def oba(a, b):\n    return a\n"
     changed = CHANGED.replace("a and b\n", "a and b  # mutacje-zmiany: tylko na próbę | do 2999-01-01 | zgoda Maks\n")
 
     done = _run(_repo(tmp_path, ONE_CASE, changed, base))
 
-    assert done.returncode == 0, done.stdout + done.stderr
-    assert "WYJĄTEK: src/rozliczenia/warunek.py:1 zmiana linii 1–2 cofnięta do bazy" in done.stdout
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "NIEWYKRYTA: src/rozliczenia/warunek.py:1 zmiana linii 1–2 cofnięta do bazy" in done.stdout
+
+
+def test_nowy_niesledzony_plik_dostaje_mutacje(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ONE_CASE, BASE)
+    (repo / "src" / "rozliczenia" / "nowy.py").write_text("def jeden(a: bool) -> bool:\n    return a or False\n", encoding="utf-8")
+
+    done = _run(repo)
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "NIEWYKRYTA: src/rozliczenia/nowy.py:2 bez `a` w `or` → żaden test nie zależy od src/rozliczenia/nowy.py" in done.stdout
 
 
 def test_wyjatek_obowiazuje_jeszcze_w_dniu_terminu(tmp_path: Path) -> None:
@@ -296,6 +316,33 @@ def test_gałąź_innego_systemu_i_jej_warunek_sa_oznaczone() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "x = (a or b) if sys.platform == 'win32' else c\n",
+        "def f():\n    if sys.platform != 'win32':\n        return None\n    return a or b\n",
+        "if sys.platform == 'darwin':\n    x = a or b\n",
+    ],
+)
+def test_kod_innego_systemu_w_kazdej_postaci_jest_oznaczony(code: str) -> None:
+    hunks = [Hunk(line, 1, ()) for line in range(1, code.count("\n") + 1)]
+    runs_on = "win32" if "win32" in code else "darwin"
+
+    def flagged(platform: str) -> set[str]:
+        return {m.description for m in mutants("m.py", code, hunks, platform) if m.other_system and "w `or`" in m.description}
+
+    assert flagged("linux") == {"bez `a` w `or`", "bez `b` w `or`"}
+    assert flagged(runs_on) == set()
+
+
+def test_cofniecie_fragmentu_gałęzi_windows_z_komentarzem_jest_oznaczone() -> None:
+    code = "if sys.platform == 'win32':\n    # tylko Windows\n    x = 2\n"
+
+    found = mutants("m.py", code, [Hunk(2, 2, ("    x = 1",))], "linux")
+
+    assert [m.other_system for m in found if "cofnięta" in m.description] == [True]
+
+
 def test_cofniecie_liczy_linie_jak_git_mimo_separatora_unicode() -> None:
     code = 'a = "x\u2028y"\nb = 2\nc = 3\n'
 
@@ -308,6 +355,14 @@ def test_adnotacja_pola_modelu_zostaje_mutacja_a_stala_nie_jest_aliasem() -> Non
 
     assert "zmiana linii 2 cofnięta do bazy" in _described(model, [2], ("    pole: int",))
     assert "zmiana linii 1 cofnięta do bazy" in _described(constant, [1], ("TIMEOUT_S = 3 * 60",))
+    assert "zmiana linii 1 cofnięta do bazy" in _described('NAZWA = OPCJE["nowa"]\n', [1], ('NAZWA = OPCJE["stara"]',))
+
+
+def test_w_pliku_z_pydantic_adnotacja_i_alias_typu_zostaja_mutacja() -> None:
+    code = "from pydantic import BaseModel\nWynik = Annotated[A | B, Field(discriminator='rodzaj')]\n\n\ndef trasa() -> Wynik:\n    pass\n"
+
+    assert "zmiana linii 2 cofnięta do bazy" in _described(code, [2], ("Wynik = A | B",))
+    assert "zmiana linii 5 cofnięta do bazy" in _described(code, [5], ("def trasa() -> A:",))
 
 
 def test_adnotacje_i_docstringi_nie_dostaja_mutacji() -> None:
