@@ -13,6 +13,8 @@ pilnuje:
   - src/rozliczenia/collective_file.py
   - src/rozliczenia/preparation_register.py
   - src/rozliczenia/preparation_files.py
+  - src/rozliczenia/preparation_process.py
+  - src/rozliczenia/quantity_rules.py
   - src/rozliczenia/engine.py
   - tools/syntetyczne_wzorce.py
   - requirements.txt
@@ -30,7 +32,7 @@ showing `#N/D`, a Gotowość that Przebieg rozliczeń does not carry over.
 Excel for Mac stands in for Dad's Excel for Windows. What it cannot prove:
 Windows-only dialogs (Protected View, Windows links prompts), Dad's locale
 parsing typed text (`25,5`), and his real Słownik behind the external link.
-The Hiperłącza of `NUMER ZL.` are checked in the bytes Excel saved and
+The Hiperłącza in `A:AT` (one on each `NUMER ZL.`) are checked in the bytes Excel saved and
 Przebieg rozliczeń wrote, not as Excel shows them or opens them on a click.
 
 ## Launch
@@ -42,9 +44,9 @@ From the repository root, after `tools/setup_worktree.py` in a worktree:
 ```
 
 One command runs the whole path. It ends with `VERIFY OK | wzorce=prawdziwe |
-steps=29 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`. On
-Maks's Mac with Excel 16.114 it took 2:56 with Dad's Wzorce and 77 s with
-`syntetyczne`.
+steps=32 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`
+(`steps=34` with `--kontrola-naprawy`). On Maks's Mac with Excel 16.114.1 it
+took 1:14 and 1:43 with Dad's Wzorce and 1:55 with `syntetyczne` (2026-10-24).
 
 - `--wzorce prawdziwe` (default) copies Dad's three Wzorce from `config/`, in a
   worktree from the main checkout's `config/` (`--templates-dir` overrides).
@@ -93,8 +95,9 @@ The runner runs the doctor after creating the fixture; its output is
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/excel.py status
 ```
 
-`DOCTOR OK` means: macOS, Excel installed, Excel's container exists, the desk is
-empty, both linked Wzorce have an external link used by a formula, the fixture
+`DOCTOR OK` means: macOS, Python 3.11 or newer, Excel installed, Excel's
+container exists, the desk is inside it and empty, the fixture has the Rejestr,
+`worker_mapping.yaml` and `INEA`, both linked Wzorce have an external link used by a formula, the fixture
 has no Folder okresu yet, and a running Excel answers AppleScript with no dialog
 and holds no workbook named like this run's (Excel refuses two workbooks of the
 same name). `excel.py status` is the read-only check of Excel alone.
@@ -141,9 +144,10 @@ Drive Excel only through `scripts/excel.py`; it encodes the traps below.
 - Every entry recalculates the whole workbook (some 50 000 formulas in Dad's
   Wzorce), so type one row per call (`excel.type_row`); typed cell by cell,
   the first row of the synthetic Wzorce ran past the 60 s call limit.
-- While a dialog is up, Excel answers `missing value` or fails with `-1708`,
-  and both raise `ExcelDialog`; `excel.dialogs()` lists its untitled windows
-  without any permission.
+- While a dialog is up, Excel lists its workbooks as `missing value`
+  (`excel.open_paths`) or fails a call with `-1708`, and both raise
+  `ExcelDialog`; `excel.dialogs()` lists its untitled windows on screen
+  without any permission, and none while Excel is hidden (Cmd+H).
 
 ## Evidence
 
@@ -152,7 +156,7 @@ Drive Excel only through `scripts/excel.py`; it encodes the traps below.
 
 - `drive.txt`: every `STEP` line.
 - `excel.json`: Excel version, which Wzorce, whether Excel ran before, per
-  workbook the seconds to open, link count, rows checked, Wyróżnienia checked,
+  workbook the seconds to open and what it counted (links, rows, Wyróżnienia),
   the SHA-256 of the Plik zbiorczy Excel saved, and on failure its reason.
 - `przygotowanie.json`, `przebieg.json`: the process results of
   `tools/uruchom_proces.py`.

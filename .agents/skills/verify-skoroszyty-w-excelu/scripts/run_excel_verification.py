@@ -504,7 +504,9 @@ def worker_files(
         seconds = excel.open_file(path)
         try:
             run.step(feature, "bez-okna", f"{worker} | open_seconds={seconds}")
-            expect(excel.link_names(path) == worker_reference[0], f"{label} links to other workbooks than its Wzorzec")
+            sources = excel.link_names(path)
+            expect(sources == worker_reference[0], f"{label} links to other workbooks than its Wzorzec")
+            run.step(feature, "lacze", f"{worker} | links={len(sources)}")
             layout = _layout(path)
             rows = _order_rows(path, layout)
             expect(tuple(rows) == orders, f"{label} holds other Zlecenia or another order than the Plik zbiorczy")
