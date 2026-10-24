@@ -196,7 +196,7 @@ def test_push_agenta_drukuje_werdykt_aktualizacji_z_main(checkout: Path) -> None
 
     assert pushed.returncode == 0, pushed.stdout + pushed.stderr
     lines = (pushed.stdout + pushed.stderr).splitlines()
-    assert [line for line in lines if line.startswith("AKTUALIZACJA: ")][0].startswith("AKTUALIZACJA: niepotrzebna"), lines
+    assert next(line for line in lines if line.startswith("AKTUALIZACJA: ")).startswith("AKTUALIZACJA: niepotrzebna"), lines
 
 
 BROKEN_VERDICTS = {

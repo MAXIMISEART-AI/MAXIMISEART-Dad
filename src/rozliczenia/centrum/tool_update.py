@@ -44,7 +44,7 @@ wczyta biblioteki nowej wersji.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, replace
 import json
 import os
@@ -823,10 +823,8 @@ def _kill_tree(process: subprocess.Popen[bytes]) -> None:
             creationflags=_NO_WINDOW,
         )
     else:
-        try:
+        with suppress(OSError):  # Git i jego pomocnicy już się zakończyli
             os.killpg(process.pid, signal.SIGKILL)
-        except OSError:
-            pass  # Git i jego pomocnicy już się zakończyli
     process.kill()
     process.wait()
 

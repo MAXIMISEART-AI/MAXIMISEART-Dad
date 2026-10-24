@@ -930,7 +930,7 @@ def _styles_shape(styles: bytes, sheet: bytes) -> list[Divergence]:
             ids.get("fontId", 0) >= fonts
             or ids.get("fillId", 0) >= fills
             or ids.get("borderId", 0) >= borders
-            or ids.get("numFmtId", 0) >= _FIRST_CUSTOM_FORMAT and ids["numFmtId"] not in formats
+            or (ids.get("numFmtId", 0) >= _FIRST_CUSTOM_FORMAT and ids["numFmtId"] not in formats)
         ):
             found.append(Divergence("KSZTALT_EXCELA", f"styl komórki {position} wskazuje brakującą pozycję: {ids}"))
             break

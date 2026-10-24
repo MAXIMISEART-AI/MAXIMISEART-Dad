@@ -356,7 +356,7 @@ def test_period_crossing_month_or_year_takes_month_and_year_of_monday(
     summary = run_preparation(fixture, token)
 
     assert summary.period_order_count == 2
-    assert list(summary.orders_per_day)[0] == tuesday.date()
+    assert next(iter(summary.orders_per_day)) == tuesday.date()
     assert (fixture.periods_directory / token / f"Rozliczenie wew. {token}.xlsx").is_file()
 
 

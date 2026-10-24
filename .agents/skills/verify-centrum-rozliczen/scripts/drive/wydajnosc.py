@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import datetime
 import json
 from pathlib import Path
 import statistics
@@ -491,7 +491,7 @@ def candidate(measured: Measured, margin: dict[str, float], repeats: int) -> dic
     """This measurement in the baseline's format: copy it over the baseline to accept it."""
 
     return {
-        "zmierzono": {"data": date.today().isoformat(), "powtorzenia": repeats, "profile": [f"{cpu}x" for cpu in PROFILES]},
+        "zmierzono": {"data": datetime.now().astimezone().date().isoformat(), "powtorzenia": repeats, "profile": [f"{cpu}x" for cpu in PROFILES]},
         "margines": margin,
         "bundle_bajty": measured.bundle,
         "scenariusze": {

@@ -300,7 +300,7 @@ def references(tree: ast.AST) -> tuple[set[str], set[_Glob]]:
     assignments = [node for node in nodes if isinstance(node, ast.Assign) and len(node.targets) == 1]
     for assignment in sorted(assignments, key=lambda node: (node.lineno, node.col_offset)):
         target, value = assignment.targets[0], assignment.value
-        if isinstance(target, ast.Name) and (is_path(value) or isinstance(value, ast.Name) and value.id in names):
+        if isinstance(target, ast.Name) and (is_path(value) or (isinstance(value, ast.Name) and value.id in names)):
             names[target.id] = pieces(value)
     # Tylko cała ścieżka: początek ``ROOT / ".agents" / "skills"`` łańcucha ``... / "x"`` wskazałby wszystkie skille.
     beginnings = {id(node.left) for node in nodes if is_path(node)}
