@@ -20,12 +20,6 @@ from tests.fixtures.git_repo import commit, git
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "praca_w_toku.py"
 
 
-@pytest.fixture(autouse=True)
-def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-
-
 def _git(cwd: Path, *args: str) -> None:
     try:
         subprocess.run(
