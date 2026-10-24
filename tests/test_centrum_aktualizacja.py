@@ -21,7 +21,7 @@ import pytest
 from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
 
 from tests.fixtures.centrum import NO_RELEASE, views_until
-from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum
+from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, stopped_for_maks
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
@@ -160,6 +160,95 @@ def test_najnowsza_wersja_zostaje_bez_zmian(tmp_path: Path) -> None:
     ]
 
 
+def sleeping_release(repository: ToolRepository) -> None:
+    """Uśpiony tag: Wydanie osiągalne z `main`, które nigdy nie było jego czubkiem; klon ma je już po aktualizacji
+    na `main`, a GitHub dalej je proponuje, więc próba kończy się ``AKTUALNA`` przy proponowanym przycisku."""
+
+    git(repository.publisher, "checkout", "--quiet", "-b", "agent")
+    git(repository.publisher, "commit", "--quiet", "--allow-empty", "--message", "Zmiana z gałęzi agenta")
+    repository.release(tag="v0.9.0")
+    git(repository.publisher, "checkout", "--quiet", "main")
+    git(repository.publisher, "merge", "--quiet", "--no-ff", "--no-edit", "agent")
+    git(repository.publisher, "push", "--quiet", "origin", "main")
+
+
+def up_to_date_while_offered(centrum: PreparingCentrum, repository: ToolRepository) -> dict[str, Any]:
+    """Wynik ``AKTUALNA`` przy proponowanym przycisku (``sleeping_release``): wynik próby i to, co zaraz po niej
+    widzi karta."""
+
+    sleeping_release(repository)
+    offered_before = tool_on_configuration(centrum)["update_offered"]
+    result = update_until_done(centrum)
+    return {
+        "offered_before": offered_before,
+        "result": result,
+        "right_after": centrum.client.get("/api/tool-update").json(),
+        "offered_after": tool_on_configuration(centrum)["update_offered"],
+    }
+
+
+UP_TO_DATE_WHILE_OFFERED = {
+    "offered_before": True,
+    "result": {"state": "up_to_date"},
+    "right_after": {"state": "up_to_date"},
+    "offered_after": True,
+}
+
+
+def test_po_wyniku_aktualna_nowsze_wydanie_konfiguracja_proponuje_aktualizacje_bez_starego_wyniku(
+    tmp_path: Path,
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    attempt = up_to_date_while_offered(centrum, repository)
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    centrum.surroundings.clock.advance(minutes=10)
+
+    newer_offered = tool_on_configuration(centrum)["update_offered"]
+
+    assert attempt == UP_TO_DATE_WHILE_OFFERED
+    assert (newer_offered, centrum.client.get("/api/tool-update").json()) == (True, {"state": "idle"})
+
+
+def test_po_wyniku_aktualna_nowsze_wydanie_diagnoza_proponuje_aktualizacje_bez_starego_wyniku(
+    tmp_path: Path,
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    attempt = up_to_date_while_offered(centrum, repository)
+    run_id = stopped_for_maks(centrum)
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+
+    # Diagnoza pyta GitHuba przy każdym sprawdzeniu, także w 10 minutach, przez które Konfiguracja pamięta odpowiedź.
+    diagnosis = centrum.client.post(f"/api/runs/{run_id}/diagnosis").json()
+
+    assert attempt == UP_TO_DATE_WHILE_OFFERED
+    assert (diagnosis["next_action"], centrum.client.get("/api/tool-update").json()) == ("update", {"state": "idle"})
+
+
+def test_po_wyniku_aktualna_bez_odpowiedzi_githuba_wynik_zostaje(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    attempt = up_to_date_while_offered(centrum, repository)
+    centrum.surroundings.release_unanswered = True
+    centrum.surroundings.clock.advance(minutes=10)
+
+    # Centrum nie wie, czy najnowsze Wydanie się zmieniło, więc wynik dalej dotyczy tego, co zna.
+    assert attempt == UP_TO_DATE_WHILE_OFFERED
+    assert centrum.client.get("/api/tool-update").json() == {"state": "up_to_date"}
+
+
+def test_wynik_aktualna_bez_odpowiedzi_githuba_w_jego_chwili_znika_przy_pierwszej_odpowiedzi(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    sleeping_release(repository)
+    centrum.surroundings.release_unanswered = True
+    result = update_until_done(centrum)
+    unanswered = centrum.client.get("/api/tool-update").json()
+    centrum.surroundings.release_unanswered = False
+    centrum.surroundings.clock.advance(minutes=1)
+
+    answered = centrum.client.get("/api/tool-update").json()
+
+    assert (result, unanswered, answered) == ({"state": "up_to_date"}, {"state": "up_to_date"}, {"state": "idle"})
+
+
 def test_pominiete_wydanie_spoza_main_zostawia_slad_w_dzienniku_centrum(tmp_path: Path) -> None:
     centrum, repository = updating_centrum(tmp_path)
     current = repository.head()
@@ -252,6 +341,20 @@ def test_bez_odpowiedzi_githuba_konfiguracja_pyta_znowu_po_minucie(tmp_path: Pat
 
     assert (offline, still_offline, back_online) == ("not_checked", "not_checked", "newer")
     assert github.asked == 2
+
+
+def test_diagnoza_bez_odpowiedzi_githuba_nie_kasuje_odpowiedzi_pamietanej_przez_konfiguracje(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    github = centrum.surroundings.github
+    github.release = NEWER_MAIN
+    remembered = tool_on_configuration(centrum)["freshness"]
+    github.release = None
+
+    diagnosis = centrum.client.post(f"/api/runs/{stopped_for_maks(centrum)}/diagnosis")
+    after_diagnosis = tool_on_configuration(centrum)["freshness"]
+
+    assert diagnosis.status_code == 200
+    assert (remembered, after_diagnosis) == ("newer", "newer")
 
 
 @pytest.mark.parametrize(
