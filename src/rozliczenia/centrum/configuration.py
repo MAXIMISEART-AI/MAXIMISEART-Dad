@@ -165,13 +165,15 @@ class _CheckedTemplates:
         try:
             stat = path.stat()
         except OSError:
-            return template.find_problem(self._readers)
-        signature = (stat.st_mtime_ns, stat.st_size, workbook_files.is_open_in_excel(path))
-        cached = self._results.get(path)
-        if cached is not None and cached[0] == signature:
-            return cached[1]
+            signature = None
+        else:
+            signature = (stat.st_mtime_ns, stat.st_size, workbook_files.is_open_in_excel(path))
+            cached = self._results.get(path)
+            if cached is not None and cached[0] == signature:
+                return cached[1]
         found = template.find_problem(self._readers)
-        self._results[path] = (signature, found)
+        if signature is not None:
+            self._results[path] = (signature, found)
         return found
 
 

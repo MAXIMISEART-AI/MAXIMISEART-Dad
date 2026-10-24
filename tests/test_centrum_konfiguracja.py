@@ -94,6 +94,22 @@ def test_wzorce_sprawdza_czytnik_wzorcow_procesu(tmp_path: Path) -> None:
     }
 
 
+def test_niezmieniony_wzorzec_jest_sprawdzany_raz_a_brakujacy_przy_kazdym_odczycie(tmp_path: Path) -> None:
+    checked: list[str] = []
+
+    def counting(template: TemplateFile) -> None:
+        checked.append(template.path.name)
+        FILE_READERS.template(template)
+
+    app = configured(tmp_path, readers=replace(FILE_READERS, template=counting))
+    app.files.worker_template.unlink()
+
+    read_configuration(app)
+    read_configuration(app)
+
+    assert sorted(checked) == sorted([INTERNAL, COLLECTIVE, WORKER, WORKER])
+
+
 def test_wszystkie_trzy_wzorce_sa_na_miejscu_i_czytelne(tmp_path: Path) -> None:
     configuration = read_configuration(configured(tmp_path))
 

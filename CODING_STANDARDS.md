@@ -25,7 +25,8 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 
 - Write a Komunikat's text only in a process's catalog (`preparation_messages`, `settlement_messages`).
   Two known exceptions wait for their own change: `WorkerConfigError.detail` and `PeriodFolderError.message`.
-  Workbook code (`workbook_files` and the Sprawdzanie of each Wzorzec) raises `WorkbookError`, and each caller translates the error with one catalog function.
+  Workbook code (`workbook_files`) raises `WorkbookError`, and each caller translates the error with one catalog function.
+  The files that Sprawdzanie reads go through `input_checks`, which translates their reader errors once for both processes, the Diagnoza and the Konfiguracja.
   That function ends its `match` on `Problem` with `assert_never`, so mypy rejects a new `Problem` until every catalog handles it.
   Other code calls its catalog's factories directly, and a process summary reports its problems as warning Komunikaty in `warnings`.
 - Never decide on a Komunikat's code outside a catalog, and never map a code back to the fact that produced it.
@@ -49,6 +50,8 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
   Each entry point that uses it has one translation test (module error → that entry point's Komunikat) and does not repeat the matrix.
 - Test Centrum rozliczeń through its HTTP API, the way the browser sees it: responses, the event stream, files on disk, metrics records.
   Prove UI behaviour in the browser with `verify-centrum-rozliczen`, not with component unit tests.
+- Make the Rejestr zleceń or a Wzorzec fail in a test through a failing adapter of `input_checks.Readers`, not by patching a module attribute.
+  The same `Readers` reach the Uruchomienie procesu, the Diagnoza and the Konfiguracja, so the fault reaches all three.
 - Use synthetic workbook fixtures only.
   Cover both successful and failure paths for each operation's behaviour matrix.
 - The test that owns a workbook write verifies values `A:AT`, preserved formulas and formatting, atomic replacement, and every entry under `xl/externalLinks/*`.

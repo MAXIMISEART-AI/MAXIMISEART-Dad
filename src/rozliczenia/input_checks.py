@@ -40,7 +40,10 @@ class Readers:
     """
 
     register: Callable[[Path, SettlementPeriod | None], list[RegisterSheet]]
-    """Arkusze ze zleceniami Rejestru, z ``period`` tylko wiersze, których data może leżeć w okresie."""
+    """Arkusze ze zleceniami Rejestru, z ``period`` tylko wiersze, których data może leżeć w okresie.
+
+    Rejestr, którego nie ma albo który jest otwarty w Excelu, to też ``WorkbookError``.
+    """
     template: Callable[[TemplateFile], None]
     """Sprawdzanie Wzorca: istnieje, nie jest otwarty, daje się odczytać i ma układ swojego ``Layout``."""
 
@@ -130,8 +133,6 @@ def register_problem(register: Path, readers: Readers) -> Message | None:
     """Komunikat, którym Przygotowanie zatrzymałoby się na Rejestrze zleceń: otwarty w Excelu, nieczytelny, bez nagłówków."""
 
     try:
-        with _stops(messages.register_unusable):
-            workbook_files.ensure_available(register)
         read_register(register, None, readers)
     except StopError as stop:
         return stop.message
