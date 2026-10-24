@@ -179,6 +179,6 @@ def test_czas_decyzji_taty_nie_liczy_sie_do_czasu_uruchomienia(tmp_path: Path) -
 
     assert outcome.result == "OK"
     assert len(tata.decisions) == 1
-    assert outcome.total_duration_ms <= not_waiting_ms
+    assert outcome.total_duration_ms <= not_waiting_ms + 0.5  # czas uruchomienia jest zaokrąglony do pełnych ms
     [record] = records(tmp_path / "metrics.jsonl")
     assert record["total_duration_ms"] == outcome.total_duration_ms
