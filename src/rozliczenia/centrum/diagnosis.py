@@ -380,7 +380,9 @@ def _period_files_in_excel(computer: _Computer, label: str) -> list[CheckResult]
     if not isinstance(folder, PeriodFolder):
         return [CheckResult.not_checked(label, "Nie odszukano Folderu okresu.")]
     for path in computer.period_files:
-        if workbook_files.is_open_in_excel(path):
+        with reading(folder.directory):
+            open_in_excel = workbook_files.is_open_in_excel(path)
+        if open_in_excel:
             return [CheckResult.failed(label, diagnosis_messages.period_file_open(path))]
     return [CheckResult.passed(label, "Żaden plik okresu nie jest otwarty w Excelu.")]
 
