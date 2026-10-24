@@ -77,7 +77,7 @@ means no network, and a full path listed in `<root>/onedrive/tylko-w-chmurze.txt
 OneDrive file „tylko online” on every system. Zgłoszenia never reach GitHub
 either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.json`
 per issue with its label and comments (Zgłoszenie, Kontrola ilości, Logi Uruchomienia of a period; never the key, `state` editable to `closed`; a comment's address is `skrzynka-zgloszen/<number>.json#komentarz-<k>`, never a full path), unreachable while
-`<root>/skrzynka-zgloszen/brak-sieci` exists and slow while `<root>/pacing/skrzynka-ms.txt` exists; `<root>/github/tool-commit.txt` stands for
+`<root>/skrzynka-zgloszen/brak-sieci` exists, rejecting the content of every issue with a label while `<root>/skrzynka-zgloszen/odrzuca-<label>` exists, and slow while `<root>/pacing/skrzynka-ms.txt` exists; `<root>/github/tool-commit.txt` stands for
 the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum's clock
 forward past the 10-minute limit on asking the skrzynka. The tool itself is the run's synthetic Git clone
 `<root>/aktualizacja/klon` (its commit is the tool's own commit): Aktualizacja narzędzia moves only that clone,
@@ -192,6 +192,9 @@ Then confirm the evidence directory still exists.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
   check (with the `wydajnosc` gate on made-up numbers and the machine lock in a
   scratch directory) and evidence hygiene check.
+- `scripts/check_centrum_mutations.py`: shows the drive fails on broken
+  variants of Centrum, each running one feature on its own copy of the checkout;
+  it ends with `MUTACJE OK`, and CI runs it through `tools/mutacje_skilli.py`.
 - `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 

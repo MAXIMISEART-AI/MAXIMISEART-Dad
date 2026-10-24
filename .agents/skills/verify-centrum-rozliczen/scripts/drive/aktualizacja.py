@@ -376,7 +376,7 @@ def drive_update(run: Run, page: Page) -> None:
         finally:
             restart_pacing.unlink(missing_ok=True)
         # Later features (pomiar-u-taty) expect Konfiguracja without an alert: one more click on the restored
-        # Wydanie leaves this Centrum with `Masz najnowszą wersję.` instead of the failed installation.
+        # Wydanie replaces the failed installation with `Masz najnowszą wersję.`, which the last reload drops.
         print("  harness: the newest Wydanie in the local origin is the newest commit again", flush=True)
         release_only(origin, newest)
         _github_dormant_release(run)
@@ -388,11 +388,18 @@ def drive_update(run: Run, page: Page) -> None:
         expect(card.get_by_role("alert")).to_have_count(0)
         run.check(_head(clone) == newest, "after the failed installation the tool is up to date on the newest commit")
         _github_main(run, newest)
-        page.reload()
+        with page.expect_response(lambda response: response.url.endswith("/api/tool-update")):
+            page.reload()
         expect(card).to_contain_text("Aktualna")
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_have_count(0)
         expect(page.get_by_role("alert")).to_have_count(0)
         run.check(True, "with GitHub's newest Wydanie on the tool's commit, Konfiguracja shows it current, with no button and no alert")
+        expect(card.get_by_role("status").filter(has_text=UP_TO_DATE)).to_have_count(0)
+        run.check(True, f"the card no longer says „{UP_TO_DATE}”")
+        run.check(
+            run.api("/api/tool-update", "aktualizacja-znowu-aktualna") == {"state": "idle"},
+            "with GitHub's newest Wydanie on the tool's commit, the server forgets the result about the other Wydanie",
+        )
     finally:
         main_commit.unlink(missing_ok=True)
         pacing.with_name("instalacja-ms.txt").unlink(missing_ok=True)
