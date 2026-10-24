@@ -13,6 +13,17 @@ leaves. Centrum asks the skrzynka Zgłoszeń about Dad's open cases at start and
 at most once per 10 minutes of its clock, one question per kind of case (label);
 no network passes silently with the last known state.
 
+Every published Wydanie (GitHub Release) up to the newest one on `main` is a
+Powiadomienie o nowej wersji `Nowa wersja 0.x.y` with the green tag `Nowa
+wersja`: its note „Co nowego” and the list `Rozwiązane sprawy` with the cases
+sent from this computer that it solves (`Uwaga: <tytuł>`, `Zgłoszenie: <Co się
+stało>`). The one Centrum offers the update to (`update_offered`, the same rule
+as Konfiguracja) stands in its own card above the list with `Zaktualizuj
+narzędzie`; once Dad is on it, it goes back to the list as history, read and
+without the button. A higher Wydanie from outside `main` is no Powiadomienie.
+Centrum asks GitHub for the Wydania with the same rhythm as the skrzynka, one
+question for the list of Releases per 10 minutes.
+
 ## Sub-features
 
 - `powiadomienia-dzwonek`: on all four pages the bell sits right of `Napisz do Maksa`; `GET /api/notifications` has the sent Uwaga as `uwaga`, `wyslana`, not new, and the open Zgłoszenie of `zgloszenie` as `zgloszenie` named by its „Co się stało”; `unread` counts the new ones.
@@ -20,6 +31,10 @@ no network passes silently with the last known state.
 - `powiadomienia-widok`: the bell opens the view in the same tab with no sidebar item current; the Uwaga row says `Rozwiązana. Będzie w następnej wersji.`, the Zgłoszenie row `Maks przeczytał.`, both with the mark `nowe` and `data-fresh="true"`; the bell is plain `Powiadomienia` at once, the server's `unread` is 0 and `config/powiadomienia.json` keeps the read ids; no alert, no error toast; both themes.
 - `powiadomienia-po-wyjsciu`: after Okresy and back, no row has the mark `nowe`.
 - `powiadomienia-brak-sieci`: without network, Maks closing another Uwaga changes nothing 10 minutes later: Centrum asks, the row still says `Wysłana do Maksa.`, the bell has no dot, and there is no alert.
+- `powiadomienia-nowa-wersja`: GitHub names v0.2.0 the newest Wydanie on `main`, newer than the tool, with v0.1.0 before it and v0.3.0 published from outside `main`; 10 minutes later the bell is `Powiadomienia, są nowe` after one question for the Releases; the view has the card `Nowa wersja 0.2.0` above the list with the note, exactly the Uwaga and the Zgłoszenie sent from here (not the case from another computer) and an enabled `Zaktualizuj narzędzie`; `Nowa wersja 0.1.0` is a row without a button; no v0.3.0; both themes.
+- `powiadomienia-aktualizacja`: the card's button starts the Aktualizacja narzędzia; v0.2.0 never was the tip of `main` in the local origin, so the card says `Masz najnowszą wersję.` and the clone stays on its commit.
+- `powiadomienia-wydanie-aktualne`: with v0.2.0 on the tool's own commit, there is no card above the list; the row `Nowa wersja 0.2.0` has the note, no button and no mark `nowe`, and `update_offered` is `false`.
+- `powiadomienia-wydania-brak-sieci`: without network, 10 minutes later Centrum asks GitHub and both rows `Nowa wersja` stay as they were, with no alert and no dot.
 
 ## How to get to it (user POV)
 
@@ -36,7 +51,11 @@ Preconditions:
 - **View.** Click the bell: heading `Powiadomienia`, URL ends with `#/powiadomienia`, the menu `Sekcje Centrum rozliczeń` has no `Powiadomienia` link and no `aria-current`. In list `Powiadomienia`, listitem `Uwaga: <title>` contains `Rozwiązana. Będzie w następnej wersji.` and listitem `Zgłoszenie: <Co się stało>` contains `Maks przeczytał.`; each has the label `nowe` and `data-fresh="true"`. The bell's name is `Powiadomienia`. `GET /api/notifications` (`api/powiadomienia-przeczytane.json`) reaches `unread` 0; `config/powiadomienia.json` has `schema_version` 1 and at least two ids. No `alert`, no error toast. Screenshot `74`; toggle the theme, the mark stays, screenshot `75`; toggle back.
 - **After leaving.** Sidebar `Okresy`, then the bell: no label `nowe` in the list, the bell is plain `Powiadomienia`.
 - **No network.** Create `<root>/skrzynka-zgloszen/brak-sieci`, close the older Uwaga (`completed`), shift the clock by 10 minutes, open `#/powiadomienia` afresh: the question log grew, the older Uwaga still says `Wysłana do Maksa.`, no `alert`, no error toast, the bell has no dot. Screenshot `76`. Remove `brak-sieci` (also in `finally`).
-- **Proof.** Screenshots `72`–`76`, `api/powiadomienia-*.json`, the checks in `drive.txt`; the key is neither in the Centrum log nor in the page.
+- **New version.** Harness: write to `<root>/github/` the tag `v0.2.0` (`wydanie.txt`), 40 × `e` (`main-commit.txt`, a commit the clone does not contain) and `wydania.json` in GitHub's shape: v0.3.0 (`Wydanie spoza main.`), v0.2.0 with the note `SUMMARY` and its list `## Rozwiązane sprawy taty` naming the newest Uwaga, the closed Zgłoszenie and `Uwaga taty #999`, and v0.1.0 (`FIRST_SUMMARY`). Shift the clock by 10 minutes. Enter Okresy: the bell is `Powiadomienia, są nowe`; enter Uruchomienia: `<root>/github/zapytania-wydan.jsonl` grew by exactly one line. Click the bell: region `Nowa wersja 0.2.0` (exact) contains `SUMMARY`, its list `Rozwiązane sprawy` has exactly `Uwaga: <title>` and `Zgłoszenie: <Co się stało>`, its button `Zaktualizuj narzędzie` is enabled and it has the label `nowe`; it stands above list `Powiadomienia`. In the list, listitem `Nowa wersja 0.1.0` contains `FIRST_SUMMARY` and has no button. Neither `Nowa wersja 0.3.0` nor `Uwaga z innego komputera` is on the page. `GET /api/notifications` (`api/powiadomienia-nowa-wersja.json`) reaches `unread` 0 and has `0.2.0` with `update_offered` `true` and `0.1.0` with `false`. No alert. Screenshot `77`; toggle the theme, screenshot `78`; toggle back.
+- **Update.** Harness: the local origin's only Wydanie is the clone's `HEAD` (`release_only`; in `all` it already is). Click the card's button: the Centrum log gets one more `aktualizacja-koniec`, with `wynik=AKTUALNA`, the card shows status `Masz najnowszą wersję.` and the clone stays on `HEAD`. Screenshot `79`.
+- **Current.** Harness: remove `main-commit.txt` (GitHub's newest Wydanie is the tool's own commit), shift the clock by 10 minutes, open `#/powiadomienia` afresh: no region `Nowa wersja 0.2.0`; listitem `Nowa wersja 0.2.0` contains `SUMMARY`, has no button and no label `nowe`; the bell is plain `Powiadomienia`; `api/powiadomienia-wydanie-aktualne.json` has both Wydania without `update_offered` and read. Screenshot `80`.
+- **No network for Wydania.** Create `<root>/github/brak-sieci`, shift the clock by 10 minutes, open `#/powiadomienia` afresh: the question log grew by one, both rows `Nowa wersja` are there, no alert, no error toast, the bell is plain; `api/powiadomienia-wydania-brak-sieci.json` is unchanged. Screenshot `81`. Remove the four files of `<root>/github/` (also in `finally`).
+- **Proof.** Screenshots `72`–`81`, `api/powiadomienia-*.json`, the checks in `drive.txt`; the key is neither in the Centrum log nor in the page.
 
 ## Gotchas
 
@@ -44,3 +63,4 @@ Preconditions:
 - The tab reads Powiadomienia on start, on every page change and on focus; the 10-minute limit keeps these from asking again.
 - The Zgłoszenie that `zgloszenie` closed has no `state_reason`; Centrum reads it as `completed`, so it may already be new when this feature starts.
 - Never point the app at the real GitHub skrzynka; the key is synthetic.
+- Run alone, the clone stands one commit behind the local origin; the Update step first makes the clone's `HEAD` the origin's only Wydanie, so the click never moves the clone.
