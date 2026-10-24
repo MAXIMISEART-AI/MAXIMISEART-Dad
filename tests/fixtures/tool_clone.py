@@ -7,9 +7,8 @@ nowy commit i, jak Maks, wydaje go jako następne Wydanie (``released``);
 ``release`` robi to później. ``in_clone`` robi w klonie to, co mógłby zrobić ktoś przy
 komputerze taty; ``state`` to wszystko, co aktualizacja mogłaby w klonie
 zmienić. ``unreachable_origin`` i ``origin_asking_for_login`` to GitHub bez
-internetu i GitHub, który prosi o logowanie, oba na tym komputerze. Pomocniki
-pomijają konfigurację Gita komputera, na którym biegną testy; żaden nie łączy
-się z siecią.
+internetu i GitHub, który prosi o logowanie, oba na tym komputerze. Żaden
+pomocnik nie łączy się z siecią.
 """
 
 from __future__ import annotations
@@ -50,9 +49,9 @@ _IDENTITY = {
 
 
 def isolated_git_environment() -> dict[str, str]:
-    """Środowisko Gita bez konfiguracji globalnej i systemowej komputera testów."""
+    """Środowisko Gita testów z Maksem jako autorem commitów."""
 
-    return os.environ | {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"} | _IDENTITY
+    return os.environ | _IDENTITY
 
 
 def git(directory: Path, *args: str) -> str:
