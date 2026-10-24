@@ -22,7 +22,8 @@ _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat o
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
 _FIX_UNMAPPED_WORKER: Final = (
-    "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców."
+    f"Popraw WYKONAWCĘ w kolumnie {WORKER_HEADER.column} albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
+    "do konfiguracji wykonawców."
 )
 _LEGACY_WORKER_TEMPLATE_NAME: Final = "placeholder.xlsx"
 
@@ -199,6 +200,8 @@ def rows_without_worker(source: Path) -> Message:
 
 
 def unmapped_worker_warning(source: Path) -> Message:
+    """DRY-RUN: WYKONAWCA z Pliku zbiorczego nie ma wpisu w konfiguracji wykonawców."""
+
     return Message(
         code="BRAK_MAPOWANIA",
         what="Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
@@ -208,11 +211,13 @@ def unmapped_worker_warning(source: Path) -> Message:
 
 
 def row_without_worker_warning(source: Path, row: int) -> Message:
+    """DRY-RUN: Wiersz danych ``row`` bez WYKONAWCY."""
+
     return Message(
         code="BRAK_WYKONAWCY",
         what=f"Wiersz {row} ma dane, ale nie ma wykonawcy w kolumnie {WORKER_HEADER.column}.",
         where=file_label(source),
-        action=f"Wpisz WYKONAWCĘ w kolumnie H tego wiersza. {_SAVE_AND_RETRY}",
+        action=f"Wpisz WYKONAWCĘ w kolumnie {WORKER_HEADER.column} tego wiersza. {_SAVE_AND_RETRY}",
     )
 
 
