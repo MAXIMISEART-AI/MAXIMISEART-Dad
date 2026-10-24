@@ -37,7 +37,7 @@ from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from types import MappingProxyType
-from typing import IO, TypeVar, cast
+from typing import IO, Never, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 from xml.parsers import expat
 from xml.parsers.expat import ExpatError
@@ -256,6 +256,9 @@ class Layout(Enum):
     )
 
 
+_NO_ENTRIES: MappingProxyType[int, Never] = MappingProxyType({})
+
+
 @dataclass(frozen=True)
 class DataRow:
     """Wiersz danych: wartości komórek po kolei, ich Wyróżnienia, formaty liczb i Hiperłącza.
@@ -272,8 +275,8 @@ class DataRow:
     """Wyróżnienia komórek po pozycji jak ``values``."""
     number_formats: tuple[str, ...]
     """Formaty liczb komórek po pozycji; trafiają do kolumn wyglądu pliku z Wzorca."""
-    hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
-    quantities: Mapping[int, int] = field(default_factory=dict)
+    hyperlinks: Mapping[int, Hyperlink] = field(default_factory=lambda: _NO_ENTRIES)
+    quantities: Mapping[int, int] = field(default_factory=lambda: _NO_ENTRIES)
     """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: kolumna (od 1) → liczba różna od zera.
 
     Trafiają do komórki Wzorca z jej wyglądem, bez Wyróżnień; reszta kolumn ilości zostaje jak we Wzorcu.

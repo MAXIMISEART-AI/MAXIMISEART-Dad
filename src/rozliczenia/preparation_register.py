@@ -124,7 +124,9 @@ def read_register(register_path: Path, period: SettlementPeriod | None = None) -
 
 # Centrum robi Podgląd, a potem RUN tego samego okresu w jednym procesie. Arkusze okresu zależą tylko od bajtów
 # Rejestru i okresu, więc niezmieniony Rejestr nie jest drugi raz zawężany ani parsowany, a zmieniony jest
-# czytany od nowa. Wynik jest niezmienny (krotki, zamrożone dataclassy), więc wątki Uruchomień go nie psują.
+# czytany od nowa. Uruchomienia w różnych wątkach dostają ten sam wynik, więc jest z krotek, zamrożonych dataclass
+# i map w ``MappingProxyType``. Wyjątek to wypełnienie i kolor Wyróżnień: obiekty openpyxl, których nie da się
+# zamrozić, więc Zapis nakłada tylko ich kopie (``Highlights.font_over``, ``Highlights.fill_over``, ``RowLook``).
 @lru_cache(maxsize=2)
 def _period_sheets(register_path: Path, content: bytes, period: SettlementPeriod) -> tuple[RegisterSheet, ...]:
     with workbook_files.read_workbook(register_path, content) as workbook:
