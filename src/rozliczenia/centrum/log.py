@@ -24,8 +24,8 @@ MAX_VIEW_TIMINGS = 200
 _UPDATE = "aktualizacja"
 # Okres wysyłki w tle z Uruchomienia, którego okresu nie ustalono.
 _NO_PERIOD = "bez-okresu"
-# Dlaczego wysyłka w tle czeka w kolejce Skrzynki Zgłoszeń; ``odmowa`` dotyczy treści, ``odmowa-klucza`` klucza.
-WaitingCause = Literal["brak-klucza", "brak-sieci", "odmowa-klucza", "odmowa"]
+# Dlaczego wysyłka w tle czeka w kolejce Skrzynki Zgłoszeń; ``odmowa-tresci`` dotyczy tylko jednego pliku kolejki.
+WaitingCause = Literal["brak-klucza", "brak-sieci", "odmowa", "odmowa-tresci"]
 
 
 class CentrumLog:

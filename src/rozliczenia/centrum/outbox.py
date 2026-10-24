@@ -18,7 +18,7 @@ from __future__ import annotations
 import itertools
 import json
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -266,15 +266,25 @@ def _deliver_to_period(
     return Delivered(number, tuple(delivered))
 
 
-# Porażka wysyłki (``None``: brak klucza) → przyczyna w dzienniku i co dalej w przejściu kolejki. Brak klucza, sieci
-# i odmowa klucza (401/403/404) spotkałyby każdy następny plik, więc przejście staje z jedną linią dziennika; odmowa
-# treści dotyczy tylko tego pliku: zostaje do następnego startu Centrum, a przejście idzie dalej.
-_WAITING: Final[Mapping[type[object], tuple[WaitingCause, Literal["stop", "next"]]]] = {
-    type(None): ("brak-klucza", "stop"),
-    Unreachable: ("brak-sieci", "stop"),
-    Refused: ("odmowa-klucza", "stop"),
-    Rejected: ("odmowa", "next"),
-}
+def _waiting(outcome: Refused | Rejected | Unreachable | None) -> tuple[WaitingCause, Literal["stop", "next"]]:
+    """Przyczyna w dzienniku i co dalej w przejściu kolejki po porażce wysyłki (``None``: brak klucza).
+
+    Brak klucza, brak sieci i odmowa (401/403/404: klucz, dostęp albo limit zapytań) spotkałyby każdy następny plik,
+    więc przejście staje z jedną linią dziennika. Odmowa treści dotyczy tylko tego pliku: zostaje do następnego
+    startu Centrum, a przejście idzie dalej.
+    """
+
+    match outcome:
+        case None:
+            return "brak-klucza", "stop"
+        case Unreachable():
+            return "brak-sieci", "stop"
+        case Refused():
+            return "odmowa", "stop"
+        case Rejected():
+            return "odmowa-tresci", "next"
+        case _:
+            assert_never(outcome)
 
 
 class Outbox:
@@ -362,7 +372,7 @@ class Outbox:
                 self._again = False
 
     def _send_all(self) -> None:
-        """Pliki kolejki po nazwie (czas utworzenia); porażka skrzynki zatrzymuje przejście albo pomija plik (``_WAITING``)."""
+        """Pliki kolejki po nazwie (czas utworzenia); porażka skrzynki zatrzymuje przejście albo pomija plik (``_waiting``)."""
 
         paths = sorted(self._directory.glob("*.json"))
         if not paths:
@@ -385,7 +395,7 @@ class Outbox:
             label, period = post.target.label, post.period
             outcome = None if key is None else _deliver(post, self._box, key)
             if not isinstance(outcome, Delivered):
-                cause, then = _WAITING[type(outcome)]
+                cause, then = _waiting(outcome)
                 if then == "stop":
                     self._log.box_post_waiting(label=label, period=period, cause=cause)
                     return

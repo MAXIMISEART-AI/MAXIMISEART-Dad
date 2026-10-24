@@ -123,6 +123,17 @@ def test_granica_tresci_liczy_znaki_a_nie_bajty_takze_z_polskimi_literami() -> N
         opening("ą" * (COMMENT_LIMIT - first_line + 1))
 
 
+def test_podzial_na_czesci_liczy_znaki_a_nie_bajty_takze_z_polskimi_literami() -> None:
+    first, second = "ą" * 40_000, "ę" * 32_000
+    longer = "ą" * 70_000
+
+    assert post([first, second], frame=unframed).parts == (first, second)
+    parts = post([longer], frame=unframed).parts
+    assert "".join(parts) == longer
+    assert len(parts) == 2
+    assert all(len(part) <= COMMENT_LIMIT for part in parts)
+
+
 def test_wysylka_wraca_z_pliku_kolejki_taka_sama() -> None:
     queued = post(["## Różnice\n", "| Q | 2 | 1 |\n"])
 
@@ -220,7 +231,7 @@ def test_bez_klucza_przejscie_kolejki_daje_jedna_linie_dziennika_przy_wielu_plik
     assert queue.box.keys == []
 
 
-@pytest.mark.parametrize("failure", [Unreachable(), Refused()], ids=["brak-sieci", "odmowa-klucza"])
+@pytest.mark.parametrize("failure", [Unreachable(), Refused()], ids=["brak-sieci", "odmowa"])
 def test_brak_sieci_albo_odmowa_klucza_zatrzymuje_przejscie_z_jedna_linia_dziennika(
     tmp_path: Path, failure: Unreachable | Refused
 ) -> None:
@@ -248,14 +259,14 @@ def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_t
     assert queue.box.issues[0].body.splitlines()[-1] == "przyjęta"
     assert wait_for(lambda: queue.files() == [refused])
     assert (
-        f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=odmowa plik={refused}" in queue.log()
+        f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=odmowa-tresci plik={refused}" in queue.log()
     )
     assert "brak-sieci" not in queue.log()
     for passes in (2, 3):
         queue.outbox.send_in_background()
         assert wait_for(lambda: len(queue.waiting_at_pass) == passes)
     assert queue.files() == [refused]
-    assert queue.log().count("przyczyna=odmowa") == 1
+    assert queue.log().count("przyczyna=odmowa-tresci") == 1
 
     queue.restarted().resume()
 
@@ -283,7 +294,7 @@ def test_gdy_skrzynka_odmawia_szukania_issue_okresu_wysylka_czeka_w_pliku_bez_no
 
     queue.outbox.post(post(["treść\n"]))
 
-    assert wait_for(lambda: "przyczyna=odmowa-klucza" in queue.log())
+    assert wait_for(lambda: "przyczyna=odmowa\n" in queue.log())
     assert len(queue.files()) == 1
     assert (queue.box.issues, queue.box.keys) == ([], [])
 
