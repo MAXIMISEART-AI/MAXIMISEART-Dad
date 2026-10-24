@@ -624,14 +624,17 @@ def _cleanup(run: Run) -> tuple[list[str], bool]:
     except excel.ExcelError as exc:
         closed = False
         notes.append(f"close_failed={type(exc).__name__}")
-    if run.started_excel is not None and excel.dialogs() and excel.pid() == run.started_excel:
-        notes.append(f"excel_stopped={str(excel.terminate(run.started_excel)).lower()}")
-    elif excel.dialogs():
-        notes.append("excel_dialog_left=true (answer the dialog in Excel by hand)")
-    else:
-        # Also an Excel that ran before the run: one process grows with every run until it hangs.
-        run.observe("excel_rss_mb_end", excel.rss_mb())
-        notes.append(f"excel_quit={str(excel.quit_if_idle()).lower()}")
+    try:
+        if run.started_excel is not None and excel.dialogs() and excel.pid() == run.started_excel:
+            notes.append(f"excel_stopped={str(excel.terminate(run.started_excel)).lower()}")
+        elif excel.dialogs():
+            notes.append("excel_dialog_left=true (answer the dialog in Excel by hand)")
+        else:
+            # Also an Excel that ran before the run: one process grows with every run until it hangs.
+            run.observe("excel_rss_mb_end", excel.rss_mb())
+            notes.append(f"excel_quit={str(excel.quit_if_idle()).lower()}")
+    except excel.ExcelError as exc:
+        notes.append(f"excel_quit_failed={type(exc).__name__}")
     run.observe("excel_rss_mb_after", excel.rss_mb())
     try:
         run.observe("excel_workbooks_after", len(excel.open_paths()) if excel.running() else 0)

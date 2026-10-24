@@ -196,6 +196,15 @@ quits it, so macOS does not reopen the run's windows at the next start. A dialog
 in an Excel that was already running stays for its owner to answer
 (`excel_dialog_left=true`).
 
+Excel may not answer the quit or the stop, for example because a dialog came up
+after the check, an AppleEvent timed out (`-1712`), or Excel refused it
+(`-1708`). The cleanup then says `excel_quit_failed=<error>` and still writes
+the evidence and removes the desk and the run root by the rules here. This alone
+does not fail the run. The run's workbooks are closed, so the Excel that stays
+is like one that holds a workbook of the user (`excel_quit=false`). Look at
+Excel. Answer a dialog if one is up, or quit Excel by hand, so it does not grow
+from run to run.
+
 While a dialog is up Excel cannot list its workbooks, so the cleanup cannot know
 whether the run's workbooks are closed. It then says `close_failed=ExcelDialog`
 and `desk_kept=<desk>`, keeps the desk under the workbooks Excel may still hold,
