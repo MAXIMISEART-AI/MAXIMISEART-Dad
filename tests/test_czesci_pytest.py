@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import importlib.util
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+from typing import Any
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "czesci_pytest.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _part(root: Path, text: str) -> list[str]:
@@ -102,3 +107,53 @@ def test_linux_dzieli_pliki_wedlug_wlasnej_tabeli_a_windows_wedlug_swojej(tmp_pa
     first = {flag: subprocess.run([*tool, *flag, "1/2"], capture_output=True, text=True, check=True).stdout.split() for flag in ((), ("--linux",))}
     assert first == {(): ["tests/test_a.py"], ("--linux",): ["tests/test_b.py"]}
     assert json.loads((tmp_path / "tools" / "czasy_testow_ci.json").read_text(encoding="utf-8")) == {"tests/test_a.py": 9.0, "tests/test_b.py": 1.0}
+
+
+def _combinations(matrix: dict[str, Any]) -> list[dict[str, Any]]:
+    """Kombinacje macierzy GitHub Actions: iloczyn list, bez ``exclude``, z ``include``."""
+
+    axes = {key: values for key, values in matrix.items() if key not in ("include", "exclude")}
+    combinations: list[dict[str, Any]] = [{}]
+    for key, values in axes.items():
+        combinations = [{**combination, key: value} for combination in combinations for value in values]
+    for excluded in matrix.get("exclude", []):
+        combinations = [c for c in combinations if any(c.get(key) != value for key, value in excluded.items())]
+    for extra in matrix.get("include", []):
+        matching = [c for c in combinations if all(c[key] == value for key, value in extra.items() if key in axes)]
+        for combination in matching:
+            combination.update({key: value for key, value in extra.items() if key not in axes})
+        if not matching:
+            combinations.append(dict(extra))
+    return combinations
+
+
+def _jobs_with_parts() -> dict[str, dict[str, Any]]:
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    return {name: job for name, job in jobs.items() if any("part" in c for c in _combinations(job.get("strategy", {}).get("matrix", {})))}
+
+
+def test_macierz_kazdego_zadania_z_czesciami_obejmuje_dokladnie_czesci_od_1_do_n() -> None:
+    jobs = _jobs_with_parts()
+    missing = {}
+    for name, job in jobs.items():
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        count_in_steps = ",".join(sorted(set(re.findall(r"matrix\.part }}/(\d+)", steps))))
+        groups: dict[tuple[tuple[str, Any], ...], list[str]] = {}
+        for combination in _combinations(job["strategy"]["matrix"]):
+            part = str(combination.pop("part"))
+            groups.setdefault(tuple(sorted(combination.items())), []).append(part if "/" in part else f"{part}/{count_in_steps}")
+        for group, found in groups.items():
+            count = found[0].partition("/")[2]
+            expected = [f"{number}/{count}" for number in range(1, int(count) + 1)] if count.isdigit() else []
+            if Counter(found) != Counter(expected):
+                missing[f"{name} {dict(group)}"] = sorted(found)
+
+    assert {"pytest", "mutations"} <= set(jobs)
+    assert missing == {}
+
+
+def test_linux_dzieli_pliki_wedlug_tabeli_linuksa_a_windows_wedlug_tabeli_windowsa() -> None:
+    steps = [step for step in _jobs_with_parts()["pytest"]["steps"] if TOOL.name in step.get("run", "")]
+    flags = {step["if"]: "--linux" in step["run"] for step in steps}
+
+    assert flags == {"${{ runner.os == 'Windows' }}": False, "${{ runner.os == 'Linux' }}": True}
