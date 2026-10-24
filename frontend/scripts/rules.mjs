@@ -2,7 +2,7 @@
 // 1. Każda właściwość schematów kontraktu (src/api/openapi.json) jest użyta w src poza generated/:
 //    jej nazwa występuje jako identyfikator (dostęp, destrukturyzacja, klucz obiektu) albo tekst literału.
 // 2. Przeglądarka nie porównuje nazwy procesu: żadnego `=== "settlement"` ani `case "preparation":`.
-// 3. Sieć (fetch, EventSource, WebSocket, XMLHttpRequest, sendBeacon) i JSON.parse tylko w plikach src/api,
+// 3. Sieć (fetch, EventSource, WebSocket, XMLHttpRequest, sendBeacon) i JSON.parse tylko w plikach z NETWORK_FILES,
 //    które parsują każdą odpowiedź serwera schematem z kontraktu.
 import { readdirSync, readFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
@@ -37,7 +37,33 @@ const NETWORK_FILES = new Map([
   ["src/api/centrum.ts", "strumień Uruchomień (każde zdarzenie parsowane zRunEvent) i pomiar widoku (204 bez treści)"],
 ])
 
-const NETWORK_GLOBALS = new Set(["fetch", "EventSource", "WebSocket", "XMLHttpRequest"])
+// Droga naprawy dla każdego rodzaju połączenia: komunikat porażki prowadzi do wzorca z src/api/centrum.ts.
+const REPAIRS = {
+  request:
+    "Dodaj w src/api/centrum.ts funkcję, która woła serwer przez `call` z src/api/client.ts " +
+    "ze schematem odpowiedzi z kontraktu, i użyj jej tutaj.",
+  stream:
+    "Dodaj w src/api/centrum.ts funkcję na wzór `watchRunEvents`, która otwiera strumień " +
+    "i parsuje każde zdarzenie schematem z kontraktu, i użyj jej tutaj.",
+  beacon:
+    "Dodaj w src/api/centrum.ts funkcję na wzór `recordViewTiming` (fetch z keepalive, odpowiedź bez treści) " +
+    "i użyj jej tutaj.",
+  parse:
+    "Odpowiedź serwera parsuj schematem z kontraktu w funkcji z src/api/centrum.ts (przez `call`); " +
+    "dane spoza serwera (np. localStorage) wymagają wpisu tego pliku w NETWORK_FILES z powodem.",
+}
+
+const NETWORK_GLOBALS = new Map([
+  ["fetch", "request"],
+  ["XMLHttpRequest", "request"],
+  ["EventSource", "stream"],
+  ["WebSocket", "stream"],
+])
+
+const NETWORK_MEMBERS = new Map([
+  ["JSON.parse", "parse"],
+  ["navigator.sendBeacon", "beacon"],
+])
 
 const GLOBAL_OBJECTS = new Set(["window", "globalThis", "self"])
 
@@ -86,8 +112,21 @@ function isProcessComparison(node, names) {
   return ts.isCaseClause(node) && isProcessName(node.expression, names)
 }
 
+// `class X extends EventSource` dziedziczy wartość, choć TypeScript nazywa ten węzeł typem.
+function isClassExtends(node) {
+  return (
+    ts.isExpressionWithTypeArguments(node) &&
+    node.parent.token === ts.SyntaxKind.ExtendsKeyword &&
+    ts.isClassLike(node.parent.parent)
+  )
+}
+
 function isInType(node) {
   for (let ancestor = node.parent; ancestor !== undefined; ancestor = ancestor.parent) {
+    if (isClassExtends(ancestor)) {
+      return false
+    }
+
     if (ts.isTypeNode(ancestor)) {
       return true
     }
@@ -96,28 +135,54 @@ function isInType(node) {
   return false
 }
 
+function unwrap(node) {
+  return ts.isParenthesizedExpression(node) ? unwrap(node.expression) : node
+}
+
+function isGlobalObject(node) {
+  const expression = unwrap(node)
+
+  return ts.isIdentifier(expression) && GLOBAL_OBJECTS.has(expression.text)
+}
+
+// `JSON`, `window.JSON`, `(window).JSON`: nazwa globalna wprost albo przez obiekt globalny.
+function globalName(node) {
+  const expression = unwrap(node)
+
+  if (ts.isIdentifier(expression)) {
+    return expression.text
+  }
+
+  return ts.isPropertyAccessExpression(expression) && isGlobalObject(expression.expression)
+    ? expression.name.text
+    : undefined
+}
+
 // `x.fetch` i `{ fetch: … }` to nazwy właściwości, nie globalny fetch; `window.fetch` i `{ fetch }` już tak.
-function isNetworkGlobal(node) {
-  if (!NETWORK_GLOBALS.has(node.text) || isInType(node)) {
-    return false
+function networkGlobal(node) {
+  const kind = NETWORK_GLOBALS.get(node.text)
+
+  if (kind === undefined || isInType(node)) {
+    return undefined
   }
 
   const parent = node.parent
 
   if (ts.isPropertyAccessExpression(parent) && parent.name === node) {
-    return ts.isIdentifier(parent.expression) && GLOBAL_OBJECTS.has(parent.expression.text)
+    return isGlobalObject(parent.expression) ? kind : undefined
   }
 
-  return ts.isShorthandPropertyAssignment(parent) || parent.name !== node
+  return ts.isShorthandPropertyAssignment(parent) || parent.name !== node ? kind : undefined
 }
 
-function isNetworkMember(node) {
-  return (
-    ts.isPropertyAccessExpression(node) &&
-    ts.isIdentifier(node.expression) &&
-    ((node.expression.text === "JSON" && node.name.text === "parse") ||
-      (node.expression.text === "navigator" && node.name.text === "sendBeacon"))
-  )
+function networkMember(node) {
+  return ts.isPropertyAccessExpression(node)
+    ? NETWORK_MEMBERS.get(`${globalName(node.expression)}.${node.name.text}`)
+    : undefined
+}
+
+function networkKind(node) {
+  return ts.isIdentifier(node) ? networkGlobal(node) : networkMember(node)
 }
 
 function location(file, path, node) {
@@ -139,8 +204,10 @@ function inspect(path, names, used, comparisons, network) {
       comparisons.push(location(file, path, node))
     }
 
-    if ((ts.isIdentifier(node) && isNetworkGlobal(node)) || isNetworkMember(node)) {
-      network.push(location(file, path, node))
+    const kind = networkKind(node)
+
+    if (kind !== undefined) {
+      network.push({ place: location(file, path, node), kind })
     }
 
     ts.forEachChild(node, visit)
@@ -185,11 +252,7 @@ const problems = [
   ...unused.map((key) => `Pole kontraktu ${key} nie jest użyte w src: pokaż je w UI albo usuń z kontraktu.`),
   ...staleExceptions.map((key) => `Wyjątek ${key} jest zbędny: pole jest już użyte w src.`),
   ...comparisons.map((place) => `Porównanie nazwy procesu w przeglądarce: ${place}`),
-  ...network.map(
-    (place) =>
-      `Sieć albo JSON.parse poza src/api: ${place}. Dodaj w src/api/centrum.ts funkcję, która woła serwer ` +
-      "przez `call` z src/api/client.ts i parsuje odpowiedź schematem z kontraktu, i użyj jej tutaj.",
-  ),
+  ...network.map(({ place, kind }) => `Sieć albo JSON.parse poza NETWORK_FILES: ${place}. ${REPAIRS[kind]}`),
   ...staleNetworkFiles.map((key) => `Wyjątek ${key} w NETWORK_FILES jest zbędny: plik nie łączy się z serwerem.`),
 ]
 
