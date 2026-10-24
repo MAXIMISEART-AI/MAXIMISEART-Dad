@@ -328,13 +328,14 @@ def test_gdy_po_cofnieciu_stara_wersja_ze_skrotu_juz_trzyma_port_opiekun_konczy_
     old_copy = tmp_path / "stara-wersja"
     git(tmp_path, "clone", "--quiet", str(repository.origin), str(old_copy))
     started = tmp_path / "nowa-wersja-startuje"
+    # Nowa wersja nie startuje: kończy się błędem dopiero wtedy, gdy Centrum ze skrótu już odpowiada.
     waits_for_shortcut = (
-        "import socket, sys, time\n"
+        "import sys, time, urllib.request\n"
         f"from pathlib import Path; Path({str(started)!r}).touch()\n"
         "port = int(sys.argv[sys.argv.index('--port') + 1])\n"
         "while True:\n"
         "    try:\n"
-        "        socket.create_connection(('127.0.0.1', port), timeout=1).close()\n"
+        "        urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=1).close()\n"
         "    except OSError:\n"
         "        time.sleep(0.1)\n"
         "    else:\n"

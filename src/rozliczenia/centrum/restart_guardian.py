@@ -268,5 +268,7 @@ def _answers(centrum: subprocess.Popen[bytes], port: int, commit: str) -> bool:
 
 
 def _runs(port: int, commit: str) -> bool:
+    """Czy na porcie odpowiada teraz Centrum rozliczeń w commicie ``commit``."""
+
     running = running_centrum(port, timeout_s=2)
     return running is not None and running.runs(commit)

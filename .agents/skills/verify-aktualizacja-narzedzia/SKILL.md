@@ -32,7 +32,9 @@ the desktop shortcut while the guardian restarts Centrum.
 **OkienkoTylkoGdyNicNieDziala**: the restart guardian shows its native dialog
 `not_started_after_update` only when no Centrum runs. After a rollback, the
 port may already belong to the old version that Dad started from the shortcut,
-and then the guardian ends without the dialog (`_runs(…, before)`, #368).
+and then the guardian ends without the dialog (`_runs(…, before)`, #368). The
+promise leaves out the rollback after a port that was never released (see
+Scope).
 
 Harm: Dad clicks `Zaktualizuj narzędzie` in the middle of a settlement week and
 is left with a tool that will not start, or with names that have turned back
@@ -276,11 +278,13 @@ Assumed, and not checked:
   promise checks the wait in `OpiekunStartStara`: without it the old version
   ends with `PORT_ZAJETY`, and `_runs(…, before)` still finds the shortcut's
   Centrum, so Dad sees no dialog either way.
-- The guardian shows the dialog in the same step that decides it
-  (`SkrotOddajePort` waits while `pc = "okienko"`). A shortcut Centrum that
-  starts after that decision does not count against
-  `OkienkoTylkoGdyNicNieDziala`. After a rollback without the port, the
-  guardian does not ask the port before the dialog: another program held it.
+- `OkienkoTylkoGdyNicNieDziala` leaves out the rollback after a port that was
+  never released (`cofa = "opiekun_bez_portu"`). There the guardian shows the
+  dialog without asking the port, because the old Centrum that did not close
+  may still answer `health` in commit `before`. If the port's holder lets go
+  during that rollback and Dad's shortcut takes the port, Dad sees the dialog
+  while Centrum runs. With that exception removed, the check breaks with
+  exactly this counterexample.
 - A shortcut whose `listen_locally` fails only asks `running_centrum` and
   changes nothing on disk, so the model leaves it out. Its wrong Komunikaty
   are not checked: `PORT_ZAJETY` when Centrum is still starting and does not

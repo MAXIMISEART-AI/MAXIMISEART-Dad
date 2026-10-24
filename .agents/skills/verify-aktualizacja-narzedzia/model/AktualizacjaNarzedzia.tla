@@ -125,9 +125,10 @@ OpiekunCofaTylkoNieudana ==
 OpiekunCofaTylkoNieudanaPozaZnanymi == OpiekunCofaTylkoNieudana \/ Znane
 
 \* Opiekun pokazuje okienko not_started_after_update (pc = "okienko") tylko wtedy, gdy żadne
-\* Centrum nie działa: okienko przy starej wersji ze skrótu to fałszywy alarm (#368).
+\* Centrum nie działa: okienko przy starej wersji ze skrótu to fałszywy alarm (#368). Poza
+\* obietnicą: cofnięcie bez portu (cofa = "opiekun_bez_portu"), po którym opiekun nie pyta portu.
 OkienkoTylkoGdyNicNieDziala ==
-    pc = "okienko" => centrum = "brak"
+    pc = "okienko" /\ cofa /= "opiekun_bez_portu" => centrum = "brak"
 
 OkienkoTylkoGdyNicNieDzialaPozaZnanymi == OkienkoTylkoGdyNicNieDziala \/ Znane
 
@@ -454,8 +455,7 @@ OpiekunStartStara ==
              [] OTHER -> "restart_guardian.main: stara wersja nie odpowiada, opiekun pokazuje okienko")
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
 
-\* show_problem: natywne okienko not_started_after_update, potem return 1. Okienko pokazuje się
-\* w tym samym kroku kodu, w którym opiekun o nim rozstrzyga (SkrotOddajePort na nie czeka).
+\* show_problem: natywne okienko not_started_after_update, potem return 1.
 OpiekunOkienko ==
     /\ pc = "okienko"
     /\ Idz("spoczynek", "restart_guardian.main: show_problem pokazuje okienko not_started_after_update (return 1)")
@@ -533,7 +533,6 @@ SkrotWTrakcie ==
 \* póki opiekun działa (DzierzawaMija).
 SkrotOddajePort ==
     /\ skrot = "ma_port"
-    /\ pc /= "okienko"
     /\ skrot' = "brak"
     /\ \/ /\ dziennik = "w_toku"
           /\ dzierzawa = "wazna"
