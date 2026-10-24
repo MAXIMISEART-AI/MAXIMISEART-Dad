@@ -16,6 +16,7 @@ from tests.fixtures.skladnia import dotted, imports
 TESTS = Path(__file__).resolve().parent
 CLOCKS = frozenset({"time.monotonic", "time.perf_counter"})
 TIME_READINGS = CLOCKS | {"time.time", "time.monotonic_ns", "time.perf_counter_ns", "time.time_ns"}
+SLEEPS = frozenset({"time.sleep", "asyncio.sleep"})
 SIMULATED_TIME = {
     "test_centrum_przygotowanie.py::test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk": (
         "tata myśli 1,5 s nad Decyzją, a test mierzy zegarem testu, że ten czas nie wlicza się do metryk (f17b7fe)"
@@ -37,17 +38,17 @@ def test_moduly_testow_importuja_pomocniki_tylko_z_fixtures() -> None:
         and not node.module.startswith("tests.fixtures")
     }
 
-    assert imports == set()
+    assert imports == set(), "przenieś pomocnik do tests/fixtures i importuj go stamtąd; moduł testu niczego nie eksportuje"
 
 
 Definition = ast.Lambda | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
 
 
 def _is_sleep(call: ast.Call, names: dict[str, str]) -> bool:
-    """``time.sleep`` pod każdą nazwą z importu i czekanie na nowe ``threading.Event``, którego nikt nie ustawi."""
+    """``time.sleep`` i ``asyncio.sleep`` pod każdą nazwą z importu i czekanie na nowe ``threading.Event``, którego nikt nie ustawi."""
 
     function = call.func
-    return dotted(function, names, "") == "time.sleep" or (
+    return dotted(function, names, "") in SLEEPS or (
         isinstance(function, ast.Attribute)
         and function.attr == "wait"
         and isinstance(function.value, ast.Call)

@@ -402,6 +402,11 @@ LAUNCHES = frozenset(
         *(f"subprocess.{name}" for name in ("run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput")),
         "os.system",
         "os.popen",
+        *(f"os.{name}" for name in ("spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe")),
+        "os.posix_spawn",
+        "os.posix_spawnp",
+        "asyncio.create_subprocess_exec",
+        "asyncio.create_subprocess_shell",
     }
 )
 Function = ast.FunctionDef | ast.AsyncFunctionDef
