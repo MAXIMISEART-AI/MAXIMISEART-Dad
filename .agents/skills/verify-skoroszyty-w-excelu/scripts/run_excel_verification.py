@@ -11,7 +11,7 @@ never a cell value. No step waits for a human, except the opt-in ``--kontrola-na
 
 from __future__ import annotations
 
-from argparse import RawDescriptionHelpFormatter
+from argparse import Namespace, RawDescriptionHelpFormatter
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -100,6 +100,8 @@ class Run:
     root: Path
     desk: Path
     evidence: Path
+    # Process id of the Excel this run started, which the cleanup may stop when a dialog keeps it from quitting.
+    started_excel: int | None = None
     steps: list[str] = field(default_factory=list)
     observations: dict[str, object] = field(default_factory=dict)
 
@@ -572,22 +574,74 @@ def repair_control(run: Run) -> None:
 # ---- orchestration -----------------------------------------------------------------------------------
 
 
-def _cleanup(run: Run, started_excel: int | None) -> list[str]:
-    """Close this run's workbooks, stop the Excel this run started, remove scratch; evidence stays."""
+def _sweep(run: Run) -> None:
+    """Close, without saving, what runs killed before their cleanup left in Excel, and remove their desks.
+
+    Under the lock no other run drives Excel, so every workbook and desk below ``excel.DESK`` is stranded.
+    It runs before the doctor, which refuses an Excel holding a workbook named like this run's. A dialog raises
+    ``ExcelDialog`` here, before the run opens anything into it.
+    """
+
+    run.observe("excel_workbooks_before", len(excel.open_paths()) if excel.running() else 0)
+    stale = excel.close_under(excel.DESK)
+    desks = [path for path in excel.DESK.iterdir() if path.is_dir() and path != run.desk]
+    for desk in desks:
+        shutil.rmtree(desk)
+    run.observe("stale_workbooks_closed", len(stale))
+    run.observe("stale_desks_removed", len(desks))
+
+
+def _drive(run: Run, args: Namespace, real_templates: Path | None) -> None:
+    """The steps of Drive (SKILL.md), from the fixture to the last workbook checked."""
+
+    create_fixture(run, real_templates)
+    run.desk.mkdir(parents=True)
+    doctor(run)
+    preparation(run)
+    if not excel.running():
+        run.started_excel = excel.launch()
+    collective_reference = _reference(run, TEMPLATE_NAMES[1])
+    worker_reference = _reference(run, TEMPLATE_NAMES[2])
+    collective, layout, collective_dates = period_files_open(run, collective_reference)
+    expected, expected_links = readiness(run, collective, layout)
+    settlement(run)
+    worker_files(run, expected, expected_links, worker_reference, collective_dates)
+    if args.kontrola_naprawy:
+        repair_control(run)
+
+
+def _cleanup(run: Run) -> tuple[list[str], bool]:
+    """Close this run's workbooks, quit an Excel that holds no workbook, remove scratch; evidence stays.
+
+    Returns the notes and whether this run's workbooks may still be open. Then the desk stays, because Excel
+    still holds its files, and the next run's sweep closes them once the dialog is answered.
+    """
 
     notes: list[str] = []
     try:
         notes.append(f"closed_workbooks={len(excel.close_under(run.desk))}")
+        closed = True
     except excel.ExcelError as exc:
+        closed = False
         notes.append(f"close_failed={type(exc).__name__}")
-    if started_excel is not None:
-        if excel.dialogs() and excel.pid() == started_excel:
-            notes.append(f"excel_stopped={str(excel.terminate(started_excel)).lower()}")
-        else:
-            notes.append(f"excel_quit={str(excel.quit_if_idle()).lower()}")
+    if run.started_excel is not None and excel.dialogs() and excel.pid() == run.started_excel:
+        notes.append(f"excel_stopped={str(excel.terminate(run.started_excel)).lower()}")
     elif excel.dialogs():
-        notes.append("excel_dialog_left=true (Excel was running before the run; answer the dialog by hand)")
-    shutil.rmtree(run.desk, ignore_errors=True)
+        notes.append("excel_dialog_left=true (answer the dialog in Excel by hand)")
+    else:
+        # Also an Excel that ran before the run: one process grows with every run until it hangs.
+        run.observe("excel_rss_mb_end", excel.rss_mb())
+        notes.append(f"excel_quit={str(excel.quit_if_idle()).lower()}")
+    run.observe("excel_rss_mb_after", excel.rss_mb())
+    try:
+        run.observe("excel_workbooks_after", len(excel.open_paths()) if excel.running() else 0)
+    except excel.ExcelError as exc:
+        run.observe("excel_workbooks_after", type(exc).__name__)
+    left_open = not closed and excel.running() and run.desk.exists()
+    if left_open:
+        notes.append(f"desk_kept={run.desk}")
+    else:
+        shutil.rmtree(run.desk, ignore_errors=True)
     completed = subprocess.run(
         [sys.executable, str(OTHER_SKILL / "cleanup.py"), "--root", str(run.root)],
         capture_output=True, text=True, check=False,
@@ -595,7 +649,7 @@ def _cleanup(run: Run, started_excel: int | None) -> list[str]:
     removed = completed.returncode == 0 and not run.root.exists() and not run.desk.exists()
     notes.append(f"scratch_removed={str(removed).lower()}")
     (run.evidence / "cleanup.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
-    return notes
+    return notes, left_open
 
 
 def _hygiene(run: Run) -> None:
@@ -633,34 +687,26 @@ def main(argv: list[str] | None = None) -> int:
     run.observe("wzorce", args.wzorce)
     excel_was_running = excel.running()
     run.observe("excel_was_running", excel_was_running)
-    started_excel: int | None = None
+    run.observe("excel_rss_mb_before", excel.rss_mb())
     outcome = "OK"
     try:
         create_run_root(run.root)
-        create_fixture(run, real_templates)
-        run.desk.mkdir(parents=True)
-        doctor(run)
-        preparation(run)
-        if not excel_was_running:
-            started_excel = excel.launch()
-        collective_reference = _reference(run, TEMPLATE_NAMES[1])
-        worker_reference = _reference(run, TEMPLATE_NAMES[2])
-        collective, layout, collective_dates = period_files_open(run, collective_reference)
-        expected, expected_links = readiness(run, collective, layout)
-        settlement(run)
-        worker_files(run, expected, expected_links, worker_reference, collective_dates)
-        if args.kontrola_naprawy:
-            repair_control(run)
+        _sweep(run)
+        _drive(run, args, real_templates)
     except (VerificationFailure, excel.ExcelError, subprocess.SubprocessError, OSError) as exc:
         outcome = "FAIL"
-        if not excel_was_running and started_excel is None and excel.running():
-            started_excel = excel.pid()
+        if not excel_was_running and run.started_excel is None and excel.running():
+            run.started_excel = excel.pid()
         run.observe("failure", f"{type(exc).__name__}: {exc}")
         print(f"VERIFY FAIL | {type(exc).__name__}: {exc}", file=sys.stderr)
     finally:
         run.write_evidence()
-        notes = _cleanup(run, started_excel)
+        notes, left_open = _cleanup(run)
+        run.write_evidence()
         lock.close()
+    if left_open:
+        outcome = "FAIL"
+        print(f"VERIFY FAIL | Excel may still hold this run's workbooks; their desk stays at {run.desk}", file=sys.stderr)
     try:
         _hygiene(run)
     except VerificationFailure as exc:

@@ -63,9 +63,13 @@ locks `~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/exc
 one lock for the whole Mac, so a run from any worktree refuses to start with
 `VERIFY FAIL | ExcelBusy: … (pid <n>, <worktree>)` while another drives Excel.
 The kernel drops the lock when its process ends, so a killed run blocks no
-one. The runner starts Excel itself when Excel is not running, and quits it at
-the end only then and only when no workbook is left. Workbooks of the user stay
-untouched: every call addresses a workbook by its full path on the desk.
+one. The runner starts Excel itself when Excel is not running. At the end it
+quits Excel whenever Excel holds no workbook, also an Excel that ran before the
+run: one Excel process grows with every workbook it opened and closed (2.4 GB to
+4.2 GB with no workbook open between 15:05 and 16:30 on 2026-10-24, after it hung
+at about 10 GB that night). An Excel with any workbook (the user's) or a dialog
+stays. Workbooks of the user stay untouched: every call addresses a workbook by
+its full path on the desk.
 
 ### The desk
 
@@ -161,6 +165,10 @@ Drive Excel only through `scripts/excel.py`; it encodes the traps below.
 - `excel.json`: Excel version, which Wzorce, whether Excel ran before, per
   workbook the seconds to open and what it counted (links, rows, Wyróżnienia),
   the SHA-256 of the Plik zbiorczy Excel saved, and on failure its reason.
+  Also Excel's memory (`excel_rss_mb_before`, `_end` just before the quit,
+  `_after`, `null` when Excel is not running), its workbook count before and
+  after, and what the start sweep closed (`stale_workbooks_closed`,
+  `stale_desks_removed`).
 - `przygotowanie.json`, `przebieg.json`: the process results of
   `tools/uruchom_proces.py`.
 - `fixture.txt`, `doctor.txt` (and `wzorce.txt` for `syntetyczne`),
@@ -172,21 +180,49 @@ view is read through AppleScript instead.
 
 ## Cleanup
 
-The runner's `finally` closes, without saving, every workbook on the desk,
-removes the desk and the run root, writes
-`cleanup.txt`, and releases the lock; evidence stays. If a dialog keeps Excel from closing and this run
+At its start, under the lock and before the doctor, the runner sweeps: it closes,
+without saving, every workbook Excel holds below `maximiseart-weryfikacja/` and
+removes every desk there but its own. Under the lock no other run is alive, so
+these are left by runs killed before their `finally` (SIGKILL, a closed
+session). Workbooks outside that folder are not touched. A dialog in Excel ends
+the run here with `VERIFY FAIL | ExcelDialog …`, before it opens anything.
+
+The runner's `finally` closes, without saving, every workbook on the desk, quits
+Excel when it holds no workbook (`excel_quit=true`; Launch says when it stays),
+removes the desk and the run root, writes `cleanup.txt`, and releases the lock;
+evidence stays. If a dialog keeps Excel from closing and this run
 started Excel, it stops that process by its id, then starts Excel once more and
 quits it, so macOS does not reopen the run's windows at the next start. A dialog
 in an Excel that was already running stays for its owner to answer
 (`excel_dialog_left=true`).
 
-After a runner killed before its `finally`:
+While a dialog is up Excel cannot list its workbooks, so the cleanup cannot know
+whether the run's workbooks are closed. It then says `close_failed=ExcelDialog`
+and `desk_kept=<desk>`, keeps the desk under the workbooks Excel may still hold,
+never reports `scratch_removed=true`, and the run ends `VERIFY FAIL`. Answer
+the dialog in Excel; the next run's sweep closes those workbooks and removes the
+desk. This path (a dialog left in an Excel that ran before the run, e.g.
+`--kontrola-naprawy` not answered in 10 minutes) is proven by
+`tests/test_sprzatanie_excela.py` only, not in Excel yet: prove it at the next
+`--kontrola-naprawy` with Maks at the Mac.
+
+To clean up by hand without a run:
 
 ```bash
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/excel.py close-under --root ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja
 rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<run>
 .venv/bin/python .agents/skills/verify-rozliczenia/scripts/cleanup.py --root <run dir>/runs/<run>
 ```
+
+The sweep and the quit are guarded by mutations; it must end with `MUTACJE OK`
+(a few seconds; CI runs it in the `mutations` job):
+
+```bash
+.venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/check_excel_cleanup_mutations.py
+```
+
+A mutation reported as `NIEAKTUALNA` no longer matches its file: rewrite its
+anchor so it breaks the same rule in the new code.
 
 ## Helpers
 
@@ -197,6 +233,11 @@ rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<ru
   closing stranded workbooks; as a module, every Excel call of the runner.
 - `tests/test_weryfikacja_w_excelu.py`: the error naming and the Mac-wide
   lock, with a fake `osascript`; part of `pytest`, so no Excel is needed.
+- `tests/test_sprzatanie_excela.py`: the start sweep, the cleanup under a
+  dialog, the quit of an idle Excel and the memory in `excel.json`, with fake
+  Excel calls; it runs on Windows too, for the mutation job.
+- `scripts/check_excel_cleanup_mutations.py`: the mutations of the sweep and
+  the cleanup (Cleanup).
 - `scripts/excel_windows.js`: Excel's on-screen windows, run as
   `osascript -l JavaScript scripts/excel_windows.js`; a window without a title
   is a dialog, which holds only with Screen Recording (Drive).
