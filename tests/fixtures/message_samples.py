@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
+from functools import partial
 from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
@@ -18,7 +19,7 @@ from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
 from rozliczenia.settlement_period import parse_period_token
-from rozliczenia.template_settlement import WorkerTemplateValidationError, validate_worker_template
+from rozliczenia.workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
 from rozliczenia.worker_config import WorkerConfigError
 
 REGISTER = Path("C:/Dane/ZLECENIA INTERMAX OD 08_11_2021.xlsx")
@@ -45,16 +46,6 @@ ABOVE_CONFIG = frozenset({"Wspolne", "Narzedzie"})
 Samples = Mapping[str, Sequence[Callable[[], Message]]]
 
 
-def _missing_worker_template_detail() -> str:
-    """Treść ze Sprawdzania Wzorca rozliczenia pracownika, którego nie ma pod ścieżką ``WORKER_TEMPLATE``."""
-
-    try:
-        validate_worker_template(WORKER_TEMPLATE)
-    except WorkerTemplateValidationError as error:
-        return error.message
-    raise AssertionError("Sprawdzanie przyjęło nieistniejący Wzorzec rozliczenia pracownika.")
-
-
 # Każda fabryka katalogu z przykładowymi argumentami; warianty liczby pojedynczej i mnogiej osobno.
 PREPARATION_SAMPLES: Samples = {
     "invalid_period_token": [lambda: messages.invalid_period_token("08_14_9_2026")],
@@ -65,17 +56,26 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
-    "template_missing": [lambda: messages.template_missing(TEMPLATE)],
-    "template_open_in_excel": [lambda: messages.template_open_in_excel(TEMPLATE)],
-    "template_inaccessible": [lambda: messages.template_inaccessible(TEMPLATE)],
-    "template_unreadable": [lambda: messages.template_unreadable(TEMPLATE)],
-    "template_without_header": [lambda: messages.template_without_header(TEMPLATE, "Sheet1", 17, "WYKONAWCA")],
-    "template_with_worker_outside_h": [lambda: messages.template_with_worker_outside_h(TEMPLATE, "Sheet1", "G")],
-    "template_with_merged_cells": [lambda: messages.template_with_merged_cells(TEMPLATE, "Sheet1", "B19:C20")],
+    "template_unusable": [
+        *(partial(messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, problem)) for problem in Problem),
+        partial(
+            messages.template_unusable,
+            TEMPLATE,
+            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA")),
+        ),
+        partial(
+            messages.template_unusable,
+            TEMPLATE,
+            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA", "G")),
+        ),
+        partial(
+            messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, Problem.LAYOUT, MergedCells("Sheet1", "B19:C20"))
+        ),
+    ],
     "register_missing": [lambda: messages.register_missing(REGISTER)],
-    "register_open_in_excel": [lambda: messages.register_open_in_excel(REGISTER)],
-    "register_inaccessible": [lambda: messages.register_inaccessible(REGISTER)],
-    "register_unreadable": [lambda: messages.register_unreadable(REGISTER)],
+    "register_unusable": [
+        partial(messages.register_unusable, REGISTER, WorkbookError(REGISTER, problem)) for problem in Problem
+    ],
     "register_without_headers": [
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE"]),
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE", "WYKONAWCA"]),
@@ -143,16 +143,13 @@ PREPARATION_SAMPLES: Samples = {
 
 SETTLEMENT_SAMPLES: Samples = {
     "collective_file_missing": [lambda: settlement_messages.collective_file_missing(SOURCE)],
-    "collective_file_open": [lambda: settlement_messages.collective_file_open(SOURCE)],
     "collective_file_invalid": [
         lambda: settlement_messages.collective_file_invalid(
             SOURCE, "Plik Rozliczenie wew. jest poza zakresem tego procesu."
         )
     ],
-    "collective_file_inaccessible": [lambda: settlement_messages.collective_file_inaccessible(SOURCE)],
-    "collective_file_unreadable": [lambda: settlement_messages.collective_file_unreadable(SOURCE)],
-    "collective_file_without_worker_header": [
-        lambda: settlement_messages.collective_file_without_worker_header(SOURCE)
+    "collective_file_unusable": [
+        partial(settlement_messages.collective_file_unusable, SOURCE, WorkbookError(SOURCE, problem)) for problem in Problem
     ],
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
     "worker_config_problem": [
@@ -161,16 +158,23 @@ SETTLEMENT_SAMPLES: Samples = {
         lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
-    "worker_template_invalid": [
-        lambda: settlement_messages.worker_template_invalid(
-            WORKER_TEMPLATE, "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
-        ),
-        lambda: settlement_messages.worker_template_invalid(WORKER_TEMPLATE, _missing_worker_template_detail()),
+    "worker_template_unusable": [
+        partial(settlement_messages.worker_template_unusable, WORKER_TEMPLATE, WorkbookError(WORKER_TEMPLATE, problem))
+        for problem in Problem
+    ],
+    "worker_template_unusable_in_saving": [
+        partial(
+            settlement_messages.worker_template_unusable_in_saving,
+            WORKER_TEMPLATE,
+            WORKER_SETTLEMENTS,
+            "Wykonawca Testowy",
+            WorkbookError(WORKER_TEMPLATE, problem),
+        )
+        for problem in Problem
     ],
     "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
     "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
     "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
-    "worker_files_not_copied": [lambda: settlement_messages.worker_files_not_copied(WORKER_TEMPLATE)],
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
     "staging_left": [
         lambda: settlement_messages.staging_left(

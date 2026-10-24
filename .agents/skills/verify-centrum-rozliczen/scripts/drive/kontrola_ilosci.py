@@ -110,8 +110,8 @@ def drive_quantity_check(run: Run, page: Page) -> None:
         f"the RUN of {LAST_COMPLETE} left its Kontrola ilości in config/zgloszenia/kolejka",
     )
     run.check(
-        f"skrzynka-czeka etykieta={LABEL} okres={LAST_COMPLETE} przyczyna=brak-klucza" in _log(run),
-        "without a key the Centrum log says the Kontrola waits, with no content",
+        any(" skrzynka-czeka " in line and line.endswith(" przyczyna=brak-klucza") for line in _log(run).splitlines()),
+        "without a key the Centrum log says the queue waits (one line per pass, naming its first file), with no content",
     )
     run.check(
         sorted(path.name for path in (config / "zgloszenia").iterdir()) == ["kolejka"],

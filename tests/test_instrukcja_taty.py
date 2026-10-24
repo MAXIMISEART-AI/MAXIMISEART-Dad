@@ -11,6 +11,7 @@ też muszą odpowiadać „Co się stało” Komunikatu.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import inspect
 from pathlib import Path
@@ -63,6 +64,17 @@ class Catalog:
             name
             for name, function in inspect.getmembers(self.module, inspect.isfunction)
             if function.__module__ == self.module.__name__ and not name.startswith("_")
+        }
+
+    def case_factories(self) -> dict[str, Callable[..., Message]]:
+        """Prywatne fabryki przypadków, do których prowadzi publiczna funkcja katalogu (np. ``template_unusable``)."""
+
+        return {
+            name: function
+            for name, function in inspect.getmembers(self.module, inspect.isfunction)
+            if function.__module__ == self.module.__name__
+            and name.startswith("_")
+            and inspect.signature(function).return_annotation == "Message"
         }
 
     def messages(self) -> list[Message]:
@@ -144,6 +156,25 @@ def _instruction_fragments(section: str) -> list[str]:
 @each_catalog
 def test_probki_pokrywaja_kazda_fabryke_katalogu(catalog: Catalog) -> None:
     assert set(catalog.samples) == catalog.factories()
+
+
+@each_catalog
+def test_probki_docieraja_do_kazdej_fabryki_przypadku_katalogu(catalog: Catalog, monkeypatch: pytest.MonkeyPatch) -> None:
+    case_factories = catalog.case_factories()
+    reached: set[str] = set()
+
+    def recording(name: str, factory: Callable[..., Message]) -> Callable[..., Message]:
+        def record(*args: object, **kwargs: object) -> Message:
+            reached.add(name)
+            return factory(*args, **kwargs)
+
+        return record
+
+    for name, factory in case_factories.items():
+        monkeypatch.setattr(catalog.module, name, recording(name, factory))
+    catalog.messages()
+
+    assert reached == set(case_factories)
 
 
 @each_catalog

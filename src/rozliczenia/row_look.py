@@ -18,15 +18,17 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from copy import copy
-from dataclasses import dataclass
-from typing import Final
+from dataclasses import dataclass, field
+from typing import Final, Protocol, cast
 
 from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.styles.alignment import Alignment
 from openpyxl.styles.borders import Border, Side
+from openpyxl.styles.cell_style import StyleArray
 from openpyxl.styles.colors import Color
 from openpyxl.styles.fills import Fill, PatternFill
 from openpyxl.styles.fonts import Font
+from openpyxl.workbook.workbook import Workbook
 
 from .highlights import Highlights
 
@@ -50,14 +52,37 @@ class CellLook:
     alignment: Alignment
     number_format: str
 
+    _indexes: dict[int, tuple[Workbook, tuple[int, ...]]] = field(default_factory=dict, init=False, repr=False)
+    """Indeksy wyglądu w stylach skoroszytu po ``id`` skoroszytu; wpis trzyma skoroszyt, więc ``id`` się nie powtórzy."""
+
     def apply(self, cell: Cell | MergedCell) -> None:
         """Nadaje wygląd komórce openpyxl; ochrona i styl nazwany komórki Wzorca zostają."""
 
-        cell.font = self.font
-        cell.fill = self.fill
-        cell.border = self.border
-        cell.alignment = self.alignment
-        cell.number_format = self.number_format
+        # openpyxl szuka każdego przypisanego stylu w stylach skoroszytu po hashu całego obiektu, co przy tysiącach
+        # komórek trwa setki milisekund; indeksy wyglądu w danym skoroszycie są stałe, więc liczone są raz.
+        workbook = cast(Workbook, cell.parent.parent)
+        styled = cast(_Styled, cell)
+        known = self._indexes.get(id(workbook))
+        if known is None:
+            cell.font = self.font
+            cell.fill = self.fill
+            cell.border = self.border
+            cell.alignment = self.alignment
+            cell.number_format = self.number_format
+            style = cast(StyleArray, styled._style)
+            indexes = (style.fontId, style.fillId, style.borderId, style.alignmentId, style.numFmtId)
+            self._indexes[id(workbook)] = (workbook, indexes)
+            return
+        if styled._style is None:
+            styled._style = StyleArray()
+        style = styled._style
+        style.fontId, style.fillId, style.borderId, style.alignmentId, style.numFmtId = known[1]
+
+
+class _Styled(Protocol):
+    """Komórka openpyxl z indeksami stylu, których openpyxl nie daje inaczej niż przez atrybut prywatny."""
+
+    _style: StyleArray | None
 
 
 class RowLook:

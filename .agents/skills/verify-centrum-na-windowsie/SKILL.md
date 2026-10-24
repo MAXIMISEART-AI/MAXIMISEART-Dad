@@ -51,9 +51,10 @@ installation does), from the repository root, with the `dev` extras and Chromium
 py -3 .agents\skills\verify-centrum-na-windowsie\scripts\run_windows_verification.py [--feature <feature>]
 ```
 
-`--feature` is `all` (default) or one feature of `features/README.md`; a single feature first drives its
-prerequisites (`PRZYGOTOWANIE <feature>` in `drive.txt`), which the verdict lists as `przygotowanie=`, not as
-verified. Success prints `VERIFY OK | features=… | przygotowanie=… | evidence=… | scratch_removed=true`; anything
+`--feature instalacja`, `--feature komunikat-startu`, `--feature start-skrotem`, `--feature wskazanie-folderow`, or
+`--feature aktualizacja` drives one feature of `features/README.md`; the default `all` drives them all. A single
+feature first drives its prerequisites (`PRZYGOTOWANIE <feature>` in `drive.txt`), which the verdict lists as
+`przygotowanie=`, not as verified. Success prints `VERIFY OK | features=… | przygotowanie=… | evidence=… | scratch_removed=true`; anything
 else is `VERIFY FAIL | …`.
 
 The runner refuses to start (`VERIFY FAIL | preflight`) off Windows, without the built frontend

@@ -401,9 +401,11 @@ class Reports:
         commit: CommitSource,
         *,
         clock: Callable[[], float],
+        search_deadline_s: float,
     ) -> None:
         self._commit = commit
         self._clock = clock
+        self._search_deadline_s = search_deadline_s
         self._states_asked_at: float | None = None  # od startu Centrum skrzynka nie była jeszcze pytana
         self._config_directory = config_directory
         self._unsent = config_directory / UNSENT_DIRECTORY
@@ -549,14 +551,14 @@ class Reports:
     def _ask_box(self, fingerprint: str) -> None:
         """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo.
 
-        Brak odpowiedzi w ``SEARCH_DEADLINE_S`` to brak odpowiedzi: Diagnoza zostaje krótka bez sieci, a
-        wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
+        Brak odpowiedzi w ``search_deadline_s`` (u taty ``SEARCH_DEADLINE_S``) to brak odpowiedzi: Diagnoza zostaje
+        krótka bez sieci, a wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
         """
 
         key = self._key()
         if key is None:
             return
-        answer = within(SEARCH_DEADLINE_S, lambda: (self._find_open(fingerprint, key),), name="skrzynka-szukaj")
+        answer = within(self._search_deadline_s, lambda: (self._find_open(fingerprint, key),), name="skrzynka-szukaj")
         if answer is None:
             return
         [found] = answer

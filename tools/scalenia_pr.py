@@ -85,7 +85,7 @@ def _open_pull_requests(base: str) -> list[PullRequest]:
     return pulls
 
 
-def _fetch(base: str, pulls: list[PullRequest]) -> str:
+def fetch(base: str, pulls: list[PullRequest]) -> str:
     """SHA ``base`` w ``origin``; HEAD-y ``pulls`` trafiają do repozytorium przez ich ``refs/pull/N/head``."""
 
     tracking = f"refs/remotes/origin/{base}"
@@ -118,7 +118,7 @@ def _base_problem(copy: Path, where: str) -> str | None:
     return f"{where} sam nie przechodzi: {', '.join(failed)}" if failed else None
 
 
-def _verdict(copy: Path, where: str, base: str, base_problem: str | None, pull: PullRequest) -> Verdict:
+def merge_verdict(copy: Path, where: str, base: str, base_problem: str | None, pull: PullRequest) -> Verdict:
     merged = _git("merge-tree", "--write-tree", "--name-only", "--no-messages", base, pull.head)
     lines = merged.stdout.splitlines()
     if merged.returncode == 1:
@@ -165,7 +165,7 @@ def _check_all(base_name: str, publish: bool) -> int:
     started = time.monotonic()
     context = f"scalenie z {base_name}"
     pulls = _open_pull_requests(base_name)
-    base = _fetch(base_name, pulls)
+    base = fetch(base_name, pulls)
     where = f"{base_name} {base[:7]}"
     states: Counter[str] = Counter()
     unsent = []
@@ -175,7 +175,7 @@ def _check_all(base_name: str, publish: bool) -> int:
             problem = _base_problem(copy, where)
             for pull in pulls:
                 print(f"== #{pull.number} {pull.head[:7]} {pull.title}", flush=True)
-                verdict = _verdict(copy, where, base, problem, pull)
+                verdict = merge_verdict(copy, where, base, problem, pull)
                 print(f"#{pull.number} {verdict.state} | {verdict.description}", flush=True)
                 states[verdict.state] += 1
                 if publish and (error := _publish(context, pull, verdict)):

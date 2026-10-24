@@ -6,10 +6,11 @@ budowane w katalogu tymczasowym. Nie zawierają prawdziwych danych klientów.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
+import time
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
@@ -449,6 +450,7 @@ def run_preparation(
     dry_run: bool = False,
     observer: ProgressObserver | None = None,
     conversation: Conversation | None = None,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> PreparationSummary:
     return prepare_collective_file(
         fixture.register_path,
@@ -460,6 +462,7 @@ def run_preparation(
         dry_run=dry_run,
         observer=observer,
         conversation=conversation,
+        clock=clock,
     )
 
 

@@ -6,14 +6,13 @@ from collections import defaultdict
 from dataclasses import replace
 from pathlib import Path
 
-from . import collective_file, settlement_files, settlement_messages, template_settlement, workbook_files
+from . import collective_file, settlement_files, settlement_messages, workbook_files
 from .domain import Issue, ProgressObserver, SettlementSummary, WorkerResult
 from .message import StopError
 from .order_facts import CollectiveOrders
 from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner
-from .template_settlement import WorkerTemplateValidationError, validate_worker_template
-from .workbook_files import DataRow, Problem, TemplateFile, WorkbookError
+from .workbook_files import DataRow, Layout, TemplateFile, WorkbookError
 from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
 
 
@@ -23,18 +22,18 @@ def default_worker_template_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
 
 
+def check_worker_template(template_path: Path) -> TemplateFile:
+    """Sprawdzanie Wzorca rozliczenia pracownika: Wzorzec, z którego Zapisywanie tworzy pliki, albo ``WorkbookError``."""
+
+    template = TemplateFile(template_path, Layout.WORKER_SETTLEMENT)
+    template.check()
+    return template
+
+
 def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
     """Zatrzymanie z Komunikatem Przebiegu rozliczeń dla Pliku zbiorczego, którego nie da się użyć."""
 
-    if error.problem is Problem.MISSING:
-        return StopError(settlement_messages.collective_file_missing(source_path))
-    if error.problem is Problem.OPEN_IN_EXCEL:
-        return StopError(settlement_messages.collective_file_open(source_path))
-    if error.problem is Problem.INACCESSIBLE:
-        return StopError(settlement_messages.collective_file_inaccessible(source_path))
-    if error.problem is Problem.LAYOUT:
-        return StopError(settlement_messages.collective_file_without_worker_header(source_path))
-    return StopError(settlement_messages.collective_file_unreadable(source_path))
+    return StopError(settlement_messages.collective_file_unusable(source_path, error))
 
 
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Issue], CollectiveOrders]:
@@ -117,9 +116,9 @@ def run_settlements(
         except WorkerConfigError as exc:
             raise StopError(settlement_messages.worker_config_problem(config_path, exc)) from exc
         try:
-            worker_template = validate_worker_template(worker_template_path)
-        except WorkerTemplateValidationError as exc:
-            raise StopError(settlement_messages.worker_template_invalid(worker_template_path, exc.message)) from exc
+            worker_template = check_worker_template(worker_template_path)
+        except WorkbookError as error:
+            raise StopError(settlement_messages.worker_template_unusable(worker_template_path, error)) from error
         return folder, mapping, worker_template
 
     folder, mapping, worker_template = phases.check(check_inputs)
@@ -145,13 +144,16 @@ def run_settlements(
         if dry_run:
             return WorkerResult(worker_name, target_path, len(rows), "PLAN" if rows else "PUSTY_SZABLON")
         try:
-            return template_settlement.process_template(worker_name, worker_template, target_path, rows)
-        except StopError:
-            raise
-        except WorkbookError as exc:
-            raise StopError(settlement_messages.worker_files_not_copied(worker_template_path)) from exc
+            worker_template.create(target_path, rows)
+        except WorkbookError as error:
+            raise StopError(
+                settlement_messages.worker_template_unusable_in_saving(
+                    worker_template_path, target_directory, worker_name, error
+                )
+            ) from error
         except Exception as exc:
             raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
+        return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO" if rows else "PUSTY_SZABLON")
 
     def save_templates(directory: Path) -> list[WorkerResult]:
         return phases.each_template(lambda worker_name: settle(directory, worker_name))
