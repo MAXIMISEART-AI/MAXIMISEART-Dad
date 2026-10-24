@@ -36,7 +36,7 @@ from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
-from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.tool_freshness import ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import (
@@ -247,7 +247,7 @@ def _check(label: str) -> Callable[[_CheckRun], _Check]:
 def _tool_freshness(computer: _Computer, label: str) -> list[CheckResult]:
     freshness = computer.surroundings.tool_freshness
     judgement = freshness.judge()
-    if judgement == "newer":
+    if offers_update(judgement):
         return [CheckResult.failed(label, diagnosis_messages.newer_tool_version())]
     if judgement == "current":
         return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {short_commit(freshness.local() or '')}.")]
