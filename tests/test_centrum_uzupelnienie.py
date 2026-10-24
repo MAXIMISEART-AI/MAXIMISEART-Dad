@@ -17,7 +17,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from tests.fixtures.centrum import FakeOneDrive
+from tests.fixtures.centrum import FakeOneDrive, view_timing
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end
 from tests.fixtures.preparation import COLLECTIVE_FILE_NAME, PERIOD, register_order
 
@@ -389,3 +389,19 @@ def test_zly_token_okresu_i_brak_folderu_okresow_sa_odmowa(tmp_path: Path) -> No
 
     assert (wrong.status_code, wrong.json()["message"]) == (404, "Nie ma takiego okresu.")
     assert (without_periods.status_code, without_periods.json()["message"]) == (409, "Najpierw wskaż folder okresów.")
+
+
+def test_pomiar_widoku_strony_uzupelnienia_trafia_do_dziennika(tmp_path: Path) -> None:
+    centrum = _prepared(tmp_path)
+    timing = view_timing(
+        kind="navigation",
+        page="uzupelnienie",
+        fcp_ms=None,
+        requests=[{"operation": "getQuantitiesToFill", "browser_ms": 310, "server_ms": 280}],
+    )
+
+    response = centrum.client.post("/api/view-timings", json=timing)
+
+    assert response.status_code == 204
+    assert "strona=uzupelnienie" in centrum.log_path.read_text(encoding="utf-8")
+    assert "zapytania=getQuantitiesToFill:310/280" in centrum.log_path.read_text(encoding="utf-8")

@@ -7,7 +7,7 @@ ponownym Uruchomieniem procesu. Plik otwarty w Excelu nie jest tu problemem (ADR
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Final, assert_never
+from typing import Final
 
 from rozliczenia.message import REPORT_TO_MAINTAINER, Message, file_label
 from rozliczenia.workbook_files import WORKER_HEADER, HEADER_ROW, Problem, WorkbookError
@@ -18,6 +18,7 @@ _REFRESH: Final = "odśwież stronę"
 def collective_file_unusable(error: WorkbookError) -> Message:
     """Plik zbiorczy, którego nie da się odczytać; ``error`` mówi dlaczego."""
 
+    # Bez ``case _``: nowy ``Problem`` bez przypadku mypy odrzuca jako brak ``return``.
     match error.problem:
         case Problem.MISSING:
             return _missing(error.path)
@@ -27,8 +28,6 @@ def collective_file_unusable(error: WorkbookError) -> Message:
             return _damaged(error.path)
         case Problem.LAYOUT:
             return _without_worker_header(error.path)
-        case _:
-            assert_never(error.problem)
 
 
 def _missing(source: Path) -> Message:
