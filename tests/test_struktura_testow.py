@@ -1,4 +1,4 @@
-"""Struktura testów: moduły niczego nie eksportują, a test czeka na stan, nie stałą liczbę sekund.
+"""Struktura testów: moduły niczego nie eksportują, a test czeka na stan i mierzy czas bez stałej liczby sekund.
 
 Wspólne dane i pomocniki są w ``tests.fixtures``.
 """
@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
+from itertools import pairwise
 from pathlib import Path
+import re
 
 from tests.fixtures.skladnia import dotted, imports
 
@@ -127,5 +129,135 @@ def test_testy_czekaja_na_stan_a_nie_stala_liczbe_sekund() -> None:
             "Czekaj na stan przez wait_for z tests/fixtures/potomne.py (brak zdarzenia: assert not wait_for(zdarzenie, s)); "
             "czas pracy podróbki śpi w funkcji, lambdzie albo klasie, którą test przekazuje kodowi pod testem, a czas "
             "symulowany w samym teście wpisz do SIMULATED_TIME z powodem.",
+        ]
+    )
+
+
+TIME_NAME = re.compile(r"elapsed|duration|_m?s$")
+CONSTANT_TIME_BOUNDS = {
+    "test_aktualizacja_narzedzia.py::test_github_proszacy_o_logowanie_konczy_sie_od_razu_bez_pytania_a_klon_zostaje_bez_zmian": (
+        "granica 20 s oddziela koniec od zawieszenia: pomocnik logowania, na którego narzędzie nie może czekać, śpi 60 s"
+    ),
+    "test_aktualizacja_narzedzia.py::test_pomocnik_gita_trzymajacy_jego_wyjscie_nie_wstrzymuje_aktualizacji": (
+        "granica 20 s oddziela koniec od zawieszenia: pomocnik gita trzyma jego wyjście otwarte przez 60 s"
+    ),
+    "test_aktualnosc_narzedzia.py::test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu": (
+        "serwer nie odpowiada nigdy, więc bez limitu 0,3 s diagnoza czekałaby bez końca; granica to 5× ten limit"
+    ),
+    "test_potomne.py::test_potomek_spoza_drzewa_z_otwartym_wyjsciem_nie_wstrzymuje_wyniku": (
+        "granica 30 s oddziela koniec od zawieszenia: potomek z otwartym wyjściem śpi 600 s"
+    ),
+    "test_weryfikacja_w_excelu.py::test_start_excela_bez_zgody_na_automatyzacje_konczy_sie_od_razu_nazwana_przyczyna": (
+        "granica 10 s to połowa limitu startu Excela (20 s), do którego launch czekałby, gdyby nie rozpoznał odmowy"
+    ),
+}
+
+
+def _bindings(tree: ast.Module) -> dict[str, list[ast.expr | None]]:
+    """Każda wartość przypisana nazwie w module; ``None``, gdy nazwę wiąże coś innego niż proste przypisanie."""
+
+    bound: dict[str, list[ast.expr | None]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                for name in ast.walk(target):
+                    if isinstance(name, ast.Name):
+                        bound.setdefault(name.id, []).append(node.value if target is name else None)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)) and isinstance(node.target, ast.Name):
+            value = node.value if isinstance(node, ast.AnnAssign) else None
+            bound.setdefault(node.target.id, []).append(value)
+        elif isinstance(node, (ast.For, ast.comprehension, ast.withitem)):
+            loop_target = node.optional_vars if isinstance(node, ast.withitem) else node.target
+            for name in ast.walk(loop_target) if loop_target is not None else ():
+                if isinstance(name, ast.Name):
+                    bound.setdefault(name.id, []).append(None)
+        elif isinstance(node, ast.arg):
+            bound.setdefault(node.arg, []).append(None)
+    return bound
+
+
+def _constant(expression: ast.expr, bound: dict[str, list[ast.expr | None]], seen: frozenset[str] = frozenset()) -> bool:
+    """Liczba znana przed uruchomieniem: literał, działanie na literałach albo nazwa przypisana tylko takiej liczbie."""
+
+    if isinstance(expression, ast.Constant):
+        return isinstance(expression.value, (int, float)) and not isinstance(expression.value, bool)
+    if isinstance(expression, ast.UnaryOp):
+        return _constant(expression.operand, bound, seen)
+    if isinstance(expression, ast.BinOp):
+        return _constant(expression.left, bound, seen) and _constant(expression.right, bound, seen)
+    if isinstance(expression, ast.Name) and expression.id not in seen and expression.id in bound:
+        return all(
+            value is not None and _constant(value, bound, seen | {expression.id}) for value in bound[expression.id]
+        )
+    return False
+
+
+def _measured(expression: ast.expr, bound: dict[str, list[ast.expr | None]], names: dict[str, str]) -> bool:
+    """Zmierzony czas: wyrażenie z nazwą czasu (``elapsed``, ``duration``, ``_ms``, ``_s``) albo z odczytem zegara."""
+
+    if _constant(expression, bound):
+        return False
+    for node in ast.walk(expression):
+        if isinstance(node, ast.Call) and dotted(node.func, names, "") in CLOCKS:
+            return True
+        name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+        if name is not None and TIME_NAME.search(name) and not (isinstance(node, ast.Name) and _constant(node, bound)):
+            return True
+    return False
+
+
+def _constant_time_bounds(tree: ast.Module) -> Iterator[tuple[ast.Compare, str]]:
+    """Asercja, że zmierzony czas jest mniejszy od stałej liczby, z nazwą funkcji, w której jest.
+
+    Znana granica: stała, która przychodzi parametrem (``pytest.mark.parametrize``) albo z innego modułu, i nazwa,
+    którą moduł gdzie indziej wiąże z czymś innym niż liczba, nie są rozpoznane jako stała, bo wymaga to analizy
+    przepływu danych.
+    """
+
+    names = imports(tree)
+    bound = _bindings(tree)
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    for statement in ast.walk(tree):
+        if not isinstance(statement, ast.Assert):
+            continue
+        for compare in ast.walk(statement.test):
+            if not isinstance(compare, ast.Compare):
+                continue
+            for operator, (left, right) in zip(compare.ops, pairwise([compare.left, *compare.comparators]), strict=True):
+                if isinstance(operator, (ast.Lt, ast.LtE)):
+                    measured, limit = left, right
+                elif isinstance(operator, (ast.Gt, ast.GtE)):
+                    measured, limit = right, left
+                else:
+                    continue
+                if _measured(measured, bound, names) and _constant(limit, bound):
+                    node: ast.AST = statement
+                    while node in parents and not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        node = parents[node]
+                    yield compare, node.name if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else "<moduł>"
+                    break
+
+
+def test_zmierzony_czas_nie_jest_ograniczony_stala_liczba() -> None:
+    found, excepted = [], set()
+    for path in sorted(TESTS.rglob("*.py")):
+        name = path.relative_to(TESTS).as_posix()
+        for compare, function in _constant_time_bounds(ast.parse(path.read_text(encoding="utf-8"))):
+            if f"{name}::{function}" in CONSTANT_TIME_BOUNDS:
+                excepted.add(f"{name}::{function}")
+            else:
+                found.append(f"tests/{name}:{compare.lineno}: {ast.unparse(compare)} ogranicza zmierzony czas stałą liczbą")
+    found += [
+        f"CONSTANT_TIME_BOUNDS: {key} nie ma już takiej asercji, usuń wpis"
+        for key in sorted(CONSTANT_TIME_BOUNDS.keys() - excepted)
+    ]
+
+    assert not found, "\n".join(
+        [
+            *found,
+            "Na wolnym runnerze sama praca trwa dłużej niż stała. Daj kodowi pod testem podróbkę zegara "
+            "(ManualClock z tests/fixtures/clock.py, parametr clock) i sprawdź czas równością; gdy kod mierzy "
+            "prawdziwy czas, ogranicz go zegarem testu (time.perf_counter() przed i po), a wyjątek wpisz do "
+            "CONSTANT_TIME_BOUNDS z powodem.",
         ]
     )
