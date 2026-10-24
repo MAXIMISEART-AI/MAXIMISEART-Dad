@@ -545,3 +545,68 @@ def test_gdy_cofniecie_sie_nie_uda_wynik_nie_mowi_o_poprzedniej_wersji_a_tata_wi
     interrupted = ToolClone(repository.clone).interrupted_update()
     assert interrupted is not None
     assert (interrupted.before, interrupted.after) == (before, newest)
+
+
+# Katalog w miejscu pliku tymczasowego wyniku: write_result rzuca OSError jak przy pliku zablokowanym przez antywirus.
+RESULT_REFUSED = f"config/{RESULT_FILE}.tmp"
+
+
+def test_gdy_dysk_nie_przyjmie_wyniku_ok_opiekun_i_tak_startuje_nowa_wersje(tmp_path: Path) -> None:
+    repository = centrum_tool_repository(tmp_path / "repozytoria")
+    clone = repository.clone
+    before = repository.head()
+    newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
+    assert ToolClone(clone, origin=str(repository.origin)).update().code == UPDATED
+    (clone / RESULT_REFUSED).mkdir()
+    work = tmp_path / "praca"
+    work.mkdir()
+    port = _free_port()
+    dialogs: list[tuple[str, str]] = []
+    try:
+        guardian, exits = _guardian_in_background(
+            Restart(port, before, newest, clone, clone / "config" / RESULT_FILE, False, work), dialogs
+        )
+        guardian.join(timeout=90)
+        health = _health(port, commit=newest, timeout_s=5)
+        view = _get(port, "/api/tool-update")
+    finally:
+        _close_if_running(port)
+
+    assert exits == [0]
+    assert dialogs == []
+    assert health["commit"] == newest[:7]
+    assert view == {"state": "idle"}
+    assert ToolClone(clone).interrupted_update() is None
+
+
+def test_gdy_dysk_nie_przyjmie_wyniku_po_cofnieciu_startuje_stara_wersja_a_karta_nie_mowi_zaktualizowane(
+    tmp_path: Path,
+) -> None:
+    repository = centrum_tool_repository(tmp_path / "repozytoria")
+    clone = repository.clone
+    before = repository.head()
+    # Nowa wersja nie wystartuje, a przy starcie zostawia przeszkodę: zapis „ok” przechodzi, zapis porażki już nie.
+    newest = repository.publish(
+        {"run_centrum.py": f"import os\nos.makedirs({RESULT_REFUSED!r}, exist_ok=True)\nraise SystemExit(1)\n"}
+    )
+    assert ToolClone(clone, origin=str(repository.origin)).update().code == UPDATED
+    work = tmp_path / "praca"
+    work.mkdir()
+    port = _free_port()
+    dialogs: list[tuple[str, str]] = []
+    try:
+        guardian, exits = _guardian_in_background(
+            Restart(port, before, newest, clone, clone / "config" / RESULT_FILE, False, work), dialogs
+        )
+        guardian.join(timeout=90)
+        health = _health(port, commit=before, timeout_s=5)
+        view = _get(port, "/api/tool-update")
+    finally:
+        _close_if_running(port)
+
+    assert exits == [0]
+    assert dialogs == []
+    assert repository.head() == before
+    assert health["commit"] == before[:7]
+    assert view == {"state": "idle"}
+    assert ToolClone(clone).interrupted_update() is None
