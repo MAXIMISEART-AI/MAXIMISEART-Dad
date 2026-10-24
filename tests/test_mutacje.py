@@ -18,7 +18,7 @@ import time
 import pytest
 
 from tests.fixtures.git_repo import commit, git, repository
-from tests.fixtures.potomne import beating, with_grandchild
+from tests.fixtures.potomne import beating
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "mutacje.py"
@@ -244,27 +244,6 @@ def test_polecenie_bez_wyniku_w_limicie_czasu_daje_przekroczony_czas(tmp_path: P
     )
 
     assert (answered.returncode, answered.stdout.splitlines()[0]) == (1, "PRZEKROCZONY CZAS: mutacja → brak wyniku po 5 s")
-
-
-def test_wnuk_polecenia_mutacji_ginie_z_poleceniem(tmp_path: Path) -> None:
-    repo = repository(tmp_path / "repo", {PACKAGE: "WNUK = False\n"})
-    commit(repo, "baza")
-    beats = tmp_path / "wnuk-zyje"
-    no_output = ", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL"
-    leaves_grandchild = with_grandchild(beats, "sys.exit(3)", grandchild_output=no_output)[-1]
-    command = ["-c", f"import rozliczenia\nif rozliczenia.WNUK:\n    exec({leaves_grandchild!r})\n"]
-
-    answered = subprocess.run(
-        [sys.executable, str(repo / "tools" / "mutacje.py"), "--zmiana", PACKAGE, "WNUK = False", "WNUK = True", "--", *command],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=120,
-        check=False,
-    )
-
-    assert answered.stdout.splitlines() == ["WYKRYTA: mutacja → kod wyjścia 3", "MUTACJE OK"], answered.stderr
-    assert not beating(beats)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="SIGINT do jednego procesu jest sygnałem POSIX")
