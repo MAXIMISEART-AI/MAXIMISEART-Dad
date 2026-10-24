@@ -1,9 +1,9 @@
 """Logi Uruchomienia na komputerze taty (ADR 0015): jeden plik JSON na Uruchomienie procesu z Centrum.
 
 Działanie po wyniku Uruchomienia (``runs.AfterRun``), w każdej drodze zakończenia i w obu trybach. Logi powstają
-z tego, co ma karta Uruchomienia (``EndedRun``): wynik, Komunikaty z kodami, podsumowanie, etapy, ślad wywołań
-Zatrzymania, a z ostatniego snapshotu projekcji postępu (``Outcome.progress``) Przetworzenia Szablonów pracownika
-i liczba problemów. Środowisko to system, Python i pliki procesu z Diagnozy z rozmiarem i atrybutem OneDrive.
+z tych samych faktów co karta Uruchomienia (``EndedRun``): wynik, Komunikaty z kodami, podsumowanie, etapy, ślad
+wywołań Zatrzymania, a z ostatniego snapshotu projekcji postępu (``EndedRun.snapshot``) Przetworzenia Szablonów
+pracownika i liczba problemów. Środowisko to system, Python i pliki procesu z Diagnozy z rozmiarem i atrybutem OneDrive.
 Logi nie mają treści komórek: żadne pole nie niesie Wiersza danych, a pliki mają tylko nazwę, nigdy pełną ścieżkę.
 Skrypt dla maszyn nie ma działań po wyniku, więc Logów nie tworzy.
 
@@ -44,7 +44,7 @@ from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.diagnosis import CheckState, Diagnosis
 from rozliczenia.centrum.outbox import Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import Label
-from rozliczenia.centrum.runs import EndedRun
+from rozliczenia.centrum.runs import EndedRun, Ending
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.domain import WorkerStatus
@@ -188,7 +188,7 @@ class RunLog(_Record):
     duration_ms: int | None
     tool: Tool
     result: contract.RunResult
-    ending: Literal["finished", "stop", "unexpected", "after_engine"]
+    ending: Ending
     stop_kind: contract.StopKind | None
     issue_count: int | None
     messages: list[LoggedMessage]
@@ -203,12 +203,7 @@ class RunLog(_Record):
 
     @classmethod
     def of(cls, run: EndedRun, *, tool: Tool, environment: Environment) -> RunLog:
-        info, result, outcome = run.info, run.result, run.outcome
-        stop = None if run.stopped is None else run.stopped.stop
-        messages = [] if stop is None else [LoggedMessage.of("stop", stop.message)]
-        if result.ending == "finished" and outcome is not None and outcome.view is not None:
-            messages += [LoggedMessage.of("warning", warning) for warning in outcome.view.shown.warnings]
-        progress = None if outcome is None else outcome.progress
+        info, stopped, snapshot = run.info, run.stopped, run.snapshot
         return cls(
             schema_version=1,
             run_id=info.id,
@@ -217,18 +212,19 @@ class RunLog(_Record):
             period=info.period,
             started_at=run.started_at,
             ended_at=run.ended_at,
-            duration_ms=None if outcome is None else outcome.total_duration_ms,
+            duration_ms=run.duration_ms,
             tool=tool,
-            result=result.result,
-            ending=result.ending,
-            stop_kind=result.stop_kind,
-            issue_count=None if progress is None else progress.issue_count,
-            messages=messages,
-            technical_notes=result.technical_notes,
-            summary=result.summary,
+            result=run.result,
+            ending=run.ending,
+            stop_kind=None if stopped is None else stopped.kind,
+            issue_count=None if snapshot is None else snapshot.issue_count,
+            messages=[LoggedMessage.of("stop", stop) for stop in run.stops]
+            + [LoggedMessage.of("warning", warning) for warning in run.warnings],
+            technical_notes=list(run.technical_notes),
+            summary=None if run.shown is None else run.shown.summary,
             phases=run.progress.phases,
             templates=[]
-            if progress is None
+            if snapshot is None
             else [
                 LoggedTemplate(
                     wykonawca=template.worker_name,
@@ -236,10 +232,10 @@ class RunLog(_Record):
                     rows=template.rows,
                     duration_ms=template.duration_ms,
                 )
-                for template in progress.templates
+                for template in snapshot.templates
             ],
             environment=environment,
-            trace=None if stop is None else stop.trace,
+            trace=None if stopped is None else stopped.stop.trace,
             diagnosis=None,
         )
 

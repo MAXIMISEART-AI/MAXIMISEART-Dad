@@ -91,10 +91,14 @@ co stało się z tym, co wysłał.
   w kolejce z jednym zdaniem dla taty, bez Komunikatu. Uwaga przypięta niesie
   okres, proces, tryb, wynik i datę Uruchomienia, wersję narzędzia z chwili
   pisania Uwagi oraz odnośnik do Logów Uruchomienia. Gdy Logi jeszcze czekają w
-  kolejce, kolejka wstawia odnośnik tuż przed wysłaniem Uwagi, jeśli Logi
-  zdążyły dojść do Skrzynki; inaczej Uwaga niesie „w drodze” z identyfikatorem
-  Uruchomienia. Wysyłka jest co najmniej raz: zerwane połączenie po utworzeniu
-  issue może dać drugie issue.
+  kolejce, szkic w oknie mówi „w drodze”, a kolejka tuż przed wysłaniem Uwagi
+  wstawia w to miejsce odnośnik, jeśli Logi zdążyły dojść do Skrzynki, „nie
+  dotarły”, jeśli Skrzynka odrzuciła ich treść, a inaczej „nie powstały albo nie
+  da się ich wysłać”; obie te linie mają identyfikator Uruchomienia. Po „nie
+  dotarły” kolejka dopisuje do issue Uwagi, także zamkniętego, komentarz z
+  odnośnikiem, gdy Logi dotrą przy którymś następnym starcie Centrum, albo z
+  tym, że nie dotrą, gdy znikną z kolejki (#374). Wysyłka jest co najmniej raz:
+  zerwane połączenie po utworzeniu issue może dać drugie issue.
 - **Powiadomienia** to osobny widok otwierany dzwonkiem, z trzema rodzajami:
   nowa wersja, Uwaga i Zgłoszenie. Wejście do widoku oznacza wszystkie jako
   przeczytane. Sprawę zamkniętą przez Maksa przed Wydaniem Powiadomienie nazywa

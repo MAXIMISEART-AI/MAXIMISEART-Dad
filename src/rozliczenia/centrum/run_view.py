@@ -33,11 +33,15 @@ SummaryT = TypeVar("SummaryT", bound=WarnedSummary)
 
 
 @dataclass(frozen=True)
-class Shown:
-    """Wynik zakończonego procesu: podsumowanie albo plan w kształcie kontraktu i ostrzeżenia z kodami Komunikatów."""
+class Shown(Generic[SummaryT]):
+    """Wynik zakończonego procesu: podsumowanie albo plan w kształcie kontraktu i ostrzeżenia z kodami Komunikatów.
+
+    ``engine_summary`` to podsumowanie silnika, z którego powstał, dla działań po wyniku (Kontrola ilości).
+    """
 
     summary: contract.RunSummary
     warnings: tuple[Message, ...]
+    engine_summary: SummaryT
 
 
 @dataclass(frozen=True)
@@ -71,10 +75,10 @@ class ProcessView(Generic[InputsT, SummaryT]):
             figures=self._figures(snapshot, dry_run),
         )
 
-    def shown(self, inputs: InputsT, summary: SummaryT) -> Shown:
+    def shown(self, inputs: InputsT, summary: SummaryT) -> Shown[SummaryT]:
         """Wynik zakończonego procesu; rdzeń woła go w swojej osłonie (``run_process(view=...)``)."""
 
-        return Shown(self._summary(summary, inputs.dry_run), tuple(summary.warnings))
+        return Shown(self._summary(summary, inputs.dry_run), tuple(summary.warnings), summary)
 
 
 def _count(label: str, value: int) -> contract.Figure:

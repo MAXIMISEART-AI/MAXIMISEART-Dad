@@ -21,7 +21,7 @@ import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Protocol
+from typing import Any, Protocol, TextIO
 
 FileTypes = Sequence[tuple[str, str]]  # (opis, wzorzec nazwy) w oknie wyboru pliku
 
@@ -38,9 +38,34 @@ class Platform(Protocol):
 
 
 def has_console() -> bool:
-    """``pythonw`` (skrót „Centrum rozliczeń”) nie daje procesowi ``sys.stdout`` ani ``sys.stderr``."""
+    """Czy ktoś zobaczy, co Centrum wypisze: konsola, potok albo plik.
 
-    return sys.stdout is not None and sys.stderr is not None
+    ``pythonw`` ze skrótu „Centrum rozliczeń” nie daje procesowi ``sys.stdout`` ani ``sys.stderr``, a opiekun
+    ponownego startu daje je, ale na urządzenie puste.
+    """
+
+    return not any(stream is None or _null_device(stream) for stream in (sys.stdout, sys.stderr))
+
+
+def _null_device(stream: TextIO) -> bool:
+    try:
+        descriptor = stream.fileno()
+    except (OSError, ValueError):  # strumień bez deskryptora, np. przechwycony w testach, ktoś czyta
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        import msvcrt
+
+        # NUL to urządzenie znakowe jak konsola, ale nie ma trybu konsoli; os.fstat ich nie odróżnia.
+        handle = wintypes.HANDLE(msvcrt.get_osfhandle(descriptor))
+        file_type_char = 0x0002
+        kernel32 = ctypes.windll.kernel32
+        return bool(
+            kernel32.GetFileType(handle) == file_type_char
+            and not kernel32.GetConsoleMode(handle, ctypes.byref(wintypes.DWORD()))
+        )
+    return os.path.samestat(os.fstat(descriptor), Path(os.devnull).stat())
 
 
 def show_start_problem(title: str, text: str) -> None:
