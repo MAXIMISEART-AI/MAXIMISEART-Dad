@@ -112,13 +112,11 @@ def check_preparation(
     settlement_period = _parse_period(period)
     with _stops(messages.register_unusable):
         workbook_files.ensure_available(register)
-    ProcessTemplate.internal(internal_template).checked(readers)
-    ProcessTemplate.collective(collective_template).checked(readers)
+    internal = ProcessTemplate.internal(internal_template).checked(readers)
+    collective = ProcessTemplate.collective(collective_template).checked(readers)
     if not periods_directory.is_dir():
         raise StopError(messages.periods_directory_missing(periods_directory))
-    files = PeriodFiles(
-        internal_template, collective_template, _locate_period_folder(periods_directory, settlement_period)
-    )
+    files = PeriodFiles(internal, collective, _locate_period_folder(periods_directory, settlement_period))
     preparation_files.ensure_period_files_absent(files)
     return files, _worker_mapping(config, messages.worker_config_problem)
 
