@@ -47,6 +47,10 @@ def _mixed_period() -> list[RegisterRow]:
     ]
 
 
+def _known_devices_period() -> list[RegisterRow]:
+    return [_order(1, "nokia zte"), _order(2, "SYN-URZ-2", successful="nie"), _order(3, "fut", started=MONDAY)]
+
+
 def _coded(warnings: list[Message]) -> list[tuple[str, str]]:
     return [(warning.code, warning.where) for warning in warnings]
 
@@ -67,8 +71,7 @@ def test_ostrzezenia_wskazuja_wiersze_pliku_zbiorczego_bez_regul_i_z_opisu_oraz_
 
 
 def test_okres_tylko_ze_znanymi_urzadzeniami_ma_tylko_ostrzezenie_o_kolumnach_z_opisu(tmp_path: Path) -> None:
-    rows = [_order(1, "nokia zte"), _order(2, "SYN-URZ-2", successful="nie"), _order(3, "fut", started=MONDAY)]
-    fixture = make_preparation_fixture(tmp_path, rows)
+    fixture = make_preparation_fixture(tmp_path, _known_devices_period())
 
     summary = run_preparation(fixture)
 
@@ -123,3 +126,17 @@ def test_w_centrum_podglad_z_ostrzezeniami_ilosci_prowadzi_do_uruchom_a_zapis_wy
         ("DRY-RUN", "OK"),
         ("RUN", "WYMAGA_SPRAWDZENIA"),
     ]
+
+
+def test_w_centrum_zapis_okresu_tylko_ze_znanymi_urzadzeniami_wymaga_sprawdzenia_a_podglad_nie(
+    tmp_path: Path,
+) -> None:
+    centrum = preparing_centrum(tmp_path, _known_devices_period())
+
+    centrum.start(dry_run=True)
+    preview = finished_view(centrum.client)["result"]
+    centrum.start(dry_run=False)
+    written = finished_view(centrum.client)["result"]
+
+    assert (preview["result"], written["result"]) == ("OK", "WYMAGA_SPRAWDZENIA")
+    assert [warning["where"] for warning in written["warnings"]] == [REMINDER[1]]

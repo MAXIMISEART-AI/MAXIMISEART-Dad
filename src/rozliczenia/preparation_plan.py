@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from . import preparation_messages as messages
-from .message import Message, StopError
+from .message import StopError
 from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, SUCCESSFUL, WORKER, RegisterSheet, cell_value
 from .quantity_rules import OrderContent, RuleResult, WeekTime, evaluate
 from .settlement_period import SettlementPeriod
@@ -62,6 +62,14 @@ class CollectiveRow:
 
 
 @dataclass(frozen=True)
+class IncompletePeriod:
+    """Fakt planu: ostatnie zlecenie okresu jest sprzed poniedziałku okresu, więc Rejestr może nie mieć wszystkich."""
+
+    last_order_day: date
+    monday: date
+
+
+@dataclass(frozen=True)
 class Plan:
     """Plan okresu; ``collective_rows`` to Zlecenia skuteczne w kolejności Rejestru, tak jak trafią do Pliku zbiorczego."""
 
@@ -78,6 +86,15 @@ class Plan:
         for order in self.orders:
             counts[order.started.date()] += 1
         return counts
+
+    @property
+    def incomplete_period(self) -> IncompletePeriod | None:
+        """Niepełny okres, gdy żadne zlecenie okresu nie jest z poniedziałku."""
+
+        last_order_day = max(order.started.date() for order in self.orders)
+        if last_order_day >= self.period.monday:
+            return None
+        return IncompletePeriod(last_order_day, self.period.monday)
 
 
 def plan_period_orders(
@@ -111,16 +128,6 @@ def plan_period_orders(
     skipped_empty_rows = sum(1 for row in register.empty_rows if first_row < row < last_row)
     collective_rows = [CollectiveRow.of(order) for order in orders if order.is_successful]
     return Plan(period, register.name, orders, collective_rows, skipped_empty_rows)
-
-
-def period_warnings(register_path: Path, plan: Plan) -> list[Message]:
-    """Ostrzeżenie o niepełnym okresie, gdy żadne zlecenie okresu nie jest z poniedziałku."""
-
-    monday = plan.period.monday
-    last_order_day = max(order.started.date() for order in plan.orders)
-    if last_order_day >= monday:
-        return []
-    return [messages.incomplete_period(register_path, plan.sheet, plan.period.token, last_order_day, monday)]
 
 
 def _in_period(row: DataRow, period: SettlementPeriod) -> bool:

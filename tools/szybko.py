@@ -65,6 +65,7 @@ BASE = "origin/main"
 FULL = ("pyproject.toml", "requirements.txt", "tests/conftest.py", "tests/fixtures/git_config.py")
 STRUCTURE = (
     "tests/test_adr.py",
+    "tests/test_decyzje_na_faktach.py",
     "tests/test_dokumenty_regul.py",
     "tests/test_granice_importow.py",
     "tests/test_granice_wyjatkow.py",
