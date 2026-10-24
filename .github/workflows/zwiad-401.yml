@@ -8,38 +8,84 @@ on:
 permissions:
   contents: read
 
+env:
+  PRZED: 166ce280e
+  PO: f70687cf
+  BAZA: fd4f2752
+  PYTHONUTF8: '1'
+
 jobs:
-  zwiad:
-    name: zwiad (snapshot=${{ matrix.snapshot }}, n=${{ matrix.workers }})
+  test:
+    name: test ${{ matrix.co }} (${{ matrix.ref }})
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        snapshot: ['1', '0']
-        workers: ['4', '8']
-    env:
-      PYTHONUTF8: '1'
-      ZWIAD_SNAPSHOT: ${{ matrix.snapshot }}
-      ZWIAD_N: '300'
-      ZWIAD_OUT: zwiad-out
+        include:
+          - {co: 'nowy test, stary kod', ref: '166ce280', count: '30', workers: '4'}
+          - {co: 'nowy test, poprawka', ref: 'f70687cf', count: '300', workers: '8'}
     steps:
       - uses: actions/checkout@v7
+        with: {ref: '${{ matrix.ref }}', fetch-depth: 0}
       - id: python
         uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
+        with: {python-version: '3.14'}
       - uses: astral-sh/setup-uv@v10.3.2
-        with:
-          enable-cache: false
+        with: {enable-cache: false}
       - run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt pytest-repeat
-      - name: Original test repeated
+      - name: Test repeated
         continue-on-error: true
-        run: python -m pytest -n ${{ matrix.workers }} --count 300 -q -p no:cacheprovider "tests/test_aktualizacja_narzedzia.py::test_pobranie_ktore_stoi_po_limicie_czasu_konczy_sie_brakiem_polaczenia_bez_procesow_gita" 2>&1 | Select-Object -Last 15
-      - name: Instrumented
-        run: python -m pytest -n ${{ matrix.workers }} -q -p no:cacheprovider tests/test_zwiad_401.py 2>&1 | Select-Object -Last 5
-      - name: Summary
-        run: python tools/zwiad_401/podsumuj.py zwiad-out
+        run: |
+          git log --oneline -1
+          python -m pytest -n ${{ matrix.workers }} --count ${{ matrix.count }} -q -p no:cacheprovider "tests/test_aktualizacja_narzedzia.py::test_pobranie_ktore_stoi_po_limicie_czasu_konczy_sie_brakiem_polaczenia_bez_procesow_gita" 2>&1 | Select-Object -Last 8
+
+  sonda:
+    name: sonda ${{ matrix.ref }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ['fd4f2752', 'f70687cf']
+    env:
+      ZWIAD_N: '1200'
+      ZWIAD_OUT: sonda-out
+    steps:
+      - uses: actions/checkout@v7
+        with: {path: zwiad}
+      - uses: actions/checkout@v7
+        with: {ref: '${{ matrix.ref }}', path: kod, fetch-depth: 0}
+      - id: python
+        uses: actions/setup-python@v7
+        with: {python-version: '3.14'}
+      - uses: astral-sh/setup-uv@v10.3.2
+        with: {enable-cache: false}
+      - run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r kod/requirements.txt
+      - name: Probe
+        working-directory: kod
+        run: |
+          git log --oneline -1
+          Copy-Item ..\zwiad\tools\zwiad_401\test_sonda_401.py tests\test_sonda_401.py
+          python -m pytest -n 8 -q -p no:cacheprovider tests/test_sonda_401.py 2>&1 | Select-Object -Last 3
+          python ..\zwiad\tools\zwiad_401\sonda_podsumuj.py sonda-out
       - uses: actions/upload-artifact@v4
-        with:
-          name: zwiad-${{ matrix.snapshot }}-${{ matrix.workers }}
-          path: zwiad-out
+        with: {name: 'sonda-${{ matrix.ref }}', path: kod/sonda-out}
+
+  mutacje:
+    name: mutacje (f70687cf)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: {path: zwiad}
+      - uses: actions/checkout@v7
+        with: {ref: 'f70687cf', path: kod, fetch-depth: 0}
+      - id: python
+        uses: actions/setup-python@v7
+        with: {python-version: '3.14'}
+      - uses: astral-sh/setup-uv@v10.3.2
+        with: {enable-cache: false}
+      - run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r kod/requirements.txt
+      - name: Mutations
+        working-directory: kod
+        run: |
+          git log --oneline -1
+          python tools/mutacje.py --plik ..\zwiad\tools\zwiad_401\mutacje.json -- -m pytest -q -p no:cacheprovider tests/test_aktualizacja_narzedzia.py -k bez_procesow_gita
