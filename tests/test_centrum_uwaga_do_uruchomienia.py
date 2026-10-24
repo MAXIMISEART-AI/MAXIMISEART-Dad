@@ -11,7 +11,7 @@ from typing import Any, Final
 import pytest
 
 from rozliczenia import settlement_process
-from rozliczenia.centrum.report_box import REPOSITORY, Rejected
+from rozliczenia.centrum.report_box import REPOSITORY, Refused, Rejected, Unreachable
 from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.centrum import FakeReportBox
@@ -312,24 +312,73 @@ def test_odrzucone_logi_ktore_zniknely_z_kolejki_po_uwadze_daja_komentarz_ze_nie
     assert wait_for(lambda: queued(centrum) == [])
 
 
-def test_usuniete_issue_uwagi_nie_wstrzymuje_kolejki_z_odnosnikiem_do_logow(tmp_path: Path) -> None:
+def logs_sent(centrum: SettlingCentrum, run_id: str) -> bool:
+    return any(run_id in comment for logs in box(centrum).background_issues for comment in logs.comments)
+
+
+def test_komentarz_do_usunietego_issue_uwagi_kolejka_porzuca_raz_i_wiecej_o_nie_nie_pyta(tmp_path: Path) -> None:
     centrum, run_id = pinned_after_rejected_logs(tmp_path, rejected_starts=1)
     [issue] = box(centrum).issues_with("uwaga-taty")
     assert wait_for(lambda: len(queued(centrum)) == 2)
+    [comment] = queued(centrum, "uwaga-taty")
     box(centrum).issues.remove(issue)
-
-    def logs_sent() -> bool:
-        return any(run_id in comment for logs in box(centrum).background_issues for comment in logs.comments)
 
     centrum.restart()
     with centrum.client:
-        assert wait_for(logs_sent), "Logi nie dotarły po ponownym starcie"
+        assert wait_for(lambda: logs_sent(centrum, run_id)), "Logi nie dotarły po ponownym starcie"
+        assert wait_for(lambda: queued(centrum) == []), "komentarz do usuniętego issue Uwagi został w kolejce"
+
+    centrum.restart()
+    with centrum.client:
         later = centrum.client.post("/api/dad-notes", json={"title": "Następna Uwaga"})
 
     assert later.json() == {"state": "sent"}
     assert issue.comments == []
-    log = centrum.log_path.read_text(encoding="utf-8")
-    assert "skrzynka-czeka etykieta=uwaga-taty okres=bez-okresu przyczyna=odmowa-tresci" in log
+    log = centrum.log_path.read_text(encoding="utf-8").splitlines()
+    [dropped] = [line for line in log if "skrzynka-porzucono" in line]
+    assert dropped.endswith(f"skrzynka-porzucono etykieta=uwaga-taty plik={comment.name} numer={issue.number}")
+    assert [line for line in log if "skrzynka-czeka etykieta=uwaga-taty" in line] == []
+
+
+def _without_network(centrum: SettlingCentrum) -> None:
+    box(centrum).search_failure = Unreachable()
+
+
+def _refused_listing(centrum: SettlingCentrum) -> None:
+    box(centrum).search_failure = Refused()
+
+
+def _without_key(centrum: SettlingCentrum) -> None:
+    (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").unlink()
+
+
+UNCHECKABLE: Final[dict[str, tuple[Callable[[SettlingCentrum], None], str]]] = {
+    "brak-sieci": (_without_network, "brak-sieci"),
+    "odmowa-dostepu": (_refused_listing, "odmowa"),
+    "brak-klucza": (_without_key, "brak-klucza"),
+}
+
+
+@pytest.mark.parametrize(("steer", "cause"), UNCHECKABLE.values(), ids=UNCHECKABLE.keys())
+def test_komentarz_do_issue_uwagi_zostaje_w_kolejce_gdy_nie_da_sie_sprawdzic_czy_issue_jest(
+    tmp_path: Path, steer: Callable[[SettlingCentrum], None], cause: str
+) -> None:
+    centrum, _ = pinned_after_rejected_logs(tmp_path, rejected_starts=1)
+    [issue] = box(centrum).issues_with("uwaga-taty")
+    assert wait_for(lambda: len(queued(centrum)) == 2)
+    [comment] = queued(centrum, "uwaga-taty")
+    for logs in queued(centrum, "logi-uruchomienia"):
+        logs.unlink()
+    box(centrum).issues.remove(issue)
+    steer(centrum)
+
+    waiting = f"skrzynka-czeka etykieta=uwaga-taty okres=bez-okresu przyczyna={cause}"
+    centrum.restart()
+    with centrum.client:
+        assert wait_for(lambda: waiting in centrum.log_path.read_text(encoding="utf-8"))
+
+    assert comment in queued(centrum, "uwaga-taty")
+    assert "skrzynka-porzucono" not in centrum.log_path.read_text(encoding="utf-8")
 
 
 def test_druga_przypieta_uwaga_po_odrzuconych_logach_dostaje_odnosnik_takze_zamknieta(tmp_path: Path) -> None:
