@@ -10,7 +10,7 @@ pracownika. Wygląd ich komórek nie zależy od tego, co zostało w komórce Wzo
 - format liczby komórki źródłowej (Rejestru zleceń albo Pliku zbiorczego), a bez niej ogólny.
 
 Wiersz danych nie ma zapisanej wysokości, więc Excel dopasowuje ją do treści. Wszystkie drogi
-zapisu (openpyxl w ``workbook_files``, kopia Wzorca w ``template_copy``)
+zapisu (openpyxl w ``template_file``, kopia Wzorca w ``template_copy``)
 biorą wygląd komórki z ``RowLook.cell``, więc dają ten sam wynik.
 """
 

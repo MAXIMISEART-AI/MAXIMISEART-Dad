@@ -12,7 +12,7 @@ from typing import Any, NoReturn
 import pytest
 
 from rozliczenia.input_checks import FILE_READERS
-from rozliczenia.workbook_files import TemplateFile
+from rozliczenia.template_file import TemplateFile
 
 from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, phase_states, view_timing, views_until
 from tests.fixtures.centrum_processes import (

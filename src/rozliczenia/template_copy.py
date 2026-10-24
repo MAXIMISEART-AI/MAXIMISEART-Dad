@@ -1,6 +1,6 @@
 """Kopia skoroszytu Wzorca z podmienionymi Wierszami danych, bez wczytywania przez openpyxl (ADR 0008).
 
-Moduł jest szczegółem ``workbook_files.TemplateFile`` i nikt poza nim go nie używa.
+Moduł jest szczegółem ``template_file.TemplateFile`` i nikt poza nim go nie używa.
 ``TemplateCopy.of`` czyta bajty Wzorca raz: rozpakowuje części zip,
 sprawdza, że każda część XML jest poprawnym XML-em, indeksuje wiersze XML
 aktywnego arkusza i liczy kontrole Szablonu pracownika (nagłówek, dane w
@@ -19,13 +19,13 @@ składa z tego jedną kopię:
 - w arkuszu zmieniają się tylko wiersze od pierwszego Wiersza danych do ostatniego
   wpisanego: komórki kolumn Wiersza danych dostają wartości, a kolumn wyglądu Wygląd
   Wiersza danych, za nimi Wyróżnienia na stylu Wzorca, tak jak przy wpisaniu przez openpyxl
-  (``workbook_files._write_rows``); wpisany wiersz traci zapisaną wysokość (``ht``,
+  (``template_file._write_rows``); wpisany wiersz traci zapisaną wysokość (``ht``,
   ``customHeight``), a pozostałe komórki, w tym formuły, wspólne formuły i style, zostają
   bajt w bajt; kompresowany jest tylko początek arkusza do granicy kawałka za ostatnim
   wpisanym wierszem, reszta to gotowe kawałki z pierwszej kopii;
 - ``calcPr`` w ``xl/workbook.xml`` dostaje ``calcMode="auto"``, ``fullCalcOnLoad="1"``
   i ``forceFullCalc="1"``, jak przy zapisie przez openpyxl;
-- Plik zbiorczy (``SheetLayout.collective_file``) dostaje też element ``autoFilter`` na
+- Plik okresu (``SheetLayout.period_file``), czyli Plik zbiorczy, dostaje też element ``autoFilter`` na
   nagłówek i wpisane wiersze oraz ten sam zakres w nazwie ``_xlnm._FilterDatabase`` w
   ``xl/workbook.xml``;
 - Hiperłącza wpisanych komórek trafiają do jednego bloku ``<hyperlinks>`` w miejscu,
@@ -38,7 +38,7 @@ Wzorzec, którego kształtu ten moduł nie obsługuje (np. formuła w kolumnach 
 danych, scalenie w Wierszach danych, własne hiperłącza arkusza, XML z prefiksami albo
 bez atrybutów ``r``, uszkodzona część XML, a w Pliku zbiorczym brak autofiltra), zgłasza
 ``UnsupportedShape``;
-tak samo wartość, której typu moduł nie zapisuje. Wtedy ``workbook_files`` sprawdza Wzorzec
+tak samo wartość, której typu moduł nie zapisuje. Wtedy ``template_file`` sprawdza Wzorzec
 i tworzy plik dawną drogą przez openpyxl, z jej klasyfikacją uszkodzeń.
 Wartość, której nie da się zapisać w ogóle (znak niedozwolony w XML, data ze
 strefą czasową), to ``InvalidValue``.
@@ -83,6 +83,7 @@ from openpyxl.styles.borders import Border
 
 from .highlights import PLAIN, Highlights
 from .hyperlinks import Hyperlink
+from .quantity_rules import QuantityColumn
 from .row_look import GENERAL, CellLook, RowLook, wraps
 from .workbook_parts import (
     MAIN,
@@ -240,14 +241,15 @@ class Row(Protocol):
         ...
 
     @property
-    def quantities(self) -> Mapping[int, int]:
-        """Kolumna od 1 → liczba wpisana w komórkę Wzorca z jej stylem; tylko w ``SheetLayout.quantity_columns``."""
+    def quantities(self) -> Mapping[QuantityColumn, int]:
+        """Litera kolumny → liczba wpisana w komórkę Wzorca z jej stylem; tylko w ``SheetLayout.quantity_columns``."""
         ...
 
 
 @dataclass(frozen=True)
 class SheetLayout:
-    """Gdzie w arkuszu są nagłówek, Wiersze danych, dane wejściowe i kolumny Wiersza danych (od 1)."""
+    """Układ arkusza Wzorca, jeden dla kopii i drogi przez openpyxl (``template_file``): gdzie są nagłówek, Wiersze
+    danych, dane wejściowe i kolumny Wiersza danych (od 1)."""
 
     header_row: int
     first_data_row: int
@@ -255,8 +257,8 @@ class SheetLayout:
     data_columns: int
     look_columns: int
     """Kolumny wyglądu (``row_look``); te za kolumnami Wiersza danych dostają sam wygląd, a treść zostaje z Wzorca."""
-    collective_file: bool = False
-    """Plik zbiorczy z Przygotowania: autofiltr obejmuje nagłówek i wpisane wiersze."""
+    period_file: bool
+    """Plik okresu z Przygotowania: autofiltr obejmuje nagłówek i wpisane wiersze, a wygląd ma każda wpisana kolumna."""
     quantity_columns: range = range(0)
     """Kolumny Ilości usług; formuła w nich w Wierszach danych to ``UnsupportedShape``, jak w kolumnach Wiersza danych."""
 
@@ -353,7 +355,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         elif info.filename == styles_name:
             styles_index = index
             parts.append(None)
-        elif info.filename == workbook_name and layout.collective_file:
+        elif info.filename == workbook_name and layout.period_file:
             filter_name = _FilterName(info, index, _with_full_recalculation(workbook_xml), sheet_position)
             parts.append(None)
         elif info.filename == workbook_name:
@@ -363,7 +365,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     if sheet_index < 0:
         raise UnsupportedShape("sheet")
     sheet = _Sheet(infos[sheet_index], sheet_index, plain[sheet_name], layout, epoch=MAC_EPOCH if date1904 else WINDOWS_EPOCH)
-    if layout.collective_file:
+    if layout.period_file:
         sheet.read_filter_columns(shared_strings)
     styles = _Styles(infos[styles_index], styles_index, plain[styles_name], _raw_part(content, infos[styles_index]))
     if rels_index is None:
@@ -557,7 +559,7 @@ class _Sheet:
         self._links_at, self._links_open, self._links_prefix = _hyperlinks_place(xml, data_end)
         self._filter: tuple[int, int, bytes] | None = None
         self._filter_columns = (1, 1)
-        if layout.collective_file:
+        if layout.period_file:
             self._filter = _autofilter(xml, data_end, self._links_at)
         # Ostatni kawałek zaczyna się w miejscu bloku Hiperłączy, więc kopia z nimi kompresuje tylko ogon arkusza;
         # przedostatni w Pliku zbiorczym od autofiltra, który zmienia się w każdej kopii.
@@ -661,7 +663,9 @@ class _Sheet:
         chunk = bisect_left(self._boundaries, region_end)
         tail_start = self._boundaries[chunk]
         links_at = self._links_at
-        last_column = max([self._layout.data_columns, *(column for row in rows for column in row.quantities)])
+        last_column = max(
+            [self._layout.data_columns, *(column_index_from_string(letter) for row in rows for letter in row.quantities)]
+        )
         head = b"".join([self._prefix(last_row if rows else None, last_column), *patched, xml[region_end:tail_start]])
         if self._chunks is None:
             self._chunks = _compressed_chunks(xml, self._boundaries)
@@ -730,7 +734,8 @@ class _Sheet:
             existing = cells.get(column)
             style = styles.look_style(_cell_style(existing), look.cell(column, PLAIN, GENERAL, wrapped=False))
             written[column] = _restyled(reference, existing, style)
-        for column, quantity in data.quantities.items():
+        for letter, quantity in data.quantities.items():
+            column = column_index_from_string(letter)
             reference = self._letters[column - 1] + suffix
             written[column] = _cell_xml(reference, _cell_style(cells.get(column)), *_value_xml(quantity))
         return start_tag + b"".join(cell for _, cell in sorted(written.items())) + b"</row>"
