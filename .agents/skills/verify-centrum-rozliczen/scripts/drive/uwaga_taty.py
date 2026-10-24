@@ -469,7 +469,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
         "with the key the preview's Logi reached the skrzynka at the end of the Uruchomienie",
         timeout_s=60,
     )
-    run.capture(page, "166-uwaga-przycisk-na-karcie")
+    run.capture(page, "190-uwaga-przycisk-na-karcie")
 
     run.step(FEATURE, "uwaga-z-karty")
     about.click()
@@ -477,7 +477,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     figure = dialog.get_by_role("figure", name="Co dostanie Maks", exact=True)
     send = dialog.get_by_role("button", name="Wyślij", exact=True)
     expect(send).to_be_disabled()
-    run.capture(page, "167-uwaga-z-karty", full_page=False)
+    run.capture(page, "191-uwaga-z-karty", full_page=False)
 
     run.step(FEATURE, "uwaga-przypieta")
     _write(dialog, *PINNED)
@@ -499,7 +499,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
         "„Maks dostanie” shows the link as the words Logi Uruchomienia, without the address",
     )
     expect(send).to_be_enabled()
-    run.capture(page, "168-uwaga-przypieta", full_page=False)
+    run.capture(page, "192-uwaga-przypieta", full_page=False)
 
     run.step(FEATURE, "uwaga-ogolna-i-z-powrotem")
     _scope(dialog, "Ogólna").click()
@@ -511,7 +511,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
         and "Logi Uruchomienia" not in general["body"],
         "the general Uwaga ends with the general footer and has no Logi",
     )
-    run.capture(page, "169-uwaga-ogolna-z-karty", full_page=False)
+    run.capture(page, "193-uwaga-ogolna-z-karty", full_page=False)
     _scope(dialog, "Do Uruchomienia").click()
     _offers(run, dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True), offered, run_id)
     _shows(run, figure, pinned, "back to Do Uruchomienia the same Uruchomienie is checked and the figure pinned again")
@@ -568,10 +568,10 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     about = rows.nth(oldest + 1).get_by_role("button", name=ABOUT_RUN, exact=True)
     about.hover()
     expect(page.get_by_text(ABOUT_RUN, exact=True)).to_be_visible()
-    run.capture(page, "170-uwaga-historia")
+    run.capture(page, "194-uwaga-historia")
     about.click()
     dialog, _ = _opened_about(run, page, target, "uwaga-uruchomienia-z-historii")
-    run.capture(page, "171-uwaga-z-historii", full_page=False)
+    run.capture(page, "195-uwaga-z-historii", full_page=False)
     page.keyboard.press("Escape")
     expect(dialog).to_have_count(0)
     _laptop(run, page, about, target)
@@ -598,7 +598,7 @@ def _laptop(run: Run, page: Page, about: Locator, target: str) -> None:
             f"at {LAPTOP['width']}×{LAPTOP['height']} the checked oldest row and „Wyślij” are on screen without scrolling"
             f" (dialog scrollTop {scrolled}, row {row}, Wyślij {button})",
         )
-        run.capture(page, "172-uwaga-z-historii-laptop", full_page=False)
+        run.capture(page, "196-uwaga-z-historii-laptop", full_page=False)
         page.keyboard.press("Escape")
         expect(dialog).to_have_count(0)
     finally:
@@ -645,7 +645,7 @@ def _not_in_history(run: Run, page: Page, period: str) -> None:
         above is not None and rows is not None and above["y"] + above["height"] <= rows["y"],
         f"the sentence „{NOT_IN_HISTORY}” stands above the list, nothing is checked and Wyślij stays disabled",
     )
-    run.capture(page, "173-uwaga-spoza-historii", full_page=False)
+    run.capture(page, "197-uwaga-spoza-historii", full_page=False)
     choices.get_by_role("radio").first.click()
     expect(choices.get_by_role("radio").first).to_have_attribute("aria-checked", "true")
     expect(sentence).to_be_visible()
