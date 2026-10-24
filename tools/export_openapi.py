@@ -32,8 +32,6 @@ OUTSIDE_TIMING = {
     "streamRunEvents": "strumień SSE (EventSource) otwarty przez całe życie karty, nie zapytanie z odpowiedzią",
     "recordViewTiming": "sam pomiar widoku, wysyłany po pomiarze; odpowiedź 204 bez treści",
     "getCurrentRun": "przeglądarka bierze bieżące Uruchomienie ze strumienia; trasę czytają testy i weryfikacja",
-    # Okno Uwagi taty zacznie ją wołać przez `call` w części frontendu #322; wtedy przechodzi do ApiOperation.
-    "getDadNoteRuns": "przeglądarka jeszcze jej nie woła: lista Uruchomień do przypięcia Uwagi taty (#322)",
 }
 # `call(zSchemat, "operacja", …)` w kodzie przeglądarki.
 BROWSER_CALL = re.compile(r"\bcall\(\s*\w+,\s*\"(\w+)\"")

@@ -25,6 +25,7 @@ import {
   zDecideRunResponse,
   zDiagnoseRunResponse,
   zDraftDadNoteResponse,
+  zGetDadNoteRunsResponse,
   zGetConfigurationResponse,
   zGetHealthResponse,
   zGetMetricsResponse,
@@ -48,6 +49,7 @@ export type {
   Configuration,
   Count,
   DadNoteDraft,
+  DadNoteRequest,
   Decision,
   DecisionAnswer,
   Diagnosis,
@@ -289,6 +291,16 @@ export function markNotificationsRead(ids: ReadonlyArray<string>) {
     "/api/notifications/read",
     send("POST", { ids: [...ids] })
   )
+}
+
+/**
+ * Uruchomienia z Centrum, do których tata może przypiąć Uwagę, od najnowszego. `selected` (Uruchomienie, z którego
+ * tata otworzył okno) serwer dokłada na jego miejsce w kolejności, gdy jest starsze od ostatnich.
+ */
+export function getDadNoteRuns(selected: string | null) {
+  const query = selected === null ? "" : `?${new URLSearchParams({ selected }).toString()}`
+
+  return call(zGetDadNoteRunsResponse, "getDadNoteRuns", `/api/dad-notes/runs${query}`)
 }
 
 /** Dokładnie to, co dostanie Maks z Uwagi taty: tytuł i treść issue składa serwer, przeglądarka je tylko pokazuje. */

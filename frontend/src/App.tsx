@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { DadNoteProvider } from "@/lib/dad-note"
 import { RunsProvider } from "@/lib/runs"
 import { NotificationsProvider } from "@/lib/notifications"
 import { SettingsProvider } from "@/lib/settings"
@@ -35,6 +36,7 @@ export function App() {
           <RunsProvider>
           <ToolUpdateProvider>
           <NotificationsProvider page={page.id}>
+          <DadNoteProvider>
           <SidebarProvider style={LAYOUT}>
             <AppSidebar variant="inset" current={page} onClosed={() => setClosed(true)} />
             <SidebarInset>
@@ -44,6 +46,7 @@ export function App() {
               </div>
             </SidebarInset>
           </SidebarProvider>
+          </DadNoteProvider>
           </NotificationsProvider>
           </ToolUpdateProvider>
           </RunsProvider>

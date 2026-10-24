@@ -35,6 +35,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Disclosure } from "@/components/disclosure"
 import { ThreePartMessage } from "@/components/three-part-message"
+import { WriteAboutRun } from "@/components/write-to-maks"
 import { seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
@@ -91,21 +92,24 @@ export function RunCard({
             {run.dry_run ? "Bez zapisu" : "Z zapisem"}
           </Badge>
           {view.state === "finished" ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Nowe Uruchomienie procesu"
-                    onClick={onNewRun}
-                  />
-                }
-              >
-                <PlusIcon />
-              </TooltipTrigger>
-              <TooltipContent>Nowe Uruchomienie procesu</TooltipContent>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Nowe Uruchomienie procesu"
+                      onClick={onNewRun}
+                    />
+                  }
+                >
+                  <PlusIcon />
+                </TooltipTrigger>
+                <TooltipContent>Nowe Uruchomienie procesu</TooltipContent>
+              </Tooltip>
+              <WriteAboutRun runId={run.id} />
+            </>
           ) : null}
         </CardAction>
       </CardHeader>

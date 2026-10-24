@@ -790,6 +790,7 @@ ApiOperation = Literal[
     "startToolUpdate",
     "getToolUpdate",
     "reportToolUpdate",
+    "getDadNoteRuns",
     "draftDadNote",
     "sendDadNote",
     "closeCentrum",

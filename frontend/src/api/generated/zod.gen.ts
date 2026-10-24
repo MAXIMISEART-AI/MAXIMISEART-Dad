@@ -28,6 +28,7 @@ export const zApiTiming = z.object({
         'startToolUpdate',
         'getToolUpdate',
         'reportToolUpdate',
+        'getDadNoteRuns',
         'draftDadNote',
         'sendDadNote',
         'closeCentrum'
