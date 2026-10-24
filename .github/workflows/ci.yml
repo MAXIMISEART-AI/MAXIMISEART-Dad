@@ -62,7 +62,7 @@ jobs:
         run: python -m mypy
 
   pytest:
-    # Tata has Windows, so both Pythons run there, each in three parts of similar CI time from
+    # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
     # tools/czesci_pytest.py. Linux runs all files once, in two parts, for the tests Windows skips (POSIX
     # signals, process groups, the pre-push hook). Both pass the files longest first.
     name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }}, ${{ matrix.part }})
@@ -72,7 +72,7 @@ jobs:
       matrix:
         os: [windows-latest]
         python-version: ['3.11', '3.14']
-        part: ['1/3', '2/3', '3/3']
+        part: ['1/2', '2/2']
         include:
           - os: ubuntu-latest
             python-version: '3.14'
