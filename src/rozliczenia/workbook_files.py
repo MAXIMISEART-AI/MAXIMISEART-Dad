@@ -199,10 +199,11 @@ def is_open_in_excel(path: Path) -> bool:
     return path.with_name(f"~${path.name}").exists()
 
 
-def ensure_available(path: Path) -> None:
+def ensure_available(path: Path, *, despite_excel_lock: bool = False) -> None:
     """Skoroszyt jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``.
 
     Folder, którego nie da się odczytać (np. brak dostępu), czyni skoroszyt niedostępnym, a nie uszkodzonym.
+    ``despite_excel_lock`` pozwala czytać skoroszyt, który trzyma Excel: jego ostatnią zapisaną wersję (ADR 0016).
     """
 
     try:
@@ -211,7 +212,7 @@ def ensure_available(path: Path) -> None:
         raise WorkbookError(path, Problem.INACCESSIBLE) from exc
     if not found:
         raise WorkbookError(path, Problem.MISSING)
-    if open_in_excel:
+    if open_in_excel and not despite_excel_lock:
         raise WorkbookError(path, Problem.OPEN_IN_EXCEL)
 
 
@@ -308,11 +309,12 @@ class DataRows:
     rows: list[DataRow]
 
 
-def read_data_rows(path: Path) -> DataRows:
+def read_data_rows(path: Path, *, despite_excel_lock: bool = False) -> DataRows:
     """Wiersze danych Pliku zbiorczego z Wyróżnieniami i Hiperłączami komórek w kolejności z pliku; plik jest tylko czytany.
 
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
-    nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem.
+    nagłówka WYKONAWCA w H17 to ``WorkbookError`` ze złym układem. Plik otwarty w Excelu to
+    ``WorkbookError``, chyba że wywołujący jawnie pozwala go czytać (``despite_excel_lock``, ADR 0016).
 
     openpyxl czyta tylko wiersze, które mogą mieć wartości w A:K
     (``workbook_parts.rows_with_input``), a nie każdy z ~10 tys. sformatowanych wierszy Pliku
@@ -320,7 +322,7 @@ def read_data_rows(path: Path) -> DataRows:
     całego arkusza.
     """
 
-    ensure_available(path)
+    ensure_available(path, despite_excel_lock=despite_excel_lock)
     content = _file_bytes(path)
     with unreadable_as_error(path):
         content = rows_with_input(content, INPUT_COLUMNS[-1])

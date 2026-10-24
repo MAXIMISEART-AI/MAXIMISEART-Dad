@@ -16,7 +16,7 @@ różnice tylko w V, T i N oraz wartości taty w pozostałych kolumnach N:AP (de
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -118,9 +118,7 @@ def check(orders: CollectiveOrders) -> CheckResult:
                 result.differences.update(_differences(content, row, rule.quantities, compared))
             else:
                 _add_unruled(result.unruled[content.devices], content, row, rule, compared)
-        result.description_filled.update(
-            column for column in DESCRIPTION_COLUMNS if row.quantity(column) != 0 and column not in compared
-        )
+        result.description_filled.update(description_filled(row, compared))
         result.other_filled.update(column for column in OTHER_COLUMNS if row.quantity(column) != 0)
     return result
 
@@ -137,6 +135,12 @@ def compared_columns(rule: RuleResult) -> tuple[QuantityColumn, ...]:
     if isinstance(rule, WithoutRule):
         return _WITHOUT_RULE_COLUMNS
     return tuple(column for column in QuantityColumn if column not in _SHARED or rule.quantities.get(column, 0))
+
+
+def description_filled(row: OrderFacts, compared: tuple[QuantityColumn, ...]) -> Iterator[str]:
+    """Kolumny z opisu technika, w których tata coś wpisał: ilość różna od 0 poza kolumnami ``compared`` wiersza."""
+
+    return (column for column in DESCRIPTION_COLUMNS if row.quantity(column) != 0 and column not in compared)
 
 
 def _add_unruled(
