@@ -17,11 +17,12 @@ import subprocess
 import sys
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
 SCRIPT = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT.parents[1]
 FEATURES_ROOT = SKILL_ROOT / "features"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
 HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
 REQUIRED_MAP_HEADINGS = (
     "# Centrum rozliczeń verification map",

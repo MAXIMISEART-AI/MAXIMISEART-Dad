@@ -18,8 +18,8 @@ from openpyxl import load_workbook
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools")]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from rozliczenia.workbook_files import save_workbook
 from skrypt_skilla import Parser, require_run_root

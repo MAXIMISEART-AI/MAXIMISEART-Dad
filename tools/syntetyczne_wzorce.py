@@ -36,7 +36,7 @@ from xml.sax.saxutils import escape
 import yaml
 from openpyxl.utils import get_column_letter
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[1] / folder) for folder in ("src",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rozliczenia.collective_preparation import (
     default_collective_template_path,

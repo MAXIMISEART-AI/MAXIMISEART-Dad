@@ -110,10 +110,6 @@ extend-select = [
 # Konsola startu Centrum i instalatora skrótu.
 "src/rozliczenia/centrum/launcher.py" = ["T201"]
 "src/rozliczenia/centrum/shortcut.py" = ["T201"]
-# Skrypt importuje src i tools dopiero po jednej linii, która dopisuje je do sys.path; jej postać pilnuje
-# tests/test_skrypty_bez_instalacji.py, więc noqa przy każdym imporcie byłoby kopią do skopiowania.
-"tools/**" = ["E402"]
-".agents/skills/*/scripts/**" = ["E402"]
 # Szeroki except w Centrum kończy się unexpected_failure dziennika Centrum albo ponownym rzuceniem; pilnuje tego
 # tests/test_granice_wyjatkow.py zamiast noqa z tym samym powodem w każdej kopii.
 "src/rozliczenia/centrum/**" = ["BLE001"]

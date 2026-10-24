@@ -28,15 +28,16 @@ import openpyxl
 
 import excel
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
+
+from rozliczenia.workbook_files import QUANTITY_COLUMNS
+from skrypt_skilla import SKIPPED, Parser, create_run_root, new_run
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 OTHER_SKILL = REPO_ROOT / ".agents" / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = REPO_ROOT / "tools" / "uruchom_proces.py"
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools")]
-
-from rozliczenia.workbook_files import QUANTITY_COLUMNS
-from skrypt_skilla import SKIPPED, Parser, create_run_root, new_run
 
 # Exit code of the machine script for Wymaga sprawdzenia.
 NEEDS_REVIEW_EXIT = 2

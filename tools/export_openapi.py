@@ -14,16 +14,17 @@ import sys
 from pathlib import Path
 from typing import Any, get_args
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(Path(__file__).resolve().parents[1] / folder) for folder in ("src",)]
-FRONTEND_SOURCE = ROOT / "frontend" / "src"
-OUTPUT = FRONTEND_SOURCE / "api" / "openapi.json"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.contract import ApiOperation
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import FileTypes
 from rozliczenia.centrum.shutdown import Shutdown
+
+ROOT = Path(__file__).resolve().parents[1]
+FRONTEND_SOURCE = ROOT / "frontend" / "src"
+OUTPUT = FRONTEND_SOURCE / "api" / "openapi.json"
 
 
 # Trasy, których przeglądarka nie mierzy przez `call` (frontend/src/api/client.ts), każda z powodem. Każda inna

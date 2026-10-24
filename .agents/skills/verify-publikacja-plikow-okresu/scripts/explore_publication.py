@@ -45,12 +45,13 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from rozliczenia import preparation_files
 from rozliczenia.period_folder import PeriodFolder
 from rozliczenia.settlement_period import parse_period_token
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 PERIOD = "08_14_09_2026"
 DAD = "tata"

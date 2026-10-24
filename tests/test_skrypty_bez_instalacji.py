@@ -5,9 +5,12 @@ CI na Windows instaluje tylko ``requirements.txt``, więc skrypt widzi ``src`` t
 test usuwa z ``sys.path`` każdy katalog z pakietem ``rozliczenia`` i uruchamia ``--help`` każdego skryptu z parserem
 argumentów, tak jak ``python skrypt.py``. Skrypty bez parsera pomija, bo ``--help`` nie zatrzymałoby ich pracy.
 
-Skrypt dopisuje katalogi jedną linią w jednej postaci (``BOOTSTRAP``), więc ruff nie potrzebuje tłumienia E402 przy
-importach pod nią (``per-file-ignores`` w ``pyproject.toml``), a kopia w innej postaci albo z liczbą ``parents``,
-która nie trafia w korzeń repozytorium, czerwieni ``test_skrypt_dopisuje_katalogi_do_sys_path_jedna_linia``.
+Skrypt dopisuje każdy katalog jedną linią w jednej postaci (``BOOTSTRAP``) zaraz pod importami biblioteki. Ruff
+zwalnia z E402 importy pod wywołaniem ``sys.path.insert``, ale nie pod przypisaniem ani stałą, więc ta postać nie
+potrzebuje ani ``noqa``, ani ``per-file-ignores``, a E402 dalej łapie import pod innym kodem. Dlatego linia liczy
+``Path(__file__).resolve().parents[N]`` sama, a stała z korzeniem repozytorium stoi dopiero pod importami.
+Kopia w innej postaci albo z liczbą ``parents``, która nie trafia w korzeń repozytorium, czerwieni
+``test_skrypt_dopisuje_katalogi_do_sys_path_jedna_linia``.
 """
 
 from __future__ import annotations
@@ -32,9 +35,9 @@ WITHOUT_INSTALL = (
     "sys.argv = [script, '--help']\n"
     "runpy.run_path(script, run_name='__main__')\n"
 )
-BOOTSTRAP = 'sys.path[:0] = [str(Path(__file__).resolve().parents[{parents}] / folder) for folder in ("src", "tools")]'
+BOOTSTRAP = 'sys.path.insert(0, str(Path(__file__).resolve().parents[{parents}] / "{folder}"))'
 BOOTSTRAP_SHAPE = re.compile(
-    r"sys\.path\[:0\] = \[str\(Path\(__file__\)\.resolve\(\)\.parents\[(\d+)\] / folder\) for folder in (\(.*\))\]"
+    r"sys\.path\.insert\(0, str\(Path\(__file__\)\.resolve\(\)\.parents\[(\d+)\](?: / '([^']+)')?\)\)"
 )
 READING = frozenset({"copy", "count", "index"})
 
@@ -49,45 +52,62 @@ def _runs_with_parser(path: Path) -> bool:
     return entry and parser
 
 
-def _path_changes(tree: ast.Module) -> Iterator[ast.Call | ast.Assign | ast.AugAssign | ast.AnnAssign]:
-    """Każde wyrażenie, które zmienia ``sys.path``: wywołanie jego metody albo przypisanie do niego lub jego wycinka."""
+def _path_changes(tree: ast.Module) -> Iterator[ast.expr | ast.stmt]:
+    """Każda zmiana ``sys.path``: wywołanie metody, przypisanie, ``del``, ``sys`` albo ``sys.path`` pod inną nazwą."""
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if ast.unparse(node.func.value) == "sys.path" and node.func.attr not in READING:
                 yield node
-        elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            if any(ast.unparse(target).startswith("sys.path") for target in targets):
+        elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
+            targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+            value = getattr(node, "value", None)
+            if any(ast.unparse(target).startswith("sys.path") for target in targets) or (
+                value is not None and ast.unparse(value) in ("sys", "sys.path")
+            ):
                 yield node
+        elif isinstance(node, ast.ImportFrom) and node.module == "sys":
+            if any(alias.name in ("path", "*") for alias in node.names):
+                yield node
+        elif isinstance(node, ast.Import) and any(alias.name == "sys" and alias.asname for alias in node.names):
+            yield node
 
 
-def _bootstrap_problem(path: Path, tree: ast.Module, change: ast.expr | ast.stmt) -> str | None:
-    """Co nie zgadza się z ``BOOTSTRAP`` w zmianie ``sys.path``; ``None``, gdy to jedna linia w tej postaci."""
+def _bootstrap_problem(path: Path, tree: ast.Module, change: ast.expr | ast.stmt, seen: set[str]) -> str | None:
+    """Co w zmianie ``sys.path`` nie zgadza się z ``BOOTSTRAP`` i jak to naprawić; ``None``, gdy się zgadza."""
 
-    shape = BOOTSTRAP_SHAPE.fullmatch(ast.unparse(change))
-    if change not in tree.body or shape is None:
-        return "dopisz katalogi jedną linią na poziomie modułu"
     parents = len(path.relative_to(ROOT).parts) - 1
+    line = ast.unparse(change)
+    shape = BOOTSTRAP_SHAPE.fullmatch(line)
+    if shape is None or not any(isinstance(node, ast.Expr) and node.value is change for node in tree.body):
+        return (
+            f"zamiast {line!r} dopisz każdy katalog osobną linią na poziomie modułu, zaraz pod importami biblioteki, "
+            f"np. {BOOTSTRAP.format(parents=parents, folder='src')}"
+        )
+    folder = shape.group(2) or "."
     if int(shape.group(1)) != parents:
-        return f"parents[{shape.group(1)}] nie trafia w korzeń repozytorium, z tego pliku to parents[{parents}]"
-    folders = ast.literal_eval(shape.group(2))
-    missing = [folder for folder in folders if not (ROOT / folder).is_dir()]
-    return f"brak katalogu {', '.join(missing)} w repozytorium" if missing else None
+        return (
+            f"parents[{shape.group(1)}] nie trafia w korzeń repozytorium, z tego pliku to parents[{parents}]: "
+            f"{BOOTSTRAP.format(parents=parents, folder=folder)}"
+        )
+    if folder in seen:
+        return f"katalog {folder} jest już dopisany wyżej, usuń tę linię"
+    seen.add(folder)
+    inside = (ROOT / folder).resolve()
+    if not inside.is_dir() or not inside.is_relative_to(ROOT):
+        return f"katalogu {folder} nie ma w repozytorium, wpisz ścieżkę katalogu względem korzenia repozytorium"
+    return None
 
 
 def test_skrypt_dopisuje_katalogi_do_sys_path_jedna_linia() -> None:
     problems = []
     for path in SCRIPTS:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        changes = list(_path_changes(tree))
-        if len(changes) > 1:
-            problems.append(f"{path.relative_to(ROOT).as_posix()}: {len(changes)} zmiany sys.path, połącz je w jedną")
-        for change in changes:
-            problem = _bootstrap_problem(path, tree, change)
+        seen: set[str] = set()
+        for change in _path_changes(tree):
+            problem = _bootstrap_problem(path, tree, change, seen)
             if problem is not None:
-                example = BOOTSTRAP.format(parents=len(path.relative_to(ROOT).parts) - 1)
-                problems.append(f"{path.relative_to(ROOT).as_posix()}:{change.lineno}: {problem}: {example}")
+                problems.append(f"{path.relative_to(ROOT).as_posix()}:{change.lineno}: {problem}")
 
     assert problems == [], "\n".join(problems)
 

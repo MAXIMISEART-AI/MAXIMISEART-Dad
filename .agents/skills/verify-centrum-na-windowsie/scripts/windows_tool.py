@@ -26,14 +26,17 @@ import subprocess
 import sys
 from typing import Any
 
-SCRIPTS = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPTS.parents[3]
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools", ".agents/skills/verify-centrum-rozliczen/scripts")]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 import create_centrum_fixture
 from rozliczenia.centrum.launcher import DEFAULT_PORT
 from rozliczenia.centrum.tool_update import GITHUB_REPOSITORY
 from skrypt_skilla import create_run_root
+
+SCRIPTS = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPTS.parents[3]
 
 PORT = DEFAULT_PORT
 URL = f"http://127.0.0.1:{PORT}/"

@@ -47,7 +47,7 @@ from typing import Literal, NoReturn, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[1] / folder) for folder in ("src",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rozliczenia import preparation_process, settlement_process
 from rozliczenia.centrum import contract, run_view

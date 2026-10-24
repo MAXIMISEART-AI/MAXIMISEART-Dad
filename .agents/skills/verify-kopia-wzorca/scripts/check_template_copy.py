@@ -53,9 +53,9 @@ from typing import Any
 from unittest import mock
 from xml.etree import ElementTree
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-SOURCE_ROOT = REPO_ROOT / "src"
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools", ".")]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from hypothesis import HealthCheck, Phase, example, given, seed, settings
 from hypothesis import strategies as st
@@ -78,6 +78,9 @@ from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, TemplateFile
 from syntetyczne_wzorce import write_settlement_template
 from tests.fixtures.settlement import write_template
 from tests.fixtures.workbooks import add_external_link_fixture, has_xml_comment, refused_by_copy
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+SOURCE_ROOT = REPO_ROOT / "src"
 
 VERIFIED_FILE = "template_copy.py"
 SHEET = "xl/worksheets/sheet1.xml"

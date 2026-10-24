@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 import sys
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
 from mutacje import Edit, Mutation, check_all
 

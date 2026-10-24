@@ -19,13 +19,14 @@ import time
 import urllib.request
 import uuid
 
-SCRIPTS = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPTS.parents[3]
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
 from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
 from quiet_machine import MachineBusy, QuietMachine
 from skrypt_skilla import Parser, new_run
+
+SCRIPTS = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPTS.parents[3]
 STEP_TIMEOUT_SECONDS = 300
 # wydajnosc repeats every scenario in two CPU profiles, so its drive takes minutes.
 PERFORMANCE_TIMEOUT_SECONDS = 1800

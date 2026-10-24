@@ -13,10 +13,12 @@ import sys
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", ".")]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from tests import test_ilosci_uslug as conformance
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 TEST = conformance.test_plik_zbiorczy_ma_ilosci_uslug_z_kazdej_linii_instrukcji_taty
 

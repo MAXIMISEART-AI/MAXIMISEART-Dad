@@ -12,10 +12,8 @@ import zipfile
 
 from openpyxl import load_workbook
 
-
-SCRIPT = Path(__file__).resolve()
-REPO_ROOT = SCRIPT.parents[4]
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools")]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from rozliczenia.worker_config import load_worker_mapping
 from rozliczenia.message import StopError
@@ -24,7 +22,8 @@ from rozliczenia.engine import check_worker_template
 from rozliczenia.workbook_files import WorkbookError, is_open_in_excel
 from skrypt_skilla import Parser
 
-
+SCRIPT = Path(__file__).resolve()
+REPO_ROOT = SCRIPT.parents[4]
 PERIOD = "08_14_09_2026"
 REQUIRED_REGISTER_HEADERS = frozenset(
     {

@@ -24,7 +24,7 @@ from pathlib import Path
 import re
 import sys
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[1] / folder) for folder in ("src",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rozliczenia.collective_file import read_data_rows
 from rozliczenia.order_facts import N_AP, MissingHeaders, OrderFacts, TataValue

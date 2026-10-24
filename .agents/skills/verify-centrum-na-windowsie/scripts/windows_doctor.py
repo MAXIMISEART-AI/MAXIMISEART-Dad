@@ -15,7 +15,7 @@ import urllib.request
 import windows_desktop
 import windows_tool
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
 from skrypt_skilla import Parser
 

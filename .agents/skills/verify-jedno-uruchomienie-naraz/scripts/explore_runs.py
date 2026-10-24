@@ -51,8 +51,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src",)]
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from rozliczenia import process_run
 from rozliczenia.centrum import contract, runs, shutdown
@@ -60,6 +59,8 @@ from rozliczenia.centrum.run_view import PREPARATION
 from rozliczenia.decision import Decision
 from rozliczenia.message import Message
 from rozliczenia.preparation_process import PROCESS
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 VERIFIED_FILES = ("runs.py", "shutdown.py")
 STEP_TIMEOUT_SECONDS = 10.0
