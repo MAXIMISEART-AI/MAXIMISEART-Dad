@@ -24,13 +24,14 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 ```
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
-`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
+`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,
 `--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
-Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and
+Dad's whole week runs in order: Przygotowanie pliku zbiorczego, the summary of
+Uzupełnienie pliku zbiorczego, Gotowość, and
 Przebieg rozliczeń up to the Status okresu `Rozliczenia pracowników gotowe`;
-`przebieg-rozliczen` alone drives Przygotowanie first, and `logi-uruchomienia` alone drives
+`uzupelnienie` and `przebieg-rozliczen` alone drive Przygotowanie first, and `logi-uruchomienia` alone drives
 `przebieg-rozliczen` first. `--feature wydajnosc`
 measures how fast Centrum is in Dad's CPU profiles against the baseline in
 `wydajnosc-baseline.json`; it is never part of `all` and takes minutes
