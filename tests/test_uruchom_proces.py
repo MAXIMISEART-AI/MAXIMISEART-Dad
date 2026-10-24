@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from rozliczenia import TOOL_ROOT
+from rozliczenia import TOOL_ROOT, settlement_messages
 from rozliczenia.centrum import run_view
 from rozliczenia.preparation_process import PROCESS as PREPARATION
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore
@@ -328,22 +328,20 @@ def test_podsumowanie_i_ostrzezenia_w_kolejnosci_etapow_sa_te_same_w_skrypcie_na
     )
 
     where = f"plik {SOURCE_NAME}, folder {PERIOD}"
-    then_rerun = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
-    unmapped = {
-        "code": "BRAK_MAPOWANIA",
-        "what": "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
-        "where": where,
-        "action": (
-            "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
-            f"do konfiguracji wykonawców. {then_rerun}"
-        ),
-    }
-    without_worker = {"code": "BRAK_WYKONAWCY", "where": where, "action": f"Wpisz WYKONAWCĘ w kolumnie H tego wiersza. {then_rerun}"}
+    assert [(warning["code"], warning["where"]) for warning in result["warnings"]] == [
+        ("BRAK_WYKONAWCY", where),
+        ("BRAK_WYKONAWCY", where),
+        ("BRAK_MAPOWANIA", where),
+        ("BRAK_MAPOWANIA", where),
+    ]
+    expected = [
+        settlement_messages.row_without_worker_warning(centrum.collective_file, 20),
+        settlement_messages.row_without_worker_warning(centrum.collective_file, 22),
+        settlement_messages.unmapped_worker_warning(centrum.collective_file),
+        settlement_messages.unmapped_worker_warning(centrum.collective_file),
+    ]
     assert result["warnings"] == [
-        {**without_worker, "what": "Wiersz 20 ma dane, ale nie ma wykonawcy w kolumnie H."},
-        {**without_worker, "what": "Wiersz 22 ma dane, ale nie ma wykonawcy w kolumnie H."},
-        unmapped,
-        unmapped,
+        {"code": message.code, "what": message.what, "where": message.where, "action": message.action} for message in expected
     ]
     assert (exit_code, result["result"]) == (2, card["result"])
     assert result["summary"] == card["summary"]

@@ -389,7 +389,7 @@ def with_unmapped_worker_and_data_row_without_worker(source_path: Path) -> None:
         (with_data_row_without_worker, "WIERSZE_BEZ_WYKONAWCY"),
         (with_unmapped_worker_and_data_row_without_worker, "NIEZNANY_WYKONAWCA"),
     ],
-    ids=["wykonawca-bez-mapowania", "wiersz-danych-bez-wykonawcy", "oba"],
+    ids=["wykonawca-bez-mapowania", "wiersz-danych-bez-wykonawcy", "oba-wygrywa-nieznany-wykonawca"],
 )
 def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_publikacje_folderu_rozliczen_pracownikow(
     tmp_path: Path, damage: Callable[[Path], None], code: str
