@@ -17,9 +17,10 @@ kodu, więc świeży worktree wybiera tak samo:
 - pliki inne niż Python w katalogu pakietu (``centrum/static``) dla każdego modułu tego pakietu.
 
 Zależność przez import i skrypt testu jest przechodnia, a przez katalog, glob i plik danych nie. Zmiana w ``FULL``
-(konfiguracja i zależności, ``conftest.py`` każdego testu) wybiera wszystkie testy. Test, który już przeszedł na
-tych samych plikach, nie biegnie drugi raz: pamięć zielonych testów leży w katalogu gita worktree. Krok pytest
-bierze ``WORKERS`` workerów, chyba że ustawiono ``PYTEST_XDIST_AUTO_NUM_WORKERS``.
+(konfiguracja i zależności, ``conftest.py`` każdego testu i fixture gita, którą wczytuje dla całej sesji) wybiera
+wszystkie testy. Test, który już przeszedł na tych samych plikach, nie biegnie drugi raz: pamięć zielonych testów
+leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba że ustawiono
+``PYTEST_XDIST_AUTO_NUM_WORKERS``.
 
 Testy ``STRUCTURE`` (reguły z tabeli w ``AGENTS.md`` i testy całego repozytorium) biegną przy każdej zmianie, a gdy
 ``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle
@@ -61,12 +62,15 @@ import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
-FULL = ("pyproject.toml", "requirements.txt", "tests/conftest.py")
+FULL = ("pyproject.toml", "requirements.txt", "tests/conftest.py", "tests/fixtures/git_config.py")
 STRUCTURE = (
     "tests/test_adr.py",
     "tests/test_dokumenty_regul.py",
+    "tests/test_granice_importow.py",
     "tests/test_jeden_odczyt_skoroszytu.py",
     "tests/test_jeden_zapis_skoroszytu.py",
+    "tests/test_mapy_funkcji.py",
+    "tests/test_miejsce_skilli.py",
     "tests/test_potomne.py::test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne",
     "tests/test_potomne.py::test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run",
     "tests/test_skille_dla_zmiany.py::test_agents_md_nie_wymienia_skilli_verify",
