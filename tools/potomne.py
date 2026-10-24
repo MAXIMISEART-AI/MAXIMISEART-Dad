@@ -194,7 +194,8 @@ if sys.platform == "win32":
 
     _KILL_ON_JOB_CLOSE = 0x2000
     _EXTENDED_LIMIT_INFORMATION = 9
-    _TERMINATE_AND_SET_QUOTA = 0x0101
+    _TERMINATE_SET_QUOTA_AND_RESUME = 0x0901
+    _CREATE_SUSPENDED = 0x0004
 
     class _Tree:
         """Job Object obejmuje też potomków, którzy przeżyli polecenie; ``taskkill /T`` już ich nie znajduje."""
@@ -212,21 +213,39 @@ if sys.platform == "win32":
                 error = ctypes.get_last_error()
                 kernel32.CloseHandle(self._job)
                 raise OSError(error, "Job Object dla polecenia")
+            # Wstrzymane do przypisania: inaczej polecenie zdąży uruchomić potomka, który jest poza jobem i przeżywa.
             try:
-                self.process = subprocess.Popen(command, **popen)
+                self.process = subprocess.Popen(command, creationflags=_CREATE_SUSPENDED, **popen)
             except BaseException:
                 kernel32.CloseHandle(self._job)
                 raise
-            handle = wintypes.HANDLE(kernel32.OpenProcess(_TERMINATE_AND_SET_QUOTA, False, self.process.pid))
-            assigned = handle.value and kernel32.AssignProcessToJobObject(self._job, handle)
-            error = ctypes.get_last_error()
-            kernel32.CloseHandle(handle)
-            # Polecenie, które skończyło się przed przypisaniem, ma już wynik, a pusty job nie ma czego zabić.
-            if not assigned and self.process.poll() is None:
+            # Także Ctrl+C w tym oknie: wstrzymanego polecenia poza jobem nikt by nie wznowił ani nie zabił.
+            try:
+                self._assign_and_resume()
+            except BaseException:
                 self.process.kill()
                 self.process.wait()
                 kernel32.CloseHandle(self._job)
-                raise OSError(error, "Job Object dla polecenia")
+                raise
+
+        def _assign_and_resume(self) -> None:
+            kernel32 = self._kernel32
+            handle = wintypes.HANDLE(kernel32.OpenProcess(_TERMINATE_SET_QUOTA_AND_RESUME, False, self.process.pid))
+            if not handle.value:
+                raise ctypes.WinError(ctypes.get_last_error(), "uchwyt polecenia dla Job Object")
+            try:
+                if not kernel32.AssignProcessToJobObject(self._job, handle):
+                    raise ctypes.WinError(ctypes.get_last_error(), "przypisanie polecenia do Job Object")
+                ntdll = ctypes.WinDLL("ntdll")
+                status = ntdll.NtResumeProcess(handle)
+                if status != 0:
+                    ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
+                    raise ctypes.WinError(
+                        ntdll.RtlNtStatusToDosError(status),
+                        f"wznowienie polecenia w Job Object (NTSTATUS 0x{status & 0xFFFFFFFF:08X})",
+                    )
+            finally:
+                kernel32.CloseHandle(handle)
 
         def kill(self) -> None:
             self._kernel32.TerminateJobObject(self._job, 1)

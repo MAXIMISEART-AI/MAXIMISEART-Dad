@@ -30,12 +30,16 @@ def _check_out(runtime: Path, commit: str) -> None:
 
 
 def _browser_recorder(directory: Path) -> tuple[Path, Path]:
-    """Program podstawiony jako przeglądarka (zmienna ``BROWSER``), który zapisuje otwierany adres."""
+    """Program podstawiony jako przeglądarka (zmienna ``BROWSER``), który zapisuje otwierany adres.
+
+    Dwa Centra mogą otwierać kartę naraz, a ``cmd`` nie dopisuje do pliku, który dopisuje drugi proces, więc
+    rejestrator ponawia dopisanie, zamiast zgubić adres.
+    """
 
     record = directory / "otwarte-adresy.txt"
     if sys.platform == "win32":
         recorder = directory / "przegladarka.cmd"
-        recorder.write_text(f'@echo %~1>>"{record}"\r\n', encoding="utf-8")
+        recorder.write_text(f'@echo off\r\n:zapisz\r\n(echo %~1>>"{record}") 2>nul || goto zapisz\r\n', encoding="utf-8")
     else:
         recorder = directory / "przegladarka.sh"
         recorder.write_text(f'#!/bin/sh\nprintf "%s\\n" "$1" >> "{record}"\n', encoding="utf-8")

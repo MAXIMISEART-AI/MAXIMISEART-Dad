@@ -7,14 +7,20 @@ formatowania jak u taty: inny krój, zawijanie, wyrównanie do góry, brak obram
 
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
-from openpyxl import load_workbook
-from openpyxl.cell.cell import Cell
-from openpyxl.styles import PatternFill
+import pytest
+from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import Cell, MergedCell
+from openpyxl.styles import Font, PatternFill, Protection
+from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia.engine import run_settlements
+from rozliczenia.highlights import PLAIN, Highlights
+from rozliczenia.row_look import GENERAL, RowLook
 
 from tests.fixtures.preparation import (
     PERIOD,
@@ -185,3 +191,58 @@ def test_format_liczby_jest_z_komorki_zrodlowej_a_data_pracownika_ma_format_plik
         formats = {(cell.column == date_column, cell.number_format) for cell in _cells(written)}
         assert formats == {(True, REGISTER_DATE_FORMAT), (False, "General")}, written.path.name
     assert REGISTER_DATE_FORMAT != LEFTOVER_DATE_FORMAT
+
+
+def _cells_before_look(workbook: Workbook) -> list[Cell | MergedCell]:
+    """Komórki Wzorca w różnym stanie: bez stylu, ze stylem nazwanym i ochroną, z resztkami formatowania, scalona."""
+
+    sheet = cast(Worksheet, workbook.active)
+    sheet["A1"].value = "bez stylu"
+    sheet["A2"].style = "Good"
+    sheet["A2"].protection = Protection(locked=False)
+    sheet["A3"].font = Font(name="Courier New", bold=True)
+    sheet["A3"].number_format = "0%"
+    sheet["A3"].quotePrefix = True
+    return [sheet["A1"], sheet["A2"], sheet["A3"], MergedCell(sheet, row=4, column=1)]
+
+
+def _resolved(cell: Cell | MergedCell) -> tuple[object, ...]:
+    return (
+        copy(cell.font),
+        copy(cell.fill),
+        copy(cell.border),
+        copy(cell.alignment),
+        cell.number_format,
+        copy(cell.protection),
+        cell.style,
+        cell.quotePrefix,
+    )
+
+
+@pytest.mark.parametrize("first", range(4))
+def test_cell_look_daje_kazdej_komorce_kazdego_skoroszytu_styl_jak_przypisanie_przez_openpyxl(first: int) -> None:
+    faces = RowLook([Font(name="Calibri", sz=10), Font(name="Arial", sz=11)])
+    looks = [
+        faces.cell(1, PLAIN, GENERAL, wrapped=False),
+        faces.cell(2, Highlights.of(Font(color=RED, bold=True), PatternFill("solid", fgColor=RED)), "0.00", wrapped=True),
+    ]
+    actual: list[tuple[int, tuple[object, ...]]] = []
+    expected: list[tuple[int, tuple[object, ...]]] = []
+    for other_styles in (False, True):
+        workbooks = Workbook(), Workbook()
+        for workbook in workbooks:
+            if other_styles:
+                cast(Worksheet, workbook.active)["Z9"].font = Font(name="Comic Sans MS")
+        cells, twins = (_cells_before_look(workbook) for workbook in workbooks)
+        order = [*range(first, len(cells)), *range(first)]
+        for look in looks:
+            for index in order:
+                look.apply(cells[index])
+                twin = twins[index]
+                twin.font, twin.fill, twin.border, twin.alignment = look.font, look.fill, look.border, look.alignment
+                twin.number_format = look.number_format
+                actual.append((index, _resolved(cells[index])))
+                expected.append((index, _resolved(twin)))
+
+    assert actual == expected
+    assert {(resolved[5], resolved[6]) for index, resolved in actual if index == 1} == {(Protection(locked=False), "Good")}

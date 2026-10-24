@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import IO, TypeVar, cast
@@ -598,7 +599,13 @@ def _read_outline(path: Path, rules: _Rules) -> _Outline:
     """
 
     ensure_available(path)
-    content = _file_bytes(path)
+    return _outline(path, _file_bytes(path), rules)
+
+
+# Sprawdzanie i Planowanie Przygotowania czytają zarys tych samych Wzorców; zarys zależy tylko od bajtów,
+# więc niezmieniony Wzorzec nie jest parsowany drugi raz, a zmieniony po Sprawdzaniu jest czytany od nowa.
+@lru_cache(maxsize=4)
+def _outline(path: Path, content: bytes, rules: _Rules) -> _Outline:
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
@@ -636,6 +643,7 @@ def _read_outline(path: Path, rules: _Rules) -> _Outline:
 _MERGE_CELL = "http://schemas.openxmlformats.org/spreadsheetml/2006/main mergeCell"
 _CELL_OR_ROW_STYLE = re.compile(rb'<(?:[\w.-]+:)?(?:c|row)\s[^>]*?\bs="([0-9]+)"')
 _COLUMN_STYLE = re.compile(rb'<(?:[\w.-]+:)?col\s[^>]*?\bstyle="([0-9]+)"')
+_ANY_STYLE = re.compile(rb's="([0-9]+)"')
 
 
 def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> tuple[CellRange, ...]:
@@ -647,7 +655,12 @@ def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> t
 
     with zipfile.ZipFile(BytesIO(content)) as archive:
         xml = archive.read(sheet_part(archive, sheet_title))
-    styles = [int(index) for pattern in (_CELL_OR_ROW_STYLE, _COLUMN_STYLE) for index in set(pattern.findall(xml))]
+    # Styl każdej komórki i wiersza jest też w zbiorze wszystkich ``s="N"``, który znajduje się ~3× szybciej; dokładne
+    # wyrażenie rozstrzyga tylko wtedy, gdy ten szerszy zbiór ma styl spoza stylów skoroszytu.
+    cell_or_row_styles = set(_ANY_STYLE.findall(xml))
+    if max(map(int, cell_or_row_styles), default=0) >= cell_style_count:
+        cell_or_row_styles = set(_CELL_OR_ROW_STYLE.findall(xml))
+    styles = [int(index) for index in (*cell_or_row_styles, *set(_COLUMN_STYLE.findall(xml)))]
     if max(styles, default=0) >= cell_style_count:
         raise IndexError(f"styl {max(styles)} spoza {cell_style_count} stylów skoroszytu")
     references: list[str] = []

@@ -30,8 +30,13 @@ MUTATIONS = (
         EXPECTED,
     ),
     Mutation(
-        "kawałki kompresji bez pełnego opróżnienia",
-        (Edit(VERIFIED, "compressor.flush(zlib.Z_FINISH if last else zlib.Z_FULL_FLUSH)", "compressor.flush(zlib.Z_FINISH if last else zlib.Z_SYNC_FLUSH)"),),
+        "kawałki kompresji z jednego kompresora bez pełnego opróżnienia",
+        (
+            Edit(VERIFIED, "    view = memoryview(xml)\n", "    view = memoryview(xml)\n    compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)\n"),
+            Edit(VERIFIED, "        compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)\n        last", "        last"),
+            Edit(VERIFIED, "zlib.Z_FINISH if last else zlib.Z_FULL_FLUSH", "zlib.Z_FINISH if last else zlib.Z_SYNC_FLUSH"),
+            Edit(VERIFIED, "list(pool.map(compressed,", "list(map(compressed,"),
+        ),
         CHECKER,
         "kawałek sięga wstecz do bajtów Wzorca, których po podmianie już nie ma: arkusz jest uszkodzony",
         EXPECTED,

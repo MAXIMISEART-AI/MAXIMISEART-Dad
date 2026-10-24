@@ -36,6 +36,7 @@ import argparse
 import ast
 from collections.abc import Iterable
 from fnmatch import fnmatchcase
+from functools import cache
 import importlib.util
 import os
 from pathlib import Path
@@ -107,6 +108,7 @@ def _modules(name: str, roots: Iterable[Path]) -> set[Path]:
     }
 
 
+@cache
 def _imports(path: Path) -> set[Path]:
     roots = (*IMPORT_ROOTS, path.parent)
     found = set()
@@ -124,8 +126,11 @@ def _imports(path: Path) -> set[Path]:
     return found
 
 
-def _closure(starts: Iterable[Path]) -> set[Path]:
+def closure(starts: Iterable[Path]) -> set[Path]:
+    """Pliki, które wykonuje uruchomienie ``starts``: one same i ich importy, przechodnio, także te, których nie ma."""
+
     seen: set[Path] = set()
+    # Importy już są bezwzględne i bez ``..``: ``resolve`` setek tysięcy kandydatów trwałby sekundy.
     todo = [path.resolve() for path in starts]
     while todo:
         path = todo.pop()
@@ -133,7 +138,7 @@ def _closure(starts: Iterable[Path]) -> set[Path]:
             continue
         seen.add(path)
         if path.suffix == ".py" and path.is_file():
-            todo += [found.resolve() for found in _imports(path)]
+            todo += _imports(path)
     return seen
 
 
@@ -151,7 +156,7 @@ def reads(script: Path) -> set[str]:
         if checker.suffix != ".py" or not checker.is_file():
             raise ValueError(f"polecenie mutacji {mutation.name!r} nie zaczyna się skryptem z repozytorium")
         starts |= {checker, *(ROOT / edit.file for edit in mutation.edits)}
-    return {_name(path) for path in _closure(starts) if path.is_relative_to(ROOT)}
+    return {_name(path) for path in closure(starts) if path.is_relative_to(ROOT)}
 
 
 def guarded(skill_md: Path) -> tuple[str, ...] | None:

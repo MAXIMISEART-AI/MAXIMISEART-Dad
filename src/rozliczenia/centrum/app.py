@@ -36,7 +36,7 @@ from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
 from rozliczenia.centrum.outbox import QUEUE_DIRECTORY, Outbox
 from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
-from rozliczenia.centrum.reports import UNSENT_DIRECTORY, Reports, read_report_key, repair_router
+from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports, read_report_key, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
@@ -72,6 +72,7 @@ def create_app(
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
     clock: Callable[[], float] = time.monotonic,
+    report_search_deadline_s: float = SEARCH_DEADLINE_S,
     tool_update: ToolClone | None = None,
     guardian: GuardianLauncher | None = None,
 ) -> FastAPI:
@@ -149,7 +150,9 @@ def create_app(
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
     config = settings_path.parent
     box = report_box or GitHubReportBox()
-    reports = Reports(config, box, log, surroundings.tool_freshness.local, clock=clock)
+    reports = Reports(
+        config, box, log, surroundings.tool_freshness.local, clock=clock, search_deadline_s=report_search_deadline_s
+    )
     # Kontrola ilości po Przebiegu rozliczeń: w kolejce obok niewysłanych Zgłoszeń, wysyłana w tle (ADR 0013).
     outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
