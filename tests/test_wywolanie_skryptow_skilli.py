@@ -136,7 +136,7 @@ def test_przerwane_sprzatanie_zostawia_znacznik_a_ponowne_konczy_prace(
 
     monkeypatch.setattr(os, "scandir", lambda *arguments: _NtfsOrder(scandir(*arguments)))
     monkeypatch.setattr(os, "unlink", locked)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match=r"run[/\\]+dane"):
         skrypt_skilla.remove_run_root(root)
     monkeypatch.undo()
 

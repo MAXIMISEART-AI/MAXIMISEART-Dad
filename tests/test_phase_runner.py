@@ -130,19 +130,21 @@ def test_przetworzenie_szablonow_pracownika_poza_trwajacym_zapisywaniem_jest_ble
 
 
 @pytest.mark.parametrize(
-    ("read_issue_count", "plan_issue_count", "next_stage"),
-    [(2, 1, "save"), (-1, None, "plan")],
+    ("counted", "failing", "next_stage"),
+    [([("read", 2)], ("plan", 1), "save"), ([], ("read", -1), "plan")],
     ids=["malejaca-liczba-problemow", "ujemna-liczba-problemow"],
 )
 def test_niepoprawna_liczba_konczy_etap_przerwaniem_i_bledem_kodu(
-    read_issue_count: int, plan_issue_count: int | None, next_stage: str
+    counted: list[tuple[str, int]], failing: tuple[str, int], next_stage: str
 ) -> None:
     runner = PhaseRunner(None)
     runner.check(lambda: None)
+    for stage, count in counted:
+        getattr(runner, stage)(lambda: None, issue_count=lambda result: count)
 
+    stage, count = failing
     with pytest.raises(ProgressProtocolError):
-        runner.read(lambda: None, issue_count=lambda result: read_issue_count)
-        runner.plan(lambda: None, issue_count=None if plan_issue_count is None else lambda result: plan_issue_count)
+        getattr(runner, stage)(lambda: None, issue_count=lambda result: count)
 
     calls: list[str] = []
     with pytest.raises(ProgressProtocolError):

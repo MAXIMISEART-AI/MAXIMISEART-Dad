@@ -27,7 +27,7 @@ import tempfile
 import zipfile
 import zlib
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -804,10 +804,8 @@ class TemplateFile:
             self._copy_read = True
             self._copy = None
             if self._rules.copy is not None:
-                try:
+                with suppress(UnsupportedShape):
                     self._copy = TemplateCopy.of(self._loaded(), self._rules.copy)
-                except UnsupportedShape:
-                    pass
         return self._copy
 
     @contextmanager

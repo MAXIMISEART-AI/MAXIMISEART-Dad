@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import sys
 from typing import Final
@@ -47,5 +46,5 @@ class CloudFiles:
 
 def _windows_attributes(path: Path) -> int:
     # ``st_file_attributes`` istnieje tylko w Windows; stat czyta metadane i nie pobiera pliku z chmury.
-    attributes: int = getattr(os.stat(path), "st_file_attributes", 0)
+    attributes: int = getattr(path.stat(), "st_file_attributes", 0)
     return attributes
