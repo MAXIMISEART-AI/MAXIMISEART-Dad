@@ -21,6 +21,9 @@ const BODY_MAX_LENGTH = zDadNoteRequest.shape.body.toJSONSchema().maxLength
 // Szkic dopiero po krótkiej przerwie w pisaniu: zapytanie na każdy klawisz zapychałoby pomiar widoku.
 const DRAFT_PAUSE_MS = 150
 
+// Nieudane zapytanie o szkic wraca po tej przerwie, żeby „Wyślij” nie czekał na następny klawisz taty.
+const DRAFT_RETRY_MS = 1000
+
 const ANSWERS: Record<DadNoteState["state"], { icon: LucideIcon; tone: string; text: string }> = {
   sent: { icon: CircleCheckIcon, tone: "text-success", text: "Uwaga wysłana do Maksa." },
   waiting: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
@@ -124,23 +127,33 @@ type Drafted = { title: string; body: string; draft: DadNoteDraft }
  * Szkic issue od serwera dla tego, co tata właśnie napisał. Poprzedni szkic zostaje na ekranie, dopóki nie
  * przyjdzie nowszy, a odpowiedź na tekst, który tata już zmienił, przepada. `current` mówi, czy szkic na ekranie
  * jest z pól, które teraz wyśle „Wyślij”: bez tego tata mógłby wysłać coś innego, niż widzi w „Maks dostanie”.
+ * Nieudane zapytanie wraca po cichu, bez Komunikatu.
  */
 function useDraft(title: string, body: string) {
   const [drafted, setDrafted] = React.useState<Drafted | null>(null)
 
   React.useEffect(() => {
     let wanted = true
+    let pause: number | undefined
 
-    const pause = window.setTimeout(() => {
-      draftDadNote({ title, body }).then(
-        (draft) => {
-          if (wanted) {
-            setDrafted({ title, body, draft })
+    const ask = (after: number) => {
+      pause = window.setTimeout(() => {
+        draftDadNote({ title, body }).then(
+          (draft) => {
+            if (wanted) {
+              setDrafted({ title, body, draft })
+            }
+          },
+          () => {
+            if (wanted) {
+              ask(DRAFT_RETRY_MS)
+            }
           }
-        },
-        () => undefined
-      )
-    }, DRAFT_PAUSE_MS)
+        )
+      }, after)
+    }
+
+    ask(DRAFT_PAUSE_MS)
 
     return () => {
       wanted = false
