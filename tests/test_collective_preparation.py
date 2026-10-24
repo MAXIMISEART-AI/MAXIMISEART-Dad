@@ -1038,7 +1038,8 @@ def test_worker_outside_worker_config_in_unsuccessful_order_does_not_stop(tmp_pa
 def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_files(tmp_path: Path) -> None:
     successful_count = COLLECTIVE_TEMPLATE_ZERO_ROWS + 2
     rows: list[RegisterRow] = [
-        register_order(number, datetime(2026, 9, 14, 8, number)) for number in range(1, successful_count + 1)
+        {**register_order(number, datetime(2026, 9, 14, 8, number)), "UMOWA": "u", "URZĄDZENIA": "nokia zte"}
+        for number in range(1, successful_count + 1)
     ]
     rows.insert(3, register_order(99, datetime(2026, 9, 14, 9, 0), successful="nie"))
     fixture = make_preparation_fixture(tmp_path, rows)
@@ -1049,8 +1050,9 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
         "Co się stało: Zleceń skutecznych: 8, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
         "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
         f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersze 24–25\n"
-        "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
-        "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
+        "Co zrobić: Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości, a puste komórki liczą się "
+        "jak 0. Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze z zerami "
+        "we Wzorcu pliku zbiorczego."
     ]
     assert other_warnings(summary.warnings)[0].code == "MALO_WIERSZY_Z_ZERAMI"
     assert summary.successful_order_count == successful_count
@@ -1058,6 +1060,9 @@ def test_more_zlecenia_skuteczne_than_wzorzec_zero_rows_warns_and_creates_both_f
     created = cell_values(fixture.collective_file_path, min_row=18, max_row=26, min_col=1, max_col=14)
     assert [row[5] for row in created] == [f"ZL-SYN-{number:03d}" for number in range(1, 9)] + [None]
     assert [row[13] for row in created] == [0] * COLLECTIVE_TEMPLATE_ZERO_ROWS + [None] * 3
+    with_zeros, without_zeros = cell_values(fixture.collective_file_path, min_row=23, max_row=24, min_col=14, max_col=42)
+    assert [value or 0 for value in without_zeros] == list(with_zeros)
+    assert any(with_zeros)
 
 
 def test_jedno_zlecenie_skuteczne_ponad_wiersze_z_zerami_ostrzega_o_jednym_wierszu(tmp_path: Path) -> None:
@@ -1075,8 +1080,9 @@ def test_jedno_zlecenie_skuteczne_ponad_wiersze_z_zerami_ostrzega_o_jednym_wiers
             "Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. "
             "Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.\n"
             f"Gdzie: plik {COLLECTIVE_FILE_NAME}, wiersz 24\n"
-            "Co zrobić: Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
-            "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.",
+            "Co zrobić: Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości, a puste komórki liczą się "
+            "jak 0. Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze z zerami "
+            "we Wzorcu pliku zbiorczego.",
         )
     ]
 
