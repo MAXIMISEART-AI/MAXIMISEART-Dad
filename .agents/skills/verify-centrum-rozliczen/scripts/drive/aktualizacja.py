@@ -265,6 +265,8 @@ def drive_update(run: Run, page: Page) -> None:
         run.capture(page, "93-aktualizacja-jest-nowsza")
         _drive_no_connection(run, page, card, clone, first)
         _github_main(run, newest)
+        page.reload()
+        expect(card).to_contain_text("Jest nowsza wersja")
 
         run.step(FEATURE, "aktualizacja-postep")
         print(f"  harness: each Aktualizacja narzędzia waits {UPDATE_PACING_MS} ms before it looks for Git", flush=True)
