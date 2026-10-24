@@ -356,6 +356,27 @@ export const zPhaseProgress = z.object({
 });
 
 /**
+ * PinnableRun
+ *
+ * Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.
+ *
+ * Pola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć.
+ */
+export const zPinnableRun = z.object({
+    run_id: z.string(),
+    process_label: z.string(),
+    started_at: z.iso.datetime(),
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    period: z.string(),
+    result: z.enum([
+        'OK',
+        'WYMAGA_SPRAWDZENIA',
+        'BLAD_KRYTYCZNY'
+    ]),
+    stop_kind: z.enum(['for_tata', 'for_maks']).nullable()
+});
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -1053,7 +1074,7 @@ export const zGetDadNoteRunsQuery = z.object({
  *
  * Successful Response
  */
-export const zGetDadNoteRunsResponse = z.array(zProcessRun);
+export const zGetDadNoteRunsResponse = z.array(zPinnableRun);
 
 /**
  * Successful Response

@@ -205,6 +205,21 @@ class ProcessRun(_Model):
     run_id: str | None
 
 
+class PinnableRun(_Model):
+    """Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.
+
+    Pola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć.
+    """
+
+    run_id: str
+    process_label: str
+    started_at: datetime
+    mode: RunMode
+    period: str
+    result: RunResult
+    stop_kind: RecordedStopKind | None
+
+
 class PhasePercentiles(_Model):
     phase: str
     p50_ms: int

@@ -1,16 +1,14 @@
 import { cn } from "cn"
 import { EyeIcon } from "lucide-react"
 
-import type { ProcessRun } from "@/api/centrum"
+import type { PinnableRun } from "@/api/centrum"
 import { RunResultBadge } from "@/components/run-result-badge"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Skeleton } from "@/components/ui/skeleton"
 import { dateTime } from "@/lib/format"
 import type { Resource } from "@/lib/use-resource"
 
-export type PinnableRun = ProcessRun & { run_id: string }
-
-const MODE_WORDS: Record<ProcessRun["mode"], string> = { "DRY-RUN": "podgląd", RUN: "zapis" }
+const MODE_WORDS: Record<PinnableRun["mode"], string> = { "DRY-RUN": "podgląd", RUN: "zapis" }
 
 const SKELETON_ROWS = 3
 

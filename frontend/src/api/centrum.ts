@@ -62,6 +62,7 @@ export type {
   PeriodRow,
   PeriodFile,
   PhaseProgress,
+  PinnableRun,
   ProcessRun,
   ProcessStep,
   ProcessSetup,

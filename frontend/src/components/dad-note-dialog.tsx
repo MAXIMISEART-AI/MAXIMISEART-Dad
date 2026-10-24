@@ -10,10 +10,10 @@ import {
   type DadNoteDraft,
   type DadNoteRequest,
   type DadNoteState,
-  type ProcessRun,
+  type PinnableRun,
 } from "@/api/centrum"
 import { zDadNoteRequest } from "@/api/generated/zod.gen"
-import { DadNoteRuns, type PinnableRun } from "@/components/dad-note-runs"
+import { DadNoteRuns } from "@/components/dad-note-runs"
 import { SegmentedFilter, type FilterOption } from "@/components/segmented-filter"
 import { Button } from "@/components/ui/button"
 import { DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -136,7 +136,7 @@ function usePinnableRuns(selected: string | null): Resource<ReadonlyArray<Pinnab
     getDadNoteRuns(selected).then(
       (list) => {
         if (wanted) {
-          setRuns({ state: "ready", data: list.filter(isPinnable) })
+          setRuns({ state: "ready", data: list })
         }
       },
       (failure: Error) => {
@@ -152,10 +152,6 @@ function usePinnableRuns(selected: string | null): Resource<ReadonlyArray<Pinnab
   }, [selected])
 
   return runs
-}
-
-function isPinnable(run: ProcessRun): run is PinnableRun {
-  return run.run_id !== null
 }
 
 /** Uwaga do szkicu i do wysłania; `null`, gdy przy „Do Uruchomienia” nie jest zaznaczone Uruchomienie z listy. */

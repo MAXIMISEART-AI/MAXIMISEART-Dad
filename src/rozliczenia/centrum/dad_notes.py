@@ -54,13 +54,12 @@ LogsAddress = Callable[[str], str | None]
 
 @dataclass(frozen=True)
 class PinnedRun:
-    """Uruchomienie z Centrum o identyfikatorze ``run_id``, do którego tata przypiął Uwagę, i adres jego Logów.
+    """Uruchomienie z Centrum, do którego tata przypiął Uwagę, i adres jego Logów.
 
     ``logs`` ``None``: Logi Uruchomienia jeszcze nie doszły do Skrzynki Zgłoszeń.
     """
 
-    run_id: str
-    run: contract.ProcessRun
+    run: contract.PinnableRun
     logs: str | None
 
 
@@ -79,10 +78,10 @@ def _pinned_footer(pinned: PinnedRun, version: str) -> str:
     run = pinned.run
     started = run.started_at.astimezone()
     facts = (run.process_label, run.period, _MODE_WORDS[run.mode], _result_word(run), f"{started:%d.%m.%Y, %H:%M}")
-    return f"Uruchomienie: {' · '.join((*facts, version))}\n{_logs_line(pinned.run_id, pinned.logs)}"
+    return f"Uruchomienie: {' · '.join((*facts, version))}\n{_logs_line(run.run_id, pinned.logs)}"
 
 
-def _result_word(run: contract.ProcessRun) -> str:
+def _result_word(run: contract.PinnableRun) -> str:
     """Wynik słowem jak na karcie Uruchomienia (``RunResultBadge``): błąd to tylko Zatrzymanie „do Maksa”."""
 
     match run.result:
@@ -246,20 +245,22 @@ def with_logs(post: Post, notes: DadNotes, logs: LogsAddress) -> Post:
     return replace(post, parts=(first.removesuffix(waiting) + _logs_line(run_id, address), *post.parts[1:]))
 
 
-def _history(history: History) -> list[contract.ProcessRun]:
+def _pinnable(history: History) -> list[contract.PinnableRun]:
+    """Uruchomienia z Centrum z historii, od najnowszego; Uruchomienie bez identyfikatora nie ma czego przypiąć."""
+
     try:
-        return history()
+        runs = history()
     except OSError:
         raise contract.Refusal(500, _NO_HISTORY) from None
+    return [contract.PinnableRun.model_validate(run, from_attributes=True) for run in runs if run.run_id is not None]
 
 
-def _pickable(history: list[contract.ProcessRun], selected: str | None) -> list[contract.ProcessRun]:
-    """Uruchomienia z Centrum do przypięcia, od najnowszego: ``RECENT_RUNS`` najnowszych i starsze ``selected``.
+def _pickable(own: list[contract.PinnableRun], selected: str | None) -> list[contract.PinnableRun]:
+    """Uruchomienia do wyboru w oknie Uwagi: ``RECENT_RUNS`` najnowszych i starsze ``selected``.
 
     ``selected`` to Uruchomienie z karty, z której tata otworzył okno; nieznane jest pomijane.
     """
 
-    own = [run for run in history if run.run_id is not None]
     return own[:RECENT_RUNS] + [run for run in own[RECENT_RUNS:] if run.run_id == selected]
 
 
@@ -268,10 +269,10 @@ def _pinned(run_id: str | None, history: History, logs: LogsAddress) -> PinnedRu
 
     if run_id is None:
         return None
-    run = next((run for run in _history(history) if run.run_id == run_id), None)
+    run = next((run for run in _pinnable(history) if run.run_id == run_id), None)
     if run is None:
         raise contract.Refusal(404, _UNKNOWN_RUN)
-    return PinnedRun(run_id, run, logs(run_id))
+    return PinnedRun(run, logs(run_id))
 
 
 def send(
@@ -283,7 +284,7 @@ def send(
     """
 
     issue = note_issue(request.title, request.body, commit, pinned)
-    run_id = None if pinned is None else pinned.run_id
+    run_id = None if pinned is None else pinned.run.run_id
     note = DadNote(uuid.uuid4().hex, issue.title, commit, datetime.now(timezone.utc), number=None, run_id=run_id)
     notes.add(note)
     queued = outbox.post(
@@ -304,8 +305,8 @@ def dad_notes_router(
     refusals: dict[int | str, dict[str, object]] = {status: {"model": contract.Problem} for status in (404, 500)}
 
     @router.get("/runs", operation_id="getDadNoteRuns", responses={500: {"model": contract.Problem}})
-    def runs(selected: str | None = None) -> list[contract.ProcessRun]:
-        return _pickable(_history(history), selected)
+    def runs(selected: str | None = None) -> list[contract.PinnableRun]:
+        return _pickable(_pinnable(history), selected)
 
     @router.post("/draft", operation_id="draftDadNote", responses=refusals)
     def draft(text: contract.DadNoteText) -> contract.DadNoteDraft:

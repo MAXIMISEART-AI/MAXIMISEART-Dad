@@ -755,6 +755,44 @@ export type PhaseProgress = {
 };
 
 /**
+ * PinnableRun
+ *
+ * Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.
+ *
+ * Pola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć.
+ */
+export type PinnableRun = {
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Process Label
+     */
+    process_label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Mode
+     */
+    mode: 'RUN' | 'DRY-RUN';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Result
+     */
+    result: 'OK' | 'WYMAGA_SPRAWDZENIA' | 'BLAD_KRYTYCZNY';
+    /**
+     * Stop Kind
+     */
+    stop_kind: 'for_tata' | 'for_maks' | null;
+};
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -1726,7 +1764,7 @@ export type GetDadNoteRunsResponses = {
      *
      * Successful Response
      */
-    200: Array<ProcessRun>;
+    200: Array<PinnableRun>;
 };
 
 export type GetDadNoteRunsResponse = GetDadNoteRunsResponses[keyof GetDadNoteRunsResponses];

@@ -196,7 +196,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ProcessRun"
+                    "$ref": "#/components/schemas/PinnableRun"
                   },
                   "title": "Response Getdadnoteruns"
                 }
@@ -2392,6 +2392,72 @@
           "duration_ms"
         ],
         "title": "PhaseProgress"
+      },
+      "PinnableRun": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "process_label": {
+            "type": "string",
+            "title": "Process Label"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WYMAGA_SPRAWDZENIA",
+              "BLAD_KRYTYCZNY"
+            ],
+            "title": "Result"
+          },
+          "stop_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "for_tata",
+                  "for_maks"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Kind"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "process_label",
+          "started_at",
+          "mode",
+          "period",
+          "result",
+          "stop_kind"
+        ],
+        "title": "PinnableRun",
+        "description": "Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.\n\nPola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć."
       },
       "Problem": {
         "properties": {
