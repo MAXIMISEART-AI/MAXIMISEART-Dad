@@ -139,4 +139,4 @@ MUTATIONS = (
 
 if __name__ == "__main__":
     argparse.ArgumentParser(description=__doc__).parse_args()
-    raise SystemExit(check_all(MUTATIONS, baseline=True))
+    raise SystemExit(check_all(MUTATIONS))
