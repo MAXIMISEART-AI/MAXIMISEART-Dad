@@ -55,6 +55,7 @@ from tests.fixtures.preparation import (
     other_warnings,
     run_preparation,
 )
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.interlocutor import Tata
 
 
@@ -1272,16 +1273,17 @@ def test_dry_run_of_incomplete_period_does_not_ask_tata(tmp_path: Path) -> None:
 
 def test_time_of_decyzja_taty_is_not_counted_in_przygotowanie_time(tmp_path: Path) -> None:
     fixture = incomplete_period_fixture(tmp_path)
+    clock = ManualClock()
+    tata = Tata(before_answer=lambda: clock.advance(600))
     recorded: list[ProgressEvent] = []
-    pause_s = 1.5
-    rounding_ms = 0.5  # czasy etapów i Zdarzeń przebiegu są zaokrąglone do pełnych ms
 
-    started = time.perf_counter()
-    summary = run_preparation(
-        fixture, observer=recorded.append, conversation=Tata(before_answer=lambda: time.sleep(pause_s))
-    )
-    not_waiting_ms = (time.perf_counter() - started - pause_s) * 1000
+    def each_phase_takes_125_ms(event: ProgressEvent) -> None:
+        recorded.append(event)
+        if isinstance(event, PhaseStarted):
+            clock.advance(0.125)
 
-    durations = summary.phase_durations_ms.values()
-    assert sum(durations) <= not_waiting_ms + rounding_ms * len(durations)
-    assert max(event.elapsed_ms or 0 for event in recorded) <= not_waiting_ms + rounding_ms
+    summary = run_preparation(fixture, observer=each_phase_takes_125_ms, conversation=tata, clock=clock)
+
+    assert len(tata.decisions) == 1
+    assert dict(summary.phase_durations_ms) == dict.fromkeys(ProgressPhase, 125)
+    assert max(event.elapsed_ms or 0 for event in recorded) == 500
