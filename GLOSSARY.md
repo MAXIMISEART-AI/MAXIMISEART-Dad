@@ -185,13 +185,13 @@ _Avoid_: scenariusze rozliczeń, instrukcja
 ## Ilości do uzupełnienia
 
 Ilości usług w Pliku zbiorczym, których Reguły ilości nie wyznaczają, więc
-wpisuje je tata: w wierszu bez reguły (nieznane `URZĄDZENIA`, reguły dały tylko
+wpisuje je tata: w wierszu bez reguły (nieznane `URZĄDZENIA`, reguły dały najwyżej
 V, T i N), w wierszu z opisu (prewencja, niedostępność usług albo puste
 `URZĄDZENIA`, reguły nie dały nic) i w kolumnach z opisu technika w każdym
 wierszu. To miejsca zostawione tacie, nie błędy.
 _Avoid_: błędy, braki, cyfry do wpisania
 
-## Uzupełnienie Pliku zbiorczego
+## Uzupełnienie pliku zbiorczego
 
 Etap między Przygotowaniem pliku zbiorczego a Przebiegiem rozliczeń: tata
 wpisuje w Excelu Ilości do uzupełnienia. Kończy go Gotowość.
