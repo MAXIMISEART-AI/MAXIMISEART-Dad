@@ -60,11 +60,10 @@ def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation
 
 
 def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finished:
-    """Zapisany Plik zbiorczy z Ilościami usług do uzupełnienia wymaga sprawdzenia: tata uzupełnia go przed
-    Przebiegiem rozliczeń.
+    """Zapisany Plik zbiorczy z Ilościami usług do uzupełnienia wymaga sprawdzenia.
 
-    Podgląd bez zapisu nic nie tworzy, więc z tymi samymi ostrzeżeniami kończy się wynikiem OK i prowadzi do zapisu.
-    Pozostałe fakty planu nie zmieniają wyniku.
+    Tata uzupełnia go przed Przebiegiem rozliczeń. Podgląd bez zapisu nic nie tworzy, więc z tymi samymi
+    ostrzeżeniami kończy się wynikiem OK i prowadzi do zapisu. Pozostałe fakty planu nie zmieniają wyniku.
     """
 
     return Finished(

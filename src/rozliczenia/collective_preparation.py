@@ -6,12 +6,11 @@ rozmowę od rdzenia Uruchomienia procesu (``decision.Conversation``), i sam
 zatrzymuje się po odmowie. Zatrzymania zgłasza jako ``StopError`` z
 Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
-Ten moduł sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty planu na
-ostrzeżenia, fakt wyniku (``quantities_to_complete``) i Decyzję taty o
-niepełnym okresie, o którą pyta między Planowaniem a Zapisywaniem. Odczyt Rejestru zleceń jest w
-``preparation_register``, wybór zleceń okresu i reguły zleceń w
-``preparation_plan``, Ilości usług zleceń w ``quantity_rules`` (wyznaczane w Planowaniu, więc podgląd bez zapisu
-ma te same ostrzeżenia ilości co zapis), a wzorce i zapis plików okresu w ``preparation_files``.
+Ten moduł sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty planu na ostrzeżenia, fakt wyniku
+(``quantities_to_complete``) i Decyzję taty o niepełnym okresie, o którą pyta między Planowaniem a Zapisywaniem.
+Odczyt Rejestru zleceń jest w ``preparation_register``, wybór zleceń okresu i reguły zleceń w ``preparation_plan``,
+Ilości usług zleceń w ``quantity_rules`` (wyznaczane w Planowaniu, więc podgląd bez zapisu ma te same ostrzeżenia
+ilości co zapis), a wzorce i zapis plików okresu w ``preparation_files``.
 """
 
 from __future__ import annotations
@@ -61,10 +60,10 @@ class PreparationSummary:
     period_order_count: int
     successful_order_count: int
     skipped_empty_rows: int
+    quantities_to_complete: bool
+    """Tata uzupełnia Ilości usług w Pliku zbiorczym przed Przebiegiem rozliczeń."""
     orders_per_day: dict[date, int] = field(default_factory=dict)
     warnings: list[Message] = field(default_factory=list)
-    quantities_to_complete: bool = False
-    """Tata uzupełnia Ilości usług w Pliku zbiorczym przed Przebiegiem rozliczeń."""
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
     def labeled_orders_per_day(self) -> list[tuple[str, int]]:

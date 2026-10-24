@@ -1,12 +1,10 @@
 """Wzorce i pliki okresu w Przygotowaniu pliku zbiorczego.
 
-Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we
-wzorcach, i podaje fakty o wierszach Pliku zbiorczego (Planowanie), a potem zapisuje
-Rozliczenie wewnętrzne oraz Plik zbiorczy razem do Folderu okresu (Zapisywanie). Sprawdzanie zgłasza problem ze wzorcem
-jako ``WorkbookError``, który tłumaczy wejście (Przygotowanie albo Konfiguracja
-Centrum rozliczeń); Planowanie i Zapisywanie zatrzymują się ``StopError``. Moduł
-wewnętrzny Przygotowania pliku zbiorczego; operacją publiczną pozostaje
-``collective_preparation.prepare_collective_file()``.
+Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we wzorcach, i podaje fakty o wierszach
+Pliku zbiorczego (Planowanie), a potem zapisuje Rozliczenie wewnętrzne oraz Plik zbiorczy razem do Folderu okresu
+(Zapisywanie). Sprawdzanie zgłasza problem ze wzorcem jako ``WorkbookError``, który tłumaczy wejście (Przygotowanie
+albo Konfiguracja Centrum rozliczeń); Planowanie i Zapisywanie zatrzymują się ``StopError``. Moduł wewnętrzny
+Przygotowania pliku zbiorczego; operacją publiczną pozostaje ``collective_preparation.prepare_collective_file()``.
 """
 
 from __future__ import annotations
