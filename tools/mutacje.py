@@ -7,9 +7,12 @@ nieaktualnych ``.pyc``. Polecenie biegnie Pythonem, który uruchomił narzędzie
 z ``PYTHONPATH`` na ``src`` kopii: edytowalna instalacja ``.venv`` wskazuje ``src`` checkoutu.
 
 Mutacja zmienia jedną albo kilka kotwic, każdą obecną w swoim pliku dokładnie raz; inaczej jest
-NIEAKTUALNA. Zanim narzędzie zepsuje kod, polecenie musi przejść na kopii bez mutacji. Mutacja
-jest WYKRYTA, gdy polecenie pada; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem. Mutacje
-biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je zrównolegla.
+NIEAKTUALNA. Pusta kotwica w pliku, którego nie ma, tworzy go razem z katalogami. Zanim narzędzie
+zepsuje kod, polecenie musi przejść na kopii bez mutacji, a jeśli mutacja oczekuje ostatniej
+linii wyjścia, polecenie bez mutacji nie może się nią kończyć. Mutacja jest WYKRYTA, gdy polecenie
+pada albo kończy się oczekiwaną linią; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem.
+Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je
+zrównolegla.
 Polecenia i kopie biegną przez ``tools/potomne.py``: procesy potomne polecenia giną z jego końcem, a
 przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i usuwają kopie.
 
@@ -18,13 +21,16 @@ przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i
     .venv/bin/python tools/mutacje.py --plik mutacje.json -- -m pytest -q tests/test_x.py
 
 Plik JSON to lista ``{"nazwa", "zmiany": [[plik, kotwica, zamiana], ...]}`` z opcjonalnym
-``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``. Skrypty
-``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``.
+``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``, i opcjonalnym
+``"oczekiwane"``, początkiem ostatniej linii wyjścia, który wykrywa mutację zamiast kodu wyjścia.
+Skrypty ``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez
+``check_all``.
 """
 
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -119,6 +125,7 @@ def _apply(copy: Path, edits: Sequence[Edit]) -> str | None:
         code = path.read_text(encoding="utf-8") if path.is_file() else ""
         if code.count(edit.anchor) != 1:
             return f"kotwicy nie ma dokładnie raz w {edit.file.as_posix()}: {edit.anchor.strip()[:60]!r}"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(code.replace(edit.anchor, edit.replacement), encoding="utf-8")
     return None
 
@@ -146,26 +153,31 @@ def _verdict(mutation: Mutation, *, limit_s: float, stop: threading.Event) -> tu
     return ("WYKRYTA" if caught else "NIEWYKRYTA"), last
 
 
-def _baseline(baseline: set[tuple[str, ...]], limit_s: float) -> list[str]:
-    """Polecenia, które padają już bez mutacji, z ostatnią linią wyjścia."""
+def _baseline(mutations: Sequence[Mutation], limit_s: float) -> list[str]:
+    """Polecenia, które bez mutacji padają albo kończą się linią oczekiwaną po mutacji, z ostatnią linią wyjścia."""
 
+    expected: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    for mutation in mutations:
+        expected[mutation.command] |= set() if mutation.expected is None else {mutation.expected}
     red = []
     with checkout_copy() as copy:
-        for command in sorted(baseline):
+        for command in sorted(expected):
             code, last = _run(copy, command, limit_s)
-            if code != 0:
+            if code != 0 or any(last.startswith(line) for line in expected[command]):
                 red.append(f"{' '.join(command)} → {last}")
     return red
 
 
-def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, baseline: bool = False, limit_s: float = TIMEOUT) -> int:
-    if baseline:
-        red = _baseline({mutation.command for mutation in mutations if mutation.expected is None}, limit_s)
-        for line in red:
-            print(f"PODSTAWA CZERWONA: {line}", flush=True)
-        if red:
-            print("MUTACJE: polecenie pada bez mutacji, więc porażka po mutacji niczego nie dowodzi")
-            return 2
+def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT) -> int:
+    if not mutations:
+        print("MUTACJE: brak mutacji, więc nie ma czego dowieść")
+        return 1
+    red = _baseline(mutations, limit_s)
+    for line in red:
+        print(f"PODSTAWA CZERWONA: {line}", flush=True)
+    if red:
+        print("MUTACJE: polecenie bez mutacji pada albo daje wynik mutacji, więc wynik po mutacji niczego nie dowodzi")
+        return 2
     stop = threading.Event()
     pool = ThreadPoolExecutor(max_workers=None if parallel else 1)
     try:
@@ -192,6 +204,7 @@ def _from_file(path: Path, command: tuple[str, ...]) -> list[Mutation]:
             name=entry["nazwa"],
             edits=tuple(Edit(Path(file), anchor, replacement) for file, anchor, replacement in entry["zmiany"]),
             command=tuple(entry.get("polecenie", command)),
+            expected=entry.get("oczekiwane"),
         )
         for entry in entries
     ]
@@ -224,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     if not mutations or not all(mutation.command for mutation in mutations):
         parser.error("podaj mutację (--zmiana albo --plik) i polecenie po --, np. -- -m pytest -q tests/test_x.py")
-    return check_all(mutations, parallel=args.rownolegle, baseline=True, limit_s=args.limit_s)
+    return check_all(mutations, parallel=args.rownolegle, limit_s=args.limit_s)
 
 
 if __name__ == "__main__":

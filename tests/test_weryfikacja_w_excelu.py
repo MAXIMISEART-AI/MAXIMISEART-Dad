@@ -195,6 +195,28 @@ def test_przebieg_z_drugiego_worktree_nie_startuje_gdy_pierwszy_steruje_excelem(
     assert not (second / ".verification" / "runs").exists(), "the refused run built a fixture"
 
 
+def test_przebieg_bez_prawdziwych_wzorcow_jest_pominieciem_z_wlasnym_kodem_wyjscia(tmp_path: Path) -> None:
+    root = _worktree(tmp_path, "worktree")
+    (tmp_path / "bez-wzorcow").mkdir()
+
+    skipped = subprocess.run(
+        [
+            sys.executable,
+            str(_scripts(root) / "run_excel_verification.py"),
+            *("--templates-dir", str(tmp_path / "bez-wzorcow"), "--run-dir", str(tmp_path / "przebieg")),
+        ],
+        capture_output=True,
+        text=True,
+        env=_environment(tmp_path),
+        timeout=60,
+        check=False,
+    )
+
+    output = skipped.stdout + skipped.stderr
+    assert skipped.returncode == 3, output
+    assert skipped.stdout.splitlines()[-1].startswith("VERIFY SKIP | wzorce=prawdziwe"), output
+
+
 def test_przebieg_zabity_w_trakcie_nie_blokuje_excela_nastepnemu(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     first, second = _worktree(tmp_path, "worktree-a"), _worktree(tmp_path, "worktree-b")

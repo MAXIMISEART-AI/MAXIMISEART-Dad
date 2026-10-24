@@ -15,10 +15,11 @@ ma te same ostrzeżenia ilości co zapis), a wzorce i zapis plików okresu w ``p
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
+import time
 from types import MappingProxyType
 
 from . import TOOL_ROOT, preparation_files, preparation_plan, preparation_register
@@ -124,6 +125,7 @@ def prepare_collective_file(
     dry_run: bool = False,
     observer: ProgressObserver | None = None,
     conversation: Conversation | None = None,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> PreparationSummary:
     """Tworzy w Folderze okresu razem Rozliczenie wewnętrzne i Plik zbiorczy.
 
@@ -141,10 +143,11 @@ def prepare_collective_file(
     Planowaniu, a przed Zapisywaniem pyta przez nią o Decyzję taty; odmowa to
     ``StopError`` bez zapisu, z podpowiedzią zgody tego rozmówcy. Czas
     czekania na Decyzję nie wlicza się do czasów etapów. Bez rozmowy
-    Przygotowanie o nic nie pyta.
+    Przygotowanie o nic nie pyta. ``clock`` to zegar w sekundach, z którego
+    liczone są czasy etapów.
     """
 
-    phases = PhaseRunner(observer)
+    phases = PhaseRunner(observer, clock=clock)
     register_path = register_path.expanduser().resolve()
     periods_directory = periods_directory.expanduser().resolve()
     config_path = config_path.expanduser().resolve()

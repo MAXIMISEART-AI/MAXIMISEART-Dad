@@ -21,6 +21,7 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
@@ -94,6 +95,7 @@ class Surroundings:
     aktualizacji tylko zapisuje prośbę w ``restarts`` (i usuwa katalog
     tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji). Z
     ``guardian_failure`` opiekun nie wystartuje: wywołuje ją i rzuca ``OSError``.
+    ``report_search_deadline_s`` to limit, po którym Diagnoza przestaje czekać na skrzynkę Zgłoszeń.
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -105,6 +107,7 @@ class Surroundings:
     installer: FakeInstaller = field(default_factory=FakeInstaller)
     restarts: list[Restart] = field(default_factory=list)
     guardian_failure: Callable[[], None] | None = None
+    report_search_deadline_s: float = SEARCH_DEADLINE_S
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -157,6 +160,7 @@ def _client(
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
         clock=surroundings.clock,
+        report_search_deadline_s=surroundings.report_search_deadline_s,
         tool_update=surroundings.tool_update(),
         guardian=surroundings.guardian,
     )

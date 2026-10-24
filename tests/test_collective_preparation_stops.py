@@ -529,6 +529,19 @@ def test_wzorzec_with_merged_cells_where_orders_go_stops_without_files(
     )
 
 
+def test_wzorzec_changed_after_a_run_stops_the_next_run_in_the_same_process(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    run_preparation(fixture, dry_run=True)
+    workbook = load_workbook(fixture.collective_template_path, keep_links=True)
+    workbook["Sheet1"].merge_cells("B19:C20")
+    workbook.save(fixture.collective_template_path)
+    workbook.close()
+
+    error = stop_preparation(fixture, dry_run=True)
+
+    assert error.message.code == "SCALONE_KOMORKI_WZORCA"
+
+
 def test_merged_cells_of_wzorzec_below_written_orders_do_not_stop(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     workbook = load_workbook(fixture.collective_template_path, keep_links=True)
