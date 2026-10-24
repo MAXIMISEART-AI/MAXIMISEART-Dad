@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import stat
 from typing import Any
 import urllib.parse
 import urllib.request
@@ -34,6 +35,7 @@ LOGS_LINK = re.compile(r"^\[Logi Uruchomienia\]\((.*)\)$", re.MULTILINE)
 MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\([^)\s]+\)")
 MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
 NO_RUNS = "Nie ma jeszcze Uruchomień z Centrum."
+NOT_IN_HISTORY = "Tego Uruchomienia nie ma w historii Centrum. Wybierz inne albo wyślij Uwagę ogólną."
 LAPTOP = ViewportSize(width=1280, height=720)
 WHOLLY_SHOWN = """element => {
     const box = element.getBoundingClientRect()
@@ -305,7 +307,9 @@ def _offers(run: Run, choices: Locator, offered: list[dict[str, Any]], checked: 
     states = [radio.get_attribute("aria-checked") for radio in choices.get_by_role("radio").all()]
     run.check(
         states == ["true" if entry["run_id"] == checked else "false" for entry in offered],
-        f"exactly the Uruchomienie {checked} is checked",
+        f"exactly the Uruchomienie {checked} is checked"
+        if checked in [entry["run_id"] for entry in offered]
+        else f"no Uruchomienie is checked ({checked} is not in the list)",
     )
 
 
@@ -487,6 +491,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     page.keyboard.press("Escape")
     expect(dialog).to_have_count(0)
     _laptop(run, page, about, target)
+    _not_in_history(run, page, period)
     if was_dark:
         _theme(page, "ciemny")
 
@@ -514,3 +519,59 @@ def _laptop(run: Run, page: Page, about: Locator, target: str) -> None:
         expect(dialog).to_have_count(0)
     finally:
         page.set_viewport_size(viewport)
+
+
+def _not_in_history(run: Run, page: Page, period: str) -> None:
+    run.step(FEATURE, "uwaga-spoza-historii")
+    metrics = Path(run.fixture["metrics"]["settlement"])
+    records, mode = metrics.read_bytes(), metrics.stat().st_mode
+    page.goto(run.url + "#/uruchomienia")
+    page.get_by_role("tab", name="Uruchomienie", exact=True).click()
+    if current_run(run, "uwaga-przed-podgladem-bez-metryk")["state"] == "finished":
+        page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
+    page.get_by_role("radio", name="Przebieg rozliczeń").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
+    print("  harness: the metrics file of Przebieg rozliczeń is read-only, so the preview's record is not written", flush=True)
+    metrics.chmod(stat.S_IREAD)
+    try:
+        page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        expect(page.get_by_label("Wynik")).to_contain_text("Podgląd wymaga sprawdzenia · nic nie zapisano")
+        finished_result(run, "uwaga-podglad-bez-metryk")
+    finally:
+        metrics.chmod(mode)
+    run_id = str(json.loads((run.evidence / "api" / "uwaga-podglad-bez-metryk.json").read_text(encoding="utf-8"))["run"]["id"])
+    run.check(metrics.read_bytes() == records, "the preview added no record to the read-only metrics file")
+    offered = _note_runs(run, run_id, "uwaga-uruchomienia-spoza-historii")
+    run.check(
+        offered != [] and run_id not in [entry["run_id"] for entry in offered],
+        "the server offers other Uruchomienia, but not the preview without a metrics record",
+    )
+    page.get_by_role("region", name="Podgląd na żywo").get_by_role("button", name=ABOUT_RUN, exact=True).click()
+    dialog = page.get_by_role("dialog", name=WRITE, exact=True)
+    expect(_scope(dialog, "Do Uruchomienia")).to_have_attribute("aria-pressed", "true")
+    sentence = dialog.get_by_text(NOT_IN_HISTORY, exact=True)
+    choices = dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)
+    expect(sentence).to_be_visible()
+    _offers(run, choices, offered, run_id)
+    send = dialog.get_by_role("button", name="Wyślij", exact=True)
+    _write(dialog, *PINNED)
+    expect(send).to_be_disabled()
+    above, rows = sentence.bounding_box(), choices.bounding_box()
+    run.check(
+        above is not None and rows is not None and above["y"] + above["height"] <= rows["y"],
+        f"the sentence „{NOT_IN_HISTORY}” stands above the list, nothing is checked and Wyślij stays disabled",
+    )
+    run.capture(page, "173-uwaga-spoza-historii", full_page=False)
+    choices.get_by_role("radio").first.click()
+    expect(choices.get_by_role("radio").first).to_have_attribute("aria-checked", "true")
+    expect(sentence).to_be_visible()
+    run.check(True, "checking another Uruchomienie keeps the sentence above the list, so the list does not jump")
+    _shows(
+        run,
+        dialog.get_by_role("figure", name="Co dostanie Maks", exact=True),
+        _draft(run, *PINNED, "uwaga-szkic-spoza-historii", run_id=str(offered[0]["run_id"])),
+        "the figure shows the draft pinned to the newest Uruchomienie of the list",
+    )
+    expect(send).to_be_enabled()
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)

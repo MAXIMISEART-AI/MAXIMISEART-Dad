@@ -113,7 +113,9 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
       <Field className="min-h-0">
         <FieldTitle>Dotyczy</FieldTitle>
         <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
-        {scope === "run" ? <DadNoteRuns runs={runs} checked={checked} onCheck={setChecked} /> : null}
+        {scope === "run" ? (
+          <DadNoteRuns runs={runs} openedFrom={openedFrom} checked={checked} onCheck={setChecked} />
+        ) : null}
       </Field>
       <Preview shown={shown} />
       <DialogFooter>

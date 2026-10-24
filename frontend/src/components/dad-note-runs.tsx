@@ -12,18 +12,27 @@ const MODE_WORDS: Record<PinnableRun["mode"], string> = { "DRY-RUN": "podgląd",
 
 const SKELETON_ROWS = 3
 
+const NOT_IN_HISTORY = "Tego Uruchomienia nie ma w historii Centrum."
+
 const ROW = "flex items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0"
 
 // Najwyżej cztery i pół wiersza: połowa wiersza mówi, że lista przewija się dalej. Na niskim ekranie lista oddaje
 // wysokość aż do jednego wiersza, żeby „Wyślij” został na ekranie.
 const LIST_HEIGHT = "max-h-63 min-h-14"
 
+/**
+ * Uruchomienia do przypięcia Uwagi. Gdy Uruchomienia, z którego tata otworzył okno (`openedFrom`), nie ma w liście
+ * (jego metryki się nie zapisały), zdanie nad listą mówi, dlaczego nic nie jest zaznaczone. Zależy od `openedFrom`, nie
+ * od zaznaczenia, żeby lista nie podskoczyła pod kursorem, gdy tata wybierze inne.
+ */
 export function DadNoteRuns({
   runs,
+  openedFrom,
   checked,
   onCheck,
 }: {
   runs: Resource<ReadonlyArray<PinnableRun>>
+  openedFrom: string | null
   checked: string | null
   onCheck: (runId: string) => void
 }) {
@@ -44,38 +53,57 @@ export function DadNoteRuns({
       )
     case "failed":
       return <p className="wejscie mt-1 text-sm text-muted-foreground">{runs.message}</p>
-    case "ready":
-      return runs.data.length === 0 ? (
-        <p className="wejscie mt-1 rounded-lg border px-3 py-4 text-center text-sm text-muted-foreground">
-          Nie ma jeszcze Uruchomień z Centrum.
-        </p>
-      ) : (
-        <RadioGroup
-          aria-label="Uruchomienie"
-          value={checked}
-          onValueChange={onCheck}
-          ref={keepCheckedInView}
-          className={cn("wejscie relative mt-1 content-start gap-0 overflow-y-auto overscroll-contain rounded-lg border", LIST_HEIGHT)}
-        >
-          {runs.data.map((run) => (
-            <label key={run.run_id} className={cn(ROW, "cursor-pointer has-data-checked:bg-muted/60")}>
-              <RadioGroupItem value={run.run_id} />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="flex items-center gap-1.5 truncate">
-                  {run.process_label}
-                  {run.mode === "DRY-RUN" ? (
-                    <EyeIcon className="size-3.5 text-muted-foreground" aria-label="podgląd" />
-                  ) : null}
+    case "ready": {
+      const missing = openedFrom !== null && !runs.data.some((run) => run.run_id === openedFrom)
+
+      if (runs.data.length === 0) {
+        return (
+          <p className="wejscie mt-1 rounded-lg border px-3 py-4 text-center text-sm text-muted-foreground">
+            {missing ? `${NOT_IN_HISTORY} Wyślij Uwagę ogólną.` : "Nie ma jeszcze Uruchomień z Centrum."}
+          </p>
+        )
+      }
+
+      return (
+        <>
+          {missing ? (
+            <p className="wejscie mt-1 text-sm text-muted-foreground">
+              {NOT_IN_HISTORY} Wybierz inne albo wyślij Uwagę ogólną.
+            </p>
+          ) : null}
+          <RadioGroup
+            aria-label="Uruchomienie"
+            value={checked}
+            onValueChange={onCheck}
+            ref={keepCheckedInView}
+            className={cn(
+              "wejscie relative content-start gap-0 overflow-y-auto overscroll-contain rounded-lg border",
+              !missing && "mt-1",
+              LIST_HEIGHT
+            )}
+          >
+            {runs.data.map((run) => (
+              <label key={run.run_id} className={cn(ROW, "cursor-pointer has-data-checked:bg-muted/60")}>
+                <RadioGroupItem value={run.run_id} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="flex items-center gap-1.5 truncate">
+                    {run.process_label}
+                    {run.mode === "DRY-RUN" ? (
+                      <EyeIcon className="size-3.5 text-muted-foreground" aria-label="podgląd" />
+                    ) : null}
+                  </span>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {run.period} · {MODE_WORDS[run.mode]} · {dateTime(run.started_at)}
+                  </span>
                 </span>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {run.period} · {MODE_WORDS[run.mode]} · {dateTime(run.started_at)}
-                </span>
-              </span>
-              <RunResultBadge run={run} />
-            </label>
-          ))}
-        </RadioGroup>
+                <RunResultBadge run={run} />
+              </label>
+            ))}
+          </RadioGroup>
+        </>
       )
+    }
+
     default: {
       const unhandled: never = runs
 
