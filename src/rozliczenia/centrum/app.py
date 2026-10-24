@@ -36,7 +36,7 @@ from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications,
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.outbox import QUEUE_DIRECTORY, Outbox
+from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY, Outbox
 from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import UNSENT_DIRECTORY, Reports, read_report_key
 from rozliczenia.centrum.preparation_run import PreparationEntry
@@ -163,6 +163,7 @@ def create_app(
         lambda: read_report_key(config),
         log,
         on_delivered=notes.delivered,
+        addresses=config / ADDRESSES_FILE,
     )
     # Powiadomienia o Uwagach taty i wysłanych Zgłoszeniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
