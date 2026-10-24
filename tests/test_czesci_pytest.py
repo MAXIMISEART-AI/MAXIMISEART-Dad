@@ -81,3 +81,24 @@ def test_tabela_czasow_sumuje_testy_pliku_w_raporcie_i_usrednia_raporty_obu_pyth
 
     table = json.loads((tmp_path / "tools" / "czasy_testow_ci.json").read_text(encoding="utf-8"))
     assert table == {"tests/podfolder/test_b.py": 3.0, "tests/test_a.py": 3.0}
+
+
+def test_linux_dzieli_pliki_wedlug_wlasnej_tabeli_a_windows_wedlug_swojej(tmp_path: Path) -> None:
+    for name in ("tests/test_a.py", "tests/test_b.py"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("", encoding="utf-8")
+    (tmp_path / "tools").mkdir()
+    shutil.copy(TOOL, tmp_path / "tools" / TOOL.name)
+    (tmp_path / "tools" / "czasy_testow_ci.json").write_text('{"tests/test_a.py": 9.0, "tests/test_b.py": 1.0}', encoding="utf-8")
+    report = tmp_path / "junit.xml"
+    report.write_text(
+        '<testsuite><testcase classname="tests.test_a" name="t" time="1.0"/><testcase classname="tests.test_b" name="t" time="9.0"/></testsuite>',
+        encoding="utf-8",
+    )
+    tool = [sys.executable, str(tmp_path / "tools" / TOOL.name)]
+
+    subprocess.run([*tool, "--linux", "--czasy-z", str(report)], check=True)
+
+    first = {flag: subprocess.run([*tool, *flag, "1/2"], capture_output=True, text=True, check=True).stdout.split() for flag in ((), ("--linux",))}
+    assert first == {(): ["tests/test_a.py"], ("--linux",): ["tests/test_b.py"]}
+    assert json.loads((tmp_path / "tools" / "czasy_testow_ci.json").read_text(encoding="utf-8")) == {"tests/test_a.py": 9.0, "tests/test_b.py": 1.0}

@@ -113,7 +113,7 @@ jobs:
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py ${{ matrix.part }})
+        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
