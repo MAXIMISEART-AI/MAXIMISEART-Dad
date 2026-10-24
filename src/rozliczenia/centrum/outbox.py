@@ -14,6 +14,11 @@ Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysy
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
 ``NewIssue`` zawsze zakłada nowe issue tak samo, bez wiersza rozpoznawczego. Kto czeka na wynik (Uwaga taty),
 dostaje numer issue przez ``on_delivered`` i może poczekać na dostarczenie przez ``wait_delivered``.
+
+Adres pierwszego komentarza każdej dostarczonej wysyłki (np. Logów Uruchomienia, do których prowadzi przypięta
+Uwaga taty) kolejka dopisuje do pliku ``addresses`` i wczytuje przy następnym starcie Centrum, więc ``delivered``
+zna też wysyłki poprzednich prac Centrum. Tuż przed wysłaniem wysyłka przechodzi przez ``prepare``: Uwaga taty
+uzupełnia w nim odnośnik do Logów, które skrzynka przyjęła po jej zapisaniu.
 """
 
 from __future__ import annotations
@@ -43,6 +48,8 @@ from rozliczenia.centrum.report_box import (
 )
 
 QUEUE_DIRECTORY: Final = "kolejka"
+# Poza ``config/zgloszenia``: weryfikacja Kontroli ilości sprawdza, że jest tam tylko kolejka.
+ADDRESSES_FILE: Final = "skrzynka-adresy.jsonl"
 SCHEMA_VERSION: Final = 2
 # Pliki kolejki sprzed ``NewIssue`` (#273) mają cel w kluczu ``thread`` i zawsze jest nim issue okresu.
 _PERIOD_THREAD_SCHEMA: Final = 1
@@ -273,6 +280,25 @@ def _pack(blocks: Sequence[str], budget: int) -> tuple[str, ...]:
     return tuple(parts)
 
 
+def _read_addresses(path: Path) -> dict[tuple[str, Label], str | None]:
+    """Adresy pierwszych komentarzy z poprzednich prac Centrum; brak albo nieczytelny plik lub linia to brak adresu."""
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return {}
+    found: dict[tuple[str, Label], str | None] = {}
+    for line in text.splitlines():
+        try:
+            entry = json.loads(line)
+            run_id, label, url = entry["run_id"], entry["label"], entry["url"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if isinstance(run_id, str) and label in _LABELS and isinstance(url, str):
+            found[run_id, label] = url
+    return found
+
+
 @dataclass(frozen=True)
 class Delivered:
     number: int
@@ -362,8 +388,9 @@ class Outbox:
 
     Każdy plik ma jednego autora (``post``, nowa nazwa) i jednego czytelnika, który go oznacza i usuwa (wątek
     ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie, i
-    adresy dostarczonych wysyłek; zbiory nazw plików zna tylko ten jeden wątek. ``on_delivered`` dostaje każdą
-    wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik dostanie znacznik.
+    adresy dostarczonych wysyłek; zbiory nazw plików i plik ``addresses`` zna tylko ten jeden wątek.
+    ``on_delivered`` dostaje każdą wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik
+    dostanie znacznik. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie.
     """
 
     def __init__(
@@ -374,18 +401,22 @@ class Outbox:
         log: CentrumLog,
         *,
         on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
+        prepare: Callable[[Post], Post] = lambda post: post,
+        addresses: Path | None = None,
     ) -> None:
         self._directory = directory
         self._box = box
         self._key = key
         self._log = log
         self._on_delivered = on_delivered
+        self._prepare = prepare
+        self._addresses = addresses
         self._sequence = itertools.count(1)
         self._lock = threading.Lock()  # tylko _draining, _again i _first_comments; nigdy na czas skrzynki ani pliku
         self._changed = threading.Condition(self._lock)
         self._draining = False
         self._again = False
-        self._first_comments: dict[tuple[str, Label], str | None] = {}
+        self._first_comments: dict[tuple[str, Label], str | None] = {} if addresses is None else _read_addresses(addresses)
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
         self._unreadable: set[str] = set()  # nieczytelne, już w dzienniku tej pracy Centrum
         self._rejected: set[str] = set()  # treść odrzucona przez skrzynkę, w dzienniku; następna próba po starcie
@@ -406,9 +437,10 @@ class Outbox:
         self.send_in_background()
 
     def delivered(self, run_id: str, label: Label) -> str | None:
-        """Adres pierwszego komentarza wysyłki ``label`` z Uruchomienia ``run_id``, przyjętej w tej pracy Centrum.
+        """Adres pierwszego komentarza wysyłki ``label`` z Uruchomienia ``run_id``, przyjętej przez skrzynkę.
 
-        ``None``: wysyłka czeka w kolejce, nie powstała albo cała zmieściła się w treści nowego issue.
+        Zna wysyłki z tej pracy Centrum i z pliku ``addresses``. ``None``: wysyłka czeka w kolejce, nie powstała,
+        cała zmieściła się w treści nowego issue albo jej adresu nie dało się zapamiętać.
         """
 
         with self._lock:
@@ -487,7 +519,7 @@ class Outbox:
             if queued.delivered:
                 self._remove(path)
                 continue
-            post = queued.post
+            post = self._prepare(queued.post)
             label, period = post.target.label, post.period
             outcome = None if key is None else _deliver(post, self._box, key)
             if not isinstance(outcome, Delivered):
@@ -503,9 +535,22 @@ class Outbox:
             with self._changed:
                 self._first_comments[post.run_id, label] = outcome.comments[0].url if outcome.comments else None
                 self._changed.notify_all()
+            self._remember_address(post, outcome)
             with suppress(OSError):  # bez znacznika chroni już tylko _undeleted, do końca tej pracy Centrum
                 replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))
             self._remove(path)
+
+    def _remember_address(self, post: Post, outcome: Delivered) -> None:
+        """Dopisuje adres pierwszego komentarza do pliku ``addresses``; nieudany zapis to tylko wpis w dzienniku."""
+
+        if self._addresses is None or not outcome.comments:
+            return
+        line = json.dumps({"run_id": post.run_id, "label": post.target.label, "url": outcome.comments[0].url})
+        try:
+            with self._addresses.open("a", encoding="utf-8") as addresses:
+                addresses.write(line + "\n")
+        except OSError as failure:
+            self._log.unexpected_failure(failure, where="adres wysyłki do Skrzynki Zgłoszeń")
 
     def _remove(self, path: Path) -> None:
         """Usuwa dostarczony plik; gdy się nie da (np. plik otwarty w Windows), pierwszy raz zapisuje to w dzienniku."""

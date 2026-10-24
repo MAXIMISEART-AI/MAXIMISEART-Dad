@@ -16,6 +16,7 @@ Oba kroki robisz w Centrum rozliczeń, które otwierasz skrótem na pulpicie:
 | Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` |
 | Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` |
 | Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`, gdy jest nowsza wersja: na stronie `Konfiguracja`, w Powiadomieniach i w Diagnozie |
+| Napisać do Maksa, ogólnie albo o jednym Uruchomieniu | Ikona „Napisz do Maksa” w prawym górnym rogu albo na karcie Uruchomienia |
 
 ## Pierwsza instalacja
 
@@ -164,6 +165,22 @@ narzędzia, w `config\zgloszenia`, i pokaże komunikat z przyciskiem
 Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
 jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
 Maks; Ty niczego tam nie wpisujesz.
+
+### Napisz do Maksa
+
+Ikona „Napisz do Maksa” w prawym górnym rogu otwiera okno, w którym piszesz
+Uwagę do Maksa. Wpisz `Tytuł` i, jeśli chcesz, `Treść`. W `Dotyczy` wybierz
+`Ogólna`, gdy piszesz o całym narzędziu, albo `Do Uruchomienia`, gdy piszesz o
+jednym Uruchomieniu, i zaznacz je na liście ostatnich Uruchomień. Ramka
+`Maks dostanie` pokazuje dokładnie to, co dostanie Maks. Kliknij `Wyślij`.
+
+Na karcie zakończonego Uruchomienia i przy Uruchomieniach w zakładce
+`Historia` jest ta sama ikona: `Napisz do Maksa o tym Uruchomieniu`. Okno
+otwiera się wtedy z tym Uruchomieniem już zaznaczonym. Maks dostanie jego
+proces, okres, tryb i wynik, więc nie musisz ich przepisywać.
+
+Bez internetu zobaczysz `Wyślę do Maksa, gdy będzie internet.` i nic więcej
+nie musisz robić: Uwaga wyjdzie sama.
 
 ### Powiadomienia
 

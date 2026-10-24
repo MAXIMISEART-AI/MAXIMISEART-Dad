@@ -23,32 +23,31 @@ _MODES: Final[tuple[contract.RunMode, ...]] = ("RUN", "DRY-RUN")
 _RECENT_WEEKS = 8
 
 
-def read_metrics(
-    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
-    today: date,
-    centrum_started: frozenset[tuple[str, str]] = frozenset(),
-) -> contract.Metrics:
-    """``centrum_started``: pary (proces, ``started_at``) Uruchomień z Centrum (``run_origins``)."""
+CentrumStarted = Mapping[tuple[str, str], str | None]
+"""Identyfikator Uruchomienia z Centrum po parze (proces, ``started_at``) z ``CentrumRuns.started``."""
 
-    stores = {key: MetricsStore(process.metrics_path(), process.counter_names) for key, process in processes.items()}
-    records = {process: store.read() for process, store in stores.items()}
-    runs = sorted(
-        (
-            _run(process, processes[process].name, record, centrum_started)
-            for process, process_records in records.items()
-            for record in process_records
-        ),
-        key=lambda run: run.started_at,
-        reverse=True,
-    )
+
+def read_runs(
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]], centrum_started: CentrumStarted
+) -> list[contract.ProcessRun]:
+    """Uruchomienia procesu obu procesów z plików metryk, od najnowszego."""
+
+    return _runs(processes, _records(processes), centrum_started)
+
+
+def read_metrics(
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]], today: date, centrum_started: CentrumStarted
+) -> contract.Metrics:
+    records = _records(processes)
+    runs = _runs(processes, records, centrum_started)
     since = today - timedelta(weeks=_RECENT_WEEKS)
     return contract.Metrics(
         phases=list(PHASES),
         minimum_completed_runs=MINIMUM_STATISTIC_SAMPLES,
         runs=runs,
         statistics=[
-            _statistics(process, mode, stores[process].counter_names, records[process], runs)
-            for process in stores
+            _statistics(process, mode, processes[process].counter_names, records[process], runs)
+            for process in processes
             for mode in _MODES
         ],
         recent=contract.RecentResults(
@@ -58,9 +57,34 @@ def read_metrics(
     )
 
 
+def _records(
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
+) -> dict[contract.ProcessKey, list[dict[str, Any]]]:
+    return {
+        key: MetricsStore(process.metrics_path(), process.counter_names).read() for key, process in processes.items()
+    }
+
+
+def _runs(
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
+    records: Mapping[contract.ProcessKey, list[dict[str, Any]]],
+    centrum_started: CentrumStarted,
+) -> list[contract.ProcessRun]:
+    return sorted(
+        (
+            _run(process, processes[process].name, record, centrum_started)
+            for process, process_records in records.items()
+            for record in process_records
+        ),
+        key=lambda run: run.started_at,
+        reverse=True,
+    )
+
+
 def _run(
-    process: contract.ProcessKey, label: str, record: dict[str, Any], centrum_started: frozenset[tuple[str, str]]
+    process: contract.ProcessKey, label: str, record: dict[str, Any], centrum_started: CentrumStarted
 ) -> contract.ProcessRun:
+    started = (process, record["started_at"])
     return contract.ProcessRun(
         process=process,
         process_label=label,
@@ -73,7 +97,8 @@ def _run(
             contract.PhaseDuration(phase=phase, duration_ms=record["phase_durations_ms"][phase]) for phase in PHASES
         ],
         # Rekord metryk nie mówi, skąd wystartował (schemat bez zmian); Centrum pamięta swoje Uruchomienia samo.
-        origin="centrum" if (process, record["started_at"]) in centrum_started else "cmd",
+        origin="centrum" if started in centrum_started else "cmd",
+        run_id=centrum_started.get(started),
         # Rekord wersji 1 nie ma ``stop``: rodzaju jego Zatrzymania nie zgadujemy.
         stop_kind=stop["kind"] if (stop := record.get("stop")) else None,
     )

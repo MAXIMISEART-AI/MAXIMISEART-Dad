@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -226,6 +226,8 @@ export type DadNoteNotification = {
  * DadNoteRequest
  *
  * Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+ *
+ * ``run_id`` jak w ``DadNoteText``: Uruchomienie, do którego Uwaga jest przypięta; ``None``: ogólna.
  */
 export type DadNoteRequest = {
     /**
@@ -236,6 +238,10 @@ export type DadNoteRequest = {
      * Body
      */
     body?: string;
+    /**
+     * Run Id
+     */
+    run_id?: string | null;
 };
 
 /**
@@ -254,6 +260,8 @@ export type DadNoteSent = {
  * DadNoteText
  *
  * Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+ *
+ * ``run_id`` to Uruchomienie z Centrum (``ProcessRun.run_id``), do którego tata przypina Uwagę; ``None``: ogólna.
  */
 export type DadNoteText = {
     /**
@@ -264,6 +272,10 @@ export type DadNoteText = {
      * Body
      */
     body?: string;
+    /**
+     * Run Id
+     */
+    run_id?: string | null;
 };
 
 /**
@@ -748,6 +760,44 @@ export type PhaseProgress = {
 };
 
 /**
+ * PinnableRun
+ *
+ * Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.
+ *
+ * Pola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć.
+ */
+export type PinnableRun = {
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Process Label
+     */
+    process_label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Mode
+     */
+    mode: 'RUN' | 'DRY-RUN';
+    /**
+     * Period
+     */
+    period: string;
+    /**
+     * Result
+     */
+    result: 'OK' | 'WYMAGA_SPRAWDZENIA' | 'BLAD_KRYTYCZNY';
+    /**
+     * Stop Kind
+     */
+    stop_kind: 'for_tata' | 'for_maks' | null;
+};
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -767,7 +817,9 @@ export type Problem = {
  * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
  * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
  * ``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego
- * rekordu, który rodzaju nie zapisał.
+ * rekordu, który rodzaju nie zapisał. ``run_id`` to identyfikator Uruchomienia z Centrum, ten sam co w jego
+ * Logach Uruchomienia, po którym okno Uwagi taty przypina do niego Uwagę; ``None`` przy ``cmd`` i przy
+ * Uruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało.
  */
 export type ProcessRun = {
     /**
@@ -810,6 +862,10 @@ export type ProcessRun = {
      * Stop Kind
      */
     stop_kind: 'for_tata' | 'for_maks' | null;
+    /**
+     * Run Id
+     */
+    run_id: string | null;
 };
 
 /**
@@ -1677,6 +1733,10 @@ export type SendDadNoteData = {
 
 export type SendDadNoteErrors = {
     /**
+     * Not Found
+     */
+    404: Problem;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
@@ -1712,9 +1772,17 @@ export type DraftDadNoteData = {
 
 export type DraftDadNoteErrors = {
     /**
+     * Not Found
+     */
+    404: Problem;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
 };
 
 export type DraftDadNoteError = DraftDadNoteErrors[keyof DraftDadNoteErrors];
@@ -1727,6 +1795,42 @@ export type DraftDadNoteResponses = {
 };
 
 export type DraftDadNoteResponse = DraftDadNoteResponses[keyof DraftDadNoteResponses];
+
+export type GetDadNoteRunsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Selected
+         */
+        selected?: string | null;
+    };
+    url: '/api/dad-notes/runs';
+};
+
+export type GetDadNoteRunsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
+};
+
+export type GetDadNoteRunsError = GetDadNoteRunsErrors[keyof GetDadNoteRunsErrors];
+
+export type GetDadNoteRunsResponses = {
+    /**
+     * Response Getdadnoteruns
+     *
+     * Successful Response
+     */
+    200: Array<PinnableRun>;
+};
+
+export type GetDadNoteRunsResponse = GetDadNoteRunsResponses[keyof GetDadNoteRunsResponses];
 
 export type GetHealthData = {
     body?: never;

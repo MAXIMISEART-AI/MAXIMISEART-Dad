@@ -275,11 +275,11 @@ class RunHost:
             raise contract.Refusal(409, NO_DIAGNOSIS)
         return stopped
 
-    def remember(self, prepared: PreparedRun[Any, Any], since: datetime) -> None:
-        """Zapamiętuje rekord metryk, który dopisało to Uruchomienie, jako Uruchomienie z Centrum."""
+    def remember(self, prepared: PreparedRun[Any, Any], run_id: str, since: datetime) -> None:
+        """Zapamiętuje rekord metryk, który dopisało Uruchomienie ``run_id``, jako Uruchomienie z Centrum."""
 
         metrics = MetricsStore(prepared.process.metrics_path(), prepared.process.counter_names)
-        self._centrum_runs.remember(prepared.key, metrics, since, datetime.now(timezone.utc))
+        self._centrum_runs.remember(prepared.key, run_id, metrics, since, datetime.now(timezone.utc))
 
     def failed(self, failure: Exception) -> None:
         """Wyniku Uruchomienia nie dało się pokazać: do dziennika tylko typ wyjątku, bez jego tekstu."""
@@ -372,7 +372,7 @@ class _Run:
                 view=prepared.viewed,
                 metrics_path=prepared.process.metrics_path(),
             )
-            self._host.remember(prepared, since)
+            self._host.remember(prepared, self.info.id, since)
             stop = None if isinstance(outcome.ending, Finished) else outcome.ending
             stopped = self._host._stops.ended(self.info, stop)
             result = _run_result(outcome, prepared, stopped)

@@ -69,6 +69,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal Server Error",
             "content": {
@@ -119,6 +129,89 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dad-notes/runs": {
+      "get": {
+        "tags": [
+          "uwagi-taty"
+        ],
+        "summary": "Runs",
+        "operationId": "getDadNoteRuns",
+        "parameters": [
+          {
+            "name": "selected",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Selected"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PinnableRun"
+                  },
+                  "title": "Response Getdadnoteruns"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           },
           "422": {
             "description": "Validation Error",
@@ -1122,6 +1215,7 @@
               "startToolUpdate",
               "getToolUpdate",
               "reportToolUpdate",
+              "getDadNoteRuns",
               "draftDadNote",
               "sendDadNote",
               "closeCentrum"
@@ -1494,6 +1588,17 @@
             "maxLength": 10000,
             "title": "Body",
             "default": ""
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
           }
         },
         "additionalProperties": false,
@@ -1502,7 +1607,7 @@
           "title"
         ],
         "title": "DadNoteRequest",
-        "description": "Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają."
+        "description": "Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.\n\n``run_id`` jak w ``DadNoteText``: Uruchomienie, do którego Uwaga jest przypięta; ``None``: ogólna."
       },
       "DadNoteSent": {
         "properties": {
@@ -1533,6 +1638,17 @@
             "maxLength": 10000,
             "title": "Body",
             "default": ""
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
           }
         },
         "additionalProperties": false,
@@ -1541,7 +1657,7 @@
           "title"
         ],
         "title": "DadNoteText",
-        "description": "Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty."
+        "description": "Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.\n\n``run_id`` to Uruchomienie z Centrum (``ProcessRun.run_id``), do którego tata przypina Uwagę; ``None``: ogólna."
       },
       "DadNoteWaiting": {
         "properties": {
@@ -2286,6 +2402,72 @@
         ],
         "title": "PhaseProgress"
       },
+      "PinnableRun": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "process_label": {
+            "type": "string",
+            "title": "Process Label"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RUN",
+              "DRY-RUN"
+            ],
+            "title": "Mode"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WYMAGA_SPRAWDZENIA",
+              "BLAD_KRYTYCZNY"
+            ],
+            "title": "Result"
+          },
+          "stop_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "for_tata",
+                  "for_maks"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Kind"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "process_label",
+          "started_at",
+          "mode",
+          "period",
+          "result",
+          "stop_kind"
+        ],
+        "title": "PinnableRun",
+        "description": "Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.\n\nPola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć."
+      },
       "Problem": {
         "properties": {
           "message": {
@@ -2374,6 +2556,17 @@
               }
             ],
             "title": "Stop Kind"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
           }
         },
         "additionalProperties": false,
@@ -2388,10 +2581,11 @@
           "total_duration_ms",
           "phase_durations",
           "origin",
-          "stop_kind"
+          "stop_kind",
+          "run_id"
         ],
         "title": "ProcessRun",
-        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło\nrekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.\n``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego\nrekordu, który rodzaju nie zapisał."
+        "description": "Jedno Uruchomienie procesu z pliku metryk; ``BLAD_KRYTYCZNY`` to przerwane, z czasami etapów do przerwania.\n\n``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło\nrekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.\n``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego\nrekordu, który rodzaju nie zapisał. ``run_id`` to identyfikator Uruchomienia z Centrum, ten sam co w jego\nLogach Uruchomienia, po którym okno Uwagi taty przypina do niego Uwagę; ``None`` przy ``cmd`` i przy\nUruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało."
       },
       "ProcessSetup": {
         "properties": {

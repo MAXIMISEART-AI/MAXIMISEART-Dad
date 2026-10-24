@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
 from pathlib import Path
+import re
+import stat
+from typing import Any
+import urllib.parse
 import urllib.request
 
 from playwright.sync_api import Locator, Page, Request, ViewportSize, expect
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from drive.common import PAGES, Run, error_toasts
+from drive.common import PAGES, Run, current_run, ensure_files_set, error_toasts, finished_result, history_rows
+from drive.metryki import _local
 
 FEATURE = "uwaga-taty"
 LABEL = "uwaga-taty"
@@ -27,14 +33,35 @@ LONG = "W" * 120, ("https://onedrive.live.com/edit?id=" + "SYNTETYCZNY0123456789
 SMALL_SCREEN: ViewportSize = {"width": 1366, "height": 768}
 # Each issue waits this long in the skrzynka, so „Wyślij” is seen sending; two issues stay under the 5 s wait.
 BOX_PACING_MS = 1500
+ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
+PINNED = ("Podgląd każe sprawdzić okres", "Nie wiem, którego Wykonawcę mam dopisać.")
+LOGS_LABEL = "logi-uruchomienia"
+LOGS_LINK = re.compile(r"^\[Logi Uruchomienia\]\((.*)\)$", re.MULTILINE)
+MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\([^)\s]+\)")
+MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
+NO_RUNS = "Nie ma jeszcze Uruchomień z Centrum."
+NOT_IN_HISTORY = "Tego Uruchomienia nie ma w historii Centrum. Wybierz inne albo wyślij Uwagę ogólną."
+LAPTOP = ViewportSize(width=1280, height=720)
+WHOLLY_SHOWN = """element => {
+    const box = element.getBoundingClientRect()
+    const inside = outer => box.top >= outer.top - 0.5 && box.bottom <= outer.bottom + 0.5
+    let shown = inside({top: 0, bottom: innerHeight})
+    for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
+        if (getComputedStyle(parent).overflowY !== "visible") {
+            shown = shown && inside(parent.getBoundingClientRect())
+        }
+    }
+    return {shown, top: Math.round(box.top), bottom: Math.round(box.bottom)}
+}"""
 
 
-def _draft(run: Run, title: str, body: str, name: str) -> dict[str, str]:
+def _draft(run: Run, title: str, body: str, name: str, run_id: str | None = None) -> dict[str, str]:
     """The issue Maks would get, straight from the server, as the reference for the figure in the tab."""
 
+    note = {"title": title, "body": body} | ({} if run_id is None else {"run_id": run_id})
     request = urllib.request.Request(
         run.url.rstrip("/") + "/api/dad-notes/draft",
-        data=json.dumps({"title": title, "body": body}).encode(),
+        data=json.dumps(note).encode(),
         method="POST",
         headers={"Content-Type": "application/json", "Origin": run.url.rstrip("/")},
     )
@@ -55,11 +82,12 @@ def _shown(figure: Locator) -> tuple[str, str]:
 
 
 def _shows(run: Run, figure: Locator, draft: dict[str, str], message: str) -> None:
-    run.wait_for(lambda: _shown(figure) == (draft["title"], draft["body"]), message)
+    expected = (draft["title"], MARKDOWN_LINK.sub(r"\1", draft["body"]))
+    run.wait_for(lambda: _shown(figure) == expected, message)
 
 
 def _queued(config: Path) -> list[dict[str, object]]:
-    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted((config / "zgloszenia" / "kolejka").glob("*.json"))]
+    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted((config / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*.json"))]
 
 
 def _notes(config: Path) -> list[dict[str, object]]:
@@ -180,6 +208,8 @@ def drive_dad_note(run: Run, page: Page) -> None:
         "Tytuł shows the prototype's example as its placeholder",
     )
     expect(send).to_be_disabled()
+    expect(_scope(dialog, "Ogólna")).to_have_attribute("aria-pressed", "true")
+    expect(dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)).to_have_count(0)
     empty = _draft(run, "", "", "uwaga-szkic-pusty")
     run.wait_for(lambda: _shown(figure)[1] == empty["body"], "„Maks dostanie” shows the server's draft of an empty Uwaga")
     run.check(_shown(figure)[0] == "Tytuł" and empty["title"] == "", "with no Tytuł the figure shows the placeholder")
@@ -208,6 +238,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
         return request.url.endswith("/api/dad-notes/draft") and request.post_data_json == {
             "title": FIRST[0],
             "body": FIRST[1],
+            "run_id": None,
         }
 
     page.route("**/api/dad-notes/draft", lambda route: route.abort())
@@ -236,6 +267,17 @@ def drive_dad_note(run: Run, page: Page) -> None:
     run.check(first["title"] == FIRST[0] and first["body"].startswith(FIRST[1] + "\n\n"), "the draft holds Dad's text")
     expect(send).to_be_enabled()
     run.capture(page, "173-uwaga-wypelniona")
+    _scope(dialog, "Do Uruchomienia").click()
+    if _note_runs(run, None, "uwaga-uruchomienia-z-naglowka"):
+        expect(dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True).get_by_role("radio", checked=True)).to_have_count(0)
+    else:
+        expect(dialog.get_by_text(NO_RUNS, exact=True)).to_be_visible()
+    expect(send).to_be_disabled()
+    run.check(True, "„Do Uruchomienia” without a checked Uruchomienie keeps Wyślij disabled (no Uruchomienia: the calm sentence)")
+    run.capture(page, "173b-uwaga-bez-wybranego-uruchomienia", full_page=False)
+    _scope(dialog, "Ogólna").click()
+    _shows(run, figure, first, "back to Ogólna the figure shows the general draft again")
+    expect(send).to_be_enabled()
     send.click()
     expect(dialog.get_by_role("status")).to_have_text(WAITING)
     expect(page.get_by_role("alert")).to_have_count(0)
@@ -311,4 +353,310 @@ def drive_dad_note(run: Run, page: Page) -> None:
     )
     run.check(KEY not in page.content(), "the key never reaches the browser")
     _close(dialog)
-    key_file.unlink()
+    try:
+        _drive_pinned(run, page, config, box)
+    finally:
+        key_file.unlink()
+
+
+def _note_runs(run: Run, selected: str | None, name: str) -> list[dict[str, Any]]:
+    query = urllib.parse.urlencode({} if selected is None else {"selected": selected})
+    with urllib.request.urlopen(run.url.rstrip("/") + f"/api/dad-notes/runs?{query}", timeout=10) as response:
+        runs = json.load(response)
+    (run.evidence / "api" / f"{name}.json").write_text(
+        json.dumps(runs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    assert isinstance(runs, list)
+    return runs
+
+
+def _result_word(entry: dict[str, Any]) -> str:
+    if entry["result"] == "BLAD_KRYTYCZNY":
+        return "Błąd" if entry["stop_kind"] == "for_maks" else "Zatrzymano"
+    return {"OK": "OK", "WYMAGA_SPRAWDZENIA": "Do sprawdzenia"}[entry["result"]]
+
+
+def _offers(run: Run, choices: Locator, offered: list[dict[str, Any]], checked: str) -> None:
+    rows = choices.locator("label")
+    run.wait_for(lambda: rows.count() == len(offered), f"the list shows the server's {len(offered)} Uruchomienia")
+    texts = [row.inner_text() for row in rows.all()]
+    run.check(
+        all(
+            entry["process_label"] in text
+            and f"{entry['period']} · {MODES[entry['mode']]} · {_local(entry['started_at'])}" in text
+            and _result_word(entry) in text
+            for entry, text in zip(offered, texts, strict=True)
+        ),
+        "each row shows process, period, podgląd or zapis, date and result, newest first",
+    )
+    states = [radio.get_attribute("aria-checked") for radio in choices.get_by_role("radio").all()]
+    run.check(
+        states == ["true" if entry["run_id"] == checked else "false" for entry in offered],
+        f"exactly the Uruchomienie {checked} is checked"
+        if checked in [entry["run_id"] for entry in offered]
+        else f"no Uruchomienie is checked ({checked} is not in the list)",
+    )
+
+
+def _logs_comment(box: Path, run_id: str) -> str | None:
+    for path in sorted(box.glob("*.json")):
+        thread = json.loads(path.read_text(encoding="utf-8"))
+        if thread["labels"] == [LOGS_LABEL]:
+            for index, comment in enumerate(thread.get("comments", []), start=1):
+                if f"- Uruchomienie: {run_id}," in comment:
+                    return f"skrzynka-zgloszen/{path.name}#komentarz-{index}"
+    return None
+
+
+def _scope(dialog: Locator, option: str) -> Locator:
+    return dialog.get_by_role("group", name="Dotyczy", exact=True).get_by_role("button", name=option, exact=True)
+
+
+def _opened_about(run: Run, page: Page, run_id: str, name: str) -> tuple[Locator, list[dict[str, Any]]]:
+    dialog = page.get_by_role("dialog", name=WRITE, exact=True)
+    expect(dialog).to_be_visible()
+    run.check(dialog.get_by_role("textbox", name="Tytuł", exact=True).input_value() == "", "a new, empty Uwaga")
+    expect(_scope(dialog, "Do Uruchomienia")).to_have_attribute("aria-pressed", "true")
+    offered = _note_runs(run, run_id, name)
+    run.check(run_id in [entry["run_id"] for entry in offered], "the server offers the Uruchomienie it was opened from")
+    _offers(run, dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True), offered, run_id)
+    box, viewport = dialog.bounding_box(), page.viewport_size
+    run.check(
+        box is not None and viewport is not None and box["y"] >= 0 and box["y"] + box["height"] <= viewport["height"],
+        "the whole dialog fits the window; a long list scrolls inside it",
+    )
+    return dialog, offered
+
+
+def _theme(page: Page, name: str) -> bool:
+    toggle = page.locator("header").get_by_role("button", name=f"Włącz motyw {name}", exact=True)
+    if toggle.count() == 0:
+        return False
+    toggle.click()
+    expect(toggle).to_have_count(0)
+    return True
+
+
+def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
+    period = run.fixture["settlement"]["needs_check"]
+
+    run.step(FEATURE, "uwaga-przycisk-na-karcie")
+    page.goto(run.url)
+    ensure_files_set(run, page)
+    was_dark = _theme(page, "jasny")
+    page.goto(run.url + "#/uruchomienia")
+    if current_run(run, "uwaga-przed-podgladem")["state"] == "finished":
+        page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
+    page.get_by_role("radio", name="Przebieg rozliczeń").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
+    page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+    expect(page.get_by_label("Wynik")).to_contain_text("Podgląd wymaga sprawdzenia · nic nie zapisano")
+    finished_result(run, "uwaga-podglad")
+    view = json.loads((run.evidence / "api" / "uwaga-podglad.json").read_text(encoding="utf-8"))
+    run_id = str(view["run"]["id"])
+    card = page.get_by_role("region", name="Podgląd na żywo")
+    about = card.get_by_role("button", name=ABOUT_RUN, exact=True)
+    expect(about).to_have_count(1)
+    about_box = about.bounding_box()
+    new_box = card.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).bounding_box()
+    run.check(
+        about_box is not None and new_box is not None and new_box["x"] < about_box["x"],
+        f"the finished card has „{ABOUT_RUN}” right of „Nowe Uruchomienie procesu”",
+    )
+    about.hover()
+    expect(page.get_by_text(ABOUT_RUN, exact=True)).to_be_visible()
+    run.wait_for(
+        lambda: _logs_comment(box, run_id) is not None,
+        "with the key the preview's Logi reached the skrzynka at the end of the Uruchomienie",
+        timeout_s=60,
+    )
+    run.capture(page, "190-uwaga-przycisk-na-karcie")
+
+    run.step(FEATURE, "uwaga-z-karty")
+    about.click()
+    dialog, offered = _opened_about(run, page, run_id, "uwaga-uruchomienia-z-karty")
+    figure = dialog.get_by_role("figure", name="Co dostanie Maks", exact=True)
+    send = dialog.get_by_role("button", name="Wyślij", exact=True)
+    expect(send).to_be_disabled()
+    run.capture(page, "191-uwaga-z-karty", full_page=False)
+
+    run.step(FEATURE, "uwaga-przypieta")
+    _write(dialog, *PINNED)
+    pinned = _draft(run, *PINNED, "uwaga-szkic-przypieta", run_id=run_id)
+    _shows(run, figure, pinned, "„Maks dostanie” shows exactly the server's draft of the Uwaga pinned to the preview")
+    [entry] = [entry for entry in offered if entry["run_id"] == run_id]
+    run.check(
+        f"Uruchomienie: {entry['process_label']} · {period} · podgląd · do sprawdzenia · {_local(entry['started_at'])}"
+        f" · wersja narzędzia " in pinned["body"],
+        "the pinned Uwaga carries process, period, mode, result and date of the preview",
+    )
+    logs = _logs_comment(box, run_id)
+    run.check(
+        LOGS_LINK.findall(pinned["body"]) == [logs],
+        "the pinned Uwaga links [Logi Uruchomienia] to the first comment of the preview's Logi in the skrzynka",
+    )
+    run.check(
+        _shown(figure)[1].splitlines()[-1] == "Logi Uruchomienia" and str(logs) not in figure.inner_text(),
+        "„Maks dostanie” shows the link as the words Logi Uruchomienia, without the address",
+    )
+    expect(send).to_be_enabled()
+    run.capture(page, "192-uwaga-przypieta", full_page=False)
+
+    run.step(FEATURE, "uwaga-ogolna-i-z-powrotem")
+    _scope(dialog, "Ogólna").click()
+    expect(dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)).to_have_count(0)
+    general = _draft(run, *PINNED, "uwaga-szkic-ogolna-z-karty")
+    _shows(run, figure, general, "with Ogólna the figure shows the server's draft without the Uruchomienie")
+    run.check(
+        general["body"].splitlines()[-1].startswith("Uwaga ogólna · wersja narzędzia")
+        and "Logi Uruchomienia" not in general["body"],
+        "the general Uwaga ends with the general footer and has no Logi",
+    )
+    run.capture(page, "193-uwaga-ogolna-z-karty", full_page=False)
+    _scope(dialog, "Do Uruchomienia").click()
+    _offers(run, dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True), offered, run_id)
+    _shows(run, figure, pinned, "back to Do Uruchomienia the same Uruchomienie is checked and the figure pinned again")
+
+    run.step(FEATURE, "uwaga-przypieta-wyslana")
+    issues_before = len(_issues(box))
+    send.click()
+    expect(dialog.get_by_role("status")).to_have_text(SENT, timeout=15_000)
+    expect(error_toasts(page)).to_have_count(0)
+    new = _issues(box)[issues_before:]
+    (run.evidence / "api" / "uwaga-przypieta-skrzynka.json").write_text(
+        json.dumps(
+            [{key: issue[key] for key in ("number", "title", "body", "labels")} for issue in new],
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run.check(
+        [(issue["title"], issue["body"]) for issue in new] == [(pinned["title"], pinned["body"])],
+        "the skrzynka has the pinned Uwaga as one uwaga-taty issue, exactly as its figure's draft",
+    )
+    run.check(
+        LOGS_LINK.findall(str(new[0]["body"])) == [logs],
+        "its link Logi Uruchomienia leads to the first comment of the preview's Logi",
+    )
+    note = _notes(config)[-1]
+    run.check(
+        (note["title"], note["number"], note["run_id"]) == (pinned["title"], new[0]["number"], run_id),
+        "config/uwagi-taty.json keeps the issue number and the Uruchomienie of the pinned Uwaga",
+    )
+    _close(dialog)
+
+    run.step(FEATURE, "uwaga-z-historii")
+    page.get_by_role("tab", name="Historia", exact=True).click()
+    history = page.get_by_role("table", name="Historia Uruchomień procesu")
+    expect(history).to_be_visible()
+    older = page.get_by_role("button", name="Pokaż starsze", exact=True)
+    while older.count() > 0:
+        older.click()
+    metrics = run.api("/api/metrics", "uwaga-historia")["runs"]
+    assert isinstance(metrics, list)
+    shown = sorted(metrics, key=lambda entry: datetime.fromisoformat(entry["started_at"]), reverse=True)
+    rows = history_rows(page)
+    expect(rows).to_have_count(1 + len(shown))
+    buttons = [rows.nth(index).get_by_role("button", name=ABOUT_RUN, exact=True).count() for index in range(1, len(shown) + 1)]
+    run.check(
+        buttons == [0 if entry["run_id"] is None else 1 for entry in shown] and 0 in buttons and 1 in buttons,
+        f"only the {buttons.count(1)} rows of Uruchomienia from Centrum with a run id have „{ABOUT_RUN}”",
+    )
+    oldest = max(index for index, entry in enumerate(shown) if entry["run_id"] is not None)
+    target = str(shown[oldest]["run_id"])
+    about = rows.nth(oldest + 1).get_by_role("button", name=ABOUT_RUN, exact=True)
+    about.hover()
+    expect(page.get_by_text(ABOUT_RUN, exact=True)).to_be_visible()
+    run.capture(page, "194-uwaga-historia")
+    about.click()
+    dialog, _ = _opened_about(run, page, target, "uwaga-uruchomienia-z-historii")
+    run.capture(page, "195-uwaga-z-historii", full_page=False)
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)
+    _laptop(run, page, about, target)
+    _not_in_history(run, page, period)
+    if was_dark:
+        _theme(page, "ciemny")
+
+
+def _laptop(run: Run, page: Page, about: Locator, target: str) -> None:
+    viewport = page.viewport_size
+    assert viewport is not None
+    page.set_viewport_size(LAPTOP)
+    try:
+        about.click()
+        dialog, _ = _opened_about(run, page, target, "uwaga-uruchomienia-laptop")
+        choices = dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)
+        checked = choices.locator('label:has([role="radio"][aria-checked="true"])')
+        send = dialog.get_by_role("button", name="Wyślij", exact=True)
+        expect(checked).to_have_count(1)
+        scrolled = dialog.evaluate("element => element.scrollTop")
+        row, button = checked.evaluate(WHOLLY_SHOWN), send.evaluate(WHOLLY_SHOWN)
+        run.check(
+            scrolled == 0 and row["shown"] and button["shown"],
+            f"at {LAPTOP['width']}×{LAPTOP['height']} the checked oldest row and „Wyślij” are on screen without scrolling"
+            f" (dialog scrollTop {scrolled}, row {row}, Wyślij {button})",
+        )
+        run.capture(page, "196-uwaga-z-historii-laptop", full_page=False)
+        page.keyboard.press("Escape")
+        expect(dialog).to_have_count(0)
+    finally:
+        page.set_viewport_size(viewport)
+
+
+def _not_in_history(run: Run, page: Page, period: str) -> None:
+    run.step(FEATURE, "uwaga-spoza-historii")
+    metrics = Path(run.fixture["metrics"]["settlement"])
+    records, mode = metrics.read_bytes(), metrics.stat().st_mode
+    page.goto(run.url + "#/uruchomienia")
+    page.get_by_role("tab", name="Uruchomienie", exact=True).click()
+    if current_run(run, "uwaga-przed-podgladem-bez-metryk")["state"] == "finished":
+        page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
+    page.get_by_role("radio", name="Przebieg rozliczeń").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
+    print("  harness: the metrics file of Przebieg rozliczeń is read-only, so the preview's record is not written", flush=True)
+    metrics.chmod(stat.S_IREAD)
+    try:
+        page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        expect(page.get_by_label("Wynik")).to_contain_text("Podgląd wymaga sprawdzenia · nic nie zapisano")
+        finished_result(run, "uwaga-podglad-bez-metryk")
+    finally:
+        metrics.chmod(mode)
+    run_id = str(json.loads((run.evidence / "api" / "uwaga-podglad-bez-metryk.json").read_text(encoding="utf-8"))["run"]["id"])
+    run.check(metrics.read_bytes() == records, "the preview added no record to the read-only metrics file")
+    offered = _note_runs(run, run_id, "uwaga-uruchomienia-spoza-historii")
+    run.check(
+        offered != [] and run_id not in [entry["run_id"] for entry in offered],
+        "the server offers other Uruchomienia, but not the preview without a metrics record",
+    )
+    page.get_by_role("region", name="Podgląd na żywo").get_by_role("button", name=ABOUT_RUN, exact=True).click()
+    dialog = page.get_by_role("dialog", name=WRITE, exact=True)
+    expect(_scope(dialog, "Do Uruchomienia")).to_have_attribute("aria-pressed", "true")
+    sentence = dialog.get_by_text(NOT_IN_HISTORY, exact=True)
+    choices = dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)
+    expect(sentence).to_be_visible()
+    _offers(run, choices, offered, run_id)
+    send = dialog.get_by_role("button", name="Wyślij", exact=True)
+    _write(dialog, *PINNED)
+    expect(send).to_be_disabled()
+    above, rows = sentence.bounding_box(), choices.bounding_box()
+    run.check(
+        above is not None and rows is not None and above["y"] + above["height"] <= rows["y"],
+        f"the sentence „{NOT_IN_HISTORY}” stands above the list, nothing is checked and Wyślij stays disabled",
+    )
+    run.capture(page, "197-uwaga-spoza-historii", full_page=False)
+    choices.get_by_role("radio").first.click()
+    expect(choices.get_by_role("radio").first).to_have_attribute("aria-checked", "true")
+    expect(sentence).to_be_visible()
+    run.check(True, "checking another Uruchomienie keeps the sentence above the list, so the list does not jump")
+    _shows(
+        run,
+        dialog.get_by_role("figure", name="Co dostanie Maks", exact=True),
+        _draft(run, *PINNED, "uwaga-szkic-spoza-historii", run_id=str(offered[0]["run_id"])),
+        "the figure shows the draft pinned to the newest Uruchomienie of the list",
+    )
+    expect(send).to_be_enabled()
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)

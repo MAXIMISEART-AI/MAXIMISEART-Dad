@@ -285,7 +285,7 @@ def test_zatrzymanie_pokazuje_nazwe_pliku_bez_pelnej_sciezki(tmp_path: Path) -> 
 
 def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruchomienie(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
-    run_to_end(centrum, dry_run=True)
+    view = run_to_end(centrum, dry_run=True)
     store = MetricsStore(centrum.metrics_path, settlement_process.PROCESS.counter_names)
     [own] = store.read()
     later = (datetime.fromisoformat(own["started_at"]) + timedelta(seconds=1)).isoformat()
@@ -294,7 +294,10 @@ def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruc
     history = centrum.client.get("/api/metrics").json()["runs"]
 
     assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
-    assert [(run["process"], run["origin"]) for run in history] == [("settlement", "cmd"), ("settlement", "centrum")]
+    assert [(run["process"], run["origin"], run["run_id"]) for run in history] == [
+        ("settlement", "cmd", None),
+        ("settlement", "centrum", view["run"]["id"]),
+    ]
 
 
 def settlement_setup(client: TestClient) -> dict[str, Any]:

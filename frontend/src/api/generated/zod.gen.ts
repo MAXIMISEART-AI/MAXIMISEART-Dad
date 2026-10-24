@@ -28,6 +28,7 @@ export const zApiTiming = z.object({
         'startToolUpdate',
         'getToolUpdate',
         'reportToolUpdate',
+        'getDadNoteRuns',
         'draftDadNote',
         'sendDadNote',
         'closeCentrum'
@@ -120,10 +121,13 @@ export const zDadNoteNotification = z.object({
  * DadNoteRequest
  *
  * Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+ *
+ * ``run_id`` jak w ``DadNoteText``: Uruchomienie, do którego Uwaga jest przypięta; ``None``: ogólna.
  */
 export const zDadNoteRequest = z.object({
     title: z.string().min(1).max(120).regex(/^[^\r\n]*$/),
-    body: z.string().max(10000).optional().default('')
+    body: z.string().max(10000).optional().default(''),
+    run_id: z.string().nullish()
 });
 
 /**
@@ -139,10 +143,13 @@ export const zDadNoteSent = z.object({
  * DadNoteText
  *
  * Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+ *
+ * ``run_id`` to Uruchomienie z Centrum (``ProcessRun.run_id``), do którego tata przypina Uwagę; ``None``: ogólna.
  */
 export const zDadNoteText = z.object({
     title: z.string().max(120).regex(/^[^\r\n]*$/),
-    body: z.string().max(10000).optional().default('')
+    body: z.string().max(10000).optional().default(''),
+    run_id: z.string().nullish()
 });
 
 /**
@@ -349,6 +356,27 @@ export const zPhaseProgress = z.object({
 });
 
 /**
+ * PinnableRun
+ *
+ * Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.
+ *
+ * Pola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć.
+ */
+export const zPinnableRun = z.object({
+    run_id: z.string(),
+    process_label: z.string(),
+    started_at: z.iso.datetime(),
+    mode: z.enum(['RUN', 'DRY-RUN']),
+    period: z.string(),
+    result: z.enum([
+        'OK',
+        'WYMAGA_SPRAWDZENIA',
+        'BLAD_KRYTYCZNY'
+    ]),
+    stop_kind: z.enum(['for_tata', 'for_maks']).nullable()
+});
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -365,7 +393,9 @@ export const zProblem = z.object({
  * ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
  * rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
  * ``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego
- * rekordu, który rodzaju nie zapisał.
+ * rekordu, który rodzaju nie zapisał. ``run_id`` to identyfikator Uruchomienia z Centrum, ten sam co w jego
+ * Logach Uruchomienia, po którym okno Uwagi taty przypina do niego Uwagę; ``None`` przy ``cmd`` i przy
+ * Uruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało.
  */
 export const zProcessRun = z.object({
     process: z.enum(['preparation', 'settlement']),
@@ -381,7 +411,8 @@ export const zProcessRun = z.object({
     total_duration_ms: z.int(),
     phase_durations: z.array(zPhaseDuration),
     origin: z.enum(['cmd', 'centrum']),
-    stop_kind: z.enum(['for_tata', 'for_maks']).nullable()
+    stop_kind: z.enum(['for_tata', 'for_maks']).nullable(),
+    run_id: z.string().nullable()
 });
 
 /**
@@ -1067,6 +1098,17 @@ export const zDraftDadNoteBody = zDadNoteText;
  * Successful Response
  */
 export const zDraftDadNoteResponse = zDadNoteDraft;
+
+export const zGetDadNoteRunsQuery = z.object({
+    selected: z.string().nullish()
+});
+
+/**
+ * Response Getdadnoteruns
+ *
+ * Successful Response
+ */
+export const zGetDadNoteRunsResponse = z.array(zPinnableRun);
 
 /**
  * Successful Response

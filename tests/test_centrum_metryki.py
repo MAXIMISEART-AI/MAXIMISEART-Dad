@@ -119,6 +119,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
             ],
             "origin": "cmd",
             "stop_kind": None,
+            "run_id": None,
         },
         {
             "process": "preparation",
@@ -136,6 +137,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
             ],
             "origin": "cmd",
             "stop_kind": None,
+            "run_id": None,
         },
         {
             "process": "settlement",
@@ -153,6 +155,7 @@ def test_historia_obejmuje_uruchomienia_procesu_obu_procesow_od_najnowszego(tmp_
             ],
             "origin": "cmd",
             "stop_kind": None,
+            "run_id": None,
         },
     ]
 

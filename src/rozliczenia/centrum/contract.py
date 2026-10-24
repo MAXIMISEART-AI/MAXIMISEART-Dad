@@ -187,7 +187,9 @@ class ProcessRun(_Model):
     ``origin`` mówi, skąd wystartowało: ``centrum`` to Centrum rozliczeń, ``cmd`` każde inne źródło
     rekordu: Uruchomienia z dawnych launcherów ``.cmd`` i CLI oraz ze skryptu dla maszyn.
     ``stop_kind`` to Rodzaj Zatrzymania przerwanego; ``None`` przy ukończonym i przy przerwanym ze starego
-    rekordu, który rodzaju nie zapisał.
+    rekordu, który rodzaju nie zapisał. ``run_id`` to identyfikator Uruchomienia z Centrum, ten sam co w jego
+    Logach Uruchomienia, po którym okno Uwagi taty przypina do niego Uwagę; ``None`` przy ``cmd`` i przy
+    Uruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało.
     """
 
     process: ProcessKey
@@ -199,6 +201,22 @@ class ProcessRun(_Model):
     total_duration_ms: int
     phase_durations: list[PhaseDuration]
     origin: Literal["cmd", "centrum"]
+    stop_kind: RecordedStopKind | None
+    run_id: str | None
+
+
+class PinnableRun(_Model):
+    """Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.
+
+    Pola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć.
+    """
+
+    run_id: str
+    process_label: str
+    started_at: datetime
+    mode: RunMode
+    period: str
+    result: RunResult
     stop_kind: RecordedStopKind | None
 
 
@@ -674,17 +692,25 @@ DadNoteBody = Annotated[str, StringConstraints(strip_whitespace=True, max_length
 
 
 class DadNoteText(_Model):
-    """Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty."""
+    """Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+
+    ``run_id`` to Uruchomienie z Centrum (``ProcessRun.run_id``), do którego tata przypina Uwagę; ``None``: ogólna.
+    """
 
     title: DadNoteTitle
     body: DadNoteBody = ""
+    run_id: str | None = None
 
 
 class DadNoteRequest(_Model):
-    """Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają."""
+    """Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+
+    ``run_id`` jak w ``DadNoteText``: Uruchomienie, do którego Uwaga jest przypięta; ``None``: ogólna.
+    """
 
     title: Annotated[DadNoteTitle, StringConstraints(min_length=1)]
     body: DadNoteBody = ""
+    run_id: str | None = None
 
 
 class DadNoteDraft(_Model):
@@ -801,6 +827,7 @@ ApiOperation = Literal[
     "startToolUpdate",
     "getToolUpdate",
     "reportToolUpdate",
+    "getDadNoteRuns",
     "draftDadNote",
     "sendDadNote",
     "closeCentrum",

@@ -165,6 +165,13 @@ REQUIRED_SCREENSHOTS = {
         "174-uwaga-czeka-na-internet.png",
         "175-uwaga-wysylanie.png",
         "176-uwaga-wyslana.png",
+        "190-uwaga-przycisk-na-karcie.png",
+        "191-uwaga-z-karty.png",
+        "192-uwaga-przypieta.png",
+        "193-uwaga-ogolna-z-karty.png",
+        "194-uwaga-historia.png",
+        "195-uwaga-z-historii.png",
+        "196-uwaga-z-historii-laptop.png",
     ),
     "logi-uruchomienia": (
         "160-logi-podglad.png",
