@@ -356,6 +356,12 @@ class RunInfo(_Model):
     dry_run: bool
     confirms_readiness: bool
 
+    @property
+    def mode(self) -> RunMode:
+        """Tryb tego Uruchomienia w dzienniku Centrum i w Zgłoszeniu: podgląd bez zapisu albo zapis."""
+
+        return "DRY-RUN" if self.dry_run else "RUN"
+
 
 class Message(_Model):
     """Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu."""

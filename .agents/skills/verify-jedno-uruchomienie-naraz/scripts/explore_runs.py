@@ -490,7 +490,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
         )
 
     class NoStops:
-        def ended(self, info: object, stop: object) -> None:
+        def ended(self, info: object, stop: object, *, shown: object) -> None:
             if stop is not None:
                 raise ModelGap("Zatrzymanie w Stops.ended; model kończy każde Uruchomienie sukcesem")
 

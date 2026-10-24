@@ -177,7 +177,7 @@ class EndedRun:
             next_action=next_action,
             stop_kind=None if stopped is None else stopped.kind,
             diagnosis=None if stopped is None else stopped.offer,
-            report=None if stopped is None else stopped.report,
+            report=None if stopped is None or stopped.report is None else stopped.report.state,
             stops=[contract.Message.of(message) for message in self.stops],
             warnings=[contract.Message.of(message) for message in self.warnings],
             technical_notes=list(self.technical_notes),
@@ -298,7 +298,7 @@ class RunHost:
             self._events = []
             self._publish_locked(run.running_view())
             view = self._events[-1].view
-        self._log.run_started(process=prepared.key, mode=_mode(prepared.dry_run), period=prepared.period)
+        self._log.run_started(process=prepared.key, mode=run.info.mode, period=prepared.period)
         threading.Thread(target=run.work, name=f"uruchomienie-{run.info.id}", daemon=True).start()
         return view
 
@@ -314,14 +314,10 @@ class RunHost:
             return self._events[-1].view
 
     def diagnose(self, run_id: str) -> contract.Diagnosis:
-        view, state = self._stops.diagnose(self._stopped(run_id))
-        self._show_report(run_id, state)
-        return view
+        return self._stops.diagnose(self._stopped(run_id))
 
     def send_report(self, run_id: str) -> contract.ReportState:
-        state = self._stops.send(self._stopped(run_id))
-        self._show_report(run_id, state)
-        return state
+        return self._stops.send(self._stopped(run_id))
 
     def _stopped(self, run_id: str) -> StoppedRun:
         with self._lock:
@@ -344,7 +340,7 @@ class RunHost:
 
         self._log.unexpected_failure(failure, where="wynik Uruchomienia procesu")
 
-    def _show_report(self, run_id: str, state: contract.ReportState) -> None:
+    def show_report(self, run_id: str, state: contract.ReportState) -> None:
         """Nowy stan Zgłoszenia w wyniku zakończonego Uruchomienia ``run_id`` dla każdej karty Centrum."""
 
         with self._lock:
@@ -366,7 +362,7 @@ class RunHost:
         info = run.info
         self._log.run_finished(
             process=info.process,
-            mode=_mode(info.dry_run),
+            mode=info.mode,
             period=info.period,
             result=run.result,
             ending=run.ending,
@@ -454,11 +450,14 @@ class _Run:
         return EndedRun(
             info=self.info,
             core=core,
-            stopped=self._stops.ended(self.info, stop),
+            stopped=self._stops.ended(self.info, stop, shown=self._show_report),
             progress=self._progress,
             started_at=since,
             ended_at=datetime.now(timezone.utc),
         )
+
+    def _show_report(self, state: contract.ReportState) -> None:
+        self._host.show_report(self.info.id, state)
 
     def answer(self, consent: bool) -> None:
         """Wywoływane przez ``RunHost.decide`` pod blokadą hosta."""
@@ -498,10 +497,6 @@ class _Run:
         if progress != self._progress:
             self._progress = progress
             self._host.publish(self, self.running_view())
-
-
-def _mode(dry_run: bool) -> str:
-    return "DRY-RUN" if dry_run else "RUN"
 
 
 def _decision_view(decision: Decision) -> contract.Decision:

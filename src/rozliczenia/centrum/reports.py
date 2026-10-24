@@ -13,8 +13,8 @@ Komunikatach, szczegółach sprawdzeń i ramkach śladu; treści wierszy, treśc
 wyjątków ani klucza Zgłoszenie nie ma (ADR 0007).
 
 Źródło Zgłoszenia (Zatrzymanie w ``stops``, nieudana Aktualizacja narzędzia w
-``tool_updates``) trzyma swój podgląd (``Reports.draft``), a „Wyślij do Maksa”
-wysyła dokładnie ten podgląd (``Reports.send``), najwyżej raz na jego klucz.
+``tool_updates``) trzyma jego uchwyt (``ReportHandle``): uchwyt zamraża podgląd,
+a „Wyślij do Maksa” wysyła dokładnie ten podgląd, najwyżej raz na uchwyt.
 """
 
 from __future__ import annotations
@@ -56,13 +56,12 @@ from rozliczenia.process_run import Stop
 REPORT_KEY_FILE: Final = "zgloszenia-klucz.txt"
 UNSENT_DIRECTORY: Final = "zgloszenia"
 SENT_REPORTS_FILE: Final = "zgloszenia-wyslane.json"
-# Diagnoza czeka na odpowiedź skrzynki o otwarte Zgłoszenie najwyżej tyle, co na commit `main`.
+# Podgląd Zgłoszenia czeka w tle na odpowiedź skrzynki o otwarte Zgłoszenie najwyżej tyle, co Diagnoza na commit `main`.
 SEARCH_DEADLINE_S: Final = 3.0
 
 # Zgłoszenie nieudanej Aktualizacji narzędzia ma tyle ostatnich wpisów dziennika co Zgłoszenie z Diagnozy.
 _UPDATE_LOG_ENTRIES: Final = 20
 
-_MODES: Final = {True: "DRY-RUN", False: "RUN"}
 _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_checked": "nie sprawdzono"}
 
 
@@ -139,7 +138,7 @@ class StopReport:
             "",
             f"- Proces: {run.title}",
             f"- Okres: {run.period}",
-            f"- Tryb: {_MODES[run.dry_run]}",
+            f"- Tryb: {run.mode}",
             f"- Logi: {self.logs or f'jeszcze niewysłane, Uruchomienie {run.id}'}",
             "",
             *_trace_lines(self.stop.trace),
@@ -406,10 +405,9 @@ class _ReportLog:
 
 
 @dataclass(frozen=True)
-class Draft:
-    """Podgląd Zgłoszenia, jego wpisy w dzienniku i nazwa pliku na wypadek nieudanej wysyłki."""
+class _Preview:
+    """Zamrożony podgląd Zgłoszenia, jego wpisy w dzienniku i nazwa pliku na wypadek nieudanej wysyłki."""
 
-    key: str
     report: Report
     file_name: str
     logged: _ReportLog
@@ -419,12 +417,115 @@ class Draft:
         return contract.ReportDraft(title=self.report.title, body=self.report.body)
 
 
+ReportShown = Callable[[contract.ReportState], None]
+"""Właściciel Zgłoszenia, który pokazuje każdy jego nowy stan (np. karta Uruchomienia przez ``RunHost``)."""
+
+
+class NoPreview(Exception):
+    """„Wyślij do Maksa” przed pierwszym podglądem: nie ma czego wysłać."""
+
+
+class ReportHandle:
+    """Zgłoszenie jednego problemu z jednego źródła (Zatrzymanie, nieudana Aktualizacja narzędzia), od podglądu do wysyłki.
+
+    ``prepare`` zamraża podgląd i pyta skrzynkę Zgłoszeń w tle o otwarte Zgłoszenie tego problemu, a ``send``
+    wysyła ostatni podgląd najwyżej raz; drugie kliknięcie w trakcie wysyłki czeka na jej wynik. Po każdej
+    odpowiedzi skrzynki i każdej wysyłce nowy stan dostaje ``shown`` właściciela. Odpowiedź na pytanie sprzed
+    wysyłki przepada, bo stan to już wynik wysyłki. ``shown`` biegnie pod blokadą uchwytu, więc dostaje stany w
+    kolejności ich zmian, i nie woła uchwytu. Właściciel, który pokazuje stan dopiero po odpowiedzi skrzynki,
+    czeka na nią przez ``wait_for_box``.
+    """
+
+    def __init__(self, reports: Reports, fingerprint: str, shown: ReportShown | None) -> None:
+        self._reports = reports
+        self._fingerprint = fingerprint
+        self._shown = shown
+        self._changed = threading.Condition()
+        self._state = reports._state_of(fingerprint)
+        self._preview: _Preview | None = None
+        self._asking: threading.Thread | None = None
+        self._sends = 0  # wysyłki zaczęte do tej pory: odpowiedź skrzynki na pytanie sprzed wysyłki przepada
+        self._sending = False
+
+    @property
+    def state(self) -> contract.ReportState:
+        """Ostatni znany stan: czeka na naprawę, gotowe do wysłania, wysłane albo zapisane w pliku."""
+
+        with self._changed:
+            return self._state
+
+    def prepare(self, source: StopReport | UpdateReport) -> contract.ReportDraft:
+        """Nowy podgląd ``source``, który wyśle ``send``; nie czeka na skrzynkę i niczego nie zapisuje.
+
+        Gdy ten problem był już zgłoszony z tego komputera, Zgłoszenie ma odnośnik do ostatniego z nich.
+        """
+
+        preview = self._reports._preview(source)
+        with self._changed:
+            self._preview = preview
+            asking = self._asking = threading.Thread(
+                target=self._ask, args=(self._sends,), name="zgloszenie-skrzynka", daemon=True
+            )
+        asking.start()
+        return preview.view
+
+    def wait_for_box(self) -> None:
+        """Czeka na odpowiedź skrzynki na pytanie z ostatniego ``prepare``, najwyżej termin szukania w skrzynce."""
+
+        with self._changed:
+            asking = self._asking
+        if asking is not None:
+            asking.join()
+
+    def _ask(self, sends: int) -> None:
+        self._reports._ask_box(self._fingerprint)
+        with self._changed:
+            if sends == self._sends:
+                self._show(self._state if self._sent else self._reports._state_of(self._fingerprint))
+
+    def send(self) -> contract.ReportState:
+        """Wysyła ostatni podgląd, chyba że już wysłany albo skrzynka ma otwarte Zgłoszenie tego problemu.
+
+        Gdy wysyłka się nie uda, zapisuje Zgłoszenie w pliku i mówi, co dalej. ``NoPreview``, gdy podglądu nie ma.
+        """
+
+        with self._changed:
+            while self._sending:
+                self._changed.wait()
+            preview = self._preview
+            if preview is None:
+                raise NoPreview
+            if self._sent:
+                return self._state
+            self._sending = True
+            self._sends += 1
+        state: contract.ReportState | None = None
+        try:
+            state = self._reports._deliver(preview)
+            return state
+        finally:
+            with self._changed:
+                self._sending = False
+                if state is not None:
+                    self._show(state)
+                self._changed.notify_all()
+
+    @property
+    def _sent(self) -> bool:
+        return isinstance(self._state, contract.ReportSent)
+
+    def _show(self, state: contract.ReportState) -> None:
+        self._state = state
+        if self._shown is not None:
+            self._shown(state)
+
+
 class Reports:
-    """Zgłoszenia z tego komputera: podgląd od jego źródła, wysyłka i stan wysłanych.
+    """Zgłoszenia z tego komputera: uchwyt Zgłoszenia każdego źródła, wysyłka i stan wysłanych.
 
     Klucz, stan wysłanych i niewysłane Zgłoszenia leżą w katalogu konfiguracji
     obok Ustawień taty, poza Gitem. Jeden problem ma jedno otwarte Zgłoszenie:
-    Diagnoza i wysyłka pytają skrzynkę o otwarte Zgłoszenie z tym samym odciskiem,
+    podgląd i wysyłka pytają skrzynkę o otwarte Zgłoszenie z tym samym odciskiem,
     a gdy jest, nowe nie powstaje. Bez odpowiedzi skrzynki (brak klucza albo
     sieci) problem wysłany z tego komputera czeka na naprawę.
     """
@@ -447,9 +548,6 @@ class Reports:
         self._log = log
         # Blokada chroni tylko stan w pamięci; pytania do skrzynki idą bez niej.
         self._lock = threading.Lock()
-        self._changed = threading.Condition(self._lock)
-        self._sent_drafts: set[str] = set()  # ``Draft.key`` podglądów wysłanych w tej pracy Centrum
-        self._sending: set[str] = set()  # ``Draft.key`` podglądów, które właśnie idą do skrzynki
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
         self._open: dict[str, int | None] = {}
 
@@ -459,80 +557,51 @@ class Reports:
 
         return self._sent
 
-    def state(self, fingerprint: ProblemFingerprint) -> contract.ReportState:
-        """Stan Zgłoszenia problemu przy wyniku Uruchomienia: czeka na naprawę albo gotowe do wysłania."""
+    def handle(self, fingerprint: ProblemFingerprint, *, shown: ReportShown | None = None) -> ReportHandle:
+        """Uchwyt Zgłoszenia problemu ``fingerprint`` bez podglądu; stan bez pytania skrzynki.
 
-        return self._state_of(fingerprint.digest)
-
-    def draft(self, key: str, source: StopReport | UpdateReport) -> Draft:
-        """Podgląd Zgłoszenia ``source`` o kluczu ``key``; nie pyta skrzynki i niczego nie zapisuje.
-
-        Gdy ten problem był już zgłoszony z tego komputera, Zgłoszenie ma odnośnik do ostatniego z nich.
+        ``shown`` dostaje każdy nowy stan; właściciel, który czyta ``ReportHandle.state`` sam, go nie podaje.
         """
 
+        return ReportHandle(self, fingerprint.digest, shown)
+
+    def _preview(self, source: StopReport | UpdateReport) -> _Preview:
         fingerprint = source.fingerprint.digest
         previous = self._sent.find(fingerprint)
         report = source.report(commit=self._commit(), previous=previous.number if previous else None)
-        return Draft(key, report, source.file_name, source.logged(self._log))
+        return _Preview(report, source.file_name, source.logged(self._log))
 
-    def ask(self, draft: Draft) -> contract.ReportState:
-        self._ask_box(draft.report.fingerprint)
-        with self._lock:
-            if draft.key in self._sent_drafts:
-                return contract.ReportSent(state="sent")
-            return self._state_of(draft.report.fingerprint)
-
-    def send(self, draft: Draft) -> contract.ReportState:
-        """Wysyła ``draft`` najwyżej raz na ``draft.key``, chyba że skrzynka ma już otwarte Zgłoszenie tego problemu.
-
-        Gdy wysyłka się nie uda, zapisuje Zgłoszenie w pliku i mówi, co dalej.
-        """
-
-        with self._changed:
-            while draft.key in self._sending:  # drugie kliknięcie czeka na wynik pierwszego
-                self._changed.wait()
-            if draft.key in self._sent_drafts:
-                return contract.ReportSent(state="sent")
-            self._sending.add(draft.key)
-        try:
-            return self._deliver(draft)
-        finally:
-            with self._changed:
-                self._sending.discard(draft.key)
-                self._changed.notify_all()
-
-    def _deliver(self, draft: Draft) -> contract.ReportState:
-        """Wysyła ``draft``, gdy skrzynka nie ma otwartego Zgłoszenia tego problemu; inaczej zapisuje plik."""
+    def _deliver(self, preview: _Preview) -> contract.ReportState:
+        """Wysyła ``preview``, gdy skrzynka nie ma otwartego Zgłoszenia tego problemu; inaczej zapisuje plik."""
 
         key = self._key()
         outcome: SendOutcome | None = None
         if key is not None:
-            found = self._find_open(draft.report.fingerprint, key)
+            found = self._find_open(preview.report.fingerprint, key)
             if isinstance(found, int):
                 with self._lock:
-                    self._open[draft.report.fingerprint] = found
-                draft.logged.waiting(found)
+                    self._open[preview.report.fingerprint] = found
+                preview.logged.waiting(found)
                 return contract.ReportWaiting(state="waiting")
             outcome = (
-                self._box.open_issue(REPORT_LABEL, draft.report.title, draft.report.body, key=key)
+                self._box.open_issue(REPORT_LABEL, preview.report.title, preview.report.body, key=key)
                 if found is None
                 else found
             )
-        saved = self._unsent / draft.file_name
+        saved = self._unsent / preview.file_name
         if isinstance(outcome, Sent):
             with self._lock:
                 self._sent.add(
                     SentReport(
-                        draft.report.fingerprint,
+                        preview.report.fingerprint,
                         outcome.number,
                         self._commit(),
-                        draft.report.what,
+                        preview.report.what,
                         datetime.now(timezone.utc),
                     )
                 )
-                self._open[draft.report.fingerprint] = outcome.number
-                self._sent_drafts.add(draft.key)
-            draft.logged.sent(outcome.number)
+                self._open[preview.report.fingerprint] = outcome.number
+            preview.logged.sent(outcome.number)
             try:
                 saved.unlink(missing_ok=True)
             except OSError as failure:  # np. plik otwarty w Windows: zostaje w folderze, Zgłoszenie i tak wysłane
@@ -546,20 +615,20 @@ class Reports:
             else report_messages.box_unreachable(saved)
         )
         try:
-            replace_atomically(saved, f"# {draft.report.title}\n\n{draft.report.body}")
+            replace_atomically(saved, f"# {preview.report.title}\n\n{preview.report.body}")
         except OSError as failure:  # np. folder Zgłoszeń niedostępny: treść zostaje tylko w podglądzie Diagnozy
             self._log.unexpected_failure(failure, where="zapis niewysłanego Zgłoszenia")
-            draft.logged.not_saved(unsent.code)
+            preview.logged.not_saved(unsent.code)
             message = report_messages.not_saved(self._unsent)
             return contract.ReportSaved(state="saved", message=contract.Message.of(message))
-        draft.logged.saved(unsent.code)
+        preview.logged.saved(unsent.code)
         return contract.ReportSaved(state="saved", message=contract.Message.of(unsent))
 
     def _ask_box(self, fingerprint: str) -> None:
         """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo.
 
-        Brak odpowiedzi w ``search_deadline_s`` (u taty ``SEARCH_DEADLINE_S``) to brak odpowiedzi: Diagnoza zostaje
-        krótka bez sieci, a wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
+        Brak odpowiedzi w ``search_deadline_s`` (u taty ``SEARCH_DEADLINE_S``) to brak odpowiedzi: spóźniona
+        przepada, a wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
         """
 
         key = self._key()

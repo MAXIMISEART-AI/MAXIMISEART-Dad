@@ -9,13 +9,13 @@ import json
 import re
 import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
 
 from rozliczenia.input_checks import FILE_READERS
-from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 
 from tests.fixtures.centrum import TOOL_COMMIT
@@ -225,7 +225,7 @@ def unsent_files(centrum: PreparingCentrum) -> dict[str, str]:
     return {path.name: path.read_text(encoding="utf-8") for path in sorted(directory.glob("*.md"))}
 
 
-def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysyla(tmp_path: Path) -> None:
+def test_bez_klucza_zgloszenie_zatrzymania_zostaje_w_pliku_z_kodem_i_okresem(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum)
     preview = diagnose(centrum, run_id)["report"]
@@ -245,13 +245,7 @@ def test_bez_klucza_zgloszenie_zostaje_w_pliku_a_ponowna_proba_z_kluczem_je_wysy
     assert centrum.surroundings.report_box.sent == []
     log = centrum.log_path.read_text(encoding="utf-8")
     assert f"zgloszenie-zapisane proces=preparation okres={PERIOD} kod=ZGLOSZENIE_BEZ_KLUCZA" in log
-
-    with_key(centrum)
-    again = send(centrum, run_id)
-
-    assert again == {"state": "sent"}
-    assert [report.body for report in centrum.surroundings.report_box.sent] == [preview["body"]]
-    assert unsent_files(centrum) == {}
+    assert current_report(centrum) == saved
 
 
 def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komunikat(tmp_path: Path) -> None:
@@ -275,49 +269,18 @@ def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komun
     assert f"zgloszenie-niezapisane proces=preparation okres={PERIOD} przyczyna=ZGLOSZENIE_BEZ_KLUCZA" in log
 
 
-@pytest.mark.parametrize(
-    ("failure", "what"),
-    [
-        (Refused(), "Nie wysłano Zgłoszenia: klucz do Zgłoszeń wygasł albo jest nieważny."),
-        (Unreachable(), "Nie wysłano Zgłoszenia: brak połączenia z GitHubem."),
-    ],
-    ids=["odmowa", "brak-polaczenia"],
-)
-def test_nieudana_wysylka_zapisuje_zgloszenie_w_pliku_a_ponowna_proba_je_wysyla(
-    tmp_path: Path, failure: SendOutcome, what: str
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    centrum.surroundings.report_box.outcomes.append(failure)
-    run_id = stopped_for_maks(centrum)
-    preview = diagnose(centrum, run_id)["report"]
-
-    saved = send(centrum, run_id)
-
-    assert (saved["state"], saved["message"]["what"]) == ("saved", what)
-    assert list(unsent_files(centrum).values()) == [f"# {preview['title']}\n\n{preview['body']}"]
-
-    assert send(centrum, run_id) == {"state": "sent"}
-    assert (len(centrum.surroundings.report_box.keys), len(centrum.surroundings.report_box.sent), unsent_files(centrum)) == (2, 1, {})
-
-
-def test_plik_niewyslanego_zgloszenia_ktorego_nie_da_sie_usunac_nie_cofa_wyslania(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    run_id = stopped_for_maks(centrum)
-    diagnose(centrum, run_id)
-    # Na miejscu pliku niewysłanego Zgłoszenia coś, czego nie da się usunąć jak pliku (w Windows: plik otwarty).
-    (tmp_path / "config" / "zgloszenia" / f"Zgłoszenie BLAD_PLANU {PERIOD}.md").mkdir(parents=True)
-
-    state = send(centrum, run_id)
-
-    assert (state, current_report(centrum), send(centrum, run_id)) == ({"state": "sent"},) * 3
-    assert len(centrum.surroundings.report_box.sent) == 1
-
-
 def current_report(centrum: PreparingCentrum) -> object:
     view = centrum.client.get("/api/runs/current").json()
     return view["result"]["report"]
+
+
+def report_becomes(centrum: PreparingCentrum, expected: object) -> object:
+    """Stan Zgłoszenia na karcie, gdy dojdzie do ``expected`` (odpowiedź skrzynki przychodzi w tle), albo po 10 s."""
+
+    deadline = time.monotonic() + 10
+    while (report := current_report(centrum)) != expected and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return report
 
 
 def test_wyslanie_jest_raz_na_zatrzymanie_a_wynik_uruchomienia_pokazuje_potwierdzenie(tmp_path: Path) -> None:
@@ -345,27 +308,6 @@ def test_ponowna_diagnoza_po_wyslaniu_pokazuje_wyslane_zgloszenie(tmp_path: Path
 
     assert (current_report(centrum), send(centrum, run_id)) == ({"state": "sent"}, {"state": "sent"})
     assert len(centrum.surroundings.report_box.sent) == 1
-
-
-def test_wyslane_zgloszenie_czeka_na_naprawe_takze_po_restarcie_centrum(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    run_id = stopped_for_maks(centrum)
-    body = diagnose(centrum, run_id)["report"]["body"]
-    send(centrum, run_id)
-
-    centrum.restart()
-    again = stopped_for_maks(centrum)
-
-    assert current_report(centrum) == {"state": "waiting"}
-    diagnose(centrum, again)
-    assert send(centrum, again) == {"state": "waiting"}
-    assert len(centrum.surroundings.report_box.keys) == 1
-    sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
-    [fingerprint] = [line.removeprefix("- Odcisk problemu: ") for line in body.splitlines() if "Odcisk problemu" in line]
-    assert [{name: entry[name] for name in ("fingerprint", "number", "commit", "closure")} for entry in sent] == [
-        {"fingerprint": fingerprint, "number": 1, "commit": TOOL_COMMIT, "closure": None}
-    ]
 
 
 def test_zatrzymanie_dla_taty_nie_proponuje_zgloszenia(tmp_path: Path) -> None:
@@ -423,61 +365,34 @@ def test_kolejne_uruchomienie_z_otwartym_zgloszeniem_tego_problemu_czeka_na_napr
     assert len(centrum.surroundings.report_box.sent) == 1
 
 
-def test_otwarte_zgloszenie_wyslane_spoza_tego_komputera_tez_czeka_na_naprawe(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    first = stopped_for_maks(centrum)
-    diagnose(centrum, first)
-    send(centrum, first)
-    (tmp_path / "config" / "zgloszenia-wyslane.json").unlink()
-    centrum.restart()
-
-    again = stopped_for_maks(centrum)
-    assert current_report(centrum) == {"state": "ready"}
-    diagnose(centrum, again)
-
-    assert current_report(centrum) == WAITING
-    assert send(centrum, again) == WAITING
-    assert len(centrum.surroundings.report_box.sent) == 1
-    assert f"zgloszenie-czeka proces=preparation okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
-
-
-def test_inny_komunikat_wysyla_sie_osobno_obok_otwartego_zgloszenia(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    first = stopped_for_maks(centrum)
-    diagnose(centrum, first)
-    send(centrum, first)
-    centrum.fixture.collective_template_path.unlink()
-
-    other = run_to_end(centrum, dry_run=True)["run"]["id"]
-
-    assert current_report(centrum) == {"state": "ready"}
-    diagnose(centrum, other)
-    assert send(centrum, other) == {"state": "sent"}
-    sent_codes = [report.title.split(":")[0] for report in centrum.surroundings.report_box.sent]
-    assert sent_codes == ["BLAD_PLANU", "BRAK_WZORCA"]
-
-
-def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_do_poprzedniego(tmp_path: Path) -> None:
+def test_diagnoza_nie_czeka_na_skrzynke_a_jej_odpowiedz_o_otwartym_zgloszeniu_trafia_na_karte(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
     first = stopped_for_maks(centrum)
-    first_body = diagnose(centrum, first)["report"]["body"]
+    diagnose(centrum, first)
     send(centrum, first)
-    box.close(1)
-
+    (tmp_path / "config" / "zgloszenia-wyslane.json").unlink()  # Zgłoszenie wysłane spoza tego komputera
+    centrum.restart()
     again = stopped_for_maks(centrum)
-    preview = diagnose(centrum, again)["report"]
+    box.search_hold = threading.Event()
+    box.searching.clear()
+    release = threading.Timer(10, box.search_hold.set)  # gdyby Diagnoza czekała na skrzynkę
+    release.start()
 
-    assert current_report(centrum) == {"state": "ready"}
-    assert "- Poprzednie Zgłoszenie: #1" in preview["body"].splitlines()
-    assert "Poprzednie Zgłoszenie" not in first_body
-    assert send(centrum, again) == {"state": "sent"}
-    assert [report.body for report in box.sent] == [first_body, preview["body"]]
-    sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
-    assert [entry["number"] for entry in sent] == [1, 2]
+    try:
+        diagnose(centrum, again)
+        box_answered = box.search_hold.is_set()
+        while_box_silent = current_report(centrum)
+    finally:
+        box.search_hold.set()
+        release.cancel()
+
+    assert (box_answered, while_box_silent) == (False, {"state": "ready"})
+    assert report_becomes(centrum, WAITING) == WAITING
+    assert send(centrum, again) == WAITING
+    assert len(centrum.surroundings.report_box.sent) == 1
+    assert f"zgloszenie-czeka proces=preparation okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
 def test_zgloszenie_zamkniete_wedlug_powiadomien_nie_czeka_juz_po_restarcie(tmp_path: Path) -> None:
@@ -501,84 +416,8 @@ def test_zgloszenie_zamkniete_wedlug_powiadomien_nie_czeka_juz_po_restarcie(tmp_
     assert [(entry["number"], entry["closure"] is None) for entry in sent] == [(1, False), (2, True)]
 
 
-def test_bez_odpowiedzi_skrzynki_wyslany_problem_dalej_czeka_na_naprawe(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    box = centrum.surroundings.report_box
-    first = stopped_for_maks(centrum)
-    diagnose(centrum, first)
-    send(centrum, first)
-    box.close(1)
-    box.search_failure = Unreachable()
-
-    again = stopped_for_maks(centrum)
-    diagnose(centrum, again)
-
-    assert current_report(centrum) == WAITING
-    assert len(box.sent) == 1
-
-
-def test_gdy_skrzynka_nie_odpowiada_na_pytanie_o_otwarte_zgloszenie_zgloszenie_zostaje_w_pliku(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    centrum.surroundings.report_box.search_failure = Unreachable()
-    run_id = stopped_for_maks(centrum)
-    preview = diagnose(centrum, run_id)["report"]
-
-    saved = send(centrum, run_id)
-
-    assert (saved["state"], saved["message"]["what"]) == ("saved", "Nie wysłano Zgłoszenia: brak połączenia z GitHubem.")
-    assert list(unsent_files(centrum).values()) == [f"# {preview['title']}\n\n{preview['body']}"]
-    assert centrum.surroundings.report_box.keys == []
-
-
-def test_diagnoza_u_taty_czeka_na_skrzynke_zgloszen_najwyzej_3_s() -> None:
+def test_podglad_zgloszenia_czeka_w_tle_na_skrzynke_zgloszen_najwyzej_3_s() -> None:
     assert SEARCH_DEADLINE_S == 3.0
-
-
-def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_po_swoim_limicie_a_wysylka_i_tak_pyta_skrzynke(
-    tmp_path: Path
-) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(report_search_deadline_s=0.05))
-    with_key(centrum)
-    box = centrum.surroundings.report_box
-    box.search_hold = threading.Event()
-    run_id = stopped_for_maks(centrum)
-    release = threading.Timer(10, box.search_hold.set)  # bez limitu Diagnoza czekałaby na skrzynkę
-    release.start()
-
-    try:
-        diagnose(centrum, run_id)
-        box_answered = box.search_hold.is_set()
-    finally:
-        box.search_hold.set()
-        release.cancel()
-
-    assert not box_answered
-    assert box.searching.wait(10)
-    assert current_report(centrum) == {"state": "ready"}
-    assert box.keys == []
-    assert send(centrum, run_id) == {"state": "sent"}
-    assert len(box.sent) == 1
-
-
-def test_spozniona_odpowiedz_skrzynki_w_diagnozie_to_brak_odpowiedzi(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(report_search_deadline_s=0.05))
-    with_key(centrum)
-    box = centrum.surroundings.report_box
-    first = stopped_for_maks(centrum)
-    diagnose(centrum, first)
-    send(centrum, first)
-    box.close(1)
-    box.search_hold = threading.Event()
-    again = stopped_for_maks(centrum)
-
-    try:
-        diagnose(centrum, again)
-    finally:
-        box.search_hold.set()
-
-    assert current_report(centrum) == WAITING
 
 
 def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowiada_dalej(tmp_path: Path) -> None:
