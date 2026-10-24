@@ -219,16 +219,33 @@ if sys.platform == "win32":
             except BaseException:
                 kernel32.CloseHandle(self._job)
                 raise
-            handle = wintypes.HANDLE(kernel32.OpenProcess(_TERMINATE_SET_QUOTA_AND_RESUME, False, self.process.pid))
-            assigned = handle.value and kernel32.AssignProcessToJobObject(self._job, handle)
-            error = ctypes.get_last_error()
-            resumed = assigned and ctypes.WinDLL("ntdll").NtResumeProcess(handle) == 0
-            kernel32.CloseHandle(handle)
-            if not resumed:
+            # Także Ctrl+C w tym oknie: wstrzymanego polecenia poza jobem nikt by nie wznowił ani nie zabił.
+            try:
+                self._assign_and_resume()
+            except BaseException:
                 self.process.kill()
                 self.process.wait()
                 kernel32.CloseHandle(self._job)
-                raise OSError(error, "Job Object dla polecenia")
+                raise
+
+        def _assign_and_resume(self) -> None:
+            kernel32 = self._kernel32
+            handle = wintypes.HANDLE(kernel32.OpenProcess(_TERMINATE_SET_QUOTA_AND_RESUME, False, self.process.pid))
+            if not handle.value:
+                raise ctypes.WinError(ctypes.get_last_error(), "uchwyt polecenia dla Job Object")
+            try:
+                if not kernel32.AssignProcessToJobObject(self._job, handle):
+                    raise ctypes.WinError(ctypes.get_last_error(), "przypisanie polecenia do Job Object")
+                ntdll = ctypes.WinDLL("ntdll")
+                status = ntdll.NtResumeProcess(handle)
+                if status != 0:
+                    ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
+                    raise ctypes.WinError(
+                        ntdll.RtlNtStatusToDosError(status),
+                        f"wznowienie polecenia w Job Object (NTSTATUS 0x{status & 0xFFFFFFFF:08X})",
+                    )
+            finally:
+                kernel32.CloseHandle(handle)
 
         def kill(self) -> None:
             self._kernel32.TerminateJobObject(self._job, 1)
