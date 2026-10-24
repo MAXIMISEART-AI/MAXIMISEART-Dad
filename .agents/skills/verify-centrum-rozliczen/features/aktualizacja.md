@@ -4,7 +4,8 @@ On Konfiguracja, the card `Narzędzie` shows the tool's version, its commit
 and the day the tool moved to it, and whether it is the newest (`Aktualna`, `Jest nowsza wersja`, `Nie
 sprawdzono`). The card offers `Zaktualizuj narzędzie` only when there is a Wydanie newer than
 the tool (`update_offered`, ADR 0014): not when it is current and not without GitHub's answer. The same
-button sits in the Diagnoza (`aktualnosc-i-onedrive.md`); there is one
+button sits in the Diagnoza (`aktualnosc-i-onedrive.md`) and in the card of the
+Powiadomienie o nowej wersji (`powiadomienia.md`); there is one
 update per Centrum, so while it runs every such button is disabled. Dad clicks
 it: the page shows the step while Centrum fetches `main` with the Wydania and moves the tool's
 clone forward. When the new
@@ -21,8 +22,8 @@ once the internet is back updates it. A new version whose Centrum does not
 start goes back by itself: the restart guardian moves the clone back and starts
 the old version, and the tab reloads on it with the Komunikat „Nowa wersja
 narzędzia nie wystartowała.” under the title of whichever page it lands on.
-Konfiguracja keeps GitHub's answer about the newest Wydanie for 10 minutes of Centrum's
-clock, so each harness change of the Wydanie also moves that clock on. In this run the tool
+Konfiguracja keeps GitHub's answer about the newest Wydanie (one answer shared with
+Powiadomienia) for 10 minutes of Centrum's clock, so each harness change of the Wydanie also moves that clock on. In this run the tool
 is the fixture's synthetic clone with a local "origin", and its Centrum is the
 run's scripted Centrum, so the restarted Centrum keeps the run-local
 boundaries; the verification never touches the checkout it runs from and never
@@ -44,6 +45,7 @@ reaches GitHub.
 ## How to get to it (user POV)
 
 - Sidebar `Konfiguracja` (`#/konfiguracja`), card `Narzędzie`, button `Zaktualizuj narzędzie`.
+- Powiadomienia (`#/powiadomienia`), the card `Nowa wersja <x.y.z>` above the list, button `Zaktualizuj narzędzie` (`powiadomienia.md`).
 - Uruchomienia, region `Diagnoza`: in the explanation `Jest nowsza wersja narzędzia.` or in the note `Propozycja aktualizacji`, button `Zaktualizuj narzędzie`.
 
 ## Driving it with Playwright for Python
@@ -77,4 +79,5 @@ Preconditions:
 - The restarted Centrum is a new process started by the restart guardian, not by the runner: `server.txt` holds only the first server's console, the new server rewrites `server.json` with its pid, and cleanup stops that one. In `all`, every later feature drives the restarted Centrum.
 - The old Centrum releases the port at once but gives the tab's open event stream up to 5 s before it logs `stop`, so its `stop` may land after the new Centrum's `start`; check the order without it.
 - The restart screenshot is `live` and needs the restart pacing: without it the new Centrum answers within about a second.
+- Centrum keeps the result `Masz najnowszą wersję.` until the next update or restart, so the card still shows it under `Aktualna` after the last reload, and so does any later card with the button before its click (issue #373); the drive checks only that the button and the alert are gone.
 - The version that does not start is only a `run_centrum.py` that fails at once; the real launcher's start failure without a dialog (`--bez-okienek`) is covered by `tests/test_opiekun_ponownego_startu.py`.

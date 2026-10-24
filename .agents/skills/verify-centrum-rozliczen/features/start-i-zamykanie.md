@@ -5,8 +5,13 @@ of the Centrum already running, and a port held by another program gives a
 three-part start message instead of a second server. Tabs gathered from many
 clicks keep working: a tab in the background gives back its connection to
 Centrum (the browser allows 6 for all tabs together) and reconnects when it
-comes to the front. Closing a browser tab leaves Centrum running; only
-`Zamknij Centrum rozliczeń` in the sidebar stops the server. Every start, recognised second start, start failure, shutdown and
+comes to the front. Closing a browser tab leaves Centrum running; Dad stops the
+server only with `Zamknij Centrum rozliczeń` in the sidebar (an Aktualizacja
+narzędzia also closes it, `aktualizacja.md`). During an Uruchomienie procesu or an
+update the server refuses to close (409) and the tab shows the notification
+`Nie zamknięto Centrum rozliczeń` with the reason; the drives of
+`przygotowanie-pliku-zbiorczego`, `przebieg-rozliczen` and `aktualizacja` check
+the refusal at the API only. Every start, recognised second start, start failure, shutdown and
 stop leaves a safe line in the Centrum log (`logs/centrum-rozliczen.log`).
 
 ## Sub-features

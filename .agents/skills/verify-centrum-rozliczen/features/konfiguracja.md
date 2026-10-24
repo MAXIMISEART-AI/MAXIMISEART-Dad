@@ -3,7 +3,12 @@
 Before a run, Dad sees on Konfiguracja whether the tool is ready: whether the
 three Wzorce are in place and pass the engine's Sprawdzanie, which Wykonawcy
 the konfiguracja wykonawców lists, and which version of the tool runs. A
-problem is a three-part message (what, where, what to do). The page is read
+problem is a three-part message (what, where, what to do): a missing Wzorzec
+(`Brak pliku`) and one that fails the Sprawdzanie or cannot be read
+(`Nie przechodzi sprawdzenia`; either Wzorzec of Przygotowanie without access
+is `NIEDOSTEPNY_WZORZEC`, not a damaged file) are a Zatrzymanie, a Wzorzec open in
+Excel (`Otwarty w Excelu`) an Ostrzeżenie. The header also says whether the key
+to Zgłoszenia is there (`zgloszenie.md`). The page is read
 only: Centrum never changes the konfiguracja wykonawców, a Wzorzec, or an
 Excel lock file.
 
