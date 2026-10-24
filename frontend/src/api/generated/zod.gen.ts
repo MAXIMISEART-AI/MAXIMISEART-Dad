@@ -993,7 +993,8 @@ export const zWorkersUnreadable = z.object({
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
  *
  * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
- * względem `main` na GitHubie, sprawdzana jak w Diagnozie.
+ * względem najnowszego Wydania na GitHubie (ADR 0014), sprawdzana jak w Diagnozie. ``update_offered`` mówi,
+ * czy Konfiguracja proponuje Aktualizację narzędzia: tylko przy nowszym Wydaniu (``tool_freshness.offers_update``).
  */
 export const zConfiguration = z.object({
     version: zToolVersion.nullable(),
@@ -1002,6 +1003,7 @@ export const zConfiguration = z.object({
         'newer',
         'not_checked'
     ]),
+    update_offered: z.boolean(),
     templates: z.array(z.union([zTemplateReady, zTemplateProblem])),
     workers: z.discriminatedUnion('state', [
         zWorkersReady,
