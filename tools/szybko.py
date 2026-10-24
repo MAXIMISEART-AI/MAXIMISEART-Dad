@@ -3,7 +3,9 @@
 Agent uruchamia je po każdej zmianie; pełną bramką jest CI na GitHubie. Zmiana to pliki, którymi checkout,
 razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie
 ``origin/main``). Kroki ruff i mypy to kroki ``tools/ci_lokalnie.py``, a pytest to jego krok z wybranymi
-testami. Kroki biegną naraz.
+testami. Gdy ``.venv`` ma Pythona nowszego niż najstarszy z ``requires-python``, który CI też testuje, krok
+``import src pod Pythonem <wersja>`` importuje każdy moduł ``src/`` tym Pythonem przez ``uv`` (bez ``uv`` pada).
+Kroki biegną naraz.
 
 Test jest dotknięty, gdy zmiana obejmuje jego plik albo plik, od którego zależy. Zależności wynikają z samego
 kodu, więc świeży worktree wybiera tak samo:
@@ -43,10 +45,13 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import tomllib
 from typing import TypeGuard
 import xml.etree.ElementTree as ET
 
@@ -88,6 +93,20 @@ GREEN = "szybko-zielone.json"
 PATH_TYPES = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
 GLOBS = frozenset({"glob", "rglob", "iterdir"})
 WORKERS = "4"
+# Importuje każdy moduł ``src/`` i wypisuje te, które padają; moduł, który się nie importuje, wywraca każdy test.
+IMPORT_ALL = """\
+import importlib, pathlib, sys
+src = pathlib.Path(sys.argv[1])
+names = sorted({".".join(p.relative_to(src).with_suffix("").parts).removesuffix(".__init__") for p in src.rglob("*.py")})
+failed = []
+for name in names:
+    try:
+        importlib.import_module(name)
+    except Exception as error:
+        failed.append(f"{name}: {type(error).__name__}: {error}")
+print("\\n".join(failed) or f"{len(names)} modułów")
+sys.exit(1 if failed or not names else 0)
+"""
 
 
 @dataclass(frozen=True)
@@ -464,9 +483,36 @@ def _pytest(root: Path, name: str, arguments: Iterable[str]) -> ci_lokalnie.Step
     return replace(pytest, name=name, command=(*pytest.command, *arguments))
 
 
+def _oldest_python(root: Path) -> str | None:
+    """Najstarszy Python z ``requires-python`` (``>=3.11`` daje ``3.11``), gdy szybko biegnie nowszym; inaczej ``None``."""
+
+    try:
+        required = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        return None
+    oldest = re.fullmatch(r">=\s*(\d+)\.(\d+)", str(required).strip())
+    if oldest is None or sys.version_info[:2] <= (int(oldest[1]), int(oldest[2])):
+        return None
+    return f"{oldest[1]}.{oldest[2]}"
+
+
+def _imports_on(root: Path, version: str) -> ci_lokalnie.Step:
+    """CI testuje też najstarszy Python, a ``.venv`` bywa nowszy: kod tylko dla nowszego Pythona pada dopiero w CI."""
+
+    name = f"import src pod Pythonem {version}"
+    uv = shutil.which("uv")
+    if uv is None:
+        why = f"brak uv, więc szybko nie sprawdzi Pythona {version}: zainstaluj uv albo .venv z {version}"
+        return ci_lokalnie.Step(name, "pytest", "", (sys.executable, "-c", f"raise SystemExit({why!r})"), root)
+    requirements = ("--with-requirements", "requirements.txt") if (root / "requirements.txt").is_file() else ()
+    command = (uv, "run", "--no-project", "--quiet", "--python", version, *requirements, "python", "-c", IMPORT_ALL, "src")
+    return ci_lokalnie.Step(name, "pytest", "", command, root)
+
+
 def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.Step]:
     static = (step for step in ci_lokalnie._steps(root) if step.job in STATIC_JOBS)
-    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit))]
+    oldest = _oldest_python(root)
+    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit)), *([_imports_on(root, oldest)] if oldest else [])]
 
 
 def _environment(root: Path) -> dict[str, str]:

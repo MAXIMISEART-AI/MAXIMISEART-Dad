@@ -293,6 +293,65 @@ def test_blad_typu_tylko_na_windows_wywraca_szybkie_sprawdzenie(tmp_path: Path) 
     assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, expected), answered.stdout
 
 
+ONLY_NEWER_PYTHON = (
+    "from dataclasses import dataclass, field\nfrom types import MappingProxyType\n\n\n"
+    "@dataclass(frozen=True)\nclass Ilosci:\n    wartosci: object = field(default=MappingProxyType({}))\n"
+)
+
+
+def _requiring(repo: Path, version: tuple[int, int]) -> None:
+    _write(repo, "pyproject.toml", f'[project]\nname = "pakiet"\nrequires-python = ">={version[0]}.{version[1]}"\n\n[tool.mypy]\nfiles = ["src"]\n')
+    commit(repo, "requires-python")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+def test_modul_ktory_nie_importuje_sie_najstarszym_pythonem_wywraca_szybkie_sprawdzenie(tmp_path: Path) -> None:
+    if sys.version_info[:2] == (3, 11) or shutil.which("uv") is None:
+        pytest.skip("krok biegnie, gdy szybko ma Pythona nowszego niż 3.11 i uv, które da Pythona 3.11")
+    repo = _repo(tmp_path)
+    _requiring(repo, (3, 11))
+    _write(repo, "src/pakiet/ilosci.py", ONLY_NEWER_PYTHON)
+
+    answered = _szybko(repo)
+
+    assert "pakiet.ilosci: ValueError: mutable default" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | import src pod Pythonem 3.11"), answered.stdout
+
+
+def test_bez_uv_krok_najstarszego_pythona_pada_z_droga_naprawy(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _requiring(repo, (3, sys.version_info[1] - 1))
+    git_folder = str(Path(shutil.which("git") or "git").parent)
+    if shutil.which("uv", path=git_folder):
+        pytest.skip("uv leży w tym samym folderze co git")
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "szybko.py")],
+        cwd=repo,
+        env={**os.environ, "PATH": git_folder, "PYTEST_XDIST_AUTO_NUM_WORKERS": "2"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    oldest = f"3.{sys.version_info[1] - 1}"
+    assert f"brak uv, więc szybko nie sprawdzi Pythona {oldest}: zainstaluj uv albo .venv z {oldest}" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, f"SZYBKO FAIL | import src pod Pythonem {oldest}"), answered.stdout
+
+
+def test_szybko_na_najstarszym_pythonie_nie_ma_osobnego_kroku_importu(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _requiring(repo, sys.version_info[:2])
+
+    answered = _szybko(repo)
+
+    assert "import src pod Pythonem" not in answered.stdout
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "SZYBKO OK"), answered.stdout
+
+
 def test_nieznana_baza_konczy_sie_jedna_linia_wyniku(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
 
