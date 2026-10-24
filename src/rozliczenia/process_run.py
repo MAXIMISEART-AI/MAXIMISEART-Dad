@@ -40,7 +40,7 @@ __all__ = [
     "run_process",
 ]
 
-_DETACHED_OBSERVER_NOTICE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
+_DETACHED_OBSERVER_NOTE = "Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."
 
 
 class ProcessInputs(Protocol):
@@ -144,7 +144,7 @@ class Outcome(Generic[ViewT]):
 
     ``view`` to widok podsumowania rozmówcy, gdy proces się zakończył
     (``Finished``); zrobiła go funkcja rozmówcy w osłonie rdzenia.
-    ``notices`` to neutralne ostrzeżenia: niezapisane metryki i odłączony
+    ``technical_notes`` to uwagi techniczne: niezapisane metryki i odłączony
     podgląd postępu. ``metrics_saved``: rekord metryk trafił do pliku metryk.
     ``progress``: ostatni snapshot jedynej projekcji postępu (etapy, Przetworzenia
     Szablonów pracownika, liczba problemów); po odłączeniu podglądu ten z chwili odłączenia.
@@ -153,7 +153,7 @@ class Outcome(Generic[ViewT]):
     ending: Finished | Stop
     view: ViewT | None
     total_duration_ms: int
-    notices: tuple[str, ...]
+    technical_notes: tuple[str, ...]
     metrics_saved: bool
     progress: ProgressSnapshot
 
@@ -313,21 +313,21 @@ def run_process(
         counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
         stop=stop,
     )
-    notices: list[str] = []
+    technical_notes: list[str] = []
     try:
         MetricsStore(metrics_path, process.counter_names).append(record)
         metrics_saved = True
     except (OSError, UnicodeError, ValueError):
         metrics_saved = False
-        notices.append(f"Ostrzeżenie: Nie zapisano metryk; {process.metrics_failure_tail}")
+        technical_notes.append(f"Ostrzeżenie: Nie zapisano metryk; {process.metrics_failure_tail}")
     if observation.failed:
-        notices.append(_DETACHED_OBSERVER_NOTICE)
+        technical_notes.append(_DETACHED_OBSERVER_NOTE)
 
     return Outcome(
         ending=ending,
         view=shown,
         total_duration_ms=total_duration_ms,
-        notices=tuple(notices),
+        technical_notes=tuple(technical_notes),
         metrics_saved=metrics_saved,
         progress=observation.projection.snapshot,
     )

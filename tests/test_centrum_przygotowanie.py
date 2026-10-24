@@ -544,7 +544,7 @@ def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(
     assert (running["state"], running["progress_stale"]) == ("running", True)
     assert finished["progress_stale"] is True
     assert (result["result"], result["ending"]) == ("WYMAGA_SPRAWDZENIA", "finished")
-    assert result["notices"] == ["Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."]
+    assert result["technical_notes"] == ["Podgląd postępu przestał się aktualizować; wynik nie zależy od tego."]
     assert centrum.fixture.collective_file_path.is_file()
     [record] = centrum.metric_records()
     assert (record["result"], record["completed"]) == ("WYMAGA_SPRAWDZENIA", True)

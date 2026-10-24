@@ -91,10 +91,9 @@ zamiast każdej naprawy z osobna.
   wtedy, gdy Aktualność to `Jest nowsza wersja`; przy `Aktualna` i przy `Nie
   sprawdzono` (brak sieci, brak Wydania, brak commitu) go nie ma. Regułę ma
   jedno miejsce, `tool_freshness.offers_update`, a Konfiguracja podaje ją
-  przeglądarce w polu `update_offered` (#319). Powiadomienie o naprawie ma
-  przycisk zawsze, dopóki nie usunie go #323. Odpowiedź `Masz najnowszą
-  wersję.` zostaje na uśpiony tag (wyżej), na Powiadomienie o naprawie i na
-  każdego klienta HTTP.
+  przeglądarce w polu `update_offered` (#319). Powiadomienie o naprawie
+  miało przycisk zawsze; #323 je usunęło. Odpowiedź `Masz najnowszą wersję.`
+  zostaje na uśpiony tag (wyżej) i na każdego klienta HTTP.
 
 ### Ochrona przed tagiem założonym ręcznie
 

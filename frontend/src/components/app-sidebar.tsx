@@ -38,7 +38,7 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu aria-label="Sekcje Centrum rozliczeń">
-              {PAGES.map((page) => (
+              {PAGES.filter((page) => page.menu).map((page) => (
                 <SidebarMenuItem key={page.id}>
                   <SidebarMenuButton
                     isActive={page.id === current.id}

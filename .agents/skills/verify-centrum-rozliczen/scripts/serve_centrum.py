@@ -37,21 +37,23 @@ The skrzynka Zgłoszeń (Maks's private repository on GitHub at Dad's) is a
 directory, ``<root>/skrzynka-zgloszen/``: each issue Centrum opens (a Zgłoszenie
 Dad sends, or a Kontrola ilości Centrum sends by itself) becomes
 ``<number>.json`` with its title, body, label, comments, and ``state`` (``open``; the
-drive may edit it to ``closed``, which Centrum reads as Maks closing the
-Zgłoszenie). Asked for the issues with a label, the skrzynka lists the files
+drive may edit it to ``closed`` with ``state_reason`` and ``closed_at`` as GitHub
+gives them, which Centrum reads as Maks closing the Zgłoszenie or Uwaga taty).
+Asked for the issues with a label, the skrzynka lists the files
 with that label, only the ``open`` ones unless closed issues are asked for too;
 Centrum takes the newest one whose body has its exact line (the fingerprint
 line of a Zgłoszenie's problem, or the period line of a Kontrola ilości, which
 then goes into that file's ``comments``). The key is never written
 there. While
 ``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
-Each question about the state of sent Zgłoszenia appends its numbers to
+Each question for the issues with a label, closed ones included (how
+Powiadomienia ask about Dad's sent Zgłoszenia and Uwagi), appends its label to
 ``<root>/skrzynka-zgloszen-zapytania.jsonl``. While ``<root>/pacing/skrzynka-ms.txt``
 exists, the skrzynka waits that many milliseconds before it opens an issue, like
 GitHub over a slow connection, so the drive can see that Centrum starts without
 waiting for the Kontrole ilości it sends again at start.
 
-Centrum asks the skrzynka for the state of sent Zgłoszenia at most once per 10
+Centrum asks the skrzynka for the state of Dad's sent cases at most once per 10
 minutes of its monotonic clock; ``<root>/zegar/przesuniecie-min.txt`` moves that
 clock forward by the given minutes, so the drive need not wait.
 
@@ -92,7 +94,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -111,17 +113,17 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
+    Closure,
     CommentOutcome,
     Commented,
     Issue,
     IssuesOutcome,
-    IssueState,
     Label,
     Refused,
     SendOutcome,
     Sent,
-    StatesOutcome,
     Unreachable,
+    close_reason,
 )
 from rozliczenia.centrum.launcher import listen_locally
 from rozliczenia.centrum.server import serve
@@ -203,27 +205,27 @@ class FileReportBox:
         return Commented(comment_id, f"skrzynka-zgloszen/{number}.json#komentarz-{comment_id}")
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
+        if include_closed:
+            with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:
+                asked.write(json.dumps({"label": label}) + "\n")
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
         with self._lock:
             issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
         return tuple(
-            Issue(issue["number"], issue["body"])
+            Issue(issue["number"], issue["body"], _closure(issue))
             for issue in issues
             if issue["labels"] == [label] and (include_closed or issue["state"] == "open")
         )
 
-    def states(self, numbers: Sequence[int], *, key: str) -> StatesOutcome:
-        with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:
-            asked.write(json.dumps({"numbers": list(numbers)}) + "\n")
-        if (self._directory / "brak-sieci").exists():
-            return Unreachable()
-        states: dict[int, IssueState] = {}
-        with self._lock:
-            for number in numbers:
-                issue = json.loads((self._directory / f"{number}.json").read_text(encoding="utf-8"))
-                states[number] = "closed" if issue["state"] == "closed" else "open"
-        return states
+
+def _closure(issue: dict[str, Any]) -> Closure | None:
+    """Maks's closing as the drive wrote it, with ``state_reason`` and ``closed_at`` like GitHub."""
+
+    if issue["state"] != "closed":
+        return None
+    closed_at = issue.get("closed_at")
+    return Closure(close_reason(issue.get("state_reason")), datetime.fromisoformat(closed_at) if closed_at else None)
 
 
 def _scripted_github(root: Path, clone: Path) -> ToolFreshness:

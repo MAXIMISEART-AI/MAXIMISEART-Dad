@@ -446,7 +446,7 @@ DiagnosisOffer = Literal["on_request", "automatic"]
 
 
 class RunOutcome(_Model):
-    """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
+    """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
 
     ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
     błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
@@ -465,7 +465,7 @@ class RunOutcome(_Model):
     report: ReportState | None
     stops: list[Message]
     warnings: list[Message]
-    notices: list[str]
+    technical_notes: list[str]
     summary: RunSummary | None
 
 
@@ -664,16 +664,6 @@ ToolUpdate = Annotated[
 ]
 
 
-class RepairNotice(_Model):
-    """Powiadomienie o naprawie na stronie Okresy.
-
-    ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
-    działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
-    """
-
-    repaired: bool
-
-
 DAD_NOTE_TITLE_MAX_LENGTH = 120
 DAD_NOTE_BODY_MAX_LENGTH = 10_000
 # Tytuł Uwagi taty to jedna linia: issue w Skrzynce Zgłoszeń i Powiadomienie nazywają ją tym tytułem.
@@ -719,8 +709,54 @@ class DadNoteWaiting(_Model):
 DadNoteState = Annotated[DadNoteSent | DadNoteWaiting, Field(discriminator="state")]
 
 
-# Strony z bocznego menu (`frontend/src/pages.tsx`): identyfikator to adres `#/<id>` strony.
-PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja"]
+# Stan sprawy taty (Uwagi albo Zgłoszenia) w Powiadomieniu: wysłana, czeka w kolejce na internet, rozwiązana
+# (Maks zamknął issue jako ``completed``: będzie w następnej wersji) albo przeczytana (``not_planned``: bez zmian).
+CaseState = Literal["wyslana", "czeka_na_internet", "rozwiazana", "przeczytana"]
+
+
+class _Notification(_Model):
+    """Wspólne pola Powiadomienia: ``id`` sprawy w jej stanie (nowy stan to nowe Powiadomienie), ``at`` czas tego
+    stanu (zamknięcie przez Maksa albo wysłanie przez tatę) i ``unread``, czy tata go jeszcze nie widział."""
+
+    id: str
+    at: datetime
+    unread: bool
+
+
+class DadNoteNotification(_Notification):
+    """Powiadomienie o Uwadze taty, nazwanej jej tytułem."""
+
+    kind: Literal["uwaga"]
+    title: str
+    state: CaseState
+
+
+class ReportNotification(_Notification):
+    """Powiadomienie o Zgłoszeniu, nazwanym „Co się stało” jego Komunikatu, bez kodu."""
+
+    kind: Literal["zgloszenie"]
+    what: str
+    state: CaseState
+
+
+Notification = Annotated[DadNoteNotification | ReportNotification, Field(discriminator="kind")]
+
+
+class Notifications(_Model):
+    """Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku)."""
+
+    unread: int
+    items: list[Notification]
+
+
+class NotificationsRead(_Model):
+    """Powiadomienia, które tata zobaczył w widoku Powiadomienia (ich ``id``)."""
+
+    ids: Annotated[list[str], Field(max_length=1_000)]
+
+
+# Strony Centrum (`frontend/src/pages.tsx`): z bocznego menu i widok Powiadomienia; identyfikator to adres `#/<id>` strony.
+PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja", "powiadomienia"]
 # Zimny start strony (otwarcie albo odświeżenie karty) albo przejście w menu.
 ViewKind = Literal["cold_start", "navigation"]
 # Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu. Trasy spoza
@@ -738,7 +774,8 @@ ApiOperation = Literal[
     "decideRun",
     "diagnoseRun",
     "reportRun",
-    "getRepairNotice",
+    "getNotifications",
+    "markNotificationsRead",
     "getMetrics",
     "getConfiguration",
     "startToolUpdate",

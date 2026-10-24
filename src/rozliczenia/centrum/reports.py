@@ -23,12 +23,11 @@ import codecs
 import json
 import threading
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, astuple, dataclass, replace
+from dataclasses import astuple, dataclass, replace
+from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
 from typing import Final, Literal
-
-from fastapi import APIRouter
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
@@ -38,14 +37,16 @@ from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import (
     REPORT_LABEL,
+    Closure,
     FindOutcome,
-    IssueState,
     Refused,
     ReportBox,
     SendOutcome,
     Sent,
-    Unreachable,
+    closure_json,
     find_issue,
+    read_closure,
+    read_moment,
 )
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
@@ -55,8 +56,6 @@ from rozliczenia.process_run import Stop
 REPORT_KEY_FILE: Final = "zgloszenia-klucz.txt"
 UNSENT_DIRECTORY: Final = "zgloszenia"
 SENT_REPORTS_FILE: Final = "zgloszenia-wyslane.json"
-# Skrzynkę Zgłoszeń o stan wysłanych Zgłoszeń Centrum pyta najwyżej raz na 10 minut.
-STATES_INTERVAL_S: Final = 10 * 60
 # Diagnoza czeka na odpowiedź skrzynki o otwarte Zgłoszenie najwyżej tyle, co na commit `main`.
 SEARCH_DEADLINE_S: Final = 3.0
 
@@ -69,11 +68,13 @@ _CHECK_STATES: Final = {"passed": "przeszło", "failed": "nie przeszło", "not_c
 
 @dataclass(frozen=True)
 class Report:
-    """Zgłoszenie: tytuł (kod i „Co się stało”), treść Markdown i odcisk problemu, po którym je rozpoznać."""
+    """Zgłoszenie: tytuł (kod i „Co się stało”), treść Markdown, odcisk problemu, po którym je rozpoznać, i samo
+    „Co się stało”, którym Powiadomienie nazywa Zgłoszenie."""
 
     title: str
     body: str
     fingerprint: str
+    what: str
 
 
 @dataclass(frozen=True)
@@ -242,7 +243,9 @@ def _tool_lines(fingerprint: str, previous: int | None, *, commit: str | None = 
 def _report(message: Message, lines: list[str], fingerprint: str) -> Report:
     """Zgłoszenie z tytułem z kodu i „Co się stało” Komunikatu."""
 
-    return Report(title=f"{message.code}: {message.what}", body="\n".join(lines) + "\n", fingerprint=fingerprint)
+    return Report(
+        title=f"{message.code}: {message.what}", body="\n".join(lines) + "\n", fingerprint=fingerprint, what=message.what
+    )
 
 
 def _trace_lines(trace: CallTrace | None) -> list[str]:
@@ -268,15 +271,19 @@ def _cell(text: str) -> str:
 
 @dataclass(frozen=True)
 class SentReport:
-    """Wysłane Zgłoszenie w lokalnym stanie: odcisk problemu, numer issue i commit narzędzia przy wysyłce.
+    """Wysłane Zgłoszenie w lokalnym stanie: odcisk problemu, numer issue, commit narzędzia i „Co się stało”.
 
-    ``state`` to ostatni znany stan issue w skrzynce Zgłoszeń; dopóki skrzynka nie powie inaczej, ``open``.
+    ``sent_at`` to czas wysyłki. ``what`` i ``sent_at`` są ``None`` tylko we wpisach sprzed Powiadomień; takie
+    Zgłoszenie nie daje Powiadomienia. ``closure`` to ostatnie znane zamknięcie issue przez Maksa; dopóki skrzynka
+    nie powie inaczej, ``None`` (otwarte, czeka na naprawę).
     """
 
     fingerprint: str
     number: int
     commit: str | None
-    state: IssueState = "open"
+    what: str | None
+    sent_at: datetime | None
+    closure: Closure | None = None
 
 
 class SentReports:
@@ -285,15 +292,21 @@ class SentReports:
     Potwierdzenie wysłania przetrwa odświeżenie karty i restart Centrum, a commit
     mówi, z jakiej wersji narzędzia wysłano Zgłoszenie. Brak albo uszkodzenie
     pliku to brak wysłanych Zgłoszeń; nieudany zapis zostawia Zgłoszenie wysłanym
-    do końca pracy Centrum.
+    do końca pracy Centrum. Piszą do niego wysyłka Zgłoszenia i sprawdzanie
+    Powiadomień, więc każda zmiana idzie pod blokadą.
     """
 
     def __init__(self, path: Path, log: CentrumLog) -> None:
         self._path = path
         self._log = log
+        self._lock = threading.Lock()
         self._remembered: list[SentReport] = []
 
     def all(self) -> list[SentReport]:
+        with self._lock:
+            return self._all()
+
+    def _all(self) -> list[SentReport]:
         stored = self._read()
         known = {sent.number for sent in stored}
         return stored + [sent for sent in self._remembered if sent.number not in known]
@@ -304,22 +317,24 @@ class SentReports:
         return next((sent for sent in reversed(self.all()) if sent.fingerprint == fingerprint), None)
 
     def add(self, sent: SentReport) -> None:
-        reports = [*self.all(), sent]
-        self._remembered.append(sent)
-        self._write(reports)
+        with self._lock:
+            reports = [*self._all(), sent]
+            self._remembered.append(sent)
+            self._write(reports)
 
-    def mark(self, states: Mapping[int, IssueState]) -> None:
-        """Zapamiętuje stan issue ze skrzynki Zgłoszeń przy wysłanych Zgłoszeniach o tych numerach."""
+    def mark(self, closures: Mapping[int, Closure | None]) -> None:
+        """Zapamiętuje zamknięcie issue ze skrzynki Zgłoszeń przy wysłanych Zgłoszeniach o tych numerach."""
 
         def marked(sent: SentReport) -> SentReport:
-            return replace(sent, state=states.get(sent.number, sent.state))
+            return replace(sent, closure=closures.get(sent.number, sent.closure))
 
-        self._remembered = [marked(sent) for sent in self._remembered]
-        self._write([marked(sent) for sent in self.all()])
+        with self._lock:
+            self._remembered = [marked(sent) for sent in self._remembered]
+            self._write([marked(sent) for sent in self._all()])
 
     def _write(self, reports: list[SentReport]) -> None:
         try:
-            replace_atomically(self._path, json.dumps([asdict(report) for report in reports], indent=2) + "\n")
+            replace_atomically(self._path, json.dumps([_sent_json(report) for report in reports], indent=2) + "\n")
         except OSError as failure:
             self._log.unexpected_failure(failure, where="stan wysłanych Zgłoszeń")
 
@@ -330,15 +345,36 @@ class SentReports:
             return []
         if not isinstance(entries, list):
             return []
-        return [
-            SentReport(entry["fingerprint"], entry["number"], entry.get("commit"), entry.get("state", "open"))
-            for entry in entries
-            if isinstance(entry, dict)
-            and isinstance(entry.get("fingerprint"), str)
-            and isinstance(entry.get("number"), int)
-            and isinstance(entry.get("commit"), str | None)
-            and entry.get("state", "open") in ("open", "closed")
-        ]
+        return [sent for sent in map(_sent_report, entries) if sent is not None]
+
+
+def _sent_json(sent: SentReport) -> dict[str, object]:
+    return {
+        "fingerprint": sent.fingerprint,
+        "number": sent.number,
+        "commit": sent.commit,
+        "what": sent.what,
+        "sent_at": None if sent.sent_at is None else sent.sent_at.isoformat(),
+        "closure": closure_json(sent.closure),
+    }
+
+
+def _sent_report(entry: object) -> SentReport | None:
+    """Wpis pliku wysłanych Zgłoszeń; wpis bez odcisku albo numeru pomija, a nieczytelne pole dodatkowe to ``None``."""
+
+    if not isinstance(entry, dict):
+        return None
+    fingerprint, number, commit, what = (entry.get(name) for name in ("fingerprint", "number", "commit", "what"))
+    if not (isinstance(fingerprint, str) and type(number) is int and isinstance(commit, str | None)):
+        return None
+    return SentReport(
+        fingerprint,
+        number,
+        commit,
+        what if isinstance(what, str) else None,
+        read_moment(entry.get("sent_at")),
+        read_closure(entry.get("closure")),
+    )
 
 
 @dataclass(frozen=True)
@@ -400,25 +436,28 @@ class Reports:
         log: CentrumLog,
         commit: CommitSource,
         *,
-        clock: Callable[[], float],
         search_deadline_s: float,
     ) -> None:
         self._commit = commit
-        self._clock = clock
         self._search_deadline_s = search_deadline_s
-        self._states_asked_at: float | None = None  # od startu Centrum skrzynka nie była jeszcze pytana
         self._config_directory = config_directory
         self._unsent = config_directory / UNSENT_DIRECTORY
         self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
         self._box = box
         self._log = log
-        # Blokada chroni tylko stan w pamięci i pliki stanu; pytania do skrzynki idą bez niej.
+        # Blokada chroni tylko stan w pamięci; pytania do skrzynki idą bez niej.
         self._lock = threading.Lock()
         self._changed = threading.Condition(self._lock)
         self._sent_drafts: set[str] = set()  # ``Draft.key`` podglądów wysłanych w tej pracy Centrum
         self._sending: set[str] = set()  # ``Draft.key`` podglądów, które właśnie idą do skrzynki
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
         self._open: dict[str, int | None] = {}
+
+    @property
+    def sent(self) -> SentReports:
+        """Wysłane Zgłoszenia z tego komputera: Powiadomienia pokazują je tacie i dopisują ich zamknięcie."""
+
+        return self._sent
 
     def state(self, fingerprint: ProblemFingerprint) -> contract.ReportState:
         """Stan Zgłoszenia problemu przy wyniku Uruchomienia: czeka na naprawę albo gotowe do wysłania."""
@@ -482,7 +521,15 @@ class Reports:
         saved = self._unsent / draft.file_name
         if isinstance(outcome, Sent):
             with self._lock:
-                self._sent.add(SentReport(draft.report.fingerprint, outcome.number, self._commit()))
+                self._sent.add(
+                    SentReport(
+                        draft.report.fingerprint,
+                        outcome.number,
+                        self._commit(),
+                        draft.report.what,
+                        datetime.now(timezone.utc),
+                    )
+                )
                 self._open[draft.report.fingerprint] = outcome.number
                 self._sent_drafts.add(draft.key)
             draft.logged.sent(outcome.number)
@@ -507,46 +554,6 @@ class Reports:
             return contract.ReportSaved(state="saved", message=contract.Message.of(message))
         draft.logged.saved(unsent.code)
         return contract.ReportSaved(state="saved", message=contract.Message.of(unsent))
-
-    def repair_notice(self) -> contract.RepairNotice:
-        """Czy Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal tu działa.
-
-        Gdy od startu Centrum skrzynki nie pytano albo minęło ``STATES_INTERVAL_S``,
-        Centrum pyta ją o stan otwartych Zgłoszeń z tej wersji; porażka zapytania
-        przechodzi po cichu i zostaje ostatni znany stan. Po aktualizacji narzędzia
-        commit jest inny, więc powiadomienie znika samo.
-        """
-
-        commit = self._commit()
-        if commit is None:
-            return contract.RepairNotice(repaired=False)
-        key = self._key()
-        with self._lock:
-            waiting = [sent.number for sent in self._sent.all() if sent.commit == commit and sent.state == "open"]
-            now = self._clock()
-            due = self._states_asked_at is None or now - self._states_asked_at >= STATES_INTERVAL_S
-            ask = bool(waiting) and key is not None and due
-            if ask:
-                self._states_asked_at = now  # rezerwuje pytanie: równoległy odczyt nie pyta drugi raz
-        if ask and key is not None:
-            states = self._box.states(waiting, key=key)
-            if not isinstance(states, Refused | Unreachable):
-                with self._lock:
-                    self._sent.mark(states)
-        with self._lock:
-            repaired = any(sent.commit == commit and sent.state == "closed" for sent in self._sent.all())
-        return contract.RepairNotice(repaired=repaired)
-
-    def check_repairs_in_background(self) -> None:
-        """Przy starcie Centrum pierwsze pytanie o stan wysłanych Zgłoszeń, w tle, żeby start nie czekał na sieć."""
-
-        threading.Thread(target=self._check_repairs, name="zgloszenia-przy-starcie", daemon=True).start()
-
-    def _check_repairs(self) -> None:
-        try:
-            self.repair_notice()
-        except Exception as failure:
-            self._log.unexpected_failure(failure, where="stan Zgłoszeń przy starcie")
 
     def _ask_box(self, fingerprint: str) -> None:
         """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo.
@@ -579,7 +586,7 @@ class Reports:
             waiting = self._open[fingerprint] is not None
         else:
             sent = self._sent.find(fingerprint)
-            waiting = sent is not None and sent.state == "open"
+            waiting = sent is not None and sent.closure is None
         return contract.ReportWaiting(state="waiting") if waiting else contract.ReportReady(state="ready")
 
     def key_state(self) -> contract.ReportKeyState:
@@ -601,13 +608,3 @@ def read_report_key(config_directory: Path) -> str | None:
         return None
     return key or None
 
-
-
-def repair_router(reports: Reports) -> APIRouter:
-    router = APIRouter(prefix="/api/reports", tags=["zgloszenia"])
-
-    @router.get("/repair", operation_id="getRepairNotice")
-    def repair_notice() -> contract.RepairNotice:
-        return reports.repair_notice()
-
-    return router

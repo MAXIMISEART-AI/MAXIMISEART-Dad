@@ -29,7 +29,7 @@ stop leaves a safe line in the Centrum log (`logs/centrum-rozliczen.log`).
 Preconditions:
 
 - Centrum is served for this run with `DOCTOR OK`. This feature closes it, so it runs last in `all`; nothing can be driven after it.
-- The launcher steps copy the tool into `<root>/narzedzie` so the real launcher's log stays in the run root. The copy's `.git/HEAD` names the served Centrum's commit (the tool clone's `HEAD`, or `<root>/github/tool-commit.txt` when powiadomienie-o-naprawie pinned one), so it is the same version. The steps set `BROWSER` to a recorder that appends to `<root>/browser.txt`.
+- The launcher steps copy the tool into `<root>/narzedzie` so the real launcher's log stays in the run root. The copy's `.git/HEAD` names the served Centrum's commit (the tool clone's `HEAD`, or `<root>/github/tool-commit.txt` when a feature pinned one), so it is the same version. The steps set `BROWSER` to a recorder that appends to `<root>/browser.txt`.
 
 - **Readiness.** `GET /api/health` (`api/start-health.json`) has exactly `service` `centrum-rozliczen`, the served Centrum's commit shortened to 7 characters, and a non-empty `instance`; `<root>/logs/centrum-rozliczen.log` starts with `start … port=<port>`.
 - **Second start.** Run `<root>/narzedzie/run_centrum.py --port <port>`. It exits 0, prints `Centrum rozliczeń już działa: <url>` (`api/start-druga-instancja.txt`), `browser.txt` holds exactly the URL, the copy's log holds `juz-dziala`, and `health` still answers.

@@ -11,7 +11,7 @@
  "tests/test_centrum_launcher.py": 29.0,
  "tests/test_centrum_metryki.py": 0.6,
  "tests/test_centrum_pomiar_u_taty.py": 2.3,
- "tests/test_centrum_powiadomienie_o_naprawie.py": 2.8,
+ "tests/test_centrum_powiadomienia.py": 3.5,
  "tests/test_centrum_przebieg.py": 11.5,
  "tests/test_centrum_przygotowanie.py": 8.2,
  "tests/test_centrum_rozliczen.py": 3.9,

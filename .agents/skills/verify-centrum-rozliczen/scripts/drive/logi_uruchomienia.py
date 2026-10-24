@@ -70,8 +70,8 @@ def _matches_card(run: Run, record: Json, view: Json, mode: str) -> None:
         f"the Logi hold the card's {len(shown)} Komunikaty in three parts, stops before warnings",
     )
     run.check(
-        (record["summary"], record["notices"]) == (result["summary"], result["notices"]),
-        "the summary and the notices equal the card",
+        (record["summary"], record["technical_notes"]) == (result["summary"], result["technical_notes"]),
+        "the summary and the technical notes equal the card",
     )
 
 

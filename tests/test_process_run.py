@@ -149,8 +149,8 @@ def test_nieudany_zapis_metryk_to_tylko_ostrzezenie_bez_zmiany_wyniku_procesu(tm
     saved = run_core(fake_process(), tmp_path / "metrics.jsonl")
     unsaved = run_core(fake_process(), not_a_directory / "metrics.jsonl")
 
-    assert (saved.metrics_saved, saved.notices) == (True, ())
-    assert (unsaved.metrics_saved, unsaved.notices) == (False, (METRICS_WARNING,))
+    assert (saved.metrics_saved, saved.technical_notes) == (True, ())
+    assert (unsaved.metrics_saved, unsaved.technical_notes) == (False, (METRICS_WARNING,))
     assert isinstance(unsaved.ending, Finished)
     assert (unsaved.result, unsaved.ending.counters) == ("OK", {"items": 1})
     assert unsaved.view == unsaved.ending.phase_durations_ms

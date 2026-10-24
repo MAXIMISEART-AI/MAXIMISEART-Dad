@@ -21,7 +21,8 @@ export const zApiTiming = z.object({
         'decideRun',
         'diagnoseRun',
         'reportRun',
-        'getRepairNotice',
+        'getNotifications',
+        'markNotificationsRead',
         'getMetrics',
         'getConfiguration',
         'startToolUpdate',
@@ -94,6 +95,25 @@ export const zCountGroup = z.object({
 export const zDadNoteDraft = z.object({
     title: z.string(),
     body: z.string()
+});
+
+/**
+ * DadNoteNotification
+ *
+ * Powiadomienie o Uwadze taty, nazwanej jej tytułem.
+ */
+export const zDadNoteNotification = z.object({
+    id: z.string(),
+    at: z.iso.datetime(),
+    unread: z.boolean(),
+    kind: z.literal('uwaga'),
+    title: z.string(),
+    state: z.enum([
+        'wyslana',
+        'czeka_na_internet',
+        'rozwiazana',
+        'przeczytana'
+    ])
 });
 
 /**
@@ -224,6 +244,15 @@ export const zMissingPath = z.object({
  */
 export const zNotSetPath = z.object({
     state: z.literal('not_set')
+});
+
+/**
+ * NotificationsRead
+ *
+ * Powiadomienia, które tata zobaczył w widoku Powiadomienia (ich ``id``).
+ */
+export const zNotificationsRead = z.object({
+    ids: z.array(z.string()).max(1000)
 });
 
 /**
@@ -449,18 +478,6 @@ export const zReadyPath = z.object({
 });
 
 /**
- * RepairNotice
- *
- * Powiadomienie o naprawie na stronie Okresy.
- *
- * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
- * działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
- */
-export const zRepairNotice = z.object({
-    repaired: z.boolean()
-});
-
-/**
  * ReportDraft
  *
  * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
@@ -495,6 +512,35 @@ export const zDiagnosis = z.object({
     update_proposal: z.boolean(),
     checks: z.array(zDiagnosisCheck),
     report: zReportDraft
+});
+
+/**
+ * ReportNotification
+ *
+ * Powiadomienie o Zgłoszeniu, nazwanym „Co się stało” jego Komunikatu, bez kodu.
+ */
+export const zReportNotification = z.object({
+    id: z.string(),
+    at: z.iso.datetime(),
+    unread: z.boolean(),
+    kind: z.literal('zgloszenie'),
+    what: z.string(),
+    state: z.enum([
+        'wyslana',
+        'czeka_na_internet',
+        'rozwiazana',
+        'przeczytana'
+    ])
+});
+
+/**
+ * Notifications
+ *
+ * Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku).
+ */
+export const zNotifications = z.object({
+    unread: z.int(),
+    items: z.array(z.union([zDadNoteNotification, zReportNotification]))
 });
 
 /**
@@ -815,7 +861,8 @@ export const zViewTiming = z.object({
         'okresy',
         'uruchomienia',
         'metryki',
-        'konfiguracja'
+        'konfiguracja',
+        'powiadomienia'
     ]),
     ready_ms: z.int().gte(0).lte(600000),
     fcp_ms: z.int().gte(0).lte(600000).nullable(),
@@ -851,7 +898,7 @@ export const zRunSummary = z.object({
 /**
  * RunOutcome
  *
- * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
+ * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
@@ -892,7 +939,7 @@ export const zRunOutcome = z.object({
     ]).nullable(),
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
-    notices: z.array(z.string()),
+    technical_notes: z.array(z.string()),
     summary: zRunSummary.nullable()
 });
 
@@ -1000,6 +1047,18 @@ export const zGetHealthResponse = zHealth;
 export const zGetMetricsResponse = zMetrics;
 
 /**
+ * Successful Response
+ */
+export const zGetNotificationsResponse = zNotifications;
+
+export const zMarkNotificationsReadBody = zNotificationsRead;
+
+/**
+ * Successful Response
+ */
+export const zMarkNotificationsReadResponse = zNotifications;
+
+/**
  * Response Getperiodboard
  *
  * Successful Response
@@ -1020,11 +1079,6 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
-
-/**
- * Successful Response
- */
-export const zGetRepairNoticeResponse = zRepairNotice;
 
 export const zStartRunBody = zRunRequest;
 

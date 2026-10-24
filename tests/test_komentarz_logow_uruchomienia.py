@@ -42,7 +42,7 @@ def record(**changes: Any) -> RunLog:
         "stop_kind": None,
         "issue_count": 0,
         "messages": [],
-        "notices": [],
+        "technical_notes": [],
         "summary": None,
         "phases": [],
         "templates": [],

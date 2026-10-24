@@ -250,7 +250,7 @@ def test_wynik_przebiegu_jest_ten_sam_przy_kazdej_odpowiedzi_skrzynki(
     reference = centrum_with(tmp_path / "bez-skrzynki", TATA_ROWS, key=False)
     expected = run_to_end(reference, dry_run=False)
     assert without_times(view["result"]) == without_times(expected["result"])
-    assert view["result"]["notices"] == [] and view["result"]["warnings"] == []
+    assert view["result"]["technical_notes"] == [] and view["result"]["warnings"] == []
     [record] = centrum.metric_records()
     [expected_record] = reference.metric_records()
     assert without_times(record) == without_times(expected_record)
@@ -355,7 +355,7 @@ def test_kontrola_ilosci_bez_sieci_czeka_w_kolejce_i_wychodzi_przy_nastepnym_sta
 
     assert wait_for(lambda: waiting_for_network(centrum) >= 1)
     assert view["result"]["result"] == "OK"
-    assert view["result"]["notices"] == [] and view["result"]["warnings"] == []
+    assert view["result"]["technical_notes"] == [] and view["result"]["warnings"] == []
     [waiting] = queued(centrum)
     assert [path.name for path in (tmp_path / "config" / "zgloszenia").iterdir()] == ["kolejka"]
 

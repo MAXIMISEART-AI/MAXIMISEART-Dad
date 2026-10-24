@@ -14,7 +14,7 @@ Dad's `config/` stays byte for byte either way, and no guardian stays behind.
 
 ## How to get to it (user POV)
 
-- Sidebar `Konfiguracja`, card `Narzędzie`, button `Zaktualizuj narzędzie`. (The same button in the Powiadomienie o naprawie and the Diagnoza runs the same update; `verify-centrum-rozliczen` drives those entry points.)
+- Sidebar `Konfiguracja`, card `Narzędzie`, button `Zaktualizuj narzędzie`. (The same button in the Diagnoza runs the same update; `verify-centrum-rozliczen` drives that entry point.)
 
 ## Driving it with the Windows harness
 

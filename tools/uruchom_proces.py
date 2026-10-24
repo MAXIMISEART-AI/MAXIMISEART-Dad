@@ -27,7 +27,7 @@ Na stdout trafia jeden obiekt JSON (UTF-8, ``ProcessResult``):
 - ``progress``: ostatni stan postępu w kształcie kontraktu (``contract.Progress``);
   po awarii widoku ostatni zbudowany przed nią, a gdy żaden nie powstał, pusty (bez etapów);
 - ``total_duration_ms``: ``Czas uruchomienia``;
-- ``notices``: ostrzeżenia rdzenia (niezapisane metryki, odłączony podgląd);
+- ``technical_notes``: uwagi techniczne rdzenia (niezapisane metryki, odłączony podgląd);
 - ``metrics_saved``: rekord metryk trafił do pliku metryk.
 
 JSON nie zawiera tekstu wyjątku ani śladu wywołań.
@@ -90,7 +90,7 @@ class ProcessResult(_Model):
     stop: StopResult | None
     progress: contract.Progress
     total_duration_ms: int
-    notices: list[str]
+    technical_notes: list[str]
     metrics_saved: bool
 
 
@@ -127,7 +127,7 @@ def _conduct(
         stop=None if isinstance(ending, Finished) else StopResult(kind=ending.kind, message=CodedMessage.of(ending.message)),
         progress=unattended.progress,
         total_duration_ms=outcome.total_duration_ms,
-        notices=list(outcome.notices),
+        technical_notes=list(outcome.technical_notes),
         metrics_saved=outcome.metrics_saved,
     )
     return result, _EXIT_CODES[outcome.result]

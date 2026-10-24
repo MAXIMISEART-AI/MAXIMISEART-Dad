@@ -34,7 +34,7 @@ from tests.fixtures.settlement import MARKED, SOURCE_NAME, write_quantity_source
 AnyCentrum = PreparingCentrum | SettlingCentrum
 KEYS = {
     "schema_version", "run_id", "process", "mode", "period", "started_at", "ended_at", "duration_ms", "tool",
-    "result", "ending", "stop_kind", "issue_count", "messages", "notices", "summary", "phases", "templates",
+    "result", "ending", "stop_kind", "issue_count", "messages", "technical_notes", "summary", "phases", "templates",
     "environment", "trace", "diagnosis",
 }
 
@@ -263,7 +263,7 @@ def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wiersza
     ]
     assert all(isinstance(template["duration_ms"], int) and template["duration_ms"] >= 0 for template in record["templates"])
     assert record["summary"] == view["result"]["summary"]
-    assert (record["issue_count"], record["notices"]) == (0, [])
+    assert (record["issue_count"], record["technical_notes"]) == (0, [])
     assert isinstance(record["duration_ms"], int)
     assert record["started_at"] <= record["ended_at"]
     assert re.fullmatch(rf"\d{{8}}T\d{{6}}Z-settlement-{view['run']['id']}\.json", path.name)
@@ -379,7 +379,7 @@ def test_katalog_logow_bez_prawa_zapisu_daje_ten_sam_wynik_bez_komunikatu(tmp_pa
     reference = settling_centrum(tmp_path / "bez-blokady")
     expected = run_to_end(reference, dry_run=False)
     assert without_times(view["result"]) == without_times(expected["result"])
-    assert (view["result"]["stops"], view["result"]["warnings"], view["result"]["notices"]) == ([], [], [])
+    assert (view["result"]["stops"], view["result"]["warnings"], view["result"]["technical_notes"]) == ([], [], [])
     assert blocked.read_text(encoding="utf-8") == ""
     log = centrum.log_path.read_text(encoding="utf-8")
     assert 'nieoczekiwany-wyjatek typ=FileExistsError miejsce="po wyniku Uruchomienia procesu"' in log

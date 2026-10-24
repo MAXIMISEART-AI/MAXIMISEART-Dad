@@ -204,4 +204,4 @@ def test_nieudany_zapis_metryk_jest_ostrzezeniem_procesu_bez_zmiany_wyniku(tmp_p
 
     outcome = run(CASES[name](tmp_path), not_a_directory / "metrics.jsonl", dry_run=True)
 
-    assert (outcome.result, outcome.metrics_saved, outcome.notices) == ("OK", False, (METRICS_NOT_SAVED[name],))
+    assert (outcome.result, outcome.metrics_saved, outcome.technical_notes) == ("OK", False, (METRICS_NOT_SAVED[name],))

@@ -214,7 +214,7 @@ def test_logi_bez_skrzynki_czekaja_w_kolejce_bez_komunikatu_a_nastepny_start_je_
     waiting = f"skrzynka-czeka etykieta={LABEL} okres={PERIOD} przyczyna={cause}"
     assert wait_for(lambda: waiting in centrum.log_path.read_text(encoding="utf-8"))
     assert (view["result"]["result"], view["result"]["stops"], view["result"]["warnings"]) == ("OK", [], [])
-    assert view["result"]["notices"] == []
+    assert view["result"]["technical_notes"] == []
     [queued] = queued_logs(centrum)
     assert [path.name for path in (tmp_path / "config" / "zgloszenia").iterdir()] == ["kolejka"]
     assert box(centrum).issues == []

@@ -1,4 +1,5 @@
-// Prezentacja dat i czasów z kontraktu w zapisie taty. Bez arytmetyki dat: okresy i zakresy liczy serwer.
+// Prezentacja dat i czasów z kontraktu w zapisie taty. Bez arytmetyki dat: okresy i zakresy liczy serwer; jedyny
+// rachunek to odległość chwili od zegara karty w `ago`.
 
 /** `2026-10-06` → `06.10.2026` */
 export function fullDate(isoDate: string): string {
@@ -36,4 +37,31 @@ const SECONDS = new Intl.NumberFormat("pl-PL", { minimumFractionDigits: 1, maxim
 export function seconds(durationMs: number): string {
   // Zaokrąglenie na całych dziesiątych częściach sekundy, w górę od połowy (7250 ms → 7,3 s).
   return `${SECONDS.format(Math.round(durationMs / 100) / 10)} s`
+}
+
+const RELATIVE = new Intl.RelativeTimeFormat("pl-PL", { numeric: "auto" })
+
+const MINUTE_MS = 60_000
+
+const HOUR_MS = 60 * MINUTE_MS
+
+const DAY_MS = 24 * HOUR_MS
+
+/** `2026-10-20T09:15:00Z` → `przed chwilą`, `12 minut temu`, `2 godziny temu`, `wczoraj`, `16 dni temu` */
+export function ago(isoDateTime: string, now: number = Date.now()): string {
+  const past = now - new Date(isoDateTime).getTime()
+
+  if (past < MINUTE_MS) {
+    return "przed chwilą"
+  }
+
+  if (past < HOUR_MS) {
+    return RELATIVE.format(-Math.round(past / MINUTE_MS), "minute")
+  }
+
+  if (past < DAY_MS) {
+    return RELATIVE.format(-Math.round(past / HOUR_MS), "hour")
+  }
+
+  return RELATIVE.format(-Math.round(past / DAY_MS), "day")
 }

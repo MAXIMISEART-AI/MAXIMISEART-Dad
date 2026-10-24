@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -188,6 +188,38 @@ export type DadNoteDraft = {
      * Body
      */
     body: string;
+};
+
+/**
+ * DadNoteNotification
+ *
+ * Powiadomienie o Uwadze taty, nazwanej jej tytułem.
+ */
+export type DadNoteNotification = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * At
+     */
+    at: string;
+    /**
+     * Unread
+     */
+    unread: boolean;
+    /**
+     * Kind
+     */
+    kind: 'uwaga';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * State
+     */
+    state: 'wyslana' | 'czeka_na_internet' | 'rozwiazana' | 'przeczytana';
 };
 
 /**
@@ -481,6 +513,34 @@ export type NotSetPath = {
      * State
      */
     state: 'not_set';
+};
+
+/**
+ * Notifications
+ *
+ * Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku).
+ */
+export type Notifications = {
+    /**
+     * Unread
+     */
+    unread: number;
+    /**
+     * Items
+     */
+    items: Array<DadNoteNotification | ReportNotification>;
+};
+
+/**
+ * NotificationsRead
+ *
+ * Powiadomienia, które tata zobaczył w widoku Powiadomienia (ich ``id``).
+ */
+export type NotificationsRead = {
+    /**
+     * Ids
+     */
+    ids: Array<string>;
 };
 
 /**
@@ -883,21 +943,6 @@ export type RecentResults = {
 };
 
 /**
- * RepairNotice
- *
- * Powiadomienie o naprawie na stronie Okresy.
- *
- * ``repaired``: Maks zamknął Zgłoszenie wysłane z wersji narzędzia, która nadal
- * działa na tym komputerze („Maks naprawił zgłoszony problem.” z przyciskiem „Zaktualizuj narzędzie”).
- */
-export type RepairNotice = {
-    /**
-     * Repaired
-     */
-    repaired: boolean;
-};
-
-/**
  * ReportDraft
  *
  * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
@@ -911,6 +956,38 @@ export type ReportDraft = {
      * Body
      */
     body: string;
+};
+
+/**
+ * ReportNotification
+ *
+ * Powiadomienie o Zgłoszeniu, nazwanym „Co się stało” jego Komunikatu, bez kodu.
+ */
+export type ReportNotification = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * At
+     */
+    at: string;
+    /**
+     * Unread
+     */
+    unread: boolean;
+    /**
+     * Kind
+     */
+    kind: 'zgloszenie';
+    /**
+     * What
+     */
+    what: string;
+    /**
+     * State
+     */
+    state: 'wyslana' | 'czeka_na_internet' | 'rozwiazana' | 'przeczytana';
 };
 
 /**
@@ -1095,7 +1172,7 @@ export type RunInfo = {
 /**
  * RunOutcome
  *
- * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, powiadomienia i podsumowanie.
+ * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
  *
  * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
  * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
@@ -1150,9 +1227,9 @@ export type RunOutcome = {
      */
     warnings: Array<Message>;
     /**
-     * Notices
+     * Technical Notes
      */
-    notices: Array<string>;
+    technical_notes: Array<string>;
     summary: RunSummary | null;
 };
 
@@ -1455,7 +1532,7 @@ export type ViewTiming = {
     /**
      * Page
      */
-    page: 'okresy' | 'uruchomienia' | 'metryki' | 'konfiguracja';
+    page: 'okresy' | 'uruchomienia' | 'metryki' | 'konfiguracja' | 'powiadomienia';
     /**
      * Ready Ms
      */
@@ -1634,6 +1711,47 @@ export type GetMetricsResponses = {
 
 export type GetMetricsResponse = GetMetricsResponses[keyof GetMetricsResponses];
 
+export type GetNotificationsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/notifications';
+};
+
+export type GetNotificationsResponses = {
+    /**
+     * Successful Response
+     */
+    200: Notifications;
+};
+
+export type GetNotificationsResponse = GetNotificationsResponses[keyof GetNotificationsResponses];
+
+export type MarkNotificationsReadData = {
+    body: NotificationsRead;
+    path?: never;
+    query?: never;
+    url: '/api/notifications/read';
+};
+
+export type MarkNotificationsReadErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MarkNotificationsReadError = MarkNotificationsReadErrors[keyof MarkNotificationsReadErrors];
+
+export type MarkNotificationsReadResponses = {
+    /**
+     * Successful Response
+     */
+    200: Notifications;
+};
+
+export type MarkNotificationsReadResponse = MarkNotificationsReadResponses[keyof MarkNotificationsReadResponses];
+
 export type GetPeriodBoardData = {
     body?: never;
     path?: never;
@@ -1695,22 +1813,6 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
-
-export type GetRepairNoticeData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/reports/repair';
-};
-
-export type GetRepairNoticeResponses = {
-    /**
-     * Successful Response
-     */
-    200: RepairNotice;
-};
-
-export type GetRepairNoticeResponse = GetRepairNoticeResponses[keyof GetRepairNoticeResponses];
 
 export type StartRunData = {
     body: RunRequest;

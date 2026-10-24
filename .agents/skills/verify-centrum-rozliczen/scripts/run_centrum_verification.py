@@ -71,11 +71,8 @@ REQUIRED_SCREENSHOTS = {
         "93-aktualizacja-jest-nowsza.png",
         "115-aktualizacja-brak-sieci.png",
         "116-aktualizacja-brak-sieci-zgloszenie.png",
-        "141-aktualizacja-powiadomienie.png",
         "94-aktualizacja-postep.png",
-        "142-aktualizacja-postep-konfiguracja.png",
         "100-aktualizacja-ponowny-start.png",
-        "143-aktualizacja-bez-powiadomienia.png",
         "101-aktualizacja-zaktualizowano.png",
         "96-aktualizacja-najnowsza.png",
         "130-aktualizacja-instalowanie.png",
@@ -160,12 +157,6 @@ REQUIRED_SCREENSHOTS = {
         "70-zgloszenie-nowe-z-odnosnikiem.png",
         "71-zgloszenie-inny-problem.png",
     ),
-    "powiadomienie-o-naprawie": (
-        "72-naprawa-czeka.png",
-        "73-naprawa-brak-sieci.png",
-        "74-naprawa-powiadomienie.png",
-        "75-naprawa-po-aktualizacji.png",
-    ),
     "uwaga-taty": (
         "170-uwaga-ikona-w-naglowku.png",
         "171-uwaga-puste-okno.png",
@@ -178,6 +169,13 @@ REQUIRED_SCREENSHOTS = {
     "logi-uruchomienia": (
         "160-logi-podglad.png",
         "161-logi-zatrzymanie.png",
+    ),
+    "powiadomienia": (
+        "180-powiadomienia-dzwonek.png",
+        "181-powiadomienia-kropka.png",
+        "182-powiadomienia-widok.png",
+        "183-powiadomienia-widok-drugi-motyw.png",
+        "184-powiadomienia-brak-sieci.png",
     ),
     "pomiar-u-taty": ("80-pomiar-bez-sladu.png",),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.

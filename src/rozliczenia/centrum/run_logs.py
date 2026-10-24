@@ -175,7 +175,7 @@ class RunLog(_Record):
     stop_kind: contract.StopKind | None
     issue_count: int | None
     messages: list[LoggedMessage]
-    notices: list[str]
+    technical_notes: list[str]
     summary: contract.RunSummary | None
     phases: list[contract.PhaseProgress]
     templates: list[LoggedTemplate]
@@ -207,7 +207,7 @@ class RunLog(_Record):
             stop_kind=result.stop_kind,
             issue_count=None if progress is None else progress.issue_count,
             messages=messages,
-            notices=result.notices,
+            technical_notes=result.technical_notes,
             summary=result.summary,
             phases=run.progress.phases,
             templates=[]

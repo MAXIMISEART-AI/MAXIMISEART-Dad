@@ -3,8 +3,8 @@
 Treść issue powstaje tylko w ``note_issue``: podgląd „Maks dostanie” i wysyłka wołają tę samą funkcję, więc tata
 widzi dokładnie to, co dostanie Maks. „Wyślij” zapisuje Uwagę bez numeru issue w ``config/uwagi-taty.json`` (poza
 Gitem), kładzie ją w kolejce Skrzynki Zgłoszeń jako osobne issue z etykietą ``uwaga-taty`` i czeka na skrzynkę
-najwyżej ``DELIVERY_WAIT_S``. Numer issue dopisuje wątek kolejki, także po następnym starcie Centrum. Plik stanu
-ma tylko tytuł Uwagi, bez treści.
+najwyżej ``DELIVERY_WAIT_S``. Numer issue dopisuje wątek kolejki, także po następnym starcie Centrum, a zamknięcie
+issue przez Maksa sprawdzanie Powiadomień. Plik stanu ma tylko tytuł Uwagi, bez treści.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +24,7 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import NewIssue, Outbox, Post
-from rozliczenia.centrum.report_box import Label
+from rozliczenia.centrum.report_box import Closure, Label, closure_json, read_closure
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
 
@@ -44,13 +45,17 @@ def note_issue(title: str, body: str, commit: str | None) -> contract.DadNoteDra
 
 @dataclass(frozen=True)
 class DadNote:
-    """Uwaga taty w lokalnym stanie: tytuł, commit narzędzia i czas „Wyślij”; ``number`` ``None``: czeka w kolejce."""
+    """Uwaga taty w lokalnym stanie: tytuł, commit narzędzia i czas „Wyślij”; ``number`` ``None``: czeka w kolejce.
+
+    ``closure`` to ostatnie znane zamknięcie jej issue przez Maksa (``None``: otwarte albo jeszcze nie wysłane).
+    """
 
     id: str
     title: str
     commit: str | None
     written_at: datetime
     number: int | None
+    closure: Closure | None = None
 
 
 class DadNotes:
@@ -69,6 +74,22 @@ class DadNotes:
     def add(self, note: DadNote) -> None:
         with self._lock:
             self._write([*self._read(), note])
+
+    def all(self) -> list[DadNote]:
+        with self._lock:
+            return self._read()
+
+    def mark(self, closures: Mapping[int, Closure | None]) -> None:
+        """Zapamiętuje zamknięcie issue ze skrzynki przy Uwagach o tych numerach."""
+
+        with self._lock:
+            notes = self._read()
+            self._write(
+                [
+                    replace(note, closure=closures.get(note.number, note.closure)) if note.number is not None else note
+                    for note in notes
+                ]
+            )
 
     def forget(self, note_id: str) -> None:
         """Usuwa Uwagę, której kolejka nie przyjęła: tata wyśle ją jeszcze raz jako nową."""
@@ -106,6 +127,7 @@ class DadNotes:
                     "commit": note.commit,
                     "written_at": note.written_at.isoformat(),
                     "number": note.number,
+                    "closure": closure_json(note.closure),
                 }
                 for note in notes
             ],
@@ -132,7 +154,9 @@ def _note(entry: object) -> DadNote | None:
         moment = datetime.fromisoformat(written_at)
     except ValueError:
         return None
-    return DadNote(note_id, title, commit, moment, number) if moment.tzinfo is not None else None
+    if moment.tzinfo is None:
+        return None
+    return DadNote(note_id, title, commit, moment, number, read_closure(entry.get("closure")))
 
 
 def send(request: contract.DadNoteRequest, notes: DadNotes, outbox: Outbox, commit: str | None) -> contract.DadNoteState:

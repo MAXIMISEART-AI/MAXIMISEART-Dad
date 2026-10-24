@@ -15,7 +15,7 @@ Oba kroki robisz w Centrum rozliczeń, które otwierasz skrótem na pulpicie:
 | Otworzyć Plik zbiorczy, Rozliczenie wewnętrzne albo Folder okresu | Jedno kliknięcie w wierszu okresu |
 | Przygotować plik zbiorczy | Strona `Uruchomienia`, proces `Przygotowanie pliku zbiorczego` |
 | Utworzyć rozliczenia pracowników | Strona `Uruchomienia`, proces `Przebieg rozliczeń` |
-| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`, gdy jest nowsza wersja: na stronie `Konfiguracja`, w Powiadomieniu o naprawie i w Diagnozie |
+| Zaktualizować narzędzie | Przycisk `Zaktualizuj narzędzie`, gdy jest nowsza wersja: na stronie `Konfiguracja` i w Diagnozie |
 
 ## Pierwsza instalacja
 
@@ -165,18 +165,18 @@ Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
 jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
 Maks; Ty niczego tam nie wpisujesz.
 
-### Powiadomienie o naprawie
+### Powiadomienia
 
-Gdy Maks naprawi zgłoszony problem i zamknie Zgłoszenie, na stronie `Okresy`
-pod tytułem pojawi się `Maks naprawił zgłoszony problem.` z przyciskiem
-`Zaktualizuj narzędzie`.
+Dzwonek w prawym górnym rogu, obok ikony „Napisz do Maksa”, otwiera
+Powiadomienia. Widać tam Twoje Uwagi i Zgłoszenia, od najnowszych, i co się z
+nimi stało: `Wysłana do Maksa.`, `Wyślę do Maksa, gdy będzie internet.`,
+`Rozwiązana. Będzie w następnej wersji.` albo `Maks przeczytał.`.
 
-Kliknij `Zaktualizuj narzędzie` (niżej, „Aktualizacja narzędzia”). Gdy karta
-sama się odświeży w nowej wersji, powiadomienia już nie ma; niczego nie
-zamykasz. Centrum sprawdza to przy otwarciu i przy wejściu na `Okresy`,
-najwyżej raz na 10 minut.
-Bez internetu nic się nie pokazuje i nic się nie psuje; Centrum sprawdzi
-ponownie później.
+Czerwona kropka na dzwonku znaczy, że Maks coś zrobił z Twoją sprawą. Gdy
+wejdziesz w Powiadomienia, kropka gaśnie; nowe sprawy mają małą kropkę, dopóki
+nie wyjdziesz. Niczego nie oznaczasz ręcznie. Centrum sprawdza to przy
+otwarciu i najwyżej raz na 10 minut. Bez internetu nic się nie pokazuje i nic
+się nie psuje; Centrum sprawdzi ponownie później.
 
 ### Aktualizacja narzędzia
 
@@ -186,9 +186,8 @@ wersja` albo `Nie sprawdzono` (bez internetu). Gdy Maks zapyta, którą wersję
 masz, przeczytaj mu ją. Przycisk `Zaktualizuj narzędzie` jest w Konfiguracji i w
 Diagnozie tylko wtedy, gdy jest nowsza wersja.
 
-1. Kliknij `Zaktualizuj narzędzie`: na stronie `Konfiguracja`, w
-   Powiadomieniu o naprawie na `Okresach` albo w Diagnozie. Każdy z tych
-   przycisków robi to samo.
+1. Kliknij `Zaktualizuj narzędzie`: na stronie `Konfiguracja` albo w
+   Diagnozie. Oba przyciski robią to samo.
 2. Poczekaj. Pod przyciskiem widać `Pobieranie nowej wersji…`, a gdy nowa
    wersja potrzebuje nowych bibliotek, potem `Instalowanie bibliotek…` (to może
    potrwać kilka minut). Na końcu widać `Ponowne uruchamianie Centrum…`. Każdy

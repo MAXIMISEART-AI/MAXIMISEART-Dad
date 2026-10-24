@@ -55,6 +55,7 @@ FILES: dict[str, tuple[str, str]] = {
     "klucz_zgloszen": ("config/zgloszenia-klucz.txt", TEXT),
     "wyslane_zgloszenia": ("config/zgloszenia-wyslane.json", TEXT),
     "uwagi_taty": ("config/uwagi-taty.json", TEXT),
+    "przeczytane_powiadomienia": ("config/powiadomienia.json", TEXT),
     "uruchomienia_centrum": ("config/centrum-uruchomienia.jsonl", LINES),
     "dziennik_centrum": ("logs/centrum-rozliczen.log", LINES),
     "logi_uruchomien": ("logs/uruchomienia", FOLDER),
@@ -230,8 +231,11 @@ def _build(root: Path) -> None:
     )
     world.path("klucz_zgloszen").write_text("github_pat_SYNTETYCZNY123\n", encoding="utf-8")
     world.path("wyslane_zgloszenia").write_text(
-        json.dumps([{"fingerprint": "syntetyczny-ślad", "number": 7, "commit": None, "state": "open"}]) + "\n",
+        json.dumps([SENT_REPORT], ensure_ascii=False) + "\n",
         encoding="utf-8",
+    )
+    world.path("przeczytane_powiadomienia").write_text(
+        json.dumps({"schema_version": 1, "przeczytane": [READ_NOTIFICATION]}) + "\n", encoding="utf-8"
     )
     client = _remembering_choices(world)
     assert client.post("/api/dad-notes", json=DAD_NOTE).json() == {"state": "waiting"}
@@ -321,6 +325,15 @@ def _run_with_diagnosis(client: TestClient, process: str, period: str) -> str | 
 
 
 DAD_NOTE = {"title": "Plik zbiorczy otwiera się długo", "body": "Excel myśli przy nim minutę."}
+SENT_REPORT = {
+    "fingerprint": "syntetyczny-ślad",
+    "number": 7,
+    "commit": None,
+    "what": "Nie znaleziono Wzorca pliku zbiorczego.",
+    "sent_at": "2026-09-15T08:00:00+00:00",
+    "closure": {"reason": "completed", "at": "2026-09-16T08:00:00+00:00"},
+}
+READ_NOTIFICATION = "zgloszenie-7-rozwiazana"
 VIEW_TIMING = {"kind": "navigation", "page": "okresy", "ready_ms": 120, "fcp_ms": None, "skeleton_ms": 40, "requests": []}
 ENTRIES: dict[str, Entry] = {
     "getSettings": _route("getSettings", "GET", "/api/settings"),
@@ -334,7 +347,10 @@ ENTRIES: dict[str, Entry] = {
     "getRunSetup": _route("getRunSetup", "GET", "/api/runs/setup"),
     "getMetrics": _route("getMetrics", "GET", "/api/metrics"),
     "getConfiguration": _route("getConfiguration", "GET", "/api/configuration"),
-    "getRepairNotice": _route("getRepairNotice", "GET", "/api/reports/repair"),
+    "getNotifications": _route("getNotifications", "GET", "/api/notifications"),
+    "markNotificationsRead": _route(
+        "markNotificationsRead", "POST", "/api/notifications/read", {"ids": [READ_NOTIFICATION]}
+    ),
     "getToolUpdate": _route("getToolUpdate", "GET", "/api/tool-update"),
     "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
     "draftDadNote": _route("draftDadNote", "POST", "/api/dad-notes/draft", DAD_NOTE),

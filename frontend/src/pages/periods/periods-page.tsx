@@ -23,7 +23,6 @@ import { FileSettingsCard } from "@/pages/periods/file-settings-card"
 import { NextStepCard } from "@/pages/periods/next-step-card"
 import { PeriodBoardTable } from "@/pages/periods/period-board-table"
 import { PeriodStats } from "@/pages/periods/period-stats"
-import { RepairNotice } from "@/pages/periods/repair-notice"
 
 export function PeriodsPage() {
   const { filesVersion } = useSettings()
@@ -31,7 +30,6 @@ export function PeriodsPage() {
   return (
     <>
       <PageHeader title="Okresy" />
-      <RepairNotice />
       {/* Nowe pliki taty to nowy odczyt Tablicy okresów; zmiana motywu nim nie jest. */}
       <PeriodsContent key={filesVersion} />
     </>
