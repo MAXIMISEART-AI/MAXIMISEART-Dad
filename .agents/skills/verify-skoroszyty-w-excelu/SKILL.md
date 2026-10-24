@@ -46,7 +46,7 @@ From the repository root, after `tools/setup_worktree.py` in a worktree:
 One command runs the whole path. It ends with `VERIFY OK | wzorce=prawdziwe |
 steps=32 | … | scratch_removed=true | evidence_kept=true | evidence=<dir>`
 (`steps=34` with `--kontrola-naprawy`). On Maks's Mac with Excel 16.114.1 it
-took 1:14 and 1:43 with Dad's Wzorce and 1:55 with `syntetyczne` (2026-10-24).
+took 1:14 with Dad's Wzorce and 1:55 with `syntetyczne` (2026-10-24).
 
 - `--wzorce prawdziwe` (default) copies Dad's three Wzorce from `config/`, in a
   worktree from the main checkout's `config/` (`--templates-dir` overrides).
@@ -146,8 +146,13 @@ Drive Excel only through `scripts/excel.py`; it encodes the traps below.
   the first row of the synthetic Wzorce ran past the 60 s call limit.
 - While a dialog is up, Excel lists its workbooks as `missing value`
   (`excel.open_paths`) or fails a call with `-1708`, and both raise
-  `ExcelDialog`; `excel.dialogs()` lists its untitled windows on screen
-  without any permission, and none while Excel is hidden (Cmd+H).
+  `ExcelDialog`; `excel.dialogs()` lists its untitled windows on screen,
+  and none while Excel is hidden (Cmd+H). The titles need Screen Recording
+  for the app running the agent: on macOS 10.15 and later, without it every
+  window of Excel comes back untitled, so `dialogs()` would count each
+  workbook window as a dialog. T3 Code has it on Maks's Mac
+  (`CGPreflightScreenCaptureAccess()` true, 2026-10-24); a run without it is
+  unchecked.
 
 ## Evidence
 
@@ -164,9 +169,8 @@ Drive Excel only through `scripts/excel.py`; it encodes the traps below.
   `cleanup.txt`.
 
 Evidence carries names, counts, addresses and timings; the runner fails when a
-file of it holds a synthetic row marker. There are no screenshots: the agent
-has no Screen Recording permission, and Excel's own view is read through
-AppleScript instead.
+file of it holds a synthetic row marker. There are no screenshots: Excel's own
+view is read through AppleScript instead.
 
 ## Cleanup
 
@@ -197,7 +201,7 @@ rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<ru
   lock, with a fake `osascript`; part of `pytest`, so no Excel is needed.
 - `scripts/excel_windows.js`: Excel's on-screen windows, run as
   `osascript -l JavaScript scripts/excel_windows.js`; a window without a title
-  is a dialog.
+  is a dialog, which holds only with Screen Recording (Drive).
 
 Keep the feature map in step with what the runner checks; use
 `/pstack:maintain-verification-skill` for that loop.
