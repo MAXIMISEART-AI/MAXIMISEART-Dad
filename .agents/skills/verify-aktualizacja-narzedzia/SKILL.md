@@ -80,10 +80,14 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `1ad3469` (2026-10-24, #368: after a rollback,
-`restart_guardian.main` asks the port `_runs(…, before)` before the dialog and
-ends without it when the old version from the shortcut answers; the model
-gained `OpiekunOkienko` and the promise `OkienkoTylkoGdyNicNieDziala`, without the rollback after an unreleased port). At this commit every row above was checked against the code.
+Sync commit: `2a449f1` (2026-10-24, merge of #370). The covered files are
+the same as at `1ad3469` (#368: after a rollback, `restart_guardian.main` asks
+the port `_runs(…, before)` before the dialog and ends without it when the old
+version from the shortcut answers; the model gained `OpiekunOkienko` and the
+promise `OkienkoTylkoGdyNicNieDziala`, without the rollback after an unreleased
+port). The rest of `1ad3469..2a449f1` (#322, #324, #367) only reads
+`newest_on_main` for the card and the Powiadomienia. At this commit every row
+above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,
@@ -267,9 +271,16 @@ Assumed, and not checked:
   only lower bounds. Pip killed between uninstalling and installing a library
   could break this, so the `wylaczenie` model is optimistic.
 - Dad has one file in `config/`. His untracked files (Wzorce, Ustawienia taty,
-  the Zgłoszenia key, the log, metrics, period files) are not modelled. Git
-  does not touch them, and when the new version would overwrite one, `merge`
-  refuses.
+  the Zgłoszenia key, the log, metrics, period files, and in `config/` the
+  read Powiadomienia, the Uwagi taty and the outbox addresses) are not
+  modelled. Git does not touch them while no Wydanie tracks their path. When
+  a Wydanie tracks one, it depends on `.gitignore`. For a file that is not
+  ignored (`config/powiadomienia.json`, `config/uwagi-taty.json`,
+  `config/skrzynka-adresy.jsonl`), `merge` refuses. Git treats an ignored file
+  (`*.xlsx`, `logs/`, `config/centrum-ustawienia.yaml` and the rest of
+  `.gitignore`) as expendable, so `git merge --ff-only` overwrites Dad's file
+  without refusing (Git 2.50). At the sync commit no tracked file matches
+  `.gitignore` (`git ls-files -ci --exclude-standard` is empty).
 - A shortcut clicked while the guardian runs gives the port back within
   `_SHORTCUT_HOLDS_PORT_S` (10 s), because between `listen_locally` and
   `listener.close()` it only reads the journal on the local disk. The model
