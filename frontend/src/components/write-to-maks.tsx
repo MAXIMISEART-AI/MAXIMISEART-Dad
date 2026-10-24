@@ -89,6 +89,7 @@ function DadNoteForm({ close }: { close: () => void }) {
           required
           autoFocus
           maxLength={TITLE_MAX_LENGTH}
+          placeholder="Np. Brakuje kolumny z kilometrami"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />

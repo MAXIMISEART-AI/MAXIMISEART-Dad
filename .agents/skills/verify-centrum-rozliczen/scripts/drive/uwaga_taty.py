@@ -174,6 +174,10 @@ def drive_dad_note(run: Run, page: Page) -> None:
         (title_box.get_attribute("maxlength"), body_box.get_attribute("maxlength")) == ("120", "10000"),
         "the fields take their limits from the contract (Tytuł 120, Treść 10000)",
     )
+    run.check(
+        title_box.get_attribute("placeholder") == "Np. Brakuje kolumny z kilometrami",
+        "Tytuł shows the prototype's example as its placeholder",
+    )
     expect(send).to_be_disabled()
     empty = _draft(run, "", "", "uwaga-szkic-pusty")
     run.wait_for(lambda: _shown(figure)[1] == empty["body"], "„Maks dostanie” shows the server's draft of an empty Uwaga")
