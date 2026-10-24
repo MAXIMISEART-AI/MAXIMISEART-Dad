@@ -40,6 +40,8 @@ PROMISES = {
     "TataMaDzialajacaWersje": "tata zostaje bez wersji, która startuje, albo bez swojego pliku w config/.",
     "OpiekunCofaTylkoNieudana": "opiekun cofa nową wersję, która by wystartowała.",
     "OkienkoTylkoGdyNicNieDziala": "opiekun pokazuje okienko „nie wystartowało”, choć Centrum działa.",
+    "TataNieZostajeBezOdpowiedzi": "nic nie działa, a tata nie dostaje okienka, tylko martwą kartę.",
+    "KartaNieKlamie": "karta mówi „Narzędzie zaktualizowane”, choć nowa wersja nie działa.",
 }
 _STATE = re.compile(r"^State \d+: ")
 _STUTTERING = re.compile(r"^State \d+: Stuttering")
