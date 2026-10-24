@@ -106,7 +106,7 @@ def drive_quantity_check(run: Run, page: Page) -> None:
     [waiting] = _queued(config)
     document = json.loads(waiting.read_text(encoding="utf-8"))
     run.check(
-        document["thread"]["label"] == LABEL and document["period"] == LAST_COMPLETE,
+        document["target"]["label"] == LABEL and document["period"] == LAST_COMPLETE,
         f"the RUN of {LAST_COMPLETE} left its Kontrola ilości in config/zgloszenia/kolejka",
     )
     run.check(

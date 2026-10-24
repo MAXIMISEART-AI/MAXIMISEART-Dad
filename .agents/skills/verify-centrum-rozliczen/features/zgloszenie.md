@@ -15,13 +15,13 @@ whether the key is there, never its value.
 
 ## Sub-features
 
-- `zgloszenie-podglad`: a stop „do Maksa” has `report` `ready`; `Diagnoza` finds no cause and shows `Wyślij do Maksa` with `Co zostanie wysłane`: title `BRAK_WZORCA: …`, the Komunikat code, period, mode, tool commit, every check (with `Aktualność narzędzia`), no workbook row and no full path.
+- `zgloszenie-podglad`: a stop „do Maksa” has `report` `ready`; `Diagnoza` finds no cause and shows `Wyślij do Maksa` with `Co zostanie wysłane`: title `BRAK_WZORCA: …`, the Komunikat code, period, mode, `- Logi: jeszcze niewysłane, Uruchomienie <run id>` (no key yet, so the Logi wait in the queue), tool commit, every check (with `Aktualność narzędzia`), no workbook row and no full path.
 - `zgloszenie-bez-klucza`: without `config/zgloszenia-klucz.txt`, `Wyślij do Maksa` shows the `Ostrzeżenie` „Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń.” with `Spróbuj ponownie`; `config/zgloszenia/Zgłoszenie BRAK_WZORCA 08_14_09_2026.md` holds exactly the preview; the skrzynka stays empty.
 - `zgloszenie-konfiguracja`: Konfiguracja reads `Zgłoszenia: brak klucza`, and after Maks writes the key (harness step) `Zgłoszenia: gotowe`; neither the answer nor the page holds the key.
 - `zgloszenie-wyslane`: `Spróbuj ponownie` on Uruchomienia sends: status `Zgłoszenie wysłane do Maksa. Poczekaj na naprawę.`; the skrzynka has one issue labelled `zgloszenie`, equal to the preview; the unsent file is gone; `config/zgloszenia-wyslane.json` keeps the fingerprint and that issue's number; the Centrum log has `zgloszenie-wyslane` and no key.
 - `zgloszenie-po-odswiezeniu`: a reload shows the confirmation again (`report` `sent`).
 - `zgloszenie-kolejne-uruchomienie`: a new Podgląd bez zapisu with the same stop shows `Zgłoszenie tego problemu już jest wysłane i czeka na naprawę.` at once (`report` `waiting`); after `Diagnoza` it stays, there is no `Wyślij do Maksa`, and the skrzynka still has one Zgłoszenie.
-- `zgloszenie-zamkniete`: Maks closes that issue (harness step); the same stop again still shows the waiting `status` before the Diagnoza (the skrzynka's last answer in this Centrum); `Diagnoza` asks the skrzynka, the `status` goes, `Wyślij do Maksa` returns (`report` `ready`), and the preview has `- Poprzednie Zgłoszenie: #<its number>`.
+- `zgloszenie-zamkniete`: Maks closes that issue (harness step); the same stop again still shows the waiting `status` before the Diagnoza (the skrzynka's last answer in this Centrum); `Diagnoza` asks the skrzynka, the `status` goes, `Wyślij do Maksa` returns (`report` `ready`), and the preview has `- Poprzednie Zgłoszenie: #<its number>` and `- Logi: skrzynka-zgloszen/<n>.json#komentarz-<k>`, the comment of the Logi of this very Uruchomienie in its period's issue (the file skrzynka's address of a comment; GitHub's is the comment's URL).
 - `zgloszenie-nowe-z-odnosnikiem`: `Wyślij do Maksa` shows the confirmation; the skrzynka has the first Zgłoszenie closed and a second one open, equal to the new preview; `config/zgloszenia-wyslane.json` has both numbers.
 - `zgloszenie-inny-problem`: a stop without the Wzorzec pliku zbiorczego (same code, other three parts) has `report` `ready` and, after `Diagnoza`, `Wyślij do Maksa` next to the open second Zgłoszenie; nothing is sent.
 
@@ -43,7 +43,7 @@ Preconditions:
 - **Wysłane.** Link `Uruchomienia`, click `Spróbuj ponownie` in `Ostrzeżenie`. A `status` reads the confirmation; `api/zgloszenie-skrzynka.json` is the issue in the skrzynka.
 - **Po odświeżeniu.** Reload: the same `status`.
 - **Kolejne Uruchomienie.** Repeat the Podgląd step: the waiting `status` is there before any Diagnoza; after `Diagnoza` no `Wyślij do Maksa`.
-- **Zamknięte.** Set `"state": "closed"` in `<root>/skrzynka-zgloszen/<number>.json` of the Zgłoszenie (Maks closing it). Repeat the Podgląd step, then `Diagnoza`: `Wyślij do Maksa` and `Co zostanie wysłane` with the link line. Click `Wyślij do Maksa`: the confirmation `status`; `api/zgloszenie-skrzynka-nowe.json` holds both issues.
+- **Zamknięte.** Set `"state": "closed"` in `<root>/skrzynka-zgloszen/<number>.json` of the Zgłoszenie (Maks closing it). Repeat the Podgląd step, wait until no `*-logi-uruchomienia-<first 8 of run id>.json` is left in `config/zgloszenia/kolejka/` (the key is there, so the queue sends them), then `Diagnoza`: `Wyślij do Maksa` and `Co zostanie wysłane` with the link line. Click `Wyślij do Maksa`: the confirmation `status`; `api/zgloszenie-skrzynka-nowe.json` holds both issues.
 - **Inny problem.** Repeat the Podgląd step with the Wzorzec pliku zbiorczego (`collective_template` in `fixture.json`) renamed aside instead, reload, `Diagnoza`: `Wyślij do Maksa`.
 - **Proof.** Screenshots `60`–`66` and `68`–`71`, `api/zgloszenie-*.json`, and the checks in `drive.txt`.
 
@@ -55,4 +55,5 @@ Preconditions:
 - Rename the Wzorzec back right after the stop: the Diagnoza must find no cause, and later features need the Wzorzec.
 - Before a Diagnoza the waiting `status` comes from the skrzynka's last answer in this Centrum, or from the local sent state when this Centrum has not asked yet; the Centrum asks the skrzynka for the open Zgłoszenie of the problem in the Diagnoza and again when sending, so a closed Zgłoszenie shows only after `Diagnoza`.
 - The file skrzynka finds the open Zgłoszenie by the `- Odcisk problemu:` line of an `open` file; edit only `state` when closing one.
+- The Logi line is fixed when the Diagnoza runs, so the preview and the sent Zgłoszenie are the same text: Logi still in the queue at that moment stay `jeszcze niewysłane` in the Zgłoszenie even after they are sent. Wait for the queue before `Diagnoza` when the step needs the link.
 - In `all`, the Kontrola ilości of features/kontrola-ilosci.md is the skrzynka's first issue, so the Zgłoszenia are not `1.json` and `2.json`. Find them by the label `zgloszenie` (`_issues`), never by number.

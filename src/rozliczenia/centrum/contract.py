@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from rozliczenia import domain
 from rozliczenia.message import Message as ProcessMessage
@@ -674,6 +674,51 @@ class RepairNotice(_Model):
     repaired: bool
 
 
+DAD_NOTE_TITLE_MAX_LENGTH = 120
+DAD_NOTE_BODY_MAX_LENGTH = 10_000
+# Tytuł Uwagi taty to jedna linia: issue w Skrzynce Zgłoszeń i Powiadomienie nazywają ją tym tytułem.
+DadNoteTitle = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=DAD_NOTE_TITLE_MAX_LENGTH, pattern=r"^[^\r\n]*$")
+]
+DadNoteBody = Annotated[str, StringConstraints(strip_whitespace=True, max_length=DAD_NOTE_BODY_MAX_LENGTH)]
+
+
+class DadNoteText(_Model):
+    """Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty."""
+
+    title: DadNoteTitle
+    body: DadNoteBody = ""
+
+
+class DadNoteRequest(_Model):
+    """Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają."""
+
+    title: Annotated[DadNoteTitle, StringConstraints(min_length=1)]
+    body: DadNoteBody = ""
+
+
+class DadNoteDraft(_Model):
+    """Dokładnie to, co dostanie Maks: tytuł i treść issue Uwagi taty w Skrzynce Zgłoszeń."""
+
+    title: str
+    body: str
+
+
+class DadNoteSent(_Model):
+    """Skrzynka Zgłoszeń przyjęła Uwagę taty."""
+
+    state: Literal["sent"]
+
+
+class DadNoteWaiting(_Model):
+    """Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie."""
+
+    state: Literal["waiting"]
+
+
+DadNoteState = Annotated[DadNoteSent | DadNoteWaiting, Field(discriminator="state")]
+
+
 # Strony z bocznego menu (`frontend/src/pages.tsx`): identyfikator to adres `#/<id>` strony.
 PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja"]
 # Zimny start strony (otwarcie albo odświeżenie karty) albo przejście w menu.
@@ -699,6 +744,8 @@ ApiOperation = Literal[
     "startToolUpdate",
     "getToolUpdate",
     "reportToolUpdate",
+    "draftDadNote",
+    "sendDadNote",
     "closeCentrum",
 ]
 # Do 10 minut: dłuższy czas to uśpiona karta, nie pomiar.

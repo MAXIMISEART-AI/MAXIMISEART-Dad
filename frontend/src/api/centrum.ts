@@ -1,5 +1,7 @@
 import { call } from "@/api/client"
 import type {
+  DadNoteRequest,
+  DadNoteText,
   DecisionAnswer,
   GetCurrentRunResponse,
   GetPeriodBoardResponse,
@@ -8,6 +10,7 @@ import type {
   PeriodRow,
   RunEvent,
   RunRequest,
+  SendDadNoteResponse,
   Settings,
   ThemeChange,
   ViewTiming,
@@ -19,6 +22,7 @@ import {
   zChooseRegisterResponse,
   zDecideRunResponse,
   zDiagnoseRunResponse,
+  zDraftDadNoteResponse,
   zGetConfigurationResponse,
   zGetHealthResponse,
   zGetMetricsResponse,
@@ -31,6 +35,7 @@ import {
   zReportRunResponse,
   zReportToolUpdateResponse,
   zRunEvent,
+  zSendDadNoteResponse,
   zStartRunResponse,
   zStartToolUpdateResponse,
 } from "@/api/generated/zod.gen"
@@ -39,6 +44,7 @@ export type {
   Choice,
   Configuration,
   Count,
+  DadNoteDraft,
   Decision,
   DecisionAnswer,
   Diagnosis,
@@ -83,12 +89,15 @@ export type Process = RunRequest["process"]
 
 export type OpenTarget = OpenRequest["target"]
 
+/** Uwaga taty po „Wyślij”: skrzynka ją przyjęła albo czeka w kolejce (unia z kontraktu). */
+export type DadNoteState = SendDadNoteResponse
+
 /** Widok bieżącego Uruchomienia procesu; jego `state` to stany UI (unia z kontraktu). */
 export type RunView = GetCurrentRunResponse
 
 function send(
   method: "POST" | "PUT",
-  body?: OpenRequest | ThemeChange | RunRequest | DecisionAnswer | ViewTiming
+  body?: OpenRequest | ThemeChange | RunRequest | DecisionAnswer | ViewTiming | DadNoteText | DadNoteRequest
 ): RequestInit {
   return {
     method,
@@ -253,6 +262,16 @@ export function reportToolUpdate() {
 /** Czy Maks naprawił zgłoszony problem; serwer pyta skrzynkę Zgłoszeń najwyżej raz na 10 minut, bez sieci po cichu. */
 export function getRepairNotice() {
   return call(zGetRepairNoticeResponse, "getRepairNotice", "/api/reports/repair")
+}
+
+/** Dokładnie to, co dostanie Maks z Uwagi taty: tytuł i treść issue składa serwer, przeglądarka je tylko pokazuje. */
+export function draftDadNote(text: DadNoteText) {
+  return call(zDraftDadNoteResponse, "draftDadNote", "/api/dad-notes/draft", send("POST", text))
+}
+
+/** „Wyślij” Uwagi taty; odmawia (`CentrumError`) tylko wtedy, gdy Uwaga nie zapisała się w kolejce. */
+export function sendDadNote(note: DadNoteRequest) {
+  return call(zSendDadNoteResponse, "sendDadNote", "/api/dad-notes", send("POST", note))
 }
 
 /** Serwer kończy pracę po odpowiedzi; odmawia (`CentrumError`), gdy zamknięcie jest teraz zablokowane. */

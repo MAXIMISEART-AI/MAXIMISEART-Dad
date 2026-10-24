@@ -27,6 +27,8 @@ export const zApiTiming = z.object({
         'startToolUpdate',
         'getToolUpdate',
         'reportToolUpdate',
+        'draftDadNote',
+        'sendDadNote',
         'closeCentrum'
     ]),
     browser_ms: z.int().gte(0).lte(600000),
@@ -82,6 +84,54 @@ export const zCount = z.object({
 export const zCountGroup = z.object({
     title: z.string(),
     counts: z.array(zCount)
+});
+
+/**
+ * DadNoteDraft
+ *
+ * Dokładnie to, co dostanie Maks: tytuł i treść issue Uwagi taty w Skrzynce Zgłoszeń.
+ */
+export const zDadNoteDraft = z.object({
+    title: z.string(),
+    body: z.string()
+});
+
+/**
+ * DadNoteRequest
+ *
+ * Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+ */
+export const zDadNoteRequest = z.object({
+    title: z.string().min(1).max(120).regex(/^[^\r\n]*$/),
+    body: z.string().max(10000).optional().default('')
+});
+
+/**
+ * DadNoteSent
+ *
+ * Skrzynka Zgłoszeń przyjęła Uwagę taty.
+ */
+export const zDadNoteSent = z.object({
+    state: z.literal('sent')
+});
+
+/**
+ * DadNoteText
+ *
+ * Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+ */
+export const zDadNoteText = z.object({
+    title: z.string().max(120).regex(/^[^\r\n]*$/),
+    body: z.string().max(10000).optional().default('')
+});
+
+/**
+ * DadNoteWaiting
+ *
+ * Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie.
+ */
+export const zDadNoteWaiting = z.object({
+    state: z.literal('waiting')
 });
 
 /**
@@ -919,6 +969,25 @@ export const zConfiguration = z.object({
  * Successful Response
  */
 export const zGetConfigurationResponse = zConfiguration;
+
+export const zSendDadNoteBody = zDadNoteRequest;
+
+/**
+ * Response Senddadnote
+ *
+ * Successful Response
+ */
+export const zSendDadNoteResponse = z.discriminatedUnion('state', [
+    zDadNoteSent,
+    zDadNoteWaiting
+]);
+
+export const zDraftDadNoteBody = zDadNoteText;
+
+/**
+ * Successful Response
+ */
+export const zDraftDadNoteResponse = zDadNoteDraft;
 
 /**
  * Successful Response

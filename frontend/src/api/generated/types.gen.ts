@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRepairNotice' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -172,6 +172,78 @@ export type CountGroup = {
      * Counts
      */
     counts: Array<Count>;
+};
+
+/**
+ * DadNoteDraft
+ *
+ * Dokładnie to, co dostanie Maks: tytuł i treść issue Uwagi taty w Skrzynce Zgłoszeń.
+ */
+export type DadNoteDraft = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Body
+     */
+    body: string;
+};
+
+/**
+ * DadNoteRequest
+ *
+ * Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+ */
+export type DadNoteRequest = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Body
+     */
+    body?: string;
+};
+
+/**
+ * DadNoteSent
+ *
+ * Skrzynka Zgłoszeń przyjęła Uwagę taty.
+ */
+export type DadNoteSent = {
+    /**
+     * State
+     */
+    state: 'sent';
+};
+
+/**
+ * DadNoteText
+ *
+ * Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+ */
+export type DadNoteText = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Body
+     */
+    body?: string;
+};
+
+/**
+ * DadNoteWaiting
+ *
+ * Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie.
+ */
+export type DadNoteWaiting = {
+    /**
+     * State
+     */
+    state: 'waiting';
 };
 
 /**
@@ -1460,6 +1532,66 @@ export type GetConfigurationResponses = {
 };
 
 export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];
+
+export type SendDadNoteData = {
+    body: DadNoteRequest;
+    path?: never;
+    query?: never;
+    url: '/api/dad-notes';
+};
+
+export type SendDadNoteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
+};
+
+export type SendDadNoteError = SendDadNoteErrors[keyof SendDadNoteErrors];
+
+export type SendDadNoteResponses = {
+    /**
+     * Response Senddadnote
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'sent';
+    } & DadNoteSent) | ({
+        state: 'waiting';
+    } & DadNoteWaiting);
+};
+
+export type SendDadNoteResponse = SendDadNoteResponses[keyof SendDadNoteResponses];
+
+export type DraftDadNoteData = {
+    body: DadNoteText;
+    path?: never;
+    query?: never;
+    url: '/api/dad-notes/draft';
+};
+
+export type DraftDadNoteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DraftDadNoteError = DraftDadNoteErrors[keyof DraftDadNoteErrors];
+
+export type DraftDadNoteResponses = {
+    /**
+     * Successful Response
+     */
+    200: DadNoteDraft;
+};
+
+export type DraftDadNoteResponse = DraftDadNoteResponses[keyof DraftDadNoteResponses];
 
 export type GetHealthData = {
     body?: never;

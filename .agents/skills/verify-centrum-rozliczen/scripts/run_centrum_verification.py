@@ -166,6 +166,15 @@ REQUIRED_SCREENSHOTS = {
         "74-naprawa-powiadomienie.png",
         "75-naprawa-po-aktualizacji.png",
     ),
+    "uwaga-taty": (
+        "170-uwaga-ikona-w-naglowku.png",
+        "171-uwaga-puste-okno.png",
+        "172-uwaga-dlugi-tekst.png",
+        "173-uwaga-wypelniona.png",
+        "174-uwaga-czeka-na-internet.png",
+        "175-uwaga-wysylanie.png",
+        "176-uwaga-wyslana.png",
+    ),
     "logi-uruchomienia": (
         "160-logi-podglad.png",
         "161-logi-zatrzymanie.png",

@@ -14,7 +14,7 @@ import threading
 import pytest
 
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
+from rozliczenia.centrum.outbox import Frame, NewIssue, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
@@ -140,10 +140,28 @@ def test_wysylka_wraca_z_pliku_kolejki_taka_sama() -> None:
     assert Post.from_json(queued.to_json()) == queued
 
 
+def test_wysylka_do_nowego_issue_wraca_z_pliku_kolejki_taka_sama() -> None:
+    queued = Post(
+        NewIssue(label="uwaga-taty", title="Tytuł Uwagi"),
+        period=None,
+        run_id=RUN_ID,
+        header=None,
+        parts=("Treść Uwagi\n\nUwaga ogólna · wersja narzędzia 3c1d0a9",),
+    )
+
+    assert Post.from_json(queued.to_json()) == queued
+
+
 @pytest.mark.parametrize(
     "text",
-    ["{", "[]", '{"schema_version": 2}', post(["x"]).to_json().replace('"kontrola-ilosci"', '"inna-etykieta"')],
-    ids=["urwany", "nie-obiekt", "nowszy-schemat", "nieznana-etykieta"],
+    [
+        "{",
+        "[]",
+        '{"schema_version": 2}',
+        post(["x"]).to_json().replace('"schema_version": 2', '"schema_version": 3'),
+        post(["x"]).to_json().replace('"kontrola-ilosci"', '"inna-etykieta"'),
+    ],
+    ids=["urwany", "nie-obiekt", "bez-celu", "nowszy-schemat", "nieznana-etykieta"],
 )
 def test_plik_kolejki_nieznany_albo_uszkodzony_nie_jest_wysylka(text: str) -> None:
     assert Post.from_json(text) is None
@@ -340,6 +358,22 @@ def test_wysylka_zapisana_przez_wersje_z_273_wychodzi_po_starcie(tmp_path: Path)
     )
     assert wait_for(lambda: queue.files() == [])
 
+
+def test_uwaga_zapisana_przez_wersje_z_318_wychodzi_po_starcie(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    queue.directory.mkdir(parents=True)
+    shutil.copy(
+        ROOT / "tests" / "fixtures" / "kolejka-v2-uwaga-taty.json",
+        queue.directory / "20261024T001500000000Z-0001-uwaga-taty-7c1e2d3f.json",
+    )
+
+    queue.outbox.resume()
+
+    assert queue.box.wait_until(lambda box: bool(box.issues))
+    [issue] = queue.box.issues_with("uwaga-taty")
+    assert issue.title == "Brakuje ilości przy montażu"
+    assert issue.body == "Plik kolejki w wersji 2 z #318.\n\nUwaga ogólna · wersja narzędzia 4900cb9\n"
+    assert wait_for(lambda: queue.files() == [])
 
 def test_zapis_urwany_przez_utrate_zasilania_znika_przy_starcie_i_nie_jest_wysylany(tmp_path: Path) -> None:
     queue = Queue(tmp_path, FakeReportBox())
