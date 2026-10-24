@@ -19,9 +19,9 @@ PERIOD = "08_14_09_2026"
 ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=SYNTHETIC-LINK&tw=1&wiersz="
 WORKERS = ("Adrian Testowy", "Darek Fikcyjny", "Kamil Syntetyczny")
 PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
-FILE_PLAN = [
-    contract.WorkerFile(file=f"Rozliczenie {PERIOD} - {worker}.xlsx", rows=rows)
-    for worker, rows in zip(WORKERS, (2, 1, 0), strict=True)
+WORKER_SETTLEMENTS = [
+    contract.WorkerSettlement(worker=worker, file=f"Rozliczenie {PERIOD} - {worker}.xlsx", orders=orders, empty=orders == 0)
+    for worker, orders in zip(WORKERS, (2, 1, 0), strict=True)
 ]
 ORDER_COLUMN = 6  # F
 
@@ -174,7 +174,7 @@ def _assert_dry_run(root: Path, result_path: Path | None) -> int:
         ],
         counts=None,
         files=[],
-        file_plan=FILE_PLAN,
+        worker_settlements=WORKER_SETTLEMENTS,
     )
     if result is not None:
         if result.result != ("WYMAGA_SPRAWDZENIA" if unmapped else "OK") or result.stop is not None:
@@ -245,7 +245,7 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
         ],
         counts=None,
         files=[],
-        file_plan=FILE_PLAN,
+        worker_settlements=WORKER_SETTLEMENTS,
     )
     if result is not None:
         if result.result != "OK" or result.stop is not None or result.warnings != [] or result.summary != expected_summary:

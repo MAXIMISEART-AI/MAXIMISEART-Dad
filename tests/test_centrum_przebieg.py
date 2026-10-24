@@ -19,6 +19,14 @@ from tests.fixtures.centrum import centrum as bare_centrum
 from tests.fixtures.centrum_processes import TODAY, WORKER_SETTLEMENTS, run_to_end, settling_centrum
 from tests.fixtures.settlement import PERIOD, SOURCE_NAME
 
+# Syntetyczny Plik zbiorczy: dwa zlecenia Adriana, jedno Darka, a Kamil bez zleceń ma pusty szablon.
+WORKER_SETTLEMENT_ROWS = [
+    {"worker": "Adrian Testowy", "file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "orders": 2, "empty": False},
+    {"worker": "Darek Fikcyjny", "file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "orders": 1, "empty": False},
+    {"worker": "Kamil Syntetyczny", "file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "orders": 0, "empty": True},
+]
+
+
 def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozliczen_pracownikow(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
 
@@ -39,11 +47,7 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
         ],
         "counts": None,
         "files": [],
-        "file_plan": [
-            {"file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "rows": 2},
-            {"file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "rows": 1},
-            {"file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "rows": 0},
-        ],
+        "worker_settlements": WORKER_SETTLEMENT_ROWS,
     }
     assert (result["stops"], result["warnings"]) == ([], [])
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
@@ -60,15 +64,16 @@ def test_uruchom_publikuje_folder_rozliczen_pracownikow_i_zmienia_status_okresu(
     result = run_to_end(centrum, dry_run=False)["result"]
     board = centrum.client.get("/api/periods").json()
 
-    assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "open_period_folder")
+    assert (result["result"], result["ending"], result["next_action"]) == ("OK", "finished", "open_worker_settlements_folder")
     assert result["headline"] == "Rozliczenia pracowników gotowe"
     assert [(figure["label"], figure["value"]) for figure in result["summary"]["figures"]] == [
         ("Zapisane szablony", 2),
         ("Puste szablony", 1),
     ]
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME, WORKER_SETTLEMENTS]
+    assert result["summary"]["worker_settlements"] == WORKER_SETTLEMENT_ROWS
     assert sorted(path.name for path in centrum.worker_settlements.iterdir()) == [
-        file["file"] for file in result["summary"]["file_plan"]
+        file["file"] for file in WORKER_SETTLEMENT_ROWS
     ]
     [row] = [row for row in board["periods"] if row["token"] == PERIOD]
     assert (row["status_label"], row["worker_settlement_count"]) == ("Rozliczenia pracowników gotowe", 3)
@@ -138,7 +143,7 @@ def test_wynik_ktorego_nie_da_sie_pokazac_to_niepokazane_podsumowanie_z_tym_samy
 
     result = run_to_end(centrum, dry_run=False)["result"]
 
-    assert (result["ending"], result["headline"], result["next_action"]) == ("after_engine", "Błąd", "open_period_folder")
+    assert (result["ending"], result["headline"], result["next_action"]) == ("after_engine", "Błąd", "open_worker_settlements_folder")
     assert result["stops"] == [
         {
             "what": "Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania.",

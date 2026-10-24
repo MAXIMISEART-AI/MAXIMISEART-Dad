@@ -164,6 +164,12 @@ class OpenRequest(_Model):
     target: OpenTarget
 
 
+class WorkerSettlementRequest(_Model):
+    """Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu."""
+
+    worker: str
+
+
 class Opened(_Model):
     name: str
 
@@ -401,24 +407,26 @@ class PeriodFile(_Model):
     kind: Literal["internal_settlement", "collective_file"]
 
 
-class WorkerFile(_Model):
-    """Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt)."""
+class WorkerSettlement(_Model):
+    """Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty."""
 
+    worker: str
     file: str
-    rows: int
+    orders: int
+    empty: bool
 
 
 class RunSummary(_Model):
     """Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
 
-    Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
-    (``None``, gdy proces go nie ma).
+    Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia
+    pracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy).
     """
 
     figures: list[Figure]
     counts: CountGroup | None
     files: list[PeriodFile]
-    file_plan: list[WorkerFile] | None
+    worker_settlements: list[WorkerSettlement] | None
 
 
 class ReportDraft(_Model):
@@ -467,6 +475,9 @@ StopKind = Literal[RecordedStopKind, "repeated"]
 # Diagnoza przy Zatrzymaniu: ``on_request`` to przycisk „Diagnoza” zamiast następnej akcji, ``automatic`` to
 # nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
 DiagnosisOffer = Literal["on_request", "automatic"]
+# Otwarcie tego, co proces zapisał: akcja po wyniku z zapisem, którą deklaruje proces (``run_view``).
+ResultAction = Literal["open_collective_file", "open_worker_settlements_folder"]
+NextAction = Literal["run", "rerun", ResultAction]
 
 
 class RunOutcome(_Model):
@@ -483,7 +494,7 @@ class RunOutcome(_Model):
     result: RunResult
     headline: str
     ending: Literal["finished", "stop", "unexpected", "after_engine"]
-    next_action: Literal["run", "rerun", "open_period_folder"]
+    next_action: NextAction
     stop_kind: StopKind | None
     diagnosis: DiagnosisOffer | None
     report: ReportState | None
@@ -821,6 +832,7 @@ ApiOperation = Literal[
     "changeTheme",
     "getPeriodBoard",
     "openPeriodPath",
+    "openWorkerSettlement",
     "getRunSetup",
     "startRun",
     "decideRun",

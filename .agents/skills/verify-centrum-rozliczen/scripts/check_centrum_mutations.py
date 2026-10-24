@@ -17,9 +17,11 @@ from mutacje import Edit, Mutation, check_all
 
 DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
+RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
 RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
+PRZEBIEG = (RUNNER, "--feature", "przebieg-rozliczen")
 
 MUTATIONS = (
     Mutation(
@@ -69,6 +71,18 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+    Mutation(
+        "po Przebiegu rozliczeń akcją główną jest Plik zbiorczy",
+        (Edit(RUN_VIEW, '    result_action="open_worker_settlements_folder",\n', '    result_action="open_collective_file",\n'),),
+        PRZEBIEG,
+        "po zapisie Rozliczeń pracowników karta proponuje otwarcie Pliku zbiorczego zamiast ich folderu",
+    ),
+    Mutation(
+        "pusty szablon nie jest oznaczony",
+        (Edit(RUN_VIEW, '                empty=result.status == "PUSTY_SZABLON",\n', "                empty=False,\n"),),
+        PRZEBIEG,
+        "Rozliczenie pracownika bez zleceń wygląda jak zapisane, bez oznaczenia „pusty”",
     ),
 )
 

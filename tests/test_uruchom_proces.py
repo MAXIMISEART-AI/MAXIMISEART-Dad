@@ -156,12 +156,12 @@ def test_przebieg_rozliczen_ok_konczy_kodem_0_z_podsumowaniem_karty_uruchomienia
         ("Zapisane szablony", 2),
         ("Puste szablony", 1),
     ]
-    assert result["summary"]["file_plan"] == [
-        {"file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "rows": 2},
-        {"file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "rows": 1},
-        {"file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "rows": 0},
+    assert result["summary"]["worker_settlements"] == [
+        {"worker": "Adrian Testowy", "file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "orders": 2, "empty": False},
+        {"worker": "Darek Fikcyjny", "file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "orders": 1, "empty": False},
+        {"worker": "Kamil Syntetyczny", "file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "orders": 0, "empty": True},
     ]
-    assert sorted(path.name for path in target.iterdir()) == [file["file"] for file in result["summary"]["file_plan"]]
+    assert sorted(path.name for path in target.iterdir()) == [file["file"] for file in result["summary"]["worker_settlements"]]
     assert sorted(path.name for path in source.parent.iterdir()) == [SOURCE_NAME, WORKER_SETTLEMENTS]
     assert result["warnings"] == []
     progress = result["progress"]
@@ -436,9 +436,9 @@ def test_bez_podanych_plikow_oba_procesy_czytaja_konfiguracje_wykonawcow_i_wzorc
     )
 
     assert (settled[0], settled[1]["stop"]) == (0, None)
-    assert settled[1]["summary"]["file_plan"] == [
-        {"file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "rows": 2},
-        {"file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "rows": 1},
-        {"file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "rows": 0},
+    assert settled[1]["summary"]["worker_settlements"] == [
+        {"worker": "Adrian Testowy", "file": f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx", "orders": 2, "empty": False},
+        {"worker": "Darek Fikcyjny", "file": f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx", "orders": 1, "empty": False},
+        {"worker": "Kamil Syntetyczny", "file": f"Rozliczenie {PERIOD} - Kamil Syntetyczny.xlsx", "orders": 0, "empty": True},
     ]
     assert (prepared[0], prepared[1]["stop"]) == (0, None)

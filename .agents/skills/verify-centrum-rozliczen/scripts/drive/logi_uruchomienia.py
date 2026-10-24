@@ -170,8 +170,10 @@ def drive_run_logs(run: Run, page: Page) -> None:
     templates = record["templates"]
     run.check(
         [(template["wykonawca"], template["outcome"], template["rows"]) for template in templates]
-        == [(worker, "ZAPISANO", count) for worker, count in zip(workers, rows, strict=True)],
-        "the Logi of the written Przebieg rozliczeń list every Wykonawca in order with outcome ZAPISANO and its rows",
+        == [
+            (worker, "ZAPISANO" if count else "PUSTY_SZABLON", count) for worker, count in zip(workers, rows, strict=True)
+        ],
+        "the Logi of the written Przebieg rozliczeń list every Wykonawca in order with his outcome and rows",
     )
     durations = [template["duration_ms"] for template in templates] or [None]
     run.check(

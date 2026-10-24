@@ -369,6 +369,14 @@ ENTRIES: dict[str, Entry] = {
     "openPeriodPath": _route(
         "openPeriodPath", "POST", f"/api/periods/{SETTLEMENT_PERIOD}/open", {"target": "collective_file"}
     ),
+    # Rozliczenia pracownika w świecie nie ma, bo zatrzymałoby Przebieg rozliczeń; operacja go nie czyta, a ścieżkę
+    # wylicza z tych samych Ustawień, Folderu okresów i Folderu okresu, które macierz psuje.
+    "openWorkerSettlement": _route(
+        "openWorkerSettlement",
+        "POST",
+        f"/api/periods/{SETTLEMENT_PERIOD}/worker-settlements/open",
+        {"worker": "Adrian Testowy"},
+    ),
     "getRunSetup": _route("getRunSetup", "GET", "/api/runs/setup"),
     "getMetrics": _route("getMetrics", "GET", "/api/metrics"),
     "getConfiguration": _route("getConfiguration", "GET", "/api/configuration"),

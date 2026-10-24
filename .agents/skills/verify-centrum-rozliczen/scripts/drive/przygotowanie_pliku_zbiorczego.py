@@ -18,6 +18,7 @@ from drive.common import (
     figure,
     finished_result,
     history_rows,
+    last_opened_is,
     period_files,
     period_row,
     sent_requests,
@@ -119,7 +120,10 @@ def drive_preparation(run: Run, page: Page) -> None:
     )
     expect(live.get_by_role("listitem", name="sob 10.10.2026: 1", exact=True)).to_be_visible()
     expect(live.get_by_label("Ostrzeżenie").filter(has_text=INCOMPLETE_PERIOD_WHAT)).to_be_visible()
-    expect(live).to_contain_text(f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx")
+    period_file_list = live.get_by_role("list", name="Pliki okresu")
+    expect(period_file_list).to_contain_text(f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx")
+    expect(period_file_list.get_by_role("button")).to_have_count(0)
+    run.check(True, "after the preview the period file names are plain text: the files do not exist yet")
     _quantity_warnings_shown(run, page, result, "the preview")
     run.check(not period_folder.exists(), "the DRY-RUN created neither files nor the Folder okresu")
     records = _preparation_records(run, "przygotowanie-metryki-podglad")
@@ -251,13 +255,14 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(decision).to_have_count(0)
     expect(page.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany · wymaga sprawdzenia")
     run.check(True, "with the stream back, the dialog closes on the result")
+    internal_settlement, collective_file = period_files(run)
     opened_before = len(run.lines("opened.jsonl"))
     with sent_requests(page, "POST", f"/api/periods/{LAST_COMPLETE}/open") as sent:
-        page.get_by_label("Wynik").get_by_role("button", name="Folder okresu").dblclick()
+        page.get_by_label("Wynik").get_by_role("button", name="Otwórz Plik zbiorczy", exact=True).dblclick()
         settle(page, sent)
     run.check(
-        len(sent) == 1 and run.lines("opened.jsonl")[opened_before:] == [{"path": str(period_folder)}],
-        f"a double click on the result's Folder okresu opens it once ({len(sent)} requests)",
+        len(sent) == 1 and run.lines("opened.jsonl")[opened_before:] == [{"path": str(collective_file)}],
+        f"a double click on the result's main action Otwórz Plik zbiorczy opens the Plik zbiorczy once ({len(sent)} requests)",
     )
 
     run.step(feature, "przygotowanie-kontynuuj")
@@ -285,6 +290,21 @@ def drive_preparation(run: Run, page: Page) -> None:
         "the Centrum log records the start and end of each Uruchomienie procesu with safe facts only",
     )
     run.capture(page, "35-przygotowanie-zapisane")
+
+    run.step(feature, "przygotowanie-otwieranie")
+    # The tab drops a repeat of the same file for 1.5 s after the server's answer (REPEAT_IGNORED_MS in
+    # open-period-path.ts); the Plik zbiorczy was opened by the double click above.
+    page.wait_for_timeout(1_600)
+    period_file_list = page.get_by_role("list", name="Pliki okresu")
+    opened_before = len(run.lines("opened.jsonl"))
+    for path in (internal_settlement, collective_file):
+        period_file_list.get_by_role("button", name=path.name, exact=True).click()
+        run.wait_for(last_opened_is(run, path), f"the period file name opens {path.name}")
+    run.check(
+        run.lines("opened.jsonl")[opened_before:] == [{"path": str(internal_settlement)}, {"path": str(collective_file)}],
+        "each period file name in the result opens its own file, one per click",
+    )
+    run.capture(page, "3b-przygotowanie-otwieranie", full_page=False)
 
     run.step(feature, "przygotowanie-status-okresu")
     page.goto(run.url)
