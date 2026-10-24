@@ -18,7 +18,8 @@ w zwijanym bloku, a JSON ponad limit komentarza idzie w kolejnych częściach, k
 
 Diagnoza Zatrzymania dopisuje się do Logów swojego Uruchomienia (``RunLogs.diagnosed``): ten sam plik dostaje pole
 ``diagnosis``, a issue okresu kolejny komentarz z całymi Logami, więc najnowszy komentarz Uruchomienia to zawsze jego
-plik. Diagnoza może dotyczyć tylko ostatniego Uruchomienia tej pracy Centrum, więc jego Logi zostają w pamięci.
+plik. Diagnozę ma tylko ostatnie Uruchomienie tej pracy Centrum, więc w pamięci zostają tylko jego Logi; Diagnoza,
+w której trakcie skończyło się następne Uruchomienie, nie dopisuje się nigdzie.
 """
 
 from __future__ import annotations
@@ -379,7 +380,7 @@ class RunLogs:
         self._keep(record)
 
     def link(self, run_id: str) -> str | None:
-        """Adres komentarza Logów Uruchomienia ``run_id``, który Skrzynka przyjęła w tej pracy Centrum; ``None``: w kolejce.
+        """Adres komentarza Logów Uruchomienia ``run_id``, który Skrzynka przyjęła w tej pracy Centrum; ``None``: jeszcze żaden.
 
         Każdy komentarz Logów Uruchomienia ma całe Logi, więc adres po Diagnozie też prowadzi do pełnych Logów.
         """
@@ -392,11 +393,11 @@ class RunLogs:
         Uruchomienie, którego Logi nie powstały w tej pracy Centrum, nie dostaje niczego.
         """
 
-        with self._lock:
+        with self._lock:  # dwie Diagnozy naraz (np. dwie karty): plik i komentarz każdej, jedna po drugiej
             ended = self._last
-        if ended is not None and ended.run_id == run_id:
-            logged = LoggedDiagnosis.of(diagnosis, diagnosed_at=datetime.now(timezone.utc))
-            self._keep(ended.model_copy(update={"diagnosis": logged}))
+            if ended is not None and ended.run_id == run_id:
+                logged = LoggedDiagnosis.of(diagnosis, diagnosed_at=datetime.now(timezone.utc))
+                self._keep(ended.model_copy(update={"diagnosis": logged}))
 
     def _keep(self, record: RunLog) -> None:
         """Plik Logów (nowy albo nadpisany) i komentarz w issue okresu z tymi samymi znakami."""

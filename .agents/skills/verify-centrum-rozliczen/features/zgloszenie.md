@@ -15,7 +15,7 @@ whether the key is there, never its value.
 
 ## Sub-features
 
-- `zgloszenie-podglad`: a stop „do Maksa” has `report` `ready`; `Diagnoza` finds no cause and shows `Wyślij do Maksa` with `Co zostanie wysłane`: title `BRAK_WZORCA: …`, the Komunikat code, period, mode, `- Logi: w kolejce, Uruchomienie <run id>` (no key yet, so the Logi wait), tool commit, every check (with `Aktualność narzędzia`), no workbook row and no full path.
+- `zgloszenie-podglad`: a stop „do Maksa” has `report` `ready`; `Diagnoza` finds no cause and shows `Wyślij do Maksa` with `Co zostanie wysłane`: title `BRAK_WZORCA: …`, the Komunikat code, period, mode, `- Logi: jeszcze niewysłane, Uruchomienie <run id>` (no key yet, so the Logi wait in the queue), tool commit, every check (with `Aktualność narzędzia`), no workbook row and no full path.
 - `zgloszenie-bez-klucza`: without `config/zgloszenia-klucz.txt`, `Wyślij do Maksa` shows the `Ostrzeżenie` „Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń.” with `Spróbuj ponownie`; `config/zgloszenia/Zgłoszenie BRAK_WZORCA 08_14_09_2026.md` holds exactly the preview; the skrzynka stays empty.
 - `zgloszenie-konfiguracja`: Konfiguracja reads `Zgłoszenia: brak klucza`, and after Maks writes the key (harness step) `Zgłoszenia: gotowe`; neither the answer nor the page holds the key.
 - `zgloszenie-wyslane`: `Spróbuj ponownie` on Uruchomienia sends: status `Zgłoszenie wysłane do Maksa. Poczekaj na naprawę.`; the skrzynka has one issue labelled `zgloszenie`, equal to the preview; the unsent file is gone; `config/zgloszenia-wyslane.json` keeps the fingerprint and that issue's number; the Centrum log has `zgloszenie-wyslane` and no key.
@@ -55,5 +55,5 @@ Preconditions:
 - Rename the Wzorzec back right after the stop: the Diagnoza must find no cause, and later features need the Wzorzec.
 - Before a Diagnoza the waiting `status` comes from the skrzynka's last answer in this Centrum, or from the local sent state when this Centrum has not asked yet; the Centrum asks the skrzynka for the open Zgłoszenie of the problem in the Diagnoza and again when sending, so a closed Zgłoszenie shows only after `Diagnoza`.
 - The file skrzynka finds the open Zgłoszenie by the `- Odcisk problemu:` line of an `open` file; edit only `state` when closing one.
-- The Logi line is fixed when the Diagnoza runs, so the preview and the sent Zgłoszenie are the same text: Logi still in the queue at that moment stay `w kolejce` in the Zgłoszenie even after they are sent. Wait for the queue before `Diagnoza` when the step needs the link.
+- The Logi line is fixed when the Diagnoza runs, so the preview and the sent Zgłoszenie are the same text: Logi still in the queue at that moment stay `jeszcze niewysłane` in the Zgłoszenie even after they are sent. Wait for the queue before `Diagnoza` when the step needs the link.
 - In `all`, the Kontrola ilości of features/kontrola-ilosci.md is the skrzynka's first issue, so the Zgłoszenia are not `1.json` and `2.json`. Find them by the label `zgloszenie` (`_issues`), never by number.

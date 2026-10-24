@@ -39,7 +39,7 @@ class DiagnosedLogs(Protocol):
     """Logi Uruchomienia (``run_logs.RunLogs``), do których dopisuje się Diagnoza."""
 
     def link(self, run_id: str) -> str | None:
-        """Adres komentarza Logów Uruchomienia w Skrzynce Zgłoszeń; ``None``: Logi czekają w kolejce."""
+        """Adres komentarza Logów Uruchomienia w Skrzynce Zgłoszeń; ``None``: Logów nie ma jeszcze w Skrzynce."""
         ...
 
     def diagnosed(self, run_id: str, diagnosis: Diagnosis) -> None:

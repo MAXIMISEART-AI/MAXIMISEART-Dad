@@ -110,8 +110,9 @@ class ProblemFingerprint:
 class StopReport:
     """Zgłoszenie Zatrzymania z Diagnozy.
 
-    ``logs``: adres komentarza Logów Uruchomienia w Skrzynce Zgłoszeń z chwili Diagnozy; ``None``: Logi czekały
-    w kolejce. Ustalony przy Diagnozie, więc wysłane Zgłoszenie jest dokładnie podglądem, który widział tata.
+    ``logs``: adres komentarza Logów Uruchomienia w Skrzynce Zgłoszeń z chwili Diagnozy; ``None``: Logi nie były
+    jeszcze w Skrzynce (zwykle czekały w kolejce). Ustalony przy Diagnozie, więc wysłane Zgłoszenie jest dokładnie
+    podglądem, który widział tata.
     """
 
     run: contract.RunInfo
@@ -138,7 +139,7 @@ class StopReport:
             f"- Proces: {run.title}",
             f"- Okres: {run.period}",
             f"- Tryb: {_MODES[run.dry_run]}",
-            f"- Logi: {self.logs or f'w kolejce, Uruchomienie {run.id}'}",
+            f"- Logi: {self.logs or f'jeszcze niewysłane, Uruchomienie {run.id}'}",
             "",
             *_trace_lines(self.stop.trace),
             *_tool_lines(fingerprint, previous, commit=f"- Commit: {commit or 'nieznany'}"),

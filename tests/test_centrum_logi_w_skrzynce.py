@@ -286,7 +286,7 @@ def test_diagnoza_bez_sieci_jest_w_pliku_logow_jej_komentarz_czeka_w_kolejce_a_z
 
     local = local_logs(centrum, run_id)
     assert json.loads(local)["diagnosis"]["checks"][0]["label"] == shown["checks"][0]["label"]
-    assert f"- Logi: w kolejce, Uruchomienie {run_id}" in shown["report"]["body"].splitlines()
+    assert f"- Logi: jeszcze niewysłane, Uruchomienie {run_id}" in shown["report"]["body"].splitlines()
     assert state["state"] == "saved"
     [saved] = (tmp_path / "config" / "zgloszenia").glob("Zgłoszenie *.md")
     assert saved.read_text(encoding="utf-8") == f"# {shown['report']['title']}\n\n{shown['report']['body']}"
@@ -338,7 +338,7 @@ def test_diagnoza_uruchomienia_bez_logow_nie_trafia_do_logow_poprzedniego(
 
     shown = diagnose(centrum, run_id)
 
-    assert f"- Logi: w kolejce, Uruchomienie {run_id}" in shown["report"]["body"].splitlines()
+    assert f"- Logi: jeszcze niewysłane, Uruchomienie {run_id}" in shown["report"]["body"].splitlines()
     assert local_logs(centrum, earlier) == before
     assert wait_for(lambda: queued_logs(centrum) == [])
     assert len(threads(box(centrum))[0].comments) == 1

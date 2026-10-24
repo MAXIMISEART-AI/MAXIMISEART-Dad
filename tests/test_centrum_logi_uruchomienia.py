@@ -353,6 +353,7 @@ def test_diagnoza_w_logach_nie_ma_tresci_komorek_ani_pelnych_sciezek(tmp_path: P
     (tmp_path / "config" / "zgloszenia-klucz.txt").write_text("github_pat_SYNTETYCZNY\n", encoding="utf-8")
     write_quantity_source(centrum.collective_file, [MARKED, {**MARKED, "H": "ZNACZNIK-WYKONAWCA"}])
     run_id = stopped_for_maks(centrum)
+    centrum.collective_file.with_name(f"~${centrum.collective_file.name}").write_bytes(b"")
 
     response = centrum.client.post(f"/api/runs/{run_id}/diagnosis")
 
@@ -360,7 +361,7 @@ def test_diagnoza_w_logach_nie_ma_tresci_komorek_ani_pelnych_sciezek(tmp_path: P
     box = centrum.surroundings.report_box
     assert box.wait_until(lambda fake: sum(len(issue.comments) for issue in fake.background_issues) == 2)
     [record] = records(centrum)
-    assert record["diagnosis"]["checks"], "Diagnoza w pliku Logów"
+    assert "failed" in [check["state"] for check in record["diagnosis"]["checks"]], "Diagnoza z przyczyną w pliku Logów"
     sent = [part for issue in box.background_issues for part in (issue.title, issue.body, *issue.comments)]
     texts = [path.read_text(encoding="utf-8") for path in log_files(centrum)] + sent
     forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
