@@ -34,6 +34,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     long = [item for item in items if item.get_closest_marker("dlugi")]
     if not workers or not long:
         return
+    collected = list(items)
     rest = [item for item in items if not item.get_closest_marker("dlugi")]
     ordered: list[pytest.Item] = []
     remaining = len(items)
@@ -46,6 +47,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         rest = rest[take:]
         remaining -= len(first) + take
     items[:] = ordered + rest
+    assert sorted(map(id, items)) == sorted(map(id, collected)), (
+        f"Hak kolejności xdist zmienił zbiór testów: {len(collected)} zebranych, {len(items)} po zmianie kolejności. "
+        "Popraw podział na kawałki w pytest_collection_modifyitems, żeby każdy zebrany test został na liście raz."
+    )
 
 
 @pytest.fixture(autouse=True, scope="session")
