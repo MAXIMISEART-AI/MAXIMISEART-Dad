@@ -633,7 +633,7 @@ def _cleanup(run: Run) -> tuple[list[str], bool]:
             # Also an Excel that ran before the run: one process grows with every run until it hangs.
             run.observe("excel_rss_mb_end", excel.rss_mb())
             notes.append(f"excel_quit={str(excel.quit_if_idle()).lower()}")
-    except excel.ExcelError as exc:
+    except (excel.ExcelError, subprocess.SubprocessError, OSError) as exc:
         notes.append(f"excel_quit_failed={type(exc).__name__}")
     run.observe("excel_rss_mb_after", excel.rss_mb())
     try:

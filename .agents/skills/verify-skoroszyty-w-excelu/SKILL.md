@@ -197,13 +197,17 @@ in an Excel that was already running stays for its owner to answer
 (`excel_dialog_left=true`).
 
 Excel may not answer the quit or the stop, for example because a dialog came up
-after the check, an AppleEvent timed out (`-1712`), or Excel refused it
-(`-1708`). The cleanup then says `excel_quit_failed=<error>` and still writes
-the evidence and removes the desk and the run root by the rules here. This alone
-does not fail the run. The run's workbooks are closed, so the Excel that stays
-is like one that holds a workbook of the user (`excel_quit=false`). Look at
-Excel. Answer a dialog if one is up, or quit Excel by hand, so it does not grow
-from run to run.
+after the check, an AppleEvent timed out (`-1712`), Excel refused it (`-1708`),
+or Excel ended between the check and the stop. The cleanup then says
+`excel_quit_failed=<exception type>` (the type only, not the AppleScript number)
+and still writes the evidence and removes the desk and the run root by the rules
+here. After a failed quit the run's workbooks are closed, so the note alone does
+not fail the run. The Excel that stays is like one that holds a workbook of the
+user (`excel_quit=false`). A failed stop comes with a dialog, so it usually also
+says `close_failed` and `desk_kept` and the run ends `VERIFY FAIL` as above.
+Look at Excel. Answer a dialog if one is up, or quit Excel by hand, so it does
+not grow from run to run. Only `tests/test_sprzatanie_excela.py` proves this
+path; no real Excel failed its quit in a run yet.
 
 While a dialog is up Excel cannot list its workbooks, so the cleanup cannot know
 whether the run's workbooks are closed. It then says `close_failed=ExcelDialog`
