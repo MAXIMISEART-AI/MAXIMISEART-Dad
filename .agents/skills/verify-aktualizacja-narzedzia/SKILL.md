@@ -285,6 +285,11 @@ Assumed, and not checked:
   during that rollback and Dad's shortcut takes the port, Dad sees the dialog
   while Centrum runs. With that exception removed, the check breaks with
   exactly this counterexample.
+- The guardian shows the dialog right after it decides on it (`_runs`
+  returns, then `show_problem`), so `DzialaOpiekun` leaves out
+  `pc = "okienko"` and no shortcut click falls between the two. With
+  `"okienko"` in `DzialaOpiekun`, the check breaks on a shortcut that starts
+  Centrum in that microsecond gap.
 - A shortcut whose `listen_locally` fails only asks `running_centrum` and
   changes nothing on disk, so the model leaves it out. Its wrong Komunikaty
   are not checked: `PORT_ZAJETY` when Centrum is still starting and does not
