@@ -24,6 +24,8 @@ MAX_VIEW_TIMINGS = 200
 _UPDATE = "aktualizacja"
 # Okres wysyłki w tle z Uruchomienia, którego okresu nie ustalono.
 _NO_PERIOD = "bez-okresu"
+# Dlaczego wysyłka w tle czeka w kolejce Skrzynki Zgłoszeń; ``odmowa-tresci`` dotyczy tylko jednego pliku kolejki.
+WaitingCause = Literal["brak-klucza", "brak-sieci", "odmowa", "odmowa-tresci"]
 
 
 class CentrumLog:
@@ -31,6 +33,12 @@ class CentrumLog:
         self._path = path
         self._lock = threading.Lock()
         self._view_timings = 0
+
+    @property
+    def directory(self) -> Path:
+        """Katalog dziennika; obok niego leżą Logi Uruchomienia (ADR 0015)."""
+
+        return self._path.parent
 
     def started(self, *, port: int, version: str, console: bool) -> None:
         self._write("start", port=port, wersja=version, konsola="tak" if console else "nie")
@@ -146,11 +154,12 @@ class CentrumLog:
         self._write("skrzynka-wyslano", etykieta=label, okres=_period(period), numer=number)
 
     def box_post_waiting(
-        self, *, label: str, period: str | None, cause: Literal["brak-klucza", "odmowa", "brak-sieci"]
+        self, *, label: str, period: str | None, cause: WaitingCause, file: str | None = None
     ) -> None:
-        """Wysyłka w tle zostaje w kolejce do następnej próby; ``cause``: dlaczego."""
+        """Wysyłka w tle zostaje w kolejce do następnej próby; ``cause``: dlaczego, ``file``: plik odrzuconej treści."""
 
-        self._write("skrzynka-czeka", etykieta=label, okres=_period(period), przyczyna=cause)
+        named = {} if file is None else {"plik": file}
+        self._write("skrzynka-czeka", etykieta=label, okres=_period(period), przyczyna=cause, **named)
 
     def box_post_unreadable(self, *, file: str) -> None:
         """Pliku kolejki Skrzynki Zgłoszeń nie da się odczytać (uszkodzony, nieznany schemat); zostaje. Tylko nazwa."""

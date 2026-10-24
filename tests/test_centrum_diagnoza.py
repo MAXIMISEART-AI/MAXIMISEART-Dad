@@ -18,6 +18,7 @@ from tests.fixtures.centrum_processes import (
     SettlingCentrum,
     Surroundings,
     preparing_centrum,
+    run_logs_handled,
     run_to_end,
     settling_centrum,
     stopped_for_maks,
@@ -230,7 +231,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_onedrive_rejestr_wz
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
         ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
-        ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 2."),
+        ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 4."),
     ]
 
 
@@ -385,6 +386,7 @@ def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_
     centrum = preparing_centrum(tmp_path)
     centrum.engines.fail_engine = True
     stopped = run_to_end(centrum, dry_run=True)
+    run_logs_handled(centrum)
     with centrum.log_path.open("a", encoding="utf-8") as log:
         log.write(UNEXPECTED_LOG_ENTRY)
 
@@ -393,7 +395,7 @@ def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
     assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
         "passed",
-        "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",
+        "Ostatnie wpisy od startu Centrum: 5, w tym nieoczekiwany wyjątek.",
     )
 
 
@@ -455,7 +457,7 @@ def test_pomiary_widokow_po_nieoczekiwanym_wyjatku_nie_wypieraja_go_z_dziennika_
     assert diagnosis["next_action"] == "report"
     assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
         "passed",
-        "Ostatnie wpisy od startu Centrum: 3, w tym nieoczekiwany wyjątek.",
+        "Ostatnie wpisy od startu Centrum: 5, w tym nieoczekiwany wyjątek.",
     )
 
 
@@ -471,7 +473,7 @@ def test_urwany_znak_w_dzienniku_nie_blokuje_diagnozy_a_nieoczekiwany_wyjatek_je
     assert diagnosis["next_action"] == "report"
     assert check(diagnosis, "Dziennik Centrum rozliczeń") == (
         "passed",
-        "Ostatnie wpisy od startu Centrum: 4, w tym nieoczekiwany wyjątek.",
+        "Ostatnie wpisy od startu Centrum: 6, w tym nieoczekiwany wyjątek.",
     )
 
 
@@ -488,7 +490,7 @@ def test_wyjatek_w_dzienniku_sprzed_startu_centrum_nie_jest_wymieniony(tmp_path:
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert check(diagnosis, "Dziennik Centrum rozliczeń") == ("passed", "Ostatnie wpisy od startu Centrum: 3.")
+    assert check(diagnosis, "Dziennik Centrum rozliczeń") == ("passed", "Ostatnie wpisy od startu Centrum: 5.")
 
 
 def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(tmp_path: Path) -> None:
@@ -607,6 +609,30 @@ def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyc
 
     assert check(diagnosis, "Aktualność narzędzia") == ("not_checked", detail)
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+@pytest.mark.parametrize(
+    ("github", "offered", "diagnosis_offer"),
+    [
+        (FakeGitHub(release=NEWER_MAIN), True, ("update", False)),
+        (FakeGitHub(), False, ("report", False)),
+        (FakeGitHub(release=None), False, ("report", False)),
+        (FakeGitHub(release=NO_RELEASE), False, ("report", False)),
+        (FakeGitHub(tool_commit=None), False, ("report", False)),
+    ],
+    ids=["nowsze-wydanie", "aktualna", "brak-sieci", "bez-wydania", "bez-gita"],
+)
+def test_konfiguracja_i_diagnoza_proponuja_aktualizacje_tylko_przy_nowszym_wydaniu(
+    tmp_path: Path, github: FakeGitHub, offered: bool, diagnosis_offer: tuple[str, bool]
+) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=github))
+    run_id = stopped_for_maks(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+    configuration = centrum.client.get("/api/configuration").json()
+
+    assert configuration["update_offered"] is offered
+    assert (diagnosis["next_action"], diagnosis["update_proposal"]) == diagnosis_offer
 
 
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_nie_zmienia_wyjasnienia(tmp_path: Path) -> None:

@@ -19,6 +19,7 @@ from rozliczenia.domain import (
 from rozliczenia.progress import (
     PhaseState,
     ProgressProjection,
+    TemplateProcessing,
 )
 
 
@@ -122,3 +123,24 @@ def test_projection_marks_failed_faza_przebiegu() -> None:
 
     assert snapshot.phase_states[ProgressPhase.CHECKING] is PhaseState.FAILED
     assert snapshot.phase_durations_ms[ProgressPhase.CHECKING] == 2
+
+
+def test_projekcja_mierzy_kazde_przetworzenie_szablonu_pracownika_od_jego_rozpoczecia_do_konca() -> None:
+    projection = project(
+        [
+            *until_saving(3),
+            WorkerStarted("Adrian Testowy", template_index=1, elapsed_ms=10),
+            WorkerEnded("Adrian Testowy", template_index=1, status="ZAPISANO", rows=2, elapsed_ms=13, issue_count=0),
+            WorkerStarted("Darek Fikcyjny", template_index=2, elapsed_ms=14),
+            WorkerEnded("Darek Fikcyjny", template_index=2, status="PUSTY_SZABLON", rows=0, elapsed_ms=15, issue_count=0),
+            WorkerStarted("Kamil Syntetyczny", template_index=3, elapsed_ms=21),
+        ]
+    )
+
+    running = projection.snapshot
+    failed = projection.update(WorkerFailed("Kamil Syntetyczny", template_index=3, elapsed_ms=27, phase_elapsed_ms=9))
+
+    written = TemplateProcessing("Adrian Testowy", "ZAPISANO", rows=2, duration_ms=3)
+    empty = TemplateProcessing("Darek Fikcyjny", "PUSTY_SZABLON", rows=0, duration_ms=1)
+    assert running.templates == (written, empty)
+    assert failed.templates == (written, empty, TemplateProcessing("Kamil Syntetyczny", "failed", rows=0, duration_ms=6))

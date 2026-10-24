@@ -14,6 +14,9 @@ import tomllib
 from typing import Literal, TextIO
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import SKIPPED, Parser, new_run
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
@@ -24,9 +27,6 @@ PREPARATION_TEMPLATE_NAMES = ("Wzorzec rozliczenia wewnętrznego.xlsx", "Wzorzec
 WORKER_TEMPLATE_NAME = "Wzorzec rozliczenia pracownika.xlsx"
 HELPER_DIRECTORY = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = str(Path("tools") / "uruchom_proces.py")
-sys.path.insert(0, str(REPO_ROOT / "tools"))
-
-from skrypt_skilla import SKIPPED, Parser, new_run  # noqa: E402
 
 
 @dataclass(frozen=True)

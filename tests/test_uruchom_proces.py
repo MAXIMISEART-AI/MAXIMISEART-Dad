@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum import run_view
 from rozliczenia.preparation_process import PROCESS as PREPARATION
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore
@@ -120,7 +121,15 @@ def _preparation_arguments(fixture: PreparationFixture, *extra: str) -> list[str
     ]
 
 
-def test_przebieg_ze_skryptu_dla_maszyn_nie_tworzy_kontroli_ilosci(tmp_path: Path) -> None:
+def _run_logs() -> set[str]:
+    """Logi Uruchomienia w katalogu Logów narzędzia, gdzie leżą u taty."""
+
+    directory = TOOL_ROOT / "logs" / "uruchomienia"
+    return {path.name for path in directory.iterdir()} if directory.is_dir() else set()
+
+
+def test_przebieg_ze_skryptu_dla_maszyn_nie_tworzy_kontroli_ilosci_ani_logow_uruchomienia(tmp_path: Path) -> None:
+    logs_before = _run_logs()
     source, _target, config = make_fixture(tmp_path)
     started = datetime(2026, 9, 9, 13, 45)
     write_quantity_source(
@@ -131,7 +140,8 @@ def test_przebieg_ze_skryptu_dla_maszyn_nie_tworzy_kontroli_ilosci(tmp_path: Pat
     completed = _completed(*_settlement_arguments(tmp_path, source, config))
 
     assert completed.returncode == 0, completed.stderr
-    assert [path for path in tmp_path.rglob("*") if path.name in ("zgloszenia", "kolejka")] == []
+    assert [path for path in tmp_path.rglob("*") if path.name in ("zgloszenia", "kolejka", "uruchomienia")] == []
+    assert _run_logs() == logs_before
     printed = completed.stdout + completed.stderr + (tmp_path / "metrics.jsonl").read_text(encoding="utf-8")
     assert [marker for marker in ("ZNACZNIK-UMOWA", "ZNACZNIK-URZADZENIA", "ZNACZNIK-CZYNNOSCI") if marker in printed] == []
 
