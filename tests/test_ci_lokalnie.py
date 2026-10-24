@@ -87,7 +87,8 @@ def test_do_pierwszego_bledu_pomija_kroki_po_pierwszym_nieudanym(
     tool = _load_tool(monkeypatch)
     # Pełny przebieg kończy się nakładaniami z praca_w_toku.py; prawdziwe pytają GitHub i git o wszystkie worktree.
     (tmp_path / "tools").mkdir()
-    (tmp_path / "tools" / "praca_w_toku.py").write_text('print("NAKŁADANIA | atrapa")\n', encoding="utf-8")
+    stub = tmp_path / "tools" / "praca_w_toku.py"
+    stub.write_text("from pathlib import Path\nPath(__file__).with_suffix('.uruchomiona').touch()\n", encoding="utf-8")
     monkeypatch.setattr(tool, "ROOT", tmp_path)
     second_ran = tmp_path / "drugi-krok"
     steps = [
@@ -101,6 +102,7 @@ def test_do_pierwszego_bledu_pomija_kroki_po_pierwszym_nieudanym(
     assert returned == 1
     assert "CI LOKALNIE FAIL | pierwszy" in capsys.readouterr().out
     assert second_ran.exists() != fail_fast
+    assert stub.with_suffix(".uruchomiona").exists()
 
 
 def test_kazdy_commit_wskazuje_commit_ze_zlamanym_krokiem_choc_head_przechodzi(tmp_path: Path) -> None:
