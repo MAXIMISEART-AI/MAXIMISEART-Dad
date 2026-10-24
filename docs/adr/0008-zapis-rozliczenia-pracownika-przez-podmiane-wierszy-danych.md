@@ -374,6 +374,6 @@ Hiperłącze (`workbook_files.DataCell`). Wiersz danych Pliku zbiorczego
 Rozliczenia pracownika. Wiersz Rejestru zleceń (`RegisterRow`) ma komórki pod
 nagłówkiem docelowym, a `TemplateFile` pliku okresu wpisuje każdą do kolumny
 pod tym nagłówkiem we Wzorcu. Nagłówki docelowe są częścią układu pliku okresu,
-więc konstruktor `TemplateFile` nie dostaje ich z wywołania. Kopia nadal
-przyjmuje tylko nagłówki docelowe w kolumnach od A; inny ich układ zapisuje
-openpyxl.
+więc konstruktor `TemplateFile` nie dostaje ich z wywołania. Kopia Pliku
+zbiorczego szuka ich w A:K, więc w dowolnej kolejności zajmują wszystkie kolumny
+od A; Rozliczenie wewnętrzne nadal zapisuje openpyxl.

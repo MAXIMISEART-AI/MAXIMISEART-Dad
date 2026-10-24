@@ -341,21 +341,19 @@ class TemplateFile:
             self._read_for_files = True
         copy = self._template_copy()
         if copy is not None:
+            # Nagłówki docelowe kopii są szukane w jej kolumnach danych wejściowych od A, więc zajmują je wszystkie.
             target_columns = self._target_columns(copy.title, copy.header)
-            columns = self._written_columns(target_columns)
             if not self._rules.sheet.period_file:
                 self._check_settlement_template(copy.title, copy.header, copy.has_input_data)
-            # Kopia wpisuje kolumny Wiersza danych od A; inny układ nagłówków docelowych zapisuje openpyxl.
-            if sorted(columns) == list(range(1, len(columns) + 1)):
-                try:
-                    package = copy.with_rows(_in_columns(rows, target_columns))
-                except InvalidValue as exc:
-                    raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
-                except UnsupportedShape:
-                    pass
-                else:
-                    write_atomically(target, _package_writer(package, target))
-                    return Route.COPY
+            try:
+                package = copy.with_rows(_in_columns(rows, target_columns))
+            except InvalidValue as exc:
+                raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+            except UnsupportedShape:
+                pass
+            else:
+                write_atomically(target, _package_writer(package, target))
+                return Route.COPY
         self._create_with_openpyxl(target, rows)
         return Route.OPENPYXL
 

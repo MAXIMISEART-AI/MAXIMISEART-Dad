@@ -8,13 +8,16 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
+from pathlib import Path
 
 from openpyxl.utils import get_column_letter
 import pytest
 
 from rozliczenia.order_facts import NON_NUMERIC, MissingHeaders, OrderFacts, collective_orders, tata_value
 from rozliczenia.quantity_rules import OrderContent, WeekTime
+from rozliczenia.collective_file import read_data_rows
 from tests.fixtures.data_rows import data_row
+from tests.fixtures.settlement import write_quantity_source
 
 # Nagłówki A17:K17 Wzorca pliku zbiorczego po normalizacji, jak je daje odczyt Pliku zbiorczego.
 HEADER = {
@@ -147,3 +150,14 @@ def test_ilosci_rowne_zero_nie_sa_zapamietane() -> None:
     facts = _filtered(HEADER, row)
 
     assert facts.quantities == {"P": 2}
+
+
+def test_wiersz_danych_bez_wykonawcy_tez_przechodzi_przez_filtr(tmp_path: Path) -> None:
+    path = tmp_path / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+    write_quantity_source(path, [{"V": 1}, {"H": None, "V": 2}])
+
+    read = read_data_rows(path)
+
+    assert read.without_worker == [19]
+    assert isinstance(read.orders, tuple)
+    assert [facts.quantity("V") for facts in read.orders] == [1, 2]
