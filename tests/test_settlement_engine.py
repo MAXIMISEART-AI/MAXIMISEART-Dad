@@ -15,9 +15,11 @@ from openpyxl.worksheet.worksheet import Worksheet
 import pytest
 
 from rozliczenia.domain import (
+    IssueCountReady,
     PhaseEnded,
     PhaseFailed,
     PhaseStarted,
+    PlanReady,
     ProgressEvent,
     ProgressPhase,
     WorkerEnded,
@@ -406,15 +408,19 @@ def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_pub
 def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wykonawcy_z_konfiguracji(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     with_workers(source_path, {18: "andrzej.nieznany2", 20: None})  # nieznany Wykonawca w pierwszym wierszu, przed znanymi
+    recorded: list[ProgressEvent] = []
 
     summary = run_settlements(
         source_path,
         config_path,
         dry_run=True,
         worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
+        observer=recorded.append,
     )
 
     assert [warning.code for warning in summary.warnings] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    counted = [(type(event), event.issue_count) for event in recorded if isinstance(event, (IssueCountReady, PlanReady))]
+    assert counted == [(IssueCountReady, 1), (PlanReady, 2)]
     assert [(result.worker_name, result.status, result.rows) for result in summary.results] == [
         ("Adrian Testowy", "PUSTY_SZABLON", 0),
         ("Darek Fikcyjny", "PLAN", 1),
