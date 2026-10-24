@@ -26,7 +26,7 @@ from __future__ import annotations
 import threading
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Final, Generic, Literal, Protocol, TypeVar
 
@@ -99,20 +99,44 @@ class EndedRun:
     """Zakończone Uruchomienie procesu z Centrum, każdą drogą: fakty wyliczone raz, z których czyta karta i działania po wyniku."""
 
     info: contract.RunInfo
-    result: contract.RunResult
+    core: Outcome[Shown[Any]] | None
+    """Wynik rdzenia tak, jak go pokazuje Centrum; ``None``, gdy rdzeń nie oddał wyniku.
+
+    Po błędzie samego adaptera (ostatnia siatka) ma jej Zatrzymanie, bez widoku i bez uwag technicznych,
+    a czas i snapshot projekcji postępu zostają z rdzenia.
+    """
     stopped: StoppedRun | None
     """Zatrzymanie, także ostatniej siatki adaptera; ``None``, gdy proces się zakończył."""
-    shown: Shown[Any] | None
-    """Wynik zakończonego procesu; ``None`` przy każdym Zatrzymaniu."""
-    technical_notes: tuple[str, ...]
     progress: contract.Progress
     """Postęp z karty: ostatni widok projekcji, który dostała przeglądarka."""
-    snapshot: ProgressSnapshot | None
-    """Ostatni snapshot projekcji postępu z rdzenia; ``None``, gdy rdzeń nie oddał wyniku."""
-    duration_ms: int | None
-    """Czas uruchomienia; ``None``, gdy rdzeń nie oddał wyniku."""
     started_at: datetime
     ended_at: datetime
+
+    @property
+    def result(self) -> contract.RunResult:
+        return "BLAD_KRYTYCZNY" if self.core is None else self.core.result
+
+    @property
+    def shown(self) -> Shown[Any] | None:
+        """Wynik zakończonego procesu; ``None`` przy każdym Zatrzymaniu."""
+
+        return None if self.core is None else self.core.view
+
+    @property
+    def technical_notes(self) -> tuple[str, ...]:
+        return () if self.core is None else self.core.technical_notes
+
+    @property
+    def snapshot(self) -> ProgressSnapshot | None:
+        """Ostatni snapshot projekcji postępu z rdzenia; ``None``, gdy rdzeń nie oddał wyniku."""
+
+        return None if self.core is None else self.core.progress
+
+    @property
+    def duration_ms(self) -> int | None:
+        """Czas uruchomienia; ``None``, gdy rdzeń nie oddał wyniku."""
+
+        return None if self.core is None else self.core.total_duration_ms
 
     @property
     def ending(self) -> Ending:
@@ -396,10 +420,10 @@ class _Run:
 
     def work(self) -> None:
         prepared = self._prepared
-        outcome: Outcome[Shown[Any]] | None = None
+        core: Outcome[Shown[Any]] | None = None
         since = datetime.now(timezone.utc)
         try:
-            outcome = run_process(
+            core = run_process(
                 prepared.process,
                 prepared.inputs,
                 self,
@@ -407,34 +431,13 @@ class _Run:
                 metrics_path=prepared.process.metrics_path(),
             )
             self._host.remember(prepared, self.info.id, since)
-            ending = outcome.ending
-            ended = EndedRun(
-                self.info,
-                outcome.result,
-                self._stops.ended(self.info, None if isinstance(ending, Finished) else ending),
-                outcome.view,
-                outcome.technical_notes,
-                self._progress,
-                outcome.progress,
-                outcome.total_duration_ms,
-                since,
-                datetime.now(timezone.utc),
-            )
+            ended = self._ended(core, None if isinstance(core.ending, Finished) else core.ending, since)
             result = ended.card(prepared.done)
         except Exception as failure:
             self._host.failed(failure)
-            ended = EndedRun(
-                self.info,
-                "BLAD_KRYTYCZNY",
-                self._stops.ended(self.info, Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))),
-                None,
-                (),
-                self._progress,
-                None if outcome is None else outcome.progress,
-                None if outcome is None else outcome.total_duration_ms,
-                since,
-                datetime.now(timezone.utc),
-            )
+            stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
+            core = None if core is None else replace(core, ending=stop, view=None, technical_notes=())
+            ended = self._ended(core, stop, since)
             result = ended.card(prepared.done)
         self.stopped = ended.stopped
         self._host.after(ended)
@@ -445,6 +448,16 @@ class _Run:
             contract.RunFinished(
                 state="finished", run=self.info, progress=self._progress, progress_stale=self._stale, result=result
             ),
+        )
+
+    def _ended(self, core: Outcome[Shown[Any]] | None, stop: Stop | None, since: datetime) -> EndedRun:
+        return EndedRun(
+            info=self.info,
+            core=core,
+            stopped=self._stops.ended(self.info, stop),
+            progress=self._progress,
+            started_at=since,
+            ended_at=datetime.now(timezone.utc),
         )
 
     def answer(self, consent: bool) -> None:

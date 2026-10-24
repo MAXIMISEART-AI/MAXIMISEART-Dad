@@ -36,7 +36,7 @@ MUTATIONS = (
     ),
     Mutation(
         "ended ustawione na początku _Run.work",
-        (Edit(RUNS, "        prepared = self._prepared\n        outcome: Outcome[Shown[Any]] | None = None\n", "        prepared = self._prepared\n        self.ended = True\n        outcome: Outcome[Shown[Any]] | None = None\n"),),
+        (Edit(RUNS, "        prepared = self._prepared\n        core: Outcome[Shown[Any]] | None = None\n", "        prepared = self._prepared\n        self.ended = True\n        core: Outcome[Shown[Any]] | None = None\n"),),
         (EXPLORER, "--scope", "zamknij-w-trakcie"),
         "Centrum zamyka się w trakcie silnika i kolejne „Uruchom” startuje drugie Uruchomienie",
         "URUCHOMIENIA: NOWE NARUSZENIE",
