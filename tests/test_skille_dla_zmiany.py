@@ -171,7 +171,7 @@ def test_skill_ktorego_skryptu_nie_da_sie_sparsowac_obowiazuje_zawsze(tmp_path: 
     result = _run(tmp_path, base)
 
     assert _skills(result) == ["verify-c"]
-    assert result.stdout.splitlines()[0].startswith("verify-c: skrypt skilla się nie parsuje, więc skill obowiązuje zawsze: run_c.py")
+    assert result.stdout.splitlines()[0].startswith("verify-c: .agents/skills/verify-c/scripts/run_c.py się nie parsuje, więc skill obowiązuje zawsze")
 
 
 def test_skill_bez_pilnuje_albo_z_nieczytelnym_pilnuje_obowiazuje_zawsze(tmp_path: Path) -> None:

@@ -14,8 +14,8 @@ import re
 SRC = Path(__file__).resolve().parents[1] / "src"
 WRITERS = frozenset({"rozliczenia/workbook_files.py", "rozliczenia/template_copy.py", "rozliczenia/row_look.py"})
 CELL_WRITES = frozenset(
-    {"value", "font", "fill", "border", "alignment", "number_format", "protection", "hyperlink", "auto_filter", "comment"}
-    | {"freeze_panes"}
+    {"value", "font", "fill", "border", "alignment", "number_format", "protection", "hyperlink", "auto_filter"}
+    | {"comment", "freeze_panes"}
 )
 SHEET_CHANGES = frozenset(
     {"insert_rows", "delete_rows", "insert_cols", "delete_cols", "move_range", "merge_cells", "unmerge_cells"}

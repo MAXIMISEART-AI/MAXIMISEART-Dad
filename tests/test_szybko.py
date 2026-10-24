@@ -89,6 +89,10 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
     for static_check in ("ruff", "mypy"):
         pytest.importorskip(static_check, reason="szybko uruchamia ruff i mypy z dodatku dev")
     repo = repository(tmp_path / "repo", {**BASE_FILES, **_structure_stubs(structure)})
+    # Krok najstarszego Pythona sprawdzają osobne testy; tu requires-python to Python, którym biegnie szybko.
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    current = f'requires-python = ">={sys.version_info[0]}.{sys.version_info[1]}"'
+    (repo / "pyproject.toml").write_text(re.sub(r"requires-python = .*", current, pyproject), encoding="utf-8")
     for name in (".gitignore", "tools/szybko.py"):
         shutil.copy2(ROOT / name, repo / name)
     commit(repo, "baza")
@@ -340,6 +344,56 @@ def test_bez_uv_krok_najstarszego_pythona_pada_z_droga_naprawy(tmp_path: Path) -
     assert f"brak uv, więc szybko nie sprawdzi Pythona {oldest}: zainstaluj uv albo .venv z {oldest}" in answered.stdout
     last = answered.stdout.splitlines()[-1]
     assert (answered.returncode, last) == (1, f"SZYBKO FAIL | import src pod Pythonem {oldest}"), answered.stdout
+
+
+FAKE_UV = f"""#!{sys.executable}
+import os, subprocess, sys
+with open(os.environ["WYWOLANIA_UV"], "a", encoding="utf-8") as calls:
+    calls.write(("offline" if "--offline" in sys.argv else "online") + "\\n")
+if "--offline" in sys.argv:
+    sys.exit(1)
+arguments = sys.argv[1:]
+sys.exit(subprocess.run([sys.executable, *arguments[arguments.index("python") + 1 :]]).returncode)
+"""
+
+
+def test_uv_bez_cache_pyta_siec_a_modul_ktory_sie_nie_importuje_wywraca_krok(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _requiring(repo, (3, sys.version_info[1] - 1))
+    _write(repo, "src/pakiet/stary.py", "raise ImportError('tylko na nowszym Pythonie')\n")
+    fake = tmp_path / "bin" / "uv"
+    fake.parent.mkdir()
+    fake.write_text(FAKE_UV, encoding="utf-8")
+    fake.chmod(0o755)
+    calls = tmp_path / "wywolania.txt"
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "szybko.py")],
+        cwd=repo,
+        env={**os.environ, "PATH": f"{fake.parent}{os.pathsep}{os.environ['PATH']}", "WYWOLANIA_UV": str(calls)},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert calls.read_text(encoding="utf-8").split() == ["offline", "online"]
+    assert "pakiet.stary: ImportError: tylko na nowszym Pythonie" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, f"SZYBKO FAIL | import src pod Pythonem 3.{sys.version_info[1] - 1}"), answered.stdout
+
+
+def test_requires_python_bez_najstarszej_wersji_wywraca_szybkie_sprawdzenie(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _write(repo, "pyproject.toml", '[project]\nname = "pakiet"\nrequires-python = "~=3.11"\n\n[tool.mypy]\nfiles = ["src"]\n')
+    commit(repo, "requires-python")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+    answered = _szybko(repo)
+
+    assert "requires-python '~=3.11' nie ma postaci >=X.Y" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | import src pod najstarszym Pythonem"), answered.stdout
 
 
 def test_szybko_na_najstarszym_pythonie_nie_ma_osobnego_kroku_importu(tmp_path: Path) -> None:

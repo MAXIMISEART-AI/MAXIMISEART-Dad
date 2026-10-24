@@ -70,7 +70,9 @@ def _reasons(skill_md: Path, files: Iterable[str]) -> list[str]:
         declared = guarded(skill_md)
         executed = _executed(skill_md.parent)
     except SyntaxError as error:
-        return [f"skrypt skilla się nie parsuje, więc skill obowiązuje zawsze: {Path(error.filename or '').name} ({error.msg})"]
+        where = Path(error.filename or "")
+        shown = where.relative_to(ROOT).as_posix() if where.is_relative_to(ROOT) else where.name
+        return [f"{shown} się nie parsuje, więc skill obowiązuje zawsze ({error.msg})"]
     except ValueError as error:
         return [str(error)]
     if declared is None:

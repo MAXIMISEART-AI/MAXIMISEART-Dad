@@ -105,7 +105,17 @@ for name in names:
     except Exception as error:
         failed.append(f"{name}: {type(error).__name__}: {error}")
 print("\\n".join(failed) or f"{len(names)} modułów")
-sys.exit(1 if failed or not names else 0)
+sys.exit(3 if failed or not names else 0)
+"""
+# ``uv run --offline`` z ciepłym cache działa bez sieci; dopiero porażka samego uv (inny kod niż 0 i 3) pyta sieć.
+WITH_UV = """\
+import subprocess, sys
+uv, version, imports, *requirements = sys.argv[1:]
+command = [uv, "run", "--no-project", "--quiet", "--python", version, *requirements, "python", "-c", imports, "src"]
+code = subprocess.run([*command[:2], "--offline", *command[2:]]).returncode
+if code not in (0, 3):
+    code = subprocess.run(command).returncode
+sys.exit(code)
 """
 
 
@@ -483,36 +493,36 @@ def _pytest(root: Path, name: str, arguments: Iterable[str]) -> ci_lokalnie.Step
     return replace(pytest, name=name, command=(*pytest.command, *arguments))
 
 
-def _oldest_python(root: Path) -> str | None:
-    """Najstarszy Python z ``requires-python`` (``>=3.11`` daje ``3.11``), gdy szybko biegnie nowszym; inaczej ``None``."""
+def _failing(root: Path, name: str, why: str) -> ci_lokalnie.Step:
+    return ci_lokalnie.Step(name, "pytest", "", (sys.executable, "-c", f"raise SystemExit({why!r})"), root)
+
+
+def _imports_on_oldest(root: Path) -> list[ci_lokalnie.Step]:
+    """CI testuje też najstarszy Python z ``requires-python``, a ``.venv`` bywa nowszy: kod tylko dla nowszego Pythona
+    pada dopiero w CI. Krok jest pusty, gdy szybko biegnie tym najstarszym albo projekt go nie podaje."""
 
     try:
         required = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
     except (OSError, KeyError, tomllib.TOMLDecodeError):
-        return None
+        return []
     oldest = re.fullmatch(r">=\s*(\d+)\.(\d+)", str(required).strip())
-    if oldest is None or sys.version_info[:2] <= (int(oldest[1]), int(oldest[2])):
-        return None
-    return f"{oldest[1]}.{oldest[2]}"
-
-
-def _imports_on(root: Path, version: str) -> ci_lokalnie.Step:
-    """CI testuje też najstarszy Python, a ``.venv`` bywa nowszy: kod tylko dla nowszego Pythona pada dopiero w CI."""
-
+    if oldest is None:
+        why = f"requires-python {required!r} nie ma postaci >=X.Y, więc szybko nie zna najstarszego Pythona"
+        return [_failing(root, "import src pod najstarszym Pythonem", why)]
+    if sys.version_info[:2] <= (int(oldest[1]), int(oldest[2])):
+        return []
+    version = f"{oldest[1]}.{oldest[2]}"
     name = f"import src pod Pythonem {version}"
     uv = shutil.which("uv")
     if uv is None:
-        why = f"brak uv, więc szybko nie sprawdzi Pythona {version}: zainstaluj uv albo .venv z {version}"
-        return ci_lokalnie.Step(name, "pytest", "", (sys.executable, "-c", f"raise SystemExit({why!r})"), root)
+        return [_failing(root, name, f"brak uv, więc szybko nie sprawdzi Pythona {version}: zainstaluj uv albo .venv z {version}")]
     requirements = ("--with-requirements", "requirements.txt") if (root / "requirements.txt").is_file() else ()
-    command = (uv, "run", "--no-project", "--quiet", "--python", version, *requirements, "python", "-c", IMPORT_ALL, "src")
-    return ci_lokalnie.Step(name, "pytest", "", command, root)
+    return [ci_lokalnie.Step(name, "pytest", "", (sys.executable, "-c", WITH_UV, uv, version, IMPORT_ALL, *requirements), root)]
 
 
 def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.Step]:
     static = (step for step in ci_lokalnie._steps(root) if step.job in STATIC_JOBS)
-    oldest = _oldest_python(root)
-    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit)), *([_imports_on(root, oldest)] if oldest else [])]
+    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit)), *_imports_on_oldest(root)]
 
 
 def _environment(root: Path) -> dict[str, str]:
