@@ -1,10 +1,11 @@
 """Plik z Wzorca: Sprawdzanie, Planowanie i zapis Wierszy danych w kopii Wzorca jednego z trzech plików (ADR 0008).
 
-Rozliczenie pracownika, Plik zbiorczy i Rozliczenie wewnętrzne powstają z Wzorca (``Layout``) przez
-``TemplateFile``: ``check`` to Sprawdzanie, ``plan`` to Planowanie, a ``create`` zapisuje plik atomowo
-(``workbook_save``). Plik powstaje kopią bajtów Wzorca (``template_copy``), gdy kopia przyjmuje kształt Wzorca i
-wierszy, a inaczej przez openpyxl; obie drogi dają ten sam plik. Wzorzec czyta moduł skoroszytu
-(``workbook_files``) z jego klasyfikacją uszkodzeń, a zły układ to ``WorkbookError`` z miejscem.
+Rozliczenie pracownika, Plik zbiorczy i Rozliczenie wewnętrzne powstają z Wzorca przez ``TemplateFile``, którego
+konstruktor wybiera plik: ``check`` to Sprawdzanie, ``plan`` to Planowanie, a ``create`` zapisuje plik atomowo
+(``workbook_save``). Układ arkusza Wzorca opisuje jeden ``SheetLayout``, z którego czytają obie drogi zapisu: kopia
+bajtów Wzorca (``template_copy``), gdy przyjmuje kształt Wzorca i wierszy, a inaczej openpyxl; obie dają ten sam
+plik. Wzorzec czyta moduł skoroszytu (``workbook_files``) z jego klasyfikacją uszkodzeń, a zły układ to
+``WorkbookError`` z miejscem.
 """
 
 from __future__ import annotations
