@@ -631,6 +631,10 @@ export type PeriodChoice = {
      * Collective File
      */
     collective_file: string | null;
+    /**
+     * Open In Excel
+     */
+    open_in_excel: Array<string>;
 };
 
 /**

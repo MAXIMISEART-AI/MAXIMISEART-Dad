@@ -297,7 +297,8 @@ export const zPeriodChoice = z.object({
     status_label: z.string(),
     last_complete: z.boolean(),
     previewed: z.boolean(),
-    collective_file: z.string().nullable()
+    collective_file: z.string().nullable(),
+    open_in_excel: z.array(z.string())
 });
 
 /**
