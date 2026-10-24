@@ -82,7 +82,7 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
   }
 
   return (
-    <form onSubmit={send} className="flex flex-col gap-5">
+    <form onSubmit={send} className="flex min-h-0 flex-col gap-5">
       <DialogHeader>
         <DialogTitle>Napisz do Maksa</DialogTitle>
       </DialogHeader>
@@ -110,7 +110,7 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
           onChange={(event) => setBody(event.target.value)}
         />
       </Field>
-      <Field>
+      <Field className="min-h-0">
         <FieldTitle>Dotyczy</FieldTitle>
         <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
         {scope === "run" ? <DadNoteRuns runs={runs} checked={checked} onCheck={setChecked} /> : null}

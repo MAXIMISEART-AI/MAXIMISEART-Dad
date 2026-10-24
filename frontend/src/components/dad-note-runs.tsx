@@ -17,6 +17,10 @@ const SKELETON_ROWS = 3
 
 const ROW = "flex items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0"
 
+// Najwyżej cztery i pół wiersza: połowa wiersza mówi, że lista przewija się dalej. Na niskim ekranie lista oddaje
+// wysokość aż do jednego wiersza, żeby „Wyślij” został na ekranie.
+const LIST_HEIGHT = "max-h-63 min-h-14"
+
 /** Lista ostatnich Uruchomień z Centrum do wyboru jednego, z wynikiem każdego; dane tylko z kontraktu. */
 export function DadNoteRuns({
   runs,
@@ -54,7 +58,8 @@ export function DadNoteRuns({
           aria-label="Uruchomienie"
           value={checked}
           onValueChange={onCheck}
-          className="wejscie mt-1 gap-0 overflow-hidden rounded-lg border"
+          ref={keepCheckedInView}
+          className={cn("wejscie relative mt-1 content-start gap-0 overflow-y-auto overscroll-contain rounded-lg border", LIST_HEIGHT)}
         >
           {runs.data.map((run) => (
             <label key={run.run_id} className={cn(ROW, "cursor-pointer has-data-checked:bg-muted/60")}>
@@ -81,4 +86,28 @@ export function DadNoteRuns({
       return unhandled
     }
   }
+}
+
+/**
+ * Trzyma zaznaczony wiersz w widoku listy od jej pojawienia się, także gdy lista maleje, bo „Maks dostanie” pod nią
+ * urosło. Przewija tylko listę, nie okno, jak `scrollIntoView` z `block: "nearest"`, i bez animacji.
+ */
+function keepCheckedInView(list: HTMLElement | null) {
+  if (list === null) {
+    return
+  }
+
+  const observer = new ResizeObserver(() => {
+    const row = list.querySelector("[data-checked]")?.closest("label")
+
+    if (row) {
+      const shown = Math.max(list.scrollTop, row.offsetTop + row.offsetHeight - list.clientHeight)
+
+      list.scrollTop = Math.min(shown, row.offsetTop)
+    }
+  })
+
+  observer.observe(list)
+
+  return () => observer.disconnect()
 }

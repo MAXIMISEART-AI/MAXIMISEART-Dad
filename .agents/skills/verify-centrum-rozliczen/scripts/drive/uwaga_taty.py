@@ -10,7 +10,7 @@ from typing import Any
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import Locator, Page, ViewportSize, expect
 
 from drive.common import PAGES, Run, current_run, ensure_files_set, error_toasts, finished_result, history_rows
 from drive.metryki import _local
@@ -36,6 +36,20 @@ LOGS_LINK = re.compile(r"^\[Logi Uruchomienia\]\((.*)\)$", re.MULTILINE)
 MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\([^)\s]+\)")
 MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
 NO_RUNS = "Nie ma jeszcze Uruchomień z Centrum."
+# A scaled 1080p laptop; Dad's screen size is unknown (docs/agents/komputer-taty.md).
+LAPTOP = ViewportSize(width=1280, height=720)
+# Whether the element lies wholly inside the viewport and inside every ancestor that clips it (the list, the dialog).
+WHOLLY_SHOWN = """element => {
+    const box = element.getBoundingClientRect()
+    const inside = outer => box.top >= outer.top - 0.5 && box.bottom <= outer.bottom + 0.5
+    let shown = inside({top: 0, bottom: innerHeight})
+    for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
+        if (getComputedStyle(parent).overflowY !== "visible") {
+            shown = shown && inside(parent.getBoundingClientRect())
+        }
+    }
+    return {shown, top: Math.round(box.top), bottom: Math.round(box.bottom)}
+}"""
 
 
 def _draft(run: Run, title: str, body: str, name: str, run_id: str | None = None) -> dict[str, str]:
@@ -486,5 +500,33 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     run.capture(page, "171-uwaga-z-historii", full_page=False)
     page.keyboard.press("Escape")
     expect(dialog).to_have_count(0)
+    _laptop(run, page, about, target)
     if was_dark:
         _theme(page, "ciemny")
+
+
+def _laptop(run: Run, page: Page, about: Locator, target: str) -> None:
+    """The dialog from the oldest Historia row on a laptop screen: its checked row and „Wyślij” on screen as opened."""
+
+    viewport = page.viewport_size
+    assert viewport is not None
+    page.set_viewport_size(LAPTOP)
+    try:
+        about.click()
+        dialog, _ = _opened_about(run, page, target, "uwaga-uruchomienia-laptop")
+        choices = dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)
+        checked = choices.locator('label:has([role="radio"][aria-checked="true"])')
+        send = dialog.get_by_role("button", name="Wyślij", exact=True)
+        expect(checked).to_have_count(1)
+        scrolled = dialog.evaluate("element => element.scrollTop")
+        row, button = checked.evaluate(WHOLLY_SHOWN), send.evaluate(WHOLLY_SHOWN)
+        run.check(
+            scrolled == 0 and row["shown"] and button["shown"],
+            f"at {LAPTOP['width']}×{LAPTOP['height']} the checked oldest row and „Wyślij” are on screen without scrolling"
+            f" (dialog scrollTop {scrolled}, row {row}, Wyślij {button})",
+        )
+        run.capture(page, "172-uwaga-z-historii-laptop", full_page=False)
+        page.keyboard.press("Escape")
+        expect(dialog).to_have_count(0)
+    finally:
+        page.set_viewport_size(viewport)
