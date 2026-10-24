@@ -36,6 +36,7 @@ from typing import Final, Literal, Protocol, get_args
 Label = Literal["zgloszenie", "kontrola-ilosci", "logi-uruchomienia", "uwaga-taty"]
 """Etykieta issue w Skrzynce Zgłoszeń; etykiety zakłada Maks w repozytorium Zgłoszeń, kod ich nie tworzy."""
 REPORT_LABEL: Final[Label] = "zgloszenie"
+NOTE_LABEL: Final[Label] = "uwaga-taty"
 # Najwięcej znaków (jak ``len``) w treści issue i komentarza. Dokumentacja REST GitHuba limitu nie podaje; pomiar na
 # repozytorium Zgłoszeń 2026-10-24 (#332): nowe issue przyjmuje 65 536 znaków (także „ą” i emoji), a 65 537 odrzuca
 # kodem 422; komentarz przyjmuje do 262 144 bajtów UTF-8, czyli każdy tekst do 65 536 znaków (najwyżej 4 bajty na znak).

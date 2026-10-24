@@ -16,7 +16,10 @@ The Diagnoza's two boundaries beyond Dad's files are scripted too, so the
 verification never reaches GitHub and checks OneDrive on every system:
 
 - the commit of the newest Wydanie on GitHub is the tool's own commit (up to date) unless
-  ``<root>/github/main-commit.txt`` names another one; while
+  ``<root>/github/main-commit.txt`` names another one, and its tag is the one in
+  ``<root>/github/wydanie.txt`` (none without it); the published Wydania
+  (GitHub Releases with their notes) are ``<root>/github/wydania.json`` in the
+  shape of GitHub's list (none without it); while
   ``<root>/github/brak-sieci`` exists there is no network. The tool is the
   run's synthetic clone ``<root>/aktualizacja/klon``: its own commit is the
   clone's ``HEAD`` (``tool_commit``) unless ``<root>/github/tool-commit.txt``
@@ -53,8 +56,9 @@ exists, the skrzynka waits that many milliseconds before it opens an issue, like
 GitHub over a slow connection, so the drive can see that Centrum starts without
 waiting for the Kontrole ilości it sends again at start.
 
-Centrum asks the skrzynka for the state of Dad's sent cases at most once per 10
-minutes of its monotonic clock; ``<root>/zegar/przesuniecie-min.txt`` moves that
+Centrum asks the skrzynka for the state of Dad's sent cases, and GitHub for the
+Wydania, at most once per 10 minutes of its monotonic clock; each question for the
+published Wydania appends a line to ``<root>/github/zapytania-wydan.jsonl``; ``<root>/zegar/przesuniecie-min.txt`` moves that
 clock forward by the given minutes, so the drive need not wait.
 
 One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
@@ -128,7 +132,7 @@ from rozliczenia.centrum.report_box import (
 from rozliczenia.centrum.launcher import listen_locally
 from rozliczenia.centrum.server import serve
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
+from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness, parse_published
 from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install
 from rozliczenia.centrum.version import commit_since, tool_commit
 from rozliczenia.workbook_files import DataRow, TemplateFile
@@ -240,10 +244,22 @@ def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
     def releases() -> GitHubReleases | None:
         if (root / "github" / "brak-sieci").exists():
             return None
-        chosen = root / "github" / "main-commit.txt"
-        return GitHubReleases(chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit())
+        chosen, tag = root / "github" / "main-commit.txt", root / "github" / "wydanie.txt"
+        return GitHubReleases(
+            chosen.read_text(encoding="utf-8").strip() if chosen.exists() else local_commit(),
+            tag.read_text(encoding="utf-8").strip() if tag.exists() else None,
+        )
 
-    return ToolFreshness(local=local_commit, since=since, release=releases)
+    def published() -> tuple[PublishedRelease, ...] | None:
+        (root / "github").mkdir(exist_ok=True)
+        with (root / "github" / "zapytania-wydan.jsonl").open("a", encoding="utf-8") as questions:
+            questions.write(json.dumps({"lista": "wydania"}) + "\n")
+        if (root / "github" / "brak-sieci").exists():
+            return None
+        listed = root / "github" / "wydania.json"
+        return parse_published(json.loads(listed.read_text(encoding="utf-8"))) if listed.exists() else ()
+
+    return ToolFreshness(local=local_commit, since=since, release=releases, published=published)
 
 
 def _scripted_clock(root: Path) -> Callable[[], float]:

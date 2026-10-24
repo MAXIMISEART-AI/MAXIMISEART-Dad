@@ -50,7 +50,7 @@ from rozliczenia.centrum.settlement_run import SettlementEntry
 from rozliczenia.centrum.shutdown import Shutdown, shutdown_router
 from rozliczenia.centrum.stops import Stops
 from rozliczenia.centrum.timing import server_timing, timing_router
-from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.tool_freshness import RememberedRelease, ToolFreshness
 from rozliczenia.centrum import restart_guardian
 from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
 from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
@@ -165,13 +165,17 @@ def create_app(
         log,
         on_delivered=notes.delivered,
     )
-    # Powiadomienia o Uwagach taty i wysłanych Zgłoszeniach; przeczytane obok Ustawień taty (ADR 0015).
+    # Najnowsze Wydanie na GitHubie: jedna pamiętana odpowiedź dla Konfiguracji i Powiadomień (limit API bez klucza).
+    release = RememberedRelease(surroundings.tool_freshness.release, clock=clock)
+    # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
         reports.sent,
         notes,
         ReadNotifications(config / NOTIFICATIONS_FILE, log),
         box,
         lambda: read_report_key(config),
+        surroundings.tool_freshness,
+        release,
         log,
         clock=clock,
     )
@@ -221,7 +225,7 @@ def create_app(
     app.include_router(notifications_router(notifications))
     app.include_router(dad_notes_router(notes, outbox, surroundings.tool_freshness.local))
     app.include_router(metrics_router({entry.key: entry.process for entry in entries}, today, centrum_runs))
-    app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
+    app.include_router(configuration_router(configuration, surroundings.tool_freshness, release, reports.key_state))
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))

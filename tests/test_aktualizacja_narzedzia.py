@@ -1166,11 +1166,11 @@ def test_klon_na_nowszym_commicie_main_niz_wydanie_jest_aktualny_takze_w_aktualn
 ) -> None:
     repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
     repository.in_clone("pull", "--quiet", "--ff-only", "origin", "main")
-    on_release = ToolFreshness.of_clone(repository.clone, repository.github_releases)
+    on_release = ToolFreshness.of_clone(repository.clone, repository.github_releases, repository.published)
 
     assert on_release.judge() == "current"
 
     repository.release()
     repository.publish({"src/narzedzie.py": "WERSJA = 3\n"})
 
-    assert ToolFreshness.of_clone(repository.clone, repository.github_releases).judge() == "newer"
+    assert ToolFreshness.of_clone(repository.clone, repository.github_releases, repository.published).judge() == "newer"

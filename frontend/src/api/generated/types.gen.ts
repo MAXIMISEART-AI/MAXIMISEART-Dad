@@ -528,7 +528,7 @@ export type Notifications = {
     /**
      * Items
      */
-    items: Array<DadNoteNotification | ReportNotification>;
+    items: Array<DadNoteNotification | ReportNotification | ReleaseNotification>;
 };
 
 /**
@@ -943,6 +943,47 @@ export type RecentResults = {
 };
 
 /**
+ * ReleaseNotification
+ *
+ * Powiadomienie o nowej wersji: numer Wydania (``0.2.0``), notka „Co nowego”, sprawy taty, które rozwiązuje, i
+ * czy Centrum proponuje Aktualizację narzędzia (``tool_freshness.offers_update``, tylko przy najnowszym Wydaniu).
+ */
+export type ReleaseNotification = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * At
+     */
+    at: string;
+    /**
+     * Unread
+     */
+    unread: boolean;
+    /**
+     * Kind
+     */
+    kind: 'nowa_wersja';
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Solved
+     */
+    solved: Array<SolvedCase>;
+    /**
+     * Update Offered
+     */
+    update_offered: boolean;
+};
+
+/**
  * ReportDraft
  *
  * Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown.
@@ -1331,6 +1372,23 @@ export type Settings = {
      * Theme
      */
     theme: 'dark' | 'light';
+};
+
+/**
+ * SolvedCase
+ *
+ * Sprawa wysłana z tego komputera, którą Wydanie rozwiązuje: Uwaga taty nazwana tytułem, Zgłoszenie jego
+ * „Co się stało”.
+ */
+export type SolvedCase = {
+    /**
+     * Kind
+     */
+    kind: 'uwaga' | 'zgloszenie';
+    /**
+     * Title
+     */
+    title: string;
 };
 
 /**

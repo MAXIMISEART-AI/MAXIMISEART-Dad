@@ -33,7 +33,7 @@ from rozliczenia.centrum.report_box import (
     Unreachable,
 )
 from rozliczenia.centrum.shutdown import Shutdown
-from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
+from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -216,25 +216,36 @@ class FakeClock:
 
 @dataclass
 class FakeGitHub:
-    """Commit narzędzia u taty, dzień, od którego narzędzie jest na nim, i commit najnowszego Wydania na GitHubie.
+    """Commit narzędzia u taty, dzień, od którego narzędzie jest na nim, i najnowsze Wydanie na GitHubie.
 
-    ``release=None`` to brak sieci, ``NO_RELEASE`` to GitHub bez żadnego Wydania; ``asked`` liczy pytania o Wydania.
-    Commit narzędzia zawiera tylko taki sam commit Wydania.
+    ``release`` to commit najnowszego Wydania na `main`, a ``tag`` jego tag; ``release=None`` to brak sieci,
+    ``NO_RELEASE`` to GitHub bez żadnego Wydania. ``published`` to lista GitHub Releases (``None``: brak sieci).
+    ``asked`` liczy pytania o najnowsze Wydanie, a ``asked_published`` o listę. Commit narzędzia zawiera tylko taki
+    sam commit Wydania.
     """
 
     tool_commit: str | None = TOOL_COMMIT
     since: date | None = None
     release: str | None = TOOL_COMMIT
+    tag: str | None = None
+    published: list[PublishedRelease] | None = field(default_factory=list)
     asked: int = 0
+    asked_published: int = 0
 
     def freshness(self) -> ToolFreshness:
-        return ToolFreshness(local=lambda: self.tool_commit, since=lambda: self.since, release=self._release)
+        return ToolFreshness(
+            local=lambda: self.tool_commit, since=lambda: self.since, release=self._release, published=self._published
+        )
 
     def _release(self) -> GitHubReleases | None:
         self.asked += 1
         if self.release is None:
             return None
-        return GitHubReleases(None if self.release == NO_RELEASE else self.release)
+        return GitHubReleases(None, None) if self.release == NO_RELEASE else GitHubReleases(self.release, self.tag)
+
+    def _published(self) -> tuple[PublishedRelease, ...] | None:
+        self.asked_published += 1
+        return None if self.published is None else tuple(self.published)
 
 
 @dataclass
