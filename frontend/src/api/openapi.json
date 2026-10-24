@@ -1447,7 +1447,8 @@
             "type": "string",
             "enum": [
               "ready",
-              "missing_key"
+              "missing_key",
+              "refused_key"
             ],
             "title": "Reports"
           }

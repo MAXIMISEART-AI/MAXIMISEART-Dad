@@ -608,8 +608,9 @@ class WorkersUnreadable(_Model):
 Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
 
 
-# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”) albo ``missing_key``; nigdy jego wartość.
-ReportKeyState = Literal["ready", "missing_key"]
+# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”: jest, a Skrzynka go nie odrzuciła, także bez
+# sieci), ``missing_key`` albo ``refused_key`` (Skrzynka Zgłoszeń odmówiła tego klucza); nigdy jego wartość.
+ReportKeyState = Literal["ready", "missing_key", "refused_key"]
 
 
 # Aktualność narzędzia: ``current`` (commit narzędzia zawiera najnowsze Wydanie), ``newer`` (jest nowsze Wydanie),

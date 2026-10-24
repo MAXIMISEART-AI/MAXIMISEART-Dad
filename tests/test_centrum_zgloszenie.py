@@ -16,9 +16,10 @@ import pytest
 
 from rozliczenia.input_checks import FILE_READERS
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
+from rozliczenia.centrum.report_box import Refused, Unreachable
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 
-from tests.fixtures.centrum import TOOL_COMMIT, dad_cases
+from tests.fixtures.centrum import TOOL_COMMIT, FakeReportBox, dad_cases
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     Surroundings,
@@ -334,15 +335,63 @@ def test_wyslanie_bez_diagnozy_jest_odrzucone(tmp_path: Path) -> None:
     assert centrum.surroundings.report_box.keys == []
 
 
+def key_state(centrum: PreparingCentrum) -> str:
+    response = centrum.client.get("/api/configuration")
+    assert response.status_code == 200
+    assert KEY not in response.text
+    state: str = response.json()["reports"]
+    return state
+
+
 def test_konfiguracja_pokazuje_stan_klucza_do_zgloszen_bez_jego_wartosci(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
-    missing = centrum.client.get("/api/configuration").json()
+    missing = key_state(centrum)
     with_key(centrum)
 
-    ready = centrum.client.get("/api/configuration")
+    assert (missing, key_state(centrum)) == ("missing_key", "ready")
 
-    assert (missing["reports"], ready.json()["reports"]) == ("missing_key", "ready")
-    assert KEY not in ready.text
+
+def test_konfiguracja_pokazuje_klucz_odrzucony_gdy_skrzynka_odmawia_klucza(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    box = centrum.surroundings.report_box
+    box.search_failure = Refused()
+    key_file = with_key(centrum)
+
+    refused = key_state(centrum)
+    box.search_failure = None
+    key_file.write_text(KEY + "_NOWY\n", encoding="utf-8")
+
+    assert (refused, key_state(centrum)) == ("refused_key", "ready")
+
+
+def test_konfiguracja_bez_sieci_albo_przed_odpowiedzia_skrzynki_pokazuje_gotowe(tmp_path: Path) -> None:
+    hold = threading.Event()
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(report_box=FakeReportBox(search_hold=hold)))
+    box = centrum.surroundings.report_box
+    with_key(centrum)
+
+    silent = key_state(centrum)
+    box.search_failure = Unreachable()
+    hold.set()
+    offline = key_state(centrum)
+    assert len(box.listed) == 1
+    centrum.surroundings.clock.advance(minutes=1)
+
+    assert (silent, offline, key_state(centrum)) == ("ready", "ready", "ready")
+    assert box.listed == [("zgloszenie", False), ("zgloszenie", False)]
+
+
+def test_odmowa_przy_wysylce_uwagi_odrzuca_klucz_w_konfiguracji_bez_osobnego_pytania(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    box = centrum.surroundings.report_box
+    box.outcomes.append(Refused())
+    with_key(centrum)
+
+    sent = centrum.client.post("/api/dad-notes", json={"title": "Excel myśli minutę"})
+
+    assert sent.json() == {"state": "waiting"}
+    assert key_state(centrum) == "refused_key"
+    assert box.listed == []
 
 
 WAITING = {"state": "waiting"}

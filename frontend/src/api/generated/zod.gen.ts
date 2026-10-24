@@ -1072,7 +1072,11 @@ export const zConfiguration = z.object({
         zWorkersReady,
         zWorkersUnreadable
     ]),
-    reports: z.enum(['ready', 'missing_key'])
+    reports: z.enum([
+        'ready',
+        'missing_key',
+        'refused_key'
+    ])
 });
 
 /**

@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from rozliczenia.centrum.cloud_files import CloudFiles
-from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
+from rozliczenia.centrum.configuration import CONFIGURATION_WAIT_S, ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.dad_cases import DadCases
 from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
@@ -88,6 +88,8 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienia: pierwsze pytanie skrzynki o stan spraw taty przy starcie, nie dopiero przy odczycie.
         notifications.check_in_background()
+        # Klucz do Zgłoszeń: pierwsze sprawdzenie w tle, żeby Konfiguracja nie czekała na Skrzynkę.
+        box.check_in_background()
         # Kontrole ilości, Logi i Uwagi taty, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza),
         # wychodzą w tle.
         outbox.resume()
@@ -257,13 +259,11 @@ def create_app(
         )
     )
     app.include_router(metrics_router(entry_processes, today, centrum_runs))
-    app.include_router(configuration_router(
-            configuration,
-            surroundings.tool_freshness,
-            release,
-            lambda: "ready" if read_report_key(config) is not None else "missing_key",
-            readers,
-        ))
+    app.include_router(
+        configuration_router(
+            configuration, surroundings.tool_freshness, release, lambda: box.judge(wait_s=CONFIGURATION_WAIT_S), readers
+        )
+    )
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))

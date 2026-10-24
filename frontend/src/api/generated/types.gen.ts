@@ -143,7 +143,7 @@ export type Configuration = {
     /**
      * Reports
      */
-    reports: 'ready' | 'missing_key';
+    reports: 'ready' | 'missing_key' | 'refused_key';
 };
 
 /**
