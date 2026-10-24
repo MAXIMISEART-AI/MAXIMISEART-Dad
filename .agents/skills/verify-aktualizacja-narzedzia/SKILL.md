@@ -80,13 +80,15 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `2a449f1` (2026-10-24, merge of #370). The covered files are
+Sync commit: `5c9e702` (2026-10-24, the Zgłoszenie handle, PR #399). Since `2a449f1` (merge of #370)
+`tool_updates.py` changed only in the Zgłoszenie of a failed update (`_failed`, `_after_restart` and
+`send_report` use `reports.ReportHandle`); no step in the table moved. At `2a449f1` the covered files were
 the same as at `1ad3469` (#368: after a rollback, `restart_guardian.main` asks
 the port `_runs(…, before)` before the dialog and ends without it when the old
 version from the shortcut answers; the model gained `OpiekunOkienko` and the
 promise `OkienkoTylkoGdyNicNieDziala`, without the rollback after an unreleased
 port). The rest of `1ad3469..2a449f1` (#322, #324, #367) only reads
-`newest_on_main` for the card and the Powiadomienia. At this commit every row
+`newest_on_main` for the card and the Powiadomienia. At `5c9e702` every row
 above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
