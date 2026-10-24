@@ -25,12 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - id: python
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
       - name: Install development dependencies
-        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
       - name: Lint Python code
         run: python -m ruff check
@@ -41,21 +46,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - id: python
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
       - name: Install development dependencies
-        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
       - name: Typecheck Python code
         run: python -m mypy
 
   pytest:
     # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
-    # tools/czesci_pytest.py. Linux runs all files once, for the tests Windows skips (POSIX signals, process
-    # groups, the pre-push hook). Both pass the files longest first.
-    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || format(', {0}', matrix.part) }})
+    # tools/czesci_pytest.py. Linux runs all files once, in two parts, for the tests Windows skips (POSIX
+    # signals, process groups, the pre-push hook). Both pass the files longest first.
+    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }}, ${{ matrix.part }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,15 +76,24 @@ jobs:
         include:
           - os: ubuntu-latest
             python-version: '3.14'
+            part: '1/2'
+          - os: ubuntu-latest
+            python-version: '3.14'
+            part: '2/2'
     env:
       EXPECTED_PYTHON_VERSION: ${{ matrix.python-version }}
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - id: python
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
 
       - name: Route py -3 to the selected Python
         if: ${{ runner.os == 'Windows' }}
@@ -91,12 +110,12 @@ jobs:
 
       - name: Install test dependencies
         if: ${{ runner.os == 'Windows' }}
-        run: py -3 -m pip install --disable-pip-version-check -r requirements.txt
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
       - name: Install test dependencies (Linux)
         if: ${{ runner.os == 'Linux' }}
         # The pre-push hook test runs the real ruff and mypy from tools/ci_lokalnie.py.
-        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
       - name: Run tests
         if: ${{ runner.os == 'Windows' }}
@@ -109,12 +128,12 @@ jobs:
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py 1/1)
+        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
     # A pull request runs only the scripts whose verdict its changes can alter; a push to main runs them all.
-    # Each part runs every third script: side by side on one runner they exceed their time limits.
+    # Each part runs a third of the scripts by their CI time: side by side on one runner they exceed their time limits.
     name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest
     # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
@@ -131,12 +150,17 @@ jobs:
           # On a pull request HEAD is the merge commit and HEAD^1 the base it merges into.
           fetch-depth: 2
 
-      - uses: actions/setup-python@v7
+      - id: python
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
       - name: Install dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
       - name: Prove each verify skill's check fails on broken variants
         shell: pwsh
@@ -163,9 +187,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - id: python
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
 
       - name: Route py -3 to the selected Python
         shell: pwsh
@@ -179,7 +208,7 @@ jobs:
           }
 
       - name: Install test dependencies
-        run: py -3 -m pip install --disable-pip-version-check -r requirements.txt
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
       - name: Run end-to-end verification
         shell: pwsh
@@ -218,12 +247,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - id: python
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
       - name: Install dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
       - name: Generate synthetic Wzorce
         shell: pwsh
@@ -270,12 +304,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - id: python
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
       - name: Install development dependencies (pinned FastAPI and Pydantic shape the contract)
-        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
       - uses: actions/setup-node@v6
         with:

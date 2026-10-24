@@ -2,6 +2,8 @@
 // 1. Każda właściwość schematów kontraktu (src/api/openapi.json) jest użyta w src poza generated/:
 //    jej nazwa występuje jako identyfikator (dostęp, destrukturyzacja, klucz obiektu) albo tekst literału.
 // 2. Przeglądarka nie porównuje nazwy procesu: żadnego `=== "settlement"` ani `case "preparation":`.
+// 3. Sieć (fetch, EventSource, WebSocket, XMLHttpRequest, sendBeacon) i JSON.parse tylko w plikach z NETWORK_FILES,
+//    które parsują każdą odpowiedź serwera schematem z kontraktu.
 import { readdirSync, readFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import ts from "typescript"
@@ -28,6 +30,42 @@ const FIELDS_OUTSIDE_UI = new Map([
 const PROCESS_COMPARISON_FILES = new Map([
   ["src/pages/runs/run-setup-card.tsx", "wybór wejścia w karcie ustawień: Plik zbiorczy albo Rejestr zleceń"],
 ])
+
+// Pliki, które wolno łączyć z serwerem; każdy z uzasadnieniem. Plik bez połączenia trzeba stąd usunąć.
+const NETWORK_FILES = new Map([
+  ["src/api/client.ts", "`call`: droga każdego zapytania, odpowiedź parsowana schematem z kontraktu"],
+  ["src/api/centrum.ts", "strumień Uruchomień (każde zdarzenie parsowane zRunEvent) i pomiar widoku (204 bez treści)"],
+])
+
+// Droga naprawy dla każdego rodzaju połączenia: komunikat porażki prowadzi do wzorca z src/api/centrum.ts.
+const REPAIRS = {
+  request:
+    "Dodaj w src/api/centrum.ts funkcję, która woła serwer przez `call` z src/api/client.ts " +
+    "ze schematem odpowiedzi z kontraktu, i użyj jej tutaj.",
+  stream:
+    "Dodaj w src/api/centrum.ts funkcję na wzór `watchRunEvents`, która otwiera strumień " +
+    "i parsuje każde zdarzenie schematem z kontraktu, i użyj jej tutaj.",
+  beacon:
+    "Dodaj w src/api/centrum.ts funkcję na wzór `recordViewTiming` (fetch z keepalive, odpowiedź bez treści) " +
+    "i użyj jej tutaj.",
+  parse:
+    "Odpowiedź serwera parsuj schematem z kontraktu w funkcji z src/api/centrum.ts (przez `call`); " +
+    "dane spoza serwera (np. localStorage) wymagają wpisu tego pliku w NETWORK_FILES z powodem.",
+}
+
+const NETWORK_GLOBALS = new Map([
+  ["fetch", "request"],
+  ["XMLHttpRequest", "request"],
+  ["EventSource", "stream"],
+  ["WebSocket", "stream"],
+])
+
+const NETWORK_MEMBERS = new Map([
+  ["JSON.parse", "parse"],
+  ["navigator.sendBeacon", "beacon"],
+])
+
+const GLOBAL_OBJECTS = new Set(["window", "globalThis", "self"])
 
 function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -74,8 +112,87 @@ function isProcessComparison(node, names) {
   return ts.isCaseClause(node) && isProcessName(node.expression, names)
 }
 
+// `class X extends EventSource` dziedziczy wartość, choć TypeScript nazywa ten węzeł typem.
+function isClassExtends(node) {
+  return (
+    ts.isExpressionWithTypeArguments(node) &&
+    node.parent.token === ts.SyntaxKind.ExtendsKeyword &&
+    ts.isClassLike(node.parent.parent)
+  )
+}
+
+function isInType(node) {
+  for (let ancestor = node.parent; ancestor !== undefined; ancestor = ancestor.parent) {
+    if (isClassExtends(ancestor)) {
+      return false
+    }
+
+    if (ts.isTypeNode(ancestor)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function unwrap(node) {
+  return ts.isParenthesizedExpression(node) ? unwrap(node.expression) : node
+}
+
+function isGlobalObject(node) {
+  const expression = unwrap(node)
+
+  return ts.isIdentifier(expression) && GLOBAL_OBJECTS.has(expression.text)
+}
+
+// `JSON`, `window.JSON`, `(window).JSON`: nazwa globalna wprost albo przez obiekt globalny.
+function globalName(node) {
+  const expression = unwrap(node)
+
+  if (ts.isIdentifier(expression)) {
+    return expression.text
+  }
+
+  return ts.isPropertyAccessExpression(expression) && isGlobalObject(expression.expression)
+    ? expression.name.text
+    : undefined
+}
+
+// `x.fetch` i `{ fetch: … }` to nazwy właściwości, nie globalny fetch; `window.fetch` i `{ fetch }` już tak.
+function networkGlobal(node) {
+  const kind = NETWORK_GLOBALS.get(node.text)
+
+  if (kind === undefined || isInType(node)) {
+    return undefined
+  }
+
+  const parent = node.parent
+
+  if (ts.isPropertyAccessExpression(parent) && parent.name === node) {
+    return isGlobalObject(parent.expression) ? kind : undefined
+  }
+
+  return ts.isShorthandPropertyAssignment(parent) || parent.name !== node ? kind : undefined
+}
+
+function networkMember(node) {
+  return ts.isPropertyAccessExpression(node)
+    ? NETWORK_MEMBERS.get(`${globalName(node.expression)}.${node.name.text}`)
+    : undefined
+}
+
+function networkKind(node) {
+  return ts.isIdentifier(node) ? networkGlobal(node) : networkMember(node)
+}
+
+function location(file, path, node) {
+  const { line } = file.getLineAndCharacterOfPosition(node.getStart(file))
+
+  return `${relative(root, path).replaceAll("\\", "/")}:${line + 1}: ${node.getText(file)}`
+}
+
 // Nazwy użyte w kodzie: identyfikatory (także dostęp do właściwości i destrukturyzacja) i teksty literałów.
-function inspect(path, names, used, comparisons) {
+function inspect(path, names, used, comparisons, network) {
   const file = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true)
 
   function visit(node) {
@@ -84,8 +201,13 @@ function inspect(path, names, used, comparisons) {
     }
 
     if (isProcessComparison(node, names)) {
-      const { line } = file.getLineAndCharacterOfPosition(node.getStart(file))
-      comparisons.push(`${relative(root, path)}:${line + 1}: ${node.getText(file)}`)
+      comparisons.push(location(file, path, node))
+    }
+
+    const kind = networkKind(node)
+
+    if (kind !== undefined) {
+      network.push({ place: location(file, path, node), kind })
     }
 
     ts.forEachChild(node, visit)
@@ -102,19 +224,36 @@ const used = new Set()
 
 const comparisons = []
 
+const network = []
+
+const connectedFiles = new Set()
+
 for (const path of sourceFiles(source)) {
-  const allowed = PROCESS_COMPARISON_FILES.has(relative(root, path).replaceAll("\\", "/"))
-  inspect(path, names, used, allowed ? [] : comparisons)
+  const key = relative(root, path).replaceAll("\\", "/")
+  const calls = []
+  inspect(path, names, used, PROCESS_COMPARISON_FILES.has(key) ? [] : comparisons, calls)
+
+  if (calls.length > 0) {
+    connectedFiles.add(key)
+  }
+
+  if (!NETWORK_FILES.has(key)) {
+    network.push(...calls)
+  }
 }
 
 const unused = contractFields(contract).filter((key) => !FIELDS_OUTSIDE_UI.has(key) && !used.has(fieldName(key)))
 
 const staleExceptions = [...FIELDS_OUTSIDE_UI.keys()].filter((key) => used.has(fieldName(key)))
 
+const staleNetworkFiles = [...NETWORK_FILES.keys()].filter((key) => !connectedFiles.has(key))
+
 const problems = [
   ...unused.map((key) => `Pole kontraktu ${key} nie jest użyte w src: pokaż je w UI albo usuń z kontraktu.`),
   ...staleExceptions.map((key) => `Wyjątek ${key} jest zbędny: pole jest już użyte w src.`),
   ...comparisons.map((place) => `Porównanie nazwy procesu w przeglądarce: ${place}`),
+  ...network.map(({ place, kind }) => `Sieć albo JSON.parse poza NETWORK_FILES: ${place}. ${REPAIRS[kind]}`),
+  ...staleNetworkFiles.map((key) => `Wyjątek ${key} w NETWORK_FILES jest zbędny: plik nie łączy się z serwerem.`),
 ]
 
 for (const problem of problems) {

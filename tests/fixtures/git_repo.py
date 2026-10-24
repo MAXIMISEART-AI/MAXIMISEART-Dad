@@ -15,7 +15,7 @@ __all__ = ["commit", "git", "repository"]
 
 def git(repo: Path, *arguments: str) -> str:
     answered = subprocess.run(
-        ["git", "-c", "commit.gpgsign=false", *arguments],
+        ["git", *arguments],
         cwd=repo,
         env={**os.environ, **AUTHOR},
         capture_output=True,

@@ -101,12 +101,16 @@ create none.
   session with an agent; a rule change needs Dad's confirmation, and the public
   PR refers to the issue by number only with a synthetic test case.
 - A body over GitHub's 65 536 characters arrives as an issue with part 1 and
-  comments with the next parts (`Kontrola ilości, część k/n`).
+  comments with the next parts (`Kontrola ilości, część k/n`). The limit was
+  measured on this repository in #332: a new issue takes 65 536 characters,
+  a comment 262 144 bytes of UTF-8.
 - Without network or a key, the Kontrola waits as a JSON file in
   `config\zgloszenia\kolejka\` on Dad's computer, with no Komunikat, and goes
-  out at the next Centrum start or when the next Kontrola is sent. The Centrum
-  log records only `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number),
-  `skrzynka-czeka` (cause) and `skrzynka-nieczytelny` (the name of a queue file
+  out at the next Centrum start or when the next Kontrola is sent. A file whose
+  content GitHub refuses (400, 413, 422) waits until the next Centrum start and
+  does not hold back the files after it. The Centrum log records only
+  `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number), `skrzynka-czeka`
+  (cause, once per pass; for a refused content also the file name) and `skrzynka-nieczytelny` (the name of a queue file
   that is damaged or from a newer tool version; it stays and is never sent). A
   sent file is marked as delivered before it is removed, so a file Windows
   keeps open is not sent again. Power loss between sending and marking can
