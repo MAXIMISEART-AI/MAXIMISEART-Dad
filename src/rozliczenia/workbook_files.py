@@ -36,6 +36,7 @@ from enum import Enum
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from types import MappingProxyType
 from typing import IO, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 from xml.parsers import expat
@@ -511,7 +512,9 @@ class ReadSheet:
                 tuple(getattr(cell, "value", None) for cell in picked),
                 tuple(highlights.of(cell) for cell in picked),
                 tuple(getattr(cell, "number_format", None) or GENERAL for cell in picked),
-                {position: row_links[column] for position, column in enumerate(columns, start=1) if column in row_links},
+                MappingProxyType(
+                    {position: row_links[column] for position, column in enumerate(columns, start=1) if column in row_links}
+                ),
             )
 
 
@@ -553,15 +556,20 @@ class ReadWorkbook:
             workbook.close()
 
 
-@contextmanager
-def read_workbook(path: Path) -> Iterator[ReadWorkbook]:
-    """Skoroszyt tylko do odczytu z formatem i Hiperłączami komórek; zamykany przy wyjściu z bloku.
-
-    openpyxl i Hiperłącza czytają te same bajty, odczytane z dysku raz.
-    """
+def workbook_content(path: Path) -> bytes:
+    """Bajty skoroszytu, który jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``."""
 
     ensure_available(path)
-    content = _file_bytes(path)
+    return _file_bytes(path)
+
+
+@contextmanager
+def read_workbook(path: Path, content: bytes) -> Iterator[ReadWorkbook]:
+    """Skoroszyt ``path`` z jego bajtów (``workbook_content``) tylko do odczytu z formatem i Hiperłączami komórek.
+
+    Zamykany przy wyjściu z bloku. openpyxl i Hiperłącza czytają te same bajty, odczytane z dysku raz.
+    """
+
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         yield ReadWorkbook(path, content, workbook)

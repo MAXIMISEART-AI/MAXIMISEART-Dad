@@ -393,6 +393,27 @@ def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: P
     assert [path.read_bytes() for path in inputs] == before
 
 
+def test_rejestr_changed_after_podglad_is_read_anew_by_run_in_the_same_process(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    run_preparation(fixture, dry_run=True)
+    write_register(fixture.register_path, default_register_rows()[:-1])
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_order_count == 3
+    assert summary.successful_order_count == 2
+
+
+def test_podglad_of_another_period_does_not_change_what_run_reads_from_the_same_rejestr(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    run_preparation(fixture, "15_21_09_2026", dry_run=True)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_order_count == 4
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
+
+
 STAGES_IN_ORDER = [
     (ProgressPhase.CHECKING, PhaseStarted),
     (ProgressPhase.CHECKING, PhaseEnded),

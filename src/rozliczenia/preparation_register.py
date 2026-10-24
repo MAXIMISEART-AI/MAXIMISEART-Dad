@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from openpyxl.utils import get_column_letter
@@ -112,15 +113,25 @@ def read_register(register_path: Path, period: SettlementPeriod | None = None) -
     """
 
     try:
-        with workbook_files.read_workbook(register_path) as workbook:
-            positions = _order_sheet_positions(register_path, workbook)
-            if period is None:
-                return _read_register_sheets(workbook, positions)
-            date_columns = {title: columns[COLUMNS.index(DATE)] for title, columns in positions.items()}
-            with workbook.narrowed(date_columns, period.start, period.end) as narrowed:
-                return _read_register_sheets(narrowed, positions)
+        content = workbook_files.workbook_content(register_path)
+        if period is None:
+            with workbook_files.read_workbook(register_path, content) as workbook:
+                return _read_register_sheets(workbook, _order_sheet_positions(register_path, workbook))
+        return list(_period_sheets(register_path, content, period))
     except WorkbookError as error:
         raise StopError(messages.register_unusable(register_path, error)) from error
+
+
+# Centrum robi Podgląd, a potem RUN tego samego okresu w jednym procesie. Arkusze okresu zależą tylko od bajtów
+# Rejestru i okresu, więc niezmieniony Rejestr nie jest drugi raz zawężany ani parsowany, a zmieniony jest
+# czytany od nowa. Wynik jest niezmienny (krotki, zamrożone dataclassy), więc wątki Uruchomień go nie psują.
+@lru_cache(maxsize=2)
+def _period_sheets(register_path: Path, content: bytes, period: SettlementPeriod) -> tuple[RegisterSheet, ...]:
+    with workbook_files.read_workbook(register_path, content) as workbook:
+        positions = _order_sheet_positions(register_path, workbook)
+        date_columns = {title: columns[COLUMNS.index(DATE)] for title, columns in positions.items()}
+        with workbook.narrowed(date_columns, period.start, period.end) as narrowed:
+            return tuple(_read_register_sheets(narrowed, positions))
 
 
 def _register_position(column: Column, columns: dict[str, int]) -> int | None:
