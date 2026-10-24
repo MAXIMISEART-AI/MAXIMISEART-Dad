@@ -217,12 +217,6 @@ def _since_update(run: Run) -> list[str]:
 
 
 def _answers(run: Run) -> bool:
-    """Whether a Centrum answers on the run's port.
-
-    The card shows the restart as soon as the server says it restarts, before the old Centrum closes its port
-    (on Windows the old one still answers then), so a closed Centrum is waited for, not asked once.
-    """
-
     try:
         with urllib.request.urlopen(run.url.rstrip("/") + "/api/health", timeout=2):
             return True
@@ -308,6 +302,8 @@ def drive_update(run: Run, page: Page) -> None:
         run.step(FEATURE, "aktualizacja-ponowny-start")
         expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
+        # The card shows the restart once the server says it restarts, before the old Centrum closes its port;
+        # on Windows the old one still answers then.
         run.wait_for(lambda: not _answers(run), "the old Centrum has closed and the new one is not up yet")
         run.check(_log_events(run)[-3:] == ["aktualizacja-start", "zamkniecie", "stop"], "the old Centrum closed itself and logged its stop")
         run.check(
