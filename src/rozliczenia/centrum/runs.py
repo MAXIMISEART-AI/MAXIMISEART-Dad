@@ -36,7 +36,7 @@ from fastapi.responses import StreamingResponse
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
-from rozliczenia.centrum.run_view import ProcessView, Shown
+from rozliczenia.centrum.run_view import ProcessView, Shown, WarnedSummary
 from rozliczenia.centrum.stops import NO_DIAGNOSIS, StoppedRun, Stops
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.decision import Decision
@@ -65,7 +65,7 @@ _RESULT_NOT_SHOWN: Final = Message(
 )
 
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
-SummaryT = TypeVar("SummaryT")
+SummaryT = TypeVar("SummaryT", bound=WarnedSummary)
 
 
 @dataclass(frozen=True)
