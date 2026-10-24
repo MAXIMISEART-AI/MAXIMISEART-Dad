@@ -8,8 +8,9 @@ z ``PYTHONPATH`` na ``src`` kopii: edytowalna instalacja ``.venv`` wskazuje ``sr
 
 Mutacja zmienia jedną albo kilka kotwic, każdą obecną w swoim pliku dokładnie raz; inaczej jest
 NIEAKTUALNA. Pusta kotwica w pliku, którego nie ma, tworzy go razem z katalogami. Zanim narzędzie
-zepsuje kod, polecenie musi przejść na kopii bez mutacji. Mutacja jest WYKRYTA, gdy polecenie pada; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem. Mutacje
-biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je zrównolegla.
+zepsuje kod, polecenie musi przejść na kopii bez mutacji. Mutacja jest WYKRYTA, gdy polecenie
+pada; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem. Mutacje biegną po kolei, bo równoległe
+testy przekraczają swoje limity czasu; ``--rownolegle`` je zrównolegla.
 Polecenia i kopie biegną przez ``tools/potomne.py``: procesy potomne polecenia giną z jego końcem, a
 przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i usuwają kopie.
 
