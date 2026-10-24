@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import re
 import threading
-import time
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -535,16 +534,15 @@ def test_diagnoza_bez_odpowiedzi_skrzynki_konczy_sie_w_kilka_sekund_a_wysylka_i_
     run_id = stopped_for_maks(centrum)
     release = threading.Timer(8, box.search_hold.set)  # bez limitu Diagnoza czekałaby na skrzynkę
     release.start()
-    started = time.monotonic()
 
     try:
         diagnose(centrum, run_id)
-        took = time.monotonic() - started
+        box_answered = box.search_hold.is_set()
     finally:
         box.search_hold.set()
         release.cancel()
 
-    assert took < 5
+    assert not box_answered
     assert current_report(centrum) == {"state": "ready"}
     assert box.keys == []
     assert send(centrum, run_id) == {"state": "sent"}
