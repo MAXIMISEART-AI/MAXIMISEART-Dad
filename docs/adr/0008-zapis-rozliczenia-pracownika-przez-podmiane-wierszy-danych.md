@@ -49,7 +49,7 @@ Przebieg rozliczeń, za interfejsem `workbook_files.WorkerSettlementTemplate`
   liczone raz na Wzorcu; wyniki, Komunikaty, liczniki i zdarzenia postępu są
   takie same jak wcześniej.
 - Sprawdzanie Wzorca rozliczenia pracownika (#149) używa tego samego Wzorca
-  wczytanego raz: `check_worker_template` zwraca Wzorzec, z którego etap
+  wczytanego raz: `input_checks.check_settlement` zwraca Wzorzec, z którego etap
   Zapisywanie tworzy Rozliczenia pracowników. Kopia przyjmuje Wzorzec tylko
   wtedy, gdy każda część XML jest poprawnym XML-em; inaczej Sprawdzanie idzie
   przez openpyxl z dotychczasową klasyfikacją (brak, otwarty w Excelu,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -10,9 +11,10 @@ from typing import Any, NoReturn
 
 import pytest
 
-from rozliczenia import preparation_files, preparation_register
+from rozliczenia.input_checks import FILE_READERS
+from rozliczenia.workbook_files import TemplateFile
 
-from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, view_timing, views_until
+from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, phase_states, view_timing, views_until
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -400,14 +402,12 @@ def test_nieoczekiwany_wyjatek_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa_
 
 
 def test_nieoczekiwany_wyjatek_ktory_wraca_w_diagnozie_zostawia_sprawdzenie_niesprawdzone_a_zgloszenie_mozna_wyslac(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    centrum = preparing_centrum(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+    def fail_unexpectedly(*args: object) -> NoReturn:
         raise RuntimeError("nieprzewidziany błąd przy SYN-001")
 
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)  # wraca przy każdym odczycie
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(readers=replace(FILE_READERS, register=fail_unexpectedly)))
     run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
 
     diagnosis = diagnose(centrum, run_id)
@@ -420,16 +420,33 @@ def test_nieoczekiwany_wyjatek_ktory_wraca_w_diagnozie_zostawia_sprawdzenie_nies
     assert (report.status_code, report.json()["state"]) == (200, "saved")
 
 
-def test_wyjatek_przy_sprawdzaniu_jednego_wzorca_nie_ukrywa_wyniku_drugiego(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+def test_nieoczekiwany_wyjatek_czytnika_wzorca_w_przebiegu_wraca_w_jego_diagnozie(tmp_path: Path) -> None:
+    def fail_unexpectedly(template: TemplateFile) -> NoReturn:
         raise RuntimeError("nieprzewidziany błąd przy SYN-001")
 
-    monkeypatch.setattr(preparation_files, "check_internal_template", fail_unexpectedly)
+    centrum = settling_centrum(tmp_path, surroundings=Surroundings(readers=replace(FILE_READERS, template=fail_unexpectedly)))
+    stopped = run_to_end(centrum, dry_run=True)
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert (stopped["result"]["ending"], phase_states(stopped)["Sprawdzanie"]) == ("unexpected", "failed")
+    assert check(diagnosis, "Wzorzec rozliczenia pracownika") == (
+        "not_checked",
+        "Nie udało się sprawdzić: nieoczekiwany błąd.",
+    )
+
+
+def test_wyjatek_przy_sprawdzaniu_jednego_wzorca_nie_ukrywa_wyniku_drugiego(tmp_path: Path) -> None:
+    internal_template_failing = False
+
+    def check_template(template: TemplateFile) -> None:
+        if internal_template_failing and template.path == centrum.fixture.internal_template_path:
+            raise RuntimeError("nieprzewidziany błąd przy SYN-001")
+        FILE_READERS.template(template)
+
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(readers=replace(FILE_READERS, template=check_template)))
+    run_id = stopped_for_maks(centrum)
+    internal_template_failing = True
     centrum.fixture.collective_template_path.unlink()
 
     diagnosis = diagnose(centrum, run_id)

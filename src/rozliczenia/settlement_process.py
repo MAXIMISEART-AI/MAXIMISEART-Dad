@@ -13,6 +13,7 @@ from . import TOOL_ROOT, engine, settlement_messages
 from .decision import Conversation
 from .domain import ProgressObserver, SettlementSummary
 from .engine import default_worker_template_path
+from .input_checks import FILE_READERS, Readers
 from .period_folder import PeriodFolder, PeriodFolderError
 from .process_run import Finished, Process
 from .telemetry import COUNTER_NAMES, UNKNOWN_PERIOD
@@ -34,13 +35,14 @@ def _period_label(source: Path) -> str:
 class SettlementInputs:
     """Wejście procesu Przebiegu rozliczeń, gotowe przed startem silnika.
 
-    Okres wynika z nazwy Pliku zbiorczego (``nieznany``, gdy się nie da).
+    Okres wynika z nazwy Pliku zbiorczego (``nieznany``, gdy się nie da). ``readers`` czytają Wzorzec.
     """
 
     source: Path
     dry_run: bool = False
     config_path: Path = field(default_factory=default_config_path)
     worker_template_path: Path = field(default_factory=default_worker_template_path)
+    readers: Readers = FILE_READERS
 
     @property
     def period(self) -> str:
@@ -56,6 +58,7 @@ def _execute(
         dry_run=inputs.dry_run,
         worker_template_path=inputs.worker_template_path,
         observer=observer,
+        readers=inputs.readers,
     )
 
 

@@ -84,10 +84,10 @@ then the installation fails the same way.
 
 One harness-only fault hook: while ``<root>/awaria/odczyt-rejestru`` exists,
 reading the Rejestr zleceń raises an exception the process does not expect, so
-the drive can show Dad's path after a nieoczekiwany wyjątek. The Uruchomienie
-procesu and its Diagnoza both look the reader up as
-``preparation_register.read_register``, so the fault reaches the Diagnoza too,
-as a real one that does not go away would. No synthetic file causes one,
+the drive can show Dad's path after a nieoczekiwany wyjątek. The hook is the
+Rejestr reader of the ``Readers`` this Centrum gets (``input_checks``), which the
+Uruchomienie procesu and its Diagnoza both read with, so the fault reaches the
+Diagnoza too, as a real one that does not go away would. No synthetic file causes one,
 because every known problem has its own Komunikat.
 
 Once the port is bound, ``<root>/server.json`` records this process and URL.
@@ -112,7 +112,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
-from rozliczenia import preparation_process, preparation_register, settlement_process
+from rozliczenia import preparation_process, settlement_process
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles
@@ -138,6 +138,9 @@ from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness, parse_published
 from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install
 from rozliczenia.centrum.version import commit_since, tool_commit
+from rozliczenia.input_checks import FILE_READERS, Readers
+from rozliczenia.preparation_register import RegisterSheet
+from rozliczenia.settlement_period import SettlementPeriod
 from rozliczenia.workbook_files import DataRow, TemplateFile
 from skrypt_skilla import Parser
 
@@ -330,21 +333,15 @@ def _pace_worker_templates(root: Path, worker_template: Path) -> None:
     setattr(TemplateFile, "create", paced)
 
 
-def _fail_register_reading(root: Path) -> None:
-    """Make reading the Rejestr zleceń raise while ``<root>/awaria/odczyt-rejestru`` exists (see the module doc).
+def _register_failing_on_hook(root: Path) -> Readers:
+    """Readers whose Rejestr reader raises while ``<root>/awaria/odczyt-rejestru`` exists (see the module doc)."""
 
-    The one name every reader looks up is patched: the process and the Diagnoza call
-    ``preparation_register.read_register``, never a copy imported by name.
-    """
-
-    read = preparation_register.read_register
-
-    def failing(*args: Any, **kwargs: Any) -> Any:
+    def register(path: Path, period: SettlementPeriod | None) -> list[RegisterSheet]:
         if (root / "awaria" / "odczyt-rejestru").exists():
             raise RuntimeError("synthetic unexpected failure")
-        return read(*args, **kwargs)
+        return FILE_READERS.register(path, period)
 
-    preparation_register.read_register = failing
+    return replace(FILE_READERS, register=register)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -365,7 +362,6 @@ def main(argv: list[str] | None = None) -> int:
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
     _pace_worker_templates(root, configuration["worker_template"])
-    _fail_register_reading(root)
     # Pip never reaches PyPI from a verification run.
     os.environ["PIP_NO_INDEX"] = "1"
     app = create_app(
@@ -383,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         tool_update=ToolClone(
             clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root), install=_paced_install(root)
         ),
+        readers=_register_failing_on_hook(root),
     )
 
     def record_bound_server(url: str) -> None:

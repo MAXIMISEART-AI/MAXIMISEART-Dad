@@ -1,8 +1,8 @@
 """Konfiguracja tylko do odczytu: trzy Wzorce, Wykonawcy z konfiguracji wykonawców i wersja narzędzia z Aktualnością.
 
-Reguły należą do procesów: Wzorce sprawdzają te same funkcje co Sprawdzanie w
-obu procesach, a Konfigurację wykonawców wczytuje moduł ``worker_config``.
-Centrum tylko zamienia ich wynik na stan dla przeglądarki, z tym samym
+Reguły należą do procesów: Wzorce i Konfigurację wykonawców sprawdza
+Sprawdzanie obu procesów (``input_checks``) tymi samymi czytnikami co proces.
+Centrum tylko zamienia jego wynik na stan dla przeglądarki, z tym samym
 komunikatem w trzech częściach, którym zatrzymałby się proces używający tego
 pliku. Niczego w katalogu konfiguracji nie zapisuje. Te same Sprawdzania
 (``ConfigurationFiles.templates``, ``workers_problem``) wykonuje Diagnoza.
@@ -17,15 +17,16 @@ from typing import Final, assert_never
 
 from fastapi import APIRouter
 
-from rozliczenia import preparation_files, preparation_messages, settlement_messages, workbook_files
+from rozliczenia import input_checks, workbook_files
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.tool_freshness import Judgement, ReleaseSource, ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
-from rozliczenia.engine import check_worker_template, default_worker_template_path
+from rozliczenia.engine import default_worker_template_path
+from rozliczenia.input_checks import ProcessTemplate, Readers
 from rozliczenia.message import Message
-from rozliczenia.workbook_files import Problem, WorkbookError
-from rozliczenia.worker_config import WorkerConfigError, default_config_path, load_worker_mapping
+from rozliczenia.workbook_files import Problem
+from rozliczenia.worker_config import default_config_path
 
 
 @dataclass(frozen=True)
@@ -50,27 +51,9 @@ class ConfigurationFiles:
         """Trzy Wzorce w kolejności Konfiguracji, każdy ze Sprawdzaniem procesu, który go używa."""
 
         return (
-            Template(
-                label="Wzorzec rozliczenia wewnętrznego",
-                path=self.internal_template,
-                used_by="preparation",
-                check=preparation_files.check_internal_template,
-                explain=preparation_messages.template_unusable,
-            ),
-            Template(
-                label="Wzorzec pliku zbiorczego",
-                path=self.collective_template,
-                used_by="preparation",
-                check=preparation_files.check_collective_template,
-                explain=preparation_messages.template_unusable,
-            ),
-            Template(
-                label="Wzorzec rozliczenia pracownika",
-                path=self.worker_template,
-                used_by="settlement",
-                check=check_worker_template,
-                explain=settlement_messages.worker_template_unusable,
-            ),
+            Template("Wzorzec rozliczenia wewnętrznego", "preparation", ProcessTemplate.internal(self.internal_template)),
+            Template("Wzorzec pliku zbiorczego", "preparation", ProcessTemplate.collective(self.collective_template)),
+            Template("Wzorzec rozliczenia pracownika", "settlement", ProcessTemplate.worker(self.worker_template)),
         )
 
 
@@ -79,29 +62,27 @@ _Problem = tuple[contract.TemplateProblemKind, Message]
 
 @dataclass(frozen=True)
 class Template:
-    """Wzorzec: etykieta, plik, proces, który z niego tworzy pliki, Sprawdzanie tego procesu i jego katalog."""
+    """Wzorzec: etykieta, proces, który z niego tworzy pliki, i Wzorzec tego procesu ze Sprawdzaniem."""
 
     label: str
-    path: Path
     used_by: contract.ProcessKey
-    check: Callable[[Path], object]
-    """Sprawdzanie procesu: ``WorkbookError``, gdy Wzorzec nie może posłużyć jako wzór."""
-    explain: Callable[[WorkbookError], Message]
+    template: ProcessTemplate
 
-    def find_problem(self) -> _Problem | None:
+    @property
+    def path(self) -> Path:
+        return self.template.file.path
+
+    def find_problem(self, readers: Readers) -> _Problem | None:
         """Rodzaj problemu i Komunikat, którym zatrzymałby się proces; ``None``, gdy Wzorzec przechodzi Sprawdzanie."""
 
-        try:
-            self.check(self.path)
-        except WorkbookError as error:
-            return _kind(error.problem), self.explain(error)
-        return None
+        found = self.template.problem(readers)
+        return None if found is None else (_kind(found.problem), found.message)
 
-    def problem(self) -> Message | None:
+    def problem(self, readers: Readers) -> Message | None:
         """Komunikat, którym zatrzymałby się proces używający Wzorca; ``None``, gdy przechodzi Sprawdzanie."""
 
-        found = self.find_problem()
-        return None if found is None else found[1]
+        found = self.template.problem(readers)
+        return None if found is None else found.message
 
 
 def _kind(problem: Problem) -> contract.TemplateProblemKind:
@@ -121,6 +102,7 @@ def configuration_router(
     freshness: ToolFreshness,
     release: ReleaseSource,
     report_key: Callable[[], contract.ReportKeyState],
+    readers: Readers,
 ) -> APIRouter:
     """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości).
 
@@ -129,7 +111,7 @@ def configuration_router(
     """
 
     router = APIRouter(prefix="/api/configuration", tags=["konfiguracja"])
-    checked = _CheckedTemplates()
+    checked = _CheckedTemplates(readers)
 
     @router.get("", operation_id="getConfiguration")
     def configuration() -> contract.Configuration:
@@ -164,7 +146,8 @@ class _CheckedTemplates:
     przy każdym powrocie do karty. Brak pliku jest sprawdzany zawsze od nowa.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, readers: Readers) -> None:
+        self._readers = readers
         self._results: dict[Path, tuple[tuple[int, int, bool], _Problem | None]] = {}
 
     def status(self, template: Template) -> contract.TemplateStatus:
@@ -182,34 +165,29 @@ class _CheckedTemplates:
         try:
             stat = path.stat()
         except OSError:
-            return template.find_problem()
-        signature = (stat.st_mtime_ns, stat.st_size, workbook_files.is_open_in_excel(path))
-        cached = self._results.get(path)
-        if cached is not None and cached[0] == signature:
-            return cached[1]
-        found = template.find_problem()
-        self._results[path] = (signature, found)
+            signature = None
+        else:
+            signature = (stat.st_mtime_ns, stat.st_size, workbook_files.is_open_in_excel(path))
+            cached = self._results.get(path)
+            if cached is not None and cached[0] == signature:
+                return cached[1]
+        found = template.find_problem(self._readers)
+        if signature is not None:
+            self._results[path] = (signature, found)
         return found
 
 
 def workers_problem(config_path: Path) -> Message | None:
     """Komunikat, którym zatrzymałby się Przebieg rozliczeń przy tej konfiguracji wykonawców; ``None``, gdy się wczytuje."""
 
-    workers = _read_workers(config_path)
+    workers = input_checks.workers(config_path)
     return workers if isinstance(workers, Message) else None
 
 
 def _workers(config_path: Path) -> contract.Workers:
     """Wykonawcy wczytani tak jak w obu procesach, w kolejności z konfiguracji wykonawców."""
 
-    workers = _read_workers(config_path)
+    workers = input_checks.workers(config_path)
     if isinstance(workers, Message):
         return contract.WorkersUnreadable(state="unreadable", message=contract.Message.of(workers))
     return contract.WorkersReady(state="ready", names=list(workers.values()))
-
-
-def _read_workers(config_path: Path) -> Mapping[str, str] | Message:
-    try:
-        return load_worker_mapping(config_path)
-    except WorkerConfigError as error:
-        return settlement_messages.worker_config_problem(config_path, error)

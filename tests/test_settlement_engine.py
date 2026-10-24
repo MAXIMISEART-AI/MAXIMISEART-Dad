@@ -617,7 +617,10 @@ def test_niepoprawna_konfiguracja_wykonawcow_zatrzymuje_sprawdzanie(tmp_path: Pa
     with pytest.raises(StopError) as raised:
         run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
 
-    assert raised.value.message.code == "ZLA_KONFIGURACJA_WYKONAWCOW"
+    assert (raised.value.message.code, raised.value.message.what) == (
+        "ZLA_KONFIGURACJA_WYKONAWCOW",
+        "Konfiguracja wykonawców jest niepoprawna. Plik nie jest poprawnym YAML.",
+    )
     assert not target_directory.exists()
 
 

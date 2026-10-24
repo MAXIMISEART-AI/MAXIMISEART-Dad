@@ -74,6 +74,16 @@ def test_missing_rejestr_zlecen_stops_without_files(tmp_path: Path) -> None:
     )
 
 
+def test_rejestr_otwarty_w_excelu_zatrzymuje_sprawdzanie_przed_wzorcami(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    fixture.register_path.with_name(f"~${fixture.register_path.name}").write_bytes(b"")
+    fixture.internal_template_path.unlink()
+
+    error = stop_preparation(fixture)
+
+    assert error.message.code == "REJESTR_OTWARTY"
+
+
 def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> None:
     fixture = make_preparation_fixture(tmp_path)
     lock_file = fixture.register_path.with_name(f"~${fixture.register_path.name}")

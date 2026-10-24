@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import codecs
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import json
 import re
 import shutil
@@ -13,7 +14,7 @@ from typing import Any, NoReturn
 
 import pytest
 
-from rozliczenia import preparation_register
+from rozliczenia.input_checks import FILE_READERS
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 
@@ -165,7 +166,7 @@ def test_zgloszenie_nie_ma_tresci_wierszy_wyjatku_pelnych_sciezek_ani_klucza(tmp
 MARKER = "SYN-SLAD-158 treść wyjątku z Rejestru zleceń"
 
 
-def raise_with_marker(*args: object, **kwargs: object) -> NoReturn:
+def raise_with_marker(*args: object) -> NoReturn:
     raise KeyError(MARKER)
 
 
@@ -179,14 +180,10 @@ def trace_section(body: str) -> list[str]:
     return section[: next((i for i, line in enumerate(section) if line.startswith("## ")), len(section))]
 
 
-def test_nieoczekiwany_wyjatek_daje_w_zgloszeniu_typ_i_ramki_kodu_narzedzia_bez_tresci_wyjatku(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = preparing_centrum(tmp_path)
+def test_nieoczekiwany_wyjatek_daje_w_zgloszeniu_typ_i_ramki_kodu_narzedzia_bez_tresci_wyjatku(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(readers=replace(FILE_READERS, register=raise_with_marker)))
     with_key(centrum)
-    monkeypatch.setattr(preparation_register, "read_register", raise_with_marker)
     stopped = run_to_end(centrum, dry_run=True)
-    monkeypatch.undo()
     run_id = stopped["run"]["id"]
 
     preview = diagnose(centrum, run_id)["report"]

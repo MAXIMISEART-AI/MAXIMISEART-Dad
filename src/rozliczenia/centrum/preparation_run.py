@@ -20,6 +20,7 @@ from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.settings import Settings, SettingsStore
 from rozliczenia.period_folder import PeriodFolders, period_status_label, scan_period_folders
 from rozliczenia.preparation_process import PreparationInputs
+from rozliczenia.input_checks import Readers
 from rozliczenia.process_run import Process
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.telemetry import MetricsStore
@@ -37,6 +38,7 @@ class PreparationEntry:
     configuration: ConfigurationFiles
     process: Process[PreparationInputs, PreparationSummary]
     today: Callable[[], date]
+    readers: Readers
 
     @property
     def key(self) -> contract.ProcessKey:
@@ -77,6 +79,7 @@ class PreparationEntry:
             config_path=self.configuration.worker_config,
             internal_template_path=self.configuration.internal_template,
             collective_template_path=self.configuration.collective_template,
+            readers=self.readers,
         )
         return PreparedRun(
             key=_KEY,

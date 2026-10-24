@@ -56,6 +56,7 @@ from rozliczenia.centrum import restart_guardian
 from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
 from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
 from rozliczenia.centrum.version import SERVICE, short_commit
+from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
@@ -79,6 +80,7 @@ def create_app(
     report_search_deadline_s: float = SEARCH_DEADLINE_S,
     tool_update: ToolClone | None = None,
     guardian: GuardianLauncher | None = None,
+    readers: Readers = FILE_READERS,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -205,7 +207,13 @@ def create_app(
     stops = Stops(
         reports,
         lambda process, period: diagnose(
-            process, period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
+            process,
+            period,
+            settings=store.load(),
+            configuration=configuration,
+            log=log,
+            surroundings=surroundings,
+            readers=readers,
         ),
         log,
         run_logs,
@@ -231,8 +239,8 @@ def create_app(
         release=release,
     )
     entries: list[ProcessEntry] = [
-        PreparationEntry(store, configuration, processes.preparation, today),
-        SettlementEntry(store, configuration, processes.settlement, today),
+        PreparationEntry(store, configuration, processes.preparation, today, readers),
+        SettlementEntry(store, configuration, processes.settlement, today, readers),
     ]
     entry_processes = {entry.key: entry.process for entry in entries}
     app.include_router(runs_router(runs, entries))
@@ -247,7 +255,7 @@ def create_app(
         )
     )
     app.include_router(metrics_router(entry_processes, today, centrum_runs))
-    app.include_router(configuration_router(configuration, surroundings.tool_freshness, release, reports.key_state))
+    app.include_router(configuration_router(configuration, surroundings.tool_freshness, release, reports.key_state, readers))
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))
