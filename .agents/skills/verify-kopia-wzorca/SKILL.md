@@ -65,7 +65,7 @@ Coverage, confirmed at **sync commit `5714940`** (PR #345, sheet chunks compress
 
 | Code | What the check covers |
 | --- | --- |
-| `src/rozliczenia/template_copy.py` (all of it but the Plik zbiorczy branch, `SheetLayout.collective_file`, which pytest covers in `tests/test_plik_zbiorczy_kopia_wzorca.py`) | the code under verification |
+| `src/rozliczenia/template_copy.py` (all of it but the Plik zbiorczy branch, `SheetLayout.period_file`, which pytest covers in `tests/test_plik_zbiorczy_kopia_wzorca.py`) | the code under verification |
 | `src/rozliczenia/workbook_parts.py` (`SheetData`, `relationships`, `office_document`, `relationships_part`) | row index the copy splices on and the parts it finds by relationship |
 | `src/rozliczenia/highlights.py` (`Highlights.of`, `font_over`, `fill_over`) | Wyróżnienia both paths lay over the Wzorzec's font and fill |
 | `src/rozliczenia/row_look.py` (`RowLook`, `CellLook`, `wraps`) | Wygląd Wiersza danych both paths give A:L; judged by WYGLAD_WIERSZA |

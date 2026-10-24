@@ -25,7 +25,7 @@ składa z tego jedną kopię:
   wpisanym wierszem, reszta to gotowe kawałki z pierwszej kopii;
 - ``calcPr`` w ``xl/workbook.xml`` dostaje ``calcMode="auto"``, ``fullCalcOnLoad="1"``
   i ``forceFullCalc="1"``, jak przy zapisie przez openpyxl;
-- Plik zbiorczy (``SheetLayout.collective_file``) dostaje też element ``autoFilter`` na
+- Plik okresu (``SheetLayout.period_file``), czyli Plik zbiorczy, dostaje też element ``autoFilter`` na
   nagłówek i wpisane wiersze oraz ten sam zakres w nazwie ``_xlnm._FilterDatabase`` w
   ``xl/workbook.xml``;
 - Hiperłącza wpisanych komórek trafiają do jednego bloku ``<hyperlinks>`` w miejscu,
@@ -247,7 +247,8 @@ class Row(Protocol):
 
 @dataclass(frozen=True)
 class SheetLayout:
-    """Gdzie w arkuszu są nagłówek, Wiersze danych, dane wejściowe i kolumny Wiersza danych (od 1)."""
+    """Układ arkusza Wzorca, jeden dla kopii i drogi przez openpyxl (``template_file``): gdzie są nagłówek, Wiersze
+    danych, dane wejściowe i kolumny Wiersza danych (od 1)."""
 
     header_row: int
     first_data_row: int
@@ -255,8 +256,8 @@ class SheetLayout:
     data_columns: int
     look_columns: int
     """Kolumny wyglądu (``row_look``); te za kolumnami Wiersza danych dostają sam wygląd, a treść zostaje z Wzorca."""
-    collective_file: bool = False
-    """Plik zbiorczy z Przygotowania: autofiltr obejmuje nagłówek i wpisane wiersze."""
+    period_file: bool
+    """Plik okresu z Przygotowania: autofiltr obejmuje nagłówek i wpisane wiersze, a wygląd ma każda wpisana kolumna."""
     quantity_columns: range = range(0)
     """Kolumny Ilości usług; formuła w nich w Wierszach danych to ``UnsupportedShape``, jak w kolumnach Wiersza danych."""
 
@@ -353,7 +354,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
         elif info.filename == styles_name:
             styles_index = index
             parts.append(None)
-        elif info.filename == workbook_name and layout.collective_file:
+        elif info.filename == workbook_name and layout.period_file:
             filter_name = _FilterName(info, index, _with_full_recalculation(workbook_xml), sheet_position)
             parts.append(None)
         elif info.filename == workbook_name:
@@ -363,7 +364,7 @@ def _read_template(content: bytes, layout: SheetLayout) -> TemplateCopy:
     if sheet_index < 0:
         raise UnsupportedShape("sheet")
     sheet = _Sheet(infos[sheet_index], sheet_index, plain[sheet_name], layout, epoch=MAC_EPOCH if date1904 else WINDOWS_EPOCH)
-    if layout.collective_file:
+    if layout.period_file:
         sheet.read_filter_columns(shared_strings)
     styles = _Styles(infos[styles_index], styles_index, plain[styles_name], _raw_part(content, infos[styles_index]))
     if rels_index is None:
@@ -557,7 +558,7 @@ class _Sheet:
         self._links_at, self._links_open, self._links_prefix = _hyperlinks_place(xml, data_end)
         self._filter: tuple[int, int, bytes] | None = None
         self._filter_columns = (1, 1)
-        if layout.collective_file:
+        if layout.period_file:
             self._filter = _autofilter(xml, data_end, self._links_at)
         # Ostatni kawałek zaczyna się w miejscu bloku Hiperłączy, więc kopia z nimi kompresuje tylko ogon arkusza;
         # przedostatni w Pliku zbiorczym od autofiltra, który zmienia się w każdej kopii.

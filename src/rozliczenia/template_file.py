@@ -14,7 +14,6 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, suppress
 from copy import copy
 from dataclasses import dataclass
-from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -63,73 +62,63 @@ from .worker_config import normalize_text
 _WORKBOOK_SUFFIXES = (".xlsx", ".xlsm", ".xltx", ".xltm")
 _INTERNAL_LOOK_COLUMNS = range(1, 14)  # A:M Rozliczenia wewnętrznego, z ``zwrot`` i ``UWAGI``
 
+
 @dataclass(frozen=True)
 class _Rules:
-    header_row: int
-    first_data_row: int
-    last_header_column: int | None
-    """Ostatnia kolumna nagłówka; ``None``: cały wiersz nagłówka."""
+    """Układ Wzorca jednego pliku: jego arkusz (``SheetLayout``, ten sam dla kopii i drogi przez openpyxl) i dwie
+    reguły, którymi zapis tego pliku różni się od pozostałych."""
+
+    sheet: SheetLayout
     worker_header: bool
-    copy: SheetLayout | None
-    recalculate: bool
-    look_columns: int
-    """Kolumny wyglądu Wiersza danych od A (``row_look``)."""
-    period_file: bool
-    """Plik okresu z Przygotowania: Sprawdzanie z zarysu Wzorca, wygląd w każdej zapisanej kolumnie i autofiltr
-    zawsze idą razem. Inaczej Szablon pracownika: Wzorzec bez danych, sprawdzany też przed każdym plikiem."""
-    quantity_columns: range = range(0)
-    """Kolumny, do których trafiają Ilości usług Wiersza danych (``DataRow.quantities``)."""
+    """Nagłówek w kolumnach danych wejściowych z WYKONAWCA w H; bez niego nagłówek to cały wiersz."""
+    copy: bool
+    """Plik może powstać kopią Wzorca (ADR 0008). Kopia zawsze każe Excelowi przeliczyć formuły przy otwarciu, więc
+    droga przez openpyxl robi wtedy to samo; Rozliczenie wewnętrzne powstaje tylko przez openpyxl, bez tego."""
+
+    @property
+    def last_header_column(self) -> int | None:
+        """Ostatnia kolumna nagłówka; ``None``: cały wiersz nagłówka."""
+
+        return self.sheet.input_columns if self.worker_header else None
 
 
-class Layout(Enum):
-    """Plik, który powstaje z Wzorca, i wszystko, czym jego zapis różni się od pozostałych."""
-
-    WORKER_SETTLEMENT = _Rules(
+_WORKER_SETTLEMENT = _Rules(
+    SheetLayout(
         header_row=HEADER_ROW,
         first_data_row=FIRST_DATA_ROW,
-        last_header_column=INPUT_COLUMNS[-1],
-        worker_header=True,
-        copy=SheetLayout(
-            header_row=HEADER_ROW,
-            first_data_row=FIRST_DATA_ROW,
-            input_columns=INPUT_COLUMNS[-1],
-            data_columns=DATA_ROW_COLUMNS[-1],
-            look_columns=LOOK_COLUMNS[-1],
-        ),
-        recalculate=True,
+        input_columns=INPUT_COLUMNS[-1],
+        data_columns=DATA_ROW_COLUMNS[-1],
         look_columns=LOOK_COLUMNS[-1],
         period_file=False,
-    )
-    COLLECTIVE_FILE = _Rules(
+    ),
+    worker_header=True,
+    copy=True,
+)
+_COLLECTIVE_FILE = _Rules(
+    SheetLayout(
         header_row=HEADER_ROW,
         first_data_row=FIRST_DATA_ROW,
-        last_header_column=INPUT_COLUMNS[-1],
-        worker_header=True,
-        copy=SheetLayout(
-            header_row=HEADER_ROW,
-            first_data_row=FIRST_DATA_ROW,
-            input_columns=INPUT_COLUMNS[-1],
-            data_columns=INPUT_COLUMNS[-1],
-            look_columns=LOOK_COLUMNS[-1],
-            collective_file=True,
-            quantity_columns=QUANTITY_COLUMNS,
-        ),
-        recalculate=True,
+        input_columns=INPUT_COLUMNS[-1],
+        data_columns=INPUT_COLUMNS[-1],
         look_columns=LOOK_COLUMNS[-1],
         period_file=True,
         quantity_columns=QUANTITY_COLUMNS,
-    )
-    INTERNAL_SETTLEMENT = _Rules(
+    ),
+    worker_header=True,
+    copy=True,
+)
+_INTERNAL_SETTLEMENT = _Rules(
+    SheetLayout(
         header_row=1,
         first_data_row=2,
-        last_header_column=None,
-        worker_header=False,
-        copy=None,
-        recalculate=False,
+        input_columns=INPUT_COLUMNS[-1],
+        data_columns=INPUT_COLUMNS[-1],
         look_columns=_INTERNAL_LOOK_COLUMNS[-1],
         period_file=True,
-    )
-
+    ),
+    worker_header=False,
+    copy=False,
+)
 
 
 def _is_value(cell: Cell | MergedCell) -> bool:
@@ -174,7 +163,10 @@ def _outline(path: Path, content: bytes, rules: _Rules) -> _Outline:
             classified(
                 path,
                 sheet.iter_rows(
-                    min_row=rules.header_row, max_row=rules.header_row, max_col=rules.last_header_column, values_only=True
+                    min_row=rules.sheet.header_row,
+                    max_row=rules.sheet.header_row,
+                    max_col=rules.last_header_column,
+                    values_only=True,
                 ),
             ),
             (),
@@ -183,7 +175,7 @@ def _outline(path: Path, content: bytes, rules: _Rules) -> _Outline:
         for values in classified(
             path,
             sheet.iter_rows(
-                min_row=rules.first_data_row,
+                min_row=rules.sheet.first_data_row,
                 min_col=QUANTITY_COLUMNS[0],
                 max_col=QUANTITY_COLUMNS[-1],
                 values_only=True,
@@ -247,25 +239,41 @@ class TemplatePlan:
 class TemplateFile:
     """Wzorzec jednego układu: jego Sprawdzanie, Planowanie i pliki z Wierszami danych (ADR 0008).
 
-    ``headers`` (tylko pliki okresu) to nagłówek docelowy każdej pozycji Wiersza danych, szukany w wierszu
-    nagłówka Wzorca bez względu na wielkość liter i spacje; w Rozliczeniu pracownika pozycja ``i`` to kolumna
-    ``i`` Wiersza danych A:AT.
-    Konstruktor nie czyta dysku. Plik powstaje kopią bajtów Wzorca, gdy kopia przyjmuje kształt Wzorca i
+    Powstaje dla jednego z trzech plików: ``worker_settlement``, ``collective_file`` albo ``internal_settlement``.
+    ``headers`` pliku okresu to nagłówek docelowy każdej pozycji Wiersza danych, szukany w wierszu nagłówka Wzorca
+    bez względu na wielkość liter i spacje; w Rozliczeniu pracownika pozycja ``i`` to kolumna ``i`` Wiersza danych
+    A:AT. Utworzenie nie czyta dysku. Plik powstaje kopią bajtów Wzorca, gdy kopia przyjmuje kształt Wzorca i
     wierszy, a inaczej przez openpyxl; obie drogi dają ten sam plik. Pierwszy plik czyta bajty Wzorca
     ponownie: Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu działa tak, jakby był czytany dopiero
     wtedy, a kolejne pliki powstają z tych samych bajtów. Wzorzec na dysku pozostaje niezmieniony.
     """
 
-    def __init__(self, path: Path, layout: Layout, headers: Sequence[str] = ()) -> None:
-        if bool(headers) != layout.value.period_file:
-            raise ValueError(f"nagłówki docelowe ma każdy plik okresu i tylko on: {layout.name}")
+    def __init__(self, path: Path, rules: _Rules, headers: Sequence[str]) -> None:
         self.path = path
-        self._rules = layout.value
+        self._rules = rules
         self._headers = tuple(headers)
         self._content: bytes | None = None
         self._copy: TemplateCopy | None = None
         self._copy_read = False
         self._read_for_files = False
+
+    @classmethod
+    def worker_settlement(cls, path: Path) -> TemplateFile:
+        """Wzorzec rozliczenia pracownika: bez danych w Wierszach danych, sprawdzany też przed każdym plikiem."""
+
+        return cls(path, _WORKER_SETTLEMENT, ())
+
+    @classmethod
+    def collective_file(cls, path: Path, headers: Sequence[str]) -> TemplateFile:
+        """Wzorzec pliku zbiorczego z nagłówkiem docelowym każdej pozycji Wiersza danych i Ilościami usług w N:AP."""
+
+        return cls(path, _COLLECTIVE_FILE, headers)
+
+    @classmethod
+    def internal_settlement(cls, path: Path, headers: Sequence[str]) -> TemplateFile:
+        """Wzorzec rozliczenia wewnętrznego z nagłówkiem docelowym każdej pozycji Wiersza danych w wierszu 1."""
+
+        return cls(path, _INTERNAL_SETTLEMENT, headers)
 
     def check(self) -> None:
         """Sprawdzanie bez zapisu: ``WorkbookError``, gdy Wzorzec nie może posłużyć jako wzór.
@@ -275,7 +283,7 @@ class TemplateFile:
         wartości w Wierszach danych (``HAS_DATA``).
         """
 
-        if self._rules.period_file:
+        if self._rules.sheet.period_file:
             outline = _read_outline(self.path, self._rules)
             _columns(self.path, outline.title, self._rules, outline.header, self._headers)
             if self._rules.worker_header:
@@ -296,8 +304,8 @@ class TemplateFile:
 
         outline = _read_outline(self.path, self._rules)
         columns = _columns(self.path, outline.title, self._rules, outline.header, self._headers)
-        _ensure_unmerged(self.path, outline.title, outline.merged_ranges, self._rules, columns, row_count)
-        first_row = self._rules.first_data_row
+        _ensure_unmerged(self.path, outline.title, outline.merged_ranges, self._rules.sheet, columns, row_count)
+        first_row = self._rules.sheet.first_data_row
         return TemplatePlan(
             range(first_row, first_row + row_count), outline.zero_row_count, first_row + outline.zero_row_count
         )
@@ -318,7 +326,7 @@ class TemplateFile:
         copy = self._template_copy()
         if copy is not None:
             columns = _columns(self.path, copy.title, self._rules, copy.header, self._headers)
-            if not self._rules.period_file:
+            if not self._rules.sheet.period_file:
                 self._check_settlement_template(copy.title, copy.header, copy.has_input_data)
             placed = _placed(rows, columns)
             if placed is not None:
@@ -351,9 +359,9 @@ class TemplateFile:
         if not self._copy_read:
             self._copy_read = True
             self._copy = None
-            if self._rules.copy is not None:
+            if self._rules.copy:
                 with suppress(UnsupportedShape):
-                    self._copy = TemplateCopy.of(self._loaded(), self._rules.copy)
+                    self._copy = TemplateCopy.of(self._loaded(), self._rules.sheet)
         return self._copy
 
     def _openpyxl_workbook(self) -> AbstractContextManager[Workbook]:
@@ -367,15 +375,17 @@ class TemplateFile:
             sheet = _active_worksheet(self.path, workbook)
             header = self._header(sheet)
             columns = _columns(self.path, sheet.title, self._rules, header, self._headers)
-            if self._rules.period_file:
-                _ensure_unmerged(self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules, columns, len(rows))
+            if self._rules.sheet.period_file:
+                _ensure_unmerged(
+                    self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules.sheet, columns, len(rows)
+                )
             else:
                 self._check_settlement_template(sheet.title, header, self._has_input_data(sheet))
             try:
-                _write_rows(sheet, self._rules, rows, columns)
+                _write_rows(sheet, self._rules.sheet, rows, columns)
             except IllegalCharacterError as exc:
                 raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
-            if self._rules.recalculate:
+            if self._rules.copy:
                 _request_full_recalculation(workbook)
             save_from_template(workbook, target, self._loaded(), self.path.name)
 
@@ -383,12 +393,12 @@ class TemplateFile:
         """Wartości wiersza nagłówka od kolumny A."""
 
         last_column = self._rules.last_header_column or sheet.max_column
-        return [sheet.cell(self._rules.header_row, column).value for column in range(1, last_column + 1)]
+        return [sheet.cell(self._rules.sheet.header_row, column).value for column in range(1, last_column + 1)]
 
     def _has_input_data(self, sheet: Worksheet) -> bool:
         """Wiersze danych mają wartość w A:K; formuły Wzorca nie są danymi."""
 
-        for row in range(self._rules.first_data_row, sheet.max_row + 1):
+        for row in range(self._rules.sheet.first_data_row, sheet.max_row + 1):
             if any(_is_value(sheet.cell(row, column)) for column in INPUT_COLUMNS):
                 return True
         return False
@@ -415,27 +425,27 @@ def _columns(path: Path, sheet: str, rules: _Rules, header: Sequence[object], he
     for target in headers:
         column = found.get(normalize_text(target))
         if column is None:
-            raise WorkbookError(path, Problem.LAYOUT, MissingHeader(sheet, rules.header_row, target))
+            raise WorkbookError(path, Problem.LAYOUT, MissingHeader(sheet, rules.sheet.header_row, target))
         columns.append(column)
     return columns
 
 
 def _ensure_unmerged(
-    path: Path, sheet: str, merged_ranges: Sequence[CellRange], rules: _Rules, columns: Sequence[int], row_count: int
+    path: Path, sheet: str, merged_ranges: Sequence[CellRange], layout: SheetLayout, columns: Sequence[int], row_count: int
 ) -> None:
     """Zły układ z ``MergedCells``, gdy komórki ``row_count`` zapisanych Wierszy danych są scalone."""
 
     if row_count == 0:
         return
-    first_row, last_row = rules.first_data_row, rules.first_data_row + row_count - 1
-    last_column = max(_last_written_column(rules, columns), rules.quantity_columns.stop - 1)
+    first_row, last_row = layout.first_data_row, layout.first_data_row + row_count - 1
+    last_column = max(_last_written_column(layout, columns), layout.quantity_columns.stop - 1)
     for merged in merged_ranges:
         if merged.min_row <= last_row and merged.max_row >= first_row and merged.min_col <= last_column:
             raise WorkbookError(path, Problem.LAYOUT, MergedCells(sheet, merged.coord))
 
 
-def _last_written_column(rules: _Rules, columns: Sequence[int]) -> int:
-    return max(rules.look_columns, *columns)
+def _last_written_column(layout: SheetLayout, columns: Sequence[int]) -> int:
+    return max(layout.look_columns, *columns)
 
 
 def _placed(rows: Sequence[DataRow], columns: Sequence[int]) -> Sequence[DataRow] | None:
@@ -460,7 +470,7 @@ def _placed(rows: Sequence[DataRow], columns: Sequence[int]) -> Sequence[DataRow
     ]
 
 
-def _write_rows(sheet: Worksheet, rules: _Rules, rows: Sequence[DataRow], columns: Sequence[int]) -> None:
+def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[DataRow], columns: Sequence[int]) -> None:
     """Jedyny zapis Wierszy danych przez openpyxl: pozycja ``i`` wiersza trafia do kolumny ``columns[i-1]``.
 
     Komórka kolumny wyglądu dostaje Wygląd Wiersza danych, a bez pozycji w wierszu sam wygląd i treść Wzorca; w
@@ -468,12 +478,12 @@ def _write_rows(sheet: Worksheet, rules: _Rules, rows: Sequence[DataRow], column
     wiersz traci wysokość z Wzorca.
     """
 
-    last_column = _last_written_column(rules, columns)
-    look_columns = last_column if rules.period_file else rules.look_columns
-    look = RowLook([cast(Font, sheet.cell(rules.header_row, column).font) for column in range(1, look_columns + 1)])
+    last_column = _last_written_column(layout, columns)
+    look_columns = last_column if layout.period_file else layout.look_columns
+    look = RowLook([cast(Font, sheet.cell(layout.header_row, column).font) for column in range(1, look_columns + 1)])
     positions = {column: position for position, column in enumerate(columns, start=1)}
     for index, row in enumerate(rows):
-        number = rules.first_data_row + index
+        number = layout.first_data_row + index
         dimension = sheet.row_dimensions.get(number)  # bez tworzenia wymiaru, którego nie ma we Wzorcu
         if dimension is not None:
             dimension.ht = None
@@ -496,8 +506,8 @@ def _write_rows(sheet: Worksheet, rules: _Rules, rows: Sequence[DataRow], column
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
         for column, quantity in row.quantities.items():
             sheet.cell(number, column).value = quantity
-    if rules.period_file:
-        _set_autofilter(sheet, rules.header_row, len(rows))
+    if layout.period_file:
+        _set_autofilter(sheet, layout.header_row, len(rows))
 
 
 def _set_autofilter(sheet: Worksheet, header_row: int, row_count: int) -> None:

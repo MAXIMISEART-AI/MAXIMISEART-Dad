@@ -74,7 +74,7 @@ import porownanie_rozliczen as gate
 from rozliczenia import workbook_files
 from rozliczenia.highlights import PLAIN, Highlights
 from rozliczenia.hyperlinks import Hyperlink
-from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.template_file import TemplateFile
 from rozliczenia.workbook_files import DataRow, ExcelRow
 from syntetyczne_wzorce import write_settlement_template
 from tests.fixtures.settlement import write_template
@@ -534,7 +534,7 @@ def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow], via_
 
     if via_copy:
         rows = [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
-    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(target, rows)
+    TemplateFile.worker_settlement(twin).create(target, rows)
     if has_xml_comment(target):
         raise AssertionError("bliźniak Wzorca poszedł kopią: wzorzec porównania nie jest drogą openpyxl")
 
@@ -973,7 +973,7 @@ class Run:
         divergences: list[tuple[int, Divergence]] = []
         with tempfile.TemporaryDirectory(prefix="kopia-wzorca-") as scratch:
             twin = refused_by_copy(Path(shutil.copy(template.path, Path(scratch) / "bliźniak Wzorca.xlsx"))) if compared else None
-            worker = TemplateFile(template.path, Layout.WORKER_SETTLEMENT)
+            worker = TemplateFile.worker_settlement(template.path)
             worker.check()
             for index, rows in enumerate(case.workers, start=1):
                 copy_folder, reference_folder = Path(scratch) / f"kopia-{index}", Path(scratch) / f"openpyxl-{index}"

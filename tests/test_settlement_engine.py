@@ -30,7 +30,7 @@ from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.process_run import Stop
 from rozliczenia.progress import PhaseState, ProgressProjection
-from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.template_file import TemplateFile
 from rozliczenia.workbook_files import read_data_rows
 from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
@@ -321,7 +321,7 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
     # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego.
     adrian_rows = [row for row in read_data_rows(source_path).rows if row.number in (18, 20)]
     twin = refused_by_copy(Path(shutil.copy(worker_template_path, tmp_path / "bliźniak Wzorca.xlsx")))
-    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(expected_directory / adrian, adrian_rows)
+    TemplateFile.worker_settlement(twin).create(expected_directory / adrian, adrian_rows)
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 

@@ -33,7 +33,7 @@ from rozliczenia.workbook_files import (
     read_workbook,
     workbook_content,
 )
-from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.template_file import TemplateFile
 from rozliczenia.workbook_save import ExternalLinksError, WorkbookSaveError, save_workbook
 
 from tests.fixtures.benchmark import (
@@ -91,29 +91,29 @@ def _read_with_format(path: Path) -> None:
 
 
 def _check_template(path: Path) -> None:
-    TemplateFile(path, Layout.COLLECTIVE_FILE, ["WYKONAWCA"]).check()
+    TemplateFile.collective_file(path, ["WYKONAWCA"]).check()
 
 
 def _plan_template(path: Path) -> None:
-    TemplateFile(path, Layout.COLLECTIVE_FILE, ["WYKONAWCA"]).plan(1)
+    TemplateFile.collective_file(path, ["WYKONAWCA"]).plan(1)
 
 
 def _period_file(path: Path) -> None:
     target = path.with_name("Plik z Wzorca.xlsx")
     try:
-        TemplateFile(path, Layout.COLLECTIVE_FILE, ["WYKONAWCA"]).create(target, [])
+        TemplateFile.collective_file(path, ["WYKONAWCA"]).create(target, [])
     finally:
         assert not target.exists()
 
 
 def _check_worker_settlement_template(path: Path) -> None:
-    TemplateFile(path, Layout.WORKER_SETTLEMENT).check()
+    TemplateFile.worker_settlement(path).check()
 
 
 def _worker_settlement(path: Path) -> None:
     target = path.with_name("Rozliczenie - Wykonawca.xlsx")
     try:
-        TemplateFile(path, Layout.WORKER_SETTLEMENT).create(target, [_data_row(_row(A="syntetyczne miasto"))])
+        TemplateFile.worker_settlement(path).create(target, [_data_row(_row(A="syntetyczne miasto"))])
     finally:
         assert not target.exists()
 
@@ -396,7 +396,7 @@ def test_plik_z_wzorca_przez_openpyxl_ma_wiersze_danych_formuly_formatowanie_i_k
         ("syntetyczne miasto 2",) + (None,) * 45,
     ]
 
-    TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(target_path, [_data_row(values) for values in rows])
+    TemplateFile.worker_settlement(template_path).create(target_path, [_data_row(values) for values in rows])
 
     assert not has_xml_comment(target_path)
     assert external_link_parts(target_path) == external_link_parts(template_path)
@@ -444,7 +444,7 @@ def test_rozliczenie_pracownika_z_wzorca_zachowuje_wspolne_formuly_calcchain_i_f
         ("syntetyczne miasto 2",) + (None,) * 45,
     ]
 
-    TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(target_path, [_data_row(values) for values in rows])
+    TemplateFile.worker_settlement(template_path).create(target_path, [_data_row(values) for values in rows])
 
     assert shared_formula_masters(target_path) == shared_formula_masters(template_path)
     assert len(shared_formula_masters(template_path)) > 4
@@ -478,8 +478,8 @@ def _settlement_folders(
     marked_for_copy(template_path)
     twin = refused_by_copy(Path(shutil.copy(template_path, tmp_path / f"bliźniak {template_path.name}")))
     name = "Rozliczenie - Wykonawca.xlsx"
-    TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(created / name, rows)
-    TemplateFile(twin, Layout.WORKER_SETTLEMENT).create(expected / name, rows)
+    TemplateFile.worker_settlement(template_path).create(created / name, rows)
+    TemplateFile.worker_settlement(twin).create(expected / name, rows)
     assert written_by_copy(created / name) == copied
     assert not has_xml_comment(expected / name)
     return created, expected
@@ -676,7 +676,7 @@ def test_wyroznienia_takie_jak_we_wzorcu_zostawiaja_style_wzorca_poza_kolumnami_
         workbook.close()
     target = tmp_path / "Rozliczenie - Wykonawca.xlsx"
 
-    TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(target, [_data_row(_row(A="syntetyczne miasto", N=2), **same)])
+    TemplateFile.worker_settlement(template_path).create(target, [_data_row(_row(A="syntetyczne miasto", N=2), **same)])
 
     beyond_look = range(13, 47)  # M:AT
     assert _row_styles(target, 18, beyond_look) == _row_styles(template_path, 18, beyond_look)
@@ -731,7 +731,7 @@ def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_pracownika_bez_pliku
     output_directory.mkdir()
 
     with pytest.raises(WorkbookSaveError):
-        TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(
+        TemplateFile.worker_settlement(template_path).create(
             output_directory / "Rozliczenie.xlsx", [_data_row(_row(A="syntetyczny\x01znak"))]
         )
 
@@ -746,7 +746,7 @@ def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_wewnetrznego_bez_pli
     row = DataRow(2, ("syntetyczny\x01znak",) + (None,) * 10, (PLAIN,) * 11, ("General",) * 11)
 
     with pytest.raises(WorkbookSaveError):
-        TemplateFile(template_path, Layout.INTERNAL_SETTLEMENT, [column.target_header for column in COLUMNS]).create(
+        TemplateFile.internal_settlement(template_path, [column.target_header for column in COLUMNS]).create(
             output_directory / "Rozliczenie wew.xlsx", [row]
         )
 
@@ -761,7 +761,7 @@ def test_nieudany_zapis_pliku_z_wzorca_nie_zostawia_pliku(tmp_path: Path, by_cop
     missing_directory = tmp_path / "brak"
 
     with pytest.raises(WorkbookSaveError):
-        TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(missing_directory / "Plik.xlsx", [])
+        TemplateFile.worker_settlement(template_path).create(missing_directory / "Plik.xlsx", [])
 
     assert not missing_directory.exists()
 
