@@ -96,7 +96,7 @@ function PeriodBoardRow({ period, onStale }: { period: PeriodRow; onStale: () =>
 }
 
 function PeriodFiles({ period, onStale }: { period: PeriodRow; onStale: () => void }) {
-  const open = (target: OpenTarget) => openAndConfirm(period.token, target, onStale)
+  const open = (target: OpenTarget) => openAndConfirm(period.token, { target }, onStale)
 
   return (
     <div className="flex items-center gap-0.5">

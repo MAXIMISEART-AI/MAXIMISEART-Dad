@@ -51,7 +51,7 @@ SUMMARY: dict[str, Any] = {
         {"name": INTERNAL_SETTLEMENT_NAME, "kind": "internal_settlement"},
         {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
     ],
-    "file_plan": None,
+    "worker_settlements": None,
 }
 # Domyślny syntetyczny Rejestr ma w URZĄDZENIA tylko urządzenia nieznane Regułom ilości.
 QUANTITY_WARNINGS_WHERE = [
@@ -93,7 +93,7 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
     result = finished_view(centrum.client)["result"]
     board = centrum.client.get("/api/periods").json()
 
-    assert (result["result"], result["next_action"]) == ("WYMAGA_SPRAWDZENIA", "open_period_folder")
+    assert (result["result"], result["next_action"]) == ("WYMAGA_SPRAWDZENIA", "open_collective_file")
     assert result["headline"] == "Plik zbiorczy przygotowany · wymaga sprawdzenia"
     assert result["summary"] == SUMMARY
     assert [warning["where"] for warning in result["warnings"]] == QUANTITY_WARNINGS_WHERE
@@ -359,7 +359,7 @@ def test_niepokazane_podsumowanie_po_zapisie_mowi_zeby_nie_uruchamiac_ponownie(t
     centrum.start(dry_run=False)
     result = finished_view(centrum.client)["result"]
 
-    assert (result["ending"], result["next_action"], result["summary"]) == ("after_engine", "open_period_folder", None)
+    assert (result["ending"], result["next_action"], result["summary"]) == ("after_engine", "open_collective_file", None)
     assert result["stops"] == [
         {
             "what": "Pliki okresu powstały, ale nie udało się pokazać podsumowania.",

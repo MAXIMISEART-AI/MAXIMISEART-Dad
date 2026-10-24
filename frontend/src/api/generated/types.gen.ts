@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -1298,7 +1298,7 @@ export type RunOutcome = {
     /**
      * Next Action
      */
-    next_action: 'run' | 'rerun' | 'open_period_folder';
+    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder';
     /**
      * Stop Kind
      */
@@ -1385,8 +1385,8 @@ export type RunSetup = {
  *
  * Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
  *
- * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
- * (``None``, gdy proces go nie ma).
+ * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia
+ * pracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy).
  */
 export type RunSummary = {
     /**
@@ -1399,9 +1399,9 @@ export type RunSummary = {
      */
     files: Array<PeriodFile>;
     /**
-     * File Plan
+     * Worker Settlements
      */
-    file_plan: Array<WorkerFile> | null;
+    worker_settlements: Array<WorkerSettlement> | null;
 };
 
 /**
@@ -1670,19 +1670,39 @@ export type ViewTiming = {
 };
 
 /**
- * WorkerFile
+ * WorkerSettlement
  *
- * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
+ * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
  */
-export type WorkerFile = {
+export type WorkerSettlement = {
+    /**
+     * Worker
+     */
+    worker: string;
     /**
      * File
      */
     file: string;
     /**
-     * Rows
+     * Orders
      */
-    rows: number;
+    orders: number;
+    /**
+     * Empty
+     */
+    empty: boolean;
+};
+
+/**
+ * WorkerSettlementRequest
+ *
+ * Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu.
+ */
+export type WorkerSettlementRequest = {
+    /**
+     * Worker
+     */
+    worker: string;
 };
 
 /**
@@ -1979,6 +1999,44 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
+
+export type OpenWorkerSettlementData = {
+    body: WorkerSettlementRequest;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+    };
+    query?: never;
+    url: '/api/periods/{token}/worker-settlements/open';
+};
+
+export type OpenWorkerSettlementErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OpenWorkerSettlementError = OpenWorkerSettlementErrors[keyof OpenWorkerSettlementErrors];
+
+export type OpenWorkerSettlementResponses = {
+    /**
+     * Successful Response
+     */
+    200: Opened;
+};
+
+export type OpenWorkerSettlementResponse = OpenWorkerSettlementResponses[keyof OpenWorkerSettlementResponses];
 
 export type StartRunData = {
     body: RunRequest;
