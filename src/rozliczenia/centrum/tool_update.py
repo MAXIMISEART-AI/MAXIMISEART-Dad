@@ -22,10 +22,10 @@ commitem przed i po; treść Komunikatów należy do Centrum
 terminala, bez pomocnika logowania i bez okna konsoli w Windows. Każde kończy
 się w swoim limicie czasu, także gdy pomocnik Gita (np. ``git-remote-https``)
 zostaje po nim przy zerwanym połączeniu: wyjście idzie do plików tymczasowych,
-nie do potoków, a po limicie ginie całe drzewo procesów Gita. Każde ufa
-klonowi tylko na czas wywołania (``safe.directory``), a konfiguracja Gita taty
-zostaje bez zmian. Adres repozytorium wstrzykuje się z zewnątrz; ``origin`` w
-klonie taty nie ma znaczenia.
+nie do potoków, a po limicie polecenie wraca, gdy całe drzewo procesów Gita
+nie żyje. Każde ufa klonowi tylko na czas wywołania (``safe.directory``), a
+konfiguracja Gita taty zostaje bez zmian. Adres repozytorium wstrzykuje się
+z zewnątrz; ``origin`` w klonie taty nie ma znaczenia.
 
 Zanim aktualizacja zmieni klon, zapisuje dziennik „Aktualizacja w toku”
 (``JOURNAL`` w ``config/`` klonu): commit przed i po oraz kopię plików taty.
@@ -690,7 +690,8 @@ class _Git:
     root: Path
 
     def run(self, *args: str, timeout_s: float = _LOCAL_TIMEOUT_S) -> subprocess.CompletedProcess[str]:
-        """Polecenie Gita z wyjściem i błędami jako tekst; ``subprocess.TimeoutExpired`` najpóźniej po ``timeout_s``.
+        """Polecenie Gita z wyjściem i błędami jako tekst; po ``timeout_s`` ``subprocess.TimeoutExpired``, gdy jego drzewo
+        już nie żyje, albo ``OSError``, gdy przeżyje ``_KILL_TIMEOUT_S``.
 
         Wyjście idzie do plików tymczasowych: potok, który pomocnik Gita trzyma
         otwarty po końcu Gita, wstrzymałby odczyt, a w Windows także po limicie czasu.
@@ -913,6 +914,7 @@ else:
         except subprocess.TimeoutExpired:
             with suppress(OSError):  # Git i jego pomocnicy już się zakończyli
                 os.killpg(process.pid, signal.SIGKILL)
+            process.kill()
             process.wait()
             raise
 
