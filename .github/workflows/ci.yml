@@ -162,6 +162,13 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
+      # The mutation script of verify-centrum-rozliczen drives Centrum in Chromium.
+      - name: Install Playwright
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+
+      - name: Install Chromium
+        run: python -m playwright install chromium
+
       - name: Prove each verify skill's check fails on broken variants
         shell: pwsh
         run: |

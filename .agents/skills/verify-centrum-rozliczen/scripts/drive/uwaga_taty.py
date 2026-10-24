@@ -61,6 +61,12 @@ WHOLLY_SHOWN = """element => {
 }"""
 
 
+def _server_time(started_at: str) -> str:
+    """The date text the server writes (``06.10.2026, 08:21``): in the computer's time zone, Dad's own at his."""
+
+    return datetime.fromisoformat(started_at).astimezone().strftime("%d.%m.%Y, %H:%M")
+
+
 def _draft(run: Run, title: str, body: str, name: str, run_id: str | None = None) -> dict[str, str]:
     """The issue Maks would get, straight from the server, as the reference for the figure in the tab."""
 
@@ -492,7 +498,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     _shows(run, figure, pinned, "„Maks dostanie” shows exactly the server's draft of the Uwaga pinned to the preview")
     [entry] = [entry for entry in offered if entry["run_id"] == run_id]
     run.check(
-        f"Uruchomienie: {entry['process_label']} · {period} · podgląd · do sprawdzenia · {_local(entry['started_at'])}"
+        f"Uruchomienie: {entry['process_label']} · {period} · podgląd · do sprawdzenia · {_server_time(entry['started_at'])}"
         f" · wersja narzędzia " in pinned["body"],
         "the pinned Uwaga carries process, period, mode, result and date of the preview",
     )
