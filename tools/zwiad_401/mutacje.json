@@ -1,18 +1,22 @@
 [
-  {
-    "nazwa": "powrót do taskkill /F /T zamiast zadania",
-    "zmiany": [[
-      "src/rozliczenia/centrum/tool_update.py",
-      "                if not _kernel32.TerminateJobObject(job, 1):\n                    raise ctypes.WinError(ctypes.get_last_error()) from None\n",
-      "                subprocess.run(\n                    [\"taskkill\", \"/F\", \"/T\", \"/PID\", str(process.pid)],\n                    stdin=subprocess.DEVNULL,\n                    stdout=subprocess.DEVNULL,\n                    stderr=subprocess.DEVNULL,\n                    timeout=_KILL_TIMEOUT_S,\n                    check=False,\n                    creationflags=_NO_WINDOW,\n                )\n                process.kill()\n                process.wait()\n                raise\n"
-    ]]
-  },
-  {
-    "nazwa": "bez czekania na koniec drzewa (oczekiwane: przeżywa, bo I/O w toku nie da się wywołać na żądanie)",
-    "zmiany": [[
-      "src/rozliczenia/centrum/tool_update.py",
-      "                while _alive(job):\n",
-      "                while False:\n"
-    ]]
-  }
+ {
+  "nazwa": "powrót do taskkill /F /T zamiast zadania",
+  "zmiany": [
+   [
+    "src/rozliczenia/centrum/tool_update.py",
+    "                # Proces znika z zadania, zanim Windows uzna go za zakończony i puści jego uchwyty (I/O w toku),\n                # więc czekamy na uchwyty członków zadania otwarte przed zabiciem.\n                deadline = time.monotonic() + _KILL_TIMEOUT_S\n                while members := _members(job):\n                    if time.monotonic() >= deadline:\n                        raise OSError(\"drzewo procesów Gita przeżyło zabicie\") from None\n                    opened = (wintypes.HANDLE(_kernel32.OpenProcess(_SYNCHRONIZE, False, pid)) for pid in members)\n                    handles = [handle for handle in opened if handle.value]  # bez uchwytu: już się zakończył\n                    try:\n                        if not _kernel32.TerminateJobObject(job, 1):\n                            raise ctypes.WinError(ctypes.get_last_error()) from None\n                        for handle in handles:\n                            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))\n                            if _kernel32.WaitForSingleObject(handle, remaining_ms) != 0:\n                                raise OSError(\"drzewo procesów Gita przeżyło zabicie\") from None\n                    finally:\n                        for handle in handles:\n                            _kernel32.CloseHandle(handle)\n                process.wait()\n                raise\n",
+    "                subprocess.run(\n                    [\"taskkill\", \"/F\", \"/T\", \"/PID\", str(process.pid)],\n                    stdin=subprocess.DEVNULL,\n                    stdout=subprocess.DEVNULL,\n                    stderr=subprocess.DEVNULL,\n                    timeout=_KILL_TIMEOUT_S,\n                    check=False,\n                    creationflags=_NO_WINDOW,\n                )\n                process.kill()\n                process.wait()\n                raise\n"
+   ]
+  ]
+ },
+ {
+  "nazwa": "bez czekania na uchwyty członków zadania (oczekiwane: przeżywa; łapie to tylko sonda)",
+  "zmiany": [
+   [
+    "src/rozliczenia/centrum/tool_update.py",
+    "                            if _kernel32.WaitForSingleObject(handle, remaining_ms) != 0:\n",
+    "                            if False:\n"
+   ]
+  ]
+ }
 ]

@@ -23,7 +23,7 @@ jobs:
       matrix:
         include:
           - {co: 'nowy test, stary kod', ref: '166ce280ca09f398395bcd70d24db79f5d8b7253', count: '30', workers: '4'}
-          - {co: 'nowy test, poprawka', ref: 'f70687cf1aab083b0530b2710e4218edabcb3762', count: '300', workers: '8'}
+          - {co: 'nowy test, poprawka', ref: 'c89f75c07540539b19e99e5c5590dc1613ec9934', count: '300', workers: '8'}
     steps:
       - uses: actions/checkout@v7
         with: {ref: '${{ matrix.ref }}', fetch-depth: 0}
@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ref: ['fd4f27529b49b05e4cae7f3096546bba9d913fba', 'f70687cf1aab083b0530b2710e4218edabcb3762']
+        ref: ['fd4f27529b49b05e4cae7f3096546bba9d913fba', 'c89f75c07540539b19e99e5c5590dc1613ec9934']
     env:
       ZWIAD_N: '1200'
       ZWIAD_OUT: sonda-out
@@ -71,13 +71,13 @@ jobs:
         with: {name: 'sonda-${{ matrix.ref }}', path: kod/sonda-out}
 
   mutacje:
-    name: mutacje (f70687cf)
+    name: mutacje (c89f75c0)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with: {path: zwiad}
       - uses: actions/checkout@v7
-        with: {ref: 'f70687cf1aab083b0530b2710e4218edabcb3762', path: kod, fetch-depth: 0}
+        with: {ref: 'c89f75c07540539b19e99e5c5590dc1613ec9934', path: kod, fetch-depth: 0}
       - id: python
         uses: actions/setup-python@v7
         with: {python-version: '3.14'}
