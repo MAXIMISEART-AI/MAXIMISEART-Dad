@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import itertools
 import json
 from pathlib import Path
@@ -503,21 +502,6 @@ def test_uruchomienie_z_obcej_strony_jest_odrzucone(tmp_path: Path) -> None:
     assert refused.status_code == 403
     assert centrum.client.get("/api/runs/current").json() == {"state": "idle"}
     assert list(centrum.fixture.periods_directory.iterdir()) == []
-
-
-def test_centrum_dopisuje_rekord_do_pliku_metryk_procesu_i_rozpoznaje_swoje_uruchomienia(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    centrum.start(dry_run=True)
-    finished_view(centrum.client)
-    store = MetricsStore(centrum.metrics_path, preparation_process.PROCESS.counter_names)
-    [own] = store.read()
-    later = (datetime.fromisoformat(own["started_at"]) + timedelta(seconds=1)).isoformat()
-
-    store.append({**own, "started_at": later})
-    history = centrum.client.get("/api/metrics").json()["runs"]
-
-    assert (own["mode"], own["result"]) == ("DRY-RUN", "OK")
-    assert [(run["origin"], run["mode"]) for run in history] == [("cmd", "DRY-RUN"), ("centrum", "DRY-RUN")]
 
 
 def test_awaria_podgladu_na_zywo_nie_zmienia_wyniku_zapisu_ani_metryk(

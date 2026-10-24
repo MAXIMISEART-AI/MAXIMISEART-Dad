@@ -146,13 +146,6 @@ class Post:
     def to_json(self) -> str:
         return _queue_text(self, delivered_parts=0)
 
-    @classmethod
-    def from_json(cls, text: str) -> Post | None:
-        """Plik kolejki; nieznana wersja schematu albo etykieta lub plik uszkodzony to ``None`` (plik zostaje)."""
-
-        queued = _parse(text)
-        return None if queued is None else queued.post
-
 
 @dataclass(frozen=True)
 class _Queued:

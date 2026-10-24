@@ -14,7 +14,7 @@ import threading
 import pytest
 
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import Frame, NewIssue, Outbox, PeriodThread, Post
+from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
@@ -132,39 +132,6 @@ def test_podzial_na_czesci_liczy_znaki_a_nie_bajty_takze_z_polskimi_literami() -
     assert "".join(parts) == longer
     assert len(parts) == 2
     assert all(len(part) <= COMMENT_LIMIT for part in parts)
-
-
-def test_wysylka_wraca_z_pliku_kolejki_taka_sama() -> None:
-    queued = post(["## Różnice\n", "| Q | 2 | 1 |\n"])
-
-    assert Post.from_json(queued.to_json()) == queued
-
-
-def test_wysylka_do_nowego_issue_wraca_z_pliku_kolejki_taka_sama() -> None:
-    queued = Post(
-        NewIssue(label="uwaga-taty", title="Tytuł Uwagi"),
-        period=None,
-        run_id=RUN_ID,
-        header=None,
-        parts=("Treść Uwagi\n\nUwaga ogólna · wersja narzędzia 3c1d0a9",),
-    )
-
-    assert Post.from_json(queued.to_json()) == queued
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "{",
-        "[]",
-        '{"schema_version": 2}',
-        post(["x"]).to_json().replace('"schema_version": 2', '"schema_version": 3'),
-        post(["x"]).to_json().replace('"kontrola-ilosci"', '"inna-etykieta"'),
-    ],
-    ids=["urwany", "nie-obiekt", "bez-celu", "nowszy-schemat", "nieznana-etykieta"],
-)
-def test_plik_kolejki_nieznany_albo_uszkodzony_nie_jest_wysylka(text: str) -> None:
-    assert Post.from_json(text) is None
 
 
 def test_wysylka_ponad_limit_to_issue_z_pierwsza_czescia_i_komentarze_z_kolejnymi(tmp_path: Path) -> None:
@@ -390,13 +357,24 @@ def test_zapis_urwany_przez_utrate_zasilania_znika_przy_starcie_i_nie_jest_wysyl
     assert queue.box.keys == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "{",
+        "[]",
+        '{"schema_version": 2}',
+        post(["x"]).to_json().replace('"schema_version": 2', '"schema_version": 3'),
+        post(["x"]).to_json().replace('"kontrola-ilosci"', '"inna-etykieta"'),
+    ],
+    ids=["urwany", "nie-obiekt", "bez-celu", "nowszy-schemat", "nieznana-etykieta"],
+)
 def test_plik_kolejki_ktorego_nie_da_sie_odczytac_zostaje_z_jednym_wpisem_i_nie_wstrzymuje_innych(
-    tmp_path: Path,
+    tmp_path: Path, text: str
 ) -> None:
     queue = Queue(tmp_path, FakeReportBox())
     queue.directory.mkdir(parents=True)
     broken = "00000000T000000000000Z-0001-kontrola-ilosci-3f2a9c1b.json"
-    (queue.directory / broken).write_text('{"schema_version": 2}', encoding="utf-8")
+    (queue.directory / broken).write_text(text, encoding="utf-8")
 
     queue.outbox.post(post(["treść\n"]))
     assert queue.box.wait_until(lambda box: len(box.issues) == 1)
