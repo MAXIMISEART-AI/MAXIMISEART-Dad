@@ -78,6 +78,14 @@ def test_mutacja_w_kilku_plikach_zmienia_wszystkie_naraz(tmp_path: Path) -> None
     assert "WYKRYTA: dwa pliki → kod wyjścia 2" in answered.stdout.splitlines()
 
 
+def test_mutacja_z_pusta_kotwica_tworzy_plik_w_nowym_katalogu() -> None:
+    absent = "import pathlib, sys; sys.exit(pathlib.Path('.nowy/katalog/SKILL.md').is_file())"
+
+    answered = _mutacje("--zmiana", ".nowy/katalog/SKILL.md", "", "skill", "--", "-c", absent)
+
+    assert answered.stdout.splitlines()[-2:] == ["WYKRYTA: mutacja → kod wyjścia 1", "MUTACJE OK"]
+
+
 @pytest.mark.parametrize("anchor", ["tego tekstu nie ma w pliku", "\n"], ids=["brak", "wiele-razy"])
 def test_mutacja_z_kotwica_nie_dokladnie_raz_w_pliku_jest_nieaktualna(anchor: str) -> None:
     answered = _mutacje("--zmiana", PACKAGE, anchor, "", "--", *IMPORT)
