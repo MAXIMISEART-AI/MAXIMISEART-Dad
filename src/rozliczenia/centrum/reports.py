@@ -2,10 +2,11 @@
 
 Treść Zgłoszenia powstaje tylko tutaj, z tych samych bezpiecznych faktów co
 Komunikat. Zgłoszenie Zatrzymania (``StopReport``) ma Komunikat z kodem i
-trzema częściami, proces, okres i tryb, commit narzędzia, wynik każdego
-sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum, a przy nieoczekiwanym
-wyjątku jego typ i ślad wywołań w kodzie narzędzia. Zgłoszenie nieudanej
-Aktualizacji narzędzia (``UpdateReport``) ma te same fakty co dziennik Centrum:
+trzema częściami, proces, okres i tryb, odnośnik do Logów Uruchomienia, commit
+narzędzia, wynik każdego sprawdzenia Diagnozy i ostatnie wpisy dziennika
+Centrum, a przy nieoczekiwanym wyjątku jego typ i ślad wywołań w kodzie
+narzędzia. Zgłoszenie nieudanej Aktualizacji narzędzia (``UpdateReport``) ma
+te same fakty co dziennik Centrum:
 kod Komunikatu, commit przed i po, czy instalowano biblioteki i ostatnie wpisy
 dziennika, bez ścieżek i bez wyjścia Gita. Ścieżki są już skrócone w
 Komunikatach, szczegółach sprawdzeń i ramkach śladu; treści wierszy, treści
@@ -107,10 +108,18 @@ class ProblemFingerprint:
 
 @dataclass(frozen=True)
 class StopReport:
+    """Zgłoszenie Zatrzymania z Diagnozy.
+
+    ``logs``: adres komentarza Logów Uruchomienia w Skrzynce Zgłoszeń z chwili Diagnozy; ``None``: Logi nie były
+    jeszcze w Skrzynce (zwykle czekały w kolejce). Ustalony przy Diagnozie, więc wysłane Zgłoszenie jest dokładnie
+    podglądem, który widział tata.
+    """
+
     run: contract.RunInfo
     stop: Stop
     fingerprint: ProblemFingerprint
     diagnosis: Diagnosis
+    logs: str | None
 
     @property
     def file_name(self) -> str:
@@ -130,6 +139,7 @@ class StopReport:
             f"- Proces: {run.title}",
             f"- Okres: {run.period}",
             f"- Tryb: {_MODES[run.dry_run]}",
+            f"- Logi: {self.logs or f'jeszcze niewysłane, Uruchomienie {run.id}'}",
             "",
             *_trace_lines(self.stop.trace),
             *_tool_lines(fingerprint, previous, commit=f"- Commit: {commit or 'nieznany'}"),

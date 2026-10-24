@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 from playwright.sync_api import Locator, Page, expect
 
@@ -82,7 +83,7 @@ def drive_report(run: Run, page: Page) -> None:
     run.step(FEATURE, "zgloszenie-podglad")
     page.goto(run.url)
     ensure_files_set(run, page)
-    _stop_for_maks(run, page, "zgloszenie-podglad")
+    first_run = _stop_for_maks(run, page, "zgloszenie-podglad")
     run.check(_report_state(run, "zgloszenie-podglad") == {"state": "ready"}, "the stop offers a Zgłoszenie not sent yet")
     page.reload()
     stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
@@ -105,6 +106,10 @@ def drive_report(run: Run, page: Page) -> None:
     run.check(
         ROW_MARKER not in body and str(run.root) not in body and run.root.as_posix() not in body,
         "the preview holds no workbook row and no full path",
+    )
+    run.check(
+        f"- Logi: jeszcze niewysłane, Uruchomienie {first_run}" in lines,
+        "without a key the Logi of this Uruchomienie wait in the queue, and the preview says so with its identifier",
     )
     run.capture(page, "60-zgloszenie-podglad")
 
@@ -193,8 +198,14 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
     print(f"  harness: Maks closes Zgłoszenie {number} in the skrzynka Zgłoszeń", flush=True)
     closed = box / f"{number}.json"
     closed.write_text(json.dumps({**json.loads(closed.read_text(encoding="utf-8")), "state": "closed"}), encoding="utf-8")
-    _stop_for_maks(run, page, "zgloszenie-zamkniete")
+    run_id = _stop_for_maks(run, page, "zgloszenie-zamkniete")
     expect(page.get_by_role("status").filter(has_text=WAITING)).to_be_visible()
+    queue = config / "zgloszenia" / "kolejka"
+    run.wait_for(
+        lambda: not list(queue.glob(f"*-logi-uruchomienia-{run_id[:8]}.json")),
+        "with the key the Logi of this Uruchomienie reach the skrzynka",
+        timeout_s=60,
+    )
     run.capture(page, "68-zgloszenie-zamkniete-przed-diagnoza")
     stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
     send = diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True)
@@ -207,6 +218,18 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
     diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True).click()
     title, body = _shown_report(page)
     run.check(f"- Poprzednie Zgłoszenie: #{number}" in body.splitlines(), "the new Zgłoszenie links the previous one")
+    links = [line.removeprefix("- Logi: ") for line in body.splitlines() if line.startswith("- Logi: ")]
+    run.check(
+        len(links) == 1 and re.fullmatch(r"skrzynka-zgloszen/\d+\.json#komentarz-\d+", links[0]) is not None,
+        f"the preview has one Logi line with the address of a comment in the skrzynka: {links}",
+    )
+    thread, _, comment = links[0].removeprefix("skrzynka-zgloszen/").partition(".json#komentarz-")
+    logs = json.loads((box / f"{thread}.json").read_text(encoding="utf-8"))
+    run.check(
+        logs["labels"] == ["logi-uruchomienia"]
+        and f"- Uruchomienie: {run_id}," in logs["comments"][int(comment) - 1],
+        f"the preview links the comment of the Logi of its own Uruchomienie ({links[0]})",
+    )
     run.capture(page, "69-zgloszenie-zamkniete-po-diagnozie")
 
     run.step(FEATURE, "zgloszenie-nowe-z-odnosnikiem")

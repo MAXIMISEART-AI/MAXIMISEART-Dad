@@ -3,7 +3,8 @@
 Logi ponad limit komentarza GitHuba wymagałyby przez HTTP setek Komunikatów, więc podział sprawdza wysyłka
 zbudowana wprost z rekordu (``logi_post``): jej części to dokładnie komentarze, które kolejka dopisuje do issue.
 Podsumowanie ma tu tylko przypadki bez taniej drogi przez HTTP z fikstur Przebiegu: nazwa Przygotowania,
-powtórki kodów, powtórzone Zatrzymanie, czas w sekundach albo nieznany, brak commitu. Resztę sprawdza ``test_centrum_logi_w_skrzynce.py``.
+powtórki kodów, powtórzone Zatrzymanie, czas w sekundach albo nieznany, brak commitu i sprawdzenia Diagnozy,
+które nie przeszły albo których nie sprawdzono. Resztę sprawdza ``test_centrum_logi_w_skrzynce.py``.
 """
 
 from __future__ import annotations
@@ -75,6 +76,36 @@ SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
     "czas-w-sekundach": (
         {"result": "BLAD_KRYTYCZNY", "ending": "after_engine", "stop_kind": "for_maks", "duration_ms": 12_345},
         ["- Czas: 12,3 s"],
+    ),
+    "diagnoza": (
+        {
+            "diagnosis": {
+                "diagnosed_at": "2026-10-23T20:48:02.120000Z",
+                "explanation": {"code": "BRAK_WZORCA", "what": "Co.", "where": "Gdzie.", "action": "Zrób."},
+                "next_action": "report",
+                "checks": [
+                    {"label": "Ustawienia taty", "state": "passed", "detail": "Są.", "code": None},
+                    {"label": "Wzorzec pliku zbiorczego", "state": "failed", "detail": "Co.", "code": "BRAK_WZORCA"},
+                    {"label": "Folder okresu", "state": "failed", "detail": "Co.", "code": "BRAK_FOLDERU"},
+                    {"label": "Aktualność narzędzia", "state": "not_checked", "detail": "Bez sieci.", "code": None},
+                ],
+            }
+        },
+        [
+            "- Diagnoza: `BRAK_WZORCA`; nie przeszło: Wzorzec pliku zbiorczego, Folder okresu; "
+            "nie sprawdzono: Aktualność narzędzia"
+        ],
+    ),
+    "diagnoza-bez-przyczyny": (
+        {
+            "diagnosis": {
+                "diagnosed_at": "2026-10-23T20:48:02.120000Z",
+                "explanation": {"code": "NIE_ZNALEZIONO_PRZYCZYNY", "what": "Co.", "where": "Gdzie.", "action": "Zrób."},
+                "next_action": "report",
+                "checks": [{"label": "Ustawienia taty", "state": "passed", "detail": "Są.", "code": None}],
+            }
+        },
+        ["- Diagnoza: `NIE_ZNALEZIONO_PRZYCZYNY`"],
     ),
     "bez-commitu": (
         {"tool": {"wydanie": None, "commit": None}},
