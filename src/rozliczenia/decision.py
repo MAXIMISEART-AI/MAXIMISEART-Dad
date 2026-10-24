@@ -16,7 +16,7 @@ from typing import Protocol
 
 from .message import Message, StopError
 
-__all__ = ["Conversation", "Decision", "Declined"]
+__all__ = ["Conversation", "Decision"]
 
 
 @dataclass(frozen=True)
