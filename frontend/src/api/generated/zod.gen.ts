@@ -120,10 +120,13 @@ export const zDadNoteNotification = z.object({
  * DadNoteRequest
  *
  * Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+ *
+ * ``run_id`` jak w ``DadNoteText``: Uruchomienie, do którego Uwaga jest przypięta; ``None``: ogólna.
  */
 export const zDadNoteRequest = z.object({
     title: z.string().min(1).max(120).regex(/^[^\r\n]*$/),
-    body: z.string().max(10000).optional().default('')
+    body: z.string().max(10000).optional().default(''),
+    run_id: z.string().nullish()
 });
 
 /**
@@ -139,10 +142,13 @@ export const zDadNoteSent = z.object({
  * DadNoteText
  *
  * Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+ *
+ * ``run_id`` to Uruchomienie z Centrum (``ProcessRun.run_id``), do którego tata przypina Uwagę; ``None``: ogólna.
  */
 export const zDadNoteText = z.object({
     title: z.string().max(120).regex(/^[^\r\n]*$/),
-    body: z.string().max(10000).optional().default('')
+    body: z.string().max(10000).optional().default(''),
+    run_id: z.string().nullish()
 });
 
 /**
@@ -1036,6 +1042,17 @@ export const zDraftDadNoteBody = zDadNoteText;
  * Successful Response
  */
 export const zDraftDadNoteResponse = zDadNoteDraft;
+
+export const zGetDadNoteRunsQuery = z.object({
+    selected: z.string().nullish()
+});
+
+/**
+ * Response Getdadnoteruns
+ *
+ * Successful Response
+ */
+export const zGetDadNoteRunsResponse = z.array(zProcessRun);
 
 /**
  * Successful Response

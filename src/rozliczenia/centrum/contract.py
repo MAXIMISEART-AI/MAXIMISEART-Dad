@@ -675,17 +675,25 @@ DadNoteBody = Annotated[str, StringConstraints(strip_whitespace=True, max_length
 
 
 class DadNoteText(_Model):
-    """Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty."""
+    """Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+
+    ``run_id`` to Uruchomienie z Centrum (``ProcessRun.run_id``), do którego tata przypina Uwagę; ``None``: ogólna.
+    """
 
     title: DadNoteTitle
     body: DadNoteBody = ""
+    run_id: str | None = None
 
 
 class DadNoteRequest(_Model):
-    """Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają."""
+    """Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+
+    ``run_id`` jak w ``DadNoteText``: Uruchomienie, do którego Uwaga jest przypięta; ``None``: ogólna.
+    """
 
     title: Annotated[DadNoteTitle, StringConstraints(min_length=1)]
     body: DadNoteBody = ""
+    run_id: str | None = None
 
 
 class DadNoteDraft(_Model):

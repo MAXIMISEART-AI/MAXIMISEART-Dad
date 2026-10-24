@@ -221,6 +221,8 @@ export type DadNoteNotification = {
  * DadNoteRequest
  *
  * Uwaga taty do wysłania: tytuł wymagany, treść nie jest konieczna; białe znaki na brzegach znikają.
+ *
+ * ``run_id`` jak w ``DadNoteText``: Uruchomienie, do którego Uwaga jest przypięta; ``None``: ogólna.
  */
 export type DadNoteRequest = {
     /**
@@ -231,6 +233,10 @@ export type DadNoteRequest = {
      * Body
      */
     body?: string;
+    /**
+     * Run Id
+     */
+    run_id?: string | null;
 };
 
 /**
@@ -249,6 +255,8 @@ export type DadNoteSent = {
  * DadNoteText
  *
  * Tytuł i treść Uwagi taty w trakcie pisania, do podglądu „Maks dostanie”; tytuł może być jeszcze pusty.
+ *
+ * ``run_id`` to Uruchomienie z Centrum (``ProcessRun.run_id``), do którego tata przypina Uwagę; ``None``: ogólna.
  */
 export type DadNoteText = {
     /**
@@ -259,6 +267,10 @@ export type DadNoteText = {
      * Body
      */
     body?: string;
+    /**
+     * Run Id
+     */
+    run_id?: string | null;
 };
 
 /**
@@ -1620,6 +1632,10 @@ export type SendDadNoteData = {
 
 export type SendDadNoteErrors = {
     /**
+     * Not Found
+     */
+    404: Problem;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
@@ -1655,9 +1671,17 @@ export type DraftDadNoteData = {
 
 export type DraftDadNoteErrors = {
     /**
+     * Not Found
+     */
+    404: Problem;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
 };
 
 export type DraftDadNoteError = DraftDadNoteErrors[keyof DraftDadNoteErrors];
@@ -1670,6 +1694,42 @@ export type DraftDadNoteResponses = {
 };
 
 export type DraftDadNoteResponse = DraftDadNoteResponses[keyof DraftDadNoteResponses];
+
+export type GetDadNoteRunsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Selected
+         */
+        selected?: string | null;
+    };
+    url: '/api/dad-notes/runs';
+};
+
+export type GetDadNoteRunsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Internal Server Error
+     */
+    500: Problem;
+};
+
+export type GetDadNoteRunsError = GetDadNoteRunsErrors[keyof GetDadNoteRunsErrors];
+
+export type GetDadNoteRunsResponses = {
+    /**
+     * Response Getdadnoteruns
+     *
+     * Successful Response
+     */
+    200: Array<ProcessRun>;
+};
+
+export type GetDadNoteRunsResponse = GetDadNoteRunsResponses[keyof GetDadNoteRunsResponses];
 
 export type GetHealthData = {
     body?: never;

@@ -57,6 +57,7 @@ FILES: dict[str, tuple[str, str]] = {
     "uwagi_taty": ("config/uwagi-taty.json", TEXT),
     "przeczytane_powiadomienia": ("config/powiadomienia.json", TEXT),
     "uruchomienia_centrum": ("config/centrum-uruchomienia.jsonl", LINES),
+    "adresy_skrzynki": ("config/skrzynka-adresy.jsonl", LINES),
     "dziennik_centrum": ("logs/centrum-rozliczen.log", LINES),
     "logi_uruchomien": ("logs/uruchomienia", FOLDER),
     "metryki_przygotowania": (".przygotowanie-pliku-zbiorczego-metrics.jsonl", LINES),
@@ -243,6 +244,15 @@ def _build(root: Path) -> None:
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
         assert started.status_code == 200, started.json()
         assert finished_view(client)["result"]["ending"] == "finished"
+    # Świat jest bez sieci, więc adresy Logów w Skrzynce dopisujemy tak, jak zostawiłaby je wysyłka.
+    remembered = world.path("uruchomienia_centrum").read_text(encoding="utf-8").splitlines()
+    world.path("adresy_skrzynki").write_text(
+        "".join(
+            json.dumps({"run_id": json.loads(line)["run_id"], "label": "logi-uruchomienia", "url": url}) + "\n"
+            for line, url in zip(remembered, LOGS_COMMENTS, strict=True)
+        ),
+        encoding="utf-8",
+    )
     for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum", "uwagi_taty"):
         assert world.path(name).stat().st_size > 0, name
     assert len(list(world.path("logi_uruchomien").iterdir())) == 2, "Logi Uruchomienia obu podglądów"
@@ -313,6 +323,20 @@ def _diagnosis(process: str, period: str, *, report: bool) -> Entry:
     return Entry(("startRun", "streamRunEvents", "diagnoseRun") + (("reportRun",) if report else ()), call)
 
 
+def _pinned_dad_note() -> Entry:
+    """Okno Uwagi taty: Uruchomienia do przypięcia, potem podgląd Uwagi przypiętej do najnowszego z nich."""
+
+    def call(client: TestClient, seen: Seen) -> Problems:
+        runs = client.get("/api/dad-notes/runs")
+        problems = _http(runs, "getDadNoteRuns", seen)
+        if runs.status_code != 200 or not runs.json():
+            return problems
+        pinned = {**DAD_NOTE, "run_id": runs.json()[0]["run_id"]}
+        return problems + _http(client.post("/api/dad-notes/draft", json=pinned), "draftDadNote", seen)
+
+    return Entry(("getDadNoteRuns", "draftDadNote"), call)
+
+
 def _run_with_diagnosis(client: TestClient, process: str, period: str) -> str | None:
     for _ in range(2):  # drugi raz to Powtórka, gdy pierwsze Zatrzymanie jest „dla taty”
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
@@ -334,6 +358,10 @@ SENT_REPORT = {
     "closure": {"reason": "completed", "at": "2026-09-16T08:00:00+00:00"},
 }
 READ_NOTIFICATION = "zgloszenie-7-rozwiazana"
+LOGS_COMMENTS = [
+    "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/3#issuecomment-1",
+    "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/4#issuecomment-2",
+]
 VIEW_TIMING = {"kind": "navigation", "page": "okresy", "ready_ms": 120, "fcp_ms": None, "skeleton_ms": 40, "requests": []}
 ENTRIES: dict[str, Entry] = {
     "getSettings": _route("getSettings", "GET", "/api/settings"),
@@ -355,6 +383,7 @@ ENTRIES: dict[str, Entry] = {
     "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
     "draftDadNote": _route("draftDadNote", "POST", "/api/dad-notes/draft", DAD_NOTE),
     "sendDadNote": _route("sendDadNote", "POST", "/api/dad-notes", DAD_NOTE),
+    "uwaga-przypieta": _pinned_dad_note(),
     "podglad[przygotowanie]": _process_run("preparation", PERIOD),
     "podglad[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD),
     "zapis[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD, saving=True),

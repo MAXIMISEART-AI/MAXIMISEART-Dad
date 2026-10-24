@@ -28,10 +28,10 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, dad_notes_router
+from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.metrics import metrics_router
+from rozliczenia.centrum.metrics import metrics_router, read_runs
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications, ReadNotifications, notifications_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
@@ -41,7 +41,7 @@ from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import UNSENT_DIRECTORY, Reports, read_report_key
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
-from rozliczenia.centrum.run_logs import RUN_LOGS_DIRECTORY, RunLogs
+from rozliczenia.centrum.run_logs import LABEL as RUN_LOGS_LABEL, RUN_LOGS_DIRECTORY, RunLogs
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
@@ -155,14 +155,20 @@ def create_app(
     box = report_box or GitHubReportBox()
     reports = Reports(config, box, log, surroundings.tool_freshness.local)
     # Kontrola ilości po Przebiegu rozliczeń, Logi Uruchomienia i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń,
-    # wysyłane w tle (ADR 0013, ADR 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty.
+    # wysyłane w tle (ADR 0013, ADR 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty, a przypięta
+    # Uwaga dostaje przy wysyłce odnośnik do Logów swojego Uruchomienia, jeśli już doszły do skrzynki.
     notes = DadNotes(config / DAD_NOTES_FILE, log)
+
+    def run_logs_address(run_id: str) -> str | None:
+        return outbox.delivered(run_id, RUN_LOGS_LABEL)
+
     outbox = Outbox(
         config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
         box,
         lambda: read_report_key(config),
         log,
         on_delivered=notes.delivered,
+        prepare=lambda post: with_logs(post, notes, run_logs_address),
         addresses=config / ADDRESSES_FILE,
     )
     # Powiadomienia o Uwagach taty i wysłanych Zgłoszeniach; przeczytane obok Ustawień taty (ADR 0015).
@@ -216,10 +222,19 @@ def create_app(
         PreparationEntry(store, configuration, processes.preparation, today),
         SettlementEntry(store, configuration, processes.settlement, today),
     ]
+    entry_processes = {entry.key: entry.process for entry in entries}
     app.include_router(runs_router(runs, entries))
     app.include_router(notifications_router(notifications))
-    app.include_router(dad_notes_router(notes, outbox, surroundings.tool_freshness.local))
-    app.include_router(metrics_router({entry.key: entry.process for entry in entries}, today, centrum_runs))
+    app.include_router(
+        dad_notes_router(
+            notes,
+            outbox,
+            surroundings.tool_freshness.local,
+            lambda: read_runs(entry_processes, centrum_runs.started()),
+            run_logs_address,
+        )
+    )
+    app.include_router(metrics_router(entry_processes, today, centrum_runs))
     app.include_router(configuration_router(configuration, surroundings.tool_freshness, reports.key_state, clock=clock))
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
