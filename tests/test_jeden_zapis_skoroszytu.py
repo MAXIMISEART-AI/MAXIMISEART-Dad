@@ -14,7 +14,12 @@ import re
 SRC = Path(__file__).resolve().parents[1] / "src"
 WRITERS = frozenset({"rozliczenia/workbook_files.py", "rozliczenia/template_copy.py", "rozliczenia/row_look.py"})
 CELL_WRITES = frozenset(
-    {"value", "font", "fill", "border", "alignment", "number_format", "protection", "hyperlink", "auto_filter"}
+    {"value", "font", "fill", "border", "alignment", "number_format", "protection", "hyperlink", "auto_filter", "comment"}
+    | {"freeze_panes"}
+)
+SHEET_CHANGES = frozenset(
+    {"insert_rows", "delete_rows", "insert_cols", "delete_cols", "move_range", "merge_cells", "unmerge_cells"}
+    | {"add_data_validation", "add_image", "add_chart", "add_table"}
 )
 SHEET_PARTS = frozenset({"row_dimensions", "column_dimensions"})
 CELL_PARAMETERS = frozenset({"row", "column", "value"})  # Worksheet.cell z openpyxl, w odróżnieniu od RowLook.cell
@@ -33,7 +38,10 @@ def _cell_address(index: ast.expr) -> bool:
 
 
 def _writes(tree: ast.Module) -> Iterator[ast.expr]:
-    """Przypisanie wartości, wyglądu albo wymiaru komórki i ``.cell(..., value=...)``, poza przypisaniem do ``self``."""
+    """Przypisanie wartości, wyglądu albo wymiaru komórki, zmiana układu arkusza i ``.cell(..., value=...)``.
+
+    Przypisanie do ``self`` się nie liczy.
+    """
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.Attribute, ast.Subscript)) and isinstance(node.ctx, ast.Store):
@@ -43,6 +51,8 @@ def _writes(tree: ast.Module) -> Iterator[ast.expr]:
                 or any(isinstance(part, ast.Attribute) and part.attr in SHEET_PARTS for part in ast.walk(node))
             ):
                 yield node
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in SHEET_CHANGES:
+            yield node
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "cell":
             keywords = {keyword.arg for keyword in node.keywords}
             if keywords <= CELL_PARAMETERS and (len(node.args) == 3 or "value" in keywords):
@@ -50,7 +60,8 @@ def _writes(tree: ast.Module) -> Iterator[ast.expr]:
 
 
 def test_zapis_skoroszytu_ma_jedno_miejsce() -> None:
-    """Poza modułami zapisu nikt nie przypisuje wartości, wyglądu ani wymiaru komórki i nie woła ``.save``.
+    """Poza modułami zapisu nikt nie przypisuje wartości, wyglądu ani wymiaru komórki, nie zmienia układu arkusza
+    (``insert_rows``, ``merge_cells``) i nie woła ``.save``.
 
     Znana granica: ``sheet[adres] = …`` z adresem w zmiennej i ``sheet.append(…)`` wyglądają w składni jak zapis do
     słownika i listy, a odróżnia je dopiero typ obiektu, którego test nie zna.
