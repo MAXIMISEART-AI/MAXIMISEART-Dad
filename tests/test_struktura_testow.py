@@ -15,6 +15,7 @@ from tests.fixtures.skladnia import dotted, imports
 
 TESTS = Path(__file__).resolve().parent
 CLOCKS = frozenset({"time.monotonic", "time.perf_counter"})
+TIME_READINGS = CLOCKS | {"time.time", "time.monotonic_ns", "time.perf_counter_ns", "time.time_ns"}
 SIMULATED_TIME = {
     "test_centrum_przygotowanie.py::test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk": (
         "tata myśli 1,5 s nad Decyzją, a test mierzy zegarem testu, że ten czas nie wlicza się do metryk (f17b7fe)"
@@ -135,19 +136,22 @@ def test_testy_czekaja_na_stan_a_nie_stala_liczbe_sekund() -> None:
 
 TIME_NAME = re.compile(r"elapsed|duration|_m?s$")
 CONSTANT_TIME_BOUNDS = {
-    "test_aktualizacja_narzedzia.py::test_github_proszacy_o_logowanie_konczy_sie_od_razu_bez_pytania_a_klon_zostaje_bez_zmian": (
+    "test_aktualizacja_narzedzia.py::test_github_proszacy_o_logowanie_konczy_sie_od_razu_bez_pytania_a_klon_zostaje_bez_zmian"
+    "::elapsed < 20": (
         "granica 20 s oddziela koniec od zawieszenia: pomocnik logowania, na którego narzędzie nie może czekać, śpi 60 s"
     ),
-    "test_aktualizacja_narzedzia.py::test_pomocnik_gita_trzymajacy_jego_wyjscie_nie_wstrzymuje_aktualizacji": (
+    "test_aktualizacja_narzedzia.py::test_pomocnik_gita_trzymajacy_jego_wyjscie_nie_wstrzymuje_aktualizacji::elapsed < 20": (
         "granica 20 s oddziela koniec od zawieszenia: pomocnik gita trzyma jego wyjście otwarte przez 60 s"
     ),
-    "test_aktualnosc_narzedzia.py::test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu": (
+    "test_aktualnosc_narzedzia.py::test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu"
+    "::time.monotonic() - started < 1.5": (
         "serwer nie odpowiada nigdy, więc bez limitu 0,3 s diagnoza czekałaby bez końca; granica to 5× ten limit"
     ),
-    "test_potomne.py::test_potomek_spoza_drzewa_z_otwartym_wyjsciem_nie_wstrzymuje_wyniku": (
+    "test_potomne.py::test_potomek_spoza_drzewa_z_otwartym_wyjsciem_nie_wstrzymuje_wyniku::time.monotonic() - started < 30": (
         "granica 30 s oddziela koniec od zawieszenia: potomek z otwartym wyjściem śpi 600 s"
     ),
-    "test_weryfikacja_w_excelu.py::test_start_excela_bez_zgody_na_automatyzacje_konczy_sie_od_razu_nazwana_przyczyna": (
+    "test_weryfikacja_w_excelu.py::test_start_excela_bez_zgody_na_automatyzacje_konczy_sie_od_razu_nazwana_przyczyna"
+    "::time.monotonic() - started < 10": (
         "granica 10 s to połowa limitu startu Excela (20 s), do którego launch czekałby, gdyby nie rozpoznał odmowy"
     ),
 }
@@ -192,26 +196,46 @@ def _constant(expression: ast.expr, bound: dict[str, list[ast.expr | None]], see
     return False
 
 
-def _measured(expression: ast.expr, bound: dict[str, list[ast.expr | None]], names: dict[str, str]) -> bool:
-    """Zmierzony czas: wyrażenie z nazwą czasu (``elapsed``, ``duration``, ``_ms``, ``_s``) albo z odczytem zegara."""
+def _measured(
+    expression: ast.expr, bound: dict[str, list[ast.expr | None]], names: dict[str, str], seen: frozenset[str] = frozenset()
+) -> bool:
+    """Zmierzony czas: wyrażenie z nazwą czasu (``elapsed``, ``duration``, ``_ms``, ``_s``), z odczytem zegara
+    albo z nazwą, której moduł przypisuje takie wyrażenie (``took = time.monotonic() - started``)."""
 
     if _constant(expression, bound):
         return False
     for node in ast.walk(expression):
-        if isinstance(node, ast.Call) and dotted(node.func, names, "") in CLOCKS:
+        if isinstance(node, ast.Call) and dotted(node.func, names, "") in TIME_READINGS:
             return True
         name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
         if name is not None and TIME_NAME.search(name) and not (isinstance(node, ast.Name) and _constant(node, bound)):
             return True
+        if isinstance(node, ast.Name) and node.id not in seen and any(
+            value is not None and _measured(value, bound, names, seen | {node.id}) for value in bound.get(node.id, ())
+        ):
+            return True
     return False
+
+
+def _negated(compare: ast.Compare, statement: ast.Assert, parents: dict[ast.AST, ast.AST]) -> bool:
+    """Porównanie pod nieparzystą liczbą ``not``: ``assert not elapsed >= 2`` to ``assert elapsed < 2``."""
+
+    nots = 0
+    node: ast.AST = compare
+    while node is not statement:
+        node = parents[node]
+        nots += isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
+    return nots % 2 == 1
 
 
 def _constant_time_bounds(tree: ast.Module) -> Iterator[tuple[ast.Compare, str]]:
     """Asercja, że zmierzony czas jest mniejszy od stałej liczby, z nazwą funkcji, w której jest.
 
-    Znana granica: stała, która przychodzi parametrem (``pytest.mark.parametrize``) albo z innego modułu, i nazwa,
-    którą moduł gdzie indziej wiąże z czymś innym niż liczba, nie są rozpoznane jako stała, bo wymaga to analizy
-    przepływu danych.
+    Znana granica, bo wymaga analizy przepływu danych albo znajomości bibliotek: stała, która przychodzi parametrem
+    (``pytest.mark.parametrize``), z innego modułu, z atrybutu klasy albo z ``timedelta(...)``; nazwa, którą moduł
+    gdzie indziej wiąże z czymś innym niż liczba; zmierzony czas w pomocniku z innego modułu; granica bez porównania
+    w ``assert``: ``pytest.approx(..., abs=...)``, ``math.isclose(..., abs_tol=...)`` i ``if elapsed > 2:
+    pytest.fail(...)``.
     """
 
     names = imports(tree)
@@ -223,6 +247,7 @@ def _constant_time_bounds(tree: ast.Module) -> Iterator[tuple[ast.Compare, str]]
         for compare in ast.walk(statement.test):
             if not isinstance(compare, ast.Compare):
                 continue
+            negated = _negated(compare, statement, parents)
             for operator, (left, right) in zip(compare.ops, pairwise([compare.left, *compare.comparators]), strict=True):
                 if isinstance(operator, (ast.Lt, ast.LtE)):
                     measured, limit = left, right
@@ -230,6 +255,8 @@ def _constant_time_bounds(tree: ast.Module) -> Iterator[tuple[ast.Compare, str]]
                     measured, limit = right, left
                 else:
                     continue
+                if negated:
+                    measured, limit = limit, measured
                 if _measured(measured, bound, names) and _constant(limit, bound):
                     node: ast.AST = statement
                     while node in parents and not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -243,10 +270,11 @@ def test_zmierzony_czas_nie_jest_ograniczony_stala_liczba() -> None:
     for path in sorted(TESTS.rglob("*.py")):
         name = path.relative_to(TESTS).as_posix()
         for compare, function in _constant_time_bounds(ast.parse(path.read_text(encoding="utf-8"))):
-            if f"{name}::{function}" in CONSTANT_TIME_BOUNDS:
-                excepted.add(f"{name}::{function}")
+            key = f"{name}::{function}::{ast.unparse(compare)}"
+            if key in CONSTANT_TIME_BOUNDS:
+                excepted.add(key)
             else:
-                found.append(f"tests/{name}:{compare.lineno}: {ast.unparse(compare)} ogranicza zmierzony czas stałą liczbą")
+                found.append(f"tests/{name}:{compare.lineno}: {ast.unparse(compare)} ogranicza zmierzony czas stałą liczbą ({key})")
     found += [
         f"CONSTANT_TIME_BOUNDS: {key} nie ma już takiej asercji, usuń wpis"
         for key in sorted(CONSTANT_TIME_BOUNDS.keys() - excepted)
@@ -257,7 +285,8 @@ def test_zmierzony_czas_nie_jest_ograniczony_stala_liczba() -> None:
             *found,
             "Na wolnym runnerze sama praca trwa dłużej niż stała. Daj kodowi pod testem podróbkę zegara "
             "(ManualClock z tests/fixtures/clock.py, parametr clock) i sprawdź czas równością; gdy kod mierzy "
-            "prawdziwy czas, ogranicz go zegarem testu (time.perf_counter() przed i po), a wyjątek wpisz do "
-            "CONSTANT_TIME_BOUNDS z powodem.",
+            "prawdziwy czas, ogranicz go zegarem testu (time.perf_counter() przed i po); gdy podróbka trzyma "
+            "odpowiedź, sprawdź stan (jeszcze nie odpowiedziała), a granicę końca kontra zawieszenia wpisz do "
+            "CONSTANT_TIME_BOUNDS pod kluczem z nawiasu, z powodem.",
         ]
     )
