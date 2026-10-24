@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 
 import type {
+  Message,
   PeriodFile,
   PhaseProgress,
   Progress as RunProgress,
@@ -35,12 +36,12 @@ import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Disclosure } from "@/components/disclosure"
-import { ThreePartMessage } from "@/components/three-part-message"
+import { StopMessage, ThreePartMessage } from "@/components/three-part-message"
 import { WriteAboutRun } from "@/components/write-to-maks"
 import { useChangeEntrance } from "@/lib/content-entrance"
 import { seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
-import { openAndConfirm } from "@/pages/periods/open-period-path"
+import { openAndConfirm, openOrderRegisterAndConfirm } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
 import { useStopDiagnosis } from "@/pages/runs/diagnosis"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
@@ -202,11 +203,12 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
   )
 
   const action = offersDiagnosis ? diagnosis.action : nextAction
+  const [stop] = result.stops
 
   return (
     <>
       {result.summary === null ? null : <NumberStrip figures={result.summary.figures} />}
-      {result.stops.length === 0 ? (
+      {stop === undefined || result.stop_kind === null ? (
         <Alert className="wejscie p-4" aria-label="Wynik">
           {result.result === "OK" ? (
             <CircleCheckIcon className="text-success!" />
@@ -217,9 +219,14 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
           <AlertAction className="top-3 right-3">{action}</AlertAction>
         </Alert>
       ) : (
-        result.stops.map((stop, index) => (
-          <ThreePartMessage key={stop.what} message={stop} kind="stop" action={index === 0 ? action : undefined} />
-        ))
+        <RunStop
+          result={result}
+          stop={stop}
+          kind={result.stop_kind}
+          period={run.period}
+          action={action}
+          openFirst={!offersDiagnosis}
+        />
       )}
       {offersDiagnosis ? diagnosis.result : null}
       {result.warnings.map((warning) => (
@@ -244,6 +251,69 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
         onConfirm={() => again(false)}
       />
     </>
+  )
+}
+
+type StopKind = NonNullable<RunOutcome["stop_kind"]>
+
+type DadFile = NonNullable<RunOutcome["opens"]>
+
+const FILES_UNCHANGED = "Nic nie zapisano, Twoje pliki są bez zmian."
+
+// Zatrzymanie według Rodzaju Zatrzymania, spójnie z plakietką w Historii: czerwony błąd tylko „do Maksa”.
+const STOPS: Record<StopKind, { kind: "stop" | "to_fix" | "declined"; note: string | null }> = {
+  for_tata: { kind: "to_fix", note: null },
+  repeated: { kind: "to_fix", note: null },
+  for_maks: { kind: "stop", note: "To nie wynika z Twoich plików." },
+  declined: { kind: "declined", note: null },
+}
+
+const DAD_FILES: Record<DadFile, { label: string; open: (period: string) => void }> = {
+  order_register: { label: "Otwórz Rejestr zleceń", open: () => openOrderRegisterAndConfirm() },
+  collective_file: {
+    label: "Otwórz Plik zbiorczy",
+    open: (period) => openAndConfirm(period, "collective_file", () => undefined),
+  },
+}
+
+/** Zatrzymanie na karcie wyniku: obok akcji z serwera przycisk pliku taty, w którym jest poprawka. */
+function RunStop({
+  result,
+  stop,
+  kind,
+  period,
+  action,
+  openFirst,
+}: {
+  result: RunOutcome
+  stop: Message
+  kind: StopKind
+  period: string
+  action: React.ReactNode
+  openFirst: boolean
+}) {
+  const look = STOPS[kind]
+  const notes = [result.files_unchanged ? FILES_UNCHANGED : null, look.note].filter((note) => note !== null)
+  const file = result.opens === null ? null : DAD_FILES[result.opens]
+
+  return (
+    <StopMessage
+      message={stop}
+      kind={look.kind}
+      title={result.headline}
+      notes={notes}
+      actions={
+        <>
+          {file === null ? null : (
+            <Button size="sm" variant={openFirst ? "default" : "outline"} onClick={() => file.open(period)}>
+              <FileSpreadsheetIcon data-icon="inline-start" />
+              {file.label}
+            </Button>
+          )}
+          {action}
+        </>
+      }
+    />
   )
 }
 

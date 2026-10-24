@@ -36,6 +36,7 @@ import {
   zGetToolUpdateResponse,
   zMarkNotificationsReadResponse,
   zOpenPeriodPathResponse,
+  zOpenRegisterResponse,
   zReportRunResponse,
   zReportToolUpdateResponse,
   zRunEvent,
@@ -133,6 +134,11 @@ export function getSettings() {
 /** Otwiera natywne okno wyboru na komputerze taty i zapamiętuje wybrany Rejestr zleceń. */
 export function chooseOrderRegister() {
   return call(zChooseRegisterResponse, "chooseRegister", "/api/settings/register/choose", send("POST"))
+}
+
+/** Otwiera w Excelu Rejestr zleceń, który tata wybrał w Ustawieniach; ścieżkę bierze serwer. */
+export function openOrderRegister() {
+  return call(zOpenRegisterResponse, "openRegister", "/api/settings/register/open", send("POST"))
 }
 
 /** Otwiera natywne okno wyboru folderu i zapamiętuje folder okresów. */

@@ -823,6 +823,7 @@ ApiOperation = Literal[
     "getHealth",
     "getSettings",
     "chooseRegister",
+    "openRegister",
     "choosePeriodsDirectory",
     "changeTheme",
     "getPeriodBoard",

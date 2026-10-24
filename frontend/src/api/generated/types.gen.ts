@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -1271,12 +1271,15 @@ export type RunInfo = {
  *
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
  *
- * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+ * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
+ * odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
+ * silnika (``after_engine``). ``next_action`` to akcja,
  * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
  * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
  * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
- * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
+ * plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
+ * ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
  */
 export type RunOutcome = {
     /**
@@ -1290,7 +1293,7 @@ export type RunOutcome = {
     /**
      * Ending
      */
-    ending: 'finished' | 'stop' | 'unexpected' | 'after_engine';
+    ending: 'finished' | 'stop' | 'declined' | 'unexpected' | 'after_engine';
     /**
      * Next Action
      */
@@ -1298,7 +1301,7 @@ export type RunOutcome = {
     /**
      * Stop Kind
      */
-    stop_kind: 'for_tata' | 'for_maks' | 'repeated' | null;
+    stop_kind: 'for_tata' | 'for_maks' | 'repeated' | 'declined' | null;
     /**
      * Diagnosis
      */
@@ -1328,6 +1331,14 @@ export type RunOutcome = {
      */
     technical_notes: Array<string>;
     summary: RunSummary | null;
+    /**
+     * Files Unchanged
+     */
+    files_unchanged: boolean;
+    /**
+     * Opens
+     */
+    opens: 'order_register' | 'collective_file' | null;
 };
 
 /**
@@ -2258,6 +2269,35 @@ export type ChooseRegisterResponses = {
 };
 
 export type ChooseRegisterResponse = ChooseRegisterResponses[keyof ChooseRegisterResponses];
+
+export type OpenRegisterData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/settings/register/open';
+};
+
+export type OpenRegisterErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type OpenRegisterError = OpenRegisterErrors[keyof OpenRegisterErrors];
+
+export type OpenRegisterResponses = {
+    /**
+     * Successful Response
+     */
+    200: Opened;
+};
+
+export type OpenRegisterResponse = OpenRegisterResponses[keyof OpenRegisterResponses];
 
 export type ChangeThemeData = {
     body: ThemeChange;

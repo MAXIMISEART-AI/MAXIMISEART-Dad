@@ -924,6 +924,47 @@
         }
       }
     },
+    "/api/settings/register/open": {
+      "post": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Open Register",
+        "operationId": "openRegister",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Opened"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings/theme": {
       "put": {
         "tags": [
@@ -1199,6 +1240,7 @@
               "getHealth",
               "getSettings",
               "chooseRegister",
+              "openRegister",
               "choosePeriodsDirectory",
               "changeTheme",
               "getPeriodBoard",
@@ -3185,6 +3227,7 @@
             "enum": [
               "finished",
               "stop",
+              "declined",
               "unexpected",
               "after_engine"
             ],
@@ -3206,7 +3249,8 @@
                 "enum": [
                   "for_tata",
                   "for_maks",
-                  "repeated"
+                  "repeated",
+                  "declined"
                 ]
               },
               {
@@ -3293,6 +3337,25 @@
                 "type": "null"
               }
             ]
+          },
+          "files_unchanged": {
+            "type": "boolean",
+            "title": "Files Unchanged"
+          },
+          "opens": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "order_register",
+                  "collective_file"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opens"
           }
         },
         "additionalProperties": false,
@@ -3308,10 +3371,12 @@
           "stops",
           "warnings",
           "technical_notes",
-          "summary"
+          "summary",
+          "files_unchanged",
+          "opens"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje\n(``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego\nproblemu (``None``, gdy Centrum nie proponuje Diagnozy)."
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po\nodmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu\nsilnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje\n(``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego\nproblemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło\nplików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.\n``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden)."
       },
       "RunRequest": {
         "properties": {
