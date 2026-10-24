@@ -386,7 +386,7 @@ npm ci
 npm run contract   # OpenAPI z modeli Pydantic → typy i schematy zod (Python z zależnościami: zmienna PYTHON)
 npm run typecheck  # tsc strict
 npm run lint       # Oxlint z wtyczkami anti-slop
-npm run rules      # każde pole kontraktu użyte w UI, brak porównań nazwy procesu
+npm run rules      # każde pole kontraktu użyte w UI, brak porównań nazwy procesu, sieć tylko w plikach NETWORK_FILES
 npm run build      # build do src/rozliczenia/centrum/static/
 ```
 

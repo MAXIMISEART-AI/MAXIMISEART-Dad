@@ -28,10 +28,10 @@ pilnuje:
   roll back.
 - **PO_WYNIKU_PRZED_KONCEM**: Centrum's server never ends between an
   Uruchomienie's result and its actions after the result (`RunHost.after`, the
-  `after_run` list in `create_app`). Harm: the Kontrola ilości of a Przebieg
-  rozliczeń lands in its queue file in that action; a shutdown or update accepted
-  in between kills the thread before the file exists, and Maks never gets that
-  Kontrola.
+  `after_run` list in `create_app`). Harm: the Logi Uruchomienia of every
+  Uruchomienie and the Kontrola ilości of a Przebieg rozliczeń land in their files
+  in those actions; a shutdown or update accepted in between kills the thread
+  before the files exist, and Maks never gets them.
 
 An Uruchomienie is in progress from the moment `RunHost.start` creates its `_Run`
 until `RunHost.finished` has written its end to the Centrum log. The checker
@@ -52,11 +52,11 @@ after a new version, until the restart guardian has started and
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `870ea89`.** At this commit the checker was confirmed to describe
+**Sync commit: `f2947f5`.** At this commit the checker was confirmed to describe
 the covered code. To see whether it needs another look:
 
 ```bash
-git log --oneline 870ea89..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
+git log --oneline f2947f5..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit

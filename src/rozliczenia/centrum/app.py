@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.diagnosis import Surroundings, diagnose
+from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router
 from rozliczenia.centrum.period_board import periods_router
@@ -39,6 +39,7 @@ from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports, read_report_key, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.run_logs import RUN_LOGS_DIRECTORY, RunLogs
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
@@ -80,7 +81,7 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienie o naprawie: pierwsze pytanie skrzynki przy starcie, nie dopiero przy wejściu na Okresy.
         reports.check_repairs_in_background()
-        # Kontrole ilości, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
+        # Kontrole ilości i Logi, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
         outbox.resume()
         yield
 
@@ -111,7 +112,7 @@ def create_app(
     ) -> Response:
         try:
             return await call_next(request)
-        except Exception as failure:  # noqa: BLE001 - granica API: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             route = request.scope.get("route")
             log.unexpected_failure(failure, where=f"{request.method} {getattr(route, 'path', 'poza API')}")
             return _problem(500, "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie.")
@@ -153,8 +154,18 @@ def create_app(
     reports = Reports(
         config, box, log, surroundings.tool_freshness.local, clock=clock, search_deadline_s=report_search_deadline_s
     )
-    # Kontrola ilości po Przebiegu rozliczeń: w kolejce obok niewysłanych Zgłoszeń, wysyłana w tle (ADR 0013).
+    # Kontrola ilości i Logi Uruchomienia: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle (ADR 0013, 0015).
     outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
+    # Logi Uruchomienia: jeden plik JSON na Uruchomienie obok dziennika Centrum, poza Gitem i OneDrive (ADR 0015).
+    run_logs = RunLogs(
+        log.directory / RUN_LOGS_DIRECTORY,
+        outbox,
+        commit=surroundings.tool_freshness.local,
+        files=lambda process, period: files_of_process(
+            process, period, settings=store.load(), configuration=configuration
+        ),
+        cloud_files=surroundings.cloud_files,
+    )
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     stops = Stops(
         reports,
@@ -162,9 +173,13 @@ def create_app(
             process, period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
         ),
         log,
+        run_logs,
     )
     runs = RunHost(
-        log, centrum_runs, stops, after_run=[QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)]
+        log,
+        centrum_runs,
+        stops,
+        after_run=[run_logs, QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)],
     )
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie

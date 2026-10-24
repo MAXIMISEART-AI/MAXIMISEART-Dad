@@ -123,6 +123,28 @@ COLLECTIVE_HEADERS = (
 )
 
 
+# Wiersz danych ze znacznikiem w każdej kolumnie z treścią zlecenia (MIASTO, ADRES, UMOWA, URZĄDZENIA, CZYNNOŚCI,
+# NUMER ZL., NUMER UMOWY, CZYNNOŚCI ZREALIZOWANE, AQ:AT i ilość w V), w środę 09.09.2026 o 13:45 i z Wykonawcą
+# ``adrian.testowy``, który Konfiguracja wykonawców mapuje na „Adrian Testowy”.
+MARKED: dict[str, CellValue] = {
+    "A": "ZNACZNIK-MIASTO",
+    "B": "ZNACZNIK-ADRES",
+    "C": "u ZNACZNIK-UMOWA",
+    "D": "nokia ZNACZNIK-URZADZENIA",
+    "E": "ZNACZNIK-CZYNNOSCI",
+    "F": "ZNACZNIK-NUMER-ZL",
+    "G": datetime(2026, 9, 9, 13, 45),
+    "I": "ZNACZNIK-NUMER-UMOWY",
+    "J": "tak",
+    "K": "ZNACZNIK-ZREALIZOWANE",
+    "AQ": "ZNACZNIK-AQ",
+    "AR": "ZNACZNIK-AR",
+    "AS": "ZNACZNIK-AS",
+    "AT": "ZNACZNIK-AT",
+    "V": "ZNACZNIK-ILOSC",
+}
+
+
 def write_quantity_source(path: Path, rows: Sequence[Mapping[str, CellValue]]) -> None:
     """Plik zbiorczy z nagłówkami A17:K17 Wzorca i Wierszami danych od 18: litera kolumny → wartość.
 

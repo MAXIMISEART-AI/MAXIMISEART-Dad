@@ -388,6 +388,43 @@ def test_czesci_uruchamiaja_kazdy_skrypt_dokladnie_raz(tmp_path: Path) -> None:
     assert sorted(ran) == [f".agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "abc"]
 
 
+def test_kazdy_nastepny_najdluzszy_skrypt_idzie_do_najlzejszej_czesci(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    scripts = [ROOT / ".agents" / "skills" / f"verify-{name}" / "scripts" / f"check_{name}_mutations.py" for name in "abcd"]
+
+    chosen = tool.parts(scripts, 3, {"verify-a": 60, "verify-b": 300, "verify-c": 90, "verify-d": 60})
+
+    assert [[script.parents[1].name for script in part] for part in chosen] == [["verify-b"], ["verify-c"], ["verify-a", "verify-d"]]
+
+
+def test_skrypt_spoza_tabeli_czasow_wazy_mediane_tabeli(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    scripts = [ROOT / ".agents" / "skills" / f"verify-{name}" / "scripts" / f"check_{name}_mutations.py" for name in ("a", "b", "c", "nowy")]
+
+    chosen = tool.parts(scripts, 3, {"verify-a": 100, "verify-b": 60, "verify-c": 50})
+
+    assert [[script.parents[1].name for script in part] for part in chosen] == [["verify-a"], ["verify-b", "verify-c"], ["verify-nowy"]]
+
+
+def test_najdluzszy_skrypt_z_tabeli_czasow_ma_czesc_dla_siebie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    times = _load_tool(monkeypatch).CI_TIMES_S
+    for skill in times:
+        _skill(tmp_path, skill, {"check_x_mutations.py": PASSING})
+
+    parts = [_run(tmp_path, "--czesc", f"{number}/{len(times) - 1}") for number in range(1, len(times))]
+
+    ran = [{line.split()[1].split("/")[2] for line in part.stdout.splitlines() if line.startswith("OK   ")} for part in parts]
+    assert {max(times, key=times.__getitem__)} in ran
+    assert sorted(skill for part in ran for skill in part) == sorted(times)
+
+
+def test_tabela_czasow_mutacji_wymienia_tylko_skille_ze_skryptem_mutacji(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    skills = {script.parents[1].name for script in (ROOT / ".agents" / "skills").glob(f"*/scripts/{tool.PATTERN}")}
+
+    assert set(tool.CI_TIMES_S) <= skills
+
+
 @pytest.mark.parametrize("part", ["0/2", "3/2", "1", "a/b"])
 def test_czesc_spoza_zakresu_jest_bledem_wywolania(tmp_path: Path, part: str) -> None:
     _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING})
