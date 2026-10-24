@@ -26,6 +26,7 @@ from typing import Final, Literal
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Post
 from rozliczenia.centrum.report_box import (
@@ -33,7 +34,6 @@ from rozliczenia.centrum.report_box import (
     CloseReason,
     Label,
     Refused,
-    ReportBox,
     Unreachable,
     close_reason,
     read_moment,
@@ -139,7 +139,7 @@ class DadCases:
 
         self._change(lambda cases: [numbered(case) for case in cases])
 
-    def ask_box(self, box: ReportBox, key: str) -> None:
+    def ask_box(self, box: KeyedBox) -> None:
         """Pyta skrzynkę o zamknięcie spraw, raz na rodzaj z otwartymi sprawami; bez odpowiedzi zostaje, co wiadomo.
 
         Pytanie idzie bez blokady, żeby wysyłka i „Wyślij” nie czekały na sieć. Numer issue jest jeden w całej
@@ -148,8 +148,8 @@ class DadCases:
 
         asked = {case.kind for case in self.all() if case.open}
         for kind in (kind for kind in KINDS if kind in asked):
-            issues = box.labelled_issues(kind.label, include_closed=True, key=key)
-            if not isinstance(issues, Refused | Unreachable):
+            issues = box.labelled_issues(kind.label, include_closed=True)
+            if not isinstance(issues, NoKey | Refused | Unreachable):
                 self._close({issue.number: issue.closure for issue in issues})
 
     def _close(self, closures: Mapping[int | None, Closure | None]) -> None:

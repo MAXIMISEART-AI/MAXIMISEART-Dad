@@ -16,6 +16,7 @@ import pytest
 from pydantic import BaseModel
 
 from rozliczenia.centrum import update_messages
+from rozliczenia.centrum.keyed_box import REFUSED_KEPT_S, KeyedBox, read_report_key
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import IssuesOutcome, Label, Refused, SendOutcome, Unreachable
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, DadCases
@@ -24,6 +25,7 @@ from rozliczenia.centrum.tool_update import NO_CONNECTION, OTHER_BRANCH, UpdateR
 from rozliczenia.message import Message
 
 from tests.fixtures.centrum import TOOL_COMMIT, FakeReportBox, dad_cases
+from tests.fixtures.clock import ManualClock
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 READY = {"state": "ready"}
@@ -57,6 +59,7 @@ class Computer:
     tmp_path: Path
     box: FakeReportBox = field(default_factory=FakeReportBox)
     search_deadline_s: float = SEARCH_DEADLINE_S
+    clock: ManualClock = field(default_factory=ManualClock)
 
     @property
     def config(self) -> Path:
@@ -74,9 +77,10 @@ class Computer:
         (self.config / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
 
     def reports(self) -> Reports:
+        keyed = KeyedBox(self.box, lambda: read_report_key(self.config), clock=self.clock)
         return Reports(
             self.config,
-            self.box,
+            keyed,
             self.log,
             lambda: TOOL_COMMIT,
             DadCases(self.config, self.log),
@@ -169,6 +173,7 @@ def test_nieudana_wysylka_zapisuje_zgloszenie_w_pliku_a_ponowna_proba_je_wysyla(
 
     assert (saved["state"], saved["message"]["what"]) == ("saved", what)
     assert computer.unsent() == {FILE_NAME: saved_text}
+    computer.clock.advance(REFUSED_KEPT_S)  # odrzucony klucz Skrzynka sprawdza znowu dopiero po kwadransie
     assert dump(handle.send()) == SENT
     assert (len(computer.box.keys), len(computer.box.sent), computer.unsent()) == (2, 1, {})
 

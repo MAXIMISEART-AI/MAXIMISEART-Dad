@@ -17,6 +17,7 @@ import pytest
 
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, OLD_NOTES_FILE, OLD_REPORTS_FILE, REPORT, Case, DadCases
 from rozliczenia.centrum.dad_notes import after_delivery, with_logs
+from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import KnownIssue, NewIssue, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import (
@@ -31,6 +32,7 @@ from rozliczenia.centrum.report_box import (
 )
 
 from tests.fixtures.centrum import centrum
+from tests.fixtures.clock import ManualClock
 
 FIXTURES = Path(__file__).parent / "fixtures"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -303,6 +305,10 @@ class AnsweringBox:
         return self.answers[label]
 
 
+def keyed(box: AnsweringBox) -> KeyedBox:
+    return KeyedBox(box, lambda: KEY, clock=ManualClock())
+
+
 def test_skrzynka_jest_pytana_o_rodzaj_z_otwartymi_sprawami_a_jej_zamkniecia_trafiaja_do_spraw(tmp_path: Path) -> None:
     config = old_files(tmp_path)
     closed = Closure("completed", at(24, 15))
@@ -310,7 +316,7 @@ def test_skrzynka_jest_pytana_o_rodzaj_z_otwartymi_sprawami_a_jej_zamkniecia_tra
     stored = DadCases(config, log(tmp_path))
     stored.forget(REPORT, "a1b2c3d4e5f60718")
 
-    stored.ask_box(box, KEY)
+    stored.ask_box(keyed(box))
 
     assert box.asked == [("uwaga-taty", True, KEY)]
     assert [case.closure for case in cases(tmp_path)] == [OLD_CASES[0].closure, None, closed, None]
@@ -323,18 +329,17 @@ def test_uwaga_w_kolejce_i_zamkniete_sprawy_nie_pytaja_skrzynki(tmp_path: Path) 
     stored.forget(NOTE, "0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d")
     box = AnsweringBox({})
 
-    stored.ask_box(box, KEY)
+    stored.ask_box(keyed(box))
 
     assert box.asked == []
 
 
-@pytest.mark.parametrize("failure", [Refused(), Unreachable()])
-def test_bez_odpowiedzi_skrzynki_zostaje_ostatni_znany_stan(tmp_path: Path, failure: Refused | Unreachable) -> None:
+def test_bez_odpowiedzi_skrzynki_zostaje_ostatni_znany_stan(tmp_path: Path) -> None:
     config = old_files(tmp_path)
     closed = Closure("completed", at(24, 15))
-    box = AnsweringBox({"zgloszenie": failure, "uwaga-taty": (Issue(12, "", closed),)})
+    box = AnsweringBox({"zgloszenie": Unreachable(), "uwaga-taty": (Issue(12, "", closed),)})
 
-    DadCases(config, log(tmp_path)).ask_box(box, KEY)
+    DadCases(config, log(tmp_path)).ask_box(keyed(box))
 
     assert [label for label, _, _ in box.asked] == ["zgloszenie", "uwaga-taty"]
     assert [case.closure for case in cases(tmp_path)] == [
@@ -344,6 +349,16 @@ def test_bez_odpowiedzi_skrzynki_zostaje_ostatni_znany_stan(tmp_path: Path, fail
         closed,
         None,
     ]
+
+
+def test_po_odmowie_klucza_skrzynka_nie_jest_pytana_o_drugi_rodzaj_a_stan_zostaje(tmp_path: Path) -> None:
+    config = old_files(tmp_path)
+    box = AnsweringBox({"zgloszenie": Refused(), "uwaga-taty": (Issue(12, "", Closure("completed", at(24, 15))),)})
+
+    DadCases(config, log(tmp_path)).ask_box(keyed(box))
+
+    assert [label for label, _, _ in box.asked] == ["zgloszenie"]
+    assert [case.closure for case in cases(tmp_path)] == [case.closure for case in OLD_CASES]
 
 
 def test_nieudany_zapis_zostawia_sprawe_do_konca_pracy_centrum_i_trafia_do_dziennika(tmp_path: Path) -> None:
@@ -437,7 +452,7 @@ def test_sprawa_bez_czasow_i_z_polskimi_literami_wraca_z_pliku_bez_zmian(tmp_pat
 
 
 def _outbox(tmp_path: Path) -> Outbox:
-    return Outbox(tmp_path / "kolejka", AnsweringBox({}), lambda: None, log(tmp_path))
+    return Outbox(tmp_path / "kolejka", KeyedBox(AnsweringBox({}), lambda: None, clock=ManualClock()), log(tmp_path))
 
 
 PINNED_ID = "0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d"

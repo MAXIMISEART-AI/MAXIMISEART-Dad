@@ -29,9 +29,11 @@ from rozliczenia.centrum.report_box import (
     SendOutcome,
     Sent,
     Unreachable,
-    find_issue,
 )
+from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.reports import fingerprint_line
+
+from tests.fixtures.clock import ManualClock
 
 TITLE = "BRAK_WZORCA: Nie znaleziono wzorca."
 BODY = "## Komunikat\n"
@@ -201,12 +203,10 @@ def test_brak_sieci_na_drugiej_stronie_to_skrzynka_nieosiagalna() -> None:
     assert outcome == Unreachable()
 
 
-def find_with(answer: Callable[[], HttpResponse]) -> tuple[FindOutcome, ScriptedTransport]:
+def find_with(answer: Callable[[], HttpResponse]) -> tuple[FindOutcome | NoKey, ScriptedTransport]:
     transport = ScriptedTransport(answer)
-    found = find_issue(
-        GitHubReportBox(transport=transport), "zgloszenie", fingerprint_line(FINGERPRINT), include_closed=False, key=KEY
-    )
-    return found, transport
+    box = KeyedBox(GitHubReportBox(transport=transport), lambda: KEY, clock=ManualClock())
+    return box.find_issue("zgloszenie", fingerprint_line(FINGERPRINT), include_closed=False), transport
 
 
 def test_otwarte_issue_z_odciskiem_problemu_to_znalezione_zgloszenie() -> None:

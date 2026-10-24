@@ -37,10 +37,11 @@ from rozliczenia.centrum.metrics import metrics_router, read_runs
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications, ReadNotifications, notifications_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
+from rozliczenia.centrum.keyed_box import KeyedBox, read_report_key
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
 from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY, Outbox
 from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
-from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports, read_report_key
+from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_logs import LABEL as RUN_LOGS_LABEL, RUN_LOGS_DIRECTORY, RunLogs
@@ -163,7 +164,7 @@ def create_app(
     config = settings_path.parent
     cases = DadCases(config, log)
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz obok Ustawień taty (ADR 0007).
-    box = report_box or GitHubReportBox()
+    box = KeyedBox(report_box or GitHubReportBox(), lambda: read_report_key(config), clock=clock)
     reports = Reports(
         config, box, log, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
     )
@@ -179,7 +180,6 @@ def create_app(
     outbox = Outbox(
         config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
         box,
-        lambda: read_report_key(config),
         log,
         on_delivered=lambda post, number: after_delivery(post, number, cases, outbox),
         prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
@@ -190,7 +190,6 @@ def create_app(
         cases,
         ReadNotifications(config / NOTIFICATIONS_FILE, log),
         box,
-        lambda: read_report_key(config),
         surroundings.tool_freshness,
         release,
         log,
@@ -258,7 +257,13 @@ def create_app(
         )
     )
     app.include_router(metrics_router(entry_processes, today, centrum_runs))
-    app.include_router(configuration_router(configuration, surroundings.tool_freshness, release, reports.key_state, readers))
+    app.include_router(configuration_router(
+            configuration,
+            surroundings.tool_freshness,
+            release,
+            lambda: "ready" if read_report_key(config) is not None else "missing_key",
+            readers,
+        ))
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))

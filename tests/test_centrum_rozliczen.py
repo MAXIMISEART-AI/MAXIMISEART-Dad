@@ -21,7 +21,8 @@ from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, OLD_NOTES_FILE, OLD_RE
 from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE
 from rozliczenia.centrum.outbox import ADDRESSES_FILE
-from rozliczenia.centrum.reports import REPORT_KEY_FILE, UNSENT_DIRECTORY
+from rozliczenia.centrum.keyed_box import REPORT_KEY_FILE
+from rozliczenia.centrum.reports import UNSENT_DIRECTORY
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.settings import default_settings_path
 from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, Centrum, ROOT, centrum

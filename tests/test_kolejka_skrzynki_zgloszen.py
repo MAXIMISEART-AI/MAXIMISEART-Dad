@@ -13,11 +13,13 @@ import threading
 
 import pytest
 
+from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
@@ -46,25 +48,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Queue:
-    """Kolejka na folderze w ``tmp_path``; ``waiting_at_pass`` to liczba linii „skrzynka-czeka” na początku każdego
-    przejścia (kolejka pyta o klucz raz na przejście, a przejścia idą po kolei w jednym wątku)."""
+    """Kolejka na folderze w ``tmp_path`` ze skrzynką ``box`` i kluczem ``key`` (``None``: bez klucza)."""
 
     def __init__(self, tmp_path: Path, box: FakeReportBox, key: str | None = KEY) -> None:
         self.directory = tmp_path / "config" / "zgloszenia" / "kolejka"
         self.log_path = tmp_path / "logs" / "centrum-rozliczen.log"
         self.box = box
         self.key = key
-        self.waiting_at_pass: list[int] = []
         self.outbox = self.restarted()
 
     def restarted(self) -> Outbox:
         """Kolejka nowego startu Centrum na tym samym folderze."""
 
-        return Outbox(self.directory, self.box, self._pass_key, CentrumLog(self.log_path))
+        return Outbox(self.directory, KeyedBox(self.box, lambda: self.key, clock=ManualClock()), CentrumLog(self.log_path))
 
-    def _pass_key(self) -> str | None:
-        self.waiting_at_pass.append(self.log().count("skrzynka-czeka"))
-        return self.key
+    def passed(self) -> None:
+        """Czeka, aż przejście kolejki, które właśnie ruszyło (``resume``, ``send_in_background``), się skończy."""
+
+        assert not self.outbox.wait_delivered("", THREAD.label, timeout_s=30)
 
     def queued(self, *texts: str) -> list[str]:
         """Pliki kolejki z poprzedniej pracy Centrum, po jednym na tekst, w tej kolejności."""
@@ -208,11 +209,12 @@ def test_bez_klucza_przejscie_kolejki_daje_jedna_linie_dziennika_przy_wielu_plik
     queue.queued("pierwsza\n", "druga\n", "trzecia\n")
 
     queue.outbox.resume()
-    assert wait_for(lambda: len(queue.waiting_at_pass) == 1)
+    queue.passed()
+    assert queue.log().count("skrzynka-czeka") == 1
     queue.outbox.send_in_background()
-    assert wait_for(lambda: len(queue.waiting_at_pass) == 2)
+    queue.passed()
 
-    assert queue.waiting_at_pass == [0, 1]
+    assert queue.log().count("skrzynka-czeka") == 2
     assert "skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=brak-klucza" in queue.log()
     assert len(queue.files()) == 3
     assert queue.box.keys == []
@@ -226,11 +228,12 @@ def test_brak_sieci_albo_odmowa_klucza_zatrzymuje_przejscie_z_jedna_linia_dzienn
     queue.queued("pierwsza\n", "druga\n", "trzecia\n")
 
     queue.outbox.resume()
-    assert wait_for(lambda: len(queue.waiting_at_pass) == 1)
+    queue.passed()
+    assert queue.log().count("skrzynka-czeka") == 1
     queue.outbox.send_in_background()
-    assert wait_for(lambda: len(queue.waiting_at_pass) == 2)
+    queue.passed()
 
-    assert queue.waiting_at_pass == [0, 1]
+    assert queue.log().count("skrzynka-czeka") == 2
     assert len(queue.files()) == 3
 
 
@@ -249,9 +252,9 @@ def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_t
         f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=odmowa-tresci plik={refused}" in queue.log()
     )
     assert "brak-sieci" not in queue.log()
-    for passes in (2, 3):
+    for _ in range(2):
         queue.outbox.send_in_background()
-        assert wait_for(lambda: len(queue.waiting_at_pass) == passes)
+        queue.passed()
     assert queue.files() == [refused]
     assert queue.log().count("przyczyna=odmowa-tresci") == 1
 

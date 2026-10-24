@@ -36,18 +36,9 @@ from pathlib import Path
 from typing import Any, Final, Literal, assert_never, get_args
 
 from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog, WaitingCause
-from rozliczenia.centrum.report_box import (
-    COMMENT_LIMIT,
-    Commented,
-    Label,
-    Refused,
-    Rejected,
-    ReportBox,
-    Sent,
-    Unreachable,
-    find_issue,
-)
+from rozliczenia.centrum.report_box import COMMENT_LIMIT, Commented, Label, Refused, Rejected, Sent, Unreachable
 
 QUEUE_DIRECTORY: Final = "kolejka"
 # Poza ``config/zgloszenia``: weryfikacja Kontroli ilości sprawdza, że jest tam tylko kolejka.
@@ -324,84 +315,80 @@ class Gone:
     number: int
 
 
-def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Gone | Refused | Rejected | Unreachable:
+Failure = Refused | Rejected | Unreachable | NoKey
+"""Porażka wysyłki: odmowa klucza, odmowa treści, brak sieci albo brak klucza."""
+
+
+def _deliver(post: Post, box: KeyedBox) -> Delivered | Gone | Failure:
     match post.target:
         case PeriodThread() as thread:
-            return _deliver_to_period(post, thread, box, key)
+            return _deliver_to_period(post, thread, box)
         case NewIssue() as issue:
-            return _deliver_new_issue(post, issue, box, key)
+            return _deliver_new_issue(post, issue, box)
         case KnownIssue() as known:
-            return _deliver_to_known(post, known, box, key)
+            return _deliver_to_known(post, known, box)
         case _:
             assert_never(post.target)
 
 
-def _deliver_new_issue(
-    post: Post, issue: NewIssue, box: ReportBox, key: str
-) -> Delivered | Refused | Rejected | Unreachable:
+def _deliver_new_issue(post: Post, issue: NewIssue, box: KeyedBox) -> Delivered | Failure:
     """Nowe issue z pierwszą częścią (albo nagłówkiem) i komentarze z resztą; porażka kończy wysyłkę."""
 
     body, comments = post.opening()
-    opened = box.open_issue(issue.label, issue.title, body, key=key)
+    opened = box.open_issue(issue.label, issue.title, body)
     if not isinstance(opened, Sent):
         return opened
-    return _comment_all(opened.number, comments, box, key)
+    return _comment_all(opened.number, comments, box)
 
 
-def _deliver_to_known(
-    post: Post, known: KnownIssue, box: ReportBox, key: str
-) -> Delivered | Gone | Refused | Rejected | Unreachable:
+def _deliver_to_known(post: Post, known: KnownIssue, box: KeyedBox) -> Delivered | Gone | Failure:
     """Każda część jako komentarz do issue ``known.number``, jeśli skrzynka je ma (otwarte albo zamknięte).
 
     Komentarz do issue, które Maks usunął, to 404, czyli odmowa, która zatrzymałaby całą kolejkę, więc kolejka
     najpierw pyta o issue z etykietą. Gdy lista przyszła bez tego numeru, issue nie ma (``Gone``).
     """
 
-    found = box.labelled_issues(known.label, include_closed=True, key=key)
-    if isinstance(found, Refused | Unreachable):
+    found = box.labelled_issues(known.label, include_closed=True)
+    if isinstance(found, Refused | Unreachable | NoKey):
         return found
     if all(issue.number != known.number for issue in found):
         return Gone(known.number)
-    return _comment_all(known.number, post.parts, box, key)
+    return _comment_all(known.number, post.parts, box)
 
 
-def _deliver_to_period(
-    post: Post, thread: PeriodThread, box: ReportBox, key: str
-) -> Delivered | Refused | Rejected | Unreachable:
+def _deliver_to_period(post: Post, thread: PeriodThread, box: KeyedBox) -> Delivered | Failure:
     """Każda część jako komentarz do issue okresu, a bez niego nowe issue z pierwszą częścią i komentarze z resztą.
 
     Issue okresu jest szukane przy każdej próbie, więc usunięte albo zamknięte issue nie blokuje kolejki. Pierwsza
     porażka kończy wysyłkę; następna próba zaczyna od nowa.
     """
 
-    found = find_issue(box, thread.label, thread.line, include_closed=thread.closed == "reuse", key=key)
-    if isinstance(found, Refused | Unreachable):
+    found = box.find_issue(thread.label, thread.line, include_closed=thread.closed == "reuse")
+    if isinstance(found, Refused | Unreachable | NoKey):
         return found
     if found is None:
         body, comments = post.opening()
-        opened = box.open_issue(thread.label, thread.title, body, key=key)
+        opened = box.open_issue(thread.label, thread.title, body)
         if not isinstance(opened, Sent):
             return opened
         number = opened.number
     else:
         number, comments = found, post.parts
-    return _comment_all(number, comments, box, key)
+    return _comment_all(number, comments, box)
 
 
-def _comment_all(
-    number: int, comments: Sequence[str], box: ReportBox, key: str
-) -> Delivered | Refused | Rejected | Unreachable:
+def _comment_all(number: int, comments: Sequence[str], box: KeyedBox) -> Delivered | Failure:
     delivered: list[Commented] = []
     for comment in comments:
-        answer = box.comment(number, comment, key=key)
+        answer = box.comment(number, comment)
         if not isinstance(answer, Commented):
             return answer
         delivered.append(answer)
     return Delivered(number, tuple(delivered))
 
 
-def _waiting(outcome: Refused | Rejected | Unreachable | None) -> tuple[WaitingCause, Literal["stop", "next"]]:
-    """Przyczyna w dzienniku i co dalej w przejściu kolejki po porażce wysyłki (``None``: brak klucza).
+def _waiting(outcome: Failure) -> tuple[WaitingCause, Literal["stop", "next"]]:
+    """Przyczyna w dzienniku i co dalej w przejściu kolejki po porażce wysyłki.
 
     Brak klucza, brak sieci (także limit zapytań) i odmowa (401/403/404: klucz albo dostęp) spotkałyby każdy następny plik,
     więc przejście staje z jedną linią dziennika. Odmowa treści dotyczy tylko tego pliku: zostaje do następnego
@@ -409,7 +396,7 @@ def _waiting(outcome: Refused | Rejected | Unreachable | None) -> tuple[WaitingC
     """
 
     match outcome:
-        case None:
+        case NoKey():
             return "brak-klucza", "stop"
         case Unreachable():
             return "brak-sieci", "stop"
@@ -435,8 +422,7 @@ class Outbox:
     def __init__(
         self,
         directory: Path,
-        box: ReportBox,
-        key: Callable[[], str | None],
+        box: KeyedBox,
         log: CentrumLog,
         *,
         on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
@@ -445,7 +431,6 @@ class Outbox:
     ) -> None:
         self._directory = directory
         self._box = box
-        self._key = key
         self._log = log
         self._on_delivered = on_delivered
         self._prepare = prepare
@@ -551,7 +536,6 @@ class Outbox:
         paths = sorted(self._directory.glob("*.json"))
         if not paths:
             return
-        key = self._key()
         for path in paths:
             if path.name in self._undeleted:
                 self._remove(path)
@@ -569,7 +553,7 @@ class Outbox:
             if post is None:
                 continue
             label, period = post.target.label, post.period
-            outcome = None if key is None else _deliver(post, self._box, key)
+            outcome = _deliver(post, self._box)
             if isinstance(outcome, Gone):
                 self._log.box_post_dropped(label=label, file=path.name, number=outcome.number)
                 self._remove(path)

@@ -16,9 +16,9 @@ w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused`` bez
 zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem,
 komentarz ``Commented`` z identyfikatorem i adresem, a pytanie o issue z
 etykietą (``labelled_issues``) daje ich numery, treści i zamknięcie (powód i czas,
-z których Powiadomienia biorą stan sprawy). ``find_issue`` wybiera z nich
+z których Powiadomienia biorą stan sprawy). ``newest_with_line`` wybiera z nich
 najnowsze issue z wierszem rozpoznawczym: odciskiem problemu Zgłoszenia albo
-tokenem okresu Kontroli ilości.
+tokenem okresu Kontroli ilości. Klucz taty podaje adapterowi tylko ``KeyedBox``.
 """
 
 from __future__ import annotations
@@ -145,12 +145,9 @@ _MAX_PAGES: Final = 10
 _CLOSE_REASONS: Final[Mapping[str, CloseReason]] = {reason: reason for reason in get_args(CloseReason)}
 
 
-def find_issue(box: ReportBox, label: Label, line: str, *, include_closed: bool, key: str) -> FindOutcome:
-    """Najnowsze (o najwyższym numerze) issue z etykietą ``label`` i dokładnie wierszem ``line`` w treści."""
+def newest_with_line(issues: tuple[Issue, ...], line: str) -> int | None:
+    """Najnowsze (o najwyższym numerze) z ``issues`` z dokładnie wierszem ``line`` w treści."""
 
-    issues = box.labelled_issues(label, include_closed=include_closed, key=key)
-    if isinstance(issues, Refused | Unreachable):
-        return issues
     return max((issue.number for issue in issues if line in issue.body.splitlines()), default=None)
 
 

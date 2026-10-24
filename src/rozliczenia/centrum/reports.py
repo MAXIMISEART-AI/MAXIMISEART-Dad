@@ -19,7 +19,6 @@ a „Wyślij do Maksa” wysyła dokładnie ten podgląd, najwyżej raz na uchwy
 
 from __future__ import annotations
 
-import codecs
 import threading
 from collections.abc import Callable
 from dataclasses import astuple, dataclass
@@ -34,14 +33,14 @@ from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.dad_cases import REPORT, Case, DadCases
 from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.diagnosis import Diagnosis
+from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.report_box import FindOutcome, Refused, ReportBox, SendOutcome, Sent, find_issue
+from rozliczenia.centrum.report_box import FindOutcome, Refused, SendOutcome, Sent
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
 from rozliczenia.message import Message
 from rozliczenia.process_run import Stop
 
-REPORT_KEY_FILE: Final = "zgloszenia-klucz.txt"
 UNSENT_DIRECTORY: Final = "zgloszenia"
 # Podgląd Zgłoszenia czeka w tle na odpowiedź skrzynki o otwarte Zgłoszenie najwyżej tyle, co Diagnoza na commit `main`.
 SEARCH_DEADLINE_S: Final = 3.0
@@ -412,7 +411,7 @@ class Reports:
     def __init__(
         self,
         config_directory: Path,
-        box: ReportBox,
+        box: KeyedBox,
         log: CentrumLog,
         commit: CommitSource,
         cases: DadCases,
@@ -421,7 +420,6 @@ class Reports:
     ) -> None:
         self._commit = commit
         self._search_deadline_s = search_deadline_s
-        self._config_directory = config_directory
         self._unsent = config_directory / UNSENT_DIRECTORY
         self._cases = cases
         self._box = box
@@ -448,20 +446,15 @@ class Reports:
     def _deliver(self, preview: _Preview) -> contract.ReportState:
         """Wysyła ``preview``, gdy skrzynka nie ma otwartego Zgłoszenia tego problemu; inaczej zapisuje plik."""
 
-        key = self._key()
-        outcome: SendOutcome | None = None
-        if key is not None:
-            found = self._find_open(preview.report.fingerprint, key)
-            if isinstance(found, int):
-                with self._lock:
-                    self._open[preview.report.fingerprint] = found
-                preview.logged.waiting(found)
-                return contract.ReportWaiting(state="waiting")
-            outcome = (
-                self._box.open_issue(REPORT.label, preview.report.title, preview.report.body, key=key)
-                if found is None
-                else found
-            )
+        found = self._find_open(preview.report.fingerprint)
+        if isinstance(found, int):
+            with self._lock:
+                self._open[preview.report.fingerprint] = found
+            preview.logged.waiting(found)
+            return contract.ReportWaiting(state="waiting")
+        outcome: SendOutcome | NoKey = (
+            self._box.open_issue(REPORT.label, preview.report.title, preview.report.body) if found is None else found
+        )
         saved = self._unsent / preview.file_name
         if isinstance(outcome, Sent):
             with self._lock:
@@ -484,7 +477,7 @@ class Reports:
             return contract.ReportSent(state="sent")
         unsent = (
             report_messages.key_missing(saved)
-            if outcome is None
+            if isinstance(outcome, NoKey)
             else report_messages.key_refused(saved)
             if isinstance(outcome, Refused)
             else report_messages.box_unreachable(saved)
@@ -506,10 +499,7 @@ class Reports:
         przepada, a wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
         """
 
-        key = self._key()
-        if key is None:
-            return
-        answer = within(self._search_deadline_s, lambda: (self._find_open(fingerprint, key),), name="skrzynka-szukaj")
+        answer = within(self._search_deadline_s, lambda: (self._find_open(fingerprint),), name="skrzynka-szukaj")
         if answer is None:
             return
         [found] = answer
@@ -517,8 +507,8 @@ class Reports:
             with self._lock:
                 self._open[fingerprint] = found
 
-    def _find_open(self, fingerprint: str, key: str) -> FindOutcome:
-        return find_issue(self._box, REPORT.label, fingerprint_line(fingerprint), include_closed=False, key=key)
+    def _find_open(self, fingerprint: str) -> FindOutcome | NoKey:
+        return self._box.find_issue(REPORT.label, fingerprint_line(fingerprint), include_closed=False)
 
     def _state_of(self, fingerprint: str) -> contract.ReportState:
         """Odpowiedź skrzynki z tej pracy Centrum, a bez niej ostatni znany stan wysłanego Zgłoszenia.
@@ -532,23 +522,3 @@ class Reports:
             sent = self._cases.find(REPORT, fingerprint)
             waiting = sent is not None and sent.closure is None
         return contract.ReportWaiting(state="waiting") if waiting else contract.ReportReady(state="ready")
-
-    def key_state(self) -> contract.ReportKeyState:
-        return "ready" if self._key() is not None else "missing_key"
-
-    def _key(self) -> str | None:
-        return read_report_key(self._config_directory)
-
-
-def read_report_key(config_directory: Path) -> str | None:
-    """Klucz do Skrzynki Zgłoszeń z lokalnego pliku; ``None``, gdy pliku nie ma albo jest pusty."""
-
-    try:
-        content = (config_directory / REPORT_KEY_FILE).read_bytes()
-        # Notatnik dopisuje BOM UTF-8, a ``>`` i ``Out-File`` w PowerShell 5.1 zapisują UTF-16 z BOM.
-        encoding = "utf-16" if content.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
-        key = content.decode(encoding).strip()
-    except (OSError, UnicodeError):
-        return None
-    return key or None
-
