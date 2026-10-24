@@ -78,9 +78,14 @@ def drive_configuration(run: Run, page: Page) -> None:
     buttons = page.locator("main").get_by_role("button")
     run.check(
         page.url.endswith("#/konfiguracja")
-        and buttons.count() == 3
-        and buttons.filter(has_text="Zaktualizuj narzędzie").count() == 1,
-        "the page offers no action besides the header's menu and theme buttons and `Zaktualizuj narzędzie`",
+        and buttons.count() == 2
+        and buttons.filter(has_text="Zaktualizuj narzędzie").count() == 0,
+        "the page offers no action besides the header's menu and theme buttons; the current tool has no `Zaktualizuj narzędzie`",
+    )
+    offer = run.api("/api/configuration", "konfiguracja-tylko-do-odczytu")
+    run.check(
+        (offer["freshness"], offer["update_offered"]) == ("current", False),
+        "the server offers no Aktualizacja narzędzia for the current tool",
     )
     run.capture(page, "11-konfiguracja-tylko-do-odczytu", full_page=False)
     page.mouse.move(0, 0)

@@ -143,7 +143,7 @@ class ToolUpdates:
     def _ask_box_after_restart(self, failed: contract.ToolUpdateFailed, draft: Draft) -> None:
         try:
             state = self._reports.ask(draft)
-        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             self._log.unexpected_failure(failure, where="stan Zgłoszenia aktualizacji przy starcie")
             return
         with self._lock:
@@ -190,7 +190,7 @@ class ToolUpdates:
             # Opiekun działa z kopii sprzed aktualizacji, więc kopia powstaje, zanim klon się zmieni.
             guardian = restart_guardian.prepare(work)
             return clone.update(self._show_step), guardian
-        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             self._log.unexpected_failure(failure, where="aktualizacja narzędzia")
             return UpdateResult(UNEXPECTED, before, None), None
 
@@ -202,7 +202,7 @@ class ToolUpdates:
                 with self._lock:
                     self._view = contract.ToolUpdateRunning(state="running", step="restarting")
                 self._guardian(guardian, restart)
-        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             self._log.unexpected_failure(failure, where="ponowny start po aktualizacji")
             return False
         self._shutdown.close_for_update()
@@ -216,7 +216,7 @@ class ToolUpdates:
 
         try:
             clone.roll_back()
-        except Exception as failure:  # noqa: BLE001 - granica wątku: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             self._log.unexpected_failure(failure, where="cofnięcie aktualizacji")
             return replace(result, code=ROLLBACK_FAILED)
         return replace(result, code=UNEXPECTED)

@@ -80,7 +80,11 @@ def tool_update_until(centrum: PreparingCentrum, reached: Callable[[dict[str, An
 def tool_on_configuration(centrum: PreparingCentrum) -> dict[str, Any]:
     configuration = centrum.client.get("/api/configuration").json()
     version = configuration["version"]
-    return {"commit": None if version is None else version["commit"], "freshness": configuration["freshness"]}
+    return {
+        "commit": None if version is None else version["commit"],
+        "freshness": configuration["freshness"],
+        "update_offered": configuration["update_offered"],
+    }
 
 
 def log_events(centrum: PreparingCentrum) -> list[str]:
@@ -102,7 +106,7 @@ def test_po_aktualizacji_centrum_zamyka_sie_i_prosi_opiekuna_o_start_nowej_wersj
     run = centrum.start(dry_run=True)
 
     assert outdated["commit"] == before[:7]
-    assert outdated["freshness"] == "newer"
+    assert (outdated["freshness"], outdated["update_offered"]) == ("newer", True)
     assert view == {"state": "running", "step": "restarting"}
     assert repository.head() == newest
     [restart] = centrum.surroundings.restarts
@@ -136,7 +140,7 @@ def test_nowe_centrum_po_aktualizacji_zapisuje_wynik_od_opiekuna_w_dzienniku_i_p
     assert (old_health["commit"], new_health["commit"]) == (before[:7], newest[:7])
     assert new_health["instance"] != old_health["instance"]
     assert view == {"state": "updated"}
-    assert tool_on_configuration(centrum) == {"commit": newest[:7], "freshness": "current"}
+    assert tool_on_configuration(centrum) == {"commit": newest[:7], "freshness": "current", "update_offered": False}
     assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
     assert not restart.result.exists()
     assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
@@ -200,8 +204,9 @@ def test_przed_kliknieciem_nie_ma_aktualizacji(tmp_path: Path) -> None:
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_to_nie_sprawdzono(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     centrum.surroundings.github.release = None
+    tool = tool_on_configuration(centrum)
 
-    assert tool_on_configuration(centrum)["freshness"] == "not_checked"
+    assert (tool["freshness"], tool["update_offered"]) == ("not_checked", False)
 
 
 NEWER_MAIN = "f" * 40

@@ -19,13 +19,14 @@ import time
 import urllib.request
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
+from quiet_machine import MachineBusy, QuietMachine
+from skrypt_skilla import Parser, new_run
+
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
-
-from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES  # noqa: E402
-from quiet_machine import MachineBusy, QuietMachine  # noqa: E402
-from skrypt_skilla import Parser, new_run  # noqa: E402
 STEP_TIMEOUT_SECONDS = 300
 # wydajnosc repeats every scenario in two CPU profiles, so its drive takes minutes.
 PERFORMANCE_TIMEOUT_SECONDS = 1800
