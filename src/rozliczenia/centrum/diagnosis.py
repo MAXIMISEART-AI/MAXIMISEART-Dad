@@ -201,7 +201,7 @@ class _Check:
             return self.run(computer, self.label)
         except PeriodFolderInaccessible as inaccessible:
             return [CheckResult.failed(self.label, preparation_messages.folder_inaccessible(inaccessible.folder))]
-        except Exception as failure:  # noqa: BLE001 - granica sprawdzenia: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             computer.log.unexpected_failure(failure, where=f"Diagnoza: {self.label}")
             return [CheckResult.not_checked(self.label, _NOT_CHECKED_UNEXPECTED)]
 

@@ -114,6 +114,9 @@ extend-select = [
 # tests/test_skrypty_bez_instalacji.py, więc noqa przy każdym imporcie byłoby kopią do skopiowania.
 "tools/**" = ["E402"]
 ".agents/skills/*/scripts/**" = ["E402"]
+# Szeroki except w Centrum kończy się unexpected_failure dziennika Centrum albo ponownym rzuceniem; pilnuje tego
+# tests/test_granice_wyjatkow.py zamiast noqa z tym samym powodem w każdej kopii.
+"src/rozliczenia/centrum/**" = ["BLE001"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # Mypy w CI sprawdza kod dla Windows i dla macOS/Linuksa, ale gałąź pod os.name widzi na obu, więc
