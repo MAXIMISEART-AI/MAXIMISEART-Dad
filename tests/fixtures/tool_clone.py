@@ -64,7 +64,7 @@ def git(directory: Path, *args: str) -> str:
         encoding="utf-8",
         check=False,
     )
-    assert result.returncode == 0, f"git {' '.join(args)}: {result.stderr}"
+    assert result.returncode == 0, f"git {' '.join(args)}: {result.stderr}{result.stdout}"
     return result.stdout.strip()
 
 

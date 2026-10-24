@@ -173,10 +173,12 @@ def test_czas_decyzji_taty_nie_liczy_sie_do_czasu_uruchomienia(tmp_path: Path) -
     pause_s = 1.0
     tata = Tata(before_answer=lambda: time.sleep(pause_s))
 
+    started = time.perf_counter()
     outcome = run_core(fake_process(execute=asking_between_planning_and_saving), tmp_path / "metrics.jsonl", tata=tata)
+    not_waiting_ms = (time.perf_counter() - started - pause_s) * 1000
 
     assert outcome.result == "OK"
     assert len(tata.decisions) == 1
-    assert outcome.total_duration_ms < pause_s * 1000
+    assert outcome.total_duration_ms <= not_waiting_ms + 0.5  # czas uruchomienia jest zaokrąglony do pełnych ms
     [record] = records(tmp_path / "metrics.jsonl")
     assert record["total_duration_ms"] == outcome.total_duration_ms

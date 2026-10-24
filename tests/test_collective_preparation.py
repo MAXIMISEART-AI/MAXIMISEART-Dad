@@ -1274,10 +1274,14 @@ def test_time_of_decyzja_taty_is_not_counted_in_przygotowanie_time(tmp_path: Pat
     fixture = incomplete_period_fixture(tmp_path)
     recorded: list[ProgressEvent] = []
     pause_s = 1.5
+    rounding_ms = 0.5  # czasy etapów i Zdarzeń przebiegu są zaokrąglone do pełnych ms
 
+    started = time.perf_counter()
     summary = run_preparation(
         fixture, observer=recorded.append, conversation=Tata(before_answer=lambda: time.sleep(pause_s))
     )
+    not_waiting_ms = (time.perf_counter() - started - pause_s) * 1000
 
-    assert sum(summary.phase_durations_ms.values()) < pause_s * 1000
-    assert max(event.elapsed_ms or 0 for event in recorded) < pause_s * 1000
+    durations = summary.phase_durations_ms.values()
+    assert sum(durations) <= not_waiting_ms + rounding_ms * len(durations)
+    assert max(event.elapsed_ms or 0 for event in recorded) <= not_waiting_ms + rounding_ms

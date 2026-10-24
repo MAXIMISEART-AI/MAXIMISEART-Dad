@@ -8,10 +8,11 @@ z ``PYTHONPATH`` na ``src`` kopii: edytowalna instalacja ``.venv`` wskazuje ``sr
 
 Mutacja zmienia jedną albo kilka kotwic, każdą obecną w swoim pliku dokładnie raz; inaczej jest
 NIEAKTUALNA. Pusta kotwica w pliku, którego nie ma, tworzy go razem z katalogami. Zanim narzędzie
-zepsuje kod, polecenie musi przejść na kopii bez mutacji, a jeśli mutacja oczekuje ostatniej linii
-wyjścia, polecenie bez mutacji nie może się nią kończyć. Mutacja jest WYKRYTA, gdy polecenie pada albo
-kończy się oczekiwaną linią; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem. Mutacje
-biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je zrównolegla.
+zepsuje kod, polecenie musi przejść na kopii bez mutacji, a jeśli mutacja oczekuje ostatniej
+linii wyjścia, polecenie bez mutacji nie może się nią kończyć. Mutacja jest WYKRYTA, gdy polecenie
+pada albo kończy się oczekiwaną linią; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem.
+Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je
+zrównolegla.
 Polecenia i kopie biegną przez ``tools/potomne.py``: procesy potomne polecenia giną z jego końcem, a
 przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i usuwają kopie.
 
@@ -20,9 +21,10 @@ przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i
     .venv/bin/python tools/mutacje.py --plik mutacje.json -- -m pytest -q tests/test_x.py
 
 Plik JSON to lista ``{"nazwa", "zmiany": [[plik, kotwica, zamiana], ...]}`` z opcjonalnym
-``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``, i opcjonalnym ``"oczekiwane"``,
-początkiem ostatniej linii wyjścia, który wykrywa mutację zamiast kodu wyjścia. Skrypty
-``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``.
+``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``, i opcjonalnym
+``"oczekiwane"``, początkiem ostatniej linii wyjścia, który wykrywa mutację zamiast kodu wyjścia.
+Skrypty ``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez
+``check_all``.
 """
 
 from __future__ import annotations

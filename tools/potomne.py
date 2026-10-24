@@ -194,7 +194,8 @@ if sys.platform == "win32":
 
     _KILL_ON_JOB_CLOSE = 0x2000
     _EXTENDED_LIMIT_INFORMATION = 9
-    _TERMINATE_AND_SET_QUOTA = 0x0101
+    _TERMINATE_SET_QUOTA_AND_RESUME = 0x0901
+    _CREATE_SUSPENDED = 0x0004
 
     class _Tree:
         """Job Object obejmuje też potomków, którzy przeżyli polecenie; ``taskkill /T`` już ich nie znajduje."""
@@ -212,17 +213,18 @@ if sys.platform == "win32":
                 error = ctypes.get_last_error()
                 kernel32.CloseHandle(self._job)
                 raise OSError(error, "Job Object dla polecenia")
+            # Wstrzymane do przypisania: inaczej polecenie zdąży uruchomić potomka, który jest poza jobem i przeżywa.
             try:
-                self.process = subprocess.Popen(command, **popen)
+                self.process = subprocess.Popen(command, creationflags=_CREATE_SUSPENDED, **popen)
             except BaseException:
                 kernel32.CloseHandle(self._job)
                 raise
-            handle = wintypes.HANDLE(kernel32.OpenProcess(_TERMINATE_AND_SET_QUOTA, False, self.process.pid))
+            handle = wintypes.HANDLE(kernel32.OpenProcess(_TERMINATE_SET_QUOTA_AND_RESUME, False, self.process.pid))
             assigned = handle.value and kernel32.AssignProcessToJobObject(self._job, handle)
             error = ctypes.get_last_error()
+            resumed = assigned and ctypes.WinDLL("ntdll").NtResumeProcess(handle) == 0
             kernel32.CloseHandle(handle)
-            # Polecenie, które skończyło się przed przypisaniem, ma już wynik, a pusty job nie ma czego zabić.
-            if not assigned and self.process.poll() is None:
+            if not resumed:
                 self.process.kill()
                 self.process.wait()
                 kernel32.CloseHandle(self._job)
