@@ -15,13 +15,8 @@ logs/
 .verification/
 .przygotowanie-pliku-zbiorczego-metrics.jsonl
 .DS_Store
-config/worker_mapping.yaml
-config/centrum-ustawienia.yaml
-config/centrum-uruchomienia.jsonl
-config/zgloszenia-klucz.txt
-config/zgloszenia-wyslane.json*
-config/zgloszenia/
-config/centrum-aktualizacja.json*
-config/centrum-aktualizacja-w-toku/
+# Pliki Centrum w config/ (Uwagi taty, adresy Skrzynki, klucz) nie trafiają do publicznego repozytorium.
+config/*
+!config/worker_mapping.example.yaml
 node_modules/
 .benchmark/
