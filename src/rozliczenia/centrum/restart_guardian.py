@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -139,7 +140,8 @@ def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show
 
     Wszystko albo nic: gdy nowa wersja nie odpowie (albo stare Centrum nie
     zwolni portu), klon wraca do commitu sprzed aktualizacji, a plik wyniku
-    mówi, co się stało naprawdę. ``show_problem`` pokazuje natywne okienko
+    mówi, co się stało naprawdę, albo go nie ma, gdy dysk go nie przyjmie.
+    ``show_problem`` pokazuje natywne okienko
     (tytuł, treść); w testach podstawiane.
     """
 
@@ -147,16 +149,19 @@ def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show
     released = _port_released(restart.port)
     if released:
         # Nowe Centrum czyta wynik raz przy starcie, więc plik musi być gotowy, zanim ono wystartuje.
-        write_result(restart.result, _result(restart, UPDATED))
+        _record(restart, UPDATED)
         new = _start_centrum(restart)
         if _answers(new, restart.port, restart.after):
             ToolClone(restart.root).confirm_update()
             shutil.rmtree(restart.work, ignore_errors=True)
             return 0
         _stop(new)
+        # „ok” przestało być prawdą: Centrum ze skrótu w trakcie cofania nie może go przeczytać.
+        with suppress(OSError):
+            restart.result.unlink(missing_ok=True)
     before = restart.before
     rolled_back = _rolled_back(restart)
-    write_result(restart.result, _result(restart, NEW_VERSION_FAILED if rolled_back else ROLLBACK_FAILED))
+    _record(restart, NEW_VERSION_FAILED if rolled_back else ROLLBACK_FAILED)
     # Bez zwolnionego portu stara wersja też by nie wystartowała; po nieudanym cofnięciu nie ma starej wersji.
     if released and rolled_back and before is not None:
         if _port_released(restart.port) and _answers(_start_centrum(restart), restart.port, before):
@@ -170,8 +175,11 @@ def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show
     return 1
 
 
-def _result(restart: Restart, code: str) -> UpdateResult:
-    return UpdateResult(code, restart.before, restart.after, restart.installed)
+def _record(restart: Restart, code: str) -> None:
+    """Wynik dla karty; gdy dysk go nie przyjmie, karta nic nie powie, a opiekun i tak startuje Centrum albo okienko."""
+
+    with suppress(OSError):
+        write_result(restart.result, UpdateResult(code, restart.before, restart.after, restart.installed))
 
 
 def _start_centrum(restart: Restart) -> subprocess.Popen[bytes]:
