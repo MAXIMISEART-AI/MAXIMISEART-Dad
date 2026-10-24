@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, dad_notes_router, with_logs
+from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, after_delivery, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router, read_runs
@@ -162,13 +162,16 @@ def create_app(
     def run_logs_address(run_id: str) -> str | None:
         return outbox.delivered(run_id, RUN_LOGS_LABEL)
 
+    def run_logs_rejected(run_id: str) -> bool:
+        return outbox.rejected(run_id, RUN_LOGS_LABEL)
+
     outbox = Outbox(
         config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
         box,
         lambda: read_report_key(config),
         log,
-        on_delivered=notes.delivered,
-        prepare=lambda post: with_logs(post, notes, run_logs_address),
+        on_delivered=lambda post, number: after_delivery(post, number, notes, outbox),
+        prepare=lambda post: with_logs(post, notes, run_logs_address, run_logs_rejected),
         addresses=config / ADDRESSES_FILE,
     )
     # Najnowsze Wydanie na GitHubie: jedna pamiętana odpowiedź dla Konfiguracji i Powiadomień (limit API bez klucza).
