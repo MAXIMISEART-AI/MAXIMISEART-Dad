@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 import os
 from pathlib import Path
 import time
+import zipfile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
@@ -24,6 +25,8 @@ from rozliczenia.domain import (
 )
 from rozliczenia.progress import PhaseState, ProgressProjection
 from rozliczenia.message import StopError
+from rozliczenia.preparation_register import read_register
+from rozliczenia.settlement_period import parse_period_token
 
 from tests.fixtures.preparation import (
     COLLECTIVE_FILE_NAME,
@@ -392,6 +395,45 @@ def test_dry_run_returns_plan_with_orders_per_day_and_writes_nothing(tmp_path: P
     assert summary.collective_file == fixture.collective_file_path
     assert list(fixture.periods_directory.iterdir()) == []
     assert [path.read_bytes() for path in inputs] == before
+
+
+def test_rejestr_replaced_after_podglad_by_one_of_the_same_size_and_time_is_read_anew_by_run(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    before = fixture.register_path.stat()
+    run_preparation(fixture, dry_run=True)
+    write_register(fixture.register_path, default_register_rows()[:-1])
+    with zipfile.ZipFile(fixture.register_path, "a") as archive:
+        archive.comment = b" " * (before.st_size - fixture.register_path.stat().st_size)
+    os.utime(fixture.register_path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = fixture.register_path.stat()
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_order_count == 3
+    assert summary.successful_order_count == 2
+
+
+def test_rejestr_rows_remembered_after_podglad_cannot_be_changed(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    link_register_order_numbers(fixture.register_path, "https://firma.example/zlecenie/")
+    row = read_register(fixture.register_path, parse_period_token(PERIOD))[0].rows[0]
+    column, link = next(iter(row.hyperlinks.items()))
+
+    with pytest.raises(TypeError):
+        row.hyperlinks[column] = link  # type: ignore[index]
+    with pytest.raises(TypeError):
+        row.quantities[column] = 1  # type: ignore[index]
+
+
+def test_podglad_of_another_period_does_not_change_what_run_reads_from_the_same_rejestr(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    run_preparation(fixture, "15_21_09_2026", dry_run=True)
+
+    summary = run_preparation(fixture)
+
+    assert summary.period_order_count == 4
+    assert summary.orders_per_day == EXPECTED_ORDERS_PER_DAY
 
 
 STAGES_IN_ORDER = [

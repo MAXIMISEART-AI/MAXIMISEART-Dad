@@ -37,6 +37,7 @@ from rozliczenia.workbook_files import (
     read_data_rows,
     read_workbook,
     save_workbook,
+    workbook_content,
 )
 
 from tests.fixtures.benchmark import (
@@ -88,7 +89,7 @@ def styled_template(path: Path) -> Path:
 
 
 def _read_with_format(path: Path) -> None:
-    with read_workbook(path) as workbook:
+    with read_workbook(path, workbook_content(path)) as workbook:
         for sheet in workbook.sheets():
             list(sheet.data_rows(min_row=1, columns=range(1, 15)))
 
