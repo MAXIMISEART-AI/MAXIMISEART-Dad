@@ -12,6 +12,7 @@ without it is a dead end this feature catches.
 
 - `blad-odczytu-ustawienia`: Ustawienia taty that fail at the tab's start leave Okresy with `Nie udało się odczytać okresów`; `Spróbuj ponownie` reads them and the Tablica okresów appears.
 - `blad-odczytu-tablica`: a failed read of the Tablica okresów on Okresy, then the board after `Spróbuj ponownie`.
+- `blad-odczytu-okresy-jednym-kliknieciem`: Ustawienia taty, the Tablica okresów and the metrics all fail at the tab's start; Okresy shows one alert, and one `Spróbuj ponownie` reads all three again and brings back the board and the key numbers.
 - `blad-odczytu-uruchomienia`: a failed read of what Uruchomienia needs to start (`Nie udało się odczytać Uruchomień`), then the combobox `Okres`.
 - `blad-odczytu-historia`: a failed read of the Historia tab on Uruchomienia (`Nie udało się odczytać historii`), then the table `Historia Uruchomień procesu`.
 - `blad-odczytu-metryki`: a failed read of Metryki (`Nie udało się odczytać metryk`), then the history table.
@@ -34,6 +35,7 @@ Preconditions:
 - **Every page.** For each sub-feature: route its path to abort, open the page, find `get_by_role("alert")` with `Nie udało się odczytać <what>`, check it holds `Centrum rozliczeń nie odpowiada.`, that the page's content is absent and that the alert's button `Spróbuj ponownie` is enabled, and capture. Remove the route, click `Spróbuj ponownie` while counting `GET <path>` with `page.on("request")`: at least one read goes out, the content appears, and the alert is gone. Paths and pages:
   - `/api/settings`: `page.goto(<url>#/okresy)` then `page.reload()`; content: table `Tablica okresów`; screenshot `139`.
   - `/api/periods`: link `Metryki`, then link `Okresy`; content: table `Tablica okresów`; screenshot `142`.
+- **Whole Okresy.** Route `/api/settings`, `/api/periods` and `/api/metrics` to abort, `page.goto(<url>#/okresy)` then `page.reload()`, and wait until each of the three was aborted. Exactly one `alert` with `Nie udało się odczytać` holds `Centrum rozliczeń nie odpowiada.`; capture `153`. Remove the route and click its `Spróbuj ponownie` once, counting `GET /api/*`: table `Tablica okresów` appears, group `Najważniejsze liczby` shows `<n> OK` and no `Centrum rozliczeń nie odpowiada.`, no alert is left, and all three paths were read; capture `154`.
   - `/api/runs/setup`: link `Okresy`, then link `Uruchomienia`; content: combobox `Okres`; screenshot `143`.
   - `/api/metrics`: tab `Historia` on Uruchomienia; content: table `Historia Uruchomień procesu`; screenshot `144`.
   - `/api/metrics`: link `Okresy`, then link `Metryki`; content: the same table; screenshot `145`.
@@ -41,7 +43,7 @@ Preconditions:
   - `/api/notifications`: button `Powiadomienia` in the header; content: list `Powiadomienia` or region `Nowa wersja …`; screenshot `147`.
   - `/api/dad-notes/runs`: button `Napisz do Maksa`, then button `Do Uruchomienia` in group `Dotyczy`; content: radio group `Uruchomienie` or the text `Nie ma jeszcze Uruchomień z Centrum.`; screenshot `148`; Escape closes the dialog.
 - **Second failure.** On Konfiguracja with `/api/configuration` aborted, replace the route with one that holds the request (harness: an answer that takes its time) and click `Spróbuj ponownie`: button `Trwa Spróbuj ponownie` is disabled; capture `141` with `live=True` (the spinner turns). Abort the held request: the alert stays with `Centrum rozliczeń nie odpowiada.` and button `Spróbuj ponownie` is enabled. Remove the route and click it: list `Wykonawcy` appears.
-- **Proof.** Screenshots `139` and `141`–`148` and the checks in `drive.txt`.
+- **Proof.** Screenshots `139`, `141`–`148`, `153` and `154` and the checks in `drive.txt`.
 
 ## Gotchas
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import re
+from urllib.parse import urlsplit
 
 from playwright.sync_api import Locator, Page, Route, expect
 
@@ -49,6 +50,52 @@ def _fails_then_retries(
         expect(content.first).to_be_visible()
     expect(failure).to_have_count(0)
     run.check(len(sent) >= 1, f"{RETRY} reads {path} again and its content replaces the Komunikat")
+
+
+OKRESY_READS = ("/api/settings", "/api/periods", "/api/metrics")
+
+
+def _whole_page_retries(run: Run, page: Page, board: Locator) -> None:
+    """Every read of Okresy fails at the tab's start; one „Spróbuj ponownie” brings back the board and the key numbers."""
+
+    run.step(FEATURE, "blad-odczytu-okresy-jednym-kliknieciem")
+    stats = page.get_by_role("group", name="Najważniejsze liczby", exact=True)
+    pattern = re.compile(r"/api/(settings|periods|metrics)$")
+    aborted: set[str] = set()
+
+    def abort(route: Route) -> None:
+        aborted.add(urlsplit(route.request.url).path)
+        route.abort()
+
+    page.route(pattern, abort)
+    try:
+        page.goto(run.url + "#/okresy")
+        page.reload()
+        # Sync Playwright runs the route handler only inside its own calls, so the wait is one of them.
+        for _ in range(100):
+            if aborted == set(OKRESY_READS):
+                break
+            page.wait_for_timeout(100)
+        run.check(aborted == set(OKRESY_READS), "settings, periods and metrics failed (unreachable, harness)")
+        failures = page.get_by_role("alert").filter(has_text="Nie udało się odczytać")
+        expect(failures).to_have_count(1)
+        expect(failures).to_contain_text(UNREACHABLE)
+        run.check(True, "three failed reads of Okresy show one „Nie udało się odczytać okresów”")
+        run.capture(page, "153-blad-odczytu-okresy-trzy-odczyty")
+    finally:
+        page.unroute(pattern)
+    with sent_requests(page, "GET", "/api/*") as sent:
+        failures.get_by_role("button", name=RETRY, exact=True).click()
+        expect(board).to_be_visible()
+        expect(stats.get_by_text(re.compile(r"^\d+ OK$"))).to_be_visible()
+    expect(failures).to_have_count(0)
+    expect(stats).not_to_contain_text(UNREACHABLE)
+    read = {urlsplit(request.url).path for request in sent}
+    run.check(
+        read >= set(OKRESY_READS),
+        f"one {RETRY} reads settings, periods and metrics again; the board and the key numbers are back (read {sorted(read)})",
+    )
+    run.capture(page, "154-blad-odczytu-okresy-jednym-kliknieciem")
 
 
 def _retry_in_flight(run: Run, page: Page) -> None:
@@ -111,6 +158,7 @@ def drive_load_failures(run: Run, page: Page) -> None:
         run, page, step="blad-odczytu-tablica", path="/api/periods", what="okresów",
         open_page=via_menu("Okresy"), content=board, shot="142-blad-odczytu-tablica",
     )
+    _whole_page_retries(run, page, board)
     _fails_then_retries(
         run, page, step="blad-odczytu-uruchomienia", path="/api/runs/setup", what="Uruchomień",
         open_page=via_menu("Uruchomienia"), content=page.get_by_role("combobox", name="Okres"),

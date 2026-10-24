@@ -101,6 +101,8 @@ REQUIRED_SCREENSHOTS = {
     "blad-odczytu": (
         "139-blad-odczytu-ustawienia.png",
         "142-blad-odczytu-tablica.png",
+        "153-blad-odczytu-okresy-trzy-odczyty.png",
+        "154-blad-odczytu-okresy-jednym-kliknieciem.png",
         "143-blad-odczytu-uruchomienia.png",
         "144-blad-odczytu-historia.png",
         "145-blad-odczytu-metryki.png",
