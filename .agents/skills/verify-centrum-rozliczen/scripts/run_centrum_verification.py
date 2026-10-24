@@ -56,6 +56,8 @@ REQUIRED_SCREENSHOTS = {
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
         "17-tablica-odczyt-nieudany.png",
+        "151-tablica-brakujacy-plik.png",
+        "152-tablica-brakujacy-plik-dotyk.png",
     ),
     "uklad-folderow-taty": (
         "15-uklad-taty-tablica.png",
