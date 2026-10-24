@@ -23,16 +23,12 @@ __all__ = ["TOOLS", "beating", "potomne", "wait_for", "with_grandchild", "worktr
 GRANDCHILD = "import sys, time\nwhile True:\n    open(sys.argv[1], 'a').write('.')\n    time.sleep(0.1)\n"
 
 
-def with_grandchild(beats: Path, then: str, *, grandchild_output: str = "") -> list[str]:
-    """``then`` biegnie, gdy wnuk już dopisuje do ``beats``.
-
-    ``grandchild_output`` to kod doklejony do argumentów ``Popen`` wnuka, np. ``", stdout=subprocess.DEVNULL"``;
-    bez niego wnuk dziedziczy wyjście polecenia.
-    """
+def with_grandchild(beats: Path, then: str) -> list[str]:
+    """``then`` biegnie, gdy wnuk już dopisuje do ``beats``; wnuk dziedziczy wyjście polecenia."""
 
     code = (
         "import pathlib, subprocess, sys, time\n"
-        f"subprocess.Popen([sys.executable, '-c', {GRANDCHILD!r}, {str(beats)!r}]{grandchild_output})\n"
+        f"subprocess.Popen([sys.executable, '-c', {GRANDCHILD!r}, {str(beats)!r}])\n"
         f"while not pathlib.Path({str(beats)!r}).exists():\n"
         "    time.sleep(0.05)\n"
         f"{then}\n"

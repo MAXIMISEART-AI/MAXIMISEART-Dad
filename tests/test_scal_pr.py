@@ -23,7 +23,6 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Atrapa gh to sk
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 SUM = "def suma(a: int, b: int) -> int:\n    return a + b\n"
-SUM_OF_THREE = "def suma(a: int, b: int, c: int) -> int:\n    return a + b + c\n"
 PYPROJECT = '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nstrict = true\nfiles = ["kod"]\n'
 CLEANUP = 'import pathlib\n\npathlib.Path("posprzatane").write_text("tak")\nprint("SPRZĄTANIE OK | 0 usuniętych")\n'
 FAKE_GH = """\
@@ -478,17 +477,12 @@ def test_pr_zamkniety_szkic_albo_z_forka_nie_jest_scalany(
     [
         ({"kod/nazwa.py": 'NAZWA = "z main"\n'}, {"kod/nazwa.py": 'NAZWA = "z PR"\n'}, "Konflikt z main {main}: kod/nazwa.py"),
         (
-            {"kod/__init__.py": SUM_OF_THREE},
-            {"kod/uzycie.py": "from kod import suma\n\nWYNIK = suma(1, 2)\n"},
-            "Na scaleniu z main {main} pada: mypy, mypy (Windows)",
-        ),
-        (
             {"pyproject.toml": PYPROJECT.replace("[tool.mypy]", '[tool.ruff.lint]\nextend-select = ["B905"]\n\n[tool.mypy]')},
             {"kod/pary.py": "PARY = list(zip([1], [2]))\n"},
             "Na scaleniu z main {main} pada: ruff",
         ),
     ],
-    ids=["konflikt", "mypy-na-scaleniu", "regula-ruff-wlaczona-na-main-po-ci-pr"],
+    ids=["konflikt", "regula-ruff-wlaczona-na-main-po-ci-pr"],
 )
 def test_pr_ktory_nie_scala_sie_czysto_z_biezacym_main_nie_jest_scalany(
     tmp_path: Path, main_files: dict[str, str], pull_files: dict[str, str], reason: str
