@@ -303,7 +303,7 @@ def drive_update(run: Run, page: Page) -> None:
         expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
         run.check(not _answers(run), "the old Centrum has closed and the new one is not up yet")
-        run.check(_log_events(run)[-2:] == ["aktualizacja-start", "zamkniecie"], "the old Centrum closed itself")
+        run.check(_log_events(run)[-3:] == ["aktualizacja-start", "zamkniecie", "stop"], "the old Centrum closed itself and logged its stop")
         run.check(
             "zamkniecie z=aktualizacja" in (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8"),
             "the closing names the update, not the card",
