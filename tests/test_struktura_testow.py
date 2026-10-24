@@ -42,14 +42,10 @@ Definition = ast.Lambda | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
 
 
 def _is_sleep(call: ast.Call, names: dict[str, str]) -> bool:
-    """``time.sleep`` i ``asyncio.sleep`` pod każdą nazwą z importu i czekanie na nowe ``threading.Event``, którego nikt nie ustawi.
-
-    ``sleep(0)`` tylko oddaje sterowanie innym wątkom albo zadaniom, więc niczego nie czeka.
-    """
+    """``time.sleep`` i ``asyncio.sleep`` pod każdą nazwą z importu i czekanie na nowe ``threading.Event``, którego nikt nie ustawi."""
 
     function = call.func
-    yields = bool(call.args) and isinstance(call.args[0], ast.Constant) and call.args[0].value == 0
-    return (dotted(function, names, "") in SLEEPS and not yields) or (
+    return dotted(function, names, "") in SLEEPS or (
         isinstance(function, ast.Attribute)
         and function.attr == "wait"
         and isinstance(function.value, ast.Call)
