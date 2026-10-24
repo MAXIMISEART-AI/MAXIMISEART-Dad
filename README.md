@@ -324,6 +324,11 @@ W git worktree utwórz własne `.venv` przez `py -3 tools/setup_worktree.py`
 (macOS i Linux: `python3 tools/setup_worktree.py`), bo `.venv` głównego
 checkoutu importuje `src` głównego checkoutu.
 
+Lokalne worktree i gałęzie, których praca jest już w `origin/main`, usuwa
+`.venv/bin/python tools/sprzatanie.py` (najpierw `--dry-run`, żeby zobaczyć listę).
+Zostawia każdy worktree z commitami spoza `origin/main`, zmianami, plikami spoza
+`.venv`, `node_modules` i cache, żywym procesem albo aktywnym wątkiem T3 i podaje powód.
+
 Czas Przebiegu rozliczeń mierzy `tools/benchmark_przebiegu.py measure
 --scenario typowy-tydzien` (albo `ciezki-tydzien`) na syntetycznym lustrze
 folderów taty; `tools/benchmark_przebiegu.py comment` drukuje z dziennika
