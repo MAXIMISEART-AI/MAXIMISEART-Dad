@@ -1,6 +1,7 @@
-"""Usuwa lokalne worktree i gałęzie, których praca jest już w ``origin/main``, a resztę opisuje z powodem.
+"""Raportuje, a z ``--usun`` usuwa lokalne worktree i gałęzie, których praca jest już w ``origin/main``; resztę opisuje z powodem.
 
-Worktree usuwa (``git worktree remove`` bez ``--force``, potem jego gałąź), gdy naraz:
+Bez ``--usun`` niczego nie usuwa. Z ``--usun`` usuwa worktree (``git worktree remove`` bez ``--force``, potem jego
+gałąź), gdy naraz:
 
 - HEAD jest w ``origin/main``: jest jego przodkiem albo scalenie go z ``origin/main`` niczego nie zmienia
   (gałąź scalona przez squash);
@@ -14,16 +15,20 @@ Worktree usuwa (``git worktree remove`` bez ``--force``, potem jego gałąź), g
 - nie jest zablokowany (``git worktree lock``) ani pozbawiony katalogu.
 
 Gałąź bez worktree usuwa przy tych samych warunkach HEAD, wątku T3 i świeżości. Główny checkout i gałąź ``main``
-zostają zawsze. Gdy nie da się sprawdzić procesów (brak ``lsof``, Windows), zostaje każdy worktree; gdy nie da
-się zapytać T3, zostają worktree w ``~/.t3/worktrees``.
+zostają zawsze. Gdy nie da się sprawdzić procesów (brak ``lsof``, jego pusta odpowiedź, Windows), zostaje każdy
+worktree; gdy nie da się zapytać T3, zostają worktree w ``~/.t3/worktrees``.
+
+Tuż przed usunięciem ocenia worktree jeszcze raz, ze świeżym ``lsof``. Gdy git odmówi usunięcia, worktree albo
+gałąź zostaje z powodem ``git odmówił (...)``.
 
 Przed oceną pobiera ``origin/main`` (bez ``--bez-fetch``); nieudany fetch tylko zmniejsza liczbę usuniętych.
-Drukuje linię na każdy worktree i gałąź, a ostatnia linia to ``SPRZĄTANIE OK | usunięte N | zostawione M
-(powód liczba, ...)``; worktree z kilkoma powodami liczy się przy każdym. ``--dry-run`` niczego nie usuwa.
-Kod 1 i ``SPRZĄTANIE FAIL`` znaczą, że usuwanie albo odczyt repozytorium się nie powiodły.
+Drukuje linię na każdy worktree i gałąź. Ostatnia linia to ``SPRZĄTANIE RAPORT | do usunięcia N | zostawione M
+(powód liczba, ...) | uruchom z --usun``, a z ``--usun`` ``SPRZĄTANIE OK | usunięte N | zostawione M (...)``;
+worktree z kilkoma powodami liczy się przy każdym. Kod 1 i ``SPRZĄTANIE FAIL`` znaczą, że nie da się odczytać
+repozytorium.
 
-    .venv/bin/python tools/sprzatanie.py --dry-run   # co by usunęło i dlaczego reszta zostaje
-    .venv/bin/python tools/sprzatanie.py             # usuwa (woła je też tools/scal_pr.py po merge'u)
+    .venv/bin/python tools/sprzatanie.py           # co by usunęło i dlaczego reszta zostaje (woła je tools/scal_pr.py)
+    .venv/bin/python tools/sprzatanie.py --usun    # usuwa
 """
 
 from __future__ import annotations
@@ -87,7 +92,7 @@ class _Threads:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--dry-run", action="store_true", help="Tylko opisuje, co by usunęło.")
+    parser.add_argument("--usun", action="store_true", help="Usuwa; bez tej flagi narzędzie tylko raportuje.")
     parser.add_argument("--bez-fetch", action="store_true", help=f"Bez pobierania {BASE}.")
     args = parser.parse_args(argv)
     if isinstance(sys.stdout, io.TextIOWrapper):
@@ -117,12 +122,11 @@ def main(argv: list[str] | None = None) -> int:
             verdicts.append(_Verdict(None, branch, head, _readable(_branch_reasons(root, branch, head, threads))))
 
     removed = 0
-    failed = False
     for verdict in sorted(verdicts, key=lambda verdict: (bool(verdict.reasons), verdict.name())):
         if verdict.reasons:
             print(f"- zostaje | {verdict.name()} | {', '.join(verdict.reasons)}")
             continue
-        if args.dry_run:
+        if not args.usun:
             print(f"- do usunięcia | {verdict.name()}")
             removed += 1
             continue
@@ -131,15 +135,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"- usunięte | {verdict.name()}")
             removed += 1
         else:
-            failed = failed or problem.startswith("usuwanie nie powiodło się")
             verdicts[verdicts.index(verdict)] = _Verdict(verdict.worktree, verdict.branch, verdict.head, (problem,))
             print(f"- zostaje | {verdict.name()} | {problem}")
     left = [verdict for verdict in verdicts if verdict.reasons]
     counts = Counter(reason.partition(" (")[0] for verdict in left for reason in verdict.reasons)
     why = ", ".join(f"{reason} {count}" for reason, count in counts.most_common())
-    done = f"do usunięcia {removed} (próba)" if args.dry_run else f"usunięte {removed}"
-    print(f"SPRZĄTANIE {'FAIL' if failed else 'OK'} | {done} | zostawione {len(left)}{f' ({why})' if why else ''}")
-    return 1 if failed else 0
+    kept = f"zostawione {len(left)}{f' ({why})' if why else ''}"
+    if args.usun:
+        print(f"SPRZĄTANIE OK | usunięte {removed} | {kept}")
+    else:
+        print(f"SPRZĄTANIE RAPORT | do usunięcia {removed} | {kept} | uruchom z --usun")
+    return 0
 
 
 def _judge_tree(root: Path, tree: _Worktree, here: Path, busy: frozenset[str] | None, threads: _Threads | None) -> _Verdict:
@@ -170,11 +176,11 @@ def _tree_reasons(root: Path, tree: _Worktree, here: Path, busy: frozenset[str] 
         yield f"commity spoza {BASE}"
     yield from _tree_state(tree.path)
     if busy is None:
-        yield "procesy niesprawdzone (brak lsof)"
+        yield "procesy niesprawdzone (brak lsof albo pusta odpowiedź)"
     elif any(name == str(tree.path) or name.startswith(f"{tree.path}{os.sep}") for name in busy):
         yield "żywy proces"
     if threads is None:
-        if (Path.home() / ".t3" / "worktrees") in tree.path.parents:
+        if (Path.home().resolve() / ".t3" / "worktrees") in tree.path.parents:
             yield "stan wątku T3 nieznany"
     elif tree.path in threads.paths or tree.branch in threads.branches:
         yield "aktywny wątek T3"
@@ -264,7 +270,7 @@ def _remove(root: Path, verdict: _Verdict, here: Path, threads: _Threads | None)
             return ", ".join(again.reasons) or "HEAD zmienił się w trakcie"
         removed = potomne.run(["git", "worktree", "remove", str(tree.path)], cwd=root, timeout=REMOVE_TIMEOUT_S)
         if removed.returncode:
-            return f"usuwanie nie powiodło się ({_first_line(removed)})"
+            return f"git odmówił ({_first_line(removed)})"
     if verdict.branch is None:
         return None
     if _fails(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{verdict.branch}"):
@@ -274,7 +280,7 @@ def _remove(root: Path, verdict: _Verdict, here: Path, threads: _Threads | None)
     deleted = subprocess.run(
         ["git", "branch", "--delete", "--force", verdict.branch], cwd=root, capture_output=True, text=True, timeout=TIMEOUT_S, check=False
     )
-    return f"usuwanie nie powiodło się ({_first_line(deleted)})" if deleted.returncode else None
+    return f"git odmówił ({_first_line(deleted)})" if deleted.returncode else None
 
 
 def _head(tree: _Worktree) -> str:

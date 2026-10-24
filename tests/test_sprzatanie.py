@@ -1,8 +1,8 @@
-"""``tools/sprzatanie.py`` usuwa lokalne worktree i gałęzie scalone do ``origin/main``, a cudzą pracę zostawia."""
+"""``tools/sprzatanie.py`` raportuje, a z ``--usun`` usuwa lokalne worktree i gałęzie scalone do ``origin/main``; cudzą pracę zostawia."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 import json
 import os
@@ -94,7 +94,7 @@ def test_scalony_worktree_znika_razem_z_galezia(main: Path, squash: bool) -> Non
     path = _branch_with_work(main, "zrobione")
     _merge(main, "zrobione", squash=squash)
 
-    code, lines = _cleanup(main)
+    code, lines = _cleanup(main, "--usun")
 
     assert code == 0
     assert not path.exists()
@@ -109,7 +109,7 @@ def test_commity_spoza_origin_main_zostaja(main: Path) -> None:
     (path / "dalej.txt").write_text("niewypchnięte\n", encoding="utf-8")
     commit(path, "feat: niewypchnięte")
 
-    code, lines = _cleanup(main)
+    code, lines = _cleanup(main, "--usun")
 
     assert code == 0
     assert path.is_dir()
@@ -132,7 +132,7 @@ def test_zmiany_w_drzewie_zostaja(main: Path, change: str, reason: str) -> None:
     (path / change).parent.mkdir(exist_ok=True)
     (path / change).write_text("praca, której nie ma w gicie\n", encoding="utf-8")
 
-    code, lines = _cleanup(main)
+    code, lines = _cleanup(main, "--usun")
 
     assert code == 0
     assert (path / change).is_file()
@@ -148,17 +148,19 @@ def test_odtwarzalne_pliki_i_puste_blokady_nie_zatrzymuja(main: Path) -> None:
     (path / ".benchmark").mkdir()
     (path / ".benchmark" / "reference.lock").touch()
 
-    code, _ = _cleanup(main)
+    code, _ = _cleanup(main, "--usun")
 
     assert code == 0
     assert not path.exists()
 
 
-def test_worktree_z_zywym_procesem_zostaje(main: Path) -> None:
+@pytest.mark.parametrize("where", ["", "frontend"], ids=["korzen", "podkatalog"])
+def test_worktree_z_zywym_procesem_zostaje(main: Path, where: str) -> None:
     path = _branch_with_work(main, "zrobione")
     _merge(main, "zrobione")
-    with _process_in(path):
-        code, lines = _cleanup(main)
+    (path / where).mkdir(exist_ok=True)
+    with _process_in(path / where):
+        code, lines = _cleanup(main, "--usun")
 
     assert code == 0
     assert path.is_dir()
@@ -180,7 +182,7 @@ if sys.argv[2] == "list":
     print(json.dumps([{key: value for key, value in thread.items() if key != "worktreePath"} for thread in threads]))
 else:
     [shown] = [thread for thread in threads if thread["threadId"] == sys.argv[3]]
-    print(json.dumps({"thread": {"worktreePath": shown["worktreePath"], "branch": None}}))
+    print(json.dumps({"thread": {"worktreePath": shown.get("worktreePath"), "branch": shown.get("branch")}}))
 """
 
 
@@ -197,21 +199,37 @@ def test_worktree_aktywnego_watku_t3_zostaje(
     thread = {"threadId": "w1", "status": status, "settled": settled, "worktreePath": str(path)}
     monkeypatch.setenv("T3_WATKI", json.dumps([thread]))
 
-    code, lines = _cleanup(main)
+    code, lines = _cleanup(main, "--usun")
 
     assert code == 0
     assert path.is_dir() is kept
     assert _line(lines, str(path)).endswith("| aktywny wątek T3") is kept
 
 
-def test_worktree_t3_bez_odpowiedzi_t3_zostaje(main: Path, home: Path) -> None:
+def test_worktree_watku_t3_rozpoznany_po_galezi_zostaje(main: Path, fake_t3: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = _branch_with_work(main, "zrobione")
     _merge(main, "zrobione")
-    t3_path = home / ".t3" / "worktrees" / "MAXIMISEART-Dad" / "t3-zrobione"
+    thread = {"threadId": "w1", "status": "running", "settled": False, "branch": "zrobione"}
+    monkeypatch.setenv("T3_WATKI", json.dumps([thread]))
+
+    code, lines = _cleanup(main, "--usun")
+
+    assert code == 0
+    assert path.is_dir()
+    assert _line(lines, str(path)).endswith("| aktywny wątek T3")
+
+
+def test_worktree_t3_bez_odpowiedzi_t3_zostaje_tez_przez_dowiazanie_domu(main: Path, home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _branch_with_work(main, "zrobione")
+    _merge(main, "zrobione")
+    linked = home.parent / "dom-dowiazanie"
+    linked.symlink_to(home)
+    monkeypatch.setenv("HOME", str(linked))
+    t3_path = linked / ".t3" / "worktrees" / "MAXIMISEART-Dad" / "t3-zrobione"
     t3_path.parent.mkdir(parents=True)
     git(main, "worktree", "move", str(path), str(t3_path))
 
-    code, lines = _cleanup(main)
+    code, lines = _cleanup(main, "--usun")
 
     assert code == 0
     assert t3_path.is_dir()
@@ -222,7 +240,7 @@ def test_biezacy_checkout_zostaje(main: Path) -> None:
     path = _branch_with_work(main, "zrobione")
     _merge(main, "zrobione")
 
-    code, lines = _cleanup(path)
+    code, lines = _cleanup(path, "--usun")
 
     assert code == 0
     assert path.is_dir()
@@ -233,7 +251,7 @@ def test_nowy_worktree_bez_commitow_zostaje_a_porzucony_znika(main: Path) -> Non
     fresh = _worktree(main, "nowy", long_ago=False)
     abandoned = _worktree(main, "porzucony")
 
-    code, lines = _cleanup(main)
+    code, lines = _cleanup(main, "--usun")
 
     assert code == 0
     assert fresh.is_dir()
@@ -241,8 +259,9 @@ def test_nowy_worktree_bez_commitow_zostaje_a_porzucony_znika(main: Path) -> Non
     assert not abandoned.exists()
 
 
-def test_galaz_bez_worktree_znika_tylko_scalona(main: Path) -> None:
+def test_galaz_bez_worktree_znika_tylko_scalona_i_porzucona(main: Path) -> None:
     _old_git(main, "branch", "scalona")
+    git(main, "branch", "swieza")
     git(main, "worktree", "remove", str(_branch_with_work(main, "zrobiona")))
     _merge(main, "zrobiona", squash=True)
     unmerged = _branch_with_work(main, "obca")
@@ -250,24 +269,105 @@ def test_galaz_bez_worktree_znika_tylko_scalona(main: Path) -> None:
     commit(unmerged, "feat: dalej")
     git(main, "worktree", "remove", str(unmerged))
 
-    code, lines = _cleanup(main)
+    code, lines = _cleanup(main, "--usun")
 
     assert code == 0
-    assert _branches(main) == {"main", "obca"}
+    assert _branches(main) == {"main", "obca", "swieza"}
     assert _line(lines, "gałąź obca").endswith("| commity spoza origin/main")
+    assert _line(lines, "gałąź swieza").endswith("| nowe, bez własnych commitów")
 
 
-def test_proba_niczego_nie_usuwa(main: Path) -> None:
+def test_bez_usun_tylko_raportuje(main: Path) -> None:
     path = _branch_with_work(main, "zrobione")
     _merge(main, "zrobione")
 
-    code, lines = _cleanup(main, "--dry-run")
+    code, lines = _cleanup(main)
 
     assert code == 0
     assert path.is_dir()
     assert "zrobione" in _branches(main)
     assert _line(lines, str(path)).startswith("- do usunięcia |")
-    assert lines[-1] == "SPRZĄTANIE OK | do usunięcia 1 (próba) | zostawione 1 (główny checkout 1)"
+    assert lines[-1] == "SPRZĄTANIE RAPORT | do usunięcia 1 | zostawione 1 (główny checkout 1) | uruchom z --usun"
+
+
+@pytest.mark.parametrize(
+    ("command", "reason"),
+    [(("worktree", "lock"), "zablokowany"), (("bisect", "start"), "w trakcie rebase, merge'a albo bisect")],
+    ids=["zablokowany", "bisect"],
+)
+def test_worktree_zablokowany_albo_w_trakcie_bisect_zostaje(main: Path, command: tuple[str, ...], reason: str) -> None:
+    path = _branch_with_work(main, "zrobione")
+    _merge(main, "zrobione")
+    git(path, *command, *([str(path)] if command[0] == "worktree" else []))
+
+    code, lines = _cleanup(main, "--usun")
+
+    assert code == 0
+    assert path.is_dir()
+    assert _line(lines, str(path)).endswith(f"| {reason}")
+
+
+def test_odmowa_gita_zostawia_worktree_z_powodem(main: Path) -> None:
+    path = _branch_with_work(main, "zrobione")
+    _merge(main, "zrobione")
+    (path / "pusty.txt").touch()
+
+    code, lines = _cleanup(main, "--usun")
+
+    assert code == 0
+    assert (path / "pusty.txt").is_file()
+    assert "| git odmówił (" in _line(lines, str(path))
+    assert lines[-1] == "SPRZĄTANIE OK | usunięte 0 | zostawione 2 (główny checkout 1, git odmówił 1)"
+
+
+@pytest.fixture
+def fake_lsof(home: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+    """Podróbka ``lsof`` na ``PATH``: kolejne wywołania drukują kolejne odpowiedzi, ostatnia się powtarza."""
+
+    lsof = home / "bin" / "lsof"
+    lsof.parent.mkdir()
+    lsof.write_text(f"#!{sys.executable}\n" + _FAKE_LSOF, encoding="utf-8")
+    lsof.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{lsof.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("LSOF_LICZNIK", str(home / "lsof-wywolania"))
+
+    def answers(*outputs: str) -> None:
+        monkeypatch.setenv("LSOF_ODPOWIEDZI", json.dumps(outputs))
+
+    return answers
+
+
+_FAKE_LSOF = """import json, os, pathlib
+calls = pathlib.Path(os.environ["LSOF_LICZNIK"])
+answers = json.loads(os.environ["LSOF_ODPOWIEDZI"])
+done = int(calls.read_text()) if calls.exists() else 0
+calls.write_text(str(done + 1))
+print(answers[min(done, len(answers) - 1)], end="")
+"""
+
+
+def test_proces_ktory_wszedl_po_ocenie_zatrzymuje_usuniecie(main: Path, fake_lsof: Callable[..., None]) -> None:
+    path = _branch_with_work(main, "zrobione")
+    _merge(main, "zrobione")
+    fake_lsof("n/gdzie-indziej\n", f"n{path.resolve()}\n")
+
+    code, lines = _cleanup(main, "--usun")
+
+    assert code == 0
+    assert path.is_dir()
+    assert _line(lines, str(path)).endswith("| żywy proces")
+
+
+def test_pusta_odpowiedz_lsof_zostawia_wszystko(main: Path, fake_lsof: Callable[..., None]) -> None:
+    path = _branch_with_work(main, "zrobione")
+    _merge(main, "zrobione")
+    fake_lsof("")
+
+    code, lines = _cleanup(main, "--usun")
+
+    assert code == 0
+    assert path.is_dir()
+    assert "| procesy niesprawdzone" in _line(lines, str(path))
 
 
 @contextmanager
@@ -286,7 +386,7 @@ def test_galaz_main_zostaje_tez_bez_checkoutu(main: Path) -> None:
     git(main, "push", "--quiet", "origin", "main")
     git(main, "switch", "--quiet", "--detach")
 
-    code, _ = _cleanup(main)
+    code, _ = _cleanup(main, "--usun")
 
     assert code == 0
     assert "main" in _branches(main)
