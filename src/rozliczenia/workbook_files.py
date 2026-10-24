@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import IO, TypeVar, cast
@@ -598,7 +599,13 @@ def _read_outline(path: Path, rules: _Rules) -> _Outline:
     """
 
     ensure_available(path)
-    content = _file_bytes(path)
+    return _outline(path, _file_bytes(path), rules)
+
+
+# Sprawdzanie i Planowanie Przygotowania czytają zarys tych samych Wzorców; zarys zależy tylko od bajtów,
+# więc niezmieniony Wzorzec nie jest parsowany drugi raz, a zmieniony po Sprawdzaniu jest czytany od nowa.
+@lru_cache(maxsize=4)
+def _outline(path: Path, content: bytes, rules: _Rules) -> _Outline:
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
