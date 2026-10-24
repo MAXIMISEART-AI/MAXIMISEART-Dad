@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from argparse import RawDescriptionHelpFormatter
 from dataclasses import dataclass
-import fcntl
 import os
 from pathlib import Path
 import re
@@ -242,6 +241,21 @@ def pid() -> int | None:
     return int(value) if value.isdigit() else None
 
 
+def rss_mb() -> int | None:
+    """Resident memory of Excel's process in MB, or ``None`` when Excel is not running.
+
+    One Excel process grows with every workbook it opened and closed (2.4 GB to 4.2 GB with no workbook open
+    within 1.5 hours of runs on 2026-10-24, and it hung at about 10 GB), so runs record it before and after.
+    """
+
+    process_id = pid()
+    if process_id is None:
+        return None
+    completed = subprocess.run(["ps", "-o", "rss=", "-p", str(process_id)], capture_output=True, text=True, check=False)
+    kilobytes = completed.stdout.strip()
+    return round(int(kilobytes) / 1024) if kilobytes.isdigit() else None
+
+
 def launch(*, timeout: float = 90) -> int:
     """Start Excel without restoring windows of an earlier session; returns its process id.
 
@@ -274,6 +288,9 @@ def claim(*, owner: str) -> TextIO:
 
     if sys.platform == "win32":
         raise ExcelError("this skill drives Excel for Mac")
+    # Imported here, so the module imports on Windows, where the cleanup tests run in CI's mutation job.
+    import fcntl
+
     if not DESK.parent.is_dir():
         raise ExcelError(f"Excel's container {DESK.parent} does not exist; start Excel once by hand")
     DESK.mkdir(exist_ok=True)
@@ -540,10 +557,14 @@ return ""
 
 
 def close_under(root: Path) -> list[str]:
-    """Close, without saving, every workbook below ``root``; returns their file names."""
+    """Close, without saving, every workbook below ``root``; returns their file names.
+
+    Raises ``ExcelDialog`` while a dialog keeps Excel from listing its workbooks, so a caller never takes
+    "nothing closed" for "nothing open".
+    """
 
     closed: list[str] = []
-    for full_path in _open_paths_quietly():
+    for full_path in open_paths() if running() else []:
         candidate = Path(full_path)
         if candidate.is_relative_to(root):
             close(candidate)
@@ -552,9 +573,18 @@ def close_under(root: Path) -> list[str]:
 
 
 def quit_if_idle() -> bool:
-    """Quit Excel only when it holds no workbook at all; returns whether it quit."""
+    """Quit Excel only when it answers and holds no workbook at all; returns whether it quit.
 
-    if not running() or _open_paths_quietly():
+    Excel behind a dialog hides its workbooks, so it stays, as does Excel with any workbook, the user's too.
+    """
+
+    if not running():
+        return False
+    try:
+        held = open_paths()
+    except ExcelError:
+        return False
+    if held:
         return False
     _osascript('tell application "Microsoft Excel" to quit\nreturn ""')
     deadline = time.monotonic() + 30

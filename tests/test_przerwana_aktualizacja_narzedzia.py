@@ -95,7 +95,7 @@ def _repository_with_dad_file(directory: Path) -> ToolRepository:
     """Prawdziwe Centrum, którego pierwsza wersja śledzi Konfigurację wykonawców, a tata ma w niej swoje nazwiska."""
 
     repository = centrum_tool_repository(
-        directory, {".gitignore": GITIGNORE.replace(f"{MAPPING}\n", ""), MAPPING: SAMPLE_MAPPING}
+        directory, {".gitignore": f"{GITIGNORE}!{MAPPING}\n", MAPPING: SAMPLE_MAPPING}
     )
     repository.write(MAPPING, DAD_MAPPING)
     return repository

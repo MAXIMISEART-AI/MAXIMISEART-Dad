@@ -8,8 +8,12 @@ issue przez Maksa sprawdzanie Powiadomień. Plik stanu ma tylko tytuł Uwagi i p
 
 Uwaga przypięta do Uruchomienia procesu z Centrum niesie w stopce jego proces, okres, tryb, wynik i datę oraz
 odnośnik do jego Logów Uruchomienia w Skrzynce. Uruchomienia do wyboru i do przypięcia pochodzą z historii metryk
-(``History``). Gdy Logi jeszcze czekają w kolejce, stopka mówi, że są w drodze, a ``with_logs`` wstawia odnośnik
-tuż przed wysłaniem Uwagi z kolejki, jeśli Logi zdążyły dojść do skrzynki.
+(``History``). Gdy Logi jeszcze czekają w kolejce, stopka szkicu mówi, że są w drodze, a ``with_logs`` tuż przed
+wysłaniem Uwagi z kolejki wstawia odnośnik, jeśli Logi zdążyły dojść do skrzynki, a jeśli nie, mówi, dlaczego ich nie
+ma. Logi idą przed Uwagą (starszy plik kolejki), więc Uwaga wychodzi bez nich tylko wtedy, gdy skrzynka odrzuciła ich
+treść albo nie było ich w kolejce. Po odrzuconych Logach ``after_delivery`` kładzie w kolejce komentarz do issue
+Uwagi, który czeka na te Logi i wychodzi z odnośnikiem, gdy dotrą przy którymś następnym starcie Centrum. Tworzy go
+tylko dostarczenie Uwagi, więc każde jej issue dostaje najwyżej jeden taki komentarz, także po ponownym starcie.
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ from fastapi import APIRouter
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import NewIssue, Outbox, Post
+from rozliczenia.centrum.outbox import KnownIssue, NewIssue, Outbox, Post
 from rozliczenia.centrum.report_box import NOTE_LABEL, Closure, closure_json, read_closure
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
@@ -49,6 +53,8 @@ History = Callable[[], list[contract.ProcessRun]]
 """Uruchomienia procesu z plików metryk od najnowszego (``metrics.read_runs``); ``OSError``: pliki nieczytelne."""
 LogsAddress = Callable[[str], str | None]
 """Adres pierwszego komentarza Logów Uruchomienia o tym identyfikatorze w Skrzynce; ``None``: jeszcze ich tam nie ma."""
+LogsRejected = Callable[[str], bool]
+"""Skrzynka odrzuciła w tej pracy Centrum treść Logów Uruchomienia o tym identyfikatorze (``Outbox.rejected``)."""
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,11 @@ class DadNotes:
         with self._lock:
             return self._read()
 
+    def pinned_run(self, note_id: str) -> str | None:
+        """Uruchomienie, do którego przypięta jest Uwaga ``note_id``; ``None``: Uwaga ogólna albo nieznana."""
+
+        return next((note.run_id for note in self.all() if note.id == note_id), None)
+
     def mark(self, closures: Mapping[int, Closure | None]) -> None:
         """Zapamiętuje zamknięcie issue ze skrzynki przy Uwagach o tych numerach."""
 
@@ -226,22 +237,69 @@ def _note(entry: object) -> DadNote | None:
     return DadNote(note_id, title, commit, moment, number, read_closure(entry.get("closure")), run_id)
 
 
-def with_logs(post: Post, notes: DadNotes, logs: LogsAddress) -> Post:
-    """Wysyłka z kolejki tuż przed wysłaniem (``Outbox`` ``prepare``): przypięta Uwaga dostaje odnośnik do Logów.
+def _sent_logs_line(run_id: str, logs: LogsAddress, rejected: LogsRejected) -> str:
+    """Linia Logów przypiętej Uwagi w chwili wysłania: odnośnik albo dlaczego Logów nie ma w Skrzynce."""
 
-    Dotyczy Uwagi, której stopka mówi, że Logi jej Uruchomienia są w drodze, a skrzynka zdążyła je przyjąć. Każda
-    inna wysyłka idzie bez zmian, także Uwaga, której Logi dalej czekają.
+    if (address := logs(run_id)) is not None:
+        return _logs_line(run_id, address)
+    if rejected(run_id):
+        return _rejected_logs_line(run_id)
+    return f"Logi Uruchomienia: nie powstały albo nie da się ich wysłać (Uruchomienie {run_id})"
+
+
+def _rejected_logs_line(run_id: str) -> str:
+    return (
+        f"Logi Uruchomienia: nie dotarły, Skrzynka odrzuciła ich treść (Uruchomienie {run_id}). "
+        "Odnośnik przyjdzie w komentarzu, gdy dotrą."
+    )
+
+
+def _logs_arrived(run_id: str, address: str) -> str:
+    return f"{_logs_line(run_id, address)} dotarły do Skrzynki po tej Uwadze (Uruchomienie {run_id})."
+
+
+def _logs_gone(run_id: str) -> str:
+    return f"Logi Uruchomienia nie dotrą: Centrum przestało je wysyłać (Uruchomienie {run_id})."
+
+
+def with_logs(post: Post, notes: DadNotes, logs: LogsAddress, rejected: LogsRejected) -> Post | None:
+    """Wysyłka z kolejki tuż przed wysłaniem (``Outbox`` ``prepare``): Logi w Uwadze przypiętej do Uruchomienia.
+
+    Uwaga, której stopka mówi, że Logi są w drodze, dostaje odnośnik albo linię, dlaczego Logów nie ma. Komentarz
+    z odnośnikiem do issue Uwagi (``run_id`` to Uruchomienie) czeka (``None``), dopóki skrzynka odrzuca Logi w tej
+    pracy Centrum, a gdy Logów nie ma ani w Skrzynce, ani w kolejce, idzie z zapisanym tekstem, że nie dotrą. Każda
+    inna wysyłka idzie bez zmian.
     """
 
     if post.target.label != NOTE_LABEL:
         return post
-    run_id = next((note.run_id for note in notes.all() if note.id == post.run_id), None)
-    if run_id is None or (address := logs(run_id)) is None:
+    if isinstance(post.target, KnownIssue):
+        if (address := logs(post.run_id)) is not None:
+            return replace(post, parts=(_logs_arrived(post.run_id, address),))
+        return None if rejected(post.run_id) else post
+    run_id = notes.pinned_run(post.run_id)
+    if run_id is None:
         return post
     first, waiting = post.parts[0], _logs_line(run_id, None)
     if not first.endswith(waiting):
         return post
-    return replace(post, parts=(first.removesuffix(waiting) + _logs_line(run_id, address), *post.parts[1:]))
+    return replace(post, parts=(first.removesuffix(waiting) + _sent_logs_line(run_id, logs, rejected), *post.parts[1:]))
+
+
+def after_delivery(post: Post, number: int, notes: DadNotes, outbox: Outbox) -> None:
+    """Wysyłka przyjęta przez skrzynkę (``Outbox`` ``on_delivered``): Uwaga dostaje numer issue.
+
+    Uwaga, która wyszła przed odrzuconymi Logami swojego Uruchomienia, dostaje w kolejce komentarz z odnośnikiem do
+    nich, zanim jej plik dostanie znacznik dostarczenia. Nieudany zapis komentarza zostaje w dzienniku Centrum.
+    """
+
+    notes.delivered(post, number)
+    if not isinstance(post.target, NewIssue) or post.target.label != NOTE_LABEL:
+        return
+    run_id = notes.pinned_run(post.run_id)
+    if run_id is not None and post.parts[0].endswith(_rejected_logs_line(run_id)):
+        target = KnownIssue(NOTE_LABEL, number)
+        outbox.post(Post(target, period=None, run_id=run_id, header=None, parts=(_logs_gone(run_id),)))
 
 
 def _pinnable(history: History) -> list[contract.PinnableRun]:

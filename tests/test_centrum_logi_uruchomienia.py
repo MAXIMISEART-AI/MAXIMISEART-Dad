@@ -116,19 +116,24 @@ def _failing(
     return run
 
 
-def _adapter_net(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ran:
-    centrum = preparing_centrum(tmp_path)
-    run_outcome = contract.RunOutcome
-    built: list[str] = []
+def _adapter_net(
+    centrum: Callable[[Path], AnyCentrum], *, dry_run: bool
+) -> Callable[[Path, pytest.MonkeyPatch], Ran]:
+    def run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ran:
+        steered = centrum(tmp_path)
+        run_outcome = contract.RunOutcome
+        built: list[str] = []
 
-    def broken_once(**fields: Any) -> contract.RunOutcome:
-        built.append(fields["ending"])
-        if len(built) == 1:
-            raise ValueError("synthetic contract failure SYN-001")
-        return run_outcome(**fields)
+        def broken_once(**fields: Any) -> contract.RunOutcome:
+            built.append(fields["ending"])
+            if len(built) == 1:
+                raise ValueError("synthetic contract failure SYN-001")
+            return run_outcome(**fields)
 
-    monkeypatch.setattr(contract, "RunOutcome", broken_once)
-    return centrum, run_to_end(centrum, dry_run=True)
+        monkeypatch.setattr(contract, "RunOutcome", broken_once)
+        return steered, run_to_end(steered, dry_run=dry_run)
+
+    return run
 
 
 QUANTITY_WARNINGS = [("warning", "NIEZNANE_URZADZENIA"), ("warning", "KOLUMNY_Z_OPISU")]
@@ -213,7 +218,7 @@ ENDINGS = {
         "ValueError",
     ),
     "po-silniku-adapter": Ending(
-        _adapter_net,
+        _adapter_net(preparing_centrum, dry_run=True),
         "podgląd",
         ("BLAD_KRYTYCZNY", "after_engine", "for_maks"),
         [("stop", "BLAD_WYNIKU")],
@@ -266,6 +271,23 @@ def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wiersza
     assert isinstance(record["duration_ms"], int)
     assert record["started_at"] <= record["ended_at"]
     assert re.fullmatch(rf"\d{{8}}T\d{{6}}Z-settlement-{view['run']['id']}\.json", path.name)
+
+
+def test_logi_po_bledzie_samego_adaptera_maja_czas_liczbe_problemow_i_przetworzenia_szablonow_z_rdzenia(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum, view = _adapter_net(settling_centrum, dry_run=False)(tmp_path, monkeypatch)
+
+    [record] = records(centrum)
+    assert (record["ending"], view["result"]["ending"]) == ("after_engine", "after_engine")
+    assert isinstance(record["duration_ms"], int)
+    assert record["issue_count"] == 0
+    assert [(template["wykonawca"], template["outcome"], template["rows"]) for template in record["templates"]] == [
+        ("Adrian Testowy", "ZAPISANO", 2),
+        ("Darek Fikcyjny", "ZAPISANO", 1),
+        ("Kamil Syntetyczny", "PUSTY_SZABLON", 0),
+    ]
+    assert record["summary"] is None
 
 
 def test_powtorka_zatrzymania_dla_taty_ma_w_logach_rodzaj_powtorka(tmp_path: Path) -> None:

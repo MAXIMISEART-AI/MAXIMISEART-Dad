@@ -44,19 +44,20 @@ def _update_entries(run: Run) -> list[str]:
     return lines[starts[-1] :] if starts else []
 
 
-def _console_fact(run: Run, entries: list[str]) -> None:
-    """The restarted Centrum's ``start`` line; its ``konsola=`` is a known wrong fact (see the feature's Gotchas).
+def _stop_before_start(run: Run, entries: list[str]) -> None:
+    events = [line.split(" ")[1] for line in entries]
+    run.check(
+        "stop" in events and "start" in events and events.index("stop") < events.index("start"),
+        "the old Centrum logged stop before the new Centrum's start",
+    )
 
-    The process facts above prove there is no console. The guardian gives the new ``pythonw.exe`` ``DEVNULL`` streams,
-    so ``has_console()`` in ``server.py`` sees streams and logs ``konsola=tak``. Once that is fixed this prints ``ok``.
-    """
+
+def _started_without_console(run: Run, entries: list[str]) -> None:
+    """The guardian gives the Centrum it starts ``NUL`` streams, so its log must not claim a console."""
 
     starts = [line for line in entries if " start " in line]
-    run.check(len(starts) == 1, "the new Centrum logged one start")
-    if "konsola=nie" in starts[0]:
-        print("  ok: the new Centrum's log says it has no console", flush=True)
-    else:
-        print(f"  ZNANA ROZBIEŻNOŚĆ: the windowless restarted Centrum logs {starts[0].split(' start ')[1]!r}", flush=True)
+    run.check(len(starts) == 1, "the Centrum the guardian started logged one start")
+    run.check("konsola=nie" in starts[0], f"the Centrum the guardian started logs no console: {starts[0].split(' start ')[1]!r}")
 
 
 def _click_update(run: Run, page: Page) -> tuple[dict[str, object], int]:
@@ -112,7 +113,8 @@ def drive(run: Run, page: Page) -> None:
     finished = f"aktualizacja-koniec wynik=ok przed={first} po={newest} biblioteki=tak"
     run.check(any(finished in line for line in entries), f"the log has {finished!r} (pip ran under pythonw.exe)")
     run.check(any(" zamkniecie z=aktualizacja" in line for line in entries), "the old Centrum closed itself for the update")
-    _console_fact(run, entries)
+    _stop_before_start(run, entries)
+    _started_without_console(run, entries)
     page.get_by_role("link", name="Konfiguracja", exact=True).click()
     expect(page.get_by_role("region", name="Narzędzie", exact=True)).to_contain_text(f"Wersja {newest[:7]}")
     run.capture(page, "konfiguracja-nowa-wersja")
@@ -139,6 +141,8 @@ def drive(run: Run, page: Page) -> None:
     print("  log:\n    " + "\n    ".join(entries), flush=True)
     failed = f"aktualizacja-koniec wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={newest} po={not_starting} biblioteki=nie"
     run.check(any(failed in line for line in entries), f"the log has {failed!r}")
+    _stop_before_start(run, entries)
+    _started_without_console(run, entries)
     time.sleep(2)
     run.check(start_dialogs() == [], "no native window appeared: the old version took over")
     run.harness("GitHub's newest Wydanie is the newest version again")
