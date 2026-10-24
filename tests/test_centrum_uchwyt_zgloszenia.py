@@ -108,14 +108,6 @@ def prepared(reports: Reports, computer: Computer, code: str = NO_CONNECTION) ->
     return handle, owner, f"# {draft.title}\n\n{draft.body}"
 
 
-def box_answered() -> None:
-    """Czeka, aż skończą się pytania skrzynki, które uchwyt zadał w tle."""
-
-    for thread in threading.enumerate():
-        if thread.name == "zgloszenie-skrzynka":
-            thread.join(10)
-
-
 def test_wyslanie_przed_podgladem_nie_ma_czego_wyslac(computer: Computer) -> None:
     computer.with_key()
     handle = computer.reports().handle(source(computer).fingerprint)
@@ -416,7 +408,7 @@ def test_odpowiedz_skrzynki_na_pytanie_sprzed_wysylki_nie_zmienia_wyniku_wysylki
         saved = dump(handle.send())
     finally:
         box.first_search.set()
-    box_answered()
+    handle.wait_for_box()
 
     assert saved["state"] == "saved"
     assert (owner.states, dump(handle.state)) == ([saved], saved)

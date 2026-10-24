@@ -601,7 +601,30 @@ def test_zgloszenie_nieudanej_aktualizacji_ma_te_same_fakty_co_dziennik(tmp_path
     assert "zgloszenie-wyslane z=aktualizacja numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
-def test_druga_nieudana_aktualizacja_wysyla_wlasne_zgloszenie(tmp_path: Path) -> None:
+def update_with_slow_box(centrum: PreparingCentrum) -> dict[str, Any]:
+    """Klika „Zaktualizuj narzędzie” jak karta, gdy skrzynka Zgłoszeń odpowiada po 1 s, jak GitHub.
+
+    Karta czyta wynik, dopóki aktualizacja trwa, a pierwszy wynik to jedyny, który pokaże bez przeładowania.
+    """
+
+    box = centrum.surroundings.report_box
+    box.search_hold = threading.Event()
+    box.searching.clear()
+    answer = threading.Timer(1, box.search_hold.set)
+    try:
+        started = centrum.client.post("/api/tool-update")
+        assert started.status_code == 202, started.json()
+        assert box.searching.wait(10)
+        answer.start()
+        return tool_update_until(centrum, lambda view: view["state"] != "running")
+    finally:
+        answer.cancel()
+        box.search_hold.set()
+
+
+def test_druga_nieudana_aktualizacja_po_zamknieciu_zgloszenia_karta_od_razu_pozwala_wyslac_wlasne(
+    tmp_path: Path,
+) -> None:
     centrum, repository = updating_centrum(tmp_path)
     with_key(centrum)
     box = centrum.surroundings.report_box
@@ -611,13 +634,30 @@ def test_druga_nieudana_aktualizacja_wysyla_wlasne_zgloszenie(tmp_path: Path) ->
         assert send_report(centrum) == {"state": "sent"}
         box.close(1)
 
-        update_until_done(centrum)
-        answered = tool_update_until(centrum, lambda view: view["report"] == {"state": "ready"})
+        again = update_with_slow_box(centrum)
         state = send_report(centrum)
 
-    assert (answered["state"], state) == ("failed", {"state": "sent"})
+    assert (again["state"], again["report"], state) == ("failed", {"state": "ready"}, {"state": "sent"})
     assert [report.title.split(":")[0] for report in box.sent] == ["BRAK_POLACZENIA"] * 2
     assert "- Poprzednie Zgłoszenie: #1" in box.sent[1].body.splitlines()
+
+
+def test_nieudana_aktualizacja_ze_zgloszeniem_otwartym_w_skrzynce_karta_od_razu_mowi_ze_czeka(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    with github_out_of_reach(repository):
+        update_until_done(centrum)
+        assert send_report(centrum) == {"state": "sent"}
+        (tmp_path / "config" / "zgloszenia-wyslane.json").unlink()  # jak Zgłoszenie wysłane z innego komputera
+        centrum.restart()
+
+        again = update_with_slow_box(centrum)
+        state = send_report(centrum)
+
+    assert (again["state"], again["report"], state) == ("failed", {"state": "waiting"}, {"state": "waiting"})
+    assert len(box.sent) == 1
 
 
 def test_zgloszenie_bez_nieudanej_aktualizacji_jest_odrzucone(tmp_path: Path) -> None:

@@ -432,7 +432,8 @@ class ReportHandle:
     wysyła ostatni podgląd najwyżej raz; drugie kliknięcie w trakcie wysyłki czeka na jej wynik. Po każdej
     odpowiedzi skrzynki i każdej wysyłce nowy stan dostaje ``shown`` właściciela. Odpowiedź na pytanie sprzed
     wysyłki przepada, bo stan to już wynik wysyłki. ``shown`` biegnie pod blokadą uchwytu, więc dostaje stany w
-    kolejności ich zmian, i nie woła uchwytu.
+    kolejności ich zmian, i nie woła uchwytu. Właściciel, który pokazuje stan dopiero po odpowiedzi skrzynki,
+    czeka na nią przez ``wait_for_box``.
     """
 
     def __init__(self, reports: Reports, fingerprint: str, shown: ReportShown | None) -> None:
@@ -442,6 +443,7 @@ class ReportHandle:
         self._changed = threading.Condition()
         self._state = reports._state_of(fingerprint)
         self._preview: _Preview | None = None
+        self._asking: threading.Thread | None = None
         self._sends = 0  # wysyłki zaczęte do tej pory: odpowiedź skrzynki na pytanie sprzed wysyłki przepada
         self._sending = False
 
@@ -461,9 +463,19 @@ class ReportHandle:
         preview = self._reports._preview(source)
         with self._changed:
             self._preview = preview
-            sends = self._sends
-        threading.Thread(target=self._ask, args=(sends,), name="zgloszenie-skrzynka", daemon=True).start()
+            asking = self._asking = threading.Thread(
+                target=self._ask, args=(self._sends,), name="zgloszenie-skrzynka", daemon=True
+            )
+        asking.start()
         return preview.view
+
+    def wait_for_box(self) -> None:
+        """Czeka na odpowiedź skrzynki na pytanie z ostatniego ``prepare``, najwyżej termin szukania w skrzynce."""
+
+        with self._changed:
+            asking = self._asking
+        if asking is not None:
+            asking.join()
 
     def _ask(self, sends: int) -> None:
         self._reports._ask_box(self._fingerprint)

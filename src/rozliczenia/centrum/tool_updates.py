@@ -13,6 +13,8 @@ Każdą porażkę, której ``tool_update`` nie przewidział, karta widzi jako Ko
 nieoczekiwanej porażki, a dziennik tylko nazwę typu wyjątku. Przy każdej
 porażce karta dostaje też Zgłoszenie do Maksa z faktami dziennika, a jego stan
 czyta z uchwytu Zgłoszenia (``reports.ReportHandle``) przy każdym odczycie.
+Porażkę kliknięcia karta widzi dopiero ze stanem po odpowiedzi skrzynki
+Zgłoszeń (najwyżej termin szukania), a porażkę od opiekuna od razu.
 """
 
 from __future__ import annotations
@@ -172,7 +174,10 @@ class ToolUpdates:
                 if isinstance(view, contract.ToolUpdateUpToDate):
                     newest = self._release()
                 if view is None:
-                    view = self._failed(result)
+                    failed = self._failed(result)
+                    # Po pierwszym „failed” karta nie czyta już stanu, więc dostaje go po odpowiedzi skrzynki.
+                    failed.report.wait_for_box()
+                    view = failed
         finally:
             if not restarting:
                 shutil.rmtree(work, ignore_errors=True)
