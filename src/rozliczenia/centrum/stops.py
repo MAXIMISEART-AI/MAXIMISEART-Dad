@@ -5,7 +5,9 @@
 rozstrzyga ``Stop.stop_kind``, ta sama reguła co w rekordzie metryk. Centrum
 dokłada do niej Powtórkę: Zatrzymanie „dla taty” z tym samym odciskiem problemu
 w następnym Uruchomieniu tego samego procesu. Odcisk problemu Zatrzymania
-powstaje tylko tutaj, raz. Pamięć ostatniego Zatrzymania każdego procesu jest
+powstaje tylko tutaj, raz. Zatrzymanie po odmowie w Decyzji taty ma na karcie
+własny rodzaj (``declined``): nie jest Powtórką, nie ma Diagnozy i jak wynik bez
+Zatrzymania zeruje pamięć ostatniego Zatrzymania procesu. Pamięć ostatniego Zatrzymania każdego procesu jest
 tylko w pamięci serwera, więc restart Centrum ją zeruje.
 
 Przy Zatrzymaniu „do Maksa” i Powtórce Centrum proponuje Diagnozę; przy
@@ -67,10 +69,13 @@ class Stops:
         """Zatrzymanie zakończonego Uruchomienia; ``shown`` dostaje każdy nowy stan jego Zgłoszenia."""
 
         if stop is None:
-            with self._lock:
-                self._last.pop(info.process, None)
+            self._forget(info.process)
             return None
         fingerprint = ProblemFingerprint.of(info.process, stop.message)
+        if stop.kind == "declined":
+            # Odmowa w Decyzji taty to jego odpowiedź, nie problem: jak wynik bez Zatrzymania kończy Powtórkę.
+            self._forget(info.process)
+            return StoppedRun(info, stop, fingerprint, "declined", None, None)
         with self._lock:
             repeated = self._last.get(info.process) == fingerprint
             self._last[info.process] = fingerprint
@@ -80,6 +85,10 @@ class Stops:
         )
         report = None if offer is None else self._reports.handle(fingerprint, shown=shown)
         return StoppedRun(info, stop, fingerprint, kind, offer, report)
+
+    def _forget(self, process: contract.ProcessKey) -> None:
+        with self._lock:
+            self._last.pop(process, None)
 
     def diagnose(self, stopped: StoppedRun) -> contract.Diagnosis:
         report = stopped.report

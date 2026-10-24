@@ -379,7 +379,7 @@ def test_decyzja_o_niepelnym_okresie_jest_odrzucana_bez_czekania_i_bez_plikow_ok
     exit_code, result = _preparation(fixture)
 
     assert (exit_code, result["result"], result["summary"]) == (1, "BLAD_KRYTYCZNY", None)
-    assert (result["stop"]["kind"], result["stop"]["message"]["code"]) == ("stop", "PRZERWANO_NIEPELNY_OKRES")
+    assert (result["stop"]["kind"], result["stop"]["message"]["code"]) == ("declined", "PRZERWANO_NIEPELNY_OKRES")
     assert not fixture.period_directory.exists()
     [record] = MetricsStore(fixture.register_path.parent / "metrics.jsonl", PREPARATION.counter_names).read()
     assert (record["mode"], record["period"], record["result"]) == ("RUN", PERIOD, "BLAD_KRYTYCZNY")

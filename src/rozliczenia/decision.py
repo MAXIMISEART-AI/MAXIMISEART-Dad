@@ -14,9 +14,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from .message import Message
+from .message import Message, StopError
 
-__all__ = ["Conversation", "Decision"]
+__all__ = ["Conversation", "Decision", "Declined"]
 
 
 @dataclass(frozen=True)
@@ -46,3 +46,11 @@ class Conversation(Protocol):
     def continue_hint(self) -> str: ...
 
     def confirm(self, decision: Decision) -> bool: ...
+
+
+class Declined(StopError):
+    """Zatrzymanie po odmowie w Decyzji taty: tata sam wybrał, żeby proces nie szedł dalej.
+
+    Rodzaj Zatrzymania jest „dla taty” i odmowa nigdy nie jest Powtórką, bo tata nie trafił na problem, tylko
+    odpowiedział na pytanie.
+    """

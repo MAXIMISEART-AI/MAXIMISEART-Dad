@@ -322,7 +322,7 @@ def _result(record: RunLog) -> str:
     match record.ending:
         case "finished":
             return record.result
-        case "stop":
+        case "stop" | "declined":
             return f"{record.result}, {_stop(record.stop_kind)}"
         case "unexpected":
             return f"{record.result}, nieoczekiwany wyjątek"
@@ -340,6 +340,8 @@ def _stop(kind: contract.StopKind | None) -> str:
             return "Zatrzymanie do Maksa"
         case "repeated":
             return "powtórzone Zatrzymanie dla taty"
+        case "declined":
+            return "Zatrzymanie po odmowie w Decyzji taty"
         case None:
             return "Zatrzymanie"
         case _:

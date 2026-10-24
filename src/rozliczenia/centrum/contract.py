@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from rozliczenia import domain
-from rozliczenia.message import Message as ProcessMessage
+from rozliczenia.message import DadFile, Message as ProcessMessage
 from rozliczenia.period_folder import PeriodStatus
 
 
@@ -463,7 +463,8 @@ ReportState = Annotated[ReportReady | ReportSent | ReportWaiting | ReportSaved, 
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
 # osobie utrzymującej narzędzie (także nieoczekiwany wyjątek), ``repeated`` to ten sam Komunikat „dla taty”
 # drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
-StopKind = Literal[RecordedStopKind, "repeated"]
+# ``declined`` to Zatrzymanie po odmowie w Decyzji taty: w metrykach „dla taty”, nigdy Powtórka ani błąd.
+StopKind = Literal[RecordedStopKind, "repeated", "declined"]
 # Diagnoza przy Zatrzymaniu: ``on_request`` to przycisk „Diagnoza” zamiast następnej akcji, ``automatic`` to
 # nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
 DiagnosisOffer = Literal["on_request", "automatic"]
@@ -472,17 +473,20 @@ DiagnosisOffer = Literal["on_request", "automatic"]
 class RunOutcome(_Model):
     """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
 
-    ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
-    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
+    ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
+    odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
+    silnika (``after_engine``). ``next_action`` to akcja,
     którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
     Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
     (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
-    problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+    problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
+    plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
+    ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
     """
 
     result: RunResult
     headline: str
-    ending: Literal["finished", "stop", "unexpected", "after_engine"]
+    ending: Literal["finished", "stop", "declined", "unexpected", "after_engine"]
     next_action: Literal["run", "rerun", "open_period_folder"]
     stop_kind: StopKind | None
     diagnosis: DiagnosisOffer | None
@@ -491,6 +495,8 @@ class RunOutcome(_Model):
     warnings: list[Message]
     technical_notes: list[str]
     summary: RunSummary | None
+    files_unchanged: bool
+    opens: DadFile | None
 
 
 class RunIdle(_Model):
