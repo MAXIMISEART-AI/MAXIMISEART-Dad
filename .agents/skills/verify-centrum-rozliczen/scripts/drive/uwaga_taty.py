@@ -797,23 +797,27 @@ def _drive_missing_logs(run: Run, page: Page, config: Path, box: Path, period: s
     key = key_file.read_text(encoding="utf-8")
     print("  harness: without the key the preview's Logi wait in the queue", flush=True)
     key_file.unlink()
-    page.reload()
-    missing = _preview(run, page, period, "uwaga-podglad-bez-logow")
-    run.wait_for(lambda: len(_queue_files(config, LOGS_LABEL, missing)) == 1, "the preview's Logi wait in the queue")
-    print("  harness: the Logi file leaves the queue, as when Centrum could not write it; Maks writes the key again", flush=True)
+    try:
+        page.reload()
+        missing = _preview(run, page, period, "uwaga-podglad-bez-logow")
+        run.wait_for(lambda: len(_queue_files(config, LOGS_LABEL, missing)) == 1, "the preview's Logi wait in the queue")
+    finally:
+        key_file.write_text(key, encoding="utf-8")
+    print("  harness: Maks writes the key again; the Logi file leaves the queue, as when Centrum could not write it", flush=True)
     [logs_file] = _queue_files(config, LOGS_LABEL, missing)
     logs_text = logs_file.read_bytes()
     logs_file.unlink()
-    key_file.write_text(key, encoding="utf-8")
-    body, issue = _send_pinned(run, page, box, missing, NO_LOGS, "bez-logow")
-    run.check(
-        issue["body"]
-        == body.removesuffix(_waiting_logs(missing))
-        + f"Logi Uruchomienia: nie powstały albo nie da się ich wysłać (Uruchomienie {missing})",
-        "the sent Uwaga says its Logi were not made or cannot be sent, with the Uruchomienie's id",
-    )
-    run.wait_for(lambda: _queue_files(config, LABEL, missing) == [], "nothing of the Uwaga waits in the queue")
-    run.check(_issue(box, issue["number"]).get("comments", []) == [], "an Uwaga whose Logi were never queued gets no comment")
-    _as_maks_sees(run, page, issue, "200-uwaga-logi-nie-powstaly")
-    print("  harness: the Logi file goes back to the queue, so logi-uruchomienia finds every Uruchomienie's Logi in the skrzynka", flush=True)
-    logs_file.write_bytes(logs_text)
+    try:
+        body, issue = _send_pinned(run, page, box, missing, NO_LOGS, "bez-logow")
+        run.check(
+            issue["body"]
+            == body.removesuffix(_waiting_logs(missing))
+            + f"Logi Uruchomienia: nie powstały albo nie da się ich wysłać (Uruchomienie {missing})",
+            "the sent Uwaga says its Logi were not made or cannot be sent, with the Uruchomienie's id",
+        )
+        run.wait_for(lambda: _queue_files(config, LABEL, missing) == [], "nothing of the Uwaga waits in the queue")
+        run.check(_issue(box, issue["number"]).get("comments", []) == [], "an Uwaga whose Logi were never queued gets no comment")
+        _as_maks_sees(run, page, issue, "200-uwaga-logi-nie-powstaly")
+    finally:
+        print("  harness: the Logi file goes back to the queue, so logi-uruchomienia finds every Uruchomienie's Logi in the skrzynka", flush=True)
+        logs_file.write_bytes(logs_text)

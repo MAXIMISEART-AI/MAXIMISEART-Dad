@@ -357,10 +357,9 @@ def test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium(monkeypatch: pytest.Monke
 def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia(monkeypatch: pytest.MonkeyPatch) -> None:
     tool = _load_tool(monkeypatch)
     loader = (
-        "import json, os, runpy, sys\n"
+        "import json, runpy, sys\n"
         "script = runpy.run_path(sys.argv[1], run_name='_mutacje')\n"
         "for checker in {mutation.command[0] for mutation in script['MUTATIONS']}:\n"
-        "    sys.path.insert(0, os.path.dirname(os.path.abspath(checker)))  # jak `python <sprawdzenie>`\n"
         "    runpy.run_path(checker, run_name='_sprawdzenie')\n"
         "print(json.dumps([getattr(module, '__file__', None) for module in list(sys.modules.values())]))\n"
     )

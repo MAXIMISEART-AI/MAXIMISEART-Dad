@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "ci_lokalnie.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 # Linie `run:`, które przygotowują runner, a nie sprawdzają kodu.
-RUNNER_SETUP = ("pip install", "playwright install", "py -3 -c", "Add-Content")
+RUNNER_SETUP = ("pip install", "py -3 -c", "Add-Content")
 
 
 def _tool_steps() -> dict[str, object]:
