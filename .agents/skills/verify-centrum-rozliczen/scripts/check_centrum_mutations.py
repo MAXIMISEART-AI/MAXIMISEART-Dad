@@ -17,9 +17,13 @@ from mutacje import Edit, Mutation, check_all
 
 DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
+SETTINGS = Path("src/rozliczenia/centrum/settings.py")
+STOPS = Path("src/rozliczenia/centrum/stops.py")
 RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
+DIAGNOZA = (RUNNER, "--feature", "diagnoza")
+PRZYGOTOWANIE = (RUNNER, "--feature", "przygotowanie-pliku-zbiorczego")
 
 MUTATIONS = (
     Mutation(
@@ -69,6 +73,18 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+    Mutation(
+        "„Otwórz Rejestr zleceń” niczego nie otwiera",
+        (Edit(SETTINGS, "        platform.open_path(register)\n", "        pass\n"),),
+        DIAGNOZA,
+        "tata klika „Otwórz Rejestr zleceń” przy Zatrzymaniu do poprawy, a Excel się nie otwiera",
+    ),
+    Mutation(
+        "odmowa w Decyzji taty jak Zatrzymanie dla taty",
+        (Edit(STOPS, '        if stop.kind == "declined":\n', "        if False:\n"),),
+        PRZYGOTOWANIE,
+        "karta pokazuje odmowę taty jako Zatrzymanie do poprawy zamiast spokojnego „Przerwano”",
     ),
 )
 
