@@ -123,6 +123,7 @@ def test_zgloszenie_ma_komunikat_uruchomienie_narzedzie_diagnoze_i_dziennik(tmp_
         "- Proces: Przygotowanie pliku zbiorczego",
         f"- Okres: {PERIOD}",
         "- Tryb: DRY-RUN",
+        f"- Logi: jeszcze niewysłane, Uruchomienie {stopped['run']['id']}",
         "",
         "## Narzędzie",
         "",

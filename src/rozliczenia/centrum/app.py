@@ -166,14 +166,6 @@ def create_app(
         log,
         on_delivered=notes.delivered,
     )
-    # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
-    stops = Stops(
-        reports,
-        lambda process, period: diagnose(
-            process, period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
-        ),
-        log,
-    )
     # Logi Uruchomienia: jeden plik JSON na Uruchomienie obok dziennika Centrum, poza Gitem i OneDrive (ADR 0015).
     run_logs = RunLogs(
         log.directory / RUN_LOGS_DIRECTORY,
@@ -183,6 +175,15 @@ def create_app(
             process, period, settings=store.load(), configuration=configuration
         ),
         cloud_files=surroundings.cloud_files,
+    )
+    # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
+    stops = Stops(
+        reports,
+        lambda process, period: diagnose(
+            process, period, settings=store.load(), configuration=configuration, log=log, surroundings=surroundings
+        ),
+        log,
+        run_logs,
     )
     runs = RunHost(
         log,
