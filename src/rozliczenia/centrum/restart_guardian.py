@@ -14,7 +14,8 @@ dziennika do commitu sprzed aktualizacji razem z plikami taty
 samo startuje starą wersję, która pokaże go w karcie. Gdy cofnięcie się nie
 uda, wynik mówi to wprost, a dziennik czeka na następny start skrótu. Gdy nie
 wystartuje żadna wersja, opiekun pokazuje jedno natywne okienko z Komunikatem
-startu. Na końcu usuwa katalog tymczasowy aktualizacji.
+startu, chyba że port trzyma już stara wersja, którą tata uruchomił skrótem.
+Na końcu usuwa katalog tymczasowy aktualizacji.
 """
 
 from __future__ import annotations
@@ -157,8 +158,11 @@ def main(argv: Sequence[str], *, show_problem: Callable[[str, str], None] = show
     rolled_back = _rolled_back(restart)
     write_result(restart.result, _result(restart, NEW_VERSION_FAILED if rolled_back else ROLLBACK_FAILED))
     # Bez zwolnionego portu stara wersja też by nie wystartowała; po nieudanym cofnięciu nie ma starej wersji.
-    if released and rolled_back and before is not None and _port_released(restart.port):
-        if _answers(_start_centrum(restart), restart.port, before):
+    if released and rolled_back and before is not None:
+        if _port_released(restart.port) and _answers(_start_centrum(restart), restart.port, before):
+            return 0
+        # Tata mógł po cofnięciu uruchomić starą wersję skrótem: zajęła port przed opiekunem i działa.
+        if _runs(restart.port, before):
             return 0
     # Karta nie ma już z kim rozmawiać: jedno okienko zamiast ciszy.
     problem = start_problems.not_started_after_update()
@@ -257,8 +261,12 @@ def _answers(centrum: subprocess.Popen[bytes], port: int, commit: str) -> bool:
 
     deadline = time.monotonic() + START_TIMEOUT_S
     while centrum.poll() is None and time.monotonic() < deadline:
-        running = running_centrum(port, timeout_s=2)
-        if running is not None and running.runs(commit):
+        if _runs(port, commit):
             return True
         time.sleep(_POLL_S)
     return False
+
+
+def _runs(port: int, commit: str) -> bool:
+    running = running_centrum(port, timeout_s=2)
+    return running is not None and running.runs(commit)

@@ -29,11 +29,17 @@ a new version (`restart_guardian.main`, `_rolled_back` after `_answers(new, …,
 after)`) only when that version really would not start, also when Dad clicks
 the desktop shortcut while the guardian restarts Centrum.
 
+**OkienkoTylkoGdyNicNieDziala**: the restart guardian shows its native dialog
+`not_started_after_update` only when no Centrum runs. After a rollback, the
+port may already belong to the old version that Dad started from the shortcut,
+and then the guardian ends without the dialog (`_runs(…, before)`, #368).
+
 Harm: Dad clicks `Zaktualizuj narzędzie` in the middle of a settlement week and
 is left with a tool that will not start, or with names that have turned back
 into the repository's sample, and only Maks can repair it. For the second
 promise: Dad loses an update that worked, sees `NOWA_WERSJA_NIE_WYSTARTOWALA`,
-and Maks gets a Zgłoszenie about a version that starts fine.
+and Maks gets a Zgłoszenie about a version that starts fine. For the third:
+Dad sees „Centrum rozliczeń nie wystartowało” while Centrum works.
 
 ADR 0009 promises this as „Wszystko albo nic”, including the journal paragraph,
 and „Opiekun … gdy nowa wersja nie wystartuje, cofa klon i uruchamia starą”
@@ -59,7 +65,8 @@ model action is one indivisible step of this code:
 | `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart` (`ToolClone.leased_to_guardian` around `restart_guardian.launch`: it writes the lease and removes it when `launch` raises), and `_moved_back` when either raises |
 | `OpiekunPort`, `OpiekunStart` | `restart_guardian.py` `main`: `_port_released` (waits while a shortcut holds the port), `write_result` (ok), `_start_centrum` (`run_centrum.py --bez-okienek`, which skips the journal), `_answers(new, …, after)`, then `_stop` and `_rolled_back`; without the port straight to `_rolled_back`. `OpiekunStart` is the moment the new Centrum takes the port in `launcher._listen_when_released`: with `--bez-okienek` it retries `listen_locally` for `_SHORTCUT_HOLDS_PORT_S`, so it waits while a shortcut holds the port (#246) |
 | `OpiekunKoniec` | `restart_guardian.py` `main`: `ToolClone.confirm_update` after `_answers(new, …, after)` |
-| `OpiekunPortStara`, `OpiekunStartStara` | `restart_guardian.py` `main` after a successful rollback of a version that did not answer: `_port_released` (fails while a Centrum started from the shortcut holds the port), `_start_centrum` (with `--bez-okienek`, so the old version waits for the shortcut's port like the new one), `_answers(…, before)` (also answered by that Centrum), or the dialog `not_started_after_update` |
+| `OpiekunPortStara`, `OpiekunStartStara` | `restart_guardian.py` `main` after a successful rollback of a version that did not answer: `_port_released` (fails while a Centrum started from the shortcut holds the port), `_start_centrum` (with `--bez-okienek`, so the old version waits for the shortcut's port like the new one), `_answers(…, before)` (also answered by that Centrum), then `_runs(…, before)`, which ends without a dialog when that Centrum holds the port. Every guardian path that ends in the dialog goes through `OpiekunOkienko` |
+| `OpiekunOkienko` | `restart_guardian.py` `main`: `show_problem` with `not_started_after_update`, then `return 1`. It follows a failed rollback for the guardian (`CofaniePrzywroc`), the end of the journal after a rollback without the port (`KoniecDziennika`), a port held by another program after a rollback (`OpiekunPortStara`), and an old version that does not answer (`OpiekunStartStara`) |
 | `Wylacz` | none: the computer switches off; the journal and its copy stay on disk |
 | `DzierzawaMija` | none: `GUARDIAN_LEASE_S` passes after `lease_to_guardian` (`InterruptedUpdate.guardian_may_run`) |
 | `Skrot` | `launcher.py` `_start` from the shortcut while nothing runs, as one step: `listen_locally`, `ToolClone.interrupted_update`, then the Komunikat `update_finishing` while `guardian_may_run`, `launcher._roll_back`, or the normal start (only "does it start") |
@@ -152,9 +159,9 @@ guardian's rollback meets every other failure too.
 | `wylaczenie` | `nieudany-start` + the computer switches off at any step | passes |
 | `skrot-w-trakcie` | `nieudany-start` + Dad clicks the desktop shortcut up to twice (`MaxSkrotowWTrakcie = 2`) while the guardian runs | passes |
 
-Every configuration checks the invariants `TataMaDzialajacaWersje` and
-`OpiekunCofaTylkoNieudana` and the liveness property `Postep`, under the
-fairness in `Sprawiedliwosc` (see Scope). A broken invariant prints
+Every configuration checks the invariants `TataMaDzialajacaWersje`,
+`OpiekunCofaTylkoNieudana` and `OkienkoTylkoGdyNicNieDziala` and the liveness
+property `Postep`, under the fairness in `Sprawiedliwosc` (see Scope). A broken invariant prints
 `naruszone <name>:` and its harm in one sentence.
 A broken `Postep` prints `naruszony Postep` and a counterexample that ends in a
 loop: `(dalej nic sie nie dzieje)` or `(stad znow krok n i tak bez konca)`.
@@ -267,13 +274,19 @@ Assumed, and not checked:
   lets `OpiekunStart` and `OpiekunStartStara` wait for it without a limit. A
   shortcut process that stalls longer brings `skrot_zajmuje_port` back. No
   promise checks the wait in `OpiekunStartStara`: without it the old version
-  ends with `PORT_ZAJETY` and Dad sees the dialog, but his tool still starts.
+  ends with `PORT_ZAJETY`, and `_runs(…, before)` still finds the shortcut's
+  Centrum, so Dad sees no dialog either way.
+- The guardian shows the dialog in the same step that decides it
+  (`SkrotOddajePort` waits while `pc = "okienko"`). A shortcut Centrum that
+  starts after that decision does not count against
+  `OkienkoTylkoGdyNicNieDziala`. After a rollback without the port, the
+  guardian does not ask the port before the dialog: another program held it.
 - A shortcut whose `listen_locally` fails only asks `running_centrum` and
   changes nothing on disk, so the model leaves it out. Its wrong Komunikaty
   are not checked: `PORT_ZAJETY` when Centrum is still starting and does not
   answer `health` in 5 s, `INNA_WERSJA_CENTRUM` while the old Centrum is still
   closing.
-- Not covered: what the card or the Komunikat shows, the Centrum log,
-  `RunHost` refusals during an Uruchomienie procesu, the result file, and
-  whether the browser reconnects. For those use `verify-centrum-rozliczen`
-  with `--feature aktualizacja`.
+- Not covered: what the card or a Komunikat shows (only whether the
+  guardian's dialog appears), the Centrum log, `RunHost` refusals during an
+  Uruchomienie procesu, the result file, and whether the browser reconnects.
+  For those use `verify-centrum-rozliczen` with `--feature aktualizacja`.

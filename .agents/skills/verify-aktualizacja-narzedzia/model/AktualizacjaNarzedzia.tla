@@ -19,6 +19,9 @@
 (* Druga obietnica (OpiekunCofaTylkoNieudana): opiekun cofa nową wersję    *)
 (* tylko wtedy, gdy ona naprawdę nie startuje, także gdy tata w trakcie    *)
 (* ponownego startu kliknie skrót na pulpicie.                             *)
+(*                                                                         *)
+(* Trzecia obietnica (OkienkoTylkoGdyNicNieDziala): opiekun pokazuje       *)
+(* okienko „nie wystartowało” tylko wtedy, gdy żadne Centrum nie działa.  *)
 (***************************************************************************)
 EXTENDS Naturals
 
@@ -71,7 +74,7 @@ Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie"
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
           "instalacja_trwa", "cofanie_usun", "cofanie_reset", "cofanie_przywroc",
           "koniec_dziennika", "restart", "opiekun_port", "opiekun_start", "opiekun_koniec",
-          "opiekun_port_stara", "opiekun_start_stara"}
+          "opiekun_port_stara", "opiekun_start_stara", "okienko"}
 
 TypeOK ==
     /\ head \in {"stara", "nowa"}
@@ -120,6 +123,13 @@ OpiekunCofaTylkoNieudana ==
     pc = "cofanie_usun" /\ cofa = "opiekun" => ~Startuje(head)
 
 OpiekunCofaTylkoNieudanaPozaZnanymi == OpiekunCofaTylkoNieudana \/ Znane
+
+\* Opiekun pokazuje okienko not_started_after_update (pc = "okienko") tylko wtedy, gdy żadne
+\* Centrum nie działa: okienko przy starej wersji ze skrótu to fałszywy alarm (#368).
+OkienkoTylkoGdyNicNieDziala ==
+    pc = "okienko" => centrum = "brak"
+
+OkienkoTylkoGdyNicNieDzialaPozaZnanymi == OkienkoTylkoGdyNicNieDziala \/ Znane
 
 
 \* --- Start ------------------------------------------------------------------
@@ -315,7 +325,9 @@ CofanieResetUdane == CofanieReset /\ head' = "stara"
 CofaniePrzywroc ==
     /\ pc = "cofanie_przywroc"
     /\ \/ /\ plikTaty' = IF kopia = "taty" THEN "taty" ELSE plikTaty
-          /\ Idz(IF head = "stara" THEN "koniec_dziennika" ELSE "spoczynek",
+          /\ Idz(CASE head = "stara" -> "koniec_dziennika"
+                   [] cofa \in {"opiekun", "opiekun_bez_portu"} -> "okienko"
+                   [] OTHER -> "spoczynek",
                  CASE head = "stara" -> "_roll_back (finally): plik taty wraca z kopii"
                    [] cofa \in {"centrum", "klik"} -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, Centrum pokazuje COFNIECIE_NIEUDANE"
                    [] cofa = "skrot" -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, skrot konczy sie Komunikatem startu"
@@ -323,7 +335,7 @@ CofaniePrzywroc ==
        \/ /\ AwariaKopiowania
           /\ kopia = "taty"
           /\ plikTaty' = plikTaty
-          /\ Idz("spoczynek",
+          /\ Idz(IF cofa \in {"opiekun", "opiekun_bez_portu"} THEN "okienko" ELSE "spoczynek",
                   CASE cofa \in {"centrum", "klik"} -> "_roll_back (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w dzienniku)"
                     [] cofa = "skrot" -> "_roll_back (finally): copy2 z kopii rzuca OSError, skrot konczy sie Komunikatem startu"
                     [] OTHER -> "_roll_back (finally): copy2 z kopii rzuca OSError, opiekun pokazuje okienko (return 1)")
@@ -345,6 +357,7 @@ KoniecDziennika ==
           /\ UNCHANGED centrum
           /\ Idz(CASE cofa = "opiekun" -> "opiekun_port_stara"
                    [] cofa = "klik" -> "pobieranie"
+                   [] cofa = "opiekun_bez_portu" -> "okienko"
                    [] OTHER -> "spoczynek",
                  CASE cofa = "opiekun" -> "_Journal.end: dziennik znika; opiekun cofnal klon"
                    [] cofa = "klik" -> "_Journal.end: dziennik znika; ToolClone.update pobiera Wydania jak zwykle"
@@ -409,14 +422,17 @@ OpiekunKoniec ==
     /\ UNCHANGED <<head, plikTaty, biblioteki, nowa, centrum, klikniecia>>
 
 \* Po udanym cofnięciu: _port_released, potem _start_centrum i _answers(before).
-\* Każda porażka kończy się okienkiem not_started_after_update.
-\* Port po cofnięciu może trzymać Centrum, które skrót uruchomił, gdy dziennika już nie było.
+\* Port po cofnięciu może trzymać Centrum, które skrót uruchomił, gdy dziennika już nie było:
+\* _port_released czeka na nie PORT_TIMEOUT_S, a potem opiekun pyta je _runs(before) i kończy bez
+\* okienka. Port bez Centrum i bez skrótu trzyma inny program: wtedy okienko not_started_after_update.
 OpiekunPortStara ==
     /\ pc = "opiekun_port_stara"
     /\ \/ /\ AwariaOpiekuna
-          /\ Idz("spoczynek", "restart_guardian.main: port nie zwolniony po cofnieciu, opiekun pokazuje okienko")
+          /\ centrum = "brak"
+          /\ skrot = "brak"
+          /\ Idz("okienko", "restart_guardian.main: port po cofnieciu trzyma inny program, _runs(before) nie odpowiada")
        \/ /\ centrum /= "brak"
-          /\ Idz("spoczynek", "restart_guardian.main: port po cofnieciu trzyma Centrum ze skrotu, opiekun pokazuje okienko")
+          /\ Idz("spoczynek", "restart_guardian.main: port po cofnieciu trzyma Centrum ze skrotu, opiekun konczy bez okienka (_runs)")
        \/ /\ centrum = "brak"
           /\ skrot = "brak"
           /\ Idz("opiekun_start_stara", "restart_guardian.main: port zwolniony po cofnieciu")
@@ -432,11 +448,18 @@ OpiekunStartStara ==
     /\ centrum' = CASE centrum /= "brak" -> centrum
                     [] Startuje(head) -> head
                     [] OTHER -> "brak"
-    /\ Idz("spoczynek",
+    /\ Idz(IF centrum = "brak" /\ ~Startuje(head) THEN "okienko" ELSE "spoczynek",
            CASE centrum /= "brak" -> "restart_guardian.main: stara wersja juz dziala (Centrum ze skrotu odpowiada)"
              [] Startuje(head) -> "restart_guardian.main: stara wersja odpowiada, karta pokaze NOWA_WERSJA_NIE_WYSTARTOWALA"
              [] OTHER -> "restart_guardian.main: stara wersja nie odpowiada, opiekun pokazuje okienko")
     /\ UNCHANGED <<dysk, nowa, klikniecia>>
+
+\* show_problem: natywne okienko not_started_after_update, potem return 1. Okienko pokazuje się
+\* w tym samym kroku kodu, w którym opiekun o nim rozstrzyga (SkrotOddajePort na nie czeka).
+OpiekunOkienko ==
+    /\ pc = "okienko"
+    /\ Idz("spoczynek", "restart_guardian.main: show_problem pokazuje okienko not_started_after_update (return 1)")
+    /\ UNCHANGED <<dysk, nowa, centrum, klikniecia>>
 
 \* --- Poza kodem aktualizacji ----------------------------------------------------
 
@@ -510,6 +533,7 @@ SkrotWTrakcie ==
 \* póki opiekun działa (DzierzawaMija).
 SkrotOddajePort ==
     /\ skrot = "ma_port"
+    /\ pc /= "okienko"
     /\ skrot' = "brak"
     /\ \/ /\ dziennik = "w_toku"
           /\ dzierzawa = "wazna"
@@ -526,6 +550,7 @@ Program ==
     \/ PrzywroceniePoOdmowie \/ PrzywroceniePoScaleniu \/ Instalacja \/ InstalacjaKoniec
     \/ CofanieUsun \/ CofanieReset \/ CofaniePrzywroc \/ KoniecDziennika
     \/ Restart \/ OpiekunPort \/ OpiekunStart \/ OpiekunKoniec \/ OpiekunPortStara \/ OpiekunStartStara
+    \/ OpiekunOkienko
     \/ SkrotOddajePort
 
 Next == Program \/ Klik \/ Wylacz \/ DzierzawaMija \/ Skrot \/ SkrotWTrakcie
