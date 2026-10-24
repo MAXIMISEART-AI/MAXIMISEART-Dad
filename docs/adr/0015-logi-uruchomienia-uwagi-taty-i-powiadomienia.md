@@ -10,10 +10,12 @@ bieżący `main`). Zmienia trzy zdania
 - „Centrum łączy się wyłącznie z API GitHuba: przy wysyłce Zgłoszenia, przy
   sprawdzaniu stanu wysłanych Zgłoszeń…”: dochodzi wysyłka Logów Uruchomienia
   i Uwag taty, stan Uwag oraz lista Wydań publicznego repozytorium;
-- „Bez treści wierszy”: Logi Uruchomienia niosą treść kolumn według reguły
-  Kontroli ilości;
-- własne pliki Centrum: dochodzą Logi Uruchomienia w `logs/uruchomienia/` i
-  stan przeczytanych Powiadomień w `config/`, oba poza Gitem.
+- „Bez treści wierszy”: Logi Uruchomienia nie niosą treści wierszy, ale ich
+  Komunikaty i podsumowanie tak jak na karcie Uruchomienia (wyjątki niżej);
+- własne pliki Centrum: dochodzą Logi Uruchomienia w `logs/uruchomienia/` oraz
+  w `config/` stan wysłanych Uwag (`uwagi-taty.json`), przeczytanych
+  Powiadomień (`powiadomienia.json`) i adresy dostarczonych Logów
+  (`skrzynka-adresy.jsonl`), wszystko poza Gitem.
 
 [ADR 0009](0009-aktualizacja-narzedzia-z-centrum.md) traci Powiadomienie o
 naprawie na stronie Okresy: zastępuje je Powiadomienie o nowej wersji.
@@ -41,32 +43,56 @@ co stało się z tym, co wysłał.
 - **Centrum wysyła Logi samo i po cichu.** Jeden okres to jedno issue z
   etykietą `logi-uruchomienia`, także po zamknięciu przez Maksa, a każde
   Uruchomienie to komentarz: podsumowanie w Markdown i pełny JSON w
-  `<details>`, dzielony na kolejne komentarze ponad limitem GitHuba.
-  Uruchomienia bez ustalonego okresu trafiają do jednego stałego issue. Brak
-  sieci albo klucza zostawia je w kolejce ponawianej przy starcie, wspólnej z
-  Kontrolą ilości. Diagnoza dopisuje się do Logów swojego Uruchomienia, a
-  Zgłoszenie do nich prowadzi.
-- **Treść Logów:** proces, tryb, okres, Wydanie i commit, Komunikaty w trzech
-  częściach, podsumowanie, plan plików, czasy etapów i Szablonów pracownika z
-  liczbą problemów, środowisko (system, Python, rozmiary plików, OneDrive) i
-  przy nieoczekiwanym wyjątku ślad wywołań jak w Zgłoszeniu. Treść komórek
-  według reguły Kontroli ilości: nigdy adres, numer zlecenia, numer umowy,
-  Wykonawca przy wierszu, data dzienna, `CZYNNOŚCI ZREALIZOWANE` ani opis
-  technika. Komunikaty i przebieg Szablonów zachowują nazwę Wykonawcy, tak jak
-  w Zgłoszeniu.
+  `<details>`, dzielony na kolejne komentarze ponad limitem GitHuba (65 536
+  znaków treści, zmierzone w #332). Issue okresu Centrum znajduje po wierszu
+  `- Logi Uruchomienia okresu: <okres>` w jego treści, tym samym mechanizmem
+  co Kontrolę ilości; token okresu w tytule jest dla ludzi. Stałego issue dla
+  Uruchomień bez okresu nie ma: oba wejścia do Uruchomienia z Centrum
+  odrzucają zły token okresu, zanim Uruchomienie wystartuje, więc każde ma
+  okres. Brak sieci albo klucza zostawia Logi w kolejce ponawianej przy
+  starcie, wspólnej z Kontrolą ilości i Uwagami. Diagnoza dopisuje swój wynik
+  do pliku Logów i wysyła całe Logi jako kolejny komentarz, a Zgłoszenie ma
+  wiersz z odnośnikiem do Logów swojego Uruchomienia.
+- **Treść Logów** (`schema_version` 1): proces, tryb, okres, Wydanie i commit,
+  Komunikaty (Zatrzymania i ostrzeżenia), uwagi techniczne, podsumowanie karty
+  z planem plików, czasy etapów, Szablony pracownika z Wykonawcą, wynikiem,
+  liczbą wierszy i czasem, środowisko (system, Python, nazwy i rozmiary plików
+  procesu z flagą „tylko online” OneDrive), przy nieoczekiwanym wyjątku ślad
+  wywołań jak w Zgłoszeniu i po Diagnozie jej wynik. Pole Wydania jest puste,
+  dopóki Centrum nie umie lokalnie ustalić, na którym Wydaniu jest klon taty.
+  Logi nie niosą treści wierszy: nigdy adresu, numeru zlecenia, numeru umowy,
+  Wykonawcy przy wierszu, daty dziennej z komórki, `CZYNNOŚCI ZREALIZOWANE` ani
+  opisu technika. Komunikaty i przebieg Szablonów zachowują nazwę Wykonawcy,
+  tak jak w Zgłoszeniu. Świadome wyjątki, te same co na karcie Uruchomienia i w
+  Zgłoszeniu: Komunikat `ZLE_SKUTECZNE` cytuje komórkę `SKUTECZNE`,
+  `NIEZNANY_WYKONAWCA` z Przygotowania podaje identyfikator Wykonawcy z
+  numerem wiersza Rejestru, a podsumowanie ma liczbę zleceń na każdy dzień
+  okresu i datę ostatniego zlecenia w ostrzeżeniu `NIEPELNY_OKRES`. Bez
+  adresu, numeru zlecenia i Wykonawcy przy wierszu nie wskazują klienta.
 - **Uwaga taty** to tytuł i opcjonalna treść, pisane w oknie otwieranym ikoną
   obok dzwonka w każdym widoku, ogólne albo przypięte do jednego Uruchomienia
   procesu. Każda to osobne issue z etykietą `uwaga-taty`. Tata widzi w oknie
   dokładnie to, co wyśle; bez sieci Uwaga czeka w kolejce z jednym zdaniem
-  dla taty, bez Komunikatu.
+  dla taty, bez Komunikatu. Uwaga przypięta niesie okres, proces, tryb, wynik,
+  datę i wersję narzędzia Uruchomienia oraz odnośnik do jego Logów; gdy Logi
+  jeszcze czekają w kolejce, kolejka wstawia odnośnik tuż przed wysłaniem
+  Uwagi. Wysyłka jest co najmniej raz: zerwane połączenie po utworzeniu issue
+  może dać drugie issue.
 - **Powiadomienia** to osobny widok otwierany dzwonkiem, z trzema rodzajami:
   nowa wersja, Uwaga i Zgłoszenie. Wejście do widoku oznacza wszystkie jako
   przeczytane. Sprawę zamkniętą przez Maksa przed Wydaniem Powiadomienie
   nazywa rozwiązaną, z dopiskiem, że będzie w następnej wersji; zamkniętą bez
-  zmiany w kodzie jako przeczytaną. Powiadomienie o nowej wersji ma notkę
-  Wydania, rozwiązane sprawy taty i przycisk Aktualizacji narzędzia. Centrum
-  sprawdza Wydania i stan spraw przy starcie i najwyżej raz na 10 minut; bez
-  sieci nie ma nowych Powiadomień ani Komunikatu.
+  zmiany w kodzie jako przeczytaną (`state_reason` zamkniętego issue:
+  `completed` albo `not_planned`). Zgłoszenie nigdy nie czeka na internet:
+  niewysłane zostaje plikiem dla taty, jak dotąd. Powiadomienie o nowej wersji
+  ma notkę Wydania (GitHub Release w formacie `release_notes`), rozwiązane
+  sprawy taty wysłane z tego komputera i przycisk Aktualizacji narzędzia, ten
+  sam co w Konfiguracji i Diagnozie (`offers_update`). Kropkę zapala tylko
+  najnowsze Wydanie; starsze stoją na liście jako historia. Centrum sprawdza
+  Wydania i stan spraw przy starcie i najwyżej raz na 10 minut jednym
+  sprawdzaniem; bez sieci nie ma nowych Powiadomień ani Komunikatu. Pierwsza
+  karta nowej wersji pojawi się z pierwszym Wydaniem opublikowanym przez
+  narzędzie Wydań, bo goły tag bez GitHub Release nie ma notki.
 
 ## Odrzucone warianty
 
