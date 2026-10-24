@@ -3,7 +3,7 @@
 Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co się
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
 Części nie zawierają pełnych ścieżek ani treści wierszy: wskazują tylko nazwę
-pliku, folder okresu, kolumnę albo Wykonawcę z konfiguracji wykonawców.
+pliku, folder okresu, kolumnę, numer wiersza albo Wykonawcę z konfiguracji wykonawców.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ _STAGING_LEFT: Final = "W Folderze okresu został folder tymczasowy, którego ni
 _RETRY: Final = "Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 _PREVIEW_PROBLEMS: Final = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
 _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
+_FIX_UNMAPPED_WORKER: Final = (
+    "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców."
+)
 _LEGACY_WORKER_TEMPLATE_NAME: Final = "placeholder.xlsx"
 
 
@@ -180,10 +183,7 @@ def unmapped_worker(source: Path) -> Message:
             f"{_NOTHING_CREATED}"
         ),
         where=f"{file_label(source)}, kolumna H",
-        action=(
-            f"{_PREVIEW_PROBLEMS} Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie "
-            f"o dopisanie Wykonawcy do konfiguracji wykonawców. {_SAVE_AND_RETRY}"
-        ),
+        action=f"{_PREVIEW_PROBLEMS} {_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
     )
 
 
@@ -203,10 +203,7 @@ def unmapped_worker_warning(source: Path) -> Message:
         code="BRAK_MAPOWANIA",
         what="Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
         where=file_label(source),
-        action=(
-            "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
-            f"do konfiguracji wykonawców. {_SAVE_AND_RETRY}"
-        ),
+        action=f"{_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
     )
 
 

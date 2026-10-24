@@ -30,8 +30,11 @@ def check_worker_template(template_path: Path) -> TemplateFile:
     return template
 
 
-def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Message], CollectiveOrders]:
-    """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA."""
+def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[int], CollectiveOrders]:
+    """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA.
+
+    Wiersze danych bez Wykonawcy nie trafiają do grup; zostają ich numery.
+    """
 
     try:
         read = collective_file.read_data_rows(source_path)
@@ -40,15 +43,14 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list
     rows_by_worker: defaultdict[str, list[DataRow]] = defaultdict(list)
     for row in read.rows:
         rows_by_worker[normalize_text(row.worker)].append(row)
-    warnings = [settlement_messages.row_without_worker_warning(source_path, number) for number in read.without_worker]
-    return dict(rows_by_worker), warnings, read.orders
+    return dict(rows_by_worker), read.without_worker, read.orders
 
 
 def _plan_rows(
     source_path: Path,
     mapping: dict[str, str],
     rows_by_worker: dict[str, list[DataRow]],
-    source_warnings: list[Message],
+    without_worker: list[int],
     *,
     dry_run: bool,
 ) -> tuple[dict[str, list[DataRow]], list[Message]]:
@@ -64,9 +66,10 @@ def _plan_rows(
         rows_by_target[normalize_text(target_name)].extend(rows)
     if not dry_run and unmapped:
         raise StopError(settlement_messages.unmapped_worker(source_path))
-    if not dry_run and source_warnings:
+    if not dry_run and without_worker:
         raise StopError(settlement_messages.rows_without_worker(source_path))
-    return dict(rows_by_target), unmapped
+    missing_worker = [settlement_messages.row_without_worker_warning(source_path, number) for number in without_worker]
+    return dict(rows_by_target), [*missing_worker, *unmapped]
 
 
 def run_settlements(
@@ -114,19 +117,16 @@ def run_settlements(
     folder, mapping, worker_template = phases.check(check_inputs)
     target_directory = folder.worker_settlements
     worker_names = list(mapping.values())
-    rows_by_worker, source_warnings, orders = phases.read(
+    rows_by_worker, without_worker, orders = phases.read(
         lambda: _read_source_rows(source_path),
         issue_count=lambda read_rows: len(read_rows[1]),
     )
-    summary = SettlementSummary(
-        folder.period.token, source_path, target_directory, orders=orders, warnings=list(source_warnings)
-    )
-    rows_by_target, plan_warnings = phases.plan(
-        lambda: _plan_rows(source_path, mapping, rows_by_worker, source_warnings, dry_run=dry_run),
+    rows_by_target, warnings = phases.plan(
+        lambda: _plan_rows(source_path, mapping, rows_by_worker, without_worker, dry_run=dry_run),
         templates=lambda _planned: worker_names,
-        issue_count=lambda planned: len(source_warnings) + len(planned[1]),
+        issue_count=lambda planned: len(planned[1]),
     )
-    summary.warnings.extend(plan_warnings)
+    summary = SettlementSummary(folder.period.token, source_path, target_directory, orders=orders, warnings=warnings)
 
     def settle(directory: Path, worker_name: str) -> WorkerResult:
         target_path = directory / folder.worker_settlement(worker_name).name
