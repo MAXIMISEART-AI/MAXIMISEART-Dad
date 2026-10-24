@@ -709,20 +709,7 @@ class _Git:
             *args,
         ]
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-            process = subprocess.Popen(
-                command,
-                env=_quiet_environment(),
-                stdin=subprocess.DEVNULL,
-                stdout=output,
-                stderr=errors,
-                creationflags=_NO_WINDOW,
-                start_new_session=sys.platform != "win32",
-            )
-            try:
-                returncode = process.wait(timeout=timeout_s)
-            except subprocess.TimeoutExpired:
-                _kill_tree(process)
-                raise
+            returncode = _run_tree(command, env=_quiet_environment(), stdout=output, stderr=errors, timeout_s=timeout_s)
             return subprocess.CompletedProcess(command, returncode, _text_of(output), _text_of(errors))
 
     def check(self, *args: str) -> None:
@@ -809,28 +796,125 @@ def _text_of(file: IO[bytes]) -> str:
     return file.read().decode("utf-8", errors="replace")
 
 
-def _kill_tree(process: subprocess.Popen[bytes]) -> None:
-    """Zabija Gita razem z jego pomocnikami: w Windows ``taskkill /T``, gdzie indziej całą jego sesję."""
-
-    if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=_KILL_TIMEOUT_S,
-            check=False,
-            creationflags=_NO_WINDOW,
-        )
-    else:
-        with suppress(OSError):  # Git i jego pomocnicy już się zakończyli
-            os.killpg(process.pid, signal.SIGKILL)
-    process.kill()
-    process.wait()
-
-
 # Tyle czeka zabijanie drzewa procesów Gita po limicie czasu.
 _KILL_TIMEOUT_S: Final = 10.0
+
+# ``_run_tree`` uruchamia polecenie bez okna i bez stdin i oddaje jego kod wyjścia. Po ``timeout_s`` zabija całe
+# drzewo jego procesów i rzuca ``subprocess.TimeoutExpired`` dopiero wtedy, gdy żaden z nich już nie żyje.
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    class _ProcessIds(ctypes.Structure):
+        """JOBOBJECT_BASIC_PROCESS_ID_LIST."""
+
+        _fields_ = [
+            ("NumberOfAssignedProcesses", wintypes.DWORD),
+            ("NumberOfProcessIdsInList", wintypes.DWORD),
+            ("ProcessIdList", ctypes.c_size_t * 64),
+        ]
+
+    _CREATE_SUSPENDED: Final = 0x0004
+    _PROCESS_ID_LIST: Final = 3
+    _ERROR_MORE_DATA: Final = 234
+    _SYNCHRONIZE: Final = 0x00100000
+    _TERMINATE_SET_QUOTA_AND_RESUME: Final = 0x0901
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.CreateJobObjectW.restype = _kernel32.OpenProcess.restype = wintypes.HANDLE
+
+    def _run_tree(
+        command: list[str], *, env: Mapping[str, str], stdout: IO[bytes], stderr: IO[bytes], timeout_s: float
+    ) -> int:
+        """Drzewo to zadanie (Job Object); ``OSError``, gdy zadanie nie powstanie albo przeżyje ``_KILL_TIMEOUT_S``."""
+
+        job = wintypes.HANDLE(_kernel32.CreateJobObjectW(None, None))
+        if not job.value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            # Wstrzymany do przypisania: inaczej Git zdąży uruchomić pomocnika poza zadaniem.
+            process = subprocess.Popen(
+                command,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout,
+                stderr=stderr,
+                creationflags=_NO_WINDOW | _CREATE_SUSPENDED,
+            )
+            try:
+                _join(job, process.pid)
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+            try:
+                return process.wait(timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                # Proces znika z zadania, zanim Windows uzna go za zakończony i puści jego uchwyty (I/O w toku),
+                # więc czekamy na uchwyty członków zadania otwarte przed zabiciem.
+                deadline = time.monotonic() + _KILL_TIMEOUT_S
+                while members := _members(job):
+                    if time.monotonic() >= deadline:
+                        raise OSError("drzewo procesów Gita przeżyło zabicie") from None
+                    opened = (wintypes.HANDLE(_kernel32.OpenProcess(_SYNCHRONIZE, False, pid)) for pid in members)
+                    handles = [handle for handle in opened if handle.value]  # bez uchwytu: już się zakończył
+                    try:
+                        if not _kernel32.TerminateJobObject(job, 1):
+                            raise ctypes.WinError(ctypes.get_last_error()) from None
+                        for handle in handles:
+                            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+                            if _kernel32.WaitForSingleObject(handle, remaining_ms) != 0:
+                                raise OSError("drzewo procesów Gita przeżyło zabicie") from None
+                    finally:
+                        for handle in handles:
+                            _kernel32.CloseHandle(handle)
+                process.wait()
+                raise
+        finally:
+            _kernel32.CloseHandle(job)
+
+    def _join(job: wintypes.HANDLE, pid: int) -> None:
+        """Przypisuje wstrzymany proces ``pid`` do zadania ``job`` i go wznawia."""
+
+        handle = wintypes.HANDLE(_kernel32.OpenProcess(_TERMINATE_SET_QUOTA_AND_RESUME, False, pid))
+        if not handle.value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            if not _kernel32.AssignProcessToJobObject(job, handle):
+                raise ctypes.WinError(ctypes.get_last_error())
+            # Popen zamyka uchwyt głównego wątku, więc zamiast ResumeThread wznawia cały proces.
+            status = ctypes.WinDLL("ntdll").NtResumeProcess(handle)
+            if status != 0:
+                raise OSError(f"NtResumeProcess: NTSTATUS 0x{status & 0xFFFFFFFF:08X}")
+        finally:
+            _kernel32.CloseHandle(handle)
+
+    def _members(job: wintypes.HANDLE) -> list[int]:
+        """PID-y procesów zadania ``job``, najwyżej 64 (Git ma ich kilka)."""
+
+        ids = _ProcessIds()
+        if not _kernel32.QueryInformationJobObject(job, _PROCESS_ID_LIST, ctypes.byref(ids), ctypes.sizeof(ids), None):
+            error = ctypes.get_last_error()
+            if error != _ERROR_MORE_DATA:
+                raise ctypes.WinError(error)
+        return list(ids.ProcessIdList[: ids.NumberOfProcessIdsInList])
+
+else:
+
+    def _run_tree(
+        command: list[str], *, env: Mapping[str, str], stdout: IO[bytes], stderr: IO[bytes], timeout_s: float
+    ) -> int:
+        """Drzewo to sesja Gita."""
+
+        process = subprocess.Popen(
+            command, env=env, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True
+        )
+        try:
+            return process.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            with suppress(OSError):  # Git i jego pomocnicy już się zakończyli
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise
 
 
 def _quiet_environment() -> dict[str, str]:
