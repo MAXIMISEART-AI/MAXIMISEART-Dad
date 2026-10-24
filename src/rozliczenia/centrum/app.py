@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.diagnosis import Surroundings, diagnose
+from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router
 from rozliczenia.centrum.period_board import periods_router
@@ -36,9 +36,10 @@ from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
 from rozliczenia.centrum.outbox import QUEUE_DIRECTORY, Outbox
 from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
-from rozliczenia.centrum.reports import UNSENT_DIRECTORY, Reports, read_report_key, repair_router
+from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports, read_report_key, repair_router
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.run_logs import RUN_LOGS_DIRECTORY, RunLogs
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
@@ -72,6 +73,7 @@ def create_app(
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
     clock: Callable[[], float] = time.monotonic,
+    report_search_deadline_s: float = SEARCH_DEADLINE_S,
     tool_update: ToolClone | None = None,
     guardian: GuardianLauncher | None = None,
 ) -> FastAPI:
@@ -79,7 +81,7 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienie o naprawie: pierwsze pytanie skrzynki przy starcie, nie dopiero przy wejściu na Okresy.
         reports.check_repairs_in_background()
-        # Kontrole ilości, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
+        # Kontrole ilości i Logi, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza), wychodzą w tle.
         outbox.resume()
         yield
 
@@ -149,8 +151,10 @@ def create_app(
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
     config = settings_path.parent
     box = report_box or GitHubReportBox()
-    reports = Reports(config, box, log, surroundings.tool_freshness.local, clock=clock)
-    # Kontrola ilości po Przebiegu rozliczeń: w kolejce obok niewysłanych Zgłoszeń, wysyłana w tle (ADR 0013).
+    reports = Reports(
+        config, box, log, surroundings.tool_freshness.local, clock=clock, search_deadline_s=report_search_deadline_s
+    )
+    # Kontrola ilości i Logi Uruchomienia: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle (ADR 0013, 0015).
     outbox = Outbox(config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, lambda: read_report_key(config), log)
     # Jedno Uruchomienie procesu albo Aktualizacja narzędzia naraz; w ich trakcie zamknięcie Centrum jest odrzucone.
     stops = Stops(
@@ -160,8 +164,21 @@ def create_app(
         ),
         log,
     )
+    # Logi Uruchomienia: jeden plik JSON na Uruchomienie obok dziennika Centrum, poza Gitem i OneDrive (ADR 0015).
+    run_logs = RunLogs(
+        log.directory / RUN_LOGS_DIRECTORY,
+        outbox,
+        commit=surroundings.tool_freshness.local,
+        files=lambda process, period: files_of_process(
+            process, period, settings=store.load(), configuration=configuration
+        ),
+        cloud_files=surroundings.cloud_files,
+    )
     runs = RunHost(
-        log, centrum_runs, stops, after_run=[QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)]
+        log,
+        centrum_runs,
+        stops,
+        after_run=[run_logs, QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)],
     )
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie

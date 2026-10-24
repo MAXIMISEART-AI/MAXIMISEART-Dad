@@ -20,12 +20,12 @@ from tests.fixtures.potomne import wait_for
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 WORK_IN_PROGRESS = HOOK.parents[1] / "praca_w_toku.py"
-SKILLS_FOR_CHANGE = ("skille_dla_zmiany.py", "mutacje_skilli.py")
+SKILLS_FOR_CHANGE = ("skille_dla_zmiany.py", "mutacje_skilli.py", "szybko.py", "ci_lokalnie.py", "mutacje.py")
 SKILL = "---\nname: verify-kod\ndescription: kod\npilnuje:\n  - kod/*\n---\n"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
-# Wpisy, którymi conftest (``git_bez_konserwacji_w_tle``) wyłącza gitowi konserwację w tle.
-CONFTEST_GIT_CONFIG = ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+# Zmienne, którymi conftest (``git_bez_konfiguracji_komputera``) daje gitowi konfigurację testów.
+CONFTEST_GIT_CONFIG = ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL")
 TYPE_ERROR_ONLY_IF = 'import sys\n\nif {}:\n    LICZBA: int = "tekst"\n'
 
 pytestmark = pytest.mark.skipif(
@@ -38,9 +38,8 @@ def _environment(agent: str | None) -> dict[str, str]:
     environment = {
         name: value
         for name, value in os.environ.items()
-        if (not name.startswith("GIT_") or name.startswith(CONFTEST_GIT_CONFIG)) and name not in AGENT_MARKERS
+        if (not name.startswith("GIT_") or name in CONFTEST_GIT_CONFIG) and name not in AGENT_MARKERS
     }
-    environment |= {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
     if agent is not None:
         environment["AI_AGENT"] = agent
     return environment

@@ -13,7 +13,7 @@ pilnuje:
   - src/rozliczenia/collective_file.py
   - src/rozliczenia/preparation_register.py
   - src/rozliczenia/preparation_files.py
-  - src/rozliczenia/template_settlement.py
+  - src/rozliczenia/engine.py
   - tools/syntetyczne_wzorce.py
   - requirements.txt
 ---
@@ -48,7 +48,7 @@ Maks's Mac with Excel 16.114 it took 2:56 with Dad's Wzorce and 77 s with
 
 - `--wzorce prawdziwe` (default) copies Dad's three Wzorce from `config/`, in a
   worktree from the main checkout's `config/` (`--templates-dir` overrides).
-  Without all three it prints `VERIFY SKIP`: report it as a skip, never a proof.
+  Without all three it prints `VERIFY SKIP` and exits `3`: report it as a skip, never a proof.
 - `--wzorce syntetyczne` builds Wzorce of Dad's shape with
   `tools/syntetyczne_wzorce.py`; use it when the real Wzorce are absent.
 - `--kontrola-naprawy` adds `features/okno-naprawy.md`; it is the only step

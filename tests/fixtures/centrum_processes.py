@@ -21,6 +21,7 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import ToolFreshness
@@ -36,9 +37,11 @@ from tests.fixtures.centrum import (
     FakeOneDrive,
     FakePlatform,
     FakeReportBox,
+    RUN_LOGS_IN_BACKGROUND,
     MetricsPaths,
     finished_view,
 )
+from tests.fixtures.potomne import wait_for
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
 from tests.fixtures.tool_clone import FakeInstaller, ToolRepository
@@ -94,17 +97,19 @@ class Surroundings:
     aktualizacji tylko zapisuje prośbę w ``restarts`` (i usuwa katalog
     tymczasowy aktualizacji, jak prawdziwy po starcie nowej wersji). Z
     ``guardian_failure`` opiekun nie wystartuje: wywołuje ją i rzuca ``OSError``.
+    ``report_search_deadline_s`` to limit, po którym Diagnoza przestaje czekać na skrzynkę Zgłoszeń.
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
     onedrive: FakeOneDrive | None = field(default_factory=FakeOneDrive)
-    report_box: FakeReportBox = field(default_factory=FakeReportBox)
+    report_box: FakeReportBox = field(default_factory=lambda: FakeReportBox(background=RUN_LOGS_IN_BACKGROUND))
     clock: FakeClock = field(default_factory=FakeClock)
     tool: ToolRepository | None = None
     update_hold: threading.Event | None = None
     installer: FakeInstaller = field(default_factory=FakeInstaller)
     restarts: list[Restart] = field(default_factory=list)
     guardian_failure: Callable[[], None] | None = None
+    report_search_deadline_s: float = SEARCH_DEADLINE_S
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -157,6 +162,7 @@ def _client(
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
         clock=surroundings.clock,
+        report_search_deadline_s=surroundings.report_search_deadline_s,
         tool_update=surroundings.tool_update(),
         guardian=surroundings.guardian,
     )
@@ -330,4 +336,18 @@ def stopped_for_maks(centrum: PreparingCentrum | SettlingCentrum) -> str:
     finally:
         centrum.engines.fail_summary = False
     assert view["result"]["stop_kind"] == "for_maks"
+    run_logs_handled(centrum)
     return str(view["run"]["id"])
+
+
+def run_logs_handled(centrum: PreparingCentrum | SettlingCentrum) -> None:
+    """Czeka na wpis wątku kolejki, że Logi Uruchomienia poszły albo czekają; przychodzi w tle, po wyniku.
+
+    Rozpoznaje tylko pierwsze Uruchomienie tej pracy Centrum: po kolejnych wystarczyłby mu wpis poprzedniego.
+    """
+
+    def handled() -> bool:
+        log = centrum.log_path.read_text(encoding="utf-8")
+        return any(f"{entry} etykieta=logi-uruchomienia" in log for entry in ("skrzynka-wyslano", "skrzynka-czeka"))
+
+    assert wait_for(handled), "wątek kolejki nie obsłużył Logów Uruchomienia"

@@ -78,6 +78,14 @@ def test_mutacja_w_kilku_plikach_zmienia_wszystkie_naraz(tmp_path: Path) -> None
     assert "WYKRYTA: dwa pliki → kod wyjścia 2" in answered.stdout.splitlines()
 
 
+def test_mutacja_z_pusta_kotwica_tworzy_plik_w_nowym_katalogu() -> None:
+    absent = "import pathlib, sys; sys.exit(pathlib.Path('.nowy/katalog/SKILL.md').is_file())"
+
+    answered = _mutacje("--zmiana", ".nowy/katalog/SKILL.md", "", "skill", "--", "-c", absent)
+
+    assert answered.stdout.splitlines()[-2:] == ["WYKRYTA: mutacja → kod wyjścia 1", "MUTACJE OK"]
+
+
 @pytest.mark.parametrize("anchor", ["tego tekstu nie ma w pliku", "\n"], ids=["brak", "wiele-razy"])
 def test_mutacja_z_kotwica_nie_dokladnie_raz_w_pliku_jest_nieaktualna(anchor: str) -> None:
     answered = _mutacje("--zmiana", PACKAGE, anchor, "", "--", *IMPORT)
@@ -92,6 +100,40 @@ def test_polecenie_czerwone_bez_mutacji_nie_daje_werdyktu() -> None:
     assert answered.returncode == 2
     assert answered.stdout.splitlines()[0].startswith("PODSTAWA CZERWONA:")
     assert "WYKRYTA" not in answered.stdout
+
+
+@pytest.mark.parametrize(
+    ("checker", "verdict", "code"),
+    [
+        ("import rozliczenia\nprint(getattr(rozliczenia, 'RAPORT', 'SPRAWDZENIE OK'))", "WYKRYTA: wynik → SPRAWDZENIE: NARUSZENIE", 0),
+        ("print('SPRAWDZENIE: NARUSZENIE')", "PODSTAWA CZERWONA:", 2),
+    ],
+    ids=["sprawdzenie-dziala", "sprawdzenie-zawsze-zglasza-naruszenie"],
+)
+def test_mutacja_z_oczekiwana_linia_jest_wykryta_tylko_gdy_bez_mutacji_jej_nie_ma(
+    tmp_path: Path, checker: str, verdict: str, code: int
+) -> None:
+    plan = tmp_path / "mutacje.json"
+    change = _appended(PACKAGE, "RAPORT = 'SPRAWDZENIE: NARUSZENIE'")
+    plan.write_text(json.dumps([{"nazwa": "wynik", "zmiany": [change], "oczekiwane": "SPRAWDZENIE: NARUSZENIE"}]), encoding="utf-8")
+
+    answered = _mutacje("--plik", str(plan), "--", "-c", checker)
+
+    assert answered.returncode == code, answered.stdout
+    assert answered.stdout.splitlines()[0].startswith(verdict), answered.stdout
+
+
+def test_pusta_lista_mutacji_niczego_nie_dowodzi() -> None:
+    answered = subprocess.run(
+        [sys.executable, "-c", "import sys\nsys.path.insert(0, 'tools')\nfrom mutacje import check_all\nraise SystemExit(check_all(()))"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert (answered.returncode, answered.stdout.strip()) == (1, "MUTACJE: brak mutacji, więc nie ma czego dowieść")
 
 
 def test_kopia_ma_niezacommitowane_zmiany_checkoutu_a_checkout_zostaje_nietkniety(tmp_path: Path) -> None:

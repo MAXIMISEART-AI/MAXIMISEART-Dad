@@ -165,6 +165,10 @@ REQUIRED_SCREENSHOTS = {
         "74-naprawa-powiadomienie.png",
         "75-naprawa-po-aktualizacji.png",
     ),
+    "logi-uruchomienia": (
+        "160-logi-podglad.png",
+        "161-logi-zatrzymanie.png",
+    ),
     "pomiar-u-taty": ("80-pomiar-bez-sladu.png",),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
     "start-i-zamykanie": (

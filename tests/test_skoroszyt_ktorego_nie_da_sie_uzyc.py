@@ -1,0 +1,146 @@
+"""Skoroszyt, którego nie da się użyć: tłumaczenie powodu (``Problem``) na Komunikat na każdym wejściu.
+
+Komunikat każdej roli pliku przy każdym powodzie pilnują próbki katalogów (``tests/fixtures/message_samples.py``)
+i testy procesów. Tu jest jeden test tłumaczenia na wejście, na drodze, której nie sprawdza nic innego.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+import errno
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from openpyxl import load_workbook
+import pytest
+
+from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.domain import PhaseStarted, ProgressEvent, ProgressPhase, WorkerStarted
+from rozliczenia.engine import run_settlements
+from rozliczenia.message import StopError
+
+from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakePlatform
+from tests.fixtures.preparation import (
+    make_preparation_fixture,
+    run_preparation,
+    write_collective_template,
+    write_internal_template,
+)
+from tests.fixtures.settlement import make_fixture, write_mapping, write_template
+from tests.fixtures.workbooks import active_worksheet
+
+
+def test_przygotowanie_tlumaczy_wzorzec_otwarty_w_excelu_dopiero_w_zapisywaniu(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    lock_file = fixture.collective_template_path.with_name(f"~${fixture.collective_template_path.name}")
+
+    def open_before_saving(event: ProgressEvent) -> None:
+        if isinstance(event, PhaseStarted) and event.phase is ProgressPhase.SAVING:
+            lock_file.write_bytes(b"")
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(fixture, observer=open_before_saving)
+
+    assert raised.value.message.code == "WZORZEC_OTWARTY"
+    assert list(fixture.periods_directory.iterdir()) == []
+
+
+def test_przebieg_bez_pliku_zbiorczego_zatrzymuje_sprawdzanie_brakiem_pliku_zbiorczego(tmp_path: Path) -> None:
+    source_path, _, config_path = make_fixture(tmp_path)
+    source_path.unlink()
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert raised.value.message.code == "BRAK_PLIKU_ZBIORCZEGO"
+
+
+def test_przebieg_bez_wzorca_rozliczenia_pracownika_w_zapisywaniu_nie_tworzy_skoroszytow_z_wzorca(
+    tmp_path: Path,
+) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+
+    def remove_before_first_file(event: ProgressEvent) -> None:
+        if isinstance(event, WorkerStarted) and event.template_index == 1:
+            worker_template_path.unlink()
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path, observer=remove_before_first_file)
+
+    assert raised.value.message.code == "BLAD_KOPII_WZORCA"
+    assert not target_directory.exists()
+
+
+INTERNAL = "Wzorzec rozliczenia wewnętrznego.xlsx"
+COLLECTIVE = "Wzorzec pliku zbiorczego.xlsx"
+WORKER = "Wzorzec rozliczenia pracownika.xlsx"
+
+
+def inaccessible(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    read_bytes = Path.read_bytes
+
+    def blocked(read: Path) -> bytes:
+        if read == path:
+            raise PermissionError(errno.EACCES, "Plik jest używany przez inny proces")
+        return read_bytes(read)
+
+    monkeypatch.setattr(Path, "read_bytes", blocked)
+
+
+def with_data(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workbook = load_workbook(path)
+    try:
+        active_worksheet(workbook)["A18"] = "dane"
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize(
+    ("file_name", "damage", "what"),
+    [
+        pytest.param(INTERNAL, inaccessible, "Nie można teraz odczytać wzorca.", id="niedostepny-wzorzec-wewnetrzny"),
+        pytest.param(
+            WORKER,
+            with_data,
+            "Nie można użyć Wzorca rozliczenia pracownika. Wzorzec rozliczenia pracownika zawiera dane",
+            id="wzorzec-pracownika-z-danymi",
+        ),
+    ],
+)
+def test_konfiguracja_pokazuje_niedostepny_wzorzec_i_wzorzec_z_danymi_jako_nieczytelne(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    file_name: str,
+    damage: Callable[[Path, pytest.MonkeyPatch], None],
+    what: str,
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    files = ConfigurationFiles(
+        worker_config=write_mapping(config / "worker_mapping.yaml"),
+        internal_template=write_internal_template(config / INTERNAL),
+        collective_template=write_collective_template(config / COLLECTIVE),
+        worker_template=config / WORKER,
+    )
+    write_template(files.worker_template)
+    damage(config / file_name, monkeypatch)
+    log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
+    app = create_app(
+        settings_path=config / "centrum-ustawienia.yaml",
+        platform=FakePlatform(),
+        log=log,
+        shutdown=Shutdown(log),
+        configuration_files=files,
+        tool_freshness=FakeGitHub().freshness(),
+    )
+
+    response = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}).get("/api/configuration")
+
+    template = {template["file_name"]: template for template in response.json()["templates"]}[file_name]
+    assert (template["state"], template["problem"]) == ("problem", "unreadable")
+    assert template["message"]["what"].startswith(what)

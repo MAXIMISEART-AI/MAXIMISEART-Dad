@@ -20,11 +20,8 @@ sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
 from rozliczenia.worker_config import load_worker_mapping  # noqa: E402
 from rozliczenia.message import StopError  # noqa: E402
 from rozliczenia.settlement_period import parse_period_token  # noqa: E402
-from rozliczenia.template_settlement import (  # noqa: E402
-    WorkerTemplateValidationError,
-    validate_worker_template,
-)
-from rozliczenia.workbook_files import is_open_in_excel  # noqa: E402
+from rozliczenia.engine import check_worker_template  # noqa: E402
+from rozliczenia.workbook_files import WorkbookError, is_open_in_excel  # noqa: E402
 from skrypt_skilla import Parser  # noqa: E402
 
 
@@ -123,7 +120,7 @@ def _check(root: Path, expected_version: str, *, worker_template: bool) -> tuple
         raise ValueError("Wzorzec pliku zbiorczego has no xl/externalLinks parts")
 
     if worker_template:
-        validate_worker_template(root / "config" / "Wzorzec rozliczenia pracownika.xlsx")
+        check_worker_template(root / "config" / "Wzorzec rozliczenia pracownika.xlsx")
 
     mapping = load_worker_mapping(root / "config" / "worker_mapping.yaml")
     periods_directory = root / "INEA"
@@ -148,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         KeyError,
         TypeError,
         zipfile.BadZipFile,
-        WorkerTemplateValidationError,
+        WorkbookError,
     ) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
         return 1

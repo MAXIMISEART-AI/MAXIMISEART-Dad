@@ -90,7 +90,7 @@ The Centrum log goes to ``<root>/logs/centrum-rozliczen.log``, and the button
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import date
 import json
@@ -105,7 +105,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from rozliczenia import preparation_process, preparation_register, settlement_process, template_settlement  # noqa: E402
+from rozliczenia import preparation_process, preparation_register, settlement_process  # noqa: E402
 from rozliczenia.centrum.app import create_app  # noqa: E402
 from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
 from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
@@ -130,7 +130,6 @@ from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
 from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness  # noqa: E402
 from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
 from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
-from rozliczenia.domain import WorkerResult  # noqa: E402
 from rozliczenia.workbook_files import DataRow, TemplateFile  # noqa: E402
 from skrypt_skilla import Parser  # noqa: E402
 
@@ -285,18 +284,19 @@ def _paced_install(root: Path) -> Callable[[Path], bool]:
     return install
 
 
-def _pace_worker_templates(root: Path) -> None:
+def _pace_worker_templates(root: Path, worker_template: Path) -> None:
     """Slow each written Szablon pracownika while ``<root>/pacing/szablony-ms.txt`` exists (see the module doc)."""
 
-    write = template_settlement.process_template
+    create = TemplateFile.create
+    worker_template = worker_template.resolve()
 
-    def paced(worker_name: str, template: TemplateFile, target_path: Path, rows: Iterable[DataRow]) -> WorkerResult:
+    def paced(template: TemplateFile, target: Path, rows: Sequence[DataRow]) -> None:
         pacing = root / "pacing" / "szablony-ms.txt"
-        if pacing.exists():
+        if template.path == worker_template and pacing.exists():
             time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
-        return write(worker_name, template, target_path, rows)
+        create(template, target, rows)
 
-    template_settlement.process_template = paced
+    setattr(TemplateFile, "create", paced)
 
 
 def _fail_register_reading(root: Path) -> None:
@@ -333,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     clone = Path(fixture["tool"]["clone"])
     log = CentrumLog(root / "logs" / "centrum-rozliczen.log")
     shutdown = Shutdown(log)
-    _pace_worker_templates(root)
+    _pace_worker_templates(root, configuration["worker_template"])
     _fail_register_reading(root)
     # Pip never reaches PyPI from a verification run.
     os.environ["PIP_NO_INDEX"] = "1"

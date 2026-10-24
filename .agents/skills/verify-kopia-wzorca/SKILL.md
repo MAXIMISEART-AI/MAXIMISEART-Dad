@@ -59,7 +59,7 @@ The check holds that copy to five rules, for any Wiersze danych:
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `870ea89`** (PR #300 merged with Ilości usług and #276, 2026-10-23):
+Coverage, confirmed at **sync commit `5714940`** (PR #345, sheet chunks compressed in parallel, 2026-10-24):
 
 | Code | What the check covers |
 | --- | --- |
@@ -77,7 +77,7 @@ Run the check when a diff touches any of these. To see whether the covered code 
 sync commit:
 
 ```bash
-git diff --stat 870ea89 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
+git diff --stat 5714940 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
@@ -224,7 +224,7 @@ py -3 .agents\skills\verify-kopia-wzorca\scripts\check_copy_mutations.py
 ```
 
 It must end with `MUTACJE OK`: each of the twenty mutations (sheet CRC over the head only, chunks
-without a full flush, a dropped chunk, `dimension` not extended, a date without a date format, an
+from one shared compressor without a full flush, so each reaches back into the one before, a dropped chunk, `dimension` not extended, a date without a date format, an
 empty value keeping the Wzorzec's zero, Wyróżnienia without the fill, the Wzorzec's border left in
 A:L, the Wzorzec's number format left in A:L, the Wzorzec's row height kept, three in `row_look.py`
 that change both paths at once (every text wrapped, text with `\r` but no `\n` not wrapped, a font

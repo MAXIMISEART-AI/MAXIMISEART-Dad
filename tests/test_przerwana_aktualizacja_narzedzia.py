@@ -35,12 +35,6 @@ GITIGNORE = (REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8")
 MAPPING = "config/worker_mapping.yaml"
 
 
-@pytest.fixture(autouse=True)
-def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-
-
 def _get(port: int, path: str) -> dict[str, Any]:
     with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=1) as response:
         body = json.load(response)

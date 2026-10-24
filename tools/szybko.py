@@ -3,7 +3,9 @@
 Agent uruchamia je po każdej zmianie; pełną bramką jest CI na GitHubie. Zmiana to pliki, którymi checkout,
 razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie
 ``origin/main``). Kroki ruff i mypy to kroki ``tools/ci_lokalnie.py``, a pytest to jego krok z wybranymi
-testami. Kroki biegną naraz.
+testami. Gdy ``.venv`` ma Pythona nowszego niż najstarszy z ``requires-python``, który CI też testuje, krok
+``import src pod Pythonem <wersja>`` importuje każdy moduł ``src/`` tym Pythonem przez ``uv`` (bez ``uv`` pada).
+Kroki biegną naraz.
 
 Test jest dotknięty, gdy zmiana obejmuje jego plik albo plik, od którego zależy. Zależności wynikają z samego
 kodu, więc świeży worktree wybiera tak samo:
@@ -15,9 +17,10 @@ kodu, więc świeży worktree wybiera tak samo:
 - pliki inne niż Python w katalogu pakietu (``centrum/static``) dla każdego modułu tego pakietu.
 
 Zależność przez import i skrypt testu jest przechodnia, a przez katalog, glob i plik danych nie. Zmiana w ``FULL``
-(konfiguracja i zależności, ``conftest.py`` każdego testu) wybiera wszystkie testy. Test, który już przeszedł na
-tych samych plikach, nie biegnie drugi raz: pamięć zielonych testów leży w katalogu gita worktree. Krok pytest
-bierze ``WORKERS`` workerów, chyba że ustawiono ``PYTEST_XDIST_AUTO_NUM_WORKERS``.
+(konfiguracja i zależności, ``conftest.py`` każdego testu i fixture gita, którą wczytuje dla całej sesji) wybiera
+wszystkie testy. Test, który już przeszedł na tych samych plikach, nie biegnie drugi raz: pamięć zielonych testów
+leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba że ustawiono
+``PYTEST_XDIST_AUTO_NUM_WORKERS``.
 
 Testy ``STRUCTURE`` (reguły z tabeli w ``AGENTS.md`` i testy całego repozytorium) biegną przy każdej zmianie, a gdy
 ``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle
@@ -43,10 +46,13 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import tomllib
 from typing import TypeGuard
 import xml.etree.ElementTree as ET
 
@@ -56,12 +62,15 @@ import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
-FULL = ("pyproject.toml", "requirements.txt", "tests/conftest.py")
+FULL = ("pyproject.toml", "requirements.txt", "tests/conftest.py", "tests/fixtures/git_config.py")
 STRUCTURE = (
     "tests/test_adr.py",
     "tests/test_dokumenty_regul.py",
+    "tests/test_granice_importow.py",
     "tests/test_jeden_odczyt_skoroszytu.py",
     "tests/test_jeden_zapis_skoroszytu.py",
+    "tests/test_mapy_funkcji.py",
+    "tests/test_miejsce_skilli.py",
     "tests/test_potomne.py::test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne",
     "tests/test_potomne.py::test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run",
     "tests/test_skille_dla_zmiany.py::test_agents_md_nie_wymienia_skilli_verify",
@@ -88,6 +97,30 @@ GREEN = "szybko-zielone.json"
 PATH_TYPES = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
 GLOBS = frozenset({"glob", "rglob", "iterdir"})
 WORKERS = "4"
+# Importuje każdy moduł ``src/`` i wypisuje te, które padają; moduł, który się nie importuje, wywraca każdy test.
+IMPORT_ALL = """\
+import importlib, pathlib, sys
+src = pathlib.Path(sys.argv[1])
+names = sorted({".".join(p.relative_to(src).with_suffix("").parts).removesuffix(".__init__") for p in src.rglob("*.py")})
+failed = []
+for name in names:
+    try:
+        importlib.import_module(name)
+    except Exception as error:
+        failed.append(f"{name}: {type(error).__name__}: {error}")
+print("\\n".join(failed) or f"{len(names)} modułów")
+sys.exit(3 if failed or not names else 0)
+"""
+# ``uv run --offline`` z ciepłym cache działa bez sieci; dopiero porażka samego uv (inny kod niż 0 i 3) pyta sieć.
+WITH_UV = """\
+import subprocess, sys
+uv, version, imports, *requirements = sys.argv[1:]
+command = [uv, "run", "--no-project", "--quiet", "--python", version, *requirements, "python", "-c", imports, "src"]
+code = subprocess.run([*command[:2], "--offline", *command[2:]]).returncode
+if code not in (0, 3):
+    code = subprocess.run(command).returncode
+sys.exit(code)
+"""
 
 
 @dataclass(frozen=True)
@@ -117,7 +150,7 @@ class Dependencies:
                 continue
             for name in _imports(tree, path):
                 depends_on[path] |= _resolve(name, path, modules, files)
-            texts, globs = _references(tree)
+            texts, globs = references(tree)
             test = path.startswith("tests/")
             if not test:
                 # Poza testami sama nazwa pliku albo modułu to zwykle nazwa procesu albo pliku w cudzym katalogu.
@@ -232,7 +265,7 @@ class _Glob:
     recursive: bool
 
 
-def _references(tree: ast.AST) -> tuple[set[str], set[_Glob]]:
+def references(tree: ast.AST) -> tuple[set[str], set[_Glob]]:
     """Napisy modułu, ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``) i globy na katalogach."""
 
     def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
@@ -464,9 +497,36 @@ def _pytest(root: Path, name: str, arguments: Iterable[str]) -> ci_lokalnie.Step
     return replace(pytest, name=name, command=(*pytest.command, *arguments))
 
 
+def _failing(root: Path, name: str, why: str) -> ci_lokalnie.Step:
+    return ci_lokalnie.Step(name, "pytest", "", (sys.executable, "-c", f"raise SystemExit({why!r})"), root)
+
+
+def _imports_on_oldest(root: Path) -> list[ci_lokalnie.Step]:
+    """CI testuje też najstarszy Python z ``requires-python``, a ``.venv`` bywa nowszy: kod tylko dla nowszego Pythona
+    pada dopiero w CI. Krok jest pusty, gdy szybko biegnie tym najstarszym albo projekt go nie podaje."""
+
+    try:
+        required = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        return []
+    oldest = re.fullmatch(r">=\s*(\d+)\.(\d+)", str(required).strip())
+    if oldest is None:
+        why = f"requires-python {required!r} nie ma postaci >=X.Y, więc szybko nie zna najstarszego Pythona"
+        return [_failing(root, "import src pod najstarszym Pythonem", why)]
+    if sys.version_info[:2] <= (int(oldest[1]), int(oldest[2])):
+        return []
+    version = f"{oldest[1]}.{oldest[2]}"
+    name = f"import src pod Pythonem {version}"
+    uv = shutil.which("uv")
+    if uv is None:
+        return [_failing(root, name, f"brak uv, więc szybko nie sprawdzi Pythona {version}: zainstaluj uv albo .venv z {version}")]
+    requirements = ("--with-requirements", "requirements.txt") if (root / "requirements.txt").is_file() else ()
+    return [ci_lokalnie.Step(name, "pytest", "", (sys.executable, "-c", WITH_UV, uv, version, IMPORT_ALL, *requirements), root)]
+
+
 def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.Step]:
     static = (step for step in ci_lokalnie._steps(root) if step.job in STATIC_JOBS)
-    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit))]
+    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit)), *_imports_on_oldest(root)]
 
 
 def _environment(root: Path) -> dict[str, str]:
