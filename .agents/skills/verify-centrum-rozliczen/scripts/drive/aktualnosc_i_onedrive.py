@@ -126,7 +126,7 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
         _state(answer, FRESHNESS) == ("failed", NEWER)
         and answer["next_action"] == "update"
         and answer["update_proposal"] is False,
-        "with no other cause a newer `main` on GitHub explains the stop, and Dad updates the tool with the button",
+        "with no other cause a newer Wydanie on `main` explains the stop, and Dad updates the tool with the button",
     )
     run.capture(page, "76-aktualnosc-nowsza-wersja")
 
@@ -184,7 +184,7 @@ def drive_freshness_and_onedrive(run: Run, page: Page) -> None:
         shown_explanation["what"] == ONLY_IN_CLOUD
         and _state(answer, FRESHNESS) == ("failed", NEWER)
         and (answer["next_action"], answer["update_proposal"]) == ("rerun", True),
-        "a newer `main` does not cover the Rejestr zleceń only in the cloud: it is only proposed under the explanation",
+        "a newer Wydanie does not cover the Rejestr zleceń only in the cloud: it is only proposed under the explanation",
     )
     run.capture(page, "81-aktualnosc-propozycja")
     _drive_update_in_progress(run, page, update)

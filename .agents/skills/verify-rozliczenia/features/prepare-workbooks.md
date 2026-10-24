@@ -10,7 +10,7 @@ only after every workbook is ready.
 - `prepare-copy` preserves Wzorzec rozliczenia pracownika sheets, formulas, rates, formatting, and external links (the live fixture has no external link; `tests/test_workbook_files.py::test_plik_z_wzorca_przez_openpyxl_ma_wiersze_danych_formuly_formatowanie_i_kazdy_link_zewnetrzny` proves that part for a Rozliczenie pracownika written by openpyxl, and `test_rozliczenie_pracownika_z_wzorca_zachowuje_wspolne_formuly_calcchain_i_flagi_przeliczania` for one written by the copy).
 - `prepare-empty` creates an empty workbook for a configured worker without source rows.
 - `prepare-atomic` stages the folder and publishes it only after all workbooks succeed.
-- `prepare-rollback` removes staging files after a workbook failure; an unknown worker blocks a real run during planning, before staging starts.
+- `prepare-rollback` removes staging files after a workbook failure, including a Wzorzec rozliczenia pracownika that changed after Sprawdzanie (`BLAD_KOPII_WZORCA`, `BLAD_SZABLONU_PRACOWNIKA`, see `safety-gates.md`); an unknown worker or a Wiersz danych without `WYKONAWCA` blocks a real run during planning, before staging starts.
 
 ## How to get to it (user POV)
 
@@ -27,6 +27,6 @@ only after every workbook is ready.
 ## Gotchas
 
 - The output folder must be absent at start; existing content is never merged or replaced.
-- The shared Wzorzec rozliczenia pracownika is read-only input and is validated before output is created.
+- The shared Wzorzec rozliczenia pracownika is read-only input, validated in Sprawdzanie and read again when the first Szablon pracownika is written.
 - Temporary workbooks are not published under the final folder name until every configured worker is prepared.
 - Dry-run plans the same roster but creates no output folder or workbook.

@@ -76,7 +76,8 @@ zbiorczy): its header's font face and size, left and centre alignment,
 wrapping only for text with a line break, a thin automatic border and no
 stored row height, that every written ADRES has the fill of that order's ADRES in the Rejestr, that every Wzorzec cell value outside the written rows is unchanged, and that `xl/externalLinks/*` stay byte-identical. The
 Wzorce are git-ignored, so CI and `--variant all` leave this variant out. In a
-worktree the runner reads the main checkout's `config/` itself;
+worktree whose own `config/` holds no Wzorzec the runner reads the main
+checkout's `config/` itself;
 `--templates-dir` overrides that. Without both Wzorce the runner prints
 `VERIFY SKIP` and exits `3`; report that as a skip, never as a proof.
 A list with a skipped variant and no failed one ends with `VERIFY SKIP | ok=… | skipped=…` and exit `3`, never `VERIFY OK`; a failed variant makes it `VERIFY FAIL`.
@@ -211,9 +212,12 @@ py -3 .agents\skills\verify-rozliczenia\scripts\check_quantity_rules_mutations.p
 
 It must end with `MUTACJE OK`. Each mutation breaks one rule of Dad's
 instruction on a copy of the checkout, and `quantity_rules_conformance.py` must
-fail on it: TV devices in Z instead of Q, the 17:00 surcharge threshold and its
-days, S not as the sum O+P+Q+AG, single components, pieces from `CZYNNOŚCI`,
-T from the first word of `UMOWA`, and rows without a rule. The check first runs
+fail on it: TV devices in Z instead of Q and P once per router, the 45 zł
+surcharge (its amount, the 17:00 threshold, its days, only for a usterka),
+S not as the sum O+P+Q+AG, single components, a known name (`usterka hurt`,
+`wizja`) becoming unknown, pieces from `CZYNNOŚCI`, T from the first word of
+`UMOWA`, `prewencja` without quantities, spelling variants (`XG`, spaces
+around `*` and before `szt`), and rows without a rule. The check first runs
 unbroken, so a red baseline fails the script instead of counting as detection.
 It takes about 6 s on a Mac. CI runs it in the `mutations` job. A mutation
 reported as `NIEAKTUALNA` no longer matches `quantity_rules.py`: rewrite its
@@ -315,7 +319,7 @@ already performs both checks and prints `scratch_removed=true`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\fill_readiness.py --root "$runRoot"`.
 - `scripts/assert_chain.py` checks the Przebieg rozliczeń of `chain` against
   the Plik zbiorczy it read: worker routing and order, `A:AT` equality of values,
-  Wyróżnienia and Hiperłącza, the Rejestr Hiperłącze in `NUMER ZL.`, Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
+  Wyróżnienia and Hiperłącza, the number format and Wygląd Wiersza danych in A:L, the Rejestr Hiperłącze in `NUMER ZL.`, Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
   pracownika, unchanged inputs and period files, the JSON result, and metrics.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_chain.py --root "$runRoot" --expect run --result "$evidenceRoot\settlement-run.json"`.
 - `scripts/wynik_uruchomienia.py` is what the three `assert_*.py` share: it

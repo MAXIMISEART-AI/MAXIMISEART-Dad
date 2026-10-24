@@ -14,7 +14,7 @@ Explorer.
 ## How to get to it (user POV)
 
 - Okresy on the first start: button `Wskaż folder okresów`; then `Wskaż Rejestr zleceń`.
-- The settings card's buttons `Zmień …` open the same dialogs (not driven here; `verify-centrum-rozliczen` covers them with its scripted picker).
+- The settings card's buttons `Zmień …` and Uruchomienia's `Wskaż …`/`Zmień …` open the same dialogs (not driven here; `verify-centrum-rozliczen` covers them with its scripted picker).
 - Tablica okresów: a period's folder and file buttons.
 
 ## Driving it with the Windows harness

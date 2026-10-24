@@ -4,8 +4,11 @@ Okresy shows every Folder okresu from the folder okresów, newest first, with
 its Status okresu, its files, the number of Rozliczenia pracowników, and the
 next step. The last complete period is highlighted even without a Folder
 okresu, and it is the subject of the `Następny krok` card. Period files and
-folders open with one click, for paths the server derived itself. The view
-follows the disk on every read.
+folders open with one click, for paths the server derived itself; a file gone
+since the last read gives the error toast `Nie udało się otworzyć` and the board
+is read again. The view follows the disk on every read; a folder okresów or
+Folder okresu Centrum cannot read (OneDrive, access rights) gives the Komunikat
+`Nie udało się odczytać folderu <name>. …` instead of the board.
 
 ## Sub-features
 
