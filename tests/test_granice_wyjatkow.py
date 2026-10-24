@@ -3,7 +3,9 @@
 Ruff BLE001 uznaje za wpis do dziennika tylko ``logging``, a Centrum ma własny dziennik, więc ``pyproject.toml``
 wyłącza BLE001 dla ``src/rozliczenia/centrum``, a tę samą regułę z dziennikiem Centrum sprawdza ten test.
 ``except Exception``, ``except BaseException`` i gołe ``except`` przechodzą, gdy blok woła ``unexpected_failure``
-ze złapanym wyjątkiem albo go rzuca. Blok, który kończy się czym innym, ma wpis w ``OTHER_ENDINGS`` z powodem.
+ze złapanym wyjątkiem albo go rzuca. Gołe ``raise`` w zagnieżdżonym ``except`` rzuca wyjątek wewnętrzny, więc się nie
+liczy. Blok, który kończy się czym innym, ma wpis w ``OTHER_ENDINGS`` z powodem.
+``contextlib.suppress(Exception)`` i typ wyjątku pod inną nazwą są poza testem, tak jak były poza BLE001.
 """
 
 from __future__ import annotations
@@ -24,17 +26,21 @@ OTHER_ENDINGS = {
 
 def _broad(handler: ast.ExceptHandler) -> bool:
     caught = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-    return any(name is None or (isinstance(name, ast.Name) and name.id in BROAD) for name in caught)
+    return any(name is None or ast.unparse(name).removeprefix("builtins.") in BROAD for name in caught)
 
 
-def _own_nodes(handler: ast.ExceptHandler) -> Iterator[ast.AST]:
-    """Węzły bloku ``except`` bez ciał funkcji i klas, które blok tylko definiuje."""
+def _own_nodes(handler: ast.ExceptHandler) -> Iterator[tuple[ast.AST, bool]]:
+    """Węzły bloku ``except`` bez ciał funkcji i klas, z tym, czy stoją w zagnieżdżonym ``except``."""
 
-    pending: list[ast.AST] = list(handler.body)
+    pending: list[tuple[ast.AST, bool]] = [(node, False) for node in handler.body]
     while pending:
-        node = pending.pop()
-        yield node
-        pending.extend(child for child in ast.iter_child_nodes(node) if not isinstance(child, NESTED))
+        node, inner = pending.pop()
+        yield node, inner
+        pending.extend(
+            (child, inner or isinstance(child, ast.ExceptHandler))
+            for child in ast.iter_child_nodes(node)
+            if not isinstance(child, NESTED)
+        )
 
 
 def _is_caught(node: ast.expr | None, handler: ast.ExceptHandler) -> bool:
@@ -42,9 +48,9 @@ def _is_caught(node: ast.expr | None, handler: ast.ExceptHandler) -> bool:
 
 
 def _ends_at_log_or_raise(handler: ast.ExceptHandler) -> bool:
-    for node in _own_nodes(handler):
+    for node, inner in _own_nodes(handler):
         if isinstance(node, ast.Raise) and (
-            node.exc is None or _is_caught(node.exc, handler) or _is_caught(node.cause, handler)
+            (node.exc is None and not inner) or _is_caught(node.exc, handler) or _is_caught(node.cause, handler)
         ):
             return True
         if (
