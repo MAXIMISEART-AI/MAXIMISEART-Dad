@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from io import BytesIO
-from typing import IO, Any, Final, Protocol, TypeVar, cast
+from typing import IO, Any, Final, TypeVar, cast
 from xml.etree import ElementTree
 from xml.parsers import expat
 
@@ -222,18 +222,14 @@ class Package:
         out.write(struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(central), len(central), len(directory), offset, 0))
 
 
-class Row(Protocol):
-    """Wiersz danych do wpisania: komórki kolumn Wiersza danych od A i Ilości usług."""
+@dataclass(frozen=True)
+class Row:
+    """Wiersz danych do wpisania w kolumnach Wzorca, ten sam dla kopii i drogi przez openpyxl (``template_file``)."""
 
-    @property
-    def cells(self) -> Mapping[int, DataCell]:
-        """Kolumna od 1 → komórka z wartością, Wyróżnieniami, formatem liczby i Hiperłączem; każda kolumna Wiersza danych."""
-        ...
-
-    @property
-    def quantities(self) -> Mapping[QuantityColumn, int]:
-        """Litera kolumny → liczba wpisana w komórkę Wzorca z jej stylem; tylko w ``SheetLayout.quantity_columns``."""
-        ...
+    cells: Mapping[int, DataCell]
+    """Kolumna od 1 → komórka z wartością, Wyróżnieniami, formatem liczby i Hiperłączem; każda kolumna Wiersza danych."""
+    quantities: Mapping[QuantityColumn, int]
+    """Litera kolumny → liczba wpisana w komórkę Wzorca z jej stylem; tylko w ``SheetLayout.quantity_columns``."""
 
 
 @dataclass(frozen=True)

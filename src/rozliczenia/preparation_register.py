@@ -7,8 +7,6 @@ od pierwszego do ostatniego, którego data może leżeć w okresie. ``read_regis
 Rejestru dla ``input_checks.Readers``, który tłumaczy jego ``WorkbookError``.
 """
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -186,12 +184,13 @@ def _read_register_sheets(workbook: ReadWorkbook, positions: dict[str, list[int]
         if sheet.title not in positions:
             continue
         columns = positions[sheet.title]
-        rows: list[RegisterRow] = []
-        empty_rows: list[int] = []
-        for whole_row, row in sheet.data_rows(min_row=2, columns={header: columns[index] for index, header in enumerate(TARGET_HEADERS)}):
-            if all(is_blank(cell) for cell in whole_row):
-                empty_rows.append(row.number)
-                continue
-            rows.append(row)
-        sheets.append(RegisterSheet(sheet.title, tuple(rows), tuple(empty_rows), tuple(columns)))
+        read = [
+            (all(is_blank(cell) for cell in whole_row), row)
+            for whole_row, row in sheet.data_rows(
+                min_row=2, columns={header: columns[index] for index, header in enumerate(TARGET_HEADERS)}
+            )
+        ]
+        rows = tuple(row for empty, row in read if not empty)
+        empty_rows = tuple(row.number for empty, row in read if empty)
+        sheets.append(RegisterSheet(sheet.title, rows, empty_rows, tuple(columns)))
     return sheets

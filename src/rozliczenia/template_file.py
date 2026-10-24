@@ -36,7 +36,7 @@ from .highlights import PLAIN
 from .preparation_register import TARGET_HEADERS
 from .quantity_rules import QuantityColumn
 from .row_look import GENERAL, RowLook, wraps
-from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
+from .template_copy import InvalidValue, Package, Row, SheetLayout, TemplateCopy, UnsupportedShape
 from .workbook_files import (
     DATA_ROW_COLUMNS,
     FIRST_DATA_ROW,
@@ -44,7 +44,6 @@ from .workbook_files import (
     INPUT_COLUMNS,
     LOOK_COLUMNS,
     QUANTITY_COLUMNS,
-    DataCell,
     DataRow,
     MergedCells,
     MissingHeader,
@@ -446,28 +445,6 @@ class TemplateFile:
         return self._content
 
 
-_NO_QUANTITIES: MappingProxyType[QuantityColumn, Never] = MappingProxyType({})
-
-
-@dataclass(frozen=True)
-class _TemplateRow:
-    """Wiersz danych w kolumnach Wzorca (``template_copy.Row``), ten sam dla kopii i drogi przez openpyxl."""
-
-    cells: Mapping[int, DataCell]
-    quantities: Mapping[QuantityColumn, int]
-
-
-def _in_columns(rows: Sequence[DataRow] | Sequence[RegisterRow], target_columns: Mapping[str, int]) -> list[_TemplateRow]:
-    """Komórka Wiersza danych Pliku zbiorczego w swojej kolumnie, a komórka wiersza Rejestru pod nagłówkiem docelowym."""
-
-    return [
-        _TemplateRow(dict(enumerate(row.cells, start=1)), _NO_QUANTITIES)
-        if isinstance(row, DataRow)
-        else _TemplateRow({target_columns[header]: cell for header, cell in row.cells.items()}, row.quantities)
-        for row in rows
-    ]
-
-
 def _ensure_unmerged(
     path: Path, sheet: str, merged_ranges: Sequence[CellRange], layout: SheetLayout, columns: Collection[int], row_count: int
 ) -> None:
@@ -486,7 +463,21 @@ def _last_written_column(layout: SheetLayout, columns: Collection[int]) -> int:
     return max(layout.look_columns, *columns)
 
 
-def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[_TemplateRow], columns: Collection[int]) -> None:
+_NO_QUANTITIES: MappingProxyType[QuantityColumn, Never] = MappingProxyType({})
+
+
+def _in_columns(rows: Sequence[DataRow] | Sequence[RegisterRow], target_columns: Mapping[str, int]) -> list[Row]:
+    """Komórka Wiersza danych Pliku zbiorczego w swojej kolumnie, a komórka wiersza Rejestru pod nagłówkiem docelowym."""
+
+    return [
+        Row(dict(enumerate(row.cells, start=1)), _NO_QUANTITIES)
+        if isinstance(row, DataRow)
+        else Row({target_columns[header]: cell for header, cell in row.cells.items()}, row.quantities)
+        for row in rows
+    ]
+
+
+def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[Row], columns: Collection[int]) -> None:
     """Jedyny zapis Wierszy danych przez openpyxl: komórka wiersza trafia do swojej kolumny z ``columns``.
 
     Komórka kolumny wyglądu dostaje Wygląd Wiersza danych, a bez komórki w wierszu sam wygląd i treść Wzorca; w

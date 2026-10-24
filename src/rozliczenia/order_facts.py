@@ -53,17 +53,17 @@ class MissingHeaders:
 CollectiveOrders = tuple[OrderFacts, ...] | MissingHeaders
 
 
-def collective_orders(header: Mapping[str, str], rows: Sequence[DataRow]) -> CollectiveOrders:
+def collective_orders(header: Mapping[str, int], rows: Sequence[DataRow]) -> CollectiveOrders:
     """Dozwolona treść każdego Wiersza danych.
 
-    ``header``: znormalizowany nagłówek wiersza 17 → litera kolumny.
+    ``header``: znormalizowany nagłówek wiersza 17 → kolumna od 1.
     """
 
     names = [normalize_text(column.target_header) for column in _INPUTS]
     missing = tuple(column.target_header for column, name in zip(_INPUTS, names, strict=True) if name not in header)
     if missing:
         return MissingHeaders(missing)
-    contract, devices, activities, started = (header[name] for name in names)
+    contract, devices, activities, started = (get_column_letter(header[name]) for name in names)
     return tuple(
         OrderFacts(
             _content(row.value(contract), row.value(devices), row.value(activities), row.value(started)), _quantities(row)

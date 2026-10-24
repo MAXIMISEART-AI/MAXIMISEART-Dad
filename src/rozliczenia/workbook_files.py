@@ -319,11 +319,11 @@ def header_columns(values: Sequence[object]) -> dict[str, int]:
 class DataRows:
     """Wiersze danych Pliku zbiorczego i nagłówki A17:K17 z tego samego odczytu.
 
-    ``header``: znormalizowany nagłówek (``header_columns``) → litera kolumny. Przygotowanie zapisuje kolumny A:K pod
+    ``header``: znormalizowany nagłówek (``header_columns``) → kolumna od 1. Przygotowanie zapisuje kolumny A:K pod
     nagłówkami Wzorca, więc odczyt po nagłówku jest lustrem zapisu.
     """
 
-    header: Mapping[str, str]
+    header: Mapping[str, int]
     rows: list[DataRow]
 
 
@@ -385,7 +385,7 @@ def read_data_rows(path: Path) -> DataRows:
                 )
     finally:
         workbook.close()
-    return DataRows({name: get_column_letter(column) for name, column in header_columns(header).items()}, rows)
+    return DataRows(header_columns(header), rows)
 
 
 class _HighlightsReader:

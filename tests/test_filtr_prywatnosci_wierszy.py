@@ -21,17 +21,17 @@ from tests.fixtures.settlement import write_quantity_source
 
 # Nagłówki A17:K17 Wzorca pliku zbiorczego po normalizacji, jak je daje odczyt Pliku zbiorczego.
 HEADER = {
-    "miasto": "A",
-    "adres": "B",
-    "umowa": "C",
-    "urządzenia": "D",
-    "czynności": "E",
-    "numer zl.": "F",
-    "data": "G",
-    "wykonawca": "H",
-    "numer umowy/zlecenia orange": "I",
-    "skuteczne": "J",
-    "czynności zrealizowane": "K",
+    "miasto": 1,
+    "adres": 2,
+    "umowa": 3,
+    "urządzenia": 4,
+    "czynności": 5,
+    "numer zl.": 6,
+    "data": 7,
+    "wykonawca": 8,
+    "numer umowy/zlecenia orange": 9,
+    "skuteczne": 10,
+    "czynności zrealizowane": 11,
 }
 STARTED = datetime(2026, 9, 17, 13, 45, 21)
 
@@ -44,7 +44,7 @@ def _marked_row() -> list[object]:
     return row
 
 
-def _filtered(header: dict[str, str], row: list[object]) -> OrderFacts:
+def _filtered(header: dict[str, int], row: list[object]) -> OrderFacts:
     orders = collective_orders(header, [data_row(tuple(row))])  # type: ignore[arg-type]
     assert isinstance(orders, tuple)
     [facts] = orders
@@ -65,7 +65,7 @@ def test_wiersz_po_filtrze_ma_tylko_umowe_urzadzenia_czynnosci_pore_i_ilosci() -
 
 
 def test_kolumny_wejscia_czytane_po_naglowku_a_nie_po_pozycji() -> None:
-    reordered = {**HEADER, "umowa": "E", "czynności": "C"}
+    reordered = {**HEADER, "umowa": 5, "czynności": 3}
     row: list[object] = [None] * 46
     row[2], row[3], row[4], row[6] = "instalacja", "nokia zte", "u", STARTED
 
