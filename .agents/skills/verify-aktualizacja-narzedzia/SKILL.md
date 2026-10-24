@@ -80,10 +80,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `112634f` (2026-10-24, #368: after a rollback,
+Sync commit: `1ad3469` (2026-10-24, #368: after a rollback,
 `restart_guardian.main` asks the port `_runs(…, before)` before the dialog and
 ends without it when the old version from the shortcut answers; the model
-gained `OpiekunOkienko` and the promise `OkienkoTylkoGdyNicNieDziala`). At this commit every row above was checked against the code.
+gained `OpiekunOkienko` and the promise `OkienkoTylkoGdyNicNieDziala`, without the rollback after an unreleased port). At this commit every row above was checked against the code.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries or the running Centrum,
