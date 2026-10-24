@@ -33,7 +33,7 @@ from rozliczenia.workbook_files import (
     read_workbook,
     workbook_content,
 )
-from rozliczenia.template_file import TemplateFile
+from rozliczenia.template_file import Route, TemplateFile
 from rozliczenia.workbook_save import ExternalLinksError, WorkbookSaveError, save_workbook
 
 from tests.fixtures.benchmark import (
@@ -478,9 +478,10 @@ def _settlement_folders(
     marked_for_copy(template_path)
     twin = refused_by_copy(Path(shutil.copy(template_path, tmp_path / f"bliźniak {template_path.name}")))
     name = "Rozliczenie - Wykonawca.xlsx"
-    TemplateFile.worker_settlement(template_path).create(created / name, rows)
-    TemplateFile.worker_settlement(twin).create(expected / name, rows)
+    route = TemplateFile.worker_settlement(template_path).create(created / name, rows)
+    assert TemplateFile.worker_settlement(twin).create(expected / name, rows) is Route.OPENPYXL
     assert written_by_copy(created / name) == copied
+    assert route is (Route.COPY if copied else Route.OPENPYXL)
     assert not has_xml_comment(expected / name)
     return created, expected
 

@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, suppress
 from copy import copy
 from dataclasses import dataclass
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -226,6 +227,13 @@ def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> t
     return tuple(MultiCellRange([CellRange(reference) for reference in references]).ranges)
 
 
+class Route(Enum):
+    """Droga, którą powstał plik z Wzorca (ADR 0008); oba dają ten sam plik, a kopia jest szybsza."""
+
+    COPY = "kopia"
+    OPENPYXL = "openpyxl"
+
+
 @dataclass(frozen=True)
 class TemplatePlan:
     """Planowanie Wierszy danych we Wzorcu: wiersze, do których trafią, ile kolejnych Wierszy danych ma zera w N:AP
@@ -310,8 +318,8 @@ class TemplateFile:
             range(first_row, first_row + row_count), outline.zero_row_count, first_row + outline.zero_row_count
         )
 
-    def create(self, target: Path, rows: Sequence[DataRow]) -> None:
-        """Zapisuje atomowo pod ``target`` plik z Wzorca z ``rows`` od pierwszego Wiersza danych.
+    def create(self, target: Path, rows: Sequence[DataRow]) -> Route:
+        """Zapisuje atomowo pod ``target`` plik z Wzorca z ``rows`` od pierwszego Wiersza danych i podaje drogę zapisu.
 
         Wpisana komórka dostaje Hiperłącze wiersza albo żadne i wartość; w kolumnach wyglądu Wygląd Wiersza
         danych (``row_look``), a dalej Wyróżnienia na czcionce i wypełnieniu komórki Wzorca. Formuły,
@@ -338,8 +346,9 @@ class TemplateFile:
                     pass
                 else:
                     write_atomically(target, _package_writer(package, target))
-                    return
+                    return Route.COPY
         self._create_with_openpyxl(target, rows)
+        return Route.OPENPYXL
 
     def _read(self) -> None:
         """Czyta bajty Wzorca; wczytany Wzorzec zostaje, jeśli plik się nie zmienił."""

@@ -74,11 +74,11 @@ import porownanie_rozliczen as gate
 from rozliczenia import workbook_files
 from rozliczenia.highlights import PLAIN, Highlights
 from rozliczenia.hyperlinks import Hyperlink
-from rozliczenia.template_file import TemplateFile
+from rozliczenia.template_file import Route, TemplateFile
 from rozliczenia.workbook_files import DataRow, ExcelRow
 from syntetyczne_wzorce import write_settlement_template
 from tests.fixtures.settlement import write_template
-from tests.fixtures.workbooks import add_external_link_fixture, has_xml_comment, refused_by_copy
+from tests.fixtures.workbooks import add_external_link_fixture, refused_by_copy
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = REPO_ROOT / "src"
@@ -519,14 +519,15 @@ class Divergence:
 class Attempt:
     path: Path
     refusal: str | None  # exception type name, or None when the file was written
+    route: Route | None = None  # the path ``TemplateFile.create`` reports for a written file
 
 
-def _attempt(target: Path, write: Callable[[], None]) -> Attempt:
+def _attempt(target: Path, write: Callable[[], Route | None]) -> Attempt:
     try:
-        write()
+        route = write()
     except Exception as exc:  # noqa: BLE001 - a path may refuse a rare value in any way; a refusal without one is a LUKA
         return Attempt(target, type(exc).__name__)
-    return Attempt(target, None)
+    return Attempt(target, None, route)
 
 
 def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow], via_copy: bool) -> None:
@@ -534,8 +535,7 @@ def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow], via_
 
     if via_copy:
         rows = [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
-    TemplateFile.worker_settlement(twin).create(target, rows)
-    if has_xml_comment(target):
+    if TemplateFile.worker_settlement(twin).create(target, rows) is not Route.OPENPYXL:
         raise AssertionError("bliźniak Wzorca poszedł kopią: wzorzec porównania nie jest drogą openpyxl")
 
 
@@ -555,20 +555,6 @@ def _xml_line_ends(value: Any) -> Any:
         # move the cut.
         return value[:MAX_TEXT].replace("\r\n", "\n").replace("\r", "\n")
     return value
-
-
-class Routes:
-    """Which path ``TemplateFile.create`` took: the copy, or the old openpyxl path (``_create_with_openpyxl``)."""
-
-    def __init__(self) -> None:
-        self.fallbacks: list[Path] = []
-        original = TemplateFile._create_with_openpyxl
-
-        def recording(worker: TemplateFile, target: Path, rows: Sequence[DataRow]) -> None:
-            self.fallbacks.append(target)
-            original(worker, target, rows)
-
-        setattr(TemplateFile, "_create_with_openpyxl", recording)
 
 
 @dataclass
@@ -960,7 +946,6 @@ class Run:
     Hypothesis generates the same examples in every part, as no check fails until a counterexample.
     """
 
-    routes: Routes
     statistics: dict[str, Statistics]
     part: int = 0
     parts: int = 1
@@ -980,9 +965,9 @@ class Run:
                 copy_folder.mkdir()
                 reference_folder.mkdir()
                 name = f"Rozliczenie 08_14_09_2026 - Wykonawca {index}.xlsx"
-                fallbacks = len(self.routes.fallbacks)
                 copy = _attempt(copy_folder / name, lambda: worker.create(copy_folder / name, rows))
-                via_copy = len(self.routes.fallbacks) == fallbacks
+                # A refusal has no route; normalizing line ends for the reference does not change what it refuses.
+                via_copy = copy.route is not Route.OPENPYXL
                 reference = (
                     _attempt(reference_folder / name, lambda: _write_with_openpyxl(twin, reference_folder / name, rows, via_copy))
                     if twin is not None
@@ -1100,7 +1085,7 @@ def run_check(
         hypothesis_engine.MAX_SHRINKING_SECONDS = SHRINK_SECONDS
     with tempfile.TemporaryDirectory(prefix="kopia-wzorca-wzorce-") as scratch:
         templates = build_templates(Path(scratch), real_template, template_names)
-        run = Run(Routes(), {template.name: Statistics() for template in templates}, *part)
+        run = Run({template.name: Statistics() for template in templates}, *part)
         phases = [Phase.explicit, Phase.generate] + ([Phase.shrink] if shrink else [])
         failures: list[Violation] = []
         errors: list[str] = []

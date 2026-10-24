@@ -141,7 +141,7 @@ from rozliczenia.centrum.version import commit_since, tool_commit
 from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.preparation_register import RegisterSheet
 from rozliczenia.settlement_period import SettlementPeriod
-from rozliczenia.template_file import TemplateFile
+from rozliczenia.template_file import Route, TemplateFile
 from rozliczenia.workbook_files import DataRow
 from skrypt_skilla import Parser
 
@@ -325,11 +325,11 @@ def _pace_worker_templates(root: Path, worker_template: Path) -> None:
     create = TemplateFile.create
     worker_template = worker_template.resolve()
 
-    def paced(template: TemplateFile, target: Path, rows: Sequence[DataRow]) -> None:
+    def paced(template: TemplateFile, target: Path, rows: Sequence[DataRow]) -> Route:
         pacing = root / "pacing" / "szablony-ms.txt"
         if template.path == worker_template and pacing.exists():
             time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)
-        create(template, target, rows)
+        return create(template, target, rows)
 
     setattr(TemplateFile, "create", paced)
 
