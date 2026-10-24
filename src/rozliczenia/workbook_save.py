@@ -1,0 +1,130 @@
+"""Atomowy zapis skoroszytu: plik docelowy zmienia się dopiero po udanym zapisie całości.
+
+Każdy zapis skoroszytu idzie do pliku tymczasowego obok celu i dopiero potem podmienia cel (``os.replace``);
+nieudany zapis to ``WorkbookSaveError``, cel pozostaje bez zmian, a plik tymczasowy nie zostaje. openpyxl nie
+zapisuje wiernie części ``xl/externalLinks/*``, więc skoroszyt zapisany przez openpyxl dostaje je bajtowo z pliku,
+z którego go wczytano; błąd przygotowania albo przywrócenia tych części to ``ExternalLinksError``.
+"""
+
+from __future__ import annotations
+
+import os
+import tempfile
+import zipfile
+from collections.abc import Callable
+from io import BytesIO
+from pathlib import Path
+from typing import IO
+
+from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.workbook.workbook import Workbook
+
+_EXTERNAL_LINKS_PREFIX = "xl/externalLinks/"
+_ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
+_WORKBOOK_FILE_ERRORS = (OSError, InvalidFileException, ValueError, zipfile.BadZipFile)
+
+
+class WorkbookSaveError(Exception):
+    """Skoroszyt nie został zapisany; plik docelowy pozostał bez zmian."""
+
+
+class ExternalLinksError(WorkbookSaveError):
+    """Nie można przygotować ani przywrócić części ``xl/externalLinks/*``."""
+
+
+def write_atomically(target: Path, write: Callable[[Path], None]) -> None:
+    """``write`` zapisuje skoroszyt do pliku tymczasowego obok ``target``; dopiero potem ``target`` jest podmieniany.
+
+    Nieudany zapis to ``WorkbookSaveError`` (albo błąd zapisu zgłoszony przez ``write``); plik tymczasowy
+    nigdy nie zostaje, a ``target`` zmienia się tylko po udanym zapisie całości.
+    """
+
+    try:
+        file_descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.stem}.", suffix=".xlsx", dir=target.parent
+        )
+        os.close(file_descriptor)
+    except OSError as exc:
+        raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+    temporary_path = Path(temporary_name)
+    try:
+        write(temporary_path)
+        try:
+            os.replace(temporary_path, target)
+        except OSError as exc:
+            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def save_workbook(workbook: Workbook, target: Path) -> None:
+    """Atomowo zapisuje skoroszyt pod istniejący ``target``, zachowując 1:1 jego odwołania zewnętrzne.
+
+    openpyxl nie zapisuje wiernie części ``xl/externalLinks/*``, więc są one kopiowane bajtowo z
+    ``target``. ``target`` zmienia się dopiero po udanym zapisie całości.
+    """
+
+    _save_atomically(workbook, target, _read_external_link_parts(target, target.name))
+
+
+def save_from_template(workbook: Workbook, target: Path, template: bytes, template_name: str) -> None:
+    """Atomowo zapisuje pod ``target`` skoroszyt wczytany z bajtów Wzorca ``template`` z jego ``xl/externalLinks/*``."""
+
+    _save_atomically(workbook, target, _read_external_link_parts(BytesIO(template), template_name))
+
+
+def _read_external_link_parts(source: Path | IO[bytes], name: str) -> _ExternalLinkParts:
+    try:
+        return _external_link_parts(source)
+    except _WORKBOOK_FILE_ERRORS as exc:
+        raise ExternalLinksError(f"Nie można odczytać odwołań zewnętrznych: {name}") from exc
+
+
+def _save_atomically(workbook: Workbook, target: Path, parts: _ExternalLinkParts) -> None:
+    """Atomowo zapisuje skoroszyt openpyxl pod ``target`` i przywraca w nim ``parts``."""
+
+    def write(path: Path) -> None:
+        try:
+            workbook.save(path)
+        except _WORKBOOK_FILE_ERRORS as exc:
+            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+        try:
+            _restore_external_link_parts(path, parts)
+        except _WORKBOOK_FILE_ERRORS as exc:
+            raise ExternalLinksError(f"Nie można przywrócić odwołań zewnętrznych: {target.name}") from exc
+
+    write_atomically(target, write)
+
+
+def _external_link_parts(source: Path | IO[bytes]) -> _ExternalLinkParts:
+    """Pobiera oryginalne relacje zewnętrzne, których openpyxl nie zapisuje 1:1."""
+
+    with zipfile.ZipFile(source, "r") as archive:
+        return {
+            info.filename: (info, archive.read(info.filename))
+            for info in archive.infolist()
+            if info.filename.startswith(_EXTERNAL_LINKS_PREFIX)
+        }
+
+
+def _restore_external_link_parts(path: Path, parts: _ExternalLinkParts) -> None:
+    """Przywraca cały fragment externalLinks bez zmiany arkuszy i danych."""
+
+    if not parts:
+        return
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.stem}.links.", suffix=".xlsx", dir=path.parent
+    )
+    os.close(file_descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        with zipfile.ZipFile(path, "r") as source, zipfile.ZipFile(temporary_path, "w") as target:
+            for info in source.infolist():
+                if info.filename.startswith(_EXTERNAL_LINKS_PREFIX):
+                    continue
+                target.writestr(info, source.read(info.filename))
+            for info, data in parts.values():
+                target.writestr(info, data)
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)

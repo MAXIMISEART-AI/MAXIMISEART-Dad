@@ -27,7 +27,8 @@ from .period_folder import (
 from .preparation_files import PeriodFiles
 from .preparation_register import RegisterSheet
 from .settlement_period import SettlementPeriod, parse_period_token
-from .workbook_files import Layout, Problem, TemplateFile, WorkbookError
+from .template_file import Layout, TemplateFile
+from .workbook_files import Problem, WorkbookError
 from .worker_config import WorkerConfigError, load_worker_mapping
 
 

@@ -1,7 +1,7 @@
 """Skoroszyt zapisują tylko moduły zapisu, więc obie drogi zapisu dają ten sam plik (#282).
 
-``workbook_files`` zapisuje openpyxl, ``template_copy`` kopiuje Wzorzec, a ``row_look`` daje obu ten sam
-Wygląd Wiersza danych. Reszta ``src`` przekazuje im Wiersze danych, ale sama nie pisze do komórek ani plików.
+``template_file`` zapisuje openpyxl, ``template_copy`` kopiuje Wzorzec, ``row_look`` daje obu ten sam
+Wygląd Wiersza danych, a ``workbook_save`` zapisuje plik atomowo. Reszta ``src`` przekazuje im Wiersze danych, ale sama nie pisze do komórek ani plików.
 """
 
 from __future__ import annotations
@@ -12,7 +12,9 @@ from pathlib import Path
 import re
 
 SRC = Path(__file__).resolve().parents[1] / "src"
-WRITERS = frozenset({"rozliczenia/workbook_files.py", "rozliczenia/template_copy.py", "rozliczenia/row_look.py"})
+WRITERS = frozenset(
+    {"rozliczenia/template_file.py", "rozliczenia/template_copy.py", "rozliczenia/row_look.py", "rozliczenia/workbook_save.py"}
+)
 CELL_WRITES = frozenset(
     {"value", "font", "fill", "border", "alignment", "number_format", "protection", "hyperlink", "auto_filter"}
     | {"comment", "freeze_panes"}
@@ -25,7 +27,7 @@ SHEET_PARTS = frozenset({"row_dimensions", "column_dimensions"})
 CELL_PARAMETERS = frozenset({"row", "column", "value"})  # Worksheet.cell z openpyxl, w odróżnieniu od RowLook.cell
 COLUMN = r"\$?[A-Z]{1,3}\$?"
 CELL_ADDRESS = re.compile(rf"{COLUMN}[0-9]+(?::{COLUMN}[0-9]+)?")
-NOT_WORKBOOK_SAVES = {"phases.save": "PhaseRunner.save to etap Zapisywanie procesu; skoroszyt zapisuje w nim workbook_files"}
+NOT_WORKBOOK_SAVES = {"phases.save": "PhaseRunner.save to etap Zapisywanie procesu; skoroszyt zapisuje w nim template_file"}
 
 
 def _cell_address(index: ast.expr) -> bool:
@@ -85,7 +87,7 @@ def test_zapis_skoroszytu_ma_jedno_miejsce() -> None:
     assert not found, "\n".join(
         [
             *found,
-            "Wiersze danych zapisuj przez TemplateFile.create z workbook_files.py, a wygląd komórki przez RowLook z "
+            "Wiersze danych zapisuj przez TemplateFile.create z template_file.py, a wygląd komórki przez RowLook z "
             "row_look.py; wywołanie .save, które nie zapisuje skoroszytu, wpisz do NOT_WORKBOOK_SAVES z powodem.",
         ]
     )

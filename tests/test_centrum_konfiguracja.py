@@ -17,7 +17,8 @@ from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.input_checks import FILE_READERS, Readers
-from rozliczenia.workbook_files import Problem, TemplateFile, WorkbookError
+from rozliczenia.template_file import TemplateFile
+from rozliczenia.workbook_files import Problem, WorkbookError
 from tests.fixtures.preparation import write_collective_template, write_internal_template
 from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, FakeGitHub, FakePlatform
 from tests.fixtures.workbooks import cut_sheet_after_data_rows

@@ -1,6 +1,6 @@
 """Kopia skoroszytu Wzorca z podmienionymi Wierszami danych, bez wczytywania przez openpyxl (ADR 0008).
 
-Moduł jest szczegółem ``workbook_files.TemplateFile`` i nikt poza nim go nie używa.
+Moduł jest szczegółem ``template_file.TemplateFile`` i nikt poza nim go nie używa.
 ``TemplateCopy.of`` czyta bajty Wzorca raz: rozpakowuje części zip,
 sprawdza, że każda część XML jest poprawnym XML-em, indeksuje wiersze XML
 aktywnego arkusza i liczy kontrole Szablonu pracownika (nagłówek, dane w
@@ -19,7 +19,7 @@ składa z tego jedną kopię:
 - w arkuszu zmieniają się tylko wiersze od pierwszego Wiersza danych do ostatniego
   wpisanego: komórki kolumn Wiersza danych dostają wartości, a kolumn wyglądu Wygląd
   Wiersza danych, za nimi Wyróżnienia na stylu Wzorca, tak jak przy wpisaniu przez openpyxl
-  (``workbook_files._write_rows``); wpisany wiersz traci zapisaną wysokość (``ht``,
+  (``template_file._write_rows``); wpisany wiersz traci zapisaną wysokość (``ht``,
   ``customHeight``), a pozostałe komórki, w tym formuły, wspólne formuły i style, zostają
   bajt w bajt; kompresowany jest tylko początek arkusza do granicy kawałka za ostatnim
   wpisanym wierszem, reszta to gotowe kawałki z pierwszej kopii;
@@ -38,7 +38,7 @@ Wzorzec, którego kształtu ten moduł nie obsługuje (np. formuła w kolumnach 
 danych, scalenie w Wierszach danych, własne hiperłącza arkusza, XML z prefiksami albo
 bez atrybutów ``r``, uszkodzona część XML, a w Pliku zbiorczym brak autofiltra), zgłasza
 ``UnsupportedShape``;
-tak samo wartość, której typu moduł nie zapisuje. Wtedy ``workbook_files`` sprawdza Wzorzec
+tak samo wartość, której typu moduł nie zapisuje. Wtedy ``template_file`` sprawdza Wzorzec
 i tworzy plik dawną drogą przez openpyxl, z jej klasyfikacją uszkodzeń.
 Wartość, której nie da się zapisać w ogóle (znak niedozwolony w XML, data ze
 strefą czasową), to ``InvalidValue``.

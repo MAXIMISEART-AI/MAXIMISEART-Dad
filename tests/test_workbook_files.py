@@ -21,24 +21,20 @@ from openpyxl.styles.fills import Fill
 from openpyxl.styles.numbers import is_date_format
 from openpyxl.utils import get_column_letter
 
-from rozliczenia import workbook_files
 from rozliczenia.highlights import PLAIN, Highlights
 from rozliczenia.preparation_register import COLUMNS
 from rozliczenia.workbook_files import (
     DataRow,
     ExcelRow,
-    ExternalLinksError,
-    Layout,
     MissingHeader,
     Problem,
-    TemplateFile,
     WorkbookError,
-    WorkbookSaveError,
     read_data_rows,
     read_workbook,
-    save_workbook,
     workbook_content,
 )
+from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.workbook_save import ExternalLinksError, WorkbookSaveError, save_workbook
 
 from tests.fixtures.benchmark import (
     COLLECTIVE_TEMPLATE,
@@ -764,7 +760,7 @@ def test_nieudany_zapis_pliku_z_wzorca_nie_zostawia_pliku(tmp_path: Path, by_cop
         refused_by_copy(template_path)
     missing_directory = tmp_path / "brak"
 
-    with pytest.raises(workbook_files.WorkbookSaveError):
+    with pytest.raises(WorkbookSaveError):
         TemplateFile(template_path, Layout.WORKER_SETTLEMENT).create(missing_directory / "Plik.xlsx", [])
 
     assert not missing_directory.exists()

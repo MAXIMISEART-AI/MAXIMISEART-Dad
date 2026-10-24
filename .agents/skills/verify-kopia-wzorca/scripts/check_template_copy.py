@@ -74,7 +74,8 @@ import porownanie_rozliczen as gate
 from rozliczenia import workbook_files
 from rozliczenia.highlights import PLAIN, Highlights
 from rozliczenia.hyperlinks import Hyperlink
-from rozliczenia.workbook_files import DataRow, ExcelRow, Layout, TemplateFile
+from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.workbook_files import DataRow, ExcelRow
 from syntetyczne_wzorce import write_settlement_template
 from tests.fixtures.settlement import write_template
 from tests.fixtures.workbooks import add_external_link_fixture, has_xml_comment, refused_by_copy

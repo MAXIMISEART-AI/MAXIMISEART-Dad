@@ -16,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 from rozliczenia.worker_config import load_worker_mapping
 from skrypt_skilla import Parser
 from rozliczenia.period_folder import PeriodFolder, PeriodFolderError
-from rozliczenia.workbook_files import Layout, TemplateFile, WorkbookError
+from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.workbook_files import WorkbookError
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]

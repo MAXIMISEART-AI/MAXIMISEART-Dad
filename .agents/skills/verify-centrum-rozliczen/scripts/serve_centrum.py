@@ -141,7 +141,8 @@ from rozliczenia.centrum.version import commit_since, tool_commit
 from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.preparation_register import RegisterSheet
 from rozliczenia.settlement_period import SettlementPeriod
-from rozliczenia.workbook_files import DataRow, TemplateFile
+from rozliczenia.template_file import TemplateFile
+from rozliczenia.workbook_files import DataRow
 from skrypt_skilla import Parser
 
 

@@ -30,7 +30,8 @@ from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.process_run import Stop
 from rozliczenia.progress import PhaseState, ProgressProjection
-from rozliczenia.workbook_files import Layout, TemplateFile, read_data_rows
+from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.workbook_files import read_data_rows
 from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (

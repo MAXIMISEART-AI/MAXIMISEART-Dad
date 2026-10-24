@@ -18,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 from rozliczenia.worker_config import load_worker_mapping
 from rozliczenia.message import StopError
 from rozliczenia.settlement_period import parse_period_token
-from rozliczenia.workbook_files import Layout, TemplateFile, WorkbookError, is_open_in_excel
+from rozliczenia.template_file import Layout, TemplateFile
+from rozliczenia.workbook_files import WorkbookError, is_open_in_excel
 from skrypt_skilla import Parser
 
 SCRIPT = Path(__file__).resolve()

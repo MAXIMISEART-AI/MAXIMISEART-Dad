@@ -1,6 +1,6 @@
 """Części zip skoroszytu .xlsx: nawigacja po relacjach i wierszach arkusza oraz skoroszyt zawężony do potrzebnych wierszy.
 
-Moduł jest szczegółem ``workbook_files``, ``template_copy`` i ``hyperlinks`` i
+Moduł jest szczegółem ``workbook_files``, ``template_file``, ``template_copy`` i ``hyperlinks`` i
 nikt poza nimi go nie używa. Wszyscy czytają skoroszyt po częściach zip, bez
 openpyxl: ``relationships`` i ``sheet_part`` znajdują część po relacjach, a
 ``SheetData`` dzieli XML arkusza na wiersze bez parsera.
