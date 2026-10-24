@@ -24,12 +24,11 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import NewIssue, Outbox, Post
-from rozliczenia.centrum.report_box import Closure, Label, closure_json, read_closure
+from rozliczenia.centrum.report_box import NOTE_LABEL, Closure, closure_json, read_closure
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
 
 DAD_NOTES_FILE: Final = "uwagi-taty.json"
-NOTE_LABEL: Final[Label] = "uwaga-taty"
 SCHEMA_VERSION: Final = 1
 # Tyle „Wyślij” czeka na skrzynkę, zanim powie tacie, że Uwaga czeka w kolejce.
 DELIVERY_WAIT_S: Final = 5.0

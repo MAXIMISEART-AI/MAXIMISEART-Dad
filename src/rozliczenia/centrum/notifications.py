@@ -25,9 +25,9 @@ from typing import Final
 from fastapi import APIRouter
 
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.dad_notes import NOTE_LABEL, DadNote, DadNotes
+from rozliczenia.centrum.dad_notes import DadNote, DadNotes
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.report_box import REPORT_LABEL, Closure, CloseReason, Label, Refused, ReportBox, Unreachable
+from rozliczenia.centrum.report_box import NOTE_LABEL, REPORT_LABEL, Closure, CloseReason, Label, Refused, ReportBox, Unreachable
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.reports import SentReport, SentReports
 

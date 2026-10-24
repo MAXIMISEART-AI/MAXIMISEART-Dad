@@ -35,6 +35,7 @@ from typing import Final, Literal, Protocol, get_args
 Label = Literal["zgloszenie", "kontrola-ilosci", "logi-uruchomienia", "uwaga-taty"]
 """Etykieta issue w Skrzynce Zgłoszeń; etykiety zakłada Maks w repozytorium Zgłoszeń, kod ich nie tworzy."""
 REPORT_LABEL: Final[Label] = "zgloszenie"
+NOTE_LABEL: Final[Label] = "uwaga-taty"
 # GitHub odrzuca treść issue i komentarza dłuższą niż tyle znaków.
 COMMENT_LIMIT: Final = 65_536
 

@@ -23,10 +23,8 @@ from typing import Final
 
 from rozliczenia.centrum import report_box
 
-# Etykieta Uwag taty w Skrzynce Zgłoszeń; przejdzie do report_box z wysyłką Uwag (#318).
-DAD_NOTE_LABEL: Final = "uwaga-taty"
 # Etykieta sprawy w Skrzynce Zgłoszeń → jej rodzaj w notce.
-CASE_KINDS: Final[Mapping[str, str]] = {report_box.LABEL: "Zgłoszenie", DAD_NOTE_LABEL: "Uwaga taty"}
+CASE_KINDS: Final[Mapping[str, str]] = {report_box.REPORT_LABEL: "Zgłoszenie", report_box.NOTE_LABEL: "Uwaga taty"}
 CASES_HEADING: Final = "## Rozwiązane sprawy taty"
 
 _CASE_LINE: Final = re.compile(r"- (?P<kind>.+?) #(?P<number>[1-9][0-9]*): (?P<title>.+)")
