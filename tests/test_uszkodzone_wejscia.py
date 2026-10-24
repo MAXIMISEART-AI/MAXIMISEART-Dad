@@ -369,6 +369,7 @@ ENTRIES: dict[str, Entry] = {
     "openPeriodPath": _route(
         "openPeriodPath", "POST", f"/api/periods/{SETTLEMENT_PERIOD}/open", {"target": "collective_file"}
     ),
+    "getQuantitiesToFill": _route("getQuantitiesToFill", "GET", f"/api/periods/{SETTLEMENT_PERIOD}/quantities-to-fill"),
     "getRunSetup": _route("getRunSetup", "GET", "/api/runs/setup"),
     "getMetrics": _route("getMetrics", "GET", "/api/metrics"),
     "getConfiguration": _route("getConfiguration", "GET", "/api/configuration"),
