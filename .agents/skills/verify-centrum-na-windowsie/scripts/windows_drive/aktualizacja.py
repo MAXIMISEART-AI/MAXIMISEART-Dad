@@ -44,6 +44,14 @@ def _update_entries(run: Run) -> list[str]:
     return lines[starts[-1] :] if starts else []
 
 
+def _stop_before_start(run: Run, entries: list[str]) -> None:
+    events = [line.split(" ")[1] for line in entries]
+    run.check(
+        "stop" in events and "start" in events and events.index("stop") < events.index("start"),
+        "the old Centrum logged stop before the new Centrum's start",
+    )
+
+
 def _console_fact(run: Run, entries: list[str]) -> None:
     """The restarted Centrum's ``start`` line; its ``konsola=`` is a known wrong fact (see the feature's Gotchas).
 
@@ -112,6 +120,7 @@ def drive(run: Run, page: Page) -> None:
     finished = f"aktualizacja-koniec wynik=ok przed={first} po={newest} biblioteki=tak"
     run.check(any(finished in line for line in entries), f"the log has {finished!r} (pip ran under pythonw.exe)")
     run.check(any(" zamkniecie z=aktualizacja" in line for line in entries), "the old Centrum closed itself for the update")
+    _stop_before_start(run, entries)
     _console_fact(run, entries)
     page.get_by_role("link", name="Konfiguracja", exact=True).click()
     expect(page.get_by_role("region", name="Narzędzie", exact=True)).to_contain_text(f"Wersja {newest[:7]}")
@@ -139,6 +148,7 @@ def drive(run: Run, page: Page) -> None:
     print("  log:\n    " + "\n    ".join(entries), flush=True)
     failed = f"aktualizacja-koniec wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={newest} po={not_starting} biblioteki=nie"
     run.check(any(failed in line for line in entries), f"the log has {failed!r}")
+    _stop_before_start(run, entries)
     time.sleep(2)
     run.check(start_dialogs() == [], "no native window appeared: the old version took over")
     run.harness("GitHub's newest Wydanie is the newest version again")
