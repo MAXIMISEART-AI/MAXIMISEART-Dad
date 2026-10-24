@@ -44,6 +44,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from .highlights import Highlights
 from .hyperlinks import Hyperlink, read_sheet_hyperlinks
+from .quantity_rules import QuantityColumn
 from .row_look import GENERAL
 from .workbook_parts import rows_dated_between, rows_with_input
 from .worker_config import normalize_text
@@ -158,6 +159,7 @@ _WORKER_LABEL = "WYKONAWCA"
 
 
 _NO_ENTRIES: MappingProxyType[int, Never] = MappingProxyType({})
+_NO_QUANTITIES: MappingProxyType[QuantityColumn, Never] = MappingProxyType({})
 
 
 @dataclass(frozen=True)
@@ -177,8 +179,8 @@ class DataRow:
     number_formats: tuple[str, ...]
     """Formaty liczb komórek po pozycji; trafiają do kolumn wyglądu pliku z Wzorca."""
     hyperlinks: Mapping[int, Hyperlink] = field(default_factory=lambda: _NO_ENTRIES)
-    quantities: Mapping[int, int] = field(default_factory=lambda: _NO_ENTRIES)
-    """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: kolumna (od 1) → liczba różna od zera.
+    quantities: Mapping[QuantityColumn, int] = field(default_factory=lambda: _NO_QUANTITIES)
+    """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: litera kolumny N:AP → liczba różna od zera.
 
     Trafiają do komórki Wzorca z jej wyglądem, bez Wyróżnień; reszta kolumn ilości zostaje jak we Wzorcu.
     Odczyt Pliku zbiorczego ma ilości w ``values``.

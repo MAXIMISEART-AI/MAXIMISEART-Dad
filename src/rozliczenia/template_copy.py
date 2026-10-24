@@ -83,6 +83,7 @@ from openpyxl.styles.borders import Border
 
 from .highlights import PLAIN, Highlights
 from .hyperlinks import Hyperlink
+from .quantity_rules import QuantityColumn
 from .row_look import GENERAL, CellLook, RowLook, wraps
 from .workbook_parts import (
     MAIN,
@@ -240,8 +241,8 @@ class Row(Protocol):
         ...
 
     @property
-    def quantities(self) -> Mapping[int, int]:
-        """Kolumna od 1 → liczba wpisana w komórkę Wzorca z jej stylem; tylko w ``SheetLayout.quantity_columns``."""
+    def quantities(self) -> Mapping[QuantityColumn, int]:
+        """Litera kolumny → liczba wpisana w komórkę Wzorca z jej stylem; tylko w ``SheetLayout.quantity_columns``."""
         ...
 
 
@@ -662,7 +663,9 @@ class _Sheet:
         chunk = bisect_left(self._boundaries, region_end)
         tail_start = self._boundaries[chunk]
         links_at = self._links_at
-        last_column = max([self._layout.data_columns, *(column for row in rows for column in row.quantities)])
+        last_column = max(
+            [self._layout.data_columns, *(column_index_from_string(letter) for row in rows for letter in row.quantities)]
+        )
         head = b"".join([self._prefix(last_row if rows else None, last_column), *patched, xml[region_end:tail_start]])
         if self._chunks is None:
             self._chunks = _compressed_chunks(xml, self._boundaries)
@@ -731,7 +734,8 @@ class _Sheet:
             existing = cells.get(column)
             style = styles.look_style(_cell_style(existing), look.cell(column, PLAIN, GENERAL, wrapped=False))
             written[column] = _restyled(reference, existing, style)
-        for column, quantity in data.quantities.items():
+        for letter, quantity in data.quantities.items():
+            column = column_index_from_string(letter)
             reference = self._letters[column - 1] + suffix
             written[column] = _cell_xml(reference, _cell_style(cells.get(column)), *_value_xml(quantity))
         return start_tag + b"".join(cell for _, cell in sorted(written.items())) + b"</row>"

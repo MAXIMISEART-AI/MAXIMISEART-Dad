@@ -23,7 +23,7 @@ from xml.parsers import expat
 from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.styles.fills import Fill
 from openpyxl.styles.fonts import Font
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.utils.exceptions import IllegalCharacterError
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.cell_range import CellRange, MultiCellRange
@@ -513,8 +513,8 @@ def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[DataRow], 
                 # font_over zawsze zwraca kopię, a fill_over może zwrócić wypełnienie, które dostał.
                 cell.font = highlights.font_over(cast(Font, cell.font))
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
-        for column, quantity in row.quantities.items():
-            sheet.cell(number, column).value = quantity
+        for letter, quantity in row.quantities.items():
+            sheet.cell(number, column_index_from_string(letter)).value = quantity
     if layout.period_file:
         _set_autofilter(sheet, layout.header_row, len(rows))
 
