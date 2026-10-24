@@ -220,7 +220,7 @@ def test_kontrola_ilosci_nie_ma_adresu_numerow_wykonawcy_daty_ani_czynnosci_zrea
     assert [marker for marker in FORBIDDEN if marker in sent] == []
     assert all(marker in sent for marker in ALLOWED)
     assert "| V | 1 | nieliczbowa | `ZNACZNIK-CZYNNOSCI` | `u ZNACZNIK-UMOWA` | śr 13 | 1 |" in sent
-    assert queued(centrum) == []
+    assert wait_for(lambda: queued(centrum) == [])
     seen_by_tata = [
         json.dumps(view),
         centrum.client.get("/api/runs/current").text,
@@ -305,7 +305,7 @@ def test_powtorzony_przebieg_okresu_dopisuje_kontrole_jako_komentarz_do_otwarteg
     assert box(centrum).wait_until(lambda fake: bool(first.comments)), "druga Kontrola ilości nie dotarła"
     assert [issue.number for issue in box(centrum).issues_with(LABEL)] == [first.number]
     assert first.comments == [expected_body(second["run"]["id"]).removeprefix(f"{LINE}\n\n")]
-    assert queued(centrum) == []
+    assert wait_for(lambda: queued(centrum) == [])
 
 
 def test_gdy_maks_zamknal_issue_okresu_powtorzony_przebieg_zaklada_nowe(tmp_path: Path) -> None:
