@@ -17,7 +17,6 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
-import time
 from typing import Any
 import uuid
 from urllib.parse import urlsplit
@@ -26,6 +25,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from rozliczenia.centrum.clock import SYSTEM_CLOCK, Clock
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import CONFIGURATION_WAIT_S, ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
@@ -78,7 +78,7 @@ def create_app(
     tool_freshness: ToolFreshness | None = None,
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
-    clock: Callable[[], float] = time.monotonic,
+    clock: Clock = SYSTEM_CLOCK,
     report_search_deadline_s: float = SEARCH_DEADLINE_S,
     tool_update: ToolClone | None = None,
     guardian: GuardianLauncher | None = None,
@@ -94,6 +94,7 @@ def create_app(
         # wychodzą w tle.
         outbox.resume()
         yield
+        outbox.close()
 
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(
@@ -187,6 +188,7 @@ def create_app(
         config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
         box,
         log,
+        clock=clock,
         on_delivered=lambda post, number: after_delivery(post, number, cases, outbox),
         prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
         addresses=config / ADDRESSES_FILE,

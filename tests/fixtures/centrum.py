@@ -35,6 +35,8 @@ from rozliczenia.centrum.report_box import (
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness
 
+from tests.fixtures.clock import ManualClock
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -205,19 +207,6 @@ class FakeReportBox:
 
 
 @dataclass
-class FakeClock:
-    """Zegar monotoniczny Centrum w sekundach, przesuwany przez test."""
-
-    seconds: float = 0.0
-
-    def __call__(self) -> float:
-        return self.seconds
-
-    def advance(self, *, minutes: float) -> None:
-        self.seconds += minutes * 60
-
-
-@dataclass
 class FakeGitHub:
     """Commit narzędzia u taty, dzień, od którego narzędzie jest na nim, i najnowsze Wydanie na GitHubie.
 
@@ -286,6 +275,7 @@ class Centrum:
     metrics: MetricsPaths
     log_path: Path
     report_box: FakeReportBox
+    clock: ManualClock
 
 
 def dad_cases(config: Path, kind: str) -> list[dict[str, Any]]:
@@ -300,7 +290,10 @@ def dad_cases(config: Path, kind: str) -> list[dict[str, Any]]:
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
+    """Centrum na syntetycznym folderze; zegar stoi, dopóki test go nie przesunie, więc nie zostawia budzików."""
+
     platform = FakePlatform()
+    clock = ManualClock()
     report_box = FakeReportBox(background=RUN_LOGS_IN_BACKGROUND)
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
     metrics = MetricsPaths(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
@@ -316,9 +309,10 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         tool_freshness=FakeGitHub().freshness(),
         cloud_files=FakeOneDrive().cloud_files(),
         report_box=report_box,
+        clock=clock,
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path, metrics, log_path, report_box)
+    return Centrum(client, platform, settings_path, metrics, log_path, report_box, clock)
 
 
 def view_timing(**changes: object) -> dict[str, object]:

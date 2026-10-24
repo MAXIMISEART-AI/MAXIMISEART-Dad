@@ -452,7 +452,8 @@ def test_sprawa_bez_czasow_i_z_polskimi_literami_wraca_z_pliku_bez_zmian(tmp_pat
 
 
 def _outbox(tmp_path: Path) -> Outbox:
-    return Outbox(tmp_path / "kolejka", KeyedBox(AnsweringBox({}), lambda: None, clock=ManualClock()), log(tmp_path))
+    clock = ManualClock()
+    return Outbox(tmp_path / "kolejka", KeyedBox(AnsweringBox({}), lambda: None, clock=clock), log(tmp_path), clock=clock)
 
 
 PINNED_ID = "0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d"

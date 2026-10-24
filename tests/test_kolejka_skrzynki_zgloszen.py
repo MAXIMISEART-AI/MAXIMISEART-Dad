@@ -13,9 +13,9 @@ import threading
 
 import pytest
 
-from rozliczenia.centrum.keyed_box import KeyedBox
+from rozliczenia.centrum.keyed_box import REFUSED_KEPT_S, KeyedBox
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
+from rozliczenia.centrum.outbox import RETRY_S, Frame, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
@@ -55,12 +55,14 @@ class Queue:
         self.log_path = tmp_path / "logs" / "centrum-rozliczen.log"
         self.box = box
         self.key = key
+        self.clock = ManualClock()
         self.outbox = self.restarted()
 
     def restarted(self) -> Outbox:
         """Kolejka nowego startu Centrum na tym samym folderze."""
 
-        return Outbox(self.directory, KeyedBox(self.box, lambda: self.key, clock=ManualClock()), CentrumLog(self.log_path))
+        keyed = KeyedBox(self.box, lambda: self.key, clock=self.clock)
+        return Outbox(self.directory, keyed, CentrumLog(self.log_path), clock=self.clock)
 
     def passed(self) -> None:
         """Czeka, aż przejście kolejki, które właśnie ruszyło (``resume``, ``send_in_background``), się skończy."""
@@ -204,37 +206,100 @@ def test_bez_klucza_wysylka_czeka_w_pliku_bez_pytania_skrzynki(tmp_path: Path) -
     assert queue.box.keys == []
 
 
-def test_bez_klucza_przejscie_kolejki_daje_jedna_linie_dziennika_przy_wielu_plikach(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(), key=None)
-    queue.queued("pierwsza\n", "druga\n", "trzecia\n")
-
-    queue.outbox.resume()
-    queue.passed()
-    assert queue.log().count("skrzynka-czeka") == 1
-    queue.outbox.send_in_background()
-    queue.passed()
-
-    assert queue.log().count("skrzynka-czeka") == 2
-    assert "skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=brak-klucza" in queue.log()
-    assert len(queue.files()) == 3
-    assert queue.box.keys == []
-
-
-@pytest.mark.parametrize("failure", [Unreachable(), Refused()], ids=["brak-sieci", "odmowa"])
-def test_brak_sieci_albo_odmowa_klucza_zatrzymuje_przejscie_z_jedna_linia_dziennika(
-    tmp_path: Path, failure: Unreachable | Refused
+@pytest.mark.parametrize(
+    ("failure", "key", "cause"),
+    [(None, None, "brak-klucza"), (Unreachable(), KEY, "brak-sieci"), (Refused(), KEY, "odmowa")],
+    ids=["brak-klucza", "brak-sieci", "odmowa"],
+)
+def test_porazka_dla_calej_kolejki_zatrzymuje_przejscie_i_ponawia_je_po_minucie_z_jedna_linia_dziennika(
+    tmp_path: Path, failure: Refused | Unreachable | None, key: str | None, cause: str
 ) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=failure))
+    queue = Queue(tmp_path, FakeReportBox(search_failure=failure), key=key)
     queue.queued("pierwsza\n", "druga\n", "trzecia\n")
 
     queue.outbox.resume()
     queue.passed()
-    assert queue.log().count("skrzynka-czeka") == 1
     queue.outbox.send_in_background()
     queue.passed()
+    queue.clock.advance(RETRY_S)
+    queue.passed()
 
-    assert queue.log().count("skrzynka-czeka") == 2
+    assert queue.log().count("skrzynka-czeka") == 1
+    assert f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna={cause}\n" in queue.log()
     assert len(queue.files()) == 3
+    assert (queue.box.issues, queue.clock.wakes) == ([], 1)
+
+
+def test_po_braku_sieci_kolejka_ponawia_po_minucie_bez_kolejnej_wysylki(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
+    queue.outbox.post(post(["treść\n"]))
+    queue.passed()
+    queue.box.search_failure = None
+
+    queue.clock.advance(RETRY_S - 1)
+    queue.passed()
+    assert queue.box.issues == []
+    queue.clock.advance(1)
+
+    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
+    assert wait_for(lambda: queue.files() == [])
+    queue.passed()
+    assert queue.clock.wakes == 0
+
+
+def test_kolejka_bez_porazki_nie_nastawia_ponowienia(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+
+    queue.outbox.post(post(["treść\n"]))
+
+    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
+    queue.passed()
+    assert queue.clock.wakes == 0
+
+
+def test_odrzucona_tresc_nie_nastawia_ponowienia(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(outcomes=[Rejected()]))
+
+    queue.outbox.post(post(["treść\n"]))
+
+    assert wait_for(lambda: "przyczyna=odmowa-tresci" in queue.log())
+    queue.passed()
+    assert queue.clock.wakes == 0
+
+
+def test_czekanie_trafia_do_dziennika_przy_zmianie_przyczyny_i_po_dostarczeniu(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
+    queue.outbox.post(post(["pierwsza\n"]))
+    queue.passed()
+    queue.box.search_failure = Refused()
+    queue.clock.advance(RETRY_S)
+    queue.passed()
+    queue.box.search_failure = None
+    queue.clock.advance(RETRY_S)  # odrzucony klucz idzie do skrzynki znowu dopiero po kwadransie
+    queue.passed()
+    queue.clock.advance(REFUSED_KEPT_S)
+    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
+    queue.passed()
+
+    queue.box.search_failure = Unreachable()
+    queue.outbox.post(post(["druga\n"]))
+    queue.passed()
+
+    causes = [line.rsplit("przyczyna=", 1)[1] for line in queue.log().splitlines() if "skrzynka-czeka" in line]
+    assert causes == ["brak-sieci", "odmowa", "brak-sieci"]
+
+
+def test_zamknieta_kolejka_nie_budzi_sie_po_porazce(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
+    queue.outbox.post(post(["treść\n"]))
+    queue.passed()
+    queue.box.search_failure = None
+
+    queue.outbox.close()
+    queue.clock.advance(RETRY_S)
+    queue.passed()
+
+    assert (queue.box.issues, len(queue.files())) == ([], 1)
 
 
 def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_tym_samym_przejsciu(

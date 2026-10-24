@@ -61,7 +61,8 @@ waiting for the Kontrole ilości it sends again at start.
 Centrum asks the skrzynka for the state of Dad's sent cases, and GitHub for the
 Wydania, at most once per 10 minutes of its monotonic clock; each question for the
 published Wydania appends a line to ``<root>/github/zapytania-wydan.jsonl``; ``<root>/zegar/przesuniecie-min.txt`` moves that
-clock forward by the given minutes, so the drive need not wait.
+clock forward by the given minutes, so the drive need not wait. Wake-ups on that clock (the queue's retry a minute
+after a failure) fire within 0.2 s of their moment, so moving the clock wakes the queue at once.
 
 One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
 each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
@@ -275,12 +276,32 @@ def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
     return ToolFreshness(local=local_commit, since=since, release=releases, published=published)
 
 
-def _scripted_clock(root: Path) -> Callable[[], float]:
-    def clock() -> float:
-        moved = root / "zegar" / "przesuniecie-min.txt"
+class ScriptedClock:
+    """Centrum's clock: monotonic time moved forward by ``<root>/zegar/przesuniecie-min.txt`` (see the module doc)."""
+
+    def __init__(self, root: Path) -> None:
+        self._moved = root / "zegar" / "przesuniecie-min.txt"
+        self._lock = threading.Lock()
+        self._wakes: list[tuple[float, Callable[[], None]]] = []
+        threading.Thread(target=self._fire_due, name="zegar-budzik", daemon=True).start()
+
+    def __call__(self) -> float:
+        moved = self._moved
         return time.monotonic() + (float(moved.read_text(encoding="utf-8")) * 60 if moved.exists() else 0.0)
 
-    return clock
+    def after(self, seconds: float, wake: Callable[[], None]) -> None:
+        with self._lock:
+            self._wakes.append((self() + seconds, wake))
+
+    def _fire_due(self) -> None:
+        while True:
+            time.sleep(0.2)
+            now = self()
+            with self._lock:
+                due = [wake for moment, wake in self._wakes if moment <= now]
+                self._wakes = [(moment, wake) for moment, wake in self._wakes if moment > now]
+            for wake in due:
+                wake()
 
 
 def _scripted_onedrive(root: Path) -> CloudFiles:
@@ -375,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         tool_freshness=_scripted_github(root, clone),
         cloud_files=_scripted_onedrive(root),
         report_box=FileReportBox(root / "skrzynka-zgloszen"),
-        clock=_scripted_clock(root),
+        clock=ScriptedClock(root),
         tool_update=ToolClone(
             clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root), install=_paced_install(root)
         ),
