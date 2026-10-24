@@ -14,15 +14,7 @@ from typing import Any
 
 import pytest
 
-from rozliczenia.centrum.dad_cases import (
-    DAD_CASES_FILE,
-    NOTE,
-    OLD_NOTES_FILE,
-    OLD_REPORTS_FILE,
-    REPORT,
-    Case,
-    DadCases,
-)
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, OLD_NOTES_FILE, OLD_REPORTS_FILE, REPORT, Case, DadCases
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import KnownIssue, NewIssue, PeriodThread, Post
 from rozliczenia.centrum.report_box import (
@@ -35,6 +27,8 @@ from rozliczenia.centrum.report_box import (
     SendOutcome,
     Unreachable,
 )
+
+from tests.fixtures.centrum import centrum
 
 FIXTURES = Path(__file__).parent / "fixtures"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -56,14 +50,7 @@ OLD_CASES = [
         7,
         Closure("completed", at(22, 10)),
     ),
-    Case(
-        REPORT,
-        "a1b2c3d4e5f60718",
-        "Brak połączenia z GitHubem.",
-        None,
-        at(21, 9, 30),
-        9,
-    ),
+    Case(REPORT, "a1b2c3d4e5f60718", "Brak połączenia z GitHubem.", None, at(21, 9, 30), 9),
     Case(
         NOTE,
         "5e1f0c2d3b4a49e8b7c6d5e4f3a2b1c0",
@@ -101,11 +88,7 @@ def log(tmp_path: Path) -> CentrumLog:
     return CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
 
 
-def old_files(
-    tmp_path: Path,
-    reports: str = "zgloszenia-wyslane.json",
-    notes: str = "uwagi-taty.json",
-) -> Path:
+def old_files(tmp_path: Path, reports: str = "zgloszenia-wyslane.json", notes: str = "uwagi-taty.json") -> Path:
     config = tmp_path / "config"
     config.mkdir()
     shutil.copy(FIXTURES / reports, config / OLD_REPORTS_FILE)
@@ -123,39 +106,22 @@ def with_document(tmp_path: Path, name: str, document: object) -> None:
     (config / name).write_text(json.dumps(document), encoding="utf-8")
 
 
-def test_stare_pliki_zgloszen_i_uwag_wczytuja_sie_jako_sprawy_taty(
-    tmp_path: Path,
-) -> None:
+def test_stare_pliki_zgloszen_i_uwag_wczytuja_sie_jako_sprawy_taty(tmp_path: Path) -> None:
     old_files(tmp_path)
 
     assert cases(tmp_path) == OLD_CASES
 
 
-def test_wpisy_sprzed_powiadomien_wczytuja_sie_a_zgloszenie_nie_ma_tytulu_ani_czasu(
-    tmp_path: Path,
-) -> None:
-    old_files(
-        tmp_path,
-        "zgloszenia-wyslane-sprzed-powiadomien.json",
-        "uwagi-taty-sprzed-powiadomien.json",
-    )
+def test_wpisy_sprzed_powiadomien_wczytuja_sie_a_zgloszenie_nie_ma_tytulu_ani_czasu(tmp_path: Path) -> None:
+    old_files(tmp_path, "zgloszenia-wyslane-sprzed-powiadomien.json", "uwagi-taty-sprzed-powiadomien.json")
 
     assert cases(tmp_path) == [
         Case(REPORT, "3f0c1b2a9d8e7f60", None, COMMIT, None, 4),
-        Case(
-            NOTE,
-            "c0ffee00c0ffee00c0ffee00c0ffee00",
-            "Uwaga sprzed Powiadomień",
-            None,
-            at(23, 12),
-            5,
-        ),
+        Case(NOTE, "c0ffee00c0ffee00c0ffee00c0ffee00", "Uwaga sprzed Powiadomień", None, at(23, 12), 5),
     ]
 
 
-def test_pierwszy_zapis_przenosi_stare_sprawy_do_pliku_spraw_taty_a_stare_pliki_zostaja(
-    tmp_path: Path,
-) -> None:
+def test_pierwszy_zapis_przenosi_stare_sprawy_do_pliku_spraw_taty_a_stare_pliki_zostaja(tmp_path: Path) -> None:
     config = old_files(tmp_path)
     old = {name: (config / name).read_bytes() for name in (OLD_REPORTS_FILE, OLD_NOTES_FILE)}
 
@@ -168,9 +134,7 @@ def test_pierwszy_zapis_przenosi_stare_sprawy_do_pliku_spraw_taty_a_stare_pliki_
     assert restarted == cases(tmp_path) == [*OLD_CASES, NEW]
 
 
-def test_uszkodzony_plik_spraw_taty_to_brak_spraw_takze_przy_starych_plikach(
-    tmp_path: Path,
-) -> None:
+def test_uszkodzony_plik_spraw_taty_to_brak_spraw_takze_przy_starych_plikach(tmp_path: Path) -> None:
     config = old_files(tmp_path)
     (config / DAD_CASES_FILE).write_text('{"schema_version": 1, "sprawy": [', encoding="utf-8")
 
@@ -197,10 +161,7 @@ def test_uszkodzony_stary_plik_nie_zabiera_spraw_z_drugiego(tmp_path: Path, dama
     "document",
     [
         {"schema_version": 1},
-        {
-            "schema_version": 2,
-            "uwagi": json.loads((FIXTURES / "uwagi-taty.json").read_text(encoding="utf-8"))["uwagi"],
-        },
+        {"schema_version": 2, "uwagi": json.loads((FIXTURES / "uwagi-taty.json").read_text(encoding="utf-8"))["uwagi"]},
         [],
     ],
     ids=["bez-uwag", "nieznany-schemat", "lista"],
@@ -211,22 +172,14 @@ def test_stary_plik_uwag_w_nieznanym_ksztalcie_to_brak_uwag(tmp_path: Path, docu
     assert cases(tmp_path) == []
 
 
-def test_stary_plik_zgloszen_w_nieznanym_ksztalcie_to_brak_zgloszen(
-    tmp_path: Path,
-) -> None:
+def test_stary_plik_zgloszen_w_nieznanym_ksztalcie_to_brak_zgloszen(tmp_path: Path) -> None:
     with_document(tmp_path, OLD_REPORTS_FILE, {"zgloszenia": []})
 
     assert cases(tmp_path) == []
 
 
 OLD_REPORT = {"fingerprint": "3f0c1b2a9d8e7f60", "number": 4, "commit": None}
-OLD_NOTE = {
-    "id": "c0ffee00",
-    "title": "Uwaga",
-    "commit": None,
-    "written_at": "2026-10-23T12:00:00+00:00",
-    "number": 5,
-}
+OLD_NOTE = {"id": "c0ffee00", "title": "Uwaga", "commit": None, "written_at": "2026-10-23T12:00:00+00:00", "number": 5}
 
 
 @pytest.mark.parametrize(
@@ -276,15 +229,7 @@ def test_wpis_starego_pliku_ktorego_nie_da_sie_odczytac_jest_pominiety(
         {**VALID_ENTRY, "run_id": 7},
         {**VALID_ENTRY, "number": "7"},
     ],
-    ids=[
-        "nie-obiekt",
-        "nieznany-rodzaj",
-        "bez-rodzaju",
-        "identyfikator",
-        "commit",
-        "uruchomienie",
-        "numer",
-    ],
+    ids=["nie-obiekt", "nieznany-rodzaj", "bez-rodzaju", "identyfikator", "commit", "uruchomienie", "numer"],
 )
 def test_wpis_pliku_spraw_taty_z_polem_zlego_typu_jest_pominiety(tmp_path: Path, entry: object) -> None:
     with_document(tmp_path, DAD_CASES_FILE, {"schema_version": 1, "sprawy": [entry, VALID_ENTRY]})
@@ -292,37 +237,40 @@ def test_wpis_pliku_spraw_taty_z_polem_zlego_typu_jest_pominiety(tmp_path: Path,
     assert cases(tmp_path) == [NEW]
 
 
-def test_tytul_nie_tekst_i_nieczytelny_czas_zostawiaja_sprawe_bez_nich(
-    tmp_path: Path,
-) -> None:
-    entry = {
-        **VALID_ENTRY,
-        "title": ["Nowa"],
-        "sent_at": "wczoraj",
-        "closure": {"reason": "spam", "at": "jutro"},
-    }
+def test_tytul_nie_tekst_i_nieczytelny_czas_zostawiaja_sprawe_bez_nich(tmp_path: Path) -> None:
+    entry = {**VALID_ENTRY, "title": ["Nowa"], "sent_at": "wczoraj", "closure": {"reason": "spam", "at": "jutro"}}
     with_document(tmp_path, DAD_CASES_FILE, {"schema_version": 1, "sprawy": [entry]})
 
     assert cases(tmp_path) == [Case(NOTE, NEW.id, None, COMMIT, None, None, Closure(None, None))]
 
 
-def test_numer_issue_dostaje_tylko_sprawa_z_wysylki_o_jej_etykiecie_i_identyfikatorze(
-    tmp_path: Path,
-) -> None:
+def test_numer_issue_dostaje_tylko_sprawa_z_wysylki_o_jej_etykiecie_i_identyfikatorze(tmp_path: Path) -> None:
     config = old_files(tmp_path)
     stored = DadCases(config, log(tmp_path))
 
-    for target in (
-        PeriodThread(label="logi-uruchomienia", line="- Logi", closed="reuse", title="Logi"),
-        KnownIssue("zgloszenie", 3),
-        NewIssue("uwaga-taty", "Wiersz zniknął"),
+    for target, number in (
+        (NewIssue("uwaga-taty", "Wiersz zniknął"), 20),
+        (PeriodThread(label="logi-uruchomienia", line="- Logi", closed="reuse", title="Logi"), 30),
+        (KnownIssue("zgloszenie", 3), 31),
     ):
-        stored.delivered(
-            Post(target, period=None, run_id=QUEUED_NOTE, header=None, parts=("treść",)),
-            20,
-        )
+        stored.delivered(Post(target, period=None, run_id=QUEUED_NOTE, header=None, parts=("treść",)), number)
 
     assert [case.number for case in cases(tmp_path)] == [7, 9, 11, 12, 20]
+
+
+def test_sprawe_wskazuje_rodzaj_i_identyfikator_a_z_kilku_wysylek_liczy_sie_ostatnia(tmp_path: Path) -> None:
+    stored = DadCases(tmp_path / "config", log(tmp_path))
+    first = Case(REPORT, "3f0c1b2a9d8e7f60", "Brak Wzorca", None, at(20, 8), 7, Closure("completed", at(21, 8)))
+    again = Case(REPORT, "3f0c1b2a9d8e7f60", "Brak Wzorca", None, at(22, 8), 15)
+    note = Case(NOTE, "3f0c1b2a9d8e7f60", "Uwaga o tym samym identyfikatorze", None, at(23, 8), 16)
+    for case in (first, again, note):
+        stored.add(case)
+
+    found = (stored.find(REPORT, "3f0c1b2a9d8e7f60"), stored.find(NOTE, "3f0c1b2a9d8e7f60"))
+    stored.forget(NOTE, "3f0c1b2a9d8e7f60")
+
+    assert found == (again, note)
+    assert cases(tmp_path) == [first, again]
 
 
 class AnsweringBox:
@@ -343,32 +291,29 @@ class AnsweringBox:
         return self.answers[label]
 
 
-def test_skrzynka_jest_pytana_o_rodzaj_z_otwartymi_sprawami_a_jej_zamkniecia_trafiaja_do_spraw(
-    tmp_path: Path,
-) -> None:
+def test_skrzynka_jest_pytana_o_rodzaj_z_otwartymi_sprawami_a_jej_zamkniecia_trafiaja_do_spraw(tmp_path: Path) -> None:
     config = old_files(tmp_path)
     closed = Closure("completed", at(24, 15))
-    box = AnsweringBox(
-        {
-            "uwaga-taty": (
-                Issue(12, "", closed),
-                Issue(11, "", None),
-                Issue(40, "", closed),
-            )
-        }
-    )
+    box = AnsweringBox({"uwaga-taty": (Issue(12, "", closed), Issue(11, "", None), Issue(40, "", closed))})
     stored = DadCases(config, log(tmp_path))
     stored.forget(REPORT, "a1b2c3d4e5f60718")
 
     stored.ask_box(box, KEY)
 
     assert box.asked == [("uwaga-taty", True, KEY)]
-    assert [case.closure for case in cases(tmp_path)] == [
-        OLD_CASES[0].closure,
-        None,
-        closed,
-        None,
-    ]
+    assert [case.closure for case in cases(tmp_path)] == [OLD_CASES[0].closure, None, closed, None]
+
+
+def test_uwaga_w_kolejce_i_zamkniete_sprawy_nie_pytaja_skrzynki(tmp_path: Path) -> None:
+    config = old_files(tmp_path)
+    stored = DadCases(config, log(tmp_path))
+    stored.forget(REPORT, "a1b2c3d4e5f60718")
+    stored.forget(NOTE, "0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d")
+    box = AnsweringBox({})
+
+    stored.ask_box(box, KEY)
+
+    assert box.asked == []
 
 
 @pytest.mark.parametrize("failure", [Refused(), Unreachable()])
@@ -389,9 +334,7 @@ def test_bez_odpowiedzi_skrzynki_zostaje_ostatni_znany_stan(tmp_path: Path, fail
     ]
 
 
-def test_nieudany_zapis_zostawia_sprawe_do_konca_pracy_centrum_i_trafia_do_dziennika(
-    tmp_path: Path,
-) -> None:
+def test_nieudany_zapis_zostawia_sprawe_do_konca_pracy_centrum_i_trafia_do_dziennika(tmp_path: Path) -> None:
     (tmp_path / "config" / DAD_CASES_FILE).mkdir(parents=True)
     stored = DadCases(tmp_path / "config", log(tmp_path))
 
@@ -406,15 +349,44 @@ def test_sprawa_bez_zmian_nie_zapisuje_pliku(tmp_path: Path) -> None:
     stored = DadCases(config, log(tmp_path))
 
     stored.forget(NOTE, "nieznana")
-    stored.delivered(
-        Post(
-            NewIssue("uwaga-taty", "x"),
-            period=None,
-            run_id="nieznana",
-            header=None,
-            parts=("x",),
-        ),
-        3,
-    )
+    stored.delivered(Post(NewIssue("uwaga-taty", "x"), period=None, run_id="nieznana", header=None, parts=("x",)), 3)
 
     assert not (config / DAD_CASES_FILE).exists()
+
+
+def notifications(tmp_path: Path) -> list[tuple[str, str, bool, str]]:
+    items = centrum(tmp_path).client.get("/api/notifications").json()["items"]
+    return [
+        (item["kind"], item["id"], item["unread"], item.get("title") or item.get("what"))
+        for item in items
+        if item["kind"] in ("uwaga", "zgloszenie")
+    ]
+
+
+def test_sprawy_ze_starych_plikow_daja_te_same_powiadomienia(tmp_path: Path) -> None:
+    old_files(tmp_path)
+
+    assert notifications(tmp_path) == [
+        ("uwaga", "uwaga-5e1f0c2d3b4a49e8b7c6d5e4f3a2b1c0-przeczytana", True, "Plik zbiorczy otwiera się długo"),
+        ("uwaga", f"uwaga-{QUEUED_NOTE}-czeka_na_internet", False, "Wiersz zniknął"),
+        ("uwaga", "uwaga-0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d-wyslana", False, "Brakuje ilości przy montażu"),
+        ("zgloszenie", "zgloszenie-7-rozwiazana", True, "Nie znaleziono Wzorca pliku zbiorczego."),
+        ("zgloszenie", "zgloszenie-9-wyslana", False, "Brak połączenia z GitHubem."),
+    ]
+
+
+def test_zgloszenie_bez_co_sie_stalo_albo_czytelnego_czasu_nie_daje_powiadomienia(tmp_path: Path) -> None:
+    old_files(tmp_path, "zgloszenia-wyslane-sprzed-powiadomien.json", "uwagi-taty-sprzed-powiadomien.json")
+    with_document(
+        tmp_path,
+        OLD_REPORTS_FILE,
+        [
+            *json.loads((FIXTURES / "zgloszenia-wyslane-sprzed-powiadomien.json").read_text(encoding="utf-8")),
+            {"fingerprint": "a1b2c3d4e5f60718", "number": 9, "commit": None, "what": "Brak sieci", "sent_at": "wczoraj"},
+            {"fingerprint": "b2c3d4e5f6071829", "number": 10, "commit": None, "sent_at": "2026-10-21T09:30:00+00:00"},
+        ],
+    )
+
+    assert notifications(tmp_path) == [
+        ("uwaga", "uwaga-c0ffee00c0ffee00c0ffee00c0ffee00-wyslana", False, "Uwaga sprzed Powiadomień")
+    ]
