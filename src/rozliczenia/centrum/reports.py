@@ -2,10 +2,11 @@
 
 Treść Zgłoszenia powstaje tylko tutaj, z tych samych bezpiecznych faktów co
 Komunikat. Zgłoszenie Zatrzymania (``StopReport``) ma Komunikat z kodem i
-trzema częściami, proces, okres i tryb, commit narzędzia, wynik każdego
-sprawdzenia Diagnozy i ostatnie wpisy dziennika Centrum, a przy nieoczekiwanym
-wyjątku jego typ i ślad wywołań w kodzie narzędzia. Zgłoszenie nieudanej
-Aktualizacji narzędzia (``UpdateReport``) ma te same fakty co dziennik Centrum:
+trzema częściami, proces, okres i tryb, odnośnik do Logów Uruchomienia, commit
+narzędzia, wynik każdego sprawdzenia Diagnozy i ostatnie wpisy dziennika
+Centrum, a przy nieoczekiwanym wyjątku jego typ i ślad wywołań w kodzie
+narzędzia. Zgłoszenie nieudanej Aktualizacji narzędzia (``UpdateReport``) ma
+te same fakty co dziennik Centrum:
 kod Komunikatu, commit przed i po, czy instalowano biblioteki i ostatnie wpisy
 dziennika, bez ścieżek i bez wyjścia Gita. Ścieżki są już skrócone w
 Komunikatach, szczegółach sprawdzeń i ramkach śladu; treści wierszy, treści
@@ -108,10 +109,18 @@ class ProblemFingerprint:
 
 @dataclass(frozen=True)
 class StopReport:
+    """Zgłoszenie Zatrzymania z Diagnozy.
+
+    ``logs``: adres komentarza Logów Uruchomienia w Skrzynce Zgłoszeń z chwili Diagnozy; ``None``: Logi nie były
+    jeszcze w Skrzynce (zwykle czekały w kolejce). Ustalony przy Diagnozie, więc wysłane Zgłoszenie jest dokładnie
+    podglądem, który widział tata.
+    """
+
     run: contract.RunInfo
     stop: Stop
     fingerprint: ProblemFingerprint
     diagnosis: Diagnosis
+    logs: str | None
 
     @property
     def file_name(self) -> str:
@@ -131,6 +140,7 @@ class StopReport:
             f"- Proces: {run.title}",
             f"- Okres: {run.period}",
             f"- Tryb: {_MODES[run.dry_run]}",
+            f"- Logi: {self.logs or f'jeszcze niewysłane, Uruchomienie {run.id}'}",
             "",
             *_trace_lines(self.stop.trace),
             *_tool_lines(fingerprint, previous, commit=f"- Commit: {commit or 'nieznany'}"),
@@ -425,8 +435,11 @@ class Reports:
         box: ReportBox,
         log: CentrumLog,
         commit: CommitSource,
+        *,
+        search_deadline_s: float,
     ) -> None:
         self._commit = commit
+        self._search_deadline_s = search_deadline_s
         self._config_directory = config_directory
         self._unsent = config_directory / UNSENT_DIRECTORY
         self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
@@ -545,14 +558,14 @@ class Reports:
     def _ask_box(self, fingerprint: str) -> None:
         """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo.
 
-        Brak odpowiedzi w ``SEARCH_DEADLINE_S`` to brak odpowiedzi: Diagnoza zostaje krótka bez sieci, a
-        wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
+        Brak odpowiedzi w ``search_deadline_s`` (u taty ``SEARCH_DEADLINE_S``) to brak odpowiedzi: Diagnoza zostaje
+        krótka bez sieci, a wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
         """
 
         key = self._key()
         if key is None:
             return
-        answer = within(SEARCH_DEADLINE_S, lambda: (self._find_open(fingerprint, key),), name="skrzynka-szukaj")
+        answer = within(self._search_deadline_s, lambda: (self._find_open(fingerprint, key),), name="skrzynka-szukaj")
         if answer is None:
             return
         [found] = answer

@@ -11,7 +11,8 @@ from typing import Any
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import Locator, Page, ViewportSize, expect
+from playwright.sync_api import Locator, Page, Request, ViewportSize, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from drive.common import PAGES, Run, current_run, ensure_files_set, error_toasts, finished_result, history_rows
 from drive.metryki import _local
@@ -26,6 +27,10 @@ KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
 # Synthetic Uwagi: the first waits for the key, the second has no Treść.
 FIRST = ("Brakuje kolumny z kilometrami", "W Pliku zbiorczym nie ma kilometrów.\nDopisuję je ręcznie.")
 SECOND = ("Proszę o większą czcionkę", "")
+# Unbroken text Dad might paste (a OneDrive link) on a 1366×768 screen: the dialog must not grow with it. A Tytuł of
+# wide letters wraps to the most lines in „Maks dostanie”.
+LONG = "W" * 120, ("https://onedrive.live.com/edit?id=" + "SYNTETYCZNY0123456789" * 20)[:400]
+SMALL_SCREEN: ViewportSize = {"width": 1366, "height": 768}
 # Each issue waits this long in the skrzynka, so „Wyślij” is seen sending; two issues stay under the 5 s wait.
 BOX_PACING_MS = 1500
 ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
@@ -121,6 +126,40 @@ def _write(dialog: Locator, title: str, body: str) -> None:
     dialog.get_by_role("textbox", name="Treść (niekonieczna)", exact=True).fill(body)
 
 
+def _overflowing(page: Page, dialog: Locator) -> list[str]:
+    """Parts of the form that stick out of the dialog or off the screen, and the dialog itself if it scrolls sideways."""
+
+    frame = dialog.bounding_box()
+    viewport = page.viewport_size
+    assert frame is not None and viewport is not None
+    parts = {
+        "form": dialog.locator("form"),
+        "Tytuł": dialog.get_by_role("textbox", name="Tytuł", exact=True),
+        "Treść": dialog.get_by_role("textbox", name="Treść (niekonieczna)", exact=True),
+        "Maks dostanie": dialog.get_by_role("figure", name="Co dostanie Maks", exact=True),
+        "Wyślij": dialog.get_by_role("button", name="Wyślij", exact=True),
+    }
+    outside = [
+        name
+        for name, part in parts.items()
+        if (box := part.bounding_box()) is None
+        or box["x"] < frame["x"]
+        or box["x"] + box["width"] > min(frame["x"] + frame["width"], viewport["width"]) + 0.5
+        or box["y"] < 0
+        or box["y"] + box["height"] > viewport["height"] + 0.5
+    ]
+    if (
+        frame["x"] < 0
+        or frame["y"] < 0
+        or frame["x"] + frame["width"] > viewport["width"]
+        or frame["y"] + frame["height"] > viewport["height"]
+    ):
+        outside.append(f"dialog {frame}")
+    if dialog.evaluate("dialog => dialog.scrollWidth > dialog.clientWidth"):
+        outside.append("dialog scrolls sideways")
+    return outside
+
+
 def drive_dad_note(run: Run, page: Page) -> None:
     config = Path(run.fixture["settings"]).parent
     key_file = config / "zgloszenia-klucz.txt"
@@ -145,11 +184,11 @@ def drive_dad_note(run: Run, page: Page) -> None:
         )
     page.get_by_role("button", name=WRITE, exact=True).hover()
     expect(page.get_by_text(WRITE, exact=True)).to_be_visible()
-    run.capture(page, "160-uwaga-ikona-w-naglowku")
+    run.capture(page, "170-uwaga-ikona-w-naglowku")
     header = page.locator("header").first.bounding_box()
     assert header is not None
     page.screenshot(
-        path=run.evidence / "screenshots" / "160b-uwaga-ikona-zblizenie.png",
+        path=run.evidence / "screenshots" / "170b-uwaga-ikona-zblizenie.png",
         clip={"x": header["x"] + header["width"] - 360, "y": header["y"], "width": 360, "height": header["height"] + 40},
     )
 
@@ -164,6 +203,10 @@ def drive_dad_note(run: Run, page: Page) -> None:
         (title_box.get_attribute("maxlength"), body_box.get_attribute("maxlength")) == ("120", "10000"),
         "the fields take their limits from the contract (Tytuł 120, Treść 10000)",
     )
+    run.check(
+        title_box.get_attribute("placeholder") == "Np. Brakuje kolumny z kilometrami",
+        "Tytuł shows the prototype's example as its placeholder",
+    )
     expect(send).to_be_disabled()
     expect(_scope(dialog, "Ogólna")).to_have_attribute("aria-pressed", "true")
     expect(dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)).to_have_count(0)
@@ -173,7 +216,48 @@ def drive_dad_note(run: Run, page: Page) -> None:
     _write(dialog, "   ", "")
     expect(send).to_be_disabled()
     title_box.fill("")
-    run.capture(page, "161-uwaga-puste-okno")
+    run.capture(page, "171-uwaga-puste-okno")
+
+    run.step(FEATURE, "uwaga-dlugi-tekst")
+    screen = page.viewport_size
+    assert screen is not None
+    page.set_viewport_size(SMALL_SCREEN)
+    try:
+        _write(dialog, *LONG)
+        _shows(run, figure, _draft(run, *LONG, "uwaga-szkic-dlugi"), "„Maks dostanie” shows the draft of the long text")
+        outside = _overflowing(page, dialog)
+        run.check(outside == [], f"the form, its preview and „Wyślij” stay inside the dialog and on screen ({outside})")
+        run.capture(page, "172-uwaga-dlugi-tekst")
+    finally:
+        page.set_viewport_size(screen)
+    _write(dialog, "", "")
+
+    run.step(FEATURE, "uwaga-szkic-po-bledzie")
+
+    def failed_draft(request: Request) -> bool:
+        return request.url.endswith("/api/dad-notes/draft") and request.post_data_json == {
+            "title": FIRST[0],
+            "body": FIRST[1],
+        }
+
+    page.route("**/api/dad-notes/draft", lambda route: route.abort())
+    try:
+        _write(dialog, *FIRST)
+        try:
+            # The first failure may come before the wait starts; then the second wait catches the next retry.
+            page.wait_for_event("requestfailed", predicate=failed_draft)
+            page.wait_for_event("requestfailed", predicate=failed_draft)
+            retried = True
+        except PlaywrightTimeoutError:
+            retried = False
+        run.check(retried, "a failed draft request is asked again without Dad typing")
+        expect(send).to_be_disabled()
+        expect(page.get_by_role("alert")).to_have_count(0)
+        expect(error_toasts(page)).to_have_count(0)
+    finally:
+        page.unroute("**/api/dad-notes/draft")
+    expect(send).to_be_enabled()
+    run.check(send.is_enabled(), "once Centrum answers the draft, „Wyślij” works without Dad typing again, and no Komunikat showed")
 
     run.step(FEATURE, "uwaga-bez-klucza")
     _write(dialog, *FIRST)
@@ -181,7 +265,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
     _shows(run, figure, first, "„Maks dostanie” shows exactly the server's draft of the typed Uwaga")
     run.check(first["title"] == FIRST[0] and first["body"].startswith(FIRST[1] + "\n\n"), "the draft holds Dad's text")
     expect(send).to_be_enabled()
-    run.capture(page, "162-uwaga-wypelniona")
+    run.capture(page, "173-uwaga-wypelniona")
     _scope(dialog, "Do Uruchomienia").click()
     if _note_runs(run, None, "uwaga-uruchomienia-z-naglowka"):
         expect(dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True).get_by_role("radio", checked=True)).to_have_count(0)
@@ -189,7 +273,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
         expect(dialog.get_by_text(NO_RUNS, exact=True)).to_be_visible()
     expect(send).to_be_disabled()
     run.check(True, "„Do Uruchomienia” without a checked Uruchomienie keeps Wyślij disabled (no Uruchomienia: the calm sentence)")
-    run.capture(page, "162b-uwaga-bez-wybranego-uruchomienia", full_page=False)
+    run.capture(page, "173b-uwaga-bez-wybranego-uruchomienia", full_page=False)
     _scope(dialog, "Ogólna").click()
     _shows(run, figure, first, "back to Ogólna the figure shows the general draft again")
     expect(send).to_be_enabled()
@@ -197,7 +281,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
     expect(dialog.get_by_role("status")).to_have_text(WAITING)
     expect(page.get_by_role("alert")).to_have_count(0)
     expect(error_toasts(page)).to_have_count(0)
-    run.capture(page, "163-uwaga-czeka-na-internet")
+    run.capture(page, "174-uwaga-czeka-na-internet")
     [waiting] = _queued(config)
     run.check(
         waiting["target"] == {"kind": "new_issue", "label": LABEL, "title": first["title"]}
@@ -235,11 +319,11 @@ def drive_dad_note(run: Run, page: Page) -> None:
         _shows(run, figure, second, "„Maks dostanie” shows the server's draft of an Uwaga without Treść")
         send.click()
         expect(dialog.get_by_role("button", name="Trwa Wyślij", exact=True)).to_be_disabled()
-        run.capture(page, "164-uwaga-wysylanie", live=True)
+        run.capture(page, "175-uwaga-wysylanie", live=True)
         expect(dialog.get_by_role("status")).to_have_text(SENT, timeout=15_000)
     finally:
         pacing.unlink(missing_ok=True)
-    run.capture(page, "165-uwaga-wyslana")
+    run.capture(page, "176-uwaga-wyslana")
     issues = _issues(box)
     (run.evidence / "api" / "uwaga-skrzynka.json").write_text(
         json.dumps(

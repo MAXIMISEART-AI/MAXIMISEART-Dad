@@ -102,6 +102,10 @@ def _queued_logs(run: Run) -> list[Path]:
     return sorted((run.root / "config" / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*.json"))
 
 
+def _without_diagnosis(text: str) -> Json:
+    return {**json.loads(text), "diagnosis": None}
+
+
 def _threads(run: Run) -> list[Json]:
     box = run.root / "skrzynka-zgloszen"
     issues = [json.loads(path.read_text(encoding="utf-8")) for path in box.glob("*.json")] if box.is_dir() else []
@@ -235,9 +239,23 @@ def drive_run_logs(run: Run, page: Page) -> None:
     )
     comments = [(thread["title"], comment) for thread in threads for comment in thread.get("comments", [])]
     sent = [(title, part.group(1) if (part := JSON_PART.search(comment)) else comment) for title, comment in comments]
+    by_run: dict[str, list[str]] = {}
+    for _, text in sent:
+        by_run.setdefault(json.loads(text)["run_id"], []).append(text)
+    local = {json.loads(text)["run_id"]: text for text in files}
     run.check(
-        sorted(text for _, text in sent) == files,
-        f"each of the {len(files)} files of Logi is one comment whose JSON is the file, character for character",
+        sorted(by_run) == sorted(local) and all(texts[-1] == local[run_id] for run_id, texts in by_run.items()),
+        f"each of the {len(files)} files of Logi is the newest comment of its Uruchomienie, character for character",
+    )
+    run.check(
+        all(
+            len(by_run[run_id]) == 1
+            if json.loads(text)["diagnosis"] is None
+            else all(_without_diagnosis(sent) == _without_diagnosis(text) for sent in by_run[run_id][:-1])
+            and len(by_run[run_id]) > 1
+            for run_id, text in local.items()
+        ),
+        "an Uruchomienie without a Diagnoza is one comment; each Diagnoza added one more, which differ only in it",
     )
     run.check(
         all(title == f"Logi Uruchomienia {json.loads(text)['period']}" for title, text in sent),

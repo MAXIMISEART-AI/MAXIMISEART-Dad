@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import json
-import os
 from pathlib import Path
 import sys
 from typing import Any, NoReturn
@@ -19,22 +18,47 @@ from rozliczenia.centrum import report_box, restart_guardian, tool_freshness
 from rozliczenia.centrum.tool_update import ToolClone
 from rozliczenia.centrum.log import CentrumLog
 
+from tests.fixtures.git_config import hermetic_git
+
 _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
 
 
-@pytest.fixture(autouse=True)
-def git_bez_konserwacji_w_tle(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Od Gita 2.54 ``git maintenance run --auto`` po ``commit`` wykonuje też ``git worktree prune``.
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Testy ``@pytest.mark.dlugi`` zaczynają kawałki listy, które ``--dist worksteal`` rozdaje workerom na start.
 
-    Poza Windowsem ta konserwacja biegnie odłączona w tle. Usuwa wtedy katalog ``.git/worktrees/<nazwa>``, który
-    ``git worktree add`` z następnego kroku testu właśnie zakłada, i ``add`` kończy się kodem 128. Wpis działa w gicie
-    ze środowiskiem testu, ale nie w ``receive-pack`` repozytorium bare, do którego test pushuje: tam nie ma worktree.
+    Worker dostaje ciągły kawałek listy, a inne workery kradną z jego końca, więc długi test w głębi kawałka zaczyna
+    się pod koniec przebiegu i jeden worker kończy kilkanaście sekund po pozostałych. Kolejność poza xdist zostaje.
     """
 
-    entry = int(os.environ.get("GIT_CONFIG_COUNT", "0"))
-    monkeypatch.setenv(f"GIT_CONFIG_KEY_{entry}", "maintenance.auto")
-    monkeypatch.setenv(f"GIT_CONFIG_VALUE_{entry}", "false")
-    monkeypatch.setenv("GIT_CONFIG_COUNT", str(entry + 1))
+    workers = getattr(config, "workerinput", {}).get("workercount")
+    long = [item for item in items if item.get_closest_marker("dlugi")]
+    if not workers or not long:
+        return
+    collected = list(items)
+    rest = [item for item in items if not item.get_closest_marker("dlugi")]
+    ordered: list[pytest.Item] = []
+    remaining = len(items)
+    for index in range(workers):
+        first = long[index::workers]
+        # Rozmiar kawałka jak w WorkStealingScheduling.check_schedule: pozostałe testy po równo na pozostałe workery.
+        size = remaining // (workers - index)
+        take = max(size - len(first), 0)
+        ordered += first + rest[:take]
+        rest = rest[take:]
+        remaining -= len(first) + take
+    items[:] = ordered + rest
+    assert sorted(map(id, items)) == sorted(map(id, collected)), (
+        f"Hak kolejności xdist zmienił zbiór testów: {len(collected)} zebranych, {len(items)} po zmianie kolejności. "
+        "Popraw podział na kawałki w pytest_collection_modifyitems, żeby każdy zebrany test został na liście raz."
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def git_bez_konfiguracji_komputera(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Każdy git testów ma tę samą konfigurację na Macu Maksa i w CI, a git ze środowiskiem bez niej wywraca test."""
+
+    with hermetic_git(tmp_path_factory.mktemp("git")):
+        yield
 
 
 @pytest.fixture(autouse=True)

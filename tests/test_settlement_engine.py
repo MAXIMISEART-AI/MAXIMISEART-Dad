@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from pathlib import Path
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
@@ -22,15 +22,13 @@ from rozliczenia.domain import (
     ProgressPhase,
     WorkerEnded,
     WorkerFailed,
-    WorkerResult,
     WorkerStarted,
 )
 from rozliczenia.engine import run_settlements
 from rozliczenia.message import StopError
 from rozliczenia.process_run import Stop
 from rozliczenia.progress import PhaseState, ProgressProjection
-import rozliczenia.template_settlement as template_settlement
-from rozliczenia.workbook_files import DataRow, Layout, TemplateFile, read_data_rows
+from rozliczenia.workbook_files import Layout, TemplateFile, read_data_rows
 from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
@@ -953,30 +951,26 @@ def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozl
 
 @pytest.mark.parametrize(
     "failure",
-    [template_settlement.TemplateWriteError("synthetic failure"), RuntimeError("synthetic failure")],
+    [OSError(errno.EIO, "synthetic failure"), RuntimeError("synthetic failure")],
     ids=["blad-zapisu", "nieoczekiwany-blad"],
 )
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
 ) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
-    original_process_template = template_settlement.process_template
-    calls = 0
+    real_replace = os.replace
+    saved = 0
     recorded: list[ProgressEvent] = []
 
-    def fail_on_second_save(
-        worker_name: str,
-        template: TemplateFile,
-        path: Path,
-        rows: Iterable[DataRow],
-    ) -> WorkerResult:
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            raise failure
-        return original_process_template(worker_name, template, path, rows)
+    def fail_on_second_save(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        nonlocal saved
+        if Path(target).suffix == ".xlsx":
+            saved += 1
+            if saved == 2:
+                raise failure
+        real_replace(source, target)
 
-    monkeypatch.setattr(template_settlement, "process_template", fail_on_second_save)
+    monkeypatch.setattr(os, "replace", fail_on_second_save)
 
     with pytest.raises(StopError) as raised:
         run_settlements(
@@ -1002,7 +996,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
     )
     assert not any(isinstance(event, PhaseEnded) and event.phase is ProgressPhase.SAVING for event in recorded)
 
-    monkeypatch.setattr(template_settlement, "process_template", original_process_template)
+    monkeypatch.setattr(os, "replace", real_replace)
     summary = run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
     assert summary.written_count == 2
     assert target_directory.is_dir()
@@ -1045,11 +1039,15 @@ def test_progress_projection_accepts_przebieg_rozliczen_interrupted_in_zapisywan
     projection = ProgressProjection()
     save_s = 0.05
 
-    def fail_save(worker_name: str, template: TemplateFile, path: Path, rows: Iterable[DataRow]) -> WorkerResult:
-        time.sleep(save_s)
-        raise template_settlement.TemplateWriteError("synthetic failure")
+    real_replace = os.replace
 
-    monkeypatch.setattr(template_settlement, "process_template", fail_save)
+    def fail_save(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).suffix == ".xlsx":
+            time.sleep(save_s)
+            raise OSError(errno.EIO, "synthetic failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", fail_save)
 
     with pytest.raises(StopError):
         run_settlements(

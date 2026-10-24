@@ -164,7 +164,8 @@ def test_przebieg_z_poprawkami_taty_daje_kontrole_ilosci_z_grupami_roznic_i_licz
     assert (issue.label, issue.title) == (LABEL, f"Kontrola ilości {PERIOD}: 7 różnic")
     assert issue.body == expected_body(view["run"]["id"])
     assert box(centrum).keys == [KEY]
-    assert f"skrzynka-wyslano etykieta={LABEL} okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
+    sent = f"skrzynka-wyslano etykieta={LABEL} okres={PERIOD} numer=1"
+    assert wait_for(lambda: sent in centrum.log_path.read_text(encoding="utf-8"))
 
 
 def test_przy_zera_roznic_kontrola_ilosci_tez_powstaje_z_tytulem_bez_roznic(tmp_path: Path) -> None:

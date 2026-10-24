@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from openpyxl.utils import get_column_letter
@@ -20,7 +21,7 @@ from . import preparation_messages as messages
 from . import workbook_files
 from .message import StopError
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow, Problem, ReadWorkbook, WorkbookError, header_columns, is_blank
+from .workbook_files import DataRow, ReadWorkbook, WorkbookError, header_columns, is_blank
 from .worker_config import normalize_text
 
 
@@ -100,7 +101,7 @@ def ensure_register_available(register_path: Path) -> None:
     try:
         workbook_files.ensure_available(register_path)
     except WorkbookError as error:
-        raise _register_stop(register_path, error) from error
+        raise StopError(messages.register_unusable(register_path, error)) from error
 
 
 def read_register(register_path: Path, period: SettlementPeriod | None = None) -> list[RegisterSheet]:
@@ -112,25 +113,27 @@ def read_register(register_path: Path, period: SettlementPeriod | None = None) -
     """
 
     try:
-        with workbook_files.read_workbook(register_path) as workbook:
-            positions = _order_sheet_positions(register_path, workbook)
-            if period is None:
-                return _read_register_sheets(workbook, positions)
-            date_columns = {title: columns[COLUMNS.index(DATE)] for title, columns in positions.items()}
-            with workbook.narrowed(date_columns, period.start, period.end) as narrowed:
-                return _read_register_sheets(narrowed, positions)
+        content = workbook_files.workbook_content(register_path)
+        if period is None:
+            with workbook_files.read_workbook(register_path, content) as workbook:
+                return _read_register_sheets(workbook, _order_sheet_positions(register_path, workbook))
+        return list(_period_sheets(register_path, content, period))
     except WorkbookError as error:
-        raise _register_stop(register_path, error) from error
+        raise StopError(messages.register_unusable(register_path, error)) from error
 
 
-def _register_stop(register_path: Path, error: WorkbookError) -> StopError:
-    if error.problem is Problem.MISSING:
-        return StopError(messages.register_missing(register_path))
-    if error.problem is Problem.OPEN_IN_EXCEL:
-        return StopError(messages.register_open_in_excel(register_path))
-    if error.problem is Problem.INACCESSIBLE:
-        return StopError(messages.register_inaccessible(register_path))
-    return StopError(messages.register_unreadable(register_path))
+# Centrum robi Podgląd, a potem RUN tego samego okresu w jednym procesie. Arkusze okresu zależą tylko od bajtów
+# Rejestru i okresu, więc niezmieniony Rejestr nie jest drugi raz zawężany ani parsowany, a zmieniony jest
+# czytany od nowa. Uruchomienia w różnych wątkach dostają ten sam wynik, więc jest z krotek, zamrożonych dataclass
+# i map w ``MappingProxyType``. Wyjątek to wypełnienie i kolor Wyróżnień: obiekty openpyxl, których nie da się
+# zamrozić, więc Zapis nakłada tylko ich kopie (``Highlights.font_over``, ``Highlights.fill_over``, ``RowLook``).
+@lru_cache(maxsize=2)
+def _period_sheets(register_path: Path, content: bytes, period: SettlementPeriod) -> tuple[RegisterSheet, ...]:
+    with workbook_files.read_workbook(register_path, content) as workbook:
+        positions = _order_sheet_positions(register_path, workbook)
+        date_columns = {title: columns[COLUMNS.index(DATE)] for title, columns in positions.items()}
+        with workbook.narrowed(date_columns, period.start, period.end) as narrowed:
+            return tuple(_read_register_sheets(narrowed, positions))
 
 
 def _register_position(column: Column, columns: dict[str, int]) -> int | None:

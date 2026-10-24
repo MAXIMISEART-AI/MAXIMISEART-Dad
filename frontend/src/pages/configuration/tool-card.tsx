@@ -20,7 +20,8 @@ const FRESHNESS: Record<Freshness, { label: string; icon: React.ReactNode }> = {
 }
 
 /**
- * Wersja narzędzia z Aktualnością i przyciskiem `Zaktualizuj narzędzie`. Po aktualizacji strona czyta
+ * Wersja narzędzia z Aktualnością i przyciskiem `Zaktualizuj narzędzie`, gdy Konfiguracja proponuje aktualizację
+ * (`offered`: tylko przy nowszym Wydaniu, regułę ma serwer). Po aktualizacji strona czyta
  * Konfigurację od nowa (`onFinished`), więc wersja i Aktualność pochodzą z serwera, nie z wyniku. Udana
  * aktualizacja kończy się ponownym startem Centrum i przeładowaniem karty: nową wersję widać w commicie. Po
  * porażce głównym przyciskiem jest to, co każe Komunikat: ponowna aktualizacja albo „Wyślij do Maksa”.
@@ -28,10 +29,12 @@ const FRESHNESS: Record<Freshness, { label: string; icon: React.ReactNode }> = {
 export function ToolCard({
   version,
   freshness,
+  offered,
   onFinished,
 }: {
   version: Configuration["version"]
   freshness: Freshness
+  offered: Configuration["update_offered"]
   onFinished: () => void
 }) {
   const { update } = useToolUpdate()
@@ -57,9 +60,11 @@ export function ToolCard({
             {FRESHNESS[freshness].label}
           </Badge>
         </CardDescription>
-        <CardAction>
-          <ToolUpdateButton primary={freshness === "newer"} />
-        </CardAction>
+        {offered ? (
+          <CardAction>
+            <ToolUpdateButton primary />
+          </CardAction>
+        ) : null}
       </CardHeader>
       {/* Bez stanu aktualizacji (np. przed kliknięciem) karta nie ma treści pod nagłówkiem. */}
       <CardContent className="empty:hidden">

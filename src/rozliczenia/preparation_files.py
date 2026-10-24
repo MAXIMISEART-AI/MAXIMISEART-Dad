@@ -2,9 +2,10 @@
 
 Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we
 wzorcach (Planowanie), i zapisuje Rozliczenie wewnętrzne oraz Plik zbiorczy
-razem do Folderu okresu (Zapisywanie). Każdy problem ze wzorcem jest typowanym
-zatrzymaniem ``StopError``. Moduł wewnętrzny Przygotowania pliku
-zbiorczego; operacją publiczną pozostaje
+razem do Folderu okresu (Zapisywanie). Sprawdzanie zgłasza problem ze wzorcem
+jako ``WorkbookError``, który tłumaczy wejście (Przygotowanie albo Konfiguracja
+Centrum rozliczeń); Planowanie i Zapisywanie zatrzymują się ``StopError``. Moduł
+wewnętrzny Przygotowania pliku zbiorczego; operacją publiczną pozostaje
 ``collective_preparation.prepare_collective_file()``.
 """
 
@@ -28,9 +29,6 @@ from .quantity_rules import FromDescription, WithoutRule
 from .workbook_files import (
     DataRow,
     Layout,
-    MergedCells,
-    MissingHeader,
-    Problem,
     TemplateFile,
     WorkbookError,
     WorkbookSaveError,
@@ -55,17 +53,15 @@ class PeriodFiles:
 
 
 def check_internal_template(template_path: Path) -> None:
-    """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki."""
+    """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki; inaczej ``WorkbookError``."""
 
-    with _template_stops(template_path):
-        _template(template_path, Layout.INTERNAL_SETTLEMENT).check()
+    _template(template_path, Layout.INTERNAL_SETTLEMENT).check()
 
 
 def check_collective_template(template_path: Path) -> None:
     """Wzorzec pliku zbiorczego jak ``check_internal_template`` i z WYKONAWCA w H17."""
 
-    with _template_stops(template_path):
-        _template(template_path, Layout.COLLECTIVE_FILE).check()
+    _template(template_path, Layout.COLLECTIVE_FILE).check()
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:
@@ -167,24 +163,7 @@ def _template_stops(template_path: Path) -> Iterator[None]:
     try:
         yield
     except WorkbookError as error:
-        raise _template_stop(template_path, error) from error
-
-
-def _template_stop(template_path: Path, error: WorkbookError) -> StopError:
-    if error.problem is Problem.MISSING:
-        return StopError(messages.template_missing(template_path))
-    if error.problem is Problem.OPEN_IN_EXCEL:
-        return StopError(messages.template_open_in_excel(template_path))
-    if error.problem is Problem.INACCESSIBLE:
-        return StopError(messages.template_inaccessible(template_path))
-    fault = error.fault
-    if isinstance(fault, MissingHeader) and fault.found_in is not None:
-        return StopError(messages.template_with_worker_outside_h(template_path, fault.sheet, fault.found_in))
-    if isinstance(fault, MissingHeader):
-        return StopError(messages.template_without_header(template_path, fault.sheet, fault.row, fault.header))
-    if isinstance(fault, MergedCells):
-        return StopError(messages.template_with_merged_cells(template_path, fault.sheet, fault.cells))
-    return StopError(messages.template_unreadable(template_path))
+        raise StopError(messages.template_unusable(template_path, error)) from error
 
 
 def _write_period_file(template_path: Path, layout: Layout, target: Path, rows: Sequence[DataRow]) -> None:

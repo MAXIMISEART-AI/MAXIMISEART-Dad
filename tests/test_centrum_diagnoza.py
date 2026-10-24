@@ -541,12 +541,15 @@ def test_diagnoza_niczego_nie_zmienia_w_plikach_taty(tmp_path: Path) -> None:
 
 
 def files_of(root: Path) -> dict[str, bytes]:
-    """Każdy plik pod ``root`` z treścią, bez dziennika Centrum, który Diagnoza uzupełnia o swój wpis."""
+    """Każdy plik taty pod ``root`` z treścią.
+
+    Bez dziennika Centrum i Logów Uruchomienia (``logs``) oraz kolejki Skrzynki Zgłoszeń: Centrum dopisuje do nich Diagnozę.
+    """
 
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and "logs" not in path.relative_to(root).parts
+        if path.is_file() and not {"logs", "kolejka"} & set(path.relative_to(root).parts)
     }
 
 
@@ -609,6 +612,30 @@ def test_aktualnosc_bez_sieci_albo_bez_gita_nie_jest_sprawdzona_i_nie_jest_przyc
 
     assert check(diagnosis, "Aktualność narzędzia") == ("not_checked", detail)
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+@pytest.mark.parametrize(
+    ("github", "offered", "diagnosis_offer"),
+    [
+        (FakeGitHub(release=NEWER_MAIN), True, ("update", False)),
+        (FakeGitHub(), False, ("report", False)),
+        (FakeGitHub(release=None), False, ("report", False)),
+        (FakeGitHub(release=NO_RELEASE), False, ("report", False)),
+        (FakeGitHub(tool_commit=None), False, ("report", False)),
+    ],
+    ids=["nowsze-wydanie", "aktualna", "brak-sieci", "bez-wydania", "bez-gita"],
+)
+def test_konfiguracja_i_diagnoza_proponuja_aktualizacje_tylko_przy_nowszym_wydaniu(
+    tmp_path: Path, github: FakeGitHub, offered: bool, diagnosis_offer: tuple[str, bool]
+) -> None:
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(github=github))
+    run_id = stopped_for_maks(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+    configuration = centrum.client.get("/api/configuration").json()
+
+    assert configuration["update_offered"] is offered
+    assert (diagnosis["next_action"], diagnosis["update_proposal"]) == diagnosis_offer
 
 
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_nie_zmienia_wyjasnienia(tmp_path: Path) -> None:

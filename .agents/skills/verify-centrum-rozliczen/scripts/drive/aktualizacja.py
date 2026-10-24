@@ -37,6 +37,8 @@ RESTART_PACING_MS = 3000
 RESTART_TIMEOUT_MS = 60_000
 # Konfiguracja keeps GitHub's answer about the newest Wydanie for 10 minutes of Centrum's clock.
 MAIN_KEPT_MIN = 10
+# A Wydanie GitHub names but the update does not take: the clone and the local origin never had this commit.
+DORMANT_RELEASE = "e" * 40
 
 
 def _git(clone: Path, *args: str) -> str:
@@ -48,11 +50,24 @@ def _github_main(run: Run, commit: str) -> None:
     """The newest Wydanie on the scripted GitHub is ``commit``; Centrum's clock moves past the time Konfiguracja keeps the old answer."""
 
     (run.root / "github" / "main-commit.txt").write_text(commit, encoding="utf-8")
+    _forget_github_answer(run)
+
+
+def _forget_github_answer(run: Run) -> None:
     moved = run.root / "zegar" / "przesuniecie-min.txt"
     moved.parent.mkdir(exist_ok=True)
     before = float(moved.read_text(encoding="utf-8")) if moved.exists() else 0.0
     moved.write_text(str(before + MAIN_KEPT_MIN), encoding="utf-8")
     print(f"  harness: Centrum's clock moves {MAIN_KEPT_MIN} minutes on, so Konfiguracja asks GitHub again", flush=True)
+
+
+def _github_dormant_release(run: Run) -> None:
+    print(
+        "  harness: the scripted GitHub names a Wydanie the update does not take, a tag that never was the tip of"
+        " `main` (ADR 0014): Aktualność says newer by reachability, the update picks by the first-parent line",
+        flush=True,
+    )
+    _github_main(run, DORMANT_RELEASE)
 
 
 def _head(clone: Path) -> str:
@@ -145,6 +160,18 @@ def _drive_no_connection(run: Run, page: Page, card: Locator, clone: Path, first
         )
         run.capture(page, "116-aktualizacja-brak-sieci-zgloszenie")
 
+        _forget_github_answer(run)
+        page.reload()
+        expect(card).to_contain_text("Nie sprawdzono")
+        expect(card.get_by_role("alert", name="Ostrzeżenie")).to_contain_text(NO_CONNECTION)
+        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_have_count(0)
+        configuration = run.api("/api/configuration", "aktualizacja-brak-sieci-konfiguracja")
+        run.check(
+            (configuration["freshness"], configuration["update_offered"]) == ("not_checked", False),
+            "without GitHub's answer Konfiguracja offers no update; the failed update's Komunikat stays in the card",
+        )
+        run.capture(page, "117-aktualizacja-brak-sieci-bez-przycisku")
+
 
 def _tool_card(page: Page) -> Locator:
     return page.get_by_role("region", name="Narzędzie", exact=True)
@@ -226,9 +253,9 @@ def drive_update(run: Run, page: Page) -> None:
         expect(card).to_contain_text("Jest nowsza wersja")
         configuration = run.api("/api/configuration", "aktualizacja-jest-nowsza")
         run.check(
-            (first_commit, configuration["version"], configuration["freshness"])
-            == (first, {"commit": first[:7], "since": first_since}, "newer"),
-            "the server reports the clone's commit, the day the clone moved there, and a newer version",
+            (first_commit, configuration["version"], configuration["freshness"], configuration["update_offered"])
+            == (first, {"commit": first[:7], "since": first_since}, "newer", True),
+            "the server reports the clone's commit, the day the clone moved there, a newer version, and offers the update",
         )
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
         run.check(
@@ -237,8 +264,12 @@ def drive_update(run: Run, page: Page) -> None:
         )
         run.capture(page, "93-aktualizacja-jest-nowsza")
         _drive_no_connection(run, page, card, clone, first)
+        _github_main(run, newest)
 
         run.step(FEATURE, "aktualizacja-postep")
+        page.reload()
+        expect(card).to_contain_text("Jest nowsza wersja")
+        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
         print(f"  harness: each Aktualizacja narzędzia waits {UPDATE_PACING_MS} ms before it looks for Git", flush=True)
         pacing.write_text(str(UPDATE_PACING_MS), encoding="utf-8")
         print(f"  harness: the restarted Centrum waits {RESTART_PACING_MS} ms before it starts", flush=True)
@@ -293,7 +324,7 @@ def drive_update(run: Run, page: Page) -> None:
         updated_commit, since = served_version(run)
         expect(card.get_by_text(version_line(updated_commit, since), exact=True)).to_be_visible()
         expect(card).to_contain_text("Aktualna")
-        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_enabled()
+        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_have_count(0)
         health = run.api("/api/health", "aktualizacja-health-po")
         run.check(
             health["commit"] == newest[:7] and health["instance"] != before_health["instance"],
@@ -305,9 +336,9 @@ def drive_update(run: Run, page: Page) -> None:
         _dad_files_kept(run, clone, dad_files, run_configuration)
         configuration = run.api("/api/configuration", "aktualizacja-konfiguracja-po")
         run.check(
-            (updated_commit, configuration["version"], configuration["freshness"])
-            == (newest, {"commit": newest[:7], "since": since}, "current"),
-            "Konfiguracja reports the new commit as current, since the day of the update",
+            (updated_commit, configuration["version"], configuration["freshness"], configuration["update_offered"])
+            == (newest, {"commit": newest[:7], "since": since}, "current", False),
+            "Konfiguracja reports the new commit as current, since the day of the update, and offers no update",
         )
         run.check(
             not (run.root / "config" / "centrum-aktualizacja.json").exists(),
@@ -329,6 +360,9 @@ def drive_update(run: Run, page: Page) -> None:
         run.capture(page, "101-aktualizacja-zaktualizowano")
 
         run.step(FEATURE, "aktualizacja-najnowsza")
+        _github_dormant_release(run)
+        page.reload()
+        expect(card).to_contain_text("Jest nowsza wersja")
         card.get_by_role("button", name=BUTTON, exact=True).click()
         expect(card.get_by_role("status").filter(has_text=UP_TO_DATE)).to_be_visible()
         view = run.api("/api/tool-update", "aktualizacja-najnowsza")
@@ -349,12 +383,20 @@ def drive_update(run: Run, page: Page) -> None:
         # Wydanie leaves this Centrum with `Masz najnowszą wersję.` instead of the failed installation.
         print("  harness: the newest Wydanie in the local origin is the newest commit again", flush=True)
         release_only(origin, newest)
-        _github_main(run, newest)
+        _github_dormant_release(run)
+        page.reload()
         card = _tool_card(page)
+        expect(card).to_contain_text("Jest nowsza wersja")
         card.get_by_role("button", name=BUTTON, exact=True).click()
         expect(card.get_by_role("status").filter(has_text=UP_TO_DATE)).to_be_visible(timeout=20_000)
         expect(card.get_by_role("alert")).to_have_count(0)
         run.check(_head(clone) == newest, "after the failed installation the tool is up to date on the newest commit")
+        _github_main(run, newest)
+        page.reload()
+        expect(card).to_contain_text("Aktualna")
+        expect(card.get_by_role("button", name=BUTTON, exact=True)).to_have_count(0)
+        expect(page.get_by_role("alert")).to_have_count(0)
+        run.check(True, "with GitHub's newest Wydanie on the tool's commit, Konfiguracja shows it current, with no button and no alert")
     finally:
         main_commit.unlink(missing_ok=True)
         pacing.with_name("instalacja-ms.txt").unlink(missing_ok=True)

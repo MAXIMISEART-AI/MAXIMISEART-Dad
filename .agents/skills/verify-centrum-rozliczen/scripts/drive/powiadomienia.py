@@ -19,13 +19,15 @@ SENT_NOTE = "Wysłana do Maksa."
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
 KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
 CLOSED_AT = "2026-10-19T09:15:00Z"
+CASE_LABELS = ("zgloszenie", "uwaga-taty")
 
 
 def _asked(run: Run) -> list[str]:
-    """Labels of every question for issues with a label, closed ones included (how Powiadomienia ask)."""
+    """Labels of every question about Dad's cases, closed ones included; Logi Uruchomienia ask the same way."""
 
     asked = run.root / "skrzynka-zgloszen-zapytania.jsonl"
-    return [json.loads(line)["label"] for line in asked.read_text(encoding="utf-8").splitlines()] if asked.exists() else []
+    lines = asked.read_text(encoding="utf-8").splitlines() if asked.exists() else []
+    return [label for label in (json.loads(line)["label"] for line in lines) if label in CASE_LABELS]
 
 
 def _advance_clock(run: Run, minutes: int) -> None:
@@ -104,7 +106,7 @@ def drive_notifications(run: Run, page: Page) -> None:
         "the open Zgłoszenie is a Powiadomienie named by its „Co się stało”, without the code",
     )
     run.check(answer["unread"] == sum(item["unread"] for item in items), "the unread count is the new Powiadomienia")
-    run.capture(page, "72-powiadomienia-dzwonek")
+    run.capture(page, "180-powiadomienia-dzwonek")
 
     run.step(FEATURE, "powiadomienia-zamkniete")
     print(f"  harness: Maks closes Uwaga #{note['number']} as completed and Zgłoszenie #{report['number']} as not planned", flush=True)
@@ -119,11 +121,11 @@ def drive_notifications(run: Run, page: Page) -> None:
     run.check(after_first > asked, "Centrum asked the skrzynka about Dad's open cases")
     _enter(page, run, "uruchomienia", "Uruchomienia")
     run.check(len(_asked(run)) == after_first, "a second read within 10 minutes does not ask the skrzynka again")
-    run.capture(page, "73-powiadomienia-kropka")
+    run.capture(page, "181-powiadomienia-kropka")
     header = page.locator("header").first.bounding_box()
     assert header is not None
     page.screenshot(
-        path=run.evidence / "screenshots" / "73b-powiadomienia-kropka-zblizenie.png",
+        path=run.evidence / "screenshots" / "181b-powiadomienia-kropka-zblizenie.png",
         clip={"x": header["x"] + header["width"] - 240, "y": header["y"], "width": 240, "height": header["height"]},
     )
 
@@ -151,10 +153,10 @@ def drive_notifications(run: Run, page: Page) -> None:
     run.check(stored["schema_version"] == 1 and len(stored["przeczytane"]) >= 2, "config/powiadomienia.json keeps them")
     expect(page.get_by_role("alert")).to_have_count(0)
     expect(error_toasts(page)).to_have_count(0)
-    run.capture(page, "74-powiadomienia-widok")
+    run.capture(page, "182-powiadomienia-widok")
     _toggle_theme(page)
     expect(note_row.get_by_label("nowe", exact=True)).to_be_visible()
-    run.capture(page, "75-powiadomienia-widok-drugi-motyw")
+    run.capture(page, "183-powiadomienia-widok-drugi-motyw")
     _toggle_theme(page)
 
     run.step(FEATURE, "powiadomienia-po-wyjsciu")
@@ -177,7 +179,7 @@ def drive_notifications(run: Run, page: Page) -> None:
         expect(page.get_by_role("alert")).to_have_count(0)
         expect(error_toasts(page)).to_have_count(0)
         expect(_bell(page)).to_have_accessible_name(BELL)
-        run.capture(page, "76-powiadomienia-brak-sieci")
+        run.capture(page, "184-powiadomienia-brak-sieci")
     finally:
         (box / "brak-sieci").unlink(missing_ok=True)
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")

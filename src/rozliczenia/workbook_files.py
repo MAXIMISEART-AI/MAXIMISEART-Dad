@@ -33,9 +33,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import IO, TypeVar, cast
+from types import MappingProxyType
+from typing import IO, Never, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 from xml.parsers import expat
 from xml.parsers.expat import ExpatError
@@ -254,6 +256,9 @@ class Layout(Enum):
     )
 
 
+_NO_ENTRIES: MappingProxyType[int, Never] = MappingProxyType({})
+
+
 @dataclass(frozen=True)
 class DataRow:
     """Wiersz danych: wartości komórek po kolei, ich Wyróżnienia, formaty liczb i Hiperłącza.
@@ -270,8 +275,8 @@ class DataRow:
     """Wyróżnienia komórek po pozycji jak ``values``."""
     number_formats: tuple[str, ...]
     """Formaty liczb komórek po pozycji; trafiają do kolumn wyglądu pliku z Wzorca."""
-    hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
-    quantities: Mapping[int, int] = field(default_factory=dict)
+    hyperlinks: Mapping[int, Hyperlink] = field(default_factory=lambda: _NO_ENTRIES)
+    quantities: Mapping[int, int] = field(default_factory=lambda: _NO_ENTRIES)
     """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: kolumna (od 1) → liczba różna od zera.
 
     Trafiają do komórki Wzorca z jej wyglądem, bez Wyróżnień; reszta kolumn ilości zostaje jak we Wzorcu.
@@ -510,7 +515,9 @@ class ReadSheet:
                 tuple(getattr(cell, "value", None) for cell in picked),
                 tuple(highlights.of(cell) for cell in picked),
                 tuple(getattr(cell, "number_format", None) or GENERAL for cell in picked),
-                {position: row_links[column] for position, column in enumerate(columns, start=1) if column in row_links},
+                MappingProxyType(
+                    {position: row_links[column] for position, column in enumerate(columns, start=1) if column in row_links}
+                ),
             )
 
 
@@ -552,15 +559,20 @@ class ReadWorkbook:
             workbook.close()
 
 
-@contextmanager
-def read_workbook(path: Path) -> Iterator[ReadWorkbook]:
-    """Skoroszyt tylko do odczytu z formatem i Hiperłączami komórek; zamykany przy wyjściu z bloku.
-
-    openpyxl i Hiperłącza czytają te same bajty, odczytane z dysku raz.
-    """
+def workbook_content(path: Path) -> bytes:
+    """Bajty skoroszytu, który jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``."""
 
     ensure_available(path)
-    content = _file_bytes(path)
+    return _file_bytes(path)
+
+
+@contextmanager
+def read_workbook(path: Path, content: bytes) -> Iterator[ReadWorkbook]:
+    """Skoroszyt ``path`` z jego bajtów (``workbook_content``) tylko do odczytu z formatem i Hiperłączami komórek.
+
+    Zamykany przy wyjściu z bloku. openpyxl i Hiperłącza czytają te same bajty, odczytane z dysku raz.
+    """
+
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         yield ReadWorkbook(path, content, workbook)
@@ -598,7 +610,13 @@ def _read_outline(path: Path, rules: _Rules) -> _Outline:
     """
 
     ensure_available(path)
-    content = _file_bytes(path)
+    return _outline(path, _file_bytes(path), rules)
+
+
+# Sprawdzanie i Planowanie Przygotowania czytają zarys tych samych Wzorców; zarys zależy tylko od bajtów,
+# więc niezmieniony Wzorzec nie jest parsowany drugi raz, a zmieniony po Sprawdzaniu jest czytany od nowa.
+@lru_cache(maxsize=4)
+def _outline(path: Path, content: bytes, rules: _Rules) -> _Outline:
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
@@ -636,6 +654,7 @@ def _read_outline(path: Path, rules: _Rules) -> _Outline:
 _MERGE_CELL = "http://schemas.openxmlformats.org/spreadsheetml/2006/main mergeCell"
 _CELL_OR_ROW_STYLE = re.compile(rb'<(?:[\w.-]+:)?(?:c|row)\s[^>]*?\bs="([0-9]+)"')
 _COLUMN_STYLE = re.compile(rb'<(?:[\w.-]+:)?col\s[^>]*?\bstyle="([0-9]+)"')
+_ANY_STYLE = re.compile(rb's="([0-9]+)"')
 
 
 def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> tuple[CellRange, ...]:
@@ -647,7 +666,12 @@ def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> t
 
     with zipfile.ZipFile(BytesIO(content)) as archive:
         xml = archive.read(sheet_part(archive, sheet_title))
-    styles = [int(index) for pattern in (_CELL_OR_ROW_STYLE, _COLUMN_STYLE) for index in set(pattern.findall(xml))]
+    # Styl każdej komórki i wiersza jest też w zbiorze wszystkich ``s="N"``, który znajduje się ~3× szybciej; dokładne
+    # wyrażenie rozstrzyga tylko wtedy, gdy ten szerszy zbiór ma styl spoza stylów skoroszytu.
+    cell_or_row_styles = set(_ANY_STYLE.findall(xml))
+    if max(map(int, cell_or_row_styles), default=0) >= cell_style_count:
+        cell_or_row_styles = set(_CELL_OR_ROW_STYLE.findall(xml))
+    styles = [int(index) for index in (*cell_or_row_styles, *set(_COLUMN_STYLE.findall(xml)))]
     if max(styles, default=0) >= cell_style_count:
         raise IndexError(f"styl {max(styles)} spoza {cell_style_count} stylów skoroszytu")
     references: list[str] = []
@@ -926,7 +950,8 @@ def _write_rows(sheet: Worksheet, rules: _Rules, rows: Sequence[DataRow], column
             if column <= look.columns:
                 look.cell(column, highlights, row.number_formats[position - 1], wrapped=wraps(value)).apply(cell)
             else:
-                cell.font = highlights.font_over(cast(Font, copy(cell.font)))
+                # font_over zawsze zwraca kopię, a fill_over może zwrócić wypełnienie, które dostał.
+                cell.font = highlights.font_over(cast(Font, cell.font))
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
         for column, quantity in row.quantities.items():
             sheet.cell(number, column).value = quantity

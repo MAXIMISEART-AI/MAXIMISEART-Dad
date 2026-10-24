@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-import os
 from pathlib import Path
 import re
 import shutil
@@ -31,12 +30,6 @@ from tests.fixtures.tool_clone import (
     git,
     tool_repository,
 )
-
-
-@pytest.fixture(autouse=True)
-def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 def updating_centrum(
@@ -87,7 +80,11 @@ def tool_update_until(centrum: PreparingCentrum, reached: Callable[[dict[str, An
 def tool_on_configuration(centrum: PreparingCentrum) -> dict[str, Any]:
     configuration = centrum.client.get("/api/configuration").json()
     version = configuration["version"]
-    return {"commit": None if version is None else version["commit"], "freshness": configuration["freshness"]}
+    return {
+        "commit": None if version is None else version["commit"],
+        "freshness": configuration["freshness"],
+        "update_offered": configuration["update_offered"],
+    }
 
 
 def log_events(centrum: PreparingCentrum) -> list[str]:
@@ -109,7 +106,7 @@ def test_po_aktualizacji_centrum_zamyka_sie_i_prosi_opiekuna_o_start_nowej_wersj
     run = centrum.start(dry_run=True)
 
     assert outdated["commit"] == before[:7]
-    assert outdated["freshness"] == "newer"
+    assert (outdated["freshness"], outdated["update_offered"]) == ("newer", True)
     assert view == {"state": "running", "step": "restarting"}
     assert repository.head() == newest
     [restart] = centrum.surroundings.restarts
@@ -143,7 +140,7 @@ def test_nowe_centrum_po_aktualizacji_zapisuje_wynik_od_opiekuna_w_dzienniku_i_p
     assert (old_health["commit"], new_health["commit"]) == (before[:7], newest[:7])
     assert new_health["instance"] != old_health["instance"]
     assert view == {"state": "updated"}
-    assert tool_on_configuration(centrum) == {"commit": newest[:7], "freshness": "current"}
+    assert tool_on_configuration(centrum) == {"commit": newest[:7], "freshness": "current", "update_offered": False}
     assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
     assert not restart.result.exists()
     assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
@@ -207,8 +204,9 @@ def test_przed_kliknieciem_nie_ma_aktualizacji(tmp_path: Path) -> None:
 def test_brak_sieci_przy_sprawdzaniu_aktualnosci_to_nie_sprawdzono(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     centrum.surroundings.github.release = None
+    tool = tool_on_configuration(centrum)
 
-    assert tool_on_configuration(centrum)["freshness"] == "not_checked"
+    assert (tool["freshness"], tool["update_offered"]) == ("not_checked", False)
 
 
 NEWER_MAIN = "f" * 40
@@ -581,18 +579,17 @@ def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_z
     box.search_hold = threading.Event()
     release = threading.Timer(8, box.search_hold.set)  # bez osobnego wątku start czekałby na skrzynkę
     release.start()
-    started = time.monotonic()
 
     try:
         centrum.restart()
-        took = time.monotonic() - started
+        box_answered = box.search_hold.is_set()
         while_box_silent = centrum.client.get("/api/tool-update").json()
     finally:
         box.search_hold.set()
         release.cancel()
     answered = tool_update_until(centrum, lambda view: view["report"] == {"state": "ready"})
 
-    assert took < 2
+    assert not box_answered
     assert {key: value for key, value in first.items() if key != "draft"} == {
         "state": "failed",
         "message": {"what": "Nowa wersja narzędzia nie wystartowała.", "where": "narzędzie na tym komputerze", "action": TO_MAKS},

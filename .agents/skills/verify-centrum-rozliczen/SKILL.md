@@ -25,7 +25,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
-`--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature powiadomienia`, `--feature logi-uruchomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
+`--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, Gotowość, and
@@ -76,7 +76,7 @@ tool's own unless `<root>/github/main-commit.txt` names another, `<root>/github/
 means no network, and a full path listed in `<root>/onedrive/tylko-w-chmurze.txt` is a
 OneDrive file „tylko online” on every system. Zgłoszenia never reach GitHub
 either: the skrzynka Zgłoszeń is `<root>/skrzynka-zgloszen/`, one `<number>.json`
-per issue with its label and comments (Zgłoszenie, Kontrola ilości, Logi Uruchomienia of a period; never the key, `state` editable to `closed`), unreachable while
+per issue with its label and comments (Zgłoszenie, Kontrola ilości, Logi Uruchomienia of a period; never the key, `state` editable to `closed`; a comment's address is `skrzynka-zgloszen/<number>.json#komentarz-<k>`, never a full path), unreachable while
 `<root>/skrzynka-zgloszen/brak-sieci` exists and slow while `<root>/pacing/skrzynka-ms.txt` exists; `<root>/github/tool-commit.txt` stands for
 the tool after an update, and `<root>/zegar/przesuniecie-min.txt` moves Centrum's clock
 forward past the 10-minute limit on asking the skrzynka. The tool itself is the run's synthetic Git clone

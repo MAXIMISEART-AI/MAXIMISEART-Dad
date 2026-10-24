@@ -87,8 +87,13 @@ zamiast każdej naprawy z osobna.
   Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o
   nowej wersji (ADR 0015); numer i commit Wydania Centrum bierze z tagu.
   Centrum zielonego CI nie sprawdza.
-- **Przycisk** `Zaktualizuj narzędzie` dalej jest zawsze; tylko przy nowszym
-  Wydaniu będzie po #319.
+- **Przycisk** `Zaktualizuj narzędzie` Konfiguracja i Diagnoza pokazują tylko
+  wtedy, gdy Aktualność to `Jest nowsza wersja`; przy `Aktualna` i przy `Nie
+  sprawdzono` (brak sieci, brak Wydania, brak commitu) go nie ma. Regułę ma
+  jedno miejsce, `tool_freshness.offers_update`, a Konfiguracja podaje ją
+  przeglądarce w polu `update_offered` (#319). Powiadomienie o naprawie
+  miało przycisk zawsze; #323 je usunęło. Odpowiedź `Masz najnowszą wersję.`
+  zostaje na uśpiony tag (wyżej) i na każdego klienta HTTP.
 
 ### Ochrona przed tagiem założonym ręcznie
 
@@ -125,9 +130,10 @@ decyzja Maksa z 23.10.
   Wydania na nim albo przed nim Aktualność mówi `Aktualna`.
 - Pierwsze Wydanie `v0.1.0` powstaje na commicie merge'a po zielonym CI. Tag
   przed merge'em nie jest potrzebny: bez Wydania tata widzi prawdziwe `Nie
-  sprawdzono`, a `Masz najnowszą wersję.` przy kliknięciu. Od merge'a do
-  potwierdzenia u taty nic nie wchodzi do `main`: stara wersja bierze `main` z
-  chwili kliknięcia, więc nowy commit trafiłby do taty bez Wydania.
+  sprawdzono`, a `Masz najnowszą wersję.` przy kliknięciu (od #319 przycisku
+  wtedy nie ma). Od merge'a do potwierdzenia u taty nic nie wchodzi do
+  `main`: stara wersja bierze `main` z chwili kliknięcia, więc nowy commit
+  trafiłby do taty bez Wydania.
 - Okno ryzyka: od merge'a do zielonego CI na jego commicie Diagnoza starej
   wersji dalej proponuje aktualizację, a stara wersja bierze `main` bez
   sprawdzenia CI. Gdy tata kliknie w tym oknie, a CI na tym commicie padnie,
