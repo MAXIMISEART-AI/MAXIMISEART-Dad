@@ -13,7 +13,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { PAGES, pageHref, type Page } from "@/pages"
+import { menuPageId, PAGES, pageHref, type Page } from "@/pages"
 
 export function AppSidebar({
   current,
@@ -41,7 +41,7 @@ export function AppSidebar({
               {PAGES.filter((page) => page.menu).map((page) => (
                 <SidebarMenuItem key={page.id}>
                   <SidebarMenuButton
-                    isActive={page.id === current.id}
+                    isActive={page.id === menuPageId(current)}
                     tooltip={page.title}
                     render={
                       <a

@@ -6,6 +6,7 @@ import type {
   GetCurrentRunResponse,
   GetNotificationsResponse,
   GetPeriodBoardResponse,
+  GetQuantitiesToFillResponse,
   GetToolUpdateResponse,
   NotificationsRead,
   OpenRequest,
@@ -31,6 +32,7 @@ import {
   zGetMetricsResponse,
   zGetNotificationsResponse,
   zGetPeriodBoardResponse,
+  zGetQuantitiesToFillResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zGetToolUpdateResponse,
@@ -53,8 +55,11 @@ export type {
   Decision,
   DecisionAnswer,
   Diagnosis,
+  DescriptionColumn,
   DiagnosisCheck,
   Figure,
+  FillKind,
+  KindToFill,
   Message,
   Metrics,
   Percentiles,
@@ -80,6 +85,9 @@ export type {
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse
+
+/** Ilości do uzupełnienia okresu z zapisanego Pliku zbiorczego albo Komunikat o pliku (unia z kontraktu po `state`). */
+export type QuantitiesToFill = GetQuantitiesToFillResponse
 
 /** Aktualizacja narzędzia: krok albo wynik (unia z kontraktu). */
 export type ToolUpdate = GetToolUpdateResponse
@@ -160,6 +168,15 @@ export function openPeriodPath(token: string, target: OpenTarget) {
     "openPeriodPath",
     `/api/periods/${encodeURIComponent(token)}/open`,
     send("POST", { target })
+  )
+}
+
+/** Ilości do uzupełnienia okresu: serwer przelicza je przy każdym odczycie z zapisanego Pliku zbiorczego. */
+export function getQuantitiesToFill(token: string) {
+  return call(
+    zGetQuantitiesToFillResponse,
+    "getQuantitiesToFill",
+    `/api/periods/${encodeURIComponent(token)}/quantities-to-fill`
   )
 }
 

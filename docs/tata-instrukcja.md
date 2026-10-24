@@ -426,8 +426,9 @@ do wpisania w Excelu:
   ZREALIZOWANE`. Strona podaje tylko, w ilu wierszach coś w nich wpisałeś.
 
 `0` i pusta komórka to to samo. Strona czyta zapisany Plik zbiorczy, także gdy
-masz go otwartego w Excelu, i nigdy go nie zmienia. Odśwież stronę, żeby
-zobaczyć nowe wpisy. `Otwórz Plik zbiorczy` otwiera plik w Excelu.
+masz go otwartego w Excelu, i nigdy go nie zmienia. Czyta go na nowo, gdy
+wracasz do niej z Excela. Jeśli nie widzisz swoich wpisów, zapisz plik w Excelu
+(Ctrl+S). `Otwórz Plik zbiorczy` otwiera plik w Excelu.
 
 ### Uzupełnienie → co zrobić
 

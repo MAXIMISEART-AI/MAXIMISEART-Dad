@@ -16,6 +16,7 @@ export const zApiTiming = z.object({
         'changeTheme',
         'getPeriodBoard',
         'openPeriodPath',
+        'getQuantitiesToFill',
         'getRunSetup',
         'startRun',
         'decideRun',
@@ -169,6 +170,16 @@ export const zDecisionAnswer = z.object({
 });
 
 /**
+ * DescriptionColumn
+ *
+ * Kolumna z opisu technika i liczba wierszy, w których tata coś w niej wpisał.
+ */
+export const zDescriptionColumn = z.object({
+    column: z.string(),
+    rows: z.int()
+});
+
+/**
  * DiagnosisCheck
  *
  * Jedno sprawdzenie Diagnozy: co sprawdzono, czy przeszło i krótko dlaczego, bez pełnych ścieżek.
@@ -193,6 +204,13 @@ export const zFigure = z.object({
     value: z.int(),
     unit: z.enum(['count', 'ms'])
 });
+
+/**
+ * FillKind
+ *
+ * Rodzaj Ilości do uzupełnienia, który ma listę wierszy.
+ */
+export const zFillKind = z.enum(['without_rule', 'from_description']);
 
 /**
  * Health
@@ -500,6 +518,16 @@ export const zProgress = z.object({
 });
 
 /**
+ * QuantitiesToFillProblem
+ *
+ * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+ */
+export const zQuantitiesToFillProblem = z.object({
+    state: z.literal('problem'),
+    message: zMessage
+});
+
+/**
  * ReadyPath
  */
 export const zReadyPath = z.object({
@@ -653,6 +681,38 @@ export const zMetrics = z.object({
     runs: z.array(zProcessRun),
     statistics: z.array(zModeStatistics),
     recent: zRecentResults
+});
+
+/**
+ * RowToFill
+ *
+ * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał.
+ */
+export const zRowToFill = z.object({
+    row: z.int(),
+    done: z.boolean()
+});
+
+/**
+ * KindToFill
+ *
+ * Rodzaj Ilości do uzupełnienia z listą wierszy; ``done``: każdy wiersz zrobiony, także gdy wierszy nie ma.
+ */
+export const zKindToFill = z.object({
+    kind: zFillKind,
+    rows: z.array(zRowToFill),
+    done: z.boolean()
+});
+
+/**
+ * QuantitiesToFillReady
+ *
+ * Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą.
+ */
+export const zQuantitiesToFillReady = z.object({
+    state: z.literal('ready'),
+    kinds: z.array(zKindToFill),
+    description_columns: z.array(zDescriptionColumn)
 });
 
 /**
@@ -925,7 +985,8 @@ export const zViewTiming = z.object({
         'uruchomienia',
         'metryki',
         'konfiguracja',
-        'powiadomienia'
+        'powiadomienia',
+        'uzupelnienie'
     ]),
     ready_ms: z.int().gte(0).lte(600000),
     fcp_ms: z.int().gte(0).lte(600000).nullable(),
@@ -1153,6 +1214,20 @@ export const zOpenPeriodPathPath = z.object({
  * Successful Response
  */
 export const zOpenPeriodPathResponse = zOpened;
+
+export const zGetQuantitiesToFillPath = z.object({
+    token: z.string()
+});
+
+/**
+ * Response Getquantitiestofill
+ *
+ * Successful Response
+ */
+export const zGetQuantitiesToFillResponse = z.discriminatedUnion('state', [
+    zQuantitiesToFillReady,
+    zQuantitiesToFillProblem
+]);
 
 export const zStartRunBody = zRunRequest;
 

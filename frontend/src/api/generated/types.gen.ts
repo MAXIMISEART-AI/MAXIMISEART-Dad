@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -319,6 +319,22 @@ export type DecisionAnswer = {
 };
 
 /**
+ * DescriptionColumn
+ *
+ * Kolumna z opisu technika i liczba wierszy, w których tata coś w niej wpisał.
+ */
+export type DescriptionColumn = {
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Rows
+     */
+    rows: number;
+};
+
+/**
  * Diagnosis
  *
  * Wynik Diagnozy Zatrzymania: wyjaśnienie w trzech częściach i każde sprawdzenie po kolei.
@@ -394,6 +410,13 @@ export type Figure = {
 };
 
 /**
+ * FillKind
+ *
+ * Rodzaj Ilości do uzupełnienia, który ma listę wierszy.
+ */
+export type FillKind = 'without_rule' | 'from_description';
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -426,6 +449,23 @@ export type Health = {
      * Instance
      */
     instance: string;
+};
+
+/**
+ * KindToFill
+ *
+ * Rodzaj Ilości do uzupełnienia z listą wierszy; ``done``: każdy wiersz zrobiony, także gdy wierszy nie ma.
+ */
+export type KindToFill = {
+    kind: FillKind;
+    /**
+     * Rows
+     */
+    rows: Array<RowToFill>;
+    /**
+     * Done
+     */
+    done: boolean;
 };
 
 /**
@@ -968,6 +1008,39 @@ export type Progress = {
 };
 
 /**
+ * QuantitiesToFillProblem
+ *
+ * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+ */
+export type QuantitiesToFillProblem = {
+    /**
+     * State
+     */
+    state: 'problem';
+    message: Message;
+};
+
+/**
+ * QuantitiesToFillReady
+ *
+ * Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą.
+ */
+export type QuantitiesToFillReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    /**
+     * Kinds
+     */
+    kinds: Array<KindToFill>;
+    /**
+     * Description Columns
+     */
+    description_columns: Array<DescriptionColumn>;
+};
+
+/**
  * ReadyPath
  */
 export type ReadyPath = {
@@ -1164,6 +1237,22 @@ export type ResultCounts = {
      * Failed
      */
     failed: number;
+};
+
+/**
+ * RowToFill
+ *
+ * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał.
+ */
+export type RowToFill = {
+    /**
+     * Row
+     */
+    row: number;
+    /**
+     * Done
+     */
+    done: boolean;
 };
 
 /**
@@ -1646,7 +1735,7 @@ export type ViewTiming = {
     /**
      * Page
      */
-    page: 'okresy' | 'uruchomienia' | 'metryki' | 'konfiguracja' | 'powiadomienia';
+    page: 'okresy' | 'uruchomienia' | 'metryki' | 'konfiguracja' | 'powiadomienia' | 'uzupelnienie';
     /**
      * Ready Ms
      */
@@ -1975,6 +2064,50 @@ export type OpenPeriodPathResponses = {
 };
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
+
+export type GetQuantitiesToFillData = {
+    body?: never;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+    };
+    query?: never;
+    url: '/api/periods/{token}/quantities-to-fill';
+};
+
+export type GetQuantitiesToFillErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetQuantitiesToFillError = GetQuantitiesToFillErrors[keyof GetQuantitiesToFillErrors];
+
+export type GetQuantitiesToFillResponses = {
+    /**
+     * Response Getquantitiestofill
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'ready';
+    } & QuantitiesToFillReady) | ({
+        state: 'problem';
+    } & QuantitiesToFillProblem);
+};
+
+export type GetQuantitiesToFillResponse = GetQuantitiesToFillResponses[keyof GetQuantitiesToFillResponses];
 
 export type StartRunData = {
     body: RunRequest;
