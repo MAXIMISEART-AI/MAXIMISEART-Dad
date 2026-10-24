@@ -56,6 +56,7 @@ def test_notka_poprawiona_recznie_na_githubie_ma_co_nowego_bez_listy_i_sprawy(te
     assert parse(text) == ReleaseNotes(SUMMARY, CASES)
 
 
-def test_co_nowego_z_naglowkiem_spraw_innego_poziomu_jest_odrzucone() -> None:
+@pytest.mark.parametrize("heading", ["# Rozwiązane sprawy taty", "##\tRozwiązane sprawy taty"], ids=["naglowek-#", "tabulator"])
+def test_co_nowego_z_naglowkiem_spraw_innego_zapisu_jest_odrzucone(heading: str) -> None:
     with pytest.raises(ValueError, match="Co nowego"):
-        render(ReleaseNotes("Co nowego.\n### Rozwiązane sprawy taty\n- Zgłoszenie #3: Tytuł", ()))
+        render(ReleaseNotes(f"Co nowego.\n{heading}\nDalej o tym, co tata zobaczy.", ()))
