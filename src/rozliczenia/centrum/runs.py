@@ -14,10 +14,11 @@ numerem. Strumień SSE wysyła najpierw bieżący widok, potem każdy kolejny, w
 ponowne podłączenie (odświeżenie, nowa karta) zaczyna od bieżącego stanu.
 Decyzja taty czeka w stanie ``awaiting_decision``, aż przyjdzie przez API.
 
-Po wyniku, a przed końcem Uruchomienia w dzienniku, każde działanie po wyniku
-(``AfterRun``, np. Kontrola ilości) dostaje zakończone Uruchomienie (``EndedRun``)
-w osobnej osłonie: tylko krótka praca lokalna, nigdy sieć, a jego wyjątek nie
-zmienia wyniku.
+Zakończone Uruchomienie każdą drogą to jedna wartość (``EndedRun``): fakty
+wyliczone raz, z których powstaje wynik na karcie, a czytają je działania po
+wyniku (``AfterRun``: Logi Uruchomienia, Kontrola ilości). Każde z nich dostaje
+ją po wyniku, a przed końcem Uruchomienia w dzienniku, w osobnej osłonie: tylko
+krótka praca lokalna, nigdy sieć, a jego wyjątek nie zmienia wyniku.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from __future__ import annotations
 import threading
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Final, Generic, Literal, Protocol, TypeVar
 
@@ -69,14 +70,6 @@ SummaryT = TypeVar("SummaryT", bound=WarnedSummary)
 
 
 @dataclass(frozen=True)
-class Viewed(Generic[SummaryT]):
-    """Widok rozmówcy Centrum: wynik dla karty i podsumowanie silnika, z którego powstał, dla działań po wyniku."""
-
-    shown: Shown
-    summary: SummaryT
-
-
-@dataclass(frozen=True)
 class PreparedRun(Generic[InputsT, SummaryT]):
     """Uruchomienie procesu gotowe do startu.
 
@@ -97,34 +90,99 @@ class PreparedRun(Generic[InputsT, SummaryT]):
     def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
         return self.view.progress(snapshot, dry_run=self.dry_run)
 
-    def viewed(self, inputs: InputsT, summary: SummaryT) -> Viewed[SummaryT]:
-        """Widok dla ``run_process(view=...)``: tylko wskazuje podsumowanie, więc osłona rdzenia widzi to co dotąd."""
 
-        return Viewed(self.view.shown(inputs, summary), summary)
+Ending = Literal["finished", "stop", "unexpected", "after_engine"]
 
 
 @dataclass(frozen=True)
 class EndedRun:
-    """Zakończone Uruchomienie procesu z Centrum, każdą drogą: wszystko, co wiadomo po wyniku."""
+    """Zakończone Uruchomienie procesu z Centrum, każdą drogą: fakty wyliczone raz, z których czyta karta i działania po wyniku."""
 
     info: contract.RunInfo
-    prepared: PreparedRun[Any, Any]
-    outcome: Outcome[Viewed[Any]] | None
-    """Wynik rdzenia; ``None``, gdy rdzeń nie oddał wyniku (ostatnia siatka adaptera)."""
+    core: Outcome[Shown[Any]] | None
+    """Wynik rdzenia tak, jak go pokazuje Centrum; ``None``, gdy rdzeń nie oddał wyniku.
+
+    Po błędzie samego adaptera (ostatnia siatka) ma jej Zatrzymanie, bez widoku i bez uwag technicznych,
+    a czas i snapshot projekcji postępu zostają z rdzenia.
+    """
     stopped: StoppedRun | None
-    result: contract.RunOutcome
+    """Zatrzymanie, także ostatniej siatki adaptera; ``None``, gdy proces się zakończył."""
     progress: contract.Progress
+    """Postęp z karty: ostatni widok projekcji, który dostała przeglądarka."""
     started_at: datetime
     ended_at: datetime
 
     @property
-    def summary(self) -> object | None:
-        """Podsumowanie silnika tylko wtedy, gdy karta pokazuje zakończony proces (``result.ending == "finished"``)."""
+    def result(self) -> contract.RunResult:
+        return "BLAD_KRYTYCZNY" if self.core is None else self.core.result
 
-        if self.result.ending != "finished" or self.outcome is None or self.outcome.view is None:
-            return None
-        summary: object = self.outcome.view.summary
-        return summary
+    @property
+    def shown(self) -> Shown[Any] | None:
+        """Wynik zakończonego procesu; ``None`` przy każdym Zatrzymaniu."""
+
+        return None if self.core is None else self.core.view
+
+    @property
+    def technical_notes(self) -> tuple[str, ...]:
+        return () if self.core is None else self.core.technical_notes
+
+    @property
+    def snapshot(self) -> ProgressSnapshot | None:
+        """Ostatni snapshot projekcji postępu z rdzenia; ``None``, gdy rdzeń nie oddał wyniku."""
+
+        return None if self.core is None else self.core.progress
+
+    @property
+    def duration_ms(self) -> int | None:
+        """Czas uruchomienia; ``None``, gdy rdzeń nie oddał wyniku."""
+
+        return None if self.core is None else self.core.total_duration_ms
+
+    @property
+    def ending(self) -> Ending:
+        return "finished" if self.stopped is None else self.stopped.stop.kind
+
+    @property
+    def stops(self) -> tuple[Message, ...]:
+        return () if self.stopped is None else (self.stopped.stop.message,)
+
+    @property
+    def warnings(self) -> tuple[Message, ...]:
+        return () if self.shown is None else self.shown.warnings
+
+    def card(self, done: str) -> contract.RunOutcome:
+        """Wynik na karcie Uruchomienia; ``done`` to tytuł wyniku po zapisie (``PreparedRun.done``).
+
+        Wynik „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje
+        ponowny podgląd po poprawce zamiast zapisu.
+        """
+
+        dry_run, stopped = self.info.dry_run, self.stopped
+        next_action: Literal["run", "rerun", "open_period_folder"]
+        if stopped is not None:
+            kind = stopped.stop.kind
+            headline = "Zatrzymano" if kind == "stop" else "Błąd"
+            # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
+            next_action = "open_period_folder" if kind == "after_engine" and not dry_run else "rerun"
+        elif self.result == "WYMAGA_SPRAWDZENIA":
+            next_action = "rerun" if dry_run else "open_period_folder"
+            headline = "Podgląd wymaga sprawdzenia · nic nie zapisano" if dry_run else f"{done} · wymaga sprawdzenia"
+        else:
+            next_action = "run" if dry_run else "open_period_folder"
+            headline = "Podgląd gotowy · nic nie zapisano" if dry_run else done
+        return contract.RunOutcome(
+            result=self.result,
+            headline=headline,
+            ending=self.ending,
+            next_action=next_action,
+            stop_kind=None if stopped is None else stopped.kind,
+            diagnosis=None if stopped is None else stopped.offer,
+            report=None if stopped is None else stopped.report,
+            stops=[contract.Message.of(message) for message in self.stops],
+            warnings=[contract.Message.of(message) for message in self.warnings],
+            technical_notes=list(self.technical_notes),
+            summary=None if self.shown is None else self.shown.summary,
+        )
 
 
 class AfterRun(Protocol):
@@ -235,7 +293,7 @@ class RunHost:
                     f"Trwa już Uruchomienie procesu: {running.title}, okres {running.period}. "
                     "Poczekaj na jego wynik w Uruchomieniach.",
                 )
-            run = _Run(self, prepared)
+            run = _Run(self, prepared, self._stops)
             self._run = run
             self._events = []
             self._publish_locked(run.running_view())
@@ -304,14 +362,14 @@ class RunHost:
             except Exception as failure:  # działanie po wyniku nie może zmienić wyniku Uruchomienia
                 self._log.unexpected_failure(failure, where="po wyniku Uruchomienia procesu")
 
-    def finished(self, run: _Run, result: contract.RunOutcome) -> None:
+    def finished(self, run: EndedRun) -> None:
         info = run.info
         self._log.run_finished(
             process=info.process,
             mode=_mode(info.dry_run),
             period=info.period,
-            result=result.result,
-            ending=result.ending,
+            result=run.result,
+            ending=run.ending,
         )
 
     def publish(self, run: _Run, view: contract.RunView) -> None:
@@ -332,9 +390,10 @@ class _Run:
     dostaje ``progress_stale``, a rdzeń odłącza podgląd bez wpływu na wynik.
     """
 
-    def __init__(self, host: RunHost, prepared: PreparedRun[Any, Any]) -> None:
+    def __init__(self, host: RunHost, prepared: PreparedRun[Any, Any], stops: Stops) -> None:
         self._host = host
         self._prepared = prepared
+        self._stops = stops
         self.info = contract.RunInfo(
             id=uuid.uuid4().hex,
             process=prepared.key,
@@ -361,36 +420,44 @@ class _Run:
 
     def work(self) -> None:
         prepared = self._prepared
-        stop: Stop | None
-        outcome: Outcome[Viewed[Any]] | None = None
+        core: Outcome[Shown[Any]] | None = None
         since = datetime.now(timezone.utc)
         try:
-            outcome = run_process(
+            core = run_process(
                 prepared.process,
                 prepared.inputs,
                 self,
-                view=prepared.viewed,
+                view=prepared.view.shown,
                 metrics_path=prepared.process.metrics_path(),
             )
             self._host.remember(prepared, self.info.id, since)
-            stop = None if isinstance(outcome.ending, Finished) else outcome.ending
-            stopped = self._host._stops.ended(self.info, stop)
-            result = _run_result(outcome, prepared, stopped)
+            ended = self._ended(core, None if isinstance(core.ending, Finished) else core.ending, since)
+            result = ended.card(prepared.done)
         except Exception as failure:
             self._host.failed(failure)
             stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
-            stopped = self._host._stops.ended(self.info, stop)
-            result = _unexpected_result(prepared.dry_run, stopped)
-        self.stopped = stopped
-        ended = EndedRun(self.info, prepared, outcome, stopped, result, self._progress, since, datetime.now(timezone.utc))
+            core = None if core is None else replace(core, ending=stop, view=None, technical_notes=())
+            ended = self._ended(core, stop, since)
+            result = ended.card(prepared.done)
+        self.stopped = ended.stopped
         self._host.after(ended)
-        self._host.finished(self, result)
+        self._host.finished(ended)
         self.ended = True
         self._host.publish(
             self,
             contract.RunFinished(
                 state="finished", run=self.info, progress=self._progress, progress_stale=self._stale, result=result
             ),
+        )
+
+    def _ended(self, core: Outcome[Shown[Any]] | None, stop: Stop | None, since: datetime) -> EndedRun:
+        return EndedRun(
+            info=self.info,
+            core=core,
+            stopped=self._stops.ended(self.info, stop),
+            progress=self._progress,
+            started_at=since,
+            ended_at=datetime.now(timezone.utc),
         )
 
     def answer(self, consent: bool) -> None:
@@ -446,70 +513,6 @@ def _decision_view(decision: Decision) -> contract.Decision:
             title=decision.counts_title,
             counts=[contract.Count(label=label, count=count) for label, count in decision.counts],
         ),
-    )
-
-
-def _run_result(
-    outcome: Outcome[Viewed[Any]],
-    prepared: PreparedRun[Any, Any],
-    stopped: StoppedRun | None,
-) -> contract.RunOutcome:
-    """Wynik dla przeglądarki z ``Outcome`` rdzenia.
-
-    Wynik „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje
-    ponowny podgląd po poprawce zamiast zapisu.
-    """
-
-    dry_run = prepared.dry_run
-    ending = outcome.ending
-    kind: Literal["finished", "stop", "unexpected", "after_engine"]
-    next_action: Literal["run", "rerun", "open_period_folder"]
-    stops: list[contract.Message] = []
-    if not isinstance(ending, Finished):
-        kind = ending.kind
-        stops = [contract.Message.of(ending.message)]
-        headline = "Zatrzymano" if kind == "stop" else "Błąd"
-        # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
-        next_action = "open_period_folder" if kind == "after_engine" and not dry_run else "rerun"
-    elif outcome.result == "WYMAGA_SPRAWDZENIA":
-        kind = "finished"
-        next_action = "rerun" if dry_run else "open_period_folder"
-        headline = "Podgląd wymaga sprawdzenia · nic nie zapisano" if dry_run else f"{prepared.done} · wymaga sprawdzenia"
-    else:
-        kind = "finished"
-        next_action = "run" if dry_run else "open_period_folder"
-        headline = "Podgląd gotowy · nic nie zapisano" if dry_run else prepared.done
-    shown = None if outcome.view is None else outcome.view.shown
-    return contract.RunOutcome(
-        result=outcome.result,
-        headline=headline,
-        ending=kind,
-        next_action=next_action,
-        stop_kind=None if stopped is None else stopped.kind,
-        diagnosis=None if stopped is None else stopped.offer,
-        report=None if stopped is None else stopped.report,
-        stops=stops,
-        warnings=[] if shown is None else [contract.Message.of(warning) for warning in shown.warnings],
-        technical_notes=list(outcome.technical_notes),
-        summary=None if shown is None else shown.summary,
-    )
-
-
-def _unexpected_result(dry_run: bool, stopped: StoppedRun) -> contract.RunOutcome:
-    """Ostatnia siatka: błąd samego adaptera po zakończeniu rdzenia (np. kontraktu wyniku); rdzeń zapisał już metryki."""
-
-    return contract.RunOutcome(
-        result="BLAD_KRYTYCZNY",
-        headline="Błąd",
-        ending="after_engine",
-        next_action="rerun" if dry_run else "open_period_folder",
-        stop_kind=stopped.kind,
-        diagnosis=stopped.offer,
-        report=stopped.report,
-        stops=[contract.Message.of(_RESULT_NOT_SHOWN)],
-        warnings=[],
-        technical_notes=[],
-        summary=None,
     )
 
 

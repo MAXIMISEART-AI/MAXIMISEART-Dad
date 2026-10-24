@@ -465,8 +465,8 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
     world_box: list[World] = []
 
     class TrackedRun(runs._Run):
-        def __init__(self, host: runs.RunHost, prepared: runs.PreparedRun[Any, Any]) -> None:
-            super().__init__(host, prepared)
+        def __init__(self, host: runs.RunHost, prepared: runs.PreparedRun[Any, Any], stops: Any) -> None:
+            super().__init__(host, prepared, stops)
             self.model_name = f"Uruchomienie {len(created) + 1}"
             self.model_creator = _current_actor().name
             self.model_window = world_box[0].close_window()

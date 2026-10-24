@@ -25,7 +25,7 @@ class QuantityCheckAfterRun:
         self._commit = commit
 
     def run_ended(self, run: EndedRun) -> None:
-        summary = run.summary
+        summary = None if run.shown is None else run.shown.engine_summary
         if run.info.dry_run or not isinstance(summary, SettlementSummary):
             return
         period, run_id = run.info.period, run.info.id
