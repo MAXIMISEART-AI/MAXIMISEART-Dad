@@ -7,9 +7,9 @@
 - ``wydawca/`` and ``origin.git``: three versions of the tool. ``first`` is this checkout as it is now (tracked and
   untracked files, ignored ones left out), so a run proves the working tree, not the last commit. ``newest`` changes
   ``requirements.txt`` (a comment only, so pip installs nothing new), which makes the update install libraries.
-  ``not_starting``, one version after ``newest``, has a ``run_centrum.py`` that fails at once. The origin's
-  ``main`` and the only Wydanie ``v0.1.0`` start on ``first``; the drive moves the Wydanie and keeps ``main`` on
-  ``not_starting``;
+  ``not_starting``, one version after ``newest``, has a ``run_centrum.py`` that fails at once. The only Wydanie
+  ``v0.1.0`` starts on ``first`` and the origin's ``main`` one version past it on ``newest``, so only README's choice
+  of the newest Wydanie installs ``first``; ``release`` moves the Wydanie and puts ``main`` on ``not_starting``;
 - ``przegladarka.cmd``: Dad's browser, which only records the address Centrum opens in ``otwarte-adresy.txt``;
 - ``windows.json``: these facts for the drive, doctor and cleanup.
 
@@ -101,7 +101,7 @@ def _publish_versions(publisher: Path, origin: Path) -> dict[str, str]:
     git(publisher, "commit", "--quiet", "--all", "-m", "Wersja, której Centrum nie startuje")
     not_starting = git(publisher, "rev-parse", "HEAD")
     git(origin.parent, "init", "--quiet", "--bare", "--initial-branch", "main", origin.name)
-    git(publisher, "push", "--quiet", str(origin), f"{first}:refs/heads/main", f"{first}:refs/tags/v0.1.0", f"{not_starting}:refs/heads/nie-startuje")
+    git(publisher, "push", "--quiet", str(origin), f"{newest}:refs/heads/main", f"{first}:refs/tags/v0.1.0", f"{not_starting}:refs/heads/nie-startuje")
     return {"first": first, "newest": newest, "not_starting": not_starting}
 
 

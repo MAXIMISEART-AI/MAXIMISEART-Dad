@@ -65,17 +65,19 @@ Pythons are not Dad's), or while anything listens on Dad's port `47811`. The por
 It creates `<run dir>/runs/windows-<id>` (`windows_tool.prepare`; `--run-dir`, default `.verification`): Dad's synthetic folder okresów `INEA`,
 Rejestr zleceń and `config/` from `verify-centrum-rozliczen`'s fixture, and a bare "origin" with three versions of
 the tool built from this checkout's working tree (tracked and untracked files): `first`, `newest` (only
-`requirements.txt` changes, so the update installs libraries with nothing new to fetch) and `not_starting`. The
-feature `instalacja` clones `first` into `<root>\Users\Józef Kowalski\MAXIMISEART-Dad` and makes the
-shortcut in `<root>\Pulpit`, never on the real desktop. Ready means the doctor's `DOCTOR OK` after `start-skrotem`.
+`requirements.txt` changes, so the update installs libraries with nothing new to fetch) and `not_starting`. Its only
+Wydanie `v0.1.0` is `first` and its `main` is one version ahead on `newest`. The feature `instalacja` runs README's
+PowerShell, which clones the tool into `<root>\Users\Józef Kowalski\MAXIMISEART-Dad` and resets it to the newest
+Wydanie, and makes the shortcut in `<root>\Pulpit`, never on the real desktop. Ready means the doctor's `DOCTOR OK` after `start-skrotem`.
 
 Centrum inherits the run's boundaries from the drive's environment (`windows_tool.boundaries`), because the drive
 opens the `.lnk` with `os.startfile` like Explorer does for Dad:
 
 - `BROWSER` is `<root>\przegladarka.cmd`, which appends the address to `<root>\otwarte-adresy.txt`;
 - `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` set `url.<origin>.insteadOf` for the tool's fixed GitHub
-  address, so Aktualizacja narzędzia runs its production code against the run's origin. Diagnoza and Konfiguracja
-  still ask the real GitHub API about `main`, so the card's freshness depends on the network and is not checked.
+  address, so README's `git clone` and Aktualizacja narzędzia run against the run's origin. Diagnoza and
+  Konfiguracja still ask the real GitHub API for the newest Wydanie, so the card's freshness depends on the network;
+  `aktualizacja` needs it to read `Jest nowsza wersja` (see its Gotchas).
 
 Teardown is the runner's `finally`: it keeps the state in the evidence, then runs the cleanup.
 
