@@ -36,7 +36,7 @@ from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.log import CentrumLog, event_of
-from rozliczenia.centrum.tool_freshness import ToolFreshness
+from rozliczenia.centrum.tool_freshness import ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import (
@@ -229,7 +229,7 @@ class _Check:
             return self.run(computer, self.label)
         except PeriodFolderInaccessible as inaccessible:
             return [CheckResult.failed(self.label, preparation_messages.folder_inaccessible(inaccessible.folder))]
-        except Exception as failure:  # noqa: BLE001 - granica sprawdzenia: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             computer.log.unexpected_failure(failure, where=f"Diagnoza: {self.label}")
             return [CheckResult.not_checked(self.label, _NOT_CHECKED_UNEXPECTED)]
 
@@ -247,7 +247,7 @@ def _check(label: str) -> Callable[[_CheckRun], _Check]:
 def _tool_freshness(computer: _Computer, label: str) -> list[CheckResult]:
     freshness = computer.surroundings.tool_freshness
     judgement = freshness.judge()
-    if judgement == "newer":
+    if offers_update(judgement):
         return [CheckResult.failed(label, diagnosis_messages.newer_tool_version())]
     if judgement == "current":
         return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {short_commit(freshness.local() or '')}.")]

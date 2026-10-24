@@ -535,7 +535,7 @@ class Reports:
     def _check_repairs(self) -> None:
         try:
             self.repair_notice()
-        except Exception as failure:  # noqa: BLE001 - granica wątku startu: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             self._log.unexpected_failure(failure, where="stan Zgłoszeń przy starcie")
 
     def _ask_box(self, fingerprint: str) -> None:

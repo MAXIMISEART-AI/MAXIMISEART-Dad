@@ -48,6 +48,7 @@ export function ConfigurationPage() {
           <ToolCard
             version={configuration.data.version}
             freshness={configuration.data.freshness}
+            offered={configuration.data.update_offered}
             onFinished={reload}
           />
           <TemplatesCard templates={configuration.data.templates} />
