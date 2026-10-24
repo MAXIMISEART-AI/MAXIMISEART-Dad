@@ -611,10 +611,11 @@ def test_druga_nieudana_aktualizacja_wysyla_wlasne_zgloszenie(tmp_path: Path) ->
         assert send_report(centrum) == {"state": "sent"}
         box.close(1)
 
-        again = update_until_done(centrum)
+        update_until_done(centrum)
+        answered = tool_update_until(centrum, lambda view: view["report"] == {"state": "ready"})
         state = send_report(centrum)
 
-    assert (again["report"], state) == ({"state": "ready"}, {"state": "sent"})
+    assert (answered["state"], state) == ("failed", {"state": "sent"})
     assert [report.title.split(":")[0] for report in box.sent] == ["BRAK_POLACZENIA"] * 2
     assert "- Poprzednie Zgłoszenie: #1" in box.sent[1].body.splitlines()
 
