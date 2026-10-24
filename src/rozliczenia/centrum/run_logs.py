@@ -120,6 +120,13 @@ class LoggedCheck(_Record):
     detail: str
     code: str | None
 
+    @property
+    def result(self) -> tuple[str, CheckState, str | None, str | None]:
+        """Sprawdzenie bez okoliczności: ``detail`` sprawdzenia, które przeszło, to fakt chwili (liczba wpisów dziennika
+        rośnie z każdą Diagnozą), a przy ``failed`` i ``not_checked`` sam wynik: treść Komunikatu albo powód."""
+
+        return self.label, self.state, self.code, None if self.state == "passed" else self.detail
+
 
 class LoggedDiagnosis(_Record):
     """Ostatnia Diagnoza Uruchomienia: wyjaśnienie z kodem, co tata robi dalej i każde sprawdzenie po kolei."""
@@ -150,14 +157,10 @@ class LoggedDiagnosis(_Record):
         )
 
     def same_result(self, other: LoggedDiagnosis) -> bool:
-        """To samo wyjaśnienie, to samo „co dalej” i każde sprawdzenie z tym samym stanem i kodem.
-
-        Chwila i ``detail`` sprawdzeń to okoliczności, nie wynik: liczba wpisów dziennika rośnie z każdą Diagnozą.
-        """
+        """Te same Logi Diagnozy bez okoliczności: bez chwili i z każdym sprawdzeniem jako ``LoggedCheck.result``."""
 
         def result(diagnosis: LoggedDiagnosis) -> object:
-            checks = [(check.label, check.state, check.code) for check in diagnosis.checks]
-            return diagnosis.explanation, diagnosis.next_action, checks
+            return diagnosis.explanation, diagnosis.next_action, [check.result for check in diagnosis.checks]
 
         return result(self) == result(other)
 
@@ -417,7 +420,7 @@ class RunLogs:
                 return
             record = last.model_copy(update={"diagnosis": logged})
             self._keep(record)
-            self._last = record  # po pliku, który nie powstał, następna Diagnoza próbuje znowu
+            self._last = record  # po pliku, który nie powstał, następna Diagnoza próbuje znowu: plik i komentarz
 
     def _keep(self, record: RunLog) -> None:
         """Plik Logów (nowy albo nadpisany) i komentarz w issue okresu z tymi samymi znakami."""

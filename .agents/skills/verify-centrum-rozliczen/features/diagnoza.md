@@ -16,9 +16,9 @@ in its place and the rest still runs, so the Diagnoza always ends with an
 explanation and `Wyślij do Maksa`. Dad sees nothing more, but Centrum adds each
 Diagnoza with a new result to the Logi Uruchomienia of its Uruchomienie: the
 file gets the field `diagnosis`, and the queue of the skrzynka Zgłoszeń one more
-comment with the whole Logi. The same explanation and the same state and code
-of every check is the same result, whatever the time and the details of the
-checks, so the automatic Diagnoza at every showing of the card adds nothing.
+comment with the whole Logi. The same explanation and every check with the
+same state, code and (unless it passed) detail is the same result, whatever the
+time, so the automatic Diagnoza at every showing of the card adds nothing.
 
 ## Sub-features
 
