@@ -61,6 +61,7 @@ from rozliczenia.centrum.run_view import PREPARATION  # noqa: E402
 from rozliczenia.decision import Decision  # noqa: E402
 from rozliczenia.message import Message  # noqa: E402
 from rozliczenia.preparation_process import PROCESS  # noqa: E402
+from rozliczenia.progress import ProgressProjection  # noqa: E402
 
 VERIFIED_FILES = ("runs.py", "shutdown.py")
 STEP_TIMEOUT_SECONDS = 10.0
@@ -485,6 +486,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             total_duration_ms=0,
             notices=(),
             metrics_saved=True,
+            progress=ProgressProjection().snapshot,
         )
 
     class NoStops:

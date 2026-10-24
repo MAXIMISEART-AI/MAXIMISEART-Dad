@@ -135,10 +135,11 @@ class Release:
 
 @dataclass(frozen=True)
 class NewestRelease:
-    """Commit najnowszego Wydania na `main` (``None``: takiego nie ma) i tagi wyższych Wydań spoza `main`."""
+    """Commit najnowszego Wydania na `main` (``None``: takiego nie ma), tagi wyższych Wydań spoza `main` i samo Wydanie."""
 
     commit: str | None
     skipped: tuple[str, ...] = ()
+    release: Release | None = None
 
 
 def newest_on_main(commits: Mapping[str, str], on_main: Callable[[str], bool]) -> NewestRelease:
@@ -153,9 +154,42 @@ def newest_on_main(commits: Mapping[str, str], on_main: Callable[[str], bool]) -
     skipped: list[str] = []
     for release in releases:
         if on_main(commits[release.tag]):
-            return NewestRelease(commits[release.tag], tuple(skipped))
+            return NewestRelease(commits[release.tag], tuple(skipped), release)
         skipped.append(release.tag)
     return NewestRelease(None, tuple(skipped))
+
+
+@dataclass(frozen=True)
+class MainLine:
+    """Pobrany `main` i tagi Wydań, tak jak widzi je Aktualizacja narzędzia.
+
+    ``tips`` to linia pierwszych rodziców `main` od czubka, ``releases`` tagi (tag → commit).
+    """
+
+    tips: tuple[str, ...]
+    releases: Mapping[str, str]
+
+    def newest(self) -> NewestRelease:
+        """Najnowsze Wydanie, którego commit był czubkiem `main` (``newest_on_main``); tak wybiera ``ToolClone.update``."""
+
+        tips = frozenset(self.tips)
+        return newest_on_main(self.releases, lambda commit: commit in tips)
+
+
+def fetch_main_line(root: Path, origin: str) -> MainLine:
+    """Pobiera do klonu ``root`` `main` i tagi Wydań z ``origin`` tak jak ``ToolClone.update`` i zwraca je.
+
+    Gdy pobranie się nie uda, rzuca ``GitFailed`` z kodem porażki (``NO_GIT``, ``LOGIN`` albo ``NO_CONNECTION``).
+    """
+
+    git = find_git()
+    if git is None:
+        raise GitFailed(NO_GIT)
+    run = _Git(git, root)
+    failure = run.fetch(origin)
+    if failure is not None:
+        raise GitFailed(failure)
+    return MainLine(_main_tips(run), _release_commits(run))
 
 
 @dataclass(frozen=True)
@@ -335,8 +369,7 @@ class ToolClone:
         fetch_failure = run.fetch(self.origin)
         if fetch_failure is not None:
             return UpdateResult(fetch_failure, before, None)
-        tips = _main_tips(run)
-        newest = newest_on_main(_release_commits(run), lambda commit: commit in tips)
+        newest = MainLine(_main_tips(run), _release_commits(run)).newest()
         after, skipped = newest.commit, newest.skipped
         if after is None or run.is_ancestor(after, before):
             return UpdateResult(UP_TO_DATE, before, before, skipped=skipped)
@@ -481,14 +514,14 @@ def contains_commit(root: Path, ancestor: str, descendant: str) -> bool:
         return False
 
 
-def _main_tips(run: _Git) -> frozenset[str]:
-    """Commity, które były czubkiem pobranego `main`: jego linia pierwszych rodziców.
+def _main_tips(run: _Git) -> tuple[str, ...]:
+    """Commity, które były czubkiem pobranego `main`: jego linia pierwszych rodziców, od czubka.
 
     Commit z gałęzi wciągniętej do `main` zwykłym merge'em leży na `main`, ale nigdy nie był jego czubkiem, więc
     tag Wydania na nim (założony, zanim gałąź weszła do `main`) nie jest Wydaniem z `main`.
     """
 
-    return frozenset(run.output("rev-list", "--first-parent", _FETCHED_MAIN).split())
+    return tuple(run.output("rev-list", "--first-parent", _FETCHED_MAIN).split())
 
 
 def _release_commits(run: _Git) -> dict[str, str]:

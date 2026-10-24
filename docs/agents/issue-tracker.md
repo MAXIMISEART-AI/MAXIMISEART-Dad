@@ -101,12 +101,16 @@ create none.
   session with an agent; a rule change needs Dad's confirmation, and the public
   PR refers to the issue by number only with a synthetic test case.
 - A body over GitHub's 65 536 characters arrives as an issue with part 1 and
-  comments with the next parts (`Kontrola ilości, część k/n`).
+  comments with the next parts (`Kontrola ilości, część k/n`). The limit was
+  measured on this repository in #332: a new issue takes 65 536 characters,
+  a comment 262 144 bytes of UTF-8.
 - Without network or a key, the Kontrola waits as a JSON file in
   `config\zgloszenia\kolejka\` on Dad's computer, with no Komunikat, and goes
-  out at the next Centrum start or when the next Kontrola is sent. The Centrum
-  log records only `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number),
-  `skrzynka-czeka` (cause) and `skrzynka-nieczytelny` (the name of a queue file
+  out at the next Centrum start or when the next Kontrola is sent. A file whose
+  content GitHub refuses (400, 413, 422) waits until the next Centrum start and
+  does not hold back the files after it. The Centrum log records only
+  `skrzynka-w-kolejce`, `skrzynka-wyslano` (issue number), `skrzynka-czeka`
+  (cause, once per pass; for a refused content also the file name) and `skrzynka-nieczytelny` (the name of a queue file
   that is damaged or from a newer tool version; it stays and is never sent). A
   sent file is marked as delivered before it is removed, so a file Windows
   keeps open is not sent again. Power loss between sending and marking can
@@ -117,6 +121,33 @@ create none.
   close it, the next Przebieg of that period opens a new issue. Centrum looks
   the issue up on every send, so a deleted issue never blocks the queue.
 - Centrum never creates the `kontrola-ilosci` label; it must exist in the
+  repository.
+
+## Logi Uruchomienia from Dad's computer
+
+After every Uruchomienie procesu Dad starts in Centrum, whatever the mode,
+result or ending, Centrum sends its Logi Uruchomienia by itself, in the
+background, to the same private repository
+([ADR 0015](../adr/0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md)).
+Dad does not click or see anything. The machine script sends none.
+
+- One period has one issue labelled `logi-uruchomienia`, titled
+  `Logi Uruchomienia <token>`, whose first line is the identifying line
+  `- Logi Uruchomienia okresu: <token>`. Closing it only means "reviewed up to
+  here": the next Uruchomienie of that period still comments on it.
+- Each Uruchomienie is one comment: a summary (process, `podgląd` or `zapis`,
+  period, result and ending, time, Komunikat codes, Wydanie and commit,
+  Uruchomienie id and start in UTC), then the full JSON in a `<details>` block.
+  The JSON is the file in `logs\uruchomienia\` on Dad's computer, character for
+  character. Over GitHub's 65 536 characters it continues in the next comments
+  (`Logi Uruchomienia <id>, część k/n`); concatenating the JSON blocks of the
+  parts gives the file.
+- The Logi hold no cell content, but the Komunikaty are the card's, as in a
+  Zgłoszenie: they name Wykonawcy and may quote a cell of the Rejestr zleceń
+  (`ZLE_SKUTECZNE`, `NIEZNANY_WYKONAWCA`). Treat them like a Zgłoszenie.
+- The queue, its log entries and its retries are the ones of the Kontrola
+  ilości above; the queue file of the Logi is `<time>-<n>-logi-uruchomienia-<run>.json`.
+- Centrum never creates the `logi-uruchomienia` label; it must exist in the
   repository.
 
 ## Pull requests as a triage surface

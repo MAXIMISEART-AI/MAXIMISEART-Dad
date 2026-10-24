@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from .domain import (
     PHASES,
@@ -20,6 +20,7 @@ from .domain import (
     WorkerEnded,
     WorkerFailed,
     WorkerStarted,
+    WorkerStatus,
 )
 
 KeyT = TypeVar("KeyT")
@@ -36,6 +37,20 @@ class PhaseState(StrEnum):
 
 
 @dataclass(frozen=True)
+class TemplateProcessing:
+    """Zakończone Przetworzenie Szablonu pracownika w tym Uruchomieniu, ze Zdarzeń przebiegu jego Wykonawcy.
+
+    ``duration_ms``: od ``WorkerStarted`` do ``WorkerEnded`` albo ``WorkerFailed`` zegarem sekwencera etapów
+    (różnica ``elapsed_ms``), tym samym co czasy etapów. ``failed``: Przetworzenie przerwane; ``rows`` jest wtedy 0.
+    """
+
+    worker_name: str
+    outcome: WorkerStatus | Literal["failed"]
+    rows: int
+    duration_ms: int
+
+
+@dataclass(frozen=True)
 class ProgressSnapshot:
     """Niemutowalne fakty procesu, które podgląd postępu pokazuje bez interpretowania zdarzeń."""
 
@@ -48,6 +63,8 @@ class ProgressSnapshot:
     current_worker: str | None
     total_elapsed_ms: int
     issue_count: int
+    templates: tuple[TemplateProcessing, ...]
+    """Zakończone Przetworzenia Szablonów pracownika po kolei; rozpoczęte bez końca (odłączony podgląd) ich nie mają."""
 
     def metric_counters(self) -> dict[str, int]:
         return {
@@ -80,6 +97,8 @@ class ProgressProjection:
         self._current_worker: str | None = None
         self._total_elapsed_ms = 0
         self._issue_count = 0
+        self._templates: list[TemplateProcessing] = []
+        self._worker_started_ms = 0
         self._snapshot = self._make_snapshot()
 
     @property
@@ -101,12 +120,18 @@ class ProgressProjection:
                 self._issue_count = issue_count
             case WorkerStarted(worker_name=worker_name):
                 self._current_worker = worker_name
+                self._worker_started_ms = event.elapsed_ms
             case WorkerEnded():
                 self._templates_completed = event.template_index
                 self._rows += event.rows
                 self._issue_count = event.issue_count
                 self._operation_counts[event.status] = self._operation_counts.get(event.status, 0) + 1
                 self._current_worker = None
+                self._templates.append(
+                    TemplateProcessing(
+                        event.worker_name, event.status, event.rows, event.elapsed_ms - self._worker_started_ms
+                    )
+                )
             case PhaseFailed(phase=phase, phase_elapsed_ms=phase_elapsed_ms):
                 self._phase_states[phase] = PhaseState.FAILED
                 self._phase_durations_ms[phase] = phase_elapsed_ms
@@ -114,6 +139,9 @@ class ProgressProjection:
                 self._phase_states[event.phase] = PhaseState.FAILED
                 self._phase_durations_ms[event.phase] = event.phase_elapsed_ms
                 self._current_worker = event.worker_name
+                self._templates.append(
+                    TemplateProcessing(event.worker_name, "failed", 0, event.elapsed_ms - self._worker_started_ms)
+                )
         self._snapshot = self._make_snapshot()
         return self._snapshot
 
@@ -128,4 +156,5 @@ class ProgressProjection:
             current_worker=self._current_worker,
             total_elapsed_ms=self._total_elapsed_ms,
             issue_count=self._issue_count,
+            templates=tuple(self._templates),
         )
