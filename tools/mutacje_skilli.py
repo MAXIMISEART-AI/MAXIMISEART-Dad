@@ -56,12 +56,12 @@ MENTION = re.compile(r"[\w.\\/-]*scripts[\\/]check_\w+_mutations\.py")
 VERDICT = "MUTACJE OK"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
-# Czas skryptu skilla w zadaniu CI na windows-latest (run 40040059089 na main); dzieli skrypty na części.
+# Czas skryptu skilla w zadaniu CI na windows-latest (mediana 3 prób run 40062771086); dzieli skrypty na części.
 CI_TIMES_S: dict[str, float] = {
-    "verify-jedno-uruchomienie-naraz": 288,
-    "verify-kopia-wzorca": 91,
-    "verify-publikacja-plikow-okresu": 66,
-    "verify-rozliczenia": 65,
+    "verify-jedno-uruchomienie-naraz": 325,
+    "verify-kopia-wzorca": 293,
+    "verify-publikacja-plikow-okresu": 97,
+    "verify-rozliczenia": 75,
 }
 # Pliki spoza Pythona, od których zależy przebieg mutacji w CI: biblioteki, zadanie CI, końce linii kopii.
 INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
