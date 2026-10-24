@@ -363,6 +363,29 @@ def test_to_samo_wyjasnienie_o_innym_pliku_okresu_doklada_komentarz_logow(tmp_pa
     ]
 
 
+def test_inny_plik_tylko_w_chmurze_za_tym_samym_co_zrobic_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    onedrive = centrum.surroundings.onedrive
+    assert onedrive is not None
+    thread_with(centrum, comments=1)
+    onedrive.online_only.add(centrum.collective_file)
+    first = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+
+    onedrive.online_only = {centrum.configuration.worker_template}
+    second = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    explanations = [diagnosis["explanation"] for diagnosis in (first, second)]
+    assert explanations[0]["action"] == explanations[1]["action"]
+    assert explanations[0]["where"] != explanations[1]["where"]
+    logged = [json.loads(sent_json([comment]))["diagnosis"]["explanation"] for comment in thread.comments[1:]]
+    assert [(explanation["code"], explanation["where"]) for explanation in logged] == [
+        ("PLIK_TYLKO_W_CHMURZE", explanation["where"]) for explanation in explanations
+    ]
+
+
 def test_inna_wada_sprawdzenia_za_tym_samym_wyjasnieniem_doklada_komentarz_logow(tmp_path: Path) -> None:
     centrum = watched_centrum(tmp_path)
     run_id = unexpected_exception(centrum)
