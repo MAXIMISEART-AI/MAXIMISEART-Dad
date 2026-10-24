@@ -47,7 +47,7 @@ from rozliczenia.centrum.report_box import (
 )
 
 QUEUE_DIRECTORY: Final = "kolejka"
-# Adresy pierwszych komentarzy dostarczonych wysyłek, poza ``config/zgloszenia``, które ma tylko kolejkę.
+# Poza ``config/zgloszenia``: weryfikacja Kontroli ilości sprawdza, że jest tam tylko kolejka.
 ADDRESSES_FILE: Final = "skrzynka-adresy.jsonl"
 SCHEMA_VERSION: Final = 2
 # Pliki kolejki sprzed ``NewIssue`` (#273) mają cel w kluczu ``thread`` i zawsze jest nim issue okresu.

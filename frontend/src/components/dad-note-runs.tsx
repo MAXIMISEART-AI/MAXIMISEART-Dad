@@ -8,7 +8,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { dateTime } from "@/lib/format"
 import type { Resource } from "@/lib/use-resource"
 
-/** Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: lista serwera ma tylko takie, z identyfikatorem. */
 export type PinnableRun = ProcessRun & { run_id: string }
 
 const MODE_WORDS: Record<ProcessRun["mode"], string> = { "DRY-RUN": "podgląd", RUN: "zapis" }
@@ -21,7 +20,6 @@ const ROW = "flex items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0"
 // wysokość aż do jednego wiersza, żeby „Wyślij” został na ekranie.
 const LIST_HEIGHT = "max-h-63 min-h-14"
 
-/** Lista ostatnich Uruchomień z Centrum do wyboru jednego, z wynikiem każdego; dane tylko z kontraktu. */
 export function DadNoteRuns({
   runs,
   checked,
@@ -88,10 +86,7 @@ export function DadNoteRuns({
   }
 }
 
-/**
- * Trzyma zaznaczony wiersz w widoku listy od jej pojawienia się, także gdy lista maleje, bo „Maks dostanie” pod nią
- * urosło. Przewija tylko listę, nie okno, jak `scrollIntoView` z `block: "nearest"`, i bez animacji.
- */
+/** Bez `scrollIntoView`: przewija każdego przewijalnego przodka, także okno dialogu. */
 function keepCheckedInView(list: HTMLElement | null) {
   if (list === null) {
     return

@@ -35,8 +35,7 @@ const MODE_FILTER: ReadonlyArray<FilterOption<Mode | "all">> = [ALL, ...MODE_OPT
 
 /**
  * Historia Uruchomień procesu obu procesów, także z launcherów `.cmd`: sortowanie po dacie i czasie,
- * filtry procesu i trybu. DRY-RUN to ikona oka, launcher to odznaka `.cmd`. Uruchomienie z Centrum, które ma
- * identyfikator, ma ikonę Uwagi taty przypiętej do niego.
+ * filtry procesu i trybu. DRY-RUN to ikona oka, launcher to odznaka `.cmd`.
  */
 export function RunHistoryCard({ runs }: { runs: ReadonlyArray<ProcessRun> }) {
   const [process, setProcess] = React.useState<Process | "all">("all")

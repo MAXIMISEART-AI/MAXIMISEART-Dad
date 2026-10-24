@@ -1,8 +1,4 @@
-"""Uwaga taty przypięta do Uruchomienia procesu (ADR 0015, #322) przez HTTP API Centrum z fałszywą Skrzynką.
-
-Uwaga przypięta prowadzi Maksa do Logów Uruchomienia: jej stopka nazywa Uruchomienie tak, jak karta Uruchomienia, i
-ma odnośnik do komentarza z jego Logami w Skrzynce Zgłoszeń. Żaden test nie łączy się z GitHubem.
-"""
+"""Uwaga taty przypięta do Uruchomienia procesu (ADR 0015, #322) przez HTTP API Centrum z fałszywą Skrzynką."""
 
 from __future__ import annotations
 
@@ -46,16 +42,12 @@ def queued(centrum: SettlingCentrum, label: str | None = None) -> list[Path]:
 
 
 def run_line(centrum: SettlingCentrum, mode: str, result: str) -> str:
-    """Linia Uruchomienia ze stopki: data startu z rekordu metryk w czasie lokalnym komputera taty."""
-
     [record] = centrum.metric_records()
     started = datetime.fromisoformat(record["started_at"]).astimezone()
     return f"Uruchomienie: Przebieg rozliczeń · {PERIOD} · {mode} · {result} · {started:%d.%m.%Y, %H:%M} · {VERSION}"
 
 
 def logs_comment(centrum: SettlingCentrum, run_id: str) -> str:
-    """Adres komentarza z Logami Uruchomienia ``run_id`` w Skrzynce, gdy kolejka już je dostarczyła."""
-
     assert wait_for(lambda: queued(centrum) == []), "Logi Uruchomienia nie wyszły z kolejki"
     [thread] = box(centrum).background_issues
     position = next(number for number, comment in enumerate(thread.comments, start=1) if run_id in comment)
@@ -176,16 +168,14 @@ def test_okno_uwagi_pokazuje_szesc_najnowszych_uruchomien_z_centrum_i_starsze_za
     remembered = tmp_path / "config" / "centrum-uruchomienia.jsonl"
 
     def earlier(minutes: int, centrum_line: dict[str, str] | None = None) -> None:
-        """Rekord metryk ``minutes`` przed Uruchomieniem testu; z ``centrum_line`` Centrum pamięta go jako swoje."""
-
         at = (started - timedelta(minutes=minutes)).isoformat()
         store.append({**record, "started_at": at})
         if centrum_line is not None:
             with remembered.open("a", encoding="utf-8") as lines:
                 lines.write(json.dumps({"process": "settlement", "started_at": at, **centrum_line}) + "\n")
 
-    earlier(-1)  # nowszy rekord spoza Centrum (skrypt dla maszyn)
-    earlier(5, {})  # Uruchomienie z Centrum sprzed #322, bez identyfikatora
+    earlier(-1)
+    earlier(5, {})
     for hours in range(1, 8):
         earlier(60 * hours, {"run_id": f"starsze-{hours}"})
 

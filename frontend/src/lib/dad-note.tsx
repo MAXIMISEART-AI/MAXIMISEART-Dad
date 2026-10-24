@@ -3,14 +3,12 @@ import * as React from "react"
 import { DadNoteForm } from "@/components/dad-note-dialog"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 
-/** Otwiera okno Uwagi taty: bez argumentu Uwagę ogólną, z identyfikatorem Uruchomienia przypiętą do niego. */
 type OpenDadNote = (runId?: string) => void
 
 type Opening = { count: number; runId: string | null }
 
 const DadNoteContext = React.createContext<OpenDadNote | null>(null)
 
-/** Jedno okno „Napisz do Maksa” dla nagłówka, karty Uruchomienia i Historii; każde otwarcie to nowa Uwaga. */
 export function DadNoteProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false)
   const [opening, setOpening] = React.useState<Opening>({ count: 0, runId: null })

@@ -155,8 +155,7 @@ def create_app(
     box = report_box or GitHubReportBox()
     reports = Reports(config, box, log, surroundings.tool_freshness.local)
     # Kontrola ilości po Przebiegu rozliczeń, Logi Uruchomienia i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń,
-    # wysyłane w tle (ADR 0013, ADR 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty, a przypięta
-    # Uwaga dostaje przy wysyłce odnośnik do Logów swojego Uruchomienia, jeśli już doszły do skrzynki.
+    # wysyłane w tle (ADR 0013, ADR 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty.
     notes = DadNotes(config / DAD_NOTES_FILE, log)
 
     def run_logs_address(run_id: str) -> str | None:

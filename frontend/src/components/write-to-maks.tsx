@@ -6,7 +6,6 @@ import { useDadNote } from "@/lib/dad-note"
 
 const ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
 
-/** Ikona „Napisz do Maksa” w nagłówku: Uwaga taty ogólna. */
 export function WriteToMaks() {
   const open = useDadNote()
 
@@ -22,7 +21,6 @@ export function WriteToMaks() {
   )
 }
 
-/** Ta sama ikona przy zakończonym Uruchomieniu z Centrum: Uwaga od razu przypięta do niego. */
 export function WriteAboutRun({ runId, className }: { runId: string; className?: string }) {
   const open = useDadNote()
 

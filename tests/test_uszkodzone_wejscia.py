@@ -244,7 +244,6 @@ def _build(root: Path) -> None:
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
         assert started.status_code == 200, started.json()
         assert finished_view(client)["result"]["ending"] == "finished"
-    # Świat jest bez sieci, więc adresy Logów w Skrzynce dopisujemy tak, jak zostawiłaby je wysyłka.
     remembered = world.path("uruchomienia_centrum").read_text(encoding="utf-8").splitlines()
     world.path("adresy_skrzynki").write_text(
         "".join(
@@ -324,8 +323,6 @@ def _diagnosis(process: str, period: str, *, report: bool) -> Entry:
 
 
 def _pinned_dad_note() -> Entry:
-    """Okno Uwagi taty: Uruchomienia do przypięcia, potem podgląd Uwagi przypiętej do najnowszego z nich."""
-
     def call(client: TestClient, seen: Seen) -> Problems:
         runs = client.get("/api/dad-notes/runs")
         problems = _http(runs, "getDadNoteRuns", seen)

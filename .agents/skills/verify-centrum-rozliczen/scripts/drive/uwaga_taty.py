@@ -28,17 +28,13 @@ SECOND = ("Proszę o większą czcionkę", "")
 # Each issue waits this long in the skrzynka, so „Wyślij” is seen sending; two issues stay under the 5 s wait.
 BOX_PACING_MS = 1500
 ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
-# Synthetic Uwaga pinned to the preview.
 PINNED = ("Podgląd każe sprawdzić okres", "Nie wiem, którego Wykonawcę mam dopisać.")
 LOGS_LABEL = "logi-uruchomienia"
 LOGS_LINK = re.compile(r"^\[Logi Uruchomienia\]\((.*)\)$", re.MULTILINE)
-# „Maks dostanie” shows a Markdown link as its text only, the way GitHub shows it to Maks.
 MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\([^)\s]+\)")
 MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
 NO_RUNS = "Nie ma jeszcze Uruchomień z Centrum."
-# A scaled 1080p laptop; Dad's screen size is unknown (docs/agents/komputer-taty.md).
 LAPTOP = ViewportSize(width=1280, height=720)
-# Whether the element lies wholly inside the viewport and inside every ancestor that clips it (the list, the dialog).
 WHOLLY_SHOWN = """element => {
     const box = element.getBoundingClientRect()
     const inside = outer => box.top >= outer.top - 0.5 && box.bottom <= outer.bottom + 0.5
@@ -277,8 +273,6 @@ def drive_dad_note(run: Run, page: Page) -> None:
 
 
 def _note_runs(run: Run, selected: str | None, name: str) -> list[dict[str, Any]]:
-    """The Uruchomienia the dialog offers, straight from the server, as the reference for its list."""
-
     query = urllib.parse.urlencode({} if selected is None else {"selected": selected})
     with urllib.request.urlopen(run.url.rstrip("/") + f"/api/dad-notes/runs?{query}", timeout=10) as response:
         runs = json.load(response)
@@ -296,8 +290,6 @@ def _result_word(entry: dict[str, Any]) -> str:
 
 
 def _offers(run: Run, choices: Locator, offered: list[dict[str, Any]], checked: str) -> None:
-    """The radio list shows the server's Uruchomienia in its order with ``checked`` checked."""
-
     rows = choices.locator("label")
     run.wait_for(lambda: rows.count() == len(offered), f"the list shows the server's {len(offered)} Uruchomienia")
     texts = [row.inner_text() for row in rows.all()]
@@ -318,8 +310,6 @@ def _offers(run: Run, choices: Locator, offered: list[dict[str, Any]], checked: 
 
 
 def _logs_comment(box: Path, run_id: str) -> str | None:
-    """Address of the first comment of this Uruchomienie's Logi in the file skrzynka, as the skrzynka gave it."""
-
     for path in sorted(box.glob("*.json")):
         thread = json.loads(path.read_text(encoding="utf-8"))
         if thread["labels"] == [LOGS_LABEL]:
@@ -334,8 +324,6 @@ def _scope(dialog: Locator, option: str) -> Locator:
 
 
 def _opened_about(run: Run, page: Page, run_id: str, name: str) -> tuple[Locator, list[dict[str, Any]]]:
-    """A dialog opened from an Uruchomienie: a new Uwaga, „Do Uruchomienia” chosen and that Uruchomienie checked."""
-
     dialog = page.get_by_role("dialog", name=WRITE, exact=True)
     expect(dialog).to_be_visible()
     run.check(dialog.get_by_role("textbox", name="Tytuł", exact=True).input_value() == "", "a new, empty Uwaga")
@@ -352,8 +340,6 @@ def _opened_about(run: Run, page: Page, run_id: str, name: str) -> tuple[Locator
 
 
 def _theme(page: Page, name: str) -> bool:
-    """Clicks the header's ``Włącz motyw <name>`` when it is there; ``True`` when the theme changed."""
-
     toggle = page.locator("header").get_by_role("button", name=f"Włącz motyw {name}", exact=True)
     if toggle.count() == 0:
         return False
@@ -506,8 +492,6 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
 
 
 def _laptop(run: Run, page: Page, about: Locator, target: str) -> None:
-    """The dialog from the oldest Historia row on a laptop screen: its checked row and „Wyślij” on screen as opened."""
-
     viewport = page.viewport_size
     assert viewport is not None
     page.set_viewport_size(LAPTOP)
