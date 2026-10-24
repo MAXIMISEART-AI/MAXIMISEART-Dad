@@ -53,8 +53,7 @@ FILES: dict[str, tuple[str, str]] = {
     "ustawienia": ("config/centrum-ustawienia.yaml", TEXT),
     "konfiguracja_wykonawcow": ("config/worker_mapping.yaml", TEXT),
     "klucz_zgloszen": ("config/zgloszenia-klucz.txt", TEXT),
-    "wyslane_zgloszenia": ("config/zgloszenia-wyslane.json", TEXT),
-    "uwagi_taty": ("config/uwagi-taty.json", TEXT),
+    "sprawy_taty": ("config/sprawy-taty.json", TEXT),
     "przeczytane_powiadomienia": ("config/powiadomienia.json", TEXT),
     "uruchomienia_centrum": ("config/centrum-uruchomienia.jsonl", LINES),
     "adresy_skrzynki": ("config/skrzynka-adresy.jsonl", LINES),
@@ -231,7 +230,8 @@ def _build(root: Path) -> None:
         encoding="utf-8",
     )
     world.path("klucz_zgloszen").write_text("github_pat_SYNTETYCZNY123\n", encoding="utf-8")
-    world.path("wyslane_zgloszenia").write_text(
+    # Plik sprzed Spraw taty: „Wyślij” Uwagi poniżej przenosi jego Zgłoszenie do pliku Spraw taty.
+    (world.root / "config" / "zgloszenia-wyslane.json").write_text(
         json.dumps([SENT_REPORT], ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -252,7 +252,7 @@ def _build(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum", "uwagi_taty"):
+    for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum", "sprawy_taty"):
         assert world.path(name).stat().st_size > 0, name
     assert len(list(world.path("logi_uruchomien").iterdir())) == 2, "Logi Uruchomienia obu podglądów"
 

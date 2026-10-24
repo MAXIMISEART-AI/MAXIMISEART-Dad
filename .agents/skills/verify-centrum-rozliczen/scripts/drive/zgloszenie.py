@@ -65,6 +65,13 @@ def _issues(box: Path) -> list[dict[str, object]]:
     return sorted((issue for issue in issues if issue["labels"] == ["zgloszenie"]), key=lambda issue: int(str(issue["number"])))
 
 
+def _sent(config: Path) -> list[dict[str, object]]:
+    """Sent Zgłoszenia from the local state of Dad's cases; the fingerprint is their ``id``."""
+
+    cases = json.loads((config / "sprawy-taty.json").read_text(encoding="utf-8"))["sprawy"]
+    return [case for case in cases if case["kind"] == "zgloszenie"]
+
+
 def _shown_report(page: Page) -> tuple[str, str]:
     """The Zgłoszenie as the tab shows it under „Co zostanie wysłane”: title and Markdown body."""
 
@@ -154,9 +161,9 @@ def drive_report(run: Run, page: Page) -> None:
         "the skrzynka got exactly the preview, labelled zgloszenie",
     )
     run.check(not unsent.exists(), "the sent Zgłoszenie no longer waits in a file")
-    sent = json.loads((config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    sent = _sent(config)
     run.check(
-        [entry["number"] for entry in sent] == [number] and f"- Odcisk problemu: {sent[0]['fingerprint']}" in body.splitlines(),
+        [entry["number"] for entry in sent] == [number] and f"- Odcisk problemu: {sent[0]['id']}" in body.splitlines(),
         "the local sent state keeps the fingerprint and the issue number",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
@@ -244,7 +251,7 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
         and (issues[1]["title"], issues[1]["body"]) == (title, body),
         "the skrzynka got exactly the new preview as a second Zgłoszenie next to the closed one",
     )
-    sent = json.loads((config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    sent = _sent(config)
     run.check(
         [entry["number"] for entry in sent] == [issue["number"] for issue in issues],
         "the local sent state keeps both Zgłoszenia",

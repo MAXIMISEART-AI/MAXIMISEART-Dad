@@ -11,6 +11,7 @@ from typing import Any, Final
 import pytest
 
 from rozliczenia import settlement_process
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
 from rozliczenia.centrum.report_box import REPOSITORY, Refused, Rejected, Unreachable
 from rozliczenia.telemetry import MetricsStore
 
@@ -148,7 +149,7 @@ def test_uwaga_do_nieznanego_uruchomienia_jest_odrzucona_bez_wysylki(tmp_path: P
     assert [(draft.status_code, draft.json()), (sent.status_code, sent.json())] == [(404, {"message": UNKNOWN_RUN})] * 2
     assert box(centrum).issues == []
     assert queued(centrum, "uwaga-taty") == []
-    assert not (tmp_path / "config" / "uwagi-taty.json").exists()
+    assert not (tmp_path / "config" / DAD_CASES_FILE).exists()
 
 
 def test_uwaga_do_uruchomienia_z_logami_w_kolejce_czeka_i_wychodzi_po_logach_z_odnosnikiem(tmp_path: Path) -> None:

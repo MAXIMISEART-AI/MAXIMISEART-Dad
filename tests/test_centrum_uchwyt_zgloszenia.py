@@ -8,7 +8,6 @@ Aktualizacja, a okablowanie obu źródeł sprawdzają ich testy HTTP (``test_cen
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,11 +18,12 @@ from pydantic import BaseModel
 from rozliczenia.centrum import update_messages
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import IssuesOutcome, Label, Refused, SendOutcome, Unreachable
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, DadCases
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, NoPreview, ReportHandle, Reports, UpdateReport
 from rozliczenia.centrum.tool_update import NO_CONNECTION, OTHER_BRANCH, UpdateResult
 from rozliczenia.message import Message
 
-from tests.fixtures.centrum import TOOL_COMMIT, FakeReportBox
+from tests.fixtures.centrum import TOOL_COMMIT, FakeReportBox, dad_cases
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 READY = {"state": "ready"}
@@ -75,7 +75,12 @@ class Computer:
 
     def reports(self) -> Reports:
         return Reports(
-            self.config, self.box, self.log, lambda: TOOL_COMMIT, search_deadline_s=self.search_deadline_s
+            self.config,
+            self.box,
+            self.log,
+            lambda: TOOL_COMMIT,
+            DadCases(self.config, self.log),
+            search_deadline_s=self.search_deadline_s,
         )
 
     def unsent(self) -> dict[str, str]:
@@ -265,7 +270,7 @@ def test_otwarte_zgloszenie_wyslane_spoza_tego_komputera_czeka_na_naprawe_bez_dr
     computer.with_key()
     first, _, _ = prepared(computer.reports(), computer)
     first.send()
-    (computer.config / "zgloszenia-wyslane.json").unlink()
+    (computer.config / DAD_CASES_FILE).unlink()
 
     restarted = computer.reports()
     report = source(computer)
@@ -291,10 +296,10 @@ def test_wyslane_zgloszenie_czeka_na_naprawe_po_restarcie_bez_pytania_skrzynki_a
     other = restarted.handle(source(computer, OTHER_BRANCH).fingerprint)
 
     assert (dump(same.state), dump(other.state), len(computer.box.listed)) == (WAITING, READY, asked)
-    sent = json.loads((computer.config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    sent = dad_cases(computer.config, "zgloszenie")
     [fingerprint] = [line.removeprefix("- Odcisk problemu: ") for line in saved_text.splitlines() if "Odcisk" in line]
-    assert [{name: entry[name] for name in ("fingerprint", "number", "commit", "closure")} for entry in sent] == [
-        {"fingerprint": fingerprint, "number": 1, "commit": TOOL_COMMIT, "closure": None}
+    assert [{name: entry[name] for name in ("id", "number", "commit", "closure")} for entry in sent] == [
+        {"id": fingerprint, "number": 1, "commit": TOOL_COMMIT, "closure": None}
     ]
 
 
@@ -325,7 +330,7 @@ def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_
     assert "- Poprzednie Zgłoszenie: #1" in text.splitlines()
     assert "Poprzednie Zgłoszenie" not in first_text
     assert dump(again.send()) == SENT
-    sent = json.loads((computer.config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    sent = dad_cases(computer.config, "zgloszenie")
     assert [entry["number"] for entry in sent] == [1, 2]
 
 

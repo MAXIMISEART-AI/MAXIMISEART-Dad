@@ -20,10 +20,9 @@ a „Wyślij do Maksa” wysyła dokładnie ten podgląd, najwyżej raz na uchwy
 from __future__ import annotations
 
 import codecs
-import json
 import threading
-from collections.abc import Callable, Mapping
-from dataclasses import astuple, dataclass, replace
+from collections.abc import Callable
+from dataclasses import astuple, dataclass
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
@@ -32,22 +31,11 @@ from typing import Final, Literal
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
 from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.dad_cases import REPORT, Case, DadCases
 from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.report_box import (
-    REPORT_LABEL,
-    Closure,
-    FindOutcome,
-    Refused,
-    ReportBox,
-    SendOutcome,
-    Sent,
-    closure_json,
-    find_issue,
-    read_closure,
-    read_moment,
-)
+from rozliczenia.centrum.report_box import FindOutcome, Refused, ReportBox, SendOutcome, Sent, find_issue
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
 from rozliczenia.message import Message
@@ -55,7 +43,6 @@ from rozliczenia.process_run import Stop
 
 REPORT_KEY_FILE: Final = "zgloszenia-klucz.txt"
 UNSENT_DIRECTORY: Final = "zgloszenia"
-SENT_REPORTS_FILE: Final = "zgloszenia-wyslane.json"
 # Podgląd Zgłoszenia czeka w tle na odpowiedź skrzynki o otwarte Zgłoszenie najwyżej tyle, co Diagnoza na commit `main`.
 SEARCH_DEADLINE_S: Final = 3.0
 
@@ -269,114 +256,6 @@ def _cell(text: str) -> str:
 
 
 @dataclass(frozen=True)
-class SentReport:
-    """Wysłane Zgłoszenie w lokalnym stanie: odcisk problemu, numer issue, commit narzędzia i „Co się stało”.
-
-    ``sent_at`` to czas wysyłki. ``what`` i ``sent_at`` są ``None`` tylko we wpisach sprzed Powiadomień; takie
-    Zgłoszenie nie daje Powiadomienia. ``closure`` to ostatnie znane zamknięcie issue przez Maksa; dopóki skrzynka
-    nie powie inaczej, ``None`` (otwarte, czeka na naprawę).
-    """
-
-    fingerprint: str
-    number: int
-    commit: str | None
-    what: str | None
-    sent_at: datetime | None
-    closure: Closure | None = None
-
-
-class SentReports:
-    """Lokalny plik wysłanych Zgłoszeń obok Ustawień taty, poza Gitem.
-
-    Potwierdzenie wysłania przetrwa odświeżenie karty i restart Centrum, a commit
-    mówi, z jakiej wersji narzędzia wysłano Zgłoszenie. Brak albo uszkodzenie
-    pliku to brak wysłanych Zgłoszeń; nieudany zapis zostawia Zgłoszenie wysłanym
-    do końca pracy Centrum. Piszą do niego wysyłka Zgłoszenia i sprawdzanie
-    Powiadomień, więc każda zmiana idzie pod blokadą.
-    """
-
-    def __init__(self, path: Path, log: CentrumLog) -> None:
-        self._path = path
-        self._log = log
-        self._lock = threading.Lock()
-        self._remembered: list[SentReport] = []
-
-    def all(self) -> list[SentReport]:
-        with self._lock:
-            return self._all()
-
-    def _all(self) -> list[SentReport]:
-        stored = self._read()
-        known = {sent.number for sent in stored}
-        return stored + [sent for sent in self._remembered if sent.number not in known]
-
-    def find(self, fingerprint: str) -> SentReport | None:
-        """Ostatnio wysłane Zgłoszenie problemu ``fingerprint``."""
-
-        return next((sent for sent in reversed(self.all()) if sent.fingerprint == fingerprint), None)
-
-    def add(self, sent: SentReport) -> None:
-        with self._lock:
-            reports = [*self._all(), sent]
-            self._remembered.append(sent)
-            self._write(reports)
-
-    def mark(self, closures: Mapping[int, Closure | None]) -> None:
-        """Zapamiętuje zamknięcie issue ze skrzynki Zgłoszeń przy wysłanych Zgłoszeniach o tych numerach."""
-
-        def marked(sent: SentReport) -> SentReport:
-            return replace(sent, closure=closures.get(sent.number, sent.closure))
-
-        with self._lock:
-            self._remembered = [marked(sent) for sent in self._remembered]
-            self._write([marked(sent) for sent in self._all()])
-
-    def _write(self, reports: list[SentReport]) -> None:
-        try:
-            replace_atomically(self._path, json.dumps([_sent_json(report) for report in reports], indent=2) + "\n")
-        except OSError as failure:
-            self._log.unexpected_failure(failure, where="stan wysłanych Zgłoszeń")
-
-    def _read(self) -> list[SentReport]:
-        try:
-            entries = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError):
-            return []
-        if not isinstance(entries, list):
-            return []
-        return [sent for sent in map(_sent_report, entries) if sent is not None]
-
-
-def _sent_json(sent: SentReport) -> dict[str, object]:
-    return {
-        "fingerprint": sent.fingerprint,
-        "number": sent.number,
-        "commit": sent.commit,
-        "what": sent.what,
-        "sent_at": None if sent.sent_at is None else sent.sent_at.isoformat(),
-        "closure": closure_json(sent.closure),
-    }
-
-
-def _sent_report(entry: object) -> SentReport | None:
-    """Wpis pliku wysłanych Zgłoszeń; wpis bez odcisku albo numeru pomija, a nieczytelne pole dodatkowe to ``None``."""
-
-    if not isinstance(entry, dict):
-        return None
-    fingerprint, number, commit, what = (entry.get(name) for name in ("fingerprint", "number", "commit", "what"))
-    if not (isinstance(fingerprint, str) and type(number) is int and isinstance(commit, str | None)):
-        return None
-    return SentReport(
-        fingerprint,
-        number,
-        commit,
-        what if isinstance(what, str) else None,
-        read_moment(entry.get("sent_at")),
-        read_closure(entry.get("closure")),
-    )
-
-
-@dataclass(frozen=True)
 class _ReportLog:
     """Wpisy dziennika Centrum o wysyłce jednego podglądu: z Uruchomienia albo z Aktualizacji narzędzia."""
 
@@ -523,8 +402,8 @@ class ReportHandle:
 class Reports:
     """Zgłoszenia z tego komputera: uchwyt Zgłoszenia każdego źródła, wysyłka i stan wysłanych.
 
-    Klucz, stan wysłanych i niewysłane Zgłoszenia leżą w katalogu konfiguracji
-    obok Ustawień taty, poza Gitem. Jeden problem ma jedno otwarte Zgłoszenie:
+    Klucz i niewysłane Zgłoszenia leżą w katalogu konfiguracji obok Ustawień
+    taty, poza Gitem, a wysłane są Sprawami taty. Jeden problem ma jedno otwarte Zgłoszenie:
     podgląd i wysyłka pytają skrzynkę o otwarte Zgłoszenie z tym samym odciskiem,
     a gdy jest, nowe nie powstaje. Bez odpowiedzi skrzynki (brak klucza albo
     sieci) problem wysłany z tego komputera czeka na naprawę.
@@ -536,6 +415,7 @@ class Reports:
         box: ReportBox,
         log: CentrumLog,
         commit: CommitSource,
+        cases: DadCases,
         *,
         search_deadline_s: float,
     ) -> None:
@@ -543,19 +423,13 @@ class Reports:
         self._search_deadline_s = search_deadline_s
         self._config_directory = config_directory
         self._unsent = config_directory / UNSENT_DIRECTORY
-        self._sent = SentReports(config_directory / SENT_REPORTS_FILE, log)
+        self._cases = cases
         self._box = box
         self._log = log
         # Blokada chroni tylko stan w pamięci; pytania do skrzynki idą bez niej.
         self._lock = threading.Lock()
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
         self._open: dict[str, int | None] = {}
-
-    @property
-    def sent(self) -> SentReports:
-        """Wysłane Zgłoszenia z tego komputera: Powiadomienia pokazują je tacie i dopisują ich zamknięcie."""
-
-        return self._sent
 
     def handle(self, fingerprint: ProblemFingerprint, *, shown: ReportShown | None = None) -> ReportHandle:
         """Uchwyt Zgłoszenia problemu ``fingerprint`` bez podglądu; stan bez pytania skrzynki.
@@ -567,7 +441,7 @@ class Reports:
 
     def _preview(self, source: StopReport | UpdateReport) -> _Preview:
         fingerprint = source.fingerprint.digest
-        previous = self._sent.find(fingerprint)
+        previous = self._cases.find(REPORT, fingerprint)
         report = source.report(commit=self._commit(), previous=previous.number if previous else None)
         return _Preview(report, source.file_name, source.logged(self._log))
 
@@ -584,20 +458,21 @@ class Reports:
                 preview.logged.waiting(found)
                 return contract.ReportWaiting(state="waiting")
             outcome = (
-                self._box.open_issue(REPORT_LABEL, preview.report.title, preview.report.body, key=key)
+                self._box.open_issue(REPORT.label, preview.report.title, preview.report.body, key=key)
                 if found is None
                 else found
             )
         saved = self._unsent / preview.file_name
         if isinstance(outcome, Sent):
             with self._lock:
-                self._sent.add(
-                    SentReport(
+                self._cases.add(
+                    Case(
+                        REPORT,
                         preview.report.fingerprint,
-                        outcome.number,
-                        self._commit(),
                         preview.report.what,
+                        self._commit(),
                         datetime.now(timezone.utc),
+                        outcome.number,
                     )
                 )
                 self._open[preview.report.fingerprint] = outcome.number
@@ -643,7 +518,7 @@ class Reports:
                 self._open[fingerprint] = found
 
     def _find_open(self, fingerprint: str, key: str) -> FindOutcome:
-        return find_issue(self._box, REPORT_LABEL, fingerprint_line(fingerprint), include_closed=False, key=key)
+        return find_issue(self._box, REPORT.label, fingerprint_line(fingerprint), include_closed=False, key=key)
 
     def _state_of(self, fingerprint: str) -> contract.ReportState:
         """Odpowiedź skrzynki z tej pracy Centrum, a bez niej ostatni znany stan wysłanego Zgłoszenia.
@@ -654,7 +529,7 @@ class Reports:
         if fingerprint in self._open:
             waiting = self._open[fingerprint] is not None
         else:
-            sent = self._sent.find(fingerprint)
+            sent = self._cases.find(REPORT, fingerprint)
             waiting = sent is not None and sent.closure is None
         return contract.ReportWaiting(state="waiting") if waiting else contract.ReportReady(state="ready")
 
