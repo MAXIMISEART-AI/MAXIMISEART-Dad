@@ -939,7 +939,7 @@ def _write_rows(sheet: Worksheet, rules: _Rules, rows: Sequence[DataRow], column
             if column <= look.columns:
                 look.cell(column, highlights, row.number_formats[position - 1], wrapped=wraps(value)).apply(cell)
             else:
-                # Bez copy(cell.font): font_over sam kopiuje czcionkę, a druga kopia stylu openpyxl to ćwierć czasu zapisu.
+                # font_over zawsze zwraca kopię, a fill_over może zwrócić wypełnienie, które dostał.
                 cell.font = highlights.font_over(cast(Font, cell.font))
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
         for column, quantity in row.quantities.items():
